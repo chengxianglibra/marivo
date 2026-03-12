@@ -11,6 +11,7 @@ from app.evidence import (
     score_confidence,
     synthesize_claims,
 )
+from app.evidence_engine import EvidencePipeline
 
 
 class ObservationFactoryTests(unittest.TestCase):
@@ -161,6 +162,146 @@ class SynthesizeClaimsWithNewTypesTests(unittest.TestCase):
         })
         claims, _, _ = synthesize_claims(obs)
         self.assertNotIn("obs_funnel_weak", claims[0]["supporting_observations"])
+
+
+class EvidencePipelineTests(unittest.TestCase):
+    def test_build_synthesis_adds_support_and_justification_edges(self) -> None:
+        observations = [
+            {
+                "observation_id": "obs_watch_1",
+                "type": "metric_change",
+                "subject": {"metric": "watch_time", "slice": {"platform": "android", "app_version": "8.3.1", "network_type": "4g", "content_type": "short"}},
+                "payload": {"delta_pct": -14.0, "current_sessions": 280, "baseline_sessions": 285},
+                "significance": {"sample_size": 280, "practical_significance": True},
+                "quality": {"freshness_ok": True, "sample_size_ok": True},
+            },
+            {
+                "observation_id": "obs_qoe_1",
+                "type": "qoe_regression",
+                "subject": {"metric": "first_frame_time", "slice": {"platform": "android", "app_version": "8.3.1", "network_type": "4g", "content_type": "short"}},
+                "payload": {"delta_pct": 18.0, "current_sessions": 280, "baseline_sessions": 285},
+                "significance": {"sample_size": 280, "practical_significance": True},
+                "quality": {"freshness_ok": True, "sample_size_ok": True},
+            },
+        ]
+
+        result = EvidencePipeline(synthesize_claims).build_synthesis(observations)
+
+        self.assertGreaterEqual(len(result["claims"]), 1)
+        self.assertGreaterEqual(len(result["recommendations"]), 1)
+        self.assertTrue(any(edge["edge_type"] == "supports" for edge in result["edges"]))
+        self.assertTrue(any(edge["edge_type"] == "justifies" for edge in result["edges"]))
+        self.assertEqual(result["summary"], result["claims"][0]["text"])
+
+
+class EvidencePipelineServiceIntegrationTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        import tempfile
+        from pathlib import Path
+        from app.service import SemanticLayerService
+        from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
+        from app.storage.sqlite_metadata import SQLiteMetadataStore
+
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        meta = SQLiteMetadataStore(Path(cls.temp_dir.name) / "pipeline.meta.sqlite")
+        duck_path = Path(cls.temp_dir.name) / "pipeline.duckdb"
+        get_seeded_duckdb_path(duck_path)
+        analytics = DuckDBAnalyticsEngine(duck_path)
+        meta.initialize()
+        analytics.initialize()
+        cls.service = SemanticLayerService(meta, analytics)
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.temp_dir.cleanup()
+
+    def test_synthesize_step_uses_configured_pipeline(self) -> None:
+        session_id = self.service.create_session("Pipeline test", {}, {}, {})["session_id"]
+        self.service.run_step(session_id, "compare_watch_time")
+        captured: dict[str, int] = {}
+
+        class StubPipeline:
+            def build_synthesis(self, observations: list[dict]) -> dict:
+                captured["count"] = len(observations)
+                claim_id = "claim_stub"
+                rec_id = "rec_stub"
+                observation_id = observations[0]["observation_id"]
+                return {
+                    "claims": [
+                        {
+                            "claim_id": claim_id,
+                            "type": "root_cause_candidate",
+                            "text": "Stub claim text",
+                            "scope": {"slice": observations[0]["subject"]["slice"]},
+                            "confidence": 0.77,
+                            "status": "supported",
+                            "supporting_observations": [observation_id],
+                            "contradicting_observations": [],
+                            "confidence_breakdown": {"effect_strength": 0.8},
+                        }
+                    ],
+                    "recommendations": [
+                        {
+                            "rec_id": rec_id,
+                            "claim_id": claim_id,
+                            "action_text": "Stub recommendation",
+                            "priority": "P1",
+                            "expected_impact": "Validate pipeline delegation.",
+                            "risk": "Low",
+                            "validation_metric": {"primary_metric": "watch_time"},
+                        }
+                    ],
+                    "edges": [
+                        {
+                            "from_node_id": observation_id,
+                            "from_node_type": "observation",
+                            "to_node_id": claim_id,
+                            "to_node_type": "claim",
+                            "edge_type": "supports",
+                            "weight": 0.77,
+                            "explanation": "Stub support edge.",
+                        },
+                        {
+                            "from_node_id": claim_id,
+                            "from_node_type": "claim",
+                            "to_node_id": rec_id,
+                            "to_node_type": "recommendation",
+                            "edge_type": "justifies",
+                            "weight": 0.9,
+                            "explanation": "Stub justification edge.",
+                        },
+                    ],
+                    "summary": "Stub summary",
+                }
+
+        self.service.evidence_pipeline = StubPipeline()
+
+        result = self.service.run_step(session_id, "synthesize_findings")
+
+        self.assertEqual(result["summary"], "Stub summary")
+        self.assertGreater(captured["count"], 0)
+
+        claims = self.service.metadata.query_rows(
+            "SELECT claim_id, text FROM claims WHERE session_id = ?",
+            [session_id],
+        )
+        self.assertEqual(len(claims), 1)
+        self.assertEqual(claims[0]["claim_id"], "claim_stub")
+        self.assertEqual(claims[0]["text"], "Stub claim text")
+
+        recommendations = self.service.metadata.query_rows(
+            "SELECT rec_id, action_text FROM recommendations WHERE session_id = ?",
+            [session_id],
+        )
+        self.assertEqual(len(recommendations), 1)
+        self.assertEqual(recommendations[0]["rec_id"], "rec_stub")
+
+        edges = self.service.metadata.query_rows(
+            "SELECT edge_type FROM evidence_edges WHERE session_id = ? ORDER BY edge_type",
+            [session_id],
+        )
+        self.assertEqual([edge["edge_type"] for edge in edges], ["justifies", "supports"])
 
 
 class ProvenanceTests(unittest.TestCase):
