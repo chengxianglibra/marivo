@@ -15,6 +15,7 @@ from app.analysis_core.executor import execute_compiled
 from app.analysis_core.ir import AnalysisStepIR, from_legacy_step
 from app.dialect import translate
 from app.evidence import make_observation, synthesize_claims
+from app.evidence_engine import EvidencePipeline
 from app.session import SessionManager
 from app.storage.analytics import AnalyticsEngine
 from app.storage.metadata import MetadataStore
@@ -44,6 +45,7 @@ class SemanticLayerService:
         self.approvals = approvals
         self.session_manager = SessionManager(metadata_store)
         self.step_registry = build_service_step_registry(self)
+        self.evidence_pipeline = EvidencePipeline(synthesize_claims)
 
     def create_session(
         self,
@@ -865,52 +867,24 @@ class SemanticLayerService:
         self._delete_step_outputs(session_id, step_type)
         step_id = self._new_step_id()
         observations = self._load_observations(session_id)
-        claims, recommendations, _ = synthesize_claims(observations)
-        for claim in claims:
+        synthesis = self.evidence_pipeline.build_synthesis(observations)
+
+        for claim in synthesis["claims"]:
             self._insert_claim(session_id, claim)
-            for observation_id in claim["supporting_observations"]:
-                self._insert_edge(
-                    session_id,
-                    from_node_id=observation_id,
-                    from_node_type="observation",
-                    to_node_id=claim["claim_id"],
-                    to_node_type="claim",
-                    edge_type="supports",
-                    weight=claim["confidence"],
-                    explanation="Observation strengthens the claim.",
-                )
-            for observation_id in claim["contradicting_observations"]:
-                self._insert_edge(
-                    session_id,
-                    from_node_id=observation_id,
-                    from_node_type="observation",
-                    to_node_id=claim["claim_id"],
-                    to_node_type="claim",
-                    edge_type="contradicts",
-                    weight=0.35,
-                    explanation="Observation weakens the claim.",
-                )
 
-        for recommendation in recommendations:
+        for recommendation in synthesis["recommendations"]:
             self._insert_recommendation(session_id, recommendation)
-            self._insert_edge(
-                session_id,
-                from_node_id=recommendation["claim_id"],
-                from_node_type="claim",
-                to_node_id=recommendation["rec_id"],
-                to_node_type="recommendation",
-                edge_type="justifies",
-                weight=0.9,
-                explanation="Claim justifies the recommendation.",
-            )
 
-        summary = claims[0]["text"] if claims else "No supported claims were generated."
+        for edge in synthesis["edges"]:
+            self._insert_edge(session_id, **edge)
+
+        summary = synthesis["summary"]
         provenance = self._make_provenance("synthesize_findings", engine_type="heuristic")
         result = {
             "step_type": step_type,
             "summary": summary,
-            "claims": claims,
-            "recommendations": recommendations,
+            "claims": synthesis["claims"],
+            "recommendations": synthesis["recommendations"],
         }
         self._insert_step(step_id, session_id, step_type, summary, result, provenance=provenance)
         return result
