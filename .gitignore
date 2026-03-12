@@ -19,6 +19,7 @@ htmlcov/
 # Data files (generated at runtime)
 data/*.duckdb
 data/*.sqlite
+data/mvp.meta.sqlite
 
 # IDE
 .idea/
@@ -29,6 +30,7 @@ data/*.sqlite
 
 # OS
 .DS_Store
+/.DS_Store
 Thumbs.db
 
 # Playwright
