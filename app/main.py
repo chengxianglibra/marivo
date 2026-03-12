@@ -698,23 +698,26 @@ def create_app(
         q: str = Query(..., min_length=1),
         type: str | None = Query(default=None),
     ) -> list[dict[str, object]]:
-        from app.catalog_query import CatalogQueryService
-        return CatalogQueryService(metadata_store).search(q, object_type=type)
+        from app.semantic_runtime import CatalogRuntimeService
+
+        return CatalogRuntimeService(metadata_store).search(q, object_type=type)
 
     @app.get("/semantic/resolve/{name}")
     def resolve_term(name: str) -> dict[str, object]:
-        from app.catalog_query import CatalogQueryService
+        from app.semantic_runtime import CatalogRuntimeService
+
         try:
-            return CatalogQueryService(metadata_store, binding_service).resolve(name)
+            return CatalogRuntimeService(metadata_store, binding_service).resolve(name)
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 
     @app.get("/sessions/{session_id}/planner-context")
     def planner_context(session_id: str) -> dict[str, object]:
-        from app.catalog_query import CatalogQueryService
+        from app.semantic_runtime import CatalogRuntimeService
+
         try:
             service._assert_session_exists(session_id)
-            return CatalogQueryService(metadata_store).planner_context(session_id, service)
+            return CatalogRuntimeService(metadata_store).planner_context(session_id)
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 
