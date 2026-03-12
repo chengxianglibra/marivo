@@ -129,10 +129,44 @@ class CostEstimate:
     estimated_rows: int | None = None
     estimated_bytes: int | None = None
     confidence: str = "unknown"
+    engine_id: str | None = None
+    engine_locality: str = "unknown"
+    join_fanout_risk: str = "unknown"
+    cache_signals: list[str] = field(default_factory=list)
+    suggested_fallbacks: list[str] = field(default_factory=list)
     detail: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+@dataclass
+class BudgetCheckResult:
+    plan_id: str
+    total_estimated_rows: int = 0
+    total_estimated_bytes: int = 0
+    budget_max_rows: float | int = float("inf")
+    within_budget: bool = True
+    confidence: str = "unknown"
+    risk_level: str = "low"
+    unknown_subjects: list[str] = field(default_factory=list)
+    suggested_fallbacks: list[str] = field(default_factory=list)
+    cost_estimates: list[CostEstimate] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "plan_id": self.plan_id,
+            "total_estimated_cost": self.total_estimated_rows,
+            "total_estimated_rows": self.total_estimated_rows,
+            "total_estimated_bytes": self.total_estimated_bytes,
+            "budget_max_rows": self.budget_max_rows,
+            "within_budget": self.within_budget,
+            "confidence": self.confidence,
+            "risk_level": self.risk_level,
+            "unknown_subjects": list(self.unknown_subjects),
+            "suggested_fallbacks": list(self.suggested_fallbacks),
+            "cost_estimates": [estimate.to_dict() for estimate in self.cost_estimates],
+        }
 
 
 @dataclass

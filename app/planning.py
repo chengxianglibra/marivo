@@ -19,10 +19,11 @@ from typing import TYPE_CHECKING
 from typing import Any
 from uuid import uuid4
 
+from app.execution.costing import CostModel
 from app.analysis_core.ir import AnalysisStepIR, ExecutionPlanIR, from_legacy_step
 from app.analysis_core.step_runners import SUPPORTED_STEP_TYPES
 from app.runtime_contracts import (
-    DEFAULT_STEP_TABLES,
+    BudgetCheckResult,
     CostEstimate,
     PlanValidationIssue,
     PlanValidationResult,
@@ -63,12 +64,17 @@ class PlanningService:
         query_router: QueryRouter | None = None,
         governance: GovernanceService | None = None,
         semantic_resolver: SemanticResolver | None = None,
+        cost_model: CostModel | None = None,
     ) -> None:
         self.metadata = metadata
         self.analytics = analytics_engine
         self.query_router = query_router
         self.governance = governance
         self.semantic_resolver = semantic_resolver or SemanticResolver(metadata)
+        self.cost_model = cost_model or CostModel(
+            analytics_engine=analytics_engine,
+            query_router=query_router,
+        )
 
     # ── CRUD ──────────────────────────────────────────────────────
 
@@ -175,17 +181,40 @@ class PlanningService:
             for idx in execution_order:
                 step = steps[idx]
                 step_ir = plan_ir.steps[idx]
+                estimate = self.cost_model.estimate_step(
+                    step_ir,
+                    analytics_engine=self.analytics,
+                    query_router=self.query_router,
+                )
+                step["estimated_cost"] = estimate.estimated_rows
+                step["estimated_cost_detail"] = self.cost_model.serialize_estimate(estimate)
                 # Update step status to running
                 step["status"] = "running"
                 self._update_steps(plan_id, steps)
 
                 params = step_ir.params
+                started = datetime.now(timezone.utc)
                 result = service.run_step(session_id, step_ir.step_type, params=params if params else None)
+                duration_ms = (datetime.now(timezone.utc) - started).total_seconds() * 1000
 
                 step["status"] = "completed"
                 step["result_summary"] = result.get("summary", "")
+                step["actual_cost_feedback"] = self.cost_model.build_actual_feedback(
+                    step_ir,
+                    result,
+                    duration_ms,
+                    estimate=estimate,
+                )
                 self._update_steps(plan_id, steps)
-                step_results.append({"index": idx, "step_type": step_ir.step_type, "summary": result.get("summary", "")})
+                step_results.append(
+                    {
+                        "index": idx,
+                        "step_type": step_ir.step_type,
+                        "summary": result.get("summary", ""),
+                        "cost_estimate": self.cost_model.serialize_estimate(estimate),
+                        "actual_cost_feedback": step["actual_cost_feedback"],
+                    }
+                )
 
             self._transition(plan_id, "completed")
         except Exception as e:
@@ -225,40 +254,65 @@ class PlanningService:
     # ── Cost estimation ───────────────────────────────────────────
 
     def estimate_costs(self, plan_id: str, analytics_engine: Any) -> dict[str, Any]:
-        """Estimate cost for each step using table row counts as a proxy.
+        """Estimate cost for each step using the shared cost model seam.
 
         Updates the plan's steps in-place with estimated_cost fields.
         """
         plan = self.get_plan(plan_id)
         steps = plan["steps"]
         for step in steps:
-            estimate = self._estimate_step_cost(
+            estimate = self.cost_model.estimate_step(
                 from_legacy_step(step["index"], step),
                 analytics_engine=analytics_engine,
+                query_router=self.query_router,
             )
             step["estimated_cost"] = estimate.estimated_rows if estimate is not None else None
+            step["estimated_cost_detail"] = self.cost_model.serialize_estimate(estimate)
 
         self._update_steps(plan_id, steps)
         total = sum(s.get("estimated_cost") or 0 for s in steps)
-        return {"plan_id": plan_id, "total_estimated_cost": total, "steps": steps}
+        return {
+            "plan_id": plan_id,
+            "total_estimated_cost": total,
+            "cost_estimates": [
+                step.get("estimated_cost_detail")
+                for step in steps
+                if step.get("estimated_cost_detail") is not None
+            ],
+            "steps": steps,
+        }
 
     def check_budget(self, plan_id: str, session_id: str) -> dict[str, Any]:
         """Check if plan total cost fits within session budget."""
         plan = self.get_plan(plan_id)
-        total = sum(s.get("estimated_cost") or 0 for s in plan["steps"])
-
         row = self.metadata.query_one("SELECT budget_json FROM sessions WHERE session_id = ?", [session_id])
         if row is None:
             raise KeyError(f"Unknown session: {session_id}")
         budget = json.loads(row["budget_json"])
-        max_rows = budget.get("max_rows_scanned", float("inf"))
-
-        return {
-            "plan_id": plan_id,
-            "total_estimated_cost": total,
-            "budget_max_rows": max_rows,
-            "within_budget": total <= max_rows,
-        }
+        max_rows = budget.get("max_rows_scanned", inf)
+        estimates: list[CostEstimate] = []
+        for step in plan["steps"]:
+            if isinstance(step.get("estimated_cost_detail"), dict):
+                estimates.append(CostEstimate(**step["estimated_cost_detail"]))
+                continue
+            if step.get("estimated_cost") is not None:
+                estimates.append(
+                    CostEstimate(
+                        subject=f"step:{step['index']}",
+                        estimated_rows=step["estimated_cost"],
+                        confidence="medium",
+                        detail={"step_type": step["step_type"]},
+                    )
+                )
+                continue
+            estimates.append(
+                self.cost_model.estimate_step(
+                    from_legacy_step(step["index"], step),
+                    analytics_engine=self.analytics,
+                    query_router=self.query_router,
+                )
+            )
+        return self.cost_model.check_budget(plan_id, max_rows, estimates).to_dict()
 
     # ── Internal helpers ──────────────────────────────────────────
 
@@ -402,16 +456,21 @@ class PlanningService:
             issues.extend(self._validate_step_semantics(step))
             issues.extend(self._validate_step_governance(step, session_id))
             issues.extend(self._validate_step_routing(step))
-            estimate = self._estimate_step_cost(step)
-            if estimate is not None:
-                cost_estimates.append(estimate)
+            cost_estimates.append(
+                self.cost_model.estimate_step(
+                    step,
+                    analytics_engine=self.analytics,
+                    query_router=self.query_router,
+                )
+            )
 
-        issues.extend(self._validate_budget(plan_id, session_id, cost_estimates))
+        budget_result = self._validate_budget(plan_id, session_id, cost_estimates)
+        issues.extend(self._budget_issues(budget_result))
 
         return PlanValidationResult(
             plan_id=plan_id,
             issues=issues,
-            cost_estimates=cost_estimates,
+            cost_estimates=budget_result.cost_estimates,
         )
 
     def _validate_step_semantics(self, step: AnalysisStepIR) -> list[PlanValidationIssue]:
@@ -570,7 +629,7 @@ class PlanningService:
 
     def _validate_budget(
         self, plan_id: str, session_id: str, cost_estimates: list[CostEstimate],
-    ) -> list[PlanValidationIssue]:
+    ) -> BudgetCheckResult:
         row = self.metadata.query_one(
             "SELECT budget_json FROM sessions WHERE session_id = ?",
             [session_id],
@@ -580,102 +639,46 @@ class PlanningService:
 
         budget = json.loads(row["budget_json"])
         max_rows = budget.get("max_rows_scanned", inf)
-        if max_rows == inf:
-            return []
+        return self.cost_model.check_budget(plan_id, max_rows, cost_estimates)
 
+    @staticmethod
+    def _budget_issues(budget_result: BudgetCheckResult) -> list[PlanValidationIssue]:
         issues: list[PlanValidationIssue] = []
-        total_rows = sum(estimate.estimated_rows or 0 for estimate in cost_estimates)
-        unknown_subjects = [
-            estimate.subject for estimate in cost_estimates if estimate.estimated_rows is None
-        ]
-        if total_rows > max_rows:
+        if not budget_result.within_budget:
             issues.append(
                 PlanValidationIssue(
                     code="budget_rows_exceeded",
                     category="budget",
                     message=(
-                        f"Plan {plan_id}: estimated rows {total_rows} exceed "
-                        f"budget max_rows_scanned={max_rows}"
+                        f"Plan {budget_result.plan_id}: estimated rows "
+                        f"{budget_result.total_estimated_rows} exceed "
+                        f"budget max_rows_scanned={budget_result.budget_max_rows}"
                     ),
-                    detail={
-                        "total_estimated_rows": total_rows,
-                        "max_rows_scanned": max_rows,
-                    },
+                    detail=budget_result.to_dict(),
                 )
             )
-        if unknown_subjects:
+        if budget_result.unknown_subjects:
             issues.append(
                 PlanValidationIssue(
                     code="budget_estimate_unknown",
                     category="budget",
                     severity="warn",
                     message=(
-                        f"Plan {plan_id}: budget estimate is incomplete for steps "
-                        f"{unknown_subjects}"
+                        f"Plan {budget_result.plan_id}: budget estimate is incomplete for steps "
+                        f"{budget_result.unknown_subjects}"
                     ),
-                    detail={
-                        "unknown_subjects": unknown_subjects,
-                        "max_rows_scanned": max_rows,
-                    },
+                    detail=budget_result.to_dict(),
                 )
             )
         return issues
 
-    def _estimate_step_cost(
-        self,
-        step: AnalysisStepIR,
-        analytics_engine: AnalyticsEngine | None = None,
-    ) -> CostEstimate | None:
-        engine = analytics_engine or self.analytics
-        if engine is None:
-            return None
-
-        table_name = self._table_name_for_step(step)
-        if table_name is None:
-            if step.step_type == "synthesize_findings":
-                return CostEstimate(
-                    subject=f"step:{step.index}",
-                    estimated_rows=0,
-                    confidence="high",
-                    detail={"step_type": step.step_type},
-                )
-            return CostEstimate(
-                subject=f"step:{step.index}",
-                estimated_rows=None,
-                confidence="unknown",
-                detail={"step_type": step.step_type},
-            )
-
-        try:
-            row_count = engine.table_row_count(table_name)
-        except Exception as error:
-            return CostEstimate(
-                subject=f"step:{step.index}",
-                estimated_rows=None,
-                confidence="unknown",
-                detail={
-                    "step_type": step.step_type,
-                    "table_name": table_name,
-                    "error": str(error),
-                },
-            )
-
-        return CostEstimate(
-            subject=f"step:{step.index}",
-            estimated_rows=row_count,
-            confidence="high",
-            detail={"step_type": step.step_type, "table_name": table_name},
-        )
-
-    def _table_name_for_step(self, step: AnalysisStepIR) -> str | None:
-        table_name = step.params.get("table_name")
-        if table_name:
-            return str(table_name)
-        return DEFAULT_STEP_TABLES.get(step.step_type)
+    @staticmethod
+    def _table_name_for_step(step: AnalysisStepIR) -> str | None:
+        return CostModel._table_name_for_step(step)
 
     @staticmethod
     def _routing_table_name(table_name: str) -> str:
-        return table_name.split(".")[-1]
+        return CostModel._routing_table_name(table_name)
 
     @staticmethod
     def _is_acyclic(steps: list[dict[str, Any]]) -> bool:

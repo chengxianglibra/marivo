@@ -293,12 +293,12 @@
 
 ### 具体动作
 
-- [ ] 定义 `CostEstimate`、`BudgetCheckResult`
-- [ ] 估算 rows / bytes scanned、engine locality、join fanout risk、cache/materialization 信号
-- [ ] 基于 semantic resolution 与 compiled step 生成 cost hint
-- [ ] 在 plan validation 阶段接入预算预估
-- [ ] 在执行前记录 estimated cost，在执行后记录 actual-ish feedback（哪怕初版仍较粗）
-- [ ] 为后续 re-planning 提供 degrade / fallback 建议
+- [x] 定义 `CostEstimate`、`BudgetCheckResult`
+- [x] 估算 rows / bytes scanned、engine locality、join fanout risk、cache/materialization 信号
+- [x] 基于 semantic resolution 与 compiled step 生成 cost hint
+- [x] 在 plan validation 阶段接入预算预估
+- [x] 在执行前记录 estimated cost，在执行后记录 actual-ish feedback（哪怕初版仍较粗）
+- [x] 为后续 re-planning 提供 degrade / fallback 建议
 
 ### 兼容要求
 
@@ -315,6 +315,44 @@
 - 新增 `tests/test_costing.py`
 - `tests/test_planning.py`
 - `tests/test_bindings.py`
+
+### 当前实现（本轮已完成）
+
+- 新增 `app/execution/costing.py`，引入独立 `CostModel`，把成本估算逻辑从 `PlanningService` 中抽离。
+- `app/runtime_contracts.py` 中的 `CostEstimate` 已扩展为可复用运行时 contract，当前包含：
+  - `estimated_rows`
+  - `estimated_bytes`
+  - `confidence`
+  - `engine_id`
+  - `engine_locality`
+  - `join_fanout_risk`
+  - `cache_signals`
+  - `suggested_fallbacks`
+- 新增 `BudgetCheckResult`，当前会返回：
+  - `total_estimated_rows`
+  - `total_estimated_bytes`
+  - `within_budget`
+  - `confidence`
+  - `risk_level`
+  - `unknown_subjects`
+  - `suggested_fallbacks`
+- `CostModel` 当前基于：
+  - 默认 step → table 映射
+  - `QueryRouter` 的 bound-route / fallback 信号
+  - `AnalyticsEngine.table_row_count()` 的行数估算
+  - step-type bytes-per-row 启发式
+  来生成 v1 成本估算。
+- `synthesize_findings` 这类纯 artifact step 现会明确返回 `artifact_only` / `no_scan`，避免把无扫描步骤伪装成未知成本。
+- `PlanningService` 现已统一复用 `CostModel`：
+  - `validate_plan()` 返回 `cost_estimates`
+  - `estimate_costs()` 持久化 `estimated_cost_detail`
+  - `check_budget()` 复用结构化 estimate，并输出 risk/confidence
+  - `execute_plan()` 在 step 上记录 `estimated_cost_detail` 与 `actual_cost_feedback`
+- 新增直接测试 `tests/test_costing.py`，并扩展 `tests/test_planning.py` 以覆盖：
+  - route/locality hints
+  - cache / fallback signals
+  - budget unknown-risk 行为
+  - execute-plan 的 actual feedback 持久化
 - `tests/test_mvp.py`
 
 ### 依赖

@@ -236,6 +236,7 @@ class PlanExecutionTests(unittest.TestCase):
         self.assertEqual(final["status"], "completed")
         for step in final["steps"]:
             self.assertEqual(step["status"], "completed")
+            self.assertIn("actual_cost_feedback", step)
 
     def test_execute_non_approved_fails(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [
@@ -283,9 +284,11 @@ class CostEstimationTests(unittest.TestCase):
         ])
         result = self.planning.estimate_costs(plan["plan_id"], self.analytics)
         self.assertIn("total_estimated_cost", result)
+        self.assertIn("cost_estimates", result)
         self.assertGreater(result["total_estimated_cost"], 0)
         # compare_watch_time should have a cost, synthesize should be 0
         self.assertIsNotNone(result["steps"][0]["estimated_cost"])
+        self.assertIn("estimated_cost_detail", result["steps"][0])
         self.assertEqual(result["steps"][1]["estimated_cost"], 0)
 
     def test_estimate_costs_parameterized(self) -> None:
@@ -303,6 +306,7 @@ class CostEstimationTests(unittest.TestCase):
         self.planning.estimate_costs(plan["plan_id"], self.analytics)
         result = self.planning.check_budget(plan["plan_id"], session["session_id"])
         self.assertTrue(result["within_budget"])
+        self.assertIn("confidence", result)
 
     def test_budget_check_exceeded(self) -> None:
         session = self.service.create_session("Budget tight", {}, {"max_rows_scanned": 1}, {})
@@ -312,6 +316,7 @@ class CostEstimationTests(unittest.TestCase):
         self.planning.estimate_costs(plan["plan_id"], self.analytics)
         result = self.planning.check_budget(plan["plan_id"], session["session_id"])
         self.assertFalse(result["within_budget"])
+        self.assertEqual(result["risk_level"], "high")
 
 
 class PlanningAPITests(unittest.TestCase):
