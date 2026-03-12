@@ -15,6 +15,12 @@
 - 设计文档描述愿景与目标体系
 - 本文档描述从当前仓库状态走向该目标体系的工程推进顺序
 
+相关配套文档：
+
+- `docs/omnidb-vnext-architecture-blueprint.md`：给出目标模块边界与执行链蓝图
+- `docs/omnidb-module-refactor-checklist.md`：把蓝图继续拆到代码级模块改造项
+- `docs/omnidb-phase1-implementation-task-list.md`：把 Phase A 进一步拆成可执行任务包
+
 ## 2. 当前状态总结
 
 当前仓库已经具备较强的概念验证价值：

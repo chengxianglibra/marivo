@@ -11,6 +11,12 @@
 - 多引擎能力应如何纳入统一执行语义
 - 如何在不推倒当前 MVP 的前提下完成演进
 
+相关配套文档：
+
+- `docs/omnidb-improvement-roadmap.md`：描述从当前仓库走向目标架构的阶段性推进顺序
+- `docs/omnidb-module-refactor-checklist.md`：把蓝图拆成代码级模块边界与改造动作
+- `docs/omnidb-phase1-implementation-task-list.md`：给出第一阶段的实际实施拆分
+
 ## 2. 设计目标
 
 vNext 的目标不是简单增加更多 API，而是形成一套稳定的中间层能力，使 HTTP、MCP、UI 和未来的 Agent Controller 都能复用同一执行内核。

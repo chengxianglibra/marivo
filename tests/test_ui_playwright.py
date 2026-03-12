@@ -126,9 +126,8 @@ class PlaywrightAdminTests(_BasePlaywrightTest):
         """Observability tab should display health status 'ok'."""
         self.page.goto(f"{self.base_url}/admin")
         self.page.click('button[data-tab="observability"]')
-        # Wait for health to load
-        self.page.wait_for_selector("#health-content", timeout=5000)
-        health_text = self.page.locator("#health-content").text_content()
+        self.page.wait_for_selector("#health-status-badge", timeout=5000)
+        health_text = self.page.locator("#health-status-badge").text_content()
         self.assertIn("ok", health_text.lower())
 
     def test_cross_link_to_user_ui(self):

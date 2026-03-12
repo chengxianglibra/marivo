@@ -4,6 +4,12 @@
 
 本文档基于 `docs/omnidb-vnext-architecture-blueprint.md`，进一步拆解出一份可执行的**代码级模块改造清单**。目标不是直接重写仓库，而是给出一条可渐进落地的重构路径，使 OmniDB 从当前的 MVP 代码组织演进到更清晰的 vNext 模块边界。
 
+相关配套文档：
+
+- `docs/omnidb-improvement-roadmap.md`：说明为何按当前阶段顺序推进
+- `docs/omnidb-vnext-architecture-blueprint.md`：定义目标架构边界与执行链
+- `docs/omnidb-phase1-implementation-task-list.md`：把第一阶段工作拆成可落地任务包
+
 本文档回答三个问题：
 
 - 当前 `app/` 下的文件应如何映射到未来模块
