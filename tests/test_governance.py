@@ -84,10 +84,15 @@ class GovernanceServiceTests(unittest.TestCase):
         result = self.gov.check_policies("sess_fake", "sample_rows")
         self.assertFalse(result["passed"])
         self.assertTrue(any("aggregate-only" in v["message"] for v in result["violations"]))
+        codes = [decision["code"] for decision in result["decisions"]]
+        self.assertIn("aggregate_only_enabled", codes)
+        self.assertIn("aggregate_only_forbids_sample_rows", codes)
+        self.assertTrue(result["transforms"]["aggregate_only"])
 
     def test_check_policies_allows_compare(self) -> None:
         result = self.gov.check_policies("sess_fake", "compare_watch_time")
         self.assertTrue(result["passed"])
+        self.assertTrue(any(decision["code"] == "aggregate_only_enabled" for decision in result["decisions"]))
 
     def test_check_quality_row_count_min(self) -> None:
         self.gov.create_quality_rule(
@@ -101,6 +106,8 @@ class GovernanceServiceTests(unittest.TestCase):
         result = self.gov.check_step("sess_fake", "compare_watch_time")
         self.assertIn("passed", result)
         self.assertIn("violations", result)
+        self.assertIn("decisions", result)
+        self.assertIn("transforms", result)
 
 
 class GovernanceAPITests(unittest.TestCase):

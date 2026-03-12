@@ -20,6 +20,7 @@
 - `docs/omnidb-vnext-architecture-blueprint.md`：给出目标模块边界与执行链蓝图
 - `docs/omnidb-module-refactor-checklist.md`：把蓝图继续拆到代码级模块改造项
 - `docs/omnidb-phase1-implementation-task-list.md`：把 Phase A 进一步拆成可执行任务包
+- `docs/omnidb-phase2-implementation-task-list.md`：把 Phase B 进一步拆成可执行任务包
 
 ## 2. 当前状态总结
 

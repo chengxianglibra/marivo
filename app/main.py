@@ -223,7 +223,13 @@ def create_app(
     app.state.query_router = query_router
     app.state.metadata_store = metadata_store
     app.state.analytics_engine = analytics_engine
-    planning_service = PlanningService(metadata_store)
+    planning_service = PlanningService(
+        metadata_store,
+        analytics_engine=analytics_engine,
+        query_router=query_router,
+        governance=governance_service,
+        semantic_resolver=service.semantic_resolver,
+    )
     app.state.planning_service = planning_service
     app.state.governance_service = governance_service
     app.state.approval_service = approval_service

@@ -15,6 +15,7 @@ from app.analysis_core.executor import execute_compiled
 from app.analysis_core.ir import AnalysisStepIR, from_legacy_step
 from app.evidence import make_observation, synthesize_claims
 from app.evidence_engine import EvidencePipeline
+from app.runtime_contracts import DEFAULT_STEP_TABLES
 from app.semantic_runtime import PlannerContextProvider, SemanticResolver
 from app.session import SessionManager
 from app.storage.analytics import AnalyticsEngine
@@ -48,6 +49,7 @@ class SemanticLayerService:
         self.evidence_pipeline = EvidencePipeline(synthesize_claims)
         self.semantic_resolver = SemanticResolver(metadata_store)
         self.planner_context_provider = PlannerContextProvider(metadata_store)
+        self._governance_context: dict[str, Any] | None = None
 
     def create_session(
         self,
@@ -115,25 +117,43 @@ class SemanticLayerService:
     def run_step(self, session_id: str, step_type: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         self._assert_session_exists(session_id)
         normalized = step_type.strip().lower()
+        governance_result: dict[str, Any] | None = None
 
         # Governance check
         if self.governance:
-            tables = []
-            if params and params.get("table_name"):
-                tables.append(params["table_name"])
-            gov_result = self.governance.check_step(session_id, normalized, params, tables=tables or None)
-            if not gov_result["passed"]:
-                raise ValueError(f"Governance check failed: {gov_result['violations']}")
+            governance_params = dict(params or {})
+            tables = self._governance_tables(normalized, governance_params)
+            if len(tables) == 1 and not governance_params.get("table_name"):
+                governance_params["table_name"] = tables[0]
+            governance_result = self.governance.check_step(
+                session_id,
+                normalized,
+                governance_params if governance_params else None,
+                tables=tables or None,
+            )
+            if not governance_result["passed"]:
+                raise ValueError(f"Governance check failed: {governance_result['violations']}")
 
         start = time.perf_counter()
         try:
+            self._governance_context = governance_result
             result = self.step_registry.run(session_id, normalized, params)
         except KeyError as error:
             raise ValueError(f"Unsupported step type: {step_type}") from error
+        finally:
+            self._governance_context = None
         duration_ms = (time.perf_counter() - start) * 1000
 
         if self.metrics:
             self.metrics.record_step(normalized, duration_ms)
+
+        if governance_result:
+            result["governance"] = {
+                "decisions": governance_result.get("decisions", []),
+                "transforms": governance_result.get("transforms", {}),
+                "hard_constraints": governance_result.get("hard_constraints", []),
+                "soft_signals": governance_result.get("soft_signals", []),
+            }
 
         return result
 
@@ -141,11 +161,11 @@ class SemanticLayerService:
         self._assert_session_exists(session_id)
         self._reset_session_outputs(session_id)
         results = [
-            self._run_compare_watch_time(session_id),
-            self._run_qoe_analysis(session_id),
-            self._run_ad_analysis(session_id),
-            self._run_recommendation_analysis(session_id),
-            self._run_synthesis(session_id),
+            self.run_step(session_id, "compare_watch_time"),
+            self.run_step(session_id, "analyze_qoe"),
+            self.run_step(session_id, "analyze_ads"),
+            self.run_step(session_id, "analyze_recommendation"),
+            self.run_step(session_id, "synthesize_findings"),
         ]
         final_result = results[-1]
 
@@ -787,12 +807,27 @@ class SemanticLayerService:
     def _make_provenance(self, sql: str = "", params: list[Any] | None = None, engine_type: str = "duckdb") -> dict[str, Any]:
         """Build a provenance token for a step execution."""
         query_hash = hashlib.sha256(sql.encode()).hexdigest()[:16] if sql else ""
-        return {
+        provenance = {
             "query_hash": query_hash,
             "engine": engine_type,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "param_count": len(params) if params else 0,
         }
+        if self._governance_context:
+            provenance["governance"] = {
+                "decisions": self._governance_context.get("decisions", []),
+                "transforms": self._governance_context.get("transforms", {}),
+                "hard_constraints": self._governance_context.get("hard_constraints", []),
+                "soft_signals": self._governance_context.get("soft_signals", []),
+            }
+        return provenance
+
+    def _governance_tables(self, step_type: str, params: dict[str, Any]) -> list[str]:
+        table_name = params.get("table_name")
+        if table_name:
+            return [str(table_name)]
+        default_table = DEFAULT_STEP_TABLES.get(step_type)
+        return [default_table] if default_table else []
 
     def _insert_step(
         self,
