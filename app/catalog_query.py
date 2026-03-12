@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from typing import Any, TYPE_CHECKING
 
+from app.analysis_core import SUPPORTED_STEP_TYPES
+from app.semantic_runtime import PlannerContextProvider
 from app.storage.metadata import MetadataStore
 
 if TYPE_CHECKING:
@@ -154,49 +156,14 @@ class CatalogQueryService:
     # ── Planner context ──────────────────────────────────────────
 
     def planner_context(self, session_id: str, service: SemanticLayerService) -> dict[str, Any]:
-        metrics = self.metadata.query_rows(
-            "SELECT * FROM semantic_metrics WHERE status = 'published' ORDER BY name"
-        )
-        entities = self.metadata.query_rows(
-            "SELECT * FROM semantic_entities WHERE status = 'published' ORDER BY name"
-        )
-
-        metric_list = []
-        for m in metrics:
-            metric_list.append({
-                "metric_id": m["metric_id"],
-                "name": m["name"],
-                "display_name": m["display_name"],
-                "definition_sql": m["definition_sql"],
-                "dimensions": json.loads(m["dimensions_json"]),
-            })
-
-        entity_list = []
-        for e in entities:
-            entity_list.append({
-                "entity_id": e["entity_id"],
-                "name": e["name"],
-                "display_name": e["display_name"],
-                "keys": json.loads(e["keys_json"]),
-            })
-
-        # Available step types
-        step_types = [
-            "compare_watch_time",
-            "analyze_qoe",
-            "analyze_ads",
-            "analyze_recommendation",
-            "synthesize_findings",
-            "compare_metric",
-            "profile_table",
-            "sample_rows",
-        ]
-
+        del service
+        context = PlannerContextProvider(self.metadata).build_planner_context(session_id)
+        session = context.pop("session", None)
         return {
-            "session_id": session_id,
-            "metrics": metric_list,
-            "entities": entity_list,
-            "available_step_types": step_types,
+            "session_id": session["session_id"] if session else session_id,
+            "metrics": context["metrics"],
+            "entities": context["entities"],
+            "available_step_types": list(SUPPORTED_STEP_TYPES),
             "policies": [
                 "Results are aggregate-only.",
                 "Evidence graph keeps support and contradiction links for every claim.",
