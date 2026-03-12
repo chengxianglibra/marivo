@@ -11,6 +11,17 @@
 - `docs/omnidb-phase1-implementation-task-list.md`：把第一阶段工作拆成可落地任务包
 - `docs/omnidb-phase2-implementation-task-list.md`：把第二阶段工作拆成可落地任务包
 
+当前实施状态（截至 Phase 2 收尾）：
+
+- `app.service.SemanticLayerService` 仍保留 facade 角色，但已主要收敛为 orchestration / compatibility 层。
+- `app.planner/` 与 `app.execution/` 已出现真实 runtime seam：
+  - `app/planner/replanning.py`
+  - `app/execution/costing.py`
+  - `app/execution/errors.py`
+  - `app/execution/feedback.py`
+  - `app/execution/routing_runtime.py`
+- 本清单后续应主要指导“继续抽离目录边界”和“减少 facade 内部细节”的下一阶段工作。
+
 本文档回答三个问题：
 
 - 当前 `app/` 下的文件应如何映射到未来模块

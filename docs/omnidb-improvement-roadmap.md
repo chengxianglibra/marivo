@@ -22,6 +22,12 @@
 - `docs/omnidb-phase1-implementation-task-list.md`：把 Phase A 进一步拆成可执行任务包
 - `docs/omnidb-phase2-implementation-task-list.md`：把 Phase B 进一步拆成可执行任务包
 
+当前实施状态（截至 Phase 2 收尾）：
+
+- Phase 1 已完成，catalog / semantic runtime 的 compatibility seam 已稳定。
+- Phase 2 已完成 validation、policy pipeline、cost model、replanning、execution feedback 五个 runtime task package。
+- 具体实现与测试落点以 `docs/omnidb-phase2-implementation-task-list.md` 为准；本文继续保留为中长期推进顺序说明。
+
 ## 2. 当前状态总结
 
 当前仓库已经具备较强的概念验证价值：

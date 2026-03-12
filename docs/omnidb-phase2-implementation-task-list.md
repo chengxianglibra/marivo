@@ -545,15 +545,15 @@
 
 ### 具体动作
 
-- [ ] 保留 `SemanticLayerService` facade，但让其主要负责 orchestration 与 compatibility
-- [ ] 保留现有 HTTP / MCP / UI 入口，并最小化返回结构变化
-- [ ] 为 planner / governance / costing / re-planning / execution feedback 增加模块级单测
-- [ ] 更新设计文档交叉引用：
+- [x] 保留 `SemanticLayerService` facade，但让其主要负责 orchestration 与 compatibility
+- [x] 保留现有 HTTP / MCP / UI 入口，并最小化返回结构变化
+- [x] 为 planner / governance / costing / re-planning / execution feedback 增加模块级单测
+- [x] 更新设计文档交叉引用：
   - `omnidb-improvement-roadmap.md`
   - `omnidb-vnext-architecture-blueprint.md`
   - `omnidb-module-refactor-checklist.md`
   - `omnidb-phase2-implementation-task-list.md`
-- [ ] 在 `plan.md` 与 SQL todos 中同步第二阶段执行状态
+- [x] 在 `plan.md` 与 SQL todos 中同步第二阶段执行状态
 
 ### 验收标准
 
@@ -580,6 +580,34 @@ python3 -m unittest discover -s tests -v
 - 任务包 3
 - 任务包 4
 - 任务包 5
+
+### 当前实现（本轮已完成）
+
+- `SemanticLayerService` facade 已保留，但当前职责已更明确地收敛为：
+  - workflow orchestration
+  - compatibility-preserving step facade
+  - provenance / evidence 写入协调
+- Phase 2 新增的 runtime seam 均已有模块级直接测试：
+  - validation：`tests/test_plan_validation.py`
+  - policy application：`tests/test_policy_application.py`
+  - costing：`tests/test_costing.py`
+  - replanning：`tests/test_replanning.py`
+  - execution feedback：`tests/test_execution_feedback.py`
+- HTTP / MCP / workflow 主入口保持稳定，仅做 additive payload 扩展，例如：
+  - `validate_plan()` 继续保留 `valid` / `errors`
+  - governance 继续保留 `passed` / `violations` / `warnings`
+  - workflow 新增 `replanning` 字段，但原有 `steps` / `claims` / `recommendations` 不变
+- 设计文档交叉引用已回写到：
+  - `omnidb-improvement-roadmap.md`
+  - `omnidb-vnext-architecture-blueprint.md`
+  - `omnidb-module-refactor-checklist.md`
+- session `plan.md` 与 SQL todos 已同步到：
+  - `phase2-baseline-audit` → done
+  - `phase2-plan-validation` → done
+  - `phase2-policy-pipeline` → done
+  - `phase2-cost-model` → done
+  - `phase2-replanning` → done
+  - `phase2-execution-feedback` → done
 
 ## 6. 推荐的 PR 切分
 
