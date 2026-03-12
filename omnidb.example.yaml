@@ -1,0 +1,47 @@
+# OmniDB configuration file
+# Copy to omnidb.yaml (or set OMNIDB_CONFIG env var) to activate.
+#
+# Sources listed here are auto-registered and synced on app startup.
+# Engines listed here are auto-registered on app startup.
+# Registration is idempotent — restarting the app won't create duplicates.
+
+sources:
+  # Local demo catalog (ships with OmniDB, no external dependencies)
+  - name: "Local Demo"
+    type: local
+    connection: {}
+
+  # Hive Metastore example
+  # - name: "Production Hive"
+  #   type: hive_metastore
+  #   connection:
+  #     host: hive-metastore.prod.internal
+  #     port: 9083
+
+engines:
+  - name: "Local DuckDB"
+    type: duckdb
+    connection:
+      path: data/mvp.duckdb
+
+  # Trino example
+  # - name: "Trino Prod"
+  #   type: trino
+  #   connection:
+  #     host: trino.internal
+  #     port: 8080
+  #     user: omnidb
+  #     catalog: hive
+  #     schema: default
+
+bindings:
+  - source: "Local Demo"
+    engine: "Local DuckDB"
+    priority: 10
+    namespace: {}
+
+  # - source: "Production Hive"
+  #   engine: "Trino Prod"
+  #   priority: 10
+  #   namespace:
+  #     catalog: hive

@@ -1,0 +1,1007 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OmniDB Analytics</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #1a1a1a; background: #f5f6f8; line-height: 1.5; }
+a { color: #2563eb; text-decoration: none; }
+
+/* Layout */
+.header { background: #fff; border-bottom: 1px solid #e2e4e9; padding: 0 24px; display: flex; align-items: center; height: 56px; }
+.header h1 { font-size: 18px; font-weight: 600; margin-right: 32px; }
+.tabs { display: flex; gap: 4px; }
+.tab-btn { padding: 8px 16px; border: none; background: none; cursor: pointer; font-size: 14px; border-radius: 6px 6px 0 0; color: #555; position: relative; bottom: -1px; border-bottom: 2px solid transparent; }
+.tab-btn:hover { color: #1a1a1a; background: #f0f1f3; }
+.tab-btn.active { color: #2563eb; border-bottom-color: #2563eb; font-weight: 500; }
+
+.main { max-width: 1200px; margin: 24px auto; padding: 0 24px; }
+.panel { display: none; }
+.panel.active { display: block; }
+
+/* Cards & Tables */
+.card { background: #fff; border: 1px solid #e2e4e9; border-radius: 8px; padding: 20px; margin-bottom: 16px; }
+.card h2 { font-size: 16px; font-weight: 600; margin-bottom: 12px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th { text-align: left; padding: 8px 12px; border-bottom: 2px solid #e2e4e9; font-weight: 500; color: #555; }
+td { padding: 8px 12px; border-bottom: 1px solid #f0f1f3; }
+tr:hover td { background: #fafbfc; }
+.empty { color: #888; font-style: italic; padding: 16px 0; }
+
+/* Buttons */
+.btn { display: inline-flex; align-items: center; gap: 4px; padding: 6px 14px; border: 1px solid #d1d5db; border-radius: 6px; background: #fff; font-size: 13px; cursor: pointer; color: #1a1a1a; }
+.btn:hover { background: #f5f6f8; }
+.btn-primary { background: #2563eb; color: #fff; border-color: #2563eb; }
+.btn-primary:hover { background: #1d4ed8; }
+.btn-danger { color: #dc2626; border-color: #fca5a5; }
+.btn-danger:hover { background: #fef2f2; }
+.btn-sm { padding: 4px 10px; font-size: 12px; }
+.btn-success { background: #16a34a; color: #fff; border-color: #16a34a; }
+.btn-success:hover { background: #15803d; }
+.btn-warning { background: #f59e0b; color: #fff; border-color: #f59e0b; }
+.btn-warning:hover { background: #d97706; }
+
+/* Forms (modal) */
+.modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.3); z-index: 100; justify-content: center; align-items: flex-start; padding-top: 80px; }
+.modal-overlay.open { display: flex; }
+.modal { background: #fff; border-radius: 10px; width: 520px; max-width: 95vw; max-height: 80vh; overflow-y: auto; box-shadow: 0 8px 30px rgba(0,0,0,0.12); }
+.modal-header { padding: 16px 20px; border-bottom: 1px solid #e2e4e9; display: flex; justify-content: space-between; align-items: center; }
+.modal-header h3 { font-size: 15px; font-weight: 600; }
+.modal-close { background: none; border: none; font-size: 20px; cursor: pointer; color: #888; }
+.modal-body { padding: 20px; }
+.modal-footer { padding: 12px 20px; border-top: 1px solid #e2e4e9; display: flex; justify-content: flex-end; gap: 8px; }
+
+.form-group { margin-bottom: 14px; }
+.form-group label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 4px; color: #444; }
+.form-group input, .form-group select, .form-group textarea { width: 100%; padding: 7px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; font-family: inherit; }
+.form-group textarea { min-height: 80px; resize: vertical; }
+
+/* Toast */
+.toast-container { position: fixed; top: 16px; right: 16px; z-index: 200; display: flex; flex-direction: column; gap: 8px; }
+.toast { padding: 10px 16px; border-radius: 8px; font-size: 13px; color: #fff; box-shadow: 0 4px 12px rgba(0,0,0,0.15); animation: slideIn 0.3s ease; }
+.toast.success { background: #16a34a; }
+.toast.error { background: #dc2626; }
+@keyframes slideIn { from { opacity: 0; transform: translateX(40px); } to { opacity: 1; transform: translateX(0); } }
+
+/* Spinner */
+.spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid #d1d5db; border-top-color: #2563eb; border-radius: 50%; animation: spin 0.6s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-row td { text-align: center; padding: 24px; }
+
+/* Detail panel */
+.detail-back { cursor: pointer; color: #2563eb; font-size: 13px; margin-bottom: 12px; display: inline-block; }
+.detail-meta { display: grid; grid-template-columns: 140px 1fr; gap: 4px 12px; font-size: 14px; margin-bottom: 16px; }
+.detail-meta dt { color: #666; font-weight: 500; }
+.detail-meta dd { color: #1a1a1a; word-break: break-all; }
+
+/* Toolbar */
+.toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.toolbar h2 { margin-bottom: 0; }
+
+/* Inline form row */
+.inline-form { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 12px; }
+.inline-form .form-group { margin-bottom: 0; }
+
+/* Collapsible */
+.collapsible-toggle { cursor: pointer; user-select: none; }
+.collapsible-toggle::before { content: '\25B6'; display: inline-block; margin-right: 6px; transition: transform 0.2s; font-size: 12px; }
+.collapsible-toggle.open::before { transform: rotate(90deg); }
+.collapsible-body { display: none; }
+.collapsible-body.open { display: block; }
+
+/* Priority badges */
+.badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; }
+.badge-p0 { background: #fef2f2; color: #dc2626; }
+.badge-p1 { background: #fff7ed; color: #ea580c; }
+.badge-p2 { background: #fefce8; color: #ca8a04; }
+.badge-p3 { background: #f0fdf4; color: #16a34a; }
+
+/* Pre block for JSON */
+pre.json-block { background: #f8f9fa; border: 1px solid #e2e4e9; border-radius: 6px; padding: 12px; font-size: 13px; overflow-x: auto; max-height: 400px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
+
+/* Step builder list */
+.step-list-item { background: #f8f9fa; border: 1px solid #e2e4e9; border-radius: 6px; padding: 8px 12px; margin-bottom: 6px; font-size: 13px; display: flex; justify-content: space-between; align-items: center; }
+.step-list-item .step-info { flex: 1; }
+.step-list-item .step-remove { cursor: pointer; color: #dc2626; font-weight: 600; margin-left: 8px; }
+
+/* Checkbox label */
+.checkbox-label { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>OmniDB Analytics</h1>
+  <div class="tabs" id="tabs">
+    <button class="tab-btn active" data-tab="catalog">Catalog</button>
+    <button class="tab-btn" data-tab="sessions">Sessions</button>
+    <button class="tab-btn" data-tab="evidence">Evidence</button>
+    <button class="tab-btn" data-tab="plans">Plans</button>
+    <button class="tab-btn" data-tab="jobs">Jobs</button>
+  </div>
+  <a href="/admin" style="margin-left:auto;font-size:13px;">&larr; Admin UI</a>
+</div>
+
+<div class="main">
+  <!-- Catalog -->
+  <div class="panel active" id="panel-catalog"></div>
+  <!-- Sessions -->
+  <div class="panel" id="panel-sessions"></div>
+  <!-- Evidence -->
+  <div class="panel" id="panel-evidence"></div>
+  <!-- Plans -->
+  <div class="panel" id="panel-plans"></div>
+  <!-- Jobs -->
+  <div class="panel" id="panel-jobs"></div>
+</div>
+
+<!-- Modal -->
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modal-title"></h3>
+      <button class="modal-close" id="modal-close">&times;</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+    <div class="modal-footer" id="modal-footer"></div>
+  </div>
+</div>
+
+<div class="toast-container" id="toasts"></div>
+
+<script>
+// ── Helpers ────────────────────────────────────────────────
+const $ = (sel, ctx = document) => ctx.querySelector(sel);
+const $$ = (sel, ctx = document) => [...ctx.querySelectorAll(sel)];
+
+function esc(s) { const d = document.createElement('div'); d.textContent = String(s ?? ''); return d.innerHTML; }
+function attr(s) { return esc(s).replace(/"/g, '&quot;'); }
+function truncate(s, n) { return s.length > n ? s.slice(0, n) + '...' : s; }
+function fmtDate(s) { if (!s) return ''; try { return new Date(s).toLocaleDateString(); } catch { return s; } }
+function parseJSON(s, fallback) { try { return JSON.parse(s); } catch { return fallback; } }
+
+function toast(msg, type = 'success') {
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.textContent = msg;
+  $('#toasts').appendChild(el);
+  setTimeout(() => el.remove(), 3500);
+}
+
+function loadingRow(cols) {
+  return `<tr class="loading-row"><td colspan="${cols}"><span class="spinner"></span></td></tr>`;
+}
+
+function priorityBadge(p) {
+  const cls = { P0: 'badge-p0', P1: 'badge-p1', P2: 'badge-p2', P3: 'badge-p3' };
+  return `<span class="badge ${cls[p] || ''}">${esc(p)}</span>`;
+}
+
+function jsonPre(obj) {
+  if (obj == null) return '<span class="empty">null</span>';
+  const s = typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2);
+  return `<pre class="json-block">${esc(s)}</pre>`;
+}
+
+// ── Modal ──────────────────────────────────────────────────
+function openModal(title, bodyHtml, footerHtml) {
+  $('#modal-title').textContent = title;
+  $('#modal-body').innerHTML = bodyHtml;
+  $('#modal-footer').innerHTML = footerHtml;
+  $('#modal-overlay').classList.add('open');
+}
+function closeModal() { $('#modal-overlay').classList.remove('open'); }
+$('#modal-close').onclick = closeModal;
+$('#modal-overlay').onclick = (e) => { if (e.target === e.currentTarget) closeModal(); };
+
+// ── API ────────────────────────────────────────────────────
+const api = {
+  async _fetch(path, opts = {}) {
+    const res = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts });
+    if (!res.ok) { const body = await res.json().catch(() => ({})); throw new Error(body.detail || `HTTP ${res.status}`); }
+    return res.json();
+  },
+  // Catalog
+  getCatalog: () => api._fetch('/catalog'),
+  searchCatalog: (q, type) => api._fetch('/catalog/search?' + new URLSearchParams({q, ...(type ? {type} : {})})),
+  resolveTerm: (name) => api._fetch(`/semantic/resolve/${encodeURIComponent(name)}`),
+  catalogGraph: (root, depth) => api._fetch(`/catalog/graph?root=${encodeURIComponent(root)}&depth=${depth}`),
+  // Sessions
+  listSessions: (params) => api._fetch('/sessions' + (params ? '?' + new URLSearchParams(params) : '')),
+  createSession: (d) => api._fetch('/sessions', { method: 'POST', body: JSON.stringify(d) }),
+  getSession: (id) => api._fetch(`/sessions/${id}`),
+  runWorkflow: (id) => api._fetch(`/sessions/${id}/workflow/watch-time-drop`, { method: 'POST' }),
+  runStep: (id, stepType, params) => api._fetch(`/sessions/${id}/steps/${stepType}`, { method: 'POST', body: JSON.stringify(params || {}) }),
+  // Evidence
+  getEvidence: (id) => api._fetch(`/sessions/${id}/evidence`),
+  // Plans
+  listPlans: (sessionId) => api._fetch(`/sessions/${sessionId}/plans`),
+  getPlan: (sessionId, planId) => api._fetch(`/sessions/${sessionId}/plans/${planId}`),
+  draftPlan: (sessionId, steps) => api._fetch(`/sessions/${sessionId}/plans`, { method: 'POST', body: JSON.stringify({steps}) }),
+  validatePlan: (sid, pid) => api._fetch(`/sessions/${sid}/plans/${pid}/validate`, { method: 'POST' }),
+  approvePlan: (sid, pid) => api._fetch(`/sessions/${sid}/plans/${pid}/approve`, { method: 'POST' }),
+  executePlan: (sid, pid) => api._fetch(`/sessions/${sid}/plans/${pid}/execute`, { method: 'POST' }),
+  estimateCosts: (sid, pid) => api._fetch(`/sessions/${sid}/plans/${pid}/estimate-costs`, { method: 'POST' }),
+  budgetCheck: (sid, pid) => api._fetch(`/sessions/${sid}/plans/${pid}/budget-check`),
+  explainPlan: (sid, pid) => api._fetch(`/sessions/${sid}/plans/${pid}/explain`),
+  // Jobs
+  listJobs: (params) => api._fetch('/jobs' + (params ? '?' + new URLSearchParams(params) : '')),
+  submitJob: (d) => api._fetch('/jobs', { method: 'POST', body: JSON.stringify(d) }),
+  getJob: (id) => api._fetch(`/jobs/${id}`),
+  cancelJob: (id) => api._fetch(`/jobs/${id}/cancel`, { method: 'POST' }),
+};
+
+// ── Tab switching ──────────────────────────────────────────
+const renderers = {};
+$('#tabs').onclick = (e) => {
+  const btn = e.target.closest('.tab-btn');
+  if (!btn) return;
+  $$('.tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  $$('.panel').forEach(p => p.classList.remove('active'));
+  $(`#panel-${btn.dataset.tab}`).classList.add('active');
+  if (renderers[btn.dataset.tab]) renderers[btn.dataset.tab]();
+};
+
+// ════════════════════════════════════════════════════════════
+// ── Catalog Tab ────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════
+renderers.catalog = async () => {
+  const panel = $('#panel-catalog');
+  panel.innerHTML = `
+    <!-- Search -->
+    <div class="card" id="cat-search-card">
+      <h2>Search Catalog</h2>
+      <div class="inline-form">
+        <div class="form-group"><label>Query</label><input id="cat-search-q" placeholder="e.g. watch_time"></div>
+        <div class="form-group"><label>Type</label>
+          <select id="cat-search-type">
+            <option value="">All</option>
+            <option value="entity">entity</option>
+            <option value="metric">metric</option>
+            <option value="asset">asset</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" id="cat-search-btn">Search</button>
+      </div>
+      <div id="cat-search-results"></div>
+    </div>
+    <!-- Resolve -->
+    <div class="card" id="cat-resolve-card">
+      <h2>Resolve Term</h2>
+      <div class="inline-form">
+        <div class="form-group"><label>Term Name</label><input id="cat-resolve-name" placeholder="e.g. watch_time"></div>
+        <button class="btn btn-primary" id="cat-resolve-btn">Resolve</button>
+      </div>
+      <div id="cat-resolve-results"></div>
+    </div>
+    <!-- Graph -->
+    <div class="card" id="cat-graph-card">
+      <h2>Catalog Graph</h2>
+      <div class="inline-form">
+        <div class="form-group"><label>Root ID</label><input id="cat-graph-root" placeholder="ent_... or met_..."></div>
+        <div class="form-group"><label>Depth</label><input id="cat-graph-depth" type="number" value="2" min="1" max="5" style="width:80px;"></div>
+        <button class="btn btn-primary" id="cat-graph-btn">Load</button>
+      </div>
+      <div id="cat-graph-results"></div>
+    </div>
+    <!-- Overview -->
+    <div class="card" id="cat-overview-card">
+      <h2>Catalog Overview</h2>
+      <div id="cat-overview-content"><span class="spinner"></span></div>
+    </div>`;
+
+  // Search handler
+  $('#cat-search-btn').onclick = async () => {
+    const q = $('#cat-search-q').value.trim();
+    if (!q) { toast('Enter a search query', 'error'); return; }
+    const type = $('#cat-search-type').value;
+    const area = $('#cat-search-results');
+    area.innerHTML = '<span class="spinner"></span>';
+    try {
+      const results = await api.searchCatalog(q, type);
+      const items = results.results || results;
+      if (!items || !items.length) { area.innerHTML = '<p class="empty">No results found.</p>'; return; }
+      area.innerHTML = `<table><thead><tr><th>Name</th><th>Type</th><th>Display Name</th><th>Description</th></tr></thead><tbody>${
+        items.map(r => `<tr>
+          <td>${esc(r.name)}</td>
+          <td>${esc(r.type)}</td>
+          <td>${esc(r.display_name || '')}</td>
+          <td>${esc(truncate(r.description || '', 80))}</td>
+        </tr>`).join('')
+      }</tbody></table>`;
+    } catch (err) { area.innerHTML = ''; toast(err.message, 'error'); }
+  };
+
+  // Resolve handler
+  $('#cat-resolve-btn').onclick = async () => {
+    const name = $('#cat-resolve-name').value.trim();
+    if (!name) { toast('Enter a term name', 'error'); return; }
+    const area = $('#cat-resolve-results');
+    area.innerHTML = '<span class="spinner"></span>';
+    try {
+      const res = await api.resolveTerm(name);
+      let html = '<h3 style="font-size:14px;margin:12px 0 8px;">Definition</h3>';
+      html += `<dl class="detail-meta">
+        <dt>Name</dt><dd>${esc(res.name || '')}</dd>
+        <dt>Display Name</dt><dd>${esc(res.display_name || '')}</dd>
+        <dt>Type</dt><dd>${esc(res.type || '')}</dd>
+        <dt>Description</dt><dd>${esc(res.description || '')}</dd>
+      </dl>`;
+      const assets = res.physical_assets || res.assets || [];
+      if (assets.length) {
+        html += '<h3 style="font-size:14px;margin:12px 0 8px;">Physical Assets</h3>';
+        html += `<table><thead><tr><th>Object ID</th><th>FQN</th><th>Type</th><th>Source</th></tr></thead><tbody>${
+          assets.map(a => `<tr>
+            <td>${esc(a.object_id || '')}</td>
+            <td>${esc(a.fqn || '')}</td>
+            <td>${esc(a.object_type || '')}</td>
+            <td>${esc(a.source_id || '')}</td>
+          </tr>`).join('')
+        }</tbody></table>`;
+      }
+      if (res.engine_info) {
+        html += '<h3 style="font-size:14px;margin:12px 0 8px;">Engine Info</h3>';
+        html += jsonPre(res.engine_info);
+      }
+      area.innerHTML = html;
+    } catch (err) { area.innerHTML = ''; toast(err.message, 'error'); }
+  };
+
+  // Graph handler
+  $('#cat-graph-btn').onclick = async () => {
+    const root = $('#cat-graph-root').value.trim();
+    const depth = parseInt($('#cat-graph-depth').value, 10);
+    if (!root) { toast('Enter a root ID', 'error'); return; }
+    if (isNaN(depth) || depth < 1 || depth > 5) { toast('Depth must be 1-5', 'error'); return; }
+    const area = $('#cat-graph-results');
+    area.innerHTML = '<span class="spinner"></span>';
+    try {
+      const graph = await api.catalogGraph(root, depth);
+      let html = '';
+      const nodes = graph.nodes || [];
+      const edges = graph.edges || [];
+      if (nodes.length) {
+        html += '<h3 style="font-size:14px;margin:12px 0 8px;">Nodes (' + nodes.length + ')</h3>';
+        html += `<table><thead><tr><th>ID</th><th>Type</th><th>Name</th></tr></thead><tbody>${
+          nodes.map(n => `<tr><td>${esc(n.id || '')}</td><td>${esc(n.type || '')}</td><td>${esc(n.name || '')}</td></tr>`).join('')
+        }</tbody></table>`;
+      }
+      if (edges.length) {
+        html += '<h3 style="font-size:14px;margin:12px 0 8px;">Edges (' + edges.length + ')</h3>';
+        html += `<table><thead><tr><th>From</th><th>To</th><th>Type</th></tr></thead><tbody>${
+          edges.map(e => `<tr><td>${esc(e.from || e.source || '')}</td><td>${esc(e.to || e.target || '')}</td><td>${esc(e.type || e.relation || '')}</td></tr>`).join('')
+        }</tbody></table>`;
+      }
+      if (!nodes.length && !edges.length) html = '<p class="empty">Empty graph returned.</p>';
+      area.innerHTML = html;
+    } catch (err) { area.innerHTML = ''; toast(err.message, 'error'); }
+  };
+
+  // Overview (load on tab open)
+  try {
+    const catalog = await api.getCatalog();
+    const area = $('#cat-overview-content');
+    let html = '';
+    const entities = catalog.entities || [];
+    const metrics = catalog.metrics || [];
+    const assets = catalog.assets || [];
+    if (entities.length) {
+      html += `<h3 style="font-size:14px;margin:0 0 8px;">Entities (${entities.length})</h3>`;
+      html += `<table><thead><tr><th>Name</th><th>Display Name</th><th>Status</th><th>Description</th></tr></thead><tbody>${
+        entities.map(e => `<tr>
+          <td>${esc(e.name)}</td><td>${esc(e.display_name || '')}</td><td>${esc(e.status || '')}</td><td>${esc(truncate(e.description || '', 60))}</td>
+        </tr>`).join('')
+      }</tbody></table>`;
+    }
+    if (metrics.length) {
+      html += `<h3 style="font-size:14px;margin:16px 0 8px;">Metrics (${metrics.length})</h3>`;
+      html += `<table><thead><tr><th>Name</th><th>Display Name</th><th>Status</th><th>Description</th></tr></thead><tbody>${
+        metrics.map(m => `<tr>
+          <td>${esc(m.name)}</td><td>${esc(m.display_name || '')}</td><td>${esc(m.status || '')}</td><td>${esc(truncate(m.description || '', 60))}</td>
+        </tr>`).join('')
+      }</tbody></table>`;
+    }
+    if (assets.length) {
+      html += `<h3 style="font-size:14px;margin:16px 0 8px;">Assets (${assets.length})</h3>`;
+      html += `<table><thead><tr><th>Name</th><th>Type</th><th>FQN</th></tr></thead><tbody>${
+        assets.map(a => `<tr>
+          <td>${esc(a.name || a.native_name || '')}</td><td>${esc(a.type || a.object_type || '')}</td><td>${esc(a.fqn || '')}</td>
+        </tr>`).join('')
+      }</tbody></table>`;
+    }
+    if (!entities.length && !metrics.length && !assets.length) {
+      html = '<p class="empty">Catalog is empty. Create entities and metrics in the Admin UI.</p>';
+    }
+    area.innerHTML = html;
+  } catch (err) { $('#cat-overview-content').innerHTML = `<p class="empty">Failed to load catalog: ${esc(err.message)}</p>`; }
+};
+
+// ════════════════════════════════════════════════════════════
+// ── Sessions Tab ───────────────────────────────────────────
+// ════════════════════════════════════════════════════════════
+renderers.sessions = async () => {
+  const panel = $('#panel-sessions');
+  panel.innerHTML = `<div class="card">
+    <div class="toolbar"><h2>Sessions</h2><button class="btn btn-primary" id="create-session-btn">+ Create Session</button></div>
+    <table><thead><tr><th>ID</th><th>Goal</th><th>Status</th><th>Created</th></tr></thead>
+    <tbody id="sessions-tbody">${loadingRow(4)}</tbody></table></div>`;
+
+  $('#create-session-btn').onclick = () => {
+    openModal('Create Session',
+      `<div class="form-group"><label>Goal</label><textarea id="f-sess-goal" placeholder="Investigate the recent watch time decline"></textarea></div>
+       <div class="form-group"><label>Constraints (JSON)</label><textarea id="f-sess-constraints">{}</textarea></div>
+       <div class="form-group"><label>Budget (JSON)</label><textarea id="f-sess-budget">{}</textarea></div>
+       <div class="form-group"><label>Policy (JSON)</label><textarea id="f-sess-policy">{}</textarea></div>`,
+      `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" id="f-sess-submit">Create</button>`);
+    $('#f-sess-submit').onclick = async () => {
+      try {
+        const goal = $('#f-sess-goal').value.trim();
+        if (!goal) throw new Error('Goal is required');
+        const constraints = parseJSON($('#f-sess-constraints').value, {});
+        const budget = parseJSON($('#f-sess-budget').value, null);
+        const policy = parseJSON($('#f-sess-policy').value, null);
+        const data = { goal, constraints };
+        if (budget) data.budget = budget;
+        if (policy) data.policy = policy;
+        await api.createSession(data);
+        toast('Session created');
+        closeModal();
+        renderers.sessions();
+      } catch (err) { toast(err.message, 'error'); }
+    };
+  };
+
+  try {
+    const sessions = await api.listSessions();
+    const tbody = $('#sessions-tbody');
+    if (!sessions.length) { tbody.innerHTML = `<tr><td colspan="4" class="empty">No sessions.</td></tr>`; return; }
+    tbody.innerHTML = sessions.map(s => `<tr>
+      <td><a href="#" class="sess-link" data-id="${attr(s.session_id)}">${esc(truncate(s.session_id, 20))}</a></td>
+      <td>${esc(truncate(s.goal || '', 60))}</td>
+      <td>${esc(s.status)}</td>
+      <td>${fmtDate(s.created_at)}</td>
+    </tr>`).join('');
+    $$('.sess-link', tbody).forEach(a => a.onclick = (e) => { e.preventDefault(); showSessionDetail(a.dataset.id); });
+  } catch (err) { toast(err.message, 'error'); }
+};
+
+async function showSessionDetail(id) {
+  const panel = $('#panel-sessions');
+  panel.innerHTML = `<div class="card"><span class="detail-back" id="sess-back">&larr; Back to sessions</span><div class="spinner"></div></div>`;
+  $('#sess-back').onclick = () => renderers.sessions();
+
+  try {
+    const sess = await api.getSession(id);
+    panel.innerHTML = `
+      <div class="card">
+        <span class="detail-back" id="sess-back2">&larr; Back to sessions</span>
+        <h2>Session Detail</h2>
+        <dl class="detail-meta">
+          <dt>ID</dt><dd>${esc(sess.session_id)}</dd>
+          <dt>Goal</dt><dd>${esc(sess.goal)}</dd>
+          <dt>Status</dt><dd>${esc(sess.status)}</dd>
+          <dt>Constraints</dt><dd>${esc(JSON.stringify(sess.constraints || {}))}</dd>
+          <dt>Budget</dt><dd>${esc(JSON.stringify(sess.budget || {}))}</dd>
+          <dt>Policy</dt><dd>${esc(JSON.stringify(sess.policy || {}))}</dd>
+          <dt>Created</dt><dd>${fmtDate(sess.created_at)}</dd>
+        </dl>
+        <div style="display:flex;gap:8px;margin-bottom:16px;">
+          <button class="btn btn-primary" id="sess-run-workflow">Run Watch-Time Workflow</button>
+        </div>
+      </div>
+      <!-- Run Step -->
+      <div class="card">
+        <h2>Run Step</h2>
+        <div class="inline-form">
+          <div class="form-group"><label>Step Type</label>
+            <select id="sess-step-type">
+              <option value="compare_watch_time">compare_watch_time</option>
+              <option value="analyze_qoe">analyze_qoe</option>
+              <option value="analyze_ads">analyze_ads</option>
+              <option value="analyze_recommendation">analyze_recommendation</option>
+              <option value="synthesize_findings">synthesize_findings</option>
+              <option value="compare_metric">compare_metric</option>
+              <option value="profile_table">profile_table</option>
+              <option value="sample_rows">sample_rows</option>
+            </select>
+          </div>
+          <button class="btn btn-primary" id="sess-run-step-btn">Run</button>
+        </div>
+        <div class="form-group"><label>Params (JSON)</label><textarea id="sess-step-params" style="min-height:60px;">{}</textarea></div>
+        <div id="sess-step-result"></div>
+      </div>`;
+
+    $('#sess-back2').onclick = () => renderers.sessions();
+
+    $('#sess-run-workflow').onclick = async () => {
+      const btn = $('#sess-run-workflow');
+      btn.disabled = true;
+      btn.textContent = 'Running...';
+      try {
+        const result = await api.runWorkflow(id);
+        toast('Workflow completed');
+        const area = $('#sess-step-result');
+        area.innerHTML = '<h3 style="font-size:14px;margin:12px 0 8px;">Workflow Result</h3>' + jsonPre(result);
+      } catch (err) { toast(err.message, 'error'); }
+      btn.disabled = false;
+      btn.textContent = 'Run Watch-Time Workflow';
+    };
+
+    $('#sess-run-step-btn').onclick = async () => {
+      const stepType = $('#sess-step-type').value;
+      const paramsText = $('#sess-step-params').value.trim();
+      const params = parseJSON(paramsText, {});
+      const area = $('#sess-step-result');
+      area.innerHTML = '<span class="spinner"></span>';
+      try {
+        const result = await api.runStep(id, stepType, params);
+        area.innerHTML = '<h3 style="font-size:14px;margin:12px 0 8px;">Step Result</h3>' + jsonPre(result);
+        toast('Step completed');
+      } catch (err) { area.innerHTML = ''; toast(err.message, 'error'); }
+    };
+  } catch (err) { toast(err.message, 'error'); renderers.sessions(); }
+}
+
+// ════════════════════════════════════════════════════════════
+// ── Evidence Tab ───────────────────────────────────────────
+// ════════════════════════════════════════════════════════════
+renderers.evidence = async () => {
+  const panel = $('#panel-evidence');
+  panel.innerHTML = `
+    <div class="card">
+      <h2>Load Evidence</h2>
+      <div class="inline-form">
+        <div class="form-group"><label>Session</label><select id="ev-session-select"><option value="">Loading sessions...</option></select></div>
+        <button class="btn btn-primary" id="ev-load-btn">Load</button>
+      </div>
+    </div>
+    <div id="ev-content"></div>`;
+
+  // Populate session dropdown
+  try {
+    const sessions = await api.listSessions();
+    const sel = $('#ev-session-select');
+    if (!sessions.length) { sel.innerHTML = '<option value="">No sessions available</option>'; return; }
+    sel.innerHTML = '<option value="">-- select session --</option>' + sessions.map(s =>
+      `<option value="${attr(s.session_id)}">${esc(truncate(s.session_id, 16))} - ${esc(truncate(s.goal || '', 40))}</option>`
+    ).join('');
+  } catch (err) { toast(err.message, 'error'); }
+
+  $('#ev-load-btn').onclick = async () => {
+    const sessionId = $('#ev-session-select').value;
+    if (!sessionId) { toast('Select a session', 'error'); return; }
+    const area = $('#ev-content');
+    area.innerHTML = '<div class="card"><span class="spinner"></span></div>';
+    try {
+      const ev = await api.getEvidence(sessionId);
+      renderEvidence(area, ev);
+    } catch (err) { area.innerHTML = ''; toast(err.message, 'error'); }
+  };
+};
+
+function renderEvidence(area, ev) {
+  const steps = ev.steps || [];
+  const observations = ev.observations || [];
+  const claims = ev.claims || [];
+  const recommendations = ev.recommendations || [];
+  const edges = ev.edges || [];
+
+  let html = '';
+
+  // Steps
+  html += `<div class="card"><h2>Steps (${steps.length})</h2>`;
+  if (steps.length) {
+    html += `<table><thead><tr><th>ID</th><th>Type</th><th>Status</th><th>Provenance</th></tr></thead><tbody>${
+      steps.map(s => `<tr>
+        <td>${esc(truncate(s.step_id || '', 20))}</td>
+        <td>${esc(s.step_type || '')}</td>
+        <td>${esc(s.status || '')}</td>
+        <td><code style="font-size:12px;">${esc(truncate(JSON.stringify(s.provenance || s.provenance_json || {}), 80))}</code></td>
+      </tr>`).join('')
+    }</tbody></table>`;
+  } else { html += '<p class="empty">No steps.</p>'; }
+  html += '</div>';
+
+  // Observations
+  html += `<div class="card"><h2>Observations (${observations.length})</h2>`;
+  if (observations.length) {
+    html += `<table><thead><tr><th>ID</th><th>Type</th><th>Metric</th><th>Slice</th><th>Significance</th></tr></thead><tbody>${
+      observations.map(o => `<tr>
+        <td>${esc(truncate(o.observation_id || '', 20))}</td>
+        <td>${esc(o.observation_type || '')}</td>
+        <td>${esc(o.metric || '')}</td>
+        <td>${esc(o.slice || o.dimension_slice || '')}</td>
+        <td>${esc(o.significance || '')}</td>
+      </tr>`).join('')
+    }</tbody></table>`;
+  } else { html += '<p class="empty">No observations.</p>'; }
+  html += '</div>';
+
+  // Claims
+  html += `<div class="card"><h2>Claims (${claims.length})</h2>`;
+  if (claims.length) {
+    html += `<table><thead><tr><th>ID</th><th>Type</th><th>Text</th><th>Confidence</th><th>Status</th></tr></thead><tbody>${
+      claims.map(c => `<tr>
+        <td>${esc(truncate(c.claim_id || '', 20))}</td>
+        <td>${esc(c.claim_type || '')}</td>
+        <td>${esc(truncate(c.claim_text || '', 60))}</td>
+        <td>${esc(c.confidence != null ? (typeof c.confidence === 'number' ? c.confidence.toFixed(2) : c.confidence) : '')}</td>
+        <td>${esc(c.status || '')}</td>
+      </tr>`).join('')
+    }</tbody></table>`;
+  } else { html += '<p class="empty">No claims.</p>'; }
+  html += '</div>';
+
+  // Recommendations
+  html += `<div class="card"><h2>Recommendations (${recommendations.length})</h2>`;
+  if (recommendations.length) {
+    html += `<table><thead><tr><th>ID</th><th>Action</th><th>Priority</th><th>Risk</th><th>Impact</th></tr></thead><tbody>${
+      recommendations.map(r => `<tr>
+        <td>${esc(truncate(r.recommendation_id || '', 20))}</td>
+        <td>${esc(truncate(r.action || '', 60))}</td>
+        <td>${priorityBadge(r.priority || '')}</td>
+        <td>${esc(r.risk || '')}</td>
+        <td>${esc(truncate(r.expected_impact || r.impact || '', 60))}</td>
+      </tr>`).join('')
+    }</tbody></table>`;
+  } else { html += '<p class="empty">No recommendations.</p>'; }
+  html += '</div>';
+
+  // Edges (collapsible)
+  html += `<div class="card">
+    <h2 class="collapsible-toggle" id="ev-edges-toggle">Edges (${edges.length})</h2>
+    <div class="collapsible-body" id="ev-edges-body">`;
+  if (edges.length) {
+    html += `<table><thead><tr><th>From</th><th>To</th><th>Type</th><th>Weight</th></tr></thead><tbody>${
+      edges.map(e => `<tr>
+        <td>${esc(truncate(e.from_id || '', 20))}</td>
+        <td>${esc(truncate(e.to_id || '', 20))}</td>
+        <td>${esc(e.edge_type || '')}</td>
+        <td>${esc(e.weight != null ? e.weight : '')}</td>
+      </tr>`).join('')
+    }</tbody></table>`;
+  } else { html += '<p class="empty">No edges.</p>'; }
+  html += '</div></div>';
+
+  area.innerHTML = html;
+
+  // Wire up collapsible
+  const toggle = $('#ev-edges-toggle');
+  const body = $('#ev-edges-body');
+  if (toggle && body) {
+    toggle.onclick = () => {
+      toggle.classList.toggle('open');
+      body.classList.toggle('open');
+    };
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+// ── Plans Tab ──────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════
+let plansSessionId = '';
+
+renderers.plans = async () => {
+  const panel = $('#panel-plans');
+  panel.innerHTML = `
+    <div class="card">
+      <h2>Plans</h2>
+      <div class="inline-form">
+        <div class="form-group"><label>Session</label><select id="plans-session-select"><option value="">Loading sessions...</option></select></div>
+        <button class="btn btn-primary" id="plans-load-btn">Load</button>
+        <button class="btn btn-primary" id="plans-draft-btn" disabled>+ Draft Plan</button>
+      </div>
+    </div>
+    <div id="plans-content"></div>`;
+
+  // Populate session dropdown
+  try {
+    const sessions = await api.listSessions();
+    const sel = $('#plans-session-select');
+    if (!sessions.length) { sel.innerHTML = '<option value="">No sessions available</option>'; return; }
+    sel.innerHTML = '<option value="">-- select session --</option>' + sessions.map(s =>
+      `<option value="${attr(s.session_id)}">${esc(truncate(s.session_id, 16))} - ${esc(truncate(s.goal || '', 40))}</option>`
+    ).join('');
+  } catch (err) { toast(err.message, 'error'); }
+
+  $('#plans-load-btn').onclick = async () => {
+    const sessionId = $('#plans-session-select').value;
+    if (!sessionId) { toast('Select a session', 'error'); return; }
+    plansSessionId = sessionId;
+    $('#plans-draft-btn').disabled = false;
+    await loadPlans(sessionId);
+  };
+
+  $('#plans-draft-btn').onclick = () => {
+    if (!plansSessionId) { toast('Select a session first', 'error'); return; }
+    openDraftPlanModal(plansSessionId);
+  };
+};
+
+async function loadPlans(sessionId) {
+  const area = $('#plans-content');
+  area.innerHTML = '<div class="card"><span class="spinner"></span></div>';
+  try {
+    const plans = await api.listPlans(sessionId);
+    if (!plans.length) { area.innerHTML = '<div class="card"><p class="empty">No plans for this session.</p></div>'; return; }
+    area.innerHTML = `<div class="card">
+      <table><thead><tr><th>Plan ID</th><th>Status</th><th>Steps</th><th>Created</th></tr></thead><tbody>${
+        plans.map(p => `<tr>
+          <td><a href="#" class="plan-link" data-id="${attr(p.plan_id)}">${esc(truncate(p.plan_id, 20))}</a></td>
+          <td>${esc(p.status)}</td>
+          <td>${(p.steps || []).length}</td>
+          <td>${fmtDate(p.created_at)}</td>
+        </tr>`).join('')
+      }</tbody></table></div>`;
+    $$('.plan-link', area).forEach(a => a.onclick = (e) => { e.preventDefault(); showPlanDetail(sessionId, a.dataset.id); });
+  } catch (err) { area.innerHTML = ''; toast(err.message, 'error'); }
+}
+
+function openDraftPlanModal(sessionId) {
+  const stepTypes = ['compare_watch_time', 'analyze_qoe', 'analyze_ads', 'analyze_recommendation', 'synthesize_findings', 'compare_metric', 'profile_table', 'sample_rows'];
+  const stepOpts = stepTypes.map(t => `<option value="${t}">${t}</option>`).join('');
+  const draftSteps = [];
+
+  openModal('Draft Plan',
+    `<div class="form-group"><label>Step Type</label><select id="f-plan-step-type">${stepOpts}</select></div>
+     <div class="form-group"><label>Params (JSON)</label><textarea id="f-plan-step-params" style="min-height:60px;">{}</textarea></div>
+     <div class="form-group"><label>Dependencies (comma-separated step indices, e.g. 0,1)</label><input id="f-plan-step-deps" placeholder=""></div>
+     <button class="btn btn-sm" id="f-plan-add-step" type="button">Add Step</button>
+     <div id="f-plan-steps-list" style="margin-top:12px;"></div>`,
+    `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" id="f-plan-submit">Submit Plan</button>`);
+
+  function renderStepsList() {
+    const list = $('#f-plan-steps-list');
+    if (!draftSteps.length) { list.innerHTML = '<p class="empty">No steps added yet.</p>'; return; }
+    list.innerHTML = draftSteps.map((s, i) => {
+      const deps = s.dependencies && s.dependencies.length ? ` (deps: ${s.dependencies.join(', ')})` : '';
+      return `<div class="step-list-item">
+        <span class="step-info"><strong>[${i}]</strong> ${esc(s.step_type)}${deps}${s.params && Object.keys(s.params).length ? ' - ' + esc(truncate(JSON.stringify(s.params), 40)) : ''}</span>
+        <span class="step-remove" data-idx="${i}">&times;</span>
+      </div>`;
+    }).join('');
+    $$('.step-remove', list).forEach(btn => {
+      btn.onclick = () => { draftSteps.splice(parseInt(btn.dataset.idx, 10), 1); renderStepsList(); };
+    });
+  }
+
+  renderStepsList();
+
+  $('#f-plan-add-step').onclick = () => {
+    const stepType = $('#f-plan-step-type').value;
+    const params = parseJSON($('#f-plan-step-params').value, {});
+    const depsStr = $('#f-plan-step-deps').value.trim();
+    const dependencies = depsStr ? depsStr.split(',').map(d => parseInt(d.trim(), 10)).filter(n => !isNaN(n)) : [];
+    const step = { step_type: stepType };
+    if (Object.keys(params).length) step.params = params;
+    if (dependencies.length) step.dependencies = dependencies;
+    draftSteps.push(step);
+    renderStepsList();
+    // Reset inputs
+    $('#f-plan-step-params').value = '{}';
+    $('#f-plan-step-deps').value = '';
+  };
+
+  $('#f-plan-submit').onclick = async () => {
+    if (!draftSteps.length) { toast('Add at least one step', 'error'); return; }
+    try {
+      await api.draftPlan(sessionId, draftSteps);
+      toast('Plan drafted');
+      closeModal();
+      loadPlans(sessionId);
+    } catch (err) { toast(err.message, 'error'); }
+  };
+}
+
+async function showPlanDetail(sessionId, planId) {
+  const area = $('#plans-content');
+  area.innerHTML = '<div class="card"><span class="spinner"></span></div>';
+  try {
+    const plan = await api.getPlan(sessionId, planId);
+    const steps = plan.steps || [];
+    const status = plan.status || '';
+
+    let actionsHtml = '';
+    if (status === 'draft') {
+      actionsHtml = `<button class="btn btn-primary" id="plan-validate-btn">Validate</button>`;
+    } else if (status === 'validated') {
+      actionsHtml = `<button class="btn btn-success" id="plan-approve-btn">Approve</button>`;
+    } else if (status === 'approved') {
+      actionsHtml = `<button class="btn btn-primary" id="plan-execute-btn">Execute</button>
+        <button class="btn" id="plan-estimate-btn">Estimate Costs</button>
+        <button class="btn" id="plan-budget-btn">Budget Check</button>`;
+    } else if (status === 'completed' || status === 'failed') {
+      actionsHtml = `<button class="btn" id="plan-explain-btn">Explain</button>`;
+    }
+
+    area.innerHTML = `
+      <div class="card">
+        <span class="detail-back" id="plan-back">&larr; Back to plans</span>
+        <h2>Plan Detail</h2>
+        <dl class="detail-meta">
+          <dt>Plan ID</dt><dd>${esc(plan.plan_id)}</dd>
+          <dt>Status</dt><dd>${esc(status)}</dd>
+          <dt>Created</dt><dd>${fmtDate(plan.created_at)}</dd>
+        </dl>
+        <div style="display:flex;gap:8px;margin-bottom:16px;">${actionsHtml}</div>
+      </div>
+      <div class="card">
+        <h2>Steps (${steps.length})</h2>
+        ${steps.length ? `<table><thead><tr><th>Step Type</th><th>Params</th><th>Dependencies</th><th>Status</th></tr></thead><tbody>${
+          steps.map(s => `<tr>
+            <td>${esc(s.step_type)}</td>
+            <td><code style="font-size:12px;">${esc(truncate(JSON.stringify(s.params || {}), 60))}</code></td>
+            <td>${(s.dependencies || []).join(', ') || '-'}</td>
+            <td>${esc(s.status || '')}</td>
+          </tr>`).join('')
+        }</tbody></table>` : '<p class="empty">No steps.</p>'}
+      </div>
+      <div id="plan-action-result"></div>`;
+
+    $('#plan-back').onclick = () => loadPlans(sessionId);
+
+    const resultArea = $('#plan-action-result');
+
+    const validateBtn = $('#plan-validate-btn');
+    if (validateBtn) validateBtn.onclick = async () => {
+      try { await api.validatePlan(sessionId, planId); toast('Plan validated'); showPlanDetail(sessionId, planId); } catch (err) { toast(err.message, 'error'); }
+    };
+
+    const approveBtn = $('#plan-approve-btn');
+    if (approveBtn) approveBtn.onclick = async () => {
+      try { await api.approvePlan(sessionId, planId); toast('Plan approved'); showPlanDetail(sessionId, planId); } catch (err) { toast(err.message, 'error'); }
+    };
+
+    const executeBtn = $('#plan-execute-btn');
+    if (executeBtn) executeBtn.onclick = async () => {
+      executeBtn.disabled = true;
+      executeBtn.textContent = 'Executing...';
+      try {
+        const r = await api.executePlan(sessionId, planId);
+        toast('Plan executed');
+        resultArea.innerHTML = '<div class="card"><h2>Execution Result</h2>' + jsonPre(r) + '</div>';
+        showPlanDetail(sessionId, planId);
+      } catch (err) {
+        toast(err.message, 'error');
+        executeBtn.disabled = false;
+        executeBtn.textContent = 'Execute';
+      }
+    };
+
+    const estimateBtn = $('#plan-estimate-btn');
+    if (estimateBtn) estimateBtn.onclick = async () => {
+      try { const r = await api.estimateCosts(sessionId, planId); resultArea.innerHTML = '<div class="card"><h2>Cost Estimate</h2>' + jsonPre(r) + '</div>'; } catch (err) { toast(err.message, 'error'); }
+    };
+
+    const budgetBtn = $('#plan-budget-btn');
+    if (budgetBtn) budgetBtn.onclick = async () => {
+      try { const r = await api.budgetCheck(sessionId, planId); resultArea.innerHTML = '<div class="card"><h2>Budget Check</h2>' + jsonPre(r) + '</div>'; } catch (err) { toast(err.message, 'error'); }
+    };
+
+    const explainBtn = $('#plan-explain-btn');
+    if (explainBtn) explainBtn.onclick = async () => {
+      try { const r = await api.explainPlan(sessionId, planId); resultArea.innerHTML = '<div class="card"><h2>Plan Explanation</h2>' + jsonPre(r) + '</div>'; } catch (err) { toast(err.message, 'error'); }
+    };
+  } catch (err) { area.innerHTML = ''; toast(err.message, 'error'); }
+}
+
+// ════════════════════════════════════════════════════════════
+// ── Jobs Tab ───────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════
+let jobsAutoRefreshTimer = null;
+
+renderers.jobs = async () => {
+  if (jobsAutoRefreshTimer) { clearInterval(jobsAutoRefreshTimer); jobsAutoRefreshTimer = null; }
+
+  const panel = $('#panel-jobs');
+  panel.innerHTML = `
+    <div class="card">
+      <div class="toolbar">
+        <h2>Jobs</h2>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <label class="checkbox-label"><input type="checkbox" id="jobs-auto-refresh"> Auto-refresh (5s)</label>
+          <button class="btn btn-primary" id="jobs-submit-btn">+ Submit Job</button>
+        </div>
+      </div>
+      <div class="inline-form">
+        <div class="form-group"><label>Status</label>
+          <select id="jobs-filter-status">
+            <option value="">All</option>
+            <option value="pending">pending</option>
+            <option value="running">running</option>
+            <option value="completed">completed</option>
+            <option value="failed">failed</option>
+            <option value="cancelled">cancelled</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Session ID</label><input id="jobs-filter-session" placeholder="sess_..." style="width:200px;"></div>
+        <button class="btn" id="jobs-filter-btn">Filter</button>
+      </div>
+      <table><thead><tr><th>Job ID</th><th>Session</th><th>Type</th><th>Status</th><th>Submitted</th><th>Actions</th></tr></thead>
+      <tbody id="jobs-tbody">${loadingRow(6)}</tbody></table>
+    </div>`;
+
+  async function loadJobs() {
+    const params = {};
+    const status = $('#jobs-filter-status').value;
+    const sessionId = $('#jobs-filter-session').value.trim();
+    if (status) params.status = status;
+    if (sessionId) params.session_id = sessionId;
+    const tbody = $('#jobs-tbody');
+    try {
+      const jobs = await api.listJobs(Object.keys(params).length ? params : null);
+      if (!jobs.length) { tbody.innerHTML = `<tr><td colspan="6" class="empty">No jobs found.</td></tr>`; return; }
+      tbody.innerHTML = jobs.map(j => {
+        const canCancel = j.status === 'pending' || j.status === 'running';
+        return `<tr>
+          <td><a href="#" class="job-link" data-id="${attr(j.job_id)}">${esc(truncate(j.job_id || '', 20))}</a></td>
+          <td>${esc(truncate(j.session_id || '', 16))}</td>
+          <td>${esc(j.job_type || '')}</td>
+          <td>${esc(j.status || '')}</td>
+          <td>${fmtDate(j.submitted_at || j.created_at)}</td>
+          <td>${canCancel ? `<button class="btn btn-sm btn-danger cancel-job" data-id="${attr(j.job_id)}">Cancel</button>` : ''}</td>
+        </tr>`;
+      }).join('');
+      $$('.cancel-job', tbody).forEach(btn => btn.onclick = async () => {
+        try { await api.cancelJob(btn.dataset.id); toast('Job cancelled'); loadJobs(); } catch (err) { toast(err.message, 'error'); }
+      });
+      $$('.job-link', tbody).forEach(a => a.onclick = async (e) => {
+        e.preventDefault();
+        try {
+          const job = await api.getJob(a.dataset.id);
+          openModal('Job Detail', jsonPre(job), `<button class="btn" onclick="closeModal()">Close</button>`);
+        } catch (err) { toast(err.message, 'error'); }
+      });
+    } catch (err) { tbody.innerHTML = `<tr><td colspan="6" class="empty">Error: ${esc(err.message)}</td></tr>`; }
+  }
+
+  $('#jobs-filter-btn').onclick = loadJobs;
+
+  // Auto-refresh toggle
+  $('#jobs-auto-refresh').onchange = (e) => {
+    if (e.target.checked) {
+      jobsAutoRefreshTimer = setInterval(loadJobs, 5000);
+    } else {
+      if (jobsAutoRefreshTimer) { clearInterval(jobsAutoRefreshTimer); jobsAutoRefreshTimer = null; }
+    }
+  };
+
+  // Submit Job modal
+  $('#jobs-submit-btn').onclick = () => {
+    openModal('Submit Job',
+      `<div class="form-group"><label>Session ID</label><input id="f-job-session" placeholder="sess_..."></div>
+       <div class="form-group"><label>Job Type</label>
+         <select id="f-job-type">
+           <option value="step">step</option>
+           <option value="workflow">workflow</option>
+           <option value="plan">plan</option>
+         </select>
+       </div>
+       <div class="form-group"><label>Payload (JSON)</label><textarea id="f-job-payload">{}</textarea></div>`,
+      `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" id="f-job-submit">Submit</button>`);
+    $('#f-job-submit').onclick = async () => {
+      try {
+        const session_id = $('#f-job-session').value.trim();
+        if (!session_id) throw new Error('Session ID is required');
+        const job_type = $('#f-job-type').value;
+        const payload = parseJSON($('#f-job-payload').value, {});
+        await api.submitJob({ session_id, job_type, payload });
+        toast('Job submitted');
+        closeModal();
+        loadJobs();
+      } catch (err) { toast(err.message, 'error'); }
+    };
+  };
+
+  // Initial load
+  loadJobs();
+};
+
+// ── Boot ───────────────────────────────────────────────────
+renderers.catalog();
+</script>
+</body>
+</html>

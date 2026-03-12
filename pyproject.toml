@@ -1,0 +1,29 @@
+[project]
+name = "omnidb"
+version = "0.2.0"
+description = "Semantic layer platform with pluggable metadata stores, analytics engines, and catalog adapters."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "duckdb>=1.2.2",
+    "fastapi>=0.115.0",
+    "httpx>=0.28.0",
+    "mcp[cli]>=1.6.0",
+    "pydantic>=2.9.0",
+    "pyyaml>=6.0",
+    "uvicorn>=0.32.0",
+]
+
+[project.optional-dependencies]
+hive = ["hmsclient>=0.1.1"]
+trino = ["trino>=0.330"]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[project.scripts]
+omnidb-mcp = "app.mcp_server:main"

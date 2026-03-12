@@ -1,0 +1,152 @@
+Metadata-Version: 2.4
+Name: duckdb-agentic-mvp
+Version: 0.1.0
+Summary: DuckDB-backed MVP for semantic-layer style analytics and evidence packaging.
+Requires-Python: >=3.12
+Description-Content-Type: text/markdown
+Requires-Dist: duckdb>=1.2.2
+Requires-Dist: fastapi>=0.115.0
+Requires-Dist: httpx>=0.28.0
+Requires-Dist: mcp[cli]>=1.6.0
+Requires-Dist: pydantic>=2.9.0
+Requires-Dist: uvicorn>=0.32.0
+
+# DuckDB Agentic Analytics MVP
+
+This repository contains a greenfield MVP that demonstrates a DuckDB-backed semantic-layer style service for investigating a video watch-time drop.
+
+## What the MVP includes
+
+- A local DuckDB database seeded with demo watch, QoE, ad, and recommendation data.
+- A FastAPI service that exposes:
+  - session creation
+  - catalog discovery
+  - step execution
+  - a full watch-time-drop workflow
+  - evidence graph retrieval
+- Deterministic evidence packaging that converts SQL results into:
+  - observations
+  - claims
+  - support / contradiction edges
+  - recommendations
+
+## Quick start
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .
+uvicorn app.main:app --reload
+```
+
+The service will create `data/mvp.duckdb` on first start and seed it automatically.
+
+## Example flow
+
+Create a session:
+
+```bash
+curl -s http://127.0.0.1:8000/sessions \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "goal": "Investigate why video watch time dropped over the last two weeks."
+  }'
+```
+
+Discover the semantic catalog:
+
+```bash
+curl -s http://127.0.0.1:8000/catalog | python3 -m json.tool
+```
+
+Run the end-to-end workflow:
+
+```bash
+curl -s http://127.0.0.1:8000/sessions/<session_id>/workflow/watch-time-drop \
+  -X POST | python3 -m json.tool
+```
+
+Fetch the evidence graph:
+
+```bash
+curl -s http://127.0.0.1:8000/sessions/<session_id>/evidence | python3 -m json.tool
+```
+
+## Endpoints
+
+- `GET /health`
+- `POST /sessions`
+- `GET /catalog`
+- `POST /sessions/{session_id}/steps/{step_type}`
+- `POST /sessions/{session_id}/workflow/watch-time-drop`
+- `GET /sessions/{session_id}/evidence`
+
+Supported step types:
+
+- `compare_watch_time`
+- `analyze_qoe`
+- `analyze_ads`
+- `analyze_recommendation`
+- `synthesize_findings`
+
+## MCP wrapper
+
+The project now includes a local stdio MCP wrapper that proxies the FastAPI service on `localhost:8000`.
+
+### Start the FastAPI service
+
+```bash
+uvicorn app.main:app --reload
+```
+
+### Start the MCP server
+
+In another terminal:
+
+```bash
+source .venv/bin/activate
+omnidb-mcp
+```
+
+By default the wrapper targets `http://127.0.0.1:8000`. To point at a different instance:
+
+```bash
+export OMNIDB_API_BASE_URL=http://127.0.0.1:8000
+omnidb-mcp
+```
+
+Optional environment variables:
+
+- `OMNIDB_API_BASE_URL` - FastAPI base URL
+- `OMNIDB_API_TIMEOUT` - HTTP timeout in seconds
+- `OMNIDB_MCP_TRANSPORT` - MCP transport, defaults to `stdio`
+
+### Example Claude Code / Copilot CLI registration
+
+Once the FastAPI service is running, register the MCP wrapper with your client using the local command:
+
+```bash
+claude mcp add omnidb -- omnidb-mcp
+```
+
+The wrapper exposes these MCP tools:
+
+- `omnidb_get_health`
+- `omnidb_get_catalog`
+- `omnidb_create_session`
+- `omnidb_run_step`
+- `omnidb_run_watch_time_workflow`
+- `omnidb_get_evidence`
+
+## Implementation notes
+
+- DuckDB stores both demo analytical data and control-plane evidence tables.
+- The service deliberately uses deterministic heuristics for observation extraction and confidence scoring.
+- LLM-style behavior is represented by structured claim synthesis and evidence packaging rather than free-form SQL generation.
+
+## Running tests
+
+```bash
+python3 -m unittest discover -s tests -v
+```

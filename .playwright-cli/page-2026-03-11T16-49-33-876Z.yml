@@ -1,0 +1,123 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - heading "OmniDB Analytics" [level=1] [ref=e3]
+    - generic [ref=e4]:
+      - button "Catalog" [ref=e5] [cursor=pointer]
+      - button "Sessions" [ref=e6] [cursor=pointer]
+      - button "Evidence" [ref=e7] [cursor=pointer]
+      - button "Plans" [ref=e8] [cursor=pointer]
+      - button "Jobs" [ref=e9] [cursor=pointer]
+    - link "← Admin UI" [ref=e10] [cursor=pointer]:
+      - /url: /admin
+  - generic [ref=e12]:
+    - generic [ref=e13]:
+      - heading "Search Catalog" [level=2] [ref=e14]
+      - generic [ref=e15]:
+        - generic [ref=e16]:
+          - generic [ref=e17]: Query
+          - textbox "e.g. watch_time" [ref=e18]
+        - generic [ref=e19]:
+          - generic [ref=e20]: Type
+          - combobox [ref=e21]:
+            - option "All" [selected]
+            - option "entity"
+            - option "metric"
+            - option "asset"
+        - button "Search" [ref=e22] [cursor=pointer]
+    - generic [ref=e23]:
+      - heading "Resolve Term" [level=2] [ref=e24]
+      - generic [ref=e25]:
+        - generic [ref=e26]:
+          - generic [ref=e27]: Term Name
+          - textbox "e.g. watch_time" [ref=e28]
+        - button "Resolve" [ref=e29] [cursor=pointer]
+    - generic [ref=e30]:
+      - heading "Catalog Graph" [level=2] [ref=e31]
+      - generic [ref=e32]:
+        - generic [ref=e33]:
+          - generic [ref=e34]: Root ID
+          - textbox "ent_... or met_..." [ref=e35]
+        - generic [ref=e36]:
+          - generic [ref=e37]: Depth
+          - spinbutton [ref=e38]: "2"
+        - button "Load" [ref=e39] [cursor=pointer]
+    - generic [ref=e40]:
+      - heading "Catalog Overview" [level=2] [ref=e41]
+      - generic [ref=e42]:
+        - heading "Entities (3)" [level=3] [ref=e43]
+        - table [ref=e44]:
+          - rowgroup [ref=e45]:
+            - row "Name Display Name Status Description" [ref=e46]:
+              - columnheader "Name" [ref=e47]
+              - columnheader "Display Name" [ref=e48]
+              - columnheader "Status" [ref=e49]
+              - columnheader "Description" [ref=e50]
+          - rowgroup [ref=e51]:
+            - row [ref=e52]:
+              - cell [ref=e53]
+              - cell [ref=e54]
+              - cell [ref=e55]
+              - cell [ref=e56]
+            - row [ref=e57]:
+              - cell [ref=e58]
+              - cell [ref=e59]
+              - cell [ref=e60]
+              - cell [ref=e61]
+            - row [ref=e62]:
+              - cell [ref=e63]
+              - cell [ref=e64]
+              - cell [ref=e65]
+              - cell [ref=e66]
+        - heading "Metrics (4)" [level=3] [ref=e67]
+        - table [ref=e68]:
+          - rowgroup [ref=e69]:
+            - row "Name Display Name Status Description" [ref=e70]:
+              - columnheader "Name" [ref=e71]
+              - columnheader "Display Name" [ref=e72]
+              - columnheader "Status" [ref=e73]
+              - columnheader "Description" [ref=e74]
+          - rowgroup [ref=e75]:
+            - row [ref=e76]:
+              - cell [ref=e77]
+              - cell [ref=e78]
+              - cell [ref=e79]
+              - cell [ref=e80]
+            - row [ref=e81]:
+              - cell [ref=e82]
+              - cell [ref=e83]
+              - cell [ref=e84]
+              - cell [ref=e85]
+            - row [ref=e86]:
+              - cell [ref=e87]
+              - cell [ref=e88]
+              - cell [ref=e89]
+              - cell [ref=e90]
+            - row [ref=e91]:
+              - cell [ref=e92]
+              - cell [ref=e93]
+              - cell [ref=e94]
+              - cell [ref=e95]
+        - heading "Assets (4)" [level=3] [ref=e96]
+        - table [ref=e97]:
+          - rowgroup [ref=e98]:
+            - row "Name Type FQN" [ref=e99]:
+              - columnheader "Name" [ref=e100]
+              - columnheader "Type" [ref=e101]
+              - columnheader "FQN" [ref=e102]
+          - rowgroup [ref=e103]:
+            - row [ref=e104]:
+              - cell [ref=e105]
+              - cell [ref=e106]
+              - cell [ref=e107]
+            - row [ref=e108]:
+              - cell [ref=e109]
+              - cell [ref=e110]
+              - cell [ref=e111]
+            - row [ref=e112]:
+              - cell [ref=e113]
+              - cell [ref=e114]
+              - cell [ref=e115]
+            - row [ref=e116]:
+              - cell [ref=e117]
+              - cell [ref=e118]
+              - cell [ref=e119]
