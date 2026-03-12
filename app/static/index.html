@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OmniDB Admin</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #1a1a1a; background: #f5f6f8; line-height: 1.5; }
+a { color: #2563eb; text-decoration: none; }
+
+/* Layout */
+.header { background: #fff; border-bottom: 1px solid #e2e4e9; padding: 0 24px; display: flex; align-items: center; height: 56px; }
+.header h1 { font-size: 18px; font-weight: 600; margin-right: 32px; }
+.tabs { display: flex; gap: 4px; }
+.tab-btn { padding: 8px 16px; border: none; background: none; cursor: pointer; font-size: 14px; border-radius: 6px 6px 0 0; color: #555; position: relative; bottom: -1px; border-bottom: 2px solid transparent; }
+.tab-btn:hover { color: #1a1a1a; background: #f0f1f3; }
+.tab-btn.active { color: #2563eb; border-bottom-color: #2563eb; font-weight: 500; }
+
+.main { max-width: 1200px; margin: 24px auto; padding: 0 24px; }
+.panel { display: none; }
+.panel.active { display: block; }
+
+/* Cards & Tables */
+.card { background: #fff; border: 1px solid #e2e4e9; border-radius: 8px; padding: 20px; margin-bottom: 16px; }
+.card h2 { font-size: 16px; font-weight: 600; margin-bottom: 12px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th { text-align: left; padding: 8px 12px; border-bottom: 2px solid #e2e4e9; font-weight: 500; color: #555; }
+td { padding: 8px 12px; border-bottom: 1px solid #f0f1f3; }
+tr:hover td { background: #fafbfc; }
+.empty { color: #888; font-style: italic; padding: 16px 0; }
+
+/* Buttons */
+.btn { display: inline-flex; align-items: center; gap: 4px; padding: 6px 14px; border: 1px solid #d1d5db; border-radius: 6px; background: #fff; font-size: 13px; cursor: pointer; color: #1a1a1a; }
+.btn:hover { background: #f5f6f8; }
+.btn-primary { background: #2563eb; color: #fff; border-color: #2563eb; }
+.btn-primary:hover { background: #1d4ed8; }
+.btn-danger { color: #dc2626; border-color: #fca5a5; }
+.btn-danger:hover { background: #fef2f2; }
+.btn-sm { padding: 4px 10px; font-size: 12px; }
+
+/* Forms (modal) */
+.modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.3); z-index: 100; justify-content: center; align-items: flex-start; padding-top: 80px; }
+.modal-overlay.open { display: flex; }
+.modal { background: #fff; border-radius: 10px; width: 520px; max-width: 95vw; max-height: 80vh; overflow-y: auto; box-shadow: 0 8px 30px rgba(0,0,0,0.12); }
+.modal-header { padding: 16px 20px; border-bottom: 1px solid #e2e4e9; display: flex; justify-content: space-between; align-items: center; }
+.modal-header h3 { font-size: 15px; font-weight: 600; }
+.modal-close { background: none; border: none; font-size: 20px; cursor: pointer; color: #888; }
+.modal-body { padding: 20px; }
+.modal-footer { padding: 12px 20px; border-top: 1px solid #e2e4e9; display: flex; justify-content: flex-end; gap: 8px; }
+
+.form-group { margin-bottom: 14px; }
+.form-group label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 4px; color: #444; }
+.form-group input, .form-group select, .form-group textarea { width: 100%; padding: 7px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; font-family: inherit; }
+.form-group textarea { min-height: 80px; resize: vertical; }
+
+/* Toast */
+.toast-container { position: fixed; top: 16px; right: 16px; z-index: 200; display: flex; flex-direction: column; gap: 8px; }
+.toast { padding: 10px 16px; border-radius: 8px; font-size: 13px; color: #fff; box-shadow: 0 4px 12px rgba(0,0,0,0.15); animation: slideIn 0.3s ease; }
+.toast.success { background: #16a34a; }
+.toast.error { background: #dc2626; }
+@keyframes slideIn { from { opacity: 0; transform: translateX(40px); } to { opacity: 1; transform: translateX(0); } }
+
+/* Spinner */
+.spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid #d1d5db; border-top-color: #2563eb; border-radius: 50%; animation: spin 0.6s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-row td { text-align: center; padding: 24px; }
+
+/* Detail panel */
+.detail-back { cursor: pointer; color: #2563eb; font-size: 13px; margin-bottom: 12px; display: inline-block; }
+.detail-meta { display: grid; grid-template-columns: 140px 1fr; gap: 4px 12px; font-size: 14px; margin-bottom: 16px; }
+.detail-meta dt { color: #666; font-weight: 500; }
+.detail-meta dd { color: #1a1a1a; }
+
+/* Toolbar */
+.toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.toolbar h2 { margin-bottom: 0; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>OmniDB</h1>
+  <div class="tabs" id="tabs">
+    <button class="tab-btn active" data-tab="sources">Sources</button>
+    <button class="tab-btn" data-tab="engines">Engines</button>
+    <button class="tab-btn" data-tab="bindings">Bindings</button>
+    <button class="tab-btn" data-tab="entities">Entities</button>
+    <button class="tab-btn" data-tab="metrics">Metrics</button>
+  </div>
+</div>
+
+<div class="main">
+  <!-- Sources -->
+  <div class="panel active" id="panel-sources"></div>
+  <!-- Engines -->
+  <div class="panel" id="panel-engines"></div>
+  <!-- Bindings -->
+  <div class="panel" id="panel-bindings"></div>
+  <!-- Entities -->
+  <div class="panel" id="panel-entities"></div>
+  <!-- Metrics -->
+  <div class="panel" id="panel-metrics"></div>
+</div>
+
+<!-- Modal -->
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modal-title"></h3>
+      <button class="modal-close" id="modal-close">&times;</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+    <div class="modal-footer" id="modal-footer"></div>
+  </div>
+</div>
+
+<div class="toast-container" id="toasts"></div>
+
+<script>
+// ── Helpers ────────────────────────────────────────────────
+const $ = (sel, ctx = document) => ctx.querySelector(sel);
+const $$ = (sel, ctx = document) => [...ctx.querySelectorAll(sel)];
+
+const api = {
+  async _fetch(path, opts = {}) {
+    const res = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.detail || `HTTP ${res.status}`);
+    }
+    return res.json();
+  },
+  // Sources
+  listSources: ()         => api._fetch('/sources'),
+  createSource: (d)       => api._fetch('/sources', { method: 'POST', body: JSON.stringify(d) }),
+  getSource: (id)         => api._fetch(`/sources/${id}`),
+  syncSource: (id)        => api._fetch(`/sources/${id}/sync`, { method: 'POST' }),
+  listObjects: (id)       => api._fetch(`/sources/${id}/objects`),
+  // Engines
+  listEngines: ()         => api._fetch('/engines'),
+  createEngine: (d)       => api._fetch('/engines', { method: 'POST', body: JSON.stringify(d) }),
+  getEngine: (id)         => api._fetch(`/engines/${id}`),
+  // Bindings
+  listBindings: ()        => api._fetch('/bindings'),
+  createBinding: (d)      => api._fetch('/bindings', { method: 'POST', body: JSON.stringify(d) }),
+  deleteBinding: (id)     => api._fetch(`/bindings/${id}`, { method: 'DELETE' }),
+  // Entities
+  listEntities: ()        => api._fetch('/semantic/entities'),
+  createEntity: (d)       => api._fetch('/semantic/entities', { method: 'POST', body: JSON.stringify(d) }),
+  updateEntity: (id, d)   => api._fetch(`/semantic/entities/${id}`, { method: 'PUT', body: JSON.stringify(d) }),
+  publishEntity: (id)     => api._fetch(`/semantic/entities/${id}/publish`, { method: 'POST' }),
+  // Metrics
+  listMetrics: ()         => api._fetch('/semantic/metrics'),
+  createMetric: (d)       => api._fetch('/semantic/metrics', { method: 'POST', body: JSON.stringify(d) }),
+  updateMetric: (id, d)   => api._fetch(`/semantic/metrics/${id}`, { method: 'PUT', body: JSON.stringify(d) }),
+  publishMetric: (id)     => api._fetch(`/semantic/metrics/${id}/publish`, { method: 'POST' }),
+  // Mappings
+  listMappings: (params)  => api._fetch('/semantic/mappings' + (params ? '?' + new URLSearchParams(params) : '')),
+  createMapping: (d)      => api._fetch('/semantic/mappings', { method: 'POST', body: JSON.stringify(d) }),
+  deleteMapping: (id)     => api._fetch(`/semantic/mappings/${id}`, { method: 'DELETE' }),
+  // Catalog browsing & selections
+  browseSchemas: (id)          => api._fetch(`/sources/${id}/catalog/schemas`),
+  browseTables: (id, schema)   => api._fetch(`/sources/${id}/catalog/tables?schema=${encodeURIComponent(schema)}`),
+  listSelections: (id)         => api._fetch(`/sources/${id}/sync/selections`),
+  setSelections: (id, selections) => api._fetch(`/sources/${id}/sync/selections`, { method: 'POST', body: JSON.stringify({ selections }) }),
+};
+
+function toast(msg, type = 'success') {
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.textContent = msg;
+  $('#toasts').appendChild(el);
+  setTimeout(() => el.remove(), 3500);
+}
+
+function loadingRow(cols) {
+  return `<tr class="loading-row"><td colspan="${cols}"><span class="spinner"></span></td></tr>`;
+}
+
+// ── Modal ──────────────────────────────────────────────────
+function openModal(title, bodyHtml, footerHtml) {
+  $('#modal-title').textContent = title;
+  $('#modal-body').innerHTML = bodyHtml;
+  $('#modal-footer').innerHTML = footerHtml;
+  $('#modal-overlay').classList.add('open');
+}
+function closeModal() { $('#modal-overlay').classList.remove('open'); }
+$('#modal-close').onclick = closeModal;
+$('#modal-overlay').onclick = (e) => { if (e.target === e.currentTarget) closeModal(); };
+
+// ── Tab switching ──────────────────────────────────────────
+const renderers = {};
+$('#tabs').onclick = (e) => {
+  const btn = e.target.closest('.tab-btn');
+  if (!btn) return;
+  $$('.tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  $$('.panel').forEach(p => p.classList.remove('active'));
+  $(`#panel-${btn.dataset.tab}`).classList.add('active');
+  if (renderers[btn.dataset.tab]) renderers[btn.dataset.tab]();
+};
+
+// ── Sources Tab ────────────────────────────────────────────
+renderers.sources = async () => {
+  const panel = $('#panel-sources');
+  panel.innerHTML = `<div class="card">
+    <div class="toolbar"><h2>Catalog Sources</h2><button class="btn btn-primary" id="add-source">+ Add Source</button></div>
+    <table><thead><tr><th>Name</th><th>Type</th><th>Sync Mode</th><th>Status</th><th>Created</th><th></th></tr></thead>
+    <tbody id="sources-tbody">${loadingRow(6)}</tbody></table></div>`;
+
+  $('#add-source').onclick = () => {
+    openModal('Add Source',
+      `<div class="form-group"><label>Source Type</label><select id="f-src-type"><option value="local">local</option><option value="hive_metastore">hive_metastore</option></select></div>
+       <div class="form-group"><label>Display Name</label><input id="f-src-name" placeholder="My Source"></div>
+       <div class="form-group"><label>Connection (JSON)</label><textarea id="f-src-conn">{}</textarea></div>`,
+      `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" id="f-src-submit">Create</button>`);
+    $('#f-src-submit').onclick = async () => {
+      try {
+        let conn = {};
+        try { conn = JSON.parse($('#f-src-conn').value); } catch { throw new Error('Invalid connection JSON'); }
+        await api.createSource({ source_type: $('#f-src-type').value, display_name: $('#f-src-name').value, connection: conn });
+        toast('Source created');
+        closeModal();
+        renderers.sources();
+      } catch (err) { toast(err.message, 'error'); }
+    };
+  };
+
+  try {
+    const sources = await api.listSources();
+    const tbody = $('#sources-tbody');
+    if (!sources.length) { tbody.innerHTML = `<tr><td colspan="6" class="empty">No sources registered.</td></tr>`; return; }
+    tbody.innerHTML = sources.map(s => {
+      const mode = s.sync_mode || 'all';
+      let actionBtn = '';
+      if (mode === 'by_select') {
+        actionBtn = `<button class="btn btn-sm btn-primary select-tables-btn" data-id="${s.source_id}">Select Tables</button>`;
+      } else if (mode === 'none') {
+        actionBtn = `<button class="btn btn-sm" disabled>Sync</button>`;
+      } else {
+        actionBtn = `<button class="btn btn-sm sync-btn" data-id="${s.source_id}">Sync</button>`;
+      }
+      return `<tr>
+        <td><a href="#" class="src-link" data-id="${s.source_id}">${esc(s.display_name)}</a></td>
+        <td>${esc(s.source_type)}</td><td>${esc(mode)}</td><td>${esc(s.status)}</td>
+        <td>${fmtDate(s.created_at)}</td>
+        <td>${actionBtn}</td>
+      </tr>`;
+    }).join('');
+    $$('.src-link', tbody).forEach(a => a.onclick = (e) => { e.preventDefault(); showSourceDetail(a.dataset.id); });
+    $$('.sync-btn', tbody).forEach(b => b.onclick = async () => {
+      try { await api.syncSource(b.dataset.id); toast('Sync triggered'); } catch (err) { toast(err.message, 'error'); }
+    });
+    $$('.select-tables-btn', tbody).forEach(b => b.onclick = () => openTableSelectionModal(b.dataset.id));
+  } catch (err) { toast(err.message, 'error'); }
+};
+
+async function openTableSelectionModal(sourceId) {
+  openModal('Select Tables to Sync',
+    `<div class="form-group"><label>Schema</label><select id="f-sel-schema"><option value="">Loading schemas...</option></select></div>
+     <div id="sel-tables-area" style="max-height:300px;overflow-y:auto;"></div>`,
+    `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" id="f-sel-save" disabled>Save &amp; Sync</button>`);
+
+  const schemaSelect = $('#f-sel-schema');
+  const tablesArea = $('#sel-tables-area');
+  let currentSelections = new Set();
+
+  // Load existing selections and schemas in parallel
+  try {
+    const [schemas, existingSels] = await Promise.all([
+      api.browseSchemas(sourceId),
+      api.listSelections(sourceId).catch(() => [])
+    ]);
+    existingSels.forEach(s => currentSelections.add(`${s.schema_name}.${s.table_name}`));
+
+    schemaSelect.innerHTML = '<option value="">-- pick a schema --</option>' +
+      schemas.map(s => `<option value="${attr(s.name)}">${esc(s.name)}</option>`).join('');
+  } catch (err) {
+    tablesArea.innerHTML = `<p class="empty">Failed to load schemas: ${esc(err.message)}</p>`;
+    return;
+  }
+
+  schemaSelect.onchange = async () => {
+    const schema = schemaSelect.value;
+    if (!schema) { tablesArea.innerHTML = ''; return; }
+    tablesArea.innerHTML = `<p style="padding:12px;text-align:center;"><span class="spinner"></span></p>`;
+    try {
+      const tables = await api.browseTables(sourceId, schema);
+      if (!tables.length) { tablesArea.innerHTML = '<p class="empty">No tables in this schema.</p>'; return; }
+      tablesArea.innerHTML = tables.map(t => {
+        const name = t.name;
+        const key = `${schema}.${name}`;
+        const checked = currentSelections.has(key) ? 'checked' : '';
+        return `<label style="display:block;padding:4px 0;font-size:14px;cursor:pointer;">
+          <input type="checkbox" class="sel-cb" data-schema="${attr(schema)}" data-table="${attr(name)}" ${checked} style="margin-right:8px;">
+          ${esc(name)}
+        </label>`;
+      }).join('');
+      $('#f-sel-save').disabled = false;
+    } catch (err) {
+      tablesArea.innerHTML = `<p class="empty">Failed to load tables: ${esc(err.message)}</p>`;
+    }
+  };
+
+  $('#f-sel-save').onclick = async () => {
+    // Collect all checked items across all schemas (merge with existing selections not currently visible)
+    const checkedBoxes = $$('.sel-cb', tablesArea);
+    const visibleSchema = schemaSelect.value;
+    // Remove existing selections for the visible schema, then add checked ones
+    currentSelections.forEach(key => {
+      if (key.startsWith(visibleSchema + '.')) currentSelections.delete(key);
+    });
+    checkedBoxes.forEach(cb => {
+      if (cb.checked) currentSelections.add(`${cb.dataset.schema}.${cb.dataset.table}`);
+    });
+
+    const selections = [...currentSelections].map(key => {
+      const dot = key.indexOf('.');
+      return { schema_name: key.slice(0, dot), table_name: key.slice(dot + 1) };
+    });
+
+    try {
+      await api.setSelections(sourceId, selections);
+      toast('Selections saved');
+      await api.syncSource(sourceId);
+      toast('Sync triggered');
+      closeModal();
+      renderers.sources();
+    } catch (err) { toast(err.message, 'error'); }
+  };
+}
+
+async function showSourceDetail(id) {
+  const panel = $('#panel-sources');
+  panel.innerHTML = `<div class="card"><span class="detail-back" id="src-back">&larr; Back to sources</span><div class="spinner"></div></div>`;
+  $('#src-back').onclick = () => renderers.sources();
+  try {
+    const [src, objs] = await Promise.all([api.getSource(id), api.listObjects(id)]);
+    // Build hierarchy: group columns by parent table, tables by parent schema
+    const schemas = objs.filter(o => o.object_type === 'schema');
+    const tables = objs.filter(o => o.object_type === 'table');
+    const columns = objs.filter(o => o.object_type === 'column');
+    const colsByParent = {};
+    columns.forEach(c => { (colsByParent[c.parent_id] = colsByParent[c.parent_id] || []).push(c); });
+    const tablesByParent = {};
+    tables.forEach(t => { (tablesByParent[t.parent_id] = tablesByParent[t.parent_id] || []).push(t); });
+    // Also collect tables with no schema parent (top-level)
+    const orphanTables = tables.filter(t => !schemas.some(s => s.object_id === t.parent_id));
+
+    let objectsHtml = '';
+    if (!tables.length && !schemas.length) {
+      objectsHtml = '<p class="empty">No objects synced. Trigger a sync to populate.</p>';
+    } else {
+      // Render each schema and its tables/columns
+      schemas.forEach(s => {
+        objectsHtml += `<h3 style="margin-top:16px;font-size:14px;color:#555;">Schema: ${esc(s.native_name)}</h3>`;
+        const schemaTables = tablesByParent[s.object_id] || [];
+        if (!schemaTables.length) {
+          objectsHtml += `<p class="empty" style="margin-left:12px;">No tables in this schema.</p>`;
+        } else {
+          objectsHtml += renderTablesWithColumns(schemaTables, colsByParent);
+        }
+      });
+      // Render orphan tables (no schema parent)
+      if (orphanTables.length) {
+        if (schemas.length) objectsHtml += `<h3 style="margin-top:16px;font-size:14px;color:#555;">Tables</h3>`;
+        objectsHtml += renderTablesWithColumns(orphanTables, colsByParent);
+      }
+    }
+
+    panel.innerHTML = `<div class="card">
+      <span class="detail-back" id="src-back2">&larr; Back to sources</span>
+      <h2>${esc(src.display_name)}</h2>
+      <dl class="detail-meta">
+        <dt>ID</dt><dd>${esc(src.source_id)}</dd>
+        <dt>Type</dt><dd>${esc(src.source_type)}</dd>
+        <dt>Status</dt><dd>${esc(src.status)}</dd>
+        <dt>Sync Mode</dt><dd>${esc(src.sync_mode || 'all')}</dd>
+        <dt>Created</dt><dd>${fmtDate(src.created_at)}</dd>
+      </dl>
+      ${(src.sync_mode || 'all') === 'by_select' ? '<button class="btn btn-primary btn-sm" id="src-manage-sel" style="margin-bottom:12px;">Manage Selections</button>' : ''}
+      <h2>Tables &amp; Columns (${tables.length} tables, ${columns.length} columns)</h2>
+      ${objectsHtml}
+    </div>`;
+    $('#src-back2').onclick = () => renderers.sources();
+    const manageBtn = $('#src-manage-sel');
+    if (manageBtn) manageBtn.onclick = () => openTableSelectionModal(id);
+  } catch (err) { toast(err.message, 'error'); renderers.sources(); }
+}
+
+function renderTablesWithColumns(tables, colsByParent) {
+  let html = '<table><thead><tr><th>Table</th><th>FQN</th><th>Columns</th></tr></thead><tbody>';
+  tables.forEach(t => {
+    const cols = colsByParent[t.object_id] || [];
+    const colNames = cols.map(c => esc(c.native_name)).join(', ');
+    html += `<tr>
+      <td><strong>${esc(t.native_name)}</strong></td>
+      <td><code style="font-size:12px;color:#666;">${esc(t.fqn)}</code></td>
+      <td>${colNames || '<span class="empty">no columns synced</span>'}</td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  return html;
+}
+
+// ── Engines Tab ────────────────────────────────────────────
+renderers.engines = async () => {
+  const panel = $('#panel-engines');
+  panel.innerHTML = `<div class="card">
+    <div class="toolbar"><h2>Query Engines</h2><button class="btn btn-primary" id="add-engine">+ Add Engine</button></div>
+    <table><thead><tr><th>Name</th><th>Type</th><th>Status</th><th>Created</th></tr></thead>
+    <tbody id="engines-tbody">${loadingRow(4)}</tbody></table></div>`;
+
+  $('#add-engine').onclick = () => {
+    openModal('Add Engine',
+      `<div class="form-group"><label>Engine Type</label><select id="f-eng-type"><option value="duckdb">duckdb</option><option value="trino">trino</option></select></div>
+       <div class="form-group"><label>Display Name</label><input id="f-eng-name" placeholder="My Engine"></div>
+       <div class="form-group"><label>Connection (JSON)</label><textarea id="f-eng-conn">{}</textarea></div>`,
+      `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" id="f-eng-submit">Create</button>`);
+    $('#f-eng-submit').onclick = async () => {
+      try {
+        let conn = {};
+        try { conn = JSON.parse($('#f-eng-conn').value); } catch { throw new Error('Invalid connection JSON'); }
+        await api.createEngine({ engine_type: $('#f-eng-type').value, display_name: $('#f-eng-name').value, connection: conn });
+        toast('Engine created');
+        closeModal();
+        renderers.engines();
+      } catch (err) { toast(err.message, 'error'); }
+    };
+  };
+
+  try {
+    const engines = await api.listEngines();
+    const tbody = $('#engines-tbody');
+    if (!engines.length) { tbody.innerHTML = `<tr><td colspan="4" class="empty">No engines registered.</td></tr>`; return; }
+    tbody.innerHTML = engines.map(e => `<tr>
+      <td>${esc(e.display_name)}</td><td>${esc(e.engine_type)}</td><td>${esc(e.status)}</td><td>${fmtDate(e.created_at)}</td>
+    </tr>`).join('');
+  } catch (err) { toast(err.message, 'error'); }
+};
+
+// ── Bindings Tab ───────────────────────────────────────────
+renderers.bindings = async () => {
+  const panel = $('#panel-bindings');
+  panel.innerHTML = `<div class="card">
+    <div class="toolbar"><h2>Source-Engine Bindings</h2><button class="btn btn-primary" id="add-binding">+ Add Binding</button></div>
+    <table><thead><tr><th>Source</th><th>Engine</th><th>Priority</th><th>Status</th><th></th></tr></thead>
+    <tbody id="bindings-tbody">${loadingRow(5)}</tbody></table></div>`;
+
+  let sourcesCache = [], enginesCache = [];
+  $('#add-binding').onclick = async () => {
+    try {
+      [sourcesCache, enginesCache] = await Promise.all([api.listSources(), api.listEngines()]);
+    } catch (err) { toast(err.message, 'error'); return; }
+    const srcOpts = sourcesCache.map(s => `<option value="${s.source_id}">${esc(s.display_name)}</option>`).join('');
+    const engOpts = enginesCache.map(e => `<option value="${e.engine_id}">${esc(e.display_name)}</option>`).join('');
+    openModal('Add Binding',
+      `<div class="form-group"><label>Source</label><select id="f-bind-src">${srcOpts}</select></div>
+       <div class="form-group"><label>Engine</label><select id="f-bind-eng">${engOpts}</select></div>
+       <div class="form-group"><label>Priority</label><input id="f-bind-pri" type="number" value="0"></div>
+       <div class="form-group"><label>Namespace (JSON)</label><textarea id="f-bind-ns">{}</textarea></div>`,
+      `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" id="f-bind-submit">Create</button>`);
+    $('#f-bind-submit').onclick = async () => {
+      try {
+        let ns = {};
+        try { ns = JSON.parse($('#f-bind-ns').value); } catch { throw new Error('Invalid namespace JSON'); }
+        await api.createBinding({ source_id: $('#f-bind-src').value, engine_id: $('#f-bind-eng').value, priority: parseInt($('#f-bind-pri').value, 10), namespace: ns });
+        toast('Binding created');
+        closeModal();
+        renderers.bindings();
+      } catch (err) { toast(err.message, 'error'); }
+    };
+  };
+
+  try {
+    const [bindings, sources, engines] = await Promise.all([api.listBindings(), api.listSources(), api.listEngines()]);
+    const srcMap = Object.fromEntries(sources.map(s => [s.source_id, s.display_name]));
+    const engMap = Object.fromEntries(engines.map(e => [e.engine_id, e.display_name]));
+    const tbody = $('#bindings-tbody');
+    if (!bindings.length) { tbody.innerHTML = `<tr><td colspan="5" class="empty">No bindings.</td></tr>`; return; }
+    tbody.innerHTML = bindings.map(b => `<tr>
+      <td>${esc(srcMap[b.source_id] || b.source_id)}</td>
+      <td>${esc(engMap[b.engine_id] || b.engine_id)}</td>
+      <td>${b.priority}</td><td>${esc(b.status)}</td>
+      <td><button class="btn btn-sm btn-danger del-bind" data-id="${b.binding_id}">Delete</button></td>
+    </tr>`).join('');
+    $$('.del-bind', tbody).forEach(btn => btn.onclick = async () => {
+      if (!confirm('Delete this binding?')) return;
+      try { await api.deleteBinding(btn.dataset.id); toast('Binding deleted'); renderers.bindings(); } catch (err) { toast(err.message, 'error'); }
+    });
+  } catch (err) { toast(err.message, 'error'); }
+};
+
+// ── Entities Tab ───────────────────────────────────────────
+renderers.entities = async () => {
+  const panel = $('#panel-entities');
+  panel.innerHTML = `<div class="card">
+    <div class="toolbar"><h2>Semantic Entities</h2><button class="btn btn-primary" id="add-entity">+ Add Entity</button></div>
+    <table><thead><tr><th>Name</th><th>Display Name</th><th>Status</th><th>Revision</th><th>Keys</th><th></th></tr></thead>
+    <tbody id="entities-tbody">${loadingRow(6)}</tbody></table></div>
+    <div class="card" id="ent-mappings-card" style="display:none">
+      <div class="toolbar"><h2 id="ent-mappings-title">Mappings</h2><button class="btn btn-primary btn-sm" id="ent-add-mapping">+ Add Mapping</button></div>
+      <table><thead><tr><th>Type</th><th>Semantic ID</th><th>Object ID</th><th>Mapping Type</th><th></th></tr></thead>
+      <tbody id="ent-mappings-tbody"></tbody></table>
+    </div>`;
+
+  $('#add-entity').onclick = () => {
+    openModal('Add Entity',
+      `<div class="form-group"><label>Name</label><input id="f-ent-name" placeholder="user"></div>
+       <div class="form-group"><label>Display Name</label><input id="f-ent-dname" placeholder="User"></div>
+       <div class="form-group"><label>Description</label><textarea id="f-ent-desc"></textarea></div>
+       <div class="form-group"><label>Keys (comma-separated)</label><input id="f-ent-keys" placeholder="user_id"></div>`,
+      `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" id="f-ent-submit">Create</button>`);
+    $('#f-ent-submit').onclick = async () => {
+      try {
+        const keys = $('#f-ent-keys').value.split(',').map(k => k.trim()).filter(Boolean);
+        await api.createEntity({ name: $('#f-ent-name').value, display_name: $('#f-ent-dname').value, description: $('#f-ent-desc').value, keys });
+        toast('Entity created');
+        closeModal();
+        renderers.entities();
+      } catch (err) { toast(err.message, 'error'); }
+    };
+  };
+
+  try {
+    const entities = await api.listEntities();
+    const tbody = $('#entities-tbody');
+    if (!entities.length) { tbody.innerHTML = `<tr><td colspan="6" class="empty">No entities.</td></tr>`; return; }
+    tbody.innerHTML = entities.map(e => {
+      const keys = e.keys || [];
+      return `<tr>
+        <td><a href="#" class="ent-link" data-id="${e.entity_id}">${esc(e.name)}</a></td><td>${esc(e.display_name)}</td><td>${esc(e.status)}</td><td>${e.revision}</td>
+        <td>${esc(keys.join(', '))}</td>
+        <td>
+          <button class="btn btn-sm edit-ent" data-id="${e.entity_id}">Edit</button>
+          ${e.status === 'draft' ? `<button class="btn btn-sm btn-primary pub-ent" data-id="${e.entity_id}">Publish</button>` : ''}
+        </td>
+      </tr>`;
+    }).join('');
+    $$('.pub-ent', tbody).forEach(btn => btn.onclick = async () => {
+      try { await api.publishEntity(btn.dataset.id); toast('Entity published'); renderers.entities(); } catch (err) { toast(err.message, 'error'); }
+    });
+    $$('.edit-ent', tbody).forEach(btn => btn.onclick = () => editEntity(btn.dataset.id, entities));
+    $$('.ent-link', tbody).forEach(a => { a.onclick = (e) => { e.preventDefault(); showMappings('entity', a.dataset.id, a.textContent, 'ent'); }; });
+  } catch (err) { toast(err.message, 'error'); }
+};
+
+function editEntity(id, entities) {
+  const e = entities.find(x => x.entity_id === id);
+  if (!e) return;
+  const keys = e.keys || [];
+  openModal('Edit Entity',
+    `<div class="form-group"><label>Display Name</label><input id="f-ent-dname" value="${attr(e.display_name)}"></div>
+     <div class="form-group"><label>Description</label><textarea id="f-ent-desc">${esc(e.description || '')}</textarea></div>
+     <div class="form-group"><label>Keys (comma-separated)</label><input id="f-ent-keys" value="${attr(keys.join(', '))}"></div>`,
+    `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" id="f-ent-save">Save</button>`);
+  $('#f-ent-save').onclick = async () => {
+    try {
+      const newKeys = $('#f-ent-keys').value.split(',').map(k => k.trim()).filter(Boolean);
+      await api.updateEntity(id, { display_name: $('#f-ent-dname').value, description: $('#f-ent-desc').value, keys: newKeys });
+      toast('Entity updated');
+      closeModal();
+      renderers.entities();
+    } catch (err) { toast(err.message, 'error'); }
+  };
+}
+
+// ── Metrics Tab ────────────────────────────────────────────
+renderers.metrics = async () => {
+  const panel = $('#panel-metrics');
+  panel.innerHTML = `<div class="card">
+    <div class="toolbar"><h2>Semantic Metrics</h2><button class="btn btn-primary" id="add-metric">+ Add Metric</button></div>
+    <table><thead><tr><th>Name</th><th>Display Name</th><th>Status</th><th>Rev</th><th>SQL</th><th></th></tr></thead>
+    <tbody id="metrics-tbody">${loadingRow(6)}</tbody></table></div>
+    <div class="card" id="met-mappings-card" style="display:none">
+      <div class="toolbar"><h2 id="met-mappings-title">Mappings</h2><button class="btn btn-primary btn-sm" id="met-add-mapping">+ Add Mapping</button></div>
+      <table><thead><tr><th>Type</th><th>Semantic ID</th><th>Object ID</th><th>Mapping Type</th><th></th></tr></thead>
+      <tbody id="met-mappings-tbody"></tbody></table>
+    </div>`;
+
+  $('#add-metric').onclick = async () => {
+    let entities = [];
+    try { entities = await api.listEntities(); } catch {}
+    const entOpts = `<option value="">-- none --</option>` + entities.map(e => `<option value="${e.entity_id}">${esc(e.name)}</option>`).join('');
+    openModal('Add Metric',
+      `<div class="form-group"><label>Name</label><input id="f-met-name" placeholder="watch_time"></div>
+       <div class="form-group"><label>Display Name</label><input id="f-met-dname" placeholder="Watch Time"></div>
+       <div class="form-group"><label>Description</label><textarea id="f-met-desc"></textarea></div>
+       <div class="form-group"><label>Definition SQL</label><textarea id="f-met-sql" placeholder="SUM(watch_seconds)"></textarea></div>
+       <div class="form-group"><label>Dimensions (comma-separated)</label><input id="f-met-dims" placeholder="platform, country"></div>
+       <div class="form-group"><label>Entity</label><select id="f-met-ent">${entOpts}</select></div>`,
+      `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" id="f-met-submit">Create</button>`);
+    $('#f-met-submit').onclick = async () => {
+      try {
+        const dims = $('#f-met-dims').value.split(',').map(d => d.trim()).filter(Boolean);
+        const data = { name: $('#f-met-name').value, display_name: $('#f-met-dname').value, description: $('#f-met-desc').value, definition_sql: $('#f-met-sql').value, dimensions: dims };
+        const entVal = $('#f-met-ent').value;
+        if (entVal) data.entity_id = entVal;
+        await api.createMetric(data);
+        toast('Metric created');
+        closeModal();
+        renderers.metrics();
+      } catch (err) { toast(err.message, 'error'); }
+    };
+  };
+
+  try {
+    const metrics = await api.listMetrics();
+    const tbody = $('#metrics-tbody');
+    if (!metrics.length) { tbody.innerHTML = `<tr><td colspan="6" class="empty">No metrics.</td></tr>`; return; }
+    tbody.innerHTML = metrics.map(m => `<tr>
+      <td><a href="#" class="met-link" data-id="${m.metric_id}">${esc(m.name)}</a></td>
+      <td>${esc(m.display_name)}</td><td>${esc(m.status)}</td><td>${m.revision}</td>
+      <td><code>${esc(truncate(m.definition_sql || '', 40))}</code></td>
+      <td>
+        <button class="btn btn-sm edit-met" data-id="${m.metric_id}">Edit</button>
+        ${m.status === 'draft' ? `<button class="btn btn-sm btn-primary pub-met" data-id="${m.metric_id}">Publish</button>` : ''}
+      </td>
+    </tr>`).join('');
+    $$('.pub-met', tbody).forEach(btn => btn.onclick = async () => {
+      try { await api.publishMetric(btn.dataset.id); toast('Metric published'); renderers.metrics(); } catch (err) { toast(err.message, 'error'); }
+    });
+    $$('.edit-met', tbody).forEach(btn => btn.onclick = () => editMetric(btn.dataset.id, metrics));
+    $$('.met-link', tbody).forEach(a => { a.onclick = (e) => { e.preventDefault(); showMappings('metric', a.dataset.id, a.textContent, 'met'); }; });
+  } catch (err) { toast(err.message, 'error'); }
+};
+
+function editMetric(id, metrics) {
+  const m = metrics.find(x => x.metric_id === id);
+  if (!m) return;
+  const dims = m.dimensions || [];
+  openModal('Edit Metric',
+    `<div class="form-group"><label>Display Name</label><input id="f-met-dname" value="${attr(m.display_name)}"></div>
+     <div class="form-group"><label>Description</label><textarea id="f-met-desc">${esc(m.description || '')}</textarea></div>
+     <div class="form-group"><label>Definition SQL</label><textarea id="f-met-sql">${esc(m.definition_sql || '')}</textarea></div>
+     <div class="form-group"><label>Dimensions (comma-separated)</label><input id="f-met-dims" value="${attr(dims.join(', '))}"></div>`,
+    `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" id="f-met-save">Save</button>`);
+  $('#f-met-save').onclick = async () => {
+    try {
+      const newDims = $('#f-met-dims').value.split(',').map(d => d.trim()).filter(Boolean);
+      await api.updateMetric(id, { display_name: $('#f-met-dname').value, description: $('#f-met-desc').value, definition_sql: $('#f-met-sql').value, dimensions: newDims });
+      toast('Metric updated');
+      closeModal();
+      renderers.metrics();
+    } catch (err) { toast(err.message, 'error'); }
+  };
+}
+
+async function showMappings(semType, semId, name, prefix) {
+  const card = $(`#${prefix}-mappings-card`);
+  card.style.display = 'block';
+  $(`#${prefix}-mappings-title`).textContent = `Mappings for ${name}`;
+  const tbody = $(`#${prefix}-mappings-tbody`);
+  tbody.innerHTML = loadingRow(5);
+
+  $(`#${prefix}-add-mapping`).onclick = () => openAddMappingModal(semType, semId, name, prefix);
+
+  try {
+    const mappings = await api.listMappings({ semantic_type: semType, semantic_id: semId });
+    if (!mappings.length) { tbody.innerHTML = `<tr><td colspan="5" class="empty">No mappings.</td></tr>`; return; }
+    tbody.innerHTML = mappings.map(m => `<tr>
+      <td>${esc(m.semantic_type)}</td><td>${esc(m.semantic_id)}</td><td>${esc(m.object_id)}</td><td>${esc(m.mapping_type)}</td>
+      <td><button class="btn btn-sm btn-danger del-map" data-id="${m.mapping_id}">Delete</button></td>
+    </tr>`).join('');
+    $$('.del-map', tbody).forEach(btn => btn.onclick = async () => {
+      if (!confirm('Delete this mapping?')) return;
+      try { await api.deleteMapping(btn.dataset.id); toast('Mapping deleted'); showMappings(semType, semId, name, prefix); } catch (err) { toast(err.message, 'error'); }
+    });
+  } catch (err) { toast(err.message, 'error'); }
+}
+
+async function openAddMappingModal(semType, semId, name, prefix) {
+  let sources = [];
+  try { sources = await api.listSources(); } catch {}
+  const srcOpts = sources.map(s => `<option value="${s.source_id}">${esc(s.display_name)}</option>`).join('');
+
+  openModal('Add Mapping',
+    `<div class="form-group"><label>Source</label><select id="f-map-source"><option value="">-- select source --</option>${srcOpts}</select></div>
+     <div class="form-group"><label>Table</label><select id="f-map-obj" disabled><option value="">-- select source first --</option></select></div>
+     <div class="form-group"><label>Mapping Type</label><select id="f-map-mtype"><option value="primary_table">primary_table</option><option value="direct">direct</option><option value="derived">derived</option></select></div>
+     <div class="form-group"><label>Mapping JSON</label><textarea id="f-map-json">{}</textarea></div>`,
+    `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" id="f-map-submit">Create</button>`);
+
+  $('#f-map-source').onchange = async () => {
+    const sourceId = $('#f-map-source').value;
+    const objSelect = $('#f-map-obj');
+    if (!sourceId) { objSelect.innerHTML = '<option value="">-- select source first --</option>'; objSelect.disabled = true; return; }
+    objSelect.innerHTML = '<option value="">Loading...</option>';
+    objSelect.disabled = true;
+    try {
+      const objs = await api.listObjects(sourceId);
+      const tables = objs.filter(o => o.object_type === 'table');
+      if (!tables.length) { objSelect.innerHTML = '<option value="">No tables found</option>'; return; }
+      objSelect.innerHTML = '<option value="">-- select table --</option>' + tables.map(t => `<option value="${t.object_id}">${esc(t.fqn)}</option>`).join('');
+      objSelect.disabled = false;
+    } catch (err) { objSelect.innerHTML = '<option value="">Error loading tables</option>'; }
+  };
+
+  $('#f-map-submit').onclick = async () => {
+    try {
+      const objectId = $('#f-map-obj').value;
+      if (!objectId) throw new Error('Please select a table');
+      let mj = {};
+      try { mj = JSON.parse($('#f-map-json').value); } catch { throw new Error('Invalid mapping JSON'); }
+      await api.createMapping({ semantic_type: semType, semantic_id: semId, object_id: objectId, mapping_type: $('#f-map-mtype').value, mapping_json: mj });
+      toast('Mapping created');
+      closeModal();
+      showMappings(semType, semId, name, prefix);
+    } catch (err) { toast(err.message, 'error'); }
+  };
+}
+
+// ── Utilities ──────────────────────────────────────────────
+function esc(s) { const d = document.createElement('div'); d.textContent = String(s ?? ''); return d.innerHTML; }
+function attr(s) { return esc(s).replace(/"/g, '&quot;'); }
+function truncate(s, n) { return s.length > n ? s.slice(0, n) + '...' : s; }
+function fmtDate(s) { if (!s) return ''; try { return new Date(s).toLocaleDateString(); } catch { return s; } }
+function parseJSON(s, fallback) { try { return JSON.parse(s); } catch { return fallback; } }
+
+// ── Boot ───────────────────────────────────────────────────
+renderers.sources();
+</script>
+</body>
+</html>

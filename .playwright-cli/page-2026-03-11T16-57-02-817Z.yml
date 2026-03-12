@@ -1,0 +1,30 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - heading "OmniDB Admin" [level=1] [ref=e3]
+    - generic [ref=e4]:
+      - button "Sources" [ref=e5] [cursor=pointer]
+      - button "Engines" [ref=e6] [cursor=pointer]
+      - button "Bindings" [ref=e7] [cursor=pointer]
+      - button "Entities" [ref=e8] [cursor=pointer]
+      - button "Metrics" [ref=e9] [cursor=pointer]
+      - button "Governance" [ref=e10] [cursor=pointer]
+      - button "Approvals" [ref=e11] [cursor=pointer]
+      - button "Observability" [ref=e12] [cursor=pointer]
+    - link "Analytics UI →" [ref=e13] [cursor=pointer]:
+      - /url: /ui
+  - generic [ref=e16]:
+    - generic [ref=e17]:
+      - heading "Catalog Sources" [level=2] [ref=e18]
+      - button "+ Add Source" [ref=e19] [cursor=pointer]
+    - table [ref=e20]:
+      - rowgroup [ref=e21]:
+        - row "Name Type Sync Mode Status Created" [ref=e22]:
+          - columnheader "Name" [ref=e23]
+          - columnheader "Type" [ref=e24]
+          - columnheader "Sync Mode" [ref=e25]
+          - columnheader "Status" [ref=e26]
+          - columnheader "Created" [ref=e27]
+          - columnheader [ref=e28]
+      - rowgroup [ref=e29]:
+        - row [ref=e30]:
+          - cell [ref=e31]

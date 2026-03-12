@@ -1,0 +1,29 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - heading "OmniDB" [level=1] [ref=e3]
+    - generic [ref=e4]:
+      - button "Sources" [ref=e5] [cursor=pointer]
+      - button "Engines" [ref=e6] [cursor=pointer]
+      - button "Bindings" [active] [ref=e7] [cursor=pointer]
+      - button "Entities" [ref=e8] [cursor=pointer]
+      - button "Metrics" [ref=e9] [cursor=pointer]
+  - generic [ref=e54]:
+    - generic [ref=e55]:
+      - heading "Source-Engine Bindings" [level=2] [ref=e56]
+      - button "+ Add Binding" [ref=e57] [cursor=pointer]
+    - table [ref=e58]:
+      - rowgroup [ref=e59]:
+        - row "Source Engine Priority Status" [ref=e60]:
+          - columnheader "Source" [ref=e61]
+          - columnheader "Engine" [ref=e62]
+          - columnheader "Priority" [ref=e63]
+          - columnheader "Status" [ref=e64]
+          - columnheader [ref=e65]
+      - rowgroup [ref=e66]:
+        - row "Local Demo Local DuckDB 10 active Delete" [ref=e67]:
+          - cell "Local Demo" [ref=e68]
+          - cell "Local DuckDB" [ref=e69]
+          - cell "10" [ref=e70]
+          - cell "active" [ref=e71]
+          - cell "Delete" [ref=e72]:
+            - button "Delete" [ref=e73] [cursor=pointer]
