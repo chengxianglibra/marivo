@@ -144,6 +144,20 @@ class PlanValidationTests(unittest.TestCase):
         self.assertFalse(result["valid"])
         self.assertIn("unknown step_type", result["errors"][0])
 
+    def test_validate_returns_structured_issues(self) -> None:
+        plan = self.planning.draft_plan(self.session["session_id"], [
+            {"step_type": "compare_metric"},
+        ])
+        result = self.planning.validate_plan(plan["plan_id"])
+        self.assertFalse(result["valid"])
+        self.assertEqual(result["issues"][0]["code"], "missing_required_param")
+        self.assertEqual(result["issues"][0]["category"], "params")
+        self.assertEqual(result["issues"][0]["step_index"], 0)
+        self.assertEqual(
+            result["issues"][0]["detail"]["missing_params"],
+            ["metric_name", "table_name"],
+        )
+
     def test_validate_forward_dependency(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [
             {"step_type": "compare_watch_time", "dependencies": [1]},

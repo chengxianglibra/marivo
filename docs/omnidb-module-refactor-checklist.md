@@ -9,6 +9,7 @@
 - `docs/omnidb-improvement-roadmap.md`：说明为何按当前阶段顺序推进
 - `docs/omnidb-vnext-architecture-blueprint.md`：定义目标架构边界与执行链
 - `docs/omnidb-phase1-implementation-task-list.md`：把第一阶段工作拆成可落地任务包
+- `docs/omnidb-phase2-implementation-task-list.md`：把第二阶段工作拆成可落地任务包
 
 本文档回答三个问题：
 

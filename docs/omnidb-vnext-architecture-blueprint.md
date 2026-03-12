@@ -16,6 +16,7 @@
 - `docs/omnidb-improvement-roadmap.md`：描述从当前仓库走向目标架构的阶段性推进顺序
 - `docs/omnidb-module-refactor-checklist.md`：把蓝图拆成代码级模块边界与改造动作
 - `docs/omnidb-phase1-implementation-task-list.md`：给出第一阶段的实际实施拆分
+- `docs/omnidb-phase2-implementation-task-list.md`：给出第二阶段的实际实施拆分
 
 ## 2. 设计目标
 

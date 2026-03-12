@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
+from app.runtime_contracts import PolicyApplicationResult, PolicyDecision
 from app.storage.analytics import AnalyticsEngine
 from app.storage.metadata import MetadataStore
 
@@ -144,8 +145,15 @@ class GovernanceService:
         params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Check all enabled policies against the proposed step."""
+        del session_id
         policies = self.list_policies(enabled_only=True)
-        violations: list[dict[str, str]] = []
+        decisions: list[PolicyDecision] = []
+        transforms: dict[str, Any] = {
+            "aggregate_only": False,
+            "masked_fields": [],
+            "row_filters": [],
+            "max_rows_scanned": None,
+        }
 
         for policy in policies:
             scope = policy.get("scope", {})
@@ -155,45 +163,146 @@ class GovernanceService:
 
             ptype = policy["policy_type"]
             if ptype == "aggregate_only":
+                transforms["aggregate_only"] = True
+                decisions.append(
+                    PolicyDecision(
+                        code="aggregate_only_enabled",
+                        decision="apply",
+                        effect="apply",
+                        policy_id=policy["policy_id"],
+                        policy_name=policy["name"],
+                        policy_type=ptype,
+                        scope=scope,
+                        message=f"Policy '{policy['name']}' requires aggregate-only access mode.",
+                    )
+                )
                 if step_type == "sample_rows":
-                    violations.append({
-                        "policy_id": policy["policy_id"],
-                        "name": policy["name"],
-                        "message": f"Policy '{policy['name']}' forbids sample_rows (aggregate-only mode).",
-                    })
+                    decisions.append(
+                        PolicyDecision(
+                            code="aggregate_only_forbids_sample_rows",
+                            decision="deny",
+                            effect="block",
+                            policy_id=policy["policy_id"],
+                            policy_name=policy["name"],
+                            policy_type=ptype,
+                            scope=scope,
+                            message=(
+                                f"Policy '{policy['name']}' forbids sample_rows "
+                                "(aggregate-only mode)."
+                            ),
+                            detail={"step_type": step_type},
+                        )
+                    )
             elif ptype == "field_mask":
                 masked_fields = policy.get("definition", {}).get("fields", [])
+                if masked_fields:
+                    transforms["masked_fields"].extend(
+                        field for field in masked_fields if field not in transforms["masked_fields"]
+                    )
+                    decisions.append(
+                        PolicyDecision(
+                            code="field_mask_applied",
+                            decision="apply",
+                            effect="apply",
+                            policy_id=policy["policy_id"],
+                            policy_name=policy["name"],
+                            policy_type=ptype,
+                            scope=scope,
+                            message=(
+                                f"Policy '{policy['name']}' marks fields "
+                                f"{masked_fields} as sensitive."
+                            ),
+                            detail={"fields": list(masked_fields)},
+                        )
+                    )
                 if params and masked_fields:
                     # Check if params reference masked fields
                     params_str = json.dumps(params)
                     for field in masked_fields:
                         if field in params_str:
-                            violations.append({
-                                "policy_id": policy["policy_id"],
-                                "name": policy["name"],
-                                "message": f"Policy '{policy['name']}' forbids access to field '{field}'.",
-                            })
+                            decisions.append(
+                                PolicyDecision(
+                                    code="field_mask_blocks_sensitive_field",
+                                    decision="deny",
+                                    effect="block",
+                                    policy_id=policy["policy_id"],
+                                    policy_name=policy["name"],
+                                    policy_type=ptype,
+                                    scope=scope,
+                                    message=(
+                                        f"Policy '{policy['name']}' forbids access "
+                                        f"to field '{field}'."
+                                    ),
+                                    detail={"field": field},
+                                )
+                            )
+            elif ptype == "row_filter":
+                filter_expression = (
+                    policy.get("definition", {}).get("sql")
+                    or policy.get("definition", {}).get("predicate")
+                    or ""
+                )
+                if filter_expression:
+                    transforms["row_filters"].append(
+                        {
+                            "policy_id": policy["policy_id"],
+                            "policy_name": policy["name"],
+                            "expression": filter_expression,
+                        }
+                    )
+                    decisions.append(
+                        PolicyDecision(
+                            code="row_filter_applied",
+                            decision="apply",
+                            effect="apply",
+                            policy_id=policy["policy_id"],
+                            policy_name=policy["name"],
+                            policy_type=ptype,
+                            scope=scope,
+                            message=(
+                                f"Policy '{policy['name']}' contributes a row filter "
+                                "constraint."
+                            ),
+                            detail={"expression": filter_expression},
+                        )
+                    )
             elif ptype == "max_rows":
                 max_rows = policy.get("definition", {}).get("max_rows_scanned", 0)
                 if max_rows > 0 and params:
+                    existing_limit = transforms.get("max_rows_scanned")
+                    transforms["max_rows_scanned"] = (
+                        max_rows if existing_limit is None else min(existing_limit, max_rows)
+                    )
                     table_name = params.get("table_name")
                     if table_name:
                         try:
                             count = self.analytics.table_row_count(table_name)
                             if count > max_rows:
-                                violations.append({
-                                    "policy_id": policy["policy_id"],
-                                    "name": policy["name"],
-                                    "message": (
-                                        f"Policy '{policy['name']}': table '{table_name}' "
-                                        f"has {count} rows exceeding limit of {max_rows}."
-                                    ),
-                                })
+                                decisions.append(
+                                    PolicyDecision(
+                                        code="max_rows_exceeded",
+                                        decision="deny",
+                                        effect="block",
+                                        policy_id=policy["policy_id"],
+                                        policy_name=policy["name"],
+                                        policy_type=ptype,
+                                        scope=scope,
+                                        message=(
+                                            f"Policy '{policy['name']}': table "
+                                            f"'{table_name}' has {count} rows "
+                                            f"exceeding limit of {max_rows}."
+                                        ),
+                                        detail={
+                                            "table_name": table_name,
+                                            "row_count": count,
+                                            "max_rows_scanned": max_rows,
+                                        },
+                                    )
+                                )
                         except Exception:
                             pass
-            # row_filter is informational — no enforcement yet
 
-        return {"passed": len(violations) == 0, "violations": violations}
+        return PolicyApplicationResult(decisions=decisions, transforms=transforms).to_dict()
 
     def check_quality(self, table_name: str) -> dict[str, Any]:
         """Run quality checks for a table. Returns warnings and blockers."""
@@ -289,13 +398,23 @@ class GovernanceService:
                 qr = self.check_quality(table)
                 quality_warnings.extend(qr["warnings"])
                 quality_blockers.extend(qr["blockers"])
-            all_violations.extend(quality_blockers)
+                all_violations.extend(qr["blockers"])
 
         passed = len(all_violations) == 0
         return {
             "passed": passed,
             "violations": all_violations,
             "warnings": quality_warnings,
+            "decisions": policy_result.get("decisions", []),
+            "transforms": policy_result.get("transforms", {}),
+            "hard_constraints": [
+                *policy_result.get("hard_constraints", []),
+                *quality_blockers,
+            ],
+            "soft_signals": [
+                *policy_result.get("soft_signals", []),
+                *quality_warnings,
+            ],
         }
 
     # ── Internal helpers ─────────────────────────────────────────

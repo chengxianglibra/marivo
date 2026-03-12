@@ -14,12 +14,26 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+from math import inf
+from typing import TYPE_CHECKING
 from typing import Any
 from uuid import uuid4
 
 from app.analysis_core.ir import AnalysisStepIR, ExecutionPlanIR, from_legacy_step
 from app.analysis_core.step_runners import SUPPORTED_STEP_TYPES
+from app.runtime_contracts import (
+    DEFAULT_STEP_TABLES,
+    CostEstimate,
+    PlanValidationIssue,
+    PlanValidationResult,
+)
+from app.semantic_runtime import SemanticResolver
+from app.storage.analytics import AnalyticsEngine
 from app.storage.metadata import MetadataStore
+
+if TYPE_CHECKING:
+    from app.governance import GovernanceService
+    from app.routing import QueryRouter
 
 
 # Valid step types (must match SemanticLayerService.run_step dispatcher)
@@ -42,8 +56,19 @@ def _now_iso() -> str:
 class PlanningService:
     """CRUD, validation, and execution for analysis plans."""
 
-    def __init__(self, metadata: MetadataStore) -> None:
+    def __init__(
+        self,
+        metadata: MetadataStore,
+        analytics_engine: AnalyticsEngine | None = None,
+        query_router: QueryRouter | None = None,
+        governance: GovernanceService | None = None,
+        semantic_resolver: SemanticResolver | None = None,
+    ) -> None:
         self.metadata = metadata
+        self.analytics = analytics_engine
+        self.query_router = query_router
+        self.governance = governance
+        self.semantic_resolver = semantic_resolver or SemanticResolver(metadata)
 
     # ── CRUD ──────────────────────────────────────────────────────
 
@@ -108,46 +133,14 @@ class PlanningService:
         if plan["status"] != "draft":
             raise ValueError(f"Can only validate plans in 'draft' status, got '{plan['status']}'")
 
-        errors: list[str] = []
         steps = plan["steps"]
-        step_irs = self._plan_step_irs(steps)
-
-        # Check step types
-        for step in step_irs:
-            if step.step_type not in VALID_STEP_TYPES:
-                errors.append(f"Step {step.index}: unknown step_type '{step.step_type}'")
-
-        # Check dependencies are valid indices and acyclic
-        for step in step_irs:
-            for dep in step.dependencies:
-                if dep < 0 or dep >= len(steps):
-                    errors.append(f"Step {step.index}: dependency {dep} out of range")
-                elif dep >= step.index:
-                    errors.append(f"Step {step.index}: dependency {dep} is forward (must be earlier step)")
-
-        # Check for cycles using topological sort
-        if not errors:
-            if not self._is_acyclic(steps):
-                errors.append("Plan has circular dependencies")
-
-        # Validate parameterized steps have required params
-        for step in step_irs:
-            if step.step_type == "compare_metric":
-                if not step.params.get("metric_name") or not step.params.get("table_name"):
-                    errors.append(f"Step {step.index}: compare_metric requires 'metric_name' and 'table_name' params")
-            elif step.step_type == "profile_table":
-                if not step.params.get("table_name"):
-                    errors.append(f"Step {step.index}: profile_table requires 'table_name' param")
-            elif step.step_type == "sample_rows":
-                if not step.params.get("table_name"):
-                    errors.append(f"Step {step.index}: sample_rows requires 'table_name' param")
-
-        if errors:
-            return {"plan_id": plan_id, "valid": False, "errors": errors}
+        validation = self._validate_steps(plan)
+        if not validation.valid:
+            return validation.to_dict()
 
         # Transition to validated
         self._transition(plan_id, "validated")
-        return {"plan_id": plan_id, "valid": True, "errors": []}
+        return validation.to_dict()
 
     def approve_plan(self, plan_id: str) -> dict[str, Any]:
         """Transition from validated → approved."""
@@ -238,34 +231,12 @@ class PlanningService:
         """
         plan = self.get_plan(plan_id)
         steps = plan["steps"]
-
         for step in steps:
-            params = step.get("params", {})
-            table_name = params.get("table_name", "")
-
-            if table_name:
-                try:
-                    row_count = analytics_engine.table_row_count(table_name)
-                    step["estimated_cost"] = row_count
-                except Exception:
-                    step["estimated_cost"] = None
-            elif step["step_type"] in ("compare_watch_time", "analyze_qoe", "analyze_ads", "analyze_recommendation"):
-                # Default tables for known step types
-                default_tables = {
-                    "compare_watch_time": "analytics.watch_events",
-                    "analyze_qoe": "analytics.player_qoe",
-                    "analyze_ads": "analytics.ad_events",
-                    "analyze_recommendation": "analytics.recommendation_events",
-                }
-                try:
-                    row_count = analytics_engine.table_row_count(default_tables[step["step_type"]])
-                    step["estimated_cost"] = row_count
-                except Exception:
-                    step["estimated_cost"] = None
-            elif step["step_type"] == "synthesize_findings":
-                step["estimated_cost"] = 0  # heuristic, no scan
-            else:
-                step["estimated_cost"] = None
+            estimate = self._estimate_step_cost(
+                from_legacy_step(step["index"], step),
+                analytics_engine=analytics_engine,
+            )
+            step["estimated_cost"] = estimate.estimated_rows if estimate is not None else None
 
         self._update_steps(plan_id, steps)
         total = sum(s.get("estimated_cost") or 0 for s in steps)
@@ -330,6 +301,381 @@ class PlanningService:
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
+
+    def _validate_steps(self, plan: dict[str, Any]) -> PlanValidationResult:
+        issues: list[PlanValidationIssue] = []
+        cost_estimates: list[CostEstimate] = []
+        plan_id = str(plan["plan_id"])
+        session_id = str(plan["session_id"])
+        steps = plan["steps"]
+        step_irs = self._plan_step_irs(steps)
+
+        for step in step_irs:
+            if step.step_type not in VALID_STEP_TYPES:
+                issues.append(
+                    PlanValidationIssue(
+                        code="unknown_step_type",
+                        category="step_type",
+                        step_index=step.index,
+                        message=f"Step {step.index}: unknown step_type '{step.step_type}'",
+                        detail={"step_type": step.step_type},
+                    )
+                )
+
+        for step in step_irs:
+            for dep in step.dependencies:
+                if dep < 0 or dep >= len(steps):
+                    issues.append(
+                        PlanValidationIssue(
+                            code="dependency_out_of_range",
+                            category="dependency",
+                            step_index=step.index,
+                            message=f"Step {step.index}: dependency {dep} out of range",
+                            detail={"dependency_index": dep},
+                        )
+                    )
+                elif dep >= step.index:
+                    issues.append(
+                        PlanValidationIssue(
+                            code="dependency_forward_reference",
+                            category="dependency",
+                            step_index=step.index,
+                            message=(
+                                f"Step {step.index}: dependency {dep} is forward "
+                                "(must be earlier step)"
+                            ),
+                            detail={"dependency_index": dep},
+                        )
+                    )
+
+        if not issues and not self._is_acyclic(steps):
+            issues.append(
+                PlanValidationIssue(
+                    code="dependency_cycle",
+                    category="dependency",
+                    message="Plan has circular dependencies",
+                )
+            )
+
+        for step in step_irs:
+            if step.step_type == "compare_metric":
+                missing = [
+                    key for key in ("metric_name", "table_name") if not step.params.get(key)
+                ]
+                if missing:
+                    issues.append(
+                        PlanValidationIssue(
+                            code="missing_required_param",
+                            category="params",
+                            step_index=step.index,
+                            message=(
+                                f"Step {step.index}: compare_metric requires "
+                                "'metric_name' and 'table_name' params"
+                            ),
+                            detail={"required_params": ["metric_name", "table_name"], "missing_params": missing},
+                        )
+                    )
+            elif step.step_type == "profile_table":
+                if not step.params.get("table_name"):
+                    issues.append(
+                        PlanValidationIssue(
+                            code="missing_required_param",
+                            category="params",
+                            step_index=step.index,
+                            message=f"Step {step.index}: profile_table requires 'table_name' param",
+                            detail={"required_params": ["table_name"], "missing_params": ["table_name"]},
+                        )
+                    )
+            elif step.step_type == "sample_rows":
+                if not step.params.get("table_name"):
+                    issues.append(
+                        PlanValidationIssue(
+                            code="missing_required_param",
+                            category="params",
+                            step_index=step.index,
+                            message=f"Step {step.index}: sample_rows requires 'table_name' param",
+                            detail={"required_params": ["table_name"], "missing_params": ["table_name"]},
+                        )
+                    )
+
+        for step in step_irs:
+            issues.extend(self._validate_step_semantics(step))
+            issues.extend(self._validate_step_governance(step, session_id))
+            issues.extend(self._validate_step_routing(step))
+            estimate = self._estimate_step_cost(step)
+            if estimate is not None:
+                cost_estimates.append(estimate)
+
+        issues.extend(self._validate_budget(plan_id, session_id, cost_estimates))
+
+        return PlanValidationResult(
+            plan_id=plan_id,
+            issues=issues,
+            cost_estimates=cost_estimates,
+        )
+
+    def _validate_step_semantics(self, step: AnalysisStepIR) -> list[PlanValidationIssue]:
+        issues: list[PlanValidationIssue] = []
+        if step.step_type != "compare_metric":
+            return issues
+
+        metric_name = str(step.params.get("metric_name", "")).strip()
+        if not metric_name:
+            return issues
+
+        resolved_metric = self.semantic_resolver.resolve_metric(metric_name)
+        if resolved_metric is None:
+            issues.append(
+                PlanValidationIssue(
+                    code="semantic_metric_not_found",
+                    category="semantic",
+                    step_index=step.index,
+                    message=(
+                        f"Step {step.index}: metric '{metric_name}' is not published "
+                        "or does not exist"
+                    ),
+                    detail={"metric_name": metric_name},
+                )
+            )
+            return issues
+
+        requested_dimensions = step.params.get("dimensions")
+        if isinstance(requested_dimensions, list):
+            unsupported = [
+                str(dimension)
+                for dimension in requested_dimensions
+                if str(dimension) not in resolved_metric.dimensions
+            ]
+            if unsupported:
+                issues.append(
+                    PlanValidationIssue(
+                        code="semantic_dimension_not_supported",
+                        category="semantic",
+                        step_index=step.index,
+                        message=(
+                            f"Step {step.index}: metric '{metric_name}' does not support "
+                            f"dimensions {unsupported}"
+                        ),
+                        detail={
+                            "metric_name": metric_name,
+                            "unsupported_dimensions": unsupported,
+                            "supported_dimensions": list(resolved_metric.dimensions),
+                        },
+                    )
+                )
+
+        return issues
+
+    def _validate_step_governance(
+        self, step: AnalysisStepIR, session_id: str,
+    ) -> list[PlanValidationIssue]:
+        if self.governance is None:
+            return []
+
+        params = dict(step.params)
+        table_name = self._table_name_for_step(step)
+        if table_name and not params.get("table_name"):
+            params["table_name"] = table_name
+
+        result = self.governance.check_step(
+            session_id,
+            step.step_type,
+            params=params if params else None,
+            tables=[table_name] if table_name else None,
+        )
+
+        issues: list[PlanValidationIssue] = []
+        for decision in result.get("decisions", []):
+            effect = decision.get("effect", "block")
+            issues.append(
+                PlanValidationIssue(
+                    code=str(decision.get("code", "governance_decision")),
+                    category="governance",
+                    severity="error" if effect == "block" else "warn",
+                    step_index=step.index,
+                    message=f"Step {step.index}: {decision['message']}",
+                    detail=decision,
+                )
+            )
+
+        decision_messages = {decision["message"] for decision in result.get("decisions", [])}
+        for warning in result.get("warnings", []):
+            if warning["message"] in decision_messages:
+                continue
+            issues.append(
+                PlanValidationIssue(
+                    code="quality_warning",
+                    category="governance",
+                    severity="warn",
+                    step_index=step.index,
+                    message=f"Step {step.index}: {warning['message']}",
+                    detail=warning,
+                )
+            )
+        for violation in result.get("violations", []):
+            if violation["message"] in decision_messages:
+                continue
+            issues.append(
+                PlanValidationIssue(
+                    code="quality_blocker",
+                    category="governance",
+                    severity="error",
+                    step_index=step.index,
+                    message=f"Step {step.index}: {violation['message']}",
+                    detail=violation,
+                )
+            )
+        return issues
+
+    def _validate_step_routing(self, step: AnalysisStepIR) -> list[PlanValidationIssue]:
+        if self.query_router is None:
+            return []
+
+        table_name = self._table_name_for_step(step)
+        if table_name is None:
+            return []
+
+        native_table_name = self._routing_table_name(table_name)
+        try:
+            self.query_router.resolve_tables([native_table_name])
+        except KeyError as error:
+            return [
+                PlanValidationIssue(
+                    code="routing_table_unresolved",
+                    category="routing",
+                    severity="warn",
+                    step_index=step.index,
+                    message=(
+                        f"Step {step.index}: routing could not resolve table "
+                        f"'{native_table_name}'; validation will rely on default analytics fallback"
+                    ),
+                    detail={"table_name": table_name, "native_table_name": native_table_name, "error": str(error)},
+                )
+            ]
+        except ValueError as error:
+            return [
+                PlanValidationIssue(
+                    code="routing_engine_unavailable",
+                    category="routing",
+                    severity="warn",
+                    step_index=step.index,
+                    message=(
+                        f"Step {step.index}: routing could not find a bound engine for "
+                        f"'{native_table_name}'; validation will rely on default analytics fallback"
+                    ),
+                    detail={"table_name": table_name, "native_table_name": native_table_name, "error": str(error)},
+                )
+            ]
+        return []
+
+    def _validate_budget(
+        self, plan_id: str, session_id: str, cost_estimates: list[CostEstimate],
+    ) -> list[PlanValidationIssue]:
+        row = self.metadata.query_one(
+            "SELECT budget_json FROM sessions WHERE session_id = ?",
+            [session_id],
+        )
+        if row is None:
+            raise KeyError(f"Unknown session: {session_id}")
+
+        budget = json.loads(row["budget_json"])
+        max_rows = budget.get("max_rows_scanned", inf)
+        if max_rows == inf:
+            return []
+
+        issues: list[PlanValidationIssue] = []
+        total_rows = sum(estimate.estimated_rows or 0 for estimate in cost_estimates)
+        unknown_subjects = [
+            estimate.subject for estimate in cost_estimates if estimate.estimated_rows is None
+        ]
+        if total_rows > max_rows:
+            issues.append(
+                PlanValidationIssue(
+                    code="budget_rows_exceeded",
+                    category="budget",
+                    message=(
+                        f"Plan {plan_id}: estimated rows {total_rows} exceed "
+                        f"budget max_rows_scanned={max_rows}"
+                    ),
+                    detail={
+                        "total_estimated_rows": total_rows,
+                        "max_rows_scanned": max_rows,
+                    },
+                )
+            )
+        if unknown_subjects:
+            issues.append(
+                PlanValidationIssue(
+                    code="budget_estimate_unknown",
+                    category="budget",
+                    severity="warn",
+                    message=(
+                        f"Plan {plan_id}: budget estimate is incomplete for steps "
+                        f"{unknown_subjects}"
+                    ),
+                    detail={
+                        "unknown_subjects": unknown_subjects,
+                        "max_rows_scanned": max_rows,
+                    },
+                )
+            )
+        return issues
+
+    def _estimate_step_cost(
+        self,
+        step: AnalysisStepIR,
+        analytics_engine: AnalyticsEngine | None = None,
+    ) -> CostEstimate | None:
+        engine = analytics_engine or self.analytics
+        if engine is None:
+            return None
+
+        table_name = self._table_name_for_step(step)
+        if table_name is None:
+            if step.step_type == "synthesize_findings":
+                return CostEstimate(
+                    subject=f"step:{step.index}",
+                    estimated_rows=0,
+                    confidence="high",
+                    detail={"step_type": step.step_type},
+                )
+            return CostEstimate(
+                subject=f"step:{step.index}",
+                estimated_rows=None,
+                confidence="unknown",
+                detail={"step_type": step.step_type},
+            )
+
+        try:
+            row_count = engine.table_row_count(table_name)
+        except Exception as error:
+            return CostEstimate(
+                subject=f"step:{step.index}",
+                estimated_rows=None,
+                confidence="unknown",
+                detail={
+                    "step_type": step.step_type,
+                    "table_name": table_name,
+                    "error": str(error),
+                },
+            )
+
+        return CostEstimate(
+            subject=f"step:{step.index}",
+            estimated_rows=row_count,
+            confidence="high",
+            detail={"step_type": step.step_type, "table_name": table_name},
+        )
+
+    def _table_name_for_step(self, step: AnalysisStepIR) -> str | None:
+        table_name = step.params.get("table_name")
+        if table_name:
+            return str(table_name)
+        return DEFAULT_STEP_TABLES.get(step.step_type)
+
+    @staticmethod
+    def _routing_table_name(table_name: str) -> str:
+        return table_name.split(".")[-1]
 
     @staticmethod
     def _is_acyclic(steps: list[dict[str, Any]]) -> bool:
