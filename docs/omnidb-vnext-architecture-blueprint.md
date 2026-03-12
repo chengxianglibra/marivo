@@ -18,6 +18,15 @@
 - `docs/omnidb-phase1-implementation-task-list.md`：给出第一阶段的实际实施拆分
 - `docs/omnidb-phase2-implementation-task-list.md`：给出第二阶段的实际实施拆分
 
+当前实施状态（截至 Phase 2 收尾）：
+
+- 本蓝图中的 `planner/`、`execution/`、`semantic runtime` 边界已经有第一批真实落点：
+  - 结构化 validation / policy application
+  - v1 cost model
+  - deterministic replanning hook
+  - shared execution feedback taxonomy
+- 仍未完成的是更彻底的目录迁移与多引擎/联邦执行深水区，因此本蓝图仍是后续阶段的目标参考，而不是现状等价描述。
+
 ## 2. 设计目标
 
 vNext 的目标不是简单增加更多 API，而是形成一套稳定的中间层能力，使 HTTP、MCP、UI 和未来的 Agent Controller 都能复用同一执行内核。
