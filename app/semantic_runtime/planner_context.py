@@ -18,6 +18,7 @@ class PlannerContextProvider:
                 """
                 SELECT name, display_name, status, dimensions_json
                 FROM semantic_metrics
+                WHERE status = 'published'
                 ORDER BY name
                 """
             ),
@@ -25,6 +26,7 @@ class PlannerContextProvider:
                 """
                 SELECT name, display_name, status, keys_json
                 FROM semantic_entities
+                WHERE status = 'published'
                 ORDER BY name
                 """
             ),

@@ -15,6 +15,7 @@ from app.analysis_core.executor import execute_compiled
 from app.analysis_core.ir import AnalysisStepIR, from_legacy_step
 from app.evidence import make_observation, synthesize_claims
 from app.evidence_engine import EvidencePipeline
+from app.semantic_runtime import PlannerContextProvider, SemanticResolver
 from app.session import SessionManager
 from app.storage.analytics import AnalyticsEngine
 from app.storage.metadata import MetadataStore
@@ -45,6 +46,8 @@ class SemanticLayerService:
         self.session_manager = SessionManager(metadata_store)
         self.step_registry = build_service_step_registry(self)
         self.evidence_pipeline = EvidencePipeline(synthesize_claims)
+        self.semantic_resolver = SemanticResolver(metadata_store)
+        self.planner_context_provider = PlannerContextProvider(metadata_store)
 
     def create_session(
         self,
@@ -222,26 +225,14 @@ class SemanticLayerService:
     # ── Metric resolution ────────────────────────────────────────────
 
     def resolve_metric_sql(self, metric_name: str) -> str | None:
-        """Look up a published metric's definition_sql from semantic_metrics.
-
-        Returns None if the metric is not found or not published.
-        """
-        row = self.metadata.query_one(
-            "SELECT definition_sql FROM semantic_metrics WHERE name = ? AND status = 'published'",
-            [metric_name],
-        )
-        return row["definition_sql"] if row else None
+        """Look up a published metric's definition_sql from semantic runtime."""
+        resolved = self.semantic_resolver.resolve_metric(metric_name)
+        return resolved.definition_sql if resolved else None
 
     def resolve_metric_dimensions(self, metric_name: str) -> list[str] | None:
-        """Look up a published metric's dimensions from semantic_metrics.
-
-        Returns None if the metric is not found or not published.
-        """
-        row = self.metadata.query_one(
-            "SELECT dimensions_json FROM semantic_metrics WHERE name = ? AND status = 'published'",
-            [metric_name],
-        )
-        return json.loads(row["dimensions_json"]) if row else None
+        """Look up a published metric's dimensions from semantic runtime."""
+        resolved = self.semantic_resolver.resolve_metric(metric_name)
+        return list(resolved.dimensions) if resolved else None
 
     def build_comparison_query(
         self,
