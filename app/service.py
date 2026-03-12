@@ -13,7 +13,6 @@ from app.analysis_core.compiler import build_comparison_query as compile_compari
 from app.analysis_core.compiler import compile_step
 from app.analysis_core.executor import execute_compiled
 from app.analysis_core.ir import AnalysisStepIR, from_legacy_step
-from app.dialect import translate
 from app.evidence import make_observation, synthesize_claims
 from app.evidence_engine import EvidencePipeline
 from app.session import SessionManager
@@ -295,77 +294,25 @@ class SemanticLayerService:
         step_id = self._new_step_id()
         engine, engine_type = self._resolve_engine(["watch_events"])
         current_start, current_end, baseline_start, baseline_end = self._period_bounds(engine)
-        top_slices = engine.query_rows(
-            translate("""
-            WITH periodized AS (
-                SELECT
-                    CASE
-                        WHEN event_date BETWEEN ? AND ? THEN 'current'
-                        WHEN event_date BETWEEN ? AND ? THEN 'baseline'
-                    END AS period,
-                    platform,
-                    app_version,
-                    network_type,
-                    content_type,
-                    play_duration_seconds
-                FROM analytics.watch_events
-                WHERE event_date BETWEEN ? AND ?
+        period_params = [current_start, current_end, baseline_start, baseline_end, baseline_start, current_end]
+        top_slices_query = compile_step(
+            from_legacy_step(
+                0,
+                {"step_type": "compare_watch_time_top_slices", "params": {"table_name": "analytics.watch_events", "limit": 3}},
             ),
-            aggregated AS (
-                SELECT
-                    platform,
-                    app_version,
-                    network_type,
-                    content_type,
-                    AVG(play_duration_seconds) FILTER (WHERE period = 'current') AS current_watch_time,
-                    AVG(play_duration_seconds) FILTER (WHERE period = 'baseline') AS baseline_watch_time,
-                    COUNT(*) FILTER (WHERE period = 'current') AS current_sessions,
-                    COUNT(*) FILTER (WHERE period = 'baseline') AS baseline_sessions
-                FROM periodized
-                GROUP BY 1, 2, 3, 4
-            )
-            SELECT
-                platform,
-                app_version,
-                network_type,
-                content_type,
-                ROUND(current_watch_time, 2) AS current_watch_time,
-                ROUND(baseline_watch_time, 2) AS baseline_watch_time,
-                ROUND(((current_watch_time - baseline_watch_time) / baseline_watch_time) * 100, 2) AS delta_pct,
-                current_sessions,
-                baseline_sessions
-            FROM aggregated
-            ORDER BY delta_pct ASC
-            LIMIT 3
-            """, engine_type),
-            [current_start, current_end, baseline_start, baseline_end, baseline_start, current_end],
+            engine_type=engine_type,
+            semantic_context={"period_params": period_params},
         )
-        overall = engine.query_rows(
-            translate("""
-            WITH periodized AS (
-                SELECT
-                    CASE
-                        WHEN event_date BETWEEN ? AND ? THEN 'current'
-                        WHEN event_date BETWEEN ? AND ? THEN 'baseline'
-                    END AS period,
-                    play_duration_seconds
-                FROM analytics.watch_events
-                WHERE event_date BETWEEN ? AND ?
-            )
-            SELECT
-                ROUND(AVG(play_duration_seconds) FILTER (WHERE period = 'current'), 2) AS current_watch_time,
-                ROUND(AVG(play_duration_seconds) FILTER (WHERE period = 'baseline'), 2) AS baseline_watch_time,
-                ROUND(
-                    (
-                        (AVG(play_duration_seconds) FILTER (WHERE period = 'current'))
-                        - (AVG(play_duration_seconds) FILTER (WHERE period = 'baseline'))
-                    ) / (AVG(play_duration_seconds) FILTER (WHERE period = 'baseline')) * 100,
-                    2
-                ) AS delta_pct
-            FROM periodized
-            """, engine_type),
-            [current_start, current_end, baseline_start, baseline_end, baseline_start, current_end],
-        )[0]
+        top_slices = execute_compiled(engine, top_slices_query).rows
+        overall_query = compile_step(
+            from_legacy_step(
+                1,
+                {"step_type": "compare_watch_time_overall", "params": {"table_name": "analytics.watch_events"}},
+            ),
+            engine_type=engine_type,
+            semantic_context={"period_params": period_params},
+        )
+        overall = execute_compiled(engine, overall_query).rows[0]
 
         observations = []
         for row in top_slices:
@@ -404,7 +351,11 @@ class SemanticLayerService:
             f"{top_slices[0]['platform']} {top_slices[0]['app_version']} {top_slices[0]['network_type']} "
             f"{top_slices[0]['content_type']} traffic ({top_slices[0]['delta_pct']}%)."
         )
-        provenance = self._make_provenance("compare_watch_time", engine_type=engine_type)
+        provenance = self._make_provenance(
+            f"{top_slices_query.sql}\n{overall_query.sql}",
+            [*top_slices_query.params, *overall_query.params],
+            engine_type=engine_type,
+        )
         result = {"step_type": step_type, "summary": summary, "artifact_id": artifact_id, "observations": observations}
         self._insert_step(step_id, session_id, step_type, summary, result, provenance=provenance)
         return result
@@ -415,52 +366,16 @@ class SemanticLayerService:
         step_id = self._new_step_id()
         engine, engine_type = self._resolve_engine(["player_qoe"])
         current_start, current_end, baseline_start, baseline_end = self._period_bounds(engine)
-        rows = engine.query_rows(
-            translate("""
-            WITH periodized AS (
-                SELECT
-                    CASE
-                        WHEN event_date BETWEEN ? AND ? THEN 'current'
-                        WHEN event_date BETWEEN ? AND ? THEN 'baseline'
-                    END AS period,
-                    platform,
-                    app_version,
-                    network_type,
-                    content_type,
-                    first_frame_time_ms
-                FROM analytics.player_qoe
-                WHERE event_date BETWEEN ? AND ?
+        period_params = [current_start, current_end, baseline_start, baseline_end, baseline_start, current_end]
+        compiled_query = compile_step(
+            from_legacy_step(
+                0,
+                {"step_type": step_type, "params": {"table_name": "analytics.player_qoe", "limit": 3}},
             ),
-            aggregated AS (
-                SELECT
-                    platform,
-                    app_version,
-                    network_type,
-                    content_type,
-                    AVG(first_frame_time_ms) FILTER (WHERE period = 'current') AS current_first_frame_ms,
-                    AVG(first_frame_time_ms) FILTER (WHERE period = 'baseline') AS baseline_first_frame_ms,
-                    COUNT(*) FILTER (WHERE period = 'current') AS current_sessions,
-                    COUNT(*) FILTER (WHERE period = 'baseline') AS baseline_sessions
-                FROM periodized
-                GROUP BY 1, 2, 3, 4
-            )
-            SELECT
-                platform,
-                app_version,
-                network_type,
-                content_type,
-                ROUND(current_first_frame_ms, 2) AS current_first_frame_ms,
-                ROUND(baseline_first_frame_ms, 2) AS baseline_first_frame_ms,
-                ROUND(((current_first_frame_ms - baseline_first_frame_ms) / baseline_first_frame_ms) * 100, 2) AS delta_pct,
-                ROUND(current_first_frame_ms - baseline_first_frame_ms, 2) AS delta_ms,
-                current_sessions,
-                baseline_sessions
-            FROM aggregated
-            ORDER BY delta_pct DESC
-            LIMIT 3
-            """, engine_type),
-            [current_start, current_end, baseline_start, baseline_end, baseline_start, current_end],
+            engine_type=engine_type,
+            semantic_context={"period_params": period_params},
         )
+        rows = execute_compiled(engine, compiled_query).rows
 
         observations = []
         for row in rows:
@@ -490,7 +405,7 @@ class SemanticLayerService:
             f"{rows[0]['network_type']} {rows[0]['content_type']} traffic, where first-frame time rose "
             f"{rows[0]['delta_pct']}%."
         )
-        provenance = self._make_provenance("analyze_qoe", engine_type=engine_type)
+        provenance = self._make_provenance(compiled_query.sql, compiled_query.params, engine_type=engine_type)
         result = {"step_type": step_type, "summary": summary, "artifact_id": artifact_id, "observations": observations}
         self._insert_step(step_id, session_id, step_type, summary, result, provenance=provenance)
         return result
@@ -501,51 +416,16 @@ class SemanticLayerService:
         step_id = self._new_step_id()
         engine, engine_type = self._resolve_engine(["ad_events"])
         current_start, current_end, baseline_start, baseline_end = self._period_bounds(engine)
-        rows = engine.query_rows(
-            translate("""
-            WITH periodized AS (
-                SELECT
-                    CASE
-                        WHEN event_date BETWEEN ? AND ? THEN 'current'
-                        WHEN event_date BETWEEN ? AND ? THEN 'baseline'
-                    END AS period,
-                    platform,
-                    app_version,
-                    network_type,
-                    content_type,
-                    preroll_timeout
-                FROM analytics.ad_events
-                WHERE event_date BETWEEN ? AND ?
+        period_params = [current_start, current_end, baseline_start, baseline_end, baseline_start, current_end]
+        compiled_query = compile_step(
+            from_legacy_step(
+                0,
+                {"step_type": step_type, "params": {"table_name": "analytics.ad_events", "limit": 3}},
             ),
-            aggregated AS (
-                SELECT
-                    platform,
-                    app_version,
-                    network_type,
-                    content_type,
-                    AVG(preroll_timeout::DOUBLE) FILTER (WHERE period = 'current') AS current_timeout_rate,
-                    AVG(preroll_timeout::DOUBLE) FILTER (WHERE period = 'baseline') AS baseline_timeout_rate,
-                    COUNT(*) FILTER (WHERE period = 'current') AS current_sessions,
-                    COUNT(*) FILTER (WHERE period = 'baseline') AS baseline_sessions
-                FROM periodized
-                GROUP BY 1, 2, 3, 4
-            )
-            SELECT
-                platform,
-                app_version,
-                network_type,
-                content_type,
-                ROUND(current_timeout_rate, 4) AS current_timeout_rate,
-                ROUND(baseline_timeout_rate, 4) AS baseline_timeout_rate,
-                ROUND(current_timeout_rate - baseline_timeout_rate, 4) AS delta_rate,
-                current_sessions,
-                baseline_sessions
-            FROM aggregated
-            ORDER BY delta_rate DESC
-            LIMIT 3
-            """, engine_type),
-            [current_start, current_end, baseline_start, baseline_end, baseline_start, current_end],
+            engine_type=engine_type,
+            semantic_context={"period_params": period_params},
         )
+        rows = execute_compiled(engine, compiled_query).rows
 
         observations = []
         for row in rows:
@@ -573,7 +453,7 @@ class SemanticLayerService:
             f"Preroll timeout pressure increased most in {rows[0]['platform']} {rows[0]['app_version']} "
             f"{rows[0]['network_type']} {rows[0]['content_type']} traffic (+{rows[0]['delta_rate']})."
         )
-        provenance = self._make_provenance("analyze_ads", engine_type=engine_type)
+        provenance = self._make_provenance(compiled_query.sql, compiled_query.params, engine_type=engine_type)
         result = {"step_type": step_type, "summary": summary, "artifact_id": artifact_id, "observations": observations}
         self._insert_step(step_id, session_id, step_type, summary, result, provenance=provenance)
         return result
@@ -584,52 +464,16 @@ class SemanticLayerService:
         step_id = self._new_step_id()
         engine, engine_type = self._resolve_engine(["recommendation_events"])
         current_start, current_end, baseline_start, baseline_end = self._period_bounds(engine)
-        rows = engine.query_rows(
-            translate("""
-            WITH periodized AS (
-                SELECT
-                    CASE
-                        WHEN event_date BETWEEN ? AND ? THEN 'current'
-                        WHEN event_date BETWEEN ? AND ? THEN 'baseline'
-                    END AS period,
-                    platform,
-                    app_version,
-                    network_type,
-                    content_type,
-                    impressions,
-                    clicks
-                FROM analytics.recommendation_events
-                WHERE event_date BETWEEN ? AND ?
+        period_params = [current_start, current_end, baseline_start, baseline_end, baseline_start, current_end]
+        compiled_query = compile_step(
+            from_legacy_step(
+                0,
+                {"step_type": step_type, "params": {"table_name": "analytics.recommendation_events", "limit": 3}},
             ),
-            aggregated AS (
-                SELECT
-                    platform,
-                    app_version,
-                    network_type,
-                    content_type,
-                    SUM(clicks) FILTER (WHERE period = 'current')::DOUBLE / SUM(impressions) FILTER (WHERE period = 'current') AS current_ctr,
-                    SUM(clicks) FILTER (WHERE period = 'baseline')::DOUBLE / SUM(impressions) FILTER (WHERE period = 'baseline') AS baseline_ctr,
-                    COUNT(*) FILTER (WHERE period = 'current') AS current_sessions,
-                    COUNT(*) FILTER (WHERE period = 'baseline') AS baseline_sessions
-                FROM periodized
-                GROUP BY 1, 2, 3, 4
-            )
-            SELECT
-                platform,
-                app_version,
-                network_type,
-                content_type,
-                ROUND(current_ctr, 4) AS current_ctr,
-                ROUND(baseline_ctr, 4) AS baseline_ctr,
-                ROUND(((current_ctr - baseline_ctr) / baseline_ctr) * 100, 2) AS delta_ctr_pct,
-                current_sessions,
-                baseline_sessions
-            FROM aggregated
-            ORDER BY delta_ctr_pct DESC
-            LIMIT 3
-            """, engine_type),
-            [current_start, current_end, baseline_start, baseline_end, baseline_start, current_end],
+            engine_type=engine_type,
+            semantic_context={"period_params": period_params},
         )
+        rows = execute_compiled(engine, compiled_query).rows
 
         observations = []
         for row in rows:
@@ -658,7 +502,7 @@ class SemanticLayerService:
             f"{rows[0]['delta_ctr_pct']}% in {rows[0]['platform']} {rows[0]['app_version']} "
             f"{rows[0]['network_type']} {rows[0]['content_type']} traffic."
         )
-        provenance = self._make_provenance("analyze_recommendation", engine_type=engine_type)
+        provenance = self._make_provenance(compiled_query.sql, compiled_query.params, engine_type=engine_type)
         result = {"step_type": step_type, "summary": summary, "artifact_id": artifact_id, "observations": observations}
         self._insert_step(step_id, session_id, step_type, summary, result, provenance=provenance)
         return result
