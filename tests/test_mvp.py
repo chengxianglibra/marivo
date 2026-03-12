@@ -48,6 +48,8 @@ class DuckDBMvpTests(unittest.TestCase):
         payload = workflow_response.json()
         self.assertEqual(payload["workflow"], "watch_time_drop")
         self.assertGreaterEqual(len(payload["steps"]), 5)
+        self.assertIn("replanning", payload)
+        self.assertIsInstance(payload["replanning"]["decisions"], list)
         self.assertTrue(any("Android 8.3.1" in claim["text"] for claim in payload["claims"]))
         self.assertGreaterEqual(len(payload["recommendations"]), 2)
 
