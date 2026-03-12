@@ -149,6 +149,238 @@ def compile_step(
             },
         )
 
+    if step.step_type == "compare_watch_time_top_slices":
+        table_name = str(params.get("table_name", "analytics.watch_events"))
+        limit = int(params.get("limit", 3))
+        return CompiledQuery(
+            sql=f"""
+                WITH periodized AS (
+                    SELECT
+                        CASE
+                            WHEN event_date BETWEEN ? AND ? THEN 'current'
+                            WHEN event_date BETWEEN ? AND ? THEN 'baseline'
+                        END AS period,
+                        platform,
+                        app_version,
+                        network_type,
+                        content_type,
+                        play_duration_seconds
+                    FROM {table_name}
+                    WHERE event_date BETWEEN ? AND ?
+                ),
+                aggregated AS (
+                    SELECT
+                        platform,
+                        app_version,
+                        network_type,
+                        content_type,
+                        AVG(play_duration_seconds) FILTER (WHERE period = 'current') AS current_watch_time,
+                        AVG(play_duration_seconds) FILTER (WHERE period = 'baseline') AS baseline_watch_time,
+                        COUNT(*) FILTER (WHERE period = 'current') AS current_sessions,
+                        COUNT(*) FILTER (WHERE period = 'baseline') AS baseline_sessions
+                    FROM periodized
+                    GROUP BY 1, 2, 3, 4
+                )
+                SELECT
+                    platform,
+                    app_version,
+                    network_type,
+                    content_type,
+                    ROUND(current_watch_time, 2) AS current_watch_time,
+                    ROUND(baseline_watch_time, 2) AS baseline_watch_time,
+                    ROUND(((current_watch_time - baseline_watch_time) / baseline_watch_time) * 100, 2) AS delta_pct,
+                    current_sessions,
+                    baseline_sessions
+                FROM aggregated
+                ORDER BY delta_pct ASC
+                LIMIT {limit}
+            """,
+            params=_require_period_params(step, semantic_context),
+            metadata={**metadata, "table_name": table_name, "limit": limit},
+        )
+
+    if step.step_type == "compare_watch_time_overall":
+        table_name = str(params.get("table_name", "analytics.watch_events"))
+        return CompiledQuery(
+            sql=f"""
+                WITH periodized AS (
+                    SELECT
+                        CASE
+                            WHEN event_date BETWEEN ? AND ? THEN 'current'
+                            WHEN event_date BETWEEN ? AND ? THEN 'baseline'
+                        END AS period,
+                        play_duration_seconds
+                    FROM {table_name}
+                    WHERE event_date BETWEEN ? AND ?
+                )
+                SELECT
+                    ROUND(AVG(play_duration_seconds) FILTER (WHERE period = 'current'), 2) AS current_watch_time,
+                    ROUND(AVG(play_duration_seconds) FILTER (WHERE period = 'baseline'), 2) AS baseline_watch_time,
+                    ROUND(
+                        (
+                            (AVG(play_duration_seconds) FILTER (WHERE period = 'current'))
+                            - (AVG(play_duration_seconds) FILTER (WHERE period = 'baseline'))
+                        ) / (AVG(play_duration_seconds) FILTER (WHERE period = 'baseline')) * 100,
+                        2
+                    ) AS delta_pct
+                FROM periodized
+            """,
+            params=_require_period_params(step, semantic_context),
+            metadata={**metadata, "table_name": table_name},
+        )
+
+    if step.step_type == "analyze_qoe":
+        table_name = str(params.get("table_name", "analytics.player_qoe"))
+        limit = int(params.get("limit", 3))
+        return CompiledQuery(
+            sql=f"""
+                WITH periodized AS (
+                    SELECT
+                        CASE
+                            WHEN event_date BETWEEN ? AND ? THEN 'current'
+                            WHEN event_date BETWEEN ? AND ? THEN 'baseline'
+                        END AS period,
+                        platform,
+                        app_version,
+                        network_type,
+                        content_type,
+                        first_frame_time_ms
+                    FROM {table_name}
+                    WHERE event_date BETWEEN ? AND ?
+                ),
+                aggregated AS (
+                    SELECT
+                        platform,
+                        app_version,
+                        network_type,
+                        content_type,
+                        AVG(first_frame_time_ms) FILTER (WHERE period = 'current') AS current_first_frame_ms,
+                        AVG(first_frame_time_ms) FILTER (WHERE period = 'baseline') AS baseline_first_frame_ms,
+                        COUNT(*) FILTER (WHERE period = 'current') AS current_sessions,
+                        COUNT(*) FILTER (WHERE period = 'baseline') AS baseline_sessions
+                    FROM periodized
+                    GROUP BY 1, 2, 3, 4
+                )
+                SELECT
+                    platform,
+                    app_version,
+                    network_type,
+                    content_type,
+                    ROUND(current_first_frame_ms, 2) AS current_first_frame_ms,
+                    ROUND(baseline_first_frame_ms, 2) AS baseline_first_frame_ms,
+                    ROUND(((current_first_frame_ms - baseline_first_frame_ms) / baseline_first_frame_ms) * 100, 2) AS delta_pct,
+                    ROUND(current_first_frame_ms - baseline_first_frame_ms, 2) AS delta_ms,
+                    current_sessions,
+                    baseline_sessions
+                FROM aggregated
+                ORDER BY delta_pct DESC
+                LIMIT {limit}
+            """,
+            params=_require_period_params(step, semantic_context),
+            metadata={**metadata, "table_name": table_name, "limit": limit},
+        )
+
+    if step.step_type == "analyze_ads":
+        table_name = str(params.get("table_name", "analytics.ad_events"))
+        limit = int(params.get("limit", 3))
+        return CompiledQuery(
+            sql=f"""
+                WITH periodized AS (
+                    SELECT
+                        CASE
+                            WHEN event_date BETWEEN ? AND ? THEN 'current'
+                            WHEN event_date BETWEEN ? AND ? THEN 'baseline'
+                        END AS period,
+                        platform,
+                        app_version,
+                        network_type,
+                        content_type,
+                        preroll_timeout
+                    FROM {table_name}
+                    WHERE event_date BETWEEN ? AND ?
+                ),
+                aggregated AS (
+                    SELECT
+                        platform,
+                        app_version,
+                        network_type,
+                        content_type,
+                        AVG(preroll_timeout::DOUBLE) FILTER (WHERE period = 'current') AS current_timeout_rate,
+                        AVG(preroll_timeout::DOUBLE) FILTER (WHERE period = 'baseline') AS baseline_timeout_rate,
+                        COUNT(*) FILTER (WHERE period = 'current') AS current_sessions,
+                        COUNT(*) FILTER (WHERE period = 'baseline') AS baseline_sessions
+                    FROM periodized
+                    GROUP BY 1, 2, 3, 4
+                )
+                SELECT
+                    platform,
+                    app_version,
+                    network_type,
+                    content_type,
+                    ROUND(current_timeout_rate, 4) AS current_timeout_rate,
+                    ROUND(baseline_timeout_rate, 4) AS baseline_timeout_rate,
+                    ROUND(current_timeout_rate - baseline_timeout_rate, 4) AS delta_rate,
+                    current_sessions,
+                    baseline_sessions
+                FROM aggregated
+                ORDER BY delta_rate DESC
+                LIMIT {limit}
+            """,
+            params=_require_period_params(step, semantic_context),
+            metadata={**metadata, "table_name": table_name, "limit": limit},
+        )
+
+    if step.step_type == "analyze_recommendation":
+        table_name = str(params.get("table_name", "analytics.recommendation_events"))
+        limit = int(params.get("limit", 3))
+        return CompiledQuery(
+            sql=f"""
+                WITH periodized AS (
+                    SELECT
+                        CASE
+                            WHEN event_date BETWEEN ? AND ? THEN 'current'
+                            WHEN event_date BETWEEN ? AND ? THEN 'baseline'
+                        END AS period,
+                        platform,
+                        app_version,
+                        network_type,
+                        content_type,
+                        impressions,
+                        clicks
+                    FROM {table_name}
+                    WHERE event_date BETWEEN ? AND ?
+                ),
+                aggregated AS (
+                    SELECT
+                        platform,
+                        app_version,
+                        network_type,
+                        content_type,
+                        SUM(clicks) FILTER (WHERE period = 'current')::DOUBLE / SUM(impressions) FILTER (WHERE period = 'current') AS current_ctr,
+                        SUM(clicks) FILTER (WHERE period = 'baseline')::DOUBLE / SUM(impressions) FILTER (WHERE period = 'baseline') AS baseline_ctr,
+                        COUNT(*) FILTER (WHERE period = 'current') AS current_sessions,
+                        COUNT(*) FILTER (WHERE period = 'baseline') AS baseline_sessions
+                    FROM periodized
+                    GROUP BY 1, 2, 3, 4
+                )
+                SELECT
+                    platform,
+                    app_version,
+                    network_type,
+                    content_type,
+                    ROUND(current_ctr, 4) AS current_ctr,
+                    ROUND(baseline_ctr, 4) AS baseline_ctr,
+                    ROUND(((current_ctr - baseline_ctr) / baseline_ctr) * 100, 2) AS delta_ctr_pct,
+                    current_sessions,
+                    baseline_sessions
+                FROM aggregated
+                ORDER BY delta_ctr_pct DESC
+                LIMIT {limit}
+            """,
+            params=_require_period_params(step, semantic_context),
+            metadata={**metadata, "table_name": table_name, "limit": limit},
+        )
+
     raise ValueError(f"Unsupported compilation step type: {step.step_type}")
 
 
@@ -157,3 +389,10 @@ def _require_param(step: AnalysisStepIR, name: str) -> str:
     if value in (None, ""):
         raise ValueError(f"{step.step_type} requires '{name}' param")
     return str(value)
+
+
+def _require_period_params(step: AnalysisStepIR, semantic_context: dict[str, Any]) -> list[Any]:
+    period_params = semantic_context.get("period_params")
+    if period_params is None:
+        raise ValueError(f"{step.step_type} compilation requires semantic_context with 'period_params'")
+    return list(period_params)
