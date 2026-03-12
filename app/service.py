@@ -15,6 +15,7 @@ from app.analysis_core.executor import execute_compiled
 from app.analysis_core.ir import AnalysisStepIR, from_legacy_step
 from app.evidence import make_observation, synthesize_claims
 from app.evidence_engine import EvidencePipeline
+from app.planner import ReplanningService
 from app.runtime_contracts import DEFAULT_STEP_TABLES
 from app.semantic_runtime import PlannerContextProvider, SemanticResolver
 from app.session import SessionManager
@@ -37,6 +38,7 @@ class SemanticLayerService:
         governance: GovernanceService | None = None,
         metrics: MetricsCollector | None = None,
         approvals: ApprovalService | None = None,
+        replanner: ReplanningService | None = None,
     ) -> None:
         self.metadata = metadata_store
         self.analytics = analytics_engine
@@ -49,6 +51,10 @@ class SemanticLayerService:
         self.evidence_pipeline = EvidencePipeline(synthesize_claims)
         self.semantic_resolver = SemanticResolver(metadata_store)
         self.planner_context_provider = PlannerContextProvider(metadata_store)
+        self.replanner = replanner or ReplanningService(
+            analytics_engine=analytics_engine,
+            query_router=query_router,
+        )
         self._governance_context: dict[str, Any] | None = None
 
     def create_session(
@@ -160,13 +166,89 @@ class SemanticLayerService:
     def run_watch_time_drop_workflow(self, session_id: str) -> dict[str, Any]:
         self._assert_session_exists(session_id)
         self._reset_session_outputs(session_id)
-        results = [
-            self.run_step(session_id, "compare_watch_time"),
-            self.run_step(session_id, "analyze_qoe"),
-            self.run_step(session_id, "analyze_ads"),
-            self.run_step(session_id, "analyze_recommendation"),
-            self.run_step(session_id, "synthesize_findings"),
+        workflow_plan: list[dict[str, Any]] = [
+            {"step_type": "compare_watch_time"},
+            {"step_type": "analyze_qoe"},
+            {"step_type": "analyze_ads"},
+            {"step_type": "analyze_recommendation"},
+            {"step_type": "synthesize_findings"},
         ]
+        results: list[dict[str, Any]] = []
+        replan_decisions: list[dict[str, Any]] = []
+        executed_step_types: list[str] = []
+        plan_cursor = 0
+
+        while plan_cursor < len(workflow_plan):
+            raw_step = dict(workflow_plan[plan_cursor])
+            step_ir = from_legacy_step(plan_cursor, raw_step)
+            estimate = self.replanner.estimate_step(
+                step_ir,
+                analytics_engine=self.analytics,
+                query_router=self.query_router,
+            )
+            applied_decisions: list[dict[str, Any]] = []
+
+            before_decision = self.replanner.decide_before_step(step_ir, estimate)
+            if before_decision.action == "replace_step":
+                replacement_step = before_decision.detail.get("replacement_step")
+                if isinstance(replacement_step, dict):
+                    raw_step = dict(replacement_step)
+                    workflow_plan[plan_cursor] = raw_step
+                    step_ir = from_legacy_step(plan_cursor, raw_step)
+                    estimate = self.replanner.estimate_step(
+                        step_ir,
+                        analytics_engine=self.analytics,
+                        query_router=self.query_router,
+                    )
+                    applied_decisions.append(before_decision.to_dict())
+                    replan_decisions.append(before_decision.to_dict())
+            elif before_decision.action == "skip_step":
+                replan_decisions.append(before_decision.to_dict())
+                plan_cursor += 1
+                continue
+
+            started = time.perf_counter()
+            try:
+                result = self.run_step(
+                    session_id,
+                    step_ir.step_type,
+                    params=step_ir.params if step_ir.params else None,
+                )
+            except Exception as error:
+                failure_decision = self.replanner.decide_on_error(step_ir, error, estimate=estimate)
+                replan_decisions.append(failure_decision.to_dict())
+                if failure_decision.action == "replace_step":
+                    replacement_step = failure_decision.detail.get("replacement_step")
+                    if isinstance(replacement_step, dict):
+                        workflow_plan[plan_cursor] = dict(replacement_step)
+                        continue
+                if failure_decision.action == "skip_step":
+                    plan_cursor += 1
+                    continue
+                raise
+
+            duration_ms = (time.perf_counter() - started) * 1000
+            feedback = self.replanner.build_feedback(step_ir, result, duration_ms, estimate=estimate)
+            after_decision = self.replanner.decide_after_step(step_ir, result, estimate, feedback)
+            if after_decision.action == "insert_steps":
+                insert_steps = after_decision.detail.get("insert_steps", [])
+                if isinstance(insert_steps, list) and insert_steps:
+                    workflow_plan[plan_cursor + 1:plan_cursor + 1] = [dict(step) for step in insert_steps]
+                    applied_decisions.append(after_decision.to_dict())
+                    replan_decisions.append(after_decision.to_dict())
+            elif after_decision.action == "skip_step":
+                applied_decisions.append(after_decision.to_dict())
+                replan_decisions.append(after_decision.to_dict())
+
+            result["execution_feedback"] = feedback.to_dict()
+            if applied_decisions:
+                result["replanning"] = applied_decisions
+                self._attach_replanning_provenance(session_id, step_ir.step_type, applied_decisions)
+
+            results.append(result)
+            executed_step_types.append(step_ir.step_type)
+            plan_cursor += 1
+
         final_result = results[-1]
 
         # Auto-flag high-risk recommendations for approval
@@ -180,6 +262,11 @@ class SemanticLayerService:
             "final_summary": final_result["summary"],
             "claims": final_result.get("claims", []),
             "recommendations": final_result.get("recommendations", []),
+            "replanning": {
+                "decisions": replan_decisions,
+                "executed_step_types": executed_step_types,
+                "final_plan": [step["step_type"] for step in workflow_plan],
+            },
         }
 
     def get_evidence_graph(self, session_id: str) -> dict[str, Any]:
@@ -821,6 +908,36 @@ class SemanticLayerService:
                 "soft_signals": self._governance_context.get("soft_signals", []),
             }
         return provenance
+
+    def _attach_replanning_provenance(
+        self,
+        session_id: str,
+        step_type: str,
+        decisions: list[dict[str, Any]],
+    ) -> None:
+        row = self.metadata.query_one(
+            """
+            SELECT step_id, provenance_json
+            FROM steps
+            WHERE session_id = ? AND step_type = ?
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            [session_id, step_type],
+        )
+        if row is None:
+            return
+
+        provenance = json.loads(row["provenance_json"])
+        history = provenance.get("replanning", [])
+        if not isinstance(history, list):
+            history = [history]
+        history.extend(decisions)
+        provenance["replanning"] = history
+        self.metadata.execute(
+            "UPDATE steps SET provenance_json = ? WHERE step_id = ?",
+            [self._dump(provenance), row["step_id"]],
+        )
 
     def _governance_tables(self, step_type: str, params: dict[str, Any]) -> list[str]:
         table_name = params.get("table_name")

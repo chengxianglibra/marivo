@@ -382,17 +382,17 @@
 
 ### 具体动作
 
-- [ ] 定义 `ExecutionFeedback`、`ReplanTrigger`、`ReplanDecision`
-- [ ] 识别证据不足、冲突证据、预算超限、引擎不可用、compile failure 等 trigger
-- [ ] 为现有 watch-time workflow 增加最小 re-planning hook，而不是一次性固定步骤
-- [ ] 支持插入补充步骤、替换降级步骤、跳过高风险步骤
-- [ ] 保留 deterministic rule-based re-planning，暂不引入复杂 LLM planner loop
-- [ ] 记录 re-plan provenance，便于 UI / MCP 返回解释
+- [x] 定义 `ExecutionFeedback`、`ReplanTrigger`、`ReplanDecision`
+- [x] 识别证据不足、冲突证据、预算/路由风险、引擎不可用、compile failure 等 trigger
+- [x] 为现有 watch-time workflow 增加最小 re-planning hook，而不是一次性固定步骤
+- [x] 支持插入补充步骤、替换降级步骤、跳过高风险步骤
+- [x] 保留 deterministic rule-based re-planning，暂不引入复杂 LLM planner loop
+- [x] 记录 re-plan provenance，便于 UI / MCP 返回解释
 
 ### 兼容要求
 
 - 旧 workflow API 保持可用
-- 默认路径仍可按固定顺序执行；re-planning 先通过 feature flag 或显式开关接入
+- 默认路径仍按固定 workflow 模板启动；只有命中 deterministic trigger 时才会插入 / 替换 / 跳过步骤
 
 ### 验收标准
 
@@ -410,6 +410,45 @@
 - 任务包 1
 - 任务包 2
 - 任务包 3
+
+### 当前实现（本轮已完成）
+
+- 新增 `app/planner/replanning.py` 与 `app/planner/__init__.py`，引入最小规则式 `ReplanningService`。
+- `ReplanningService` 当前复用 `CostModel` 并提供：
+  - `estimate_step()`
+  - `build_feedback()`
+  - `decide_before_step()`
+  - `decide_after_step()`
+  - `decide_on_error()`
+- 当前已落地的 trigger 类型：
+  - `insufficient_evidence`
+  - `conflicting_evidence`
+  - `budget_or_routing_risk`
+  - `engine_unavailable`
+  - `compile_failure`
+  - `step_execution_failed`
+- 当前支持的局部重规划动作：
+  - `insert_steps`
+  - `replace_step`
+  - `skip_step`
+  - `abort`
+- `SemanticLayerService.run_watch_time_drop_workflow()` 已不再是纯静态串行调用，现会：
+  - 对每个候选 step 先做 pre-step replanning decision
+  - 执行后根据 evidence / feedback 再做 post-step decision
+  - 在必要时插入补充 `profile_table` step
+  - 在高风险 sampling/optional step 上做 replace / skip
+  - 在执行错误时按 deterministic fallback 继续或终止
+- workflow 返回 payload 现新增 `replanning` 字段，包含：
+  - `decisions`
+  - `executed_step_types`
+  - `final_plan`
+- 触发重规划的 step 现会把 decision history 追加写入 `steps.provenance_json.replanning`，便于 evidence / UI / MCP 侧解释。
+- 新增直接测试 `tests/test_replanning.py`，覆盖：
+  - feedback 分类
+  - insert / replace / skip / error fallback 规则
+  - workflow 动态插入补充步骤
+  - replanning provenance 持久化
+- `tests/test_mvp.py` 已扩展断言真实 workflow API 返回 `replanning` 字段。
 
 ---
 
