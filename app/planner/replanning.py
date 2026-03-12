@@ -4,6 +4,7 @@ from typing import Any
 
 from app.analysis_core.ir import AnalysisStepIR
 from app.execution.costing import CostModel
+from app.execution.errors import ExecutionFailure
 from app.runtime_contracts import (
     DEFAULT_STEP_TABLES,
     CostEstimate,
@@ -243,6 +244,41 @@ class ReplanningService:
         error: Exception,
         estimate: CostEstimate | None = None,
     ) -> ReplanDecision:
+        if isinstance(error, ExecutionFailure):
+            trigger = ReplanTrigger(
+                code=error.code,
+                source=error.category,
+                message=error.message,
+                detail=error.to_feedback().to_dict(),
+            )
+            replacement_step = self._profile_step_for(step)
+            if replacement_step is not None and error.code in {
+                "compile_failure",
+                "translation_error",
+                "capability_mismatch",
+            }:
+                return ReplanDecision(
+                    action="replace_step",
+                    reason="Execution failure can be degraded to a simpler profile step.",
+                    triggers=[trigger],
+                    detail={"replacement_step": replacement_step},
+                )
+            if step.step_type in OPTIONAL_STEPS or error.replan_candidate:
+                return ReplanDecision(
+                    action="skip_step",
+                    reason="Structured execution feedback marked the step as replannable.",
+                    triggers=[trigger],
+                    detail={
+                        "skipped_step_type": step.step_type,
+                        "fallback_candidates": list(error.fallback_candidates),
+                    },
+                )
+            return ReplanDecision(
+                action="abort",
+                reason="Structured execution failure had no safe local fallback.",
+                triggers=[trigger],
+            )
+
         message = str(error)
         normalized = message.lower()
         replacement_step = self._profile_step_for(step)

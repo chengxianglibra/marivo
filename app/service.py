@@ -15,6 +15,8 @@ from app.analysis_core.executor import execute_compiled
 from app.analysis_core.ir import AnalysisStepIR, from_legacy_step
 from app.evidence import make_observation, synthesize_claims
 from app.evidence_engine import EvidencePipeline
+from app.execution.feedback import compile_failure_from_error
+from app.execution.routing_runtime import RoutingRuntime
 from app.planner import ReplanningService
 from app.runtime_contracts import DEFAULT_STEP_TABLES
 from app.semantic_runtime import PlannerContextProvider, SemanticResolver
@@ -56,6 +58,8 @@ class SemanticLayerService:
             query_router=query_router,
         )
         self._governance_context: dict[str, Any] | None = None
+        self._routing_feedback_context: dict[str, Any] | None = None
+        self.routing_runtime = RoutingRuntime(query_router, analytics_engine)
 
     def create_session(
         self,
@@ -143,11 +147,13 @@ class SemanticLayerService:
         start = time.perf_counter()
         try:
             self._governance_context = governance_result
+            self._routing_feedback_context = None
             result = self.step_registry.run(session_id, normalized, params)
         except KeyError as error:
             raise ValueError(f"Unsupported step type: {step_type}") from error
         finally:
             self._governance_context = None
+            self._routing_feedback_context = None
         duration_ms = (time.perf_counter() - start) * 1000
 
         if self.metrics:
@@ -374,15 +380,31 @@ class SemanticLayerService:
         Uses QueryRouter when available, falls back to self.analytics.
         Returns ``(engine, engine_type)`` tuple.
         """
-        if self.query_router is not None:
-            try:
-                route = self.query_router.resolve_tables(table_names)
-                eng_info = self.query_router.engine_service.get_engine(route.engine_id)
-                return route.engine, eng_info["engine_type"]
-            except (KeyError, ValueError):
-                # Table not found in source_objects or no bindings — fall back
-                pass
-        return self.analytics, "duckdb"
+        resolution = self.routing_runtime.resolve_tables(table_names)
+        self._routing_feedback_context = (
+            resolution.feedback.to_dict() if resolution.feedback is not None else None
+        )
+        return resolution.engine, resolution.engine_type
+
+    def _compile_step_with_feedback(
+        self,
+        step: AnalysisStepIR,
+        *,
+        engine_type: str,
+        semantic_context: dict[str, Any] | None = None,
+    ):
+        try:
+            return compile_step(
+                step,
+                engine_type=engine_type,
+                semantic_context=semantic_context,
+            )
+        except ValueError as error:
+            raise compile_failure_from_error(
+                step,
+                error,
+                semantic_context=semantic_context,
+            ) from error
 
     # ── Step runners ──────────────────────────────────────────────────
 
@@ -393,7 +415,7 @@ class SemanticLayerService:
         engine, engine_type = self._resolve_engine(["watch_events"])
         current_start, current_end, baseline_start, baseline_end = self._period_bounds(engine)
         period_params = [current_start, current_end, baseline_start, baseline_end, baseline_start, current_end]
-        top_slices_query = compile_step(
+        top_slices_query = self._compile_step_with_feedback(
             from_legacy_step(
                 0,
                 {"step_type": "compare_watch_time_top_slices", "params": {"table_name": "analytics.watch_events", "limit": 3}},
@@ -402,7 +424,7 @@ class SemanticLayerService:
             semantic_context={"period_params": period_params},
         )
         top_slices = execute_compiled(engine, top_slices_query).rows
-        overall_query = compile_step(
+        overall_query = self._compile_step_with_feedback(
             from_legacy_step(
                 1,
                 {"step_type": "compare_watch_time_overall", "params": {"table_name": "analytics.watch_events"}},
@@ -465,7 +487,7 @@ class SemanticLayerService:
         engine, engine_type = self._resolve_engine(["player_qoe"])
         current_start, current_end, baseline_start, baseline_end = self._period_bounds(engine)
         period_params = [current_start, current_end, baseline_start, baseline_end, baseline_start, current_end]
-        compiled_query = compile_step(
+        compiled_query = self._compile_step_with_feedback(
             from_legacy_step(
                 0,
                 {"step_type": step_type, "params": {"table_name": "analytics.player_qoe", "limit": 3}},
@@ -515,7 +537,7 @@ class SemanticLayerService:
         engine, engine_type = self._resolve_engine(["ad_events"])
         current_start, current_end, baseline_start, baseline_end = self._period_bounds(engine)
         period_params = [current_start, current_end, baseline_start, baseline_end, baseline_start, current_end]
-        compiled_query = compile_step(
+        compiled_query = self._compile_step_with_feedback(
             from_legacy_step(
                 0,
                 {"step_type": step_type, "params": {"table_name": "analytics.ad_events", "limit": 3}},
@@ -563,7 +585,7 @@ class SemanticLayerService:
         engine, engine_type = self._resolve_engine(["recommendation_events"])
         current_start, current_end, baseline_start, baseline_end = self._period_bounds(engine)
         period_params = [current_start, current_end, baseline_start, baseline_end, baseline_start, current_end]
-        compiled_query = compile_step(
+        compiled_query = self._compile_step_with_feedback(
             from_legacy_step(
                 0,
                 {"step_type": step_type, "params": {"table_name": "analytics.recommendation_events", "limit": 3}},
@@ -638,7 +660,7 @@ class SemanticLayerService:
         current_start, current_end, baseline_start, baseline_end = self._period_bounds(engine)
 
         period_params = [current_start, current_end, baseline_start, baseline_end, baseline_start, current_end]
-        compiled_query = compile_step(
+        compiled_query = self._compile_step_with_feedback(
             from_legacy_step(
                 0,
                 {
@@ -716,7 +738,7 @@ class SemanticLayerService:
         short_name = table_name.split(".")[-1]
         engine, engine_type = self._resolve_engine([short_name])
 
-        row_count_query = compile_step(
+        row_count_query = self._compile_step_with_feedback(
             AnalysisStepIR(index=0, step_type="profile_table_row_count", params={"table_name": table_name}),
             engine_type=engine_type,
         )
@@ -724,7 +746,7 @@ class SemanticLayerService:
         row_count = row_count_row["row_count"]
 
         try:
-            columns_query = compile_step(
+            columns_query = self._compile_step_with_feedback(
                 AnalysisStepIR(
                     index=0,
                     step_type="profile_table_columns",
@@ -740,7 +762,7 @@ class SemanticLayerService:
         col_profiles = []
         for col in columns[:20]:  # cap at 20 columns for safety
             try:
-                stats_query = compile_step(
+                stats_query = self._compile_step_with_feedback(
                     AnalysisStepIR(
                         index=0,
                         step_type="profile_table_column_profile",
@@ -788,7 +810,7 @@ class SemanticLayerService:
         short_name = table_name.split(".")[-1]
         engine, engine_type = self._resolve_engine([short_name])
 
-        compiled_query = compile_step(
+        compiled_query = self._compile_step_with_feedback(
             from_legacy_step(
                 0,
                 {"step_type": step_type, "params": {"table_name": table_name, "limit": limit}},
@@ -907,6 +929,8 @@ class SemanticLayerService:
                 "hard_constraints": self._governance_context.get("hard_constraints", []),
                 "soft_signals": self._governance_context.get("soft_signals", []),
             }
+        if self._routing_feedback_context:
+            provenance["routing"] = dict(self._routing_feedback_context)
         return provenance
 
     def _attach_replanning_provenance(

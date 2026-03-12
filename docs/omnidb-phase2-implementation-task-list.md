@@ -472,11 +472,11 @@
 
 ### 具体动作
 
-- [ ] 定义 execution failure taxonomy：routing error、capability mismatch、translation error、engine unavailable、partial result、timeout
-- [ ] 将 routing / executor / compiler 错误归一化为结构化 failure / feedback
-- [ ] 为 planner / re-planner 提供 fallback candidate 列表或 degrade signal
-- [ ] 明确哪些错误可重试、可重规划、必须失败
-- [ ] 在 evidence / provenance / observability 中暴露失败上下文
+- [x] 定义 execution failure taxonomy：routing error、capability mismatch、translation error、engine unavailable、partial result、timeout
+- [x] 将 routing / executor / compiler 错误归一化为结构化 failure / feedback
+- [x] 为 planner / re-planner 提供 fallback candidate 列表或 degrade signal
+- [x] 明确哪些错误可重试、可重规划、必须失败
+- [x] 在 evidence / provenance / observability 中暴露失败上下文
 
 ### 兼容要求
 
@@ -487,6 +487,41 @@
 
 - planner、executor、workflow runtime 可共享失败反馈对象
 - 引擎不可用 / 无公共引擎 / 翻译失败等场景有明确后续动作
+
+### 当前实现（本轮已完成）
+
+- 新增 `app/execution/errors.py`，引入 `ExecutionFailure`，用统一结构承载：
+  - `code`
+  - `category`
+  - `retryable`
+  - `replan_candidate`
+  - `fallback_candidates`
+  - `detail`
+- `app/runtime_contracts.py` 中的 `ExecutionFeedback` 已扩展 `fallback_candidates`，让 runtime / planner / replanner 可以共享同一反馈对象。
+- 新增 `app/execution/feedback.py`，用于把离散异常归一化为结构化 failure / feedback，当前覆盖：
+  - routing 失败
+  - compiler 失败
+  - SQL translation 失败
+  - executor / engine query 失败
+- 新增 `app/execution/routing_runtime.py`，把 `QueryRouter` 的 `KeyError` / `ValueError` 语义提升为：
+  - `RoutingResolutionResult`
+  - 可选 `feedback`
+  - default-engine fallback 决策
+- `app/analysis_core/executor.py` 现不再直接抛裸异常，translation / engine query 失败会统一抛出 `ExecutionFailure`。
+- `SemanticLayerService` 当前已接入 shared execution feedback seam：
+  - `_resolve_engine()` 通过 `RoutingRuntime` 解析并保留 routing feedback context
+  - `_compile_step_with_feedback()` 将 compiler `ValueError` 归一化为 `ExecutionFailure`
+  - `_make_provenance()` 现会把 routing fallback / failure context 写入 `provenance["routing"]`
+- `ReplanningService.decide_on_error()` 现优先消费 `ExecutionFailure`，不再只依赖 message string matching。
+- `app/execution/__init__.py` 现导出：
+  - `CostModel`
+  - `ExecutionFailure`
+  - `RoutingRuntime`
+- 新增 `tests/test_execution_feedback.py`，覆盖：
+  - translator failure normalization
+  - engine failure normalization
+  - routing fallback feedback
+  - provenance 注入 routing context
 
 ### 测试范围
 
