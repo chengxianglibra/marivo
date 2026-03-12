@@ -166,6 +166,74 @@ class CatalogRuntimeService:
             ],
         }
 
+    def graph(self, root: str, depth: int = 2) -> dict[str, Any]:
+        nodes: dict[str, dict[str, Any]] = {}
+        edges: list[dict[str, Any]] = []
+        visited: set[str] = set()
+        self._traverse(root, depth, nodes, edges, visited)
+        return {"root": root, "depth": depth, "nodes": list(nodes.values()), "edges": edges}
+
+    def _traverse(
+        self,
+        node_id: str,
+        remaining_depth: int,
+        nodes: dict[str, dict[str, Any]],
+        edges: list[dict[str, Any]],
+        visited: set[str],
+    ) -> None:
+        if node_id in visited or remaining_depth < 0:
+            return
+        visited.add(node_id)
+
+        node = self._identify_node(node_id)
+        if node is not None:
+            nodes[node_id] = node
+
+        if remaining_depth == 0:
+            return
+
+        metric_rows = self.metadata.query_rows(
+            "SELECT metric_id, name FROM semantic_metrics WHERE entity_id = ?",
+            [node_id],
+        )
+        for metric in metric_rows:
+            edges.append({"from": node_id, "to": metric["metric_id"], "edge_type": "defines"})
+            self._traverse(metric["metric_id"], remaining_depth - 1, nodes, edges, visited)
+
+        mapping_rows = self.metadata.query_rows(
+            "SELECT * FROM semantic_mappings WHERE semantic_id = ?",
+            [node_id],
+        )
+        for mapping in mapping_rows:
+            edges.append({"from": node_id, "to": mapping["object_id"], "edge_type": "maps_to"})
+            self._traverse(mapping["object_id"], remaining_depth - 1, nodes, edges, visited)
+
+        child_rows = self.metadata.query_rows(
+            "SELECT object_id, native_name, object_type FROM source_objects WHERE parent_id = ?",
+            [node_id],
+        )
+        for child in child_rows:
+            edges.append({"from": node_id, "to": child["object_id"], "edge_type": "contains"})
+            self._traverse(child["object_id"], remaining_depth - 1, nodes, edges, visited)
+
+        evidence_rows = self.metadata.query_rows(
+            """
+            SELECT edge_id, from_node_id, from_node_type, to_node_id, to_node_type, edge_type, weight
+            FROM evidence_edges
+            WHERE from_node_id = ? OR to_node_id = ?
+            """,
+            [node_id, node_id],
+        )
+        for evidence in evidence_rows:
+            other_id = evidence["to_node_id"] if evidence["from_node_id"] == node_id else evidence["from_node_id"]
+            edges.append({
+                "from": evidence["from_node_id"],
+                "to": evidence["to_node_id"],
+                "edge_type": evidence["edge_type"],
+                "weight": evidence["weight"],
+            })
+            self._traverse(other_id, remaining_depth - 1, nodes, edges, visited)
+
     def _resolve_mappings(self, mappings: list[dict[str, Any]]) -> list[dict[str, Any]]:
         assets = []
         for mapping in mappings:
@@ -200,6 +268,21 @@ class CatalogRuntimeService:
                     asset["engine"] = None
             assets.append(asset)
         return assets
+
+    def _identify_node(self, node_id: str) -> dict[str, Any] | None:
+        row = self.metadata.query_one("SELECT * FROM semantic_entities WHERE entity_id = ?", [node_id])
+        if row is not None:
+            return {"id": node_id, "type": "entity", "name": row["name"], "display_name": row["display_name"]}
+
+        row = self.metadata.query_one("SELECT * FROM semantic_metrics WHERE metric_id = ?", [node_id])
+        if row is not None:
+            return {"id": node_id, "type": "metric", "name": row["name"], "display_name": row["display_name"]}
+
+        row = self.metadata.query_one("SELECT * FROM source_objects WHERE object_id = ?", [node_id])
+        if row is not None:
+            return {"id": node_id, "type": row["object_type"], "name": row["native_name"], "fqn": row["fqn"]}
+
+        return None
 
     @staticmethod
     def _mapping_row_to_dict(row: dict[str, Any]) -> dict[str, Any]:

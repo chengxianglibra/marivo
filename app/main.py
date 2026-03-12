@@ -726,9 +726,10 @@ def create_app(
         root: str = Query(...),
         depth: int = Query(default=2, ge=1, le=5),
     ) -> dict[str, object]:
-        from app.catalog_query import CatalogQueryService
+        from app.semantic_runtime import CatalogRuntimeService
+
         try:
-            return CatalogQueryService(metadata_store).graph(root, depth)
+            return CatalogRuntimeService(metadata_store).graph(root, depth)
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 

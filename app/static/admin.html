@@ -1051,7 +1051,7 @@ renderers.observability = async () => {
         }
         healthEl.innerHTML = `
           <dl class="detail-meta">
-            <dt>Status</dt><dd><span class="badge badge-enabled">${esc(health.status || 'unknown')}</span></dd>
+            <dt>Status</dt><dd><span id="health-status-badge" class="badge badge-enabled">${esc(health.status || 'unknown')}</span></dd>
             <dt>Database Path</dt><dd><code>${esc(health.db_path || health.database || '-')}</code></dd>
             ${extraFields}
           </dl>`;

@@ -121,6 +121,15 @@ class SemanticRuntimeTests(unittest.TestCase):
         self.assertIn("compare_watch_time", context["available_step_types"])
         self.assertTrue(any(entity["name"] == "user" for entity in context["entities"]))
 
+    def test_catalog_runtime_graph_traverses_metric_mapping(self) -> None:
+        runtime = CatalogRuntimeService(self.metadata_store, self.binding_service)
+
+        graph = runtime.graph(self.metric_id, depth=2)
+
+        self.assertEqual(graph["root"], self.metric_id)
+        self.assertTrue(any(node["id"] == self.metric_id for node in graph["nodes"]))
+        self.assertTrue(any(edge["edge_type"] == "maps_to" for edge in graph["edges"]))
+
 
 if __name__ == "__main__":
     unittest.main()
