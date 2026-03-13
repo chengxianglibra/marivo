@@ -71,6 +71,15 @@
 - engine capability 有明确 schema
 - 至少两个 runtime 消费 capability profile
 
+#### 已完成实现
+
+- 新增 `app/execution/capabilities.py`，定义正式的 `EngineCapabilityProfile`
+- 为 `duckdb` / `trino` / `spark_connect` / `spark_thrift` 提供默认 capability builder
+- `EngineService` 现在会把 engine capabilities 规范化为 capability profile，而不是裸 `capabilities_json`
+- `QueryRouter` 现在在 priority 相同的情况下，使用 capability score 作为次级 tiebreaker
+- `CostModel` 现在会在 estimate detail 中附带 `engine_capabilities`，让 capability profile 进入成本可观测面
+- 已补充 `tests/test_engines.py` / `tests/test_bindings.py` / `tests/test_costing.py` 回归覆盖
+
 ---
 
 ### P5-3：让 routing 以 semantic intent / capability 驱动
@@ -219,7 +228,7 @@
 ## 6. 当前实施状态
 
 - [done] P5-1 设计与执行基线
-- [pending] P5-2 建立 engine capability profile
+- [done] P5-2 建立 engine capability profile
 - [pending] P5-3 让 routing 以 semantic intent / capability 驱动
 - [pending] P5-4 引入 translation / federation skeleton
 - [pending] P5-5 重构 registry / governance 边界

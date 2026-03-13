@@ -422,6 +422,57 @@ class QueryRouterTests(unittest.TestCase):
         self.assertEqual(route.engine_id, eng["engine_id"])
         self.assertEqual(route.qualified_names["ns_resolve_tbl"], "hive.myschema.ns_resolve_tbl")
 
+    def test_resolve_tables_uses_capability_tiebreaker_for_equal_priority(self) -> None:
+        from datetime import datetime, timezone
+        from uuid import uuid4
+
+        src = self.source_service.register_source("local", "Capability Tie Src", {"path": str(self.local_duckdb_path)})
+        adapter = self.source_service.get_adapter(src["source_id"])
+        self.sync_engine.trigger_sync(src["source_id"], adapter)
+
+        duck = self.engine_service.register_engine(
+            "duckdb",
+            "Capability Tie Duck",
+            {"path": "/tmp/cap_tie.duckdb"},
+        )
+        trino = self.engine_service.register_engine(
+            "trino",
+            "Capability Tie Trino",
+            {"host": "localhost", "port": 8080, "user": "test", "catalog": "hive", "schema": "default"},
+        )
+
+        self.binding_service.create_binding(src["source_id"], duck["engine_id"], priority=7)
+        self.binding_service.create_binding(src["source_id"], trino["engine_id"], priority=7)
+
+        now = datetime.now(timezone.utc).isoformat()
+        schema_id = f"obj_{uuid4().hex[:12]}"
+        self.metadata.execute(
+            """
+            INSERT INTO source_objects
+                (object_id, source_id, object_type, native_name, fqn, properties_json, created_at, updated_at)
+            VALUES (?, ?, 'schema', 'cap_tie_schema', 'demo.cap_tie_schema', '{}', ?, ?)
+            """,
+            [schema_id, src["source_id"], now, now],
+        )
+        for table_name in ("cap_tie_watch", "cap_tie_qoe"):
+            table_id = f"obj_{uuid4().hex[:12]}"
+            self.metadata.execute(
+                """
+                INSERT INTO source_objects
+                    (object_id, source_id, object_type, parent_id, native_name, fqn, properties_json, created_at, updated_at)
+                VALUES (?, ?, 'table', ?, ?, ?, '{}', ?, ?)
+                """,
+                [table_id, src["source_id"], schema_id, table_name, f"demo.cap_tie_schema.{table_name}", now, now],
+            )
+
+        route = QueryRouter(self.metadata, self.engine_service).resolve_tables(
+            ["cap_tie_watch", "cap_tie_qoe"]
+        )
+
+        self.assertEqual(route.engine_id, trino["engine_id"])
+        self.assertEqual(route.capability_profile.performance_class, "distributed")
+        self.assertGreater(route.capability_score, 0)
+
 
 class BindingAPITests(unittest.TestCase):
     """Integration tests for binding and routing API endpoints via TestClient."""

@@ -5,6 +5,7 @@ from typing import Any
 
 from app.bindings import BindingService
 from app.engines import EngineService
+from app.execution.capabilities import EngineCapabilityProfile, score_capability_profile
 from app.storage.analytics import AnalyticsEngine
 from app.storage.metadata import MetadataStore
 
@@ -16,6 +17,8 @@ class ResolvedRoute:
     engine: AnalyticsEngine
     engine_id: str
     qualified_names: dict[str, str] = field(default_factory=dict)  # {native_name: qualified_name}
+    capability_profile: EngineCapabilityProfile | None = None
+    capability_score: int = 0
 
 
 class QueryRouter:
@@ -106,10 +109,21 @@ class QueryRouter:
                 f"Bindings: {'; '.join(detail_parts)}"
             )
 
-        # Step 4: pick the engine with highest total priority
+        capability_profiles = {
+            engine_id: self.engine_service.get_capability_profile(engine_id)
+            for engine_id in common_engines
+        }
+
+        # Step 4: pick the engine with highest total priority, then capability score
         best_engine_id = max(
             common_engines,
-            key=lambda eid: sum(engine_priorities.get(eid, {}).values()),
+            key=lambda eid: (
+                sum(engine_priorities.get(eid, {}).values()),
+                score_capability_profile(
+                    capability_profiles[eid],
+                    table_count=len(table_names),
+                ),
+            ),
         )
 
         # Step 5: build qualified names using binding namespace
@@ -123,10 +137,16 @@ class QueryRouter:
 
         # Step 6: build the analytics engine
         engine = self.engine_service.build_analytics_engine(best_engine_id)
+        capability_profile = capability_profiles[best_engine_id]
         return ResolvedRoute(
             engine=engine,
             engine_id=best_engine_id,
             qualified_names=qualified_names,
+            capability_profile=capability_profile,
+            capability_score=score_capability_profile(
+                capability_profile,
+                table_count=len(table_names),
+            ),
         )
 
     def resolve_engine_for_source(self, source_id: str) -> AnalyticsEngine:

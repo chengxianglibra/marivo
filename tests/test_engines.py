@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
 
 from app.engines import EngineService, _build_analytics_engine
+from app.execution.capabilities import build_engine_capability_profile
 from app.main import create_app
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 from app.storage.sqlite_metadata import SQLiteMetadataStore
@@ -53,6 +54,23 @@ class EngineServiceTests(unittest.TestCase):
         fetched = self.service.get_engine(engine["engine_id"])
         self.assertEqual(fetched["engine_id"], engine["engine_id"])
         self.assertEqual(fetched["connection"]["path"], "/tmp/test.duckdb")
+        self.assertEqual(fetched["capabilities"]["engine_type"], "duckdb")
+        self.assertEqual(fetched["capabilities"]["performance_class"], "embedded")
+
+    def test_get_capability_profile_merges_defaults_and_overrides(self) -> None:
+        engine = self.service.register_engine(
+            engine_type="trino",
+            display_name="Capability Trino",
+            connection={"host": "localhost"},
+            capabilities={"metadata": {"deployment": "prod"}, "min_staleness_minutes": 15},
+        )
+
+        profile = self.service.get_capability_profile(engine["engine_id"])
+
+        self.assertEqual(profile.engine_type, "trino")
+        self.assertEqual(profile.performance_class, "distributed")
+        self.assertEqual(profile.min_staleness_minutes, 15)
+        self.assertEqual(profile.metadata["deployment"], "prod")
 
     def test_get_engine_404(self) -> None:
         with self.assertRaises(KeyError):
@@ -234,6 +252,13 @@ class BuildAnalyticsEngineTests(unittest.TestCase):
     def test_build_unsupported(self) -> None:
         with self.assertRaises(ValueError):
             _build_analytics_engine("spark", {})
+
+
+class CapabilityProfileTests(unittest.TestCase):
+    def test_build_engine_capability_profile_defaults_duckdb(self) -> None:
+        profile = build_engine_capability_profile("duckdb")
+        self.assertEqual(profile.performance_class, "embedded")
+        self.assertIn("temporary_tables", profile.supported_sql_features)
 
 
 class SparkConnectAnalyticsEngineTests(unittest.TestCase):

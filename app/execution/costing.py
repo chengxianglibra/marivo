@@ -5,6 +5,7 @@ from math import inf
 from typing import TYPE_CHECKING, Any
 
 from app.analysis_core.ir import AnalysisStepIR, ExecutionTargetIR
+from app.execution.capabilities import build_engine_capability_profile
 from app.runtime_contracts import BudgetCheckResult, CostEstimate
 from app.storage.analytics import AnalyticsEngine
 
@@ -74,6 +75,13 @@ class CostModel:
             self._route_detail_from_target(execution_target, table_name)
             if execution_target is not None
             else self._resolve_route(table_name, router)
+        )
+        route_detail.update(
+            self._capability_detail(
+                engine_id=route_detail.get("engine_id"),
+                engine_type=route_detail.get("engine_type"),
+                router=router,
+            )
         )
         bytes_per_row = STEP_BYTES_PER_ROW.get(step.step_type, 128)
 
@@ -218,7 +226,14 @@ class CostModel:
                 "engine_locality": "bound_engine",
                 "routing_strategy": "bound_route",
                 "engine_id": route.engine_id,
+                "engine_type": route.capability_profile.engine_type if route.capability_profile else None,
                 "qualified_name": route.qualified_names.get(native_table_name, table_name),
+                "capability_score": route.capability_score,
+                "engine_capabilities": (
+                    route.capability_profile.to_dict()
+                    if route.capability_profile is not None
+                    else None
+                ),
             }
         except KeyError as error:
             return {
@@ -252,6 +267,21 @@ class CostModel:
             routing_name = execution_target.routing_table_names[0] if execution_target.routing_table_names else table_name
             detail["qualified_name"] = execution_target.qualified_names.get(routing_name, table_name)
         return detail
+
+    @staticmethod
+    def _capability_detail(
+        *,
+        engine_id: str | None,
+        engine_type: str | None,
+        router: QueryRouter | None,
+    ) -> dict[str, Any]:
+        if engine_id and router is not None:
+            profile = router.engine_service.get_capability_profile(engine_id)
+            return {"engine_capabilities": profile.to_dict()}
+        if engine_type is not None:
+            profile = build_engine_capability_profile(engine_type)
+            return {"engine_capabilities": profile.to_dict()}
+        return {}
 
     @staticmethod
     def _join_fanout_risk(step: AnalysisStepIR) -> str:
