@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from typing import Any
 
 from app.analysis_core.compiler import CompiledQuery
 from app.analysis_core.ir import AnalysisStepIR
 from app.execution.errors import ExecutionFailure
 from app.runtime_contracts import ExecutionFeedback
+
+if TYPE_CHECKING:
+    from app.execution.federation import FederationPlan
 
 
 def routing_feedback_from_error(
@@ -80,6 +84,28 @@ def translation_failure_from_error(
         detail={
             "step_type": compiled_query.metadata.get("step_type"),
             "engine_type": compiled_query.metadata.get("engine_type"),
+        },
+    )
+
+
+def federation_failure_from_plan(
+    plan: FederationPlan,
+    *,
+    message: str | None = None,
+) -> ExecutionFailure:
+    return ExecutionFailure(
+        code="federation_not_implemented",
+        category="federation",
+        message=message or (
+            "Federated execution requires staged handoff, but only the skeleton contract is implemented"
+        ),
+        replan_candidate=True,
+        fallback_candidates=["prefer_single_engine_route", "materialize_inputs_before_merge"],
+        detail={
+            "mode": plan.mode,
+            "stage_count": len(plan.stages),
+            "merge_required": plan.merge is not None,
+            "plan": plan.to_dict(),
         },
     )
 
