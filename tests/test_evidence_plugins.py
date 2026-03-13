@@ -3,7 +3,11 @@ from __future__ import annotations
 import unittest
 
 from app.evidence import synthesize_claims
-from app.evidence_engine import EvidencePipeline
+from app.evidence_engine import (
+    ConfidenceScorer,
+    EvidencePipeline,
+    RecommendationPolicy,
+)
 from app.evidence_engine.extractors import ComparisonRowExtractor
 
 
@@ -119,7 +123,80 @@ class EvidencePluginTests(unittest.TestCase):
         synthesis = pipeline.build_synthesis(observations)
 
         self.assertGreaterEqual(len(synthesis["claims"]), 1)
+        self.assertGreaterEqual(len(synthesis["recommendations"]), 1)
         self.assertTrue(any(edge["edge_type"] == "supports" for edge in synthesis["edges"]))
+
+    def test_pipeline_supports_custom_scorer_and_recommendation_policy(self) -> None:
+        class FixedConfidenceScorer(ConfidenceScorer):
+            name = "fixed"
+
+            def score(self, observations: list[dict], claims: list[dict]) -> list[dict]:
+                return [
+                    {
+                        **claim,
+                        "confidence": 0.42,
+                        "confidence_breakdown": {
+                            **claim["confidence_breakdown"],
+                            "scorer": self.name,
+                        },
+                    }
+                    for claim in claims
+                ]
+
+        class FixedRecommendationPolicy(RecommendationPolicy):
+            name = "fixed"
+
+            def derive(
+                self,
+                observations: list[dict],
+                claims: list[dict],
+                recommendations: list[dict],
+            ) -> list[dict]:
+                return [
+                    {
+                        "rec_id": "rec_fixed",
+                        "claim_id": claims[0]["claim_id"],
+                        "action_text": "Escalate fixed follow-up",
+                        "priority": "P2",
+                        "expected_impact": "Validate custom policy wiring.",
+                        "risk": "Low",
+                        "validation_metric": {"primary_metric": "watch_time"},
+                    }
+                ]
+
+        pipeline = EvidencePipeline(
+            synthesize_claims,
+            confidence_scorers={"fixed": FixedConfidenceScorer()},
+            recommendation_policies={"fixed": FixedRecommendationPolicy()},
+        )
+        observations = [
+            {
+                "observation_id": "obs_watch_1",
+                "type": "metric_change",
+                "subject": {
+                    "metric": "watch_time",
+                    "slice": {
+                        "platform": "android",
+                        "app_version": "8.3.1",
+                        "network_type": "4g",
+                        "content_type": "short",
+                    },
+                },
+                "payload": {"delta_pct": -14.0, "current_sessions": 280, "baseline_sessions": 285},
+                "significance": {"sample_size": 280, "practical_significance": True},
+                "quality": {"freshness_ok": True, "sample_size_ok": True},
+            }
+        ]
+
+        synthesis = pipeline.build_synthesis(
+            observations,
+            confidence_scorer_name="fixed",
+            recommendation_policy_name="fixed",
+        )
+
+        self.assertEqual(synthesis["claims"][0]["confidence"], 0.42)
+        self.assertEqual(synthesis["recommendations"][0]["rec_id"], "rec_fixed")
+        self.assertTrue(any(edge["edge_type"] == "justifies" for edge in synthesis["edges"]))
 
 
 if __name__ == "__main__":
