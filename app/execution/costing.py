@@ -4,7 +4,7 @@ from dataclasses import asdict
 from math import inf
 from typing import TYPE_CHECKING, Any
 
-from app.analysis_core.ir import AnalysisStepIR
+from app.analysis_core.ir import AnalysisStepIR, ExecutionTargetIR
 from app.runtime_contracts import BudgetCheckResult, CostEstimate
 from app.storage.analytics import AnalyticsEngine
 
@@ -42,6 +42,7 @@ class CostModel:
         step: AnalysisStepIR,
         analytics_engine: AnalyticsEngine | None = None,
         query_router: QueryRouter | None = None,
+        execution_target: ExecutionTargetIR | None = None,
     ) -> CostEstimate:
         engine = analytics_engine or self.analytics
         router = query_router or self.query_router
@@ -69,7 +70,11 @@ class CostModel:
                 detail={"step_type": step.step_type},
             )
 
-        route_detail = self._resolve_route(table_name, router)
+        route_detail = (
+            self._route_detail_from_target(execution_target, table_name)
+            if execution_target is not None
+            else self._resolve_route(table_name, router)
+        )
         bytes_per_row = STEP_BYTES_PER_ROW.get(step.step_type, 128)
 
         if engine is None:
@@ -227,6 +232,26 @@ class CostModel:
                 "routing_strategy": "fallback_no_common_engine",
                 "routing_error": str(error),
             }
+
+    @staticmethod
+    def _route_detail_from_target(
+        execution_target: ExecutionTargetIR,
+        table_name: str,
+    ) -> dict[str, Any]:
+        detail = {
+            "engine_locality": execution_target.engine_locality,
+            "routing_strategy": execution_target.routing_strategy or "ir_target",
+        }
+        if execution_target.engine_id is not None:
+            detail["engine_id"] = execution_target.engine_id
+        if execution_target.engine_type is not None:
+            detail["engine_type"] = execution_target.engine_type
+        if execution_target.routing_error is not None:
+            detail["routing_error"] = execution_target.routing_error
+        if execution_target.qualified_names:
+            routing_name = execution_target.routing_table_names[0] if execution_target.routing_table_names else table_name
+            detail["qualified_name"] = execution_target.qualified_names.get(routing_name, table_name)
+        return detail
 
     @staticmethod
     def _join_fanout_risk(step: AnalysisStepIR) -> str:

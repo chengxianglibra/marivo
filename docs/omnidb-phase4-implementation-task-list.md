@@ -157,6 +157,15 @@
 - 错误信息更多体现语义原因，而不是参数缺失
 - 兼容回归通过
 
+#### 已完成实现
+
+- `PlanningService` 的 validate / estimate-cost / budget-check / execute-plan 主路径现在复用 enriched `ExecutionPlanIR`
+- semantic 校验不再重新查 resolver，而是消费 `SemanticResolutionIR`
+- governance 校验不再重新拼 session/table 上下文，而是消费 request IR + execution target
+- routing 校验不再重新 resolve route，而是消费 `ExecutionTargetIR` 中的 routing result / fallback reason
+- cost model 现在可直接消费 `ExecutionTargetIR`，不必重复解析 routing
+- 新增 unsupported dimension 回归，确保 semantic validation 走 IR 主链
+
 ---
 
 ### P4-5：引入 confidence scorer / recommendation policy seam
@@ -230,6 +239,6 @@
 - [done] P4-1 设计与执行基线
 - [done] P4-2 增强 semantic object 执行语义
 - [done] P4-3 补齐 AnalysisRequest / ExecutionPlanIR
-- [pending] P4-4 让 validator / governance / costing 更彻底消费 IR
+- [done] P4-4 让 validator / governance / costing 更彻底消费 IR
 - [pending] P4-5 引入 confidence scorer / recommendation policy seam
 - [pending] P4-6 收口 semantic-runtime / persistence glue

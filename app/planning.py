@@ -181,7 +181,7 @@ class PlanningService:
 
         self._transition(plan_id, "executing")
         steps = plan["steps"]
-        plan_ir = self.get_execution_plan_ir(plan_id)
+        plan_ir = self._build_execution_plan_ir(plan)
         session_id = plan["session_id"]
 
         # Build execution order (topological sort)
@@ -192,10 +192,12 @@ class PlanningService:
             for idx in execution_order:
                 step = steps[idx]
                 step_ir = plan_ir.steps[idx]
+                execution_target = plan_ir.execution_target_for_step(step_ir.index)
                 estimate = self.cost_model.estimate_step(
                     step_ir,
                     analytics_engine=self.analytics,
                     query_router=self.query_router,
+                    execution_target=execution_target,
                 )
                 step["estimated_cost"] = estimate.estimated_rows
                 step["estimated_cost_detail"] = self.cost_model.serialize_estimate(estimate)
@@ -244,6 +246,9 @@ class PlanningService:
 
     def get_execution_plan_ir(self, plan_id: str) -> ExecutionPlanIR:
         plan = self.get_plan(plan_id)
+        return self._build_execution_plan_ir(plan)
+
+    def _build_execution_plan_ir(self, plan: dict[str, Any]) -> ExecutionPlanIR:
         step_irs = self._plan_step_irs(plan["steps"])
         request = self._build_analysis_request(plan, step_irs)
         return ExecutionPlanIR(
@@ -281,12 +286,16 @@ class PlanningService:
         Updates the plan's steps in-place with estimated_cost fields.
         """
         plan = self.get_plan(plan_id)
+        plan_ir = self._build_execution_plan_ir(plan)
         steps = plan["steps"]
         for step in steps:
+            step_ir = plan_ir.steps[step["index"]]
+            execution_target = plan_ir.execution_target_for_step(step_ir.index)
             estimate = self.cost_model.estimate_step(
-                from_legacy_step(step["index"], step),
+                step_ir,
                 analytics_engine=analytics_engine,
                 query_router=self.query_router,
+                execution_target=execution_target,
             )
             step["estimated_cost"] = estimate.estimated_rows if estimate is not None else None
             step["estimated_cost_detail"] = self.cost_model.serialize_estimate(estimate)
@@ -307,13 +316,14 @@ class PlanningService:
     def check_budget(self, plan_id: str, session_id: str) -> dict[str, Any]:
         """Check if plan total cost fits within session budget."""
         plan = self.get_plan(plan_id)
-        row = self.metadata.query_one("SELECT budget_json FROM sessions WHERE session_id = ?", [session_id])
-        if row is None:
-            raise KeyError(f"Unknown session: {session_id}")
-        budget = json.loads(row["budget_json"])
-        max_rows = budget.get("max_rows_scanned", inf)
+        plan_ir = self._build_execution_plan_ir(plan)
+        if plan_ir.request.session_id != session_id:
+            raise KeyError(f"Session '{session_id}' does not own plan '{plan_id}'")
+        max_rows = plan_ir.request.budget.get("max_rows_scanned", inf)
         estimates: list[CostEstimate] = []
         for step in plan["steps"]:
+            step_ir = plan_ir.steps[step["index"]]
+            execution_target = plan_ir.execution_target_for_step(step_ir.index)
             if isinstance(step.get("estimated_cost_detail"), dict):
                 estimates.append(CostEstimate(**step["estimated_cost_detail"]))
                 continue
@@ -329,9 +339,10 @@ class PlanningService:
                 continue
             estimates.append(
                 self.cost_model.estimate_step(
-                    from_legacy_step(step["index"], step),
+                    step_ir,
                     analytics_engine=self.analytics,
                     query_router=self.query_router,
+                    execution_target=execution_target,
                 )
             )
         return self.cost_model.check_budget(plan_id, max_rows, estimates).to_dict()
@@ -476,6 +487,7 @@ class PlanningService:
                 step_index=step.index,
                 engine_type="heuristic" if step.step_type == "synthesize_findings" else None,
                 engine_locality="artifact_only" if step.step_type == "synthesize_findings" else "unknown",
+                routing_strategy="artifact_only" if step.step_type == "synthesize_findings" else None,
             )
 
         routing_table_name = step.routing_table_name()
@@ -485,18 +497,26 @@ class PlanningService:
             routing_table_names=[routing_table_name] if routing_table_name else [],
             engine_type=self._default_engine_type(),
             engine_locality="default_analytics",
+            routing_strategy="no_router",
         )
         if self.query_router is None or routing_table_name is None:
             return target
 
         try:
             route = self.query_router.resolve_tables([routing_table_name])
-        except (KeyError, ValueError):
+        except KeyError as error:
+            target.routing_strategy = "fallback_missing_table"
+            target.routing_error = str(error)
+            return target
+        except ValueError as error:
+            target.routing_strategy = "fallback_no_common_engine"
+            target.routing_error = str(error)
             return target
 
         target.engine_id = route.engine_id
         target.engine_type = self._engine_type_for_id(route.engine_id) or self._analytics_engine_type(route.engine)
         target.engine_locality = "bound_engine"
+        target.routing_strategy = "bound_route"
         target.qualified_names = dict(route.qualified_names)
         return target
 
@@ -546,9 +566,10 @@ class PlanningService:
         issues: list[PlanValidationIssue] = []
         cost_estimates: list[CostEstimate] = []
         plan_id = str(plan["plan_id"])
-        session_id = str(plan["session_id"])
+        plan_ir = self._build_execution_plan_ir(plan)
+        request = plan_ir.request
         steps = plan["steps"]
-        step_irs = self._plan_step_irs(steps)
+        step_irs = plan_ir.steps
 
         for step in step_irs:
             if step.step_type not in VALID_STEP_TYPES:
@@ -639,18 +660,21 @@ class PlanningService:
                     )
 
         for step in step_irs:
-            issues.extend(self._validate_step_semantics(step))
-            issues.extend(self._validate_step_governance(step, session_id))
-            issues.extend(self._validate_step_routing(step))
+            semantic_resolution = plan_ir.semantic_resolution_for_step(step.index)
+            execution_target = plan_ir.execution_target_for_step(step.index)
+            issues.extend(self._validate_step_semantics(step, semantic_resolution))
+            issues.extend(self._validate_step_governance(step, request, execution_target))
+            issues.extend(self._validate_step_routing(step, execution_target))
             cost_estimates.append(
                 self.cost_model.estimate_step(
                     step,
                     analytics_engine=self.analytics,
                     query_router=self.query_router,
+                    execution_target=execution_target,
                 )
             )
 
-        budget_result = self._validate_budget(plan_id, session_id, cost_estimates)
+        budget_result = self._validate_budget(plan_id, request, cost_estimates)
         issues.extend(self._budget_issues(budget_result))
 
         return PlanValidationResult(
@@ -659,17 +683,24 @@ class PlanningService:
             cost_estimates=budget_result.cost_estimates,
         )
 
-    def _validate_step_semantics(self, step: AnalysisStepIR) -> list[PlanValidationIssue]:
+    def _validate_step_semantics(
+        self,
+        step: AnalysisStepIR,
+        semantic_resolution: SemanticResolutionIR | None,
+    ) -> list[PlanValidationIssue]:
         issues: list[PlanValidationIssue] = []
         if step.step_type != "compare_metric":
             return issues
 
-        metric_name = str(step.primary_metric_name() or step.params.get("metric_name", "")).strip()
+        metric_name = ""
+        if semantic_resolution is not None and semantic_resolution.requested_metrics:
+            metric_name = str(semantic_resolution.requested_metrics[0]).strip()
+        if not metric_name:
+            metric_name = str(step.primary_metric_name() or step.params.get("metric_name", "")).strip()
         if not metric_name:
             return issues
 
-        resolved_metric = self.semantic_resolver.resolve_metric(metric_name)
-        if resolved_metric is None:
+        if semantic_resolution is None or not semantic_resolution.metrics:
             issues.append(
                 PlanValidationIssue(
                     code="semantic_metric_not_found",
@@ -685,15 +716,15 @@ class PlanningService:
             return issues
 
         requested_dimensions = (
-            step.semantic_intent.dimensions
-            if step.semantic_intent is not None and step.semantic_intent.dimensions
+            semantic_resolution.requested_dimensions
+            if semantic_resolution.requested_dimensions
             else step.params.get("dimensions")
         )
         if isinstance(requested_dimensions, list):
             unsupported = [
                 str(dimension)
                 for dimension in requested_dimensions
-                if str(dimension) not in resolved_metric.dimensions
+                if str(dimension) not in semantic_resolution.supported_dimensions
             ]
             if unsupported:
                 issues.append(
@@ -708,26 +739,52 @@ class PlanningService:
                         detail={
                             "metric_name": metric_name,
                             "unsupported_dimensions": unsupported,
-                            "supported_dimensions": list(resolved_metric.dimensions),
+                            "supported_dimensions": list(semantic_resolution.supported_dimensions),
                         },
                     )
                 )
 
+        requested_grain = str(step.params.get("grain", "")).strip()
+        if requested_grain and semantic_resolution.legal_grains and requested_grain not in semantic_resolution.legal_grains:
+            issues.append(
+                PlanValidationIssue(
+                    code="semantic_grain_not_supported",
+                    category="semantic",
+                    step_index=step.index,
+                    message=(
+                        f"Step {step.index}: metric '{metric_name}' does not support "
+                        f"grain '{requested_grain}'"
+                    ),
+                    detail={
+                        "metric_name": metric_name,
+                        "requested_grain": requested_grain,
+                        "supported_grains": list(semantic_resolution.legal_grains),
+                    },
+                )
+            )
+
         return issues
 
     def _validate_step_governance(
-        self, step: AnalysisStepIR, session_id: str,
+        self,
+        step: AnalysisStepIR,
+        request: AnalysisRequest,
+        execution_target: ExecutionTargetIR | None,
     ) -> list[PlanValidationIssue]:
         if self.governance is None:
             return []
 
         params = dict(step.params)
-        table_name = step.table_name()
+        table_name = (
+            execution_target.table_names[0]
+            if execution_target is not None and execution_target.table_names
+            else step.table_name()
+        )
         if table_name and not params.get("table_name"):
             params["table_name"] = table_name
 
         result = self.governance.check_step(
-            session_id,
+            str(request.session_id),
             step.step_type,
             params=params if params else None,
             tables=[table_name] if table_name else None,
@@ -776,18 +833,23 @@ class PlanningService:
             )
         return issues
 
-    def _validate_step_routing(self, step: AnalysisStepIR) -> list[PlanValidationIssue]:
-        if self.query_router is None:
+    def _validate_step_routing(
+        self,
+        step: AnalysisStepIR,
+        execution_target: ExecutionTargetIR | None,
+    ) -> list[PlanValidationIssue]:
+        if self.query_router is None or execution_target is None:
             return []
 
-        table_name = step.table_name()
-        if table_name is None:
+        if not execution_target.table_names or not execution_target.routing_table_names:
             return []
 
-        native_table_name = self._routing_table_name(table_name)
-        try:
-            self.query_router.resolve_tables([native_table_name])
-        except KeyError as error:
+        if execution_target.engine_locality == "bound_engine":
+            return []
+
+        table_name = execution_target.table_names[0]
+        native_table_name = execution_target.routing_table_names[0]
+        if execution_target.routing_strategy == "fallback_missing_table":
             return [
                 PlanValidationIssue(
                     code="routing_table_unresolved",
@@ -798,10 +860,15 @@ class PlanningService:
                         f"Step {step.index}: routing could not resolve table "
                         f"'{native_table_name}'; validation will rely on default analytics fallback"
                     ),
-                    detail={"table_name": table_name, "native_table_name": native_table_name, "error": str(error)},
+                    detail={
+                        "table_name": table_name,
+                        "native_table_name": native_table_name,
+                        "error": execution_target.routing_error,
+                        "routing_strategy": execution_target.routing_strategy,
+                    },
                 )
             ]
-        except ValueError as error:
+        if execution_target.routing_strategy == "fallback_no_common_engine":
             return [
                 PlanValidationIssue(
                     code="routing_engine_unavailable",
@@ -812,23 +879,20 @@ class PlanningService:
                         f"Step {step.index}: routing could not find a bound engine for "
                         f"'{native_table_name}'; validation will rely on default analytics fallback"
                     ),
-                    detail={"table_name": table_name, "native_table_name": native_table_name, "error": str(error)},
+                    detail={
+                        "table_name": table_name,
+                        "native_table_name": native_table_name,
+                        "error": execution_target.routing_error,
+                        "routing_strategy": execution_target.routing_strategy,
+                    },
                 )
             ]
         return []
 
     def _validate_budget(
-        self, plan_id: str, session_id: str, cost_estimates: list[CostEstimate],
+        self, plan_id: str, request: AnalysisRequest, cost_estimates: list[CostEstimate],
     ) -> BudgetCheckResult:
-        row = self.metadata.query_one(
-            "SELECT budget_json FROM sessions WHERE session_id = ?",
-            [session_id],
-        )
-        if row is None:
-            raise KeyError(f"Unknown session: {session_id}")
-
-        budget = json.loads(row["budget_json"])
-        max_rows = budget.get("max_rows_scanned", inf)
+        max_rows = request.budget.get("max_rows_scanned", inf)
         return self.cost_model.check_budget(plan_id, max_rows, cost_estimates)
 
     @staticmethod

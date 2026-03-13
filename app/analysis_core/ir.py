@@ -149,6 +149,8 @@ class ExecutionTargetIR:
     engine_id: str | None = None
     engine_type: str | None = None
     engine_locality: str = "unknown"
+    routing_strategy: str | None = None
+    routing_error: str | None = None
 
 
 @dataclass(slots=True)

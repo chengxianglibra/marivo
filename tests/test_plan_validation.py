@@ -90,6 +90,29 @@ class AdvancedPlanValidationTests(unittest.TestCase):
             [issue["code"] for issue in result["issues"]],
         )
 
+    def test_validate_plan_rejects_unsupported_metric_dimension(self) -> None:
+        session_id = self.client.post("/sessions", json={"goal": "dimension validation"}).json()["session_id"]
+        plan_id = self.client.post(
+            f"/sessions/{session_id}/plans",
+            json={
+                "steps": [
+                    {
+                        "step_type": "compare_metric",
+                        "params": {
+                            "metric_name": "watch_time",
+                            "table_name": "analytics.watch_events",
+                            "dimensions": ["country"],
+                        },
+                    }
+                ]
+            },
+        ).json()["plan_id"]
+
+        result = self.client.post(f"/sessions/{session_id}/plans/{plan_id}/validate").json()
+
+        self.assertFalse(result["valid"])
+        self.assertIn("semantic_dimension_not_supported", [issue["code"] for issue in result["issues"]])
+
     def test_validate_plan_rejects_budget_exceeded(self) -> None:
         session_id = self.client.post(
             "/sessions",
