@@ -151,6 +151,9 @@ class ExecutionTargetIR:
     engine_locality: str = "unknown"
     routing_strategy: str | None = None
     routing_error: str | None = None
+    routing_reason: str | None = None
+    routing_detail: dict[str, Any] = field(default_factory=dict)
+    capability_profile: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)

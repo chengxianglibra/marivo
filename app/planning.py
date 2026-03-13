@@ -256,14 +256,18 @@ class PlanningService:
     def _build_execution_plan_ir(self, plan: dict[str, Any]) -> ExecutionPlanIR:
         step_irs = self._plan_step_irs(plan["steps"])
         request = self._build_analysis_request(plan, step_irs)
+        semantic_resolutions = [self._resolve_step_semantics(step) for step in step_irs]
         return ExecutionPlanIR(
             plan_id=plan["plan_id"],
             session_id=plan["session_id"],
             status=plan["status"],
             request=request,
             steps=step_irs,
-            semantic_resolutions=[self._resolve_step_semantics(step) for step in step_irs],
-            execution_targets=[self._resolve_execution_target(step) for step in step_irs],
+            semantic_resolutions=semantic_resolutions,
+            execution_targets=[
+                self._resolve_execution_target(step, semantic_resolution, request)
+                for step, semantic_resolution in zip(step_irs, semantic_resolutions)
+            ],
             policy_transforms=self._request_policy_transforms(request),
         )
 
@@ -485,7 +489,22 @@ class PlanningService:
             quality_expectations=quality_expectations,
         )
 
-    def _resolve_execution_target(self, step: AnalysisStepIR) -> ExecutionTargetIR:
+    def _resolve_execution_target(
+        self,
+        step: AnalysisStepIR,
+        semantic_resolution: SemanticResolutionIR,
+        request: AnalysisRequest,
+    ) -> ExecutionTargetIR:
+        from app.routing import RoutingIntent
+
+        routing_intent = RoutingIntent(
+            step_type=step.step_type,
+            metric_names=list(semantic_resolution.requested_metrics or step.metric_names()),
+            requested_dimensions=list(semantic_resolution.requested_dimensions),
+            compatible_dimensions=list(semantic_resolution.compatible_dimensions),
+            legal_grains=list(semantic_resolution.legal_grains),
+            policy_hints=self._routing_policy_hints(request),
+        )
         table_name = step.table_name()
         if table_name is None:
             return ExecutionTargetIR(
@@ -493,6 +512,7 @@ class PlanningService:
                 engine_type="heuristic" if step.step_type == "synthesize_findings" else None,
                 engine_locality="artifact_only" if step.step_type == "synthesize_findings" else "unknown",
                 routing_strategy="artifact_only" if step.step_type == "synthesize_findings" else None,
+                routing_detail={"intent": routing_intent.to_dict()},
             )
 
         routing_table_name = step.routing_table_name()
@@ -503,27 +523,51 @@ class PlanningService:
             engine_type=self._default_engine_type(),
             engine_locality="default_analytics",
             routing_strategy="no_router",
+            routing_detail={"intent": routing_intent.to_dict()},
         )
         if self.query_router is None or routing_table_name is None:
             return target
 
         try:
-            route = self.query_router.resolve_tables([routing_table_name])
+            route = self.query_router.resolve_tables(
+                [routing_table_name],
+                routing_intent=routing_intent,
+            )
         except KeyError as error:
             target.routing_strategy = "fallback_missing_table"
             target.routing_error = str(error)
+            target.routing_reason = "routing could not resolve the requested semantic source table"
             return target
         except ValueError as error:
             target.routing_strategy = "fallback_no_common_engine"
             target.routing_error = str(error)
+            target.routing_reason = "routing could not find a capability-compatible bound engine"
             return target
 
         target.engine_id = route.engine_id
         target.engine_type = self._engine_type_for_id(route.engine_id) or self._analytics_engine_type(route.engine)
         target.engine_locality = "bound_engine"
-        target.routing_strategy = "bound_route"
+        target.routing_strategy = (
+            "semantic_bound_route"
+            if route.routing_detail.get("intent") is not None
+            else "bound_route"
+        )
         target.qualified_names = dict(route.qualified_names)
+        target.routing_reason = route.selection_reason
+        target.routing_detail = dict(route.routing_detail)
+        target.capability_profile = (
+            route.capability_profile.to_dict()
+            if route.capability_profile is not None
+            else {}
+        )
         return target
+
+    @staticmethod
+    def _routing_policy_hints(request: AnalysisRequest) -> list[str]:
+        hints: list[str] = []
+        if request.policy.get("aggregate_only"):
+            hints.append("aggregate_only")
+        return hints
 
     @staticmethod
     def _request_policy_transforms(request: AnalysisRequest) -> list[PolicyTransformIR]:

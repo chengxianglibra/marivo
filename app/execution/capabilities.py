@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from typing import Any
+from typing import Sequence
 
 
 @dataclass(frozen=True)
@@ -112,3 +113,124 @@ def score_capability_profile(
     if "temporary_tables" in profile.supported_sql_features:
         score += 1
     return score
+
+
+def describe_routing_fit(
+    profile: EngineCapabilityProfile,
+    *,
+    table_count: int,
+    step_type: str | None = None,
+    metric_names: Sequence[str] = (),
+    requested_dimensions: Sequence[str] = (),
+    compatible_dimensions: Sequence[str] = (),
+    policy_hints: Sequence[str] = (),
+) -> dict[str, Any]:
+    metric_count = len(tuple(metric_names))
+    requested_dimension_count = len(tuple(requested_dimensions))
+    compatible_dimension_count = len(tuple(compatible_dimensions))
+    normalized_policy_hints = tuple(
+        policy_hint
+        for policy_hint in dict.fromkeys(str(policy_hint).strip() for policy_hint in policy_hints)
+        if policy_hint
+    )
+
+    step_type_supported = (
+        step_type is None
+        or not profile.supported_step_types
+        or step_type in profile.supported_step_types
+    )
+    step_score = 6 if step_type_supported else -25
+
+    missing_policy_support = [
+        policy_hint
+        for policy_hint in normalized_policy_hints
+        if policy_hint not in profile.policy_support
+    ]
+    satisfied_policy_support = [
+        policy_hint
+        for policy_hint in normalized_policy_hints
+        if policy_hint in profile.policy_support
+    ]
+    policy_score = (len(satisfied_policy_support) * 4) - (len(missing_policy_support) * 6)
+
+    semantic_score = 0
+    if (
+        table_count > 1
+        or compatible_dimension_count >= 3
+        or metric_count >= 2
+    ):
+        if profile.performance_class == "distributed":
+            semantic_score += 6
+        elif compatible_dimension_count >= 3 or metric_count >= 2:
+            semantic_score -= 2
+    elif (
+        table_count <= 1
+        and compatible_dimension_count <= 1
+        and metric_count <= 1
+        and profile.performance_class == "embedded"
+    ):
+        semantic_score += 3
+
+    unresolved_dimension_count = max(
+        requested_dimension_count - compatible_dimension_count,
+        0,
+    )
+    if unresolved_dimension_count > 0 and profile.performance_class == "distributed":
+        semantic_score += 1
+
+    cost_score = 0
+    if table_count <= 1:
+        if profile.performance_class == "embedded":
+            cost_score += 2
+        if profile.min_staleness_minutes in (None, 0):
+            cost_score += 1
+    else:
+        if profile.performance_class == "distributed":
+            cost_score += 3
+        if profile.federation_support != "none":
+            cost_score += 2
+
+    reasons: list[str] = []
+    if step_type is not None:
+        if step_type_supported:
+            reasons.append(f"supports step type '{step_type}'")
+        else:
+            reasons.append(f"does not advertise step type '{step_type}'")
+    if satisfied_policy_support:
+        reasons.append(
+            "supports policies: " + ", ".join(sorted(satisfied_policy_support))
+        )
+    if missing_policy_support:
+        reasons.append(
+            "missing policies: " + ", ".join(sorted(missing_policy_support))
+        )
+    if (
+        table_count > 1
+        or compatible_dimension_count >= 3
+        or metric_count >= 2
+    ) and profile.performance_class == "distributed":
+        reasons.append("semantic complexity prefers distributed execution")
+    elif (
+        table_count <= 1
+        and compatible_dimension_count <= 1
+        and metric_count <= 1
+        and profile.performance_class == "embedded"
+    ):
+        reasons.append("single-table low-latency path prefers embedded execution")
+    if table_count > 1 and profile.federation_support != "none":
+        reasons.append("multi-table route benefits from federation support")
+
+    return {
+        "step_type_supported": step_type_supported,
+        "satisfied_policy_support": list(satisfied_policy_support),
+        "missing_policy_support": list(missing_policy_support),
+        "requested_dimension_count": requested_dimension_count,
+        "compatible_dimension_count": compatible_dimension_count,
+        "unresolved_dimension_count": unresolved_dimension_count,
+        "metric_count": metric_count,
+        "step_score": step_score,
+        "policy_score": policy_score,
+        "semantic_score": semantic_score,
+        "cost_score": cost_score,
+        "reasons": reasons,
+    }

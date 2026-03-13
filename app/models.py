@@ -121,6 +121,16 @@ class BindingCreateRequest(BaseModel):
 
 class RouteResolveRequest(BaseModel):
     table_names: list[str]
+    routing_intent: "RouteIntentRequest | None" = None
+
+
+class RouteIntentRequest(BaseModel):
+    step_type: str | None = None
+    metric_names: list[str] = Field(default_factory=list)
+    requested_dimensions: list[str] = Field(default_factory=list)
+    compatible_dimensions: list[str] = Field(default_factory=list)
+    legal_grains: list[str] = Field(default_factory=list)
+    policy_hints: list[str] = Field(default_factory=list)
 
 
 # ── Sync selections ──────────────────────────────────────────────────

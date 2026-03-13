@@ -105,6 +105,15 @@
 - routing 决策不再只由 table binding 驱动
 - 可解释为何选择某个 engine / fallback path
 
+#### 已完成实现
+
+- `app/routing.py` 现在引入正式的 `RoutingIntent` 输入，并把 candidate score / selection reason / strategy 收敛到 `ResolvedRoute.routing_detail`
+- routing 选择现在同时考虑 binding priority、capability score、semantic fit、policy fit 与轻量 cost heuristic，而不再只是 table binding + priority
+- `app/planning.py` 现在会把 step semantic resolution + session policy 组装成 routing intent，并把解释信息写回 `ExecutionTargetIR`
+- `ExecutionTargetIR` 现已补充 `routing_reason` / `routing_detail` / `capability_profile`，让 plan IR 可以解释 engine 选择路径
+- `/routing/resolve` 现在接受可选 `routing_intent`，并返回 `selection_reason`、`routing_detail` 与 `capability_profile`
+- 已补充 `tests/test_bindings.py` / `tests/test_planning.py` 回归覆盖 semantic-driven routing 场景
+
 ---
 
 ### P5-4：引入 translation / federation skeleton
@@ -229,7 +238,7 @@
 
 - [done] P5-1 设计与执行基线
 - [done] P5-2 建立 engine capability profile
-- [pending] P5-3 让 routing 以 semantic intent / capability 驱动
+- [done] P5-3 让 routing 以 semantic intent / capability 驱动
 - [pending] P5-4 引入 translation / federation skeleton
 - [pending] P5-5 重构 registry / governance 边界
 - [pending] P5-6 拆 API / app factory 协议层

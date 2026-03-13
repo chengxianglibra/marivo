@@ -556,7 +556,16 @@ def create_app(
     @app.post("/routing/resolve")
     def routing_resolve(request: RouteResolveRequest) -> dict[str, object]:
         try:
-            route = query_router.resolve_tables(request.table_names)
+            routing_intent = None
+            if request.routing_intent is not None:
+                from app.routing import RoutingIntent
+
+                routing_intent = RoutingIntent(**request.routing_intent.model_dump())
+
+            route = query_router.resolve_tables(
+                request.table_names,
+                routing_intent=routing_intent,
+            )
 
             # Get engine info for the resolved engine
             engine_row = metadata_store.query_one(
@@ -574,6 +583,13 @@ def create_app(
                 "table_names": request.table_names,
                 "engine": engine_info,
                 "qualified_names": route.qualified_names,
+                "selection_reason": route.selection_reason,
+                "routing_detail": route.routing_detail,
+                "capability_profile": (
+                    route.capability_profile.to_dict()
+                    if route.capability_profile is not None
+                    else None
+                ),
             }
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
