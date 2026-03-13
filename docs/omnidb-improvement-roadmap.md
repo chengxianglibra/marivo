@@ -23,13 +23,18 @@
 - `docs/omnidb-phase2-implementation-task-list.md`：把 Phase B 进一步拆成可执行任务包
 - `docs/omnidb-phase3-design-doc.md`：定义 Phase 3 的目标、范围与迁移策略
 - `docs/omnidb-phase3-implementation-task-list.md`：把 Phase 3 继续拆成可执行任务包
+- `docs/omnidb-phase4-design-doc.md`：定义 Phase 4 的 semantic runtime / IR-first 主链目标
+- `docs/omnidb-phase4-implementation-task-list.md`：把 Phase 4 继续拆成可执行任务包
+- `docs/omnidb-phase5-design-doc.md`：定义 Phase 5 的 execution substrate / platform boundary 目标
+- `docs/omnidb-phase5-implementation-task-list.md`：把 Phase 5 继续拆成可执行任务包
 
-当前实施状态（截至 Phase 2 收尾）：
+当前实施状态（截至 Phase 3 收尾）：
 
 - Phase 1 已完成，catalog / semantic runtime 的 compatibility seam 已稳定。
 - Phase 2 已完成 validation、policy pipeline、cost model、replanning、execution feedback 五个 runtime task package。
-- Phase 3 已启动，当前聚焦 analysis IR、primitive/composite step 体系、evidence pluginization、execution orchestration。
-- 具体实现与测试落点以 `docs/omnidb-phase2-implementation-task-list.md` 为准；本文继续保留为中长期推进顺序说明。
+- Phase 3 已完成 richer analysis IR、primitive/composite taxonomy、composite workflow runtime、evidence pluginization、execution orchestration。
+- Phase 4 / 5 文档已就位，下一步将聚焦 semantic runtime / IR-first 主链与 execution substrate / protocol-boundary 深化。
+- 具体实施与测试落点以各阶段 implementation task-list 文档为准；本文继续保留为中长期推进顺序说明。
 
 ## 2. 当前状态总结
 

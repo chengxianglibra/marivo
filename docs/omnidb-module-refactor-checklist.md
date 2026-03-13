@@ -12,8 +12,12 @@
 - `docs/omnidb-phase2-implementation-task-list.md`：把第二阶段工作拆成可落地任务包
 - `docs/omnidb-phase3-design-doc.md`：定义第三阶段的分析内核目标与迁移策略
 - `docs/omnidb-phase3-implementation-task-list.md`：把第三阶段工作拆成可落地任务包
+- `docs/omnidb-phase4-design-doc.md`：定义第四阶段的 semantic runtime / IR-first 主链目标
+- `docs/omnidb-phase4-implementation-task-list.md`：把第四阶段工作拆成可落地任务包
+- `docs/omnidb-phase5-design-doc.md`：定义第五阶段的 execution substrate / platform boundary 目标
+- `docs/omnidb-phase5-implementation-task-list.md`：把第五阶段工作拆成可落地任务包
 
-当前实施状态（截至 Phase 2 收尾）：
+当前实施状态（截至 Phase 3 收尾）：
 
 - `app.service.SemanticLayerService` 仍保留 facade 角色，但已主要收敛为 orchestration / compatibility 层。
 - `app.planner/` 与 `app.execution/` 已出现真实 runtime seam：
@@ -22,7 +26,8 @@
   - `app/execution/errors.py`
   - `app/execution/feedback.py`
   - `app/execution/routing_runtime.py`
-- 第三阶段将继续以本清单中的 P0 项为主线，优先落 IR、step taxonomy、evidence pipeline 与 orchestration seam，而不是优先拆协议层。
+- 第三阶段已完成 IR、step taxonomy、evidence pipeline 与 orchestration seam 的主线目标。
+- 后续阶段将继续以 semantic runtime、IR-first 主链、execution capability/routing、以及 protocol-boundary refactor 为主线，而不是跳过中间层直接拆协议层。
 
 本文档回答三个问题：
 
