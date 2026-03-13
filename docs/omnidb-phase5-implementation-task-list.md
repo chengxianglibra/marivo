@@ -178,6 +178,40 @@
 - registry 只负责登记 / 同步
 - governance 更接近 policy application / audit chain
 
+#### 已完成实现
+
+- 新增 `app/registry/`，把 source / engine / binding / sync 的核心职责收敛到：
+  - `SourceRegistry`
+  - `EngineRegistry`
+  - `BindingRegistry`
+  - `RegistrySyncEngine`
+  - `build_catalog_adapter(...)`
+  - `build_analytics_engine(...)`
+- 现有 `app/sources.py` / `app/engines.py` / `app/bindings.py` / `app/sync.py` 现在降为 compatibility facade，外部 API 与导入路径保持不变
+- 新增 `app/governance_engine/`，把治理侧职责拆为：
+  - `GovernanceRepository`：policy / quality rule / approval request / governance event 的持久化边界
+  - `GovernanceRuntime`：policy application + quality checks + step-level governance audit
+  - `ApprovalRuntime`：approval workflow，并通过同一 repository 接入治理审计链
+- `app/governance.py` / `app/approvals.py` 现在降为 facade，继续保留 `GovernanceService` / `ApprovalService` 兼容入口
+- 元数据 schema 新增 `governance_events` 表，用于承接：
+  - `governance_step_checked`
+  - `approval_requested`
+  - `approval_approved`
+  - `approval_rejected`
+- 已补充回归覆盖：
+  - `tests/test_registry_boundaries.py`
+  - `tests/test_governance.py`（step audit）
+  - `tests/test_approvals.py`（approval audit trail）
+
+#### 验证结果
+
+- 聚焦边界回归：
+  - `.venv/bin/python -m unittest tests.test_sources tests.test_engines tests.test_bindings tests.test_governance tests.test_approvals tests.test_policy_application tests.test_registry_boundaries -v`
+  - `Ran 130 tests ... OK`
+- 全量回归：
+  - `.venv/bin/python -m unittest discover -s tests -q`
+  - `Ran 426 tests ... OK`
+
 ---
 
 ### P5-6：拆 API / app factory 协议层
@@ -253,6 +287,6 @@
 - [done] P5-2 建立 engine capability profile
 - [done] P5-3 让 routing 以 semantic intent / capability 驱动
 - [done] P5-4 引入 translation / federation skeleton
-- [pending] P5-5 重构 registry / governance 边界
+- [done] P5-5 重构 registry / governance 边界
 - [pending] P5-6 拆 API / app factory 协议层
 - [pending] P5-7 拆 MCP 与外围 platform cleanup

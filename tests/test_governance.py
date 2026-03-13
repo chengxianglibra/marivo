@@ -109,6 +109,13 @@ class GovernanceServiceTests(unittest.TestCase):
         self.assertIn("decisions", result)
         self.assertIn("transforms", result)
 
+    def test_check_step_records_audit_event(self) -> None:
+        self.gov.check_step("sess_audit", "compare_watch_time")
+        events = self.gov.list_audit_events(session_id="sess_audit", subject_type="step")
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["event_type"], "governance_step_checked")
+        self.assertEqual(events[0]["subject_id"], "compare_watch_time")
+
 
 class GovernanceAPITests(unittest.TestCase):
     """Integration tests for governance endpoints."""

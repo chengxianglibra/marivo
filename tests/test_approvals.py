@@ -114,6 +114,24 @@ class ApprovalServiceTests(unittest.TestCase):
         with self.assertRaises(KeyError):
             self.approval.get_request("apr_nonexistent")
 
+    def test_request_audit_trail(self) -> None:
+        if not self.rec_ids:
+            self.skipTest("No recommendations generated")
+        request = self.approval.request_approval(self.session_id, self.rec_ids[0])
+        trail = self.approval.get_request_audit_trail(request["request_id"])
+        self.assertEqual(trail[0]["event_type"], "approval_requested")
+
+    def test_approval_decision_records_audit_event(self) -> None:
+        if len(self.rec_ids) < 2:
+            self.skipTest("Not enough recommendations")
+        request = self.approval.request_approval(self.session_id, self.rec_ids[-1])
+        if request["status"] != "pending":
+            self.skipTest("Request already decided")
+        decided = self.approval.approve(request["request_id"], reviewer="auditor", reason="ok")
+        trail = self.approval.get_request_audit_trail(decided["request_id"])
+        self.assertEqual([event["event_type"] for event in trail], ["approval_requested", "approval_approved"])
+        self.assertEqual(trail[-1]["actor"], "auditor")
+
 
 class ApprovalAPITests(unittest.TestCase):
     """Integration tests for approval endpoints."""

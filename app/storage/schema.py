@@ -293,6 +293,19 @@ METADATA_DDL: list[str] = [
         decided_at      TEXT
     )
     """,
+    # -- Governance audit events --
+    """
+    CREATE TABLE IF NOT EXISTS governance_events (
+        event_id        TEXT PRIMARY KEY,
+        session_id      TEXT,
+        subject_type    TEXT NOT NULL,
+        subject_id      TEXT,
+        event_type      TEXT NOT NULL,
+        actor           TEXT NOT NULL DEFAULT 'system',
+        detail_json     TEXT NOT NULL DEFAULT '{}',
+        created_at      TEXT NOT NULL
+    )
+    """,
 ]
 
 # Migrations that add columns to existing tables.  Each is tried
