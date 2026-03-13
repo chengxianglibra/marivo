@@ -139,6 +139,19 @@
 - translation / federation 至少有稳定骨架与测试
 - 不要求当期完成完整跨引擎执行
 
+#### 已完成实现
+
+- 新增 `app/execution/translation.py`，引入正式的 `TranslationRequest` / `TranslationResult` / `DefaultQueryTranslator`
+- 新增 `app/execution/federation.py`，定义 `FederationPlan`、`FederationStage`、`FederatedMergePlan` 与 `FederationRuntime`
+- `app.analysis_core.executor.execute_compiled()` 现在不再直接调用裸 `dialect.translate(...)`，而是走 translator + federation runtime 的 substrate 链路
+- 单引擎路径继续真实执行；当 metadata 显式要求 staged federation 时，runtime 会返回结构化的 `federation_not_implemented` 错误，而不是伪装成已支持
+- `app/execution/feedback.py` 现在补充 federation failure shape，把 staged handoff / merge / audit plan 放进结构化 error detail
+- 已补充 `tests/test_execution_substrate.py` 与 `tests/test_execution_feedback.py`，覆盖：
+  - direct translation contract
+  - staged handoff 计划构建
+  - honest federation failure
+  - executor metadata 回写 translation / federation plan
+
 ---
 
 ### P5-5：重构 registry / governance 边界
@@ -239,7 +252,7 @@
 - [done] P5-1 设计与执行基线
 - [done] P5-2 建立 engine capability profile
 - [done] P5-3 让 routing 以 semantic intent / capability 驱动
-- [pending] P5-4 引入 translation / federation skeleton
+- [done] P5-4 引入 translation / federation skeleton
 - [pending] P5-5 重构 registry / governance 边界
 - [pending] P5-6 拆 API / app factory 协议层
 - [pending] P5-7 拆 MCP 与外围 platform cleanup

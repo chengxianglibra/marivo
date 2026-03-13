@@ -9,6 +9,8 @@ from fastapi.testclient import TestClient
 from app.analysis_core.compiler import CompiledQuery
 from app.analysis_core.executor import execute_compiled
 from app.execution.errors import ExecutionFailure
+from app.execution.federation import FederationPlanner
+from app.execution.feedback import federation_failure_from_plan
 from app.execution.routing_runtime import RoutingRuntime
 from app.main import create_app
 from app.storage.analytics import AnalyticsEngine
@@ -63,6 +65,28 @@ class ExecutionFeedbackTests(unittest.TestCase):
         self.assertTrue(resolution.fallback_used)
         self.assertIsNotNone(resolution.feedback)
         self.assertEqual(resolution.feedback.code, "routing_no_common_engine")
+
+    def test_federation_failure_includes_plan_detail(self) -> None:
+        plan = FederationPlanner().build_plan(
+            translated_sql="SELECT 1",
+            target_engine_type="trino",
+            metadata={
+                "step_type": "compare_metric",
+                "federation": {
+                    "required": True,
+                    "sources": [
+                        {"engine_type": "duckdb", "table_names": ["watch_events"]},
+                        {"engine_type": "trino", "table_names": ["ad_events"]},
+                    ],
+                },
+            },
+        )
+
+        failure = federation_failure_from_plan(plan)
+
+        self.assertEqual(failure.code, "federation_not_implemented")
+        self.assertEqual(failure.detail["plan"]["mode"], "staged_handoff")
+        self.assertIn("prefer_single_engine_route", failure.fallback_candidates)
 
 
 class ExecutionFeedbackIntegrationTests(unittest.TestCase):
