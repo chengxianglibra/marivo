@@ -5,7 +5,7 @@ from math import inf
 from typing import TYPE_CHECKING, Any
 
 from app.analysis_core.ir import AnalysisStepIR
-from app.runtime_contracts import DEFAULT_STEP_TABLES, BudgetCheckResult, CostEstimate
+from app.runtime_contracts import BudgetCheckResult, CostEstimate
 from app.storage.analytics import AnalyticsEngine
 
 if TYPE_CHECKING:
@@ -189,10 +189,7 @@ class CostModel:
 
     @staticmethod
     def _table_name_for_step(step: AnalysisStepIR) -> str | None:
-        table_name = step.params.get("table_name")
-        if table_name:
-            return str(table_name)
-        return DEFAULT_STEP_TABLES.get(step.step_type)
+        return step.table_name()
 
     @staticmethod
     def _routing_table_name(table_name: str) -> str:
@@ -254,6 +251,11 @@ class CostModel:
             signals.append("limit_pushdown_candidate")
         if step.step_type == "compare_metric":
             signals.append("semantic_metric_projection")
+        primary_metric = step.primary_metric_name()
+        if primary_metric:
+            signals.append(f"metric:{primary_metric}")
+        if step.step_category == "composite":
+            signals.append("composite_step")
         return signals
 
     @staticmethod

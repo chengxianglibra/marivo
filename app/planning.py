@@ -478,7 +478,7 @@ class PlanningService:
         if step.step_type != "compare_metric":
             return issues
 
-        metric_name = str(step.params.get("metric_name", "")).strip()
+        metric_name = str(step.primary_metric_name() or step.params.get("metric_name", "")).strip()
         if not metric_name:
             return issues
 
@@ -498,7 +498,11 @@ class PlanningService:
             )
             return issues
 
-        requested_dimensions = step.params.get("dimensions")
+        requested_dimensions = (
+            step.semantic_intent.dimensions
+            if step.semantic_intent is not None and step.semantic_intent.dimensions
+            else step.params.get("dimensions")
+        )
         if isinstance(requested_dimensions, list):
             unsupported = [
                 str(dimension)
@@ -532,7 +536,7 @@ class PlanningService:
             return []
 
         params = dict(step.params)
-        table_name = self._table_name_for_step(step)
+        table_name = step.table_name()
         if table_name and not params.get("table_name"):
             params["table_name"] = table_name
 
@@ -590,7 +594,7 @@ class PlanningService:
         if self.query_router is None:
             return []
 
-        table_name = self._table_name_for_step(step)
+        table_name = step.table_name()
         if table_name is None:
             return []
 

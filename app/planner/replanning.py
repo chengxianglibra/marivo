@@ -6,7 +6,6 @@ from app.analysis_core.ir import AnalysisStepIR
 from app.execution.costing import CostModel
 from app.execution.errors import ExecutionFailure
 from app.runtime_contracts import (
-    DEFAULT_STEP_TABLES,
     CostEstimate,
     ExecutionFeedback,
     ReplanDecision,
@@ -170,7 +169,7 @@ class ReplanningService:
             )
 
         if (
-            step.step_type in OPTIONAL_STEPS
+            step.is_optional()
             and estimate.confidence == "low"
             and estimate.engine_locality == "default_engine_fallback"
         ):
@@ -263,7 +262,7 @@ class ReplanningService:
                     triggers=[trigger],
                     detail={"replacement_step": replacement_step},
                 )
-            if step.step_type in OPTIONAL_STEPS or error.replan_candidate:
+            if step.is_optional() or error.replan_candidate:
                 return ReplanDecision(
                     action="skip_step",
                     reason="Structured execution feedback marked the step as replannable.",
@@ -301,7 +300,7 @@ class ReplanningService:
                 detail={"replacement_step": replacement_step},
             )
 
-        if step.step_type in OPTIONAL_STEPS:
+        if step.is_optional():
             trigger = ReplanTrigger(
                 code="step_execution_failed",
                 source="execution",
@@ -331,7 +330,7 @@ class ReplanningService:
     def _profile_step_for(step: AnalysisStepIR) -> dict[str, Any] | None:
         if step.step_type in {"profile_table", "synthesize_findings"}:
             return None
-        table_name = step.params.get("table_name") or DEFAULT_STEP_TABLES.get(step.step_type)
+        table_name = step.table_name()
         if not table_name:
             return None
         return {
