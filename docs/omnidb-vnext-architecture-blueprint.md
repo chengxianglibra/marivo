@@ -19,16 +19,20 @@
 - `docs/omnidb-phase2-implementation-task-list.md`：给出第二阶段的实际实施拆分
 - `docs/omnidb-phase3-design-doc.md`：定义第三阶段的目标模块、迁移策略与非目标
 - `docs/omnidb-phase3-implementation-task-list.md`：定义第三阶段的任务包、依赖与执行顺序
+- `docs/omnidb-phase4-design-doc.md`：定义第四阶段的 semantic runtime / IR-first 主链目标
+- `docs/omnidb-phase4-implementation-task-list.md`：定义第四阶段的任务包、依赖与执行顺序
+- `docs/omnidb-phase5-design-doc.md`：定义第五阶段的 execution substrate / platform boundary 目标
+- `docs/omnidb-phase5-implementation-task-list.md`：定义第五阶段的任务包、依赖与执行顺序
 
-当前实施状态（截至 Phase 2 收尾）：
+当前实施状态（截至 Phase 3 收尾）：
 
 - 本蓝图中的 `planner/`、`execution/`、`semantic runtime` 边界已经有第一批真实落点：
   - 结构化 validation / policy application
   - v1 cost model
   - deterministic replanning hook
   - shared execution feedback taxonomy
-- 第三阶段开始把蓝图的内核部分继续做实，重点是 richer analysis IR、primitive/composite workflow layer、evidence pluginization、execution orchestration。
-- 仍未完成的是更彻底的目录迁移与多引擎/联邦执行深水区，因此本蓝图仍是后续阶段的目标参考，而不是现状等价描述。
+- 第三阶段已经把蓝图中的内核部分继续做实，重点落在 richer analysis IR、primitive/composite workflow layer、evidence pluginization、execution orchestration。
+- 仍未完成的是 semantic runtime 深化、完整 IR-first 主链、多引擎 capability/translation/federation、以及更彻底的目录迁移，因此本蓝图仍是后续阶段的目标参考，而不是现状等价描述。
 
 ## 2. 设计目标
 
