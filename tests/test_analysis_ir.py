@@ -2,7 +2,14 @@ from __future__ import annotations
 
 import unittest
 
-from app.analysis_core import AnalysisStepIR, ArtifactExpectation, SemanticIntent, from_legacy_step
+from app.analysis_core import (
+    AnalysisStepIR,
+    ArtifactExpectation,
+    ExecutionPlanIR,
+    SemanticIntent,
+    from_legacy_step,
+    request_from_legacy_session,
+)
 
 
 class AnalysisIRTests(unittest.TestCase):
@@ -58,6 +65,51 @@ class AnalysisIRTests(unittest.TestCase):
         self.assertIsNone(step.primary_metric_name())
         self.assertEqual(step.observation_types(), [])
         self.assertFalse(step.is_optional())
+
+    def test_request_from_legacy_session_aggregates_requested_metrics_and_tables(self) -> None:
+        steps = [
+            from_legacy_step(
+                0,
+                {
+                    "step_type": "compare_metric",
+                    "params": {
+                        "metric_name": "watch_time",
+                        "table_name": "analytics.watch_events",
+                    },
+                },
+            ),
+            from_legacy_step(
+                1,
+                {
+                    "step_type": "sample_rows",
+                    "params": {"table_name": "analytics.watch_events", "limit": 5},
+                },
+            ),
+        ]
+
+        request = request_from_legacy_session(
+            {
+                "session_id": "sess_123",
+                "goal": "Investigate watch time",
+                "constraints": {"region": "us"},
+                "budget": {"max_rows_scanned": 1000},
+                "policy": {"aggregate_only": True},
+            },
+            plan_id="plan_123",
+            steps=steps,
+        )
+
+        self.assertEqual(request.session_id, "sess_123")
+        self.assertEqual(request.plan_id, "plan_123")
+        self.assertEqual(request.requested_step_types, ["compare_metric", "sample_rows"])
+        self.assertEqual(request.requested_metrics, ["watch_time"])
+        self.assertEqual(request.requested_tables, ["analytics.watch_events"])
+
+    def test_execution_plan_ir_lookup_helpers(self) -> None:
+        plan_ir = ExecutionPlanIR(plan_id="plan_123")
+
+        self.assertIsNone(plan_ir.semantic_resolution_for_step(0))
+        self.assertIsNone(plan_ir.execution_target_for_step(0))
 
 
 if __name__ == "__main__":

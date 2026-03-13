@@ -80,9 +80,43 @@ class PlanningServiceTests(unittest.TestCase):
         plan_ir = self.planning.get_execution_plan_ir(plan["plan_id"])
 
         self.assertIsInstance(plan_ir, ExecutionPlanIR)
+        self.assertEqual(plan_ir.plan_id, plan["plan_id"])
+        self.assertEqual(plan_ir.session_id, self.session["session_id"])
+        self.assertEqual(plan_ir.request.goal, "Planning test")
+        self.assertEqual(plan_ir.request.requested_metrics, ["watch_time"])
+        self.assertEqual(plan_ir.request.requested_tables, ["analytics.watch_events"])
         self.assertEqual([step.step_type for step in plan_ir.steps], ["compare_watch_time", "sample_rows"])
         self.assertEqual(plan_ir.steps[1].params["table_name"], "analytics.watch_events")
         self.assertEqual(plan_ir.steps[1].dependencies, [0])
+        semantic_resolution = plan_ir.semantic_resolution_for_step(0)
+        assert semantic_resolution is not None
+        self.assertEqual(semantic_resolution.requested_metrics, ["watch_time"])
+        self.assertEqual(semantic_resolution.source_table, "analytics.watch_events")
+        execution_target = plan_ir.execution_target_for_step(1)
+        assert execution_target is not None
+        self.assertEqual(execution_target.table_names, ["analytics.watch_events"])
+        self.assertEqual(execution_target.routing_table_names, ["watch_events"])
+        self.assertEqual(execution_target.engine_type, "duckdb")
+        self.assertEqual(plan_ir.policy_transforms, [])
+
+    def test_get_execution_plan_ir_includes_request_policy_transforms(self) -> None:
+        session = self.service.create_session(
+            "Policy-aware planning test",
+            {"region": "us"},
+            {"max_rows_scanned": 5000},
+            {"aggregate_only": True},
+        )
+        plan = self.planning.draft_plan(session["session_id"], [
+            {"step_type": "compare_watch_time"},
+        ])
+
+        plan_ir = self.planning.get_execution_plan_ir(plan["plan_id"])
+
+        self.assertEqual(
+            [transform.transform_type for transform in plan_ir.policy_transforms],
+            ["session_constraints", "budget_guard", "session_policy"],
+        )
+        self.assertEqual(plan_ir.request.budget, {"max_rows_scanned": 5000})
 
     def test_patch_non_draft_fails(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [

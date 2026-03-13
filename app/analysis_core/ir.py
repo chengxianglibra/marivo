@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from app.analysis_core.primitives import (
     OPTIONAL_STEP_TYPES,
@@ -63,9 +63,13 @@ class AnalysisRequest:
 
     goal: str = ""
     session_id: str | None = None
+    plan_id: str | None = None
     constraints: dict[str, Any] = field(default_factory=dict)
     budget: dict[str, Any] = field(default_factory=dict)
     policy: dict[str, Any] = field(default_factory=dict)
+    requested_step_types: list[str] = field(default_factory=list)
+    requested_metrics: list[str] = field(default_factory=list)
+    requested_tables: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -87,6 +91,74 @@ class ArtifactExpectation:
     artifact_key: str | None = None
     observation_types: list[str] = field(default_factory=list)
     summary_required: bool = True
+
+
+@dataclass(slots=True)
+class ResolvedMetricIR:
+    """Execution-facing semantic contract for a resolved metric."""
+
+    name: str
+    grain: str | None = None
+    measure_type: str | None = None
+    dimensions: list[str] = field(default_factory=list)
+    allowed_dimensions: list[str] = field(default_factory=list)
+    lineage: list[str] = field(default_factory=list)
+    quality_expectations: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class ResolvedEntityIR:
+    """Execution-facing semantic contract for a resolved entity."""
+
+    name: str
+    keys: list[str] = field(default_factory=list)
+    level: str | None = None
+    join_constraints: dict[str, Any] = field(default_factory=dict)
+    upstream_dependencies: list[str] = field(default_factory=list)
+    lineage: list[str] = field(default_factory=list)
+    quality_expectations: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class SemanticResolutionIR:
+    """Resolved semantic envelope for a step inside an execution plan."""
+
+    step_index: int
+    requested_metrics: list[str] = field(default_factory=list)
+    requested_dimensions: list[str] = field(default_factory=list)
+    supported_dimensions: list[str] = field(default_factory=list)
+    compatible_dimensions: list[str] = field(default_factory=list)
+    legal_grains: list[str] = field(default_factory=list)
+    source_table: str | None = None
+    date_column: str | None = None
+    metrics: list[ResolvedMetricIR] = field(default_factory=list)
+    entities: list[ResolvedEntityIR] = field(default_factory=list)
+    quality_expectations: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class ExecutionTargetIR:
+    """Execution-target metadata for a step after routing/default resolution."""
+
+    step_index: int
+    table_names: list[str] = field(default_factory=list)
+    routing_table_names: list[str] = field(default_factory=list)
+    qualified_names: dict[str, str] = field(default_factory=dict)
+    engine_id: str | None = None
+    engine_type: str | None = None
+    engine_locality: str = "unknown"
+
+
+@dataclass(slots=True)
+class PolicyTransformIR:
+    """Structured request- or plan-level policy transform placeholder."""
+
+    transform_type: str
+    source: str
+    target: str
+    detail: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -144,7 +216,56 @@ class AnalysisStepIR:
 class ExecutionPlanIR:
     """Shared step container for planning and execution paths."""
 
+    plan_id: str | None = None
+    session_id: str | None = None
+    status: str = "draft"
+    request: AnalysisRequest = field(default_factory=AnalysisRequest)
     steps: list[AnalysisStepIR] = field(default_factory=list)
+    semantic_resolutions: list[SemanticResolutionIR] = field(default_factory=list)
+    execution_targets: list[ExecutionTargetIR] = field(default_factory=list)
+    policy_transforms: list[PolicyTransformIR] = field(default_factory=list)
+
+    def semantic_resolution_for_step(self, step_index: int) -> SemanticResolutionIR | None:
+        for resolution in self.semantic_resolutions:
+            if resolution.step_index == step_index:
+                return resolution
+        return None
+
+    def execution_target_for_step(self, step_index: int) -> ExecutionTargetIR | None:
+        for target in self.execution_targets:
+            if target.step_index == step_index:
+                return target
+        return None
+
+
+def request_from_legacy_session(
+    session: Mapping[str, Any],
+    *,
+    plan_id: str | None = None,
+    steps: Sequence[AnalysisStepIR | Mapping[str, Any]] | None = None,
+) -> AnalysisRequest:
+    """Adapt current session/step payloads into the richer request IR."""
+
+    step_irs = _coerce_step_irs(steps or ())
+    return AnalysisRequest(
+        goal=str(session.get("goal", "")),
+        session_id=_optional_str(session.get("session_id")),
+        plan_id=plan_id,
+        constraints=dict(session.get("constraints", {})),
+        budget=dict(session.get("budget", {})),
+        policy=dict(session.get("policy", {})),
+        requested_step_types=[step.step_type for step in step_irs],
+        requested_metrics=_dedupe_preserve_order(
+            metric_name
+            for step in step_irs
+            for metric_name in step.metric_names()
+        ),
+        requested_tables=_dedupe_preserve_order(
+            table_name
+            for step in step_irs
+            if (table_name := step.table_name()) is not None
+        ),
+    )
 
 
 def from_legacy_step(index: int, step: Mapping[str, Any]) -> AnalysisStepIR:
@@ -163,6 +284,36 @@ def from_legacy_step(index: int, step: Mapping[str, Any]) -> AnalysisStepIR:
         execution_hints=_infer_execution_hints(step_type, params),
         evidence_hints=_infer_evidence_hints(step_type, params),
     )
+
+
+def _coerce_step_irs(steps: Sequence[AnalysisStepIR | Mapping[str, Any]]) -> list[AnalysisStepIR]:
+    coerced: list[AnalysisStepIR] = []
+    for index, step in enumerate(steps):
+        if isinstance(step, AnalysisStepIR):
+            coerced.append(step)
+            continue
+        step_index = int(step.get("index", index))
+        coerced.append(from_legacy_step(step_index, step))
+    return coerced
+
+
+def _dedupe_preserve_order(values: Sequence[str] | Any) -> list[str]:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for value in values:
+        normalized = str(value).strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        ordered.append(normalized)
+    return ordered
+
+
+def _optional_str(value: Any) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None
 
 
 def _infer_step_category(step_type: str) -> str:

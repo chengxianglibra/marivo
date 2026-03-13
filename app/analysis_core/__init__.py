@@ -5,8 +5,14 @@ from app.analysis_core.ir import (
     AnalysisStepIR,
     ArtifactExpectation,
     ExecutionPlanIR,
+    ExecutionTargetIR,
+    PolicyTransformIR,
+    ResolvedEntityIR,
+    ResolvedMetricIR,
     SemanticIntent,
+    SemanticResolutionIR,
     from_legacy_step,
+    request_from_legacy_session,
 )
 from app.analysis_core.composites import CompositeStepTemplate, CompositeWorkflowSpec
 from app.analysis_core.primitives import (
@@ -39,9 +45,14 @@ __all__ = [
     "CompositeWorkflowRuntime",
     "CompositeWorkflowSpec",
     "ExecutionPlanIR",
+    "ExecutionTargetIR",
     "OPTIONAL_STEP_TYPES",
+    "PolicyTransformIR",
     "PRIMITIVE_STEP_TYPES",
+    "ResolvedEntityIR",
+    "ResolvedMetricIR",
     "SemanticIntent",
+    "SemanticResolutionIR",
     "STEP_TAXONOMY",
     "StepRunnerRegistry",
     "SUPPORTED_STEP_TYPES",
@@ -52,5 +63,6 @@ __all__ = [
     "build_service_step_registry",
     "from_legacy_step",
     "is_optional_step",
+    "request_from_legacy_session",
     "step_category_for",
 ]
