@@ -194,6 +194,18 @@
 - 默认输出保持兼容
 - scoring / policy 有独立单测
 
+#### 已完成实现
+
+- `app/evidence_engine/scoring.py` 现在除了保留 `score_confidence(...)` 公式，还提供正式的 `ConfidenceScorer` 合同与默认实现 `DefaultConfidenceScorer`
+- `app/evidence_engine/recommendation_policy.py` 新增 `RecommendationPolicy` 合同与默认实现 `DefaultRecommendationPolicy`
+- `EvidencePipeline` 现在在 synthesizer 之后显式执行：
+  - claim scoring
+  - recommendation derivation
+  并支持按名称切换 scorer / policy
+- `synthesize_claims()` 不再内嵌 recommendation 构造逻辑，只负责产出 claims；默认 recommendation 政策由 pipeline 后置应用
+- 默认 counter-hypothesis / root-cause confidence 计算逻辑已迁到默认 scorer 中，保持原有输出语义
+- 已补充 `tests/test_evidence_plugins.py` 的 scorer / policy seam 回归，并保持 `tests/test_evidence.py` / service integration 通过
+
 ---
 
 ### P4-6：收口 semantic-runtime / persistence glue
@@ -240,5 +252,5 @@
 - [done] P4-2 增强 semantic object 执行语义
 - [done] P4-3 补齐 AnalysisRequest / ExecutionPlanIR
 - [done] P4-4 让 validator / governance / costing 更彻底消费 IR
-- [pending] P4-5 引入 confidence scorer / recommendation policy seam
+- [done] P4-5 引入 confidence scorer / recommendation policy seam
 - [pending] P4-6 收口 semantic-runtime / persistence glue

@@ -13,8 +13,12 @@ from app.evidence_engine.factories import (
     slice_matches,
 )
 from app.evidence_engine.scoring import score_confidence
+from app.evidence_engine.schemas import Claim, Recommendation
 
-def synthesize_claims(observations: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+
+def synthesize_claims(
+    observations: list[dict[str, Any]],
+) -> tuple[list[Claim], list[Recommendation], list[dict[str, Any]]]:
     watch_observations = [obs for obs in observations if obs["type"] == "metric_change"]
     qoe_observations = [obs for obs in observations if obs["type"] == "qoe_regression"]
     ad_observations = [obs for obs in observations if obs["type"] == "ad_regression"]
@@ -91,7 +95,7 @@ def synthesize_claims(observations: list[dict[str, Any]]) -> tuple[list[dict[str
             consistency_factors.append(0.90)
 
     contradicts: list[str] = []
-    recommendation_claims: list[dict[str, Any]] = []
+    recommendation_claims: list[Claim] = []
     if recommendation_signal:
         ctr_delta = float(recommendation_signal["payload"]["delta_ctr_pct"])
         if ctr_delta >= 0.0:
@@ -106,11 +110,13 @@ def synthesize_claims(observations: list[dict[str, Any]]) -> tuple[list[dict[str
                         "for the impacted traffic slice."
                     ),
                     "scope": {"slice": impacted_slice},
-                    "confidence": round(min(0.95, 0.65 + min(ctr_delta / 10.0, 0.20)), 2),
+                    "confidence": 0.0,
                     "status": "supported",
                     "supporting_observations": [recommendation_signal["observation_id"]],
                     "contradicting_observations": [],
                     "confidence_breakdown": {
+                        "_model": "counter_hypothesis",
+                        "_ctr_delta_pct": round(ctr_delta, 2),
                         "effect_strength": round(min(1.0, max(ctr_delta, 0.0) / 5.0), 2),
                         "consistency": 0.8,
                         "sample_score": round(min(1.0, recommendation_signal["significance"]["sample_size"] / 150.0), 2),
@@ -126,8 +132,6 @@ def synthesize_claims(observations: list[dict[str, Any]]) -> tuple[list[dict[str
     consistency = sum(consistency_factors) / len(consistency_factors)
     sample_score = min(1.0, primary_watch["significance"]["sample_size"] / 150.0)
     data_quality_score = 0.95 if primary_watch["quality"]["sample_size_ok"] else 0.60
-    confidence = score_confidence(effect_strength, consistency, sample_score, data_quality_score, contradiction_penalty)
-
     slice_label = (
         f'{impacted_slice["platform"].title()} {impacted_slice["app_version"]} '
         f'{impacted_slice["network_type"]} {impacted_slice["content_type"]}-video'
@@ -139,7 +143,7 @@ def synthesize_claims(observations: list[dict[str, Any]]) -> tuple[list[dict[str
         "type": "root_cause_candidate",
         "text": f"Watch time decline is concentrated in {slice_label} traffic, with {reason_label} acting as the leading driver.",
         "scope": {"slice": impacted_slice},
-        "confidence": confidence,
+        "confidence": 0.0,
         "status": "supported",
         "supporting_observations": supports,
         "contradicting_observations": contradicts,
@@ -152,51 +156,5 @@ def synthesize_claims(observations: list[dict[str, Any]]) -> tuple[list[dict[str
         },
     }
 
-    recommendations = []
-    if qoe_support:
-        recommendations.append(
-            {
-                "rec_id": f"rec_{uuid4().hex[:12]}",
-                "claim_id": primary_claim["claim_id"],
-                "action_text": "Prioritize an Android 8.3.1 playback fix focused on reducing first-frame latency for weak-network sessions.",
-                "priority": "P0",
-                "expected_impact": "Recover 30-second retention for the impacted Android cohort.",
-                "risk": "May require player hotfix rollout and staged validation.",
-                "validation_metric": {
-                    "primary_metric": "retention_30s",
-                    "secondary_metric": "watch_time",
-                },
-            }
-        )
-    if ad_support:
-        recommendations.append(
-            {
-                "rec_id": f"rec_{uuid4().hex[:12]}",
-                "claim_id": primary_claim["claim_id"],
-                "action_text": "Reduce preroll burden for weak-network short-video traffic while the playback issue is being mitigated.",
-                "priority": "P1",
-                "expected_impact": "Lower early exits caused by timeout-heavy ad starts.",
-                "risk": "Short-term revenue tradeoff on the impacted cohort.",
-                "validation_metric": {
-                    "primary_metric": "preroll_timeout_rate",
-                    "secondary_metric": "watch_time",
-                },
-            }
-        )
-    recommendations.append(
-        {
-            "rec_id": f"rec_{uuid4().hex[:12]}",
-            "claim_id": primary_claim["claim_id"],
-            "action_text": "Launch a recovery experiment for affected Android weak-network users after the hotfix lands.",
-            "priority": "P1",
-            "expected_impact": "Validate watch-time recovery before rolling strategy changes to all users.",
-            "risk": "Experiment duration may delay full rollout decisions.",
-            "validation_metric": {
-                "primary_metric": "watch_time",
-                "secondary_metric": "retention_30s",
-            },
-        }
-    )
-
     claims = [primary_claim, *recommendation_claims]
-    return claims, recommendations, []
+    return claims, [], []
