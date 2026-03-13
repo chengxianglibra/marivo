@@ -16,6 +16,7 @@ from app.analysis_core.ir import AnalysisStepIR, from_legacy_step
 from app.evidence import synthesize_claims
 from app.evidence_engine import EvidencePipeline
 from app.execution.feedback import compile_failure_from_error
+from app.execution.orchestrator import WorkflowOrchestrator
 from app.execution.routing_runtime import RoutingRuntime
 from app.planner import ReplanningService
 from app.runtime_contracts import DEFAULT_STEP_TABLES
@@ -61,6 +62,14 @@ class SemanticLayerService:
         self._governance_context: dict[str, Any] | None = None
         self._routing_feedback_context: dict[str, Any] | None = None
         self.routing_runtime = RoutingRuntime(query_router, analytics_engine)
+        self.workflow_orchestrator = WorkflowOrchestrator(
+            workflow_runtime=self.workflow_runtime,
+            replanner=self.replanner,
+            analytics_engine=self.analytics,
+            query_router=self.query_router,
+            step_executor=_ServiceWorkflowStepExecutor(self),
+            approval_service=self.approvals,
+        )
 
     def create_session(
         self,
@@ -173,109 +182,12 @@ class SemanticLayerService:
     def run_watch_time_drop_workflow(self, session_id: str) -> dict[str, Any]:
         self._assert_session_exists(session_id)
         self._reset_session_outputs(session_id)
-        workflow_plan = self.workflow_runtime.expand_workflow("watch_time_drop")
-        results: list[dict[str, Any]] = []
-        replan_decisions: list[dict[str, Any]] = []
-        executed_step_types: list[str] = []
-        plan_cursor = 0
-
-        while plan_cursor < len(workflow_plan):
-            step_ir = workflow_plan[plan_cursor]
-            estimate = self.replanner.estimate_step(
-                step_ir,
-                analytics_engine=self.analytics,
-                query_router=self.query_router,
-            )
-            applied_decisions: list[dict[str, Any]] = []
-
-            before_decision = self.replanner.decide_before_step(step_ir, estimate)
-            if before_decision.action == "replace_step":
-                replacement_step = before_decision.detail.get("replacement_step")
-                if isinstance(replacement_step, dict):
-                    step_ir = self.workflow_runtime.materialize_runtime_step(
-                        replacement_step,
-                        index=step_ir.index,
-                    )
-                    workflow_plan[plan_cursor] = step_ir
-                    estimate = self.replanner.estimate_step(
-                        step_ir,
-                        analytics_engine=self.analytics,
-                        query_router=self.query_router,
-                    )
-                    applied_decisions.append(before_decision.to_dict())
-                    replan_decisions.append(before_decision.to_dict())
-            elif before_decision.action == "skip_step":
-                replan_decisions.append(before_decision.to_dict())
-                plan_cursor += 1
-                continue
-
-            started = time.perf_counter()
-            try:
-                result = self.run_step(
-                    session_id,
-                    step_ir.step_type,
-                    params=step_ir.params if step_ir.params else None,
-                )
-            except Exception as error:
-                failure_decision = self.replanner.decide_on_error(step_ir, error, estimate=estimate)
-                replan_decisions.append(failure_decision.to_dict())
-                if failure_decision.action == "replace_step":
-                    replacement_step = failure_decision.detail.get("replacement_step")
-                    if isinstance(replacement_step, dict):
-                        workflow_plan[plan_cursor] = self.workflow_runtime.materialize_runtime_step(
-                            replacement_step,
-                            index=step_ir.index,
-                        )
-                        continue
-                if failure_decision.action == "skip_step":
-                    plan_cursor += 1
-                    continue
-                raise
-
-            duration_ms = (time.perf_counter() - started) * 1000
-            feedback = self.replanner.build_feedback(step_ir, result, duration_ms, estimate=estimate)
-            after_decision = self.replanner.decide_after_step(step_ir, result, estimate, feedback)
-            if after_decision.action == "insert_steps":
-                insert_steps = after_decision.detail.get("insert_steps", [])
-                if isinstance(insert_steps, list) and insert_steps:
-                    workflow_plan[plan_cursor + 1:plan_cursor + 1] = self.workflow_runtime.materialize_runtime_steps(
-                        insert_steps,
-                        start_index=self.workflow_runtime.next_step_index(workflow_plan),
-                    )
-                    applied_decisions.append(after_decision.to_dict())
-                    replan_decisions.append(after_decision.to_dict())
-            elif after_decision.action == "skip_step":
-                applied_decisions.append(after_decision.to_dict())
-                replan_decisions.append(after_decision.to_dict())
-
-            result["execution_feedback"] = feedback.to_dict()
-            if applied_decisions:
-                result["replanning"] = applied_decisions
-                self._attach_replanning_provenance(session_id, step_ir.step_type, applied_decisions)
-
-            results.append(result)
-            executed_step_types.append(step_ir.step_type)
-            plan_cursor += 1
-
-        final_result = results[-1]
-
-        # Auto-flag high-risk recommendations for approval
-        if self.approvals:
-            self.approvals.auto_flag_recommendations(session_id, risk_threshold="P0")
-
-        return {
-            "session_id": session_id,
-            "workflow": "watch_time_drop",
-            "steps": results,
-            "final_summary": final_result["summary"],
-            "claims": final_result.get("claims", []),
-            "recommendations": final_result.get("recommendations", []),
-            "replanning": {
-                "decisions": replan_decisions,
-                "executed_step_types": executed_step_types,
-                "final_plan": [step.step_type for step in workflow_plan],
-            },
-        }
+        self.workflow_orchestrator.workflow_runtime = self.workflow_runtime
+        self.workflow_orchestrator.replanner = self.replanner
+        self.workflow_orchestrator.analytics_engine = self.analytics
+        self.workflow_orchestrator.query_router = self.query_router
+        self.workflow_orchestrator.approval_service = self.approvals
+        return self.workflow_orchestrator.execute_workflow(session_id, "watch_time_drop")
 
     def get_evidence_graph(self, session_id: str) -> dict[str, Any]:
         self._assert_session_exists(session_id)
@@ -1096,3 +1008,23 @@ class SemanticLayerService:
 
 def default_db_path() -> Path:
     return Path(__file__).resolve().parents[1] / "data" / "mvp.duckdb"
+
+
+class _ServiceWorkflowStepExecutor:
+    def __init__(self, service: SemanticLayerService) -> None:
+        self._service = service
+
+    def execute_step(self, session_id: str, step_ir: AnalysisStepIR) -> dict[str, Any]:
+        return self._service.run_step(
+            session_id,
+            step_ir.step_type,
+            params=step_ir.params if step_ir.params else None,
+        )
+
+    def attach_replanning_provenance(
+        self,
+        session_id: str,
+        step_type: str,
+        decisions: list[dict[str, Any]],
+    ) -> None:
+        self._service._attach_replanning_provenance(session_id, step_type, decisions)
