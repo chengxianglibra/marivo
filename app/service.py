@@ -168,7 +168,12 @@ class SemanticLayerService:
         duration_ms = (time.perf_counter() - start) * 1000
 
         if self.metrics:
-            self.metrics.record_step(normalized, duration_ms)
+            self.metrics.record_step(
+                normalized,
+                duration_ms,
+                engine=result.get("provenance", {}).get("engine"),
+                stage="executor",
+            )
 
         if governance_result:
             result["governance"] = {

@@ -8,8 +8,8 @@ from app.storage.metadata import MetadataStore
 
 
 class GovernanceService(GovernanceRuntime):
-    def __init__(self, metadata: MetadataStore, analytics: AnalyticsEngine) -> None:
+    def __init__(self, metadata: MetadataStore, analytics: AnalyticsEngine, metrics: object | None = None) -> None:
         self.metadata = metadata
         repository = GovernanceRepository(metadata)
         self.repository = repository
-        super().__init__(repository, analytics)
+        super().__init__(repository, analytics, metrics=metrics)

@@ -5,8 +5,9 @@ from __future__ import annotations
 import json
 import logging
 import time
+from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Any
+from typing import Any, Iterator
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -18,6 +19,43 @@ from starlette.responses import Response
 correlation_session_id: ContextVar[str] = ContextVar("correlation_session_id", default="")
 correlation_step_id: ContextVar[str] = ContextVar("correlation_step_id", default="")
 correlation_plan_id: ContextVar[str] = ContextVar("correlation_plan_id", default="")
+correlation_planner_id: ContextVar[str] = ContextVar("correlation_planner_id", default="")
+correlation_compiler_id: ContextVar[str] = ContextVar("correlation_compiler_id", default="")
+correlation_execution_stage: ContextVar[str] = ContextVar("correlation_execution_stage", default="")
+correlation_engine_id: ContextVar[str] = ContextVar("correlation_engine_id", default="")
+correlation_governance_scope: ContextVar[str] = ContextVar("correlation_governance_scope", default="")
+
+
+@contextmanager
+def observability_context(
+    *,
+    session_id: str | None = None,
+    step_id: str | None = None,
+    plan_id: str | None = None,
+    planner_id: str | None = None,
+    compiler_id: str | None = None,
+    execution_stage: str | None = None,
+    engine_id: str | None = None,
+    governance_scope: str | None = None,
+) -> Iterator[None]:
+    tokens: list[tuple[ContextVar[str], object]] = []
+    for variable, value in (
+        (correlation_session_id, session_id),
+        (correlation_step_id, step_id),
+        (correlation_plan_id, plan_id),
+        (correlation_planner_id, planner_id),
+        (correlation_compiler_id, compiler_id),
+        (correlation_execution_stage, execution_stage),
+        (correlation_engine_id, engine_id),
+        (correlation_governance_scope, governance_scope),
+    ):
+        if value:
+            tokens.append((variable, variable.set(value)))
+    try:
+        yield
+    finally:
+        for variable, token in reversed(tokens):
+            variable.reset(token)
 
 
 # ── Structured JSON formatter ───────────────────────────────────────
@@ -41,6 +79,21 @@ class JSONFormatter(logging.Formatter):
         plan_id = correlation_plan_id.get("")
         if plan_id:
             entry["plan_id"] = plan_id
+        planner_id = correlation_planner_id.get("")
+        if planner_id:
+            entry["planner_id"] = planner_id
+        compiler_id = correlation_compiler_id.get("")
+        if compiler_id:
+            entry["compiler_id"] = compiler_id
+        execution_stage = correlation_execution_stage.get("")
+        if execution_stage:
+            entry["execution_stage"] = execution_stage
+        engine_id = correlation_engine_id.get("")
+        if engine_id:
+            entry["engine_id"] = engine_id
+        governance_scope = correlation_governance_scope.get("")
+        if governance_scope:
+            entry["governance_scope"] = governance_scope
         if record.exc_info and record.exc_info[1]:
             entry["exception"] = str(record.exc_info[1])
         return json.dumps(entry, default=str)
@@ -68,6 +121,10 @@ class MetricsCollector:
         self.error_count: dict[int, int] = {}
         self.step_count: dict[str, int] = {}
         self.step_duration: dict[str, list[float]] = {}
+        self.step_dimension_count: dict[str, int] = {}
+        self.step_dimension_duration_sum: dict[str, float] = {}
+        self.execution_stage_count: dict[str, int] = {}
+        self.execution_stage_duration_sum: dict[str, float] = {}
         self.active_sessions: int = 0
         self.active_jobs: int = 0
 
@@ -78,9 +135,52 @@ class MetricsCollector:
         if status_code >= 400:
             self.error_count[status_code] = self.error_count.get(status_code, 0) + 1
 
-    def record_step(self, step_type: str, duration_ms: float) -> None:
+    def _dimension_key(self, **labels: str | None) -> str:
+        return "|".join(f"{key}={value or 'unknown'}" for key, value in labels.items())
+
+    def record_step(
+        self,
+        step_type: str,
+        duration_ms: float,
+        *,
+        planner: str | None = None,
+        compiler: str | None = None,
+        engine: str | None = None,
+        stage: str | None = None,
+        governance_policy: str | None = None,
+    ) -> None:
         self.step_count[step_type] = self.step_count.get(step_type, 0) + 1
         self.step_duration.setdefault(step_type, []).append(duration_ms)
+        dimension_key = self._dimension_key(
+            step_type=step_type,
+            planner=planner,
+            compiler=compiler,
+            engine=engine,
+            stage=stage,
+            governance_policy=governance_policy,
+        )
+        self.step_dimension_count[dimension_key] = self.step_dimension_count.get(dimension_key, 0) + 1
+        self.step_dimension_duration_sum[dimension_key] = self.step_dimension_duration_sum.get(dimension_key, 0.0) + duration_ms
+
+    def record_execution_stage(
+        self,
+        stage_name: str,
+        duration_ms: float,
+        *,
+        planner: str | None = None,
+        compiler: str | None = None,
+        engine: str | None = None,
+        governance_policy: str | None = None,
+    ) -> None:
+        dimension_key = self._dimension_key(
+            stage=stage_name,
+            planner=planner,
+            compiler=compiler,
+            engine=engine,
+            governance_policy=governance_policy,
+        )
+        self.execution_stage_count[dimension_key] = self.execution_stage_count.get(dimension_key, 0) + 1
+        self.execution_stage_duration_sum[dimension_key] = self.execution_stage_duration_sum.get(dimension_key, 0.0) + duration_ms
 
     def snapshot(self) -> dict[str, Any]:
         return {
@@ -89,6 +189,10 @@ class MetricsCollector:
             "error_count": dict(self.error_count),
             "step_count": dict(self.step_count),
             "step_duration_ms": {k: list(v) for k, v in self.step_duration.items()},
+            "step_dimension_count": dict(self.step_dimension_count),
+            "step_dimension_duration_sum_ms": dict(self.step_dimension_duration_sum),
+            "execution_stage_count": dict(self.execution_stage_count),
+            "execution_stage_duration_sum_ms": dict(self.execution_stage_duration_sum),
             "active_sessions": self.active_sessions,
             "active_jobs": self.active_jobs,
         }
@@ -128,6 +232,28 @@ class MetricsCollector:
         for step_type, durations in sorted(self.step_duration.items()):
             total_sec = sum(durations) / 1000
             lines.append(f'omnidb_step_duration_seconds_sum{{step_type="{step_type}"}} {total_sec:.4f}')
+        lines.extend([
+            "# HELP omnidb_step_executions_by_dimension_total Total step executions by planner/compiler/engine/stage labels",
+            "# TYPE omnidb_step_executions_by_dimension_total counter",
+        ])
+        for key, count in sorted(self.step_dimension_count.items()):
+            labels = dict(item.split("=", 1) for item in key.split("|"))
+            lines.append(
+                "omnidb_step_executions_by_dimension_total{"
+                + ",".join(f'{label}="{value}"' for label, value in labels.items())
+                + f"}} {count}"
+            )
+        lines.extend([
+            "# HELP omnidb_execution_stage_seconds_sum Sum of execution stage durations",
+            "# TYPE omnidb_execution_stage_seconds_sum counter",
+        ])
+        for key, total in sorted(self.execution_stage_duration_sum.items()):
+            labels = dict(item.split("=", 1) for item in key.split("|"))
+            lines.append(
+                "omnidb_execution_stage_seconds_sum{"
+                + ",".join(f'{label}="{value}"' for label, value in labels.items())
+                + f"}} {total / 1000:.4f}"
+            )
         lines.extend([
             "# HELP omnidb_active_sessions Current active sessions",
             "# TYPE omnidb_active_sessions gauge",

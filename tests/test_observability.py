@@ -13,6 +13,8 @@ from app.main import create_app
 from app.observability import (
     JSONFormatter,
     MetricsCollector,
+    correlation_execution_stage,
+    correlation_planner_id,
     correlation_session_id,
     setup_logging,
 )
@@ -38,11 +40,13 @@ class MetricsCollectorTests(unittest.TestCase):
 
     def test_record_step(self) -> None:
         mc = MetricsCollector()
-        mc.record_step("compare_watch_time", 150.0)
+        mc.record_step("compare_watch_time", 150.0, engine="duckdb", stage="executor")
         mc.record_step("compare_watch_time", 200.0)
         snap = mc.snapshot()
         self.assertEqual(snap["step_count"]["compare_watch_time"], 2)
         self.assertEqual(len(snap["step_duration_ms"]["compare_watch_time"]), 2)
+        self.assertIn("step_dimension_count", snap)
+        self.assertTrue(any("engine=duckdb" in key for key in snap["step_dimension_count"]))
 
     def test_prometheus_output(self) -> None:
         mc = MetricsCollector()
@@ -59,6 +63,7 @@ class MetricsCollectorTests(unittest.TestCase):
         self.assertIn("request_count", snap)
         self.assertIn("error_count", snap)
         self.assertIn("step_count", snap)
+        self.assertIn("execution_stage_count", snap)
         self.assertIn("active_sessions", snap)
         self.assertIn("active_jobs", snap)
 
@@ -88,6 +93,22 @@ class JSONFormatterTests(unittest.TestCase):
             self.assertIn("sess_test123", output)
         finally:
             correlation_session_id.reset(token)
+
+    def test_format_includes_execution_dimensions(self) -> None:
+        formatter = JSONFormatter()
+        planner_token = correlation_planner_id.set("draft_plan")
+        stage_token = correlation_execution_stage.set("planner")
+        try:
+            record = logging.LogRecord(
+                name="test", level=logging.INFO, pathname="test.py",
+                lineno=1, msg="planner msg", args=(), exc_info=None,
+            )
+            output = formatter.format(record)
+            self.assertIn("draft_plan", output)
+            self.assertIn("planner", output)
+        finally:
+            correlation_planner_id.reset(planner_token)
+            correlation_execution_stage.reset(stage_token)
 
 
 class ObservabilityAPITests(unittest.TestCase):

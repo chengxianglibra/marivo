@@ -13,13 +13,13 @@ Each step in a plan has:
 from __future__ import annotations
 
 import json
+import time
 from datetime import datetime, timezone
 from math import inf
 from typing import TYPE_CHECKING
 from typing import Any
 from uuid import uuid4
 
-from app.execution.costing import CostModel
 from app.analysis_core.ir import (
     AnalysisRequest,
     AnalysisStepIR,
@@ -33,6 +33,8 @@ from app.analysis_core.ir import (
     request_from_legacy_session,
 )
 from app.analysis_core.step_runners import SUPPORTED_STEP_TYPES
+from app.execution.costing import CostModel
+from app.observability import MetricsCollector, observability_context
 from app.runtime_contracts import (
     BudgetCheckResult,
     CostEstimate,
@@ -77,6 +79,7 @@ class PlanningService:
         semantic_resolver: SemanticResolver | None = None,
         semantic_repository: SemanticRuntimeRepository | None = None,
         cost_model: CostModel | None = None,
+        metrics: MetricsCollector | None = None,
     ) -> None:
         self.metadata = metadata
         self.analytics = analytics_engine
@@ -91,6 +94,7 @@ class PlanningService:
             analytics_engine=analytics_engine,
             query_router=query_router,
         )
+        self.metrics = metrics
 
     # ── CRUD ──────────────────────────────────────────────────────
 
@@ -99,19 +103,28 @@ class PlanningService:
 
         Each step is: {step_type, params?, dependencies?}
         """
-        plan_id = f"plan_{uuid4().hex[:12]}"
-        now = _now_iso()
+        start = time.perf_counter()
+        with observability_context(session_id=session_id, execution_stage="planner", planner_id="draft_plan"):
+            plan_id = f"plan_{uuid4().hex[:12]}"
+            now = _now_iso()
 
-        normalized = self._normalize_steps(steps)
+            normalized = self._normalize_steps(steps)
 
-        self.metadata.execute(
-            """
-            INSERT INTO plans (plan_id, session_id, status, steps_json, created_at, updated_at)
-            VALUES (?, ?, 'draft', ?, ?, ?)
-            """,
-            [plan_id, session_id, json.dumps(normalized), now, now],
-        )
-        return self.get_plan(plan_id)
+            self.metadata.execute(
+                """
+                INSERT INTO plans (plan_id, session_id, status, steps_json, created_at, updated_at)
+                VALUES (?, ?, 'draft', ?, ?, ?)
+                """,
+                [plan_id, session_id, json.dumps(normalized), now, now],
+            )
+            result = self.get_plan(plan_id)
+        if self.metrics is not None:
+            self.metrics.record_execution_stage(
+                "planner_draft",
+                (time.perf_counter() - start) * 1000,
+                planner="draft_plan",
+            )
+        return result
 
     def get_plan(self, plan_id: str) -> dict[str, Any]:
         row = self.metadata.query_one("SELECT * FROM plans WHERE plan_id = ?", [plan_id])
@@ -151,18 +164,23 @@ class PlanningService:
 
     def validate_plan(self, plan_id: str) -> dict[str, Any]:
         """Validate step types and dependency graph. Transitions draft → validated."""
-        plan = self.get_plan(plan_id)
-        if plan["status"] != "draft":
-            raise ValueError(f"Can only validate plans in 'draft' status, got '{plan['status']}'")
+        start = time.perf_counter()
+        with observability_context(plan_id=plan_id, execution_stage="planner", planner_id="validate_plan"):
+            plan = self.get_plan(plan_id)
+            if plan["status"] != "draft":
+                raise ValueError(f"Can only validate plans in 'draft' status, got '{plan['status']}'")
 
-        steps = plan["steps"]
-        validation = self._validate_steps(plan)
-        if not validation.valid:
-            return validation.to_dict()
-
-        # Transition to validated
-        self._transition(plan_id, "validated")
-        return validation.to_dict()
+            validation = self._validate_steps(plan)
+            if validation.valid:
+                self._transition(plan_id, "validated")
+            result = validation.to_dict()
+        if self.metrics is not None:
+            self.metrics.record_execution_stage(
+                "planner_validate",
+                (time.perf_counter() - start) * 1000,
+                planner="validate_plan",
+            )
+        return result
 
     def approve_plan(self, plan_id: str) -> dict[str, Any]:
         """Transition from validated → approved."""
@@ -180,14 +198,24 @@ class PlanningService:
         Args:
             service: SemanticLayerService instance for running steps
         """
-        plan = self.get_plan(plan_id)
-        if plan["status"] != "approved":
-            raise ValueError(f"Can only execute plans in 'approved' status, got '{plan['status']}'")
+        total_start = time.perf_counter()
+        with observability_context(plan_id=plan_id, execution_stage="planner", planner_id="execute_plan"):
+            plan = self.get_plan(plan_id)
+            if plan["status"] != "approved":
+                raise ValueError(f"Can only execute plans in 'approved' status, got '{plan['status']}'")
 
-        self._transition(plan_id, "executing")
-        steps = plan["steps"]
-        plan_ir = self._build_execution_plan_ir(plan)
-        session_id = plan["session_id"]
+            self._transition(plan_id, "executing")
+            steps = plan["steps"]
+            compile_start = time.perf_counter()
+            with observability_context(plan_id=plan_id, execution_stage="compiler", compiler_id="execution_plan_ir_v1"):
+                plan_ir = self._build_execution_plan_ir(plan)
+            if self.metrics is not None:
+                self.metrics.record_execution_stage(
+                    "compiler_build_plan_ir",
+                    (time.perf_counter() - compile_start) * 1000,
+                    compiler="execution_plan_ir_v1",
+                )
+            session_id = plan["session_id"]
 
         # Build execution order (topological sort)
         execution_order = self._topological_sort(steps)
@@ -242,6 +270,14 @@ class PlanningService:
             self._update_steps(plan_id, steps)
             self._transition(plan_id, "failed")
             raise
+        finally:
+            if self.metrics is not None:
+                self.metrics.record_execution_stage(
+                    "planner_execute",
+                    (time.perf_counter() - total_start) * 1000,
+                    planner="execute_plan",
+                    compiler="execution_plan_ir_v1",
+                )
 
         return {
             "plan_id": plan_id,
