@@ -223,8 +223,9 @@
 #### 拟改动模块
 
 - `app/api/`
-- `app/ui/`
+- `app/ui.py`
 - `app/main.py`
+- `app/models.py`
 
 #### 建议动作
 
@@ -237,6 +238,43 @@
 
 - `main.py` 不再承载全部路由与装配细节
 - HTTP 层不再混杂领域逻辑
+
+#### 已完成实现
+
+- 新增 `app/api/app_factory.py`，把 app composition root 从 `app/main.py` 中抽出，集中处理：
+  - metadata / analytics 初始化
+  - config 驱动的 source / engine / binding / governance 注册
+  - shared service singleton 构建
+  - app.state 装配
+- 新增 `app/api/` 路由模块，按领域拆分 HTTP 层：
+  - `health.py`
+  - `sessions.py`
+  - `planning.py`
+  - `sources.py`
+  - `engines.py`
+  - `routing.py`
+  - `semantic.py`
+  - `catalog.py`
+  - `governance.py`
+  - `jobs.py`
+  - `approvals.py`
+  - `metrics.py`
+- 新增 `app/api/deps.py`，引入统一 `AppServices` bundle，让路由通过 `request.app.state.services` 获取依赖，同时继续回填 legacy `app.state.*` 属性，保持现有测试与调用路径不变
+- 新增 `app/ui.py`，把 `/admin`、`/ui` 与 `/static` 的 UI 注册从 app factory 主体中剥离出去
+- HTTP request models 迁移到 `app/api/models.py`；`app/models.py` 现在降为 compatibility facade，继续保留旧导入路径
+- `app/main.py` 现在只保留 `create_app` compatibility entrypoint 与模块级 `app = create_app()`
+- 补充 `tests/test_api_boundaries.py`，验证：
+  - legacy model import 仍然指向新的 API models
+  - app.state 同时暴露新的 service bundle 与旧别名
+
+#### 验证结果
+
+- 聚焦 API / app split 回归：
+  - `.venv/bin/python -m unittest tests.test_api_boundaries tests.test_sources tests.test_engines tests.test_bindings tests.test_semantic tests.test_catalog_query tests.test_planning tests.test_plan_validation tests.test_governance tests.test_policy_application tests.test_approvals tests.test_jobs tests.test_ui tests.test_config tests.test_observability tests.test_mvp -v`
+  - `Ran 265 tests ... OK`
+- 全量回归：
+  - `.venv/bin/python -m unittest discover -s tests -q`
+  - `Ran 428 tests ... OK`
 
 ---
 
@@ -288,5 +326,5 @@
 - [done] P5-3 让 routing 以 semantic intent / capability 驱动
 - [done] P5-4 引入 translation / federation skeleton
 - [done] P5-5 重构 registry / governance 边界
-- [pending] P5-6 拆 API / app factory 协议层
+- [done] P5-6 拆 API / app factory 协议层
 - [pending] P5-7 拆 MCP 与外围 platform cleanup
