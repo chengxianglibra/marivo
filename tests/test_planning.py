@@ -97,6 +97,7 @@ class PlanningServiceTests(unittest.TestCase):
         self.assertEqual(execution_target.table_names, ["analytics.watch_events"])
         self.assertEqual(execution_target.routing_table_names, ["watch_events"])
         self.assertEqual(execution_target.engine_type, "duckdb")
+        self.assertEqual(execution_target.routing_strategy, "no_router")
         self.assertEqual(plan_ir.policy_transforms, [])
 
     def test_get_execution_plan_ir_includes_request_policy_transforms(self) -> None:
