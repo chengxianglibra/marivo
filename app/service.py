@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
-from app.analysis_core import build_service_step_registry
+from app.analysis_core import CompositeWorkflowRuntime, build_service_step_registry
 from app.analysis_core.compiler import build_comparison_query as compile_comparison_query
 from app.analysis_core.compiler import compile_step
 from app.analysis_core.executor import execute_compiled
@@ -53,6 +53,7 @@ class SemanticLayerService:
         self.evidence_pipeline = EvidencePipeline(synthesize_claims)
         self.semantic_resolver = SemanticResolver(metadata_store)
         self.planner_context_provider = PlannerContextProvider(metadata_store)
+        self.workflow_runtime = CompositeWorkflowRuntime()
         self.replanner = replanner or ReplanningService(
             analytics_engine=analytics_engine,
             query_router=query_router,
@@ -172,21 +173,14 @@ class SemanticLayerService:
     def run_watch_time_drop_workflow(self, session_id: str) -> dict[str, Any]:
         self._assert_session_exists(session_id)
         self._reset_session_outputs(session_id)
-        workflow_plan: list[dict[str, Any]] = [
-            {"step_type": "compare_watch_time"},
-            {"step_type": "analyze_qoe"},
-            {"step_type": "analyze_ads"},
-            {"step_type": "analyze_recommendation"},
-            {"step_type": "synthesize_findings"},
-        ]
+        workflow_plan = self.workflow_runtime.expand_workflow("watch_time_drop")
         results: list[dict[str, Any]] = []
         replan_decisions: list[dict[str, Any]] = []
         executed_step_types: list[str] = []
         plan_cursor = 0
 
         while plan_cursor < len(workflow_plan):
-            raw_step = dict(workflow_plan[plan_cursor])
-            step_ir = from_legacy_step(plan_cursor, raw_step)
+            step_ir = workflow_plan[plan_cursor]
             estimate = self.replanner.estimate_step(
                 step_ir,
                 analytics_engine=self.analytics,
@@ -198,9 +192,11 @@ class SemanticLayerService:
             if before_decision.action == "replace_step":
                 replacement_step = before_decision.detail.get("replacement_step")
                 if isinstance(replacement_step, dict):
-                    raw_step = dict(replacement_step)
-                    workflow_plan[plan_cursor] = raw_step
-                    step_ir = from_legacy_step(plan_cursor, raw_step)
+                    step_ir = self.workflow_runtime.materialize_runtime_step(
+                        replacement_step,
+                        index=step_ir.index,
+                    )
+                    workflow_plan[plan_cursor] = step_ir
                     estimate = self.replanner.estimate_step(
                         step_ir,
                         analytics_engine=self.analytics,
@@ -226,7 +222,10 @@ class SemanticLayerService:
                 if failure_decision.action == "replace_step":
                     replacement_step = failure_decision.detail.get("replacement_step")
                     if isinstance(replacement_step, dict):
-                        workflow_plan[plan_cursor] = dict(replacement_step)
+                        workflow_plan[plan_cursor] = self.workflow_runtime.materialize_runtime_step(
+                            replacement_step,
+                            index=step_ir.index,
+                        )
                         continue
                 if failure_decision.action == "skip_step":
                     plan_cursor += 1
@@ -239,7 +238,10 @@ class SemanticLayerService:
             if after_decision.action == "insert_steps":
                 insert_steps = after_decision.detail.get("insert_steps", [])
                 if isinstance(insert_steps, list) and insert_steps:
-                    workflow_plan[plan_cursor + 1:plan_cursor + 1] = [dict(step) for step in insert_steps]
+                    workflow_plan[plan_cursor + 1:plan_cursor + 1] = self.workflow_runtime.materialize_runtime_steps(
+                        insert_steps,
+                        start_index=self.workflow_runtime.next_step_index(workflow_plan),
+                    )
                     applied_decisions.append(after_decision.to_dict())
                     replan_decisions.append(after_decision.to_dict())
             elif after_decision.action == "skip_step":
@@ -271,7 +273,7 @@ class SemanticLayerService:
             "replanning": {
                 "decisions": replan_decisions,
                 "executed_step_types": executed_step_types,
-                "final_plan": [step["step_type"] for step in workflow_plan],
+                "final_plan": [step.step_type for step in workflow_plan],
             },
         }
 
