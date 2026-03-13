@@ -105,6 +105,19 @@ class SemanticRuntimeTests(unittest.TestCase):
         self.assertEqual(resolved.quality_expectations, {"min_group_size": 100})
         self.assertEqual(resolved.metadata["display_name"], "Watch Time")
 
+    def test_semantic_repository_resolves_runtime_objects(self) -> None:
+        repository = self.client.app.state.service.semantic_repository
+
+        resolved_metric = repository.resolve_metric("watch_time")
+        resolved_entity = repository.resolve_entity("user")
+
+        self.assertIsNotNone(resolved_metric)
+        self.assertIsNotNone(resolved_entity)
+        assert resolved_metric is not None
+        assert resolved_entity is not None
+        self.assertEqual(resolved_metric.grain, "session")
+        self.assertEqual(resolved_entity.level, "user")
+
     def test_planner_context_provider_includes_session_details(self) -> None:
         service = self.client.app.state.service
         session = service.create_session("Semantic runtime test", {}, {}, {})
@@ -121,6 +134,16 @@ class SemanticRuntimeTests(unittest.TestCase):
         entity = next(entity for entity in context["entities"] if entity["name"] == "user")
         self.assertEqual(entity["level"], "user")
         self.assertEqual(entity["upstream_dependencies"], ["account"])
+
+    def test_semantic_repository_builds_planner_context(self) -> None:
+        repository = self.client.app.state.service.semantic_repository
+        session = self.client.app.state.service.create_session("Repository planner context", {}, {}, {})
+
+        context = repository.build_planner_context(session["session_id"])
+
+        self.assertEqual(context["session"]["session_id"], session["session_id"])
+        metric = next(metric for metric in context["metrics"] if metric["name"] == "watch_time")
+        self.assertEqual(metric["grain"], "session")
 
     def test_semantic_resolver_resolves_published_entity(self) -> None:
         service = self.client.app.state.service
@@ -154,7 +177,11 @@ class SemanticRuntimeTests(unittest.TestCase):
         self.assertEqual(resolved["mappings"][0]["semantic_id"], self.metric_id)
 
     def test_catalog_runtime_planner_context_formats_runtime_payload(self) -> None:
-        runtime = CatalogRuntimeService(self.metadata_store, self.binding_service)
+        runtime = CatalogRuntimeService(
+            self.metadata_store,
+            self.binding_service,
+            semantic_repository=self.client.app.state.service.semantic_repository,
+        )
         session = self.client.app.state.service.create_session("Catalog runtime planner context", {}, {}, {})
 
         context = runtime.planner_context(session["session_id"])

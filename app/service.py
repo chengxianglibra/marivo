@@ -20,7 +20,7 @@ from app.execution.orchestrator import WorkflowOrchestrator
 from app.execution.routing_runtime import RoutingRuntime
 from app.planner import ReplanningService
 from app.runtime_contracts import DEFAULT_STEP_TABLES
-from app.semantic_runtime import PlannerContextProvider, SemanticResolver
+from app.semantic_runtime import SemanticRuntimeRepository
 from app.session import SessionManager
 from app.storage.analytics import AnalyticsEngine
 from app.storage.metadata import MetadataStore
@@ -52,8 +52,9 @@ class SemanticLayerService:
         self.session_manager = SessionManager(metadata_store)
         self.step_registry = build_service_step_registry(self)
         self.evidence_pipeline = EvidencePipeline(synthesize_claims)
-        self.semantic_resolver = SemanticResolver(metadata_store)
-        self.planner_context_provider = PlannerContextProvider(metadata_store)
+        self.semantic_repository = SemanticRuntimeRepository(metadata_store)
+        self.semantic_resolver = self.semantic_repository.resolver
+        self.planner_context_provider = self.semantic_repository.planner_context_provider
         self.workflow_runtime = CompositeWorkflowRuntime()
         self.replanner = replanner or ReplanningService(
             analytics_engine=analytics_engine,
@@ -253,13 +254,11 @@ class SemanticLayerService:
 
     def resolve_metric_sql(self, metric_name: str) -> str | None:
         """Look up a published metric's definition_sql from semantic runtime."""
-        resolved = self.semantic_resolver.resolve_metric(metric_name)
-        return resolved.definition_sql if resolved else None
+        return self.semantic_repository.resolve_metric_sql(metric_name)
 
     def resolve_metric_dimensions(self, metric_name: str) -> list[str] | None:
         """Look up a published metric's dimensions from semantic runtime."""
-        resolved = self.semantic_resolver.resolve_metric(metric_name)
-        return list(resolved.dimensions) if resolved else None
+        return self.semantic_repository.resolve_metric_dimensions(metric_name)
 
     def build_comparison_query(
         self,
