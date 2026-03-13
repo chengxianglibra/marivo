@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 from app.analysis_core import SUPPORTED_STEP_TYPES
 from app.semantic_runtime.planner_context import PlannerContextProvider
+from app.semantic_runtime.semantic_metadata import entity_runtime_metadata, metric_runtime_metadata
 from app.storage.metadata import MetadataStore
 
 if TYPE_CHECKING:
@@ -110,6 +111,8 @@ class CatalogRuntimeService:
                 "SELECT * FROM semantic_mappings WHERE semantic_type = 'metric' AND semantic_id = ?",
                 [metric_row["metric_id"]],
             )
+            metric_properties = json.loads(metric_row["properties_json"])
+            metric_dimensions = json.loads(metric_row["dimensions_json"])
             return {
                 "resolved_type": "metric",
                 "semantic_object": {
@@ -118,7 +121,16 @@ class CatalogRuntimeService:
                     "display_name": metric_row["display_name"],
                     "description": metric_row["description"],
                     "definition_sql": metric_row["definition_sql"],
-                    "dimensions": json.loads(metric_row["dimensions_json"]),
+                    "dimensions": metric_dimensions,
+                    "properties": metric_properties,
+                    **metric_runtime_metadata(
+                        grain=metric_row["grain"],
+                        measure_type=metric_row["measure_type"],
+                        allowed_dimensions_json=metric_row["allowed_dimensions_json"],
+                        lineage_json=metric_row["lineage_json"],
+                        quality_expectations_json=metric_row["quality_expectations_json"],
+                        dimensions=metric_dimensions,
+                    ),
                     "status": metric_row["status"],
                     "revision": metric_row["revision"],
                 },
@@ -135,6 +147,7 @@ class CatalogRuntimeService:
                 "SELECT * FROM semantic_mappings WHERE semantic_type = 'entity' AND semantic_id = ?",
                 [entity_row["entity_id"]],
             )
+            entity_properties = json.loads(entity_row["properties_json"])
             return {
                 "resolved_type": "entity",
                 "semantic_object": {
@@ -143,6 +156,14 @@ class CatalogRuntimeService:
                     "display_name": entity_row["display_name"],
                     "description": entity_row["description"],
                     "keys": json.loads(entity_row["keys_json"]),
+                    "properties": entity_properties,
+                    **entity_runtime_metadata(
+                        level=entity_row["level"],
+                        join_constraints_json=entity_row["join_constraints_json"],
+                        upstream_dependencies_json=entity_row["upstream_dependencies_json"],
+                        lineage_json=entity_row["lineage_json"],
+                        quality_expectations_json=entity_row["quality_expectations_json"],
+                    ),
                     "status": entity_row["status"],
                     "revision": entity_row["revision"],
                 },

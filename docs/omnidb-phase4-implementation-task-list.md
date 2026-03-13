@@ -58,9 +58,12 @@
 
 #### 拟改动模块
 
-- `app/semantic_runtime/semantic_models.py`
+- `app/storage/schema.py`
+- `app/semantic.py`
+- `app/semantic_runtime/semantic_metadata.py`
 - `app/semantic_runtime/resolution.py`
 - `app/semantic_runtime/planner_context.py`
+- `app/semantic_runtime/catalog.py`
 - `app/models.py` 或相关语义输入模型
 
 #### 建议动作
@@ -75,6 +78,14 @@
 - semantic runtime 可返回结构化执行语义
 - 至少一个 validator / compiler / planner-context 消费新字段
 - 现有 semantic CRUD 兼容不变
+
+#### 已完成实现
+
+- 为 `semantic_entities` / `semantic_metrics` 增加一等执行语义列，而不是继续复用 `properties_json`
+- 为 entity 增加 `level` / `join_constraints` / `upstream_dependencies` / `lineage` / `quality_expectations`
+- 为 metric 增加 `grain` / `measure_type` / `allowed_dimensions` / `lineage` / `quality_expectations`
+- semantic CRUD、resolver、planner context、catalog resolve 已全部读写这些字段
+- 已补充 `tests/test_semantic.py`、`tests/test_semantic_runtime.py`、`tests/test_catalog_query.py` 回归覆盖
 
 ---
 
@@ -203,7 +214,7 @@
 ## 6. 当前实施状态
 
 - [done] P4-1 设计与执行基线
-- [pending] P4-2 增强 semantic object 执行语义
+- [done] P4-2 增强 semantic object 执行语义
 - [pending] P4-3 补齐 AnalysisRequest / ExecutionPlanIR
 - [pending] P4-4 让 validator / governance / costing 更彻底消费 IR
 - [pending] P4-5 引入 confidence scorer / recommendation policy seam

@@ -35,7 +35,17 @@ class CatalogQueryTests(unittest.TestCase):
         # Create and publish entities
         resp = cls.client.post(
             "/semantic/entities",
-            json={"name": "user", "display_name": "User", "description": "A platform user", "keys": ["user_id"]},
+            json={
+                "name": "user",
+                "display_name": "User",
+                "description": "A platform user",
+                "keys": ["user_id"],
+                "level": "user",
+                "join_constraints": {"requires": ["country"]},
+                "upstream_dependencies": ["account"],
+                "lineage": ["analytics.users"],
+                "quality_expectations": {"freshness_hours": 24},
+            },
         )
         cls.user_entity_id = resp.json()["entity_id"]
         cls.client.post(f"/semantic/entities/{cls.user_entity_id}/publish")
@@ -49,6 +59,11 @@ class CatalogQueryTests(unittest.TestCase):
                 "description": "Average play duration per session",
                 "definition_sql": "avg(play_duration_seconds)",
                 "dimensions": ["platform", "app_version", "network_type", "content_type"],
+                "grain": "session",
+                "measure_type": "average",
+                "allowed_dimensions": ["platform", "network_type", "content_type"],
+                "lineage": ["analytics.watch_events.play_duration_seconds"],
+                "quality_expectations": {"min_group_size": 100},
             },
         )
         cls.watch_metric_id = resp.json()["metric_id"]
@@ -101,6 +116,12 @@ class CatalogQueryTests(unittest.TestCase):
         result = resp.json()
         self.assertEqual(result["resolved_type"], "metric")
         self.assertEqual(result["semantic_object"]["name"], "watch_time")
+        self.assertEqual(result["semantic_object"]["grain"], "session")
+        self.assertEqual(result["semantic_object"]["measure_type"], "average")
+        self.assertEqual(
+            result["semantic_object"]["allowed_dimensions"],
+            ["platform", "network_type", "content_type"],
+        )
         # Should have physical assets from mapping
         self.assertGreaterEqual(len(result["physical_assets"]), 1)
         self.assertEqual(result["physical_assets"][0]["native_name"], "watch_events")
@@ -110,6 +131,8 @@ class CatalogQueryTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         result = resp.json()
         self.assertEqual(result["resolved_type"], "entity")
+        self.assertEqual(result["semantic_object"]["level"], "user")
+        self.assertEqual(result["semantic_object"]["upstream_dependencies"], ["account"])
 
     def test_resolve_404(self) -> None:
         resp = self.client.get("/semantic/resolve/nonexistent_thing")
@@ -131,6 +154,11 @@ class CatalogQueryTests(unittest.TestCase):
         self.assertIn("entities", ctx)
         self.assertIn("available_step_types", ctx)
         self.assertIn("compare_watch_time", ctx["available_step_types"])
+        watch_metric = next(metric for metric in ctx["metrics"] if metric["name"] == "watch_time")
+        self.assertEqual(watch_metric["grain"], "session")
+        self.assertEqual(watch_metric["measure_type"], "average")
+        user_entity = next(entity for entity in ctx["entities"] if entity["name"] == "user")
+        self.assertEqual(user_entity["level"], "user")
 
     def test_graph_traversal(self) -> None:
         # Graph from the metric node
