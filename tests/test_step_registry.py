@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from app.analysis_core import COMPOSITE_STEP_TYPES, PRIMITIVE_STEP_TYPES
 from app.main import create_app
 from app.planning import VALID_STEP_TYPES
 from fastapi.testclient import TestClient
@@ -30,6 +31,8 @@ class StepRegistryWiringTests(unittest.TestCase):
         self.assertEqual(set(supported), VALID_STEP_TYPES)
         self.assertIn("compare_watch_time", supported)
         self.assertIn("sample_rows", supported)
+        self.assertTrue(set(PRIMITIVE_STEP_TYPES).issubset(set(supported)))
+        self.assertTrue(set(COMPOSITE_STEP_TYPES).issubset(set(supported)))
 
     def test_run_step_rejects_unknown_step_type(self) -> None:
         session_id = self.client.post("/sessions", json={"goal": "Unknown step guard"}).json()["session_id"]

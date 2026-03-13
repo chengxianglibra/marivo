@@ -3,20 +3,15 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
+from app.analysis_core.primitives import (
+    OPTIONAL_STEP_TYPES,
+    COMPOSITE_STEP_TYPES,
+    step_category_for,
+)
 from app.runtime_contracts import DEFAULT_STEP_TABLES
 
 
 DEFAULT_SLICE_DIMENSIONS = ("platform", "app_version", "network_type", "content_type")
-COMPOSITE_STEP_TYPES = frozenset(
-    {
-        "compare_watch_time",
-        "analyze_qoe",
-        "analyze_ads",
-        "analyze_recommendation",
-        "synthesize_findings",
-    }
-)
-OPTIONAL_STEP_TYPES = frozenset({"analyze_ads", "analyze_recommendation"})
 PERIOD_CONTEXT_STEP_TYPES = frozenset(
     {
         "compare_metric",
@@ -171,9 +166,7 @@ def from_legacy_step(index: int, step: Mapping[str, Any]) -> AnalysisStepIR:
 
 
 def _infer_step_category(step_type: str) -> str:
-    if step_type in COMPOSITE_STEP_TYPES:
-        return "composite"
-    return "primitive"
+    return step_category_for(step_type)
 
 
 def _infer_semantic_intent(step_type: str, params: Mapping[str, Any]) -> SemanticIntent | None:
