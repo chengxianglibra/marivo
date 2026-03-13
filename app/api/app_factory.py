@@ -24,6 +24,7 @@ from app.sources import SourceService
 from app.storage.analytics import AnalyticsEngine
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 from app.storage.metadata import MetadataStore
+from app.storage.repositories import JobRepository
 from app.storage.sqlite_metadata import SQLiteMetadataStore
 from app.sync import SyncEngine
 from app.ui import register_ui
@@ -172,7 +173,11 @@ def _build_services(
 ) -> AppServices:
     setup_logging(level=config.observability.log_level)
     metrics_collector = MetricsCollector() if config.observability.metrics_enabled else None
-    governance_service = GovernanceService(metadata_store, analytics_engine) if config.governance.enabled else None
+    governance_service = (
+        GovernanceService(metadata_store, analytics_engine, metrics=metrics_collector)
+        if config.governance.enabled
+        else None
+    )
     approval_service = ApprovalService(metadata_store)
     service = SemanticLayerService(
         metadata_store,
@@ -197,10 +202,18 @@ def _build_services(
         query_router=query_router,
         governance=governance_service,
         semantic_repository=service.semantic_repository,
+        metrics=metrics_collector,
     )
     semantic_service = SemanticService(metadata_store)
     catalog_runtime = CatalogRuntimeService(metadata_store, binding_service)
-    job_service = JobService(metadata_store, service, planning_service=planning_service)
+    job_repository = JobRepository(metadata_store)
+    job_service = JobService(
+        metadata_store,
+        service,
+        planning_service=planning_service,
+        job_repository=job_repository,
+        metrics=metrics_collector,
+    )
     admin_enabled = config.ui.admin_enabled if config.ui.admin_enabled is not None else config.ui.enabled
     user_enabled = config.ui.user_enabled if config.ui.user_enabled is not None else config.ui.enabled
     static_dir = Path(__file__).resolve().parent.parent / "static"
@@ -220,6 +233,7 @@ def _build_services(
         approval_service=approval_service,
         metrics=metrics_collector,
         job_service=job_service,
+        job_repository=job_repository,
         semantic_service=semantic_service,
         catalog_runtime=catalog_runtime,
         admin_enabled=admin_enabled,
@@ -244,6 +258,7 @@ def _attach_state(app: FastAPI, services: AppServices) -> None:
     app.state.approval_service = services.approval_service
     app.state.metrics = services.metrics
     app.state.job_service = services.job_service
+    app.state.job_repository = services.job_repository
     app.state.semantic_service = services.semantic_service
     app.state.catalog_runtime = services.catalog_runtime
 

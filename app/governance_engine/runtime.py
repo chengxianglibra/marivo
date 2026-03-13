@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import time
 from datetime import date
 from typing import Any
 
+from app.observability import MetricsCollector, observability_context
 from app.governance_engine.repository import GovernanceRepository
 from app.runtime_contracts import PolicyApplicationResult, PolicyDecision
 from app.storage.analytics import AnalyticsEngine
@@ -16,9 +18,15 @@ VALID_QUALITY_SEVERITIES = ("warn", "block")
 
 
 class GovernanceRuntime:
-    def __init__(self, repository: GovernanceRepository, analytics: AnalyticsEngine) -> None:
+    def __init__(
+        self,
+        repository: GovernanceRepository,
+        analytics: AnalyticsEngine,
+        metrics: MetricsCollector | None = None,
+    ) -> None:
         self.repository = repository
         self.analytics = analytics
+        self.metrics = metrics
 
     def create_policy(
         self,
@@ -312,46 +320,58 @@ class GovernanceRuntime:
         params: dict[str, Any] | None = None,
         tables: list[str] | None = None,
     ) -> dict[str, Any]:
-        policy_result = self.check_policies(session_id, step_type, params)
-        all_violations = list(policy_result["violations"])
-
-        quality_warnings: list[dict[str, str]] = []
-        quality_blockers: list[dict[str, str]] = []
-        if tables:
-            for table in tables:
-                quality_result = self.check_quality(table)
-                quality_warnings.extend(quality_result["warnings"])
-                quality_blockers.extend(quality_result["blockers"])
-                all_violations.extend(quality_result["blockers"])
-
-        passed = len(all_violations) == 0
-        result = {
-            "passed": passed,
-            "violations": all_violations,
-            "warnings": quality_warnings,
-            "decisions": policy_result.get("decisions", []),
-            "transforms": policy_result.get("transforms", {}),
-            "hard_constraints": [
-                *policy_result.get("hard_constraints", []),
-                *quality_blockers,
-            ],
-            "soft_signals": [
-                *policy_result.get("soft_signals", []),
-                *quality_warnings,
-            ],
-        }
-        self.repository.record_event(
+        start = time.perf_counter()
+        with observability_context(
             session_id=session_id,
-            subject_type="step",
-            subject_id=step_type,
-            event_type="governance_step_checked",
-            detail={
+            execution_stage="governance",
+            governance_scope=step_type,
+        ):
+            policy_result = self.check_policies(session_id, step_type, params)
+            all_violations = list(policy_result["violations"])
+
+            quality_warnings: list[dict[str, str]] = []
+            quality_blockers: list[dict[str, str]] = []
+            if tables:
+                for table in tables:
+                    quality_result = self.check_quality(table)
+                    quality_warnings.extend(quality_result["warnings"])
+                    quality_blockers.extend(quality_result["blockers"])
+                    all_violations.extend(quality_result["blockers"])
+
+            passed = len(all_violations) == 0
+            result = {
                 "passed": passed,
-                "table_count": len(tables or []),
-                "decision_count": len(result["decisions"]),
-                "violation_count": len(result["violations"]),
-            },
-        )
+                "violations": all_violations,
+                "warnings": quality_warnings,
+                "decisions": policy_result.get("decisions", []),
+                "transforms": policy_result.get("transforms", {}),
+                "hard_constraints": [
+                    *policy_result.get("hard_constraints", []),
+                    *quality_blockers,
+                ],
+                "soft_signals": [
+                    *policy_result.get("soft_signals", []),
+                    *quality_warnings,
+                ],
+            }
+            self.repository.record_event(
+                session_id=session_id,
+                subject_type="step",
+                subject_id=step_type,
+                event_type="governance_step_checked",
+                detail={
+                    "passed": passed,
+                    "table_count": len(tables or []),
+                    "decision_count": len(result["decisions"]),
+                    "violation_count": len(result["violations"]),
+                },
+            )
+        if self.metrics is not None:
+            self.metrics.record_execution_stage(
+                "governance_check",
+                (time.perf_counter() - start) * 1000,
+                governance_policy=step_type,
+            )
         return result
 
     def list_audit_events(

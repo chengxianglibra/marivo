@@ -20,6 +20,7 @@ from app.service import SemanticLayerService
 from app.sources import SourceService
 from app.storage.analytics import AnalyticsEngine
 from app.storage.metadata import MetadataStore
+from app.storage.repositories import JobRepository
 from app.sync import SyncEngine
 
 
@@ -40,6 +41,7 @@ class AppServices:
     approval_service: ApprovalService
     metrics: MetricsCollector | None
     job_service: JobService
+    job_repository: JobRepository
     semantic_service: SemanticService
     catalog_runtime: CatalogRuntimeService
     admin_enabled: bool

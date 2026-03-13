@@ -303,6 +303,38 @@
 - MCP 保持 thin proxy 但边界更清晰
 - platform cleanup 为后续产品化 / 运维化留下稳定基础
 
+#### 已完成实现
+
+- 新增 `app/mcp/`，把 MCP 边界拆为：
+  - `models.py`：tool input models / response format
+  - `renderers.py`：markdown renderers
+  - `common.py`：API client builder + response formatter
+  - `tools.py`：tool registration
+  - `server.py`：FastMCP server wrapper + `main()`
+- `app/mcp_server.py` 现在降为 compatibility facade，继续保留旧导入路径与 CLI 入口
+- `app/jobs.py` 现在通过 `JobExecutor` / `PlanExecutor` protocol 与 `JobRepository` 协作，而不是把持久化 SQL 全部内嵌在 service 中
+- 新增 `app/storage/repositories.py`，提供 `SessionRepository` / `JobRepository`，为后续 repository-first storage 演进补上 seam
+- `app/storage/__init__.py` 现在对外导出新的 repository seam
+- `app/observability.py` 现在补充：
+  - planner / compiler / execution_stage / engine / governance_scope correlation context
+  - richer metrics dimensions: `step_dimension_count` / `execution_stage_count`
+  - Prometheus 暴露新增维度化 step / execution-stage 指标
+- `PlanningService` / `GovernanceRuntime` / `JobService` 现在会把 planner、compiler、executor、governance 阶段写入 observability metrics/context
+- `SemanticLayerService.run_step()` 现在会把 executor stage 与 resolved engine 回写到 step-level metrics labels
+- 补充回归覆盖：
+  - `tests/test_mcp_boundaries.py`
+  - `tests/test_repositories.py`
+  - `tests/test_observability.py` 新增 execution-dimension 断言
+
+#### 验证结果
+
+- 聚焦 platform cleanup 回归：
+  - `.venv/bin/python -m unittest tests.test_mcp_boundaries tests.test_repositories tests.test_jobs tests.test_observability tests.test_storage tests.test_mvp tests.test_governance tests.test_approvals tests.test_planning tests.test_api_boundaries -v`
+  - `Ran 128 tests ... OK`
+- 全量回归：
+  - `.venv/bin/python -m unittest discover -s tests -q`
+  - `Ran 432 tests ... OK`
+
 ## 5. 推荐执行顺序
 
 建议按以下顺序推进：
@@ -327,4 +359,4 @@
 - [done] P5-4 引入 translation / federation skeleton
 - [done] P5-5 重构 registry / governance 边界
 - [done] P5-6 拆 API / app factory 协议层
-- [pending] P5-7 拆 MCP 与外围 platform cleanup
+- [done] P5-7 拆 MCP 与外围 platform cleanup
