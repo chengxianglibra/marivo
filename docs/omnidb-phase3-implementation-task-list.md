@@ -199,8 +199,8 @@
 ## 6. 当前实施状态
 
 - [done] P3-1 设计与执行基线
-- [in_progress] P3-2 增强 analysis IR
-- [pending] P3-3 primitive / composite taxonomy
+- [done] P3-2 增强 analysis IR
+- [in_progress] P3-3 primitive / composite taxonomy
 - [pending] P3-4 composite workflow runtime
 - [pending] P3-5 evidence pipeline 插件化
 - [pending] P3-6 execution orchestrator 与 facade 收口
