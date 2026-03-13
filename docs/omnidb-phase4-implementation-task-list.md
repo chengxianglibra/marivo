@@ -115,6 +115,20 @@
 - 旧入口仍可适配到新 IR
 - 新 IR 有直接单测
 
+#### 已完成实现
+
+- 扩展 `AnalysisRequest`，显式承载 `plan_id`、`requested_step_types`、`requested_metrics`、`requested_tables`
+- 扩展 `ExecutionPlanIR`，显式承载：
+  - plan/session/status
+  - request-level IR
+  - per-step `semantic_resolutions`
+  - per-step `execution_targets`
+  - request-derived `policy_transforms`
+- 新增 legacy session/step -> richer IR 的适配器 `request_from_legacy_session(...)`
+- `PlanningService.get_execution_plan_ir()` 已不再只返回 step list，而是返回真正 enriched 的 execution-plan IR
+- semantic resolution / target engine / policy transform 的 v1 落点已经进入 plan IR
+- 已补充 `tests/test_analysis_ir.py` 与 `tests/test_planning.py` 直接覆盖
+
 ---
 
 ### P4-4：让 validator / governance / costing 更彻底消费 IR
@@ -215,7 +229,7 @@
 
 - [done] P4-1 设计与执行基线
 - [done] P4-2 增强 semantic object 执行语义
-- [pending] P4-3 补齐 AnalysisRequest / ExecutionPlanIR
+- [done] P4-3 补齐 AnalysisRequest / ExecutionPlanIR
 - [pending] P4-4 让 validator / governance / costing 更彻底消费 IR
 - [pending] P4-5 引入 confidence scorer / recommendation policy seam
 - [pending] P4-6 收口 semantic-runtime / persistence glue

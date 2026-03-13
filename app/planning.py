@@ -20,7 +20,18 @@ from typing import Any
 from uuid import uuid4
 
 from app.execution.costing import CostModel
-from app.analysis_core.ir import AnalysisStepIR, ExecutionPlanIR, from_legacy_step
+from app.analysis_core.ir import (
+    AnalysisRequest,
+    AnalysisStepIR,
+    ExecutionPlanIR,
+    ExecutionTargetIR,
+    PolicyTransformIR,
+    ResolvedEntityIR,
+    ResolvedMetricIR,
+    SemanticResolutionIR,
+    from_legacy_step,
+    request_from_legacy_session,
+)
 from app.analysis_core.step_runners import SUPPORTED_STEP_TYPES
 from app.runtime_contracts import (
     BudgetCheckResult,
@@ -233,7 +244,18 @@ class PlanningService:
 
     def get_execution_plan_ir(self, plan_id: str) -> ExecutionPlanIR:
         plan = self.get_plan(plan_id)
-        return ExecutionPlanIR(steps=self._plan_step_irs(plan["steps"]))
+        step_irs = self._plan_step_irs(plan["steps"])
+        request = self._build_analysis_request(plan, step_irs)
+        return ExecutionPlanIR(
+            plan_id=plan["plan_id"],
+            session_id=plan["session_id"],
+            status=plan["status"],
+            request=request,
+            steps=step_irs,
+            semantic_resolutions=[self._resolve_step_semantics(step) for step in step_irs],
+            execution_targets=[self._resolve_execution_target(step) for step in step_irs],
+            policy_transforms=self._request_policy_transforms(request),
+        )
 
     def explain_plan(self, plan_id: str) -> dict[str, Any]:
         """Return a human-readable summary of the plan."""
@@ -345,6 +367,170 @@ class PlanningService:
 
     def _plan_step_irs(self, steps: list[dict[str, Any]]) -> list[AnalysisStepIR]:
         return [from_legacy_step(step["index"], step) for step in steps]
+
+    def _build_analysis_request(
+        self,
+        plan: dict[str, Any],
+        step_irs: list[AnalysisStepIR],
+    ) -> AnalysisRequest:
+        row = self.metadata.query_one(
+            """
+            SELECT session_id, goal, constraints_json, budget_json, policy_json
+            FROM sessions
+            WHERE session_id = ?
+            """,
+            [plan["session_id"]],
+        )
+        if row is None:
+            raise KeyError(f"Unknown session: {plan['session_id']}")
+        return request_from_legacy_session(
+            {
+                "session_id": row["session_id"],
+                "goal": row["goal"],
+                "constraints": json.loads(row["constraints_json"]),
+                "budget": json.loads(row["budget_json"]),
+                "policy": json.loads(row["policy_json"]),
+            },
+            plan_id=plan["plan_id"],
+            steps=step_irs,
+        )
+
+    def _resolve_step_semantics(self, step: AnalysisStepIR) -> SemanticResolutionIR:
+        requested_dimensions = (
+            list(step.semantic_intent.dimensions)
+            if step.semantic_intent is not None
+            else []
+        )
+        resolved_metrics: list[ResolvedMetricIR] = []
+        for metric_name in step.metric_names():
+            resolved_metric = self.semantic_resolver.resolve_metric(metric_name)
+            if resolved_metric is None:
+                continue
+            resolved_metrics.append(
+                ResolvedMetricIR(
+                    name=resolved_metric.name,
+                    grain=resolved_metric.grain,
+                    measure_type=resolved_metric.measure_type,
+                    dimensions=list(resolved_metric.dimensions),
+                    allowed_dimensions=list(resolved_metric.allowed_dimensions),
+                    lineage=list(resolved_metric.lineage),
+                    quality_expectations=dict(resolved_metric.quality_expectations),
+                    metadata=dict(resolved_metric.metadata),
+                )
+            )
+
+        resolved_entities: list[ResolvedEntityIR] = []
+        entity_name = step.params.get("entity_name")
+        if entity_name:
+            resolved_entity = self.semantic_resolver.resolve_entity(str(entity_name))
+            if resolved_entity is not None:
+                resolved_entities.append(
+                    ResolvedEntityIR(
+                        name=resolved_entity.name,
+                        keys=list(resolved_entity.keys),
+                        level=resolved_entity.level,
+                        join_constraints=dict(resolved_entity.join_constraints),
+                        upstream_dependencies=list(resolved_entity.upstream_dependencies),
+                        lineage=list(resolved_entity.lineage),
+                        quality_expectations=dict(resolved_entity.quality_expectations),
+                        metadata=dict(resolved_entity.metadata),
+                    )
+                )
+
+        supported_dimensions: list[str] = []
+        legal_grains: list[str] = []
+        quality_expectations: dict[str, Any] = {}
+        if resolved_metrics:
+            primary_metric = resolved_metrics[0]
+            supported_dimensions = list(primary_metric.allowed_dimensions or primary_metric.dimensions)
+            if primary_metric.grain:
+                legal_grains.append(primary_metric.grain)
+            quality_expectations.update(primary_metric.quality_expectations)
+        if resolved_entities and not quality_expectations:
+            quality_expectations.update(resolved_entities[0].quality_expectations)
+
+        compatible_dimensions = (
+            [dimension for dimension in requested_dimensions if dimension in supported_dimensions]
+            if requested_dimensions and supported_dimensions
+            else list(supported_dimensions or requested_dimensions)
+        )
+
+        return SemanticResolutionIR(
+            step_index=step.index,
+            requested_metrics=step.metric_names(),
+            requested_dimensions=requested_dimensions,
+            supported_dimensions=supported_dimensions,
+            compatible_dimensions=compatible_dimensions,
+            legal_grains=legal_grains,
+            source_table=step.table_name(),
+            date_column=step.semantic_intent.date_column if step.semantic_intent is not None else None,
+            metrics=resolved_metrics,
+            entities=resolved_entities,
+            quality_expectations=quality_expectations,
+        )
+
+    def _resolve_execution_target(self, step: AnalysisStepIR) -> ExecutionTargetIR:
+        table_name = step.table_name()
+        if table_name is None:
+            return ExecutionTargetIR(
+                step_index=step.index,
+                engine_type="heuristic" if step.step_type == "synthesize_findings" else None,
+                engine_locality="artifact_only" if step.step_type == "synthesize_findings" else "unknown",
+            )
+
+        routing_table_name = step.routing_table_name()
+        target = ExecutionTargetIR(
+            step_index=step.index,
+            table_names=[table_name],
+            routing_table_names=[routing_table_name] if routing_table_name else [],
+            engine_type=self._default_engine_type(),
+            engine_locality="default_analytics",
+        )
+        if self.query_router is None or routing_table_name is None:
+            return target
+
+        try:
+            route = self.query_router.resolve_tables([routing_table_name])
+        except (KeyError, ValueError):
+            return target
+
+        target.engine_id = route.engine_id
+        target.engine_type = self._engine_type_for_id(route.engine_id) or self._analytics_engine_type(route.engine)
+        target.engine_locality = "bound_engine"
+        target.qualified_names = dict(route.qualified_names)
+        return target
+
+    @staticmethod
+    def _request_policy_transforms(request: AnalysisRequest) -> list[PolicyTransformIR]:
+        transforms: list[PolicyTransformIR] = []
+        if request.constraints:
+            transforms.append(
+                PolicyTransformIR(
+                    transform_type="session_constraints",
+                    source="session",
+                    target="request",
+                    detail=dict(request.constraints),
+                )
+            )
+        if request.budget:
+            transforms.append(
+                PolicyTransformIR(
+                    transform_type="budget_guard",
+                    source="session_budget",
+                    target="plan",
+                    detail=dict(request.budget),
+                )
+            )
+        if request.policy:
+            transforms.append(
+                PolicyTransformIR(
+                    transform_type="session_policy",
+                    source="session_policy",
+                    target="plan",
+                    detail=dict(request.policy),
+                )
+            )
+        return transforms
 
     def _row_to_plan(self, row: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -679,6 +865,33 @@ class PlanningService:
     @staticmethod
     def _table_name_for_step(step: AnalysisStepIR) -> str | None:
         return CostModel._table_name_for_step(step)
+
+    def _default_engine_type(self) -> str | None:
+        return self._analytics_engine_type(self.analytics) or "duckdb"
+
+    def _engine_type_for_id(self, engine_id: str) -> str | None:
+        row = self.metadata.query_one(
+            "SELECT engine_type FROM engines WHERE engine_id = ?",
+            [engine_id],
+        )
+        if row is None:
+            return None
+        return str(row["engine_type"])
+
+    @staticmethod
+    def _analytics_engine_type(engine: AnalyticsEngine | None) -> str | None:
+        if engine is None:
+            return None
+        class_name = engine.__class__.__name__.lower()
+        if "duckdb" in class_name:
+            return "duckdb"
+        if "trino" in class_name:
+            return "trino"
+        if "sparkconnect" in class_name:
+            return "spark_connect"
+        if "sparkthrift" in class_name:
+            return "spark_thrift"
+        return class_name.removesuffix("analyticsengine") or class_name
 
     @staticmethod
     def _routing_table_name(table_name: str) -> str:
