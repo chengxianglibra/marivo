@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from app.analysis_core.ir import from_legacy_step
+from app.analysis_core.ir import ExecutionTargetIR
 from app.execution.costing import CostModel
 from app.main import create_app
 from app.runtime_contracts import CostEstimate
@@ -55,6 +56,22 @@ class CostModelTests(unittest.TestCase):
 
         self.assertIn("limit_pushdown_candidate", estimate.cache_signals)
         self.assertIn("reduce_sample_limit", estimate.suggested_fallbacks)
+
+    def test_estimate_step_with_execution_target_includes_engine_capabilities(self) -> None:
+        engine = self.client.app.state.engine_service.list_engines()[0]
+        estimate = self.cost_model.estimate_step(
+            from_legacy_step(0, {"step_type": "compare_watch_time"}),
+            execution_target=ExecutionTargetIR(
+                step_index=0,
+                table_names=["analytics.watch_events"],
+                routing_table_names=["watch_events"],
+                engine_id=engine["engine_id"],
+                engine_type=engine["engine_type"],
+                engine_locality="bound_engine",
+            ),
+        )
+
+        self.assertEqual(estimate.detail["engine_capabilities"]["engine_type"], "duckdb")
 
     def test_budget_check_flags_unknown_estimates(self) -> None:
         unknown = self.cost_model.estimate_step(
