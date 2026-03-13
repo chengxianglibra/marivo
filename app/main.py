@@ -228,7 +228,7 @@ def create_app(
         analytics_engine=analytics_engine,
         query_router=query_router,
         governance=governance_service,
-        semantic_resolver=service.semantic_resolver,
+        semantic_repository=service.semantic_repository,
     )
     app.state.planning_service = planning_service
     app.state.governance_service = governance_service

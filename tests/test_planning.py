@@ -119,6 +119,21 @@ class PlanningServiceTests(unittest.TestCase):
         )
         self.assertEqual(plan_ir.request.budget, {"max_rows_scanned": 5000})
 
+    def test_get_execution_plan_ir_accepts_semantic_repository(self) -> None:
+        planning = PlanningService(
+            self.metadata,
+            semantic_repository=self.service.semantic_repository,
+        )
+        plan = planning.draft_plan(self.session["session_id"], [
+            {"step_type": "compare_watch_time"},
+        ])
+
+        plan_ir = planning.get_execution_plan_ir(plan["plan_id"])
+
+        self.assertIs(planning.semantic_repository, self.service.semantic_repository)
+        self.assertIs(planning.semantic_resolver, self.service.semantic_repository.resolver)
+        self.assertEqual(plan_ir.request.requested_metrics, ["watch_time"])
+
     def test_patch_non_draft_fails(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [
             {"step_type": "compare_watch_time"},

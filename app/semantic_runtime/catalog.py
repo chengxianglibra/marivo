@@ -4,8 +4,7 @@ import json
 from typing import TYPE_CHECKING, Any
 
 from app.analysis_core import SUPPORTED_STEP_TYPES
-from app.semantic_runtime.planner_context import PlannerContextProvider
-from app.semantic_runtime.semantic_metadata import entity_runtime_metadata, metric_runtime_metadata
+from app.semantic_runtime.repository import SemanticRuntimeRepository
 from app.storage.metadata import MetadataStore
 
 if TYPE_CHECKING:
@@ -19,10 +18,11 @@ class CatalogRuntimeService:
         self,
         metadata: MetadataStore,
         binding_service: BindingService | None = None,
+        semantic_repository: SemanticRuntimeRepository | None = None,
     ) -> None:
         self.metadata = metadata
         self.binding_service = binding_service
-        self.planner_context_provider = PlannerContextProvider(metadata)
+        self.semantic_repository = semantic_repository or SemanticRuntimeRepository(metadata)
 
     def search(self, query: str, object_type: str | None = None) -> list[dict[str, Any]]:
         results: list[dict[str, Any]] = []
@@ -102,70 +102,58 @@ class CatalogRuntimeService:
         return results
 
     def resolve(self, name: str) -> dict[str, Any]:
-        metric_row = self.metadata.query_one(
-            "SELECT * FROM semantic_metrics WHERE name = ?",
-            [name],
-        )
-        if metric_row is not None:
+        resolved_metric = self.semantic_repository.resolve_metric(name)
+        if resolved_metric is not None:
+            metric_id = str(resolved_metric.metadata["metric_id"])
             mappings = self.metadata.query_rows(
                 "SELECT * FROM semantic_mappings WHERE semantic_type = 'metric' AND semantic_id = ?",
-                [metric_row["metric_id"]],
+                [metric_id],
             )
-            metric_properties = json.loads(metric_row["properties_json"])
-            metric_dimensions = json.loads(metric_row["dimensions_json"])
             return {
                 "resolved_type": "metric",
                 "semantic_object": {
-                    "metric_id": metric_row["metric_id"],
-                    "name": metric_row["name"],
-                    "display_name": metric_row["display_name"],
-                    "description": metric_row["description"],
-                    "definition_sql": metric_row["definition_sql"],
-                    "dimensions": metric_dimensions,
-                    "properties": metric_properties,
-                    **metric_runtime_metadata(
-                        grain=metric_row["grain"],
-                        measure_type=metric_row["measure_type"],
-                        allowed_dimensions_json=metric_row["allowed_dimensions_json"],
-                        lineage_json=metric_row["lineage_json"],
-                        quality_expectations_json=metric_row["quality_expectations_json"],
-                        dimensions=metric_dimensions,
-                    ),
-                    "status": metric_row["status"],
-                    "revision": metric_row["revision"],
+                    "metric_id": metric_id,
+                    "name": resolved_metric.name,
+                    "display_name": resolved_metric.metadata["display_name"],
+                    "description": resolved_metric.metadata["description"],
+                    "definition_sql": resolved_metric.definition_sql,
+                    "dimensions": list(resolved_metric.dimensions),
+                    "properties": dict(resolved_metric.metadata["properties"]),
+                    "grain": resolved_metric.grain,
+                    "measure_type": resolved_metric.measure_type,
+                    "allowed_dimensions": list(resolved_metric.allowed_dimensions),
+                    "lineage": list(resolved_metric.lineage),
+                    "quality_expectations": dict(resolved_metric.quality_expectations),
+                    "status": resolved_metric.metadata["status"],
+                    "revision": resolved_metric.metadata["revision"],
                 },
                 "physical_assets": self._resolve_mappings(mappings),
                 "mappings": [self._mapping_row_to_dict(mapping) for mapping in mappings],
             }
 
-        entity_row = self.metadata.query_one(
-            "SELECT * FROM semantic_entities WHERE name = ?",
-            [name],
-        )
-        if entity_row is not None:
+        resolved_entity = self.semantic_repository.resolve_entity(name)
+        if resolved_entity is not None:
+            entity_id = str(resolved_entity.metadata["entity_id"])
             mappings = self.metadata.query_rows(
                 "SELECT * FROM semantic_mappings WHERE semantic_type = 'entity' AND semantic_id = ?",
-                [entity_row["entity_id"]],
+                [entity_id],
             )
-            entity_properties = json.loads(entity_row["properties_json"])
             return {
                 "resolved_type": "entity",
                 "semantic_object": {
-                    "entity_id": entity_row["entity_id"],
-                    "name": entity_row["name"],
-                    "display_name": entity_row["display_name"],
-                    "description": entity_row["description"],
-                    "keys": json.loads(entity_row["keys_json"]),
-                    "properties": entity_properties,
-                    **entity_runtime_metadata(
-                        level=entity_row["level"],
-                        join_constraints_json=entity_row["join_constraints_json"],
-                        upstream_dependencies_json=entity_row["upstream_dependencies_json"],
-                        lineage_json=entity_row["lineage_json"],
-                        quality_expectations_json=entity_row["quality_expectations_json"],
-                    ),
-                    "status": entity_row["status"],
-                    "revision": entity_row["revision"],
+                    "entity_id": entity_id,
+                    "name": resolved_entity.name,
+                    "display_name": resolved_entity.metadata["display_name"],
+                    "description": resolved_entity.metadata["description"],
+                    "keys": list(resolved_entity.keys),
+                    "properties": dict(resolved_entity.metadata["properties"]),
+                    "level": resolved_entity.level,
+                    "join_constraints": dict(resolved_entity.join_constraints),
+                    "upstream_dependencies": list(resolved_entity.upstream_dependencies),
+                    "lineage": list(resolved_entity.lineage),
+                    "quality_expectations": dict(resolved_entity.quality_expectations),
+                    "status": resolved_entity.metadata["status"],
+                    "revision": resolved_entity.metadata["revision"],
                 },
                 "physical_assets": self._resolve_mappings(mappings),
                 "mappings": [self._mapping_row_to_dict(mapping) for mapping in mappings],
@@ -174,7 +162,7 @@ class CatalogRuntimeService:
         raise KeyError(f"Could not resolve term: {name}")
 
     def planner_context(self, session_id: str) -> dict[str, Any]:
-        context = self.planner_context_provider.build_planner_context(session_id)
+        context = self.semantic_repository.build_planner_context(session_id)
         session = context.pop("session", None)
         return {
             "session_id": session["session_id"] if session else session_id,

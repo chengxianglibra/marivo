@@ -231,6 +231,18 @@
 - Phase 4 新能力主要通过 runtime seam 接线，而不是继续加大 `service.py`
 - 后续 Phase 5 的 boundary refactor 有更清晰落点
 
+#### 已完成实现
+
+- 新增 `app/semantic_runtime/repository.py`，引入统一的 `SemanticRuntimeRepository`
+- `SemanticRuntimeRepository` 收口了两类 runtime read path：
+  - semantic object resolution
+  - planner context construction
+- `SemanticLayerService` 现在通过 `self.semantic_repository` 暴露 runtime facade，同时保留 `semantic_resolver` / `planner_context_provider` 兼容属性
+- `PlanningService` 现在优先依赖 `semantic_repository`，而不是直接 new / 持有独立 resolver
+- `CatalogRuntimeService` 的 planner-context / resolve 路径也改为复用 `SemanticRuntimeRepository`，减少重复 runtime metadata 拼装逻辑
+- `create_app()` 对 `PlanningService` 的接线已从 `semantic_resolver=...` 切到 `semantic_repository=...`
+- 已补充 `tests/test_semantic_runtime.py` / `tests/test_planning.py` 针对 repository facade 的回归覆盖
+
 ## 5. 推荐执行顺序
 
 建议按以下顺序推进：
@@ -253,4 +265,4 @@
 - [done] P4-3 补齐 AnalysisRequest / ExecutionPlanIR
 - [done] P4-4 让 validator / governance / costing 更彻底消费 IR
 - [done] P4-5 引入 confidence scorer / recommendation policy seam
-- [pending] P4-6 收口 semantic-runtime / persistence glue
+- [done] P4-6 收口 semantic-runtime / persistence glue

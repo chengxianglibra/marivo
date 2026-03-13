@@ -39,7 +39,7 @@ from app.runtime_contracts import (
     PlanValidationIssue,
     PlanValidationResult,
 )
-from app.semantic_runtime import SemanticResolver
+from app.semantic_runtime import SemanticResolver, SemanticRuntimeRepository
 from app.storage.analytics import AnalyticsEngine
 from app.storage.metadata import MetadataStore
 
@@ -75,13 +75,18 @@ class PlanningService:
         query_router: QueryRouter | None = None,
         governance: GovernanceService | None = None,
         semantic_resolver: SemanticResolver | None = None,
+        semantic_repository: SemanticRuntimeRepository | None = None,
         cost_model: CostModel | None = None,
     ) -> None:
         self.metadata = metadata
         self.analytics = analytics_engine
         self.query_router = query_router
         self.governance = governance
-        self.semantic_resolver = semantic_resolver or SemanticResolver(metadata)
+        self.semantic_repository = semantic_repository or SemanticRuntimeRepository(
+            metadata,
+            resolver=semantic_resolver,
+        )
+        self.semantic_resolver = self.semantic_repository.resolver
         self.cost_model = cost_model or CostModel(
             analytics_engine=analytics_engine,
             query_router=query_router,
@@ -414,7 +419,7 @@ class PlanningService:
         )
         resolved_metrics: list[ResolvedMetricIR] = []
         for metric_name in step.metric_names():
-            resolved_metric = self.semantic_resolver.resolve_metric(metric_name)
+            resolved_metric = self.semantic_repository.resolve_metric(metric_name)
             if resolved_metric is None:
                 continue
             resolved_metrics.append(
@@ -433,7 +438,7 @@ class PlanningService:
         resolved_entities: list[ResolvedEntityIR] = []
         entity_name = step.params.get("entity_name")
         if entity_name:
-            resolved_entity = self.semantic_resolver.resolve_entity(str(entity_name))
+            resolved_entity = self.semantic_repository.resolve_entity(str(entity_name))
             if resolved_entity is not None:
                 resolved_entities.append(
                     ResolvedEntityIR(
