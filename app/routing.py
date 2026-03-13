@@ -1,13 +1,32 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from app.bindings import BindingService
 from app.engines import EngineService
-from app.execution.capabilities import EngineCapabilityProfile, score_capability_profile
+from app.execution.capabilities import (
+    EngineCapabilityProfile,
+    describe_routing_fit,
+    score_capability_profile,
+)
 from app.storage.analytics import AnalyticsEngine
 from app.storage.metadata import MetadataStore
+
+
+@dataclass
+class RoutingIntent:
+    """Semantic and policy signals that influence engine selection."""
+
+    step_type: str | None = None
+    metric_names: list[str] = field(default_factory=list)
+    requested_dimensions: list[str] = field(default_factory=list)
+    compatible_dimensions: list[str] = field(default_factory=list)
+    legal_grains: list[str] = field(default_factory=list)
+    policy_hints: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 @dataclass
@@ -19,6 +38,8 @@ class ResolvedRoute:
     qualified_names: dict[str, str] = field(default_factory=dict)  # {native_name: qualified_name}
     capability_profile: EngineCapabilityProfile | None = None
     capability_score: int = 0
+    selection_reason: str | None = None
+    routing_detail: dict[str, Any] = field(default_factory=dict)
 
 
 class QueryRouter:
@@ -33,16 +54,26 @@ class QueryRouter:
         self.engine_service = engine_service
         self.binding_service = BindingService(metadata)
 
-    def resolve_engine_for_tables(self, table_names: list[str]) -> AnalyticsEngine:
+    def resolve_engine_for_tables(
+        self,
+        table_names: list[str],
+        *,
+        routing_intent: RoutingIntent | None = None,
+    ) -> AnalyticsEngine:
         """Given table names, find a common engine that can query all of them.
 
         Raises KeyError if a table is not found in source_objects.
         Raises ValueError if no single engine covers all tables.
         """
-        route = self.resolve_tables(table_names)
+        route = self.resolve_tables(table_names, routing_intent=routing_intent)
         return route.engine
 
-    def resolve_tables(self, table_names: list[str]) -> ResolvedRoute:
+    def resolve_tables(
+        self,
+        table_names: list[str],
+        *,
+        routing_intent: RoutingIntent | None = None,
+    ) -> ResolvedRoute:
         """Given table names, find a common engine and return qualified names.
 
         Returns a ResolvedRoute with the engine, engine_id, and a mapping
@@ -114,17 +145,78 @@ class QueryRouter:
             for engine_id in common_engines
         }
 
-        # Step 4: pick the engine with highest total priority, then capability score
-        best_engine_id = max(
-            common_engines,
-            key=lambda eid: (
-                sum(engine_priorities.get(eid, {}).values()),
-                score_capability_profile(
-                    capability_profiles[eid],
+        # Step 4: score candidates with binding, capability, and optional semantic intent.
+        candidate_scores: list[dict[str, Any]] = []
+        for engine_id in common_engines:
+            capability_profile = capability_profiles[engine_id]
+            priority_score = sum(engine_priorities.get(engine_id, {}).values())
+            capability_score = score_capability_profile(
+                capability_profile,
+                table_count=len(table_names),
+            )
+            fit_detail = (
+                describe_routing_fit(
+                    capability_profile,
                     table_count=len(table_names),
-                ),
+                    step_type=routing_intent.step_type,
+                    metric_names=routing_intent.metric_names,
+                    requested_dimensions=routing_intent.requested_dimensions,
+                    compatible_dimensions=routing_intent.compatible_dimensions,
+                    policy_hints=routing_intent.policy_hints,
+                )
+                if routing_intent is not None
+                else {
+                    "step_type_supported": True,
+                    "satisfied_policy_support": [],
+                    "missing_policy_support": [],
+                    "requested_dimension_count": 0,
+                    "compatible_dimension_count": 0,
+                    "unresolved_dimension_count": 0,
+                    "metric_count": 0,
+                    "step_score": 0,
+                    "policy_score": 0,
+                    "semantic_score": 0,
+                    "cost_score": 0,
+                    "reasons": [],
+                }
+            )
+            total_score = (
+                priority_score
+                + capability_score
+                + int(fit_detail["step_score"])
+                + int(fit_detail["policy_score"])
+                + int(fit_detail["semantic_score"])
+                + int(fit_detail["cost_score"])
+            )
+            candidate_scores.append(
+                {
+                    "engine_id": engine_id,
+                    "priority_score": priority_score,
+                    "capability_score": capability_score,
+                    "total_score": total_score,
+                    "performance_class": capability_profile.performance_class,
+                    "federation_support": capability_profile.federation_support,
+                    "step_type_supported": fit_detail["step_type_supported"],
+                    "satisfied_policy_support": fit_detail["satisfied_policy_support"],
+                    "missing_policy_support": fit_detail["missing_policy_support"],
+                    "step_score": fit_detail["step_score"],
+                    "policy_score": fit_detail["policy_score"],
+                    "semantic_score": fit_detail["semantic_score"],
+                    "cost_score": fit_detail["cost_score"],
+                    "reasons": list(fit_detail["reasons"]),
+                }
+            )
+
+        candidate_scores.sort(
+            key=lambda candidate: (
+                candidate["total_score"],
+                candidate["priority_score"],
+                candidate["capability_score"],
             ),
+            reverse=True,
         )
+        selected_candidate = candidate_scores[0]
+        best_engine_id = str(selected_candidate["engine_id"])
 
         # Step 5: build qualified names using binding namespace
         qualified_names: dict[str, str] = {}
@@ -147,6 +239,20 @@ class QueryRouter:
                 capability_profile,
                 table_count=len(table_names),
             ),
+            selection_reason=(
+                selected_candidate["reasons"][0]
+                if selected_candidate["reasons"]
+                else "highest combined routing score"
+            ),
+            routing_detail={
+                "strategy": (
+                    "semantic_intent_and_capability"
+                    if routing_intent is not None
+                    else "binding_priority_and_capability"
+                ),
+                "intent": routing_intent.to_dict() if routing_intent is not None else None,
+                "candidates": candidate_scores,
+            },
         )
 
     def resolve_engine_for_source(self, source_id: str) -> AnalyticsEngine:

@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from app.bindings import BindingService
 from app.engines import EngineService
 from app.main import create_app
-from app.routing import QueryRouter, ResolvedRoute
+from app.routing import QueryRouter, ResolvedRoute, RoutingIntent
 from app.sources import SourceService
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 from app.storage.sqlite_metadata import SQLiteMetadataStore
@@ -473,6 +473,71 @@ class QueryRouterTests(unittest.TestCase):
         self.assertEqual(route.capability_profile.performance_class, "distributed")
         self.assertGreater(route.capability_score, 0)
 
+    def test_resolve_tables_uses_semantic_intent_to_override_priority(self) -> None:
+        from datetime import datetime, timezone
+        from uuid import uuid4
+
+        src = self.source_service.register_source("local", "Semantic Route Src", {})
+        duck = self.engine_service.register_engine(
+            "duckdb",
+            "Semantic Route Duck",
+            {"path": "/tmp/semantic_route.duckdb"},
+            capabilities={
+                "supported_step_types": ("sample_rows", "profile_table"),
+                "policy_support": (),
+            },
+        )
+        trino = self.engine_service.register_engine(
+            "trino",
+            "Semantic Route Trino",
+            {"host": "localhost", "port": 8080, "user": "test", "catalog": "hive", "schema": "default"},
+        )
+
+        self.binding_service.create_binding(src["source_id"], duck["engine_id"], priority=9)
+        self.binding_service.create_binding(src["source_id"], trino["engine_id"], priority=7)
+
+        now = datetime.now(timezone.utc).isoformat()
+        schema_id = f"obj_{uuid4().hex[:12]}"
+        self.metadata.execute(
+            """
+            INSERT INTO source_objects
+                (object_id, source_id, object_type, native_name, fqn, properties_json, created_at, updated_at)
+            VALUES (?, ?, 'schema', 'semantic_route_schema', 'demo.semantic_route_schema', '{}', ?, ?)
+            """,
+            [schema_id, src["source_id"], now, now],
+        )
+        table_id = f"obj_{uuid4().hex[:12]}"
+        self.metadata.execute(
+            """
+            INSERT INTO source_objects
+                (object_id, source_id, object_type, parent_id, native_name, fqn, properties_json, created_at, updated_at)
+            VALUES (?, ?, 'table', ?, 'semantic_route_table', 'demo.semantic_route_schema.semantic_route_table', '{}', ?, ?)
+            """,
+            [table_id, src["source_id"], schema_id, now, now],
+        )
+
+        route = QueryRouter(self.metadata, self.engine_service).resolve_tables(
+            ["semantic_route_table"],
+            routing_intent=RoutingIntent(
+                step_type="compare_watch_time",
+                metric_names=["watch_time"],
+                requested_dimensions=["platform", "app_version", "network_type"],
+                compatible_dimensions=["platform", "app_version", "network_type"],
+                policy_hints=["aggregate_only"],
+            ),
+        )
+
+        self.assertEqual(route.engine_id, trino["engine_id"])
+        self.assertEqual(route.routing_detail["strategy"], "semantic_intent_and_capability")
+        self.assertIsNotNone(route.selection_reason)
+        duck_candidate = next(
+            candidate
+            for candidate in route.routing_detail["candidates"]
+            if candidate["engine_id"] == duck["engine_id"]
+        )
+        self.assertFalse(duck_candidate["step_type_supported"])
+        self.assertIn("aggregate_only", duck_candidate["missing_policy_support"])
+
 
 class BindingAPITests(unittest.TestCase):
     """Integration tests for binding and routing API endpoints via TestClient."""
@@ -690,6 +755,80 @@ class BindingAPITests(unittest.TestCase):
         self.assertIn("qualified_names", result)
         self.assertIn("qn_unique_table", result["qualified_names"])
         self.assertEqual(result["qualified_names"]["qn_unique_table"], "hive.qn_schema.qn_unique_table")
+
+    def test_routing_resolve_accepts_semantic_intent(self) -> None:
+        from datetime import datetime, timezone
+        from uuid import uuid4
+
+        resp = self.client.post("/sources", json={
+            "source_type": "local",
+            "display_name": "Semantic API Routing Src",
+            "connection": {"path": str(self.db_path)},
+        })
+        source_id = resp.json()["source_id"]
+
+        resp = self.client.post("/engines", json={
+            "engine_type": "duckdb",
+            "display_name": "Semantic API Duck",
+            "connection": {"path": "/tmp/semantic_api_duck.duckdb"},
+            "capabilities": {
+                "supported_step_types": ["sample_rows", "profile_table"],
+                "policy_support": [],
+            },
+        })
+        duck_engine_id = resp.json()["engine_id"]
+
+        resp = self.client.post("/engines", json={
+            "engine_type": "trino",
+            "display_name": "Semantic API Trino",
+            "connection": {"host": "localhost", "port": 8080, "user": "test", "catalog": "hive", "schema": "default"},
+        })
+        trino_engine_id = resp.json()["engine_id"]
+
+        self.client.post("/bindings", json={
+            "source_id": source_id,
+            "engine_id": duck_engine_id,
+            "priority": 9,
+        })
+        self.client.post("/bindings", json={
+            "source_id": source_id,
+            "engine_id": trino_engine_id,
+            "priority": 7,
+        })
+
+        metadata_store = self.client.app.state.metadata_store
+        now = datetime.now(timezone.utc).isoformat()
+        schema_id = f"obj_{uuid4().hex[:12]}"
+        metadata_store.execute(
+            """INSERT INTO source_objects
+                (object_id, source_id, object_type, native_name, fqn, properties_json, created_at, updated_at)
+            VALUES (?, ?, 'schema', 'semantic_api_schema', 'demo.semantic_api_schema', '{}', ?, ?)""",
+            [schema_id, source_id, now, now],
+        )
+        table_id = f"obj_{uuid4().hex[:12]}"
+        metadata_store.execute(
+            """INSERT INTO source_objects
+                (object_id, source_id, object_type, parent_id, native_name, fqn, properties_json, created_at, updated_at)
+            VALUES (?, ?, 'table', ?, 'semantic_api_table', 'demo.semantic_api_schema.semantic_api_table', '{}', ?, ?)""",
+            [table_id, source_id, schema_id, now, now],
+        )
+
+        resp = self.client.post("/routing/resolve", json={
+            "table_names": ["semantic_api_table"],
+            "routing_intent": {
+                "step_type": "compare_watch_time",
+                "metric_names": ["watch_time"],
+                "requested_dimensions": ["platform", "app_version", "network_type"],
+                "compatible_dimensions": ["platform", "app_version", "network_type"],
+                "policy_hints": ["aggregate_only"],
+            },
+        })
+        self.assertEqual(resp.status_code, 200)
+        result = resp.json()
+        self.assertEqual(result["engine"]["engine_id"], trino_engine_id)
+        self.assertEqual(result["routing_detail"]["strategy"], "semantic_intent_and_capability")
+        self.assertIsNotNone(result["selection_reason"])
+        self.assertEqual(result["capability_profile"]["engine_type"], "trino")
 
 
 class BindingConfigTests(unittest.TestCase):

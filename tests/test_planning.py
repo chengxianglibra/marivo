@@ -4,9 +4,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from app.bindings import BindingService
+from app.engines import EngineService
 from app.analysis_core.ir import ExecutionPlanIR
 from app.planning import PlanningService
+from app.routing import QueryRouter
 from app.service import SemanticLayerService
+from app.sources import SourceService
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 from app.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.shared_fixtures import get_seeded_duckdb_path
@@ -133,6 +137,87 @@ class PlanningServiceTests(unittest.TestCase):
         self.assertIs(planning.semantic_repository, self.service.semantic_repository)
         self.assertIs(planning.semantic_resolver, self.service.semantic_repository.resolver)
         self.assertEqual(plan_ir.request.requested_metrics, ["watch_time"])
+
+    def test_get_execution_plan_ir_records_semantic_routing_detail(self) -> None:
+        from datetime import datetime, timezone
+        from uuid import uuid4
+
+        source_service = SourceService(self.metadata)
+        engine_service = EngineService(self.metadata)
+        binding_service = BindingService(self.metadata)
+
+        src = source_service.register_source("local", "Planning Semantic Route Src", {})
+        duck = engine_service.register_engine(
+            "duckdb",
+            "Planning Semantic Route Duck",
+            {"path": "/tmp/planning_semantic_route.duckdb"},
+            capabilities={
+                "supported_step_types": ("sample_rows", "profile_table"),
+                "policy_support": (),
+            },
+        )
+        trino = engine_service.register_engine(
+            "trino",
+            "Planning Semantic Route Trino",
+            {"host": "localhost", "port": 8080, "user": "test", "catalog": "hive", "schema": "default"},
+        )
+        binding_service.create_binding(src["source_id"], duck["engine_id"], priority=9)
+        binding_service.create_binding(src["source_id"], trino["engine_id"], priority=7)
+
+        now = datetime.now(timezone.utc).isoformat()
+        schema_id = f"obj_{uuid4().hex[:12]}"
+        self.metadata.execute(
+            """
+            INSERT INTO source_objects
+                (object_id, source_id, object_type, native_name, fqn, properties_json, created_at, updated_at)
+            VALUES (?, ?, 'schema', 'planning_semantic_schema', 'demo.planning_semantic_schema', '{}', ?, ?)
+            """,
+            [schema_id, src["source_id"], now, now],
+        )
+        table_id = f"obj_{uuid4().hex[:12]}"
+        self.metadata.execute(
+            """
+            INSERT INTO source_objects
+                (object_id, source_id, object_type, parent_id, native_name, fqn, properties_json, created_at, updated_at)
+            VALUES (?, ?, 'table', ?, 'planning_semantic_table', 'demo.planning_semantic_schema.planning_semantic_table', '{}', ?, ?)
+            """,
+            [table_id, src["source_id"], schema_id, now, now],
+        )
+
+        session = self.service.create_session(
+            "Semantic routing planning test",
+            {},
+            {},
+            {"aggregate_only": True},
+        )
+        planning = PlanningService(
+            self.metadata,
+            query_router=QueryRouter(self.metadata, engine_service),
+            semantic_repository=self.service.semantic_repository,
+        )
+        plan = planning.draft_plan(session["session_id"], [
+            {
+                "step_type": "compare_metric",
+                "params": {
+                    "metric_name": "watch_time",
+                    "table_name": "analytics.planning_semantic_table",
+                    "dimensions": ["platform", "app_version", "network_type"],
+                },
+            },
+        ])
+
+        plan_ir = planning.get_execution_plan_ir(plan["plan_id"])
+
+        execution_target = plan_ir.execution_target_for_step(0)
+        assert execution_target is not None
+        self.assertEqual(execution_target.engine_id, trino["engine_id"])
+        self.assertEqual(execution_target.routing_strategy, "semantic_bound_route")
+        self.assertTrue(execution_target.routing_reason)
+        self.assertEqual(
+            execution_target.routing_detail["strategy"],
+            "semantic_intent_and_capability",
+        )
+        self.assertEqual(execution_target.capability_profile["engine_type"], "trino")
 
     def test_patch_non_draft_fails(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [
