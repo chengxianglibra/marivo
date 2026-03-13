@@ -21,11 +21,14 @@
 - `docs/omnidb-module-refactor-checklist.md`：把蓝图继续拆到代码级模块改造项
 - `docs/omnidb-phase1-implementation-task-list.md`：把 Phase A 进一步拆成可执行任务包
 - `docs/omnidb-phase2-implementation-task-list.md`：把 Phase B 进一步拆成可执行任务包
+- `docs/omnidb-phase3-design-doc.md`：定义 Phase 3 的目标、范围与迁移策略
+- `docs/omnidb-phase3-implementation-task-list.md`：把 Phase 3 继续拆成可执行任务包
 
 当前实施状态（截至 Phase 2 收尾）：
 
 - Phase 1 已完成，catalog / semantic runtime 的 compatibility seam 已稳定。
 - Phase 2 已完成 validation、policy pipeline、cost model、replanning、execution feedback 五个 runtime task package。
+- Phase 3 已启动，当前聚焦 analysis IR、primitive/composite step 体系、evidence pluginization、execution orchestration。
 - 具体实现与测试落点以 `docs/omnidb-phase2-implementation-task-list.md` 为准；本文继续保留为中长期推进顺序说明。
 
 ## 2. 当前状态总结

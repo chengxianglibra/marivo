@@ -17,6 +17,8 @@
 - `docs/omnidb-module-refactor-checklist.md`：把蓝图拆成代码级模块边界与改造动作
 - `docs/omnidb-phase1-implementation-task-list.md`：给出第一阶段的实际实施拆分
 - `docs/omnidb-phase2-implementation-task-list.md`：给出第二阶段的实际实施拆分
+- `docs/omnidb-phase3-design-doc.md`：定义第三阶段的目标模块、迁移策略与非目标
+- `docs/omnidb-phase3-implementation-task-list.md`：定义第三阶段的任务包、依赖与执行顺序
 
 当前实施状态（截至 Phase 2 收尾）：
 
@@ -25,6 +27,7 @@
   - v1 cost model
   - deterministic replanning hook
   - shared execution feedback taxonomy
+- 第三阶段开始把蓝图的内核部分继续做实，重点是 richer analysis IR、primitive/composite workflow layer、evidence pluginization、execution orchestration。
 - 仍未完成的是更彻底的目录迁移与多引擎/联邦执行深水区，因此本蓝图仍是后续阶段的目标参考，而不是现状等价描述。
 
 ## 2. 设计目标
