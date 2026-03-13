@@ -10,6 +10,8 @@
 - `docs/omnidb-vnext-architecture-blueprint.md`：定义目标架构边界与执行链
 - `docs/omnidb-phase1-implementation-task-list.md`：把第一阶段工作拆成可落地任务包
 - `docs/omnidb-phase2-implementation-task-list.md`：把第二阶段工作拆成可落地任务包
+- `docs/omnidb-phase3-design-doc.md`：定义第三阶段的分析内核目标与迁移策略
+- `docs/omnidb-phase3-implementation-task-list.md`：把第三阶段工作拆成可落地任务包
 
 当前实施状态（截至 Phase 2 收尾）：
 
@@ -20,7 +22,7 @@
   - `app/execution/errors.py`
   - `app/execution/feedback.py`
   - `app/execution/routing_runtime.py`
-- 本清单后续应主要指导“继续抽离目录边界”和“减少 facade 内部细节”的下一阶段工作。
+- 第三阶段将继续以本清单中的 P0 项为主线，优先落 IR、step taxonomy、evidence pipeline 与 orchestration seam，而不是优先拆协议层。
 
 本文档回答三个问题：
 
