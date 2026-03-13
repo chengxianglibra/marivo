@@ -202,5 +202,5 @@
 - [done] P3-2 增强 analysis IR
 - [done] P3-3 primitive / composite taxonomy
 - [done] P3-4 composite workflow runtime
-- [in_progress] P3-5 evidence pipeline 插件化
-- [pending] P3-6 execution orchestrator 与 facade 收口
+- [done] P3-5 evidence pipeline 插件化
+- [in_progress] P3-6 execution orchestrator 与 facade 收口

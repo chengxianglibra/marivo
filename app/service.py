@@ -13,7 +13,7 @@ from app.analysis_core.compiler import build_comparison_query as compile_compari
 from app.analysis_core.compiler import compile_step
 from app.analysis_core.executor import execute_compiled
 from app.analysis_core.ir import AnalysisStepIR, from_legacy_step
-from app.evidence import make_observation, synthesize_claims
+from app.evidence import synthesize_claims
 from app.evidence_engine import EvidencePipeline
 from app.execution.feedback import compile_failure_from_error
 from app.execution.routing_runtime import RoutingRuntime
@@ -437,25 +437,27 @@ class SemanticLayerService:
         overall = execute_compiled(engine, overall_query).rows[0]
 
         observations = []
-        for row in top_slices:
-            observation = make_observation(
-                "metric_change",
-                "watch_time",
-                row,
-                {
-                    "current_value": row["current_watch_time"],
-                    "baseline_value": row["baseline_watch_time"],
-                    "delta_pct": row["delta_pct"],
-                    "current_sessions": row["current_sessions"],
-                    "baseline_sessions": row["baseline_sessions"],
+        observations = self.evidence_pipeline.extract_observations(
+            "comparison_rows",
+            top_slices,
+            context={
+                "metric": "watch_time",
+                "observation_type": "metric_change",
+                "payload_fields": {
+                    "current_value": "current_watch_time",
+                    "baseline_value": "baseline_watch_time",
+                    "delta_pct": "delta_pct",
+                    "current_sessions": "current_sessions",
+                    "baseline_sessions": "baseline_sessions",
                 },
-                {
+                "quality_builder": lambda row: {
                     "freshness_ok": True,
                     "sample_size_ok": min(row["current_sessions"], row["baseline_sessions"]) >= 150,
                 },
-            )
+            },
+        )
+        for observation in observations:
             self._insert_observation(session_id, step_id, observation)
-            observations.append(observation)
 
         artifact = {
             "overall_delta_pct": overall["delta_pct"],
@@ -499,27 +501,28 @@ class SemanticLayerService:
         )
         rows = execute_compiled(engine, compiled_query).rows
 
-        observations = []
-        for row in rows:
-            observation = make_observation(
-                "qoe_regression",
-                "first_frame_time",
-                row,
-                {
-                    "current_value": row["current_first_frame_ms"],
-                    "baseline_value": row["baseline_first_frame_ms"],
-                    "delta_pct": row["delta_pct"],
-                    "delta_ms": row["delta_ms"],
-                    "current_sessions": row["current_sessions"],
-                    "baseline_sessions": row["baseline_sessions"],
+        observations = self.evidence_pipeline.extract_observations(
+            "comparison_rows",
+            rows,
+            context={
+                "metric": "first_frame_time",
+                "observation_type": "qoe_regression",
+                "payload_fields": {
+                    "current_value": "current_first_frame_ms",
+                    "baseline_value": "baseline_first_frame_ms",
+                    "delta_pct": "delta_pct",
+                    "delta_ms": "delta_ms",
+                    "current_sessions": "current_sessions",
+                    "baseline_sessions": "baseline_sessions",
                 },
-                {
+                "quality_builder": lambda row: {
                     "freshness_ok": True,
                     "sample_size_ok": min(row["current_sessions"], row["baseline_sessions"]) >= 150,
                 },
-            )
+            },
+        )
+        for observation in observations:
             self._insert_observation(session_id, step_id, observation)
-            observations.append(observation)
 
         artifact_id = self._insert_artifact(session_id, step_id, "table", "qoe_comparison", rows)
         summary = (
@@ -549,26 +552,27 @@ class SemanticLayerService:
         )
         rows = execute_compiled(engine, compiled_query).rows
 
-        observations = []
-        for row in rows:
-            observation = make_observation(
-                "ad_regression",
-                "preroll_timeout_rate",
-                row,
-                {
-                    "current_value": row["current_timeout_rate"],
-                    "baseline_value": row["baseline_timeout_rate"],
-                    "delta_rate": row["delta_rate"],
-                    "current_sessions": row["current_sessions"],
-                    "baseline_sessions": row["baseline_sessions"],
+        observations = self.evidence_pipeline.extract_observations(
+            "comparison_rows",
+            rows,
+            context={
+                "metric": "preroll_timeout_rate",
+                "observation_type": "ad_regression",
+                "payload_fields": {
+                    "current_value": "current_timeout_rate",
+                    "baseline_value": "baseline_timeout_rate",
+                    "delta_rate": "delta_rate",
+                    "current_sessions": "current_sessions",
+                    "baseline_sessions": "baseline_sessions",
                 },
-                {
+                "quality_builder": lambda row: {
                     "freshness_ok": True,
                     "sample_size_ok": min(row["current_sessions"], row["baseline_sessions"]) >= 150,
                 },
-            )
+            },
+        )
+        for observation in observations:
             self._insert_observation(session_id, step_id, observation)
-            observations.append(observation)
 
         artifact_id = self._insert_artifact(session_id, step_id, "table", "ad_timeout_comparison", rows)
         summary = (
@@ -597,26 +601,27 @@ class SemanticLayerService:
         )
         rows = execute_compiled(engine, compiled_query).rows
 
-        observations = []
-        for row in rows:
-            observation = make_observation(
-                "recommendation_signal",
-                "recommendation_ctr",
-                row,
-                {
-                    "current_value": row["current_ctr"],
-                    "baseline_value": row["baseline_ctr"],
-                    "delta_ctr_pct": row["delta_ctr_pct"],
-                    "current_sessions": row["current_sessions"],
-                    "baseline_sessions": row["baseline_sessions"],
+        observations = self.evidence_pipeline.extract_observations(
+            "comparison_rows",
+            rows,
+            context={
+                "metric": "recommendation_ctr",
+                "observation_type": "recommendation_signal",
+                "payload_fields": {
+                    "current_value": "current_ctr",
+                    "baseline_value": "baseline_ctr",
+                    "delta_ctr_pct": "delta_ctr_pct",
+                    "current_sessions": "current_sessions",
+                    "baseline_sessions": "baseline_sessions",
                 },
-                {
+                "quality_builder": lambda row: {
                     "freshness_ok": True,
                     "sample_size_ok": min(row["current_sessions"], row["baseline_sessions"]) >= 150,
                 },
-            )
+            },
+        )
+        for observation in observations:
             self._insert_observation(session_id, step_id, observation)
-            observations.append(observation)
 
         artifact_id = self._insert_artifact(session_id, step_id, "table", "recommendation_ctr_comparison", rows)
         summary = (
@@ -685,26 +690,27 @@ class SemanticLayerService:
         )
         rows = execute_compiled(engine, compiled_query).rows
 
-        observations = []
-        for row in rows:
-            observation = make_observation(
-                obs_type,
-                metric_name,
-                row,
-                {
-                    "current_value": row["current_value"],
-                    "baseline_value": row["baseline_value"],
-                    "delta_pct": row["delta_pct"],
-                    "current_sessions": row["current_sessions"],
-                    "baseline_sessions": row["baseline_sessions"],
+        observations = self.evidence_pipeline.extract_observations(
+            "comparison_rows",
+            rows,
+            context={
+                "metric": metric_name,
+                "observation_type": obs_type,
+                "payload_fields": {
+                    "current_value": "current_value",
+                    "baseline_value": "baseline_value",
+                    "delta_pct": "delta_pct",
+                    "current_sessions": "current_sessions",
+                    "baseline_sessions": "baseline_sessions",
                 },
-                {
+                "quality_builder": lambda row: {
                     "freshness_ok": True,
                     "sample_size_ok": min(row["current_sessions"], row["baseline_sessions"]) >= 150,
                 },
-            )
+            },
+        )
+        for observation in observations:
             self._insert_observation(session_id, step_id, observation)
-            observations.append(observation)
 
         artifact_id = self._insert_artifact(session_id, step_id, "table", f"{metric_name}_comparison", rows)
         summary = (
