@@ -5,6 +5,10 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
+from app.semantic_runtime.semantic_metadata import (
+    entity_runtime_metadata,
+    metric_runtime_metadata,
+)
 from app.storage.metadata import MetadataStore
 
 
@@ -27,6 +31,11 @@ class SemanticService:
         display_name: str,
         keys: list[str],
         description: str = "",
+        level: str | None = None,
+        join_constraints: dict[str, Any] | None = None,
+        upstream_dependencies: list[str] | None = None,
+        lineage: list[str] | None = None,
+        quality_expectations: dict[str, Any] | None = None,
         properties: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         entity_id = f"ent_{uuid4().hex[:12]}"
@@ -34,10 +43,28 @@ class SemanticService:
         self.metadata.execute(
             """
             INSERT INTO semantic_entities
-                (entity_id, name, display_name, description, keys_json, properties_json, status, revision, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, 'draft', 1, ?, ?)
+                (
+                    entity_id, name, display_name, description, keys_json, level,
+                    join_constraints_json, upstream_dependencies_json, lineage_json,
+                    quality_expectations_json, properties_json, status, revision, created_at, updated_at
+                )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', 1, ?, ?)
             """,
-            [entity_id, name, display_name, description, json.dumps(keys), json.dumps(properties or {}), now, now],
+            [
+                entity_id,
+                name,
+                display_name,
+                description,
+                json.dumps(keys),
+                level,
+                json.dumps(join_constraints or {}),
+                json.dumps(upstream_dependencies or []),
+                json.dumps(lineage or []),
+                json.dumps(quality_expectations or {}),
+                json.dumps(properties or {}),
+                now,
+                now,
+            ],
         )
         return self.get_entity(entity_id)
 
@@ -71,6 +98,21 @@ class SemanticService:
         if "keys" in kwargs:
             updates.append("keys_json = ?")
             params.append(json.dumps(kwargs["keys"]))
+        if "level" in kwargs:
+            updates.append("level = ?")
+            params.append(kwargs["level"])
+        if "join_constraints" in kwargs:
+            updates.append("join_constraints_json = ?")
+            params.append(json.dumps(kwargs["join_constraints"]))
+        if "upstream_dependencies" in kwargs:
+            updates.append("upstream_dependencies_json = ?")
+            params.append(json.dumps(kwargs["upstream_dependencies"]))
+        if "lineage" in kwargs:
+            updates.append("lineage_json = ?")
+            params.append(json.dumps(kwargs["lineage"]))
+        if "quality_expectations" in kwargs:
+            updates.append("quality_expectations_json = ?")
+            params.append(json.dumps(kwargs["quality_expectations"]))
         if "properties" in kwargs:
             updates.append("properties_json = ?")
             params.append(json.dumps(kwargs["properties"]))
@@ -113,6 +155,11 @@ class SemanticService:
         dimensions: list[str],
         description: str = "",
         entity_id: str | None = None,
+        grain: str | None = None,
+        measure_type: str | None = None,
+        allowed_dimensions: list[str] | None = None,
+        lineage: list[str] | None = None,
+        quality_expectations: dict[str, Any] | None = None,
         properties: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         metric_id = f"met_{uuid4().hex[:12]}"
@@ -120,13 +167,29 @@ class SemanticService:
         self.metadata.execute(
             """
             INSERT INTO semantic_metrics
-                (metric_id, name, display_name, description, definition_sql, dimensions_json,
-                 entity_id, properties_json, status, revision, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', 1, ?, ?)
+                (
+                    metric_id, name, display_name, description, definition_sql, dimensions_json,
+                    entity_id, grain, measure_type, allowed_dimensions_json, lineage_json,
+                    quality_expectations_json, properties_json, status, revision, created_at, updated_at
+                )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', 1, ?, ?)
             """,
             [
-                metric_id, name, display_name, description, definition_sql,
-                json.dumps(dimensions), entity_id, json.dumps(properties or {}), now, now,
+                metric_id,
+                name,
+                display_name,
+                description,
+                definition_sql,
+                json.dumps(dimensions),
+                entity_id,
+                grain,
+                measure_type,
+                json.dumps(allowed_dimensions or []),
+                json.dumps(lineage or []),
+                json.dumps(quality_expectations or {}),
+                json.dumps(properties or {}),
+                now,
+                now,
             ],
         )
         return self.get_metric(metric_id)
@@ -163,6 +226,21 @@ class SemanticService:
         if "dimensions" in kwargs:
             updates.append("dimensions_json = ?")
             params.append(json.dumps(kwargs["dimensions"]))
+        if "grain" in kwargs:
+            updates.append("grain = ?")
+            params.append(kwargs["grain"])
+        if "measure_type" in kwargs:
+            updates.append("measure_type = ?")
+            params.append(kwargs["measure_type"])
+        if "allowed_dimensions" in kwargs:
+            updates.append("allowed_dimensions_json = ?")
+            params.append(json.dumps(kwargs["allowed_dimensions"]))
+        if "lineage" in kwargs:
+            updates.append("lineage_json = ?")
+            params.append(json.dumps(kwargs["lineage"]))
+        if "quality_expectations" in kwargs:
+            updates.append("quality_expectations_json = ?")
+            params.append(json.dumps(kwargs["quality_expectations"]))
         if "properties" in kwargs:
             updates.append("properties_json = ?")
             params.append(json.dumps(kwargs["properties"]))
@@ -240,13 +318,22 @@ class SemanticService:
     # ── Row converters ───────────────────────────────────────────
 
     def _row_to_entity(self, row: dict[str, Any]) -> dict[str, Any]:
+        properties = json.loads(row["properties_json"])
+        semantic_metadata = entity_runtime_metadata(
+            level=row["level"],
+            join_constraints_json=row["join_constraints_json"],
+            upstream_dependencies_json=row["upstream_dependencies_json"],
+            lineage_json=row["lineage_json"],
+            quality_expectations_json=row["quality_expectations_json"],
+        )
         return {
             "entity_id": row["entity_id"],
             "name": row["name"],
             "display_name": row["display_name"],
             "description": row["description"],
             "keys": json.loads(row["keys_json"]),
-            "properties": json.loads(row["properties_json"]),
+            "properties": properties,
+            **semantic_metadata,
             "status": row["status"],
             "revision": row["revision"],
             "created_at": row["created_at"],
@@ -254,15 +341,26 @@ class SemanticService:
         }
 
     def _row_to_metric(self, row: dict[str, Any]) -> dict[str, Any]:
+        properties = json.loads(row["properties_json"])
+        dimensions = json.loads(row["dimensions_json"])
+        semantic_metadata = metric_runtime_metadata(
+            grain=row["grain"],
+            measure_type=row["measure_type"],
+            allowed_dimensions_json=row["allowed_dimensions_json"],
+            lineage_json=row["lineage_json"],
+            quality_expectations_json=row["quality_expectations_json"],
+            dimensions=dimensions,
+        )
         return {
             "metric_id": row["metric_id"],
             "name": row["name"],
             "display_name": row["display_name"],
             "description": row["description"],
             "definition_sql": row["definition_sql"],
-            "dimensions": json.loads(row["dimensions_json"]),
+            "dimensions": dimensions,
             "entity_id": row["entity_id"],
-            "properties": json.loads(row["properties_json"]),
+            "properties": properties,
+            **semantic_metadata,
             "status": row["status"],
             "revision": row["revision"],
             "created_at": row["created_at"],

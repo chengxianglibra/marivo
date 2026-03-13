@@ -47,6 +47,11 @@ class EntityCreateRequest(BaseModel):
     display_name: str
     description: str = ""
     keys: list[str]
+    level: str | None = None
+    join_constraints: dict[str, Any] | None = None
+    upstream_dependencies: list[str] | None = None
+    lineage: list[str] | None = None
+    quality_expectations: dict[str, Any] | None = None
     properties: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -54,6 +59,11 @@ class EntityUpdateRequest(BaseModel):
     display_name: str | None = None
     description: str | None = None
     keys: list[str] | None = None
+    level: str | None = None
+    join_constraints: dict[str, Any] | None = None
+    upstream_dependencies: list[str] | None = None
+    lineage: list[str] | None = None
+    quality_expectations: dict[str, Any] | None = None
     properties: dict[str, Any] | None = None
 
 
@@ -66,6 +76,11 @@ class MetricCreateRequest(BaseModel):
     definition_sql: str
     dimensions: list[str]
     entity_id: str | None = None
+    grain: str | None = None
+    measure_type: str | None = None
+    allowed_dimensions: list[str] | None = None
+    lineage: list[str] | None = None
+    quality_expectations: dict[str, Any] | None = None
     properties: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -75,6 +90,11 @@ class MetricUpdateRequest(BaseModel):
     definition_sql: str | None = None
     dimensions: list[str] | None = None
     entity_id: str | None = None
+    grain: str | None = None
+    measure_type: str | None = None
+    allowed_dimensions: list[str] | None = None
+    lineage: list[str] | None = None
+    quality_expectations: dict[str, Any] | None = None
     properties: dict[str, Any] | None = None
 
 

@@ -52,6 +52,29 @@ class SemanticEntityTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["description"], "A video playback session")
 
+    def test_entity_execution_semantics_round_trip(self) -> None:
+        resp = self.client.post(
+            "/semantic/entities",
+            json={
+                "name": "playback_session",
+                "display_name": "Playback Session",
+                "keys": ["session_id"],
+                "level": "session",
+                "join_constraints": {"requires": ["user_id"]},
+                "upstream_dependencies": ["user"],
+                "lineage": ["analytics.watch_events"],
+                "quality_expectations": {"freshness_hours": 24},
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        entity = resp.json()
+        self.assertEqual(entity["level"], "session")
+        self.assertEqual(entity["join_constraints"], {"requires": ["user_id"]})
+        self.assertEqual(entity["upstream_dependencies"], ["user"])
+        self.assertEqual(entity["lineage"], ["analytics.watch_events"])
+        self.assertEqual(entity["quality_expectations"], {"freshness_hours": 24})
+        self.assertEqual(entity["properties"], {})
+
     def test_publish_entity(self) -> None:
         resp = self.client.post(
             "/semantic/entities",
@@ -135,6 +158,30 @@ class SemanticMetricTests(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["dimensions"], ["platform", "network_type"])
+
+    def test_metric_execution_semantics_round_trip(self) -> None:
+        resp = self.client.post(
+            "/semantic/metrics",
+            json={
+                "name": "engaged_watch_time",
+                "display_name": "Engaged Watch Time",
+                "definition_sql": "avg(play_duration_seconds)",
+                "dimensions": ["platform", "app_version", "network_type"],
+                "grain": "session",
+                "measure_type": "average",
+                "allowed_dimensions": ["platform", "network_type"],
+                "lineage": ["analytics.watch_events.play_duration_seconds"],
+                "quality_expectations": {"min_group_size": 100},
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        metric = resp.json()
+        self.assertEqual(metric["grain"], "session")
+        self.assertEqual(metric["measure_type"], "average")
+        self.assertEqual(metric["allowed_dimensions"], ["platform", "network_type"])
+        self.assertEqual(metric["lineage"], ["analytics.watch_events.play_duration_seconds"])
+        self.assertEqual(metric["quality_expectations"], {"min_group_size": 100})
+        self.assertEqual(metric["properties"], {})
 
     def test_list_metrics(self) -> None:
         resp = self.client.get("/semantic/metrics")

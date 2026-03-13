@@ -23,7 +23,17 @@ class SemanticRuntimeTests(unittest.TestCase):
 
         entity = cls.client.post(
             "/semantic/entities",
-            json={"name": "user", "display_name": "User", "description": "A platform user", "keys": ["user_id"]},
+            json={
+                "name": "user",
+                "display_name": "User",
+                "description": "A platform user",
+                "keys": ["user_id"],
+                "level": "user",
+                "join_constraints": {"requires": ["country"]},
+                "upstream_dependencies": ["account"],
+                "lineage": ["analytics.users"],
+                "quality_expectations": {"freshness_hours": 24},
+            },
         ).json()
         cls.client.post(f"/semantic/entities/{entity['entity_id']}/publish")
         cls.entity_id = entity["entity_id"]
@@ -36,6 +46,11 @@ class SemanticRuntimeTests(unittest.TestCase):
                 "description": "Average play duration per session",
                 "definition_sql": "avg(play_duration_seconds)",
                 "dimensions": ["platform", "app_version", "network_type", "content_type"],
+                "grain": "session",
+                "measure_type": "average",
+                "allowed_dimensions": ["platform", "network_type", "content_type"],
+                "lineage": ["analytics.watch_events.play_duration_seconds"],
+                "quality_expectations": {"min_group_size": 100},
             },
         ).json()
         cls.client.post(f"/semantic/metrics/{metric['metric_id']}/publish")
@@ -81,6 +96,13 @@ class SemanticRuntimeTests(unittest.TestCase):
             resolved.dimensions,
             ["platform", "app_version", "network_type", "content_type"],
         )
+        self.assertEqual(resolved.grain, "session")
+        self.assertEqual(resolved.measure_type, "average")
+        self.assertEqual(
+            resolved.allowed_dimensions,
+            ["platform", "network_type", "content_type"],
+        )
+        self.assertEqual(resolved.quality_expectations, {"min_group_size": 100})
         self.assertEqual(resolved.metadata["display_name"], "Watch Time")
 
     def test_planner_context_provider_includes_session_details(self) -> None:
@@ -92,7 +114,25 @@ class SemanticRuntimeTests(unittest.TestCase):
         self.assertIn("session", context)
         self.assertEqual(context["session"]["session_id"], session["session_id"])
         self.assertEqual(context["session"]["goal"], "Semantic runtime test")
-        self.assertTrue(any(metric["name"] == "watch_time" for metric in context["metrics"]))
+        metric = next(metric for metric in context["metrics"] if metric["name"] == "watch_time")
+        self.assertEqual(metric["grain"], "session")
+        self.assertEqual(metric["measure_type"], "average")
+        self.assertEqual(metric["allowed_dimensions"], ["platform", "network_type", "content_type"])
+        entity = next(entity for entity in context["entities"] if entity["name"] == "user")
+        self.assertEqual(entity["level"], "user")
+        self.assertEqual(entity["upstream_dependencies"], ["account"])
+
+    def test_semantic_resolver_resolves_published_entity(self) -> None:
+        service = self.client.app.state.service
+
+        resolved = service.semantic_resolver.resolve_entity("user")
+
+        self.assertIsNotNone(resolved)
+        assert resolved is not None
+        self.assertEqual(resolved.level, "user")
+        self.assertEqual(resolved.join_constraints, {"requires": ["country"]})
+        self.assertEqual(resolved.upstream_dependencies, ["account"])
+        self.assertEqual(resolved.lineage, ["analytics.users"])
 
     def test_catalog_runtime_search_finds_published_metric(self) -> None:
         runtime = CatalogRuntimeService(self.metadata_store, self.binding_service)
@@ -108,6 +148,8 @@ class SemanticRuntimeTests(unittest.TestCase):
 
         self.assertEqual(resolved["resolved_type"], "metric")
         self.assertEqual(resolved["semantic_object"]["name"], "watch_time")
+        self.assertEqual(resolved["semantic_object"]["grain"], "session")
+        self.assertEqual(resolved["semantic_object"]["measure_type"], "average")
         self.assertEqual(resolved["physical_assets"][0]["native_name"], "watch_events")
         self.assertEqual(resolved["mappings"][0]["semantic_id"], self.metric_id)
 
@@ -119,7 +161,9 @@ class SemanticRuntimeTests(unittest.TestCase):
 
         self.assertEqual(context["session_id"], session["session_id"])
         self.assertIn("compare_watch_time", context["available_step_types"])
-        self.assertTrue(any(entity["name"] == "user" for entity in context["entities"]))
+        entity = next(entity for entity in context["entities"] if entity["name"] == "user")
+        self.assertEqual(entity["level"], "user")
+        self.assertEqual(entity["upstream_dependencies"], ["account"])
 
     def test_catalog_runtime_graph_traverses_metric_mapping(self) -> None:
         runtime = CatalogRuntimeService(self.metadata_store, self.binding_service)

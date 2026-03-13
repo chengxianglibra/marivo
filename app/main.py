@@ -592,6 +592,11 @@ def create_app(
             display_name=request.display_name,
             description=request.description,
             keys=request.keys,
+            level=request.level,
+            join_constraints=request.join_constraints,
+            upstream_dependencies=request.upstream_dependencies,
+            lineage=request.lineage,
+            quality_expectations=request.quality_expectations,
             properties=request.properties,
         )
 
@@ -634,6 +639,11 @@ def create_app(
             definition_sql=request.definition_sql,
             dimensions=request.dimensions,
             entity_id=request.entity_id,
+            grain=request.grain,
+            measure_type=request.measure_type,
+            allowed_dimensions=request.allowed_dimensions,
+            lineage=request.lineage,
+            quality_expectations=request.quality_expectations,
             properties=request.properties,
         )
 
