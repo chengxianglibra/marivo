@@ -60,6 +60,43 @@ class CompilerTests(unittest.TestCase):
         self.assertIn("delta_pct", query)
         self.assertIn("analytics.watch_events", query)
 
+    def test_build_comparison_query_empty_dimensions(self) -> None:
+        """Empty dimensions should produce aggregate-only SQL with no GROUP BY on dims."""
+        query = build_comparison_query(
+            metric_name="failure_rate",
+            table_name="ods_trino_query_info",
+            metric_sql="avg(CASE WHEN state='FAILED' THEN 1 ELSE 0 END)",
+            dimensions=[],
+        )
+
+        self.assertIn("delta_pct", query)
+        self.assertIn("ods_trino_query_info", query)
+        # Should have GROUP BY period but NOT GROUP BY <dim_cols>
+        self.assertIn("GROUP BY period", query)
+        # The pivoted CTE should have no GROUP BY clause (aggregate-only)
+        # Check it does not contain "GROUP BY \n" with dimension columns
+        self.assertNotIn("GROUP BY period,", query)
+
+    def test_compile_compare_metric_empty_dimensions(self) -> None:
+        """compile_step should handle empty dimensions in semantic_context."""
+        compiled = compile_step(
+            AnalysisStepIR(
+                index=0,
+                step_type="compare_metric",
+                params={"metric_name": "failure_rate", "table_name": "ods_trino_query_info"},
+            ),
+            engine_type="duckdb",
+            semantic_context={
+                "metric_sql": "avg(CASE WHEN state='FAILED' THEN 1 ELSE 0 END)",
+                "dimensions": [],
+                "period_params": ["c1", "c2", "b1", "b2", "b1", "c2"],
+            },
+        )
+
+        self.assertIn("current_value", compiled.sql)
+        self.assertIn("baseline_value", compiled.sql)
+        self.assertEqual(len(compiled.params), 6)
+
     def test_compile_unsupported_step_raises(self) -> None:
         with self.assertRaises(ValueError):
             compile_step(

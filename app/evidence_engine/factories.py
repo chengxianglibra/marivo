@@ -5,12 +5,8 @@ from uuid import uuid4
 
 
 def build_slice(row: dict[str, Any]) -> dict[str, str]:
-    return {
-        "platform": row["platform"],
-        "app_version": row["app_version"],
-        "network_type": row["network_type"],
-        "content_type": row["content_type"],
-    }
+    _SLICE_KEYS = ("platform", "app_version", "network_type", "content_type")
+    return {k: row[k] for k in _SLICE_KEYS if k in row}
 
 
 def slice_matches(left: dict[str, Any], right: dict[str, Any]) -> bool:
