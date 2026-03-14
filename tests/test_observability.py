@@ -40,18 +40,18 @@ class MetricsCollectorTests(unittest.TestCase):
 
     def test_record_step(self) -> None:
         mc = MetricsCollector()
-        mc.record_step("compare_watch_time", 150.0, engine="duckdb", stage="executor")
-        mc.record_step("compare_watch_time", 200.0)
+        mc.record_step("compare_metric", 150.0, engine="duckdb", stage="executor")
+        mc.record_step("compare_metric", 200.0)
         snap = mc.snapshot()
-        self.assertEqual(snap["step_count"]["compare_watch_time"], 2)
-        self.assertEqual(len(snap["step_duration_ms"]["compare_watch_time"]), 2)
+        self.assertEqual(snap["step_count"]["compare_metric"], 2)
+        self.assertEqual(len(snap["step_duration_ms"]["compare_metric"]), 2)
         self.assertIn("step_dimension_count", snap)
         self.assertTrue(any("engine=duckdb" in key for key in snap["step_dimension_count"]))
 
     def test_prometheus_output(self) -> None:
         mc = MetricsCollector()
         mc.record_request("POST", "/sessions", 200, 10.0)
-        mc.record_step("analyze_qoe", 50.0)
+        mc.record_step("profile_table", 50.0)
         text = mc.prometheus()
         self.assertIn("omnidb_requests_total", text)
         self.assertIn("omnidb_step_executions_total", text)

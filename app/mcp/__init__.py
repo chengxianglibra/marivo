@@ -4,6 +4,5 @@ from app.mcp.renderers import (
     render_catalog_markdown,
     render_evidence_markdown,
     render_step_markdown,
-    render_workflow_markdown,
 )
 from app.mcp.server import main, mcp

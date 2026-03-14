@@ -1,4 +1,4 @@
-"""Async job orchestration: background step/workflow/plan execution."""
+"""Async job orchestration: background step/plan execution."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ class JobService:
         self._cancel_events: dict[str, asyncio.Event] = {}
 
     def submit_job(self, session_id: str, job_type: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
-        valid_types = ("step", "workflow", "plan")
+        valid_types = ("step", "plan")
         if job_type not in valid_types:
             raise ValueError(f"Invalid job_type: {job_type}. Must be one of {valid_types}")
 
@@ -140,8 +140,6 @@ class JobService:
                 raise ValueError("Job payload for 'step' must include 'step_type'")
             params = payload.get("params")
             return self.service.run_step(session_id, step_type, params=params)
-        if job_type == "workflow":
-            return self.service.run_watch_time_drop_workflow(session_id)
         if job_type == "plan":
             plan_id = payload.get("plan_id")
             if not plan_id:

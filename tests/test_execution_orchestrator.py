@@ -11,10 +11,10 @@ class WorkflowOrchestratorTests(unittest.TestCase):
     def test_execute_workflow_preserves_payload_shape(self) -> None:
         runtime = CompositeWorkflowRuntime(
             {
-                "watch_time_drop": CompositeWorkflowSpec(
-                    name="watch_time_drop",
+                "test_workflow": CompositeWorkflowSpec(
+                    name="test_workflow",
                     steps=[
-                        CompositeStepTemplate("compare_watch_time"),
+                        CompositeStepTemplate("compare_metric"),
                         CompositeStepTemplate("synthesize_findings", dependencies=[0]),
                     ],
                 )
@@ -22,8 +22,8 @@ class WorkflowOrchestratorTests(unittest.TestCase):
         )
         executor = FakeStepExecutor(
             {
-                "compare_watch_time": {
-                    "step_type": "compare_watch_time",
+                "compare_metric": {
+                    "step_type": "compare_metric",
                     "summary": "comparison ready",
                     "observations": [{"observation_id": "obs_1"}],
                     "claims": [],
@@ -47,22 +47,22 @@ class WorkflowOrchestratorTests(unittest.TestCase):
             approval_service=approvals,
         )
 
-        result = orchestrator.execute_workflow("sess_demo", "watch_time_drop")
+        result = orchestrator.execute_workflow("sess_demo", "test_workflow")
 
-        self.assertEqual(result["workflow"], "watch_time_drop")
+        self.assertEqual(result["workflow"], "test_workflow")
         self.assertEqual(result["final_summary"], "workflow summary")
-        self.assertEqual(result["replanning"]["final_plan"], ["compare_watch_time", "synthesize_findings"])
-        self.assertEqual(result["replanning"]["executed_step_types"], ["compare_watch_time", "synthesize_findings"])
-        self.assertEqual([step["step_type"] for step in result["steps"]], ["compare_watch_time", "synthesize_findings"])
+        self.assertEqual(result["replanning"]["final_plan"], ["compare_metric", "synthesize_findings"])
+        self.assertEqual(result["replanning"]["executed_step_types"], ["compare_metric", "synthesize_findings"])
+        self.assertEqual([step["step_type"] for step in result["steps"]], ["compare_metric", "synthesize_findings"])
         self.assertEqual(approvals.calls, [("sess_demo", "P0")])
 
     def test_execute_workflow_inserts_supplementary_steps(self) -> None:
         runtime = CompositeWorkflowRuntime(
             {
-                "watch_time_drop": CompositeWorkflowSpec(
-                    name="watch_time_drop",
+                "test_workflow": CompositeWorkflowSpec(
+                    name="test_workflow",
                     steps=[
-                        CompositeStepTemplate("compare_watch_time"),
+                        CompositeStepTemplate("compare_metric"),
                         CompositeStepTemplate("synthesize_findings", dependencies=[0]),
                     ],
                 )
@@ -70,8 +70,8 @@ class WorkflowOrchestratorTests(unittest.TestCase):
         )
         executor = FakeStepExecutor(
             {
-                "compare_watch_time": {
-                    "step_type": "compare_watch_time",
+                "compare_metric": {
+                    "step_type": "compare_metric",
                     "summary": "comparison ready",
                     "observations": [],
                     "claims": [],
@@ -94,7 +94,7 @@ class WorkflowOrchestratorTests(unittest.TestCase):
             runtime,
             FakeReplanner(
                 after={
-                    "compare_watch_time": ReplanDecision(
+                    "compare_metric": ReplanDecision(
                         action="insert_steps",
                         reason="Need profiling",
                         detail={
@@ -109,22 +109,22 @@ class WorkflowOrchestratorTests(unittest.TestCase):
             step_executor=executor,
         )
 
-        result = orchestrator.execute_workflow("sess_demo", "watch_time_drop")
+        result = orchestrator.execute_workflow("sess_demo", "test_workflow")
 
         self.assertEqual(
             result["replanning"]["executed_step_types"],
-            ["compare_watch_time", "profile_table", "synthesize_findings"],
+            ["compare_metric", "profile_table", "synthesize_findings"],
         )
         self.assertIn("profile_table", result["replanning"]["final_plan"])
-        self.assertEqual(executor.provenance_updates[0][1], "compare_watch_time")
+        self.assertEqual(executor.provenance_updates[0][1], "compare_metric")
 
     def test_execute_workflow_replaces_failed_step(self) -> None:
         runtime = CompositeWorkflowRuntime(
             {
-                "watch_time_drop": CompositeWorkflowSpec(
-                    name="watch_time_drop",
+                "test_workflow": CompositeWorkflowSpec(
+                    name="test_workflow",
                     steps=[
-                        CompositeStepTemplate("analyze_qoe"),
+                        CompositeStepTemplate("profile_table"),
                         CompositeStepTemplate("synthesize_findings", dependencies=[0]),
                     ],
                 )
@@ -132,10 +132,10 @@ class WorkflowOrchestratorTests(unittest.TestCase):
         )
         executor = FakeStepExecutor(
             {
-                "profile_table": {
-                    "step_type": "profile_table",
-                    "summary": "profile ready",
-                    "profile": {"row_count": 10},
+                "sample_rows": {
+                    "step_type": "sample_rows",
+                    "summary": "sample ready",
+                    "rows": [{"id": 1}],
                 },
                 "synthesize_findings": {
                     "step_type": "synthesize_findings",
@@ -144,18 +144,18 @@ class WorkflowOrchestratorTests(unittest.TestCase):
                     "recommendations": [],
                 },
             },
-            errors={"analyze_qoe": ValueError("compile failed")},
+            errors={"profile_table": ValueError("compile failed")},
         )
         orchestrator = WorkflowOrchestrator(
             runtime,
             FakeReplanner(
                 on_error={
-                    "analyze_qoe": ReplanDecision(
+                    "profile_table": ReplanDecision(
                         action="replace_step",
                         reason="Replace failed step",
                         detail={
                             "replacement_step": {
-                                "step_type": "profile_table",
+                                "step_type": "sample_rows",
                                 "params": {"table_name": "analytics.player_qoe"},
                             }
                         },
@@ -166,22 +166,22 @@ class WorkflowOrchestratorTests(unittest.TestCase):
             step_executor=executor,
         )
 
-        result = orchestrator.execute_workflow("sess_demo", "watch_time_drop")
+        result = orchestrator.execute_workflow("sess_demo", "test_workflow")
 
         self.assertEqual(
             result["replanning"]["executed_step_types"],
-            ["profile_table", "synthesize_findings"],
+            ["sample_rows", "synthesize_findings"],
         )
-        self.assertEqual(result["replanning"]["final_plan"], ["profile_table", "synthesize_findings"])
+        self.assertEqual(result["replanning"]["final_plan"], ["sample_rows", "synthesize_findings"])
 
     def test_execute_workflow_skips_optional_step(self) -> None:
         runtime = CompositeWorkflowRuntime(
             {
-                "watch_time_drop": CompositeWorkflowSpec(
-                    name="watch_time_drop",
+                "test_workflow": CompositeWorkflowSpec(
+                    name="test_workflow",
                     steps=[
-                        CompositeStepTemplate("compare_watch_time"),
-                        CompositeStepTemplate("analyze_recommendation"),
+                        CompositeStepTemplate("compare_metric"),
+                        CompositeStepTemplate("sample_rows"),
                         CompositeStepTemplate("synthesize_findings", dependencies=[0, 1]),
                     ],
                 )
@@ -189,8 +189,8 @@ class WorkflowOrchestratorTests(unittest.TestCase):
         )
         executor = FakeStepExecutor(
             {
-                "compare_watch_time": {
-                    "step_type": "compare_watch_time",
+                "compare_metric": {
+                    "step_type": "compare_metric",
                     "summary": "comparison ready",
                     "observations": [{"observation_id": "obs_1"}],
                     "claims": [],
@@ -208,10 +208,10 @@ class WorkflowOrchestratorTests(unittest.TestCase):
             runtime,
             FakeReplanner(
                 before={
-                    "analyze_recommendation": ReplanDecision(
+                    "sample_rows": ReplanDecision(
                         action="skip_step",
                         reason="Skip optional step",
-                        detail={"skipped_step_type": "analyze_recommendation"},
+                        detail={"skipped_step_type": "sample_rows"},
                     )
                 }
             ),
@@ -219,15 +219,15 @@ class WorkflowOrchestratorTests(unittest.TestCase):
             step_executor=executor,
         )
 
-        result = orchestrator.execute_workflow("sess_demo", "watch_time_drop")
+        result = orchestrator.execute_workflow("sess_demo", "test_workflow")
 
         self.assertEqual(
             result["replanning"]["executed_step_types"],
-            ["compare_watch_time", "synthesize_findings"],
+            ["compare_metric", "synthesize_findings"],
         )
         self.assertEqual(
             result["replanning"]["final_plan"],
-            ["compare_watch_time", "analyze_recommendation", "synthesize_findings"],
+            ["compare_metric", "sample_rows", "synthesize_findings"],
         )
 
 

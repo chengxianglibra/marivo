@@ -46,18 +46,12 @@ class JobServiceTests(unittest.TestCase):
         session_id = self._create_session()
         job = self.job_service.submit_job(
             session_id, "step",
-            {"step_type": "compare_watch_time"},
+            {"step_type": "profile_table", "params": {"table_name": "analytics.watch_events"}},
         )
         self.assertTrue(job["job_id"].startswith("job_"))
         self.assertEqual(job["job_type"], "step")
         # In sync mode (no event loop), job completes immediately
         self.assertEqual(job["status"], "completed")
-
-    def test_submit_workflow_job(self) -> None:
-        session_id = self._create_session()
-        job = self.job_service.submit_job(session_id, "workflow", {})
-        self.assertEqual(job["status"], "completed")
-        self.assertIn("result", job)
 
     def test_submit_invalid_type(self) -> None:
         with self.assertRaises(ValueError):
@@ -67,7 +61,7 @@ class JobServiceTests(unittest.TestCase):
         session_id = self._create_session()
         submitted = self.job_service.submit_job(
             session_id, "step",
-            {"step_type": "compare_watch_time"},
+            {"step_type": "profile_table", "params": {"table_name": "analytics.watch_events"}},
         )
         fetched = self.job_service.get_job(submitted["job_id"])
         self.assertEqual(fetched["job_id"], submitted["job_id"])
@@ -84,7 +78,7 @@ class JobServiceTests(unittest.TestCase):
         session_id = self._create_session()
         self.job_service.submit_job(
             session_id, "step",
-            {"step_type": "compare_watch_time"},
+            {"step_type": "profile_table", "params": {"table_name": "analytics.watch_events"}},
         )
         jobs = self.job_service.list_jobs(session_id=session_id)
         self.assertTrue(all(j["session_id"] == session_id for j in jobs))
@@ -93,7 +87,7 @@ class JobServiceTests(unittest.TestCase):
         session_id = self._create_session()
         job = self.job_service.submit_job(
             session_id, "step",
-            {"step_type": "compare_watch_time"},
+            {"step_type": "profile_table", "params": {"table_name": "analytics.watch_events"}},
         )
         with self.assertRaises(ValueError):
             self.job_service.cancel_job(job["job_id"])
@@ -110,7 +104,7 @@ class JobServiceTests(unittest.TestCase):
     def test_plan_job(self) -> None:
         session_id = self._create_session()
         plan = self.planning.draft_plan(session_id, [
-            {"step_type": "compare_watch_time"},
+            {"step_type": "profile_table", "params": {"table_name": "analytics.watch_events"}},
         ])
         self.planning.validate_plan(plan["plan_id"])
         self.planning.approve_plan(plan["plan_id"])
@@ -145,7 +139,7 @@ class JobAPITests(unittest.TestCase):
         resp = self.client.post("/jobs", json={
             "session_id": session_id,
             "job_type": "step",
-            "payload": {"step_type": "compare_watch_time"},
+            "payload": {"step_type": "profile_table", "params": {"table_name": "analytics.watch_events"}},
         })
         self.assertEqual(resp.status_code, 200)
         job_id = resp.json()["job_id"]

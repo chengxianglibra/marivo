@@ -120,7 +120,7 @@ class AdvancedPlanValidationTests(unittest.TestCase):
         ).json()["session_id"]
         plan_id = self.client.post(
             f"/sessions/{session_id}/plans",
-            json={"steps": [{"step_type": "compare_watch_time"}]},
+            json={"steps": [{"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}}]},
         ).json()["plan_id"]
 
         result = self.client.post(f"/sessions/{session_id}/plans/{plan_id}/validate").json()
@@ -137,6 +137,17 @@ class AdvancedPlanValidationTests(unittest.TestCase):
         get_seeded_duckdb_path(duck_path)
         analytics = DuckDBAnalyticsEngine(duck_path)
         analytics.initialize()
+        # Seed a published metric so semantic validation passes
+        from app.semantic import SemanticService
+        semantic = SemanticService(metadata)
+        entity = semantic.create_entity("session", "Session", ["session_id"])
+        semantic.publish_entity(entity["entity_id"])
+        metric = semantic.create_metric(
+            "watch_time", "Watch Time", "avg(play_duration_seconds)",
+            ["platform", "app_version", "network_type", "content_type"],
+            entity_id=entity["entity_id"],
+        )
+        semantic.publish_metric(metric["metric_id"])
         service = SemanticLayerService(metadata, analytics)
         router = QueryRouter(metadata, EngineService(metadata))
         planning = PlanningService(
@@ -146,7 +157,7 @@ class AdvancedPlanValidationTests(unittest.TestCase):
         )
 
         session = service.create_session("routing fallback validation", {}, {}, {})
-        plan = planning.draft_plan(session["session_id"], [{"step_type": "compare_watch_time"}])
+        plan = planning.draft_plan(session["session_id"], [{"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}}])
         result = planning.validate_plan(plan["plan_id"])
 
         self.assertTrue(result["valid"])

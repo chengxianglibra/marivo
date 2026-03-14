@@ -32,7 +32,7 @@ class CostModelTests(unittest.TestCase):
 
     def test_estimate_step_uses_bound_route(self) -> None:
         estimate = self.cost_model.estimate_step(
-            from_legacy_step(0, {"step_type": "compare_watch_time"})
+            from_legacy_step(0, {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}})
         )
 
         self.assertGreater(estimate.estimated_rows or 0, 0)
@@ -60,7 +60,7 @@ class CostModelTests(unittest.TestCase):
     def test_estimate_step_with_execution_target_includes_engine_capabilities(self) -> None:
         engine = self.client.app.state.engine_service.list_engines()[0]
         estimate = self.cost_model.estimate_step(
-            from_legacy_step(0, {"step_type": "compare_watch_time"}),
+            from_legacy_step(0, {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}}),
             execution_target=ExecutionTargetIR(
                 step_index=0,
                 table_names=["analytics.watch_events"],
@@ -90,7 +90,7 @@ class CostModelTests(unittest.TestCase):
 
     def test_build_actual_feedback_summarizes_execution(self) -> None:
         feedback = self.cost_model.build_actual_feedback(
-            from_legacy_step(0, {"step_type": "compare_watch_time"}),
+            from_legacy_step(0, {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}}),
             {"summary": "ok", "observations": [1, 2], "claims": [1]},
             12.3456,
             estimate=CostEstimate(subject="step:0", confidence="medium"),

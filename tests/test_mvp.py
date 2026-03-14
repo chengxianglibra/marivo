@@ -35,38 +35,43 @@ class DuckDBMvpTests(unittest.TestCase):
         self.assertTrue(any(metric["id"] == "watch_time" for metric in payload["metrics"]))
         self.assertTrue(all(asset["row_count"] > 0 for asset in payload["assets"]))
 
-    def test_watch_time_workflow_generates_claims_and_recommendations(self) -> None:
-        session_response = self.client.post(
-            "/sessions",
-            json={"goal": "Investigate watch time drop and recommend fixes."},
-        )
-        self.assertEqual(session_response.status_code, 200)
-        session_id = session_response.json()["session_id"]
-
-        workflow_response = self.client.post(f"/sessions/{session_id}/workflow/watch-time-drop")
-        self.assertEqual(workflow_response.status_code, 200)
-        payload = workflow_response.json()
-        self.assertEqual(payload["workflow"], "watch_time_drop")
-        self.assertGreaterEqual(len(payload["steps"]), 5)
-        self.assertIn("replanning", payload)
-        self.assertIsInstance(payload["replanning"]["decisions"], list)
-        self.assertTrue(any("Android 8.3.1" in claim["text"] for claim in payload["claims"]))
-        self.assertGreaterEqual(len(payload["recommendations"]), 2)
-
     def test_evidence_graph_contains_support_edges(self) -> None:
         session_id = self.client.post(
             "/sessions",
             json={"goal": "Investigate watch time drop and recommend fixes."},
         ).json()["session_id"]
-        self.client.post(f"/sessions/{session_id}/workflow/watch-time-drop")
+
+        # Seed a published metric for compare_metric
+        entity_resp = self.client.post("/semantic/entities", json={
+            "name": "session_mvp",
+            "display_name": "Session",
+            "keys": ["session_id"],
+        })
+        entity_id = entity_resp.json()["entity_id"]
+        self.client.post(f"/semantic/entities/{entity_id}/publish")
+        metric_resp = self.client.post("/semantic/metrics", json={
+            "name": "watch_time_mvp",
+            "display_name": "Watch Time",
+            "definition_sql": "avg(play_duration_seconds)",
+            "dimensions": ["platform", "app_version", "network_type", "content_type"],
+            "entity_id": entity_id,
+        })
+        metric_id = metric_resp.json()["metric_id"]
+        self.client.post(f"/semantic/metrics/{metric_id}/publish")
+
+        self.client.post(
+            f"/sessions/{session_id}/steps/compare_metric",
+            json={"metric_name": "watch_time_mvp", "table_name": "analytics.watch_events"},
+        )
+        self.client.post(f"/sessions/{session_id}/steps/synthesize_findings")
 
         graph_response = self.client.get(f"/sessions/{session_id}/evidence")
         self.assertEqual(graph_response.status_code, 200)
         graph = graph_response.json()
-        self.assertGreaterEqual(len(graph["observations"]), 10)
+        self.assertGreaterEqual(len(graph["observations"]), 1)
         self.assertGreaterEqual(len(graph["claims"]), 1)
         self.assertTrue(any(edge["edge_type"] == "supports" for edge in graph["edges"]))
-        self.assertGreaterEqual(len(graph["recommendations"]), 2)
+        self.assertGreaterEqual(len(graph["recommendations"]), 1)
 
     def test_list_sessions_empty(self) -> None:
         """GET /sessions should return a list."""
@@ -124,41 +129,28 @@ class QueryRouterWiredServiceTests(unittest.TestCase):
         cls.client.close()
         cls.temp_dir.cleanup()
 
-    def test_workflow_succeeds_with_query_router(self) -> None:
-        """The workflow should produce valid results when QueryRouter is wired
-        in, even if it falls back to the default analytics engine."""
-        session = self.client.post(
-            "/sessions",
-            json={"goal": "Test QueryRouter wiring."},
-        ).json()
-        session_id = session["session_id"]
-
-        resp = self.client.post(f"/sessions/{session_id}/workflow/watch-time-drop")
-        self.assertEqual(resp.status_code, 200)
-        payload = resp.json()
-        self.assertEqual(payload["workflow"], "watch_time_drop")
-        self.assertGreaterEqual(len(payload["claims"]), 1)
-        self.assertGreaterEqual(len(payload["recommendations"]), 2)
-
     def test_individual_steps_with_query_router(self) -> None:
-        """Each step type should work when QueryRouter is present."""
+        """Each generic step type should work when QueryRouter is present."""
         session_id = self.client.post(
             "/sessions",
             json={"goal": "Test individual steps with router."},
         ).json()["session_id"]
 
-        step_types = [
-            "compare_watch_time",
-            "analyze_qoe",
-            "analyze_ads",
-            "analyze_recommendation",
-        ]
-        for step_type in step_types:
-            resp = self.client.post(f"/sessions/{session_id}/steps/{step_type}")
-            self.assertEqual(resp.status_code, 200, f"Step {step_type} failed")
-            result = resp.json()
-            self.assertEqual(result["step_type"], step_type)
-            self.assertIn("summary", result)
+        # profile_table
+        resp = self.client.post(
+            f"/sessions/{session_id}/steps/profile_table",
+            json={"table_name": "analytics.watch_events"},
+        )
+        self.assertEqual(resp.status_code, 200, "Step profile_table failed")
+        self.assertEqual(resp.json()["step_type"], "profile_table")
+
+        # sample_rows
+        resp = self.client.post(
+            f"/sessions/{session_id}/steps/sample_rows",
+            json={"table_name": "analytics.watch_events", "limit": 5},
+        )
+        self.assertEqual(resp.status_code, 200, "Step sample_rows failed")
+        self.assertEqual(resp.json()["step_type"], "sample_rows")
 
     def test_service_has_query_router_attribute(self) -> None:
         """Verify that create_app wires the QueryRouter into the service."""
@@ -178,8 +170,12 @@ class QueryRouterWiredServiceTests(unittest.TestCase):
         self.assertIsNone(svc.query_router)
 
         session = svc.create_session("Test no router", {}, {}, {})
-        result = svc.run_step(session["session_id"], "compare_watch_time")
-        self.assertEqual(result["step_type"], "compare_watch_time")
+        result = svc.run_step(
+            session["session_id"],
+            "profile_table",
+            {"table_name": "analytics.watch_events"},
+        )
+        self.assertEqual(result["step_type"], "profile_table")
         self.assertIn("summary", result)
 
     def test_resolve_engine_returns_tuple(self) -> None:
@@ -201,7 +197,10 @@ class QueryRouterWiredServiceTests(unittest.TestCase):
         ).json()
         session_id = session["session_id"]
         # Run a step and check evidence provenance
-        self.client.post(f"/sessions/{session_id}/steps/compare_watch_time")
+        self.client.post(
+            f"/sessions/{session_id}/steps/profile_table",
+            json={"table_name": "analytics.watch_events"},
+        )
         evidence = self.client.get(f"/sessions/{session_id}/evidence").json()
         steps = evidence.get("steps", [])
         self.assertGreater(len(steps), 0)
@@ -409,7 +408,7 @@ class MCPWrapperTests(unittest.TestCase):
     def tearDownClass(cls) -> None:
         cls.temp_dir.cleanup()
 
-    def test_mcp_client_can_call_catalog_and_workflow(self) -> None:
+    def test_mcp_client_can_call_catalog_and_step(self) -> None:
         async def exercise_client() -> None:
             transport = httpx.ASGITransport(app=self.test_app)
             async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
@@ -417,12 +416,14 @@ class MCPWrapperTests(unittest.TestCase):
                 catalog = await api_client.get_catalog()
                 self.assertEqual(catalog["engine"], "duckdb")
 
-                session = await api_client.create_session("Investigate watch time drop for MCP.")
-                workflow = await api_client.run_watch_time_workflow(session["session_id"])
-                self.assertTrue(any("Android 8.3.1" in claim["text"] for claim in workflow["claims"]))
-
-                evidence = await api_client.get_evidence(session["session_id"])
-                self.assertTrue(any(edge["edge_type"] == "supports" for edge in evidence["edges"]))
+                session = await api_client.create_session("Test MCP client step call.")
+                result = await api_client.run_step(
+                    session["session_id"],
+                    "profile_table",
+                    params={"table_name": "analytics.watch_events"},
+                )
+                self.assertEqual(result["step_type"], "profile_table")
+                self.assertIn("summary", result)
 
         asyncio.run(exercise_client())
 

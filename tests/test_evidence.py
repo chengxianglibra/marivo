@@ -218,7 +218,21 @@ class EvidencePipelineServiceIntegrationTests(unittest.TestCase):
 
     def test_synthesize_step_uses_configured_pipeline(self) -> None:
         session_id = self.service.create_session("Pipeline test", {}, {}, {})["session_id"]
-        self.service.run_step(session_id, "compare_watch_time")
+        # Seed a published metric so compare_metric works
+        from app.semantic import SemanticService
+        semantic = SemanticService(self.service.metadata)
+        entity = semantic.create_entity("session_pipeline", "Session", ["session_id"])
+        semantic.publish_entity(entity["entity_id"])
+        metric = semantic.create_metric(
+            "watch_time_pipeline", "Watch Time", "avg(play_duration_seconds)",
+            ["platform", "app_version", "network_type", "content_type"],
+            entity_id=entity["entity_id"],
+        )
+        semantic.publish_metric(metric["metric_id"])
+        self.service.run_step(
+            session_id, "compare_metric",
+            {"metric_name": "watch_time_pipeline", "table_name": "analytics.watch_events"},
+        )
         captured: dict[str, int] = {}
 
         class StubPipeline:
@@ -340,10 +354,13 @@ class ProvenanceTests(unittest.TestCase):
 
     def test_provenance_persisted_in_step(self) -> None:
         session_id = self.session["session_id"]
-        self.service.run_step(session_id, "compare_watch_time")
+        self.service.run_step(
+            session_id, "profile_table",
+            {"table_name": "analytics.watch_events"},
+        )
 
         steps = self.service.metadata.query_rows(
-            "SELECT provenance_json FROM steps WHERE session_id = ? AND step_type = 'compare_watch_time'",
+            "SELECT provenance_json FROM steps WHERE session_id = ? AND step_type = 'profile_table'",
             [session_id],
         )
         self.assertGreaterEqual(len(steps), 1)
@@ -354,10 +371,17 @@ class ProvenanceTests(unittest.TestCase):
 
     def test_provenance_in_evidence_graph(self) -> None:
         session_id = self.session["session_id"]
-        self.service.run_watch_time_drop_workflow(session_id)
+        self.service.run_step(
+            session_id, "profile_table",
+            {"table_name": "analytics.watch_events"},
+        )
+        self.service.run_step(
+            session_id, "sample_rows",
+            {"table_name": "analytics.watch_events", "limit": 5},
+        )
         graph = self.service.get_evidence_graph(session_id)
         self.assertIn("steps", graph)
-        self.assertGreaterEqual(len(graph["steps"]), 5)
+        self.assertGreaterEqual(len(graph["steps"]), 2)
         for step in graph["steps"]:
             self.assertIn("provenance", step)
             self.assertIsInstance(step["provenance"], dict)

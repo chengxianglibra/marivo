@@ -19,7 +19,6 @@ from app.execution.feedback import compile_failure_from_error
 from app.execution.orchestrator import WorkflowOrchestrator
 from app.execution.routing_runtime import RoutingRuntime
 from app.planner import ReplanningService
-from app.runtime_contracts import DEFAULT_STEP_TABLES
 from app.semantic_runtime import SemanticRuntimeRepository
 from app.session import SessionManager
 from app.storage.analytics import AnalyticsEngine
@@ -185,16 +184,6 @@ class SemanticLayerService:
 
         return result
 
-    def run_watch_time_drop_workflow(self, session_id: str) -> dict[str, Any]:
-        self._assert_session_exists(session_id)
-        self._reset_session_outputs(session_id)
-        self.workflow_orchestrator.workflow_runtime = self.workflow_runtime
-        self.workflow_orchestrator.replanner = self.replanner
-        self.workflow_orchestrator.analytics_engine = self.analytics
-        self.workflow_orchestrator.query_router = self.query_router
-        self.workflow_orchestrator.approval_service = self.approvals
-        return self.workflow_orchestrator.execute_workflow(session_id, "watch_time_drop")
-
     def get_evidence_graph(self, session_id: str) -> dict[str, Any]:
         self._assert_session_exists(session_id)
         observations = self._load_observations(session_id)
@@ -323,232 +312,6 @@ class SemanticLayerService:
                 error,
                 semantic_context=semantic_context,
             ) from error
-
-    # ── Step runners ──────────────────────────────────────────────────
-
-    def _run_compare_watch_time(self, session_id: str) -> dict[str, Any]:
-        step_type = "compare_watch_time"
-        self._delete_step_outputs(session_id, step_type)
-        step_id = self._new_step_id()
-        engine, engine_type = self._resolve_engine(["watch_events"])
-        current_start, current_end, baseline_start, baseline_end = self._period_bounds(engine)
-        period_params = [current_start, current_end, baseline_start, baseline_end, baseline_start, current_end]
-        top_slices_query = self._compile_step_with_feedback(
-            from_legacy_step(
-                0,
-                {"step_type": "compare_watch_time_top_slices", "params": {"table_name": "analytics.watch_events", "limit": 3}},
-            ),
-            engine_type=engine_type,
-            semantic_context={"period_params": period_params},
-        )
-        top_slices = execute_compiled(engine, top_slices_query).rows
-        overall_query = self._compile_step_with_feedback(
-            from_legacy_step(
-                1,
-                {"step_type": "compare_watch_time_overall", "params": {"table_name": "analytics.watch_events"}},
-            ),
-            engine_type=engine_type,
-            semantic_context={"period_params": period_params},
-        )
-        overall = execute_compiled(engine, overall_query).rows[0]
-
-        observations = []
-        observations = self.evidence_pipeline.extract_observations(
-            "comparison_rows",
-            top_slices,
-            context={
-                "metric": "watch_time",
-                "observation_type": "metric_change",
-                "payload_fields": {
-                    "current_value": "current_watch_time",
-                    "baseline_value": "baseline_watch_time",
-                    "delta_pct": "delta_pct",
-                    "current_sessions": "current_sessions",
-                    "baseline_sessions": "baseline_sessions",
-                },
-                "quality_builder": lambda row: {
-                    "freshness_ok": True,
-                    "sample_size_ok": min(row["current_sessions"], row["baseline_sessions"]) >= 150,
-                },
-            },
-        )
-        for observation in observations:
-            self._insert_observation(session_id, step_id, observation)
-
-        artifact = {
-            "overall_delta_pct": overall["delta_pct"],
-            "overall_current_watch_time": overall["current_watch_time"],
-            "overall_baseline_watch_time": overall["baseline_watch_time"],
-            "top_slices": top_slices,
-            "window": {
-                "current": [str(current_start), str(current_end)],
-                "baseline": [str(baseline_start), str(baseline_end)],
-            },
-        }
-        artifact_id = self._insert_artifact(session_id, step_id, "table", "watch_time_comparison", artifact)
-        summary = (
-            f"Overall watch time moved {overall['delta_pct']}%, with the worst slice in "
-            f"{top_slices[0]['platform']} {top_slices[0]['app_version']} {top_slices[0]['network_type']} "
-            f"{top_slices[0]['content_type']} traffic ({top_slices[0]['delta_pct']}%)."
-        )
-        provenance = self._make_provenance(
-            f"{top_slices_query.sql}\n{overall_query.sql}",
-            [*top_slices_query.params, *overall_query.params],
-            engine_type=engine_type,
-        )
-        result = {"step_type": step_type, "summary": summary, "artifact_id": artifact_id, "observations": observations}
-        self._insert_step(step_id, session_id, step_type, summary, result, provenance=provenance)
-        return result
-
-    def _run_qoe_analysis(self, session_id: str) -> dict[str, Any]:
-        step_type = "analyze_qoe"
-        self._delete_step_outputs(session_id, step_type)
-        step_id = self._new_step_id()
-        engine, engine_type = self._resolve_engine(["player_qoe"])
-        current_start, current_end, baseline_start, baseline_end = self._period_bounds(engine)
-        period_params = [current_start, current_end, baseline_start, baseline_end, baseline_start, current_end]
-        compiled_query = self._compile_step_with_feedback(
-            from_legacy_step(
-                0,
-                {"step_type": step_type, "params": {"table_name": "analytics.player_qoe", "limit": 3}},
-            ),
-            engine_type=engine_type,
-            semantic_context={"period_params": period_params},
-        )
-        rows = execute_compiled(engine, compiled_query).rows
-
-        observations = self.evidence_pipeline.extract_observations(
-            "comparison_rows",
-            rows,
-            context={
-                "metric": "first_frame_time",
-                "observation_type": "qoe_regression",
-                "payload_fields": {
-                    "current_value": "current_first_frame_ms",
-                    "baseline_value": "baseline_first_frame_ms",
-                    "delta_pct": "delta_pct",
-                    "delta_ms": "delta_ms",
-                    "current_sessions": "current_sessions",
-                    "baseline_sessions": "baseline_sessions",
-                },
-                "quality_builder": lambda row: {
-                    "freshness_ok": True,
-                    "sample_size_ok": min(row["current_sessions"], row["baseline_sessions"]) >= 150,
-                },
-            },
-        )
-        for observation in observations:
-            self._insert_observation(session_id, step_id, observation)
-
-        artifact_id = self._insert_artifact(session_id, step_id, "table", "qoe_comparison", rows)
-        summary = (
-            f"QoE regression is strongest in {rows[0]['platform']} {rows[0]['app_version']} "
-            f"{rows[0]['network_type']} {rows[0]['content_type']} traffic, where first-frame time rose "
-            f"{rows[0]['delta_pct']}%."
-        )
-        provenance = self._make_provenance(compiled_query.sql, compiled_query.params, engine_type=engine_type)
-        result = {"step_type": step_type, "summary": summary, "artifact_id": artifact_id, "observations": observations}
-        self._insert_step(step_id, session_id, step_type, summary, result, provenance=provenance)
-        return result
-
-    def _run_ad_analysis(self, session_id: str) -> dict[str, Any]:
-        step_type = "analyze_ads"
-        self._delete_step_outputs(session_id, step_type)
-        step_id = self._new_step_id()
-        engine, engine_type = self._resolve_engine(["ad_events"])
-        current_start, current_end, baseline_start, baseline_end = self._period_bounds(engine)
-        period_params = [current_start, current_end, baseline_start, baseline_end, baseline_start, current_end]
-        compiled_query = self._compile_step_with_feedback(
-            from_legacy_step(
-                0,
-                {"step_type": step_type, "params": {"table_name": "analytics.ad_events", "limit": 3}},
-            ),
-            engine_type=engine_type,
-            semantic_context={"period_params": period_params},
-        )
-        rows = execute_compiled(engine, compiled_query).rows
-
-        observations = self.evidence_pipeline.extract_observations(
-            "comparison_rows",
-            rows,
-            context={
-                "metric": "preroll_timeout_rate",
-                "observation_type": "ad_regression",
-                "payload_fields": {
-                    "current_value": "current_timeout_rate",
-                    "baseline_value": "baseline_timeout_rate",
-                    "delta_rate": "delta_rate",
-                    "current_sessions": "current_sessions",
-                    "baseline_sessions": "baseline_sessions",
-                },
-                "quality_builder": lambda row: {
-                    "freshness_ok": True,
-                    "sample_size_ok": min(row["current_sessions"], row["baseline_sessions"]) >= 150,
-                },
-            },
-        )
-        for observation in observations:
-            self._insert_observation(session_id, step_id, observation)
-
-        artifact_id = self._insert_artifact(session_id, step_id, "table", "ad_timeout_comparison", rows)
-        summary = (
-            f"Preroll timeout pressure increased most in {rows[0]['platform']} {rows[0]['app_version']} "
-            f"{rows[0]['network_type']} {rows[0]['content_type']} traffic (+{rows[0]['delta_rate']})."
-        )
-        provenance = self._make_provenance(compiled_query.sql, compiled_query.params, engine_type=engine_type)
-        result = {"step_type": step_type, "summary": summary, "artifact_id": artifact_id, "observations": observations}
-        self._insert_step(step_id, session_id, step_type, summary, result, provenance=provenance)
-        return result
-
-    def _run_recommendation_analysis(self, session_id: str) -> dict[str, Any]:
-        step_type = "analyze_recommendation"
-        self._delete_step_outputs(session_id, step_type)
-        step_id = self._new_step_id()
-        engine, engine_type = self._resolve_engine(["recommendation_events"])
-        current_start, current_end, baseline_start, baseline_end = self._period_bounds(engine)
-        period_params = [current_start, current_end, baseline_start, baseline_end, baseline_start, current_end]
-        compiled_query = self._compile_step_with_feedback(
-            from_legacy_step(
-                0,
-                {"step_type": step_type, "params": {"table_name": "analytics.recommendation_events", "limit": 3}},
-            ),
-            engine_type=engine_type,
-            semantic_context={"period_params": period_params},
-        )
-        rows = execute_compiled(engine, compiled_query).rows
-
-        observations = self.evidence_pipeline.extract_observations(
-            "comparison_rows",
-            rows,
-            context={
-                "metric": "recommendation_ctr",
-                "observation_type": "recommendation_signal",
-                "payload_fields": {
-                    "current_value": "current_ctr",
-                    "baseline_value": "baseline_ctr",
-                    "delta_ctr_pct": "delta_ctr_pct",
-                    "current_sessions": "current_sessions",
-                    "baseline_sessions": "baseline_sessions",
-                },
-                "quality_builder": lambda row: {
-                    "freshness_ok": True,
-                    "sample_size_ok": min(row["current_sessions"], row["baseline_sessions"]) >= 150,
-                },
-            },
-        )
-        for observation in observations:
-            self._insert_observation(session_id, step_id, observation)
-
-        artifact_id = self._insert_artifact(session_id, step_id, "table", "recommendation_ctr_comparison", rows)
-        summary = (
-            f"Recommendation CTR did not show a broad collapse; the strongest movement is "
-            f"{rows[0]['delta_ctr_pct']}% in {rows[0]['platform']} {rows[0]['app_version']} "
-            f"{rows[0]['network_type']} {rows[0]['content_type']} traffic."
-        )
-        provenance = self._make_provenance(compiled_query.sql, compiled_query.params, engine_type=engine_type)
-        result = {"step_type": step_type, "summary": summary, "artifact_id": artifact_id, "observations": observations}
-        self._insert_step(step_id, session_id, step_type, summary, result, provenance=provenance)
-        return result
 
     def _run_compare_metric(self, session_id: str, params: dict[str, Any]) -> dict[str, Any]:
         """Generic metric comparison step driven by semantic metric definitions.
@@ -891,8 +654,7 @@ class SemanticLayerService:
         table_name = params.get("table_name")
         if table_name:
             return [str(table_name)]
-        default_table = DEFAULT_STEP_TABLES.get(step_type)
-        return [default_table] if default_table else []
+        return []
 
     def _insert_step(
         self,

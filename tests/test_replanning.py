@@ -19,7 +19,10 @@ class ReplanningServiceTests(unittest.TestCase):
 
     def test_build_feedback_marks_insufficient_evidence(self) -> None:
         feedback = self.replanner.build_feedback(
-            from_legacy_step(0, {"step_type": "analyze_ads"}),
+            from_legacy_step(0, {
+                "step_type": "compare_metric",
+                "params": {"metric_name": "ad_fill_rate", "table_name": "analytics.ad_events"},
+            }),
             {"summary": "No issue found", "observations": [], "claims": [], "recommendations": []},
             12.0,
             estimate=CostEstimate(subject="step:0", confidence="medium", engine_locality="bound_engine"),
@@ -29,7 +32,10 @@ class ReplanningServiceTests(unittest.TestCase):
         self.assertTrue(feedback.replan_candidate)
 
     def test_decide_after_step_inserts_profile_step(self) -> None:
-        step = from_legacy_step(0, {"step_type": "analyze_ads"})
+        step = from_legacy_step(0, {
+            "step_type": "compare_metric",
+            "params": {"metric_name": "ad_fill_rate", "table_name": "analytics.ad_events"},
+        })
         estimate = CostEstimate(subject="step:0", confidence="medium", engine_locality="bound_engine")
         feedback = self.replanner.build_feedback(
             step,
@@ -68,8 +74,12 @@ class ReplanningServiceTests(unittest.TestCase):
         self.assertEqual(decision.action, "replace_step")
         self.assertEqual(decision.detail["replacement_step"]["step_type"], "profile_table")
 
-    def test_decide_before_step_skips_optional_high_risk_step(self) -> None:
-        step = from_legacy_step(0, {"step_type": "analyze_recommendation"})
+    def test_decide_before_step_continues_for_non_optional_step(self) -> None:
+        """Non-optional steps under low confidence continue (no skip)."""
+        step = from_legacy_step(0, {
+            "step_type": "compare_metric",
+            "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"},
+        })
         estimate = CostEstimate(
             subject="step:0",
             confidence="low",
@@ -78,10 +88,13 @@ class ReplanningServiceTests(unittest.TestCase):
 
         decision = self.replanner.decide_before_step(step, estimate)
 
-        self.assertEqual(decision.action, "skip_step")
+        self.assertEqual(decision.action, "continue")
 
     def test_decide_on_error_replaces_with_profile_step(self) -> None:
-        step = from_legacy_step(0, {"step_type": "analyze_qoe"})
+        step = from_legacy_step(0, {
+            "step_type": "compare_metric",
+            "params": {"metric_name": "qoe_metric", "table_name": "analytics.player_qoe"},
+        })
         decision = self.replanner.decide_on_error(
             step,
             ValueError("compile failed for step"),
@@ -95,7 +108,7 @@ class ReplanningServiceTests(unittest.TestCase):
         )
 
 
-class WorkflowReplanningTests(unittest.TestCase):
+class AttachReplanningProvenanceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.temp_dir = tempfile.TemporaryDirectory()
@@ -111,69 +124,26 @@ class WorkflowReplanningTests(unittest.TestCase):
     def tearDownClass(cls) -> None:
         cls.temp_dir.cleanup()
 
-    def test_workflow_inserts_supplementary_steps(self) -> None:
-        service = SemanticLayerService(self.metadata, self.analytics)
-        session = service.create_session("Replanning test", {}, {}, {})
-        original_run_step = service.run_step
-
-        def fake_run_step(session_id: str, step_type: str, params: dict | None = None) -> dict:
-            if step_type == "compare_watch_time":
-                return {
-                    "step_type": step_type,
-                    "summary": "No strong signal yet",
-                    "observations": [],
-                    "claims": [],
-                    "recommendations": [],
-                }
-            if step_type == "profile_table":
-                return {
-                    "step_type": step_type,
-                    "summary": "Profile generated",
-                    "profile": {"row_count": 10},
-                }
-            if step_type == "synthesize_findings":
-                return {
-                    "step_type": step_type,
-                    "summary": "Final summary",
-                    "claims": [{"text": "claim"}],
-                    "recommendations": [{"text": "rec"}],
-                }
-            return {
-                "step_type": step_type,
-                "summary": f"{step_type} ok",
-                "observations": [{"id": 1}],
-                "claims": [],
-                "recommendations": [],
-            }
-
-        service.run_step = fake_run_step  # type: ignore[method-assign]
-        try:
-            payload = service.run_watch_time_drop_workflow(session["session_id"])
-        finally:
-            service.run_step = original_run_step  # type: ignore[method-assign]
-
-        executed_step_types = [step["step_type"] for step in payload["steps"]]
-        self.assertIn("profile_table", executed_step_types)
-        self.assertTrue(
-            any(decision["action"] == "insert_steps" for decision in payload["replanning"]["decisions"])
-        )
-
     def test_attach_replanning_provenance_updates_step_record(self) -> None:
         service = SemanticLayerService(self.metadata, self.analytics)
         session = service.create_session("Replanning provenance", {}, {}, {})
-        service.run_step(session["session_id"], "compare_watch_time")
+        service.run_step(
+            session["session_id"],
+            "profile_table",
+            {"table_name": "analytics.watch_events"},
+        )
 
         service._attach_replanning_provenance(
             session["session_id"],
-            "compare_watch_time",
+            "profile_table",
             [{"action": "insert_steps", "reason": "test"}],
         )
 
         evidence = service.get_evidence_graph(session["session_id"])
-        compare_step = next(
-            step for step in evidence["steps"] if step["step_type"] == "compare_watch_time"
+        profile_step = next(
+            step for step in evidence["steps"] if step["step_type"] == "profile_table"
         )
-        self.assertEqual(compare_step["provenance"]["replanning"][0]["action"], "insert_steps")
+        self.assertEqual(profile_step["provenance"]["replanning"][0]["action"], "insert_steps")
 
 
 if __name__ == "__main__":

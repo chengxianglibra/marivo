@@ -4,49 +4,24 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
 from app.analysis_core.primitives import (
-    OPTIONAL_STEP_TYPES,
     COMPOSITE_STEP_TYPES,
     step_category_for,
 )
-from app.runtime_contracts import DEFAULT_STEP_TABLES
 
 
 DEFAULT_SLICE_DIMENSIONS = ("platform", "app_version", "network_type", "content_type")
 PERIOD_CONTEXT_STEP_TYPES = frozenset(
     {
         "compare_metric",
-        "compare_watch_time_top_slices",
-        "compare_watch_time_overall",
-        "analyze_qoe",
-        "analyze_ads",
-        "analyze_recommendation",
     }
 )
-STEP_METRICS = {
-    "compare_watch_time": "watch_time",
-    "compare_watch_time_top_slices": "watch_time",
-    "compare_watch_time_overall": "watch_time",
-    "analyze_qoe": "first_frame_time",
-    "analyze_ads": "preroll_timeout_rate",
-    "analyze_recommendation": "recommendation_ctr",
-}
+STEP_METRICS: dict[str, str] = {}
 STEP_OBSERVATION_TYPES = {
-    "compare_watch_time": ["metric_change"],
-    "compare_watch_time_top_slices": ["metric_change"],
-    "analyze_qoe": ["qoe_regression"],
-    "analyze_ads": ["ad_regression"],
-    "analyze_recommendation": ["recommendation_signal"],
     "profile_table": ["table_profile"],
     "sample_rows": ["sample_rows"],
     "synthesize_findings": ["root_cause_candidate", "recommendation"],
 }
 STEP_ARTIFACT_KINDS = {
-    "compare_watch_time": "table",
-    "compare_watch_time_top_slices": "table",
-    "compare_watch_time_overall": "table",
-    "analyze_qoe": "table",
-    "analyze_ads": "table",
-    "analyze_recommendation": "table",
     "compare_metric": "table",
     "profile_table": "profile",
     "profile_table_row_count": "profile",
@@ -330,14 +305,6 @@ def _infer_semantic_intent(step_type: str, params: Mapping[str, Any]) -> Semanti
     raw_dimensions = params.get("dimensions")
     if isinstance(raw_dimensions, list):
         dimensions = [str(dimension) for dimension in raw_dimensions]
-    elif step_type in {
-        "compare_watch_time",
-        "compare_watch_time_top_slices",
-        "analyze_qoe",
-        "analyze_ads",
-        "analyze_recommendation",
-    }:
-        dimensions = list(DEFAULT_SLICE_DIMENSIONS)
     else:
         dimensions = []
     filters = {
@@ -345,7 +312,7 @@ def _infer_semantic_intent(step_type: str, params: Mapping[str, Any]) -> Semanti
         for key in DEFAULT_SLICE_DIMENSIONS
         if key in params and params[key] is not None
     }
-    source_table = str(params.get("table_name") or DEFAULT_STEP_TABLES.get(step_type) or "") or None
+    source_table = str(params.get("table_name") or "") or None
     date_column = str(params.get("date_column", "event_date")) if step_type in PERIOD_CONTEXT_STEP_TYPES else None
     if not any([metric_name, dimensions, filters, source_table, date_column]):
         return None
@@ -374,11 +341,11 @@ def _infer_artifact_expectation(step_type: str, params: Mapping[str, Any]) -> Ar
 
 
 def _infer_execution_hints(step_type: str, params: Mapping[str, Any]) -> dict[str, Any]:
-    default_table_name = DEFAULT_STEP_TABLES.get(step_type)
+    default_table_name = None
     hints: dict[str, Any] = {
         "default_table_name": default_table_name,
         "requires_period_context": step_type in PERIOD_CONTEXT_STEP_TYPES,
-        "optional": step_type in OPTIONAL_STEP_TYPES,
+        "optional": False,
     }
     explicit_table_name = params.get("table_name")
     if explicit_table_name:

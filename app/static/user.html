@@ -225,7 +225,6 @@ const localApi = {
   listSessions: (params) => localApi._fetch('/sessions' + (params ? '?' + new URLSearchParams(params) : '')),
   createSession: (d) => localApi._fetch('/sessions', { method: 'POST', body: JSON.stringify(d) }),
   getSession: (id) => localApi._fetch(`/sessions/${id}`),
-  runWorkflow: (id) => localApi._fetch(`/sessions/${id}/workflow/watch-time-drop`, { method: 'POST' }),
   runStep: (id, stepType, params) => localApi._fetch(`/sessions/${id}/steps/${stepType}`, { method: 'POST', body: JSON.stringify(params || {}) }),
   // Evidence
   getEvidence: (id) => localApi._fetch(`/sessions/${id}/evidence`),
@@ -558,10 +557,6 @@ async function showSessionDetail(id) {
 
         <!-- Steps Timeline (if session has steps) -->
         <div id="sess-steps-timeline"></div>
-
-        <div style="margin-top:var(--space-lg);">
-          <button class="btn btn-primary btn-lg" id="sess-run-workflow">Run Watch-Time Workflow</button>
-        </div>
       </div>
 
       <!-- Run Step -->
@@ -574,14 +569,10 @@ async function showSessionDetail(id) {
           <div class="inline-form" style="margin-top:var(--space-md);">
             <div class="form-group"><label>Step Type</label>
               <select id="sess-step-type">
-                <option value="compare_watch_time">compare_watch_time</option>
-                <option value="analyze_qoe">analyze_qoe</option>
-                <option value="analyze_ads">analyze_ads</option>
-                <option value="analyze_recommendation">analyze_recommendation</option>
-                <option value="synthesize_findings">synthesize_findings</option>
                 <option value="compare_metric">compare_metric</option>
                 <option value="profile_table">profile_table</option>
                 <option value="sample_rows">sample_rows</option>
+                <option value="synthesize_findings">synthesize_findings</option>
               </select>
             </div>
             <button class="btn btn-primary" id="sess-run-step-btn">Run</button>
@@ -619,20 +610,6 @@ async function showSessionDetail(id) {
       tlHtml += '</div>';
       timelineArea.innerHTML = tlHtml;
     }
-
-    $('#sess-run-workflow').onclick = async () => {
-      const btn = $('#sess-run-workflow');
-      btn.disabled = true;
-      btn.textContent = 'Running...';
-      try {
-        const result = await localApi.runWorkflow(id);
-        toast('Workflow completed', 'success');
-        const area = $('#sess-step-result');
-        area.innerHTML = '<div style="margin-top:var(--space-md);">' + jsonPre(result) + '</div>';
-      } catch (err) { toast(err.message, 'error'); }
-      btn.disabled = false;
-      btn.textContent = 'Run Watch-Time Workflow';
-    };
 
     $('#sess-run-step-btn').onclick = async () => {
       const stepType = $('#sess-step-type').value;
@@ -915,7 +892,7 @@ async function loadPlans(sessionId) {
 }
 
 function openDraftPlanModal(sessionId) {
-  const stepTypes = ['compare_watch_time', 'analyze_qoe', 'analyze_ads', 'analyze_recommendation', 'synthesize_findings', 'compare_metric', 'profile_table', 'sample_rows'];
+  const stepTypes = ['compare_metric', 'profile_table', 'sample_rows', 'synthesize_findings'];
   const stepOpts = stepTypes.map(t => `<option value="${t}">${t}</option>`).join('');
   const draftSteps = [];
 
@@ -1215,7 +1192,6 @@ renderers.jobs = async () => {
        <div class="form-group"><label>Job Type</label>
          <select id="f-job-type">
            <option value="step">step</option>
-           <option value="workflow">workflow</option>
            <option value="plan">plan</option>
          </select>
        </div>

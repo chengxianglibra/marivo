@@ -31,10 +31,25 @@ class ApprovalServiceTests(unittest.TestCase):
         cls.analytics.initialize()
         cls.service = SemanticLayerService(cls.metadata, cls.analytics)
         cls.approval = ApprovalService(cls.metadata)
-        # Run a workflow to create recommendations
+        # Seed a published metric for compare_metric
+        from app.semantic import SemanticService
+        semantic = SemanticService(cls.metadata)
+        entity = semantic.create_entity("session_approval", "Session", ["session_id"])
+        semantic.publish_entity(entity["entity_id"])
+        metric = semantic.create_metric(
+            "watch_time_approval", "Watch Time", "avg(play_duration_seconds)",
+            ["platform", "app_version", "network_type", "content_type"],
+            entity_id=entity["entity_id"],
+        )
+        semantic.publish_metric(metric["metric_id"])
+        # Run steps to create recommendations
         session = cls.service.create_session("Approval test", {}, {}, {})
         cls.session_id = session["session_id"]
-        cls.service.run_watch_time_drop_workflow(cls.session_id)
+        cls.service.run_step(
+            cls.session_id, "compare_metric",
+            {"metric_name": "watch_time_approval", "table_name": "analytics.watch_events"},
+        )
+        cls.service.run_step(cls.session_id, "synthesize_findings")
         # Get recommendation IDs
         recs = cls.metadata.query_rows(
             "SELECT rec_id, risk FROM recommendations WHERE session_id = ?",
@@ -94,9 +109,13 @@ class ApprovalServiceTests(unittest.TestCase):
                 self.approval.approve(req[0]["request_id"], reviewer="admin")
 
     def test_auto_flag_recommendations(self) -> None:
-        # Create a fresh session with workflow
+        # Create a fresh session with steps that produce recommendations
         session = self.service.create_session("Auto-flag test", {}, {}, {})
-        self.service.run_watch_time_drop_workflow(session["session_id"])
+        self.service.run_step(
+            session["session_id"], "compare_metric",
+            {"metric_name": "watch_time_approval", "table_name": "analytics.watch_events"},
+        )
+        self.service.run_step(session["session_id"], "synthesize_findings")
         flagged = self.approval.auto_flag_recommendations(session["session_id"], risk_threshold="P1")
         self.assertIsInstance(flagged, list)
         # All flagged should be pending
@@ -142,10 +161,31 @@ class ApprovalAPITests(unittest.TestCase):
         db_path = Path(cls.temp_dir.name) / "approval_api.duckdb"
         get_seeded_duckdb_path(db_path)
         cls.client = TestClient(create_app(db_path))
-        # Create a session and run workflow to get recommendations
+        # Seed a published metric for compare_metric
+        entity_resp = cls.client.post("/semantic/entities", json={
+            "name": "session_approval_api",
+            "display_name": "Session",
+            "keys": ["session_id"],
+        })
+        entity_id = entity_resp.json()["entity_id"]
+        cls.client.post(f"/semantic/entities/{entity_id}/publish")
+        metric_resp = cls.client.post("/semantic/metrics", json={
+            "name": "watch_time_approval_api",
+            "display_name": "Watch Time",
+            "definition_sql": "avg(play_duration_seconds)",
+            "dimensions": ["platform", "app_version", "network_type", "content_type"],
+            "entity_id": entity_id,
+        })
+        metric_id = metric_resp.json()["metric_id"]
+        cls.client.post(f"/semantic/metrics/{metric_id}/publish")
+        # Create a session and run steps to get recommendations
         resp = cls.client.post("/sessions", json={"goal": "Approval API test"})
         cls.session_id = resp.json()["session_id"]
-        cls.client.post(f"/sessions/{cls.session_id}/workflow/watch-time-drop")
+        cls.client.post(
+            f"/sessions/{cls.session_id}/steps/compare_metric",
+            json={"metric_name": "watch_time_approval_api", "table_name": "analytics.watch_events"},
+        )
+        cls.client.post(f"/sessions/{cls.session_id}/steps/synthesize_findings")
 
     @classmethod
     def tearDownClass(cls) -> None:
