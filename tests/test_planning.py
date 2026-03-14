@@ -16,6 +16,20 @@ from app.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 
+def _seed_watch_time_metric(metadata: SQLiteMetadataStore) -> None:
+    """Seed a published 'watch_time' metric so compare_metric steps validate."""
+    from app.semantic import SemanticService
+    semantic = SemanticService(metadata)
+    entity = semantic.create_entity("session", "Session", ["session_id"])
+    semantic.publish_entity(entity["entity_id"])
+    metric = semantic.create_metric(
+        "watch_time", "Watch Time", "avg(play_duration_seconds)",
+        ["platform", "app_version", "network_type", "content_type"],
+        entity_id=entity["entity_id"],
+    )
+    semantic.publish_metric(metric["metric_id"])
+
+
 class PlanningServiceTests(unittest.TestCase):
     """Unit tests for PlanningService."""
 
@@ -29,6 +43,7 @@ class PlanningServiceTests(unittest.TestCase):
         cls.analytics = DuckDBAnalyticsEngine(duck_path)
         cls.metadata.initialize()
         cls.analytics.initialize()
+        _seed_watch_time_metric(cls.metadata)
         cls.planning = PlanningService(cls.metadata)
         cls.service = SemanticLayerService(cls.metadata, cls.analytics)
         cls.session = cls.service.create_session("Planning test", {}, {}, {})
@@ -39,14 +54,14 @@ class PlanningServiceTests(unittest.TestCase):
 
     def test_draft_plan(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_watch_time"},
-            {"step_type": "analyze_qoe", "dependencies": [0]},
+            {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
+            {"step_type": "profile_table", "params": {"table_name": "analytics.watch_events"}, "dependencies": [0]},
             {"step_type": "synthesize_findings", "dependencies": [0, 1]},
         ])
         self.assertTrue(plan["plan_id"].startswith("plan_"))
         self.assertEqual(plan["status"], "draft")
         self.assertEqual(len(plan["steps"]), 3)
-        self.assertEqual(plan["steps"][0]["step_type"], "compare_watch_time")
+        self.assertEqual(plan["steps"][0]["step_type"], "compare_metric")
         self.assertEqual(plan["steps"][2]["dependencies"], [0, 1])
 
     def test_get_plan(self) -> None:
@@ -67,17 +82,17 @@ class PlanningServiceTests(unittest.TestCase):
 
     def test_patch_plan(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_watch_time"},
+            {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
         ])
         patched = self.planning.patch_plan(plan["plan_id"], steps=[
-            {"step_type": "compare_watch_time"},
-            {"step_type": "analyze_qoe"},
+            {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
+            {"step_type": "profile_table", "params": {"table_name": "analytics.watch_events"}},
         ])
         self.assertEqual(len(patched["steps"]), 2)
 
     def test_get_execution_plan_ir(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_watch_time"},
+            {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
             {"step_type": "sample_rows", "params": {"table_name": "analytics.watch_events"}, "dependencies": [0]},
         ])
 
@@ -89,7 +104,7 @@ class PlanningServiceTests(unittest.TestCase):
         self.assertEqual(plan_ir.request.goal, "Planning test")
         self.assertEqual(plan_ir.request.requested_metrics, ["watch_time"])
         self.assertEqual(plan_ir.request.requested_tables, ["analytics.watch_events"])
-        self.assertEqual([step.step_type for step in plan_ir.steps], ["compare_watch_time", "sample_rows"])
+        self.assertEqual([step.step_type for step in plan_ir.steps], ["compare_metric", "sample_rows"])
         self.assertEqual(plan_ir.steps[1].params["table_name"], "analytics.watch_events")
         self.assertEqual(plan_ir.steps[1].dependencies, [0])
         semantic_resolution = plan_ir.semantic_resolution_for_step(0)
@@ -112,7 +127,7 @@ class PlanningServiceTests(unittest.TestCase):
             {"aggregate_only": True},
         )
         plan = self.planning.draft_plan(session["session_id"], [
-            {"step_type": "compare_watch_time"},
+            {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
         ])
 
         plan_ir = self.planning.get_execution_plan_ir(plan["plan_id"])
@@ -129,7 +144,7 @@ class PlanningServiceTests(unittest.TestCase):
             semantic_repository=self.service.semantic_repository,
         )
         plan = planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_watch_time"},
+            {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
         ])
 
         plan_ir = planning.get_execution_plan_ir(plan["plan_id"])
@@ -221,7 +236,7 @@ class PlanningServiceTests(unittest.TestCase):
 
     def test_patch_non_draft_fails(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_watch_time"},
+            {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
         ])
         self.planning.validate_plan(plan["plan_id"])
         with self.assertRaises(ValueError):
@@ -229,7 +244,7 @@ class PlanningServiceTests(unittest.TestCase):
 
     def test_delete_plan(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_watch_time"},
+            {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
         ])
         result = self.planning.delete_plan(plan["plan_id"])
         self.assertEqual(result["status"], "deleted")
@@ -250,6 +265,7 @@ class PlanValidationTests(unittest.TestCase):
         cls.analytics = DuckDBAnalyticsEngine(duck_path)
         cls.metadata.initialize()
         cls.analytics.initialize()
+        _seed_watch_time_metric(cls.metadata)
         cls.planning = PlanningService(cls.metadata)
         cls.service = SemanticLayerService(cls.metadata, cls.analytics)
         cls.session = cls.service.create_session("Validation test", {}, {}, {})
@@ -260,8 +276,8 @@ class PlanValidationTests(unittest.TestCase):
 
     def test_validate_valid_plan(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_watch_time"},
-            {"step_type": "analyze_qoe"},
+            {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
+            {"step_type": "profile_table", "params": {"table_name": "analytics.watch_events"}},
             {"step_type": "synthesize_findings", "dependencies": [0, 1]},
         ])
         result = self.planning.validate_plan(plan["plan_id"])
@@ -295,8 +311,8 @@ class PlanValidationTests(unittest.TestCase):
 
     def test_validate_forward_dependency(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_watch_time", "dependencies": [1]},
-            {"step_type": "analyze_qoe"},
+            {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}, "dependencies": [1]},
+            {"step_type": "profile_table", "params": {"table_name": "analytics.watch_events"}},
         ])
         result = self.planning.validate_plan(plan["plan_id"])
         self.assertFalse(result["valid"])
@@ -318,7 +334,7 @@ class PlanValidationTests(unittest.TestCase):
 
     def test_approve_plan(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_watch_time"},
+            {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
         ])
         self.planning.validate_plan(plan["plan_id"])
         approved = self.planning.approve_plan(plan["plan_id"])
@@ -326,7 +342,7 @@ class PlanValidationTests(unittest.TestCase):
 
     def test_approve_non_validated_fails(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_watch_time"},
+            {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
         ])
         with self.assertRaises(ValueError):
             self.planning.approve_plan(plan["plan_id"])
@@ -345,6 +361,7 @@ class PlanExecutionTests(unittest.TestCase):
         cls.analytics = DuckDBAnalyticsEngine(duck_path)
         cls.metadata.initialize()
         cls.analytics.initialize()
+        _seed_watch_time_metric(cls.metadata)
         cls.planning = PlanningService(cls.metadata)
         cls.service = SemanticLayerService(cls.metadata, cls.analytics)
         cls.session = cls.service.create_session("Execution test", {}, {}, {})
@@ -355,8 +372,8 @@ class PlanExecutionTests(unittest.TestCase):
 
     def test_execute_plan(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_watch_time"},
-            {"step_type": "analyze_qoe", "dependencies": [0]},
+            {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
+            {"step_type": "profile_table", "params": {"table_name": "analytics.watch_events"}, "dependencies": [0]},
             {"step_type": "synthesize_findings", "dependencies": [0, 1]},
         ])
         self.planning.validate_plan(plan["plan_id"])
@@ -375,19 +392,19 @@ class PlanExecutionTests(unittest.TestCase):
 
     def test_execute_non_approved_fails(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_watch_time"},
+            {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
         ])
         with self.assertRaises(ValueError):
             self.planning.execute_plan(plan["plan_id"], self.service)
 
     def test_explain_plan(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_watch_time"},
+            {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
             {"step_type": "synthesize_findings", "dependencies": [0]},
         ])
         explanation = self.planning.explain_plan(plan["plan_id"])
         self.assertIn("explanation", explanation)
-        self.assertIn("compare_watch_time", explanation["explanation"])
+        self.assertIn("compare_metric", explanation["explanation"])
         self.assertIn("synthesize_findings", explanation["explanation"])
 
 
@@ -404,6 +421,7 @@ class CostEstimationTests(unittest.TestCase):
         cls.analytics = DuckDBAnalyticsEngine(duck_path)
         cls.metadata.initialize()
         cls.analytics.initialize()
+        _seed_watch_time_metric(cls.metadata)
         cls.planning = PlanningService(cls.metadata)
         cls.service = SemanticLayerService(cls.metadata, cls.analytics)
         cls.session = cls.service.create_session("Cost test", {}, {}, {})
@@ -414,14 +432,14 @@ class CostEstimationTests(unittest.TestCase):
 
     def test_estimate_costs(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_watch_time"},
+            {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
             {"step_type": "synthesize_findings"},
         ])
         result = self.planning.estimate_costs(plan["plan_id"], self.analytics)
         self.assertIn("total_estimated_cost", result)
         self.assertIn("cost_estimates", result)
         self.assertGreater(result["total_estimated_cost"], 0)
-        # compare_watch_time should have a cost, synthesize should be 0
+        # compare_metric should have a cost, synthesize should be 0
         self.assertIsNotNone(result["steps"][0]["estimated_cost"])
         self.assertIn("estimated_cost_detail", result["steps"][0])
         self.assertEqual(result["steps"][1]["estimated_cost"], 0)
@@ -436,7 +454,7 @@ class CostEstimationTests(unittest.TestCase):
     def test_budget_check_within(self) -> None:
         session = self.service.create_session("Budget test", {}, {"max_rows_scanned": 999999999}, {})
         plan = self.planning.draft_plan(session["session_id"], [
-            {"step_type": "compare_watch_time"},
+            {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
         ])
         self.planning.estimate_costs(plan["plan_id"], self.analytics)
         result = self.planning.check_budget(plan["plan_id"], session["session_id"])
@@ -446,7 +464,7 @@ class CostEstimationTests(unittest.TestCase):
     def test_budget_check_exceeded(self) -> None:
         session = self.service.create_session("Budget tight", {}, {"max_rows_scanned": 1}, {})
         plan = self.planning.draft_plan(session["session_id"], [
-            {"step_type": "compare_watch_time"},
+            {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
         ])
         self.planning.estimate_costs(plan["plan_id"], self.analytics)
         result = self.planning.check_budget(plan["plan_id"], session["session_id"])
@@ -465,6 +483,23 @@ class PlanningAPITests(unittest.TestCase):
         from fastapi.testclient import TestClient
         get_seeded_duckdb_path(db_path)
         cls.client = TestClient(create_app(db_path))
+        # Seed a published metric for compare_metric steps
+        entity_resp = cls.client.post("/semantic/entities", json={
+            "name": "session",
+            "display_name": "Session",
+            "keys": ["session_id"],
+        })
+        entity_id = entity_resp.json()["entity_id"]
+        cls.client.post(f"/semantic/entities/{entity_id}/publish")
+        metric_resp = cls.client.post("/semantic/metrics", json={
+            "name": "watch_time",
+            "display_name": "Watch Time",
+            "definition_sql": "avg(play_duration_seconds)",
+            "dimensions": ["platform", "app_version", "network_type", "content_type"],
+            "entity_id": entity_id,
+        })
+        metric_id = metric_resp.json()["metric_id"]
+        cls.client.post(f"/semantic/metrics/{metric_id}/publish")
         cls.session_id = cls.client.post(
             "/sessions", json={"goal": "Plan API test."},
         ).json()["session_id"]
@@ -478,8 +513,8 @@ class PlanningAPITests(unittest.TestCase):
         # Draft
         resp = self.client.post(f"/sessions/{self.session_id}/plans", json={
             "steps": [
-                {"step_type": "compare_watch_time"},
-                {"step_type": "analyze_qoe", "dependencies": [0]},
+                {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
+                {"step_type": "profile_table", "params": {"table_name": "analytics.watch_events"}, "dependencies": [0]},
                 {"step_type": "synthesize_findings", "dependencies": [0, 1]},
             ],
         })
@@ -521,7 +556,7 @@ class PlanningAPITests(unittest.TestCase):
 
     def test_estimate_costs_via_api(self) -> None:
         resp = self.client.post(f"/sessions/{self.session_id}/plans", json={
-            "steps": [{"step_type": "compare_watch_time"}],
+            "steps": [{"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}}],
         })
         plan_id = resp.json()["plan_id"]
 
@@ -535,7 +570,7 @@ class PlanningAPITests(unittest.TestCase):
             "budget": {"max_rows_scanned": 999999999},
         }).json()
         resp = self.client.post(f"/sessions/{session['session_id']}/plans", json={
-            "steps": [{"step_type": "compare_watch_time"}],
+            "steps": [{"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}}],
         })
         plan_id = resp.json()["plan_id"]
 
@@ -548,14 +583,14 @@ class PlanningAPITests(unittest.TestCase):
 
     def test_patch_plan_via_api(self) -> None:
         resp = self.client.post(f"/sessions/{self.session_id}/plans", json={
-            "steps": [{"step_type": "compare_watch_time"}],
+            "steps": [{"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}}],
         })
         plan_id = resp.json()["plan_id"]
 
         resp = self.client.patch(f"/sessions/{self.session_id}/plans/{plan_id}", json={
             "steps": [
-                {"step_type": "compare_watch_time"},
-                {"step_type": "analyze_qoe"},
+                {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
+                {"step_type": "profile_table", "params": {"table_name": "analytics.watch_events"}},
             ],
         })
         self.assertEqual(resp.status_code, 200)

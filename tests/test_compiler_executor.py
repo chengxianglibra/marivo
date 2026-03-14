@@ -60,32 +60,12 @@ class CompilerTests(unittest.TestCase):
         self.assertIn("delta_pct", query)
         self.assertIn("analytics.watch_events", query)
 
-    def test_compile_complex_step_queries(self) -> None:
-        period_params = ["c1", "c2", "b1", "b2", "b1", "c2"]
-
-        watch = compile_step(
-            AnalysisStepIR(index=0, step_type="compare_watch_time_top_slices", params={}),
-            engine_type="duckdb",
-            semantic_context={"period_params": period_params},
-        )
-        qoe = compile_step(
-            AnalysisStepIR(index=1, step_type="analyze_qoe", params={}),
-            engine_type="duckdb",
-            semantic_context={"period_params": period_params},
-        )
-        rec = compile_step(
-            AnalysisStepIR(index=2, step_type="analyze_recommendation", params={}),
-            engine_type="duckdb",
-            semantic_context={"period_params": period_params},
-        )
-
-        self.assertIn("current_watch_time", watch.sql)
-        self.assertIn("analytics.watch_events", watch.sql)
-        self.assertEqual(watch.params, period_params)
-        self.assertIn("current_first_frame_ms", qoe.sql)
-        self.assertIn("analytics.player_qoe", qoe.sql)
-        self.assertIn("delta_ctr_pct", rec.sql)
-        self.assertIn("analytics.recommendation_events", rec.sql)
+    def test_compile_unsupported_step_raises(self) -> None:
+        with self.assertRaises(ValueError):
+            compile_step(
+                AnalysisStepIR(index=0, step_type="nonexistent_step", params={}),
+                engine_type="duckdb",
+            )
 
 
 class ExecutorTests(unittest.TestCase):
@@ -103,18 +83,26 @@ class ExecutorTests(unittest.TestCase):
         self.assertIsNotNone(engine.last_sql)
         self.assertIn("CAST(play_duration_seconds AS DOUBLE)", engine.last_sql)
 
-    def test_execute_compiled_translates_complex_ads_query(self) -> None:
+    def test_execute_compiled_translates_compare_metric(self) -> None:
         engine = FakeEngine()
         compiled = compile_step(
-            AnalysisStepIR(index=0, step_type="analyze_ads", params={}),
+            AnalysisStepIR(
+                index=0,
+                step_type="compare_metric",
+                params={"metric_name": "watch_time", "table_name": "analytics.watch_events"},
+            ),
             engine_type="trino",
-            semantic_context={"period_params": ["c1", "c2", "b1", "b2", "b1", "c2"]},
+            semantic_context={
+                "metric_sql": "avg(play_duration_seconds)",
+                "dimensions": ["platform"],
+                "period_params": ["c1", "c2", "b1", "b2", "b1", "c2"],
+            },
         )
 
         execute_compiled(engine, compiled)
 
         self.assertIsNotNone(engine.last_sql)
-        self.assertIn("CAST(preroll_timeout AS DOUBLE)", engine.last_sql)
+        self.assertIn("analytics.watch_events", engine.last_sql)
 
 
 if __name__ == "__main__":

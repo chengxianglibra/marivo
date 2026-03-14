@@ -19,75 +19,47 @@ from app.evidence_engine.schemas import Claim, Recommendation
 def synthesize_claims(
     observations: list[dict[str, Any]],
 ) -> tuple[list[Claim], list[Recommendation], list[dict[str, Any]]]:
-    watch_observations = [obs for obs in observations if obs["type"] == "metric_change"]
-    qoe_observations = [obs for obs in observations if obs["type"] == "qoe_regression"]
-    ad_observations = [obs for obs in observations if obs["type"] == "ad_regression"]
-    recommendation_observations = [obs for obs in observations if obs["type"] == "recommendation_signal"]
+    metric_observations = [obs for obs in observations if obs["type"] == "metric_change"]
     funnel_observations = [obs for obs in observations if obs["type"] == "funnel_drop"]
     contribution_observations = [obs for obs in observations if obs["type"] == "contribution_shift"]
     anomaly_observations = [obs for obs in observations if obs["type"] == "anomaly_detection"]
 
-    if not watch_observations:
+    if not metric_observations:
         return [], [], []
 
-    primary_watch = min(watch_observations, key=lambda item: float(item["payload"]["delta_pct"]))
-    impacted_slice = primary_watch["subject"]["slice"]
+    primary_metric = min(metric_observations, key=lambda item: float(item["payload"]["delta_pct"]))
+    impacted_slice = primary_metric["subject"]["slice"]
 
-    qoe_support = next(
-        (
-            obs
-            for obs in qoe_observations
-            if slice_matches(obs["subject"]["slice"], impacted_slice) and float(obs["payload"]["delta_pct"]) >= 10.0
-        ),
-        None,
-    )
-    ad_support = next(
-        (
-            obs
-            for obs in ad_observations
-            if slice_matches(obs["subject"]["slice"], impacted_slice) and float(obs["payload"]["delta_rate"]) >= 0.05
-        ),
-        None,
-    )
-    recommendation_signal = next(
-        (obs for obs in recommendation_observations if slice_matches(obs["subject"]["slice"], impacted_slice)),
-        None,
-    )
-
-    supports = [primary_watch["observation_id"]]
+    supports = [primary_metric["observation_id"]]
     support_reasons: list[str] = []
     consistency_factors = [1.0]
     contradiction_penalty = 0.0
 
-    if qoe_support:
-        supports.append(qoe_support["observation_id"])
-        support_reasons.append("playback QoE regression")
-        consistency_factors.append(1.0)
-    else:
-        consistency_factors.append(0.45)
+    # Incorporate additional metric_change observations that match the impacted slice
+    for obs in metric_observations:
+        if obs is primary_metric:
+            continue
+        if slice_matches(obs["subject"]["slice"], impacted_slice):
+            supports.append(obs["observation_id"])
+            metric_name = obs.get("subject", {}).get("metric", "metric")
+            support_reasons.append(f"{metric_name} change")
+            consistency_factors.append(0.9)
 
-    if ad_support:
-        supports.append(ad_support["observation_id"])
-        support_reasons.append("higher preroll timeout rate")
-        consistency_factors.append(0.9)
-    else:
-        consistency_factors.append(0.45)
-
-    # Incorporate funnel observations — a significant funnel drop strengthens the claim
+    # Incorporate funnel observations -- a significant funnel drop strengthens the claim
     for obs in funnel_observations:
         if obs["significance"]["practical_significance"]:
             supports.append(obs["observation_id"])
             support_reasons.append(f"funnel drop at {obs['payload']['worst_stage']}")
             consistency_factors.append(0.85)
 
-    # Incorporate contribution observations — a significant share shift strengthens the claim
+    # Incorporate contribution observations -- a significant share shift strengthens the claim
     for obs in contribution_observations:
         if obs["significance"]["practical_significance"]:
             supports.append(obs["observation_id"])
             support_reasons.append(f"contribution shift in {obs['payload']['biggest_shift_segment']}")
             consistency_factors.append(0.80)
 
-    # Incorporate anomaly observations — anomalies in the impacted slice strengthen the claim
+    # Incorporate anomaly observations -- anomalies in the impacted slice strengthen the claim
     for obs in anomaly_observations:
         if obs["significance"]["practical_significance"]:
             supports.append(obs["observation_id"])
@@ -95,43 +67,11 @@ def synthesize_claims(
             consistency_factors.append(0.90)
 
     contradicts: list[str] = []
-    recommendation_claims: list[Claim] = []
-    if recommendation_signal:
-        ctr_delta = float(recommendation_signal["payload"]["delta_ctr_pct"])
-        if ctr_delta >= 0.0:
-            supports.append(recommendation_signal["observation_id"])
-            consistency_factors.append(0.8)
-            recommendation_claims.append(
-                {
-                    "claim_id": f"claim_{uuid4().hex[:12]}",
-                    "type": "counter_hypothesis",
-                    "text": (
-                        "Recommendation quality is unlikely to be the primary driver because CTR stayed flat or improved "
-                        "for the impacted traffic slice."
-                    ),
-                    "scope": {"slice": impacted_slice},
-                    "confidence": 0.0,
-                    "status": "supported",
-                    "supporting_observations": [recommendation_signal["observation_id"]],
-                    "contradicting_observations": [],
-                    "confidence_breakdown": {
-                        "_model": "counter_hypothesis",
-                        "_ctr_delta_pct": round(ctr_delta, 2),
-                        "effect_strength": round(min(1.0, max(ctr_delta, 0.0) / 5.0), 2),
-                        "consistency": 0.8,
-                        "sample_score": round(min(1.0, recommendation_signal["significance"]["sample_size"] / 150.0), 2),
-                        "data_quality_score": 0.95,
-                    },
-                }
-            )
-        else:
-            contradiction_penalty += 0.15
-            contradicts.append(recommendation_signal["observation_id"])
 
-    effect_strength = min(1.0, abs(float(primary_watch["payload"]["delta_pct"])) / 20.0)
+    effect_strength = min(1.0, abs(float(primary_metric["payload"]["delta_pct"])) / 20.0)
     consistency = sum(consistency_factors) / len(consistency_factors)
-    sample_score = min(1.0, primary_watch["significance"]["sample_size"] / 150.0)
-    data_quality_score = 0.95 if primary_watch["quality"]["sample_size_ok"] else 0.60
+    sample_score = min(1.0, primary_metric["significance"]["sample_size"] / 150.0)
+    data_quality_score = 0.95 if primary_metric["quality"]["sample_size_ok"] else 0.60
     slice_label = (
         f'{impacted_slice["platform"].title()} {impacted_slice["app_version"]} '
         f'{impacted_slice["network_type"]} {impacted_slice["content_type"]}-video'
@@ -141,7 +81,7 @@ def synthesize_claims(
     primary_claim = {
         "claim_id": f"claim_{uuid4().hex[:12]}",
         "type": "root_cause_candidate",
-        "text": f"Watch time decline is concentrated in {slice_label} traffic, with {reason_label} acting as the leading driver.",
+        "text": f"Metric decline is concentrated in {slice_label} traffic, with {reason_label} acting as the leading driver.",
         "scope": {"slice": impacted_slice},
         "confidence": 0.0,
         "status": "supported",
@@ -156,5 +96,5 @@ def synthesize_claims(
         },
     }
 
-    claims = [primary_claim, *recommendation_claims]
+    claims = [primary_claim]
     return claims, [], []

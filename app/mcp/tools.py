@@ -22,13 +22,11 @@ from app.mcp.models import (
     SearchCatalogInput,
     SubmitJobInput,
     ValidatePlanInput,
-    WorkflowInput,
 )
 from app.mcp.renderers import (
     render_catalog_markdown,
     render_evidence_markdown,
     render_step_markdown,
-    render_workflow_markdown,
 )
 
 
@@ -84,16 +82,6 @@ def register_tools(mcp: FastMCP) -> None:
         data = await get_client().run_step(params.session_id, params.step_type, params=params.params)
         summary = data.get("summary", f"Ran step {params.step_type} for session {params.session_id}.")
         return format_tool_response(params.response_format, summary, data, render_step_markdown(data))
-
-    @mcp.tool(
-        name="omnidb_run_watch_time_workflow",
-        annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": True},
-    )
-    async def omnidb_run_watch_time_workflow(params: WorkflowInput) -> dict[str, Any]:
-        """Run the end-to-end watch-time-drop workflow for an existing OmniDB session."""
-        data = await get_client().run_watch_time_workflow(params.session_id)
-        summary = data.get("final_summary", f"Ran watch-time workflow for session {params.session_id}.")
-        return format_tool_response(params.response_format, summary, data, render_workflow_markdown(data))
 
     @mcp.tool(
         name="omnidb_get_evidence",

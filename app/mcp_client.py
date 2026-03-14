@@ -59,9 +59,6 @@ class OmniDBApiClient:
     async def run_step(self, session_id: str, step_type: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         return await self._request("POST", f"/sessions/{session_id}/steps/{step_type}", json=params)
 
-    async def run_watch_time_workflow(self, session_id: str) -> dict[str, Any]:
-        return await self._request("POST", f"/sessions/{session_id}/workflow/watch-time-drop")
-
     async def get_evidence(self, session_id: str) -> dict[str, Any]:
         return await self._request("GET", f"/sessions/{session_id}/evidence")
 

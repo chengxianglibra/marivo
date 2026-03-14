@@ -42,21 +42,6 @@ def render_step_markdown(data: dict[str, Any]) -> str:
     )
 
 
-def render_workflow_markdown(data: dict[str, Any]) -> str:
-    claims = "\n".join(f"- {claim['text']} (confidence={claim['confidence']})" for claim in data.get("claims", []))
-    recommendations = "\n".join(
-        f"- [{recommendation['priority']}] {recommendation['action_text']}" for recommendation in data.get("recommendations", [])
-    )
-    return (
-        "# Watch time drop workflow\n\n"
-        f"{data.get('final_summary', 'No final summary available.')}\n\n"
-        "## Claims\n"
-        f"{claims or '- None'}\n\n"
-        "## Recommendations\n"
-        f"{recommendations or '- None'}"
-    )
-
-
 def render_evidence_markdown(data: dict[str, Any]) -> str:
     claims = "\n".join(f"- {claim['text']} (confidence={claim['confidence']})" for claim in data.get("claims", []))
     edges = "\n".join(

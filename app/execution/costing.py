@@ -17,12 +17,6 @@ STEP_BYTES_PER_ROW = {
     "sample_rows": 256,
     "profile_table": 160,
     "compare_metric": 96,
-    "compare_watch_time": 96,
-    "compare_watch_time_top_slices": 96,
-    "compare_watch_time_overall": 96,
-    "analyze_qoe": 96,
-    "analyze_ads": 96,
-    "analyze_recommendation": 96,
     "synthesize_findings": 0,
 }
 

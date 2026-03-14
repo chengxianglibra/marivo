@@ -17,19 +17,6 @@ if False:  # pragma: no cover
     from app.routing import QueryRouter
 
 
-ANALYSIS_STEPS = {
-    "compare_watch_time",
-    "analyze_qoe",
-    "analyze_ads",
-    "analyze_recommendation",
-}
-
-OPTIONAL_STEPS = {
-    "analyze_ads",
-    "analyze_recommendation",
-}
-
-
 class ReplanningService:
     """Deterministic Phase 2 replanning rules.
 
@@ -86,7 +73,7 @@ class ReplanningService:
             )
 
         if (
-            step.step_type in ANALYSIS_STEPS
+            step.step_type not in {"sample_rows", "profile_table", "synthesize_findings"}
             and observation_count == 0
             and claim_count == 0
             and recommendation_count == 0
@@ -202,7 +189,7 @@ class ReplanningService:
         if (
             feedback.code in {"insufficient_evidence", "conflicting_evidence"}
             and supplementary_step is not None
-            and step.step_type in ANALYSIS_STEPS
+            and step.step_type not in {"sample_rows", "profile_table", "synthesize_findings"}
         ):
             trigger = ReplanTrigger(
                 code=feedback.code,

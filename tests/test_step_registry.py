@@ -29,7 +29,7 @@ class StepRegistryWiringTests(unittest.TestCase):
         supported = service.step_registry.supported_step_types()
 
         self.assertEqual(set(supported), VALID_STEP_TYPES)
-        self.assertIn("compare_watch_time", supported)
+        self.assertIn("compare_metric", supported)
         self.assertIn("sample_rows", supported)
         self.assertTrue(set(PRIMITIVE_STEP_TYPES).issubset(set(supported)))
         self.assertTrue(set(COMPOSITE_STEP_TYPES).issubset(set(supported)))

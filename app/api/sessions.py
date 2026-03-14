@@ -47,14 +47,6 @@ def run_step(
         raise http_error(error) from error
 
 
-@router.post("/sessions/{session_id}/workflow/watch-time-drop")
-def run_watch_time_drop(session_id: str, request: Request) -> dict[str, object]:
-    try:
-        return get_services(request).service.run_watch_time_drop_workflow(session_id)
-    except KeyError as error:
-        raise HTTPException(status_code=404, detail=str(error)) from error
-
-
 @router.get("/sessions/{session_id}/evidence")
 def evidence_graph(session_id: str, request: Request) -> dict[str, object]:
     try:

@@ -44,10 +44,7 @@ class RunStepInput(MCPBaseModel):
     session_id: str = Field(..., min_length=5, description="Session identifier returned by omnidb_create_session.")
     step_type: str = Field(
         ...,
-        description=(
-            "Step to run. Supported values: compare_watch_time, analyze_qoe, analyze_ads, "
-            "analyze_recommendation, synthesize_findings, compare_metric, profile_table, sample_rows."
-        ),
+        description="Step to run. Supported values: compare_metric, profile_table, sample_rows, synthesize_findings.",
     )
     params: dict[str, Any] | None = Field(
         default=None,
@@ -57,14 +54,6 @@ class RunStepInput(MCPBaseModel):
             "profile_table requires {table_name}."
         ),
     )
-    response_format: ResponseFormat = Field(
-        default=ResponseFormat.JSON,
-        description="Output format: 'json' for structured data or 'markdown' for a concise human-readable summary.",
-    )
-
-
-class WorkflowInput(MCPBaseModel):
-    session_id: str = Field(..., min_length=5, description="Session identifier returned by omnidb_create_session.")
     response_format: ResponseFormat = Field(
         default=ResponseFormat.JSON,
         description="Output format: 'json' for structured data or 'markdown' for a concise human-readable summary.",
@@ -143,7 +132,7 @@ class ExecutePlanInput(MCPBaseModel):
 
 class SubmitJobInput(MCPBaseModel):
     session_id: str = Field(..., min_length=5, description="Session identifier.")
-    job_type: str = Field(..., description="Job type: 'step', 'workflow', or 'plan'.")
+    job_type: str = Field(..., description="Job type: 'step' or 'plan'.")
     payload: dict[str, Any] = Field(default_factory=dict, description="Job payload, e.g. {step_type, params} or {plan_id}.")
     response_format: ResponseFormat = Field(
         default=ResponseFormat.JSON,

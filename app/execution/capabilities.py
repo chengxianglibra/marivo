@@ -25,12 +25,6 @@ _DEFAULT_STEP_TYPES = (
     "sample_rows",
     "profile_table",
     "compare_metric",
-    "compare_watch_time",
-    "compare_watch_time_top_slices",
-    "compare_watch_time_overall",
-    "analyze_qoe",
-    "analyze_ads",
-    "analyze_recommendation",
     "synthesize_findings",
 )
 

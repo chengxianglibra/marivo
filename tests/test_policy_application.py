@@ -60,14 +60,17 @@ class PolicyApplicationTests(unittest.TestCase):
 
     def test_run_step_persists_governance_context_in_provenance(self) -> None:
         policy = self.governance.create_policy(
-            "ios_only_compare",
+            "ios_only_profile",
             "row_filter",
             definition={"predicate": "platform = 'ios'"},
-            scope={"step_types": ["compare_watch_time"]},
+            scope={"step_types": ["profile_table"]},
         )
         session_id = self.client.post("/sessions", json={"goal": "policy provenance"}).json()["session_id"]
 
-        response = self.client.post(f"/sessions/{session_id}/steps/compare_watch_time", json={})
+        response = self.client.post(
+            f"/sessions/{session_id}/steps/profile_table",
+            json={"table_name": "analytics.watch_events"},
+        )
 
         self.governance.delete_policy(policy["policy_id"])
 
@@ -78,7 +81,7 @@ class PolicyApplicationTests(unittest.TestCase):
             """
             SELECT provenance_json
             FROM steps
-            WHERE session_id = ? AND step_type = 'compare_watch_time'
+            WHERE session_id = ? AND step_type = 'profile_table'
             ORDER BY created_at DESC
             LIMIT 1
             """,

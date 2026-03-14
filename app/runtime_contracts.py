@@ -3,20 +3,9 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Protocol
 
-DEFAULT_STEP_TABLES = {
-    "compare_watch_time": "analytics.watch_events",
-    "compare_watch_time_top_slices": "analytics.watch_events",
-    "compare_watch_time_overall": "analytics.watch_events",
-    "analyze_qoe": "analytics.player_qoe",
-    "analyze_ads": "analytics.ad_events",
-    "analyze_recommendation": "analytics.recommendation_events",
-}
-
 
 class JobExecutor(Protocol):
     def run_step(self, session_id: str, step_type: str, params: dict[str, Any] | None = None) -> dict[str, Any]: ...
-
-    def run_watch_time_drop_workflow(self, session_id: str) -> dict[str, Any]: ...
 
 
 class PlanExecutor(Protocol):
