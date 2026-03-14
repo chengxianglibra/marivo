@@ -1137,11 +1137,11 @@ renderers.approvals = async () => {
         const st = a.status || 'pending';
         const isPending = st === 'pending';
         const actions = isPending
-          ? `<button class="btn btn-sm btn-success approve-btn" data-id="${a.approval_id}">Approve</button>
-             <button class="btn btn-sm btn-danger reject-btn" data-id="${a.approval_id}">Reject</button>`
+          ? `<button class="btn btn-sm btn-success approve-btn" data-id="${a.request_id}">Approve</button>
+             <button class="btn btn-sm btn-danger reject-btn" data-id="${a.request_id}">Reject</button>`
           : '<span style="color:var(--color-text-muted);">-</span>';
         return `<tr>
-          <td><code style="font-size:var(--font-size-sm);">${esc(truncate(a.approval_id || '', 20))}</code></td>
+          <td><code style="font-size:var(--font-size-sm);">${esc(truncate(a.request_id || '', 20))}</code></td>
           <td><code style="font-size:var(--font-size-sm);">${esc(truncate(a.session_id || '', 20))}</code></td>
           <td><code style="font-size:var(--font-size-sm);">${esc(truncate(a.recommendation_id || '', 20))}</code></td>
           <td>${statusBadge(st)}</td>
