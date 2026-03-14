@@ -371,22 +371,37 @@ class SemanticLayerService:
         step_id = self._new_step_id()
 
         metric_sql = self.resolve_metric_sql(metric_name)
-        dimensions = self.resolve_metric_dimensions(metric_name)
-        if metric_sql is None or dimensions is None:
+        all_dimensions = self.resolve_metric_dimensions(metric_name)
+        if metric_sql is None or all_dimensions is None:
             raise ValueError(f"Metric '{metric_name}' not found or not published in semantic_metrics")
 
-        date_column = params.get("date_column", "event_date")
+        # Infer date column BEFORE dimension selection so it can be excluded
+        date_column = params.get("date_column") or self._infer_date_column(all_dimensions)
+
+        # Allow caller to select a subset of dimensions for grouping
+        requested_dims = params.get("dimensions")
+        if requested_dims:
+            invalid = set(requested_dims) - set(all_dimensions)
+            if invalid:
+                raise ValueError(f"Invalid dimensions {invalid}; valid: {all_dimensions}")
+
+        dimensions = self._comparison_dimensions(
+            all_dimensions, date_column, requested=requested_dims,
+        )
         obs_type = params.get("observation_type", "metric_change")
         limit = params.get("limit", 3)
 
         short_name = table_name.split(".")[-1]
         engine, engine_type, qualified = self._resolve_engine([short_name])
         qualified_table = qualified.get(short_name, table_name)
-        current_start, current_end, baseline_start, baseline_end = self._period_bounds(
+        current_start, current_end, baseline_start, baseline_end, date_fmt = self._period_bounds(
             engine, table_name=qualified_table, date_column=date_column,
         )
 
-        period_params = [current_start, current_end, baseline_start, baseline_end, baseline_start, current_end]
+        def _fmt(d: date) -> str | date:
+            return d.strftime(date_fmt) if date_fmt else d
+
+        period_params = [_fmt(current_start), _fmt(current_end), _fmt(baseline_start), _fmt(baseline_end), _fmt(baseline_start), _fmt(current_end)]
         compiled_query = self._compile_step_with_feedback(
             from_legacy_step(
                 0,
@@ -408,7 +423,7 @@ class SemanticLayerService:
                 "period_params": period_params,
             },
         )
-        rows = execute_compiled(engine, compiled_query).rows
+        rows = [r for r in execute_compiled(engine, compiled_query).rows if r.get("delta_pct") is not None]
 
         observations = self.evidence_pipeline.extract_observations(
             "comparison_rows",
@@ -425,7 +440,7 @@ class SemanticLayerService:
                 },
                 "quality_builder": lambda row: {
                     "freshness_ok": True,
-                    "sample_size_ok": min(row["current_sessions"], row["baseline_sessions"]) >= 150,
+                    "sample_size_ok": min(row["current_sessions"] or 0, row["baseline_sessions"] or 0) >= 150,
                 },
             },
         )
@@ -610,23 +625,103 @@ class SemanticLayerService:
     def _assert_session_exists(self, session_id: str) -> None:
         self.session_manager.assert_session_exists(session_id)
 
+    _TEMPORAL_DIMENSIONS: frozenset[str] = frozenset({
+        "log_date", "event_date", "dt", "date", "day",
+        "log_hour", "event_hour", "hour", "minute",
+        "event_time", "timestamp", "ts",
+    })
+
+    _MAX_DEFAULT_DIMENSIONS: int = 5
+
+    @staticmethod
+    def _infer_date_column(dimensions: list[str]) -> str:
+        """Infer the date column from a metric's semantic dimensions.
+
+        Checks for common date column names in priority order and falls back
+        to ``event_date`` when no match is found.
+        """
+        candidates = ("log_date", "event_date", "dt", "date", "day")
+        for candidate in candidates:
+            if candidate in dimensions:
+                return candidate
+        return "event_date"
+
+    @staticmethod
+    def _comparison_dimensions(
+        all_dimensions: list[str],
+        date_column: str,
+        *,
+        requested: list[str] | None = None,
+    ) -> list[str]:
+        """Select dimensions suitable for a comparison GROUP BY.
+
+        * Always excludes *date_column* (grouping by the period-splitting
+          column produces NULL pivots).
+        * When the caller supplied explicit *requested* dimensions, only
+          *date_column* is removed — the caller made a deliberate choice.
+        * When no explicit dimensions are requested, all temporal
+          dimensions (``_TEMPORAL_DIMENSIONS``) are stripped and the result
+          is capped at ``_MAX_DEFAULT_DIMENSIONS``.
+        """
+        if requested:
+            return [d for d in requested if d != date_column]
+
+        excluded = SemanticLayerService._TEMPORAL_DIMENSIONS | {date_column}
+        dims = [d for d in all_dimensions if d not in excluded]
+        return dims[:SemanticLayerService._MAX_DEFAULT_DIMENSIONS]
+
+    @staticmethod
+    def _detect_date_format(raw_value: Any) -> str | None:
+        """Detect whether a raw date value is YYYYMMDD or ISO format.
+
+        Returns a strftime format string if the value is a compact date
+        string, or ``None`` for native DATE / ISO strings.
+        """
+        if isinstance(raw_value, str) and len(raw_value) == 8 and raw_value.isdigit():
+            return "%Y%m%d"
+        return None
+
     def _period_bounds(
         self,
         engine: AnalyticsEngine | None = None,
         table_name: str = "analytics.watch_events",
         date_column: str = "event_date",
-    ) -> tuple[date, date, date, date]:
+    ) -> tuple[date, date, date, date, str | None]:
+        """Compute current and baseline period boundaries.
+
+        Returns ``(current_start, current_end, baseline_start, baseline_end, date_fmt)``
+        where *date_fmt* is a strftime pattern (e.g. ``'%Y%m%d'``) when
+        the column stores dates as compact strings, or ``None`` when
+        native DATE / ISO strings are used.  Callers must apply the
+        format when building parameterised queries.
+        """
         engine = engine or self.analytics
-        row = engine.query_rows(
-            f"SELECT MAX({date_column}) AS max_date FROM {table_name}"
-        )[0]
-        current_end = row["max_date"]
+        try:
+            row = engine.query_rows(
+                f"SELECT MAX({date_column}) AS max_date FROM {table_name}"
+            )[0]
+        except Exception:
+            # Trino clusters may require a partition filter on date columns.
+            # Fall back to a bounded query covering the last 90 days using
+            # both YYYYMMDD and YYYY-MM-DD formats so the filter works
+            # regardless of the column's storage format.
+            cutoff = date.today() - timedelta(days=90)
+            cutoff_compact = cutoff.strftime("%Y%m%d")
+            cutoff_iso = cutoff.isoformat()
+            row = engine.query_rows(
+                f"SELECT MAX({date_column}) AS max_date FROM {table_name} "
+                f"WHERE {date_column} >= '{cutoff_compact}' "
+                f"OR {date_column} >= '{cutoff_iso}'"
+            )[0]
+        raw_max = row["max_date"]
+        date_fmt = self._detect_date_format(raw_max)
+        current_end = raw_max
         if isinstance(current_end, str):
             current_end = date.fromisoformat(current_end)
         current_start = current_end - timedelta(days=13)
         baseline_end = current_start - timedelta(days=1)
         baseline_start = baseline_end - timedelta(days=13)
-        return current_start, current_end, baseline_start, baseline_end
+        return current_start, current_end, baseline_start, baseline_end, date_fmt
 
     def _load_observations(self, session_id: str) -> list[dict[str, Any]]:
         rows = self.metadata.query_rows(

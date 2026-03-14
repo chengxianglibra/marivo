@@ -24,10 +24,24 @@ def build_comparison_query(
     order: str = "ASC",
     limit: int = 3,
 ) -> str:
-    """Build a current-vs-baseline comparison query from semantic metric inputs."""
+    """Build a current-vs-baseline comparison query from semantic metric inputs.
+
+    When *dimensions* is empty, an aggregate-only comparison is produced
+    (no GROUP BY, single row with overall current vs baseline).
+    """
 
     del metric_name
-    dim_cols = ", ".join(dimensions)
+
+    if dimensions:
+        dim_cols = ", ".join(dimensions)
+        group_by_period = f"GROUP BY period, {dim_cols}"
+        group_by_dims = f"GROUP BY {dim_cols}"
+        select_dims = f"{dim_cols},"
+    else:
+        group_by_period = "GROUP BY period"
+        group_by_dims = ""
+        select_dims = ""
+
     return f"""
         WITH periodized AS (
             SELECT
@@ -35,7 +49,6 @@ def build_comparison_query(
                     WHEN {date_column} BETWEEN ? AND ? THEN 'current'
                     WHEN {date_column} BETWEEN ? AND ? THEN 'baseline'
                 END AS period,
-                {dim_cols},
                 *
             FROM {table_name}
             WHERE {date_column} BETWEEN ? AND ?
@@ -43,27 +56,27 @@ def build_comparison_query(
         by_period AS (
             SELECT
                 period,
-                {dim_cols},
+                {select_dims}
                 {metric_sql} AS metric_value,
                 COUNT(*) AS session_count
             FROM periodized
-            GROUP BY period, {dim_cols}
+            {group_by_period}
         ),
         pivoted AS (
             SELECT
-                {dim_cols},
+                {select_dims}
                 MAX(CASE WHEN period = 'current' THEN metric_value END) AS current_value,
                 MAX(CASE WHEN period = 'baseline' THEN metric_value END) AS baseline_value,
                 MAX(CASE WHEN period = 'current' THEN session_count END) AS current_sessions,
                 MAX(CASE WHEN period = 'baseline' THEN session_count END) AS baseline_sessions
             FROM by_period
-            GROUP BY {dim_cols}
+            {group_by_dims}
         )
         SELECT
-            {dim_cols},
+            {select_dims}
             ROUND(current_value, 2) AS current_value,
             ROUND(baseline_value, 2) AS baseline_value,
-            ROUND(((current_value - baseline_value) / baseline_value) * 100, 2) AS delta_pct,
+            ROUND(((current_value - baseline_value) / NULLIF(baseline_value, 0)) * 100, 2) AS delta_pct,
             current_sessions,
             baseline_sessions
         FROM pivoted

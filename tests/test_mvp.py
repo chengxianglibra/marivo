@@ -475,5 +475,113 @@ class MCPWrapperTests(unittest.TestCase):
         self.assertIn("entities", response["data"])
 
 
+class ComparisonDimensionsTests(unittest.TestCase):
+    """Tests for _comparison_dimensions static method."""
+
+    def test_excludes_date_column(self) -> None:
+        from app.service import SemanticLayerService
+        dims = SemanticLayerService._comparison_dimensions(
+            ["platform", "log_date", "app_version"],
+            date_column="log_date",
+        )
+        self.assertNotIn("log_date", dims)
+        self.assertEqual(dims, ["platform", "app_version"])
+
+    def test_excludes_temporal_dimensions_when_no_requested(self) -> None:
+        from app.service import SemanticLayerService
+        dims = SemanticLayerService._comparison_dimensions(
+            ["platform", "log_date", "log_hour", "app_version", "network_type"],
+            date_column="log_date",
+        )
+        self.assertNotIn("log_date", dims)
+        self.assertNotIn("log_hour", dims)
+        self.assertEqual(dims, ["platform", "app_version", "network_type"])
+
+    def test_caps_at_max_default_dimensions(self) -> None:
+        from app.service import SemanticLayerService
+        all_dims = [f"dim_{i}" for i in range(10)]
+        dims = SemanticLayerService._comparison_dimensions(
+            all_dims, date_column="event_date",
+        )
+        self.assertEqual(len(dims), SemanticLayerService._MAX_DEFAULT_DIMENSIONS)
+
+    def test_explicit_requested_only_excludes_date_column(self) -> None:
+        """When caller specifies dimensions, only the date_column is stripped."""
+        from app.service import SemanticLayerService
+        dims = SemanticLayerService._comparison_dimensions(
+            ["platform", "log_date", "log_hour"],
+            date_column="log_date",
+            requested=["log_hour", "platform"],
+        )
+        # log_hour is kept because caller explicitly asked for it
+        self.assertIn("log_hour", dims)
+        self.assertIn("platform", dims)
+        self.assertNotIn("log_date", dims)
+
+    def test_empty_after_temporal_exclusion(self) -> None:
+        """All dimensions are temporal → returns empty list."""
+        from app.service import SemanticLayerService
+        dims = SemanticLayerService._comparison_dimensions(
+            ["log_date", "log_hour"],
+            date_column="log_date",
+        )
+        self.assertEqual(dims, [])
+
+
+class TemporalDimensionIntegrationTests(unittest.TestCase):
+    """Integration test: compare_metric with temporal dimensions still returns results."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        db_path = Path(cls.temp_dir.name) / "temporal_test.duckdb"
+        get_seeded_duckdb_path(db_path)
+        cls.client = TestClient(create_app(db_path))
+
+        # Seed a metric whose dimensions include the date column
+        entity_resp = cls.client.post("/semantic/entities", json={
+            "name": "session_temporal",
+            "display_name": "Session",
+            "keys": ["session_id"],
+        })
+        entity_id = entity_resp.json()["entity_id"]
+        cls.client.post(f"/semantic/entities/{entity_id}/publish")
+
+        metric_resp = cls.client.post("/semantic/metrics", json={
+            "name": "watch_time_temporal",
+            "display_name": "Watch Time (temporal dims)",
+            "definition_sql": "avg(play_duration_seconds)",
+            "dimensions": ["event_date", "platform", "app_version"],
+            "entity_id": entity_id,
+        })
+        metric_id = metric_resp.json()["metric_id"]
+        cls.client.post(f"/semantic/metrics/{metric_id}/publish")
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.client.close()
+        cls.temp_dir.cleanup()
+
+    def test_compare_metric_with_temporal_dims_returns_results(self) -> None:
+        """compare_metric should auto-exclude temporal dims and return rows."""
+        session_id = self.client.post(
+            "/sessions", json={"goal": "Test temporal dim exclusion."},
+        ).json()["session_id"]
+
+        resp = self.client.post(
+            f"/sessions/{session_id}/steps/compare_metric",
+            json={
+                "metric_name": "watch_time_temporal",
+                "table_name": "analytics.watch_events",
+            },
+        )
+        self.assertEqual(resp.status_code, 200, resp.json())
+        result = resp.json()
+        self.assertEqual(result["step_type"], "compare_metric")
+        # Should NOT say "no results" — temporal dimensions were excluded
+        self.assertNotIn("no results", result["summary"])
+        self.assertGreaterEqual(len(result["observations"]), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
