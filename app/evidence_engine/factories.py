@@ -4,13 +4,26 @@ from typing import Any
 from uuid import uuid4
 
 
-def build_slice(row: dict[str, Any]) -> dict[str, str]:
-    _SLICE_KEYS = ("platform", "app_version", "network_type", "content_type")
-    return {k: row[k] for k in _SLICE_KEYS if k in row}
+_AGGREGATE_FIELDS = frozenset({
+    "current_value", "baseline_value", "delta_pct",
+    "current_sessions", "baseline_sessions",
+    "metric_value", "session_count", "row_count",
+    "period",
+})
+
+
+def build_slice(row: dict[str, Any], dimensions: list[str] | None = None) -> dict[str, str]:
+    if dimensions is not None:
+        return {k: row[k] for k in dimensions if k in row}
+    # Fallback: derive slice keys from row data minus known aggregate fields
+    return {k: v for k, v in row.items() if k not in _AGGREGATE_FIELDS and v is not None}
 
 
 def slice_matches(left: dict[str, Any], right: dict[str, Any]) -> bool:
-    return all(left.get(key) == right.get(key) for key in ("platform", "app_version", "network_type", "content_type"))
+    common_keys = set(left) & set(right)
+    if not common_keys:
+        return not left and not right
+    return all(left.get(key) == right.get(key) for key in common_keys)
 
 
 def make_observation(
@@ -19,13 +32,14 @@ def make_observation(
     row: dict[str, Any],
     payload: dict[str, Any],
     quality: dict[str, Any],
+    dimensions: list[str] | None = None,
 ) -> dict[str, Any]:
     return {
         "observation_id": f"obs_{uuid4().hex[:12]}",
         "type": observation_type,
         "subject": {
             "metric": metric,
-            "slice": build_slice(row),
+            "slice": build_slice(row, dimensions),
         },
         "payload": payload,
         "significance": {
