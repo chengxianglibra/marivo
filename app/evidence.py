@@ -72,10 +72,10 @@ def synthesize_claims(
     consistency = sum(consistency_factors) / len(consistency_factors)
     sample_score = min(1.0, primary_metric["significance"]["sample_size"] / 150.0)
     data_quality_score = 0.95 if primary_metric["quality"]["sample_size_ok"] else 0.60
-    slice_label = (
-        f'{impacted_slice["platform"].title()} {impacted_slice["app_version"]} '
-        f'{impacted_slice["network_type"]} {impacted_slice["content_type"]}-video'
-    )
+    if impacted_slice:
+        slice_label = " / ".join(f"{k}={v}" for k, v in impacted_slice.items())
+    else:
+        slice_label = "overall"
     reason_label = " and ".join(support_reasons) if support_reasons else "localized traffic changes"
 
     primary_claim = {

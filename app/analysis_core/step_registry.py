@@ -25,5 +25,8 @@ class StepRunnerRegistry:
     def run(self, session_id: str, step_type: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         return self.get(step_type)(session_id, params)
 
+    def keys(self) -> list[str]:
+        return list(self._runners)
+
     def supported_step_types(self) -> tuple[str, ...]:
         return tuple(sorted(self._runners))

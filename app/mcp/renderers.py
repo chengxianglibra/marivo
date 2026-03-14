@@ -36,11 +36,12 @@ def render_step_markdown(data: dict[str, Any]) -> str:
     for observation in observations[:5]:
         slice_info = observation.get("subject", {}).get("slice", {})
         payload = observation.get("payload", {})
+        if slice_info:
+            slice_label = " / ".join(f"{k}={v}" for k, v in slice_info.items())
+        else:
+            slice_label = "overall"
         observation_lines.append(
-            "- "
-            f"{observation.get('type')} for "
-            f"{slice_info.get('platform')} {slice_info.get('app_version')} "
-            f"{slice_info.get('network_type')} {slice_info.get('content_type')}: "
+            f"- {observation.get('type')} for {slice_label}: "
             f"{json.dumps(payload, ensure_ascii=False, sort_keys=True)}"
         )
     return (

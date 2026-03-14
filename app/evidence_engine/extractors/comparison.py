@@ -25,6 +25,8 @@ class ComparisonRowExtractor(ObservationExtractor):
         }
         quality_builder = context.get("quality_builder")
 
+        dimensions = context.get("dimensions")
+
         observations: list[Observation] = []
         for row in rows:
             payload = {
@@ -44,6 +46,7 @@ class ComparisonRowExtractor(ObservationExtractor):
                     dict(row),
                     payload,
                     quality,
+                    dimensions=dimensions,
                 )
             )
         return observations

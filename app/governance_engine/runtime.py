@@ -92,6 +92,7 @@ class GovernanceRuntime:
         session_id: str,
         step_type: str,
         params: dict[str, Any] | None = None,
+        tables: list[str] | None = None,
     ) -> dict[str, Any]:
         del session_id
         policies = self.list_policies(enabled_only=True)
@@ -107,6 +108,16 @@ class GovernanceRuntime:
             scope = policy.get("scope", {})
             if scope.get("step_types") and step_type not in scope["step_types"]:
                 continue
+
+            # Table-scope matching: skip policy if it defines scope.tables
+            # and none of the queried tables match
+            scope_tables = scope.get("tables")
+            if scope_tables:
+                queried_tables = set(tables or [])
+                if params and params.get("table_name"):
+                    queried_tables.add(str(params["table_name"]))
+                if queried_tables and not queried_tables & set(scope_tables):
+                    continue
 
             policy_type = policy["policy_type"]
             if policy_type == "aggregate_only":
@@ -326,7 +337,7 @@ class GovernanceRuntime:
             execution_stage="governance",
             governance_scope=step_type,
         ):
-            policy_result = self.check_policies(session_id, step_type, params)
+            policy_result = self.check_policies(session_id, step_type, params, tables=tables)
             all_violations = list(policy_result["violations"])
 
             quality_warnings: list[dict[str, str]] = []
