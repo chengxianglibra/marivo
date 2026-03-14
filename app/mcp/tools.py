@@ -81,7 +81,7 @@ def register_tools(mcp: FastMCP) -> None:
     )
     async def omnidb_run_step(params: RunStepInput) -> dict[str, Any]:
         """Run one supported analysis step for an existing OmniDB session."""
-        data = await get_client().run_step(params.session_id, params.step_type)
+        data = await get_client().run_step(params.session_id, params.step_type, params=params.params)
         summary = data.get("summary", f"Ran step {params.step_type} for session {params.session_id}.")
         return format_tool_response(params.response_format, summary, data, render_step_markdown(data))
 

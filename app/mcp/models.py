@@ -44,7 +44,18 @@ class RunStepInput(MCPBaseModel):
     session_id: str = Field(..., min_length=5, description="Session identifier returned by omnidb_create_session.")
     step_type: str = Field(
         ...,
-        description="Step to run. Supported values: compare_watch_time, analyze_qoe, analyze_ads, analyze_recommendation, synthesize_findings.",
+        description=(
+            "Step to run. Supported values: compare_watch_time, analyze_qoe, analyze_ads, "
+            "analyze_recommendation, synthesize_findings, compare_metric, profile_table, sample_rows."
+        ),
+    )
+    params: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Optional step parameters forwarded to the FastAPI service as the request body. "
+            "For example, compare_metric requires {metric_name, table_name}; "
+            "profile_table requires {table_name}."
+        ),
     )
     response_format: ResponseFormat = Field(
         default=ResponseFormat.JSON,
