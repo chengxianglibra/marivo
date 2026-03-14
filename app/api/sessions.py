@@ -45,6 +45,8 @@ def run_step(
         return get_services(request).service.run_step(session_id, step_type, params=body)
     except (KeyError, ValueError) as error:
         raise http_error(error) from error
+    except Exception as error:
+        raise HTTPException(status_code=502, detail=f"Engine execution error: {error}") from error
 
 
 @router.get("/sessions/{session_id}/evidence")
