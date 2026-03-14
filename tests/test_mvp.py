@@ -186,15 +186,16 @@ class QueryRouterWiredServiceTests(unittest.TestCase):
         self.assertIn("summary", result)
 
     def test_resolve_engine_returns_tuple(self) -> None:
-        """_resolve_engine should return (engine, engine_type) tuple."""
+        """_resolve_engine should return (engine, engine_type, qualified_names) tuple."""
         service = self.client.app.state.service
         result = service._resolve_engine(["watch_events"])
         self.assertIsInstance(result, tuple)
-        self.assertEqual(len(result), 2)
-        engine, engine_type = result
+        self.assertEqual(len(result), 3)
+        engine, engine_type, qualified = result
         self.assertIsInstance(engine_type, str)
         # Default fallback should be duckdb
         self.assertEqual(engine_type, "duckdb")
+        self.assertIsInstance(qualified, dict)
 
     def test_provenance_uses_resolved_engine_type(self) -> None:
         """Step provenance should reflect the resolved engine type."""
