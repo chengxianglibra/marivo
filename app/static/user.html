@@ -349,15 +349,20 @@ renderers.catalog = async () => {
     area.innerHTML = '<span class="spinner"></span>';
     try {
       const res = await localApi.resolveTerm(name);
+      const sem = res.semantic_object || {};
       let html = '<div class="resolve-grid">';
       // Left: definition
       html += '<div class="card" style="margin-bottom:0;">';
       html += '<h2 style="font-size:var(--font-size-base);">Definition</h2>';
       html += `<dl class="detail-meta">
-        <dt>Name</dt><dd>${esc(res.name || '')}</dd>
-        <dt>Display Name</dt><dd>${esc(res.display_name || '')}</dd>
-        <dt>Type</dt><dd>${statusBadge(res.type || '')}</dd>
-        <dt>Description</dt><dd>${esc(res.description || '')}</dd>
+        <dt>Name</dt><dd>${esc(sem.name || '')}</dd>
+        <dt>Display Name</dt><dd>${esc(sem.display_name || '')}</dd>
+        <dt>Resolved Type</dt><dd>${statusBadge(res.resolved_type || '')}</dd>
+        <dt>Status</dt><dd>${statusBadge(sem.status || '')}</dd>
+        <dt>Description</dt><dd>${esc(sem.description || '')}</dd>
+        ${sem.definition_sql ? `<dt>Definition SQL</dt><dd><code>${esc(sem.definition_sql)}</code></dd>` : ''}
+        ${sem.dimensions ? `<dt>Dimensions</dt><dd>${esc(sem.dimensions.join(', '))}</dd>` : ''}
+        ${sem.keys ? `<dt>Keys</dt><dd>${esc(sem.keys.join(', '))}</dd>` : ''}
       </dl>`;
       html += '</div>';
       // Right: engine info
@@ -452,25 +457,25 @@ renderers.catalog = async () => {
 
     if (entities.length) {
       html += `<h3 style="font-size:var(--font-size-base);font-weight:600;margin:0 0 var(--space-sm);">Entities</h3>`;
-      html += `<table><thead><tr><th>Name</th><th>Display Name</th><th>Status</th><th>Description</th></tr></thead><tbody>${
+      html += `<table><thead><tr><th>Name</th><th>Keys</th></tr></thead><tbody>${
         entities.map(e => `<tr>
-          <td><strong>${esc(e.name)}</strong></td><td>${esc(e.display_name || '')}</td><td>${statusBadge(e.status || '')}</td><td>${esc(truncate(e.description || '', 60))}</td>
+          <td><strong>${esc(e.name || e.id || '')}</strong></td><td><code>${esc((e.keys || []).join(', '))}</code></td>
         </tr>`).join('')
       }</tbody></table>`;
     }
     if (metrics.length) {
       html += `<h3 style="font-size:var(--font-size-base);font-weight:600;margin:var(--space-lg) 0 var(--space-sm);">Metrics</h3>`;
-      html += `<table><thead><tr><th>Name</th><th>Display Name</th><th>Status</th><th>Description</th></tr></thead><tbody>${
+      html += `<table><thead><tr><th>Name</th><th>Label</th><th>Definition</th><th>Dimensions</th></tr></thead><tbody>${
         metrics.map(m => `<tr>
-          <td><strong>${esc(m.name)}</strong></td><td>${esc(m.display_name || '')}</td><td>${statusBadge(m.status || '')}</td><td>${esc(truncate(m.description || '', 60))}</td>
+          <td><strong>${esc(m.name || m.id || '')}</strong></td><td>${esc(m.label || m.display_name || '')}</td><td><code>${esc(m.definition || '')}</code></td><td>${esc((m.dimensions || []).join(', '))}</td>
         </tr>`).join('')
       }</tbody></table>`;
     }
     if (assets.length) {
       html += `<h3 style="font-size:var(--font-size-base);font-weight:600;margin:var(--space-lg) 0 var(--space-sm);">Assets</h3>`;
-      html += `<table><thead><tr><th>Name</th><th>Type</th><th>FQN</th></tr></thead><tbody>${
+      html += `<table><thead><tr><th>Name</th><th>Engine</th><th>Kind</th><th>Row Count</th></tr></thead><tbody>${
         assets.map(a => `<tr>
-          <td><strong>${esc(a.name || a.native_name || '')}</strong></td><td>${statusBadge(a.type || a.object_type || '')}</td><td><code>${esc(a.fqn || '')}</code></td>
+          <td><strong>${esc(a.id || a.name || '')}</strong></td><td>${esc(a.engine || '')}</td><td>${statusBadge(a.kind || a.type || '')}</td><td>${a.row_count != null ? Number(a.row_count).toLocaleString() : 'N/A'}</td>
         </tr>`).join('')
       }</tbody></table>`;
     }
@@ -735,13 +740,19 @@ function renderEvidence(area, ev) {
   if (observations.length) {
     html += `<table><thead><tr><th></th><th>ID</th><th>Type</th><th>Metric</th><th>Slice</th><th>Significance</th></tr></thead><tbody>`;
     observations.forEach((o, idx) => {
+      const subj = o.subject || {};
+      const metric = subj.metric || '';
+      const sliceObj = subj.slice || {};
+      const sliceStr = typeof sliceObj === 'string' ? sliceObj : Object.entries(sliceObj).map(([k,v]) => `${k}=${v}`).join(', ');
+      const sig = o.significance || {};
+      const sigStr = sig.practical_significance ? 'significant' : sig.practical_significance === false ? 'not significant' : '';
       html += `<tr>
         <td><button class="expand-btn" data-expand="obs-${idx}">&#9654;</button></td>
         <td><code>${esc(truncate(o.observation_id || '', 20))}</code></td>
-        <td>${statusBadge(o.observation_type || '')}</td>
-        <td>${esc(o.metric || '')}</td>
-        <td>${esc(o.slice || o.dimension_slice || '')}</td>
-        <td>${esc(o.significance || '')}</td>
+        <td>${statusBadge(o.type || '')}</td>
+        <td>${esc(metric)}</td>
+        <td>${esc(sliceStr)}</td>
+        <td>${statusBadge(sigStr)}</td>
       </tr>`;
       html += `<tr class="expand-row" id="obs-${idx}"><td colspan="6">${jsonPre(o)}</td></tr>`;
     });
@@ -790,7 +801,7 @@ function renderEvidence(area, ev) {
           <span>Risk: ${esc(r.risk || 'N/A')}</span>
           <span>Impact: ${esc(truncate(r.expected_impact || r.impact || '', 60))}</span>
         </div>
-        ${r.validation_metric ? `<div style="margin-top:var(--space-xs);font-size:var(--font-size-xs);color:var(--color-text-muted);">Validation: ${esc(r.validation_metric)}</div>` : ''}
+        ${r.validation_metric ? `<div style="margin-top:var(--space-xs);font-size:var(--font-size-xs);color:var(--color-text-muted);">Validation: ${esc(typeof r.validation_metric === 'object' ? (r.validation_metric.primary_metric || '') + (r.validation_metric.secondary_metric ? ' / ' + r.validation_metric.secondary_metric : '') : String(r.validation_metric))}</div>` : ''}
       </div>`;
     });
   } else { html += '<p class="empty">No recommendations.</p>'; }
