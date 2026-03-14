@@ -9,7 +9,7 @@ import httpx
 from fastapi.testclient import TestClient
 
 from app.main import create_app
-from app.mcp_client import OmniDBApiClient
+from app.mcp_client import OmniDBApiClient, OmniDBApiError
 from app.mcp_server import ResponseFormat, format_tool_response, render_catalog_markdown
 from tests.shared_fixtures import get_seeded_duckdb_path
 
@@ -423,6 +423,27 @@ class MCPWrapperTests(unittest.TestCase):
 
                 evidence = await api_client.get_evidence(session["session_id"])
                 self.assertTrue(any(edge["edge_type"] == "supports" for edge in evidence["edges"]))
+
+        asyncio.run(exercise_client())
+
+    def test_mcp_client_run_step_with_params(self) -> None:
+        async def exercise_client() -> None:
+            transport = httpx.ASGITransport(app=self.test_app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+                api_client = OmniDBApiClient(client=client)
+                session = await api_client.create_session("Test run_step with params.")
+                # profile_table requires params — validates that params flow through
+                result = await api_client.run_step(
+                    session["session_id"],
+                    "profile_table",
+                    params={"table_name": "analytics.watch_events"},
+                )
+                self.assertEqual(result["step_type"], "profile_table")
+                self.assertIn("artifact_id", result)
+
+                # Without params, compare_metric should return 400
+                with self.assertRaises(OmniDBApiError):
+                    await api_client.run_step(session["session_id"], "compare_metric")
 
         asyncio.run(exercise_client())
 
