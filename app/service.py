@@ -191,7 +191,8 @@ class SemanticLayerService:
             self._routing_feedback_context = None
             result = self.step_registry.run(session_id, normalized, params)
         except KeyError as error:
-            raise ValueError(f"Unsupported step type: {step_type}") from error
+            available = self.step_registry.keys()
+            raise ValueError(f"Unsupported step type: {step_type}. Available: {available}") from error
         finally:
             self._governance_context = None
             self._routing_feedback_context = None
@@ -367,7 +368,6 @@ class SemanticLayerService:
             raise ValueError("compare_metric requires 'metric_name' and 'table_name' params")
 
         step_type = "compare_metric"
-        self._delete_step_outputs(session_id, step_type)
         step_id = self._new_step_id()
 
         metric_sql = self.resolve_metric_sql(metric_name)
@@ -388,15 +388,44 @@ class SemanticLayerService:
         dimensions = self._comparison_dimensions(
             all_dimensions, date_column, requested=requested_dims,
         )
+        if requested_dims and not dimensions:
+            filtered_out = [d for d in requested_dims if d == date_column]
+            raise ValueError(
+                f"Cannot use '{filtered_out[0]}' as comparison dimension because "
+                f"it is the period-splitting column (date_column='{date_column}'). "
+                f"Use a different dimension or omit dimensions for overall aggregate comparison."
+            )
         obs_type = params.get("observation_type", "metric_change")
         limit = params.get("limit", 3)
 
         short_name = table_name.split(".")[-1]
         engine, engine_type, qualified = self._resolve_engine([short_name])
         qualified_table = qualified.get(short_name, table_name)
-        current_start, current_end, baseline_start, baseline_end, date_fmt = self._period_bounds(
-            engine, table_name=qualified_table, date_column=date_column,
-        )
+
+        # Support user-provided period_start/period_end
+        user_period_start = params.get("period_start")
+        user_period_end = params.get("period_end")
+        if user_period_start and user_period_end:
+            # Parse user-provided dates
+            ps = date.fromisoformat(str(user_period_start))
+            pe = date.fromisoformat(str(user_period_end))
+            period_length = (pe - ps).days
+            baseline_end_d = ps - timedelta(days=1)
+            baseline_start_d = baseline_end_d - timedelta(days=period_length)
+            # Detect date format from the engine data
+            try:
+                row = engine.query_rows(
+                    f"SELECT MAX({date_column}) AS max_date FROM {qualified_table}"
+                )[0]
+                date_fmt = self._detect_date_format(row["max_date"])
+            except Exception:
+                date_fmt = self._detect_date_format(str(user_period_start))
+            current_start, current_end = ps, pe
+            baseline_start, baseline_end = baseline_start_d, baseline_end_d
+        else:
+            current_start, current_end, baseline_start, baseline_end, date_fmt = self._period_bounds(
+                engine, table_name=qualified_table, date_column=date_column,
+            )
 
         def _fmt(d: date) -> str | date:
             return d.strftime(date_fmt) if date_fmt else d
@@ -431,6 +460,7 @@ class SemanticLayerService:
             context={
                 "metric": metric_name,
                 "observation_type": obs_type,
+                "dimensions": dimensions,
                 "payload_fields": {
                     "current_value": "current_value",
                     "baseline_value": "baseline_value",
@@ -475,7 +505,6 @@ class SemanticLayerService:
             raise ValueError("profile_table requires 'table_name' param")
 
         step_type = "profile_table"
-        self._delete_step_outputs(session_id, step_type)
         step_id = self._new_step_id()
 
         short_name = table_name.split(".")[-1]
@@ -503,14 +532,35 @@ class SemanticLayerService:
         except Exception:
             columns = []
 
+        # Infer date column + recent value for partition-filtered profiling (Trino)
+        profile_date_column: str | None = None
+        profile_date_value: str | None = None
+        _date_candidates = ("log_date", "event_date", "dt", "date", "day")
+        for dc in _date_candidates:
+            if dc in [c for c in columns]:
+                try:
+                    max_row = engine.query_rows(
+                        f"SELECT MAX({dc}) AS max_date FROM {qualified_table}"
+                    )
+                    if max_row and max_row[0].get("max_date") is not None:
+                        profile_date_column = dc
+                        profile_date_value = str(max_row[0]["max_date"])
+                        break
+                except Exception:
+                    continue
+
         col_profiles = []
         for col in columns[:20]:  # cap at 20 columns for safety
             try:
+                profile_params: dict[str, Any] = {"table_name": qualified_table, "column_name": col}
+                if profile_date_column and profile_date_value:
+                    profile_params["date_column"] = profile_date_column
+                    profile_params["date_value"] = profile_date_value
                 stats_query = self._compile_step_with_feedback(
                     AnalysisStepIR(
                         index=0,
                         step_type="profile_table_column_profile",
-                        params={"table_name": qualified_table, "column_name": col},
+                        params=profile_params,
                     ),
                     engine_type=engine_type,
                 )
@@ -541,13 +591,14 @@ class SemanticLayerService:
             table_name: fully qualified table name
         Optional params:
             limit: number of rows (default: 10)
+            filter: SQL WHERE clause expression (e.g. "status = 'active'")
+            columns: list of column names to select (default: all)
         """
         table_name = params.get("table_name")
         if not table_name:
             raise ValueError("sample_rows requires 'table_name' param")
 
         step_type = "sample_rows"
-        self._delete_step_outputs(session_id, step_type)
         step_id = self._new_step_id()
 
         limit = int(params.get("limit", 10))
@@ -555,10 +606,53 @@ class SemanticLayerService:
         engine, engine_type, qualified = self._resolve_engine([short_name])
         qualified_table = qualified.get(short_name, table_name)
 
+        # Build compiler params with filter/columns passthrough
+        compiler_params: dict[str, Any] = {"table_name": qualified_table, "limit": limit}
+
+        if params.get("filter"):
+            compiler_params["filter"] = params["filter"]
+        if params.get("columns"):
+            compiler_params["columns"] = params["columns"]
+
+        # Auto-detect partition column for Trino-like engines (same logic as profile_table)
+        if not params.get("filter") and not params.get("date_column"):
+            _date_candidates = ("log_date", "event_date", "dt", "date", "day")
+            try:
+                col_query = self._compile_step_with_feedback(
+                    AnalysisStepIR(
+                        index=0,
+                        step_type="profile_table_columns",
+                        params={"table_name": qualified_table, "short_name": short_name},
+                    ),
+                    engine_type=engine_type,
+                )
+                col_rows = execute_compiled(engine, col_query).rows
+                columns_list = [r["column_name"] for r in col_rows]
+                for dc in _date_candidates:
+                    if dc in columns_list:
+                        try:
+                            max_row = engine.query_rows(
+                                f"SELECT MAX({dc}) AS max_date FROM {qualified_table}"
+                            )
+                            if max_row and max_row[0].get("max_date") is not None:
+                                compiler_params["date_column"] = dc
+                                compiler_params["date_value"] = str(max_row[0]["max_date"])
+                                break
+                        except Exception:
+                            continue
+            except Exception:
+                pass
+        elif params.get("date_column"):
+            compiler_params["date_column"] = params["date_column"]
+            if params.get("date_value"):
+                compiler_params["date_value"] = params["date_value"]
+            elif params.get("period_end"):
+                compiler_params["date_value"] = params["period_end"]
+
         compiled_query = self._compile_step_with_feedback(
             from_legacy_step(
                 0,
-                {"step_type": step_type, "params": {"table_name": qualified_table, "limit": limit}},
+                {"step_type": step_type, "params": compiler_params},
             ),
             engine_type=engine_type,
         )

@@ -475,6 +475,60 @@ class MCPWrapperTests(unittest.TestCase):
         self.assertIn("entities", response["data"])
 
 
+class CustomPeriodTests(unittest.TestCase):
+    """Fix 5: compare_metric with user-supplied period_start/period_end."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        db_path = Path(cls.temp_dir.name) / "custom_period.duckdb"
+        get_seeded_duckdb_path(db_path)
+        cls.client = TestClient(create_app(db_path))
+
+        entity_resp = cls.client.post("/semantic/entities", json={
+            "name": "session_period",
+            "display_name": "Session",
+            "keys": ["session_id"],
+        })
+        entity_id = entity_resp.json()["entity_id"]
+        cls.client.post(f"/semantic/entities/{entity_id}/publish")
+
+        metric_resp = cls.client.post("/semantic/metrics", json={
+            "name": "watch_time_period",
+            "display_name": "Watch Time",
+            "definition_sql": "avg(play_duration_seconds)",
+            "dimensions": ["platform", "app_version", "network_type", "content_type"],
+            "entity_id": entity_id,
+        })
+        metric_id = metric_resp.json()["metric_id"]
+        cls.client.post(f"/semantic/metrics/{metric_id}/publish")
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.client.close()
+        cls.temp_dir.cleanup()
+
+    def test_custom_period_bounds(self) -> None:
+        """compare_metric with period_start/period_end should succeed."""
+        session_id = self.client.post(
+            "/sessions", json={"goal": "Test custom period."},
+        ).json()["session_id"]
+
+        resp = self.client.post(
+            f"/sessions/{session_id}/steps/compare_metric",
+            json={
+                "metric_name": "watch_time_period",
+                "table_name": "analytics.watch_events",
+                "period_start": "2025-01-01",
+                "period_end": "2025-01-14",
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        result = resp.json()
+        self.assertEqual(result["step_type"], "compare_metric")
+        self.assertIn("summary", result)
+
+
 class ComparisonDimensionsTests(unittest.TestCase):
     """Tests for _comparison_dimensions static method."""
 
@@ -526,6 +580,135 @@ class ComparisonDimensionsTests(unittest.TestCase):
             date_column="log_date",
         )
         self.assertEqual(dims, [])
+
+
+class MultipleStepRunTests(unittest.TestCase):
+    """Fix 1: multiple runs of the same step type should accumulate observations."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        db_path = Path(cls.temp_dir.name) / "multi_step.duckdb"
+        get_seeded_duckdb_path(db_path)
+        cls.client = TestClient(create_app(db_path))
+
+        # Seed a metric with multiple dimensions
+        entity_resp = cls.client.post("/semantic/entities", json={
+            "name": "session_multi",
+            "display_name": "Session",
+            "keys": ["session_id"],
+        })
+        entity_id = entity_resp.json()["entity_id"]
+        cls.client.post(f"/semantic/entities/{entity_id}/publish")
+
+        metric_resp = cls.client.post("/semantic/metrics", json={
+            "name": "watch_time_multi",
+            "display_name": "Watch Time",
+            "definition_sql": "avg(play_duration_seconds)",
+            "dimensions": ["platform", "app_version", "network_type", "content_type"],
+            "entity_id": entity_id,
+        })
+        metric_id = metric_resp.json()["metric_id"]
+        cls.client.post(f"/semantic/metrics/{metric_id}/publish")
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.client.close()
+        cls.temp_dir.cleanup()
+
+    def test_multiple_compare_metric_preserves_all_observations(self) -> None:
+        """Running compare_metric twice in the same session should keep both sets of observations."""
+        session_id = self.client.post(
+            "/sessions", json={"goal": "Test multiple compare_metric runs."},
+        ).json()["session_id"]
+
+        # First run: group by platform
+        resp1 = self.client.post(
+            f"/sessions/{session_id}/steps/compare_metric",
+            json={
+                "metric_name": "watch_time_multi",
+                "table_name": "analytics.watch_events",
+                "dimensions": ["platform"],
+            },
+        )
+        self.assertEqual(resp1.status_code, 200)
+        obs_count_1 = len(resp1.json()["observations"])
+        self.assertGreaterEqual(obs_count_1, 1)
+
+        # Second run: group by network_type
+        resp2 = self.client.post(
+            f"/sessions/{session_id}/steps/compare_metric",
+            json={
+                "metric_name": "watch_time_multi",
+                "table_name": "analytics.watch_events",
+                "dimensions": ["network_type"],
+            },
+        )
+        self.assertEqual(resp2.status_code, 200)
+        obs_count_2 = len(resp2.json()["observations"])
+        self.assertGreaterEqual(obs_count_2, 1)
+
+        # Evidence graph should contain observations from BOTH runs
+        evidence = self.client.get(f"/sessions/{session_id}/evidence").json()
+        total_obs = len(evidence["observations"])
+        self.assertEqual(total_obs, obs_count_1 + obs_count_2)
+
+        # Should have 2 steps in the evidence
+        compare_steps = [s for s in evidence["steps"] if s["step_type"] == "compare_metric"]
+        self.assertEqual(len(compare_steps), 2)
+
+
+class DimensionDateColumnErrorTests(unittest.TestCase):
+    """Fix 3: requesting date_column as dimension should raise clear error."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        db_path = Path(cls.temp_dir.name) / "dim_error.duckdb"
+        get_seeded_duckdb_path(db_path)
+        cls.client = TestClient(create_app(db_path))
+
+        entity_resp = cls.client.post("/semantic/entities", json={
+            "name": "session_dim_err",
+            "display_name": "Session",
+            "keys": ["session_id"],
+        })
+        entity_id = entity_resp.json()["entity_id"]
+        cls.client.post(f"/semantic/entities/{entity_id}/publish")
+
+        metric_resp = cls.client.post("/semantic/metrics", json={
+            "name": "watch_time_dim_err",
+            "display_name": "Watch Time",
+            "definition_sql": "avg(play_duration_seconds)",
+            "dimensions": ["event_date", "platform", "app_version"],
+            "entity_id": entity_id,
+        })
+        metric_id = metric_resp.json()["metric_id"]
+        cls.client.post(f"/semantic/metrics/{metric_id}/publish")
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.client.close()
+        cls.temp_dir.cleanup()
+
+    def test_dimension_equals_date_column_returns_error(self) -> None:
+        """Requesting dimensions=['event_date'] when event_date is the date column should fail clearly."""
+        session_id = self.client.post(
+            "/sessions", json={"goal": "Test dim=date_column error."},
+        ).json()["session_id"]
+
+        resp = self.client.post(
+            f"/sessions/{session_id}/steps/compare_metric",
+            json={
+                "metric_name": "watch_time_dim_err",
+                "table_name": "analytics.watch_events",
+                "dimensions": ["event_date"],
+            },
+        )
+        self.assertEqual(resp.status_code, 400)
+        detail = resp.json()["detail"]
+        self.assertIn("period-splitting column", detail)
+        self.assertIn("event_date", detail)
 
 
 class TemporalDimensionIntegrationTests(unittest.TestCase):

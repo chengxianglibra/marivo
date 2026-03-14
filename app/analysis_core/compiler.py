@@ -100,8 +100,23 @@ def compile_step(
     if step.step_type == "sample_rows":
         table_name = _require_param(step, "table_name")
         limit = int(params.get("limit", 10))
+
+        # Column selection
+        columns = params.get("columns")
+        columns_clause = ", ".join(columns) if columns else "*"
+
+        # WHERE clause construction
+        where_parts: list[str] = []
+        if params.get("filter"):
+            where_parts.append(str(params["filter"]))
+        date_column = params.get("date_column")
+        date_value = params.get("date_value")
+        if date_column and date_value:
+            where_parts.append(f"{date_column} = '{date_value}'")
+        where_clause = f" WHERE {' AND '.join(where_parts)}" if where_parts else ""
+
         return CompiledQuery(
-            sql=f"SELECT * FROM {table_name} LIMIT {limit}",
+            sql=f"SELECT {columns_clause} FROM {table_name}{where_clause} LIMIT {limit}",
             metadata={**metadata, "table_name": table_name, "limit": limit},
         )
 
@@ -113,22 +128,36 @@ def compile_step(
         )
 
     if step.step_type == "profile_table_columns":
-        short_name = str(params.get("short_name") or _require_param(step, "table_name").split(".")[-1])
+        full_table = _require_param(step, "table_name")
+        short_name = str(params.get("short_name") or full_table.split(".")[-1])
+        parts = full_table.split(".")
+        where_clauses = [f"table_name = '{short_name}'"]
+        if len(parts) >= 3:
+            where_clauses.append(f"table_catalog = '{parts[0]}'")
+            where_clauses.append(f"table_schema = '{parts[1]}'")
+        elif len(parts) == 2:
+            where_clauses.append(f"table_schema = '{parts[0]}'")
+        where_sql = " AND ".join(where_clauses)
         return CompiledQuery(
-            sql=f"SELECT column_name FROM information_schema.columns WHERE table_name = '{short_name}'",
+            sql=f"SELECT column_name FROM information_schema.columns WHERE {where_sql}",
             metadata={**metadata, "short_name": short_name},
         )
 
     if step.step_type == "profile_table_column_profile":
         table_name = _require_param(step, "table_name")
         column_name = _require_param(step, "column_name")
+        date_column = params.get("date_column")
+        date_value = params.get("date_value")
+        where_clause = ""
+        if date_column and date_value:
+            where_clause = f" WHERE {date_column} = '{date_value}'"
         return CompiledQuery(
             sql=f"""
                 SELECT
                     COUNT(*) AS total,
                     COUNT({column_name}) AS non_null,
                     COUNT(DISTINCT {column_name}) AS distinct_count
-                FROM {table_name}
+                FROM {table_name}{where_clause}
             """,
             metadata={**metadata, "table_name": table_name, "column_name": column_name},
         )
