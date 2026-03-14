@@ -205,7 +205,11 @@ def register_tools(mcp: FastMCP) -> None:
     )
     async def omnidb_execute_plan(params: ExecutePlanInput) -> dict[str, Any]:
         """Execute an approved plan. Runs all steps in dependency order."""
-        data = await get_client().execute_plan(params.session_id, params.plan_id)
+        data = await get_client().execute_plan(
+            params.session_id,
+            params.plan_id,
+            continue_on_failure=params.continue_on_failure,
+        )
         results_md = "\n".join(
             f"  {result['index']}. `{result['step_type']}`: {result.get('summary', '')}"
             for result in data.get("step_results", [])

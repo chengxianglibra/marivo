@@ -50,8 +50,11 @@ class RunStepInput(MCPBaseModel):
         default=None,
         description=(
             "Optional step parameters forwarded to the FastAPI service as the request body. "
-            "For example, compare_metric requires {metric_name, table_name}; "
-            "profile_table requires {table_name}."
+            "compare_metric requires {metric_name, table_name} and optionally accepts "
+            "{date_column, dimensions, limit, period_start, period_end}; "
+            "profile_table requires {table_name}; "
+            "sample_rows requires {table_name} and optionally accepts "
+            "{limit, filter, columns, date_column, date_value}."
         ),
     )
     response_format: ResponseFormat = Field(
@@ -124,6 +127,14 @@ class ValidatePlanInput(MCPBaseModel):
 class ExecutePlanInput(MCPBaseModel):
     session_id: str = Field(..., min_length=5, description="Session identifier.")
     plan_id: str = Field(..., min_length=5, description="Plan identifier. Must be in 'approved' status.")
+    continue_on_failure: bool = Field(
+        default=False,
+        description=(
+            "When true, failed steps are recorded but execution continues for "
+            "independent steps. Steps depending on a failed step are marked 'skipped'. "
+            "Plan status becomes 'partial' when some steps succeed and others fail."
+        ),
+    )
     response_format: ResponseFormat = Field(
         default=ResponseFormat.JSON,
         description="Output format: 'json' for structured data or 'markdown' for a concise human-readable summary.",

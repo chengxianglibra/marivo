@@ -87,8 +87,21 @@ class OmniDBApiClient:
     async def validate_plan(self, session_id: str, plan_id: str) -> dict[str, Any]:
         return await self._request("POST", f"/sessions/{session_id}/plans/{plan_id}/validate")
 
-    async def execute_plan(self, session_id: str, plan_id: str) -> dict[str, Any]:
-        return await self._request("POST", f"/sessions/{session_id}/plans/{plan_id}/execute")
+    async def execute_plan(
+        self,
+        session_id: str,
+        plan_id: str,
+        *,
+        continue_on_failure: bool = False,
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {}
+        if continue_on_failure:
+            body["continue_on_failure"] = True
+        return await self._request(
+            "POST",
+            f"/sessions/{session_id}/plans/{plan_id}/execute",
+            json=body if body else None,
+        )
 
     # ── Job endpoints ────────────────────────────────────────────
 

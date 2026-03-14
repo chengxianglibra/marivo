@@ -58,10 +58,20 @@ def approve_plan(session_id: str, plan_id: str, request: Request) -> dict[str, o
 
 
 @router.post("/sessions/{session_id}/plans/{plan_id}/execute")
-def execute_plan(session_id: str, plan_id: str, request: Request) -> dict[str, object]:
+def execute_plan(
+    session_id: str,
+    plan_id: str,
+    request: Request,
+    body: dict[str, Any] | None = None,
+) -> dict[str, object]:
     services = get_services(request)
+    continue_on_failure = (body or {}).get("continue_on_failure", False)
     try:
-        return services.planning_service.execute_plan(plan_id, services.service)
+        return services.planning_service.execute_plan(
+            plan_id,
+            services.service,
+            continue_on_failure=bool(continue_on_failure),
+        )
     except (KeyError, ValueError) as error:
         raise http_error(error) from error
     except Exception as error:

@@ -192,11 +192,22 @@ class PlanningService:
 
     # ── Execution ─────────────────────────────────────────────────
 
-    def execute_plan(self, plan_id: str, service: Any) -> dict[str, Any]:
+    def execute_plan(
+        self,
+        plan_id: str,
+        service: Any,
+        *,
+        continue_on_failure: bool = False,
+    ) -> dict[str, Any]:
         """Execute an approved plan by running steps in dependency order.
 
         Args:
             service: SemanticLayerService instance for running steps
+            continue_on_failure: When True, failed steps are recorded but
+                execution continues for independent steps.  Steps that
+                depend on a failed step are automatically marked
+                ``skipped``.  The plan's final status is ``partial``
+                when some (but not all) steps succeeded.
         """
         total_start = time.perf_counter()
         with observability_context(plan_id=plan_id, execution_stage="planner", planner_id="execute_plan"):
@@ -220,11 +231,36 @@ class PlanningService:
         # Build execution order (topological sort)
         execution_order = self._topological_sort(steps)
         step_results: list[dict[str, Any]] = []
+        failed_indices: set[int] = set()
+
+        def _is_blocked_by_failure(step_def: dict[str, Any]) -> bool:
+            """Check if any transitive dependency has failed."""
+            for dep_idx in step_def.get("dependencies", []):
+                if dep_idx in failed_indices:
+                    return True
+            return False
 
         try:
             for idx in execution_order:
                 step = steps[idx]
                 step_ir = plan_ir.steps[idx]
+
+                # Skip steps whose dependencies failed
+                if continue_on_failure and _is_blocked_by_failure(step):
+                    step["status"] = "skipped"
+                    step["error"] = "Skipped due to failed dependency"
+                    failed_indices.add(idx)
+                    self._update_steps(plan_id, steps)
+                    step_results.append(
+                        {
+                            "index": idx,
+                            "step_type": step_ir.step_type,
+                            "status": "skipped",
+                            "summary": "Skipped due to failed dependency",
+                        }
+                    )
+                    continue
+
                 execution_target = plan_ir.execution_target_for_step(step_ir.index)
                 estimate = self.cost_model.estimate_step(
                     step_ir,
@@ -238,37 +274,60 @@ class PlanningService:
                 step["status"] = "running"
                 self._update_steps(plan_id, steps)
 
-                params = step_ir.params
-                started = datetime.now(timezone.utc)
-                result = service.run_step(session_id, step_ir.step_type, params=params if params else None)
-                duration_ms = (datetime.now(timezone.utc) - started).total_seconds() * 1000
+                try:
+                    params = step_ir.params
+                    started = datetime.now(timezone.utc)
+                    result = service.run_step(session_id, step_ir.step_type, params=params if params else None)
+                    duration_ms = (datetime.now(timezone.utc) - started).total_seconds() * 1000
 
-                step["status"] = "completed"
-                step["result_summary"] = result.get("summary", "")
-                step["actual_cost_feedback"] = self.cost_model.build_actual_feedback(
-                    step_ir,
-                    result,
-                    duration_ms,
-                    estimate=estimate,
-                )
-                self._update_steps(plan_id, steps)
-                step_results.append(
-                    {
-                        "index": idx,
-                        "step_type": step_ir.step_type,
-                        "summary": result.get("summary", ""),
-                        "cost_estimate": self.cost_model.serialize_estimate(estimate),
-                        "actual_cost_feedback": step["actual_cost_feedback"],
-                    }
-                )
+                    step["status"] = "completed"
+                    step["result_summary"] = result.get("summary", "")
+                    step["actual_cost_feedback"] = self.cost_model.build_actual_feedback(
+                        step_ir,
+                        result,
+                        duration_ms,
+                        estimate=estimate,
+                    )
+                    self._update_steps(plan_id, steps)
+                    step_results.append(
+                        {
+                            "index": idx,
+                            "step_type": step_ir.step_type,
+                            "summary": result.get("summary", ""),
+                            "cost_estimate": self.cost_model.serialize_estimate(estimate),
+                            "actual_cost_feedback": step["actual_cost_feedback"],
+                        }
+                    )
+                except Exception as e:
+                    if not continue_on_failure:
+                        step["status"] = "failed"
+                        step["error"] = str(e)
+                        self._update_steps(plan_id, steps)
+                        self._transition(plan_id, "failed")
+                        raise
+                    # Record failure and continue
+                    step["status"] = "failed"
+                    step["error"] = str(e)
+                    failed_indices.add(idx)
+                    self._update_steps(plan_id, steps)
+                    step_results.append(
+                        {
+                            "index": idx,
+                            "step_type": step_ir.step_type,
+                            "status": "failed",
+                            "error": str(e),
+                        }
+                    )
 
-            self._transition(plan_id, "completed")
-        except Exception as e:
-            # Mark current step as failed, plan as failed
-            step["status"] = "failed"
-            step["error"] = str(e)
-            self._update_steps(plan_id, steps)
-            self._transition(plan_id, "failed")
+            # Determine final plan status
+            if failed_indices:
+                completed_count = sum(1 for s in steps if s.get("status") == "completed")
+                final_status = "partial" if completed_count > 0 else "failed"
+            else:
+                final_status = "completed"
+            self._transition(plan_id, final_status)
+        except Exception:
+            # Only reached when continue_on_failure is False and a step failed
             raise
         finally:
             if self.metrics is not None:
@@ -281,7 +340,7 @@ class PlanningService:
 
         return {
             "plan_id": plan_id,
-            "status": "completed",
+            "status": final_status,
             "step_results": step_results,
         }
 

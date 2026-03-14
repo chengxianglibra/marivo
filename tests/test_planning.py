@@ -408,6 +408,94 @@ class PlanExecutionTests(unittest.TestCase):
         self.assertIn("synthesize_findings", explanation["explanation"])
 
 
+class PlanFaultToleranceTests(unittest.TestCase):
+    """Fix 4: Tests for continue_on_failure in plan execution."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        meta_path = Path(cls.temp_dir.name) / "fault.meta.sqlite"
+        duck_path = Path(cls.temp_dir.name) / "fault.duckdb"
+        cls.metadata = SQLiteMetadataStore(meta_path)
+        get_seeded_duckdb_path(duck_path)
+        cls.analytics = DuckDBAnalyticsEngine(duck_path)
+        cls.metadata.initialize()
+        cls.analytics.initialize()
+        _seed_watch_time_metric(cls.metadata)
+        cls.planning = PlanningService(cls.metadata)
+        cls.service = SemanticLayerService(cls.metadata, cls.analytics)
+        cls.session = cls.service.create_session("Fault tolerance test", {}, {}, {})
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.temp_dir.cleanup()
+
+    def test_continue_on_failure_partial(self) -> None:
+        """Plan with a bad step + good step should produce 'partial' status."""
+        plan = self.planning.draft_plan(self.session["session_id"], [
+            # Step 0: will fail (nonexistent table)
+            {"step_type": "profile_table", "params": {"table_name": "analytics.nonexistent_table_xyz"}},
+            # Step 1: should succeed (independent)
+            {"step_type": "profile_table", "params": {"table_name": "analytics.watch_events"}},
+        ])
+        self.planning.validate_plan(plan["plan_id"])
+        self.planning.approve_plan(plan["plan_id"])
+
+        result = self.planning.execute_plan(
+            plan["plan_id"], self.service, continue_on_failure=True,
+        )
+        self.assertEqual(result["status"], "partial")
+        self.assertEqual(len(result["step_results"]), 2)
+        # First step should be failed
+        self.assertEqual(result["step_results"][0]["status"], "failed")
+        # Second step should have succeeded
+        self.assertIn("summary", result["step_results"][1])
+
+    def test_continue_on_failure_skips_dependents(self) -> None:
+        """Steps depending on a failed step should be skipped."""
+        plan = self.planning.draft_plan(self.session["session_id"], [
+            # Step 0: will fail
+            {"step_type": "profile_table", "params": {"table_name": "analytics.nonexistent_table_xyz"}},
+            # Step 1: depends on step 0 → should be skipped
+            {"step_type": "sample_rows", "params": {"table_name": "analytics.watch_events"}, "dependencies": [0]},
+        ])
+        self.planning.validate_plan(plan["plan_id"])
+        self.planning.approve_plan(plan["plan_id"])
+
+        result = self.planning.execute_plan(
+            plan["plan_id"], self.service, continue_on_failure=True,
+        )
+        self.assertEqual(result["status"], "failed")  # all failed/skipped → failed
+        self.assertEqual(result["step_results"][0]["status"], "failed")
+        self.assertEqual(result["step_results"][1]["status"], "skipped")
+
+    def test_continue_on_failure_false_raises(self) -> None:
+        """Default continue_on_failure=False should raise on first failure."""
+        plan = self.planning.draft_plan(self.session["session_id"], [
+            {"step_type": "profile_table", "params": {"table_name": "analytics.nonexistent_table_xyz"}},
+            {"step_type": "profile_table", "params": {"table_name": "analytics.watch_events"}},
+        ])
+        self.planning.validate_plan(plan["plan_id"])
+        self.planning.approve_plan(plan["plan_id"])
+
+        with self.assertRaises(Exception):
+            self.planning.execute_plan(plan["plan_id"], self.service)
+
+    def test_continue_on_failure_all_succeed(self) -> None:
+        """All steps succeed → status should be 'completed', not 'partial'."""
+        plan = self.planning.draft_plan(self.session["session_id"], [
+            {"step_type": "profile_table", "params": {"table_name": "analytics.watch_events"}},
+            {"step_type": "sample_rows", "params": {"table_name": "analytics.watch_events"}, "dependencies": [0]},
+        ])
+        self.planning.validate_plan(plan["plan_id"])
+        self.planning.approve_plan(plan["plan_id"])
+
+        result = self.planning.execute_plan(
+            plan["plan_id"], self.service, continue_on_failure=True,
+        )
+        self.assertEqual(result["status"], "completed")
+
+
 class CostEstimationTests(unittest.TestCase):
     """Tests for cost estimation and budget checks."""
 
@@ -605,6 +693,26 @@ class PlanningAPITests(unittest.TestCase):
         resp = self.client.post(f"/sessions/{self.session_id}/plans/{plan_id}/validate")
         self.assertEqual(resp.status_code, 200)
         self.assertFalse(resp.json()["valid"])
+
+    def test_execute_plan_continue_on_failure_via_api(self) -> None:
+        """continue_on_failure should be accepted by the API and produce partial status."""
+        resp = self.client.post(f"/sessions/{self.session_id}/plans", json={
+            "steps": [
+                {"step_type": "profile_table", "params": {"table_name": "analytics.nonexistent_xyz"}},
+                {"step_type": "profile_table", "params": {"table_name": "analytics.watch_events"}},
+            ],
+        })
+        plan_id = resp.json()["plan_id"]
+
+        self.client.post(f"/sessions/{self.session_id}/plans/{plan_id}/validate")
+        self.client.post(f"/sessions/{self.session_id}/plans/{plan_id}/approve")
+
+        resp = self.client.post(
+            f"/sessions/{self.session_id}/plans/{plan_id}/execute",
+            json={"continue_on_failure": True},
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["status"], "partial")
 
 
 if __name__ == "__main__":

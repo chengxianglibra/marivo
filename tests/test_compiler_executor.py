@@ -97,6 +97,73 @@ class CompilerTests(unittest.TestCase):
         self.assertIn("baseline_value", compiled.sql)
         self.assertEqual(len(compiled.params), 6)
 
+    def test_compile_sample_rows_with_filter(self) -> None:
+        compiled = compile_step(
+            AnalysisStepIR(
+                index=0,
+                step_type="sample_rows",
+                params={
+                    "table_name": "analytics.watch_events",
+                    "limit": 5,
+                    "filter": "status = 'active'",
+                },
+            ),
+            engine_type="duckdb",
+        )
+        self.assertIn("WHERE status = 'active'", compiled.sql)
+        self.assertIn("LIMIT 5", compiled.sql)
+
+    def test_compile_sample_rows_with_columns(self) -> None:
+        compiled = compile_step(
+            AnalysisStepIR(
+                index=0,
+                step_type="sample_rows",
+                params={
+                    "table_name": "analytics.watch_events",
+                    "limit": 3,
+                    "columns": ["session_id", "platform"],
+                },
+            ),
+            engine_type="duckdb",
+        )
+        self.assertIn("session_id, platform", compiled.sql)
+        self.assertNotIn("SELECT *", compiled.sql)
+
+    def test_compile_sample_rows_with_date_filter(self) -> None:
+        compiled = compile_step(
+            AnalysisStepIR(
+                index=0,
+                step_type="sample_rows",
+                params={
+                    "table_name": "analytics.watch_events",
+                    "limit": 10,
+                    "date_column": "log_date",
+                    "date_value": "20260301",
+                },
+            ),
+            engine_type="duckdb",
+        )
+        self.assertIn("log_date = '20260301'", compiled.sql)
+
+    def test_compile_sample_rows_with_filter_and_date(self) -> None:
+        compiled = compile_step(
+            AnalysisStepIR(
+                index=0,
+                step_type="sample_rows",
+                params={
+                    "table_name": "analytics.watch_events",
+                    "limit": 10,
+                    "filter": "platform = 'ios'",
+                    "date_column": "log_date",
+                    "date_value": "20260301",
+                },
+            ),
+            engine_type="duckdb",
+        )
+        self.assertIn("platform = 'ios'", compiled.sql)
+        self.assertIn("log_date = '20260301'", compiled.sql)
+        self.assertIn(" AND ", compiled.sql)
+
     def test_compile_unsupported_step_raises(self) -> None:
         with self.assertRaises(ValueError):
             compile_step(
