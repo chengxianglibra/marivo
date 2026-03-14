@@ -44,7 +44,7 @@ class SemanticLayerService:
     ) -> None:
         self.metadata = metadata_store
         self.analytics = analytics_engine
-        self.query_router = query_router
+        self._query_router = query_router
         self.governance = governance
         self.metrics = metrics
         self.approvals = approvals
@@ -70,6 +70,17 @@ class SemanticLayerService:
             step_executor=_ServiceWorkflowStepExecutor(self),
             approval_service=self.approvals,
         )
+
+    @property
+    def query_router(self) -> QueryRouter | None:
+        return self._query_router
+
+    @query_router.setter
+    def query_router(self, router: QueryRouter | None) -> None:
+        self._query_router = router
+        self.routing_runtime.query_router = router
+        self.replanner.cost_model.query_router = router
+        self.workflow_orchestrator.query_router = router
 
     def create_session(
         self,
@@ -301,17 +312,23 @@ class SemanticLayerService:
 
     # ── Engine resolution ─────────────────────────────────────────────
 
-    def _resolve_engine(self, table_names: list[str]) -> tuple[AnalyticsEngine, str]:
-        """Resolve the analytics engine and its type for the given tables.
+    def _resolve_engine(self, table_names: list[str]) -> tuple[AnalyticsEngine, str, dict[str, str]]:
+        """Resolve the analytics engine, its type, and qualified table names.
 
         Uses QueryRouter when available, falls back to self.analytics.
-        Returns ``(engine, engine_type)`` tuple.
+        Returns ``(engine, engine_type, qualified_names)`` tuple where
+        qualified_names maps native table names to engine-qualified names.
         """
         resolution = self.routing_runtime.resolve_tables(table_names)
         self._routing_feedback_context = (
             resolution.feedback.to_dict() if resolution.feedback is not None else None
         )
-        return resolution.engine, resolution.engine_type
+        qualified = (
+            resolution.route.qualified_names
+            if resolution.route is not None
+            else {}
+        )
+        return resolution.engine, resolution.engine_type, qualified
 
     def _compile_step_with_feedback(
         self,
@@ -362,7 +379,9 @@ class SemanticLayerService:
         obs_type = params.get("observation_type", "metric_change")
         limit = params.get("limit", 3)
 
-        engine, engine_type = self._resolve_engine([table_name.split(".")[-1]])
+        short_name = table_name.split(".")[-1]
+        engine, engine_type, qualified = self._resolve_engine([short_name])
+        qualified_table = qualified.get(short_name, table_name)
         current_start, current_end, baseline_start, baseline_end = self._period_bounds(engine)
 
         period_params = [current_start, current_end, baseline_start, baseline_end, baseline_start, current_end]
@@ -374,7 +393,7 @@ class SemanticLayerService:
                     "params": {
                         **params,
                         "metric_name": metric_name,
-                        "table_name": table_name,
+                        "table_name": qualified_table,
                         "date_column": date_column,
                         "limit": limit,
                     },
@@ -443,10 +462,11 @@ class SemanticLayerService:
         step_id = self._new_step_id()
 
         short_name = table_name.split(".")[-1]
-        engine, engine_type = self._resolve_engine([short_name])
+        engine, engine_type, qualified = self._resolve_engine([short_name])
+        qualified_table = qualified.get(short_name, table_name)
 
         row_count_query = self._compile_step_with_feedback(
-            AnalysisStepIR(index=0, step_type="profile_table_row_count", params={"table_name": table_name}),
+            AnalysisStepIR(index=0, step_type="profile_table_row_count", params={"table_name": qualified_table}),
             engine_type=engine_type,
         )
         row_count_row = execute_compiled(engine, row_count_query).rows[0]
@@ -457,7 +477,7 @@ class SemanticLayerService:
                 AnalysisStepIR(
                     index=0,
                     step_type="profile_table_columns",
-                    params={"table_name": table_name, "short_name": short_name},
+                    params={"table_name": qualified_table, "short_name": short_name},
                 ),
                 engine_type=engine_type,
             )
@@ -473,7 +493,7 @@ class SemanticLayerService:
                     AnalysisStepIR(
                         index=0,
                         step_type="profile_table_column_profile",
-                        params={"table_name": table_name, "column_name": col},
+                        params={"table_name": qualified_table, "column_name": col},
                     ),
                     engine_type=engine_type,
                 )
@@ -515,12 +535,13 @@ class SemanticLayerService:
 
         limit = int(params.get("limit", 10))
         short_name = table_name.split(".")[-1]
-        engine, engine_type = self._resolve_engine([short_name])
+        engine, engine_type, qualified = self._resolve_engine([short_name])
+        qualified_table = qualified.get(short_name, table_name)
 
         compiled_query = self._compile_step_with_feedback(
             from_legacy_step(
                 0,
-                {"step_type": step_type, "params": {"table_name": table_name, "limit": limit}},
+                {"step_type": step_type, "params": {"table_name": qualified_table, "limit": limit}},
             ),
             engine_type=engine_type,
         )
