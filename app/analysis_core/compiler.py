@@ -76,7 +76,7 @@ def build_comparison_query(
             {select_dims}
             ROUND(current_value, 2) AS current_value,
             ROUND(baseline_value, 2) AS baseline_value,
-            ROUND(((current_value - baseline_value) / NULLIF(baseline_value, 0)) * 100, 2) AS delta_pct,
+            ROUND(((current_value - baseline_value) * 1.0 / NULLIF(baseline_value, 0)) * 100, 2) AS delta_pct,
             current_sessions,
             baseline_sessions
         FROM pivoted
@@ -189,6 +189,29 @@ def compile_step(
                 "metric_name": metric_name,
                 "dimensions": list(dimensions),
             },
+        )
+
+    if step.step_type == "aggregate_query":
+        table_name = _require_param(step, "table_name")
+        select_exprs = params.get("select")
+        if not select_exprs or not isinstance(select_exprs, list):
+            raise ValueError("aggregate_query requires 'select' param (list of expressions)")
+        group_by = params.get("group_by")
+        if not group_by or not isinstance(group_by, list):
+            raise ValueError("aggregate_query requires 'group_by' param (list of columns)")
+        where = params.get("where")
+        order_by = params.get("order_by")
+        limit = int(params.get("limit", 100))
+
+        select_clause = ", ".join(select_exprs)
+        where_clause = f" WHERE {where}" if where else ""
+        group_clause = f" GROUP BY {', '.join(group_by)}"
+        order_clause = f" ORDER BY {order_by}" if order_by else ""
+
+        sql = f"SELECT {select_clause} FROM {table_name}{where_clause}{group_clause}{order_clause} LIMIT {limit}"
+        return CompiledQuery(
+            sql=sql,
+            metadata={**metadata, "table_name": table_name, "limit": limit},
         )
 
     raise ValueError(f"Unsupported compilation step type: {step.step_type}")

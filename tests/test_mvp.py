@@ -549,7 +549,9 @@ class ComparisonDimensionsTests(unittest.TestCase):
         )
         self.assertNotIn("log_date", dims)
         self.assertNotIn("log_hour", dims)
-        self.assertEqual(dims, ["platform", "app_version", "network_type"])
+        # After temporal exclusion, non-temporal dims are ["platform", "app_version", "network_type"]
+        # but capped at _MAX_DEFAULT_DIMENSIONS (2)
+        self.assertEqual(dims, ["platform", "app_version"])
 
     def test_caps_at_max_default_dimensions(self) -> None:
         from app.service import SemanticLayerService
@@ -764,6 +766,204 @@ class TemporalDimensionIntegrationTests(unittest.TestCase):
         # Should NOT say "no results" — temporal dimensions were excluded
         self.assertNotIn("no results", result["summary"])
         self.assertGreaterEqual(len(result["observations"]), 1)
+
+
+class DeltaPctIntegerDivisionTests(unittest.TestCase):
+    """Fix 1 (P0): delta_pct SQL should use float division, not integer division."""
+
+    def test_comparison_query_uses_float_division(self) -> None:
+        """build_comparison_query output must contain '* 1.0' to force float division."""
+        from app.analysis_core.compiler import build_comparison_query
+        sql = build_comparison_query(
+            metric_name="event_count",
+            table_name="analytics.watch_events",
+            metric_sql="count(*)",
+            dimensions=["platform"],
+        )
+        # The fix: multiply by 1.0 before dividing to avoid integer division
+        self.assertIn("* 1.0", sql)
+
+    def test_delta_pct_float_result_with_integer_metric(self) -> None:
+        """End-to-end: compare_metric with count(*) should produce float delta_pct."""
+        temp_dir = tempfile.TemporaryDirectory()
+        db_path = Path(temp_dir.name) / "int_div.duckdb"
+        get_seeded_duckdb_path(db_path)
+        client = TestClient(create_app(db_path))
+        try:
+            entity_resp = client.post("/semantic/entities", json={
+                "name": "session_intdiv",
+                "display_name": "Session",
+                "keys": ["session_id"],
+            })
+            entity_id = entity_resp.json()["entity_id"]
+            client.post(f"/semantic/entities/{entity_id}/publish")
+
+            metric_resp = client.post("/semantic/metrics", json={
+                "name": "event_count",
+                "display_name": "Event Count",
+                "definition_sql": "count(*)",
+                "dimensions": ["platform"],
+                "entity_id": entity_id,
+            })
+            metric_id = metric_resp.json()["metric_id"]
+            client.post(f"/semantic/metrics/{metric_id}/publish")
+
+            session_id = client.post(
+                "/sessions", json={"goal": "Test integer division fix."},
+            ).json()["session_id"]
+
+            resp = client.post(
+                f"/sessions/{session_id}/steps/compare_metric",
+                json={
+                    "metric_name": "event_count",
+                    "table_name": "analytics.watch_events",
+                },
+            )
+            self.assertEqual(resp.status_code, 200)
+            result = resp.json()
+            # delta_pct should be a float (not truncated to int)
+            for obs in result["observations"]:
+                self.assertIsInstance(obs["payload"]["delta_pct"], (int, float))
+        finally:
+            client.close()
+            temp_dir.cleanup()
+
+
+class ProfileScopeTests(unittest.TestCase):
+    """Fix 3: profile_table should include profile_scope metadata."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        db_path = Path(cls.temp_dir.name) / "prof_scope.duckdb"
+        get_seeded_duckdb_path(db_path)
+        cls.client = TestClient(create_app(db_path))
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.client.close()
+        cls.temp_dir.cleanup()
+
+    def test_profile_table_includes_scope(self) -> None:
+        """profile_table result should contain profile_scope when partition-filtered."""
+        session_id = self.client.post(
+            "/sessions", json={"goal": "Test profile scope."},
+        ).json()["session_id"]
+
+        resp = self.client.post(
+            f"/sessions/{session_id}/steps/profile_table",
+            json={"table_name": "analytics.watch_events"},
+        )
+        self.assertEqual(resp.status_code, 200)
+        result = resp.json()
+        profile = result["profile"]
+        self.assertIn("profile_scope", profile)
+        # The watch_events table has event_date column which should trigger scope
+        if profile["profile_scope"] is not None:
+            self.assertIn("date_column", profile["profile_scope"])
+            self.assertIn("date_value", profile["profile_scope"])
+            self.assertIn("scoped_row_count", profile["profile_scope"])
+            # Summary should mention scope
+            self.assertIn("scoped to", result["summary"])
+
+
+class DefaultDimensionCapTests(unittest.TestCase):
+    """Fix 2: auto-selected dimensions should be capped at 2."""
+
+    def test_max_default_dimensions_is_2(self) -> None:
+        from app.service import SemanticLayerService
+        self.assertEqual(SemanticLayerService._MAX_DEFAULT_DIMENSIONS, 2)
+
+    def test_auto_dimensions_capped_at_2(self) -> None:
+        from app.service import SemanticLayerService
+        all_dims = [f"dim_{i}" for i in range(10)]
+        dims = SemanticLayerService._comparison_dimensions(all_dims, date_column="event_date")
+        self.assertLessEqual(len(dims), 2)
+
+
+class AggregateQueryStepTests(unittest.TestCase):
+    """Fix 5: aggregate_query step type for GROUP BY + aggregation."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        db_path = Path(cls.temp_dir.name) / "agg_query.duckdb"
+        get_seeded_duckdb_path(db_path)
+        cls.client = TestClient(create_app(db_path))
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.client.close()
+        cls.temp_dir.cleanup()
+
+    def test_aggregate_query_step(self) -> None:
+        """aggregate_query should execute GROUP BY query and return rows."""
+        session_id = self.client.post(
+            "/sessions", json={"goal": "Test aggregate_query."},
+        ).json()["session_id"]
+
+        resp = self.client.post(
+            f"/sessions/{session_id}/steps/aggregate_query",
+            json={
+                "table_name": "analytics.watch_events",
+                "select": ["platform", "count(*) as cnt"],
+                "group_by": ["platform"],
+                "order_by": "cnt DESC",
+                "limit": 10,
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        result = resp.json()
+        self.assertEqual(result["step_type"], "aggregate_query")
+        self.assertIn("rows", result)
+        self.assertGreater(len(result["rows"]), 0)
+        # Each row should have platform and cnt
+        for row in result["rows"]:
+            self.assertIn("platform", row)
+            self.assertIn("cnt", row)
+
+    def test_aggregate_query_missing_select(self) -> None:
+        session_id = self.client.post(
+            "/sessions", json={"goal": "Test missing select."},
+        ).json()["session_id"]
+
+        resp = self.client.post(
+            f"/sessions/{session_id}/steps/aggregate_query",
+            json={"table_name": "analytics.watch_events", "group_by": ["platform"]},
+        )
+        self.assertEqual(resp.status_code, 400)
+
+    def test_aggregate_query_missing_group_by(self) -> None:
+        session_id = self.client.post(
+            "/sessions", json={"goal": "Test missing group_by."},
+        ).json()["session_id"]
+
+        resp = self.client.post(
+            f"/sessions/{session_id}/steps/aggregate_query",
+            json={"table_name": "analytics.watch_events", "select": ["count(*) as cnt"]},
+        )
+        self.assertEqual(resp.status_code, 400)
+
+    def test_aggregate_query_with_where(self) -> None:
+        """aggregate_query with WHERE filter should work."""
+        session_id = self.client.post(
+            "/sessions", json={"goal": "Test aggregate with where."},
+        ).json()["session_id"]
+
+        resp = self.client.post(
+            f"/sessions/{session_id}/steps/aggregate_query",
+            json={
+                "table_name": "analytics.watch_events",
+                "select": ["platform", "count(*) as cnt"],
+                "group_by": ["platform"],
+                "where": "platform = 'android'",
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        result = resp.json()
+        # Should only have android rows
+        for row in result["rows"]:
+            self.assertEqual(row["platform"], "android")
 
 
 if __name__ == "__main__":

@@ -164,6 +164,62 @@ class SynthesizeClaimsWithNewTypesTests(unittest.TestCase):
         self.assertNotIn("obs_funnel_weak", claims[0]["supporting_observations"])
 
 
+class WeightedPrimarySelectionTests(unittest.TestCase):
+    """Fix 4: synthesize_claims should prefer observations with high effect AND high sample size."""
+
+    def test_synthesize_prefers_high_sample_observation(self) -> None:
+        """Two observations with same delta_pct but different sample sizes;
+        the higher-sample one should be chosen as primary."""
+        obs = [
+            {
+                "observation_id": "obs_small",
+                "type": "metric_change",
+                "subject": {"metric": "watch_time", "slice": {"platform": "web"}},
+                "payload": {"delta_pct": -10.0, "current_sessions": 20, "baseline_sessions": 25},
+                "significance": {"sample_size": 20, "practical_significance": True},
+                "quality": {"freshness_ok": True, "sample_size_ok": False},
+            },
+            {
+                "observation_id": "obs_large",
+                "type": "metric_change",
+                "subject": {"metric": "watch_time", "slice": {"platform": "android"}},
+                "payload": {"delta_pct": -10.0, "current_sessions": 5000, "baseline_sessions": 5200},
+                "significance": {"sample_size": 5000, "practical_significance": True},
+                "quality": {"freshness_ok": True, "sample_size_ok": True},
+            },
+        ]
+        claims, _, _ = synthesize_claims(obs)
+        self.assertGreaterEqual(len(claims), 1)
+        # Primary claim should be driven by obs_large (higher sample size)
+        self.assertIn("obs_large", claims[0]["supporting_observations"])
+        self.assertEqual(claims[0]["scope"]["slice"]["platform"], "android")
+
+    def test_overall_trend_claim_with_multiple_metrics(self) -> None:
+        """When multiple distinct metrics are observed, an overall_trend claim should be generated."""
+        obs = [
+            {
+                "observation_id": "obs_wt",
+                "type": "metric_change",
+                "subject": {"metric": "watch_time", "slice": {"platform": "android"}},
+                "payload": {"delta_pct": -12.0, "current_sessions": 300, "baseline_sessions": 310},
+                "significance": {"sample_size": 300, "practical_significance": True},
+                "quality": {"freshness_ok": True, "sample_size_ok": True},
+            },
+            {
+                "observation_id": "obs_vv",
+                "type": "metric_change",
+                "subject": {"metric": "video_views", "slice": {"platform": "android"}},
+                "payload": {"delta_pct": -5.0, "current_sessions": 400, "baseline_sessions": 420},
+                "significance": {"sample_size": 400, "practical_significance": True},
+                "quality": {"freshness_ok": True, "sample_size_ok": True},
+            },
+        ]
+        claims, _, _ = synthesize_claims(obs)
+        trend_claims = [c for c in claims if c["type"] == "overall_trend"]
+        self.assertEqual(len(trend_claims), 1)
+        self.assertIn("2 metrics", trend_claims[0]["text"])
+
+
 class EvidencePipelineTests(unittest.TestCase):
     def test_build_synthesis_adds_support_and_justification_edges(self) -> None:
         observations = [

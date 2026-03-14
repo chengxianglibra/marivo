@@ -13,6 +13,10 @@ STEP_TAXONOMY = {
         "category": "primitive",
         "description": "Return a bounded sample of rows from a table.",
     },
+    "aggregate_query": {
+        "category": "primitive",
+        "description": "Run an ad-hoc GROUP BY + aggregation query on a table.",
+    },
     "synthesize_findings": {
         "category": "composite",
         "description": "Workflow synthesis step that turns observations into claims and recommendations.",

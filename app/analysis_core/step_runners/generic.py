@@ -21,6 +21,10 @@ def register(registry: StepRunnerRegistry, service: "SemanticLayerService") -> N
         "sample_rows",
         lambda session_id, params=None: service._run_sample_rows(session_id, _normalize_params(params)),
     )
+    registry.register(
+        "aggregate_query",
+        lambda session_id, params=None: service._run_aggregate_query(session_id, _normalize_params(params)),
+    )
 
 
 def _normalize_params(params: dict[str, Any] | None) -> dict[str, Any]:
