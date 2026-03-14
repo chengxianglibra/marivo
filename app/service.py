@@ -382,7 +382,9 @@ class SemanticLayerService:
         short_name = table_name.split(".")[-1]
         engine, engine_type, qualified = self._resolve_engine([short_name])
         qualified_table = qualified.get(short_name, table_name)
-        current_start, current_end, baseline_start, baseline_end = self._period_bounds(engine)
+        current_start, current_end, baseline_start, baseline_end = self._period_bounds(
+            engine, table_name=qualified_table, date_column=date_column,
+        )
 
         period_params = [current_start, current_end, baseline_start, baseline_end, baseline_start, current_end]
         compiled_query = self._compile_step_with_feedback(
@@ -608,10 +610,19 @@ class SemanticLayerService:
     def _assert_session_exists(self, session_id: str) -> None:
         self.session_manager.assert_session_exists(session_id)
 
-    def _period_bounds(self, engine: AnalyticsEngine | None = None) -> tuple[date, date, date, date]:
+    def _period_bounds(
+        self,
+        engine: AnalyticsEngine | None = None,
+        table_name: str = "analytics.watch_events",
+        date_column: str = "event_date",
+    ) -> tuple[date, date, date, date]:
         engine = engine or self.analytics
-        row = engine.query_rows("SELECT MAX(event_date) AS max_date FROM analytics.watch_events")[0]
+        row = engine.query_rows(
+            f"SELECT MAX({date_column}) AS max_date FROM {table_name}"
+        )[0]
         current_end = row["max_date"]
+        if isinstance(current_end, str):
+            current_end = date.fromisoformat(current_end)
         current_start = current_end - timedelta(days=13)
         baseline_end = current_start - timedelta(days=1)
         baseline_start = baseline_end - timedelta(days=13)
