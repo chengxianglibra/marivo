@@ -87,51 +87,71 @@ class SemanticLayerService:
         return self.session_manager.get_session(session_id)
 
     def discover_catalog(self) -> dict[str, Any]:
-        tables = ["analytics.watch_events", "analytics.player_qoe", "analytics.ad_events", "analytics.recommendation_events"]
-        table_counts = {t: self.analytics.table_row_count(t) for t in tables}
-        return {
-            "engine": "duckdb",
-            "entities": [
-                {"id": "user", "keys": ["user_id"]},
-                {"id": "session", "keys": ["session_id"]},
-                {"id": "video_session", "keys": ["session_id", "content_type"]},
-            ],
-            "metrics": [
-                {
-                    "id": "watch_time",
-                    "label": "Watch time",
-                    "definition": "avg(play_duration_seconds)",
-                    "dimensions": ["platform", "app_version", "network_type", "content_type"],
-                },
-                {
-                    "id": "first_frame_time",
-                    "label": "First frame time",
-                    "definition": "avg(first_frame_time_ms)",
-                    "dimensions": ["platform", "app_version", "network_type", "content_type"],
-                },
-                {
-                    "id": "preroll_timeout_rate",
-                    "label": "Preroll timeout rate",
-                    "definition": "avg(preroll_timeout)",
-                    "dimensions": ["platform", "app_version", "network_type", "content_type"],
-                },
-                {
-                    "id": "recommendation_ctr",
-                    "label": "Recommendation CTR",
-                    "definition": "sum(clicks) / sum(impressions)",
-                    "dimensions": ["platform", "app_version", "network_type", "content_type"],
-                },
-            ],
-            "assets": [
-                {"id": "watch_events", "engine": "duckdb", "kind": "table", "row_count": table_counts["analytics.watch_events"]},
-                {"id": "player_qoe", "engine": "duckdb", "kind": "table", "row_count": table_counts["analytics.player_qoe"]},
-                {"id": "ad_events", "engine": "duckdb", "kind": "table", "row_count": table_counts["analytics.ad_events"]},
-                {"id": "recommendation_events", "engine": "duckdb", "kind": "table", "row_count": table_counts["analytics.recommendation_events"]},
-            ],
-            "policies": [
+        # Entities — all published semantic entities
+        entity_rows = self.metadata.query_rows(
+            "SELECT name, keys_json FROM semantic_entities WHERE status = 'published' ORDER BY name"
+        )
+        entities = [
+            {"id": row["name"], "keys": json.loads(row["keys_json"])}
+            for row in entity_rows
+        ]
+
+        # Metrics — all published semantic metrics
+        metric_rows = self.metadata.query_rows(
+            "SELECT name, display_name, definition_sql, dimensions_json "
+            "FROM semantic_metrics WHERE status = 'published' ORDER BY name"
+        )
+        metrics = [
+            {
+                "id": row["name"],
+                "label": row["display_name"],
+                "definition": row["definition_sql"],
+                "dimensions": json.loads(row["dimensions_json"]),
+            }
+            for row in metric_rows
+        ]
+
+        # Assets — all synced tables from source_objects
+        asset_rows = self.metadata.query_rows(
+            "SELECT native_name, fqn, source_id FROM source_objects "
+            "WHERE object_type = 'table' ORDER BY fqn"
+        )
+        assets: list[dict[str, Any]] = []
+        for row in asset_rows:
+            asset: dict[str, Any] = {
+                "id": row["native_name"],
+                "kind": "table",
+                "fqn": row["fqn"],
+                "source_id": row["source_id"],
+            }
+            # Best-effort row count from the analytics engine
+            try:
+                asset["row_count"] = self.analytics.table_row_count(row["fqn"])
+            except Exception:
+                try:
+                    asset["row_count"] = self.analytics.table_row_count(
+                        f"analytics.{row['native_name']}"
+                    )
+                except Exception:
+                    asset["row_count"] = None
+            assets.append(asset)
+
+        # Policies — from governance service if available
+        policies: list[str] = []
+        if self.governance:
+            for pol in self.governance.list_policies(enabled_only=True):
+                policies.append(f"{pol['policy_type']}: {pol['name']}")
+        if not policies:
+            policies = [
                 "Results are aggregate-only in the MVP.",
                 "Evidence graph keeps support and contradiction links for every claim.",
-            ],
+            ]
+
+        return {
+            "entities": entities,
+            "metrics": metrics,
+            "assets": assets,
+            "policies": policies,
         }
 
     def run_step(self, session_id: str, step_type: str, params: dict[str, Any] | None = None) -> dict[str, Any]:

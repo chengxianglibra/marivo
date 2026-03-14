@@ -19,6 +19,10 @@ class TrinoCatalogAdapter(CatalogAdapter):
         http_scheme: str = "http",
         catalog: str = "hive",
         schema: str = "default",
+        client_tags: list[str] | None = None,
+        source: str | None = None,
+        http_headers: dict[str, str] | None = None,
+        request_timeout: float = 30.0,
     ) -> None:
         self._host = host
         self._port = port
@@ -27,9 +31,23 @@ class TrinoCatalogAdapter(CatalogAdapter):
         self._http_scheme = http_scheme
         self._catalog = catalog
         self._schema = schema
+        self._client_tags = client_tags
+        self._source = source
+        self._http_headers = http_headers
+        self._request_timeout = request_timeout
 
     def _connect(self) -> Any:
         from trino.dbapi import connect
+
+        # Filter out Trino reserved headers to avoid conflicts with
+        # parameters (client_tags, source) that the client sets internally.
+        _RESERVED_PREFIXES = ("x-trino-",)
+        safe_headers: dict[str, str] | None = None
+        if self._http_headers:
+            safe_headers = {
+                k: v for k, v in self._http_headers.items()
+                if not k.lower().startswith(_RESERVED_PREFIXES)
+            } or None
 
         kwargs: dict[str, Any] = dict(
             host=self._host,
@@ -38,10 +56,17 @@ class TrinoCatalogAdapter(CatalogAdapter):
             http_scheme=self._http_scheme,
             catalog=self._catalog,
             schema=self._schema,
+            request_timeout=self._request_timeout,
         )
         if self._password is not None:
             from trino.auth import BasicAuthentication
             kwargs["auth"] = BasicAuthentication(self._user, self._password)
+        if self._client_tags is not None:
+            kwargs["client_tags"] = self._client_tags
+        if self._source is not None:
+            kwargs["source"] = self._source
+        if safe_headers is not None:
+            kwargs["http_headers"] = safe_headers
         return connect(**kwargs)
 
     def _query(self, sql: str, params: list[Any] | None = None) -> list[dict[str, Any]]:

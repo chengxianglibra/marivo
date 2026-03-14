@@ -27,13 +27,20 @@ class DuckDBMvpTests(unittest.TestCase):
         cls.client.close()
         cls.temp_dir.cleanup()
 
-    def test_catalog_exposes_duckdb_assets(self) -> None:
+    def test_catalog_exposes_dynamic_catalog(self) -> None:
         response = self.client.get("/catalog")
         self.assertEqual(response.status_code, 200)
         payload = response.json()
-        self.assertEqual(payload["engine"], "duckdb")
-        self.assertTrue(any(metric["id"] == "watch_time" for metric in payload["metrics"]))
-        self.assertTrue(all(asset["row_count"] > 0 for asset in payload["assets"]))
+        # Top-level keys are present
+        self.assertIn("entities", payload)
+        self.assertIn("metrics", payload)
+        self.assertIn("assets", payload)
+        self.assertIn("policies", payload)
+        # Lists are returned (may be empty in a fresh test DB)
+        self.assertIsInstance(payload["entities"], list)
+        self.assertIsInstance(payload["metrics"], list)
+        self.assertIsInstance(payload["assets"], list)
+        self.assertIsInstance(payload["policies"], list)
 
     def test_evidence_graph_contains_support_edges(self) -> None:
         session_id = self.client.post(
@@ -414,7 +421,8 @@ class MCPWrapperTests(unittest.TestCase):
             async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
                 api_client = OmniDBApiClient(client=client)
                 catalog = await api_client.get_catalog()
-                self.assertEqual(catalog["engine"], "duckdb")
+                self.assertIn("metrics", catalog)
+                self.assertIn("entities", catalog)
 
                 session = await api_client.create_session("Test MCP client step call.")
                 result = await api_client.run_step(
@@ -450,9 +458,10 @@ class MCPWrapperTests(unittest.TestCase):
 
     def test_tool_response_formatting_supports_markdown(self) -> None:
         catalog_data = {
-            "engine": "duckdb",
+            "entities": [{"id": "user", "keys": ["user_id"]}],
             "metrics": [{"id": "watch_time", "definition": "avg(play_duration_seconds)"}],
-            "assets": [{"id": "watch_events", "kind": "table", "row_count": 10}],
+            "assets": [{"id": "watch_events", "kind": "table", "fqn": "analytics.watch_events", "row_count": 10}],
+            "policies": [],
         }
         response = format_tool_response(
             ResponseFormat.MARKDOWN,
@@ -462,7 +471,7 @@ class MCPWrapperTests(unittest.TestCase):
         )
         self.assertIn("markdown", response)
         self.assertIn("# OmniDB catalog", response["markdown"])
-        self.assertEqual(response["data"]["engine"], "duckdb")
+        self.assertIn("entities", response["data"])
 
 
 if __name__ == "__main__":
