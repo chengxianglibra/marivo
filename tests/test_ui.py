@@ -48,6 +48,38 @@ class UIBothEnabledTests(unittest.TestCase):
         resp = self.client.get("/static/user.html")
         self.assertEqual(resp.status_code, 200)
 
+    def test_shared_css_accessible(self) -> None:
+        resp = self.client.get("/static/shared.css")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("text/css", resp.headers["content-type"])
+
+    def test_shared_js_accessible(self) -> None:
+        resp = self.client.get("/static/shared.js")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("javascript", resp.headers["content-type"])
+
+    def test_admin_uses_shared_assets(self) -> None:
+        resp = self.client.get("/admin")
+        self.assertIn("shared.css", resp.text)
+        self.assertIn("shared.js", resp.text)
+
+    def test_user_uses_shared_assets(self) -> None:
+        resp = self.client.get("/ui")
+        self.assertIn("shared.css", resp.text)
+        self.assertIn("shared.js", resp.text)
+
+    def test_admin_has_sidebar(self) -> None:
+        resp = self.client.get("/admin")
+        self.assertIn("sidebar", resp.text)
+
+    def test_user_has_sidebar(self) -> None:
+        resp = self.client.get("/ui")
+        self.assertIn("sidebar", resp.text)
+
+    def test_stale_index_html_removed(self) -> None:
+        resp = self.client.get("/static/index.html")
+        self.assertEqual(resp.status_code, 404)
+
 
 class UIBothDisabledTests(unittest.TestCase):
     """No config file -> both /admin and /ui should return 404."""

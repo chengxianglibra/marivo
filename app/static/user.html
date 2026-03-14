@@ -4,188 +4,201 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>OmniDB Analytics</title>
+<link rel="stylesheet" href="/static/shared.css">
 <style>
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #1a1a1a; background: #f5f6f8; line-height: 1.5; }
-a { color: #2563eb; text-decoration: none; }
+/* ── Page-specific overrides ────────────────────────────── */
 
-/* Layout */
-.header { background: #fff; border-bottom: 1px solid #e2e4e9; padding: 0 24px; display: flex; align-items: center; height: 56px; }
-.header h1 { font-size: 18px; font-weight: 600; margin-right: 32px; }
-.tabs { display: flex; gap: 4px; }
-.tab-btn { padding: 8px 16px; border: none; background: none; cursor: pointer; font-size: 14px; border-radius: 6px 6px 0 0; color: #555; position: relative; bottom: -1px; border-bottom: 2px solid transparent; }
-.tab-btn:hover { color: #1a1a1a; background: #f0f1f3; }
-.tab-btn.active { color: #2563eb; border-bottom-color: #2563eb; font-weight: 500; }
-
-.main { max-width: 1200px; margin: 24px auto; padding: 0 24px; }
-.panel { display: none; }
-.panel.active { display: block; }
-
-/* Cards & Tables */
-.card { background: #fff; border: 1px solid #e2e4e9; border-radius: 8px; padding: 20px; margin-bottom: 16px; }
-.card h2 { font-size: 16px; font-weight: 600; margin-bottom: 12px; }
-table { width: 100%; border-collapse: collapse; font-size: 14px; }
-th { text-align: left; padding: 8px 12px; border-bottom: 2px solid #e2e4e9; font-weight: 500; color: #555; }
-td { padding: 8px 12px; border-bottom: 1px solid #f0f1f3; }
-tr:hover td { background: #fafbfc; }
-.empty { color: #888; font-style: italic; padding: 16px 0; }
-
-/* Buttons */
-.btn { display: inline-flex; align-items: center; gap: 4px; padding: 6px 14px; border: 1px solid #d1d5db; border-radius: 6px; background: #fff; font-size: 13px; cursor: pointer; color: #1a1a1a; }
-.btn:hover { background: #f5f6f8; }
-.btn-primary { background: #2563eb; color: #fff; border-color: #2563eb; }
-.btn-primary:hover { background: #1d4ed8; }
-.btn-danger { color: #dc2626; border-color: #fca5a5; }
-.btn-danger:hover { background: #fef2f2; }
-.btn-sm { padding: 4px 10px; font-size: 12px; }
-.btn-success { background: #16a34a; color: #fff; border-color: #16a34a; }
-.btn-success:hover { background: #15803d; }
-.btn-warning { background: #f59e0b; color: #fff; border-color: #f59e0b; }
-.btn-warning:hover { background: #d97706; }
-
-/* Forms (modal) */
-.modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.3); z-index: 100; justify-content: center; align-items: flex-start; padding-top: 80px; }
-.modal-overlay.open { display: flex; }
-.modal { background: #fff; border-radius: 10px; width: 520px; max-width: 95vw; max-height: 80vh; overflow-y: auto; box-shadow: 0 8px 30px rgba(0,0,0,0.12); }
-.modal-header { padding: 16px 20px; border-bottom: 1px solid #e2e4e9; display: flex; justify-content: space-between; align-items: center; }
-.modal-header h3 { font-size: 15px; font-weight: 600; }
-.modal-close { background: none; border: none; font-size: 20px; cursor: pointer; color: #888; }
-.modal-body { padding: 20px; }
-.modal-footer { padding: 12px 20px; border-top: 1px solid #e2e4e9; display: flex; justify-content: flex-end; gap: 8px; }
-
-.form-group { margin-bottom: 14px; }
-.form-group label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 4px; color: #444; }
-.form-group input, .form-group select, .form-group textarea { width: 100%; padding: 7px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; font-family: inherit; }
-.form-group textarea { min-height: 80px; resize: vertical; }
-
-/* Toast */
-.toast-container { position: fixed; top: 16px; right: 16px; z-index: 200; display: flex; flex-direction: column; gap: 8px; }
-.toast { padding: 10px 16px; border-radius: 8px; font-size: 13px; color: #fff; box-shadow: 0 4px 12px rgba(0,0,0,0.15); animation: slideIn 0.3s ease; }
-.toast.success { background: #16a34a; }
-.toast.error { background: #dc2626; }
-@keyframes slideIn { from { opacity: 0; transform: translateX(40px); } to { opacity: 1; transform: translateX(0); } }
-
-/* Spinner */
-.spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid #d1d5db; border-top-color: #2563eb; border-radius: 50%; animation: spin 0.6s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
-.loading-row td { text-align: center; padding: 24px; }
-
-/* Detail panel */
-.detail-back { cursor: pointer; color: #2563eb; font-size: 13px; margin-bottom: 12px; display: inline-block; }
-.detail-meta { display: grid; grid-template-columns: 140px 1fr; gap: 4px 12px; font-size: 14px; margin-bottom: 16px; }
-.detail-meta dt { color: #666; font-weight: 500; }
-.detail-meta dd { color: #1a1a1a; word-break: break-all; }
+/* Detail panel (sessions/plans drill-down) */
+.detail-back { cursor: pointer; color: var(--color-primary); font-size: var(--font-size-sm); margin-bottom: var(--space-md); display: inline-flex; align-items: center; gap: 4px; }
+.detail-back:hover { color: var(--color-primary-hover); }
+.detail-meta { display: grid; grid-template-columns: 140px 1fr; gap: 4px 12px; font-size: var(--font-size-base); margin-bottom: var(--space-lg); }
+.detail-meta dt { color: var(--color-text-secondary); font-weight: 500; }
+.detail-meta dd { color: var(--color-text); word-break: break-all; }
 
 /* Toolbar */
-.toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-md); }
 .toolbar h2 { margin-bottom: 0; }
 
 /* Inline form row */
-.inline-form { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 12px; }
+.inline-form { display: flex; gap: var(--space-sm); align-items: flex-end; flex-wrap: wrap; margin-bottom: var(--space-md); }
 .inline-form .form-group { margin-bottom: 0; }
 
-/* Collapsible */
-.collapsible-toggle { cursor: pointer; user-select: none; }
-.collapsible-toggle::before { content: '\25B6'; display: inline-block; margin-right: 6px; transition: transform 0.2s; font-size: 12px; }
-.collapsible-toggle.open::before { transform: rotate(90deg); }
-.collapsible-body { display: none; }
-.collapsible-body.open { display: block; }
-
-/* Priority badges */
-.badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; }
-.badge-p0 { background: #fef2f2; color: #dc2626; }
-.badge-p1 { background: #fff7ed; color: #ea580c; }
-.badge-p2 { background: #fefce8; color: #ca8a04; }
-.badge-p3 { background: #f0fdf4; color: #16a34a; }
-
-/* Pre block for JSON */
-pre.json-block { background: #f8f9fa; border: 1px solid #e2e4e9; border-radius: 6px; padding: 12px; font-size: 13px; overflow-x: auto; max-height: 400px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
-
 /* Step builder list */
-.step-list-item { background: #f8f9fa; border: 1px solid #e2e4e9; border-radius: 6px; padding: 8px 12px; margin-bottom: 6px; font-size: 13px; display: flex; justify-content: space-between; align-items: center; }
+.step-list-item { background: #f8fafc; border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: var(--space-sm) var(--space-md); margin-bottom: 6px; font-size: var(--font-size-sm); display: flex; justify-content: space-between; align-items: center; }
 .step-list-item .step-info { flex: 1; }
-.step-list-item .step-remove { cursor: pointer; color: #dc2626; font-weight: 600; margin-left: 8px; }
+.step-list-item .step-remove { cursor: pointer; color: var(--color-error); font-weight: 600; margin-left: var(--space-sm); }
 
 /* Checkbox label */
-.checkbox-label { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
+.checkbox-label { display: inline-flex; align-items: center; gap: 6px; font-size: var(--font-size-sm); cursor: pointer; }
+
+/* Spinner (for inline loading) */
+.spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid var(--color-border); border-top-color: var(--color-primary); border-radius: 50%; animation: spin 0.6s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Evidence dashboard */
+.ev-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--space-md); margin-bottom: var(--space-xl); }
+.ev-claim-row { display: flex; align-items: center; gap: var(--space-md); }
+.ev-claim-row .ev-claim-text { flex: 1; }
+.ev-claim-row .ev-claim-conf { width: 180px; display: flex; align-items: center; gap: var(--space-sm); }
+.ev-donut-row { display: flex; flex-wrap: wrap; gap: var(--space-xl); margin-bottom: var(--space-lg); align-items: flex-start; }
+.ev-donut-item { text-align: center; }
+.ev-donut-item .ev-donut-label { font-size: var(--font-size-xs); color: var(--color-text-secondary); margin-top: 4px; max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Recommendation cards */
+.rec-card { margin-bottom: var(--space-md); padding: var(--space-lg); border-radius: var(--radius-lg); background: var(--color-surface); border: 1px solid var(--color-border); }
+.rec-card .rec-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: var(--space-sm); }
+.rec-card .rec-action { font-weight: 500; flex: 1; }
+.rec-card .rec-meta { font-size: var(--font-size-sm); color: var(--color-text-secondary); display: flex; gap: var(--space-lg); margin-top: var(--space-xs); }
+
+/* Plan step cards */
+.plan-step-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--space-md); }
+.plan-step-card { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: var(--space-lg); }
+.plan-step-card .psc-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-sm); }
+.plan-step-card .psc-type { font-weight: 600; font-size: var(--font-size-base); }
+.plan-step-card .psc-deps { font-size: var(--font-size-xs); color: var(--color-text-muted); margin-top: var(--space-xs); }
+
+/* Catalog search result cards */
+.cat-result-card { display: flex; align-items: flex-start; gap: var(--space-md); padding: var(--space-md) var(--space-lg); border: 1px solid var(--color-border); border-radius: var(--radius-lg); margin-bottom: var(--space-sm); background: var(--color-surface); transition: box-shadow var(--transition-fast); }
+.cat-result-card:hover { box-shadow: var(--shadow-md); }
+.cat-result-icon { width: 36px; height: 36px; border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.cat-result-icon.type-entity { background: var(--color-info-bg); color: var(--color-info); }
+.cat-result-icon.type-metric { background: var(--color-success-bg); color: var(--color-success); }
+.cat-result-icon.type-asset { background: var(--color-warning-bg); color: var(--color-warning); }
+.cat-result-body { flex: 1; min-width: 0; }
+.cat-result-body .cat-name { font-weight: 600; font-size: var(--font-size-base); }
+.cat-result-body .cat-display { font-size: var(--font-size-sm); color: var(--color-text-secondary); }
+.cat-result-body .cat-desc { font-size: var(--font-size-sm); color: var(--color-text-muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Resolve structured layout */
+.resolve-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-lg); margin-top: var(--space-md); }
+@media (max-width: 768px) { .resolve-grid { grid-template-columns: 1fr; } }
+
+/* Auto-refresh countdown */
+.refresh-indicator { display: inline-flex; align-items: center; gap: 4px; font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.refresh-indicator .pulse-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-success); animation: pulse-dot 2s ease-in-out infinite; }
+
+/* Graph container override for catalog */
+#cat-graph-vis { min-height: 400px; }
 </style>
 </head>
 <body>
 
-<div class="header">
-  <h1>OmniDB Analytics</h1>
-  <div class="tabs" id="tabs">
-    <button class="tab-btn active" data-tab="catalog">Catalog</button>
-    <button class="tab-btn" data-tab="sessions">Sessions</button>
-    <button class="tab-btn" data-tab="evidence">Evidence</button>
-    <button class="tab-btn" data-tab="plans">Plans</button>
-    <button class="tab-btn" data-tab="jobs">Jobs</button>
-  </div>
-  <a href="/admin" style="margin-left:auto;font-size:13px;">&larr; Admin UI</a>
-</div>
+<div class="app-layout">
+  <!-- ── Sidebar ──────────────────────────────────────────── -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      OmniDB
+      <small>Analytics</small>
+    </div>
 
-<div class="main">
-  <!-- Catalog -->
-  <div class="panel active" id="panel-catalog"></div>
-  <!-- Sessions -->
-  <div class="panel" id="panel-sessions"></div>
-  <!-- Evidence -->
-  <div class="panel" id="panel-evidence"></div>
-  <!-- Plans -->
-  <div class="panel" id="panel-plans"></div>
-  <!-- Jobs -->
-  <div class="panel" id="panel-jobs"></div>
+    <div class="sidebar-section">Discovery</div>
+    <ul class="sidebar-nav">
+      <li class="active">
+        <button data-tab="catalog">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          <span class="nav-label">Catalog</span>
+        </button>
+      </li>
+    </ul>
+
+    <div class="sidebar-section">Analysis</div>
+    <ul class="sidebar-nav">
+      <li>
+        <button data-tab="sessions">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>
+          </svg>
+          <span class="nav-label">Sessions</span>
+        </button>
+      </li>
+      <li>
+        <button data-tab="evidence">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>
+          </svg>
+          <span class="nav-label">Evidence</span>
+        </button>
+      </li>
+      <li>
+        <button data-tab="plans">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/><line x1="9" y1="3" x2="9" y2="18"/><line x1="15" y1="6" x2="15" y2="21"/>
+          </svg>
+          <span class="nav-label">Plans</span>
+        </button>
+      </li>
+    </ul>
+
+    <div class="sidebar-section">Execution</div>
+    <ul class="sidebar-nav">
+      <li>
+        <button data-tab="jobs">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+          </svg>
+          <span class="nav-label">Jobs</span>
+        </button>
+      </li>
+    </ul>
+
+    <div class="sidebar-footer">
+      <a href="/admin">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+        <span>Admin UI</span>
+      </a>
+    </div>
+  </aside>
+
+  <!-- ── Content Area ─────────────────────────────────────── -->
+  <div class="content-area">
+    <div class="content-header">
+      <div class="breadcrumb">
+        <span>Analytics</span>
+        <span class="sep">/</span>
+        <span class="current">Catalog</span>
+      </div>
+    </div>
+
+    <div class="content-body">
+      <!-- Catalog -->
+      <div class="panel active" id="panel-catalog"></div>
+      <!-- Sessions -->
+      <div class="panel" id="panel-sessions"></div>
+      <!-- Evidence -->
+      <div class="panel" id="panel-evidence"></div>
+      <!-- Plans -->
+      <div class="panel" id="panel-plans"></div>
+      <!-- Jobs -->
+      <div class="panel" id="panel-jobs"></div>
+    </div>
+  </div>
 </div>
 
 <!-- Modal -->
 <div class="modal-overlay" id="modal-overlay">
   <div class="modal">
-    <div class="modal-header">
+    <div class="modal-header" style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--color-border);">
       <h3 id="modal-title"></h3>
-      <button class="modal-close" id="modal-close">&times;</button>
+      <button class="modal-close" id="modal-close" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--color-text-muted);">&times;</button>
     </div>
-    <div class="modal-body" id="modal-body"></div>
-    <div class="modal-footer" id="modal-footer"></div>
+    <div class="modal-body" id="modal-body" style="padding:20px;"></div>
+    <div class="modal-footer" id="modal-footer" style="padding:12px 20px;border-top:1px solid var(--color-border);display:flex;justify-content:flex-end;gap:8px;"></div>
   </div>
 </div>
 
-<div class="toast-container" id="toasts"></div>
-
+<script src="/static/shared.js"></script>
 <script>
 // ── Helpers ────────────────────────────────────────────────
 const $ = (sel, ctx = document) => ctx.querySelector(sel);
 const $$ = (sel, ctx = document) => [...ctx.querySelectorAll(sel)];
 
-function esc(s) { const d = document.createElement('div'); d.textContent = String(s ?? ''); return d.innerHTML; }
-function attr(s) { return esc(s).replace(/"/g, '&quot;'); }
-function truncate(s, n) { return s.length > n ? s.slice(0, n) + '...' : s; }
-function fmtDate(s) { if (!s) return ''; try { return new Date(s).toLocaleDateString(); } catch { return s; } }
 function parseJSON(s, fallback) { try { return JSON.parse(s); } catch { return fallback; } }
 
-function toast(msg, type = 'success') {
-  const el = document.createElement('div');
-  el.className = `toast ${type}`;
-  el.textContent = msg;
-  $('#toasts').appendChild(el);
-  setTimeout(() => el.remove(), 3500);
-}
-
-function loadingRow(cols) {
-  return `<tr class="loading-row"><td colspan="${cols}"><span class="spinner"></span></td></tr>`;
-}
-
-function priorityBadge(p) {
-  const cls = { P0: 'badge-p0', P1: 'badge-p1', P2: 'badge-p2', P3: 'badge-p3' };
-  return `<span class="badge ${cls[p] || ''}">${esc(p)}</span>`;
-}
-
-function jsonPre(obj) {
-  if (obj == null) return '<span class="empty">null</span>';
-  const s = typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2);
-  return `<pre class="json-block">${esc(s)}</pre>`;
-}
-
-// ── Modal ──────────────────────────────────────────────────
+// ── Modal (local wrappers that match old API: title, bodyHtml, footerHtml) ─
 function openModal(title, bodyHtml, footerHtml) {
   $('#modal-title').textContent = title;
   $('#modal-body').innerHTML = bodyHtml;
@@ -197,53 +210,56 @@ $('#modal-close').onclick = closeModal;
 $('#modal-overlay').onclick = (e) => { if (e.target === e.currentTarget) closeModal(); };
 
 // ── API ────────────────────────────────────────────────────
-const api = {
+const localApi = {
   async _fetch(path, opts = {}) {
     const res = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts });
     if (!res.ok) { const body = await res.json().catch(() => ({})); throw new Error(body.detail || `HTTP ${res.status}`); }
     return res.json();
   },
   // Catalog
-  getCatalog: () => api._fetch('/catalog'),
-  searchCatalog: (q, type) => api._fetch('/catalog/search?' + new URLSearchParams({q, ...(type ? {type} : {})})),
-  resolveTerm: (name) => api._fetch(`/semantic/resolve/${encodeURIComponent(name)}`),
-  catalogGraph: (root, depth) => api._fetch(`/catalog/graph?root=${encodeURIComponent(root)}&depth=${depth}`),
+  getCatalog: () => localApi._fetch('/catalog'),
+  searchCatalog: (q, type) => localApi._fetch('/catalog/search?' + new URLSearchParams({q, ...(type ? {type} : {})})),
+  resolveTerm: (name) => localApi._fetch(`/semantic/resolve/${encodeURIComponent(name)}`),
+  catalogGraph: (root, depth) => localApi._fetch(`/catalog/graph?root=${encodeURIComponent(root)}&depth=${depth}`),
   // Sessions
-  listSessions: (params) => api._fetch('/sessions' + (params ? '?' + new URLSearchParams(params) : '')),
-  createSession: (d) => api._fetch('/sessions', { method: 'POST', body: JSON.stringify(d) }),
-  getSession: (id) => api._fetch(`/sessions/${id}`),
-  runWorkflow: (id) => api._fetch(`/sessions/${id}/workflow/watch-time-drop`, { method: 'POST' }),
-  runStep: (id, stepType, params) => api._fetch(`/sessions/${id}/steps/${stepType}`, { method: 'POST', body: JSON.stringify(params || {}) }),
+  listSessions: (params) => localApi._fetch('/sessions' + (params ? '?' + new URLSearchParams(params) : '')),
+  createSession: (d) => localApi._fetch('/sessions', { method: 'POST', body: JSON.stringify(d) }),
+  getSession: (id) => localApi._fetch(`/sessions/${id}`),
+  runWorkflow: (id) => localApi._fetch(`/sessions/${id}/workflow/watch-time-drop`, { method: 'POST' }),
+  runStep: (id, stepType, params) => localApi._fetch(`/sessions/${id}/steps/${stepType}`, { method: 'POST', body: JSON.stringify(params || {}) }),
   // Evidence
-  getEvidence: (id) => api._fetch(`/sessions/${id}/evidence`),
+  getEvidence: (id) => localApi._fetch(`/sessions/${id}/evidence`),
   // Plans
-  listPlans: (sessionId) => api._fetch(`/sessions/${sessionId}/plans`),
-  getPlan: (sessionId, planId) => api._fetch(`/sessions/${sessionId}/plans/${planId}`),
-  draftPlan: (sessionId, steps) => api._fetch(`/sessions/${sessionId}/plans`, { method: 'POST', body: JSON.stringify({steps}) }),
-  validatePlan: (sid, pid) => api._fetch(`/sessions/${sid}/plans/${pid}/validate`, { method: 'POST' }),
-  approvePlan: (sid, pid) => api._fetch(`/sessions/${sid}/plans/${pid}/approve`, { method: 'POST' }),
-  executePlan: (sid, pid) => api._fetch(`/sessions/${sid}/plans/${pid}/execute`, { method: 'POST' }),
-  estimateCosts: (sid, pid) => api._fetch(`/sessions/${sid}/plans/${pid}/estimate-costs`, { method: 'POST' }),
-  budgetCheck: (sid, pid) => api._fetch(`/sessions/${sid}/plans/${pid}/budget-check`),
-  explainPlan: (sid, pid) => api._fetch(`/sessions/${sid}/plans/${pid}/explain`),
+  listPlans: (sessionId) => localApi._fetch(`/sessions/${sessionId}/plans`),
+  getPlan: (sessionId, planId) => localApi._fetch(`/sessions/${sessionId}/plans/${planId}`),
+  draftPlan: (sessionId, steps) => localApi._fetch(`/sessions/${sessionId}/plans`, { method: 'POST', body: JSON.stringify({steps}) }),
+  validatePlan: (sid, pid) => localApi._fetch(`/sessions/${sid}/plans/${pid}/validate`, { method: 'POST' }),
+  approvePlan: (sid, pid) => localApi._fetch(`/sessions/${sid}/plans/${pid}/approve`, { method: 'POST' }),
+  executePlan: (sid, pid) => localApi._fetch(`/sessions/${sid}/plans/${pid}/execute`, { method: 'POST' }),
+  estimateCosts: (sid, pid) => localApi._fetch(`/sessions/${sid}/plans/${pid}/estimate-costs`, { method: 'POST' }),
+  budgetCheck: (sid, pid) => localApi._fetch(`/sessions/${sid}/plans/${pid}/budget-check`),
+  explainPlan: (sid, pid) => localApi._fetch(`/sessions/${sid}/plans/${pid}/explain`),
   // Jobs
-  listJobs: (params) => api._fetch('/jobs' + (params ? '?' + new URLSearchParams(params) : '')),
-  submitJob: (d) => api._fetch('/jobs', { method: 'POST', body: JSON.stringify(d) }),
-  getJob: (id) => api._fetch(`/jobs/${id}`),
-  cancelJob: (id) => api._fetch(`/jobs/${id}/cancel`, { method: 'POST' }),
+  listJobs: (params) => localApi._fetch('/jobs' + (params ? '?' + new URLSearchParams(params) : '')),
+  submitJob: (d) => localApi._fetch('/jobs', { method: 'POST', body: JSON.stringify(d) }),
+  getJob: (id) => localApi._fetch(`/jobs/${id}`),
+  cancelJob: (id) => localApi._fetch(`/jobs/${id}/cancel`, { method: 'POST' }),
 };
 
-// ── Tab switching ──────────────────────────────────────────
+// ── Tab switching (use shared initSidebar via DOMContentLoaded) ──
 const renderers = {};
-$('#tabs').onclick = (e) => {
-  const btn = e.target.closest('.tab-btn');
-  if (!btn) return;
-  $$('.tab-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  $$('.panel').forEach(p => p.classList.remove('active'));
-  $(`#panel-${btn.dataset.tab}`).classList.add('active');
-  if (renderers[btn.dataset.tab]) renderers[btn.dataset.tab]();
-};
+window.addEventListener('tab-change', (e) => {
+  const tab = e.detail.tab;
+  if (renderers[tab]) renderers[tab]();
+});
+
+// ── SVG icon helpers ───────────────────────────────────────
+function catTypeIcon(type) {
+  const t = (type || '').toLowerCase();
+  if (t === 'entity') return '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>';
+  if (t === 'metric') return '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>';
+  return '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><polyline points="16 7 16 2 8 2 8 7"/></svg>';
+}
 
 // ════════════════════════════════════════════════════════════
 // ── Catalog Tab ────────────────────────────────────────────
@@ -251,23 +267,28 @@ $('#tabs').onclick = (e) => {
 renderers.catalog = async () => {
   const panel = $('#panel-catalog');
   panel.innerHTML = `
-    <!-- Search -->
-    <div class="card" id="cat-search-card">
-      <h2>Search Catalog</h2>
-      <div class="inline-form">
-        <div class="form-group"><label>Query</label><input id="cat-search-q" placeholder="e.g. watch_time"></div>
-        <div class="form-group"><label>Type</label>
-          <select id="cat-search-type">
-            <option value="">All</option>
-            <option value="entity">entity</option>
-            <option value="metric">metric</option>
-            <option value="asset">asset</option>
-          </select>
-        </div>
-        <button class="btn btn-primary" id="cat-search-btn">Search</button>
-      </div>
-      <div id="cat-search-results"></div>
+    <!-- Search bar -->
+    <div class="search-bar" id="cat-search-bar">
+      <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input id="cat-search-q" placeholder="Search catalog... (entities, metrics, assets)" autocomplete="off">
+      <select id="cat-search-type" style="width:auto;border:none;background:transparent;font-size:var(--font-size-sm);color:var(--color-text-secondary);outline:none;cursor:pointer;">
+        <option value="">All types</option>
+        <option value="entity">Entities</option>
+        <option value="metric">Metrics</option>
+        <option value="asset">Assets</option>
+      </select>
+      <button class="btn btn-primary btn-sm" id="cat-search-btn">Search</button>
     </div>
+
+    <!-- Search results -->
+    <div id="cat-search-results"></div>
+
+    <!-- Overview (stat cards + tables) -->
+    <div class="card" id="cat-overview-card">
+      <h2>Catalog Overview</h2>
+      <div id="cat-overview-content"><span class="spinner"></span></div>
+    </div>
+
     <!-- Resolve -->
     <div class="card" id="cat-resolve-card">
       <h2>Resolve Term</h2>
@@ -277,21 +298,22 @@ renderers.catalog = async () => {
       </div>
       <div id="cat-resolve-results"></div>
     </div>
+
     <!-- Graph -->
     <div class="card" id="cat-graph-card">
       <h2>Catalog Graph</h2>
       <div class="inline-form">
         <div class="form-group"><label>Root ID</label><input id="cat-graph-root" placeholder="ent_... or met_..."></div>
         <div class="form-group"><label>Depth</label><input id="cat-graph-depth" type="number" value="2" min="1" max="5" style="width:80px;"></div>
-        <button class="btn btn-primary" id="cat-graph-btn">Load</button>
+        <button class="btn btn-primary" id="cat-graph-btn">Load Graph</button>
       </div>
       <div id="cat-graph-results"></div>
-    </div>
-    <!-- Overview -->
-    <div class="card" id="cat-overview-card">
-      <h2>Catalog Overview</h2>
-      <div id="cat-overview-content"><span class="spinner"></span></div>
     </div>`;
+
+  // Search handler — enter key support
+  $('#cat-search-q').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') $('#cat-search-btn').click();
+  });
 
   // Search handler
   $('#cat-search-btn').onclick = async () => {
@@ -299,19 +321,23 @@ renderers.catalog = async () => {
     if (!q) { toast('Enter a search query', 'error'); return; }
     const type = $('#cat-search-type').value;
     const area = $('#cat-search-results');
-    area.innerHTML = '<span class="spinner"></span>';
+    area.innerHTML = '<div style="text-align:center;padding:var(--space-xl);"><span class="spinner"></span></div>';
     try {
-      const results = await api.searchCatalog(q, type);
+      const results = await localApi.searchCatalog(q, type);
       const items = results.results || results;
-      if (!items || !items.length) { area.innerHTML = '<p class="empty">No results found.</p>'; return; }
-      area.innerHTML = `<table><thead><tr><th>Name</th><th>Type</th><th>Display Name</th><th>Description</th></tr></thead><tbody>${
-        items.map(r => `<tr>
-          <td>${esc(r.name)}</td>
-          <td>${esc(r.type)}</td>
-          <td>${esc(r.display_name || '')}</td>
-          <td>${esc(truncate(r.description || '', 80))}</td>
-        </tr>`).join('')
-      }</tbody></table>`;
+      if (!items || !items.length) { area.innerHTML = '<div class="card"><p class="empty">No results found.</p></div>'; return; }
+      area.innerHTML = items.map(r => {
+        const t = (r.type || '').toLowerCase();
+        const iconCls = t === 'entity' ? 'type-entity' : t === 'metric' ? 'type-metric' : 'type-asset';
+        return `<div class="cat-result-card">
+          <div class="cat-result-icon ${iconCls}">${catTypeIcon(r.type)}</div>
+          <div class="cat-result-body">
+            <div class="cat-name">${esc(r.name)}</div>
+            <div class="cat-display">${esc(r.display_name || '')} ${statusBadge(r.type)}</div>
+            <div class="cat-desc">${esc(truncate(r.description || '', 120))}</div>
+          </div>
+        </div>`;
+      }).join('');
     } catch (err) { area.innerHTML = ''; toast(err.message, 'error'); }
   };
 
@@ -322,29 +348,43 @@ renderers.catalog = async () => {
     const area = $('#cat-resolve-results');
     area.innerHTML = '<span class="spinner"></span>';
     try {
-      const res = await api.resolveTerm(name);
-      let html = '<h3 style="font-size:14px;margin:12px 0 8px;">Definition</h3>';
+      const res = await localApi.resolveTerm(name);
+      let html = '<div class="resolve-grid">';
+      // Left: definition
+      html += '<div class="card" style="margin-bottom:0;">';
+      html += '<h2 style="font-size:var(--font-size-base);">Definition</h2>';
       html += `<dl class="detail-meta">
         <dt>Name</dt><dd>${esc(res.name || '')}</dd>
         <dt>Display Name</dt><dd>${esc(res.display_name || '')}</dd>
-        <dt>Type</dt><dd>${esc(res.type || '')}</dd>
+        <dt>Type</dt><dd>${statusBadge(res.type || '')}</dd>
         <dt>Description</dt><dd>${esc(res.description || '')}</dd>
       </dl>`;
+      html += '</div>';
+      // Right: engine info
+      html += '<div class="card" style="margin-bottom:0;">';
+      html += '<h2 style="font-size:var(--font-size-base);">Engine Info</h2>';
+      if (res.engine_info) {
+        html += jsonPre(res.engine_info);
+      } else {
+        html += '<p class="empty">No engine info available.</p>';
+      }
+      html += '</div>';
+      html += '</div>'; // end resolve-grid
+
+      // Physical assets (full width below)
       const assets = res.physical_assets || res.assets || [];
       if (assets.length) {
-        html += '<h3 style="font-size:14px;margin:12px 0 8px;">Physical Assets</h3>';
+        html += '<div class="card" style="margin-top:var(--space-lg);">';
+        html += `<h2 style="font-size:var(--font-size-base);">Physical Assets (${assets.length})</h2>`;
         html += `<table><thead><tr><th>Object ID</th><th>FQN</th><th>Type</th><th>Source</th></tr></thead><tbody>${
           assets.map(a => `<tr>
-            <td>${esc(a.object_id || '')}</td>
+            <td><code>${esc(a.object_id || '')}</code></td>
             <td>${esc(a.fqn || '')}</td>
-            <td>${esc(a.object_type || '')}</td>
-            <td>${esc(a.source_id || '')}</td>
+            <td>${statusBadge(a.object_type || '')}</td>
+            <td><code>${esc(a.source_id || '')}</code></td>
           </tr>`).join('')
         }</tbody></table>`;
-      }
-      if (res.engine_info) {
-        html += '<h3 style="font-size:14px;margin:12px 0 8px;">Engine Info</h3>';
-        html += jsonPre(res.engine_info);
+        html += '</div>';
       }
       area.innerHTML = html;
     } catch (err) { area.innerHTML = ''; toast(err.message, 'error'); }
@@ -359,56 +399,78 @@ renderers.catalog = async () => {
     const area = $('#cat-graph-results');
     area.innerHTML = '<span class="spinner"></span>';
     try {
-      const graph = await api.catalogGraph(root, depth);
-      let html = '';
+      const graph = await localApi.catalogGraph(root, depth);
       const nodes = graph.nodes || [];
       const edges = graph.edges || [];
+
+      let html = '';
+      // Force-directed graph visualization
       if (nodes.length) {
-        html += '<h3 style="font-size:14px;margin:12px 0 8px;">Nodes (' + nodes.length + ')</h3>';
+        html += '<div class="graph-container" id="cat-graph-vis"></div>';
+      }
+      // Tables below the graph
+      if (nodes.length) {
+        html += `<div class="card" style="margin-top:var(--space-lg);"><h2 style="font-size:var(--font-size-base);">Nodes (${nodes.length})</h2>`;
         html += `<table><thead><tr><th>ID</th><th>Type</th><th>Name</th></tr></thead><tbody>${
-          nodes.map(n => `<tr><td>${esc(n.id || '')}</td><td>${esc(n.type || '')}</td><td>${esc(n.name || '')}</td></tr>`).join('')
-        }</tbody></table>`;
+          nodes.map(n => `<tr><td><code>${esc(n.id || '')}</code></td><td>${statusBadge(n.type || '')}</td><td>${esc(n.name || '')}</td></tr>`).join('')
+        }</tbody></table></div>`;
       }
       if (edges.length) {
-        html += '<h3 style="font-size:14px;margin:12px 0 8px;">Edges (' + edges.length + ')</h3>';
+        html += `<div class="card"><h2 style="font-size:var(--font-size-base);">Edges (${edges.length})</h2>`;
         html += `<table><thead><tr><th>From</th><th>To</th><th>Type</th></tr></thead><tbody>${
-          edges.map(e => `<tr><td>${esc(e.from || e.source || '')}</td><td>${esc(e.to || e.target || '')}</td><td>${esc(e.type || e.relation || '')}</td></tr>`).join('')
-        }</tbody></table>`;
+          edges.map(e => `<tr><td><code>${esc(e.from || e.source || '')}</code></td><td><code>${esc(e.to || e.target || '')}</code></td><td>${esc(e.type || e.relation || '')}</td></tr>`).join('')
+        }</tbody></table></div>`;
       }
       if (!nodes.length && !edges.length) html = '<p class="empty">Empty graph returned.</p>';
       area.innerHTML = html;
+
+      // Render force graph if container exists
+      const graphContainer = $('#cat-graph-vis');
+      if (graphContainer && nodes.length) {
+        const graphNodes = nodes.map(n => ({ id: n.id, label: n.name || n.id, type: n.type }));
+        const graphEdges = edges.map(e => ({ from: e.from || e.source, to: e.to || e.target, label: e.type || e.relation || '' }));
+        renderForceGraph(graphContainer, graphNodes, graphEdges);
+      }
     } catch (err) { area.innerHTML = ''; toast(err.message, 'error'); }
   };
 
   // Overview (load on tab open)
   try {
-    const catalog = await api.getCatalog();
+    const catalog = await localApi.getCatalog();
     const area = $('#cat-overview-content');
-    let html = '';
     const entities = catalog.entities || [];
     const metrics = catalog.metrics || [];
     const assets = catalog.assets || [];
+
+    let html = '';
+    // Stat cards
+    html += '<div class="stat-grid">';
+    html += `<div class="stat-card stat-info"><div class="stat-label">Entities</div><div class="stat-value">${entities.length}</div></div>`;
+    html += `<div class="stat-card stat-success"><div class="stat-label">Metrics</div><div class="stat-value">${metrics.length}</div></div>`;
+    html += `<div class="stat-card stat-warning"><div class="stat-label">Assets</div><div class="stat-value">${assets.length}</div></div>`;
+    html += '</div>';
+
     if (entities.length) {
-      html += `<h3 style="font-size:14px;margin:0 0 8px;">Entities (${entities.length})</h3>`;
+      html += `<h3 style="font-size:var(--font-size-base);font-weight:600;margin:0 0 var(--space-sm);">Entities</h3>`;
       html += `<table><thead><tr><th>Name</th><th>Display Name</th><th>Status</th><th>Description</th></tr></thead><tbody>${
         entities.map(e => `<tr>
-          <td>${esc(e.name)}</td><td>${esc(e.display_name || '')}</td><td>${esc(e.status || '')}</td><td>${esc(truncate(e.description || '', 60))}</td>
+          <td><strong>${esc(e.name)}</strong></td><td>${esc(e.display_name || '')}</td><td>${statusBadge(e.status || '')}</td><td>${esc(truncate(e.description || '', 60))}</td>
         </tr>`).join('')
       }</tbody></table>`;
     }
     if (metrics.length) {
-      html += `<h3 style="font-size:14px;margin:16px 0 8px;">Metrics (${metrics.length})</h3>`;
+      html += `<h3 style="font-size:var(--font-size-base);font-weight:600;margin:var(--space-lg) 0 var(--space-sm);">Metrics</h3>`;
       html += `<table><thead><tr><th>Name</th><th>Display Name</th><th>Status</th><th>Description</th></tr></thead><tbody>${
         metrics.map(m => `<tr>
-          <td>${esc(m.name)}</td><td>${esc(m.display_name || '')}</td><td>${esc(m.status || '')}</td><td>${esc(truncate(m.description || '', 60))}</td>
+          <td><strong>${esc(m.name)}</strong></td><td>${esc(m.display_name || '')}</td><td>${statusBadge(m.status || '')}</td><td>${esc(truncate(m.description || '', 60))}</td>
         </tr>`).join('')
       }</tbody></table>`;
     }
     if (assets.length) {
-      html += `<h3 style="font-size:14px;margin:16px 0 8px;">Assets (${assets.length})</h3>`;
+      html += `<h3 style="font-size:var(--font-size-base);font-weight:600;margin:var(--space-lg) 0 var(--space-sm);">Assets</h3>`;
       html += `<table><thead><tr><th>Name</th><th>Type</th><th>FQN</th></tr></thead><tbody>${
         assets.map(a => `<tr>
-          <td>${esc(a.name || a.native_name || '')}</td><td>${esc(a.type || a.object_type || '')}</td><td>${esc(a.fqn || '')}</td>
+          <td><strong>${esc(a.name || a.native_name || '')}</strong></td><td>${statusBadge(a.type || a.object_type || '')}</td><td><code>${esc(a.fqn || '')}</code></td>
         </tr>`).join('')
       }</tbody></table>`;
     }
@@ -446,8 +508,8 @@ renderers.sessions = async () => {
         const data = { goal, constraints };
         if (budget) data.budget = budget;
         if (policy) data.policy = policy;
-        await api.createSession(data);
-        toast('Session created');
+        await localApi.createSession(data);
+        toast('Session created', 'success');
         closeModal();
         renderers.sessions();
       } catch (err) { toast(err.message, 'error'); }
@@ -455,13 +517,13 @@ renderers.sessions = async () => {
   };
 
   try {
-    const sessions = await api.listSessions();
+    const sessions = await localApi.listSessions();
     const tbody = $('#sessions-tbody');
     if (!sessions.length) { tbody.innerHTML = `<tr><td colspan="4" class="empty">No sessions.</td></tr>`; return; }
     tbody.innerHTML = sessions.map(s => `<tr>
-      <td><a href="#" class="sess-link" data-id="${attr(s.session_id)}">${esc(truncate(s.session_id, 20))}</a></td>
+      <td><a href="#" class="sess-link" data-id="${attr(s.session_id)}"><code>${esc(truncate(s.session_id, 20))}</code></a></td>
       <td>${esc(truncate(s.goal || '', 60))}</td>
-      <td>${esc(s.status)}</td>
+      <td>${statusBadge(s.status)}</td>
       <td>${fmtDate(s.created_at)}</td>
     </tr>`).join('');
     $$('.sess-link', tbody).forEach(a => a.onclick = (e) => { e.preventDefault(); showSessionDetail(a.dataset.id); });
@@ -470,61 +532,98 @@ renderers.sessions = async () => {
 
 async function showSessionDetail(id) {
   const panel = $('#panel-sessions');
-  panel.innerHTML = `<div class="card"><span class="detail-back" id="sess-back">&larr; Back to sessions</span><div class="spinner"></div></div>`;
+  panel.innerHTML = `<div class="card"><span class="detail-back" id="sess-back">&larr; Back to sessions</span><div style="text-align:center;padding:var(--space-xl);"><span class="spinner"></span></div></div>`;
   $('#sess-back').onclick = () => renderers.sessions();
 
   try {
-    const sess = await api.getSession(id);
+    const sess = await localApi.getSession(id);
     panel.innerHTML = `
       <div class="card">
         <span class="detail-back" id="sess-back2">&larr; Back to sessions</span>
         <h2>Session Detail</h2>
         <dl class="detail-meta">
-          <dt>ID</dt><dd>${esc(sess.session_id)}</dd>
+          <dt>ID</dt><dd><code>${esc(sess.session_id)}</code></dd>
           <dt>Goal</dt><dd>${esc(sess.goal)}</dd>
-          <dt>Status</dt><dd>${esc(sess.status)}</dd>
-          <dt>Constraints</dt><dd>${esc(JSON.stringify(sess.constraints || {}))}</dd>
-          <dt>Budget</dt><dd>${esc(JSON.stringify(sess.budget || {}))}</dd>
-          <dt>Policy</dt><dd>${esc(JSON.stringify(sess.policy || {}))}</dd>
+          <dt>Status</dt><dd>${statusBadge(sess.status)}</dd>
+          <dt>Constraints</dt><dd><code>${esc(JSON.stringify(sess.constraints || {}))}</code></dd>
+          <dt>Budget</dt><dd><code>${esc(JSON.stringify(sess.budget || {}))}</code></dd>
+          <dt>Policy</dt><dd><code>${esc(JSON.stringify(sess.policy || {}))}</code></dd>
           <dt>Created</dt><dd>${fmtDate(sess.created_at)}</dd>
         </dl>
-        <div style="display:flex;gap:8px;margin-bottom:16px;">
-          <button class="btn btn-primary" id="sess-run-workflow">Run Watch-Time Workflow</button>
+
+        <!-- Steps Timeline (if session has steps) -->
+        <div id="sess-steps-timeline"></div>
+
+        <div style="margin-top:var(--space-lg);">
+          <button class="btn btn-primary btn-lg" id="sess-run-workflow">Run Watch-Time Workflow</button>
         </div>
       </div>
+
       <!-- Run Step -->
       <div class="card">
-        <h2>Run Step</h2>
-        <div class="inline-form">
-          <div class="form-group"><label>Step Type</label>
-            <select id="sess-step-type">
-              <option value="compare_watch_time">compare_watch_time</option>
-              <option value="analyze_qoe">analyze_qoe</option>
-              <option value="analyze_ads">analyze_ads</option>
-              <option value="analyze_recommendation">analyze_recommendation</option>
-              <option value="synthesize_findings">synthesize_findings</option>
-              <option value="compare_metric">compare_metric</option>
-              <option value="profile_table">profile_table</option>
-              <option value="sample_rows">sample_rows</option>
-            </select>
-          </div>
-          <button class="btn btn-primary" id="sess-run-step-btn">Run</button>
+        <div class="collapsible-header" id="step-runner-toggle">
+          <h2>Run Step</h2>
+          <span class="chevron">&#9654;</span>
         </div>
-        <div class="form-group"><label>Params (JSON)</label><textarea id="sess-step-params" style="min-height:60px;">{}</textarea></div>
+        <div class="collapsible-body" id="step-runner-body">
+          <div class="inline-form" style="margin-top:var(--space-md);">
+            <div class="form-group"><label>Step Type</label>
+              <select id="sess-step-type">
+                <option value="compare_watch_time">compare_watch_time</option>
+                <option value="analyze_qoe">analyze_qoe</option>
+                <option value="analyze_ads">analyze_ads</option>
+                <option value="analyze_recommendation">analyze_recommendation</option>
+                <option value="synthesize_findings">synthesize_findings</option>
+                <option value="compare_metric">compare_metric</option>
+                <option value="profile_table">profile_table</option>
+                <option value="sample_rows">sample_rows</option>
+              </select>
+            </div>
+            <button class="btn btn-primary" id="sess-run-step-btn">Run</button>
+          </div>
+          <div class="form-group"><label>Params (JSON)</label><textarea id="sess-step-params" style="min-height:60px;">{}</textarea></div>
+        </div>
         <div id="sess-step-result"></div>
       </div>`;
 
     $('#sess-back2').onclick = () => renderers.sessions();
+
+    // Collapsible step runner
+    const stepToggle = $('#step-runner-toggle');
+    const stepBody = $('#step-runner-body');
+    stepToggle.onclick = () => {
+      stepToggle.classList.toggle('open');
+      stepBody.classList.toggle('open');
+    };
+    // Open by default
+    stepToggle.classList.add('open');
+    stepBody.classList.add('open');
+
+    // Render session steps as timeline if available
+    if (sess.steps && sess.steps.length) {
+      const timelineArea = $('#sess-steps-timeline');
+      let tlHtml = '<h3 style="font-size:var(--font-size-base);font-weight:600;margin:var(--space-lg) 0 var(--space-sm);">Step History</h3>';
+      tlHtml += '<div class="timeline">';
+      sess.steps.forEach(s => {
+        const stClass = s.status === 'completed' ? 'completed' : s.status === 'failed' ? 'failed' : s.status === 'running' ? 'active' : '';
+        tlHtml += `<div class="timeline-item ${stClass}">
+          <div class="tl-title">${esc(s.step_type || '')} ${statusBadge(s.status || '')}</div>
+          <div class="tl-meta">${esc(s.step_id || '')}</div>
+        </div>`;
+      });
+      tlHtml += '</div>';
+      timelineArea.innerHTML = tlHtml;
+    }
 
     $('#sess-run-workflow').onclick = async () => {
       const btn = $('#sess-run-workflow');
       btn.disabled = true;
       btn.textContent = 'Running...';
       try {
-        const result = await api.runWorkflow(id);
-        toast('Workflow completed');
+        const result = await localApi.runWorkflow(id);
+        toast('Workflow completed', 'success');
         const area = $('#sess-step-result');
-        area.innerHTML = '<h3 style="font-size:14px;margin:12px 0 8px;">Workflow Result</h3>' + jsonPre(result);
+        area.innerHTML = '<div style="margin-top:var(--space-md);">' + jsonPre(result) + '</div>';
       } catch (err) { toast(err.message, 'error'); }
       btn.disabled = false;
       btn.textContent = 'Run Watch-Time Workflow';
@@ -535,11 +634,11 @@ async function showSessionDetail(id) {
       const paramsText = $('#sess-step-params').value.trim();
       const params = parseJSON(paramsText, {});
       const area = $('#sess-step-result');
-      area.innerHTML = '<span class="spinner"></span>';
+      area.innerHTML = '<div style="text-align:center;padding:var(--space-xl);"><span class="spinner"></span></div>';
       try {
-        const result = await api.runStep(id, stepType, params);
-        area.innerHTML = '<h3 style="font-size:14px;margin:12px 0 8px;">Step Result</h3>' + jsonPre(result);
-        toast('Step completed');
+        const result = await localApi.runStep(id, stepType, params);
+        area.innerHTML = '<div style="margin-top:var(--space-md);">' + jsonPre(result) + '</div>';
+        toast('Step completed', 'success');
       } catch (err) { area.innerHTML = ''; toast(err.message, 'error'); }
     };
   } catch (err) { toast(err.message, 'error'); renderers.sessions(); }
@@ -552,17 +651,17 @@ renderers.evidence = async () => {
   const panel = $('#panel-evidence');
   panel.innerHTML = `
     <div class="card">
-      <h2>Load Evidence</h2>
+      <h2>Evidence Dashboard</h2>
       <div class="inline-form">
         <div class="form-group"><label>Session</label><select id="ev-session-select"><option value="">Loading sessions...</option></select></div>
-        <button class="btn btn-primary" id="ev-load-btn">Load</button>
+        <button class="btn btn-primary" id="ev-load-btn">Load Evidence</button>
       </div>
     </div>
     <div id="ev-content"></div>`;
 
   // Populate session dropdown
   try {
-    const sessions = await api.listSessions();
+    const sessions = await localApi.listSessions();
     const sel = $('#ev-session-select');
     if (!sessions.length) { sel.innerHTML = '<option value="">No sessions available</option>'; return; }
     sel.innerHTML = '<option value="">-- select session --</option>' + sessions.map(s =>
@@ -574,9 +673,9 @@ renderers.evidence = async () => {
     const sessionId = $('#ev-session-select').value;
     if (!sessionId) { toast('Select a session', 'error'); return; }
     const area = $('#ev-content');
-    area.innerHTML = '<div class="card"><span class="spinner"></span></div>';
+    area.innerHTML = '<div class="card" style="text-align:center;padding:var(--space-2xl);"><span class="spinner"></span></div>';
     try {
-      const ev = await api.getEvidence(sessionId);
+      const ev = await localApi.getEvidence(sessionId);
       renderEvidence(area, ev);
     } catch (err) { area.innerHTML = ''; toast(err.message, 'error'); }
   };
@@ -591,84 +690,136 @@ function renderEvidence(area, ev) {
 
   let html = '';
 
-  // Steps
+  // ── Summary stat bar ─────────────────────────────────────
+  html += '<div class="stat-grid">';
+  html += `<div class="stat-card stat-info"><div class="stat-label">Steps</div><div class="stat-value">${steps.length}</div></div>`;
+  html += `<div class="stat-card stat-warning"><div class="stat-label">Observations</div><div class="stat-value">${observations.length}</div></div>`;
+  html += `<div class="stat-card"><div class="stat-label">Claims</div><div class="stat-value">${claims.length}</div></div>`;
+  html += `<div class="stat-card stat-success"><div class="stat-label">Recommendations</div><div class="stat-value">${recommendations.length}</div></div>`;
+  html += `<div class="stat-card stat-error"><div class="stat-label">Edges</div><div class="stat-value">${edges.length}</div></div>`;
+  html += '</div>';
+
+  // ── Confidence donuts for top claims ─────────────────────
+  if (claims.length) {
+    html += '<div class="card"><h2>Claim Confidence</h2>';
+    html += '<div class="ev-donut-row">';
+    claims.slice(0, 8).forEach(c => {
+      const conf = typeof c.confidence === 'number' ? c.confidence : 0;
+      html += `<div class="ev-donut-item">
+        ${donutChart(conf)}
+        <div class="ev-donut-label" title="${attr(c.claim_text || '')}">${esc(truncate(c.claim_type || c.claim_text || '', 18))}</div>
+      </div>`;
+    });
+    html += '</div></div>';
+  }
+
+  // ── Steps ────────────────────────────────────────────────
   html += `<div class="card"><h2>Steps (${steps.length})</h2>`;
   if (steps.length) {
-    html += `<table><thead><tr><th>ID</th><th>Type</th><th>Status</th><th>Provenance</th></tr></thead><tbody>${
-      steps.map(s => `<tr>
-        <td>${esc(truncate(s.step_id || '', 20))}</td>
-        <td>${esc(s.step_type || '')}</td>
-        <td>${esc(s.status || '')}</td>
-        <td><code style="font-size:12px;">${esc(truncate(JSON.stringify(s.provenance || s.provenance_json || {}), 80))}</code></td>
-      </tr>`).join('')
-    }</tbody></table>`;
+    html += '<div class="timeline">';
+    steps.forEach(s => {
+      const stClass = s.status === 'completed' ? 'completed' : s.status === 'failed' ? 'failed' : s.status === 'running' ? 'active' : '';
+      const prov = s.provenance || s.provenance_json || {};
+      html += `<div class="timeline-item ${stClass}">
+        <div class="tl-title">${esc(s.step_type || '')} ${statusBadge(s.status || '')}</div>
+        <div class="tl-meta">${esc(s.step_id || '')}</div>
+        <div class="tl-body"><code style="font-size:var(--font-size-xs);color:var(--color-text-muted);">${esc(truncate(JSON.stringify(prov), 100))}</code></div>
+      </div>`;
+    });
+    html += '</div>';
   } else { html += '<p class="empty">No steps.</p>'; }
   html += '</div>';
 
-  // Observations
+  // ── Observations with expandable rows ────────────────────
   html += `<div class="card"><h2>Observations (${observations.length})</h2>`;
   if (observations.length) {
-    html += `<table><thead><tr><th>ID</th><th>Type</th><th>Metric</th><th>Slice</th><th>Significance</th></tr></thead><tbody>${
-      observations.map(o => `<tr>
-        <td>${esc(truncate(o.observation_id || '', 20))}</td>
-        <td>${esc(o.observation_type || '')}</td>
+    html += `<table><thead><tr><th></th><th>ID</th><th>Type</th><th>Metric</th><th>Slice</th><th>Significance</th></tr></thead><tbody>`;
+    observations.forEach((o, idx) => {
+      html += `<tr>
+        <td><button class="expand-btn" data-expand="obs-${idx}">&#9654;</button></td>
+        <td><code>${esc(truncate(o.observation_id || '', 20))}</code></td>
+        <td>${statusBadge(o.observation_type || '')}</td>
         <td>${esc(o.metric || '')}</td>
         <td>${esc(o.slice || o.dimension_slice || '')}</td>
         <td>${esc(o.significance || '')}</td>
-      </tr>`).join('')
-    }</tbody></table>`;
+      </tr>`;
+      html += `<tr class="expand-row" id="obs-${idx}"><td colspan="6">${jsonPre(o)}</td></tr>`;
+    });
+    html += '</tbody></table>';
   } else { html += '<p class="empty">No observations.</p>'; }
   html += '</div>';
 
-  // Claims
+  // ── Claims with confidence progress bars ─────────────────
   html += `<div class="card"><h2>Claims (${claims.length})</h2>`;
   if (claims.length) {
-    html += `<table><thead><tr><th>ID</th><th>Type</th><th>Text</th><th>Confidence</th><th>Status</th></tr></thead><tbody>${
-      claims.map(c => `<tr>
-        <td>${esc(truncate(c.claim_id || '', 20))}</td>
-        <td>${esc(c.claim_type || '')}</td>
+    html += `<table><thead><tr><th>ID</th><th>Type</th><th>Text</th><th>Confidence</th><th>Status</th></tr></thead><tbody>`;
+    claims.forEach(c => {
+      const conf = typeof c.confidence === 'number' ? c.confidence : 0;
+      const pct = Math.round(conf * 100);
+      const barColor = confidenceColor(conf);
+      html += `<tr>
+        <td><code>${esc(truncate(c.claim_id || '', 20))}</code></td>
+        <td>${statusBadge(c.claim_type || '')}</td>
         <td>${esc(truncate(c.claim_text || '', 60))}</td>
-        <td>${esc(c.confidence != null ? (typeof c.confidence === 'number' ? c.confidence.toFixed(2) : c.confidence) : '')}</td>
-        <td>${esc(c.status || '')}</td>
-      </tr>`).join('')
-    }</tbody></table>`;
+        <td style="min-width:140px;">
+          <div style="display:flex;align-items:center;gap:var(--space-sm);">
+            <div class="progress-bar" style="flex:1;"><div class="fill ${barColor}" style="width:${pct}%"></div></div>
+            <span style="font-size:var(--font-size-xs);font-weight:600;min-width:36px;">${conf.toFixed(2)}</span>
+          </div>
+        </td>
+        <td>${statusBadge(c.status || '')}</td>
+      </tr>`;
+    });
+    html += '</tbody></table>';
   } else { html += '<p class="empty">No claims.</p>'; }
   html += '</div>';
 
-  // Recommendations
+  // ── Recommendations with priority cards ──────────────────
   html += `<div class="card"><h2>Recommendations (${recommendations.length})</h2>`;
   if (recommendations.length) {
-    html += `<table><thead><tr><th>ID</th><th>Action</th><th>Priority</th><th>Risk</th><th>Impact</th></tr></thead><tbody>${
-      recommendations.map(r => `<tr>
-        <td>${esc(truncate(r.recommendation_id || '', 20))}</td>
-        <td>${esc(truncate(r.action || '', 60))}</td>
-        <td>${priorityBadge(r.priority || '')}</td>
-        <td>${esc(r.risk || '')}</td>
-        <td>${esc(truncate(r.expected_impact || r.impact || '', 60))}</td>
-      </tr>`).join('')
-    }</tbody></table>`;
+    recommendations.forEach(r => {
+      const p = (r.priority || '').toUpperCase();
+      const priClass = p === 'P0' ? 'priority-p0' : p === 'P1' ? 'priority-p1' : p === 'P2' ? 'priority-p2' : 'priority-p3';
+      html += `<div class="rec-card ${priClass}">
+        <div class="rec-header">
+          <div class="rec-action">${esc(r.action || '')}</div>
+          ${priorityBadge(r.priority || '')}
+        </div>
+        <div class="rec-meta">
+          <span>ID: <code>${esc(truncate(r.recommendation_id || '', 20))}</code></span>
+          <span>Risk: ${esc(r.risk || 'N/A')}</span>
+          <span>Impact: ${esc(truncate(r.expected_impact || r.impact || '', 60))}</span>
+        </div>
+        ${r.validation_metric ? `<div style="margin-top:var(--space-xs);font-size:var(--font-size-xs);color:var(--color-text-muted);">Validation: ${esc(r.validation_metric)}</div>` : ''}
+      </div>`;
+    });
   } else { html += '<p class="empty">No recommendations.</p>'; }
   html += '</div>';
 
-  // Edges (collapsible)
+  // ── Evidence Edges as connection list ─────────────────────
   html += `<div class="card">
-    <h2 class="collapsible-toggle" id="ev-edges-toggle">Edges (${edges.length})</h2>
+    <div class="collapsible-header" id="ev-edges-toggle">
+      <h2>Evidence Edges (${edges.length})</h2>
+      <span class="chevron">&#9654;</span>
+    </div>
     <div class="collapsible-body" id="ev-edges-body">`;
   if (edges.length) {
-    html += `<table><thead><tr><th>From</th><th>To</th><th>Type</th><th>Weight</th></tr></thead><tbody>${
-      edges.map(e => `<tr>
-        <td>${esc(truncate(e.from_id || '', 20))}</td>
-        <td>${esc(truncate(e.to_id || '', 20))}</td>
-        <td>${esc(e.edge_type || '')}</td>
-        <td>${esc(e.weight != null ? e.weight : '')}</td>
-      </tr>`).join('')
-    }</tbody></table>`;
+    edges.forEach(e => {
+      const edgeTypeCls = e.edge_type === 'supports' ? 'badge-success' : e.edge_type === 'contradicts' ? 'badge-error' : 'badge-info';
+      html += `<div class="connection-row">
+        <code style="font-size:var(--font-size-xs);">${esc(truncate(e.from_id || '', 20))}</code>
+        <span class="connection-arrow">&rarr;</span>
+        <code style="font-size:var(--font-size-xs);">${esc(truncate(e.to_id || '', 20))}</code>
+        <span class="badge ${edgeTypeCls}" style="margin-left:var(--space-sm);">${esc(e.edge_type || '')}</span>
+        ${e.weight != null ? `<span style="font-size:var(--font-size-xs);color:var(--color-text-muted);margin-left:var(--space-sm);">w=${esc(e.weight)}</span>` : ''}
+      </div>`;
+    });
   } else { html += '<p class="empty">No edges.</p>'; }
   html += '</div></div>';
 
   area.innerHTML = html;
 
-  // Wire up collapsible
+  // Wire up collapsible edges
   const toggle = $('#ev-edges-toggle');
   const body = $('#ev-edges-body');
   if (toggle && body) {
@@ -677,6 +828,18 @@ function renderEvidence(area, ev) {
       body.classList.toggle('open');
     };
   }
+
+  // Wire up expandable observation rows
+  $$('.expand-btn', area).forEach(btn => {
+    btn.onclick = () => {
+      const targetId = btn.dataset.expand;
+      const row = document.getElementById(targetId);
+      if (row) {
+        row.classList.toggle('open');
+        btn.innerHTML = row.classList.contains('open') ? '&#9660;' : '&#9654;';
+      }
+    };
+  });
 }
 
 // ════════════════════════════════════════════════════════════
@@ -699,7 +862,7 @@ renderers.plans = async () => {
 
   // Populate session dropdown
   try {
-    const sessions = await api.listSessions();
+    const sessions = await localApi.listSessions();
     const sel = $('#plans-session-select');
     if (!sessions.length) { sel.innerHTML = '<option value="">No sessions available</option>'; return; }
     sel.innerHTML = '<option value="">-- select session --</option>' + sessions.map(s =>
@@ -723,16 +886,16 @@ renderers.plans = async () => {
 
 async function loadPlans(sessionId) {
   const area = $('#plans-content');
-  area.innerHTML = '<div class="card"><span class="spinner"></span></div>';
+  area.innerHTML = '<div class="card" style="text-align:center;padding:var(--space-2xl);"><span class="spinner"></span></div>';
   try {
-    const plans = await api.listPlans(sessionId);
+    const plans = await localApi.listPlans(sessionId);
     if (!plans.length) { area.innerHTML = '<div class="card"><p class="empty">No plans for this session.</p></div>'; return; }
     area.innerHTML = `<div class="card">
       <table><thead><tr><th>Plan ID</th><th>Status</th><th>Steps</th><th>Created</th></tr></thead><tbody>${
         plans.map(p => `<tr>
-          <td><a href="#" class="plan-link" data-id="${attr(p.plan_id)}">${esc(truncate(p.plan_id, 20))}</a></td>
-          <td>${esc(p.status)}</td>
-          <td>${(p.steps || []).length}</td>
+          <td><a href="#" class="plan-link" data-id="${attr(p.plan_id)}"><code>${esc(truncate(p.plan_id, 20))}</code></a></td>
+          <td>${statusBadge(p.status)}</td>
+          <td><span class="badge badge-gray">${(p.steps || []).length} steps</span></td>
           <td>${fmtDate(p.created_at)}</td>
         </tr>`).join('')
       }</tbody></table></div>`;
@@ -788,8 +951,8 @@ function openDraftPlanModal(sessionId) {
   $('#f-plan-submit').onclick = async () => {
     if (!draftSteps.length) { toast('Add at least one step', 'error'); return; }
     try {
-      await api.draftPlan(sessionId, draftSteps);
-      toast('Plan drafted');
+      await localApi.draftPlan(sessionId, draftSteps);
+      toast('Plan drafted', 'success');
       closeModal();
       loadPlans(sessionId);
     } catch (err) { toast(err.message, 'error'); }
@@ -798,19 +961,24 @@ function openDraftPlanModal(sessionId) {
 
 async function showPlanDetail(sessionId, planId) {
   const area = $('#plans-content');
-  area.innerHTML = '<div class="card"><span class="spinner"></span></div>';
+  area.innerHTML = '<div class="card" style="text-align:center;padding:var(--space-2xl);"><span class="spinner"></span></div>';
   try {
-    const plan = await api.getPlan(sessionId, planId);
+    const plan = await localApi.getPlan(sessionId, planId);
     const steps = plan.steps || [];
     const status = plan.status || '';
 
+    // Plan lifecycle pipeline
+    const pipelineStages = ['draft', 'validated', 'approved', 'executing', 'completed'];
+    const pipelineHtml = statusPipeline(pipelineStages, status === 'failed' ? 'executing' : status);
+
+    // Build action buttons based on status
     let actionsHtml = '';
     if (status === 'draft') {
-      actionsHtml = `<button class="btn btn-primary" id="plan-validate-btn">Validate</button>`;
+      actionsHtml = `<button class="btn btn-primary btn-lg" id="plan-validate-btn">Validate Plan</button>`;
     } else if (status === 'validated') {
-      actionsHtml = `<button class="btn btn-success" id="plan-approve-btn">Approve</button>`;
+      actionsHtml = `<button class="btn btn-success btn-lg" id="plan-approve-btn">Approve Plan</button>`;
     } else if (status === 'approved') {
-      actionsHtml = `<button class="btn btn-primary" id="plan-execute-btn">Execute</button>
+      actionsHtml = `<button class="btn btn-primary btn-lg" id="plan-execute-btn">Execute Plan</button>
         <button class="btn" id="plan-estimate-btn">Estimate Costs</button>
         <button class="btn" id="plan-budget-btn">Budget Check</button>`;
     } else if (status === 'completed' || status === 'failed') {
@@ -821,23 +989,33 @@ async function showPlanDetail(sessionId, planId) {
       <div class="card">
         <span class="detail-back" id="plan-back">&larr; Back to plans</span>
         <h2>Plan Detail</h2>
+        ${pipelineHtml}
+        ${status === 'failed' ? '<div style="margin-bottom:var(--space-md);"><span class="badge badge-error">Plan Failed</span></div>' : ''}
         <dl class="detail-meta">
-          <dt>Plan ID</dt><dd>${esc(plan.plan_id)}</dd>
-          <dt>Status</dt><dd>${esc(status)}</dd>
+          <dt>Plan ID</dt><dd><code>${esc(plan.plan_id)}</code></dd>
+          <dt>Status</dt><dd>${statusBadge(status)}</dd>
           <dt>Created</dt><dd>${fmtDate(plan.created_at)}</dd>
         </dl>
-        <div style="display:flex;gap:8px;margin-bottom:16px;">${actionsHtml}</div>
+        <div style="display:flex;gap:var(--space-sm);flex-wrap:wrap;margin-bottom:var(--space-lg);">${actionsHtml}</div>
       </div>
+
+      <!-- Plan steps as visual cards -->
       <div class="card">
         <h2>Steps (${steps.length})</h2>
-        ${steps.length ? `<table><thead><tr><th>Step Type</th><th>Params</th><th>Dependencies</th><th>Status</th></tr></thead><tbody>${
-          steps.map(s => `<tr>
-            <td>${esc(s.step_type)}</td>
-            <td><code style="font-size:12px;">${esc(truncate(JSON.stringify(s.params || {}), 60))}</code></td>
-            <td>${(s.dependencies || []).join(', ') || '-'}</td>
-            <td>${esc(s.status || '')}</td>
-          </tr>`).join('')
-        }</tbody></table>` : '<p class="empty">No steps.</p>'}
+        ${steps.length ? `<div class="plan-step-cards">${
+          steps.map((s, i) => {
+            const stStatus = s.status || '';
+            return `<div class="plan-step-card">
+              <div class="psc-header">
+                <span class="psc-type">${esc(s.step_type)}</span>
+                ${statusBadge(stStatus)}
+              </div>
+              <div style="font-size:var(--font-size-xs);color:var(--color-text-muted);">Step ${i}</div>
+              ${s.params && Object.keys(s.params).length ? `<div style="margin-top:var(--space-sm);"><code style="font-size:var(--font-size-xs);">${esc(truncate(JSON.stringify(s.params), 60))}</code></div>` : ''}
+              <div class="psc-deps">${(s.dependencies || []).length ? 'Depends on: ' + (s.dependencies).join(', ') : 'No dependencies'}</div>
+            </div>`;
+          }).join('')
+        }</div>` : '<p class="empty">No steps.</p>'}
       </div>
       <div id="plan-action-result"></div>`;
 
@@ -847,12 +1025,12 @@ async function showPlanDetail(sessionId, planId) {
 
     const validateBtn = $('#plan-validate-btn');
     if (validateBtn) validateBtn.onclick = async () => {
-      try { await api.validatePlan(sessionId, planId); toast('Plan validated'); showPlanDetail(sessionId, planId); } catch (err) { toast(err.message, 'error'); }
+      try { await localApi.validatePlan(sessionId, planId); toast('Plan validated', 'success'); showPlanDetail(sessionId, planId); } catch (err) { toast(err.message, 'error'); }
     };
 
     const approveBtn = $('#plan-approve-btn');
     if (approveBtn) approveBtn.onclick = async () => {
-      try { await api.approvePlan(sessionId, planId); toast('Plan approved'); showPlanDetail(sessionId, planId); } catch (err) { toast(err.message, 'error'); }
+      try { await localApi.approvePlan(sessionId, planId); toast('Plan approved', 'success'); showPlanDetail(sessionId, planId); } catch (err) { toast(err.message, 'error'); }
     };
 
     const executeBtn = $('#plan-execute-btn');
@@ -860,30 +1038,56 @@ async function showPlanDetail(sessionId, planId) {
       executeBtn.disabled = true;
       executeBtn.textContent = 'Executing...';
       try {
-        const r = await api.executePlan(sessionId, planId);
-        toast('Plan executed');
-        resultArea.innerHTML = '<div class="card"><h2>Execution Result</h2>' + jsonPre(r) + '</div>';
+        const r = await localApi.executePlan(sessionId, planId);
+        toast('Plan executed', 'success');
+        // Show cost breakdown if available
+        let resultHtml = '<div class="card"><h2>Execution Result</h2>';
+        if (r.step_costs || r.costs) {
+          const costs = r.step_costs || r.costs || [];
+          if (Array.isArray(costs) && costs.length) {
+            resultHtml += '<div style="margin-bottom:var(--space-md);">' + miniBarChart(costs.map(c => c.estimated_rows || c.cost || 0)) + '</div>';
+          }
+        }
+        resultHtml += jsonPre(r) + '</div>';
+        resultArea.innerHTML = resultHtml;
         showPlanDetail(sessionId, planId);
       } catch (err) {
         toast(err.message, 'error');
         executeBtn.disabled = false;
-        executeBtn.textContent = 'Execute';
+        executeBtn.textContent = 'Execute Plan';
       }
     };
 
     const estimateBtn = $('#plan-estimate-btn');
     if (estimateBtn) estimateBtn.onclick = async () => {
-      try { const r = await api.estimateCosts(sessionId, planId); resultArea.innerHTML = '<div class="card"><h2>Cost Estimate</h2>' + jsonPre(r) + '</div>'; } catch (err) { toast(err.message, 'error'); }
+      try {
+        const r = await localApi.estimateCosts(sessionId, planId);
+        let costHtml = '<div class="card"><h2>Cost Estimate</h2>';
+        // Render bar chart of step costs
+        if (r.steps && Array.isArray(r.steps)) {
+          const costValues = r.steps.map(s => s.estimated_rows || s.estimated_cost || 0);
+          if (costValues.some(v => v > 0)) {
+            costHtml += '<div style="margin-bottom:var(--space-md);">' + miniBarChart(costValues, 60) + '</div>';
+            costHtml += '<table><thead><tr><th>Step</th><th>Estimated Rows</th></tr></thead><tbody>';
+            r.steps.forEach(s => {
+              costHtml += `<tr><td>${esc(s.step_type || '')}</td><td>${esc(s.estimated_rows || s.estimated_cost || 0)}</td></tr>`;
+            });
+            costHtml += '</tbody></table>';
+          }
+        }
+        costHtml += jsonPre(r) + '</div>';
+        resultArea.innerHTML = costHtml;
+      } catch (err) { toast(err.message, 'error'); }
     };
 
     const budgetBtn = $('#plan-budget-btn');
     if (budgetBtn) budgetBtn.onclick = async () => {
-      try { const r = await api.budgetCheck(sessionId, planId); resultArea.innerHTML = '<div class="card"><h2>Budget Check</h2>' + jsonPre(r) + '</div>'; } catch (err) { toast(err.message, 'error'); }
+      try { const r = await localApi.budgetCheck(sessionId, planId); resultArea.innerHTML = '<div class="card"><h2>Budget Check</h2>' + jsonPre(r) + '</div>'; } catch (err) { toast(err.message, 'error'); }
     };
 
     const explainBtn = $('#plan-explain-btn');
     if (explainBtn) explainBtn.onclick = async () => {
-      try { const r = await api.explainPlan(sessionId, planId); resultArea.innerHTML = '<div class="card"><h2>Plan Explanation</h2>' + jsonPre(r) + '</div>'; } catch (err) { toast(err.message, 'error'); }
+      try { const r = await localApi.explainPlan(sessionId, planId); resultArea.innerHTML = '<div class="card"><h2>Plan Explanation</h2>' + jsonPre(r) + '</div>'; } catch (err) { toast(err.message, 'error'); }
     };
   } catch (err) { area.innerHTML = ''; toast(err.message, 'error'); }
 }
@@ -892,17 +1096,26 @@ async function showPlanDetail(sessionId, planId) {
 // ── Jobs Tab ───────────────────────────────────────────────
 // ════════════════════════════════════════════════════════════
 let jobsAutoRefreshTimer = null;
+let jobsCountdown = 5;
+let jobsCountdownTimer = null;
 
 renderers.jobs = async () => {
   if (jobsAutoRefreshTimer) { clearInterval(jobsAutoRefreshTimer); jobsAutoRefreshTimer = null; }
+  if (jobsCountdownTimer) { clearInterval(jobsCountdownTimer); jobsCountdownTimer = null; }
 
   const panel = $('#panel-jobs');
   panel.innerHTML = `
     <div class="card">
       <div class="toolbar">
         <h2>Jobs</h2>
-        <div style="display:flex;gap:8px;align-items:center;">
-          <label class="checkbox-label"><input type="checkbox" id="jobs-auto-refresh"> Auto-refresh (5s)</label>
+        <div style="display:flex;gap:var(--space-sm);align-items:center;">
+          <label class="checkbox-label">
+            <input type="checkbox" id="jobs-auto-refresh"> Auto-refresh
+            <span class="refresh-indicator" id="jobs-refresh-indicator" style="display:none;">
+              <span class="pulse-dot"></span>
+              <span id="jobs-countdown">5s</span>
+            </span>
+          </label>
           <button class="btn btn-primary" id="jobs-submit-btn">+ Submit Job</button>
         </div>
       </div>
@@ -932,26 +1145,28 @@ renderers.jobs = async () => {
     if (sessionId) params.session_id = sessionId;
     const tbody = $('#jobs-tbody');
     try {
-      const jobs = await api.listJobs(Object.keys(params).length ? params : null);
+      const jobs = await localApi.listJobs(Object.keys(params).length ? params : null);
       if (!jobs.length) { tbody.innerHTML = `<tr><td colspan="6" class="empty">No jobs found.</td></tr>`; return; }
       tbody.innerHTML = jobs.map(j => {
         const canCancel = j.status === 'pending' || j.status === 'running';
+        const isRunning = j.status === 'running';
+        const dotColor = j.status === 'completed' ? 'green' : j.status === 'failed' ? 'red' : j.status === 'running' ? 'blue' : j.status === 'cancelled' ? 'gray' : 'yellow';
         return `<tr>
-          <td><a href="#" class="job-link" data-id="${attr(j.job_id)}">${esc(truncate(j.job_id || '', 20))}</a></td>
-          <td>${esc(truncate(j.session_id || '', 16))}</td>
+          <td><a href="#" class="job-link" data-id="${attr(j.job_id)}"><code>${esc(truncate(j.job_id || '', 20))}</code></a></td>
+          <td><code>${esc(truncate(j.session_id || '', 16))}</code></td>
           <td>${esc(j.job_type || '')}</td>
-          <td>${esc(j.status || '')}</td>
+          <td><span class="status-dot ${dotColor} ${isRunning ? 'pulse' : ''}"></span>${statusBadge(j.status || '')}</td>
           <td>${fmtDate(j.submitted_at || j.created_at)}</td>
           <td>${canCancel ? `<button class="btn btn-sm btn-danger cancel-job" data-id="${attr(j.job_id)}">Cancel</button>` : ''}</td>
         </tr>`;
       }).join('');
       $$('.cancel-job', tbody).forEach(btn => btn.onclick = async () => {
-        try { await api.cancelJob(btn.dataset.id); toast('Job cancelled'); loadJobs(); } catch (err) { toast(err.message, 'error'); }
+        try { await localApi.cancelJob(btn.dataset.id); toast('Job cancelled', 'success'); loadJobs(); } catch (err) { toast(err.message, 'error'); }
       });
       $$('.job-link', tbody).forEach(a => a.onclick = async (e) => {
         e.preventDefault();
         try {
-          const job = await api.getJob(a.dataset.id);
+          const job = await localApi.getJob(a.dataset.id);
           openModal('Job Detail', jsonPre(job), `<button class="btn" onclick="closeModal()">Close</button>`);
         } catch (err) { toast(err.message, 'error'); }
       });
@@ -960,12 +1175,25 @@ renderers.jobs = async () => {
 
   $('#jobs-filter-btn').onclick = loadJobs;
 
-  // Auto-refresh toggle
+  // Auto-refresh toggle with countdown
   $('#jobs-auto-refresh').onchange = (e) => {
+    const indicator = $('#jobs-refresh-indicator');
     if (e.target.checked) {
-      jobsAutoRefreshTimer = setInterval(loadJobs, 5000);
+      indicator.style.display = '';
+      jobsCountdown = 5;
+      jobsAutoRefreshTimer = setInterval(() => {
+        jobsCountdown = 5;
+        loadJobs();
+      }, 5000);
+      jobsCountdownTimer = setInterval(() => {
+        jobsCountdown = Math.max(0, jobsCountdown - 1);
+        const cdEl = $('#jobs-countdown');
+        if (cdEl) cdEl.textContent = jobsCountdown + 's';
+      }, 1000);
     } else {
+      indicator.style.display = 'none';
       if (jobsAutoRefreshTimer) { clearInterval(jobsAutoRefreshTimer); jobsAutoRefreshTimer = null; }
+      if (jobsCountdownTimer) { clearInterval(jobsCountdownTimer); jobsCountdownTimer = null; }
     }
   };
 
@@ -988,8 +1216,8 @@ renderers.jobs = async () => {
         if (!session_id) throw new Error('Session ID is required');
         const job_type = $('#f-job-type').value;
         const payload = parseJSON($('#f-job-payload').value, {});
-        await api.submitJob({ session_id, job_type, payload });
-        toast('Job submitted');
+        await localApi.submitJob({ session_id, job_type, payload });
+        toast('Job submitted', 'success');
         closeModal();
         loadJobs();
       } catch (err) { toast(err.message, 'error'); }
