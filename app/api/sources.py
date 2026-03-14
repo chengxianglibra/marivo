@@ -3,7 +3,8 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.api.deps import get_services
-from app.api.models import SourceRegisterRequest, SyncSelectionRequest
+from app.api.models import SourceRegisterRequest, SourceUpdateRequest, SyncSelectionRequest
+from app.registry.source_registry import DependencyError
 
 
 router = APIRouter()
@@ -29,6 +30,30 @@ def list_sources(request: Request) -> list[dict[str, object]]:
 def get_source(source_id: str, request: Request) -> dict[str, object]:
     try:
         return get_services(request).source_service.get_source(source_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@router.put("/sources/{source_id}")
+def update_source(source_id: str, payload: SourceUpdateRequest, request: Request) -> dict[str, object]:
+    try:
+        return get_services(request).source_service.update_source(
+            source_id,
+            display_name=payload.display_name,
+            connection=payload.connection,
+            sync_mode=payload.sync_mode,
+        )
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@router.delete("/sources/{source_id}")
+def delete_source(source_id: str, request: Request) -> dict[str, object]:
+    try:
+        get_services(request).source_service.delete_source(source_id)
+        return {"status": "deleted", "source_id": source_id}
+    except DependencyError as error:
+        raise HTTPException(status_code=409, detail={"message": str(error), "dependencies": error.dependencies}) from error
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
 

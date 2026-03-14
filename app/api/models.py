@@ -29,6 +29,12 @@ class SourceRegisterRequest(BaseModel):
     capabilities: dict[str, Any] | None = None
 
 
+class SourceUpdateRequest(BaseModel):
+    display_name: str | None = None
+    connection: dict[str, Any] | None = None
+    sync_mode: str | None = None
+
+
 class EngineRegisterRequest(BaseModel):
     engine_type: str
     display_name: str

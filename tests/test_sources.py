@@ -103,6 +103,108 @@ class SourceRegistryTests(unittest.TestCase):
         self.assertEqual(len(tables), 4)
 
 
+    def test_update_source_api(self) -> None:
+        resp = self.client.post(
+            "/sources",
+            json={"source_type": "local", "display_name": "Update Test", "connection": self._local_connection()},
+        )
+        source_id = resp.json()["source_id"]
+        resp = self.client.put(
+            f"/sources/{source_id}",
+            json={"display_name": "Updated Name", "sync_mode": "by_select", "connection": {"path": "/tmp/new.duckdb"}},
+        )
+        self.assertEqual(resp.status_code, 200)
+        updated = resp.json()
+        self.assertEqual(updated["display_name"], "Updated Name")
+        self.assertEqual(updated["sync_mode"], "by_select")
+        self.assertEqual(updated["connection"]["path"], "/tmp/new.duckdb")
+
+    def test_update_source_partial(self) -> None:
+        resp = self.client.post(
+            "/sources",
+            json={"source_type": "local", "display_name": "Partial Update", "connection": self._local_connection()},
+        )
+        source_id = resp.json()["source_id"]
+        original_conn = resp.json()["connection"]
+        resp = self.client.put(f"/sources/{source_id}", json={"display_name": "New Name Only"})
+        self.assertEqual(resp.status_code, 200)
+        updated = resp.json()
+        self.assertEqual(updated["display_name"], "New Name Only")
+        self.assertEqual(updated["connection"], original_conn)
+
+    def test_update_source_not_found(self) -> None:
+        resp = self.client.put("/sources/nonexistent", json={"display_name": "x"})
+        self.assertEqual(resp.status_code, 404)
+
+    def test_delete_source_api(self) -> None:
+        resp = self.client.post(
+            "/sources",
+            json={"source_type": "local", "display_name": "Delete Test", "connection": self._local_connection()},
+        )
+        source_id = resp.json()["source_id"]
+        # Sync to create source_objects
+        self.client.post(f"/sources/{source_id}/sync")
+        # Add a sync selection
+        self.client.post(
+            f"/sources/{source_id}/sync/selections",
+            json={"selections": [{"schema_name": "analytics", "table_name": "watch_events"}]},
+        )
+        # Delete source
+        resp = self.client.delete(f"/sources/{source_id}")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["status"], "deleted")
+        # Verify gone
+        resp = self.client.get(f"/sources/{source_id}")
+        self.assertEqual(resp.status_code, 404)
+
+    def test_delete_source_not_found(self) -> None:
+        resp = self.client.delete("/sources/nonexistent")
+        self.assertEqual(resp.status_code, 404)
+
+    def test_delete_source_blocked_by_binding(self) -> None:
+        """DELETE returns 409 when bindings reference the source."""
+        resp = self.client.post(
+            "/sources",
+            json={"source_type": "local", "display_name": "Bound Source", "connection": self._local_connection()},
+        )
+        source_id = resp.json()["source_id"]
+        # Register an engine and create a binding
+        eng_resp = self.client.post("/engines", json={"engine_type": "duckdb", "display_name": "Tmp Engine", "connection": self._local_connection()})
+        engine_id = eng_resp.json()["engine_id"]
+        self.client.post("/bindings", json={"source_id": source_id, "engine_id": engine_id})
+
+        resp = self.client.delete(f"/sources/{source_id}")
+        self.assertEqual(resp.status_code, 409)
+        detail = resp.json()["detail"]
+        self.assertIn("binding", detail["message"].lower())
+        self.assertGreater(len(detail["dependencies"]), 0)
+
+    def test_delete_source_blocked_by_mapping(self) -> None:
+        """DELETE returns 409 when semantic mappings reference source objects."""
+        resp = self.client.post(
+            "/sources",
+            json={"source_type": "local", "display_name": "Mapped Source", "connection": self._local_connection()},
+        )
+        source_id = resp.json()["source_id"]
+        # Sync to get source_objects
+        self.client.post(f"/sources/{source_id}/sync")
+        objects = self.client.get(f"/sources/{source_id}/objects?type=table").json()
+        object_id = objects[0]["object_id"]
+        # Create an entity + mapping
+        ent_resp = self.client.post("/semantic/entities", json={"name": "tmp_ent", "display_name": "Tmp", "keys": ["id"]})
+        entity_id = ent_resp.json()["entity_id"]
+        self.client.post("/semantic/mappings", json={
+            "semantic_type": "entity", "semantic_id": entity_id,
+            "object_id": object_id, "mapping_type": "primary",
+        })
+
+        resp = self.client.delete(f"/sources/{source_id}")
+        self.assertEqual(resp.status_code, 409)
+        detail = resp.json()["detail"]
+        self.assertIn("mapping", detail["message"].lower())
+        self.assertIn(entity_id, detail["dependencies"][0])
+
+
 class SyncModeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:

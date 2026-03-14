@@ -201,7 +201,9 @@ const api = {
     const res = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      throw new Error(body.detail || `HTTP ${res.status}`);
+      const detail = body.detail;
+      const msg = (detail && typeof detail === 'object') ? detail.message : (detail || `HTTP ${res.status}`);
+      throw new Error(msg);
     }
     return res.json();
   },
@@ -209,6 +211,8 @@ const api = {
   listSources: ()         => api._fetch('/sources'),
   createSource: (d)       => api._fetch('/sources', { method: 'POST', body: JSON.stringify(d) }),
   getSource: (id)         => api._fetch(`/sources/${id}`),
+  updateSource: (id, d)   => api._fetch(`/sources/${id}`, { method: 'PUT', body: JSON.stringify(d) }),
+  deleteSource: (id)      => api._fetch(`/sources/${id}`, { method: 'DELETE' }),
   syncSource: (id)        => api._fetch(`/sources/${id}/sync`, { method: 'POST' }),
   listObjects: (id)       => api._fetch(`/sources/${id}/objects`),
   // Engines
@@ -399,7 +403,7 @@ renderers.sources = async () => {
         <td>${esc(mode)}</td>
         <td>${statusBadge(s.status)}</td>
         <td>${fmtDate(s.created_at)}</td>
-        <td>${actionBtn}</td>
+        <td>${actionBtn} <button class="btn btn-sm edit-src-btn" data-id="${s.source_id}">Edit</button> <button class="btn btn-sm btn-danger del-src-btn" data-id="${s.source_id}">Delete</button></td>
       </tr>`;
     }).join('');
     $$('.src-link', tbody).forEach(a => a.onclick = (e) => { e.preventDefault(); showSourceDetail(a.dataset.id); });
@@ -407,8 +411,35 @@ renderers.sources = async () => {
       try { await api.syncSource(b.dataset.id); toast('Sync triggered'); } catch (err) { toast(err.message, 'error'); }
     });
     $$('.select-tables-btn', tbody).forEach(b => b.onclick = () => openTableSelectionModal(b.dataset.id));
+    $$('.edit-src-btn', tbody).forEach(btn => btn.onclick = () => editSource(btn.dataset.id, sources));
+    $$('.del-src-btn', tbody).forEach(btn => btn.onclick = async () => {
+      if (!confirm('Delete this source? This will also remove its synced objects, selections, and bindings.')) return;
+      try { await api.deleteSource(btn.dataset.id); toast('Source deleted'); renderers.sources(); } catch (err) { toast(err.message, 'error'); }
+    });
   } catch (err) { toast(err.message, 'error'); }
 };
+
+function editSource(id, sources) {
+  const s = sources.find(x => x.source_id === id);
+  if (!s) return;
+  const SYNC_MODES = ['all', 'by_select', 'none'];
+  const modeOptions = SYNC_MODES.map(m => `<option value="${m}"${m === (s.sync_mode || 'all') ? ' selected' : ''}>${m}</option>`).join('');
+  openModal('Edit Source',
+    `<div class="form-group"><label>Display Name</label><input type="text" id="f-esrc-name" value="${attr(s.display_name)}"></div>
+     <div class="form-group"><label>Sync Mode</label><select id="f-esrc-mode">${modeOptions}</select></div>
+     <div class="form-group"><label>Connection (JSON)</label><textarea id="f-esrc-conn">${esc(JSON.stringify(s.connection, null, 2))}</textarea></div>`,
+    `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" id="f-esrc-save">Save</button>`);
+  $('#f-esrc-save').onclick = async () => {
+    try {
+      let conn;
+      try { conn = JSON.parse($('#f-esrc-conn').value); } catch { throw new Error('Invalid connection JSON'); }
+      await api.updateSource(id, { display_name: $('#f-esrc-name').value, sync_mode: $('#f-esrc-mode').value, connection: conn });
+      toast('Source updated');
+      closeModal();
+      renderers.sources();
+    } catch (err) { toast(err.message, 'error'); }
+  };
+}
 
 async function openTableSelectionModal(sourceId) {
   openModal('Select Tables to Sync',
