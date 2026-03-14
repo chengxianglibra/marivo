@@ -13,25 +13,57 @@ class TrinoAnalyticsEngine(AnalyticsEngine):
         host: str,
         port: int = 8080,
         user: str = "omnidb",
+        password: str | None = None,
+        http_scheme: str = "http",
         catalog: str = "hive",
         schema: str = "default",
+        client_tags: list[str] | None = None,
+        source: str | None = None,
+        http_headers: dict[str, str] | None = None,
+        request_timeout: float = 30.0,
     ) -> None:
         self.host = host
         self.port = port
         self.user = user
+        self.password = password
+        self.http_scheme = http_scheme
         self.catalog = catalog
         self.schema = schema
+        self.client_tags = client_tags
+        self.source = source
+        self.http_headers = http_headers
+        self.request_timeout = request_timeout
 
     def _connect(self):  # noqa: ANN202
         from trino.dbapi import connect
 
-        return connect(
+        _RESERVED_PREFIXES = ("x-trino-",)
+        safe_headers: dict[str, str] | None = None
+        if self.http_headers:
+            safe_headers = {
+                k: v for k, v in self.http_headers.items()
+                if not k.lower().startswith(_RESERVED_PREFIXES)
+            } or None
+
+        kwargs: dict[str, Any] = dict(
             host=self.host,
             port=self.port,
             user=self.user,
+            http_scheme=self.http_scheme,
             catalog=self.catalog,
             schema=self.schema,
+            request_timeout=self.request_timeout,
         )
+        if self.password is not None:
+            from trino.auth import BasicAuthentication
+            kwargs["auth"] = BasicAuthentication(self.user, self.password)
+        if self.client_tags is not None:
+            kwargs["client_tags"] = self.client_tags
+        if self.source is not None:
+            kwargs["source"] = self.source
+        if safe_headers is not None:
+            kwargs["http_headers"] = safe_headers
+        return connect(**kwargs)
 
     def initialize(self) -> None:
         conn = self._connect()

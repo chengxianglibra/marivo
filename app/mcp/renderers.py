@@ -5,15 +5,24 @@ from typing import Any
 
 
 def render_catalog_markdown(data: dict[str, Any]) -> str:
-    metrics = "\n".join(f"- `{metric['id']}`: {metric['definition']}" for metric in data.get("metrics", []))
-    assets = "\n".join(
-        f"- `{asset['id']}` ({asset['kind']}, rows={asset['row_count']})" for asset in data.get("assets", [])
+    entities = "\n".join(
+        f"- `{e['id']}` (keys: {', '.join(e.get('keys', []))})" for e in data.get("entities", [])
     )
+    metrics = "\n".join(f"- `{m['id']}`: {m['definition']}" for m in data.get("metrics", []))
+    asset_lines: list[str] = []
+    for a in data.get("assets", []):
+        row_count = a.get("row_count")
+        fqn = a.get("fqn", a["id"])
+        suffix = f", rows={row_count}" if row_count is not None else ""
+        asset_lines.append(f"- `{fqn}` ({a['kind']}{suffix})")
+    assets = "\n".join(asset_lines)
     return (
         "# OmniDB catalog\n\n"
-        f"- Engine: `{data.get('engine', 'unknown')}`\n"
+        f"- Entities: {len(data.get('entities', []))}\n"
         f"- Metrics: {len(data.get('metrics', []))}\n"
         f"- Assets: {len(data.get('assets', []))}\n\n"
+        "## Entities\n"
+        f"{entities or '- None'}\n\n"
         "## Metrics\n"
         f"{metrics or '- None'}\n\n"
         "## Assets\n"
