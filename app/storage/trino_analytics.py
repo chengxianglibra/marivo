@@ -21,6 +21,7 @@ class TrinoAnalyticsEngine(AnalyticsEngine):
         source: str | None = None,
         http_headers: dict[str, str] | None = None,
         request_timeout: float = 30.0,
+        legacy_prepared_statements: bool | None = None,
     ) -> None:
         self.host = host
         self.port = port
@@ -33,6 +34,7 @@ class TrinoAnalyticsEngine(AnalyticsEngine):
         self.source = source
         self.http_headers = http_headers
         self.request_timeout = request_timeout
+        self.legacy_prepared_statements = legacy_prepared_statements
 
     def _connect(self):  # noqa: ANN202
         from trino.dbapi import connect
@@ -63,6 +65,8 @@ class TrinoAnalyticsEngine(AnalyticsEngine):
             kwargs["source"] = self.source
         if safe_headers is not None:
             kwargs["http_headers"] = safe_headers
+        if self.legacy_prepared_statements is not None:
+            kwargs["legacy_prepared_statements"] = self.legacy_prepared_statements
         return connect(**kwargs)
 
     def initialize(self) -> None:

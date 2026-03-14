@@ -64,6 +64,8 @@ def execute_plan(session_id: str, plan_id: str, request: Request) -> dict[str, o
         return services.planning_service.execute_plan(plan_id, services.service)
     except (KeyError, ValueError) as error:
         raise http_error(error) from error
+    except Exception as error:
+        raise HTTPException(status_code=502, detail=f"Engine execution error: {error}") from error
 
 
 @router.get("/sessions/{session_id}/plans/{plan_id}/explain")

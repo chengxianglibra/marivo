@@ -29,6 +29,9 @@ def _trino_connect_kwargs(connection: dict[str, Any]) -> dict[str, Any]:
     )
     if "request_timeout" in connection:
         kwargs["request_timeout"] = float(connection["request_timeout"])
+    legacy_ps = connection.get("legacy_prepared_statements")
+    if legacy_ps is not None:
+        kwargs["legacy_prepared_statements"] = bool(legacy_ps)
     return kwargs
 
 
