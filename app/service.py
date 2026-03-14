@@ -575,10 +575,18 @@ class SemanticLayerService:
             except Exception:
                 col_profiles.append({"column": col, "error": "failed to profile"})
 
-        artifact = {"table_name": table_name, "row_count": row_count, "columns": col_profiles}
+        profile_scope = None
+        if profile_date_column:
+            profile_scope = {
+                "date_column": profile_date_column,
+                "date_value": profile_date_value,
+                "scoped_row_count": col_profiles[0]["total"] if col_profiles and "total" in col_profiles[0] else None,
+            }
+        artifact = {"table_name": table_name, "row_count": row_count, "profile_scope": profile_scope, "columns": col_profiles}
         artifact_id = self._insert_artifact(session_id, step_id, "profile", f"{short_name}_profile", artifact)
 
-        summary = f"Table '{table_name}' has {row_count} rows and {len(columns)} columns."
+        scope_note = f" (column stats scoped to {profile_date_column}={profile_date_value})" if profile_date_column else ""
+        summary = f"Table '{table_name}' has {row_count} rows and {len(columns)} columns{scope_note}."
         provenance = self._make_provenance(f"profile:{table_name}", engine_type=engine_type)
         result = {"step_type": step_type, "summary": summary, "artifact_id": artifact_id, "profile": artifact}
         self._insert_step(step_id, session_id, step_type, summary, result, provenance=provenance)
@@ -665,6 +673,57 @@ class SemanticLayerService:
         self._insert_step(step_id, session_id, step_type, summary, result, provenance=provenance)
         return result
 
+    def _run_aggregate_query(self, session_id: str, params: dict[str, Any]) -> dict[str, Any]:
+        """Run an ad-hoc GROUP BY + aggregation query.
+
+        Required params:
+            table_name: fully qualified table name
+            select: list of SQL expressions (e.g. ["platform", "count(*) as cnt"])
+            group_by: list of column names to group by
+        Optional params:
+            where: SQL WHERE clause expression
+            order_by: SQL ORDER BY expression
+            limit: max rows (default: 100)
+        """
+        table_name = params.get("table_name")
+        if not table_name:
+            raise ValueError("aggregate_query requires 'table_name' param")
+        if not params.get("select"):
+            raise ValueError("aggregate_query requires 'select' param")
+        if not params.get("group_by"):
+            raise ValueError("aggregate_query requires 'group_by' param")
+
+        step_type = "aggregate_query"
+        step_id = self._new_step_id()
+        short_name = table_name.split(".")[-1]
+        engine, engine_type, qualified = self._resolve_engine([short_name])
+        qualified_table = qualified.get(short_name, table_name)
+
+        compiler_params: dict[str, Any] = {
+            "table_name": qualified_table,
+            "select": params["select"],
+            "group_by": params["group_by"],
+        }
+        if params.get("where"):
+            compiler_params["where"] = params["where"]
+        if params.get("order_by"):
+            compiler_params["order_by"] = params["order_by"]
+        if params.get("limit"):
+            compiler_params["limit"] = params["limit"]
+
+        compiled_query = self._compile_step_with_feedback(
+            from_legacy_step(0, {"step_type": step_type, "params": compiler_params}),
+            engine_type=engine_type,
+        )
+        rows = execute_compiled(engine, compiled_query).rows
+
+        artifact_id = self._insert_artifact(session_id, step_id, "aggregate", f"{short_name}_aggregate", rows)
+        summary = f"Aggregate query on '{table_name}' returned {len(rows)} rows."
+        provenance = self._make_provenance(compiled_query.sql, compiled_query.params, engine_type=engine_type)
+        result = {"step_type": step_type, "summary": summary, "artifact_id": artifact_id, "rows": rows}
+        self._insert_step(step_id, session_id, step_type, summary, result, provenance=provenance)
+        return result
+
     def _run_synthesis(self, session_id: str) -> dict[str, Any]:
         step_type = "synthesize_findings"
         self._delete_step_outputs(session_id, step_type)
@@ -725,7 +784,7 @@ class SemanticLayerService:
         "event_time", "timestamp", "ts",
     })
 
-    _MAX_DEFAULT_DIMENSIONS: int = 5
+    _MAX_DEFAULT_DIMENSIONS: int = 2
 
     @staticmethod
     def _infer_date_column(dimensions: list[str]) -> str:

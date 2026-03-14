@@ -27,7 +27,10 @@ def synthesize_claims(
     if not metric_observations:
         return [], [], []
 
-    primary_metric = min(metric_observations, key=lambda item: float(item["payload"]["delta_pct"]))
+    primary_metric = max(
+        metric_observations,
+        key=lambda item: abs(float(item["payload"]["delta_pct"])) * math.log1p(item["significance"]["sample_size"]),
+    )
     impacted_slice = primary_metric["subject"]["slice"]
 
     supports = [primary_metric["observation_id"]]
@@ -97,4 +100,29 @@ def synthesize_claims(
     }
 
     claims = [primary_claim]
+
+    # Generate overall_trend claim when multiple distinct metrics are observed
+    distinct_metrics = {obs.get("subject", {}).get("metric") for obs in metric_observations}
+    if len(distinct_metrics) > 1:
+        declining = [obs for obs in metric_observations if float(obs["payload"]["delta_pct"]) < 0]
+        improving = [obs for obs in metric_observations if float(obs["payload"]["delta_pct"]) > 0]
+        trend_parts = []
+        if declining:
+            trend_parts.append(f"{len(declining)} declining")
+        if improving:
+            trend_parts.append(f"{len(improving)} improving")
+        trend_text = f"Across {len(distinct_metrics)} metrics ({', '.join(trend_parts)}), the overall pattern suggests a broad {'decline' if len(declining) >= len(improving) else 'shift'}."
+        overall_claim = {
+            "claim_id": f"claim_{uuid4().hex[:12]}",
+            "type": "overall_trend",
+            "text": trend_text,
+            "scope": {"slice": {}},
+            "confidence": 0.0,
+            "status": "supported",
+            "supporting_observations": [obs["observation_id"] for obs in metric_observations],
+            "contradicting_observations": [],
+            "confidence_breakdown": {},
+        }
+        claims.append(overall_claim)
+
     return claims, [], []
