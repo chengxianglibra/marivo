@@ -283,9 +283,9 @@ class PlanValidationTests(unittest.TestCase):
         result = self.planning.validate_plan(plan["plan_id"])
         self.assertTrue(result["valid"])
         self.assertEqual(result["errors"], [])
-        # Check status transitioned
+        # Clean plan is auto-approved
         plan = self.planning.get_plan(plan["plan_id"])
-        self.assertEqual(plan["status"], "validated")
+        self.assertEqual(plan["status"], "approved")
 
     def test_validate_unknown_step_type(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [
@@ -332,7 +332,18 @@ class PlanValidationTests(unittest.TestCase):
         result = self.planning.validate_plan(plan["plan_id"])
         self.assertFalse(result["valid"])
 
-    def test_approve_plan(self) -> None:
+    def test_validate_auto_approves_clean_plan(self) -> None:
+        """Plans with no governance/budget warnings are auto-approved."""
+        plan = self.planning.draft_plan(self.session["session_id"], [
+            {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
+        ])
+        result = self.planning.validate_plan(plan["plan_id"])
+        self.assertTrue(result["auto_approved"])
+        refreshed = self.planning.get_plan(plan["plan_id"])
+        self.assertEqual(refreshed["status"], "approved")
+
+    def test_approve_already_approved_is_noop(self) -> None:
+        """approve_plan on an already-approved plan is a no-op."""
         plan = self.planning.draft_plan(self.session["session_id"], [
             {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
         ])
@@ -340,7 +351,8 @@ class PlanValidationTests(unittest.TestCase):
         approved = self.planning.approve_plan(plan["plan_id"])
         self.assertEqual(approved["status"], "approved")
 
-    def test_approve_non_validated_fails(self) -> None:
+    def test_approve_draft_fails(self) -> None:
+        """approve_plan on a draft plan should fail."""
         plan = self.planning.draft_plan(self.session["session_id"], [
             {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
         ])
@@ -621,12 +633,13 @@ class PlanningAPITests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["plan_id"], plan_id)
 
-        # Validate
+        # Validate (auto-approves clean plans)
         resp = self.client.post(f"/sessions/{self.session_id}/plans/{plan_id}/validate")
         self.assertEqual(resp.status_code, 200)
         self.assertTrue(resp.json()["valid"])
+        self.assertTrue(resp.json()["auto_approved"])
 
-        # Approve
+        # Approve is a no-op on already-approved plan
         resp = self.client.post(f"/sessions/{self.session_id}/plans/{plan_id}/approve")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["status"], "approved")

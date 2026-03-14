@@ -3,8 +3,13 @@
 A plan is a sequence of steps with dependencies, validation, and cost
 estimation.  Plans follow a lifecycle:
 
+    draft → approved → executing → completed
+                                 → failed
+
+Validation auto-approves plans that pass with no governance/budget warnings.
+Plans with warnings land in ``validated`` and require explicit approval:
+
     draft → validated → approved → executing → completed
-                                            → failed
 
 Each step in a plan has:
     step_type, params, dependencies (list of step indices), estimated_cost, status
@@ -163,7 +168,14 @@ class PlanningService:
     # ── Validation ────────────────────────────────────────────────
 
     def validate_plan(self, plan_id: str) -> dict[str, Any]:
-        """Validate step types and dependency graph. Transitions draft → validated."""
+        """Validate step types and dependency graph.
+
+        If validation passes with no warnings (governance, budget, quality),
+        the plan is auto-approved (draft → approved) so it can be executed
+        immediately.  If there are warnings that merit human review, the plan
+        transitions to ``validated`` and requires an explicit
+        ``approve_plan()`` call.
+        """
         start = time.perf_counter()
         with observability_context(plan_id=plan_id, execution_stage="planner", planner_id="validate_plan"):
             plan = self.get_plan(plan_id)
@@ -172,8 +184,29 @@ class PlanningService:
 
             validation = self._validate_steps(plan)
             if validation.valid:
-                self._transition(plan_id, "validated")
+                if self._needs_explicit_approval(validation):
+                    self._transition(plan_id, "validated")
+                else:
+                    self._transition(plan_id, "approved")
             result = validation.to_dict()
+            needs_approval = self._needs_explicit_approval(validation)
+            result["auto_approved"] = validation.valid and not needs_approval
+            if validation.valid and needs_approval:
+                result["approval_required"] = True
+                result["approval_reasons"] = [
+                    {
+                        "code": issue.code,
+                        "category": issue.category,
+                        "severity": issue.severity,
+                        "message": issue.message,
+                    }
+                    for issue in validation.issues
+                    if issue.code in self._APPROVAL_GATE_CODES
+                    or (issue.category == "governance" and issue.severity == "error")
+                ]
+            else:
+                result["approval_required"] = False
+                result["approval_reasons"] = []
         if self.metrics is not None:
             self.metrics.record_execution_stage(
                 "planner_validate",
@@ -182,9 +215,46 @@ class PlanningService:
             )
         return result
 
+    # Issue codes that require explicit human approval before execution.
+    _APPROVAL_GATE_CODES: frozenset[str] = frozenset({
+        # Budget hard-block
+        "budget_rows_exceeded",
+        # Governance
+        "quality_blocker",
+    })
+
+    @staticmethod
+    def _needs_explicit_approval(validation: PlanValidationResult) -> bool:
+        """Return True when a validated plan should wait for human approval.
+
+        Triggers (by issue code):
+        - ``budget_rows_exceeded`` — estimated scan exceeds session budget
+        - ``quality_blocker`` — governance quality rule violation
+        - any governance decision with ``effect=block``
+
+        Informational warnings (``budget_estimate_unknown``, soft governance
+        signals) do **not** block execution.
+        """
+        for issue in validation.issues:
+            if issue.code in PlanningService._APPROVAL_GATE_CODES:
+                return True
+            if issue.category == "governance" and issue.severity == "error":
+                return True
+        return False
+
     def approve_plan(self, plan_id: str) -> dict[str, Any]:
-        """Transition from validated → approved."""
+        """Explicitly approve a plan that was not auto-approved.
+
+        Plans that passed validation without governance/budget warnings are
+        auto-approved during ``validate_plan()``.  This method is only needed
+        for plans that landed in ``validated`` status due to warnings that
+        require human review.
+
+        Also accepts ``approved`` as a no-op so callers don't need to check.
+        """
         plan = self.get_plan(plan_id)
+        if plan["status"] == "approved":
+            return plan
         if plan["status"] != "validated":
             raise ValueError(f"Can only approve plans in 'validated' status, got '{plan['status']}'")
         self._transition(plan_id, "approved")
