@@ -191,12 +191,37 @@ def register_tools(mcp: FastMCP) -> None:
         annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True},
     )
     async def omnidb_validate_plan(params: ValidatePlanInput) -> dict[str, Any]:
-        """Validate a plan's step types, dependencies, and parameters."""
+        """Validate a plan's step types, dependencies, and parameters.
+
+        Clean plans (no governance/budget warnings) are auto-approved and can
+        be executed immediately.  Plans with warnings require explicit approval
+        via the UI or ``approve_plan`` API — the ``approval_reasons`` field
+        lists every warning that triggered the gate.
+        """
         data = await get_client().validate_plan(params.session_id, params.plan_id)
         status = "valid" if data.get("valid") else "invalid"
+        auto_approved = data.get("auto_approved", False)
         errors = "\n".join(f"- {error}" for error in data.get("errors", []))
-        markdown = f"# Plan validation: {status}\n\n{errors or '- No errors'}"
+
+        # Build approval section for markdown
+        if not data.get("valid"):
+            approval_md = ""
+        elif auto_approved:
+            approval_md = "\n\n**Auto-approved** — no governance or budget warnings. Ready to execute."
+        else:
+            reasons = data.get("approval_reasons", [])
+            reasons_md = "\n".join(
+                f"  - [{r['category']}/{r['severity']}] {r['message']}" for r in reasons
+            ) or "  - (unknown)"
+            approval_md = (
+                "\n\n**Approval required** — the following issues need human review "
+                "before execution:\n" + reasons_md
+            )
+
+        markdown = f"# Plan validation: {status}\n\n{errors or '- No errors'}{approval_md}"
         summary = f"Plan validation: {status}."
+        if data.get("valid"):
+            summary += " Auto-approved." if auto_approved else " Approval required."
         return format_tool_response(params.response_format, summary, data, markdown)
 
     @mcp.tool(

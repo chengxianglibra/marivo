@@ -87,6 +87,9 @@ class OmniDBApiClient:
     async def validate_plan(self, session_id: str, plan_id: str) -> dict[str, Any]:
         return await self._request("POST", f"/sessions/{session_id}/plans/{plan_id}/validate")
 
+    async def approve_plan(self, session_id: str, plan_id: str) -> dict[str, Any]:
+        return await self._request("POST", f"/sessions/{session_id}/plans/{plan_id}/approve")
+
     async def execute_plan(
         self,
         session_id: str,
