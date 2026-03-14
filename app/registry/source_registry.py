@@ -10,6 +10,14 @@ from app.registry.factories import build_catalog_adapter
 from app.storage.metadata import MetadataStore
 
 
+class DependencyError(Exception):
+    """Raised when a delete is blocked by existing dependencies."""
+
+    def __init__(self, message: str, dependencies: list[str] | None = None) -> None:
+        super().__init__(message)
+        self.dependencies = dependencies or []
+
+
 class SourceRegistry:
     """Source registry and live-catalog access boundary."""
 
@@ -83,6 +91,73 @@ class SourceRegistry:
             source["updated_at"] = now
             return source
         return self.register_source(source_type, display_name, connection, sync_mode=sync_mode)
+
+    def update_source(
+        self,
+        source_id: str,
+        display_name: str | None = None,
+        connection: dict[str, Any] | None = None,
+        sync_mode: str | None = None,
+    ) -> dict[str, Any]:
+        existing = self.get_source(source_id)  # raises KeyError if missing
+        now = now_iso()
+        updates: list[str] = []
+        params: list[Any] = []
+        if display_name is not None:
+            updates.append("display_name = ?")
+            params.append(display_name)
+        if connection is not None:
+            updates.append("connection_json = ?")
+            params.append(json.dumps(connection))
+        if sync_mode is not None:
+            updates.append("sync_mode = ?")
+            params.append(sync_mode)
+        if not updates:
+            return existing
+        updates.append("updated_at = ?")
+        params.append(now)
+        params.append(source_id)
+        self.metadata.execute(
+            f"UPDATE sources SET {', '.join(updates)} WHERE source_id = ?",
+            params,
+        )
+        return self.get_source(source_id)
+
+    def delete_source(self, source_id: str) -> None:
+        self.get_source(source_id)  # raises KeyError if missing
+
+        # Block if semantic mappings reference this source's objects
+        mappings = self.metadata.query_rows(
+            """SELECT m.mapping_id, m.semantic_type, m.semantic_id
+               FROM semantic_mappings m
+               JOIN source_objects o ON m.object_id = o.object_id
+               WHERE o.source_id = ?""",
+            [source_id],
+        )
+        if mappings:
+            refs = [f"{r['semantic_type']}:{r['semantic_id']}" for r in mappings]
+            raise DependencyError(
+                f"Cannot delete source: {len(mappings)} semantic mapping(s) depend on it",
+                dependencies=refs,
+            )
+
+        # Block if bindings reference this source
+        bindings = self.metadata.query_rows(
+            "SELECT binding_id, engine_id FROM source_engine_bindings WHERE source_id = ?",
+            [source_id],
+        )
+        if bindings:
+            refs = [r["binding_id"] for r in bindings]
+            raise DependencyError(
+                f"Cannot delete source: {len(bindings)} binding(s) depend on it",
+                dependencies=refs,
+            )
+
+        # Safe to delete — only owned/orphan data remains
+        self.metadata.execute("DELETE FROM sync_selections WHERE source_id = ?", [source_id])
+        self.metadata.execute("DELETE FROM sync_jobs WHERE source_id = ?", [source_id])
+        self.metadata.execute("DELETE FROM source_objects WHERE source_id = ?", [source_id])
+        self.metadata.execute("DELETE FROM sources WHERE source_id = ?", [source_id])
 
     def get_adapter(self, source_id: str) -> CatalogAdapter:
         source = self.get_source(source_id)
