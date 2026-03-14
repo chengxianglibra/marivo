@@ -4,160 +4,198 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>OmniDB Admin</title>
+<link rel="stylesheet" href="/static/shared.css">
 <style>
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #1a1a1a; background: #f5f6f8; line-height: 1.5; }
-a { color: #2563eb; text-decoration: none; }
-
-/* Layout */
-.header { background: #fff; border-bottom: 1px solid #e2e4e9; padding: 0 24px; display: flex; align-items: center; height: 56px; }
-.header h1 { font-size: 18px; font-weight: 600; margin-right: 32px; }
-.tabs { display: flex; gap: 4px; }
-.tab-btn { padding: 8px 16px; border: none; background: none; cursor: pointer; font-size: 14px; border-radius: 6px 6px 0 0; color: #555; position: relative; bottom: -1px; border-bottom: 2px solid transparent; }
-.tab-btn:hover { color: #1a1a1a; background: #f0f1f3; }
-.tab-btn.active { color: #2563eb; border-bottom-color: #2563eb; font-weight: 500; }
-
-.main { max-width: 1200px; margin: 24px auto; padding: 0 24px; }
-.panel { display: none; }
-.panel.active { display: block; }
-
-/* Cards & Tables */
-.card { background: #fff; border: 1px solid #e2e4e9; border-radius: 8px; padding: 20px; margin-bottom: 16px; }
-.card h2 { font-size: 16px; font-weight: 600; margin-bottom: 12px; }
-table { width: 100%; border-collapse: collapse; font-size: 14px; }
-th { text-align: left; padding: 8px 12px; border-bottom: 2px solid #e2e4e9; font-weight: 500; color: #555; }
-td { padding: 8px 12px; border-bottom: 1px solid #f0f1f3; }
-tr:hover td { background: #fafbfc; }
-.empty { color: #888; font-style: italic; padding: 16px 0; }
-
-/* Buttons */
-.btn { display: inline-flex; align-items: center; gap: 4px; padding: 6px 14px; border: 1px solid #d1d5db; border-radius: 6px; background: #fff; font-size: 13px; cursor: pointer; color: #1a1a1a; }
-.btn:hover { background: #f5f6f8; }
-.btn-primary { background: #2563eb; color: #fff; border-color: #2563eb; }
-.btn-primary:hover { background: #1d4ed8; }
-.btn-danger { color: #dc2626; border-color: #fca5a5; }
-.btn-danger:hover { background: #fef2f2; }
-.btn-sm { padding: 4px 10px; font-size: 12px; }
-.btn-success { background: #16a34a; color: #fff; border-color: #16a34a; }
-.btn-success:hover { background: #15803d; }
-.btn-warning { background: #d97706; color: #fff; border-color: #d97706; }
-.btn-warning:hover { background: #b45309; }
-
-/* Forms (modal) */
-.modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.3); z-index: 100; justify-content: center; align-items: flex-start; padding-top: 80px; }
-.modal-overlay.open { display: flex; }
-.modal { background: #fff; border-radius: 10px; width: 520px; max-width: 95vw; max-height: 80vh; overflow-y: auto; box-shadow: 0 8px 30px rgba(0,0,0,0.12); }
-.modal-header { padding: 16px 20px; border-bottom: 1px solid #e2e4e9; display: flex; justify-content: space-between; align-items: center; }
-.modal-header h3 { font-size: 15px; font-weight: 600; }
-.modal-close { background: none; border: none; font-size: 20px; cursor: pointer; color: #888; }
-.modal-body { padding: 20px; }
-.modal-footer { padding: 12px 20px; border-top: 1px solid #e2e4e9; display: flex; justify-content: flex-end; gap: 8px; }
-
-.form-group { margin-bottom: 14px; }
-.form-group label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 4px; color: #444; }
-.form-group input, .form-group select, .form-group textarea { width: 100%; padding: 7px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; font-family: inherit; }
-.form-group textarea { min-height: 80px; resize: vertical; }
-
-/* Toast */
-.toast-container { position: fixed; top: 16px; right: 16px; z-index: 200; display: flex; flex-direction: column; gap: 8px; }
-.toast { padding: 10px 16px; border-radius: 8px; font-size: 13px; color: #fff; box-shadow: 0 4px 12px rgba(0,0,0,0.15); animation: slideIn 0.3s ease; }
-.toast.success { background: #16a34a; }
-.toast.error { background: #dc2626; }
-@keyframes slideIn { from { opacity: 0; transform: translateX(40px); } to { opacity: 1; transform: translateX(0); } }
-
-/* Spinner */
-.spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid #d1d5db; border-top-color: #2563eb; border-radius: 50%; animation: spin 0.6s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
-.loading-row td { text-align: center; padding: 24px; }
-
-/* Detail panel */
-.detail-back { cursor: pointer; color: #2563eb; font-size: 13px; margin-bottom: 12px; display: inline-block; }
-.detail-meta { display: grid; grid-template-columns: 140px 1fr; gap: 4px 12px; font-size: 14px; margin-bottom: 16px; }
-.detail-meta dt { color: #666; font-weight: 500; }
-.detail-meta dd { color: #1a1a1a; }
-
-/* Toolbar */
-.toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+/* Page-specific overrides */
+.detail-back { cursor: pointer; color: var(--color-primary); font-size: var(--font-size-sm); margin-bottom: var(--space-md); display: inline-flex; align-items: center; gap: 4px; }
+.detail-back:hover { color: var(--color-primary-hover); }
+.detail-meta { display: grid; grid-template-columns: 140px 1fr; gap: var(--space-xs) var(--space-md); font-size: var(--font-size-base); margin-bottom: var(--space-lg); }
+.detail-meta dt { color: var(--color-text-secondary); font-weight: 500; }
+.detail-meta dd { color: var(--color-text); }
+.toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-md); }
 .toolbar h2 { margin-bottom: 0; }
-
-/* Status badges */
-.badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; font-weight: 500; }
-.badge-pending { background: #fef3c7; color: #92400e; }
-.badge-approved { background: #d1fae5; color: #065f46; }
-.badge-rejected { background: #fee2e2; color: #991b1b; }
-.badge-enabled { background: #d1fae5; color: #065f46; }
-.badge-disabled { background: #f3f4f6; color: #6b7280; }
-
-/* Observability */
-.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px; }
-.stat-card { background: #f9fafb; border: 1px solid #e2e4e9; border-radius: 8px; padding: 16px; text-align: center; }
-.stat-card .stat-value { font-size: 28px; font-weight: 700; color: #2563eb; }
-.stat-card .stat-label { font-size: 13px; color: #666; margin-top: 4px; }
-
-/* Filter toolbar */
-.filter-toolbar { display: flex; gap: 8px; align-items: center; }
-.filter-toolbar select { padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 13px; }
-
-/* Auto-refresh */
-.auto-refresh { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #555; }
+.filter-toolbar { display: flex; gap: var(--space-sm); align-items: center; }
+.filter-toolbar select { padding: 6px 10px; border: 1px solid var(--color-border); border-radius: var(--radius-md); font-size: var(--font-size-sm); }
+.auto-refresh { display: flex; align-items: center; gap: 6px; font-size: var(--font-size-sm); color: var(--color-text-secondary); }
 .auto-refresh input[type="checkbox"] { margin: 0; }
+.spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid var(--color-border); border-top-color: var(--color-primary); border-radius: 50%; animation: spin 0.6s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-row td { text-align: center; padding: var(--space-2xl); }
+.source-status { display: inline-flex; align-items: center; gap: 6px; }
+.engine-type-badge { font-family: var(--font-mono); font-size: var(--font-size-xs); }
+.binding-connection { display: flex; align-items: center; gap: var(--space-sm); font-size: var(--font-size-sm); }
+.binding-arrow { color: var(--color-text-muted); font-size: 16px; }
+.severity-indicator { display: inline-flex; align-items: center; gap: 4px; }
+.severity-indicator .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.severity-indicator .dot.error { background: var(--color-error); }
+.severity-indicator .dot.warn { background: var(--color-warning); }
+.severity-indicator .dot.info { background: var(--color-info); }
+.approval-timeline .timeline-item { padding-bottom: var(--space-lg); }
+.metrics-group { margin-bottom: var(--space-xl); }
+.metrics-group h3 { font-size: var(--font-size-base); font-weight: 600; margin-bottom: var(--space-sm); color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.3px; font-size: var(--font-size-xs); }
+.policy-type-badge { font-family: var(--font-mono); }
 </style>
 </head>
 <body>
 
-<div class="header">
-  <h1>OmniDB Admin</h1>
-  <div class="tabs" id="tabs">
-    <button class="tab-btn active" data-tab="sources">Sources</button>
-    <button class="tab-btn" data-tab="engines">Engines</button>
-    <button class="tab-btn" data-tab="bindings">Bindings</button>
-    <button class="tab-btn" data-tab="entities">Entities</button>
-    <button class="tab-btn" data-tab="metrics">Metrics</button>
-    <button class="tab-btn" data-tab="governance">Governance</button>
-    <button class="tab-btn" data-tab="approvals">Approvals</button>
-    <button class="tab-btn" data-tab="observability">Observability</button>
-  </div>
-  <a href="/ui" style="margin-left:auto;font-size:13px;">Analytics UI &rarr;</a>
-</div>
+<div class="app-layout">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      OmniDB
+      <small>Administration</small>
+    </div>
 
-<div class="main">
-  <!-- Sources -->
-  <div class="panel active" id="panel-sources"></div>
-  <!-- Engines -->
-  <div class="panel" id="panel-engines"></div>
-  <!-- Bindings -->
-  <div class="panel" id="panel-bindings"></div>
-  <!-- Entities -->
-  <div class="panel" id="panel-entities"></div>
-  <!-- Metrics -->
-  <div class="panel" id="panel-metrics"></div>
-  <!-- Governance -->
-  <div class="panel" id="panel-governance"></div>
-  <!-- Approvals -->
-  <div class="panel" id="panel-approvals"></div>
-  <!-- Observability -->
-  <div class="panel" id="panel-observability"></div>
+    <div class="sidebar-section">Infrastructure</div>
+    <ul class="sidebar-nav">
+      <li class="active">
+        <button data-tab="sources">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <ellipse cx="12" cy="5" rx="9" ry="3"/>
+            <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
+            <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+          </svg>
+          <span class="nav-label">Sources</span>
+        </button>
+      </li>
+      <li>
+        <button data-tab="engines">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="4" y="4" width="16" height="16" rx="2"/>
+            <rect x="9" y="9" width="6" height="6"/>
+            <path d="M9 1v3"/><path d="M15 1v3"/><path d="M9 20v3"/><path d="M15 20v3"/>
+            <path d="M20 9h3"/><path d="M20 14h3"/><path d="M1 9h3"/><path d="M1 14h3"/>
+          </svg>
+          <span class="nav-label">Engines</span>
+        </button>
+      </li>
+      <li>
+        <button data-tab="bindings">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+          </svg>
+          <span class="nav-label">Bindings</span>
+        </button>
+      </li>
+    </ul>
+
+    <div class="sidebar-section">Semantic Layer</div>
+    <ul class="sidebar-nav">
+      <li>
+        <button data-tab="entities">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+            <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+            <line x1="12" y1="22.08" x2="12" y2="12"/>
+          </svg>
+          <span class="nav-label">Entities</span>
+        </button>
+      </li>
+      <li>
+        <button data-tab="metrics">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+          </svg>
+          <span class="nav-label">Metrics</span>
+        </button>
+      </li>
+    </ul>
+
+    <div class="sidebar-section">Governance</div>
+    <ul class="sidebar-nav">
+      <li>
+        <button data-tab="governance">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          </svg>
+          <span class="nav-label">Policies</span>
+        </button>
+      </li>
+      <li>
+        <button data-tab="approvals">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+            <polyline points="22 4 12 14.01 9 11.01"/>
+          </svg>
+          <span class="nav-label">Approvals</span>
+          <span class="nav-badge" id="approvals-badge" style="display:none;">0</span>
+        </button>
+      </li>
+    </ul>
+
+    <div class="sidebar-section">System</div>
+    <ul class="sidebar-nav">
+      <li>
+        <button data-tab="observability">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+          </svg>
+          <span class="nav-label">Observability</span>
+        </button>
+      </li>
+    </ul>
+
+    <div class="sidebar-footer">
+      <a href="/ui">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/>
+        </svg>
+        <span>Analytics UI</span>
+      </a>
+    </div>
+  </aside>
+
+  <!-- Content Area -->
+  <div class="content-area">
+    <div class="content-header">
+      <div class="breadcrumb">
+        <span>Admin</span>
+        <span class="sep">/</span>
+        <span class="current">Sources</span>
+      </div>
+    </div>
+
+    <div class="content-body">
+      <!-- Sources -->
+      <div class="panel active" id="panel-sources"></div>
+      <!-- Engines -->
+      <div class="panel" id="panel-engines"></div>
+      <!-- Bindings -->
+      <div class="panel" id="panel-bindings"></div>
+      <!-- Entities -->
+      <div class="panel" id="panel-entities"></div>
+      <!-- Metrics -->
+      <div class="panel" id="panel-metrics"></div>
+      <!-- Governance -->
+      <div class="panel" id="panel-governance"></div>
+      <!-- Approvals -->
+      <div class="panel" id="panel-approvals"></div>
+      <!-- Observability -->
+      <div class="panel" id="panel-observability"></div>
+    </div>
+  </div>
 </div>
 
 <!-- Modal -->
 <div class="modal-overlay" id="modal-overlay">
   <div class="modal">
-    <div class="modal-header">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-lg);">
       <h3 id="modal-title"></h3>
-      <button class="modal-close" id="modal-close">&times;</button>
+      <button id="modal-close" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--color-text-muted);padding:4px;">&times;</button>
     </div>
-    <div class="modal-body" id="modal-body"></div>
-    <div class="modal-footer" id="modal-footer"></div>
+    <div id="modal-body"></div>
+    <div id="modal-footer" style="display:flex;justify-content:flex-end;gap:var(--space-sm);margin-top:var(--space-lg);"></div>
   </div>
 </div>
 
-<div class="toast-container" id="toasts"></div>
-
+<script src="/static/shared.js"></script>
 <script>
 // ── Helpers ────────────────────────────────────────────────
 const $ = (sel, ctx = document) => ctx.querySelector(sel);
 const $$ = (sel, ctx = document) => [...ctx.querySelectorAll(sel)];
 
+// Override shared.js api with our domain-specific methods
 const api = {
   async _fetch(path, opts = {}) {
     const res = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts });
@@ -218,10 +256,16 @@ const api = {
 };
 
 function toast(msg, type = 'success') {
+  let container = document.querySelector('.toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.className = 'toast-container';
+    document.body.appendChild(container);
+  }
   const el = document.createElement('div');
   el.className = `toast ${type}`;
   el.textContent = msg;
-  $('#toasts').appendChild(el);
+  container.appendChild(el);
   setTimeout(() => el.remove(), 3500);
 }
 
@@ -240,25 +284,70 @@ function closeModal() { $('#modal-overlay').classList.remove('open'); }
 $('#modal-close').onclick = closeModal;
 $('#modal-overlay').onclick = (e) => { if (e.target === e.currentTarget) closeModal(); };
 
-// ── Tab switching ──────────────────────────────────────────
+// ── Tab switching (rendered via shared.js initSidebar) ─────
+// We also hook into the tab-change event for lazy-loading
 const renderers = {};
-$('#tabs').onclick = (e) => {
-  const btn = e.target.closest('.tab-btn');
-  if (!btn) return;
-  $$('.tab-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  $$('.panel').forEach(p => p.classList.remove('active'));
-  $(`#panel-${btn.dataset.tab}`).classList.add('active');
-  if (renderers[btn.dataset.tab]) renderers[btn.dataset.tab]();
-};
+window.addEventListener('tab-change', (e) => {
+  const tab = e.detail.tab;
+  if (renderers[tab]) renderers[tab]();
+});
+
+// ── Pending approvals badge ────────────────────────────────
+async function updateApprovalsBadge() {
+  try {
+    const approvals = await api.listApprovals({ status: 'pending' });
+    const badge = $('#approvals-badge');
+    if (badge) {
+      if (approvals.length > 0) {
+        badge.textContent = approvals.length;
+        badge.style.display = '';
+      } else {
+        badge.style.display = 'none';
+      }
+    }
+  } catch {}
+}
+
+// ── Helper functions ───────────────────────────────────────
+function engineTypeBadge(type) {
+  const map = { duckdb: 'badge-info', trino: 'badge-primary', spark_connect: 'badge-warning', spark_thrift: 'badge-warning' };
+  const cls = map[(type || '').toLowerCase()] || 'badge-gray';
+  return `<span class="badge ${cls} engine-type-badge">${esc(type || 'unknown')}</span>`;
+}
+
+function policyTypeBadge(type) {
+  const map = { aggregate_only: 'badge-info', field_mask: 'badge-warning', row_filter: 'badge-error', max_rows: 'badge-gray' };
+  const cls = map[(type || '').toLowerCase()] || 'badge-gray';
+  return `<span class="badge ${cls} policy-type-badge">${esc(type || 'unknown')}</span>`;
+}
+
+function severityBadge(sev) {
+  const map = { error: 'badge-error', warn: 'badge-warning', info: 'badge-info' };
+  const cls = map[(sev || '').toLowerCase()] || 'badge-gray';
+  return `<span class="badge ${cls}">${esc(sev || 'info')}</span>`;
+}
+
+function syncStatusDot(source) {
+  const status = (source.status || '').toLowerCase();
+  if (status === 'synced' || status === 'active' || status === 'ok') return '<span class="status-dot green"></span>';
+  if (status === 'error' || status === 'failed') return '<span class="status-dot red"></span>';
+  return '<span class="status-dot gray"></span>';
+}
 
 // ── Sources Tab ────────────────────────────────────────────
 renderers.sources = async () => {
   const panel = $('#panel-sources');
-  panel.innerHTML = `<div class="card">
-    <div class="toolbar"><h2>Catalog Sources</h2><button class="btn btn-primary" id="add-source">+ Add Source</button></div>
-    <table><thead><tr><th>Name</th><th>Type</th><th>Sync Mode</th><th>Status</th><th>Created</th><th></th></tr></thead>
-    <tbody id="sources-tbody">${loadingRow(6)}</tbody></table></div>`;
+  panel.innerHTML = `
+    <div class="card">
+      <div class="card-header">
+        <h2>Catalog Sources</h2>
+        <button class="btn btn-primary" id="add-source">+ Add Source</button>
+      </div>
+      <table>
+        <thead><tr><th>Name</th><th>Type</th><th>Sync Mode</th><th>Status</th><th>Created</th><th></th></tr></thead>
+        <tbody id="sources-tbody">${loadingRow(6)}</tbody>
+      </table>
+    </div>`;
 
   const CONN_TEMPLATES = {
     local:          '{"path": "/path/to/file.duckdb"}',
@@ -272,7 +361,7 @@ renderers.sources = async () => {
   $('#add-source').onclick = () => {
     openModal('Add Source',
       `<div class="form-group"><label>Source Type</label><select id="f-src-type"><option value="local">local</option><option value="duckdb">duckdb</option><option value="hive_metastore">hive_metastore</option><option value="trino">trino</option><option value="unity_catalog">unity_catalog</option><option value="aws_glue">aws_glue</option><option value="polaris">polaris</option></select></div>
-       <div class="form-group"><label>Display Name</label><input id="f-src-name" placeholder="My Source"></div>
+       <div class="form-group"><label>Display Name</label><input type="text" id="f-src-name" placeholder="My Source"></div>
        <div class="form-group"><label>Connection (JSON)</label><textarea id="f-src-conn">{"path": "/path/to/file.duckdb"}</textarea></div>`,
       `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" id="f-src-submit">Create</button>`);
     $('#f-src-type').onchange = () => {
@@ -305,8 +394,10 @@ renderers.sources = async () => {
         actionBtn = `<button class="btn btn-sm sync-btn" data-id="${s.source_id}">Sync</button>`;
       }
       return `<tr>
-        <td><a href="#" class="src-link" data-id="${s.source_id}">${esc(s.display_name)}</a></td>
-        <td>${esc(s.source_type)}</td><td>${esc(mode)}</td><td>${esc(s.status)}</td>
+        <td><span class="source-status">${syncStatusDot(s)}<a href="#" class="src-link" data-id="${s.source_id}">${esc(s.display_name)}</a></span></td>
+        <td><span class="badge badge-gray">${esc(s.source_type)}</span></td>
+        <td>${esc(mode)}</td>
+        <td>${statusBadge(s.status)}</td>
         <td>${fmtDate(s.created_at)}</td>
         <td>${actionBtn}</td>
       </tr>`;
@@ -329,7 +420,6 @@ async function openTableSelectionModal(sourceId) {
   const tablesArea = $('#sel-tables-area');
   let currentSelections = new Set();
 
-  // Load existing selections and schemas in parallel
   try {
     const [schemas, existingSels] = await Promise.all([
       api.browseSchemas(sourceId),
@@ -367,10 +457,8 @@ async function openTableSelectionModal(sourceId) {
   };
 
   $('#f-sel-save').onclick = async () => {
-    // Collect all checked items across all schemas (merge with existing selections not currently visible)
     const checkedBoxes = $$('.sel-cb', tablesArea);
     const visibleSchema = schemaSelect.value;
-    // Remove existing selections for the visible schema, then add checked ones
     currentSelections.forEach(key => {
       if (key.startsWith(visibleSchema + '.')) currentSelections.delete(key);
     });
@@ -396,11 +484,10 @@ async function openTableSelectionModal(sourceId) {
 
 async function showSourceDetail(id) {
   const panel = $('#panel-sources');
-  panel.innerHTML = `<div class="card"><span class="detail-back" id="src-back">&larr; Back to sources</span><div class="spinner"></div></div>`;
+  panel.innerHTML = `<div class="card"><span class="detail-back" id="src-back">&larr; Back to sources</span><div style="padding:24px;text-align:center;"><span class="spinner"></span></div></div>`;
   $('#src-back').onclick = () => renderers.sources();
   try {
     const [src, objs] = await Promise.all([api.getSource(id), api.listObjects(id)]);
-    // Build hierarchy: group columns by parent table, tables by parent schema
     const schemas = objs.filter(o => o.object_type === 'schema');
     const tables = objs.filter(o => o.object_type === 'table');
     const columns = objs.filter(o => o.object_type === 'column');
@@ -408,16 +495,14 @@ async function showSourceDetail(id) {
     columns.forEach(c => { (colsByParent[c.parent_id] = colsByParent[c.parent_id] || []).push(c); });
     const tablesByParent = {};
     tables.forEach(t => { (tablesByParent[t.parent_id] = tablesByParent[t.parent_id] || []).push(t); });
-    // Also collect tables with no schema parent (top-level)
     const orphanTables = tables.filter(t => !schemas.some(s => s.object_id === t.parent_id));
 
     let objectsHtml = '';
     if (!tables.length && !schemas.length) {
       objectsHtml = '<p class="empty">No objects synced. Trigger a sync to populate.</p>';
     } else {
-      // Render each schema and its tables/columns
       schemas.forEach(s => {
-        objectsHtml += `<h3 style="margin-top:16px;font-size:14px;color:#555;">Schema: ${esc(s.native_name)}</h3>`;
+        objectsHtml += `<h3 style="margin-top:16px;font-size:14px;color:var(--color-text-secondary);">Schema: ${esc(s.native_name)}</h3>`;
         const schemaTables = tablesByParent[s.object_id] || [];
         if (!schemaTables.length) {
           objectsHtml += `<p class="empty" style="margin-left:12px;">No tables in this schema.</p>`;
@@ -425,27 +510,43 @@ async function showSourceDetail(id) {
           objectsHtml += renderTablesWithColumns(schemaTables, colsByParent);
         }
       });
-      // Render orphan tables (no schema parent)
       if (orphanTables.length) {
-        if (schemas.length) objectsHtml += `<h3 style="margin-top:16px;font-size:14px;color:#555;">Tables</h3>`;
+        if (schemas.length) objectsHtml += `<h3 style="margin-top:16px;font-size:14px;color:var(--color-text-secondary);">Tables</h3>`;
         objectsHtml += renderTablesWithColumns(orphanTables, colsByParent);
       }
     }
 
-    panel.innerHTML = `<div class="card">
+    panel.innerHTML = `
       <span class="detail-back" id="src-back2">&larr; Back to sources</span>
-      <h2>${esc(src.display_name)}</h2>
-      <dl class="detail-meta">
-        <dt>ID</dt><dd>${esc(src.source_id)}</dd>
-        <dt>Type</dt><dd>${esc(src.source_type)}</dd>
-        <dt>Status</dt><dd>${esc(src.status)}</dd>
-        <dt>Sync Mode</dt><dd>${esc(src.sync_mode || 'all')}</dd>
-        <dt>Created</dt><dd>${fmtDate(src.created_at)}</dd>
-      </dl>
-      ${(src.sync_mode || 'all') === 'by_select' ? '<button class="btn btn-primary btn-sm" id="src-manage-sel" style="margin-bottom:12px;">Manage Selections</button>' : ''}
-      <h2>Tables &amp; Columns (${tables.length} tables, ${columns.length} columns)</h2>
-      ${objectsHtml}
-    </div>`;
+      <div class="stat-grid">
+        <div class="stat-card stat-info">
+          <div class="stat-label">Schemas</div>
+          <div class="stat-value">${schemas.length}</div>
+        </div>
+        <div class="stat-card stat-success">
+          <div class="stat-label">Tables</div>
+          <div class="stat-value">${tables.length}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Columns</div>
+          <div class="stat-value">${columns.length}</div>
+        </div>
+      </div>
+      <div class="card">
+        <h2>${esc(src.display_name)}</h2>
+        <dl class="detail-meta">
+          <dt>ID</dt><dd><code style="font-size:var(--font-size-sm);">${esc(src.source_id)}</code></dd>
+          <dt>Type</dt><dd>${esc(src.source_type)}</dd>
+          <dt>Status</dt><dd>${statusBadge(src.status)}</dd>
+          <dt>Sync Mode</dt><dd>${esc(src.sync_mode || 'all')}</dd>
+          <dt>Created</dt><dd>${fmtDate(src.created_at)}</dd>
+        </dl>
+        ${(src.sync_mode || 'all') === 'by_select' ? '<button class="btn btn-primary btn-sm" id="src-manage-sel" style="margin-bottom:12px;">Manage Selections</button>' : ''}
+      </div>
+      <div class="card">
+        <h2>Tables &amp; Columns (${tables.length} tables, ${columns.length} columns)</h2>
+        ${objectsHtml}
+      </div>`;
     $('#src-back2').onclick = () => renderers.sources();
     const manageBtn = $('#src-manage-sel');
     if (manageBtn) manageBtn.onclick = () => openTableSelectionModal(id);
@@ -459,7 +560,7 @@ function renderTablesWithColumns(tables, colsByParent) {
     const colNames = cols.map(c => esc(c.native_name)).join(', ');
     html += `<tr>
       <td><strong>${esc(t.native_name)}</strong></td>
-      <td><code style="font-size:12px;color:#666;">${esc(t.fqn)}</code></td>
+      <td><code style="font-size:12px;color:var(--color-text-secondary);">${esc(t.fqn)}</code></td>
       <td>${colNames || '<span class="empty">no columns synced</span>'}</td>
     </tr>`;
   });
@@ -470,15 +571,22 @@ function renderTablesWithColumns(tables, colsByParent) {
 // ── Engines Tab ────────────────────────────────────────────
 renderers.engines = async () => {
   const panel = $('#panel-engines');
-  panel.innerHTML = `<div class="card">
-    <div class="toolbar"><h2>Query Engines</h2><button class="btn btn-primary" id="add-engine">+ Add Engine</button></div>
-    <table><thead><tr><th>Name</th><th>Type</th><th>Status</th><th>Created</th></tr></thead>
-    <tbody id="engines-tbody">${loadingRow(4)}</tbody></table></div>`;
+  panel.innerHTML = `
+    <div class="card">
+      <div class="card-header">
+        <h2>Query Engines</h2>
+        <button class="btn btn-primary" id="add-engine">+ Add Engine</button>
+      </div>
+      <table>
+        <thead><tr><th>Name</th><th>Type</th><th>Status</th><th>Created</th></tr></thead>
+        <tbody id="engines-tbody">${loadingRow(4)}</tbody>
+      </table>
+    </div>`;
 
   $('#add-engine').onclick = () => {
     openModal('Add Engine',
       `<div class="form-group"><label>Engine Type</label><select id="f-eng-type"><option value="duckdb">duckdb</option><option value="trino">trino</option></select></div>
-       <div class="form-group"><label>Display Name</label><input id="f-eng-name" placeholder="My Engine"></div>
+       <div class="form-group"><label>Display Name</label><input type="text" id="f-eng-name" placeholder="My Engine"></div>
        <div class="form-group"><label>Connection (JSON)</label><textarea id="f-eng-conn">{}</textarea></div>`,
       `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" id="f-eng-submit">Create</button>`);
     $('#f-eng-submit').onclick = async () => {
@@ -497,19 +605,34 @@ renderers.engines = async () => {
     const engines = await api.listEngines();
     const tbody = $('#engines-tbody');
     if (!engines.length) { tbody.innerHTML = `<tr><td colspan="4" class="empty">No engines registered.</td></tr>`; return; }
-    tbody.innerHTML = engines.map(e => `<tr>
-      <td>${esc(e.display_name)}</td><td>${esc(e.engine_type)}</td><td>${esc(e.status)}</td><td>${fmtDate(e.created_at)}</td>
-    </tr>`).join('');
+    tbody.innerHTML = engines.map(e => {
+      const statusDot = (e.status || '').toLowerCase() === 'active' || (e.status || '').toLowerCase() === 'ok'
+        ? '<span class="status-dot green pulse"></span>'
+        : '<span class="status-dot gray"></span>';
+      return `<tr>
+        <td><span style="display:inline-flex;align-items:center;gap:6px;">${statusDot}${esc(e.display_name)}</span></td>
+        <td>${engineTypeBadge(e.engine_type)}</td>
+        <td>${statusBadge(e.status)}</td>
+        <td>${fmtDate(e.created_at)}</td>
+      </tr>`;
+    }).join('');
   } catch (err) { toast(err.message, 'error'); }
 };
 
 // ── Bindings Tab ───────────────────────────────────────────
 renderers.bindings = async () => {
   const panel = $('#panel-bindings');
-  panel.innerHTML = `<div class="card">
-    <div class="toolbar"><h2>Source-Engine Bindings</h2><button class="btn btn-primary" id="add-binding">+ Add Binding</button></div>
-    <table><thead><tr><th>Source</th><th>Engine</th><th>Priority</th><th>Status</th><th></th></tr></thead>
-    <tbody id="bindings-tbody">${loadingRow(5)}</tbody></table></div>`;
+  panel.innerHTML = `
+    <div class="card">
+      <div class="card-header">
+        <h2>Source-Engine Bindings</h2>
+        <button class="btn btn-primary" id="add-binding">+ Add Binding</button>
+      </div>
+      <table>
+        <thead><tr><th>Connection</th><th>Priority</th><th>Status</th><th></th></tr></thead>
+        <tbody id="bindings-tbody">${loadingRow(4)}</tbody>
+      </table>
+    </div>`;
 
   let sourcesCache = [], enginesCache = [];
   $('#add-binding').onclick = async () => {
@@ -540,12 +663,20 @@ renderers.bindings = async () => {
     const [bindings, sources, engines] = await Promise.all([api.listBindings(), api.listSources(), api.listEngines()]);
     const srcMap = Object.fromEntries(sources.map(s => [s.source_id, s.display_name]));
     const engMap = Object.fromEntries(engines.map(e => [e.engine_id, e.display_name]));
+    const engTypeMap = Object.fromEntries(engines.map(e => [e.engine_id, e.engine_type]));
     const tbody = $('#bindings-tbody');
-    if (!bindings.length) { tbody.innerHTML = `<tr><td colspan="5" class="empty">No bindings.</td></tr>`; return; }
+    if (!bindings.length) { tbody.innerHTML = `<tr><td colspan="4" class="empty">No bindings.</td></tr>`; return; }
     tbody.innerHTML = bindings.map(b => `<tr>
-      <td>${esc(srcMap[b.source_id] || b.source_id)}</td>
-      <td>${esc(engMap[b.engine_id] || b.engine_id)}</td>
-      <td>${b.priority}</td><td>${esc(b.status)}</td>
+      <td>
+        <div class="binding-connection">
+          <span class="badge badge-gray">${esc(srcMap[b.source_id] || b.source_id)}</span>
+          <span class="binding-arrow">&rarr;</span>
+          ${engineTypeBadge(engTypeMap[b.engine_id] || 'unknown')}
+          <span>${esc(engMap[b.engine_id] || b.engine_id)}</span>
+        </div>
+      </td>
+      <td><span class="badge badge-info">${b.priority}</span></td>
+      <td>${statusBadge(b.status)}</td>
       <td><button class="btn btn-sm btn-danger del-bind" data-id="${b.binding_id}">Delete</button></td>
     </tr>`).join('');
     $$('.del-bind', tbody).forEach(btn => btn.onclick = async () => {
@@ -558,22 +689,34 @@ renderers.bindings = async () => {
 // ── Entities Tab ───────────────────────────────────────────
 renderers.entities = async () => {
   const panel = $('#panel-entities');
-  panel.innerHTML = `<div class="card">
-    <div class="toolbar"><h2>Semantic Entities</h2><button class="btn btn-primary" id="add-entity">+ Add Entity</button></div>
-    <table><thead><tr><th>Name</th><th>Display Name</th><th>Status</th><th>Revision</th><th>Keys</th><th></th></tr></thead>
-    <tbody id="entities-tbody">${loadingRow(6)}</tbody></table></div>
+  panel.innerHTML = `
+    <div class="card">
+      <div class="card-header">
+        <h2>Semantic Entities</h2>
+        <button class="btn btn-primary" id="add-entity">+ Add Entity</button>
+      </div>
+      <table>
+        <thead><tr><th>Name</th><th>Display Name</th><th>Status</th><th>Revision</th><th>Keys</th><th></th></tr></thead>
+        <tbody id="entities-tbody">${loadingRow(6)}</tbody>
+      </table>
+    </div>
     <div class="card" id="ent-mappings-card" style="display:none">
-      <div class="toolbar"><h2 id="ent-mappings-title">Mappings</h2><button class="btn btn-primary btn-sm" id="ent-add-mapping">+ Add Mapping</button></div>
-      <table><thead><tr><th>Type</th><th>Semantic ID</th><th>Object ID</th><th>Mapping Type</th><th></th></tr></thead>
-      <tbody id="ent-mappings-tbody"></tbody></table>
+      <div class="card-header">
+        <h2 id="ent-mappings-title">Mappings</h2>
+        <button class="btn btn-primary btn-sm" id="ent-add-mapping">+ Add Mapping</button>
+      </div>
+      <table>
+        <thead><tr><th>Type</th><th>Semantic ID</th><th>Object ID</th><th>Mapping Type</th><th></th></tr></thead>
+        <tbody id="ent-mappings-tbody"></tbody>
+      </table>
     </div>`;
 
   $('#add-entity').onclick = () => {
     openModal('Add Entity',
-      `<div class="form-group"><label>Name</label><input id="f-ent-name" placeholder="user"></div>
-       <div class="form-group"><label>Display Name</label><input id="f-ent-dname" placeholder="User"></div>
+      `<div class="form-group"><label>Name</label><input type="text" id="f-ent-name" placeholder="user"></div>
+       <div class="form-group"><label>Display Name</label><input type="text" id="f-ent-dname" placeholder="User"></div>
        <div class="form-group"><label>Description</label><textarea id="f-ent-desc"></textarea></div>
-       <div class="form-group"><label>Keys (comma-separated)</label><input id="f-ent-keys" placeholder="user_id"></div>`,
+       <div class="form-group"><label>Keys (comma-separated)</label><input type="text" id="f-ent-keys" placeholder="user_id"></div>`,
       `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" id="f-ent-submit">Create</button>`);
     $('#f-ent-submit').onclick = async () => {
       try {
@@ -590,10 +733,20 @@ renderers.entities = async () => {
     const entities = await api.listEntities();
     const tbody = $('#entities-tbody');
     if (!entities.length) { tbody.innerHTML = `<tr><td colspan="6" class="empty">No entities.</td></tr>`; return; }
+    // Fetch mapping counts for all entities
+    let mappingCounts = {};
+    try {
+      const allMappings = await api.listMappings({ semantic_type: 'entity' });
+      allMappings.forEach(m => { mappingCounts[m.semantic_id] = (mappingCounts[m.semantic_id] || 0) + 1; });
+    } catch {}
     tbody.innerHTML = entities.map(e => {
       const keys = e.keys || [];
+      const mapCount = mappingCounts[e.entity_id] || 0;
       return `<tr>
-        <td><a href="#" class="ent-link" data-id="${e.entity_id}">${esc(e.name)}</a></td><td>${esc(e.display_name)}</td><td>${esc(e.status)}</td><td>${e.revision}</td>
+        <td><a href="#" class="ent-link" data-id="${e.entity_id}">${esc(e.name)}</a>${mapCount > 0 ? ` <span class="badge badge-gray">${mapCount} mapping${mapCount > 1 ? 's' : ''}</span>` : ''}</td>
+        <td>${esc(e.display_name)}</td>
+        <td>${statusBadge(e.status)}</td>
+        <td>${e.revision}</td>
         <td>${esc(keys.join(', '))}</td>
         <td>
           <button class="btn btn-sm edit-ent" data-id="${e.entity_id}">Edit</button>
@@ -614,9 +767,9 @@ function editEntity(id, entities) {
   if (!e) return;
   const keys = e.keys || [];
   openModal('Edit Entity',
-    `<div class="form-group"><label>Display Name</label><input id="f-ent-dname" value="${attr(e.display_name)}"></div>
+    `<div class="form-group"><label>Display Name</label><input type="text" id="f-ent-dname" value="${attr(e.display_name)}"></div>
      <div class="form-group"><label>Description</label><textarea id="f-ent-desc">${esc(e.description || '')}</textarea></div>
-     <div class="form-group"><label>Keys (comma-separated)</label><input id="f-ent-keys" value="${attr(keys.join(', '))}"></div>`,
+     <div class="form-group"><label>Keys (comma-separated)</label><input type="text" id="f-ent-keys" value="${attr(keys.join(', '))}"></div>`,
     `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" id="f-ent-save">Save</button>`);
   $('#f-ent-save').onclick = async () => {
     try {
@@ -632,14 +785,26 @@ function editEntity(id, entities) {
 // ── Metrics Tab ────────────────────────────────────────────
 renderers.metrics = async () => {
   const panel = $('#panel-metrics');
-  panel.innerHTML = `<div class="card">
-    <div class="toolbar"><h2>Semantic Metrics</h2><button class="btn btn-primary" id="add-metric">+ Add Metric</button></div>
-    <table><thead><tr><th>Name</th><th>Display Name</th><th>Status</th><th>Rev</th><th>SQL</th><th></th></tr></thead>
-    <tbody id="metrics-tbody">${loadingRow(6)}</tbody></table></div>
+  panel.innerHTML = `
+    <div class="card">
+      <div class="card-header">
+        <h2>Semantic Metrics</h2>
+        <button class="btn btn-primary" id="add-metric">+ Add Metric</button>
+      </div>
+      <table>
+        <thead><tr><th>Name</th><th>Display Name</th><th>Status</th><th>Rev</th><th>SQL</th><th></th></tr></thead>
+        <tbody id="metrics-tbody">${loadingRow(6)}</tbody>
+      </table>
+    </div>
     <div class="card" id="met-mappings-card" style="display:none">
-      <div class="toolbar"><h2 id="met-mappings-title">Mappings</h2><button class="btn btn-primary btn-sm" id="met-add-mapping">+ Add Mapping</button></div>
-      <table><thead><tr><th>Type</th><th>Semantic ID</th><th>Object ID</th><th>Mapping Type</th><th></th></tr></thead>
-      <tbody id="met-mappings-tbody"></tbody></table>
+      <div class="card-header">
+        <h2 id="met-mappings-title">Mappings</h2>
+        <button class="btn btn-primary btn-sm" id="met-add-mapping">+ Add Mapping</button>
+      </div>
+      <table>
+        <thead><tr><th>Type</th><th>Semantic ID</th><th>Object ID</th><th>Mapping Type</th><th></th></tr></thead>
+        <tbody id="met-mappings-tbody"></tbody>
+      </table>
     </div>`;
 
   $('#add-metric').onclick = async () => {
@@ -647,11 +812,11 @@ renderers.metrics = async () => {
     try { entities = await api.listEntities(); } catch {}
     const entOpts = `<option value="">-- none --</option>` + entities.map(e => `<option value="${e.entity_id}">${esc(e.name)}</option>`).join('');
     openModal('Add Metric',
-      `<div class="form-group"><label>Name</label><input id="f-met-name" placeholder="watch_time"></div>
-       <div class="form-group"><label>Display Name</label><input id="f-met-dname" placeholder="Watch Time"></div>
+      `<div class="form-group"><label>Name</label><input type="text" id="f-met-name" placeholder="watch_time"></div>
+       <div class="form-group"><label>Display Name</label><input type="text" id="f-met-dname" placeholder="Watch Time"></div>
        <div class="form-group"><label>Description</label><textarea id="f-met-desc"></textarea></div>
        <div class="form-group"><label>Definition SQL</label><textarea id="f-met-sql" placeholder="SUM(watch_seconds)"></textarea></div>
-       <div class="form-group"><label>Dimensions (comma-separated)</label><input id="f-met-dims" placeholder="platform, country"></div>
+       <div class="form-group"><label>Dimensions (comma-separated)</label><input type="text" id="f-met-dims" placeholder="platform, country"></div>
        <div class="form-group"><label>Entity</label><select id="f-met-ent">${entOpts}</select></div>`,
       `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" id="f-met-submit">Create</button>`);
     $('#f-met-submit').onclick = async () => {
@@ -672,15 +837,26 @@ renderers.metrics = async () => {
     const metrics = await api.listMetrics();
     const tbody = $('#metrics-tbody');
     if (!metrics.length) { tbody.innerHTML = `<tr><td colspan="6" class="empty">No metrics.</td></tr>`; return; }
-    tbody.innerHTML = metrics.map(m => `<tr>
-      <td><a href="#" class="met-link" data-id="${m.metric_id}">${esc(m.name)}</a></td>
-      <td>${esc(m.display_name)}</td><td>${esc(m.status)}</td><td>${m.revision}</td>
-      <td><code>${esc(truncate(m.definition_sql || '', 40))}</code></td>
-      <td>
-        <button class="btn btn-sm edit-met" data-id="${m.metric_id}">Edit</button>
-        ${m.status === 'draft' ? `<button class="btn btn-sm btn-primary pub-met" data-id="${m.metric_id}">Publish</button>` : ''}
-      </td>
-    </tr>`).join('');
+    // Fetch mapping counts for all metrics
+    let mappingCounts = {};
+    try {
+      const allMappings = await api.listMappings({ semantic_type: 'metric' });
+      allMappings.forEach(m => { mappingCounts[m.semantic_id] = (mappingCounts[m.semantic_id] || 0) + 1; });
+    } catch {}
+    tbody.innerHTML = metrics.map(m => {
+      const mapCount = mappingCounts[m.metric_id] || 0;
+      return `<tr>
+        <td><a href="#" class="met-link" data-id="${m.metric_id}">${esc(m.name)}</a>${mapCount > 0 ? ` <span class="badge badge-gray">${mapCount} mapping${mapCount > 1 ? 's' : ''}</span>` : ''}</td>
+        <td>${esc(m.display_name)}</td>
+        <td>${statusBadge(m.status)}</td>
+        <td>${m.revision}</td>
+        <td><code style="font-size:var(--font-size-sm);">${esc(truncate(m.definition_sql || '', 40))}</code></td>
+        <td>
+          <button class="btn btn-sm edit-met" data-id="${m.metric_id}">Edit</button>
+          ${m.status === 'draft' ? `<button class="btn btn-sm btn-primary pub-met" data-id="${m.metric_id}">Publish</button>` : ''}
+        </td>
+      </tr>`;
+    }).join('');
     $$('.pub-met', tbody).forEach(btn => btn.onclick = async () => {
       try { await api.publishMetric(btn.dataset.id); toast('Metric published'); renderers.metrics(); } catch (err) { toast(err.message, 'error'); }
     });
@@ -694,10 +870,10 @@ function editMetric(id, metrics) {
   if (!m) return;
   const dims = m.dimensions || [];
   openModal('Edit Metric',
-    `<div class="form-group"><label>Display Name</label><input id="f-met-dname" value="${attr(m.display_name)}"></div>
+    `<div class="form-group"><label>Display Name</label><input type="text" id="f-met-dname" value="${attr(m.display_name)}"></div>
      <div class="form-group"><label>Description</label><textarea id="f-met-desc">${esc(m.description || '')}</textarea></div>
      <div class="form-group"><label>Definition SQL</label><textarea id="f-met-sql">${esc(m.definition_sql || '')}</textarea></div>
-     <div class="form-group"><label>Dimensions (comma-separated)</label><input id="f-met-dims" value="${attr(dims.join(', '))}"></div>`,
+     <div class="form-group"><label>Dimensions (comma-separated)</label><input type="text" id="f-met-dims" value="${attr(dims.join(', '))}"></div>`,
     `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" id="f-met-save">Save</button>`);
   $('#f-met-save').onclick = async () => {
     try {
@@ -723,7 +899,7 @@ async function showMappings(semType, semId, name, prefix) {
     const mappings = await api.listMappings({ semantic_type: semType, semantic_id: semId });
     if (!mappings.length) { tbody.innerHTML = `<tr><td colspan="5" class="empty">No mappings.</td></tr>`; return; }
     tbody.innerHTML = mappings.map(m => `<tr>
-      <td>${esc(m.semantic_type)}</td><td>${esc(m.semantic_id)}</td><td>${esc(m.object_id)}</td><td>${esc(m.mapping_type)}</td>
+      <td>${esc(m.semantic_type)}</td><td><code style="font-size:var(--font-size-sm);">${esc(m.semantic_id)}</code></td><td><code style="font-size:var(--font-size-sm);">${esc(m.object_id)}</code></td><td><span class="badge badge-gray">${esc(m.mapping_type)}</span></td>
       <td><button class="btn btn-sm btn-danger del-map" data-id="${m.mapping_id}">Delete</button></td>
     </tr>`).join('');
     $$('.del-map', tbody).forEach(btn => btn.onclick = async () => {
@@ -779,20 +955,30 @@ renderers.governance = async () => {
   const panel = $('#panel-governance');
   panel.innerHTML = `
     <div class="card">
-      <div class="toolbar"><h2>Policies</h2><button class="btn btn-primary" id="add-policy">+ Add Policy</button></div>
-      <table><thead><tr><th>Name</th><th>Type</th><th>Scope</th><th>Enabled</th><th>Actions</th></tr></thead>
-      <tbody id="policies-tbody">${loadingRow(5)}</tbody></table>
+      <div class="card-header">
+        <h2>Policies</h2>
+        <button class="btn btn-primary" id="add-policy">+ Add Policy</button>
+      </div>
+      <table>
+        <thead><tr><th>Name</th><th>Type</th><th>Scope</th><th>Enabled</th><th>Actions</th></tr></thead>
+        <tbody id="policies-tbody">${loadingRow(5)}</tbody>
+      </table>
     </div>
     <div class="card">
-      <div class="toolbar"><h2>Quality Rules</h2><button class="btn btn-primary" id="add-quality-rule">+ Add Quality Rule</button></div>
-      <table><thead><tr><th>Name</th><th>Type</th><th>Table</th><th>Severity</th><th>Actions</th></tr></thead>
-      <tbody id="quality-rules-tbody">${loadingRow(5)}</tbody></table>
+      <div class="card-header">
+        <h2>Quality Rules</h2>
+        <button class="btn btn-primary" id="add-quality-rule">+ Add Quality Rule</button>
+      </div>
+      <table>
+        <thead><tr><th>Name</th><th>Type</th><th>Table</th><th>Severity</th><th>Actions</th></tr></thead>
+        <tbody id="quality-rules-tbody">${loadingRow(5)}</tbody>
+      </table>
     </div>`;
 
   // Add Policy button
   $('#add-policy').onclick = () => {
     openModal('Add Policy',
-      `<div class="form-group"><label>Name</label><input id="f-pol-name" placeholder="Policy name"></div>
+      `<div class="form-group"><label>Name</label><input type="text" id="f-pol-name" placeholder="Policy name"></div>
        <div class="form-group"><label>Policy Type</label><select id="f-pol-type">
          <option value="aggregate_only">aggregate_only</option>
          <option value="field_mask">field_mask</option>
@@ -824,13 +1010,13 @@ renderers.governance = async () => {
   // Add Quality Rule button
   $('#add-quality-rule').onclick = () => {
     openModal('Add Quality Rule',
-      `<div class="form-group"><label>Name</label><input id="f-qr-name" placeholder="Rule name"></div>
+      `<div class="form-group"><label>Name</label><input type="text" id="f-qr-name" placeholder="Rule name"></div>
        <div class="form-group"><label>Rule Type</label><select id="f-qr-type">
          <option value="freshness">freshness</option>
          <option value="null_rate">null_rate</option>
          <option value="row_count_min">row_count_min</option>
        </select></div>
-       <div class="form-group"><label>Table Name</label><input id="f-qr-table" placeholder="schema.table_name"></div>
+       <div class="form-group"><label>Table Name</label><input type="text" id="f-qr-table" placeholder="schema.table_name"></div>
        <div class="form-group"><label>Threshold (JSON)</label><textarea id="f-qr-threshold">{}</textarea></div>
        <div class="form-group"><label>Severity</label><select id="f-qr-severity">
          <option value="info">info</option>
@@ -868,9 +1054,9 @@ renderers.governance = async () => {
         const scopeStr = p.scope ? truncate(JSON.stringify(p.scope), 40) : '-';
         return `<tr>
           <td>${esc(p.name)}</td>
-          <td>${esc(p.policy_type)}</td>
-          <td><code style="font-size:12px;">${esc(scopeStr)}</code></td>
-          <td><span class="badge ${enabled ? 'badge-enabled' : 'badge-disabled'}">${enabled ? 'Enabled' : 'Disabled'}</span></td>
+          <td>${policyTypeBadge(p.policy_type)}</td>
+          <td><code style="font-size:var(--font-size-sm);">${esc(scopeStr)}</code></td>
+          <td>${enabled ? '<span class="badge badge-success">Enabled</span>' : '<span class="badge badge-gray">Disabled</span>'}</td>
           <td>
             <button class="btn btn-sm toggle-pol" data-id="${p.policy_id}" data-enabled="${enabled}">${enabled ? 'Disable' : 'Enable'}</button>
             <button class="btn btn-sm btn-danger del-pol" data-id="${p.policy_id}">Delete</button>
@@ -901,9 +1087,9 @@ renderers.governance = async () => {
     } else {
       tbody.innerHTML = rules.map(r => `<tr>
         <td>${esc(r.name)}</td>
-        <td>${esc(r.rule_type)}</td>
-        <td><code style="font-size:12px;">${esc(r.table_name || '-')}</code></td>
-        <td>${esc(r.severity || 'info')}</td>
+        <td><span class="badge badge-gray">${esc(r.rule_type)}</span></td>
+        <td><code style="font-size:var(--font-size-sm);">${esc(r.table_name || '-')}</code></td>
+        <td>${severityBadge(r.severity)}</td>
         <td><button class="btn btn-sm btn-danger del-qr" data-id="${r.rule_id}">Delete</button></td>
       </tr>`).join('');
       $$('.del-qr', tbody).forEach(btn => btn.onclick = async () => {
@@ -919,7 +1105,7 @@ renderers.approvals = async () => {
   const panel = $('#panel-approvals');
   panel.innerHTML = `
     <div class="card">
-      <div class="toolbar">
+      <div class="card-header">
         <h2>Approval Requests</h2>
         <div class="filter-toolbar">
           <select id="approval-status-filter">
@@ -931,8 +1117,10 @@ renderers.approvals = async () => {
           <button class="btn btn-sm" id="approval-filter-btn">Filter</button>
         </div>
       </div>
-      <table><thead><tr><th>Request ID</th><th>Session</th><th>Rec ID</th><th>Status</th><th>Reviewer</th><th>Submitted</th><th>Actions</th></tr></thead>
-      <tbody id="approvals-tbody">${loadingRow(7)}</tbody></table>
+      <table>
+        <thead><tr><th>Request ID</th><th>Session</th><th>Rec ID</th><th>Status</th><th>Reviewer</th><th>Submitted</th><th>Actions</th></tr></thead>
+        <tbody id="approvals-tbody">${loadingRow(7)}</tbody>
+      </table>
     </div>`;
 
   const loadApprovals = async (status) => {
@@ -947,17 +1135,16 @@ renderers.approvals = async () => {
       }
       tbody.innerHTML = approvals.map(a => {
         const st = a.status || 'pending';
-        const statusBadge = `<span class="badge badge-${st}">${esc(st)}</span>`;
         const isPending = st === 'pending';
         const actions = isPending
           ? `<button class="btn btn-sm btn-success approve-btn" data-id="${a.approval_id}">Approve</button>
              <button class="btn btn-sm btn-danger reject-btn" data-id="${a.approval_id}">Reject</button>`
-          : '-';
+          : '<span style="color:var(--color-text-muted);">-</span>';
         return `<tr>
-          <td><code style="font-size:12px;">${esc(truncate(a.approval_id || '', 20))}</code></td>
-          <td><code style="font-size:12px;">${esc(truncate(a.session_id || '', 20))}</code></td>
-          <td><code style="font-size:12px;">${esc(truncate(a.recommendation_id || '', 20))}</code></td>
-          <td>${statusBadge}</td>
+          <td><code style="font-size:var(--font-size-sm);">${esc(truncate(a.approval_id || '', 20))}</code></td>
+          <td><code style="font-size:var(--font-size-sm);">${esc(truncate(a.session_id || '', 20))}</code></td>
+          <td><code style="font-size:var(--font-size-sm);">${esc(truncate(a.recommendation_id || '', 20))}</code></td>
+          <td>${statusBadge(st)}</td>
           <td>${esc(a.reviewer || '-')}</td>
           <td>${fmtDate(a.created_at)}</td>
           <td>${actions}</td>
@@ -988,7 +1175,7 @@ function openApprovalActionModal(approvalId, action) {
   const btnClass = action === 'approve' ? 'btn-success' : 'btn-danger';
   const btnLabel = action === 'approve' ? 'Approve' : 'Reject';
   openModal(title,
-    `<div class="form-group"><label>Reviewer Name</label><input id="f-apr-reviewer" placeholder="Your name"></div>
+    `<div class="form-group"><label>Reviewer Name</label><input type="text" id="f-apr-reviewer" placeholder="Your name"></div>
      <div class="form-group"><label>Reason</label><textarea id="f-apr-reason" placeholder="Reason for this decision..."></textarea></div>`,
     `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn ${btnClass}" id="f-apr-submit">${btnLabel}</button>`);
   $('#f-apr-submit').onclick = async () => {
@@ -1006,6 +1193,7 @@ function openApprovalActionModal(approvalId, action) {
       }
       closeModal();
       renderers.approvals();
+      updateApprovalsBadge();
     } catch (err) { toast(err.message, 'error'); }
   };
 }
@@ -1014,7 +1202,6 @@ function openApprovalActionModal(approvalId, action) {
 let observabilityInterval = null;
 
 renderers.observability = async () => {
-  // Clear any existing auto-refresh when re-entering the tab
   if (observabilityInterval) {
     clearInterval(observabilityInterval);
     observabilityInterval = null;
@@ -1023,7 +1210,7 @@ renderers.observability = async () => {
   const panel = $('#panel-observability');
   panel.innerHTML = `
     <div class="card">
-      <div class="toolbar">
+      <div class="card-header">
         <h2>System Health</h2>
         <div class="auto-refresh">
           <input type="checkbox" id="obs-auto-refresh">
@@ -1043,16 +1230,17 @@ renderers.observability = async () => {
       const health = await api.getHealth();
       const healthEl = $('#health-content');
       if (healthEl) {
+        const healthStatus = (health.status || 'unknown').toLowerCase();
+        const healthBadgeCls = healthStatus === 'ok' ? 'badge-success' : healthStatus === 'error' ? 'badge-error' : 'badge-warning';
         let extraFields = '';
-        // Render all top-level keys from health response
         for (const [key, value] of Object.entries(health)) {
           if (key === 'status' || key === 'db_path' || key === 'database') continue;
           extraFields += `<dt>${esc(key)}</dt><dd>${esc(String(value))}</dd>`;
         }
         healthEl.innerHTML = `
           <dl class="detail-meta">
-            <dt>Status</dt><dd><span id="health-status-badge" class="badge badge-enabled">${esc(health.status || 'unknown')}</span></dd>
-            <dt>Database Path</dt><dd><code>${esc(health.db_path || health.database || '-')}</code></dd>
+            <dt>Status</dt><dd><span id="health-status-badge" class="badge ${healthBadgeCls}">${esc(health.status || 'unknown')}</span></dd>
+            <dt>Database Path</dt><dd><code style="font-size:var(--font-size-sm);">${esc(health.db_path || health.database || '-')}</code></dd>
             ${extraFields}
           </dl>`;
       }
@@ -1082,19 +1270,44 @@ renderers.observability = async () => {
         }
 
         let html = '';
+
+        // Group numeric metrics into categories for mini bar charts
+        const requestMetrics = statEntries.filter(s => s.key.toLowerCase().includes('request') || s.key.toLowerCase().includes('count'));
+        const latencyMetrics = statEntries.filter(s => s.key.toLowerCase().includes('latency') || s.key.toLowerCase().includes('time') || s.key.toLowerCase().includes('duration'));
+        const errorMetrics = statEntries.filter(s => s.key.toLowerCase().includes('error') || s.key.toLowerCase().includes('fail'));
+        const otherMetrics = statEntries.filter(s =>
+          !requestMetrics.includes(s) && !latencyMetrics.includes(s) && !errorMetrics.includes(s)
+        );
+
+        // Stat cards
         if (statEntries.length) {
           html += '<div class="stat-grid">';
           statEntries.forEach(s => {
             const label = s.key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-            html += `<div class="stat-card"><div class="stat-value">${esc(String(s.value))}</div><div class="stat-label">${esc(label)}</div></div>`;
+            let cardClass = '';
+            if (s.key.toLowerCase().includes('error') || s.key.toLowerCase().includes('fail')) cardClass = 'stat-error';
+            else if (s.key.toLowerCase().includes('request') || s.key.toLowerCase().includes('count')) cardClass = 'stat-info';
+            else if (s.key.toLowerCase().includes('latency') || s.key.toLowerCase().includes('time')) cardClass = 'stat-warning';
+            html += `<div class="stat-card ${cardClass}"><div class="stat-label">${esc(label)}</div><div class="stat-value">${esc(String(s.value))}</div></div>`;
           });
           html += '</div>';
+        }
+
+        // Mini bar charts for grouped metrics
+        if (requestMetrics.length > 1) {
+          html += `<div class="metrics-group"><h3>Requests</h3>${miniBarChart(requestMetrics.map(m => m.value), 50)}</div>`;
+        }
+        if (latencyMetrics.length > 1) {
+          html += `<div class="metrics-group"><h3>Latency</h3>${miniBarChart(latencyMetrics.map(m => m.value), 50)}</div>`;
+        }
+        if (errorMetrics.length > 1) {
+          html += `<div class="metrics-group"><h3>Errors</h3>${miniBarChart(errorMetrics.map(m => m.value), 50)}</div>`;
         }
 
         if (tableEntries.length) {
           html += '<table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody>';
           tableEntries.forEach(e => {
-            html += `<tr><td>${esc(e.key)}</td><td><code style="font-size:12px;">${esc(truncate(String(e.value), 100))}</code></td></tr>`;
+            html += `<tr><td>${esc(e.key)}</td><td><code style="font-size:var(--font-size-sm);">${esc(truncate(String(e.value), 100))}</code></td></tr>`;
           });
           html += '</tbody></table>';
         }
@@ -1125,7 +1338,6 @@ renderers.observability = async () => {
       }
       if (checkbox.checked) {
         observabilityInterval = setInterval(() => {
-          // Only refresh if observability panel is still active
           const obsPanel = $('#panel-observability');
           if (obsPanel && obsPanel.classList.contains('active')) {
             loadObservability();
@@ -1148,6 +1360,7 @@ function parseJSON(s, fallback) { try { return JSON.parse(s); } catch { return f
 
 // ── Boot ───────────────────────────────────────────────────
 renderers.sources();
+updateApprovalsBadge();
 </script>
 </body>
 </html>
