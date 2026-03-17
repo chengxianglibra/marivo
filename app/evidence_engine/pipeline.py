@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, TypedDict
 
-from app.evidence_engine.extractors import ComparisonRowExtractor, ObservationExtractor
+from app.evidence_engine.extractors import AggregateRowExtractor, ComparisonRowExtractor, ObservationExtractor
 from app.evidence_engine.recommendation_policy import (
     DefaultRecommendationPolicy,
     RecommendationPolicy,
@@ -40,7 +40,7 @@ class EvidencePipeline:
         default_recommendation_policy = DefaultRecommendationPolicy()
         default_extractors = {
             extractor.name: extractor
-            for extractor in [ComparisonRowExtractor()]
+            for extractor in [ComparisonRowExtractor(), AggregateRowExtractor()]
         }
         if extractors:
             default_extractors.update(extractors)

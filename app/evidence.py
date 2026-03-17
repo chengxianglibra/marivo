@@ -25,7 +25,11 @@ def synthesize_claims(
     anomaly_observations = [obs for obs in observations if obs["type"] == "anomaly_detection"]
 
     if not metric_observations:
-        return [], [], []
+        # No metric_change observations — try to synthesize from other types
+        all_typed = funnel_observations + contribution_observations + anomaly_observations
+        if not all_typed:
+            return [], [], []
+        return _synthesize_non_metric_claims(all_typed, funnel_observations, contribution_observations, anomaly_observations)
 
     primary_metric = max(
         metric_observations,
@@ -126,3 +130,80 @@ def synthesize_claims(
         claims.append(overall_claim)
 
     return claims, [], []
+
+
+def _synthesize_non_metric_claims(
+    all_observations: list[dict[str, Any]],
+    funnel_observations: list[dict[str, Any]],
+    contribution_observations: list[dict[str, Any]],
+    anomaly_observations: list[dict[str, Any]],
+) -> tuple[list[Claim], list[Recommendation], list[dict[str, Any]]]:
+    """Synthesize claims when only non-metric_change observations are present."""
+
+    # Pick the most significant observation as primary
+    primary = max(all_observations, key=lambda o: o["significance"]["sample_size"])
+    obs_type = primary["type"]
+    impacted_slice = primary["subject"].get("slice", {})
+
+    supports = [primary["observation_id"]]
+    support_reasons: list[str] = []
+    consistency_factors = [1.0]
+
+    # Build claim text based on observation type
+    if obs_type == "funnel_drop":
+        text = f"Funnel drop detected at stage '{primary['payload'].get('worst_stage', 'unknown')}' with significant conversion loss."
+    elif obs_type == "contribution_shift":
+        text = f"Contribution shift detected in segment '{primary['payload'].get('biggest_shift_segment', 'unknown')}' indicating redistribution."
+    elif obs_type == "anomaly_detection":
+        z_score = primary["payload"].get("z_score", 0)
+        text = f"Statistical anomaly detected (z-score: {z_score}) indicating abnormal behavior."
+    else:
+        text = f"Finding of type '{obs_type}' detected with practical significance."
+
+    # Incorporate other observations as supporting evidence
+    for obs in all_observations:
+        if obs is primary:
+            continue
+        if obs["significance"].get("practical_significance"):
+            supports.append(obs["observation_id"])
+            if obs["type"] == "funnel_drop":
+                support_reasons.append(f"funnel drop at {obs['payload'].get('worst_stage', 'unknown')}")
+            elif obs["type"] == "contribution_shift":
+                support_reasons.append(f"contribution shift in {obs['payload'].get('biggest_shift_segment', 'unknown')}")
+            elif obs["type"] == "anomaly_detection":
+                support_reasons.append("statistical anomaly detected")
+            else:
+                support_reasons.append(f"{obs['type']} finding")
+            consistency_factors.append(0.85)
+
+    consistency = sum(consistency_factors) / len(consistency_factors)
+    sample_score = min(1.0, primary["significance"]["sample_size"] / 150.0)
+    data_quality_score = 0.95 if primary["quality"].get("sample_size_ok", True) else 0.60
+
+    if impacted_slice:
+        slice_label = " / ".join(f"{k}={v}" for k, v in impacted_slice.items())
+    else:
+        slice_label = "overall"
+
+    if support_reasons:
+        text += f" Corroborated by {' and '.join(support_reasons)} in {slice_label}."
+
+    claim = {
+        "claim_id": f"claim_{uuid4().hex[:12]}",
+        "type": "finding",
+        "text": text,
+        "scope": {"slice": impacted_slice},
+        "confidence": 0.0,
+        "status": "supported",
+        "supporting_observations": supports,
+        "contradicting_observations": [],
+        "confidence_breakdown": {
+            "effect_strength": 0.50,
+            "consistency": round(consistency, 2),
+            "sample_score": round(sample_score, 2),
+            "data_quality_score": round(data_quality_score, 2),
+            "contradiction_penalty": 0.0,
+        },
+    }
+
+    return [claim], [], []

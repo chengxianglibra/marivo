@@ -220,6 +220,85 @@ class WeightedPrimarySelectionTests(unittest.TestCase):
         self.assertIn("2 metrics", trend_claims[0]["text"])
 
 
+class SynthesizeClaimsNonMetricTests(unittest.TestCase):
+    """Tests for synthesize_claims when only non-metric_change observations exist."""
+
+    def test_synthesize_claims_funnel_only(self) -> None:
+        observations = [{
+            "observation_id": "obs_funnel_1",
+            "type": "funnel_drop",
+            "subject": {"metric": "engagement_funnel", "slice": {"funnel": "engagement_funnel", "worst_stage": "click"}},
+            "payload": {"worst_stage": "click", "worst_delta_drop_rate": 0.08, "stages": []},
+            "significance": {"sample_size": 500, "practical_significance": True},
+            "quality": {"freshness_ok": True, "sample_size_ok": True},
+        }]
+        claims, _, _ = synthesize_claims(observations)
+        self.assertEqual(len(claims), 1)
+        self.assertEqual(claims[0]["type"], "finding")
+        self.assertIn("Funnel drop", claims[0]["text"])
+        self.assertIn("obs_funnel_1", claims[0]["supporting_observations"])
+
+    def test_synthesize_claims_anomaly_only(self) -> None:
+        observations = [{
+            "observation_id": "obs_anomaly_1",
+            "type": "anomaly_detection",
+            "subject": {"metric": "latency", "slice": {"host": "h1"}},
+            "payload": {"z_score": -3.5, "is_anomaly": True, "sample_size": 200},
+            "significance": {"sample_size": 200, "practical_significance": True},
+            "quality": {"freshness_ok": True, "sample_size_ok": True},
+        }]
+        claims, _, _ = synthesize_claims(observations)
+        self.assertEqual(len(claims), 1)
+        self.assertEqual(claims[0]["type"], "finding")
+        self.assertIn("anomaly", claims[0]["text"].lower())
+
+    def test_synthesize_claims_empty_still_returns_empty(self) -> None:
+        claims, recs, edges = synthesize_claims([])
+        self.assertEqual(claims, [])
+        self.assertEqual(recs, [])
+        self.assertEqual(edges, [])
+
+    def test_synthesize_claims_contribution_only(self) -> None:
+        observations = [{
+            "observation_id": "obs_contrib_1",
+            "type": "contribution_shift",
+            "subject": {"metric": "watch_time", "slice": {"segment": "platform", "biggest_shift": "android"}},
+            "payload": {"biggest_shift_segment": "android", "biggest_delta_share": 0.10, "segment_name": "platform", "contributions": []},
+            "significance": {"sample_size": 1000, "practical_significance": True},
+            "quality": {"freshness_ok": True, "sample_size_ok": True},
+        }]
+        claims, _, _ = synthesize_claims(observations)
+        self.assertEqual(len(claims), 1)
+        self.assertEqual(claims[0]["type"], "finding")
+        self.assertIn("Contribution shift", claims[0]["text"])
+
+    def test_synthesize_claims_mixed_non_metric(self) -> None:
+        """Multiple non-metric observations should produce a claim with multiple supports."""
+        observations = [
+            {
+                "observation_id": "obs_funnel_1",
+                "type": "funnel_drop",
+                "subject": {"metric": "f", "slice": {"funnel": "f", "worst_stage": "s"}},
+                "payload": {"worst_stage": "s", "worst_delta_drop_rate": 0.08, "stages": []},
+                "significance": {"sample_size": 300, "practical_significance": True},
+                "quality": {"freshness_ok": True, "sample_size_ok": True},
+            },
+            {
+                "observation_id": "obs_anomaly_1",
+                "type": "anomaly_detection",
+                "subject": {"metric": "latency", "slice": {"host": "h1"}},
+                "payload": {"z_score": -3.5, "is_anomaly": True, "sample_size": 500},
+                "significance": {"sample_size": 500, "practical_significance": True},
+                "quality": {"freshness_ok": True, "sample_size_ok": True},
+            },
+        ]
+        claims, _, _ = synthesize_claims(observations)
+        self.assertEqual(len(claims), 1)
+        # Primary is the one with higher sample_size (anomaly)
+        self.assertIn("obs_anomaly_1", claims[0]["supporting_observations"])
+        self.assertIn("obs_funnel_1", claims[0]["supporting_observations"])
+
+
 class EvidencePipelineTests(unittest.TestCase):
     def test_build_synthesis_adds_support_and_justification_edges(self) -> None:
         observations = [

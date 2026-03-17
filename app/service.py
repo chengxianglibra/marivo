@@ -351,6 +351,31 @@ class SemanticLayerService:
                 semantic_context=semantic_context,
             ) from error
 
+    def _session_constraints_to_filter(self, session_id: str) -> str | None:
+        """Convert simple scalar session constraints to a SQL filter expression.
+
+        Non-scalar constraints (dicts, lists) are silently ignored.
+        Returns None when no scalar constraints exist.
+        """
+        session = self.get_session(session_id)
+        constraints = session.get("constraints", {})
+        if not constraints or not isinstance(constraints, dict):
+            return None
+        parts: list[str] = []
+        for key, value in constraints.items():
+            if isinstance(value, (dict, list)):
+                continue
+            parts.append(f"{key} = '{value}'")
+        return " AND ".join(parts) if parts else None
+
+    @staticmethod
+    def _merge_filters(*filters: str | None) -> str | None:
+        """AND-merge multiple filter expressions, ignoring None values."""
+        parts = [f for f in filters if f]
+        if not parts:
+            return None
+        return " AND ".join(f"({p})" for p in parts)
+
     def _run_compare_metric(self, session_id: str, params: dict[str, Any]) -> dict[str, Any]:
         """Generic metric comparison step driven by semantic metric definitions.
 
@@ -396,7 +421,14 @@ class SemanticLayerService:
                 f"Use a different dimension or omit dimensions for overall aggregate comparison."
             )
         obs_type = params.get("observation_type", "metric_change")
-        limit = params.get("limit", 3)
+        limit = params.get("limit", 10)
+
+        # Merge session constraints into filter
+        constraints_filter = self._session_constraints_to_filter(session_id)
+        user_filter = params.get("filter")
+        merged_filter = self._merge_filters(user_filter, constraints_filter)
+        if merged_filter:
+            params = {**params, "filter": merged_filter}
 
         short_name = table_name.split(".")[-1]
         engine, engine_type, qualified = self._resolve_engine([short_name])
@@ -606,6 +638,13 @@ class SemanticLayerService:
         if not table_name:
             raise ValueError("sample_rows requires 'table_name' param")
 
+        # Merge session constraints into filter
+        constraints_filter = self._session_constraints_to_filter(session_id)
+        user_filter = params.get("filter")
+        merged_filter = self._merge_filters(user_filter, constraints_filter)
+        if merged_filter:
+            params = {**params, "filter": merged_filter}
+
         step_type = "sample_rows"
         step_id = self._new_step_id()
 
@@ -693,6 +732,13 @@ class SemanticLayerService:
         if not params.get("group_by"):
             raise ValueError("aggregate_query requires 'group_by' param")
 
+        # Merge session constraints into where clause
+        constraints_filter = self._session_constraints_to_filter(session_id)
+        user_where = params.get("where")
+        merged_where = self._merge_filters(user_where, constraints_filter)
+        if merged_where:
+            params = {**params, "where": merged_where}
+
         step_type = "aggregate_query"
         step_id = self._new_step_id()
         short_name = table_name.split(".")[-1]
@@ -717,10 +763,30 @@ class SemanticLayerService:
         )
         rows = execute_compiled(engine, compiled_query).rows
 
+        # Extract observations from aggregate rows (opt-out via extract_observations=false)
+        if params.get("extract_observations", True):
+            group_by = params.get("group_by", [])
+            observations = self.evidence_pipeline.extract_observations(
+                "aggregate_rows",
+                rows,
+                context={
+                    "group_by": group_by,
+                    "observation_type": params.get("observation_type", "metric_change"),
+                    "metric": params.get("metric", "aggregate"),
+                    "value_column": params.get("value_column"),
+                },
+            )
+            for observation in observations:
+                self._insert_observation(session_id, step_id, observation)
+        else:
+            observations = []
+
         artifact_id = self._insert_artifact(session_id, step_id, "aggregate", f"{short_name}_aggregate", rows)
         summary = f"Aggregate query on '{table_name}' returned {len(rows)} rows."
         provenance = self._make_provenance(compiled_query.sql, compiled_query.params, engine_type=engine_type)
         result = {"step_type": step_type, "summary": summary, "artifact_id": artifact_id, "rows": rows}
+        if observations:
+            result["observations"] = observations
         self._insert_step(step_id, session_id, step_type, summary, result, provenance=provenance)
         return result
 
