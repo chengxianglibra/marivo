@@ -1,18 +1,15 @@
 # OmniDB — Agentic Analytics System
 
-OmniDB is an **agentic analytics system** — not a text-to-SQL tool. It provides stateful analysis sessions, semantic discovery, typed analysis steps, deterministic evidence packaging, and MCP tool exposure so agents interact with data at a higher abstraction level than raw SQL.
+OmniDB is an **agentic analytics system** — not a text-to-SQL tool. It provides stateful analysis sessions, semantic discovery, typed analysis steps, deterministic evidence packaging, and a full HTTP API so agents interact with data at a higher abstraction level than raw SQL.
 
-The current MVP validates this architecture with a concrete scenario: a video platform investigating a watch-time decline.
+## What OmniDB includes
 
-## What the MVP includes
-
-- A local DuckDB database seeded with demo watch, QoE, ad, and recommendation data.
 - A dual-backend architecture: SQLite for metadata (control-plane), DuckDB for analytics.
-- A FastAPI service that exposes:
-  - session creation, listing, and workflow orchestration
+- A **FastAPI service** that exposes:
+  - session creation, listing, and step execution
   - typed analysis plans with validation, cost estimation, and execution
   - semantic catalog (entities, metrics, mappings) with draft/published lifecycle
-  - source registry with external catalog sync (local, Hive Metastore)
+  - source registry with external catalog sync (Local, Hive Metastore, Trino, Unity Catalog, Polaris, AWS Glue, DuckDB)
   - engine registry with pluggable analytics engine adapters (DuckDB, Trino, Spark Connect, Spark Thrift)
   - source-engine bindings with priority-based query routing
   - SQL dialect translation (DuckDB → Trino/Spark)
@@ -22,14 +19,15 @@ The current MVP validates this architecture with a concrete scenario: a video pl
   - async job submission and execution
   - approval workflows for high-risk recommendations
   - observability with structured logging, metrics collection, and timing middleware
-- Deterministic evidence packaging that converts SQL results into:
-  - observations (7 types: metric_change, qoe_regression, ad_regression, recommendation_signal, funnel_drop, contribution_shift, anomaly_detection)
+  - re-planning on step failure
+  - cross-engine query federation
+- **Deterministic evidence packaging** that converts SQL results into:
+  - observations (7 types: metric_change, funnel_drop, contribution_shift, anomaly_detection, qoe_regression, ad_regression, recommendation_signal)
   - claims with confidence scoring
   - support / contradiction edges
   - recommendations with priority/risk/impact
 - YAML-driven configuration for sources, engines, bindings, governance, and UI.
-- A split web UI: Admin (`/admin`) for infrastructure management and User (`/ui`) for analysis and investigation.
-- An MCP server exposing 17 tools over stdio transport.
+- A split web UI: Admin (`/admin`) for infrastructure management, User (`/ui`) for analysis and investigation.
 
 ## Quick start
 
@@ -41,7 +39,7 @@ pip install -e ".[hive]"                 # + Hive Metastore adapter (optional)
 uvicorn app.main:app --reload
 ```
 
-The service will create `data/mvp.duckdb` (analytics) and `data/mvp.meta.sqlite` (metadata) on first start and seed them automatically.
+The service creates `data/mvp.duckdb` (analytics) and `data/mvp.meta.sqlite` (metadata) on first start and seeds them automatically.
 
 ## Configuration
 
@@ -103,11 +101,9 @@ ui:
   user_enabled: true      # override: enable/disable user UI
 ```
 
-When `admin_enabled` or `user_enabled` is not set, they follow the `enabled` master switch. When disabled, the corresponding route returns 404.
-
 Both UIs are single self-contained HTML files (vanilla JS, no build tooling). All API calls go to the existing FastAPI endpoints.
 
-Environment variables: `DUCKDB_MVP_DB`, `OMNIDB_CONFIG`, `OMNIDB_API_BASE_URL`, `OMNIDB_API_TIMEOUT`, `OMNIDB_MCP_TRANSPORT`.
+Environment variables: `DUCKDB_MVP_DB`, `OMNIDB_CONFIG`.
 
 ## Example flow
 
@@ -117,9 +113,7 @@ Create a session:
 curl -s http://127.0.0.1:8000/sessions \
   -X POST \
   -H "Content-Type: application/json" \
-  -d '{
-    "goal": "Investigate why video watch time dropped over the last two weeks."
-  }'
+  -d '{"goal": "Investigate why video watch time dropped over the last two weeks."}'
 ```
 
 List sessions:
@@ -128,17 +122,13 @@ List sessions:
 curl -s http://127.0.0.1:8000/sessions | python3 -m json.tool
 ```
 
-Discover the semantic catalog:
+Run a generic step:
 
 ```bash
-curl -s http://127.0.0.1:8000/catalog | python3 -m json.tool
-```
-
-Run the end-to-end workflow:
-
-```bash
-curl -s http://127.0.0.1:8000/sessions/<session_id>/workflow/watch-time-drop \
-  -X POST | python3 -m json.tool
+curl -s http://127.0.0.1:8000/sessions/<session_id>/steps/compare_metric \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"params": {"metric_name": "watch_time", "limit": 20}}'
 ```
 
 Fetch the evidence graph:
@@ -153,11 +143,10 @@ Draft and execute an analysis plan:
 # Draft
 curl -s http://127.0.0.1:8000/sessions/<session_id>/plans \
   -X POST -H "Content-Type: application/json" \
-  -d '{"steps": [{"step_type": "compare_watch_time"}, {"step_type": "analyze_qoe", "dependencies": [0]}]}'
+  -d '{"steps": [{"step_type": "compare_metric"}, {"step_type": "profile_table", "dependencies": [0]}]}'
 
-# Validate → Approve → Execute
+# Validate → Execute (auto-approved if no governance/budget blocks)
 curl -s -X POST http://127.0.0.1:8000/sessions/<session_id>/plans/<plan_id>/validate
-curl -s -X POST http://127.0.0.1:8000/sessions/<session_id>/plans/<plan_id>/approve
 curl -s -X POST http://127.0.0.1:8000/sessions/<session_id>/plans/<plan_id>/execute
 ```
 
@@ -168,13 +157,11 @@ curl -s -X POST http://127.0.0.1:8000/sessions/<session_id>/plans/<plan_id>/exec
 - `GET /admin` — admin web interface (when admin UI enabled)
 - `GET /ui` — user/analytics web interface (when user UI enabled)
 
-#### Core session and workflow
+#### Core session and steps
 
 - `GET /health`
 - `POST /sessions` / `GET /sessions` / `GET /sessions/{session_id}`
-- `GET /catalog`
 - `POST /sessions/{session_id}/steps/{step_type}`
-- `POST /sessions/{session_id}/workflow/watch-time-drop`
 - `GET /sessions/{session_id}/evidence`
 - `GET /sessions/{session_id}/planner-context`
 
@@ -182,6 +169,7 @@ curl -s -X POST http://127.0.0.1:8000/sessions/<session_id>/plans/<plan_id>/exec
 
 - `POST /sessions/{session_id}/plans` — draft a plan
 - `GET /sessions/{session_id}/plans` / `GET .../plans/{plan_id}`
+- `PATCH .../plans/{plan_id}`
 - `POST .../plans/{plan_id}/validate`
 - `POST .../plans/{plan_id}/approve`
 - `POST .../plans/{plan_id}/execute`
@@ -192,8 +180,10 @@ curl -s -X POST http://127.0.0.1:8000/sessions/<session_id>/plans/<plan_id>/exec
 #### Source registry
 
 - `POST /sources` / `GET /sources` / `GET /sources/{source_id}`
+- `PUT /sources/{source_id}` / `DELETE /sources/{source_id}`
 - `POST /sources/{source_id}/sync` / `GET /sources/{source_id}/sync/{job_id}`
 - `GET/POST/DELETE /sources/{source_id}/sync/selections`
+- `DELETE /sources/{source_id}/sync/selections/{selection_id}`
 - `GET /sources/{source_id}/catalog/schemas` / `GET .../catalog/tables`
 - `GET /sources/{source_id}/objects`
 - `GET /sources/{source_id}/engines` — list engines bound to a source
@@ -227,7 +217,7 @@ curl -s -X POST http://127.0.0.1:8000/sessions/<session_id>/plans/<plan_id>/exec
 
 #### Async jobs
 
-- `POST /jobs` — submit a background job (step, workflow, or plan execution)
+- `POST /jobs` — submit a background job (step or plan execution)
 - `GET /jobs` / `GET /jobs/{job_id}`
 - `POST /jobs/{job_id}/cancel`
 
@@ -241,100 +231,49 @@ curl -s -X POST http://127.0.0.1:8000/sessions/<session_id>/plans/<plan_id>/exec
 
 - `GET /metrics` — request count, step count, error count, timing statistics
 
-Supported step types: `compare_watch_time`, `analyze_qoe`, `analyze_ads`, `analyze_recommendation`, `synthesize_findings`, `compare_metric`, `profile_table`, `sample_rows`.
-
-## MCP wrapper
-
-The project includes a local stdio MCP wrapper that proxies the FastAPI service on `localhost:8000`.
-
-### Start the FastAPI service
-
-```bash
-uvicorn app.main:app --reload
-```
-
-### Start the MCP server
-
-In another terminal:
-
-```bash
-source .venv/bin/activate
-omnidb-mcp
-```
-
-By default the wrapper targets `http://127.0.0.1:8000`. To point at a different instance:
-
-```bash
-export OMNIDB_API_BASE_URL=http://127.0.0.1:8000
-omnidb-mcp
-```
-
-Optional environment variables:
-
-- `OMNIDB_API_BASE_URL` - FastAPI base URL
-- `OMNIDB_API_TIMEOUT` - HTTP timeout in seconds
-- `OMNIDB_MCP_TRANSPORT` - MCP transport, defaults to `stdio`
-
-### Example Claude Code / Copilot CLI registration
-
-Once the FastAPI service is running, register the MCP wrapper with your client using the local command:
-
-```bash
-claude mcp add omnidb -- omnidb-mcp
-```
-
-The wrapper exposes 17 MCP tools:
-
-| MCP tool | FastAPI endpoint |
-|---|---|
-| `omnidb_get_health` | `GET /health` |
-| `omnidb_get_catalog` | `GET /catalog` |
-| `omnidb_create_session` | `POST /sessions` |
-| `omnidb_run_step` | `POST /sessions/{id}/steps/{type}` |
-| `omnidb_run_watch_time_workflow` | `POST /sessions/{id}/workflow/watch-time-drop` |
-| `omnidb_get_evidence` | `GET /sessions/{id}/evidence` |
-| `omnidb_list_sources` | `GET /sources` |
-| `omnidb_search_catalog` | `GET /catalog/search?q=...&type=...` |
-| `omnidb_resolve_term` | `GET /semantic/resolve/{name}` |
-| `omnidb_get_planner_context` | `GET /sessions/{id}/planner-context` |
-| `omnidb_draft_plan` | `POST /sessions/{id}/plans` |
-| `omnidb_validate_plan` | `POST .../plans/{id}/validate` |
-| `omnidb_execute_plan` | `POST .../plans/{id}/execute` |
-| `omnidb_submit_job` | `POST /jobs` |
-| `omnidb_get_job` | `GET /jobs/{id}` |
-| `omnidb_list_approvals` | `GET /approvals` |
-
-All tools support both JSON and markdown `response_format`.
+**Supported step types:** `compare_metric`, `profile_table`, `sample_rows`, `aggregate_query`, `synthesize_findings`
 
 ## Architecture
 
 ```text
-CLI Agent / User / Browser
-  → MCP Wrapper (17 tools, stdio transport)
-  → FastAPI service (app/main.py)
-  → Optional Web UI:
-      Admin UI (app/static/admin.html) — infrastructure management
-      User UI  (app/static/user.html)  — analysis & investigation
+Browser / Agent / HTTP Client
+  → FastAPI service (app/main.py → app/api/app_factory.py)
+  → Web UI:
+      Admin UI (app/static/admin.html) — Sources, Engines, Bindings, Semantic, Governance, Observability
+      User UI  (app/static/user.html)  — Catalog, Sessions, Plans, Evidence, Jobs
   → Middleware:
       TimingMiddleware — request timing + metrics collection
+  → API routers (app/api/ — one module per domain):
+      sessions, planning, sources, engines, routing, semantic, catalog,
+      governance, jobs, approvals, metrics, health
   → Service layer:
-      SemanticLayerService — session/workflow/evidence orchestration
-      PlanningService      — plan CRUD, validation, execution, cost estimation
-      SourceService        — source registry + adapter factory
-      EngineService        — engine registry + analytics engine factory
-      BindingService       — source-engine bindings (priority-based)
-      QueryRouter          — table name → source → binding → engine resolution
-      SemanticService      — entity/metric/mapping CRUD
-      CatalogQueryService  — search, resolve, planner-context, graph traversal
-      GovernanceService    — policy/quality CRUD + enforcement
-      JobService           — async job submission + execution
-      ApprovalService      — approval request CRUD + auto-flagging
-      MetricsCollector     — request/step/error counters
+      SemanticLayerService   — session/step/evidence orchestration
+      PlanningService        — plan CRUD, validation, execution, cost estimation
+      ReplanningService      — re-planning on step failure
+      SourceService          — source registry + adapter factory
+      EngineService          — engine registry + analytics engine factory
+      BindingService         — source-engine bindings (priority-based)
+      QueryRouter            — table name → source → binding → engine resolution
+      SemanticService        — entity/metric/mapping CRUD
+      CatalogRuntimeService  — search, resolve, planner-context, graph traversal
+      GovernanceService      — policy/quality CRUD + enforcement
+      JobService             — async job submission + execution
+      ApprovalService        — approval request CRUD + auto-flagging
+      MetricsCollector       — request/step/error counters
+  → Analysis core (app/analysis_core/):
+      IR, compiler, executor, primitives, composites, step registry, step runners
+  → Execution layer (app/execution/):
+      orchestrator, federation, routing_runtime, costing, capabilities, translation
+  → Evidence engine (app/evidence_engine/):
+      extractors (comparison, aggregate), factories, pipeline, scoring, synthesizers
   → Storage:
-      MetadataStore ABC  → SQLiteMetadataStore  (sessions, semantic objects, evidence, plans, governance, jobs, approvals)
-      AnalyticsEngine ABC → DuckDBAnalyticsEngine, TrinoAnalyticsEngine, SparkConnectAnalyticsEngine, SparkThriftAnalyticsEngine
-  → Adapters:
-      CatalogAdapter ABC → LocalCatalogAdapter, HiveMetastoreAdapter
+      MetadataStore ABC  → SQLiteMetadataStore, PostgresMetadataStore
+      AnalyticsEngine ABC → DuckDBAnalyticsEngine, TrinoAnalyticsEngine,
+                           SparkConnectAnalyticsEngine, SparkThriftAnalyticsEngine
+  → Catalog adapters:
+      CatalogAdapter ABC → LocalCatalogAdapter, HiveMetastoreAdapter,
+                          TrinoCatalogAdapter, UnityCatalogAdapter,
+                          PolarisAdapter, GlueCatalogAdapter, DuckDBCatalogAdapter
 ```
 
 ## Implementation notes
@@ -343,18 +282,17 @@ CLI Agent / User / Browser
 - Source-engine bindings link catalog sources to query engines with priority-based selection.
 - The query router resolves table names through `source_objects → source → binding → engine`, supporting multi-source queries when a common engine exists.
 - SQL dialect translation (`app/dialect.py`): DuckDB SQL is translated to Trino/Spark dialects (casts, FILTER clauses, DDL).
-- The service uses deterministic heuristics for observation extraction and confidence scoring — facts by code, language by model.
-- Evidence packaging produces structured observations, claims, and recommendations rather than free-form SQL generation.
-- Plan lifecycle: draft → validated → approved → executing → completed/failed. Validation checks step types, dependency acyclicity, and required params.
-- Governance enforcement applies policies (aggregate_only, field_mask, row_filter, max_rows) before query execution.
-- Async jobs run steps, workflows, or plans in background threads with status tracking.
+- Evidence packaging produces structured observations, claims, and recommendations rather than free-form SQL results. Facts are extracted deterministically; language models may assist with synthesis but not with fact extraction.
+- Plan lifecycle: draft → validated → approved → executing → completed/failed. Clean plans are auto-approved; plans with governance/budget blocks require explicit approval.
+- Session constraints are auto-injected as SQL WHERE filters into `compare_metric`, `sample_rows`, and `aggregate_query` steps.
+- Cross-engine federation is supported via `FederationPlanner` and `FederationRuntime` in `app/execution/federation.py`.
 
 ## Running tests
 
 ```bash
-python3 -m unittest discover -s tests -v          # all tests (~330)
-python3 -m unittest tests.test_storage -v          # single module
-python3 -m unittest tests.test_storage.SQLiteMetadataStoreTests.test_execute_and_query  # single test
+.venv/bin/python3 -m unittest discover -s tests -v    # all ~500 tests
+.venv/bin/python3 -m unittest tests.test_storage -v   # single module
+.venv/bin/python3 -m unittest tests.test_storage.SQLiteMetadataStoreTests.test_execute_and_query  # single test
 ```
 
-The test suite uses `unittest` (no pytest). Tests use `tempfile.TemporaryDirectory` for isolated SQLite/DuckDB files. Integration tests spin up a real FastAPI `TestClient`. Playwright-based E2E tests (`tests/test_ui_playwright.py`) are skipped gracefully when playwright is not installed.
+Uses `unittest` only (no pytest). Tests use `tempfile.TemporaryDirectory` for isolated SQLite/DuckDB files. Integration tests spin up a real FastAPI `TestClient`. Playwright-based E2E tests (`tests/test_ui_playwright.py`) are skipped gracefully when playwright is not installed.
