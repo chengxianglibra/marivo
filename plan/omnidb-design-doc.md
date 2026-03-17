@@ -12,16 +12,16 @@ OmniDB proposes a different interface:
 - semantic discovery instead of schema guessing
 - typed analysis steps instead of arbitrary prompt-to-SQL generation
 - deterministic evidence packaging instead of unstructured result interpretation
-- tool exposure through MCP so local coding agents can interact with the system directly
+- a pure HTTP API so agents, UIs, and tooling interact at the right abstraction level
 
-The current repository contains a DuckDB MVP that validates the shape of this architecture using a concrete business scenario: a video platform sees a recent decline in watch time and needs to identify likely causes and recommend actions.
+The repository has evolved from an initial DuckDB MVP into a full multi-engine semantic layer and agent runtime platform, realizing all core modules described in the vNext architecture blueprint.
 
 This document describes both:
 
-1. the **target system design** implied by the broader discussion
-2. the **current MVP realization** in this repository
+1. the **target system design** and architectural principles
+2. the **current implementation** in this repository
 
-The goal is to give engineers a full technical blueprint for extending OmniDB from a local design probe into a broader semantic-layer and agent-runtime platform.
+The goal is to give engineers a complete technical reference for understanding and extending OmniDB.
 
 ## 2. Problem Statement
 
@@ -70,7 +70,7 @@ At full maturity, OmniDB should provide:
 - an agent-facing runtime with sessions, plans, steps, checkpoints, and evidence
 - deterministic analyzers that transform data outputs into machine-usable observations
 - governance-aware interfaces for policy, cost, lineage, and quality
-- a tool-oriented integration layer through MCP
+- a standard HTTP API for agent, UI, and tool integration
 - portability across engines such as DuckDB, PostgreSQL, Spark, and Snowflake
 
 In short, OmniDB is intended to be an **analysis operating layer** between LLM agents and data engines.
@@ -83,7 +83,7 @@ In short, OmniDB is intended to be an **analysis operating layer** between LLM a
 - Make semantic objects, analysis steps, and evidence first-class.
 - Demonstrate deterministic evidence packaging in a working MVP.
 - Keep the service stateful and tool-friendly.
-- Provide local MCP access for agent tooling.
+- Provide a clean HTTP API for agent tooling, UIs, and external integrations.
 - Establish a path toward a future multi-engine system.
 
 ### 4.2 Non-Goals
@@ -104,7 +104,7 @@ A reader should be able to:
 - understand the current DuckDB MVP
 - understand the target semantic-layer and API direction
 - understand how evidence packaging works
-- understand how MCP fits in
+- understand how the HTTP API layer is structured and how to extend it
 - identify the next implementation steps
 
 ## 6. Glossary
@@ -112,7 +112,7 @@ A reader should be able to:
 - **Session**: the top-level unit of analysis; stores goal, policy, constraints, and outputs.
 - **Semantic object**: a higher-level business object such as an entity, metric, dimension, or asset.
 - **Asset**: a physical data source, such as a table.
-- **Step**: a typed analysis operation, such as `compare_watch_time`.
+- **Step**: a typed analysis operation, such as `compare_metric`, `profile_table`, `aggregate_query`.
 - **Artifact**: a persisted step result payload.
 - **Observation**: a typed factual finding extracted from a step result.
 - **Claim**: a synthesized conclusion supported or contradicted by observations.
@@ -148,7 +148,7 @@ Evidence should be extracted by deterministic logic wherever possible. LLMs may 
 
 ### 7.5 Thin protocol adapters
 
-HTTP and MCP layers should expose the service cleanly without embedding domain logic.
+The HTTP layer should expose the service cleanly without embedding domain logic. (The MCP layer was removed from the codebase; OmniDB is now a pure HTTP API service.)
 
 ### 7.6 Engine abstraction with implementation honesty
 
@@ -166,7 +166,7 @@ The full intended OmniDB architecture has six logical layers.
                               v
 +----------------------------------------------------------+
 | Interaction Layer                                         |
-| UI, HTTP API, MCP tools                                   |
+| UI, HTTP API                                              |
 +-----------------------------+----------------------------+
                               |
                               v
@@ -689,27 +689,41 @@ In future versions, recommendations that change user-facing behavior or spend bu
 
 ## 14. Current Architecture in This Repository
 
-The codebase has evolved from a single-DuckDB MVP into a dual-backend semantic layer platform with pluggable metadata stores, analytics engines, and external catalog adapters.
+The codebase has evolved from an initial DuckDB MVP into a full multi-engine semantic layer and agent runtime platform, realizing all core modules described in the vNext architecture blueprint. The MCP layer was removed; OmniDB is now a pure HTTP API service.
 
 ### 14.1 Current runtime layers
 
 ```text
-CLI Agent / User / Browser
-  -> MCP Wrapper (optional, 11 tools)
-  -> FastAPI service
-  -> Optional Web UI (app/static/index.html — config-gated admin interface)
-  -> SemanticLayerService / SourceService / EngineService / BindingService / QueryRouter
-     SemanticService / CatalogQueryService
-  -> MetadataStore (SQLite)     +     AnalyticsEngine (DuckDB)
-  -> SQLite database (metadata)       DuckDB database (analytics)
+Browser / Agent / HTTP Client
+  → FastAPI service (app/main.py → app/api/app_factory.py)
+  → Web UI:
+      Admin UI (app/static/admin.html) — Sources, Engines, Bindings, Semantic, Governance, Observability
+      User UI  (app/static/user.html)  — Catalog, Sessions, Plans, Evidence, Jobs
+  → API routers (app/api/ — one module per domain):
+      sessions, planning, sources, engines, routing, semantic, catalog,
+      governance, jobs, approvals, metrics, health
+  → Service layer:
+      SemanticLayerService, PlanningService, ReplanningService,
+      SourceService, EngineService, BindingService, QueryRouter,
+      CatalogRuntimeService, GovernanceService, JobService,
+      ApprovalService, MetricsCollector
+  → Analysis core (app/analysis_core/):
+      IR, compiler, executor, primitives/composites, StepRunnerRegistry, step runners
+  → Execution layer (app/execution/):
+      orchestrator, federation, routing_runtime, costing, capabilities, translation
+  → Evidence engine (app/evidence_engine/):
+      extractors (comparison, aggregate), factories, pipeline, scoring, synthesizers
+  → Storage:
+      MetadataStore ABC  → SQLiteMetadataStore, PostgresMetadataStore
+      AnalyticsEngine ABC → DuckDBAnalyticsEngine, TrinoAnalyticsEngine,
+                           SparkConnectAnalyticsEngine, SparkThriftAnalyticsEngine
+  → Catalog adapters:
+      CatalogAdapter ABC → LocalCatalogAdapter, HiveMetastoreAdapter,
+                          TrinoCatalogAdapter, UnityCatalogAdapter,
+                          PolarisAdapter, GlueCatalogAdapter, DuckDBCatalogAdapter
 ```
 
-The single DuckDB store has been split into two pluggable backends:
-
-- **MetadataStore** — abstract interface (`app/storage/metadata.py`) for control-plane tables (sessions, steps, evidence, semantic objects, source registry, engine registry, source-engine bindings). Concrete implementation: `SQLiteMetadataStore`.
-- **AnalyticsEngine** — abstract interface (`app/storage/analytics.py`) for analytical query execution. Concrete implementation: `DuckDBAnalyticsEngine`.
-
-This separation enables future swaps (e.g., PostgreSQL for metadata, Trino/Spark for analytics) without touching business logic.
+**MetadataStore** and **AnalyticsEngine** are pluggable abstract interfaces — business logic never touches engine-specific code directly.
 
 Sources and engines are connected via **source-engine bindings** — a `source_engine_bindings` table that declares which engines can query which sources, with a priority field for preference ordering. The **QueryRouter** resolves table names through `source_objects → source_id → bindings → engine`, picking the highest-priority engine that covers all requested tables.
 
@@ -732,46 +746,63 @@ SQLite was chosen for the metadata store because:
 
 ```text
 app/
-  main.py                    # FastAPI app factory + all endpoints (40+)
-  models.py                  # Pydantic request/response models
-  config.py                  # YAML config loading (sources, engines, bindings, ui)
-  service.py                 # Session/step/workflow/evidence orchestration
+  main.py                    # Thin wrapper: from app.api.app_factory import create_app
+  api/
+    app_factory.py           # create_app() factory: storage setup, service wiring, routers
+    router.py                # 12 API router modules registered
+    sessions.py / planning.py / sources.py / engines.py / routing.py
+    semantic.py / catalog.py / governance.py / jobs.py / approvals.py
+    metrics.py / health.py / deps.py / models.py
+  analysis_core/             # IR, compiler, executor, primitives, composites, step registry, step runners
+  evidence_engine/           # extractors (comparison, aggregate), factories, pipeline, scoring, synthesizers
+  execution/                 # orchestrator, federation, routing_runtime, costing, capabilities, translation
+  governance_engine/         # repository, runtime, approvals (modular governance runtime)
+  planner/
+    replanning.py            # ReplanningService
+  registry/                  # source/engine/binding registries + factories + sync_runtime
+  semantic_runtime/          # CatalogRuntimeService, resolution, planner_context, repository, semantic_metadata
+  session/
+    session_manager.py       # SessionManager
+  service.py                 # Session/step/evidence orchestration
+  planning.py                # Plan CRUD, validation, execution, cost estimation
+  evidence.py                # Legacy facade (evidence engine in app/evidence_engine/)
   semantic.py                # Semantic entity/metric/mapping CRUD
   sources.py                 # Source registry + adapter factory
   engines.py                 # Engine registry + analytics engine factory
   bindings.py                # Source-engine binding CRUD
   routing.py                 # QueryRouter: table names → source → binding → engine
   sync.py                    # External catalog sync engine
-  catalog_query.py           # Search, resolve (with engine info), planner-context, graph traversal
-  evidence.py                # Observation/claim/confidence scoring
-  mcp_server.py              # 11 MCP tools
-  mcp_client.py              # Async HTTP client for all endpoints
+  governance.py              # GovernanceService: policy/quality CRUD + enforcement
+  jobs.py                    # JobService: async job submission + execution
+  approvals.py               # ApprovalService: approval request CRUD + auto-flagging
+  observability.py           # MetricsCollector, TimingMiddleware, JSONFormatter, setup_logging()
+  dialect.py                 # SQL dialect translation: DuckDB → trino/spark
+  config.py                  # YAML config loading (sources, engines, bindings, governance, ui)
   storage/
-    __init__.py
     metadata.py              # MetadataStore ABC
     analytics.py             # AnalyticsEngine ABC
-    schema.py                # DDL definitions (14 tables)
+    schema.py                # All DDL (dialect-neutral)
     sqlite_metadata.py       # SQLite implementation
     duckdb_analytics.py      # DuckDB implementation + demo data seeding
-    pg_metadata.py           # PostgreSQL stub
+    pg_metadata.py           # PostgreSQL implementation
     trino_analytics.py       # Trino analytics engine adapter
+    spark_connect_analytics.py  # Spark Connect (gRPC) adapter
+    spark_thrift_analytics.py   # Spark Thrift/Kyuubi adapter
+    repositories.py          # JobRepository and other storage repositories
   static/
-    index.html               # Self-contained admin web UI (vanilla JS, no build tooling)
+    admin.html               # Admin UI (Sources, Engines, Governance, etc.)
+    user.html                # User UI (Sessions, Plans, Evidence, etc.)
+    shared.css / shared.js   # Shared design tokens and components
   adapters/
-    __init__.py
     base.py                  # CatalogAdapter ABC + dataclasses
     local_adapter.py         # Mock/local adapter
     hive_adapter.py          # Hive Metastore adapter
-tests/
-  test_mvp.py                # Original workflow + MCP tests (5 tests)
-  test_storage.py            # MetadataStore + AnalyticsEngine unit tests (9 tests)
-  test_sources.py            # Source registry + sync tests (5 tests)
-  test_semantic.py           # Semantic CRUD tests (11 tests)
-  test_catalog_query.py      # Search/resolve/graph tests (9 tests)
-  test_config.py             # Config loading + startup tests (8 tests)
-  test_engines.py            # Engine service, API, config, Trino tests (17 tests)
-  test_bindings.py           # Binding service, query router, API, config tests (24 tests)
-  test_ui.py                 # Web UI endpoint availability + config toggle tests (4 tests)
+    trino_adapter.py         # Trino catalog adapter
+    unity_adapter.py         # Unity Catalog adapter
+    polaris_adapter.py       # Polaris Catalog adapter
+    glue_adapter.py          # AWS Glue adapter
+    duckdb_adapter.py        # DuckDB catalog adapter
+tests/                       # ~500 tests across 37 test modules (including Playwright E2E)
 ```
 
 ## 15. Current Data Model
@@ -906,11 +937,15 @@ Foreign-key constraints are enforced in SQLite via `PRAGMA foreign_keys=ON`. The
 
 ### 16.2 Current step types
 
-- `compare_watch_time`
-- `analyze_qoe`
-- `analyze_ads`
-- `analyze_recommendation`
-- `synthesize_findings`
+Defined in `app/analysis_core/primitives.py` (`STEP_TAXONOMY`):
+
+- `compare_metric` — compare a published semantic metric between baseline and current windows; supports custom `period_start/period_end`, `filter`, `order` ASC/DESC, default `limit=10`
+- `profile_table` — profile table row count and column-level completeness/cardinality signals
+- `sample_rows` — return a bounded sample of rows; supports `filter`, `columns`, auto-partition
+- `aggregate_query` — ad-hoc GROUP BY + aggregation; generates observations via `AggregateRowExtractor`; opt-out with `extract_observations=false`
+- `synthesize_findings` — composite step; turns observations into claims and recommendations
+
+Session constraints are auto-injected as SQL WHERE filters into `compare_metric`, `sample_rows`, and `aggregate_query`. Each step run generates independent step_id/observations (no deletion of prior same-type outputs).
 
 ### 16.3 Current semantic catalog
 
@@ -978,166 +1013,108 @@ The semantic objects follow a **draft/published/deprecated lifecycle** with revi
 
 The current MVP implements evidence packaging concretely.
 
-### 17.1 Observation types
+### 17.1 Observation types (7 types)
 
-- `metric_change`
-- `qoe_regression`
-- `ad_regression`
-- `recommendation_signal`
+- `metric_change` — metric change for a slice between baseline and current
+- `funnel_drop` — conversion drop at a funnel stage
+- `contribution_shift` — dimension contribution shift
+- `anomaly_detection` — anomaly signal
+- `qoe_regression` — playback experience regression
+- `ad_regression` — ad-related metric regression
+- `recommendation_signal` — recommendation quality signal
 
 ### 17.2 Step-by-step behavior
 
-#### `compare_watch_time`
+#### `compare_metric`
 
-- compares current vs baseline watch time by slice
+- resolves the metric definition from the semantic layer (table, SQL expression, dimensions)
+- compares baseline vs current window by slice
 - ranks the largest negative movers
-- emits watch-time observations
+- emits `metric_change` observations via `ComparisonRowExtractor`
+- supports custom `period_start/period_end`, `filter`, `order`, `limit`
 
-#### `analyze_qoe`
+#### `aggregate_query`
 
-- compares current vs baseline first-frame time by slice
-- ranks the largest regressions
-- emits QoE observations
+- runs an ad-hoc GROUP BY + aggregation
+- emits observations via `AggregateRowExtractor` (disable with `extract_observations=false`)
 
-#### `analyze_ads`
+#### `profile_table` / `sample_rows`
 
-- compares current vs baseline preroll timeout rate by slice
-- ranks the largest regressions
-- emits ad observations
-
-#### `analyze_recommendation`
-
-- compares current vs baseline CTR by slice
-- checks whether recommendation quality appears to be collapsing
-- emits recommendation observations
+- analyzes table structure and data quality signals
+- returns row counts, column distributions, cardinality
 
 #### `synthesize_findings`
 
-- selects the strongest watch-time decline as the primary affected slice
-- finds same-slice QoE and ad support
-- interprets recommendation signal as support for a counter-hypothesis or contradiction
-- generates claims and recommendations
-- persists edges between observations, claims, and recommendations
+- aggregates all current session observations
+- generates claims with evidence edges (supports / contradicts)
+- produces recommendations, auto-flags high-risk items for approval
+- persists the complete evidence graph
 
-### 17.3 Expected conclusion pattern
+### 17.3 Evidence Engine architecture
 
-For the seeded dataset, the expected outcome is:
+`app/evidence_engine/` is structured in three layers:
 
-- strongest watch-time decline in Android 8.3.1 / 4g / short-video traffic
-- QoE degradation in the same slice
-- ad timeout pressure increased in the same slice
-- recommendation CTR not broadly collapsing
-- recommendation quality therefore less likely to be the primary cause
+- **Extractor layer**: `ComparisonRowExtractor`, `AggregateRowExtractor` — deterministic observation extraction from artifacts
+- **Scoring layer**: `app/evidence_engine/scoring.py` — deterministic confidence scoring (effect strength, consistency, sample size, data quality, contradiction penalty)
+- **Synthesizer layer**: `app/evidence_engine/synthesizers/` — merges observations into claims and recommendations
 
-### 17.4 Current recommendations
+## 18. Protocol Layer
 
-The current recommendations typically include:
+### 18.1 Current state: pure HTTP API
 
-- prioritize an Android playback fix
-- reduce preroll burden for weak-network traffic
-- run a recovery experiment for the impacted cohort
+The MCP server/client layer was removed from the codebase (commit 3ebf377). OmniDB is now a pure HTTP API service. Agents, UIs, and external tools interact directly through FastAPI endpoints.
 
-## 18. MCP Integration Design
+API routers are split into domain-specific modules under `app/api/`: sessions, planning, sources, engines, routing, semantic, catalog, governance, jobs, approvals, metrics, health.
 
-The MCP wrapper exists so local coding agents such as Claude Code or Copilot-style tooling can interact with OmniDB as a tool server.
+### 18.2 Protocol layer design principles (retained)
 
-### 18.1 MCP design principles
+- Keep the protocol layer thin — no business logic
+- Use typed Pydantic models (`app/api/models.py`)
+- Provide actionable error messages
+- Support JSON responses
 
-- keep the wrapper thin
-- leave business logic in the FastAPI service
-- use typed Pydantic inputs
-- provide actionable error messages
-- support both JSON and markdown output shapes
-- default to stdio transport for local use
+### 18.3 Future extension
 
-### 18.2 Current MCP tools
-
-#### Core tools (original)
-
-- `omnidb_get_health`
-- `omnidb_get_catalog`
-- `omnidb_create_session`
-- `omnidb_run_step`
-- `omnidb_run_watch_time_workflow`
-- `omnidb_get_evidence`
-
-#### Semantic layer tools (new)
-
-- `omnidb_list_sources` — list registered catalog sources
-- `omnidb_search_catalog` — search entities, metrics, and assets by keyword
-- `omnidb_resolve_term` — resolve a business term to its semantic definition and physical assets
-- `omnidb_get_planner_context` — get the full planner context bundle for a session
-
-### 18.3 Tool-to-endpoint mapping
-
-| MCP tool | FastAPI endpoint |
-|---|---|
-| `omnidb_get_health` | `GET /health` |
-| `omnidb_get_catalog` | `GET /catalog` |
-| `omnidb_create_session` | `POST /sessions` |
-| `omnidb_run_step` | `POST /sessions/{session_id}/steps/{step_type}` |
-| `omnidb_run_watch_time_workflow` | `POST /sessions/{session_id}/workflow/watch-time-drop` |
-| `omnidb_get_evidence` | `GET /sessions/{session_id}/evidence` |
-| `omnidb_list_sources` | `GET /sources` |
-| `omnidb_search_catalog` | `GET /catalog/search?q=...&type=...` |
-| `omnidb_resolve_term` | `GET /semantic/resolve/{name}` |
-| `omnidb_get_planner_context` | `GET /sessions/{session_id}/planner-context` |
-
-### 18.4 Why MCP matters here
-
-MCP lets the agent interact with OmniDB at the right abstraction level:
-
-- create a session
-- inspect the catalog
-- run a workflow
-- inspect evidence
-
-Instead of forcing the agent to manage raw HTTP or generate SQL.
+If MCP needs to be reintroduced, it should remain a thin proxy — all business logic stays in the FastAPI service layer, and MCP tools are grouped by capability type (discovery / planning / execution).
 
 ## 19. Testing and Validation
 
-The project has a comprehensive test suite with **120 tests across 9 test modules**:
+The project has a comprehensive test suite with **~500 tests across 37 test modules**. Key modules:
 
-- `tests/test_mvp.py` (5 tests) — catalog, workflow, evidence, MCP client, markdown formatting
-- `tests/test_storage.py` (9 tests) — SQLiteMetadataStore and DuckDBAnalyticsEngine unit tests
-- `tests/test_sources.py` (5 tests) — source registration, sync, object browsing, idempotency
-- `tests/test_semantic.py` (11 tests) — entity/metric/mapping CRUD, publish lifecycle, status filtering
-- `tests/test_catalog_query.py` (9 tests) — search, resolve, planner-context, graph traversal
-- `tests/test_config.py` (10 tests) — YAML config loading, startup auto-registration, idempotency, UI config
-- `tests/test_engines.py` (19 tests) — engine service CRUD, API endpoints, config-driven startup, Trino adapter, build factory
-- `tests/test_bindings.py` (24 tests) — binding service CRUD, query router resolution, API endpoints, config-driven startup
-- `tests/test_ui.py` (4 tests) — web UI endpoint availability when enabled/disabled, static file serving
+- `tests/test_mvp.py` (47 tests) — QueryRouter wiring, metric resolution, generic steps, session endpoints
+- `tests/test_adapters.py` (45 tests) — all catalog adapters (Local, Hive, Trino, Unity, Polaris, Glue, DuckDB)
+- `tests/test_bindings.py` (40 tests) — binding service, query router, API, config
+- `tests/test_planning.py` (37 tests) — plan CRUD, validation, execution, cost estimation, API
+- `tests/test_sources.py` (31 tests) — source registry, sync mode, selection CRUD
+- `tests/test_engines.py` (31 tests) — engine service, API, Trino, SparkConnect, SparkThrift
+- `tests/test_evidence.py` (26 tests) — observation factories, claim synthesis, confidence scoring
+- `tests/test_governance.py` (16 tests), `tests/test_approvals.py` (16 tests)
+- `tests/test_compiler_executor.py` (17 tests) — analysis core compiler + executor
+- `tests/test_ui_playwright.py` (20 tests, skipped if browser not installed) — Playwright E2E
 
 Command:
 
 ```bash
-python3 -m unittest discover -s tests -v
+.venv/bin/python3 -m unittest discover -s tests -v
 ```
 
 All tests use `SQLiteMetadataStore` for metadata and `DuckDBAnalyticsEngine` for analytics, validating the dual-backend architecture end-to-end.
 
 ## 20. Operational Model
 
-### 20.1 Local FastAPI startup
+### 20.1 Setup and startup
 
 ```bash
-uvicorn app.main:app --reload
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e .                  # core deps (Python >=3.12)
+pip install -e ".[hive]"          # optional: Hive Metastore adapter
+uvicorn app.main:app --reload     # FastAPI on :8000
 ```
 
-### 20.2 Local MCP startup
-
-```bash
-source .venv/bin/activate
-omnidb-mcp
-```
-
-### 20.3 Important environment variables
+### 20.2 Important environment variables
 
 - `DUCKDB_MVP_DB` — analytics DB path (default: `data/mvp.duckdb`)
 - `OMNIDB_CONFIG` — path to YAML config file (default: `omnidb.yaml` in CWD)
-- `OMNIDB_API_BASE_URL` — base URL for MCP client
-- `OMNIDB_API_TIMEOUT` — HTTP timeout in seconds
-- `OMNIDB_MCP_TRANSPORT` — MCP transport mode (default: `stdio`)
 
 ## 21. Security, Governance, and Reliability
 
@@ -1161,17 +1138,21 @@ Even though the MVP is small, the broader design discussion explicitly identifie
 - actionable wrapper errors
 - session-level persistence
 
-### 21.3 Not yet implemented
+### 21.3 Implemented governance and operational capabilities
 
-- real auth and RBAC/ABAC
-- field-level masking enforcement
-- row-level policy enforcement
-- cost estimation and budget enforcement
-- freshness and quality checks
-- lineage graph
-- approval workflow
-- async jobs and resumability
-- multi-user isolation
+- ✅ Policy enforcement: `field_mask`, `row_filter`, `aggregate_only`, `max_rows` (`app/governance.py` + `app/governance_engine/`)
+- ✅ Quality rules: freshness, null_rate, row_count_min (`GovernanceService`)
+- ✅ Approval workflow: `ApprovalService` + auto-flag (`app/approvals.py`)
+- ✅ Cost estimation and budget enforcement: `PlanningService` + `app/execution/costing.py`
+- ✅ Async job submission and status tracking: `JobService` (`app/jobs.py`)
+- ✅ Observability: structured logging, metrics endpoint, timing middleware (`app/observability.py`)
+
+Still not implemented:
+
+- Real auth and RBAC/ABAC
+- Lineage graph (provenance tracking is present)
+- Production job queue (currently background threads with sync fallback)
+- Multi-user isolation
 
 ## 22. Engine Considerations Beyond DuckDB
 
@@ -1243,7 +1224,7 @@ Defined in `app/storage/analytics.py`. Every analytics engine must implement:
 - `table_exists(table_name)` — check if a table exists
 - `table_row_count(table_name)` — return row count
 
-Current implementations: `DuckDBAnalyticsEngine`, `TrinoAnalyticsEngine`. Future: Spark.
+Current implementations: `DuckDBAnalyticsEngine`, `TrinoAnalyticsEngine`, `SparkConnectAnalyticsEngine`, `SparkThriftAnalyticsEngine`.
 
 ### 23.2 MetadataStore contract (implemented)
 
@@ -1256,7 +1237,7 @@ Defined in `app/storage/metadata.py`. Every metadata store must implement:
 - `query_rows(sql, params)` — return all matching rows as dicts
 - `query_one(sql, params)` — return first matching row or None
 
-Current implementation: `SQLiteMetadataStore`. Stub: `PostgresMetadataStore`. Future: MySQL.
+Current implementations: `SQLiteMetadataStore`, `PostgresMetadataStore`.
 
 ### 23.3 CatalogAdapter contract (implemented)
 
@@ -1275,7 +1256,7 @@ Optional methods (default to `NotImplementedError`):
 - `get_table_stats(schema_name, table_name)`
 - `list_partitions(schema_name, table_name)`
 
-Current implementations: `LocalCatalogAdapter` (mock), `HiveMetastoreAdapter` (requires `hmsclient`). The contract is designed for future Unity Catalog, Polaris, and Glue adapters.
+Current implementations: `LocalCatalogAdapter` (mock), `HiveMetastoreAdapter` (requires `hmsclient`), `TrinoCatalogAdapter`, `UnityCatalogAdapter`, `PolarisAdapter`, `GlueCatalogAdapter`, `DuckDBCatalogAdapter`.
 
 ### 23.4 Source-engine bindings and query routing (implemented)
 
@@ -1305,92 +1286,61 @@ Without stable adapter boundaries, the semantic layer would leak engine-specific
 - new backends can be added without modifying existing code
 - query routing is decoupled from step execution — the router resolves engines, step runners consume them
 
-## 24. Current Limitations
+## 24. Current Limitations and Resolved Issues
 
-Several limitations from the original MVP have been resolved. The remaining limitations are:
+**Resolved (all phases complete):**
 
-- one hard-coded business scenario (the watch-time demo data)
-- fixed step set (5 step types)
-- heuristic evidence synthesis (deterministic, not model-assisted)
-- no planner or plan representation
-- no reflection loop backed by a real LLM
-- no explicit cost model
-- no async execution framework
-- no production governance (auth, RBAC, masking)
-- metadata store limited to SQLite (adapter contract is ready for PostgreSQL/MySQL)
-- step runners still use the hardcoded `self.analytics` engine instance, not the query router (wiring is next)
-- no cross-engine federation (query router requires all tables on one engine)
-- no SQL dialect translation between engines
+- ~~static semantic catalog~~ — metadata-driven, entity/metric CRUD, draft/published lifecycle
+- ~~no metadata ingestion~~ — source registry + sync engine, supports Local, Hive, Trino, Unity, Polaris, Glue, DuckDB
+- ~~no multi-engine support~~ — DuckDB, Trino, SparkConnect, SparkThrift all implemented
+- ~~no plan or plan IR~~ — `PlanningService` with validation, execution, cost estimation, re-planning
+- ~~no governance~~ — `GovernanceService` with policy enforcement, quality rules, approval workflow
+- ~~no async execution~~ — `JobService` with background execution and status tracking
+- ~~no observability~~ — MetricsCollector, TimingMiddleware, structured logging, `/metrics` endpoint
+- ~~no catalog adapters beyond local/Hive~~ — Unity, Polaris, Glue, Trino, DuckDB all implemented
+- ~~no visual interface~~ — Admin UI (`/admin`) + User UI (`/ui`), split pages
+- ~~step runners use hardcoded engine~~ — QueryRouter wired into step runners
+- ~~no cross-engine federation~~ — FederationPlanner + FederationRuntime implemented
+- ~~no SQL dialect translation~~ — `app/dialect.py` + `app/execution/translation.py`
 
-**Resolved since the original MVP:**
+**Still not implemented:**
 
-- ~~static semantic catalog~~ — now metadata-driven with entity/metric CRUD and draft/published lifecycle
-- ~~no metadata ingestion~~ — source registry + sync engine can ingest from local and Hive Metastore catalogs
-- ~~no multi-engine support~~ — pluggable `AnalyticsEngine` and `MetadataStore` contracts with concrete implementations
-- ~~no semantic search or resolution~~ — full-text search, term resolution, and graph traversal APIs
-- ~~limited MCP tools~~ — expanded from 6 to 11 tools covering sources, search, resolution, and planner context
-- ~~engines and sources disconnected~~ — source-engine bindings with priority-based selection and a QueryRouter that resolves table names to the appropriate engine
-- ~~no engine registry~~ — `EngineService` with CRUD API and YAML-driven auto-registration
-- ~~no visual interface~~ — optional admin Web UI for browsing and managing all objects from a browser
+- Real auth and RBAC/ABAC
+- LLM-backed reflection/planning loop (planner skeleton is ready)
+- Production async job queue (currently background threads with sync fallback)
+- Streaming step execution
+- Lineage graph
 
 ## 25. Roadmap
 
-### Completed: semantic layer platform foundation
+### Completed (all phases)
 
-The following foundational work has been implemented:
+- ✅ Storage split: SQLite (metadata) + DuckDB (analytics), pluggable abstract interfaces
+- ✅ Source registry with sync + catalog browse
+- ✅ Catalog adapters: Local, Hive, Trino, Unity Catalog, Polaris, AWS Glue, DuckDB
+- ✅ PostgreSQL metadata store
+- ✅ Semantic CRUD: entities, metrics, mappings; draft/published lifecycle, revision tracking
+- ✅ Catalog query: full-text search, term resolution, planner-context, graph traversal
+- ✅ Engine registry: DuckDB, Trino, SparkConnect, SparkThrift
+- ✅ Source-engine bindings + QueryRouter
+- ✅ YAML-driven startup auto-registration
+- ✅ Typed planning: plan IR, validation, execution, cost estimation, re-planning
+- ✅ Evidence engine: multiple observation types, AggregateRowExtractor, provenance, confidence scoring
+- ✅ SQL dialect translation: DuckDB → Trino/Spark
+- ✅ Cross-engine federation: FederationPlanner + FederationRuntime
+- ✅ Governance: policy enforcement, quality rules, approval workflow
+- ✅ Async jobs: JobService, background execution, status tracking
+- ✅ Observability: MetricsCollector, TimingMiddleware, structured logging
+- ✅ Web UI: Admin UI (`/admin`) + User UI (`/ui`), shared assets
+- ✅ Analysis core: IR, compiler, executor, primitives, composites, step registry
+- ✅ Execution substrate: orchestrator, federation, costing, capabilities
 
-- **Storage split**: separated metadata (SQLite) from analytics (DuckDB) with pluggable abstract interfaces
-- **Source registry**: register external catalog sources, trigger syncs, browse synced objects
-- **Catalog adapters**: `CatalogAdapter` contract with local mock and Hive Metastore implementations
-- **Semantic CRUD**: entity and metric authoring with draft/published lifecycle and revision tracking
-- **Semantic mappings**: link semantic objects to physical source objects
-- **Catalog query**: full-text search, business-term resolution, planner-context bundles, graph traversal
-- **MCP expansion**: 11 MCP tools covering the full semantic layer surface
-- **Engine registry**: `EngineService` with CRUD API, DuckDB and Trino adapters, YAML-driven auto-registration
-- **Source-engine bindings**: `BindingService` linking sources to engines with priority-based selection, YAML-driven auto-registration
-- **Query routing**: `QueryRouter` resolves table names → source → binding → engine, with common-engine intersection for multi-source queries
-- **Enhanced resolution**: `resolve()` API now includes engine info for each physical asset when bindings exist
-- **YAML configuration**: `omnidb.yaml` declaratively configures sources, engines, and bindings for startup auto-registration
-- **Admin Web UI**: optional browser-based admin interface (`app/static/index.html`) for managing sources, engines, bindings, entities, and metrics — config-gated via `ui.enabled`, single self-contained HTML file with no build tooling
+### Remaining / future work
 
-### Phase next-1: additional catalog adapters
-
-- implement Unity Catalog adapter (REST API)
-- implement Polaris Catalog adapter (Iceberg REST API)
-- implement AWS Glue adapter (boto3)
-- implement PostgreSQL metadata store
-
-### Phase next-2: add typed planning
-
-- introduce a plan / step IR
-- validate and explain steps before execution
-- add dry-run and cost estimates
-- support plan patching and re-planning
-
-### Phase next-3: strengthen evidence packaging
-
-- add more observation types
-- support funnel and contribution analysis
-- persist provenance and reproducibility tokens
-- support claim-level APIs beyond the current scenario
-- migrate workflow steps to resolve metrics/tables from the semantic layer
-- wire QueryRouter into step runners so steps use routed engines instead of the hardcoded `self.analytics` instance
-
-### Phase next-4: multi-engine execution
-
-- preserve the same semantic and evidence contracts
-- add analytics engine adapters for Spark
-- add SQL dialect translation between engines
-- support cross-engine federation for multi-source queries
-- add session-level engine override
-
-### Phase next-5: productionize
-
-- auth and multi-tenancy
-- governance enforcement
-- job orchestration and checkpoints
-- observability and tracing
-- approval and experiment integration
+- Auth and RBAC
+- LLM-backed planning and reflection loop
+- Production async job queue (currently background threads with sync fallback)
+- Streaming step execution
 
 ## 26. Alternatives Considered
 
@@ -1400,7 +1350,7 @@ Rejected as the primary model because it does not adequately support sessions, e
 
 ### 25.2 MCP-only without HTTP service
 
-Rejected because it would tightly couple business logic to the protocol adapter and make reuse harder.
+Rejected because it would tightly couple business logic to the protocol adapter and make reuse harder. Note: the MCP layer was subsequently also removed from the codebase entirely; OmniDB is now a pure HTTP API service.
 
 ### 25.3 Planner-first before deterministic evidence
 
@@ -1408,15 +1358,15 @@ Rejected for the MVP because it would invest in orchestration before establishin
 
 ## 27. Open Questions
 
-- ~~How should semantic objects be externalized: YAML, database metadata, or both?~~ **Resolved**: database metadata with CRUD APIs. YAML import could be added later as a convenience layer.
-- What should the typed step IR look like?
-- Which evidence-extraction rules should remain deterministic, and which should become model-assisted?
-- How should quality and lineage be surfaced to the planner? (The planner-context endpoint provides a starting point.)
-- How should cost-aware routing work across engines? (The QueryRouter provides priority-based engine selection; cost-aware selection is a future extension.)
-- What is the right boundary between semantic layer and agent runtime?
-- When should recommendations require explicit approval hooks?
+- ~~How should semantic objects be externalized?~~ **Resolved**: database metadata with CRUD APIs.
+- ~~What should the typed step IR look like?~~ **Resolved**: `app/analysis_core/ir.py` (`AnalysisRequest`, `AnalysisStepIR`, etc.).
+- ~~How should quality and lineage be surfaced to the planner?~~ **Resolved**: planner-context endpoint + GovernanceService.
+- ~~How should cost-aware routing work across engines?~~ **Resolved**: `app/execution/costing.py` + `RoutingRuntime` + `EngineCapabilityProfile`.
+- ~~Should workflow steps resolve metrics from `semantic_metrics` at execution time?~~ **Resolved**: `compare_metric` resolves through the semantic layer.
+- ~~When should recommendations require approval hooks?~~ **Resolved**: `ApprovalService` auto-flags high-risk recommendations; explicit approval is required for governance/budget plan blocks.
+- Which evidence-extraction rules should become model-assisted (currently all deterministic)?
 - How should the sync engine handle incremental syncs and drift detection?
-- Should the workflow steps resolve metric definitions from `semantic_metrics` at execution time, or continue using hardcoded SQL?
+- How should the lineage graph be modeled and surfaced to the planner?
 
 ## 28. Decision Summary
 
@@ -1427,7 +1377,7 @@ The core decisions behind OmniDB are:
 - represent analysis through typed steps
 - package outputs into structured evidence
 - keep execution and evidence logic deterministic where possible
-- expose the service via HTTP and MCP
+- expose the service via pure HTTP API (MCP layer removed)
 - **separate metadata storage (SQLite/PostgreSQL) from analytics engines (DuckDB/Trino)**
 - **use pluggable adapter contracts for metadata stores, analytics engines, and external catalogs**
 - **store semantic objects (entities, metrics, mappings) in the metadata database with draft/published lifecycle**
