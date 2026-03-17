@@ -4,9 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What is OmniDB
 
-OmniDB is an **agentic analytics system** — not a text-to-SQL tool. The core thesis: LLM-to-database systems underperform because they lack structure for planning, evidence-based reasoning, and governance. OmniDB provides stateful analysis sessions, semantic discovery, typed analysis steps, deterministic evidence packaging, and MCP tool exposure so agents interact at a higher abstraction level than raw SQL.
-
-The current MVP validates this architecture with a concrete scenario: a video platform investigating a watch-time decline.
+OmniDB is an **agentic analytics system** — not a text-to-SQL tool. The core thesis: LLM-to-database systems underperform because they lack structure for planning, evidence-based reasoning, and governance. OmniDB provides stateful analysis sessions, semantic discovery, typed analysis steps, deterministic evidence packaging, and API exposure so agents interact at a higher abstraction level than raw SQL.
 
 ## Build & Run
 
@@ -19,7 +17,7 @@ uvicorn app.main:app --reload            # FastAPI on :8000
 omnidb-mcp                               # MCP stdio server (requires FastAPI running)
 ```
 
-Environment variables: `DUCKDB_MVP_DB` (analytics DB path), `OMNIDB_API_BASE_URL`, `OMNIDB_API_TIMEOUT`, `OMNIDB_MCP_TRANSPORT`.
+Environment variables: `DUCKDB_MVP_DB` (analytics DB path), `OMNIDB_API_BASE_URL`, `OMNIDB_API_TIMEOUT`.
 
 ## Testing
 
