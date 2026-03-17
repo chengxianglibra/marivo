@@ -67,7 +67,7 @@ class ObservabilityConfig(BaseModel):
     metrics_enabled: bool = True
 
 
-class OmniDBConfig(BaseModel):
+class FactumConfig(BaseModel):
     sources: list[SourceConfig] = Field(default_factory=list)
     engines: list[EngineConfig] = Field(default_factory=list)
     bindings: list[BindingConfig] = Field(default_factory=list)
@@ -76,24 +76,28 @@ class OmniDBConfig(BaseModel):
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
 
 
-def load_config(path: Path | None = None) -> OmniDBConfig:
-    """Load and validate the OmniDB YAML config file.
+# Backward-compatible alias
+OmniDBConfig = FactumConfig
+
+
+def load_config(path: Path | None = None) -> FactumConfig:
+    """Load and validate the Factum YAML config file.
 
     Resolution order:
     1. Explicit *path* argument
-    2. ``OMNIDB_CONFIG`` environment variable
-    3. ``omnidb.yaml`` in the current working directory
+    2. ``FACTUM_CONFIG`` environment variable
+    3. ``factum.yaml`` in the current working directory
 
     Returns an empty config (no sources) when the file does not exist,
     so the application boots normally without a config file.
     """
     if path is None:
-        env = os.getenv("OMNIDB_CONFIG")
-        path = Path(env) if env else Path("omnidb.yaml")
+        env = os.getenv("FACTUM_CONFIG")
+        path = Path(env) if env else Path("factum.yaml")
 
     if not path.is_file():
         logger.debug("Config file not found at %s — using defaults", path)
-        return OmniDBConfig()
+        return FactumConfig()
 
     raw = yaml.safe_load(path.read_text()) or {}
-    return OmniDBConfig.model_validate(raw)
+    return FactumConfig.model_validate(raw)

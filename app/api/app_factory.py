@@ -10,7 +10,7 @@ from app.api.deps import AppServices
 from app.api.router import include_api_routers
 from app.approvals import ApprovalService
 from app.bindings import BindingService
-from app.config import OmniDBConfig, load_config
+from app.config import FactumConfig, load_config
 from app.engines import EngineService
 from app.governance import GovernanceService
 from app.jobs import JobService
@@ -48,7 +48,7 @@ def _resolve_storage(
     return resolved_path, metadata_store, analytics_engine
 
 
-def _register_configured_sources(config: OmniDBConfig, source_service: SourceService, sync_engine: SyncEngine) -> None:
+def _register_configured_sources(config: FactumConfig, source_service: SourceService, sync_engine: SyncEngine) -> None:
     for source_config in config.sources:
         try:
             source = source_service.ensure_source(
@@ -77,7 +77,7 @@ def _register_configured_sources(config: OmniDBConfig, source_service: SourceSer
             logger.exception("Failed to register/sync config source '%s'", source_config.name)
 
 
-def _register_configured_engines(config: OmniDBConfig, engine_service: EngineService) -> None:
+def _register_configured_engines(config: FactumConfig, engine_service: EngineService) -> None:
     for engine_config in config.engines:
         try:
             engine_service.ensure_engine(
@@ -91,7 +91,7 @@ def _register_configured_engines(config: OmniDBConfig, engine_service: EngineSer
 
 
 def _register_configured_bindings(
-    config: OmniDBConfig,
+    config: FactumConfig,
     metadata_store: MetadataStore,
     binding_service: BindingService,
 ) -> None:
@@ -123,7 +123,7 @@ def _register_configured_bindings(
 
 
 def _register_configured_governance(
-    config: OmniDBConfig,
+    config: FactumConfig,
     metadata_store: MetadataStore,
     governance_service: GovernanceService | None,
 ) -> None:
@@ -169,7 +169,7 @@ def _build_services(
     resolved_path: Path,
     metadata_store: MetadataStore,
     analytics_engine: AnalyticsEngine,
-    config: OmniDBConfig,
+    config: FactumConfig,
 ) -> AppServices:
     setup_logging(level=config.observability.log_level)
     metrics_collector = MetricsCollector() if config.observability.metrics_enabled else None
@@ -277,7 +277,7 @@ def create_app(
         analytics_engine=analytics_engine,
         config=config,
     )
-    app = FastAPI(title="OmniDB Semantic Layer", version="0.2.0")
+    app = FastAPI(title="Factum Semantic Layer", version="0.2.0")
     _attach_state(app, services)
     app.add_middleware(TimingMiddleware)
     include_api_routers(app)

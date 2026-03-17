@@ -48,7 +48,7 @@ class _BasePlaywrightTest(unittest.TestCase):
         from tests.shared_fixtures import get_seeded_duckdb_path
 
         cls.tmp = tempfile.TemporaryDirectory()
-        config_path = Path(cls.tmp.name) / "omnidb.yaml"
+        config_path = Path(cls.tmp.name) / "factum.yaml"
         config_path.write_text("ui:\n  enabled: true\n")
         db_path = Path(cls.tmp.name) / "test.duckdb"
         get_seeded_duckdb_path(db_path)
@@ -95,7 +95,7 @@ class PlaywrightAdminTests(_BasePlaywrightTest):
     def test_admin_page_loads(self):
         """Admin page loads with correct title."""
         self.page.goto(f"{self.base_url}/admin")
-        self.assertIn("OmniDB", self.page.title())
+        self.assertIn("Factum", self.page.title())
 
     def test_sidebar_visible(self):
         """Sidebar navigation is visible on load."""
@@ -198,7 +198,7 @@ class PlaywrightUserTests(_BasePlaywrightTest):
     def test_user_page_loads(self):
         """User page loads with correct title."""
         self.page.goto(f"{self.base_url}/ui")
-        self.assertIn("OmniDB", self.page.title())
+        self.assertIn("Factum", self.page.title())
 
     def test_sidebar_visible(self):
         """Sidebar navigation is visible on load."""

@@ -6,7 +6,7 @@ from typing import Any, Iterator
 
 
 class MetadataStore(ABC):
-    """Pluggable backend for OmniDB control-plane tables (sessions, steps,
+    """Pluggable backend for Factum control-plane tables (sessions, steps,
     artifacts, observations, claims, edges, recommendations, sources,
     semantic objects, etc.)."""
 

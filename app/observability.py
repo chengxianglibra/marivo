@@ -200,67 +200,67 @@ class MetricsCollector:
     def prometheus(self) -> str:
         """Render Prometheus-compatible text exposition."""
         lines: list[str] = [
-            "# HELP omnidb_requests_total Total HTTP requests",
-            "# TYPE omnidb_requests_total counter",
+            "# HELP factum_requests_total Total HTTP requests",
+            "# TYPE factum_requests_total counter",
         ]
         for key, count in sorted(self.request_count.items()):
             method, path = key.split(":", 1)
-            lines.append(f'omnidb_requests_total{{method="{method}",path="{path}"}} {count}')
+            lines.append(f'factum_requests_total{{method="{method}",path="{path}"}} {count}')
         lines.extend([
-            "# HELP omnidb_request_duration_seconds_sum Sum of request durations",
-            "# TYPE omnidb_request_duration_seconds_sum counter",
+            "# HELP factum_request_duration_seconds_sum Sum of request durations",
+            "# TYPE factum_request_duration_seconds_sum counter",
         ])
         for key, total in sorted(self.request_duration_sum.items()):
             method, path = key.split(":", 1)
-            lines.append(f'omnidb_request_duration_seconds_sum{{method="{method}",path="{path}"}} {total / 1000:.4f}')
+            lines.append(f'factum_request_duration_seconds_sum{{method="{method}",path="{path}"}} {total / 1000:.4f}')
         lines.extend([
-            "# HELP omnidb_errors_total Total HTTP errors by status code",
-            "# TYPE omnidb_errors_total counter",
+            "# HELP factum_errors_total Total HTTP errors by status code",
+            "# TYPE factum_errors_total counter",
         ])
         for code, count in sorted(self.error_count.items()):
-            lines.append(f'omnidb_errors_total{{status_code="{code}"}} {count}')
+            lines.append(f'factum_errors_total{{status_code="{code}"}} {count}')
         lines.extend([
-            "# HELP omnidb_step_executions_total Total step executions",
-            "# TYPE omnidb_step_executions_total counter",
+            "# HELP factum_step_executions_total Total step executions",
+            "# TYPE factum_step_executions_total counter",
         ])
         for step_type, count in sorted(self.step_count.items()):
-            lines.append(f'omnidb_step_executions_total{{step_type="{step_type}"}} {count}')
+            lines.append(f'factum_step_executions_total{{step_type="{step_type}"}} {count}')
         lines.extend([
-            "# HELP omnidb_step_duration_seconds_sum Sum of step durations",
-            "# TYPE omnidb_step_duration_seconds_sum counter",
+            "# HELP factum_step_duration_seconds_sum Sum of step durations",
+            "# TYPE factum_step_duration_seconds_sum counter",
         ])
         for step_type, durations in sorted(self.step_duration.items()):
             total_sec = sum(durations) / 1000
-            lines.append(f'omnidb_step_duration_seconds_sum{{step_type="{step_type}"}} {total_sec:.4f}')
+            lines.append(f'factum_step_duration_seconds_sum{{step_type="{step_type}"}} {total_sec:.4f}')
         lines.extend([
-            "# HELP omnidb_step_executions_by_dimension_total Total step executions by planner/compiler/engine/stage labels",
-            "# TYPE omnidb_step_executions_by_dimension_total counter",
+            "# HELP factum_step_executions_by_dimension_total Total step executions by planner/compiler/engine/stage labels",
+            "# TYPE factum_step_executions_by_dimension_total counter",
         ])
         for key, count in sorted(self.step_dimension_count.items()):
             labels = dict(item.split("=", 1) for item in key.split("|"))
             lines.append(
-                "omnidb_step_executions_by_dimension_total{"
+                "factum_step_executions_by_dimension_total{"
                 + ",".join(f'{label}="{value}"' for label, value in labels.items())
                 + f"}} {count}"
             )
         lines.extend([
-            "# HELP omnidb_execution_stage_seconds_sum Sum of execution stage durations",
-            "# TYPE omnidb_execution_stage_seconds_sum counter",
+            "# HELP factum_execution_stage_seconds_sum Sum of execution stage durations",
+            "# TYPE factum_execution_stage_seconds_sum counter",
         ])
         for key, total in sorted(self.execution_stage_duration_sum.items()):
             labels = dict(item.split("=", 1) for item in key.split("|"))
             lines.append(
-                "omnidb_execution_stage_seconds_sum{"
+                "factum_execution_stage_seconds_sum{"
                 + ",".join(f'{label}="{value}"' for label, value in labels.items())
                 + f"}} {total / 1000:.4f}"
             )
         lines.extend([
-            "# HELP omnidb_active_sessions Current active sessions",
-            "# TYPE omnidb_active_sessions gauge",
-            f"omnidb_active_sessions {self.active_sessions}",
-            "# HELP omnidb_active_jobs Current active jobs",
-            "# TYPE omnidb_active_jobs gauge",
-            f"omnidb_active_jobs {self.active_jobs}",
+            "# HELP factum_active_sessions Current active sessions",
+            "# TYPE factum_active_sessions gauge",
+            f"factum_active_sessions {self.active_sessions}",
+            "# HELP factum_active_jobs Current active jobs",
+            "# TYPE factum_active_jobs gauge",
+            f"factum_active_jobs {self.active_jobs}",
         ])
         return "\n".join(lines) + "\n"
 
@@ -278,7 +278,7 @@ class TimingMiddleware(BaseHTTPMiddleware):
         if metrics is not None:
             path = request.url.path
             metrics.record_request(request.method, path, response.status_code, duration_ms)
-        logger = logging.getLogger("omnidb.http")
+        logger = logging.getLogger("factum.http")
         logger.info(
             "HTTP %s %s %d %.1fms",
             request.method,

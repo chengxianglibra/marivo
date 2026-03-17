@@ -23,7 +23,7 @@ def get_seeded_duckdb_path(dest: Path) -> Path:
     global _TEMPLATE_DIR, _TEMPLATE_PATH
 
     if _TEMPLATE_PATH is None or not _TEMPLATE_PATH.exists():
-        _TEMPLATE_DIR = tempfile.TemporaryDirectory(prefix="omnidb_tpl_")
+        _TEMPLATE_DIR = tempfile.TemporaryDirectory(prefix="factum_tpl_")
         tpl = Path(_TEMPLATE_DIR.name) / "template.duckdb"
         engine = DuckDBAnalyticsEngine(tpl)
         engine.initialize()
