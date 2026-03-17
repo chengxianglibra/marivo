@@ -1,5 +1,5 @@
 [project]
-name = "omnidb"
+name = "factum"
 version = "0.2.0"
 description = "Semantic layer platform with pluggable metadata stores, analytics engines, and catalog adapters."
 readme = "README.md"

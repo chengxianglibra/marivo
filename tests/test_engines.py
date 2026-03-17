@@ -408,7 +408,7 @@ class BuildSparkEngineTests(unittest.TestCase):
         engine = _build_analytics_engine("spark_thrift", {
             "host": "localhost",
             "port": 10009,
-            "username": "omnidb",
+            "username": "factum",
             "database": "default",
             "auth": "NOSASL",
         })
@@ -461,7 +461,7 @@ class EngineConfigTests(unittest.TestCase):
 
     def test_startup_registers_engines(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            config_path = Path(tmp) / "omnidb.yaml"
+            config_path = Path(tmp) / "factum.yaml"
             config_path.write_text(textwrap.dedent("""\
                 engines:
                   - name: "Startup DuckDB"

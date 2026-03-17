@@ -18,7 +18,7 @@ def _trino_connect_kwargs(connection: dict[str, Any]) -> dict[str, Any]:
     kwargs: dict[str, Any] = dict(
         host=connection["host"],
         port=connection.get("port", 8080),
-        user=connection.get("user", "omnidb"),
+        user=connection.get("user", "factum"),
         password=connection.get("password"),
         http_scheme=connection.get("http_scheme") or connection.get("http-scheme", "http"),
         catalog=connection.get("catalog", "hive"),
@@ -96,7 +96,7 @@ def build_analytics_engine(engine_type: str, connection: dict[str, Any]) -> Anal
         return SparkThriftAnalyticsEngine(
             host=connection["host"],
             port=connection.get("port", 10009),
-            username=connection.get("username", "omnidb"),
+            username=connection.get("username", "factum"),
             database=connection.get("database", "default"),
             auth=connection.get("auth", "NOSASL"),
         )

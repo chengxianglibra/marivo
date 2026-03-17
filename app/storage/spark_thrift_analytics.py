@@ -18,7 +18,7 @@ class SparkThriftAnalyticsEngine(AnalyticsEngine):
         self,
         host: str,
         port: int = 10009,
-        username: str = "omnidb",
+        username: str = "factum",
         database: str = "default",
         auth: str = "NOSASL",
     ) -> None:

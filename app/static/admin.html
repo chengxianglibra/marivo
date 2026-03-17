@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OmniDB Admin</title>
+<title>Factum Admin</title>
 <link rel="stylesheet" href="/static/shared.css">
 <style>
 /* Page-specific overrides */
@@ -42,7 +42,7 @@
   <!-- Sidebar -->
   <aside class="sidebar">
     <div class="sidebar-brand">
-      OmniDB
+      Factum
       <small>Administration</small>
     </div>
 
@@ -357,7 +357,7 @@ renderers.sources = async () => {
     local:          '{"path": "/path/to/file.duckdb"}',
     duckdb:         '{"path": "/path/to/file.duckdb"}',
     hive_metastore: '{"host": "localhost", "port": 9083}',
-    trino:          '{"host": "localhost", "port": 8080, "user": "omnidb", "catalog": "hive", "schema": "default"}',
+    trino:          '{"host": "localhost", "port": 8080, "user": "factum", "catalog": "hive", "schema": "default"}',
     unity_catalog:  '{"host": "your-workspace.azuredatabricks.net", "token": "", "catalog": "main"}',
     aws_glue:       '{"region": "us-east-1", "catalog_id": null}',
     polaris:        '{"host": "polaris.example.com", "token": "", "warehouse": "default"}',

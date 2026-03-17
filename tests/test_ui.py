@@ -16,7 +16,7 @@ class UIBothEnabledTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.tmp = tempfile.TemporaryDirectory()
-        config_path = Path(cls.tmp.name) / "omnidb.yaml"
+        config_path = Path(cls.tmp.name) / "factum.yaml"
         config_path.write_text("ui:\n  enabled: true\n")
         db_path = Path(cls.tmp.name) / "test.duckdb"
         get_seeded_duckdb_path(db_path)
@@ -32,13 +32,13 @@ class UIBothEnabledTests(unittest.TestCase):
         resp = self.client.get("/admin")
         self.assertEqual(resp.status_code, 200)
         self.assertIn("text/html", resp.headers["content-type"])
-        self.assertIn("OmniDB", resp.text)
+        self.assertIn("Factum", resp.text)
 
     def test_ui_returns_html(self) -> None:
         resp = self.client.get("/ui")
         self.assertEqual(resp.status_code, 200)
         self.assertIn("text/html", resp.headers["content-type"])
-        self.assertIn("OmniDB", resp.text)
+        self.assertIn("Factum", resp.text)
 
     def test_static_admin_accessible(self) -> None:
         resp = self.client.get("/static/admin.html")
@@ -117,7 +117,7 @@ class UIAdminOnlyTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.tmp = tempfile.TemporaryDirectory()
-        config_path = Path(cls.tmp.name) / "omnidb.yaml"
+        config_path = Path(cls.tmp.name) / "factum.yaml"
         config_path.write_text("ui:\n  admin_enabled: true\n  user_enabled: false\n")
         db_path = Path(cls.tmp.name) / "test.duckdb"
         get_seeded_duckdb_path(db_path)
@@ -133,7 +133,7 @@ class UIAdminOnlyTests(unittest.TestCase):
         resp = self.client.get("/admin")
         self.assertEqual(resp.status_code, 200)
         self.assertIn("text/html", resp.headers["content-type"])
-        self.assertIn("OmniDB", resp.text)
+        self.assertIn("Factum", resp.text)
 
     def test_ui_returns_404(self) -> None:
         resp = self.client.get("/ui")
@@ -146,7 +146,7 @@ class UIUserOnlyTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.tmp = tempfile.TemporaryDirectory()
-        config_path = Path(cls.tmp.name) / "omnidb.yaml"
+        config_path = Path(cls.tmp.name) / "factum.yaml"
         config_path.write_text("ui:\n  user_enabled: true\n  admin_enabled: false\n")
         db_path = Path(cls.tmp.name) / "test.duckdb"
         get_seeded_duckdb_path(db_path)
@@ -166,7 +166,7 @@ class UIUserOnlyTests(unittest.TestCase):
         resp = self.client.get("/ui")
         self.assertEqual(resp.status_code, 200)
         self.assertIn("text/html", resp.headers["content-type"])
-        self.assertIn("OmniDB", resp.text)
+        self.assertIn("Factum", resp.text)
 
 
 if __name__ == "__main__":

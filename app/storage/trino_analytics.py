@@ -12,7 +12,7 @@ class TrinoAnalyticsEngine(AnalyticsEngine):
         self,
         host: str,
         port: int = 8080,
-        user: str = "omnidb",
+        user: str = "factum",
         password: str | None = None,
         http_scheme: str = "http",
         catalog: str = "hive",

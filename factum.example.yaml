@@ -1,12 +1,12 @@
-# OmniDB configuration file
-# Copy to omnidb.yaml (or set OMNIDB_CONFIG env var) to activate.
+# Factum configuration file
+# Copy to factum.yaml (or set FACTUM_CONFIG env var) to activate.
 #
 # Sources listed here are auto-registered and synced on app startup.
 # Engines listed here are auto-registered on app startup.
 # Registration is idempotent — restarting the app won't create duplicates.
 
 sources:
-  # Local demo catalog (ships with OmniDB, no external dependencies)
+  # Local demo catalog (ships with Factum, no external dependencies)
   - name: "Local Demo"
     type: local
     connection: {}
@@ -30,7 +30,7 @@ engines:
   #   connection:
   #     host: trino.internal
   #     port: 8080
-  #     user: omnidb
+  #     user: factum
   #     catalog: hive
   #     schema: default
 

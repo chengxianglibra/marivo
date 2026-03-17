@@ -1,8 +1,8 @@
-# OmniDB — Agentic Analytics System
+# Factum — Agentic Analytics System
 
-OmniDB is an **agentic analytics system** — not a text-to-SQL tool. It provides stateful analysis sessions, semantic discovery, typed analysis steps, deterministic evidence packaging, and a full HTTP API so agents interact with data at a higher abstraction level than raw SQL.
+Factum is an **agentic analytics system** — not a text-to-SQL tool. It provides stateful analysis sessions, semantic discovery, typed analysis steps, deterministic evidence packaging, and a full HTTP API so agents interact with data at a higher abstraction level than raw SQL.
 
-## What OmniDB includes
+## What Factum includes
 
 - A dual-backend architecture: SQLite for metadata (control-plane), DuckDB for analytics.
 - A **FastAPI service** that exposes:
@@ -43,7 +43,7 @@ The service creates `data/mvp.duckdb` (analytics) and `data/mvp.meta.sqlite` (me
 
 ## Configuration
 
-Copy `omnidb.example.yaml` to `omnidb.yaml` (or set `OMNIDB_CONFIG` env var) to auto-register sources, engines, bindings, and governance policies on startup:
+Copy `factum.example.yaml` to `factum.yaml` (or set `FACTUM_CONFIG` env var) to auto-register sources, engines, bindings, and governance policies on startup:
 
 ```yaml
 sources:
@@ -91,7 +91,7 @@ The web UI is split into two self-contained pages:
 - **Admin UI** (`/admin`) — infrastructure management: Sources, Engines, Bindings, Entities, Metrics, Governance, Approvals, Observability
 - **User UI** (`/ui`) — analysis and investigation: Catalog, Sessions, Evidence, Plans, Jobs
 
-Configure independently in `omnidb.yaml`:
+Configure independently in `factum.yaml`:
 
 ```yaml
 ui:
@@ -103,7 +103,7 @@ ui:
 
 Both UIs are single self-contained HTML files (vanilla JS, no build tooling). All API calls go to the existing FastAPI endpoints.
 
-Environment variables: `DUCKDB_MVP_DB`, `OMNIDB_CONFIG`.
+Environment variables: `DUCKDB_MVP_DB`, `FACTUM_CONFIG`.
 
 ## Example flow
 

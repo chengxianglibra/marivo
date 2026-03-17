@@ -6,7 +6,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from app.config import OmniDBConfig, SyncConfig, UIConfig, load_config
+from app.config import FactumConfig, SyncConfig, UIConfig, load_config
 from app.main import create_app
 from app.sources import SourceService
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
@@ -30,7 +30,7 @@ class LoadConfigTests(unittest.TestCase):
             f.flush()
             cfg = load_config(Path(f.name))
 
-        self.assertIsInstance(cfg, OmniDBConfig)
+        self.assertIsInstance(cfg, FactumConfig)
         self.assertEqual(len(cfg.sources), 2)
         self.assertEqual(cfg.sources[0].name, "Demo")
         self.assertEqual(cfg.sources[0].type, "local")
@@ -40,8 +40,8 @@ class LoadConfigTests(unittest.TestCase):
         self.assertEqual(cfg.sources[1].connection["port"], 9083)
 
     def test_load_missing_file(self) -> None:
-        cfg = load_config(Path("/nonexistent/omnidb.yaml"))
-        self.assertIsInstance(cfg, OmniDBConfig)
+        cfg = load_config(Path("/nonexistent/factum.yaml"))
+        self.assertIsInstance(cfg, FactumConfig)
         self.assertEqual(cfg.sources, [])
 
     def test_load_invalid_yaml(self) -> None:
@@ -57,7 +57,7 @@ class LoadConfigTests(unittest.TestCase):
             f.flush()
             cfg = load_config(Path(f.name))
 
-        self.assertIsInstance(cfg, OmniDBConfig)
+        self.assertIsInstance(cfg, FactumConfig)
         self.assertEqual(cfg.sources, [])
 
     def test_sync_mode_by_select_parses(self) -> None:
@@ -150,7 +150,7 @@ class StartupWithConfigTests(unittest.TestCase):
 
     def test_startup_registers_and_syncs_config_sources(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            config_path = Path(tmp) / "omnidb.yaml"
+            config_path = Path(tmp) / "factum.yaml"
             config_path.write_text(
                 "sources:\n"
                 '  - name: "Config Demo"\n'
@@ -201,7 +201,7 @@ class StartupWithConfigTests(unittest.TestCase):
 
     def test_startup_idempotent_on_restart(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            config_path = Path(tmp) / "omnidb.yaml"
+            config_path = Path(tmp) / "factum.yaml"
             config_path.write_text(
                 "sources:\n"
                 '  - name: "Restart Test"\n'
@@ -241,7 +241,7 @@ class StartupWithConfigTests(unittest.TestCase):
 
     def test_startup_sync_mode_none_skips_sync(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            config_path = Path(tmp) / "omnidb.yaml"
+            config_path = Path(tmp) / "factum.yaml"
             config_path.write_text(
                 "sources:\n"
                 '  - name: "No Sync Source"\n'
@@ -274,7 +274,7 @@ class StartupWithConfigTests(unittest.TestCase):
 
     def test_startup_sync_mode_by_select_no_selections(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            config_path = Path(tmp) / "omnidb.yaml"
+            config_path = Path(tmp) / "factum.yaml"
             config_path.write_text(
                 "sources:\n"
                 '  - name: "Selective Source"\n'

@@ -53,8 +53,8 @@ class MetricsCollectorTests(unittest.TestCase):
         mc.record_request("POST", "/sessions", 200, 10.0)
         mc.record_step("profile_table", 50.0)
         text = mc.prometheus()
-        self.assertIn("omnidb_requests_total", text)
-        self.assertIn("omnidb_step_executions_total", text)
+        self.assertIn("factum_requests_total", text)
+        self.assertIn("factum_step_executions_total", text)
         self.assertIn('method="POST"', text)
 
     def test_snapshot_structure(self) -> None:
@@ -138,7 +138,7 @@ class ObservabilityAPITests(unittest.TestCase):
         self.client.get("/health")
         resp = self.client.get("/metrics?format=prometheus")
         self.assertEqual(resp.status_code, 200)
-        self.assertIn("omnidb_requests_total", resp.text)
+        self.assertIn("factum_requests_total", resp.text)
 
     def test_timing_middleware_records_requests(self) -> None:
         self.client.get("/health")

@@ -38,7 +38,14 @@ Thumbs.db
 .playwright-cli/
 
 # Config (contains local paths/credentials)
-omnidb.yaml
+factum.yaml
 
 # Claude Code
 .claude/
+
+# Plans
+plan/
+
+# Agent instructions
+CLAUDE.md
+.github/copilot-instructions.md

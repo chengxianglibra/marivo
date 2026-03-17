@@ -1,4 +1,4 @@
-"""DDL definitions for the OmniDB metadata store.
+"""DDL definitions for the Factum metadata store.
 
 All SQL uses dialect-neutral types (TEXT timestamps, no DuckDB-specific casts)
 so the same DDL works across SQLite, MySQL, and PostgreSQL.
