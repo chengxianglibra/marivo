@@ -22,7 +22,8 @@ def build_comparison_query(
     dimensions: list[str],
     date_column: str = "event_date",
     order: str = "ASC",
-    limit: int = 3,
+    limit: int = 10,
+    filter_expr: str | None = None,
 ) -> str:
     """Build a current-vs-baseline comparison query from semantic metric inputs.
 
@@ -42,6 +43,8 @@ def build_comparison_query(
         group_by_dims = ""
         select_dims = ""
 
+    filter_clause = f" AND {filter_expr}" if filter_expr else ""
+
     return f"""
         WITH periodized AS (
             SELECT
@@ -51,7 +54,7 @@ def build_comparison_query(
                 END AS period,
                 *
             FROM {table_name}
-            WHERE {date_column} BETWEEN ? AND ?
+            WHERE {date_column} BETWEEN ? AND ?{filter_clause}
         ),
         by_period AS (
             SELECT
@@ -170,15 +173,20 @@ def compile_step(
         if metric_sql is None or dimensions is None:
             raise ValueError("compare_metric compilation requires semantic_context with 'metric_sql' and 'dimensions'")
         date_column = str(params.get("date_column", "event_date"))
-        limit = int(params.get("limit", 3))
+        limit = int(params.get("limit", 10))
+        order = str(params.get("order", "ASC")).upper()
+        if order not in ("ASC", "DESC"):
+            raise ValueError(f"Invalid order '{order}'; must be ASC or DESC")
+        filter_expr = params.get("filter") or None
         sql = build_comparison_query(
             metric_name=metric_name,
             table_name=table_name,
             metric_sql=str(metric_sql),
             dimensions=list(dimensions),
             date_column=date_column,
-            order="ASC",
+            order=order,
             limit=limit,
+            filter_expr=str(filter_expr) if filter_expr else None,
         )
         return CompiledQuery(
             sql=sql,

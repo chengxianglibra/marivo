@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 __all__ = [
+    "AggregateRowExtractor",
     "ClaimSynthesizer",
     "ComparisonRowExtractor",
     "ConfidenceScorer",
@@ -34,12 +35,13 @@ def __getattr__(name: str) -> Any:
             "ConfidenceScorer": ConfidenceScorer,
             "DefaultConfidenceScorer": DefaultConfidenceScorer,
         }[name]
-    if name in {"ObservationExtractor", "ComparisonRowExtractor"}:
-        from app.evidence_engine.extractors import ComparisonRowExtractor, ObservationExtractor
+    if name in {"ObservationExtractor", "ComparisonRowExtractor", "AggregateRowExtractor"}:
+        from app.evidence_engine.extractors import AggregateRowExtractor, ComparisonRowExtractor, ObservationExtractor
 
         return {
             "ObservationExtractor": ObservationExtractor,
             "ComparisonRowExtractor": ComparisonRowExtractor,
+            "AggregateRowExtractor": AggregateRowExtractor,
         }[name]
     if name in {"RecommendationPolicy", "DefaultRecommendationPolicy"}:
         from app.evidence_engine.recommendation_policy import (

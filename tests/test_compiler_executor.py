@@ -164,6 +164,93 @@ class CompilerTests(unittest.TestCase):
         self.assertIn("log_date = '20260301'", compiled.sql)
         self.assertIn(" AND ", compiled.sql)
 
+    def test_build_comparison_query_with_filter(self) -> None:
+        query = build_comparison_query(
+            metric_name="failure_rate",
+            table_name="ods_trino_query_info",
+            metric_sql="avg(CASE WHEN state='FAILED' THEN 1 ELSE 0 END)",
+            dimensions=["cluster"],
+            filter_expr="cluster = 'k8soneservice-oneservice'",
+        )
+        self.assertIn("AND cluster = 'k8soneservice-oneservice'", query)
+        self.assertIn("delta_pct", query)
+
+    def test_compile_compare_metric_custom_order(self) -> None:
+        compiled = compile_step(
+            AnalysisStepIR(
+                index=0,
+                step_type="compare_metric",
+                params={
+                    "metric_name": "watch_time",
+                    "table_name": "analytics.watch_events",
+                    "order": "DESC",
+                },
+            ),
+            engine_type="duckdb",
+            semantic_context={
+                "metric_sql": "avg(play_duration_seconds)",
+                "dimensions": ["platform"],
+                "period_params": ["c1", "c2", "b1", "b2", "b1", "c2"],
+            },
+        )
+        self.assertIn("ORDER BY delta_pct DESC", compiled.sql)
+
+    def test_compile_compare_metric_invalid_order_raises(self) -> None:
+        with self.assertRaises(ValueError):
+            compile_step(
+                AnalysisStepIR(
+                    index=0,
+                    step_type="compare_metric",
+                    params={
+                        "metric_name": "watch_time",
+                        "table_name": "analytics.watch_events",
+                        "order": "DROP TABLE",
+                    },
+                ),
+                engine_type="duckdb",
+                semantic_context={
+                    "metric_sql": "avg(play_duration_seconds)",
+                    "dimensions": ["platform"],
+                    "period_params": ["c1", "c2", "b1", "b2", "b1", "c2"],
+                },
+            )
+
+    def test_compare_metric_default_limit_is_10(self) -> None:
+        compiled = compile_step(
+            AnalysisStepIR(
+                index=0,
+                step_type="compare_metric",
+                params={"metric_name": "watch_time", "table_name": "analytics.watch_events"},
+            ),
+            engine_type="duckdb",
+            semantic_context={
+                "metric_sql": "avg(play_duration_seconds)",
+                "dimensions": ["platform"],
+                "period_params": ["c1", "c2", "b1", "b2", "b1", "c2"],
+            },
+        )
+        self.assertIn("LIMIT 10", compiled.sql)
+
+    def test_compile_compare_metric_with_filter(self) -> None:
+        compiled = compile_step(
+            AnalysisStepIR(
+                index=0,
+                step_type="compare_metric",
+                params={
+                    "metric_name": "watch_time",
+                    "table_name": "analytics.watch_events",
+                    "filter": "platform = 'android'",
+                },
+            ),
+            engine_type="duckdb",
+            semantic_context={
+                "metric_sql": "avg(play_duration_seconds)",
+                "dimensions": ["platform"],
+                "period_params": ["c1", "c2", "b1", "b2", "b1", "c2"],
+            },
+        )
+        self.assertIn("AND platform = 'android'", compiled.sql)
+
     def test_compile_unsupported_step_raises(self) -> None:
         with self.assertRaises(ValueError):
             compile_step(

@@ -966,5 +966,138 @@ class AggregateQueryStepTests(unittest.TestCase):
             self.assertEqual(row["platform"], "android")
 
 
+class AggregateQueryObservationTests(unittest.TestCase):
+    """aggregate_query should generate observations in the evidence graph."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        db_path = Path(cls.temp_dir.name) / "agg_obs.duckdb"
+        get_seeded_duckdb_path(db_path)
+        cls.client = TestClient(create_app(db_path))
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.client.close()
+        cls.temp_dir.cleanup()
+
+    def test_aggregate_query_generates_observations(self) -> None:
+        session_id = self.client.post(
+            "/sessions", json={"goal": "Test aggregate observations."},
+        ).json()["session_id"]
+
+        resp = self.client.post(
+            f"/sessions/{session_id}/steps/aggregate_query",
+            json={
+                "table_name": "analytics.watch_events",
+                "select": ["platform", "count(*) as cnt"],
+                "group_by": ["platform"],
+                "order_by": "cnt DESC",
+                "limit": 10,
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        result = resp.json()
+        self.assertIn("observations", result)
+        self.assertGreater(len(result["observations"]), 0)
+
+        # Verify observations appear in evidence graph
+        evidence = self.client.get(f"/sessions/{session_id}/evidence").json()
+        self.assertGreater(len(evidence["observations"]), 0)
+
+    def test_aggregate_query_opt_out_observations(self) -> None:
+        session_id = self.client.post(
+            "/sessions", json={"goal": "Test aggregate no-obs."},
+        ).json()["session_id"]
+
+        resp = self.client.post(
+            f"/sessions/{session_id}/steps/aggregate_query",
+            json={
+                "table_name": "analytics.watch_events",
+                "select": ["platform", "count(*) as cnt"],
+                "group_by": ["platform"],
+                "extract_observations": False,
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        result = resp.json()
+        self.assertNotIn("observations", result)
+
+
+class SessionConstraintInjectionTests(unittest.TestCase):
+    """Session constraints should be automatically injected into step WHERE clauses."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        db_path = Path(cls.temp_dir.name) / "constraints.duckdb"
+        get_seeded_duckdb_path(db_path)
+        cls.client = TestClient(create_app(db_path))
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.client.close()
+        cls.temp_dir.cleanup()
+
+    def test_constraints_injected_into_sample_rows(self) -> None:
+        session_id = self.client.post(
+            "/sessions", json={
+                "goal": "Test constraint injection.",
+                "constraints": {"platform": "android"},
+            },
+        ).json()["session_id"]
+
+        resp = self.client.post(
+            f"/sessions/{session_id}/steps/sample_rows",
+            json={"table_name": "analytics.watch_events"},
+        )
+        self.assertEqual(resp.status_code, 200)
+        result = resp.json()
+        # All rows should be android since constraint was injected
+        for row in result["rows"]:
+            self.assertEqual(row["platform"], "android")
+
+    def test_constraints_injected_into_aggregate_query(self) -> None:
+        session_id = self.client.post(
+            "/sessions", json={
+                "goal": "Test constraint injection aggregate.",
+                "constraints": {"platform": "android"},
+            },
+        ).json()["session_id"]
+
+        resp = self.client.post(
+            f"/sessions/{session_id}/steps/aggregate_query",
+            json={
+                "table_name": "analytics.watch_events",
+                "select": ["platform", "count(*) as cnt"],
+                "group_by": ["platform"],
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        result = resp.json()
+        # Only android rows
+        for row in result["rows"]:
+            self.assertEqual(row["platform"], "android")
+
+    def test_no_constraints_no_filter(self) -> None:
+        session_id = self.client.post(
+            "/sessions", json={"goal": "No constraints."},
+        ).json()["session_id"]
+
+        resp = self.client.post(
+            f"/sessions/{session_id}/steps/aggregate_query",
+            json={
+                "table_name": "analytics.watch_events",
+                "select": ["platform", "count(*) as cnt"],
+                "group_by": ["platform"],
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        # Should have multiple platforms
+        result = resp.json()
+        platforms = {row["platform"] for row in result["rows"]}
+        self.assertGreater(len(platforms), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
