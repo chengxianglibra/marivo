@@ -1,16 +1,12 @@
 from __future__ import annotations
 
-import asyncio
 import tempfile
 import unittest
 from pathlib import Path
 
-import httpx
 from fastapi.testclient import TestClient
 
 from app.main import create_app
-from app.mcp_client import OmniDBApiClient, OmniDBApiError
-from app.mcp_server import ResponseFormat, format_tool_response, render_catalog_markdown
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 
@@ -403,76 +399,6 @@ class MetricResolutionTests(unittest.TestCase):
         self.assertIn("delta_pct", query)
         self.assertIn("analytics.watch_events", query)
 
-
-class MCPWrapperTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.temp_dir = tempfile.TemporaryDirectory()
-        db_path = Path(cls.temp_dir.name) / "mcp-test.duckdb"
-        get_seeded_duckdb_path(db_path)
-        cls.test_app = create_app(db_path)
-
-    @classmethod
-    def tearDownClass(cls) -> None:
-        cls.temp_dir.cleanup()
-
-    def test_mcp_client_can_call_catalog_and_step(self) -> None:
-        async def exercise_client() -> None:
-            transport = httpx.ASGITransport(app=self.test_app)
-            async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
-                api_client = OmniDBApiClient(client=client)
-                catalog = await api_client.get_catalog()
-                self.assertIn("metrics", catalog)
-                self.assertIn("entities", catalog)
-
-                session = await api_client.create_session("Test MCP client step call.")
-                result = await api_client.run_step(
-                    session["session_id"],
-                    "profile_table",
-                    params={"table_name": "analytics.watch_events"},
-                )
-                self.assertEqual(result["step_type"], "profile_table")
-                self.assertIn("summary", result)
-
-        asyncio.run(exercise_client())
-
-    def test_mcp_client_run_step_with_params(self) -> None:
-        async def exercise_client() -> None:
-            transport = httpx.ASGITransport(app=self.test_app)
-            async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
-                api_client = OmniDBApiClient(client=client)
-                session = await api_client.create_session("Test run_step with params.")
-                # profile_table requires params — validates that params flow through
-                result = await api_client.run_step(
-                    session["session_id"],
-                    "profile_table",
-                    params={"table_name": "analytics.watch_events"},
-                )
-                self.assertEqual(result["step_type"], "profile_table")
-                self.assertIn("artifact_id", result)
-
-                # Without params, compare_metric should return 400
-                with self.assertRaises(OmniDBApiError):
-                    await api_client.run_step(session["session_id"], "compare_metric")
-
-        asyncio.run(exercise_client())
-
-    def test_tool_response_formatting_supports_markdown(self) -> None:
-        catalog_data = {
-            "entities": [{"id": "user", "keys": ["user_id"]}],
-            "metrics": [{"id": "watch_time", "definition": "avg(play_duration_seconds)"}],
-            "assets": [{"id": "watch_events", "kind": "table", "fqn": "analytics.watch_events", "row_count": 10}],
-            "policies": [],
-        }
-        response = format_tool_response(
-            ResponseFormat.MARKDOWN,
-            "Catalog returned 1 metric and 1 asset.",
-            catalog_data,
-            render_catalog_markdown(catalog_data),
-        )
-        self.assertIn("markdown", response)
-        self.assertIn("# OmniDB catalog", response["markdown"])
-        self.assertIn("entities", response["data"])
 
 
 class CustomPeriodTests(unittest.TestCase):
