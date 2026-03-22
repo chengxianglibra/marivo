@@ -9,10 +9,10 @@ Factum is an **agentic analytics system** — not a text-to-SQL tool. It provide
   - session creation, listing, and step execution
   - typed analysis plans with validation, cost estimation, and execution
   - semantic catalog (entities, metrics, mappings) with draft/published lifecycle
-  - source registry with external catalog sync (Local, Hive Metastore, Trino, Unity Catalog, Polaris, AWS Glue, DuckDB)
-  - engine registry with pluggable analytics engine adapters (DuckDB, Trino, Spark Connect, Spark Thrift)
+  - source registry with external catalog sync (DuckDB, Trino)
+  - engine registry with pluggable analytics engine adapters (DuckDB, Trino)
   - source-engine bindings with priority-based query routing
-  - SQL dialect translation (DuckDB → Trino/Spark)
+  - SQL dialect translation (DuckDB → Trino)
   - catalog search, term resolution, and graph traversal
   - evidence graph retrieval with provenance tracking
   - governance policies and quality rules with enforcement
@@ -22,8 +22,8 @@ Factum is an **agentic analytics system** — not a text-to-SQL tool. It provide
   - re-planning on step failure
   - cross-engine query federation
 - **Deterministic evidence packaging** that converts SQL results into:
-  - observations (7 types: metric_change, funnel_drop, contribution_shift, anomaly_detection, qoe_regression, ad_regression, recommendation_signal)
-  - claims with confidence scoring
+  - observations (4 types: `metric_change`, `funnel_drop`, `contribution_shift`, `anomaly_detection`)
+  - claims with confidence scoring and `inference_level` (L0=correlation; L1–L3 causal, reserved for Phase 2)
   - support / contradiction edges
   - recommendations with priority/risk/impact
 - YAML-driven configuration for sources, engines, bindings, governance, and UI.
@@ -35,7 +35,6 @@ Factum is an **agentic analytics system** — not a text-to-SQL tool. It provide
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .                         # core deps (Python >=3.12)
-pip install -e ".[hive]"                 # + Hive Metastore adapter (optional)
 uvicorn app.main:app --reload
 ```
 
@@ -48,7 +47,7 @@ Copy `factum.example.yaml` to `factum.yaml` (or set `FACTUM_CONFIG` env var) to 
 ```yaml
 sources:
   - name: "Local Demo"
-    type: local
+    type: duckdb
     connection: {}
     sync:
       mode: all  # all | by_select | none
@@ -267,13 +266,10 @@ Browser / Agent / HTTP Client
   → Evidence engine (app/evidence_engine/):
       extractors (comparison, aggregate), factories, pipeline, scoring, synthesizers
   → Storage:
-      MetadataStore ABC  → SQLiteMetadataStore, PostgresMetadataStore
-      AnalyticsEngine ABC → DuckDBAnalyticsEngine, TrinoAnalyticsEngine,
-                           SparkConnectAnalyticsEngine, SparkThriftAnalyticsEngine
+      MetadataStore ABC  → SQLiteMetadataStore
+      AnalyticsEngine ABC → DuckDBAnalyticsEngine, TrinoAnalyticsEngine
   → Catalog adapters:
-      CatalogAdapter ABC → LocalCatalogAdapter, HiveMetastoreAdapter,
-                          TrinoCatalogAdapter, UnityCatalogAdapter,
-                          PolarisAdapter, GlueCatalogAdapter, DuckDBCatalogAdapter
+      CatalogAdapter ABC → DuckDBCatalogAdapter, TrinoCatalogAdapter
 ```
 
 ## Implementation notes
@@ -281,7 +277,7 @@ Browser / Agent / HTTP Client
 - Dual-backend: SQLite for metadata (control-plane), DuckDB for analytical queries.
 - Source-engine bindings link catalog sources to query engines with priority-based selection.
 - The query router resolves table names through `source_objects → source → binding → engine`, supporting multi-source queries when a common engine exists.
-- SQL dialect translation (`app/dialect.py`): DuckDB SQL is translated to Trino/Spark dialects (casts, FILTER clauses, DDL).
+- SQL dialect translation (`app/dialect.py`): DuckDB SQL is translated to Trino dialect (casts).
 - Evidence packaging produces structured observations, claims, and recommendations rather than free-form SQL results. Facts are extracted deterministically; language models may assist with synthesis but not with fact extraction.
 - Plan lifecycle: draft → validated → approved → executing → completed/failed. Clean plans are auto-approved; plans with governance/budget blocks require explicit approval.
 - Session constraints are auto-injected as SQL WHERE filters into `compare_metric`, `sample_rows`, and `aggregate_query` steps.

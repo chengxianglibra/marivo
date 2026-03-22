@@ -190,6 +190,9 @@ class PlanningService:
                     self._transition(plan_id, "approved")
             result = validation.to_dict()
             needs_approval = self._needs_explicit_approval(validation)
+            # M-12: auto_approved is a system decision field. When True, Factum has
+            # already transitioned the plan to 'approved'; agents MUST check this field
+            # before attempting an explicit POST /plans/{id}/approve call.
             result["auto_approved"] = validation.valid and not needs_approval
             if validation.valid and needs_approval:
                 result["approval_required"] = True
@@ -1165,10 +1168,6 @@ class PlanningService:
             return "duckdb"
         if "trino" in class_name:
             return "trino"
-        if "sparkconnect" in class_name:
-            return "spark_connect"
-        if "sparkthrift" in class_name:
-            return "spark_thrift"
         return class_name.removesuffix("analyticsengine") or class_name
 
     @staticmethod

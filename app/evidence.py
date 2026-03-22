@@ -101,6 +101,8 @@ def synthesize_claims(
             "data_quality_score": round(data_quality_score, 2),
             "contradiction_penalty": round(contradiction_penalty, 2),
         },
+        "inference_level": "L0",
+        "inference_justification": [],
     }
 
     claims = [primary_claim]
@@ -126,6 +128,8 @@ def synthesize_claims(
             "supporting_observations": [obs["observation_id"] for obs in metric_observations],
             "contradicting_observations": [],
             "confidence_breakdown": {},
+            "inference_level": "L0",
+            "inference_justification": [],
         }
         claims.append(overall_claim)
 
@@ -204,6 +208,8 @@ def _synthesize_non_metric_claims(
             "data_quality_score": round(data_quality_score, 2),
             "contradiction_penalty": 0.0,
         },
+        "inference_level": "L0",
+        "inference_justification": [],
     }
 
     return [claim], [], []

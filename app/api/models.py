@@ -1,3 +1,21 @@
+"""Pydantic request/response models for the Factum HTTP API.
+
+Signal vs Decision design principle
+-------------------------------------
+Factum returns **signals** (evidence, claims, recommendations) and enforces
+**decisions** (governance constraints, budget limits). Agents retain full
+control over what to do with signals; governance decisions are hard stops
+that Factum enforces on behalf of the operator.
+
+Session constraints summary:
+- constraints : Scalar key/value filters injected into step WHERE clauses.
+                Signal-shaping input — narrows the analysis scope.
+- budget      : Hard resource limits (scan bytes, latency).
+                System-enforced decision — steps that exceed budget are blocked.
+- policy      : Governance rules (aggregate_only, min_group_size).
+                System-enforced decision — violations block step execution.
+"""
+
 from __future__ import annotations
 
 from typing import Any
@@ -7,18 +25,35 @@ from pydantic import BaseModel, Field
 
 class SessionCreateRequest(BaseModel):
     goal: str
-    constraints: dict[str, Any] = Field(default_factory=dict)
+    constraints: dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "Scalar key/value filters auto-injected into step WHERE clauses "
+            "(e.g. {\"region\": \"us-east\"}). Narrows analysis scope — a signal-shaping input, "
+            "not a governance constraint."
+        ),
+    )
     budget: dict[str, Any] = Field(
         default_factory=lambda: {
             "max_scan_bytes": 500_000_000_000,
             "max_latency_sec": 120,
-        }
+        },
+        description=(
+            "Hard resource limits enforced by Factum. Steps that would exceed "
+            "max_scan_bytes or max_latency_sec are blocked before execution. "
+            "This is a system decision constraint, not a suggestion."
+        ),
     )
     policy: dict[str, Any] = Field(
         default_factory=lambda: {
             "aggregate_only": True,
             "min_group_size": 100,
-        }
+        },
+        description=(
+            "Governance rules enforced by Factum (e.g. aggregate_only blocks raw row access, "
+            "min_group_size enforces k-anonymity). System-enforced decision constraints — "
+            "violations block step execution regardless of agent intent."
+        ),
     )
 
 
