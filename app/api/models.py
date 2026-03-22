@@ -213,3 +213,14 @@ class ApprovalDecisionRequest(BaseModel):
 
 class AutoFlagRequest(BaseModel):
     risk_threshold: str = "P0"
+
+
+class ReadinessSignal(BaseModel):
+    """Schema documentation for the readiness signal returned in step responses (M-04)."""
+
+    goal_coverage: float = Field(ge=0.0, le=1.0)
+    evidence_sufficiency: float = Field(ge=0.0, le=1.0)
+    contradiction_resolution: float = Field(ge=0.0, le=1.0)
+    budget_remaining: float = Field(ge=0.0, le=1.0)
+    diminishing_returns: float = Field(ge=0.0, le=1.0)
+    suggested_action: str  # continue_exploring | resolve_contradiction | synthesize | stop

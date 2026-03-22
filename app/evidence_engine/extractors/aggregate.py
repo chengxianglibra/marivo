@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Any, ClassVar
 from uuid import uuid4
 
-from app.evidence_engine.extractors.base import ObservationExtractor
+from app.evidence_engine.contract import ExtractorContract
 from app.evidence_engine.schemas import Observation
 
 
-class AggregateRowExtractor(ObservationExtractor):
+class AggregateRowExtractor(ExtractorContract):
     """Extract observations from aggregate_query rows.
 
     Context keys:
@@ -20,6 +20,9 @@ class AggregateRowExtractor(ObservationExtractor):
     """
 
     name = "aggregate_rows"
+    artifact_type: ClassVar[str] = "aggregate_rows"
+    observation_types: ClassVar[list[str]] = ["metric_change"]
+    preconditions: ClassVar[list[str]] = []
 
     def extract(
         self,
