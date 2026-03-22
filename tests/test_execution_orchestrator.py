@@ -45,6 +45,7 @@ class WorkflowOrchestratorTests(unittest.TestCase):
             query_router=None,
             step_executor=executor,
             approval_service=approvals,
+            auto_flag=True,  # M-12: opt-in; test explicitly verifies auto-flag behaviour
         )
 
         result = orchestrator.execute_workflow("sess_demo", "test_workflow")

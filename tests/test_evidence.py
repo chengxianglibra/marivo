@@ -660,5 +660,276 @@ class InferenceLevelIntegrationTests(unittest.TestCase):
         self.assertIn("inference_justification_json", col_names)
 
 
+class IncrementalSynthesizerTests(unittest.TestCase):
+    """M-03: IncrementalSynthesizer unit tests — scope matching, tentative claim creation, contradiction detection."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        import tempfile
+        from pathlib import Path
+        from app.evidence_engine.incremental_synthesizer import IncrementalSynthesizer
+        from app.storage.sqlite_metadata import SQLiteMetadataStore
+
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        meta = SQLiteMetadataStore(Path(cls.temp_dir.name) / "inc.meta.sqlite")
+        meta.initialize()
+        cls.meta = meta
+        cls.IncrementalSynthesizer = IncrementalSynthesizer
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.temp_dir.cleanup()
+
+    def _make_synth(self):
+        return self.IncrementalSynthesizer(self.meta)
+
+    def _insert_obs(self, session_id: str, obs_id: str, metric: str, slice_dict: dict, delta_pct: float, sample_size: int = 300) -> None:
+        import json
+        self.meta.execute(
+            """
+            INSERT INTO observations (
+                observation_id, session_id, step_id, observation_type,
+                subject_json, payload_json, significance_json, quality_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                obs_id, session_id, "step_test", "metric_change",
+                json.dumps({"metric": metric, "slice": slice_dict}),
+                json.dumps({"delta_pct": delta_pct}),
+                json.dumps({"sample_size": sample_size, "practical_significance": True}),
+                json.dumps({"freshness_ok": True, "sample_size_ok": True}),
+            ],
+        )
+
+    def _make_session(self) -> str:
+        import json
+        from uuid import uuid4
+        session_id = f"sess_{uuid4().hex[:12]}"
+        self.meta.execute(
+            "INSERT INTO sessions (session_id, goal, constraints_json, budget_json, policy_json, status) VALUES (?, ?, ?, ?, ?, ?)",
+            [session_id, "test", "{}", "{}", "{}", "active"],
+        )
+        return session_id
+
+    def test_creates_tentative_claim_from_metric_observation(self) -> None:
+        session_id = self._make_session()
+        self._insert_obs(session_id, "obs_a1", "watch_time", {"platform": "ios"}, -14.2)
+        synth = self._make_synth()
+        result = synth.process(session_id)
+        self.assertEqual(result["claims_created"], 1)
+        self.assertEqual(result["claims_updated"], 0)
+        rows = self.meta.query_rows(
+            "SELECT status, claim_type FROM claims WHERE session_id = ?", [session_id]
+        )
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["status"], "tentative")
+        self.assertEqual(rows[0]["claim_type"], "root_cause_candidate")
+
+    def test_scope_matching_updates_existing_tentative_claim(self) -> None:
+        session_id = self._make_session()
+        self._insert_obs(session_id, "obs_b1", "watch_time", {"platform": "android"}, -10.0)
+        synth = self._make_synth()
+        synth.process(session_id)
+        # Second observation with same scope
+        self._insert_obs(session_id, "obs_b2", "watch_time", {"platform": "android"}, -12.0)
+        result = synth.process(session_id)
+        self.assertEqual(result["claims_created"], 0)
+        self.assertEqual(result["claims_updated"], 1)
+        import json
+        rows = self.meta.query_rows(
+            "SELECT supporting_observation_ids_json FROM claims WHERE session_id = ?", [session_id]
+        )
+        self.assertEqual(len(rows), 1)
+        supporting = json.loads(rows[0]["supporting_observation_ids_json"])
+        self.assertIn("obs_b1", supporting)
+        self.assertIn("obs_b2", supporting)
+
+    def test_contradiction_detected_when_delta_pcts_opposing(self) -> None:
+        session_id = self._make_session()
+        self._insert_obs(session_id, "obs_c1", "ctr", {"device": "tablet"}, -8.0)
+        synth = self._make_synth()
+        synth.process(session_id)
+        # Opposite direction
+        self._insert_obs(session_id, "obs_c2", "ctr", {"device": "tablet"}, +5.0)
+        result = synth.process(session_id)
+        self.assertEqual(result["contradictions_found"], 1)
+        import json
+        rows = self.meta.query_rows(
+            "SELECT contradicting_observation_ids_json FROM claims WHERE session_id = ?", [session_id]
+        )
+        contradicting = json.loads(rows[0]["contradicting_observation_ids_json"])
+        self.assertIn("obs_c2", contradicting)
+
+    def test_different_slice_creates_separate_tentative_claims(self) -> None:
+        session_id = self._make_session()
+        self._insert_obs(session_id, "obs_d1", "watch_time", {"platform": "ios"}, -10.0)
+        self._insert_obs(session_id, "obs_d2", "watch_time", {"platform": "android"}, -8.0)
+        synth = self._make_synth()
+        result = synth.process(session_id)
+        self.assertEqual(result["claims_created"], 2)
+        rows = self.meta.query_rows(
+            "SELECT claim_id FROM claims WHERE session_id = ?", [session_id]
+        )
+        self.assertEqual(len(rows), 2)
+
+    def test_process_idempotent_for_already_processed_observations(self) -> None:
+        session_id = self._make_session()
+        self._insert_obs(session_id, "obs_e1", "views", {"region": "us"}, -6.0)
+        synth = self._make_synth()
+        synth.process(session_id)
+        result2 = synth.process(session_id)  # Second call: nothing new
+        self.assertEqual(result2["claims_created"], 0)
+        self.assertEqual(result2["claims_updated"], 0)
+        rows = self.meta.query_rows(
+            "SELECT claim_id FROM claims WHERE session_id = ?", [session_id]
+        )
+        self.assertEqual(len(rows), 1)  # No duplicate claims
+
+
+class PromotionIntegrationTests(unittest.TestCase):
+    """M-03: synthesize_findings promotion path (tentative → confirmed/insufficient)."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        import tempfile
+        from pathlib import Path
+        from app.evidence_engine.incremental_synthesizer import IncrementalSynthesizer
+        from app.service import SemanticLayerService
+        from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
+        from app.storage.sqlite_metadata import SQLiteMetadataStore
+        from app.semantic import SemanticService
+
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        meta = SQLiteMetadataStore(Path(cls.temp_dir.name) / "prom.meta.sqlite")
+        duck_path = Path(cls.temp_dir.name) / "prom.duckdb"
+        get_seeded_duckdb_path(duck_path)
+        analytics = DuckDBAnalyticsEngine(duck_path)
+        meta.initialize()
+        analytics.initialize()
+        cls.service = SemanticLayerService(meta, analytics)
+        cls.service._incremental_synthesizer = IncrementalSynthesizer(meta)
+
+        semantic = SemanticService(meta)
+        entity = semantic.create_entity("prom_entity", "Prom Entity", ["session_id"])
+        semantic.publish_entity(entity["entity_id"])
+        metric = semantic.create_metric(
+            "prom_watch_time", "Watch Time Prom", "avg(play_duration_seconds)",
+            ["platform", "app_version", "network_type", "content_type"],
+            entity_id=entity["entity_id"],
+        )
+        semantic.publish_metric(metric["metric_id"])
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.temp_dir.cleanup()
+
+    def _new_session(self) -> str:
+        return self.service.create_session("promotion test", {}, {}, {})["session_id"]
+
+    def test_tentative_promoted_to_confirmed_after_synthesize_findings(self) -> None:
+        session_id = self._new_session()
+        self.service.run_step(
+            session_id, "compare_metric",
+            {"metric_name": "prom_watch_time", "table_name": "analytics.watch_events"},
+        )
+        # After primitive step, tentative claims should exist
+        tentative = self.service.metadata.query_rows(
+            "SELECT claim_id FROM claims WHERE session_id = ? AND status = 'tentative'",
+            [session_id],
+        )
+        self.assertGreater(len(tentative), 0)
+
+        self.service.run_step(session_id, "synthesize_findings")
+
+        # After promotion, no tentative claims remain
+        still_tentative = self.service.metadata.query_rows(
+            "SELECT claim_id FROM claims WHERE session_id = ? AND status = 'tentative'",
+            [session_id],
+        )
+        self.assertEqual(len(still_tentative), 0)
+
+        # Some claims should be confirmed or insufficient
+        promoted = self.service.metadata.query_rows(
+            "SELECT status FROM claims WHERE session_id = ?", [session_id]
+        )
+        self.assertGreater(len(promoted), 0)
+        statuses = {row["status"] for row in promoted}
+        self.assertTrue(statuses.issubset({"confirmed", "insufficient"}))
+
+    def test_fallback_mode_when_no_incremental_synthesizer(self) -> None:
+        """Without IncrementalSynthesizer, synthesize_findings uses original from-scratch path."""
+        import tempfile
+        from pathlib import Path
+        from app.service import SemanticLayerService
+        from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
+        from app.storage.sqlite_metadata import SQLiteMetadataStore
+        from app.semantic import SemanticService
+
+        with tempfile.TemporaryDirectory() as td:
+            meta = SQLiteMetadataStore(Path(td) / "fallback.meta.sqlite")
+            duck_path = Path(td) / "fallback.duckdb"
+            get_seeded_duckdb_path(duck_path)
+            analytics = DuckDBAnalyticsEngine(duck_path)
+            meta.initialize()
+            analytics.initialize()
+            svc = SemanticLayerService(meta, analytics)
+            # No _incremental_synthesizer set → fallback mode
+
+            semantic = SemanticService(meta)
+            entity = semantic.create_entity("fb_entity", "FB Entity", ["session_id"])
+            semantic.publish_entity(entity["entity_id"])
+            metric = semantic.create_metric(
+                "fb_watch_time", "Watch Time FB", "avg(play_duration_seconds)",
+                ["platform", "app_version", "network_type", "content_type"],
+                entity_id=entity["entity_id"],
+            )
+            semantic.publish_metric(metric["metric_id"])
+
+            session_id = svc.create_session("fallback test", {}, {}, {})["session_id"]
+            svc.run_step(
+                session_id, "compare_metric",
+                {"metric_name": "fb_watch_time", "table_name": "analytics.watch_events"},
+            )
+            svc.run_step(session_id, "synthesize_findings")
+
+            # Claims exist and have status='supported' (from-scratch path)
+            claims = meta.query_rows(
+                "SELECT status FROM claims WHERE session_id = ?", [session_id]
+            )
+            self.assertGreater(len(claims), 0)
+            statuses = {row["status"] for row in claims}
+            self.assertTrue(statuses.issubset({"supported"}))
+
+    def test_incremental_claims_in_evidence_graph(self) -> None:
+        """Full flow: primitive step → tentative claim → synthesize → confirmed visible in evidence graph."""
+        session_id = self._new_session()
+        self.service.run_step(
+            session_id, "compare_metric",
+            {"metric_name": "prom_watch_time", "table_name": "analytics.watch_events"},
+        )
+        self.service.run_step(session_id, "synthesize_findings")
+
+        graph = self.service.get_evidence_graph(session_id)
+        self.assertIn("claims", graph)
+        self.assertGreater(len(graph["claims"]), 0)
+        for claim in graph["claims"]:
+            self.assertIn("inference_level", claim)
+            self.assertEqual(claim["inference_level"], "L0")
+            self.assertIn(claim["status"], {"confirmed", "insufficient"})
+
+    def test_recommendations_generated_in_promotion_mode(self) -> None:
+        """Confirmed claims should still produce recommendations in promotion mode."""
+        session_id = self._new_session()
+        self.service.run_step(
+            session_id, "compare_metric",
+            {"metric_name": "prom_watch_time", "table_name": "analytics.watch_events"},
+        )
+        result = self.service.run_step(session_id, "synthesize_findings")
+        self.assertIn("recommendations", result)
+        # At least 1 recommendation should be generated for the confirmed claims
+        graph = self.service.get_evidence_graph(session_id)
+        self.assertGreaterEqual(len(graph.get("recommendations", [])), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
