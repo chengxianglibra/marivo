@@ -233,7 +233,8 @@ class SemanticLayerService:
         claims = self.metadata.query_rows(
             """
             SELECT claim_id, claim_type, text, scope_json, confidence, status,
-                   supporting_observation_ids_json, contradicting_observation_ids_json, confidence_breakdown_json
+                   supporting_observation_ids_json, contradicting_observation_ids_json, confidence_breakdown_json,
+                   inference_level, inference_justification_json
             FROM claims
             WHERE session_id = ?
             ORDER BY created_at
@@ -264,6 +265,7 @@ class SemanticLayerService:
             claim["supporting_observations"] = json.loads(claim.pop("supporting_observation_ids_json"))
             claim["contradicting_observations"] = json.loads(claim.pop("contradicting_observation_ids_json"))
             claim["confidence_breakdown"] = json.loads(claim.pop("confidence_breakdown_json"))
+            claim["inference_justification"] = json.loads(claim.pop("inference_justification_json"))
         for recommendation in recommendations:
             recommendation["validation_metric"] = json.loads(recommendation.pop("validation_metric_json"))
 
@@ -1075,8 +1077,9 @@ class SemanticLayerService:
             """
             INSERT INTO claims (
                 claim_id, session_id, claim_type, text, scope_json, confidence, status,
-                supporting_observation_ids_json, contradicting_observation_ids_json, confidence_breakdown_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                supporting_observation_ids_json, contradicting_observation_ids_json, confidence_breakdown_json,
+                inference_level, inference_justification_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 claim["claim_id"],
@@ -1089,6 +1092,8 @@ class SemanticLayerService:
                 self._dump(claim["supporting_observations"]),
                 self._dump(claim["contradicting_observations"]),
                 self._dump(claim["confidence_breakdown"]),
+                claim.get("inference_level", "L0"),
+                self._dump(claim.get("inference_justification", [])),
             ],
         )
 

@@ -38,6 +38,7 @@ class WorkflowOrchestrator:
         *,
         query_router: QueryRouter | None = None,
         approval_service: ApprovalService | None = None,
+        auto_flag: bool = False,
     ) -> None:
         self.workflow_runtime = workflow_runtime
         self.replanner = replanner
@@ -45,6 +46,10 @@ class WorkflowOrchestrator:
         self.query_router = query_router
         self.step_executor = step_executor
         self.approval_service = approval_service
+        # M-12: auto-flagging is opt-in. When False (default), agents must call
+        # POST /sessions/{id}/approvals/auto-flag explicitly to trigger flagging.
+        # This keeps the control-flow decision with the agent, not the orchestrator.
+        self._auto_flag = auto_flag
 
     def execute_workflow(
         self,
@@ -135,7 +140,9 @@ class WorkflowOrchestrator:
 
         final_result = results[-1]
 
-        if self.approval_service:
+        # M-12: auto-flagging is a composite workflow side-effect, not single-step behaviour.
+        # Only fires when explicitly opted in via auto_flag=True (off by default).
+        if self.approval_service and self._auto_flag:
             self.approval_service.auto_flag_recommendations(session_id, risk_threshold="P0")
 
         return {

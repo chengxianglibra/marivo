@@ -64,6 +64,8 @@ METADATA_DDL: list[str] = [
         supporting_observation_ids_json TEXT NOT NULL,
         contradicting_observation_ids_json TEXT NOT NULL,
         confidence_breakdown_json TEXT NOT NULL,
+        inference_level TEXT NOT NULL DEFAULT 'L0',
+        inference_justification_json TEXT NOT NULL DEFAULT '[]',
         created_at      TEXT NOT NULL DEFAULT (datetime('now'))
     )
     """,
@@ -325,4 +327,6 @@ METADATA_MIGRATIONS: list[str] = [
     "ALTER TABLE semantic_metrics ADD COLUMN allowed_dimensions_json TEXT NOT NULL DEFAULT '[]'",
     "ALTER TABLE semantic_metrics ADD COLUMN lineage_json TEXT NOT NULL DEFAULT '[]'",
     "ALTER TABLE semantic_metrics ADD COLUMN quality_expectations_json TEXT NOT NULL DEFAULT '{}'",
+    "ALTER TABLE claims ADD COLUMN inference_level TEXT NOT NULL DEFAULT 'L0'",
+    "ALTER TABLE claims ADD COLUMN inference_justification_json TEXT NOT NULL DEFAULT '[]'",
 ]

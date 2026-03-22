@@ -544,5 +544,121 @@ class ConfidenceScoringTests(unittest.TestCase):
         self.assertGreaterEqual(score, 0.0)
 
 
+class InferenceLevelUnitTests(unittest.TestCase):
+    """M-02: inference_level field on synthesized claims."""
+
+    def _metric_obs(self, obs_id: str = "obs_m1", delta_pct: float = -12.0) -> dict:
+        return {
+            "observation_id": obs_id,
+            "type": "metric_change",
+            "subject": {"metric": "watch_time", "slice": {"platform": "android"}},
+            "payload": {"delta_pct": delta_pct, "current_sessions": 300, "baseline_sessions": 310},
+            "significance": {"sample_size": 300, "practical_significance": True},
+            "quality": {"freshness_ok": True, "sample_size_ok": True},
+        }
+
+    def _funnel_obs(self, obs_id: str = "obs_f1") -> dict:
+        return {
+            "observation_id": obs_id,
+            "type": "funnel_drop",
+            "subject": {"metric": "eng", "slice": {"funnel": "eng", "worst_stage": "click"}},
+            "payload": {"worst_stage": "click", "worst_delta_drop_rate": 0.08, "stages": []},
+            "significance": {"sample_size": 400, "practical_significance": True},
+            "quality": {"freshness_ok": True, "sample_size_ok": True},
+        }
+
+    def test_synthesized_metric_claim_has_inference_level_L0(self) -> None:
+        claims, _, _ = synthesize_claims([self._metric_obs()])
+        self.assertGreaterEqual(len(claims), 1)
+        for claim in claims:
+            self.assertEqual(claim["inference_level"], "L0")
+            self.assertEqual(claim["inference_justification"], [])
+
+    def test_non_metric_claim_has_inference_level_L0(self) -> None:
+        claims, _, _ = synthesize_claims([self._funnel_obs()])
+        self.assertEqual(len(claims), 1)
+        self.assertEqual(claims[0]["inference_level"], "L0")
+        self.assertEqual(claims[0]["inference_justification"], [])
+
+    def test_overall_trend_claim_has_inference_level_L0(self) -> None:
+        obs = [
+            self._metric_obs("obs_m1", -12.0),
+            {
+                "observation_id": "obs_m2",
+                "type": "metric_change",
+                "subject": {"metric": "video_views", "slice": {"platform": "android"}},
+                "payload": {"delta_pct": -5.0, "current_sessions": 400, "baseline_sessions": 420},
+                "significance": {"sample_size": 400, "practical_significance": True},
+                "quality": {"freshness_ok": True, "sample_size_ok": True},
+            },
+        ]
+        claims, _, _ = synthesize_claims(obs)
+        overall_trends = [c for c in claims if c["type"] == "overall_trend"]
+        self.assertGreaterEqual(len(overall_trends), 1)
+        for claim in overall_trends:
+            self.assertEqual(claim["inference_level"], "L0")
+            self.assertEqual(claim["inference_justification"], [])
+
+
+class InferenceLevelIntegrationTests(unittest.TestCase):
+    """M-02: inference_level persisted to DB and returned via get_evidence_graph."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        import tempfile
+        from pathlib import Path
+        from app.service import SemanticLayerService
+        from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
+        from app.storage.sqlite_metadata import SQLiteMetadataStore
+
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        meta = SQLiteMetadataStore(Path(cls.temp_dir.name) / "il.meta.sqlite")
+        duck_path = Path(cls.temp_dir.name) / "il.duckdb"
+        get_seeded_duckdb_path(duck_path)
+        analytics = DuckDBAnalyticsEngine(duck_path)
+        meta.initialize()
+        analytics.initialize()
+        cls.service = SemanticLayerService(meta, analytics)
+
+        # Seed metric
+        from app.semantic import SemanticService
+        semantic = SemanticService(cls.service.metadata)
+        entity = semantic.create_entity("il_entity", "IL Entity", ["session_id"])
+        semantic.publish_entity(entity["entity_id"])
+        metric = semantic.create_metric(
+            "il_watch_time", "Watch Time IL", "avg(play_duration_seconds)",
+            ["platform", "app_version", "network_type", "content_type"],
+            entity_id=entity["entity_id"],
+        )
+        semantic.publish_metric(metric["metric_id"])
+
+        cls.session_id = cls.service.create_session("IL test", {}, {}, {})["session_id"]
+        cls.service.run_step(
+            cls.session_id, "compare_metric",
+            {"metric_name": "il_watch_time", "table_name": "analytics.watch_events"},
+        )
+        cls.service.run_step(cls.session_id, "synthesize_findings")
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.temp_dir.cleanup()
+
+    def test_inference_level_persisted_and_read_back(self) -> None:
+        graph = self.service.get_evidence_graph(self.session_id)
+        claims = graph["claims"]
+        self.assertGreaterEqual(len(claims), 1)
+        for claim in claims:
+            self.assertIn("inference_level", claim)
+            self.assertIn("inference_justification", claim)
+            self.assertEqual(claim["inference_level"], "L0")
+            self.assertIsInstance(claim["inference_justification"], list)
+
+    def test_inference_level_column_in_schema(self) -> None:
+        rows = self.service.metadata.query_rows("PRAGMA table_info(claims)", [])
+        col_names = {row["name"] for row in rows}
+        self.assertIn("inference_level", col_names)
+        self.assertIn("inference_justification_json", col_names)
+
+
 if __name__ == "__main__":
     unittest.main()
