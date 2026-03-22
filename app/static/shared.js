@@ -85,6 +85,10 @@ function statusBadge(status) {
     cancelled: 'badge-gray', submitted: 'badge-info',
     validated: 'badge-info', executing: 'badge-info',
     ok: 'badge-success',
+    tentative: 'badge-warning',
+    confirmed: 'badge-success',
+    insufficient: 'badge-gray',
+    supported: 'badge-success',
   };
   const cls = map[(status || '').toLowerCase()] || 'badge-gray';
   return `<span class="badge ${cls}">${esc(status || 'unknown')}</span>`;

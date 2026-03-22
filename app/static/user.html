@@ -677,6 +677,8 @@ function renderEvidence(area, ev) {
   html += `<div class="stat-card stat-info"><div class="stat-label">Steps</div><div class="stat-value">${steps.length}</div></div>`;
   html += `<div class="stat-card stat-warning"><div class="stat-label">Observations</div><div class="stat-value">${observations.length}</div></div>`;
   html += `<div class="stat-card"><div class="stat-label">Claims</div><div class="stat-value">${claims.length}</div></div>`;
+  html += `<div class="stat-card stat-success"><div class="stat-label">Confirmed</div><div class="stat-value">${claims.filter(c => c.status === 'confirmed' || c.status === 'supported').length}</div></div>`;
+  html += `<div class="stat-card stat-warning"><div class="stat-label">Tentative</div><div class="stat-value">${claims.filter(c => c.status === 'tentative').length}</div></div>`;
   html += `<div class="stat-card stat-success"><div class="stat-label">Recommendations</div><div class="stat-value">${recommendations.length}</div></div>`;
   html += `<div class="stat-card stat-error"><div class="stat-label">Edges</div><div class="stat-value">${edges.length}</div></div>`;
   html += '</div>';
@@ -740,15 +742,17 @@ function renderEvidence(area, ev) {
   // ── Claims with confidence progress bars ─────────────────
   html += `<div class="card"><h2>Claims (${claims.length})</h2>`;
   if (claims.length) {
-    html += `<table><thead><tr><th>ID</th><th>Type</th><th>Text</th><th>Confidence</th><th>Status</th></tr></thead><tbody>`;
-    claims.forEach(c => {
+    html += `<table><thead><tr><th></th><th>ID</th><th>Type</th><th>Text</th><th>Inference</th><th>Confidence</th><th>Status</th></tr></thead><tbody>`;
+    claims.forEach((c, idx) => {
       const conf = typeof c.confidence === 'number' ? c.confidence : 0;
       const pct = Math.round(conf * 100);
       const barColor = confidenceColor(conf);
       html += `<tr>
+        <td><button class="expand-btn" data-expand="claim-${idx}">&#9654;</button></td>
         <td><code>${esc(truncate(c.claim_id || '', 20))}</code></td>
         <td>${statusBadge(c.claim_type || '')}</td>
         <td>${esc(truncate(c.claim_text || '', 60))}</td>
+        <td><span class="badge badge-gray">${esc(c.inference_level || 'L0')}</span></td>
         <td style="min-width:140px;">
           <div style="display:flex;align-items:center;gap:var(--space-sm);">
             <div class="progress-bar" style="flex:1;"><div class="fill ${barColor}" style="width:${pct}%"></div></div>
@@ -757,6 +761,14 @@ function renderEvidence(area, ev) {
         </td>
         <td>${statusBadge(c.status || '')}</td>
       </tr>`;
+      html += `<tr class="expand-row" id="claim-${idx}"><td colspan="7">
+        <div style="display:flex;gap:var(--space-lg);flex-wrap:wrap;padding:var(--space-sm);">
+          <div><strong>Scope:</strong> <code>${esc(JSON.stringify(c.scope || {}))}</code></div>
+          <div><strong>Supporting:</strong> ${(c.supporting_observations || []).length} obs</div>
+          <div><strong>Contradicting:</strong> ${(c.contradicting_observations || []).length} obs</div>
+        </div>
+        ${jsonPre({breakdown: c.confidence_breakdown, inference_justification: c.inference_justification})}
+      </td></tr>`;
     });
     html += '</tbody></table>';
   } else { html += '<p class="empty">No claims.</p>'; }
