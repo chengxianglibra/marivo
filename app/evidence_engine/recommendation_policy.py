@@ -38,7 +38,7 @@ class DefaultRecommendationPolicy(RecommendationPolicy):
             (
                 claim
                 for claim in claims
-                if claim["type"] == "root_cause_candidate" and claim["status"] == "supported"
+                if claim["type"] == "root_cause_candidate" and claim["status"] in {"supported", "confirmed"}
             ),
             None,
         )

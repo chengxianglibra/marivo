@@ -92,14 +92,21 @@ class EvidencePipeline:
         self,
         observations: list[Observation],
         *,
+        existing_claims: list[Claim] | None = None,
         synthesizer_name: str | None = None,
         confidence_scorer_name: str | None = None,
         recommendation_policy_name: str | None = None,
     ) -> SynthesisResult:
-        claims, recommendations, edges = self.synthesize(
-            observations,
-            synthesizer_name=synthesizer_name,
-        )
+        if existing_claims is not None:
+            # M-03 promotion mode: skip fresh claim synthesis; use already-promoted claims.
+            claims: list[Claim] = existing_claims
+            recommendations: list[Recommendation] = []
+            edges: list[dict[str, Any]] = []
+        else:
+            claims, recommendations, edges = self.synthesize(
+                observations,
+                synthesizer_name=synthesizer_name,
+            )
         claims = self.score_claims(
             observations,
             claims,

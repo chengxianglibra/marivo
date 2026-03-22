@@ -59,6 +59,7 @@ class SemanticLayerService:
             analytics_engine=analytics_engine,
             query_router=query_router,
         )
+        self._incremental_synthesizer: Any | None = None  # IncrementalSynthesizer, injected post-construction
         self._governance_context: dict[str, Any] | None = None
         self._routing_feedback_context: dict[str, Any] | None = None
         self.routing_runtime = RoutingRuntime(query_router, analytics_engine)
@@ -213,6 +214,11 @@ class SemanticLayerService:
                 "hard_constraints": governance_result.get("hard_constraints", []),
                 "soft_signals": governance_result.get("soft_signals", []),
             }
+
+        # M-03: incremental synthesis after each primitive step.
+        # synthesize_findings itself is excluded — it handles promotion.
+        if self._incremental_synthesizer is not None and normalized != "synthesize_findings":
+            self._incremental_synthesizer.process(session_id)
 
         return result
 
@@ -794,19 +800,39 @@ class SemanticLayerService:
 
     def _run_synthesis(self, session_id: str) -> dict[str, Any]:
         step_type = "synthesize_findings"
-        self._delete_step_outputs(session_id, step_type)
         step_id = self._new_step_id()
         observations = self._load_observations(session_id)
-        synthesis = self.evidence_pipeline.build_synthesis(observations)
+        tentative_claims = self._load_tentative_claims(session_id)
 
-        for claim in synthesis["claims"]:
-            self._insert_claim(session_id, claim)
-
-        for recommendation in synthesis["recommendations"]:
-            self._insert_recommendation(session_id, recommendation)
-
-        for edge in synthesis["edges"]:
-            self._insert_edge(session_id, **edge)
+        if tentative_claims:
+            # M-03 PROMOTION MODE: tentative claims exist from IncrementalSynthesizer.
+            # Clear any confirmed/insufficient claims and recs/edges from prior synthesis,
+            # then promote tentative claims to confirmed or insufficient.
+            self._delete_non_tentative_synthesis_outputs(session_id)
+            self.metadata.execute(
+                "DELETE FROM steps WHERE session_id = ? AND step_type = ?",
+                [session_id, step_type],
+            )
+            promoted = self._promote_claims(session_id, tentative_claims, observations)
+            synthesis = self.evidence_pipeline.build_synthesis(
+                observations,
+                existing_claims=promoted,
+            )
+            # Claims already in DB (promoted in place); only insert recs + edges.
+            for recommendation in synthesis["recommendations"]:
+                self._insert_recommendation(session_id, recommendation)
+            for edge in synthesis["edges"]:
+                self._insert_edge(session_id, **edge)
+        else:
+            # FALLBACK MODE: no IncrementalSynthesizer in use — from-scratch synthesis.
+            self._delete_step_outputs(session_id, step_type)
+            synthesis = self.evidence_pipeline.build_synthesis(observations)
+            for claim in synthesis["claims"]:
+                self._insert_claim(session_id, claim)
+            for recommendation in synthesis["recommendations"]:
+                self._insert_recommendation(session_id, recommendation)
+            for edge in synthesis["edges"]:
+                self._insert_edge(session_id, **edge)
 
         summary = synthesis["summary"]
         provenance = self._make_provenance("synthesize_findings", engine_type="heuristic")
@@ -842,6 +868,75 @@ class SemanticLayerService:
             "DELETE FROM steps WHERE session_id = ? AND step_type = ?",
             [session_id, step_type],
         )
+
+    def _load_tentative_claims(self, session_id: str) -> list[dict[str, Any]]:
+        """Return all tentative claims for a session (created by IncrementalSynthesizer)."""
+        rows = self.metadata.query_rows(
+            """
+            SELECT claim_id, claim_type, text, scope_json, confidence, status,
+                   supporting_observation_ids_json, contradicting_observation_ids_json,
+                   confidence_breakdown_json, inference_level, inference_justification_json
+            FROM claims
+            WHERE session_id = ? AND status = 'tentative'
+            ORDER BY created_at
+            """,
+            [session_id],
+        )
+        result = []
+        for row in rows:
+            claim = dict(row)
+            claim["type"] = claim.pop("claim_type")
+            claim["scope"] = json.loads(claim.pop("scope_json"))
+            claim["supporting_observations"] = json.loads(
+                claim.pop("supporting_observation_ids_json")
+            )
+            claim["contradicting_observations"] = json.loads(
+                claim.pop("contradicting_observation_ids_json")
+            )
+            claim["confidence_breakdown"] = json.loads(claim.pop("confidence_breakdown_json"))
+            claim["inference_justification"] = json.loads(
+                claim.pop("inference_justification_json")
+            )
+            result.append(claim)
+        return result
+
+    def _delete_non_tentative_synthesis_outputs(self, session_id: str) -> None:
+        """Delete confirmed/insufficient claims + recommendations + edges from a previous
+        synthesize_findings run, but preserve tentative claims created by IncrementalSynthesizer."""
+        self.metadata.execute(
+            "DELETE FROM claims WHERE session_id = ? AND status != 'tentative'",
+            [session_id],
+        )
+        self.metadata.execute("DELETE FROM recommendations WHERE session_id = ?", [session_id])
+        self.metadata.execute("DELETE FROM evidence_edges WHERE session_id = ?", [session_id])
+
+    def _promote_claims(
+        self,
+        session_id: str,
+        tentative_claims: list[dict[str, Any]],
+        observations: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Promote tentative claims to confirmed or insufficient and return promoted list.
+
+        Promotion criteria:
+        - confidence >= 0.5 AND no contradicting observations → ``confirmed``
+        - otherwise → ``insufficient``
+        """
+        obs_map = {o["observation_id"]: o for o in observations}
+        promoted: list[dict[str, Any]] = []
+        for claim in tentative_claims:
+            has_contradictions = bool(claim["contradicting_observations"])
+            new_status = (
+                "confirmed"
+                if claim["confidence"] >= 0.5 and not has_contradictions
+                else "insufficient"
+            )
+            self.metadata.execute(
+                "UPDATE claims SET status = ? WHERE claim_id = ?",
+                [new_status, claim["claim_id"]],
+            )
+            promoted.append({**claim, "status": new_status})
+        return promoted
 
     def _assert_session_exists(self, session_id: str) -> None:
         self.session_manager.assert_session_exists(session_id)

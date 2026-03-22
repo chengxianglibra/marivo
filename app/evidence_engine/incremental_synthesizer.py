@@ -1,0 +1,334 @@
+"""IncrementalSynthesizer: maintains tentative claims as observations accumulate.
+
+Incremental synthesis runs after every primitive step (compare_metric,
+aggregate_query, profile_table, sample_rows).  It creates or updates *tentative*
+claims so agents can inspect intermediate conclusions before
+``synthesize_findings`` is called.  ``synthesize_findings`` promotes tentative
+claims to ``confirmed`` or ``insufficient``.
+
+Design principles:
+- All fact extraction is deterministic (no LLMs).
+- IncrementalSynthesizer writes directly to the metadata store —
+  it is independent of EvidencePipeline.
+- Claims are keyed by scope (metric + slice dict).  One tentative claim per
+  unique scope per session.
+- Contradiction: two observations in the same scope have opposing delta_pct
+  signs.  The newer observation is added to contradicting_observations.
+"""
+
+from __future__ import annotations
+
+import json
+import math
+from typing import Any
+from uuid import uuid4
+
+from app.evidence_engine.scoring import score_confidence
+from app.storage.metadata import MetadataStore
+
+
+class IncrementalSynthesizer:
+    """Maintains tentative claims per session as observations accumulate.
+
+    Called after each primitive step via ``SemanticLayerService.run_step()``.
+    """
+
+    def __init__(self, metadata_store: MetadataStore) -> None:
+        self._store = metadata_store
+
+    def process(self, session_id: str) -> dict[str, Any]:
+        """Process all unattributed observations and update tentative claims.
+
+        Returns a summary: ``{claims_created, claims_updated, contradictions_found}``.
+        """
+        observations = self._load_observations(session_id)
+        tentative_claims = self._load_tentative_claims(session_id)
+
+        # Build set of all observation IDs already attributed to any tentative claim
+        attributed_ids: set[str] = set()
+        for claim in tentative_claims:
+            attributed_ids.update(claim["supporting_observations"])
+            attributed_ids.update(claim["contradicting_observations"])
+
+        new_observations = [o for o in observations if o["observation_id"] not in attributed_ids]
+
+        claims_created = 0
+        claims_updated = 0
+        contradictions_found = 0
+
+        for obs in new_observations:
+            matched = self._find_matching_claim(obs, tentative_claims)
+            if matched is None:
+                new_claim = self._make_tentative_claim(obs)
+                self._insert_claim(session_id, new_claim)
+                tentative_claims.append(new_claim)
+                claims_created += 1
+            else:
+                if self._is_contradiction(obs, matched, observations):
+                    contradictions_found += 1
+                    self._add_contradicting_observation(matched, obs["observation_id"])
+                else:
+                    self._add_supporting_observation(matched, obs["observation_id"])
+                self._recalculate_and_update(matched, observations)
+                claims_updated += 1
+
+        return {
+            "claims_created": claims_created,
+            "claims_updated": claims_updated,
+            "contradictions_found": contradictions_found,
+        }
+
+    # ── Scope + contradiction logic ───────────────────────────────────────────
+
+    @staticmethod
+    def _scope_matches(obs_subject: dict[str, Any], claim_scope: dict[str, Any]) -> bool:
+        return (
+            obs_subject.get("metric") == claim_scope.get("metric")
+            and obs_subject.get("slice", {}) == claim_scope.get("slice", {})
+        )
+
+    def _find_matching_claim(
+        self, obs: dict[str, Any], tentative_claims: list[dict[str, Any]]
+    ) -> dict[str, Any] | None:
+        obs_subject = obs.get("subject", {})
+        for claim in tentative_claims:
+            if self._scope_matches(obs_subject, claim.get("scope", {})):
+                return claim
+        return None
+
+    @staticmethod
+    def _is_contradiction(
+        new_obs: dict[str, Any],
+        claim: dict[str, Any],
+        all_observations: list[dict[str, Any]],
+    ) -> bool:
+        """Return True if new_obs has opposing delta_pct to any supporting observation."""
+        new_delta = new_obs.get("payload", {}).get("delta_pct")
+        if new_delta is None:
+            return False
+        obs_map = {o["observation_id"]: o for o in all_observations}
+        for sup_id in claim["supporting_observations"]:
+            sup_obs = obs_map.get(sup_id)
+            if sup_obs is None:
+                continue
+            sup_delta = sup_obs.get("payload", {}).get("delta_pct")
+            if sup_delta is not None and float(new_delta) * float(sup_delta) < 0:
+                return True
+        return False
+
+    # ── Claim construction ────────────────────────────────────────────────────
+
+    def _make_tentative_claim(self, obs: dict[str, Any]) -> dict[str, Any]:
+        subject = obs.get("subject", {})
+        payload = obs.get("payload", {})
+        significance = obs.get("significance", {})
+        quality = obs.get("quality", {})
+
+        metric = subject.get("metric", "unknown")
+        slice_dict = subject.get("slice", {})
+        slice_str = (
+            ", ".join(f"{k}={v}" for k, v in slice_dict.items())
+            if slice_dict
+            else "overall"
+        )
+
+        delta_pct = payload.get("delta_pct")
+        if delta_pct is not None:
+            direction = "increased" if float(delta_pct) > 0 else "declined"
+            text = f"{metric} {direction} {abs(float(delta_pct)):.1f}% for {slice_str} (tentative)"
+        else:
+            text = f"Signal detected for {metric} / {slice_str} (tentative)"
+
+        breakdown = self._compute_breakdown(payload, significance, quality, n_contradictions=0)
+        confidence = score_confidence(
+            float(breakdown["effect_strength"]),
+            float(breakdown["consistency"]),
+            float(breakdown["sample_score"]),
+            float(breakdown["data_quality_score"]),
+            float(breakdown["contradiction_penalty"]),
+        )
+
+        return {
+            "claim_id": f"claim_{uuid4().hex[:12]}",
+            "type": "root_cause_candidate",
+            "text": text,
+            "scope": {"metric": metric, "slice": slice_dict},
+            "confidence": confidence,
+            "status": "tentative",
+            "supporting_observations": [obs["observation_id"]],
+            "contradicting_observations": [],
+            "confidence_breakdown": breakdown,
+            "inference_level": "L0",
+            "inference_justification": [],
+        }
+
+    @staticmethod
+    def _compute_breakdown(
+        payload: dict[str, Any],
+        significance: dict[str, Any],
+        quality: dict[str, Any],
+        *,
+        n_contradictions: int,
+        n_supporting: int = 1,
+    ) -> dict[str, Any]:
+        delta_pct = payload.get("delta_pct", 0.0)
+        effect_strength = min(1.0, abs(float(delta_pct)) / 20.0)
+
+        sample_size = significance.get("sample_size") or 0
+        sample_score = min(1.0, float(sample_size) / 150.0)
+
+        sample_size_ok = quality.get("sample_size_ok", True)
+        freshness_ok = quality.get("freshness_ok", True)
+        data_quality_score = 0.95 if (sample_size_ok and freshness_ok) else 0.60
+
+        # Consistency improves log-linearly with more supporting observations
+        consistency = round(min(1.0, 0.5 + 0.5 * math.log1p(n_supporting) / math.log1p(5)), 3)
+
+        contradiction_penalty = round(min(0.5, n_contradictions * 0.15), 3)
+
+        return {
+            "effect_strength": round(effect_strength, 3),
+            "consistency": consistency,
+            "sample_score": round(sample_score, 3),
+            "data_quality_score": data_quality_score,
+            "contradiction_penalty": contradiction_penalty,
+        }
+
+    # ── In-memory claim mutation helpers ─────────────────────────────────────
+
+    @staticmethod
+    def _add_supporting_observation(claim: dict[str, Any], obs_id: str) -> None:
+        if obs_id not in claim["supporting_observations"]:
+            claim["supporting_observations"].append(obs_id)
+
+    @staticmethod
+    def _add_contradicting_observation(claim: dict[str, Any], obs_id: str) -> None:
+        if obs_id not in claim["contradicting_observations"]:
+            claim["contradicting_observations"].append(obs_id)
+
+    def _recalculate_and_update(
+        self, claim: dict[str, Any], all_observations: list[dict[str, Any]]
+    ) -> None:
+        obs_map = {o["observation_id"]: o for o in all_observations}
+        n_supporting = len(claim["supporting_observations"])
+        n_contradictions = len(claim["contradicting_observations"])
+
+        primary_obs = obs_map.get(claim["supporting_observations"][0]) if claim["supporting_observations"] else None
+        if primary_obs:
+            breakdown = self._compute_breakdown(
+                primary_obs.get("payload", {}),
+                primary_obs.get("significance", {}),
+                primary_obs.get("quality", {}),
+                n_contradictions=n_contradictions,
+                n_supporting=n_supporting,
+            )
+        else:
+            breakdown = dict(claim["confidence_breakdown"])
+
+        confidence = score_confidence(
+            float(breakdown["effect_strength"]),
+            float(breakdown["consistency"]),
+            float(breakdown["sample_score"]),
+            float(breakdown["data_quality_score"]),
+            float(breakdown["contradiction_penalty"]),
+        )
+        claim["confidence"] = confidence
+        claim["confidence_breakdown"] = breakdown
+
+        self._store.execute(
+            """
+            UPDATE claims
+            SET supporting_observation_ids_json = ?,
+                contradicting_observation_ids_json = ?,
+                confidence = ?,
+                confidence_breakdown_json = ?
+            WHERE claim_id = ?
+            """,
+            [
+                json.dumps(claim["supporting_observations"]),
+                json.dumps(claim["contradicting_observations"]),
+                confidence,
+                json.dumps(breakdown),
+                claim["claim_id"],
+            ],
+        )
+
+    # ── Storage helpers ───────────────────────────────────────────────────────
+
+    def _load_observations(self, session_id: str) -> list[dict[str, Any]]:
+        rows = self._store.query_rows(
+            """
+            SELECT observation_id, observation_type, subject_json, payload_json,
+                   significance_json, quality_json
+            FROM observations
+            WHERE session_id = ?
+            ORDER BY created_at
+            """,
+            [session_id],
+        )
+        return [
+            {
+                "observation_id": row["observation_id"],
+                "type": row["observation_type"],
+                "subject": json.loads(row["subject_json"]),
+                "payload": json.loads(row["payload_json"]),
+                "significance": json.loads(row["significance_json"]),
+                "quality": json.loads(row["quality_json"]),
+            }
+            for row in rows
+        ]
+
+    def _load_tentative_claims(self, session_id: str) -> list[dict[str, Any]]:
+        rows = self._store.query_rows(
+            """
+            SELECT claim_id, claim_type, text, scope_json, confidence, status,
+                   supporting_observation_ids_json, contradicting_observation_ids_json,
+                   confidence_breakdown_json, inference_level, inference_justification_json
+            FROM claims
+            WHERE session_id = ? AND status = 'tentative'
+            ORDER BY created_at
+            """,
+            [session_id],
+        )
+        result = []
+        for row in rows:
+            claim = dict(row)
+            claim["type"] = claim.pop("claim_type")
+            claim["scope"] = json.loads(claim.pop("scope_json"))
+            claim["supporting_observations"] = json.loads(
+                claim.pop("supporting_observation_ids_json")
+            )
+            claim["contradicting_observations"] = json.loads(
+                claim.pop("contradicting_observation_ids_json")
+            )
+            claim["confidence_breakdown"] = json.loads(claim.pop("confidence_breakdown_json"))
+            claim["inference_justification"] = json.loads(
+                claim.pop("inference_justification_json")
+            )
+            result.append(claim)
+        return result
+
+    def _insert_claim(self, session_id: str, claim: dict[str, Any]) -> None:
+        self._store.execute(
+            """
+            INSERT INTO claims (
+                claim_id, session_id, claim_type, text, scope_json, confidence, status,
+                supporting_observation_ids_json, contradicting_observation_ids_json,
+                confidence_breakdown_json, inference_level, inference_justification_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                claim["claim_id"],
+                session_id,
+                claim["type"],
+                claim["text"],
+                json.dumps(claim["scope"]),
+                claim["confidence"],
+                claim["status"],
+                json.dumps(claim["supporting_observations"]),
+                json.dumps(claim["contradicting_observations"]),
+                json.dumps(claim["confidence_breakdown"]),
+                claim.get("inference_level", "L0"),
+                json.dumps(claim.get("inference_justification", [])),
+            ],
+        )

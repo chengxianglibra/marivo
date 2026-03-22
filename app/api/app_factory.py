@@ -195,6 +195,8 @@ def _build_services(
     _register_configured_bindings(config, metadata_store, binding_service)
     query_router = QueryRouter(metadata_store, engine_service)
     service.query_router = query_router
+    from app.evidence_engine.incremental_synthesizer import IncrementalSynthesizer
+    service._incremental_synthesizer = IncrementalSynthesizer(metadata_store)
     _register_configured_governance(config, metadata_store, governance_service)
     planning_service = PlanningService(
         metadata_store,
