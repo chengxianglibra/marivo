@@ -77,6 +77,22 @@
 .refresh-indicator { display: inline-flex; align-items: center; gap: 4px; font-size: var(--font-size-xs); color: var(--color-text-muted); }
 .refresh-indicator .pulse-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-success); animation: pulse-dot 2s ease-in-out infinite; }
 
+/* Readiness signal panel (M-04) */
+.readiness-panel { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: var(--space-lg); margin-bottom: var(--space-md); }
+.readiness-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-md); }
+.readiness-header h3 { margin: 0; font-size: var(--font-size-base); font-weight: 600; }
+.readiness-dim { display: grid; grid-template-columns: 160px 1fr 44px; align-items: center; gap: var(--space-sm); margin-bottom: var(--space-xs); }
+.readiness-dim-label { font-size: var(--font-size-sm); color: var(--color-text-secondary); }
+.readiness-dim-val { font-size: var(--font-size-sm); font-weight: 600; text-align: right; }
+.badge-action-synthesize { background: var(--color-success-bg); color: var(--color-success); }
+.badge-action-stop { background: var(--color-error-bg); color: var(--color-error); }
+.badge-action-resolve { background: var(--color-warning-bg); color: var(--color-warning); }
+.badge-action-explore { background: var(--color-info-bg); color: var(--color-info); }
+
+/* Live claims mini-table (M-04) */
+.live-claims-panel { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: var(--space-lg); margin-bottom: var(--space-md); }
+.live-claims-panel h3 { margin: 0 0 var(--space-sm); font-size: var(--font-size-base); font-weight: 600; }
+
 /* Graph container override for catalog */
 #cat-graph-vis { min-height: 400px; }
 </style>
@@ -572,6 +588,7 @@ async function showSessionDetail(id) {
                 <option value="compare_metric">compare_metric</option>
                 <option value="profile_table">profile_table</option>
                 <option value="sample_rows">sample_rows</option>
+                <option value="aggregate_query">aggregate_query</option>
                 <option value="synthesize_findings">synthesize_findings</option>
               </select>
             </div>
@@ -619,11 +636,131 @@ async function showSessionDetail(id) {
       area.innerHTML = '<div style="text-align:center;padding:var(--space-xl);"><span class="spinner"></span></div>';
       try {
         const result = await localApi.runStep(id, stepType, params);
-        area.innerHTML = '<div style="margin-top:var(--space-md);">' + jsonPre(result) + '</div>';
+        area.innerHTML = '<div style="margin-top:var(--space-md);">' + renderStepResult(result) + '</div>';
         toast('Step completed', 'success');
+        // Wire up the raw result toggle after rendering
+        const rawToggle = area.querySelector('#step-raw-toggle');
+        const rawBody = area.querySelector('#step-raw-body');
+        if (rawToggle && rawBody) rawToggle.onclick = () => { rawToggle.classList.toggle('open'); rawBody.classList.toggle('open'); };
       } catch (err) { area.innerHTML = ''; toast(err.message, 'error'); }
     };
   } catch (err) { toast(err.message, 'error'); renderers.sessions(); }
+}
+
+// ════════════════════════════════════════════════════════════
+// ── Step Result Renderer (M-04 Readiness Signal) ───────────
+// ════════════════════════════════════════════════════════════
+
+function readinessDimBar(label, value) {
+  const pct = Math.round(Math.min(1, Math.max(0, value)) * 100);
+  const cls = pct >= 70 ? 'green' : pct >= 30 ? 'yellow' : 'red';
+  const cssColor = pct >= 70 ? 'var(--color-success)' : pct >= 30 ? 'var(--color-warning)' : 'var(--color-error)';
+  return `<div class="readiness-dim">
+    <div class="readiness-dim-label">${esc(label)}</div>
+    <div class="progress-bar"><div class="fill ${esc(cls)}" style="width:${pct}%"></div></div>
+    <div class="readiness-dim-val" style="color:${cssColor}">${value.toFixed(2)}</div>
+  </div>`;
+}
+
+function renderReadinessSignal(readiness) {
+  const action = readiness.suggested_action || 'continue_exploring';
+  const actionCls = action === 'synthesize' ? 'badge-action-synthesize'
+    : action === 'stop' ? 'badge-action-stop'
+    : action === 'resolve_contradiction' ? 'badge-action-resolve'
+    : 'badge-action-explore';
+  const actionLabel = action.replace(/_/g, ' ');
+
+  let html = `<div class="readiness-panel">
+    <div class="readiness-header">
+      <h3>Readiness Signal</h3>
+      <span class="badge ${esc(actionCls)}">${esc(actionLabel)}</span>
+    </div>`;
+  html += readinessDimBar('goal_coverage', readiness.goal_coverage ?? 0);
+  html += readinessDimBar('evidence_sufficiency', readiness.evidence_sufficiency ?? 0);
+  // contradiction_resolution: 1.0 is good, so invert color logic
+  const cr = readiness.contradiction_resolution ?? 1;
+  const crPct = Math.round(cr * 100);
+  const crCls = crPct >= 100 ? 'green' : crPct >= 50 ? 'yellow' : 'red';
+  const crCssColor = crPct >= 100 ? 'var(--color-success)' : crPct >= 50 ? 'var(--color-warning)' : 'var(--color-error)';
+  html += `<div class="readiness-dim">
+    <div class="readiness-dim-label">contradiction_resolution</div>
+    <div class="progress-bar"><div class="fill ${esc(crCls)}" style="width:${crPct}%"></div></div>
+    <div class="readiness-dim-val" style="color:${crCssColor}">${cr.toFixed(2)}</div>
+  </div>`;
+  html += readinessDimBar('budget_remaining', readiness.budget_remaining ?? 1);
+  html += readinessDimBar('diminishing_returns', readiness.diminishing_returns ?? 1);
+  html += '</div>';
+  return html;
+}
+
+function renderLiveClaims(claims) {
+  if (!claims || !claims.length) return '';
+  let html = `<div class="live-claims-panel"><h3>Live Claims (${claims.length})</h3>`;
+  html += `<table><thead><tr><th>ID</th><th>Type</th><th>Inference</th><th>Confidence</th><th>Status</th></tr></thead><tbody>`;
+  claims.forEach(c => {
+    const conf = typeof c.confidence === 'number' ? c.confidence : 0;
+    const pct = Math.round(conf * 100);
+    const barColor = confidenceColor(conf);
+    html += `<tr>
+      <td><code>${esc(truncate(c.claim_id || '', 18))}</code></td>
+      <td>${statusBadge(c.claim_type || '')}</td>
+      <td><span class="badge badge-gray">${esc(c.inference_level || 'L0')}</span></td>
+      <td style="min-width:120px;">
+        <div style="display:flex;align-items:center;gap:var(--space-xs);">
+          <div class="progress-bar" style="flex:1;"><div class="fill ${esc(barColor)}" style="width:${pct}%"></div></div>
+          <span style="font-size:var(--font-size-xs);font-weight:600;min-width:30px;">${conf.toFixed(2)}</span>
+        </div>
+      </td>
+      <td>${statusBadge(c.status || '')}</td>
+    </tr>`;
+  });
+  html += '</tbody></table></div>';
+  return html;
+}
+
+function renderStepResult(result) {
+  let html = '';
+
+  // Readiness signal panel (M-04) — only for non-synthesize steps
+  if (result.readiness) {
+    html += renderReadinessSignal(result.readiness);
+  }
+
+  // Live claims mini-table (M-04)
+  if (result.live_claims && result.live_claims.length) {
+    html += renderLiveClaims(result.live_claims);
+  }
+
+  // Observations summary (if present)
+  const observations = result.observations || [];
+  if (observations.length) {
+    html += `<div class="live-claims-panel"><h3>Observations (${observations.length})</h3>`;
+    html += `<table><thead><tr><th>ID</th><th>Type</th><th>Metric</th><th>Slice</th></tr></thead><tbody>`;
+    observations.slice(0, 10).forEach(o => {
+      const subj = o.subject || {};
+      const sliceObj = subj.slice || {};
+      const sliceStr = typeof sliceObj === 'string' ? sliceObj : Object.entries(sliceObj).map(([k, v]) => `${k}=${v}`).join(', ');
+      html += `<tr>
+        <td><code>${esc(truncate(o.observation_id || '', 18))}</code></td>
+        <td>${statusBadge(o.type || '')}</td>
+        <td>${esc(subj.metric || '')}</td>
+        <td>${esc(sliceStr)}</td>
+      </tr>`;
+    });
+    if (observations.length > 10) html += `<tr><td colspan="4" class="empty">... ${observations.length - 10} more</td></tr>`;
+    html += '</tbody></table></div>';
+  }
+
+  // Raw result (collapsible)
+  html += `<div class="card" style="margin-bottom:0;">
+    <div class="collapsible-header" id="step-raw-toggle">
+      <h3 style="margin:0;font-size:var(--font-size-base);">Raw Result</h3>
+      <span class="chevron">&#9654;</span>
+    </div>
+    <div class="collapsible-body" id="step-raw-body">${jsonPre(result)}</div>
+  </div>`;
+
+  return html;
 }
 
 // ════════════════════════════════════════════════════════════
