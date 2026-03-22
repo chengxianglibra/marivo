@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, TypedDict
 
-from app.evidence_engine.extractors import AggregateRowExtractor, ComparisonRowExtractor, ObservationExtractor
+from app.evidence_engine.extractors.base import ObservationExtractor
 from app.evidence_engine.recommendation_policy import (
     DefaultRecommendationPolicy,
     RecommendationPolicy,
@@ -35,15 +35,17 @@ class EvidencePipeline:
         confidence_scorers: Mapping[str, ConfidenceScorer] | None = None,
         recommendation_policies: Mapping[str, RecommendationPolicy] | None = None,
     ) -> None:
+        from app.evidence_engine.registry import ExtractorRegistry, _default_registry
+
         default_synthesizer = _coerce_synthesizer(synthesizer)
         default_confidence_scorer = DefaultConfidenceScorer()
         default_recommendation_policy = DefaultRecommendationPolicy()
-        default_extractors = {
-            extractor.name: extractor
-            for extractor in [ComparisonRowExtractor(), AggregateRowExtractor()]
-        }
-        if extractors:
-            default_extractors.update(extractors)
+        default_extractors = dict(_default_registry.as_mapping())
+        if extractors is not None:
+            if isinstance(extractors, ExtractorRegistry):
+                default_extractors.update(extractors.as_mapping())
+            else:
+                default_extractors.update(extractors)
         self._extractors = default_extractors
 
         default_synthesizers = {default_synthesizer.name: default_synthesizer}

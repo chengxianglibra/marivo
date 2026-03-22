@@ -6,13 +6,18 @@ from typing import Any
 
 __all__ = [
     "AggregateRowExtractor",
+    "AnomalyExtractor",
     "ClaimSynthesizer",
     "ComparisonRowExtractor",
     "ConfidenceScorer",
+    "ContributionShiftExtractor",
     "DefaultConfidenceScorer",
     "DefaultClaimSynthesizer",
     "DefaultRecommendationPolicy",
     "EvidencePipeline",
+    "ExtractorContract",
+    "ExtractorRegistry",
+    "FunnelExtractor",
     "ObservationExtractor",
     "RecommendationPolicy",
     "score_confidence",
@@ -35,14 +40,30 @@ def __getattr__(name: str) -> Any:
             "ConfidenceScorer": ConfidenceScorer,
             "DefaultConfidenceScorer": DefaultConfidenceScorer,
         }[name]
-    if name in {"ObservationExtractor", "ComparisonRowExtractor", "AggregateRowExtractor"}:
-        from app.evidence_engine.extractors import AggregateRowExtractor, ComparisonRowExtractor, ObservationExtractor
+    if name in {"ObservationExtractor", "ComparisonRowExtractor", "AggregateRowExtractor",
+                 "AnomalyExtractor", "FunnelExtractor", "ContributionShiftExtractor"}:
+        from app.evidence_engine.extractors import (
+            AggregateRowExtractor,
+            AnomalyExtractor,
+            ComparisonRowExtractor,
+            ContributionShiftExtractor,
+            FunnelExtractor,
+            ObservationExtractor,
+        )
 
         return {
             "ObservationExtractor": ObservationExtractor,
             "ComparisonRowExtractor": ComparisonRowExtractor,
             "AggregateRowExtractor": AggregateRowExtractor,
+            "AnomalyExtractor": AnomalyExtractor,
+            "FunnelExtractor": FunnelExtractor,
+            "ContributionShiftExtractor": ContributionShiftExtractor,
         }[name]
+    if name in {"ExtractorContract", "ExtractorRegistry"}:
+        from app.evidence_engine.contract import ExtractorContract
+        from app.evidence_engine.registry import ExtractorRegistry
+
+        return {"ExtractorContract": ExtractorContract, "ExtractorRegistry": ExtractorRegistry}[name]
     if name in {"RecommendationPolicy", "DefaultRecommendationPolicy"}:
         from app.evidence_engine.recommendation_policy import (
             DefaultRecommendationPolicy,

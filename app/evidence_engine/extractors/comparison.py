@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Any, ClassVar
 
-from app.evidence_engine.extractors.base import ObservationExtractor
+from app.evidence_engine.contract import ExtractorContract
 from app.evidence_engine.factories import make_observation
 from app.evidence_engine.schemas import Observation
 
 
-class ComparisonRowExtractor(ObservationExtractor):
+class ComparisonRowExtractor(ExtractorContract):
     name = "comparison_rows"
+    artifact_type: ClassVar[str] = "comparison_rows"
+    observation_types: ClassVar[list[str]] = ["metric_change"]
+    preconditions: ClassVar[list[str]] = []
 
     def extract(
         self,

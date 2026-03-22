@@ -15,6 +15,7 @@ from app.analysis_core.executor import execute_compiled
 from app.analysis_core.ir import AnalysisStepIR, from_legacy_step
 from app.evidence import synthesize_claims
 from app.evidence_engine import EvidencePipeline
+from app.evidence_engine.readiness import compute_readiness, load_live_claims
 from app.execution.feedback import compile_failure_from_error
 from app.execution.orchestrator import WorkflowOrchestrator
 from app.execution.routing_runtime import RoutingRuntime
@@ -219,6 +220,14 @@ class SemanticLayerService:
         # synthesize_findings itself is excluded — it handles promotion.
         if self._incremental_synthesizer is not None and normalized != "synthesize_findings":
             self._incremental_synthesizer.process(session_id)
+
+        # M-04: readiness signal after each primitive step.
+        if normalized != "synthesize_findings":
+            session = self.get_session(session_id)
+            result["readiness"] = compute_readiness(
+                self.metadata, session_id, session.get("budget", {}) or {}
+            )
+            result["live_claims"] = load_live_claims(self.metadata, session_id)
 
         return result
 
