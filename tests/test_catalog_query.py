@@ -23,7 +23,7 @@ class CatalogQueryTests(unittest.TestCase):
         # Set up test data: source + sync + semantic objects + mappings
         resp = cls.client.post(
             "/sources",
-            json={"source_type": "local", "display_name": "CQ Test Source", "connection": {"path": str(cls.db_path)}},
+            json={"source_type": "duckdb", "display_name": "CQ Test Source", "connection": {"path": str(cls.db_path)}},
         )
         cls.source_id = resp.json()["source_id"]
         cls.client.post(f"/sources/{cls.source_id}/sync")

@@ -20,24 +20,16 @@ class LoadConfigTests(unittest.TestCase):
             f.write(
                 "sources:\n"
                 '  - name: "Demo"\n'
-                "    type: local\n"
-                '  - name: "Prod Hive"\n'
-                "    type: hive_metastore\n"
-                "    connection:\n"
-                "      host: hive.internal\n"
-                "      port: 9083\n"
+                "    type: duckdb\n"
             )
             f.flush()
             cfg = load_config(Path(f.name))
 
         self.assertIsInstance(cfg, FactumConfig)
-        self.assertEqual(len(cfg.sources), 2)
+        self.assertEqual(len(cfg.sources), 1)
         self.assertEqual(cfg.sources[0].name, "Demo")
-        self.assertEqual(cfg.sources[0].type, "local")
+        self.assertEqual(cfg.sources[0].type, "duckdb")
         self.assertEqual(cfg.sources[0].connection, {})
-        self.assertEqual(cfg.sources[1].name, "Prod Hive")
-        self.assertEqual(cfg.sources[1].connection["host"], "hive.internal")
-        self.assertEqual(cfg.sources[1].connection["port"], 9083)
 
     def test_load_missing_file(self) -> None:
         cfg = load_config(Path("/nonexistent/factum.yaml"))
@@ -100,7 +92,7 @@ class LoadConfigTests(unittest.TestCase):
             f.write(
                 "sources:\n"
                 '  - name: "Demo"\n'
-                "    type: local\n"
+                "    type: duckdb\n"
             )
             f.flush()
             cfg = load_config(Path(f.name))
@@ -121,14 +113,14 @@ class EnsureSourceTests(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def test_ensure_source_creates_new(self) -> None:
-        source = self.source_service.ensure_source("local", "My Source", {})
+        source = self.source_service.ensure_source("duckdb", "My Source", {})
         self.assertEqual(source["display_name"], "My Source")
-        self.assertEqual(source["source_type"], "local")
+        self.assertEqual(source["source_type"], "duckdb")
         self.assertTrue(source["source_id"].startswith("src_"))
 
     def test_ensure_source_idempotent(self) -> None:
-        s1 = self.source_service.ensure_source("local", "Same Name", {})
-        s2 = self.source_service.ensure_source("local", "Same Name", {})
+        s1 = self.source_service.ensure_source("duckdb", "Same Name", {})
+        s2 = self.source_service.ensure_source("duckdb", "Same Name", {})
         self.assertEqual(s1["source_id"], s2["source_id"])
         sources = self.source_service.list_sources()
         matching = [s for s in sources if s["display_name"] == "Same Name"]
@@ -154,7 +146,7 @@ class StartupWithConfigTests(unittest.TestCase):
             config_path.write_text(
                 "sources:\n"
                 '  - name: "Config Demo"\n'
-                "    type: local\n"
+                "    type: duckdb\n"
                 "    connection:\n"
                 f"      path: {Path(self.class_tmp.name) / 'shared.duckdb'}\n"
             )
@@ -205,7 +197,7 @@ class StartupWithConfigTests(unittest.TestCase):
             config_path.write_text(
                 "sources:\n"
                 '  - name: "Restart Test"\n'
-                "    type: local\n"
+                "    type: duckdb\n"
                 "    connection:\n"
                 f"      path: {Path(self.class_tmp.name) / 'shared.duckdb'}\n"
             )
@@ -245,7 +237,7 @@ class StartupWithConfigTests(unittest.TestCase):
             config_path.write_text(
                 "sources:\n"
                 '  - name: "No Sync Source"\n'
-                "    type: local\n"
+                "    type: duckdb\n"
                 "    connection:\n"
                 f"      path: {Path(self.class_tmp.name) / 'shared.duckdb'}\n"
                 "    sync:\n"
@@ -278,7 +270,7 @@ class StartupWithConfigTests(unittest.TestCase):
             config_path.write_text(
                 "sources:\n"
                 '  - name: "Selective Source"\n'
-                "    type: local\n"
+                "    type: duckdb\n"
                 "    connection:\n"
                 f"      path: {Path(self.class_tmp.name) / 'shared.duckdb'}\n"
                 "    sync:\n"

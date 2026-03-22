@@ -14,7 +14,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-hive = ["hmsclient>=0.1.1"]
 trino = ["trino>=0.330"]
 
 [build-system]

@@ -40,7 +40,7 @@ class BindingServiceTests(unittest.TestCase):
         _ae.initialize()
 
         # Register a source and two engines for tests
-        cls.source = cls.source_service.register_source("local", "Test Source", {"path": str(cls.duckdb_path)})
+        cls.source = cls.source_service.register_source("duckdb", "Test Source", {"path": str(cls.duckdb_path)})
         cls.engine1 = cls.engine_service.register_engine("duckdb", "Engine A", {"path": "/tmp/a.duckdb"})
         cls.engine2 = cls.engine_service.register_engine("duckdb", "Engine B", {"path": "/tmp/b.duckdb"})
 
@@ -74,7 +74,7 @@ class BindingServiceTests(unittest.TestCase):
             self.binding_service.get_binding("bind_nonexistent")
 
     def test_ensure_binding_idempotent(self) -> None:
-        src = self.source_service.register_source("local", "Idempotent Src", {})
+        src = self.source_service.register_source("duckdb", "Idempotent Src", {})
         eng = self.engine_service.register_engine("duckdb", "Idempotent Eng", {"path": "/tmp/idm.duckdb"})
 
         b1 = self.binding_service.ensure_binding(src["source_id"], eng["engine_id"], priority=7)
@@ -84,7 +84,7 @@ class BindingServiceTests(unittest.TestCase):
         self.assertEqual(b2["priority"], 7)
 
     def test_delete_binding(self) -> None:
-        src = self.source_service.register_source("local", "Del Src", {})
+        src = self.source_service.register_source("duckdb", "Del Src", {})
         eng = self.engine_service.register_engine("duckdb", "Del Eng", {"path": "/tmp/del.duckdb"})
         binding = self.binding_service.create_binding(src["source_id"], eng["engine_id"])
 
@@ -101,7 +101,7 @@ class BindingServiceTests(unittest.TestCase):
             self.binding_service.create_binding(self.source["source_id"], "eng_nonexistent")
 
     def test_get_engines_for_source(self) -> None:
-        src = self.source_service.register_source("local", "Multi-Eng Src", {})
+        src = self.source_service.register_source("duckdb", "Multi-Eng Src", {})
         eng_lo = self.engine_service.register_engine("duckdb", "Low Prio Eng", {"path": "/tmp/lo.duckdb"})
         eng_hi = self.engine_service.register_engine("duckdb", "High Prio Eng", {"path": "/tmp/hi.duckdb"})
 
@@ -117,7 +117,7 @@ class BindingServiceTests(unittest.TestCase):
 
     def test_unique_constraint(self) -> None:
         """Same (source_id, engine_id) can't be double-inserted; ensure handles it."""
-        src = self.source_service.register_source("local", "Unique Src", {})
+        src = self.source_service.register_source("duckdb", "Unique Src", {})
         eng = self.engine_service.register_engine("duckdb", "Unique Eng", {"path": "/tmp/uq.duckdb"})
 
         self.binding_service.create_binding(src["source_id"], eng["engine_id"])
@@ -132,7 +132,7 @@ class BindingServiceTests(unittest.TestCase):
     # ── Namespace tests ───────────────────────────────────────────
 
     def test_create_binding_with_namespace(self) -> None:
-        src = self.source_service.register_source("local", "NS Create Src", {})
+        src = self.source_service.register_source("duckdb", "NS Create Src", {})
         eng = self.engine_service.register_engine("duckdb", "NS Create Eng", {"path": "/tmp/ns_create.duckdb"})
 
         binding = self.binding_service.create_binding(
@@ -146,7 +146,7 @@ class BindingServiceTests(unittest.TestCase):
         self.assertEqual(fetched["namespace"], {"catalog": "hive"})
 
     def test_ensure_binding_with_namespace(self) -> None:
-        src = self.source_service.register_source("local", "NS Ensure Src", {})
+        src = self.source_service.register_source("duckdb", "NS Ensure Src", {})
         eng = self.engine_service.register_engine("duckdb", "NS Ensure Eng", {"path": "/tmp/ns_ensure.duckdb"})
 
         b1 = self.binding_service.ensure_binding(
@@ -165,7 +165,7 @@ class BindingServiceTests(unittest.TestCase):
         self.assertEqual(b2["namespace"], {"catalog": "spark_catalog"})
 
     def test_namespace_default_empty(self) -> None:
-        src = self.source_service.register_source("local", "NS Default Src", {})
+        src = self.source_service.register_source("duckdb", "NS Default Src", {})
         eng = self.engine_service.register_engine("duckdb", "NS Default Eng", {"path": "/tmp/ns_default.duckdb"})
 
         binding = self.binding_service.create_binding(
@@ -174,7 +174,7 @@ class BindingServiceTests(unittest.TestCase):
         self.assertEqual(binding["namespace"], {})
 
     def test_get_engines_for_source_includes_namespace(self) -> None:
-        src = self.source_service.register_source("local", "NS Engines Src", {})
+        src = self.source_service.register_source("duckdb", "NS Engines Src", {})
         eng = self.engine_service.register_engine("duckdb", "NS Engines Eng", {"path": "/tmp/ns_engines.duckdb"})
 
         self.binding_service.create_binding(
@@ -210,7 +210,7 @@ class QueryRouterTests(unittest.TestCase):
         cls.sync_engine = SyncEngine(cls.metadata)
 
         # Register source, sync it (creates source_objects for local demo tables)
-        cls.source = cls.source_service.register_source("local", "Router Source", {"path": str(cls.local_duckdb_path)})
+        cls.source = cls.source_service.register_source("duckdb", "Router Source", {"path": str(cls.local_duckdb_path)})
         adapter = cls.source_service.get_adapter(cls.source["source_id"])
         cls.sync_engine.trigger_sync(cls.source["source_id"], adapter)
 
@@ -238,7 +238,7 @@ class QueryRouterTests(unittest.TestCase):
 
     def test_resolve_tables_different_sources_common_engine(self) -> None:
         # Create a second source, sync it, and bind it to the same engine
-        src2 = self.source_service.register_source("local", "Router Source 2", {"path": str(self.local_duckdb_path)})
+        src2 = self.source_service.register_source("duckdb", "Router Source 2", {"path": str(self.local_duckdb_path)})
         adapter2 = self.source_service.get_adapter(src2["source_id"])
         self.sync_engine.trigger_sync(src2["source_id"], adapter2)
 
@@ -264,8 +264,8 @@ class QueryRouterTests(unittest.TestCase):
 
     def test_resolve_tables_no_common_engine(self) -> None:
         # Create two sources with different engines, no overlap
-        src_a = self.source_service.register_source("local", "No Common A", {})
-        src_b = self.source_service.register_source("local", "No Common B", {})
+        src_a = self.source_service.register_source("duckdb", "No Common A", {})
+        src_b = self.source_service.register_source("duckdb", "No Common B", {})
 
         eng_a = self.engine_service.register_engine("duckdb", "Eng Only A", {"path": "/tmp/eng_a.duckdb"})
         eng_b = self.engine_service.register_engine("duckdb", "Eng Only B", {"path": "/tmp/eng_b.duckdb"})
@@ -298,7 +298,7 @@ class QueryRouterTests(unittest.TestCase):
 
     def test_resolve_no_bindings(self) -> None:
         # Create a source with synced objects but no bindings
-        src = self.source_service.register_source("local", "No Bindings Src", {})
+        src = self.source_service.register_source("duckdb", "No Bindings Src", {})
 
         from datetime import datetime, timezone
         from uuid import uuid4
@@ -381,7 +381,7 @@ class QueryRouterTests(unittest.TestCase):
     def test_resolve_tables_with_namespace_binding(self) -> None:
         """resolve_tables() uses the binding's namespace for qualification."""
         # Create a new source+engine+binding with namespace
-        src = self.source_service.register_source("local", "NS Resolve Src", {"path": str(self.local_duckdb_path)})
+        src = self.source_service.register_source("duckdb", "NS Resolve Src", {"path": str(self.local_duckdb_path)})
         adapter = self.source_service.get_adapter(src["source_id"])
         self.sync_engine.trigger_sync(src["source_id"], adapter)
 
@@ -426,7 +426,7 @@ class QueryRouterTests(unittest.TestCase):
         from datetime import datetime, timezone
         from uuid import uuid4
 
-        src = self.source_service.register_source("local", "Capability Tie Src", {"path": str(self.local_duckdb_path)})
+        src = self.source_service.register_source("duckdb", "Capability Tie Src", {"path": str(self.local_duckdb_path)})
         adapter = self.source_service.get_adapter(src["source_id"])
         self.sync_engine.trigger_sync(src["source_id"], adapter)
 
@@ -477,7 +477,7 @@ class QueryRouterTests(unittest.TestCase):
         from datetime import datetime, timezone
         from uuid import uuid4
 
-        src = self.source_service.register_source("local", "Semantic Route Src", {})
+        src = self.source_service.register_source("duckdb", "Semantic Route Src", {})
         duck = self.engine_service.register_engine(
             "duckdb",
             "Semantic Route Duck",
@@ -560,7 +560,7 @@ class BindingAPITests(unittest.TestCase):
         suffix = uuid4().hex[:6]
 
         resp = self.client.post("/sources", json={
-            "source_type": "local",
+            "source_type": "duckdb",
             "display_name": f"API Src {suffix}",
             "connection": {"path": str(self.db_path)},
         })
@@ -640,7 +640,7 @@ class BindingAPITests(unittest.TestCase):
     def test_routing_resolve(self) -> None:
         # Register source, sync it, register engine, bind, then resolve
         resp = self.client.post("/sources", json={
-            "source_type": "local",
+            "source_type": "duckdb",
             "display_name": "Routing Src",
             "connection": {"path": str(self.db_path)},
         })
@@ -709,7 +709,7 @@ class BindingAPITests(unittest.TestCase):
         from uuid import uuid4
 
         resp = self.client.post("/sources", json={
-            "source_type": "local",
+            "source_type": "duckdb",
             "display_name": "QN Routing Src",
             "connection": {"path": str(self.db_path)},
         })
@@ -761,7 +761,7 @@ class BindingAPITests(unittest.TestCase):
         from uuid import uuid4
 
         resp = self.client.post("/sources", json={
-            "source_type": "local",
+            "source_type": "duckdb",
             "display_name": "Semantic API Routing Src",
             "connection": {"path": str(self.db_path)},
         })
@@ -851,7 +851,7 @@ class BindingConfigTests(unittest.TestCase):
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             yaml.dump({
-                "sources": [{"name": "Cfg Src", "type": "local", "connection": {"path": str(Path(self.class_tmp.name) / "shared.duckdb")}}],
+                "sources": [{"name": "Cfg Src", "type": "duckdb", "connection": {"path": str(Path(self.class_tmp.name) / "shared.duckdb")}}],
                 "engines": [{"name": "Cfg Eng", "type": "duckdb", "connection": {"path": "/tmp/cfg.duckdb"}}],
                 "bindings": [{"source": "Cfg Src", "engine": "Cfg Eng", "priority": 15}],
             }, f)
@@ -867,7 +867,7 @@ class BindingConfigTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "test_config.yaml"
             config_path.write_text(yaml.dump({
-                "sources": [{"name": "Startup Src", "type": "local", "connection": {"path": str(Path(self.class_tmp.name) / "shared.duckdb")}}],
+                "sources": [{"name": "Startup Src", "type": "duckdb", "connection": {"path": str(Path(self.class_tmp.name) / "shared.duckdb")}}],
                 "engines": [{"name": "Startup Eng", "type": "duckdb", "connection": {"path": str(Path(tmpdir) / "startup.duckdb")}}],
                 "bindings": [{"source": "Startup Src", "engine": "Startup Eng", "priority": 20}],
             }))
@@ -899,7 +899,7 @@ class BindingConfigTests(unittest.TestCase):
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             yaml.dump({
-                "sources": [{"name": "NS Cfg Src", "type": "local", "connection": {"path": str(Path(self.class_tmp.name) / "shared.duckdb")}}],
+                "sources": [{"name": "NS Cfg Src", "type": "duckdb", "connection": {"path": str(Path(self.class_tmp.name) / "shared.duckdb")}}],
                 "engines": [{"name": "NS Cfg Eng", "type": "duckdb", "connection": {"path": "/tmp/ns_cfg.duckdb"}}],
                 "bindings": [{
                     "source": "NS Cfg Src",

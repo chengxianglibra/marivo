@@ -314,7 +314,7 @@ async function updateApprovalsBadge() {
 
 // ── Helper functions ───────────────────────────────────────
 function engineTypeBadge(type) {
-  const map = { duckdb: 'badge-info', trino: 'badge-primary', spark_connect: 'badge-warning', spark_thrift: 'badge-warning' };
+  const map = { duckdb: 'badge-info', trino: 'badge-primary' };
   const cls = map[(type || '').toLowerCase()] || 'badge-gray';
   return `<span class="badge ${cls} engine-type-badge">${esc(type || 'unknown')}</span>`;
 }

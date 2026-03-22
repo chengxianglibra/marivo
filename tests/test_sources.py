@@ -29,11 +29,11 @@ class SourceRegistryTests(unittest.TestCase):
     def test_register_and_list_sources(self) -> None:
         resp = self.client.post(
             "/sources",
-            json={"source_type": "local", "display_name": "Demo Local", "connection": self._local_connection()},
+            json={"source_type": "duckdb", "display_name": "Demo Local", "connection": self._local_connection()},
         )
         self.assertEqual(resp.status_code, 200)
         source = resp.json()
-        self.assertEqual(source["source_type"], "local")
+        self.assertEqual(source["source_type"], "duckdb")
         self.assertEqual(source["display_name"], "Demo Local")
 
         resp = self.client.get("/sources")
@@ -44,7 +44,7 @@ class SourceRegistryTests(unittest.TestCase):
     def test_get_source(self) -> None:
         resp = self.client.post(
             "/sources",
-            json={"source_type": "local", "display_name": "Detail Test", "connection": self._local_connection()},
+            json={"source_type": "duckdb", "display_name": "Detail Test", "connection": self._local_connection()},
         )
         source_id = resp.json()["source_id"]
         resp = self.client.get(f"/sources/{source_id}")
@@ -58,7 +58,7 @@ class SourceRegistryTests(unittest.TestCase):
     def test_sync_local_source_and_browse_objects(self) -> None:
         resp = self.client.post(
             "/sources",
-            json={"source_type": "local", "display_name": "Sync Test", "connection": self._local_connection()},
+            json={"source_type": "duckdb", "display_name": "Sync Test", "connection": self._local_connection()},
         )
         source_id = resp.json()["source_id"]
 
@@ -90,7 +90,7 @@ class SourceRegistryTests(unittest.TestCase):
     def test_sync_idempotent(self) -> None:
         resp = self.client.post(
             "/sources",
-            json={"source_type": "local", "display_name": "Idempotent Test", "connection": self._local_connection()},
+            json={"source_type": "duckdb", "display_name": "Idempotent Test", "connection": self._local_connection()},
         )
         source_id = resp.json()["source_id"]
 
@@ -106,7 +106,7 @@ class SourceRegistryTests(unittest.TestCase):
     def test_update_source_api(self) -> None:
         resp = self.client.post(
             "/sources",
-            json={"source_type": "local", "display_name": "Update Test", "connection": self._local_connection()},
+            json={"source_type": "duckdb", "display_name": "Update Test", "connection": self._local_connection()},
         )
         source_id = resp.json()["source_id"]
         resp = self.client.put(
@@ -122,7 +122,7 @@ class SourceRegistryTests(unittest.TestCase):
     def test_update_source_partial(self) -> None:
         resp = self.client.post(
             "/sources",
-            json={"source_type": "local", "display_name": "Partial Update", "connection": self._local_connection()},
+            json={"source_type": "duckdb", "display_name": "Partial Update", "connection": self._local_connection()},
         )
         source_id = resp.json()["source_id"]
         original_conn = resp.json()["connection"]
@@ -139,7 +139,7 @@ class SourceRegistryTests(unittest.TestCase):
     def test_delete_source_api(self) -> None:
         resp = self.client.post(
             "/sources",
-            json={"source_type": "local", "display_name": "Delete Test", "connection": self._local_connection()},
+            json={"source_type": "duckdb", "display_name": "Delete Test", "connection": self._local_connection()},
         )
         source_id = resp.json()["source_id"]
         # Sync to create source_objects
@@ -165,7 +165,7 @@ class SourceRegistryTests(unittest.TestCase):
         """DELETE returns 409 when bindings reference the source."""
         resp = self.client.post(
             "/sources",
-            json={"source_type": "local", "display_name": "Bound Source", "connection": self._local_connection()},
+            json={"source_type": "duckdb", "display_name": "Bound Source", "connection": self._local_connection()},
         )
         source_id = resp.json()["source_id"]
         # Register an engine and create a binding
@@ -183,7 +183,7 @@ class SourceRegistryTests(unittest.TestCase):
         """DELETE returns 409 when semantic mappings reference source objects."""
         resp = self.client.post(
             "/sources",
-            json={"source_type": "local", "display_name": "Mapped Source", "connection": self._local_connection()},
+            json={"source_type": "duckdb", "display_name": "Mapped Source", "connection": self._local_connection()},
         )
         source_id = resp.json()["source_id"]
         # Sync to get source_objects
@@ -221,7 +221,7 @@ class SyncModeTests(unittest.TestCase):
     def _create_source(self, name: str) -> dict:
         resp = self.client.post(
             "/sources",
-            json={"source_type": "local", "display_name": name, "connection": {"path": str(self.db_path)}},
+            json={"source_type": "duckdb", "display_name": name, "connection": {"path": str(self.db_path)}},
         )
         self.assertEqual(resp.status_code, 200)
         return resp.json()
