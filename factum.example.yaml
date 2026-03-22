@@ -8,15 +8,8 @@
 sources:
   # Local demo catalog (ships with Factum, no external dependencies)
   - name: "Local Demo"
-    type: local
+    type: duckdb
     connection: {}
-
-  # Hive Metastore example
-  # - name: "Production Hive"
-  #   type: hive_metastore
-  #   connection:
-  #     host: hive-metastore.prod.internal
-  #     port: 9083
 
 engines:
   - name: "Local DuckDB"
@@ -40,8 +33,3 @@ bindings:
     priority: 10
     namespace: {}
 
-  # - source: "Production Hive"
-  #   engine: "Trino Prod"
-  #   priority: 10
-  #   namespace:
-  #     catalog: hive

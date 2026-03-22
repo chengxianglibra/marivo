@@ -161,7 +161,7 @@ class PlanningServiceTests(unittest.TestCase):
         engine_service = EngineService(self.metadata)
         binding_service = BindingService(self.metadata)
 
-        src = source_service.register_source("local", "Planning Semantic Route Src", {})
+        src = source_service.register_source("duckdb", "Planning Semantic Route Src", {})
         duck = engine_service.register_engine(
             "duckdb",
             "Planning Semantic Route Duck",

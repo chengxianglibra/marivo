@@ -51,28 +51,6 @@ _DEFAULT_PROFILES: dict[str, EngineCapabilityProfile] = {
         federation_support="connector",
         metadata={"locality": "remote_cluster"},
     ),
-    "spark_connect": EngineCapabilityProfile(
-        engine_type="spark_connect",
-        supported_sql_features=("window_functions", "distributed_joins", "temporary_views"),
-        supported_step_types=_DEFAULT_STEP_TYPES,
-        materialization_support="temporary_view",
-        policy_support=("aggregate_only",),
-        performance_class="distributed",
-        min_staleness_minutes=5,
-        federation_support="staged",
-        metadata={"locality": "remote_cluster"},
-    ),
-    "spark_thrift": EngineCapabilityProfile(
-        engine_type="spark_thrift",
-        supported_sql_features=("window_functions", "distributed_joins", "temporary_views"),
-        supported_step_types=_DEFAULT_STEP_TYPES,
-        materialization_support="temporary_view",
-        policy_support=("aggregate_only",),
-        performance_class="distributed",
-        min_staleness_minutes=5,
-        federation_support="staged",
-        metadata={"locality": "remote_cluster"},
-    ),
 }
 
 

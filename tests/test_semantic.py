@@ -203,7 +203,7 @@ class SemanticMappingTests(unittest.TestCase):
         # Register and sync a source to get object_ids
         resp = cls.client.post(
             "/sources",
-            json={"source_type": "local", "display_name": "Mapping Test Source", "connection": {"path": str(cls.db_path)}},
+            json={"source_type": "duckdb", "display_name": "Mapping Test Source", "connection": {"path": str(cls.db_path)}},
         )
         cls.source_id = resp.json()["source_id"]
         cls.client.post(f"/sources/{cls.source_id}/sync")

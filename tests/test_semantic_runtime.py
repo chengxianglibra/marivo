@@ -58,7 +58,7 @@ class SemanticRuntimeTests(unittest.TestCase):
 
         source = cls.client.post(
             "/sources",
-            json={"source_type": "local", "display_name": "Semantic Runtime Source", "connection": {"path": str(db_path)}},
+            json={"source_type": "duckdb", "display_name": "Semantic Runtime Source", "connection": {"path": str(db_path)}},
         ).json()
         cls.source_id = source["source_id"]
         cls.client.post(f"/sources/{cls.source_id}/sync")
