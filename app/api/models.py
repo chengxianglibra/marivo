@@ -216,11 +216,62 @@ class AutoFlagRequest(BaseModel):
 
 
 class ReadinessSignal(BaseModel):
-    """Schema documentation for the readiness signal returned in step responses (M-04)."""
+    """Readiness signal returned in each primitive step response (M-04).
 
-    goal_coverage: float = Field(ge=0.0, le=1.0)
-    evidence_sufficiency: float = Field(ge=0.0, le=1.0)
-    contradiction_resolution: float = Field(ge=0.0, le=1.0)
-    budget_remaining: float = Field(ge=0.0, le=1.0)
-    diminishing_returns: float = Field(ge=0.0, le=1.0)
-    suggested_action: str  # continue_exploring | resolve_contradiction | synthesize | stop
+    All dimensions are in [0.0, 1.0]. Factum computes these deterministically
+    from the current session evidence state — no LLM involvement.
+    The agent decides how to act on these signals; Factum never auto-triggers
+    next steps.
+    """
+
+    goal_coverage: float = Field(
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Fraction of session goal covered by claims with confidence >= 0.5. "
+            "Denominator is 5 (heuristic target claim count). Reaches 1.0 when >= 5 "
+            "high-confidence claims exist."
+        ),
+    )
+    evidence_sufficiency: float = Field(
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Average (supporting_observations / 3) across all claims, clipped to [0,1]. "
+            "Reaches 1.0 when every claim has >= 3 supporting observations."
+        ),
+    )
+    contradiction_resolution: float = Field(
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Fraction of claims with no contradicting observations. "
+            "1.0 = no unresolved contradictions; 0.0 = all claims are contradicted."
+        ),
+    )
+    budget_remaining: float = Field(
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Remaining budget fraction: (max_steps - primitive_step_count) / max_steps. "
+            "synthesize_findings steps are excluded from the count. 0.0 = budget exhausted."
+        ),
+    )
+    diminishing_returns: float = Field(
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Fraction of the last 3 primitive steps that produced at least one new claim. "
+            "0.0 = recent steps yielded no new claims (diminishing returns detected)."
+        ),
+    )
+    suggested_action: str = Field(
+        description=(
+            "Agent guidance signal — one of four values: "
+            "'resolve_contradiction' (unresolved contradictions detected), "
+            "'synthesize' (goal_coverage >= 0.7 AND evidence_sufficiency >= 0.7), "
+            "'stop' (budget nearly exhausted OR diminishing returns with sufficient evidence), "
+            "'continue_exploring' (none of the above conditions met). "
+            "This is a signal, not a command. The agent decides whether to act on it."
+        ),
+    )
