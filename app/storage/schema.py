@@ -49,6 +49,8 @@ METADATA_DDL: list[str] = [
         payload_json    TEXT NOT NULL,
         significance_json TEXT NOT NULL,
         quality_json    TEXT NOT NULL,
+        observed_window_json TEXT,
+        temporal_order  INTEGER NOT NULL DEFAULT 0,
         created_at      TEXT NOT NULL DEFAULT (datetime('now'))
     )
     """,
@@ -333,4 +335,6 @@ METADATA_MIGRATIONS: list[str] = [
     "ALTER TABLE claims ADD COLUMN inference_level TEXT NOT NULL DEFAULT 'L0'",
     "ALTER TABLE claims ADD COLUMN inference_justification_json TEXT NOT NULL DEFAULT '[]'",
     "ALTER TABLE sessions ADD COLUMN raw_filter TEXT",
+    "ALTER TABLE observations ADD COLUMN observed_window_json TEXT",
+    "ALTER TABLE observations ADD COLUMN temporal_order INTEGER NOT NULL DEFAULT 0",
 ]
