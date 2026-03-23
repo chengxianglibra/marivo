@@ -9,7 +9,8 @@ Plans allow you to define a sequence of analysis steps as a structured workflow,
 | `POST` | `/sessions/{session_id}/plans` | Draft a new plan |
 | `GET` | `/sessions/{session_id}/plans` | List plans for a session |
 | `GET` | `/sessions/{session_id}/plans/{plan_id}` | Get a plan |
-| `PATCH` | `/sessions/{session_id}/plans/{plan_id}` | Update a draft plan |
+| `PATCH` | `/sessions/{session_id}/plans/{plan_id}` | Replace all steps of a draft plan |
+| `POST` | `/sessions/{session_id}/plans/{plan_id}/patch` | Incrementally patch a plan (add/modify/skip steps) |
 | `POST` | `/sessions/{session_id}/plans/{plan_id}/validate` | Validate a plan |
 | `POST` | `/sessions/{session_id}/plans/{plan_id}/approve` | Approve a validated plan |
 | `POST` | `/sessions/{session_id}/plans/{plan_id}/execute` | Execute an approved plan |
@@ -346,5 +347,74 @@ When budget is exceeded, `violations` lists the specific breaches:
       "limit": 500000000000
     }
   ]
+}
+```
+
+---
+
+## Patch Plan
+
+```
+POST /sessions/{session_id}/plans/{plan_id}/patch
+```
+
+Incrementally patches a plan. Intended for agent workflows where the agent wants to add, modify, or skip steps based on new evidence (e.g., after reading a `reflection-context` response).
+
+The patch workflow:
+1. Plan is reset to `draft`
+2. Patch operations are applied
+3. Plan is re-validated (same checks as `POST .../validate`)
+4. Auto-approval applies if all checks pass; otherwise explicit approval is required
+
+Illegal patches (unknown step type, cyclic dependency, invalid params) return `400` without modifying the plan.
+
+### Request Body
+
+```json
+{
+  "add_steps": [
+    {
+      "step_type": "aggregate_query",
+      "params": {
+        "table_name": "events.user_video_watch",
+        "select": ["platform", "COUNT(*) as cnt"],
+        "group_by": ["platform"],
+        "where": "event_date = '2024-01-15'"
+      },
+      "depends_on": ["s2"],
+      "description": "Breakdown by platform after metric comparison"
+    }
+  ],
+  "modify_steps": [
+    {
+      "index": 1,
+      "params": {"limit": 20}
+    }
+  ],
+  "skip_steps": [2]
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `add_steps` | array[object] | no | New steps to append. Same structure as plan step objects. |
+| `modify_steps` | array[object] | no | Param updates for existing steps, identified by zero-based `index`. Params are merged (not replaced). |
+| `skip_steps` | array[integer] | no | Zero-based indices of steps to mark as skipped. Skipped steps are not executed. |
+
+All three fields are optional and may be combined in a single request.
+
+### Response
+
+```json
+{
+  "plan_id": "plan_...",
+  "status": "approved",
+  "steps": [...],
+  "validation": {
+    "passed": true,
+    "checks": [...]
+  },
+  "auto_approved": true,
+  "updated_at": "2024-01-15T10:10:00+00:00"
 }
 ```
