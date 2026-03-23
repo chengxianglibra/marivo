@@ -8,7 +8,13 @@ from app.evidence_engine.recommendation_policy import (
     DefaultRecommendationPolicy,
     RecommendationPolicy,
 )
-from app.evidence_engine.schemas import Claim, Observation, Recommendation
+from app.evidence_engine.schemas import (
+    CAUSAL_EDGE_TO_INFERENCE_LEVEL,
+    INFERENCE_LEVEL_ORDER,
+    Claim,
+    Observation,
+    Recommendation,
+)
 from app.evidence_engine.scoring import ConfidenceScorer, DefaultConfidenceScorer
 from app.evidence_engine.synthesizers import ClaimSynthesizer, DefaultClaimSynthesizer
 
@@ -21,6 +27,38 @@ class SynthesisResult(TypedDict):
     recommendations: list[Recommendation]
     edges: list[dict[str, Any]]
     summary: str
+
+
+def _derive_inference_level_from_edges(
+    edges: list[dict[str, Any]],
+    claims: list[Claim],
+) -> dict[str, tuple[str, list[str], float]]:
+    """Return per-claim inference level upgrades implied by causal edges.
+
+    Returns: claim_id → (new_level, justification_tokens, confidence_boost)
+    Only includes entries for claims where level would change from L0.
+    """
+    claim_causal_edges: dict[str, list[str]] = {}
+    for edge in edges:
+        if edge["to_node_type"] == "claim" and edge["edge_type"] in CAUSAL_EDGE_TO_INFERENCE_LEVEL:
+            claim_causal_edges.setdefault(edge["to_node_id"], []).append(edge["edge_type"])
+
+    result: dict[str, tuple[str, list[str], float]] = {}
+    for claim in claims:
+        causal_types = claim_causal_edges.get(claim["claim_id"], [])
+        if not causal_types:
+            continue
+        max_level = max(
+            (CAUSAL_EDGE_TO_INFERENCE_LEVEL[et] for et in causal_types),
+            key=lambda lvl: INFERENCE_LEVEL_ORDER.index(lvl),
+        )
+        justification = sorted(
+            {f"{et}→{CAUSAL_EDGE_TO_INFERENCE_LEVEL[et]}" for et in causal_types}
+        )
+        # +0.03 per additional distinct causal edge type beyond the first, capped at +0.12
+        boost = min(0.12, (len(set(causal_types)) - 1) * 0.03)
+        result[claim["claim_id"]] = (max_level, justification, boost)
+    return result
 
 
 class EvidencePipeline:
@@ -159,6 +197,26 @@ class EvidencePipeline:
                     "explanation": "Claim justifies the recommendation.",
                 }
             )
+
+        # M-07: upgrade claim inference_level based on connected causal edges
+        level_updates = _derive_inference_level_from_edges(edges, claims)
+        if level_updates:
+            claims = [
+                {
+                    **claim,
+                    "inference_level": level_updates[claim["claim_id"]][0]
+                        if claim["claim_id"] in level_updates
+                        else claim.get("inference_level", "L0"),
+                    "inference_justification": level_updates[claim["claim_id"]][1]
+                        if claim["claim_id"] in level_updates
+                        else claim.get("inference_justification", []),
+                    "confidence": min(
+                        0.99,
+                        claim["confidence"] + level_updates[claim["claim_id"]][2],
+                    ) if claim["claim_id"] in level_updates else claim["confidence"],
+                }
+                for claim in claims
+            ]
 
         return {
             "claims": claims,

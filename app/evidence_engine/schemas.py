@@ -19,16 +19,53 @@ constraints, not suggestions. Agents must respect them but do not produce them.
 inference_level classification (Claim.inference_level)
 -------------------------------------------------------
 - L0 : Correlation / association only (default). No causal claim is made.
-- L1 : Temporal precedence established (cause precedes effect in time).
-- L2 : Mechanism identified (a plausible causal pathway is described).
-- L3 : Counterfactual / experimental evidence (A/B test, natural experiment).
-
-Phase 1 only produces L0. Higher levels are reserved for Phase 2 causal reasoning.
+- L1 : Statistical correlation across slices (correlates_with edge).
+- L2 : Temporal precedence established (temporally_precedes edge).
+- L3 : Causal mechanism identified (mechanistically_explains edge).
+- L4 : Confounders ruled out (eliminates_alternative edge).
+- L5 : Experimental confirmation (experimentally_confirms edge).
 """
 
 from __future__ import annotations
 
 from typing import Any, TypedDict
+
+
+# ── Edge type constants ──────────────────────────────────────────────────────
+# Basic layer (existing, semantics unchanged)
+EDGE_TYPE_SUPPORTS = "supports"
+EDGE_TYPE_CONTRADICTS = "contradicts"
+EDGE_TYPE_JUSTIFIES = "justifies"
+
+# Causal enhancement layer (M-07)
+EDGE_TYPE_CORRELATES_WITH = "correlates_with"                    # L1 — statistical correlation across slices
+EDGE_TYPE_TEMPORALLY_PRECEDES = "temporally_precedes"            # L2 — temporal order established
+EDGE_TYPE_MECHANISTICALLY_EXPLAINS = "mechanistically_explains"  # L3 — causal pathway identified
+EDGE_TYPE_ELIMINATES_ALTERNATIVE = "eliminates_alternative"      # L4 — confounders ruled out
+EDGE_TYPE_EXPERIMENTALLY_CONFIRMS = "experimentally_confirms"    # L5 — A/B or natural experiment
+
+BASIC_EDGE_TYPES: frozenset[str] = frozenset({
+    EDGE_TYPE_SUPPORTS, EDGE_TYPE_CONTRADICTS, EDGE_TYPE_JUSTIFIES,
+})
+CAUSAL_EDGE_TYPES: frozenset[str] = frozenset({
+    EDGE_TYPE_CORRELATES_WITH, EDGE_TYPE_TEMPORALLY_PRECEDES,
+    EDGE_TYPE_MECHANISTICALLY_EXPLAINS, EDGE_TYPE_ELIMINATES_ALTERNATIVE,
+    EDGE_TYPE_EXPERIMENTALLY_CONFIRMS,
+})
+ALL_EDGE_TYPES: frozenset[str] = BASIC_EDGE_TYPES | CAUSAL_EDGE_TYPES
+
+# Maps each causal edge type → the inference level it implies on the connected claim.
+# Basic edge types are absent — they do not advance inference level.
+CAUSAL_EDGE_TO_INFERENCE_LEVEL: dict[str, str] = {
+    EDGE_TYPE_CORRELATES_WITH: "L1",
+    EDGE_TYPE_TEMPORALLY_PRECEDES: "L2",
+    EDGE_TYPE_MECHANISTICALLY_EXPLAINS: "L3",
+    EDGE_TYPE_ELIMINATES_ALTERNATIVE: "L4",
+    EDGE_TYPE_EXPERIMENTALLY_CONFIRMS: "L5",
+}
+
+# Ordered list for numeric comparison (index = rank)
+INFERENCE_LEVEL_ORDER: list[str] = ["L0", "L1", "L2", "L3", "L4", "L5"]
 
 
 class ObservationSubject(TypedDict):
