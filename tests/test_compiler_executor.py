@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import unittest
 
-from app.analysis_core.compiler import build_comparison_query, compile_step
+from app.analysis_core.compiler import (
+    _expand_group_by_aliases,
+    build_aggregate_comparison_query,
+    build_comparison_query,
+    compile_step,
+)
 from app.analysis_core.executor import execute_compiled
 from app.analysis_core.ir import AnalysisStepIR
 
@@ -257,6 +262,55 @@ class CompilerTests(unittest.TestCase):
                 AnalysisStepIR(index=0, step_type="nonexistent_step", params={}),
                 engine_type="duckdb",
             )
+
+
+class AggregateGroupByAliasTests(unittest.TestCase):
+    def test_expand_aliases_replaces_alias_with_full_expression(self) -> None:
+        select_exprs = [
+            "CASE WHEN cluster IN ('k8sbi-bi1','k8sbi-bi2') THEN 'BI' ELSE 'other' END AS cluster_group",
+            "count(*) AS query_count",
+        ]
+        result = _expand_group_by_aliases(select_exprs, ["cluster_group"])
+        self.assertEqual(result, ["CASE WHEN cluster IN ('k8sbi-bi1','k8sbi-bi2') THEN 'BI' ELSE 'other' END"])
+
+    def test_expand_aliases_leaves_plain_columns_unchanged(self) -> None:
+        select_exprs = ["platform", "count(*) AS query_count"]
+        result = _expand_group_by_aliases(select_exprs, ["platform"])
+        self.assertEqual(result, ["platform"])
+
+    def test_compile_aggregate_query_expands_alias_in_group_by(self) -> None:
+        compiled = compile_step(
+            AnalysisStepIR(
+                index=0,
+                step_type="aggregate_query",
+                params={
+                    "table_name": "events",
+                    "select": [
+                        "CASE WHEN cluster IN ('k8sbi-bi1','k8sbi-bi2') THEN 'BI' ELSE 'other' END AS cluster_group",
+                        "count(*) AS query_count",
+                    ],
+                    "group_by": ["cluster_group"],
+                },
+            ),
+            engine_type="trino",
+        )
+        self.assertIn("CASE WHEN cluster IN", compiled.sql)
+        self.assertNotIn("GROUP BY cluster_group", compiled.sql)
+
+    def test_compile_aggregate_query_compare_period_expands_alias_in_by_period(self) -> None:
+        sql = build_aggregate_comparison_query(
+            table_name="events",
+            select_exprs=[
+                "CASE WHEN cluster IN ('k8sbi-bi1','k8sbi-bi2') THEN 'BI' ELSE 'other' END AS cluster_group",
+                "count(*) AS query_count",
+            ],
+            group_by=["cluster_group"],
+            date_column="log_date",
+        )
+        # by_period GROUP BY should use full expression, not alias
+        self.assertIn("GROUP BY _period, CASE WHEN cluster IN", sql)
+        # pivoted GROUP BY references by_period columns (alias-as-column-ref is fine)
+        self.assertIn("cluster_group", sql)
 
 
 class ExecutorTests(unittest.TestCase):
