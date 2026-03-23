@@ -569,10 +569,16 @@ class SemanticLayerService:
             AnalysisStepIR(index=0, step_type="profile_table_row_count", params={"table_name": qualified_table}),
             engine_type=engine_type,
         )
-        row_count_row = execute_compiled(engine, row_count_query).rows[0]
-        row_count = row_count_row["row_count"]
+        row_count: int | None = None
+        row_count_error: str | None = None
+        try:
+            row_count_row = execute_compiled(engine, row_count_query).rows[0]
+            row_count = row_count_row["row_count"]
+        except Exception as exc:
+            row_count_error = str(exc)
 
         columns_available = True
+        columns_error: str | None = None
         try:
             columns_query = self._compile_step_with_feedback(
                 AnalysisStepIR(
@@ -589,9 +595,10 @@ class SemanticLayerService:
             try:
                 schema_rows = engine.query_rows(f"SELECT * FROM {qualified_table} LIMIT 0")
                 columns = list(schema_rows[0].keys()) if schema_rows else []
-            except Exception:
+            except Exception as exc:
                 columns = []
                 columns_available = False
+                columns_error = str(exc)
 
         # Infer date column + recent value for partition-filtered profiling (Trino)
         profile_date_column: str | None = None
@@ -643,15 +650,28 @@ class SemanticLayerService:
                 "date_value": profile_date_value,
                 "scoped_row_count": col_profiles[0]["total"] if col_profiles and "total" in col_profiles[0] else None,
             }
-        artifact = {"table_name": table_name, "row_count": row_count, "profile_scope": profile_scope, "columns": col_profiles}
+        profile_errors: dict[str, str] = {}
+        if row_count_error is not None:
+            profile_errors["row_count"] = row_count_error
+        if not columns_available and columns_error is not None:
+            profile_errors["columns"] = columns_error
+        artifact: dict[str, Any] = {"table_name": table_name, "row_count": row_count, "profile_scope": profile_scope, "columns": col_profiles}
+        if profile_errors:
+            artifact["errors"] = profile_errors
         artifact_id = self._insert_artifact(session_id, step_id, "profile", f"{short_name}_profile", artifact)
 
         scope_note = f" (column stats scoped to {profile_date_column}={profile_date_value})" if profile_date_column else ""
+        failure_notes: list[str] = []
+        if row_count_error is not None:
+            failure_notes.append(f"row_count unavailable: {row_count_error}")
         if not columns_available:
-            col_note = " (columns not available: schema query failed; use sample_rows limit=1 to inspect columns)"
+            col_detail = f": {columns_error}" if columns_error else ""
+            failure_notes.append(f"columns unavailable (schema query failed{col_detail}; use sample_rows limit=1 to inspect columns)")
+        if failure_notes:
+            failure_str = "; ".join(failure_notes)
+            summary = f"Table '{table_name}' profile incomplete — {failure_str}."
         else:
-            col_note = ""
-        summary = f"Table '{table_name}' has {row_count} rows and {len(columns)} columns{scope_note}{col_note}."
+            summary = f"Table '{table_name}' has {row_count} rows and {len(columns)} columns{scope_note}."
         provenance = self._make_provenance(f"profile:{table_name}", engine_type=engine_type)
         result = {"step_type": step_type, "summary": summary, "artifact_id": artifact_id, "profile": artifact}
         self._insert_step(step_id, session_id, step_type, summary, result, provenance=provenance)
