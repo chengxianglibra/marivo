@@ -58,15 +58,16 @@ class ExtractorRegistryTests(unittest.TestCase):
         for v in mapping.values():
             self.assertIsInstance(v, ObservationExtractor)
 
-    def test_default_registry_has_five_extractors(self) -> None:
+    def test_default_registry_has_six_extractors(self) -> None:
         items = _default_registry.list_all()
-        self.assertEqual(len(items), 5)
+        self.assertEqual(len(items), 6)
         names = {item["name"] for item in items}
         self.assertIn("comparison_rows", names)
         self.assertIn("aggregate_rows", names)
         self.assertIn("funnel_rows", names)
         self.assertIn("anomaly_rows", names)
         self.assertIn("contribution_shift_rows", names)
+        self.assertIn("correlation_observations", names)
 
 
 class FunnelExtractorTests(unittest.TestCase):

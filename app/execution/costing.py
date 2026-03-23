@@ -45,7 +45,8 @@ class CostModel:
         subject = f"step:{step.index}"
 
         if table_name is None:
-            if step.step_type == "synthesize_findings":
+            _ARTIFACT_ONLY_STEPS = frozenset({"synthesize_findings", "correlate_metrics"})
+            if step.step_type in _ARTIFACT_ONLY_STEPS:
                 return CostEstimate(
                     subject=subject,
                     estimated_rows=0,

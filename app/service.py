@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -14,6 +15,7 @@ from app.analysis_core.compiler import compile_step
 from app.analysis_core.executor import execute_compiled
 from app.analysis_core.ir import AnalysisStepIR, from_legacy_step
 from app.evidence_engine import EvidencePipeline
+from app.evidence_engine.causal_checkers import _pearson_correlation, _rank, _spearman_correlation
 from app.evidence_engine.synthesizers.default import DefaultClaimSynthesizer
 from app.evidence_engine.readiness import compute_readiness, load_live_claims
 from app.execution.feedback import compile_failure_from_error
@@ -1008,6 +1010,221 @@ class SemanticLayerService:
         self._insert_step(step_id, session_id, step_type, summary, result, provenance=provenance)
         return result
 
+    # ── Artifact-to-artifact helpers ──────────────────────────────────────────
+
+    def _load_artifact_rows(
+        self,
+        session_id: str,
+        artifact_id: str | None = None,
+        step_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Load artifact content as a list of row dicts, scoped to session_id."""
+        if artifact_id is None and step_id is None:
+            raise ValueError("Provide either artifact_id or step_id")
+        if artifact_id is None:
+            row = self.metadata.query_one(
+                "SELECT artifact_id FROM artifacts WHERE session_id = ? AND step_id = ? "
+                "ORDER BY created_at DESC LIMIT 1",
+                [session_id, step_id],
+            )
+            if row is None:
+                raise ValueError(f"No artifact found for step_id={step_id!r} in session {session_id!r}")
+            artifact_id = str(row["artifact_id"])
+        row = self.metadata.query_one(
+            "SELECT content_json FROM artifacts WHERE artifact_id = ? AND session_id = ?",
+            [artifact_id, session_id],
+        )
+        if row is None:
+            raise ValueError(f"Artifact {artifact_id!r} not found in session {session_id!r}")
+        content = json.loads(str(row["content_json"]))
+        if isinstance(content, list):
+            return [dict(r) for r in content]
+        return [dict(content)]
+
+    def _run_correlate_metrics(self, session_id: str, params: dict[str, Any]) -> dict[str, Any]:
+        """Compute Spearman/Pearson correlation between two artifact series.
+
+        Required params:
+            left_artifact_id or left_step_id: source of series A
+            right_artifact_id or right_step_id: source of series B
+            left_value_column: numeric column in series A
+            right_value_column: numeric column in series B
+            join_on: shared key column to align both series
+        Optional params:
+            method: "spearman" (default) | "pearson" | "both"
+            min_pairs: minimum matched rows required (default: 3)
+            left_metric: label for series A metric (default: left_value_column)
+            right_metric: label for series B metric (default: right_value_column)
+        """
+        left_artifact_id = params.get("left_artifact_id")
+        left_step_id = params.get("left_step_id")
+        right_artifact_id = params.get("right_artifact_id")
+        right_step_id = params.get("right_step_id")
+        if not left_artifact_id and not left_step_id:
+            raise ValueError("correlate_metrics requires 'left_artifact_id' or 'left_step_id'")
+        if not right_artifact_id and not right_step_id:
+            raise ValueError("correlate_metrics requires 'right_artifact_id' or 'right_step_id'")
+
+        left_value_column = params.get("left_value_column")
+        right_value_column = params.get("right_value_column")
+        join_on = params.get("join_on")
+        if not left_value_column:
+            raise ValueError("correlate_metrics requires 'left_value_column'")
+        if not right_value_column:
+            raise ValueError("correlate_metrics requires 'right_value_column'")
+        if not join_on:
+            raise ValueError("correlate_metrics requires 'join_on'")
+
+        method = str(params.get("method", "spearman")).lower()
+        min_pairs = int(params.get("min_pairs", 3))
+        left_metric = params.get("left_metric")
+        right_metric = params.get("right_metric")
+        if not left_metric:
+            raise ValueError(
+                "correlate_metrics requires 'left_metric' param. "
+                "Set it to match the metric name used in the source aggregate_query step "
+                "(e.g., the 'metric' param passed to aggregate_query, or 'aggregate' if omitted)."
+            )
+        if not right_metric:
+            raise ValueError(
+                "correlate_metrics requires 'right_metric' param. "
+                "Set it to match the metric name used in the source aggregate_query step."
+            )
+        left_scope_slice = params.get("left_scope_slice", {})
+        right_scope_slice = params.get("right_scope_slice", {})
+
+        left_rows = self._load_artifact_rows(
+            session_id, artifact_id=left_artifact_id, step_id=left_step_id
+        )
+        right_rows = self._load_artifact_rows(
+            session_id, artifact_id=right_artifact_id, step_id=right_step_id
+        )
+
+        # Extract dates from both series for observed_window (union, not intersection)
+        left_dates: list[date] = []
+        right_dates: list[date] = []
+        for r in left_rows:
+            key = str(r.get(join_on, ""))
+            d = _try_parse_date(key)
+            if d is not None:
+                left_dates.append(d)
+        for r in right_rows:
+            key = str(r.get(join_on, ""))
+            d = _try_parse_date(key)
+            if d is not None:
+                right_dates.append(d)
+        all_dates = left_dates + right_dates
+
+        # Inner-join on join_on key
+        right_index: dict[str, dict[str, Any]] = {}
+        for r in right_rows:
+            key = str(r.get(join_on, ""))
+            if key:
+                right_index[key] = r
+
+        xs: list[float] = []
+        ys: list[float] = []
+        join_keys: list[str] = []
+        for lr in left_rows:
+            key = str(lr.get(join_on, ""))
+            if key and key in right_index:
+                rr = right_index[key]
+                try:
+                    xv = float(lr[left_value_column])
+                    yv = float(rr[right_value_column])
+                except (KeyError, TypeError, ValueError):
+                    continue
+                xs.append(xv)
+                ys.append(yv)
+                join_keys.append(key)
+
+        n = len(xs)
+        if n < min_pairs:
+            raise ValueError(
+                f"correlate_metrics: only {n} matched pairs on '{join_on}' "
+                f"(minimum {min_pairs}). Check that both artifacts share values in '{join_on}' "
+                f"and that '{left_value_column}' / '{right_value_column}' are numeric."
+            )
+
+        # Compute statistics
+        results: dict[str, Any] = {"n": n, "method": method, "join_on": join_on,
+                                    "left_metric": left_metric, "right_metric": right_metric}
+        if method in ("spearman", "both"):
+            rho_s = _spearman_correlation(xs, ys)
+            p_s = _correlation_p_value(rho_s, n)
+            results["rho"] = rho_s
+            results["p_value"] = p_s
+            if method == "both":
+                results["spearman_rho"] = rho_s
+                results["spearman_p_value"] = p_s
+        if method in ("pearson", "both"):
+            rho_p = _pearson_correlation(xs, ys)
+            p_p = _correlation_p_value(rho_p, n)
+            if method == "pearson":
+                results["rho"] = rho_p
+                results["p_value"] = p_p
+            else:
+                results["pearson_rho"] = rho_p
+                results["pearson_p_value"] = p_p
+
+        # Derive observed_window from union of dates from both series
+        observed_window: dict[str, Any] | None = None
+        if all_dates:
+            observed_window = {
+                "start": str(min(all_dates)),
+                "end": str(max(all_dates)),
+                "granularity": "day",
+            }
+            results["observed_window"] = observed_window
+            results["left_series_size"] = len(left_rows)
+            results["right_series_size"] = len(right_rows)
+            results["matched_pairs"] = n
+
+        # Insert artifact
+        step_type = "correlate_metrics"
+        step_id = self._new_step_id()
+        artifact_id = self._insert_artifact(
+            session_id, step_id, "correlation",
+            f"{left_metric}_vs_{right_metric}_correlation",
+            [results],
+        )
+
+        # Extract observations
+        context: dict[str, Any] = {
+            "left_metric": left_metric,
+            "right_metric": right_metric,
+            "join_on": join_on,
+            "left_scope_slice": left_scope_slice,
+            "right_scope_slice": right_scope_slice,
+        }
+        observations = self.evidence_pipeline.extract_observations(
+            "correlation_observations", [results], context=context
+        )
+        self._annotate_temporal(observations, session_id, observed_window)
+        for observation in observations:
+            self._insert_observation(session_id, step_id, observation)
+
+        rho = results.get("rho", 0.0)
+        p_value = results.get("p_value", 1.0)
+        summary = (
+            f"Correlation between '{left_metric}' and '{right_metric}' over {n} paired "
+            f"observations on '{join_on}': ρ={rho:.3f}, p={p_value:.4f} ({method})."
+        )
+        if observed_window:
+            summary += f" Window: {observed_window['start']} – {observed_window['end']}."
+
+        provenance = self._make_provenance(engine_type="artifact_only")
+        result: dict[str, Any] = {
+            "step_type": step_type,
+            "summary": summary,
+            "artifact_id": artifact_id,
+            "correlation": results,
+        }
+        if observations:
+            result["observations"] = observations
+        self._insert_step(step_id, session_id, step_type, summary, result, provenance=provenance)
+        return result
+
     def _run_synthesis(self, session_id: str) -> dict[str, Any]:
         step_type = "synthesize_findings"
         step_id = self._new_step_id()
@@ -1511,6 +1728,45 @@ class SemanticLayerService:
 
 def default_db_path() -> Path:
     return Path(__file__).resolve().parents[1] / "data" / "mvp.duckdb"
+
+
+def _norm_cdf(z: float) -> float:
+    """Dependency-free approximation of the standard normal CDF (Hart, 1968)."""
+    # Abramowitz & Stegun 26.2.17 approximation; max error < 7.5e-8
+    a = abs(z) / math.sqrt(2.0)
+    t = 1.0 / (1.0 + 0.3275911 * a)
+    poly = t * (0.254829592 + t * (-0.284496736 + t * (1.421413741 + t * (-1.453152027 + t * 1.061405429))))
+    cdf = 0.5 * (1.0 + math.erf(a))  # use erf from math (stdlib, no deps)
+    return cdf if z >= 0 else 1.0 - cdf
+
+
+def _correlation_p_value(rho: float, n: int) -> float:
+    """Two-tailed p-value for a Pearson/Spearman correlation via t-distribution approximation."""
+    if n <= 2:
+        return 1.0
+    denom = 1.0 - rho * rho
+    if denom <= 0.0:
+        return 0.0
+    t_stat = rho * math.sqrt((n - 2) / denom)
+    # Two-tailed p-value using normal approximation (adequate for n >= 3)
+    return 2.0 * (1.0 - _norm_cdf(abs(t_stat)))
+
+
+def _try_parse_date(value: str) -> "date | None":
+    """Try to parse a string as a date (YYYYMMDD or ISO 8601); return None on failure."""
+    import re
+    value = value.strip()
+    if re.fullmatch(r"\d{8}", value):
+        try:
+            return date(int(value[:4]), int(value[4:6]), int(value[6:8]))
+        except ValueError:
+            return None
+    for fmt in ("%Y-%m-%d", "%Y/%m/%d"):
+        try:
+            return datetime.strptime(value, fmt).date()
+        except ValueError:
+            continue
+    return None
 
 
 class _ServiceWorkflowStepExecutor:
