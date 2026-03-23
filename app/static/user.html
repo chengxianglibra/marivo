@@ -95,6 +95,20 @@
 
 /* Graph container override for catalog */
 #cat-graph-vis { min-height: 400px; }
+
+/* Causal basis inline panel (M-10) */
+.causal-basis-block { margin-top: var(--space-sm); padding: var(--space-sm) var(--space-md); background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-md); font-size: var(--font-size-xs); }
+.causal-basis-block .cb-label { font-weight: 600; color: var(--color-text-secondary); margin-bottom: 2px; }
+
+/* Reflection context panel (M-11) */
+.reflection-panel { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: var(--space-lg); margin-bottom: var(--space-md); }
+.reflection-panel h3 { margin: 0 0 var(--space-md); font-size: var(--font-size-base); font-weight: 600; }
+
+/* Evidence gap list (M-11) */
+.gap-row { display: flex; flex-direction: column; gap: 2px; padding: var(--space-sm) 0; border-bottom: 1px solid var(--color-border); }
+.gap-row:last-child { border-bottom: none; }
+.gap-row .gap-title { font-weight: 500; font-size: var(--font-size-sm); }
+.gap-row .gap-meta { font-size: var(--font-size-xs); color: var(--color-text-muted); }
 </style>
 </head>
 <body>
@@ -254,6 +268,10 @@ const localApi = {
   estimateCosts: (sid, pid) => localApi._fetch(`/sessions/${sid}/plans/${pid}/estimate-costs`, { method: 'POST' }),
   budgetCheck: (sid, pid) => localApi._fetch(`/sessions/${sid}/plans/${pid}/budget-check`),
   explainPlan: (sid, pid) => localApi._fetch(`/sessions/${sid}/plans/${pid}/explain`),
+  // Reflection Context (M-11)
+  getReflectionContext: (id, planId) => localApi._fetch(`/sessions/${id}/reflection-context` + (planId ? `?plan_id=${encodeURIComponent(planId)}` : '')),
+  // Plan Patch (M-11)
+  patchPlan: (sid, pid, patch) => localApi._fetch(`/sessions/${sid}/plans/${pid}/patch`, { method: 'POST', body: JSON.stringify(patch) }),
   // Jobs
   listJobs: (params) => localApi._fetch('/jobs' + (params ? '?' + new URLSearchParams(params) : '')),
   submitJob: (d) => localApi._fetch('/jobs', { method: 'POST', body: JSON.stringify(d) }),
@@ -597,6 +615,21 @@ async function showSessionDetail(id) {
           <div class="form-group"><label>Params (JSON)</label><textarea id="sess-step-params" style="min-height:60px;">{}</textarea></div>
         </div>
         <div id="sess-step-result"></div>
+      </div>
+
+      <!-- Reflection Context (M-11) -->
+      <div class="card">
+        <div class="collapsible-header" id="reflection-toggle">
+          <h2>Reflection Context</h2>
+          <span class="chevron">&#9654;</span>
+        </div>
+        <div class="collapsible-body" id="reflection-body">
+          <div class="inline-form" style="margin-top:var(--space-md);">
+            <div class="form-group"><label>Plan ID (optional)</label><input id="reflection-plan-id" placeholder="plan_..."></div>
+            <button class="btn btn-primary" id="reflection-load-btn">Load Reflection</button>
+          </div>
+          <div id="reflection-content"></div>
+        </div>
       </div>`;
 
     $('#sess-back2').onclick = () => renderers.sessions();
@@ -627,6 +660,32 @@ async function showSessionDetail(id) {
       tlHtml += '</div>';
       timelineArea.innerHTML = tlHtml;
     }
+
+    // Reflection Context toggle + loader
+    const reflectionToggle = $('#reflection-toggle');
+    const reflectionBody = $('#reflection-body');
+    if (reflectionToggle && reflectionBody) {
+      reflectionToggle.onclick = () => {
+        reflectionToggle.classList.toggle('open');
+        reflectionBody.classList.toggle('open');
+      };
+    }
+    $('#reflection-load-btn').onclick = async () => {
+      const planId = $('#reflection-plan-id').value.trim() || null;
+      const rArea = $('#reflection-content');
+      rArea.innerHTML = '<div style="text-align:center;padding:var(--space-lg);"><span class="spinner"></span></div>';
+      try {
+        const ctx = await localApi.getReflectionContext(id, planId);
+        renderReflectionContext(rArea, ctx);
+      } catch (err) {
+        if (err.message && err.message.includes('404')) {
+          rArea.innerHTML = '<p class="empty">Reflection Context is disabled. Enable it via <code>reflection.enabled</code> in config.</p>';
+        } else {
+          rArea.innerHTML = '';
+          toast(err.message, 'error');
+        }
+      }
+    };
 
     $('#sess-run-step-btn').onclick = async () => {
       const stepType = $('#sess-step-type').value;
@@ -764,6 +823,89 @@ function renderStepResult(result) {
 }
 
 // ════════════════════════════════════════════════════════════
+// ── Reflection Context Renderer (M-11) ─────────────────────
+// ════════════════════════════════════════════════════════════
+
+function renderReflectionContext(area, ctx) {
+  let html = '';
+
+  // ── Readiness signal (reuse existing renderer) ────────────
+  if (ctx.readiness_signal) {
+    html += renderReadinessSignal(ctx.readiness_signal);
+  }
+
+  // ── Readiness score ───────────────────────────────────────
+  if (ctx.readiness_score != null) {
+    const score = ctx.readiness_score;
+    const scoreColor = score >= 0.7 ? 'var(--color-success)' : score >= 0.3 ? 'var(--color-warning)' : 'var(--color-error)';
+    html += `<div style="margin-bottom:var(--space-md);display:flex;align-items:center;gap:var(--space-md);">
+      <span style="font-size:var(--font-size-sm);color:var(--color-text-secondary);">Readiness Score</span>
+      <span style="font-size:1.5rem;font-weight:700;color:${scoreColor};">${score.toFixed(2)}</span>
+    </div>`;
+  }
+
+  // ── Tentative claims ──────────────────────────────────────
+  const tentative = ctx.tentative_claims || [];
+  html += `<div class="card" style="margin-bottom:var(--space-md);">
+    <h3 style="font-size:var(--font-size-base);font-weight:600;margin:0 0 var(--space-sm);">Tentative Claims (${tentative.length})</h3>`;
+  if (tentative.length) {
+    html += `<table><thead><tr><th>Claim ID</th><th>Inference</th><th>Confidence</th><th>Confounders</th></tr></thead><tbody>`;
+    tentative.forEach(c => {
+      const conf = typeof c.confidence === 'number' ? c.confidence : 0;
+      const pct = Math.round(conf * 100);
+      const barColor = confidenceColor(conf);
+      const confounders = (c.unresolved_confounders || []).join('; ') || '—';
+      html += `<tr>
+        <td><code>${esc(truncate(c.claim_id || '', 20))}</code></td>
+        <td><span class="badge badge-gray">${esc(c.inference_level || 'L0')}</span></td>
+        <td style="min-width:120px;">
+          <div style="display:flex;align-items:center;gap:var(--space-xs);">
+            <div class="progress-bar" style="flex:1;"><div class="fill ${barColor}" style="width:${pct}%"></div></div>
+            <span style="font-size:var(--font-size-xs);font-weight:600;min-width:30px;">${conf.toFixed(2)}</span>
+          </div>
+        </td>
+        <td style="font-size:var(--font-size-xs);color:var(--color-text-muted);">${esc(truncate(confounders, 80))}</td>
+      </tr>`;
+    });
+    html += '</tbody></table>';
+  } else {
+    html += '<p class="empty">No tentative claims.</p>';
+  }
+  html += '</div>';
+
+  // ── Evidence gaps ─────────────────────────────────────────
+  const gaps = ctx.evidence_gaps || [];
+  html += `<div class="card" style="margin-bottom:var(--space-md);">
+    <h3 style="font-size:var(--font-size-base);font-weight:600;margin:0 0 var(--space-sm);">Evidence Gaps (${gaps.length})</h3>`;
+  if (gaps.length) {
+    gaps.forEach(g => {
+      const confounders = (g.unresolved_confounders || []).join('; ') || '—';
+      html += `<div class="gap-row">
+        <div class="gap-title"><code>${esc(truncate(g.rec_id || '', 20))}</code> &nbsp;<span class="badge badge-gray">${esc(g.inference_level || 'L0')}</span></div>
+        <div class="gap-meta">Confounders: ${esc(confounders)}</div>
+        ${g.suggested_validation ? `<div class="gap-meta" style="color:var(--color-primary);">Suggested: ${esc(g.suggested_validation)}</div>` : ''}
+      </div>`;
+    });
+  } else {
+    html += '<p class="empty">No evidence gaps.</p>';
+  }
+  html += '</div>';
+
+  // ── Available step types ──────────────────────────────────
+  const stepTypes = ctx.available_step_types || [];
+  if (stepTypes.length) {
+    html += `<div class="card" style="margin-bottom:0;">
+      <h3 style="font-size:var(--font-size-base);font-weight:600;margin:0 0 var(--space-sm);">Available Step Types</h3>
+      <div style="display:flex;flex-wrap:wrap;gap:var(--space-xs);">
+        ${stepTypes.map(t => `<span class="badge badge-gray">${esc(t)}</span>`).join('')}
+      </div>
+    </div>`;
+  }
+
+  area.innerHTML = html;
+}
+
+// ════════════════════════════════════════════════════════════
 // ── Evidence Tab ───────────────────────────────────────────
 // ════════════════════════════════════════════════════════════
 renderers.evidence = async () => {
@@ -854,7 +996,7 @@ function renderEvidence(area, ev) {
   // ── Observations with expandable rows ────────────────────
   html += `<div class="card"><h2>Observations (${observations.length})</h2>`;
   if (observations.length) {
-    html += `<table><thead><tr><th></th><th>ID</th><th>Type</th><th>Metric</th><th>Slice</th><th>Significance</th></tr></thead><tbody>`;
+    html += `<table><thead><tr><th></th><th>#</th><th>ID</th><th>Type</th><th>Metric</th><th>Slice</th><th>Window</th><th>Significance</th></tr></thead><tbody>`;
     observations.forEach((o, idx) => {
       const subj = o.subject || {};
       const metric = subj.metric || '';
@@ -862,15 +1004,19 @@ function renderEvidence(area, ev) {
       const sliceStr = typeof sliceObj === 'string' ? sliceObj : Object.entries(sliceObj).map(([k,v]) => `${k}=${v}`).join(', ');
       const sig = o.significance || {};
       const sigStr = sig.practical_significance ? 'significant' : sig.practical_significance === false ? 'not significant' : '';
+      const win = o.observed_window;
+      const winStr = win ? esc((win.start || '') + ' – ' + (win.end || '')) : '';
       html += `<tr>
         <td><button class="expand-btn" data-expand="obs-${idx}">&#9654;</button></td>
+        <td>${o.temporal_order != null ? o.temporal_order : ''}</td>
         <td><code>${esc(truncate(o.observation_id || '', 20))}</code></td>
         <td>${statusBadge(o.type || '')}</td>
         <td>${esc(metric)}</td>
         <td>${esc(sliceStr)}</td>
+        <td style="white-space:nowrap;font-size:var(--font-size-xs);">${winStr}</td>
         <td>${statusBadge(sigStr)}</td>
       </tr>`;
-      html += `<tr class="expand-row" id="obs-${idx}"><td colspan="6">${jsonPre(o)}</td></tr>`;
+      html += `<tr class="expand-row" id="obs-${idx}"><td colspan="8">${jsonPre(o)}</td></tr>`;
     });
     html += '</tbody></table>';
   } else { html += '<p class="empty">No observations.</p>'; }
@@ -928,6 +1074,11 @@ function renderEvidence(area, ev) {
           <span>Impact: ${esc(truncate(r.expected_impact || r.impact || '', 60))}</span>
         </div>
         ${r.validation_metric ? `<div style="margin-top:var(--space-xs);font-size:var(--font-size-xs);color:var(--color-text-muted);">Validation: ${esc(typeof r.validation_metric === 'object' ? (r.validation_metric.primary_metric || '') + (r.validation_metric.secondary_metric ? ' / ' + r.validation_metric.secondary_metric : '') : String(r.validation_metric))}</div>` : ''}
+        ${r.causal_basis ? `<div class="causal-basis-block">
+          <div class="cb-label">Causal Basis</div>
+          <div>Level: <span class="badge badge-gray">${esc(r.causal_basis.inference_level || 'L0')}</span>${r.causal_basis.unresolved_confounders && r.causal_basis.unresolved_confounders.length ? `&nbsp;&middot;&nbsp;Confounders: ${esc(r.causal_basis.unresolved_confounders.join('; '))}` : ''}</div>
+          ${r.causal_basis.suggested_validation ? `<div style="margin-top:2px;color:var(--color-text-secondary);">Next step: ${esc(r.causal_basis.suggested_validation)}</div>` : ''}
+        </div>` : ''}
       </div>`;
     });
   } else { html += '<p class="empty">No recommendations.</p>'; }
@@ -942,7 +1093,15 @@ function renderEvidence(area, ev) {
     <div class="collapsible-body" id="ev-edges-body">`;
   if (edges.length) {
     edges.forEach(e => {
-      const edgeTypeCls = e.edge_type === 'supports' ? 'badge-success' : e.edge_type === 'contradicts' ? 'badge-error' : 'badge-info';
+      const edgeTypeCls = e.edge_type === 'supports' ? 'badge-success'
+        : e.edge_type === 'contradicts' ? 'badge-error'
+        : e.edge_type === 'justifies' ? 'badge-info'
+        : e.edge_type === 'correlates_with' ? 'badge-gray'
+        : e.edge_type === 'temporally_precedes' ? 'badge-warning'
+        : e.edge_type === 'mechanistically_explains' ? 'badge-success'
+        : e.edge_type === 'eliminates_alternative' ? 'badge-info'
+        : e.edge_type === 'experimentally_confirms' ? 'badge-success'
+        : 'badge-gray';
       html += `<div class="connection-row">
         <code style="font-size:var(--font-size-xs);">${esc(truncate(e.from_id || '', 20))}</code>
         <span class="connection-arrow">&rarr;</span>
@@ -1121,6 +1280,9 @@ async function showPlanDetail(sessionId, planId) {
     } else if (status === 'completed' || status === 'failed') {
       actionsHtml = `<button class="btn" id="plan-explain-btn">Explain</button>`;
     }
+    if (['draft', 'validated', 'approved', 'failed', 'partial'].includes(status)) {
+      actionsHtml += ` <button class="btn" id="plan-patch-btn">Patch Plan</button>`;
+    }
 
     area.innerHTML = `
       <div class="card">
@@ -1226,7 +1388,41 @@ async function showPlanDetail(sessionId, planId) {
     if (explainBtn) explainBtn.onclick = async () => {
       try { const r = await localApi.explainPlan(sessionId, planId); resultArea.innerHTML = '<div class="card"><h2>Plan Explanation</h2>' + jsonPre(r) + '</div>'; } catch (err) { toast(err.message, 'error'); }
     };
+
+    const patchBtn = $('#plan-patch-btn');
+    if (patchBtn) patchBtn.onclick = () => openPatchPlanModal(sessionId, planId);
   } catch (err) { area.innerHTML = ''; toast(err.message, 'error'); }
+}
+
+function openPatchPlanModal(sessionId, planId) {
+  openModal('Patch Plan',
+    `<div class="form-group">
+      <label>Add Steps <span style="font-size:var(--font-size-xs);color:var(--color-text-muted);">(JSON array of step dicts, e.g. [{"step_type":"profile_table","params":{}}])</span></label>
+      <textarea id="f-patch-add" style="min-height:80px;font-family:var(--font-mono);font-size:var(--font-size-xs);">[]</textarea>
+    </div>
+    <div class="form-group">
+      <label>Modify Steps <span style="font-size:var(--font-size-xs);color:var(--color-text-muted);">(JSON array of {index, params} to merge, e.g. [{"index":0,"params":{"limit":5}}])</span></label>
+      <textarea id="f-patch-modify" style="min-height:60px;font-family:var(--font-mono);font-size:var(--font-size-xs);">[]</textarea>
+    </div>
+    <div class="form-group">
+      <label>Skip Steps <span style="font-size:var(--font-size-xs);color:var(--color-text-muted);">(comma-separated step indices, e.g. 1,2)</span></label>
+      <input id="f-patch-skip" placeholder="">
+    </div>`,
+    `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" id="f-patch-submit">Apply Patch</button>`);
+
+  $('#f-patch-submit').onclick = async () => {
+    try {
+      const add_steps = parseJSON($('#f-patch-add').value, []);
+      const modify_steps = parseJSON($('#f-patch-modify').value, []);
+      const skipStr = $('#f-patch-skip').value.trim();
+      const skip_steps = skipStr ? skipStr.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n)) : [];
+      const patch = { add_steps, modify_steps, skip_steps };
+      await localApi.patchPlan(sessionId, planId, patch);
+      toast('Patch applied', 'success');
+      closeModal();
+      showPlanDetail(sessionId, planId);
+    } catch (err) { toast(err.message, 'error'); }
+  };
 }
 
 // ════════════════════════════════════════════════════════════
