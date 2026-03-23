@@ -1248,5 +1248,82 @@ class ColumnUnitMetadataTests(unittest.TestCase):
             self.assertEqual(sample_result["columns_metadata"][col_name]["unit"], "seconds")
 
 
+class ConstraintsAppliedTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        db_path = Path(cls.temp_dir.name) / "test.duckdb"
+        get_seeded_duckdb_path(db_path)
+        cls.client = TestClient(create_app(db_path))
+        # Sync source so profile_table works
+        sources = cls.client.get("/sources").json()
+        if sources:
+            cls.client.post(f"/sources/{sources[0]['source_id']}/sync")
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.client.close()
+        cls.temp_dir.cleanup()
+
+    def test_no_constraints_returns_empty(self) -> None:
+        """Session with no constraints → profile_table returns empty applied/skipped."""
+        session_id = self.client.post(
+            "/sessions", json={"goal": "No constraints test."}
+        ).json()["session_id"]
+        resp = self.client.post(
+            f"/sessions/{session_id}/steps/profile_table",
+            json={"table_name": "analytics.watch_events"},
+        )
+        self.assertEqual(resp.status_code, 200)
+        ca = resp.json()["constraints_applied"]
+        self.assertEqual(ca["applied"], [])
+        self.assertEqual(ca["skipped"], [])
+        self.assertIsNone(ca["note"])
+
+    def test_profile_table_skips_constraints(self) -> None:
+        """Session with raw_filter + constraints → profile_table skips them."""
+        session_id = self.client.post(
+            "/sessions",
+            json={
+                "goal": "Constrained profile test.",
+                "constraints": {"platform": "ios"},
+                "raw_filter": "region = 'US'",
+            },
+        ).json()["session_id"]
+        resp = self.client.post(
+            f"/sessions/{session_id}/steps/profile_table",
+            json={"table_name": "analytics.watch_events"},
+        )
+        self.assertEqual(resp.status_code, 200)
+        ca = resp.json()["constraints_applied"]
+        self.assertEqual(ca["applied"], [])
+        self.assertEqual(len(ca["skipped"]), 2)
+        self.assertIsNotNone(ca["note"])
+        self.assertIn("profile_table", ca["note"])
+
+    def test_aggregate_query_applies_constraints(self) -> None:
+        """Session with raw_filter → aggregate_query lists it in applied."""
+        session_id = self.client.post(
+            "/sessions",
+            json={
+                "goal": "Constrained aggregate test.",
+                "raw_filter": "platform = 'android'",
+            },
+        ).json()["session_id"]
+        resp = self.client.post(
+            f"/sessions/{session_id}/steps/aggregate_query",
+            json={
+                "table_name": "analytics.watch_events",
+                "select": ["platform", "count(*) as cnt"],
+                "group_by": ["platform"],
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        ca = resp.json()["constraints_applied"]
+        self.assertEqual(ca["skipped"], [])
+        self.assertEqual(len(ca["applied"]), 1)
+        self.assertIn("raw_filter:", ca["applied"][0])
+
+
 if __name__ == "__main__":
     unittest.main()
