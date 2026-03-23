@@ -650,6 +650,18 @@ class SemanticLayerService:
                 "date_value": profile_date_value,
                 "scoped_row_count": col_profiles[0]["total"] if col_profiles and "total" in col_profiles[0] else None,
             }
+        # If the row-count query failed and no columns were found, the table
+        # does not exist (or is otherwise completely inaccessible).  Raise so
+        # that plan execution marks this step as failed.  When a table exists
+        # but COUNT(*) is merely rejected (e.g. Trino mandatory partition
+        # filter), the info_schema columns query still returns rows, so
+        # `columns` will be non-empty and we fall through to the partial
+        # profile path.
+        if row_count_error is not None and not columns:
+            raise ValueError(
+                f"Table '{table_name}' is inaccessible: {row_count_error}"
+            )
+
         profile_errors: dict[str, str] = {}
         if row_count_error is not None:
             profile_errors["row_count"] = row_count_error
