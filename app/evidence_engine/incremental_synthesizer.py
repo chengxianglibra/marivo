@@ -39,7 +39,8 @@ class IncrementalSynthesizer:
     def process(self, session_id: str) -> dict[str, Any]:
         """Process all unattributed observations and update tentative claims.
 
-        Returns a summary: ``{claims_created, claims_updated, contradictions_found}``.
+        Returns a summary:
+        ``{claims_created, claims_updated, contradictions_found, causal_upgrades}``.
         """
         observations = self._load_observations(session_id)
         tentative_claims = self._load_tentative_claims(session_id)
@@ -72,10 +73,14 @@ class IncrementalSynthesizer:
                 self._recalculate_and_update(matched, observations)
                 claims_updated += 1
 
+        # Run causal checkers after all claims have been created/updated
+        causal_upgrades = self._run_causal_checkers(tentative_claims, observations)
+
         return {
             "claims_created": claims_created,
             "claims_updated": claims_updated,
             "contradictions_found": contradictions_found,
+            "causal_upgrades": causal_upgrades,
         }
 
     # ── Scope + contradiction logic ───────────────────────────────────────────
@@ -269,28 +274,93 @@ class IncrementalSynthesizer:
 
     # ── Storage helpers ───────────────────────────────────────────────────────
 
+    def _run_causal_checkers(
+        self,
+        tentative_claims: list[dict[str, Any]],
+        all_observations: list[dict[str, Any]],
+    ) -> int:
+        """Run the causal checker chain and persist any inference_level upgrades.
+
+        Returns the number of claims that received at least one upgrade.
+        """
+        from app.evidence_engine.causal_checkers import get_default_registry
+        from app.evidence_engine.schemas import INFERENCE_LEVEL_ORDER
+
+        upgrades = get_default_registry().run_all(tentative_claims, all_observations, edges=[])
+        if not upgrades:
+            return 0
+
+        # Build a quick lookup of the in-memory claim state
+        claim_map = {c["claim_id"]: c for c in tentative_claims}
+
+        applied = 0
+        for upgrade in upgrades:
+            claim = claim_map.get(upgrade.claim_id)
+            if claim is None:
+                continue
+
+            current_level = claim.get("inference_level", "L0")
+            # Only upgrade, never downgrade
+            if (INFERENCE_LEVEL_ORDER.index(upgrade.new_level) >
+                    INFERENCE_LEVEL_ORDER.index(current_level)):
+                new_level = upgrade.new_level
+            else:
+                new_level = current_level
+
+            # Union tokens (preserve order, no duplicates)
+            existing_tokens: list[str] = claim.get("inference_justification", [])
+            new_tokens = list(dict.fromkeys(
+                existing_tokens + [t for t in upgrade.justification_tokens
+                                   if t not in existing_tokens]
+            ))
+            new_confidence = min(0.99, claim.get("confidence", 0.0) + upgrade.confidence_boost)
+
+            self._store.execute(
+                """
+                UPDATE claims
+                SET inference_level = ?,
+                    inference_justification_json = ?,
+                    confidence = ?
+                WHERE claim_id = ?
+                """,
+                [new_level, json.dumps(new_tokens), new_confidence, upgrade.claim_id],
+            )
+
+            # Keep in-memory state consistent for subsequent checkers in the same call
+            claim["inference_level"] = new_level
+            claim["inference_justification"] = new_tokens
+            claim["confidence"] = new_confidence
+            applied += 1
+
+        return applied
+
     def _load_observations(self, session_id: str) -> list[dict[str, Any]]:
         rows = self._store.query_rows(
             """
             SELECT observation_id, observation_type, subject_json, payload_json,
-                   significance_json, quality_json
+                   significance_json, quality_json,
+                   observed_window_json, temporal_order
             FROM observations
             WHERE session_id = ?
             ORDER BY created_at
             """,
             [session_id],
         )
-        return [
-            {
+        result = []
+        for row in rows:
+            obs: dict[str, Any] = {
                 "observation_id": row["observation_id"],
                 "type": row["observation_type"],
                 "subject": json.loads(row["subject_json"]),
                 "payload": json.loads(row["payload_json"]),
                 "significance": json.loads(row["significance_json"]),
                 "quality": json.loads(row["quality_json"]),
+                "temporal_order": row.get("temporal_order") or 0,
             }
-            for row in rows
-        ]
+            raw_window = row.get("observed_window_json")
+            obs["observed_window"] = json.loads(raw_window) if raw_window else None
+            result.append(obs)
+        return result
 
     def _load_tentative_claims(self, session_id: str) -> list[dict[str, Any]]:
         rows = self._store.query_rows(
