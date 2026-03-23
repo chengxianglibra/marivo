@@ -118,7 +118,7 @@ POST /sessions/{session_id}/steps/{step_type}
 
 Executes a typed analysis step within the session. Step parameters are provided in the request body. The response contains the step result, extracted observations, and provenance metadata.
 
-**Valid `step_type` values:** `compare_metric`, `profile_table`, `sample_rows`, `aggregate_query`, `synthesize_findings`
+**Valid `step_type` values:** `compare_metric`, `profile_table`, `sample_rows`, `aggregate_query`, `correlate_metrics`, `synthesize_findings`
 
 Session constraints are automatically merged into the WHERE clause for `compare_metric`, `sample_rows`, and `aggregate_query` steps.
 
@@ -309,6 +309,8 @@ POST /sessions/{session_id}/steps/sample_rows
 
 Execute an ad-hoc GROUP BY aggregation. Observations are extracted automatically from the result. Session constraints are auto-injected.
 
+**G-2 enhancement:** When a temporal column (e.g., `log_date`, `event_date`, `dt`) is present in `group_by`, observations automatically receive `observed_window` inferred from the slice key. This enables `TemporalPrecedenceChecker` to recognize time-ordered evidence and promote claims from L1 to L2.
+
 ```
 POST /sessions/{session_id}/steps/aggregate_query
 ```
@@ -336,6 +338,132 @@ POST /sessions/{session_id}/steps/aggregate_query
 | `order_by` | string | no | ORDER BY clause (e.g., `avg_watch_sec DESC`) |
 | `limit` | integer | no | Maximum rows (default: `100`) |
 | `extract_observations` | boolean | no | Extract observations from result rows (default: `true`). Set to `false` to skip. |
+| `observed_window_column` | string | no | Explicit column for `observed_window` inference (G-2). Default: auto-detect from temporal column names (`log_date`, `event_date`, `dt`, `date`, `day`, `hour`). |
+
+**Temporal column auto-detection (G-2):**
+
+When `observed_window_column` is not specified, the extractor checks for these column names in `group_by`:
+
+- **Day granularity:** `date`, `day`, `dt`, `log_date`, `event_date`, `partition_date`, `report_date`, `transaction_date`, `created_date`, `updated_date`
+- **Hour granularity:** `hour`, `dt_hour`, `log_hour`, `event_hour`, `report_hour`
+
+Supported temporal value formats: ISO date (`2024-01-15`), YYYYMMDD (`20240115`), ISO datetime (`2024-01-15T10:30:00`), `YYYY-MM-DD HH[:MM[:SS]]`.
+
+---
+
+### correlate_metrics
+
+Compute Spearman (and optionally Pearson) correlation between two numeric series from prior step artifacts. Emits a `correlation_result` observation that can trigger causal inference bonus tokens for L1+ claims.
+
+**Important:** This step operates on artifacts (outputs from previous `aggregate_query` steps), not on raw tables. It requires explicit metric names that match the claims you want to correlate.
+
+```
+POST /sessions/{session_id}/steps/correlate_metrics
+```
+
+**Request body:**
+
+```json
+{
+  "left_artifact_id": "art_abc123...",
+  "right_artifact_id": "art_def456...",
+  "left_value_column": "query_count",
+  "right_value_column": "failure_rate",
+  "join_on": "log_date",
+  "left_metric": "daily_query_count",
+  "right_metric": "daily_failure_rate",
+  "method": "spearman",
+  "min_pairs": 3,
+  "left_scope_slice": {"platform": "ios"},
+  "right_scope_slice": {"platform": "ios"}
+}
+```
+
+**Required parameters:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `left_artifact_id` or `left_step_id` | string | Artifact or step ID for the left series |
+| `right_artifact_id` or `right_step_id` | string | Artifact or step ID for the right series |
+| `left_value_column` | string | Numeric column in left series |
+| `right_value_column` | string | Numeric column in right series |
+| `join_on` | string | Shared key column to align both series (e.g., `log_date`) |
+| `left_metric` | string | Metric name for left series (must match claim's `scope.metric`) |
+| `right_metric` | string | Metric name for right series (must match claim's `scope.metric`) |
+
+**Optional parameters:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `method` | string | `"spearman"` | Correlation method: `"spearman"`, `"pearson"`, or `"both"` |
+| `min_pairs` | integer | `3` | Minimum matched pairs required (raises ValueError if not met) |
+| `left_scope_slice` | object | `{}` | Scope slice for left series (for claim matching) |
+| `right_scope_slice` | object | `{}` | Scope slice for right series (for claim matching) |
+
+**Response:**
+
+```json
+{
+  "step_id": "step_...",
+  "step_type": "correlate_metrics",
+  "status": "completed",
+  "summary": "Correlation between 'daily_query_count' and 'daily_failure_rate' over 22 paired observations on 'log_date': ρ=0.593, p=0.0034 (spearman).",
+  "artifact_id": "art_...",
+  "correlation": {
+    "n": 22,
+    "method": "spearman",
+    "join_on": "log_date",
+    "left_metric": "daily_query_count",
+    "right_metric": "daily_failure_rate",
+    "rho": 0.593,
+    "p_value": 0.0034,
+    "observed_window": {
+      "start": "2026-03-01",
+      "end": "2026-03-22",
+      "granularity": "day"
+    },
+    "left_series_size": 22,
+    "right_series_size": 22,
+    "matched_pairs": 22
+  },
+  "observations": [
+    {
+      "observation_id": "obs_...",
+      "type": "correlation_result",
+      "subject": {
+        "metric": "daily_failure_rate",
+        "slice": {},
+        "related_metric": "daily_query_count"
+      },
+      "payload": {
+        "rho": 0.593,
+        "p_value": 0.0034,
+        "n": 22,
+        "method": "spearman",
+        "left_metric": "daily_query_count",
+        "right_metric": "daily_failure_rate",
+        "join_on": "log_date"
+      },
+      "significance": {
+        "significant": true,
+        "strong": false
+      }
+    }
+  ]
+}
+```
+
+**Causal inference integration:**
+
+When `|rho| >= 0.7`, the `correlation_result` observation triggers `DoseResponseChecker` to add a bonus justification token to matching L1+ claims:
+
+- Matching criteria: claim's `scope.metric` equals `left_metric` or `right_metric`
+- If `scope_slice` is provided, claim's `scope.slice` must also match
+- Token: `dose_response_precomputed:ρ=0.xxx`
+
+**observed_window derivation:**
+
+The `observed_window` is derived from the **union** of date values in both series (not just matched rows). This represents the full time span of both artifact series.
 
 ---
 
@@ -495,7 +623,7 @@ Causal layer (assigned by causal checkers when inference level is upgraded):
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `observed_window` | object or null | `{start, end}` ISO dates for the time window observed. Populated for `compare_metric` and period-comparison `aggregate_query`; `null` for `profile_table` and plain aggregations. |
+| `observed_window` | object or null | `{start, end, granularity}` ISO dates/datetimes for the time window observed. Populated for `compare_metric`; inferred per-row for `aggregate_query` when a recognized temporal column (e.g. `date`, `event_date`, `log_date`, `hour`, `hour_slot`) appears in `group_by` (G-2). Null for `profile_table`, `sample_rows`, and aggregations with no temporal group-by column. |
 | `temporal_order` | integer | Sequential position of this observation within the session (1-based). Used for temporal ordering in the evidence graph. |
 
 **Claim `status` values:**
@@ -590,7 +718,7 @@ Requires `reflection.enabled: true` in `factum.yaml` (default: `true`).
       "unresolved_confounders": ["seasonal effects"]
     }
   ],
-  "available_step_types": ["compare_metric", "profile_table", "sample_rows", "aggregate_query", "synthesize_findings"]
+  "available_step_types": ["compare_metric", "profile_table", "sample_rows", "aggregate_query", "correlate_metrics", "synthesize_findings"]
 }
 ```
 

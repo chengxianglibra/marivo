@@ -41,7 +41,7 @@ Each step in a plan is a JSON object describing a typed step to execute:
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `step_id` | string | yes | Local identifier within the plan (unique, used for dependency references) |
-| `step_type` | string | yes | One of: `compare_metric`, `profile_table`, `sample_rows`, `aggregate_query`, `synthesize_findings` |
+| `step_type` | string | yes | One of: `compare_metric`, `profile_table`, `sample_rows`, `aggregate_query`, `correlate_metrics`, `synthesize_findings` |
 | `params` | object | no | Step parameters (same as direct step execution; see [Sessions & Steps](sessions.md)) |
 | `depends_on` | array[string] | no | `step_id` values that must complete before this step runs |
 | `description` | string | no | Human-readable description of the step's purpose |
