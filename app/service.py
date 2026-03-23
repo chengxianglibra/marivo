@@ -867,6 +867,8 @@ class SemanticLayerService:
             where: SQL WHERE clause expression
             order_by: SQL ORDER BY expression
             limit: max rows (default: 100)
+            extract_observations: extract observations from result (default: true)
+            observed_window_column: explicit column for observed_window inference (G-2)
         """
         table_name = params.get("table_name")
         if not table_name:
@@ -965,9 +967,11 @@ class SemanticLayerService:
                     "observation_type": params.get("observation_type", "metric_change"),
                     "metric": params.get("metric", "aggregate"),
                     "value_column": value_column,
+                    "observed_window_column": params.get("observed_window_column"),  # G-2: explicit override
                 },
             )
             # M-08: annotate temporal info. For compare_period, use the current window.
+            # G-2: Only set window if not already inferred by extractor from temporal column.
             agg_window: dict[str, Any] | None = None
             if compare_period and period_params:
                 agg_window = {
@@ -1622,10 +1626,14 @@ class SemanticLayerService:
         session_id: str,
         observed_window: dict[str, Any] | None,
     ) -> None:
-        """In-place: assign observed_window (when available) and temporal_order to each observation."""
+        """In-place: assign observed_window (when available) and temporal_order to each observation.
+
+        G-2: Only sets observed_window if not already present (preserves extractor-inferred windows).
+        """
         base = self._observation_count(session_id)
         for i, obs in enumerate(observations):
-            if observed_window is not None:
+            # G-2: Only set window if not already inferred by extractor
+            if observed_window is not None and "observed_window" not in obs:
                 obs["observed_window"] = observed_window
             obs["temporal_order"] = base + i
 

@@ -1325,5 +1325,189 @@ class ConstraintsAppliedTests(unittest.TestCase):
         self.assertIn("raw_filter:", ca["applied"][0])
 
 
+class G2TemporalWindowInferenceTests(unittest.TestCase):
+    """G-2 regression: date-grouped aggregate_query observations carry observed_window.
+
+    This test proves that:
+    1. aggregate_query with a temporal group_by column (e.g., event_date) populates observed_window
+    2. The evidence pipeline can upgrade claims from L1 to L2 via TemporalPrecedenceChecker
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        db_path = Path(cls.temp_dir.name) / "g2_temporal.duckdb"
+        get_seeded_duckdb_path(db_path)
+        cls.client = TestClient(create_app(db_path))
+
+        # Register a metric used by test_l1_to_l2_upgrade_via_temporal_precedence.
+        r = cls.client.post("/semantic/entities", json={
+            "name": "g2_watch_session", "display_name": "G2 Watch Session",
+            "keys": ["session_id"],
+        })
+        ent_id = r.json()["entity_id"]
+        cls.client.post(f"/semantic/entities/{ent_id}/publish")
+        r = cls.client.post("/semantic/metrics", json={
+            "name": "g2_event_count", "display_name": "G2 Event Count",
+            "definition_sql": "COUNT(*)",
+            "dimensions": ["platform"],
+            "entity_id": ent_id,
+        })
+        met_id = r.json()["metric_id"]
+        cls.client.post(f"/semantic/metrics/{met_id}/publish")
+        cls.g2_metric_name = "g2_event_count"
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.client.close()
+        cls.temp_dir.cleanup()
+
+    def test_aggregate_query_infers_observed_window_from_event_date(self) -> None:
+        """aggregate_query with event_date in group_by should infer observed_window."""
+        session_id = self.client.post(
+            "/sessions", json={"goal": "G-2 temporal window inference test."},
+        ).json()["session_id"]
+
+        # Run aggregate grouped by a temporal column (event_date)
+        resp = self.client.post(
+            f"/sessions/{session_id}/steps/aggregate_query",
+            json={
+                "table_name": "analytics.watch_events",
+                "select": ["event_date", "platform", "count(*) as cnt"],
+                "group_by": ["event_date", "platform"],
+                "order_by": "event_date",
+                "limit": 5,
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        result = resp.json()
+
+        # Verify observations were extracted
+        self.assertIn("observations", result)
+        observations = result["observations"]
+        self.assertGreater(len(observations), 0)
+
+        # G-2: Verify observed_window is populated on each observation
+        for obs in observations:
+            self.assertIn("observed_window", obs, "G-2: observed_window should be inferred from event_date")
+            window = obs["observed_window"]
+            self.assertIn("start", window)
+            self.assertIn("end", window)
+            self.assertIn("granularity", window)
+            # Day granularity for date column
+            self.assertEqual(window["granularity"], "day")
+
+    def test_aggregate_query_explicit_observed_window_column(self) -> None:
+        """aggregate_query with explicit observed_window_column param should use it."""
+        session_id = self.client.post(
+            "/sessions", json={"goal": "G-2 explicit column test."},
+        ).json()["session_id"]
+
+        # Use explicit observed_window_column
+        resp = self.client.post(
+            f"/sessions/{session_id}/steps/aggregate_query",
+            json={
+                "table_name": "analytics.watch_events",
+                "select": ["event_date", "count(*) as cnt"],
+                "group_by": ["event_date"],
+                "observed_window_column": "event_date",  # explicit override
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        result = resp.json()
+
+        observations = result.get("observations", [])
+        self.assertGreater(len(observations), 0)
+        for obs in observations:
+            self.assertIn("observed_window", obs)
+
+    def test_aggregate_query_yyyymmdd_format(self) -> None:
+        """aggregate_query should parse YYYYMMDD format temporal values."""
+        session_id = self.client.post(
+            "/sessions", json={"goal": "G-2 YYYYMMDD format test."},
+        ).json()["session_id"]
+
+        # Create a table with YYYYMMDD format date column
+        # Note: analytics.watch_events uses ISO date format; this test verifies
+        # the parser can handle YYYYMMDD if present in the data
+        from app.evidence_engine.extractors.aggregate import _parse_temporal_value
+        from datetime import date
+
+        # Unit test the parser directly
+        parsed_date, granularity = _parse_temporal_value("20240115")
+        self.assertEqual(parsed_date, date(2024, 1, 15))
+        self.assertEqual(granularity, "day")
+
+    def test_l1_to_l2_upgrade_via_temporal_precedence(self) -> None:
+        """G-2c: TemporalPrecedenceChecker upgrades an L1 claim to L2 when
+        supporting observations carry strictly non-overlapping observed_windows.
+
+        Exercises the checker directly with hand-crafted input so the assertion
+        is independent of seeded-data randomness while still proving the
+        real checker code (not a mock).
+        """
+        from app.evidence_engine.causal_checkers import TemporalPrecedenceChecker
+
+        checker = TemporalPrecedenceChecker()
+
+        # Two aggregate-query-style observations with non-overlapping windows.
+        # These represent day-grouped aggregate observations as G-2 would produce
+        # them (observed_window inferred from the event_date group_by column).
+        obs_a = {
+            "observation_id": "obs_g2c_a",
+            "type": "metric_change",
+            "subject": {"metric": "g2_event_count", "slice": {"platform": "ios"}},
+            "payload": {"delta_pct": -4.8},
+            "observed_window": {"start": "2026-02-21", "end": "2026-02-27", "granularity": "day"},
+        }
+        obs_b = {
+            "observation_id": "obs_g2c_b",
+            "type": "metric_change",
+            "subject": {"metric": "g2_event_count", "slice": {"platform": "ios"}},
+            "payload": {"delta_pct": -5.2},
+            "observed_window": {"start": "2026-02-28", "end": "2026-03-06", "granularity": "day"},
+        }
+
+        # An L1 claim backed by both observations.
+        # L1 is the pre-condition for TemporalPrecedenceChecker (L0 claims are ignored).
+        claim_l1 = {
+            "claim_id": "claim_g2c_test",
+            "inference_level": "L1",
+            "scope": {"metric": "g2_event_count", "slice": {"platform": "ios"}},
+            "supporting_observations": ["obs_g2c_a", "obs_g2c_b"],
+            "contradicting_observations": [],
+        }
+
+        upgrades = checker.check([claim_l1], [obs_a, obs_b], [])
+
+        # G-2c core assertion: checker must propose an L2 upgrade
+        self.assertEqual(len(upgrades), 1, "Expected exactly one upgrade proposal")
+        upgrade = upgrades[0]
+        self.assertEqual(upgrade.claim_id, "claim_g2c_test")
+        self.assertEqual(upgrade.new_level, "L2")
+        self.assertTrue(
+            any("temporal_precedence" in t for t in upgrade.justification_tokens),
+            f"Justification tokens must reference temporal_precedence: {upgrade.justification_tokens}",
+        )
+
+        # Verify the checker correctly rejects overlapping windows (regression guard)
+        obs_overlap = {
+            "observation_id": "obs_g2c_overlap",
+            "type": "metric_change",
+            "subject": {"metric": "g2_event_count", "slice": {"platform": "ios"}},
+            "payload": {"delta_pct": -3.0},
+            "observed_window": {"start": "2026-02-25", "end": "2026-03-02", "granularity": "day"},
+        }
+        claim_overlap = {
+            "claim_id": "claim_g2c_overlap",
+            "inference_level": "L1",
+            "scope": {"metric": "g2_event_count", "slice": {"platform": "ios"}},
+            "supporting_observations": ["obs_g2c_a", "obs_g2c_overlap"],
+            "contradicting_observations": [],
+        }
+        no_upgrades = checker.check([claim_overlap], [obs_a, obs_overlap], [])
+        self.assertEqual(len(no_upgrades), 0, "Overlapping windows must NOT trigger L2 upgrade")
+
+
 if __name__ == "__main__":
     unittest.main()

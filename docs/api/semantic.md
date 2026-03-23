@@ -412,6 +412,7 @@ Returns a structured context object designed for LLM-based planners. Includes th
     "profile_table",
     "sample_rows",
     "aggregate_query",
+    "correlate_metrics",
     "synthesize_findings"
   ],
   "sources": [
