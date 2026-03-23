@@ -785,6 +785,117 @@ class IncrementalSynthesizerTests(unittest.TestCase):
         )
         self.assertEqual(len(rows), 1)  # No duplicate claims
 
+    def _insert_agg_obs(self, session_id: str, obs_id: str, metric: str, slice_dict: dict, payload: dict) -> None:
+        import json
+        self.meta.execute(
+            """
+            INSERT INTO observations (
+                observation_id, session_id, step_id, observation_type,
+                subject_json, payload_json, significance_json, quality_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                obs_id, session_id, "step_test", "aggregate_snapshot",
+                json.dumps({"metric": metric, "slice": slice_dict}),
+                json.dumps(payload),
+                json.dumps({"sample_size": 1000, "practical_significance": True}),
+                json.dumps({"freshness_ok": True, "sample_size_ok": True}),
+            ],
+        )
+
+    def test_aggregate_observation_generates_payload_based_claim_text(self) -> None:
+        session_id = self._make_session()
+        self._insert_agg_obs(
+            session_id, "obs_f1", "aggregate", {"user": "ai_bi"},
+            {"query_count": 1234, "total_scan_gb": 567.89},
+        )
+        synth = self._make_synth()
+        synth.process(session_id)
+        import json
+        rows = self.meta.query_rows(
+            "SELECT text FROM claims WHERE session_id = ?", [session_id]
+        )
+        self.assertEqual(len(rows), 1)
+        text = rows[0]["text"]
+        self.assertNotIn("Signal detected", text)
+        self.assertIn("user=ai_bi", text)
+        self.assertIn("query_count", text)
+
+    def test_aggregate_observation_fallback_when_no_numeric_payload(self) -> None:
+        session_id = self._make_session()
+        self._insert_agg_obs(
+            session_id, "obs_g1", "aggregate", {"region": "us"},
+            {"label": "foo", "category": "bar"},  # only strings
+        )
+        synth = self._make_synth()
+        synth.process(session_id)
+        rows = self.meta.query_rows(
+            "SELECT text FROM claims WHERE session_id = ?", [session_id]
+        )
+        self.assertEqual(len(rows), 1)
+        text = rows[0]["text"]
+        self.assertIn("aggregate snapshot", text)
+        self.assertIn("region=us", text)
+
+
+class DefaultRecommendationPolicyTests(unittest.TestCase):
+    """Tests for DefaultRecommendationPolicy action text with payload hints."""
+
+    def setUp(self) -> None:
+        from app.evidence_engine.recommendation_policy import DefaultRecommendationPolicy
+        self.policy = DefaultRecommendationPolicy()
+
+    def _make_obs(self, obs_id: str, payload: dict, slice_dict: dict | None = None) -> dict:
+        return {
+            "observation_id": obs_id,
+            "type": "aggregate_snapshot",
+            "subject": {"metric": "aggregate", "slice": slice_dict or {}},
+            "payload": payload,
+            "significance": {"sample_size": 1000, "practical_significance": True},
+            "quality": {"freshness_ok": True, "sample_size_ok": True},
+        }
+
+    def _make_claim(self, claim_id: str, obs_id: str, status: str, slice_dict: dict | None = None) -> dict:
+        return {
+            "claim_id": claim_id,
+            "type": "root_cause_candidate",
+            "status": status,
+            "confidence": 0.7,
+            "text": "some claim",
+            "scope": {"metric": "aggregate", "slice": slice_dict or {}},
+            "supporting_observations": [obs_id],
+            "contradicting_observations": [],
+            "confidence_breakdown": {},
+            "inference_justification": {},
+        }
+
+    def test_insufficient_claim_includes_payload_hint(self) -> None:
+        obs = self._make_obs("obs_h1", {"query_count": 1234, "avg_cpu": 0.85}, {"user": "ai_bi"})
+        claim = self._make_claim("claim_h1", "obs_h1", "insufficient", {"user": "ai_bi"})
+        recs = self.policy.derive([obs], [claim], [])
+        self.assertEqual(len(recs), 1)
+        action = recs[0]["action_text"]
+        self.assertIn("user=ai_bi", action)
+        self.assertIn("observed query_count=1,234", action)
+
+    def test_confirmed_claim_includes_scope_and_payload_hint(self) -> None:
+        obs = self._make_obs("obs_i1", {"avg_cpu": 0.85}, {"cluster": "k8sbi-bi1"})
+        claim = self._make_claim("claim_i1", "obs_i1", "confirmed", {"cluster": "k8sbi-bi1"})
+        recs = self.policy.derive([obs], [claim], [])
+        self.assertEqual(len(recs), 1)
+        action = recs[0]["action_text"]
+        self.assertIn("cluster=k8sbi-bi1", action)
+        self.assertIn("observed avg_cpu=0.85", action)
+
+    def test_no_payload_numeric_produces_clean_text(self) -> None:
+        obs = self._make_obs("obs_j1", {"label": "foo"}, {"region": "us"})
+        claim = self._make_claim("claim_j1", "obs_j1", "insufficient", {"region": "us"})
+        recs = self.policy.derive([obs], [claim], [])
+        self.assertEqual(len(recs), 1)
+        action = recs[0]["action_text"]
+        self.assertNotIn("observed", action)
+        self.assertIn("region=us", action)
+
 
 class PromotionIntegrationTests(unittest.TestCase):
     """M-03: synthesize_findings promotion path (tentative → confirmed/insufficient)."""
@@ -929,6 +1040,9 @@ class PromotionIntegrationTests(unittest.TestCase):
         # At least 1 recommendation should be generated for the confirmed claims
         graph = self.service.get_evidence_graph(session_id)
         self.assertGreaterEqual(len(graph.get("recommendations", [])), 1)
+        for rec in graph.get("recommendations", []):
+            self.assertIn("action", rec)
+            self.assertEqual(rec["action"], rec["action_text"])
 
 
 if __name__ == "__main__":

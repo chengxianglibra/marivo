@@ -137,7 +137,21 @@ class IncrementalSynthesizer:
             direction = "increased" if float(delta_pct) > 0 else "declined"
             text = f"{metric} {direction} {abs(float(delta_pct)):.1f}% for {slice_str} (tentative)"
         else:
-            text = f"Signal detected for {metric} / {slice_str} (tentative)"
+            # Aggregate observation: build text from payload numeric values
+            SKIP_KEYS = {"current_value", "delta_pct"}
+            numeric_parts = [
+                (k, v)
+                for k, v in payload.items()
+                if k not in SKIP_KEYS and isinstance(v, (int, float))
+            ][:3]  # cap at 3 for readability
+            if numeric_parts:
+                values_str = ", ".join(
+                    f"{k}={v:,.2f}".rstrip("0").rstrip(".") if isinstance(v, float) else f"{k}={v:,}"
+                    for k, v in numeric_parts
+                )
+                text = f"{slice_str}: {values_str} (tentative)"
+            else:
+                text = f"aggregate snapshot for {slice_str} (tentative)"
 
         breakdown = self._compute_breakdown(payload, significance, quality, n_contradictions=0)
         confidence = score_confidence(
