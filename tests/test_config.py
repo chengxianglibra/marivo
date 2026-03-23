@@ -126,6 +126,23 @@ class EnsureSourceTests(unittest.TestCase):
         matching = [s for s in sources if s["display_name"] == "Same Name"]
         self.assertEqual(len(matching), 1)
 
+    def test_ensure_source_updates_existing_source_type(self) -> None:
+        existing = self.source_service.register_source("local", "Local Demo", {"path": "/tmp/old.duckdb"})
+
+        updated = self.source_service.ensure_source(
+            "duckdb",
+            "Local Demo",
+            {"path": "/tmp/new.duckdb"},
+            sync_mode="by_select",
+        )
+
+        self.assertEqual(updated["source_id"], existing["source_id"])
+        self.assertEqual(updated["source_type"], "duckdb")
+        self.assertEqual(updated["connection"]["path"], "/tmp/new.duckdb")
+        self.assertEqual(updated["sync_mode"], "by_select")
+        persisted = self.source_service.get_source(existing["source_id"])
+        self.assertEqual(persisted["source_type"], "duckdb")
+
 
 class StartupWithConfigTests(unittest.TestCase):
     @classmethod
@@ -230,6 +247,49 @@ class StartupWithConfigTests(unittest.TestCase):
             restart_sources = [s for s in sources2 if s["display_name"] == "Restart Test"]
             self.assertEqual(len(restart_sources), 1)
             self.assertEqual(sources1[0]["source_id"], restart_sources[0]["source_id"])
+
+    def test_startup_reconciles_existing_source_type_with_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / "factum.yaml"
+            config_path.write_text(
+                "sources:\n"
+                '  - name: "Local Demo"\n'
+                "    type: duckdb\n"
+                "    connection:\n"
+                f"      path: {Path(self.class_tmp.name) / 'shared.duckdb'}\n"
+            )
+            meta_path = Path(tmp) / "test.meta.sqlite"
+            metadata = SQLiteMetadataStore(meta_path)
+            metadata.initialize()
+            metadata.execute(
+                """
+                INSERT INTO sources (
+                    source_id, source_type, display_name, connection_json, capabilities_json, sync_mode, status, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, 'active', datetime('now'), datetime('now'))
+                """,
+                ["src_existingdemo", "local", "Local Demo", '{"path": "/tmp/old.duckdb"}', "{}", "all"],
+            )
+
+            app = create_app(
+                metadata_store=metadata,
+                analytics_engine=self.shared_analytics,
+                config_path=config_path,
+            )
+            client = TestClient(app)
+
+            resp = client.get("/sources")
+            self.assertEqual(resp.status_code, 200)
+            sources = resp.json()
+            self.assertEqual(len(sources), 1)
+            self.assertEqual(sources[0]["source_id"], "src_existingdemo")
+            self.assertEqual(sources[0]["source_type"], "duckdb")
+            self.assertEqual(sources[0]["connection"]["path"], str(Path(self.class_tmp.name) / "shared.duckdb"))
+
+            resp = client.get("/sources/src_existingdemo/objects?type=table")
+            self.assertEqual(resp.status_code, 200)
+            self.assertGreater(len(resp.json()), 0)
+
+            client.close()
 
     def test_startup_sync_mode_none_skips_sync(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -80,16 +80,12 @@ class SourceRegistry:
             self.metadata.execute(
                 """
                 UPDATE sources
-                SET connection_json = ?, sync_mode = ?, updated_at = ?
+                SET source_type = ?, connection_json = ?, sync_mode = ?, updated_at = ?
                 WHERE source_id = ?
                 """,
-                [json.dumps(connection), sync_mode, now, existing["source_id"]],
+                [source_type, json.dumps(connection), sync_mode, now, existing["source_id"]],
             )
-            source = self._row_to_source(existing)
-            source["connection"] = connection
-            source["sync_mode"] = sync_mode
-            source["updated_at"] = now
-            return source
+            return self.get_source(existing["source_id"])
         return self.register_source(source_type, display_name, connection, sync_mode=sync_mode)
 
     def update_source(
