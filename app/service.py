@@ -559,6 +559,12 @@ class SemanticLayerService:
                 },
             },
         )
+        window = {
+            "start": str(current_start),
+            "end": str(current_end),
+            "granularity": "day",
+        }
+        self._annotate_temporal(observations, session_id, window)
         for observation in observations:
             self._insert_observation(session_id, step_id, observation)
 
@@ -955,6 +961,15 @@ class SemanticLayerService:
                     "value_column": value_column,
                 },
             )
+            # M-08: annotate temporal info. For compare_period, use the current window.
+            agg_window: dict[str, Any] | None = None
+            if compare_period and period_params:
+                agg_window = {
+                    "start": str(period_params[0]),
+                    "end": str(period_params[1]),
+                    "granularity": "day",
+                }
+            self._annotate_temporal(observations, session_id, agg_window)
             for observation in observations:
                 self._insert_observation(session_id, step_id, observation)
         else:
@@ -1235,25 +1250,28 @@ class SemanticLayerService:
     def _load_observations(self, session_id: str) -> list[dict[str, Any]]:
         rows = self.metadata.query_rows(
             """
-            SELECT observation_id, observation_type, subject_json, payload_json, significance_json, quality_json
+            SELECT observation_id, observation_type, subject_json, payload_json,
+                   significance_json, quality_json, observed_window_json, temporal_order
             FROM observations
             WHERE session_id = ?
-            ORDER BY created_at
+            ORDER BY temporal_order, created_at
             """,
             [session_id],
         )
         observations = []
         for row in rows:
-            observations.append(
-                {
-                    "observation_id": row["observation_id"],
-                    "type": row["observation_type"],
-                    "subject": json.loads(row["subject_json"]),
-                    "payload": json.loads(row["payload_json"]),
-                    "significance": json.loads(row["significance_json"]),
-                    "quality": json.loads(row["quality_json"]),
-                }
-            )
+            obs = {
+                "observation_id": row["observation_id"],
+                "type": row["observation_type"],
+                "subject": json.loads(row["subject_json"]),
+                "payload": json.loads(row["payload_json"]),
+                "significance": json.loads(row["significance_json"]),
+                "quality": json.loads(row["quality_json"]),
+                "temporal_order": row["temporal_order"],
+            }
+            if row["observed_window_json"] is not None:
+                obs["observed_window"] = json.loads(row["observed_window_json"])
+            observations.append(obs)
         return observations
 
     def _make_provenance(self, sql: str = "", params: list[Any] | None = None, engine_type: str = "duckdb") -> dict[str, Any]:
@@ -1340,13 +1358,35 @@ class SemanticLayerService:
         )
         return artifact_id
 
+    def _observation_count(self, session_id: str) -> int:
+        """Return the number of observations already recorded for a session."""
+        row = self.metadata.query_one(
+            "SELECT COUNT(*) AS cnt FROM observations WHERE session_id = ?",
+            [session_id],
+        )
+        return row["cnt"] if row else 0
+
+    def _annotate_temporal(
+        self,
+        observations: list[dict[str, Any]],
+        session_id: str,
+        observed_window: dict[str, Any] | None,
+    ) -> None:
+        """In-place: assign observed_window (when available) and temporal_order to each observation."""
+        base = self._observation_count(session_id)
+        for i, obs in enumerate(observations):
+            if observed_window is not None:
+                obs["observed_window"] = observed_window
+            obs["temporal_order"] = base + i
+
     def _insert_observation(self, session_id: str, step_id: str, observation: dict[str, Any]) -> None:
         self.metadata.execute(
             """
             INSERT INTO observations (
                 observation_id, session_id, step_id, observation_type,
-                subject_json, payload_json, significance_json, quality_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                subject_json, payload_json, significance_json, quality_json,
+                observed_window_json, temporal_order
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 observation["observation_id"],
@@ -1357,6 +1397,8 @@ class SemanticLayerService:
                 self._dump(observation["payload"]),
                 self._dump(observation["significance"]),
                 self._dump(observation["quality"]),
+                self._dump(observation["observed_window"]) if observation.get("observed_window") is not None else None,
+                observation.get("temporal_order", 0),
             ],
         )
 
