@@ -90,8 +90,9 @@ class SemanticLayerService:
         constraints: dict[str, Any],
         budget: dict[str, Any],
         policy: dict[str, Any],
+        raw_filter: str | None = None,
     ) -> dict[str, Any]:
-        return self.session_manager.create_session(goal, constraints, budget, policy)
+        return self.session_manager.create_session(goal, constraints, budget, policy, raw_filter=raw_filter)
 
     def list_sessions(self, status: str | None = None) -> list[dict[str, Any]]:
         return self.session_manager.list_sessions(status=status)
@@ -283,6 +284,7 @@ class SemanticLayerService:
             claim["inference_justification"] = json.loads(claim.pop("inference_justification_json"))
         for recommendation in recommendations:
             recommendation["validation_metric"] = json.loads(recommendation.pop("validation_metric_json"))
+            recommendation["action"] = recommendation["action_text"]  # alias for agent compatibility
 
         return {
             "session_id": session_id,
@@ -369,20 +371,23 @@ class SemanticLayerService:
             ) from error
 
     def _session_constraints_to_filter(self, session_id: str) -> str | None:
-        """Convert simple scalar session constraints to a SQL filter expression.
+        """Convert session constraints and raw_filter to a SQL filter expression.
 
         Non-scalar constraints (dicts, lists) are silently ignored.
-        Returns None when no scalar constraints exist.
+        raw_filter is appended as-is (AND-merged) after scalar constraints.
+        Returns None when no constraints exist.
         """
         session = self.get_session(session_id)
         constraints = session.get("constraints", {})
-        if not constraints or not isinstance(constraints, dict):
-            return None
         parts: list[str] = []
-        for key, value in constraints.items():
-            if isinstance(value, (dict, list)):
-                continue
-            parts.append(f"{key} = '{value}'")
+        if constraints and isinstance(constraints, dict):
+            for key, value in constraints.items():
+                if isinstance(value, (dict, list)):
+                    continue
+                parts.append(f"{key} = '{value}'")
+        raw_filter = session.get("raw_filter")
+        if raw_filter:
+            parts.append(raw_filter)
         return " AND ".join(parts) if parts else None
 
     @staticmethod
@@ -567,6 +572,7 @@ class SemanticLayerService:
         row_count_row = execute_compiled(engine, row_count_query).rows[0]
         row_count = row_count_row["row_count"]
 
+        columns_available = True
         try:
             columns_query = self._compile_step_with_feedback(
                 AnalysisStepIR(
@@ -579,7 +585,13 @@ class SemanticLayerService:
             col_rows = execute_compiled(engine, columns_query).rows
             columns = [r["column_name"] for r in col_rows]
         except Exception:
-            columns = []
+            # Fallback: derive column names from SELECT * LIMIT 0 result schema
+            try:
+                schema_rows = engine.query_rows(f"SELECT * FROM {qualified_table} LIMIT 0")
+                columns = list(schema_rows[0].keys()) if schema_rows else []
+            except Exception:
+                columns = []
+                columns_available = False
 
         # Infer date column + recent value for partition-filtered profiling (Trino)
         profile_date_column: str | None = None
@@ -635,7 +647,11 @@ class SemanticLayerService:
         artifact_id = self._insert_artifact(session_id, step_id, "profile", f"{short_name}_profile", artifact)
 
         scope_note = f" (column stats scoped to {profile_date_column}={profile_date_value})" if profile_date_column else ""
-        summary = f"Table '{table_name}' has {row_count} rows and {len(columns)} columns{scope_note}."
+        if not columns_available:
+            col_note = " (columns not available: schema query failed; use sample_rows limit=1 to inspect columns)"
+        else:
+            col_note = ""
+        summary = f"Table '{table_name}' has {row_count} rows and {len(columns)} columns{scope_note}{col_note}."
         provenance = self._make_provenance(f"profile:{table_name}", engine_type=engine_type)
         result = {"step_type": step_type, "summary": summary, "artifact_id": artifact_id, "profile": artifact}
         self._insert_step(step_id, session_id, step_type, summary, result, provenance=provenance)
@@ -799,7 +815,20 @@ class SemanticLayerService:
             observations = []
 
         artifact_id = self._insert_artifact(session_id, step_id, "aggregate", f"{short_name}_aggregate", rows)
-        summary = f"Aggregate query on '{table_name}' returned {len(rows)} rows."
+        if not rows:
+            _partition_cols = {"log_date", "event_date", "dt", "date", "day"}
+            where_lower = (merged_where or "").lower()
+            has_partition_hint = any(col in where_lower for col in _partition_cols)
+            if has_partition_hint:
+                summary = (
+                    f"Aggregate query on '{table_name}' returned 0 rows. "
+                    "Possible cause: partition filter syntax or date range contains no data. "
+                    "Verify the date format matches the engine (e.g. YYYYMMDD for Trino/Iceberg)."
+                )
+            else:
+                summary = f"Aggregate query on '{table_name}' returned 0 rows."
+        else:
+            summary = f"Aggregate query on '{table_name}' returned {len(rows)} rows."
         provenance = self._make_provenance(compiled_query.sql, compiled_query.params, engine_type=engine_type)
         result = {"step_type": step_type, "summary": summary, "artifact_id": artifact_id, "rows": rows}
         if observations:
@@ -940,11 +969,13 @@ class SemanticLayerService:
                 if claim["confidence"] >= 0.5 and not has_contradictions
                 else "insufficient"
             )
+            # Strip "(tentative)" suffix from claim text on promotion
+            new_text = claim["text"].replace(" (tentative)", "")
             self.metadata.execute(
-                "UPDATE claims SET status = ? WHERE claim_id = ?",
-                [new_status, claim["claim_id"]],
+                "UPDATE claims SET status = ?, text = ? WHERE claim_id = ?",
+                [new_status, new_text, claim["claim_id"]],
             )
-            promoted.append({**claim, "status": new_status})
+            promoted.append({**claim, "status": new_status, "text": new_text})
         return promoted
 
     def _assert_session_exists(self, session_id: str) -> None:
