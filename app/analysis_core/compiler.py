@@ -103,6 +103,30 @@ def _extract_agg_alias(expr: str) -> str:
     )
 
 
+def _expand_group_by_aliases(select_exprs: list[str], group_by: list[str]) -> list[str]:
+    """Expand SELECT aliases referenced in GROUP BY to their full expressions.
+
+    Trino (standard SQL) rejects GROUP BY alias references; DuckDB accepts them.
+    This expansion makes compiled SQL portable across engines.
+
+    Example:
+        select_exprs = ["CASE WHEN x = 1 THEN 'a' ELSE 'b' END AS cat", "count(*) AS n"]
+        group_by     = ["cat"]
+        → returns    ["CASE WHEN x = 1 THEN 'a' ELSE 'b' END"]
+    """
+    alias_to_expr: dict[str, str] = {}
+    for expr in select_exprs:
+        m = re.search(r"^(.*?)\s+AS\s+(\w+)\s*$", expr.strip(), re.IGNORECASE)
+        if m:
+            alias_to_expr[m.group(2).lower()] = m.group(1).strip()
+
+    expanded: list[str] = []
+    for item in group_by:
+        key = item.strip().lower()
+        expanded.append(alias_to_expr.get(key, item))
+    return expanded
+
+
 def build_aggregate_comparison_query(
     table_name: str,
     select_exprs: list[str],
@@ -137,6 +161,8 @@ def build_aggregate_comparison_query(
         )
 
     group_by_cols = ", ".join(group_by)
+    # Expanded form for by_period GROUP BY (Trino-safe: full expressions, not aliases)
+    group_by_cols_expanded = ", ".join(_expand_group_by_aliases(select_exprs, group_by))
     agg_select = ", ".join(expr for expr, _ in agg_exprs)
     filter_clause = f" AND {filter_expr}" if filter_expr else ""
 
@@ -177,7 +203,7 @@ def build_aggregate_comparison_query(
         by_period AS (
             SELECT _period, {group_by_cols}, {agg_select}
             FROM periodized
-            GROUP BY _period, {group_by_cols}
+            GROUP BY _period, {group_by_cols_expanded}
         ),
         pivoted AS (
             SELECT {group_by_cols},
@@ -335,7 +361,8 @@ def compile_step(
 
         select_clause = ", ".join(select_exprs)
         where_clause = f" WHERE {where}" if where else ""
-        group_clause = f" GROUP BY {', '.join(group_by)}"
+        expanded_group_by = _expand_group_by_aliases(list(select_exprs), list(group_by))
+        group_clause = f" GROUP BY {', '.join(expanded_group_by)}"
         order_clause = f" ORDER BY {order_by}" if order_by else ""
 
         sql = f"SELECT {select_clause} FROM {table_name}{where_clause}{group_clause}{order_clause} LIMIT {limit}"
