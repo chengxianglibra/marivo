@@ -13,8 +13,8 @@ from app.analysis_core.compiler import build_comparison_query as compile_compari
 from app.analysis_core.compiler import compile_step
 from app.analysis_core.executor import execute_compiled
 from app.analysis_core.ir import AnalysisStepIR, from_legacy_step
-from app.evidence import synthesize_claims
 from app.evidence_engine import EvidencePipeline
+from app.evidence_engine.synthesizers.default import DefaultClaimSynthesizer
 from app.evidence_engine.readiness import compute_readiness, load_live_claims
 from app.execution.feedback import compile_failure_from_error
 from app.execution.orchestrator import WorkflowOrchestrator
@@ -51,7 +51,8 @@ class SemanticLayerService:
         self.approvals = approvals
         self.session_manager = SessionManager(metadata_store)
         self.step_registry = build_service_step_registry(self)
-        self.evidence_pipeline = EvidencePipeline(synthesize_claims)
+        self._default_synthesizer = DefaultClaimSynthesizer()
+        self.evidence_pipeline = EvidencePipeline(self._default_synthesizer)
         self.semantic_repository = SemanticRuntimeRepository(metadata_store)
         self.semantic_resolver = self.semantic_repository.resolver
         self.planner_context_provider = self.semantic_repository.planner_context_provider
@@ -1020,6 +1021,26 @@ class SemanticLayerService:
                 [session_id, step_type],
             )
             promoted = self._promote_claims(session_id, tentative_claims, observations)
+            # M-06: promotion audit log
+            promotion_audit = {
+                "stage": "promotion",
+                "claims_promoted": [
+                    {
+                        "claim_id": c["claim_id"],
+                        "new_status": c["status"],
+                        "confidence": c["confidence"],
+                        "promotion_reason": (
+                            "confidence >= 0.5 and no contradictions"
+                            if c["status"] == "confirmed"
+                            else "confidence < 0.5 or has contradictions"
+                        ),
+                    }
+                    for c in promoted
+                ],
+                "confirmed_count": sum(1 for c in promoted if c["status"] == "confirmed"),
+                "insufficient_count": sum(1 for c in promoted if c["status"] == "insufficient"),
+            }
+            self._insert_artifact(session_id, step_id, "synthesis_audit", "promotion_audit", promotion_audit)
             synthesis = self.evidence_pipeline.build_synthesis(
                 observations,
                 existing_claims=promoted,
@@ -1039,6 +1060,15 @@ class SemanticLayerService:
                 self._insert_recommendation(session_id, recommendation)
             for edge in synthesis["edges"]:
                 self._insert_edge(session_id, **edge)
+            # M-06: three-stage audit log (Mode B only)
+            import dataclasses as _dc
+            audit_log = self._default_synthesizer.last_audit_log
+            if audit_log is not None:
+                self._insert_artifact(
+                    session_id, step_id, "synthesis_audit",
+                    "three_stage_audit", _dc.asdict(audit_log),
+                )
+                self._default_synthesizer.last_audit_log = None
 
         summary = synthesis["summary"]
         provenance = self._make_provenance("synthesize_findings", engine_type="heuristic")
