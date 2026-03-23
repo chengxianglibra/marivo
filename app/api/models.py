@@ -78,6 +78,10 @@ class SourceUpdateRequest(BaseModel):
     sync_mode: str | None = None
 
 
+class ColumnPropertiesUpdateRequest(BaseModel):
+    unit: str | None = None
+
+
 class EngineRegisterRequest(BaseModel):
     engine_type: str
     display_name: str

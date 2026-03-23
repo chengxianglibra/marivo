@@ -181,6 +181,26 @@ class SourceRegistry:
         rows = self.metadata.query_rows(sql, params)
         return [self._row_to_object(r) for r in rows]
 
+    def patch_object_properties(self, source_id: str, object_id: str, user_props: dict[str, Any]) -> dict[str, Any]:
+        """Merge user_props into an existing column source_object's properties_json."""
+        row = self.metadata.query_one(
+            "SELECT * FROM source_objects WHERE object_id = ? AND source_id = ?",
+            [object_id, source_id],
+        )
+        if row is None:
+            raise KeyError(f"Object {object_id!r} not found in source {source_id!r}")
+        if row["object_type"] != "column":
+            raise ValueError(f"Object {object_id!r} is not a column (type={row['object_type']!r})")
+        existing_props = json.loads(row["properties_json"])
+        merged = {**existing_props, **user_props}
+        now = now_iso()
+        self.metadata.execute(
+            "UPDATE source_objects SET properties_json = ?, updated_at = ? WHERE object_id = ?",
+            [json.dumps(merged), now, object_id],
+        )
+        updated = self.metadata.query_one("SELECT * FROM source_objects WHERE object_id = ?", [object_id])
+        return self._row_to_object(updated)
+
     def get_sync_mode(self, source_id: str) -> str:
         row = self.metadata.query_one(
             "SELECT sync_mode FROM sources WHERE source_id = ?",

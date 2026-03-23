@@ -210,11 +210,18 @@ class RegistrySyncEngine:
         now: str,
     ) -> str:
         existing = self.metadata.query_one(
-            "SELECT object_id FROM source_objects WHERE source_id = ? AND fqn = ?",
+            "SELECT object_id, properties_json FROM source_objects WHERE source_id = ? AND fqn = ?",
             [source_id, fqn],
         )
         if existing:
             object_id = existing["object_id"]
+            # Preserve user-owned keys (anything not supplied by the adapter)
+            existing_props = json.loads(existing["properties_json"] or "{}")
+            adapter_keys = set(obj.properties.keys())
+            merged_props = dict(obj.properties)
+            for k, v in existing_props.items():
+                if k not in adapter_keys:
+                    merged_props[k] = v
             self.metadata.execute(
                 """
                 UPDATE source_objects
@@ -227,7 +234,7 @@ class RegistrySyncEngine:
                     obj.native_id,
                     obj.object_type,
                     parent_id,
-                    json.dumps(obj.properties, default=str),
+                    json.dumps(merged_props, default=str),
                     sync_version,
                     now,
                     now,

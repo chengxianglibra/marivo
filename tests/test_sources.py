@@ -560,5 +560,82 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
         self.assertEqual(adapter._http_scheme, "https")
 
 
+class ColumnPropertiesTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        cls.db_path = Path(cls.temp_dir.name) / "col_props.duckdb"
+        get_seeded_duckdb_path(cls.db_path)
+        cls.client = TestClient(create_app(cls.db_path))
+
+        # Register and sync a DuckDB source
+        resp = cls.client.post(
+            "/sources",
+            json={"source_type": "duckdb", "display_name": "ColProps Test", "connection": {"path": str(cls.db_path)}},
+        )
+        cls.source_id = resp.json()["source_id"]
+        cls.client.post(f"/sources/{cls.source_id}/sync")
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.client.close()
+        cls.temp_dir.cleanup()
+
+    def _get_column_object_id(self) -> str:
+        resp = self.client.get(f"/sources/{self.source_id}/objects", params={"type": "column"})
+        objects = resp.json()
+        self.assertGreater(len(objects), 0, "No column objects found after sync")
+        return objects[0]["object_id"]
+
+    def _get_table_object_id(self) -> str:
+        resp = self.client.get(f"/sources/{self.source_id}/objects", params={"type": "table"})
+        objects = resp.json()
+        self.assertGreater(len(objects), 0, "No table objects found after sync")
+        return objects[0]["object_id"]
+
+    def test_patch_unit_on_column(self) -> None:
+        object_id = self._get_column_object_id()
+        resp = self.client.patch(
+            f"/sources/{self.source_id}/objects/{object_id}/properties",
+            json={"unit": "seconds"},
+        )
+        self.assertEqual(resp.status_code, 200)
+        result = resp.json()
+        self.assertEqual(result["properties"]["unit"], "seconds")
+        # data_type should still be present (synced by adapter)
+        self.assertIn("data_type", result["properties"])
+
+    def test_patch_unit_survives_resync(self) -> None:
+        object_id = self._get_column_object_id()
+        # Patch unit
+        self.client.patch(
+            f"/sources/{self.source_id}/objects/{object_id}/properties",
+            json={"unit": "bytes"},
+        )
+        # Re-sync
+        self.client.post(f"/sources/{self.source_id}/sync")
+        # Check unit survives
+        resp = self.client.get(f"/sources/{self.source_id}/objects", params={"type": "column"})
+        objects = resp.json()
+        obj = next((o for o in objects if o["object_id"] == object_id), None)
+        self.assertIsNotNone(obj)
+        self.assertEqual(obj["properties"]["unit"], "bytes")
+
+    def test_patch_unit_404_bad_object(self) -> None:
+        resp = self.client.patch(
+            f"/sources/{self.source_id}/objects/obj_nonexistent/properties",
+            json={"unit": "seconds"},
+        )
+        self.assertEqual(resp.status_code, 404)
+
+    def test_patch_unit_400_non_column(self) -> None:
+        table_object_id = self._get_table_object_id()
+        resp = self.client.patch(
+            f"/sources/{self.source_id}/objects/{table_object_id}/properties",
+            json={"unit": "seconds"},
+        )
+        self.assertEqual(resp.status_code, 400)
+
+
 if __name__ == "__main__":
     unittest.main()
