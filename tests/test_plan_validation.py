@@ -17,25 +17,34 @@ from tests.shared_fixtures import get_seeded_duckdb_path
 
 
 class AdvancedPlanValidationTests(unittest.TestCase):
-    def setUp(self) -> None:
-        self.temp_dir = tempfile.TemporaryDirectory()
-        self.db_path = Path(self.temp_dir.name) / "advanced_validation.duckdb"
-        get_seeded_duckdb_path(self.db_path)
-        self.client = TestClient(create_app(self.db_path))
-        self._seed_published_metric()
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        cls.db_path = Path(cls.temp_dir.name) / "advanced_validation.duckdb"
+        get_seeded_duckdb_path(cls.db_path)
+        cls.client = TestClient(create_app(cls.db_path))
+        cls._seed_published_metric_once(cls.client)
 
-    def tearDown(self) -> None:
-        self.client.close()
-        self.temp_dir.cleanup()
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.client.close()
+        cls.temp_dir.cleanup()
 
-    def _seed_published_metric(self) -> None:
-        entity = self.client.post(
+    @staticmethod
+    def _seed_published_metric_once(client: TestClient) -> None:
+        # Check if metric already exists (idempotent)
+        metrics = client.get("/semantic/metrics").json()
+        for m in metrics:
+            if m.get("name") == "watch_time":
+                return  # Already seeded
+
+        entity = client.post(
             "/semantic/entities",
             json={"name": "session", "display_name": "Session", "keys": ["session_id"]},
         ).json()
-        self.client.post(f"/semantic/entities/{entity['entity_id']}/publish")
+        client.post(f"/semantic/entities/{entity['entity_id']}/publish")
 
-        metric = self.client.post(
+        metric = client.post(
             "/semantic/metrics",
             json={
                 "name": "watch_time",
@@ -45,7 +54,7 @@ class AdvancedPlanValidationTests(unittest.TestCase):
                 "entity_id": entity["entity_id"],
             },
         ).json()
-        self.client.post(f"/semantic/metrics/{metric['metric_id']}/publish")
+        client.post(f"/semantic/metrics/{metric['metric_id']}/publish")
 
     def test_validate_plan_rejects_unpublished_metric(self) -> None:
         session_id = self.client.post("/sessions", json={"goal": "semantic validation"}).json()["session_id"]

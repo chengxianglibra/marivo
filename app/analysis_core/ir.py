@@ -29,6 +29,7 @@ STEP_ARTIFACT_KINDS = {
     "profile_table_column_profile": "profile",
     "sample_rows": "rows",
     "synthesize_findings": "synthesis",
+    "correlate_metrics": "correlation",
 }
 
 

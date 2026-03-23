@@ -263,9 +263,78 @@ class DoseResponseChecker(CausalChecker):
         edges: list[dict[str, Any]],
     ) -> list[LevelUpgrade]:
         obs_by_id = {o["observation_id"]: o for o in observations}
-
         upgrades: list[LevelUpgrade] = []
+
+        # Pre-computed correlation_result path (priority)
         for claim in claims:
+            current_level = claim.get("inference_level", "L0")
+            if current_level not in ("L1", "L2", "L3", "L4", "L5"):
+                continue
+
+            supporting_obs_ids = set(claim.get("supporting_observations", []))
+            claim_scope = claim.get("scope", {})
+            claim_metric = str(claim_scope.get("metric", ""))
+            claim_slice = claim_scope.get("slice", {})
+
+            # Check supporting observations first
+            for obs_id in supporting_obs_ids:
+                obs = obs_by_id.get(obs_id)
+                if obs is None or obs.get("type") != "correlation_result":
+                    continue
+                payload = obs.get("payload", {})
+                rho = float(payload.get("rho", 0.0))
+                if abs(rho) < self.SPEARMAN_THRESHOLD:
+                    continue
+                left_metric = str(payload.get("left_metric", ""))
+                right_metric = str(payload.get("right_metric", ""))
+                if claim_metric not in (left_metric, right_metric):
+                    continue
+                token = f"dose_response_precomputed:ρ={rho:.3f}"
+                upgrades.append(LevelUpgrade(
+                    claim_id=claim["claim_id"],
+                    new_level=current_level,
+                    justification_tokens=[token],
+                    confidence_boost=0.02,
+                ))
+                break  # One match is enough per claim
+
+            # If already upgraded via supporting obs, skip session-wide scan for this claim
+            if any(u.claim_id == claim["claim_id"] for u in upgrades):
+                continue
+
+            # Session-wide scan for correlation_result observations
+            for obs in observations:
+                if obs.get("type") != "correlation_result":
+                    continue
+                payload = obs.get("payload", {})
+                rho = float(payload.get("rho", 0.0))
+                if abs(rho) < self.SPEARMAN_THRESHOLD:
+                    continue
+                left_metric = str(payload.get("left_metric", ""))
+                right_metric = str(payload.get("right_metric", ""))
+                if claim_metric not in (left_metric, right_metric):
+                    continue
+                # Match slice if correlation observation has one
+                obs_subject = obs.get("subject", {})
+                obs_slice = obs_subject.get("slice", {})
+                if obs_slice and claim_slice != obs_slice:
+                    continue
+                token = f"dose_response_precomputed_session:ρ={rho:.3f}"
+                upgrades.append(LevelUpgrade(
+                    claim_id=claim["claim_id"],
+                    new_level=current_level,
+                    justification_tokens=[token],
+                    confidence_boost=0.02,
+                ))
+                break
+
+        # Track already-upgraded claims to avoid double-upgrade
+        upgraded_claim_ids = {u.claim_id for u in upgrades}
+
+        # Original re-computation path (fallback)
+        for claim in claims:
+            if claim["claim_id"] in upgraded_claim_ids:
+                continue
             current_level = claim.get("inference_level", "L0")
             if current_level not in ("L1", "L2", "L3", "L4", "L5"):
                 continue

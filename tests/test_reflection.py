@@ -170,7 +170,7 @@ class ReflectionContextUnitTests(unittest.TestCase):
     def test_available_step_types_all_present(self) -> None:
         session_id = self._new_session()
         ctx = build_reflection_context(self.store, session_id)
-        expected = {"compare_metric", "profile_table", "sample_rows", "aggregate_query", "synthesize_findings"}
+        expected = {"compare_metric", "profile_table", "sample_rows", "aggregate_query", "correlate_metrics", "synthesize_findings"}
         self.assertEqual(set(ctx["available_step_types"]), expected)
 
 

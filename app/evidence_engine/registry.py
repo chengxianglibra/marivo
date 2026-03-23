@@ -49,6 +49,7 @@ def _bootstrap() -> None:
     from app.evidence_engine.extractors.anomaly import AnomalyExtractor
     from app.evidence_engine.extractors.comparison import ComparisonRowExtractor
     from app.evidence_engine.extractors.contribution_shift import ContributionShiftExtractor
+    from app.evidence_engine.extractors.correlation import CorrelationObservationExtractor
     from app.evidence_engine.extractors.funnel import FunnelExtractor
 
     for extractor in [
@@ -57,6 +58,7 @@ def _bootstrap() -> None:
         FunnelExtractor(),
         AnomalyExtractor(),
         ContributionShiftExtractor(),
+        CorrelationObservationExtractor(),
     ]:
         _default_registry.register(extractor)
 

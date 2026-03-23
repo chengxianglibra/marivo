@@ -17,6 +17,14 @@ STEP_TAXONOMY = {
         "category": "primitive",
         "description": "Run an ad-hoc GROUP BY + aggregation query on a table.",
     },
+    "correlate_metrics": {
+        "category": "primitive",
+        "description": (
+            "Compute Spearman (and optionally Pearson) correlation between two "
+            "numeric series produced by prior steps; emits a correlation_result "
+            "observation carrying rho, p_value, n, method, and observed_window."
+        ),
+    },
     "synthesize_findings": {
         "category": "composite",
         "description": "Workflow synthesis step that turns observations into claims and recommendations.",

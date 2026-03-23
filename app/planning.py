@@ -776,12 +776,14 @@ class PlanningService:
             policy_hints=self._routing_policy_hints(request),
         )
         table_name = step.table_name()
+        _ARTIFACT_ONLY_STEPS = frozenset({"synthesize_findings", "correlate_metrics"})
         if table_name is None:
+            is_artifact_only = step.step_type in _ARTIFACT_ONLY_STEPS
             return ExecutionTargetIR(
                 step_index=step.index,
-                engine_type="heuristic" if step.step_type == "synthesize_findings" else None,
-                engine_locality="artifact_only" if step.step_type == "synthesize_findings" else "unknown",
-                routing_strategy="artifact_only" if step.step_type == "synthesize_findings" else None,
+                engine_type="heuristic" if is_artifact_only else None,
+                engine_locality="artifact_only" if is_artifact_only else "unknown",
+                routing_strategy="artifact_only" if is_artifact_only else None,
                 routing_detail={"intent": routing_intent.to_dict()},
             )
 
@@ -1002,12 +1004,55 @@ class PlanningService:
             cost_estimates=budget_result.cost_estimates,
         )
 
+    def _validate_correlate_metrics_params(
+        self,
+        step: AnalysisStepIR,
+    ) -> list[PlanValidationIssue]:
+        issues: list[PlanValidationIssue] = []
+        params = step.params or {}
+        has_left = bool(params.get("left_artifact_id") or params.get("left_step_id"))
+        has_right = bool(params.get("right_artifact_id") or params.get("right_step_id"))
+        if not has_left:
+            issues.append(PlanValidationIssue(
+                code="correlate_metrics_missing_left",
+                category="semantic",
+                step_index=step.index,
+                message=(
+                    f"Step {step.index}: correlate_metrics requires 'left_artifact_id' "
+                    "or 'left_step_id'"
+                ),
+                detail={"step_type": "correlate_metrics"},
+            ))
+        if not has_right:
+            issues.append(PlanValidationIssue(
+                code="correlate_metrics_missing_right",
+                category="semantic",
+                step_index=step.index,
+                message=(
+                    f"Step {step.index}: correlate_metrics requires 'right_artifact_id' "
+                    "or 'right_step_id'"
+                ),
+                detail={"step_type": "correlate_metrics"},
+            ))
+        for required in ("left_value_column", "right_value_column", "join_on", "left_metric", "right_metric"):
+            if not params.get(required):
+                issues.append(PlanValidationIssue(
+                    code=f"correlate_metrics_missing_{required}",
+                    category="semantic",
+                    step_index=step.index,
+                    message=f"Step {step.index}: correlate_metrics requires '{required}'",
+                    detail={"step_type": "correlate_metrics", "missing_param": required},
+                ))
+        return issues
+
     def _validate_step_semantics(
         self,
         step: AnalysisStepIR,
         semantic_resolution: SemanticResolutionIR | None,
     ) -> list[PlanValidationIssue]:
         issues: list[PlanValidationIssue] = []
+        if step.step_type == "correlate_metrics":
+            return self._validate_correlate_metrics_params(step)
         if step.step_type != "compare_metric":
             return issues
 

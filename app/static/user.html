@@ -607,6 +607,7 @@ async function showSessionDetail(id) {
                 <option value="profile_table">profile_table</option>
                 <option value="sample_rows">sample_rows</option>
                 <option value="aggregate_query">aggregate_query</option>
+                <option value="correlate_metrics">correlate_metrics</option>
                 <option value="synthesize_findings">synthesize_findings</option>
               </select>
             </div>
@@ -1200,7 +1201,7 @@ async function loadPlans(sessionId) {
 }
 
 function openDraftPlanModal(sessionId) {
-  const stepTypes = ['compare_metric', 'profile_table', 'sample_rows', 'synthesize_findings'];
+  const stepTypes = ['compare_metric', 'profile_table', 'sample_rows', 'aggregate_query', 'correlate_metrics', 'synthesize_findings'];
   const stepOpts = stepTypes.map(t => `<option value="${t}">${t}</option>`).join('');
   const draftSteps = [];
 
