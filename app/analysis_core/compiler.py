@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -84,6 +85,110 @@ def build_comparison_query(
             baseline_sessions
         FROM pivoted
         ORDER BY delta_pct {order}
+        LIMIT {limit}
+    """
+
+
+def _extract_agg_alias(expr: str) -> str:
+    """Extract alias from e.g. 'count(*) as query_count' → 'query_count'.
+
+    Raises ValueError if no alias found (required for compare_period mode).
+    """
+    match = re.search(r"\bAS\s+(\w+)\s*$", expr, re.IGNORECASE)
+    if match:
+        return match.group(1)
+    raise ValueError(
+        f"aggregate_query with compare_period=True requires aliases in all aggregate "
+        f"expressions. Missing alias in: {expr!r}"
+    )
+
+
+def build_aggregate_comparison_query(
+    table_name: str,
+    select_exprs: list[str],
+    group_by: list[str],
+    date_column: str,
+    order_by: str | None = None,
+    limit: int = 100,
+    filter_expr: str | None = None,
+) -> str:
+    """Build a current-vs-baseline comparison query for ad-hoc aggregate steps.
+
+    Mirrors ``build_comparison_query`` but driven by user-supplied ``select``
+    and ``group_by`` instead of a registered semantic metric.
+
+    SQL ``?`` placeholder order (6 params, same as build_comparison_query):
+        current_start, current_end,   (CASE WHEN … THEN 'current')
+        baseline_start, baseline_end, (CASE WHEN … THEN 'baseline')
+        baseline_start, current_end   (outer WHERE range)
+    """
+    # Identify aggregate expressions: those NOT in group_by (or containing an AS alias)
+    agg_exprs: list[tuple[str, str]] = []  # (expr, alias)
+    for expr in select_exprs:
+        stripped = expr.strip()
+        if stripped in group_by:
+            continue  # plain dimension column — skip
+        alias = _extract_agg_alias(stripped)
+        agg_exprs.append((stripped, alias))
+
+    if not agg_exprs:
+        raise ValueError(
+            "compare_period requires at least one aggregate expression with an alias in 'select'"
+        )
+
+    group_by_cols = ", ".join(group_by)
+    agg_select = ", ".join(expr for expr, _ in agg_exprs)
+    filter_clause = f" AND {filter_expr}" if filter_expr else ""
+
+    pivot_parts: list[str] = []
+    for _, alias in agg_exprs:
+        pivot_parts.append(
+            f"MAX(CASE WHEN _period = 'current' THEN {alias} END) AS {alias}_current"
+        )
+        pivot_parts.append(
+            f"MAX(CASE WHEN _period = 'baseline' THEN {alias} END) AS {alias}_baseline"
+        )
+    pivot_select = ",\n            ".join(pivot_parts)
+
+    final_parts: list[str] = []
+    for _, alias in agg_exprs:
+        final_parts.append(f"{alias}_current")
+        final_parts.append(f"{alias}_baseline")
+        final_parts.append(
+            f"ROUND(({alias}_current - {alias}_baseline) * 1.0 / NULLIF({alias}_baseline, 0) * 100, 2)"
+            f" AS {alias}_delta_pct"
+        )
+    final_select_agg = ",\n            ".join(final_parts)
+
+    first_alias = agg_exprs[0][1]
+    effective_order_by = order_by or f"{first_alias}_delta_pct DESC"
+
+    return f"""
+        WITH periodized AS (
+            SELECT
+                CASE
+                    WHEN {date_column} BETWEEN ? AND ? THEN 'current'
+                    WHEN {date_column} BETWEEN ? AND ? THEN 'baseline'
+                END AS _period,
+                *
+            FROM {table_name}
+            WHERE {date_column} BETWEEN ? AND ?{filter_clause}
+        ),
+        by_period AS (
+            SELECT _period, {group_by_cols}, {agg_select}
+            FROM periodized
+            GROUP BY _period, {group_by_cols}
+        ),
+        pivoted AS (
+            SELECT {group_by_cols},
+            {pivot_select}
+            FROM by_period
+            GROUP BY {group_by_cols}
+        )
+        SELECT {group_by_cols},
+            {final_select_agg}
+        FROM pivoted
+        ORDER BY {effective_order_by}
         LIMIT {limit}
     """
 
@@ -210,6 +315,23 @@ def compile_step(
         where = params.get("where")
         order_by = params.get("order_by")
         limit = int(params.get("limit", 100))
+
+        if params.get("compare_period"):
+            date_column = str(params.get("date_column", "event_date"))
+            sql = build_aggregate_comparison_query(
+                table_name=table_name,
+                select_exprs=list(select_exprs),
+                group_by=list(group_by),
+                date_column=date_column,
+                order_by=order_by,
+                limit=limit,
+                filter_expr=str(where) if where else None,
+            )
+            return CompiledQuery(
+                sql=sql,
+                params=list(semantic_context.get("period_params", [])),
+                metadata={**metadata, "table_name": table_name, "limit": limit, "compare_period": True},
+            )
 
         select_clause = ", ".join(select_exprs)
         where_clause = f" WHERE {where}" if where else ""

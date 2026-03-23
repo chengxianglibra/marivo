@@ -1025,5 +1025,106 @@ class SessionConstraintInjectionTests(unittest.TestCase):
         self.assertGreater(len(platforms), 1)
 
 
+class AggregateQueryComparePeriodTests(unittest.TestCase):
+    """Tests for compare_period parameter on aggregate_query step."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        db_path = Path(cls.temp_dir.name) / "compare_period.duckdb"
+        get_seeded_duckdb_path(db_path)
+        cls.client = TestClient(create_app(db_path))
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.client.close()
+        cls.temp_dir.cleanup()
+
+    def _new_session(self) -> str:
+        return self.client.post(
+            "/sessions", json={"goal": "WoW comparison test."}
+        ).json()["session_id"]
+
+    def test_compare_period_returns_delta_columns(self) -> None:
+        """compare_period=True should produce {alias}_current, _baseline, _delta_pct columns."""
+        session_id = self._new_session()
+        resp = self.client.post(
+            f"/sessions/{session_id}/steps/aggregate_query",
+            json={
+                "table_name": "analytics.watch_events",
+                "select": ["platform", "count(*) as cnt"],
+                "group_by": ["platform"],
+                "date_column": "event_date",
+                "compare_period": True,
+                "period_start": "2026-02-21",
+                "period_end": "2026-03-06",
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        result = resp.json()
+        self.assertEqual(result["step_type"], "aggregate_query")
+        self.assertGreater(len(result["rows"]), 0)
+        first_row = result["rows"][0]
+        self.assertIn("cnt_current", first_row)
+        self.assertIn("cnt_baseline", first_row)
+        self.assertIn("cnt_delta_pct", first_row)
+        self.assertIn("platform", first_row)
+
+    def test_compare_period_explicit_period(self) -> None:
+        """Explicitly supplied period_start/period_end should succeed and return rows."""
+        session_id = self._new_session()
+        resp = self.client.post(
+            f"/sessions/{session_id}/steps/aggregate_query",
+            json={
+                "table_name": "analytics.watch_events",
+                "select": ["platform", "avg(play_duration_seconds) as avg_dur"],
+                "group_by": ["platform"],
+                "date_column": "event_date",
+                "compare_period": True,
+                "period_start": "2026-02-21",
+                "period_end": "2026-03-06",
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        result = resp.json()
+        self.assertIn("summary", result)
+        self.assertIn("2026-02-21", result["summary"])
+
+    def test_compare_period_requires_date_column(self) -> None:
+        """compare_period=True without date_column should return a 4xx or 5xx error."""
+        session_id = self._new_session()
+        resp = self.client.post(
+            f"/sessions/{session_id}/steps/aggregate_query",
+            json={
+                "table_name": "analytics.watch_events",
+                "select": ["platform", "count(*) as cnt"],
+                "group_by": ["platform"],
+                "compare_period": True,
+                # intentionally omit date_column
+            },
+        )
+        self.assertGreaterEqual(resp.status_code, 400)
+
+    def test_compare_period_generates_observations(self) -> None:
+        """compare_period step should produce at least one observation."""
+        session_id = self._new_session()
+        resp = self.client.post(
+            f"/sessions/{session_id}/steps/aggregate_query",
+            json={
+                "table_name": "analytics.watch_events",
+                "select": ["platform", "count(*) as cnt"],
+                "group_by": ["platform"],
+                "date_column": "event_date",
+                "compare_period": True,
+                "period_start": "2026-02-21",
+                "period_end": "2026-03-06",
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        result = resp.json()
+        observations = result.get("observations", [])
+        self.assertGreater(len(observations), 0)
+
+
 if __name__ == "__main__":
     unittest.main()
