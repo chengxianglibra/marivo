@@ -313,6 +313,39 @@ class ReplanningService:
             triggers=[trigger],
         )
 
+    def apply_patch(
+        self,
+        plan_id: str,
+        patch_dict: dict[str, Any],
+        planning_service: Any,
+    ) -> dict[str, Any]:
+        """Apply an incremental patch to a plan and re-validate.
+
+        This is the agent-facing interface for M-11 plan modification.
+        Delegates to ``PlanningService.patch_plan_incremental`` for all
+        validation and persistence logic.
+
+        Args:
+            plan_id: The plan to patch.
+            patch_dict: Dict with optional keys:
+                ``add_steps`` (list[dict]), ``modify_steps`` (list[{index, params}]),
+                ``skip_steps`` (list[int]).
+            planning_service: A ``PlanningService`` instance.
+
+        Returns:
+            Updated plan dict with ``"validation"`` key from re-validation.
+
+        Raises:
+            KeyError: Plan not found.
+            ValueError: Invalid patch content (bad step_type, out-of-bounds index, etc.).
+        """
+        return planning_service.patch_plan_incremental(
+            plan_id,
+            add_steps=patch_dict.get("add_steps") or [],
+            modify_steps=patch_dict.get("modify_steps") or [],
+            skip_steps=patch_dict.get("skip_steps") or [],
+        )
+
     @staticmethod
     def _profile_step_for(step: AnalysisStepIR) -> dict[str, Any] | None:
         if step.step_type in {"profile_table", "synthesize_findings"}:

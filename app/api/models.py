@@ -287,3 +287,34 @@ class ReadinessSignal(BaseModel):
             "This is a signal, not a command. The agent decides whether to act on it."
         ),
     )
+
+
+class ModifyStepOperation(BaseModel):
+    """A single step parameter modification in a plan patch."""
+
+    index: int = Field(description="Zero-based index of the step to modify.")
+    params: dict[str, Any] = Field(
+        description="Params to merge into the step. Existing params not listed here are preserved.",
+    )
+
+
+class PlanPatchRequest(BaseModel):
+    """Incremental patch for an existing plan.
+
+    Agents submit patches to add steps, modify step params, or skip steps.
+    The plan is reset to 'draft', the patch applied, and the plan re-validated
+    (which may auto-approve if no governance/budget issues are found).
+    """
+
+    add_steps: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="New step dicts to append. Each must include a valid 'step_type'.",
+    )
+    modify_steps: list[ModifyStepOperation] = Field(
+        default_factory=list,
+        description="Step parameter updates keyed by step index.",
+    )
+    skip_steps: list[int] = Field(
+        default_factory=list,
+        description="Indices of steps to mark as 'skipped'.",
+    )

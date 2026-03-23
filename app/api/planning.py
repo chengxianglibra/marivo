@@ -5,6 +5,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 
 from app.api.deps import get_services, http_error
+from app.api.models import PlanPatchRequest
 
 
 router = APIRouter()
@@ -37,6 +38,26 @@ def get_plan(session_id: str, plan_id: str, request: Request) -> dict[str, objec
 def patch_plan(session_id: str, plan_id: str, body: dict[str, Any], request: Request) -> dict[str, object]:
     try:
         return get_services(request).planning_service.patch_plan(plan_id, steps=body.get("steps"))
+    except (KeyError, ValueError) as error:
+        raise http_error(error) from error
+
+
+@router.post("/sessions/{session_id}/plans/{plan_id}/patch")
+def patch_plan_incremental(
+    session_id: str,
+    plan_id: str,
+    body: PlanPatchRequest,
+    request: Request,
+) -> dict[str, object]:
+    """Incrementally patch a plan with add/modify/skip step operations, then re-validate."""
+    services = get_services(request)
+    try:
+        return services.planning_service.patch_plan_incremental(
+            plan_id,
+            add_steps=body.add_steps,
+            modify_steps=[op.model_dump() for op in body.modify_steps],
+            skip_steps=body.skip_steps,
+        )
     except (KeyError, ValueError) as error:
         raise http_error(error) from error
 
