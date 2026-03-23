@@ -6,6 +6,7 @@ from pathlib import Path
 
 from app.analysis_core.ir import from_legacy_step
 from app.planner.replanning import ReplanningService
+from app.planning import PlanningService
 from app.runtime_contracts import CostEstimate
 from app.service import SemanticLayerService
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
@@ -106,6 +107,55 @@ class ReplanningServiceTests(unittest.TestCase):
             decision.detail["replacement_step"]["params"]["table_name"],
             "analytics.player_qoe",
         )
+
+
+class ApplyPatchTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        meta_path = Path(cls.temp_dir.name) / "patch.meta.sqlite"
+        duck_path = Path(cls.temp_dir.name) / "patch.duckdb"
+        cls.metadata = SQLiteMetadataStore(meta_path)
+        get_seeded_duckdb_path(duck_path)
+        cls.analytics = DuckDBAnalyticsEngine(duck_path)
+        cls.metadata.initialize()
+        cls.analytics.initialize()
+        cls.planning = PlanningService(cls.metadata)
+        cls.replanner = ReplanningService()
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.temp_dir.cleanup()
+
+    def _make_session_and_plan(self) -> tuple[str, str]:
+        service = SemanticLayerService(self.metadata, self.analytics)
+        session = service.create_session("Patch test", {}, {}, {})
+        plan = self.planning.draft_plan(
+            session["session_id"],
+            [{"step_type": "profile_table", "params": {"table_name": "analytics.watch_events"}}],
+        )
+        return session["session_id"], plan["plan_id"]
+
+    def test_apply_patch_adds_step(self) -> None:
+        _, plan_id = self._make_session_and_plan()
+        result = self.replanner.apply_patch(
+            plan_id,
+            {"add_steps": [{"step_type": "profile_table", "params": {"table_name": "analytics.ad_events"}}]},
+            self.planning,
+        )
+        self.assertIn("steps", result)
+        self.assertEqual(len(result["steps"]), 2)
+        self.assertEqual(result["steps"][1]["step_type"], "profile_table")
+        self.assertEqual(result["steps"][1]["params"]["table_name"], "analytics.ad_events")
+
+    def test_apply_patch_invalid_step_type_raises(self) -> None:
+        _, plan_id = self._make_session_and_plan()
+        with self.assertRaises(ValueError):
+            self.replanner.apply_patch(
+                plan_id,
+                {"add_steps": [{"step_type": "nonexistent_step"}]},
+                self.planning,
+            )
 
 
 class AttachReplanningProvenanceTests(unittest.TestCase):

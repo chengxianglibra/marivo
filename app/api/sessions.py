@@ -35,6 +35,23 @@ def get_session(session_id: str, request: Request) -> dict[str, object]:
         raise HTTPException(status_code=404, detail=str(error)) from error
 
 
+@router.get("/sessions/{session_id}/reflection-context")
+def get_reflection_context(
+    session_id: str,
+    request: Request,
+    plan_id: str | None = Query(default=None),
+) -> dict[str, object]:
+    services = get_services(request)
+    if not services.reflection_enabled:
+        raise HTTPException(status_code=404, detail="Reflection context is disabled")
+    from app.reflection.context import build_reflection_context  # noqa: PLC0415
+
+    try:
+        return build_reflection_context(services.metadata_store, session_id, plan_id=plan_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+
 @router.post("/sessions/{session_id}/steps/{step_type}")
 def run_step(
     session_id: str,

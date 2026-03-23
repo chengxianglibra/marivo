@@ -61,10 +61,11 @@ VALID_STEP_TYPES = frozenset(SUPPORTED_STEP_TYPES)
 PLAN_STATUS_TRANSITIONS = {
     "draft": {"validated", "deleted"},
     "validated": {"approved", "draft", "deleted"},
-    "approved": {"executing", "deleted"},
+    "approved": {"executing", "deleted", "draft"},
     "executing": {"completed", "failed"},
     "completed": set(),
     "failed": {"draft"},
+    "partial": {"draft"},
 }
 
 
@@ -157,6 +158,107 @@ class PlanningService:
             )
 
         return self.get_plan(plan_id)
+
+    def patch_plan_incremental(
+        self,
+        plan_id: str,
+        *,
+        add_steps: list[dict[str, Any]] | None = None,
+        modify_steps: list[dict[str, Any]] | None = None,
+        skip_steps: list[int] | None = None,
+    ) -> dict[str, Any]:
+        """Apply an incremental patch to a plan and re-validate.
+
+        Unlike :meth:`patch_plan` (which replaces all steps), this method
+        applies targeted mutations — appending new steps, updating params on
+        existing steps, or marking steps as skipped — then immediately
+        re-validates (and may auto-approve) the resulting plan.
+
+        The plan may be in any status except ``executing`` or ``completed``.
+        Plans in ``validated``, ``approved``, ``failed``, or ``partial`` status
+        are reset to ``draft`` before the patch is applied.
+
+        Args:
+            plan_id: The plan to patch.
+            add_steps: Step dicts to append. Each must include a valid ``step_type``.
+            modify_steps: List of ``{index, params}`` dicts. The ``params`` are
+                merged (not replaced) into the existing step's params.
+            skip_steps: Indices of steps to mark as ``skipped``.
+
+        Returns:
+            Updated plan dict merged with the validation result under key
+            ``"validation"``.
+
+        Raises:
+            KeyError: Plan not found.
+            ValueError: Plan is executing/completed, index out of bounds,
+                or invalid step_type in add_steps.
+        """
+        add_steps = add_steps or []
+        modify_steps = modify_steps or []
+        skip_steps = skip_steps or []
+
+        plan = self.get_plan(plan_id)
+        status = plan["status"]
+
+        if status in ("executing", "completed"):
+            raise ValueError(
+                f"Cannot patch a plan in '{status}' status; "
+                "only draft, validated, approved, failed, or partial plans can be patched."
+            )
+
+        steps: list[dict[str, Any]] = list(plan.get("steps", []))
+
+        # Pre-validate before any mutation
+        for idx in skip_steps:
+            if idx < 0 or idx >= len(steps):
+                raise ValueError(f"skip_steps index {idx} is out of bounds (plan has {len(steps)} steps)")
+
+        for op in modify_steps:
+            idx = op["index"]
+            if idx < 0 or idx >= len(steps):
+                raise ValueError(f"modify_steps index {idx} is out of bounds (plan has {len(steps)} steps)")
+            if steps[idx].get("status") == "skipped":
+                raise ValueError(f"Cannot modify step at index {idx}: step is already skipped")
+
+        for i, new_step in enumerate(add_steps):
+            step_type = new_step.get("step_type")
+            if step_type not in VALID_STEP_TYPES:
+                raise ValueError(
+                    f"add_steps[{i}] has invalid step_type '{step_type}'. "
+                    f"Valid types: {sorted(VALID_STEP_TYPES)}"
+                )
+
+        # Reset to draft if needed
+        if status != "draft":
+            self._transition(plan_id, "draft")
+
+        # Apply skip_steps
+        for idx in skip_steps:
+            steps[idx]["status"] = "skipped"
+
+        # Apply modify_steps (merge params)
+        for op in modify_steps:
+            idx = op["index"]
+            steps[idx].setdefault("params", {}).update(op["params"])
+
+        # Apply add_steps
+        start = len(steps)
+        for i, new_step in enumerate(add_steps):
+            steps.append({
+                "index": start + i,
+                "step_type": new_step["step_type"],
+                "params": dict(new_step.get("params") or {}),
+                "dependencies": list(new_step.get("dependencies") or []),
+                "status": "pending",
+                "estimated_cost": None,
+            })
+
+        self._update_steps(plan_id, steps)
+
+        validation = self.validate_plan(plan_id)
+        updated_plan = self.get_plan(plan_id)
+        return {**updated_plan, "validation": validation}
 
     def delete_plan(self, plan_id: str) -> dict[str, Any]:
         plan = self.get_plan(plan_id)
