@@ -11,6 +11,7 @@ from typing import Any
 
 from app.analysis_core.primitives import STEP_TAXONOMY
 from app.evidence_engine.readiness import compute_readiness, load_live_claims
+from app.evidence_engine.schemas import _CAUSAL_CONFOUNDERS
 from app.storage.metadata import MetadataStore
 
 _NUMERIC_READINESS_DIMS = (
@@ -50,7 +51,8 @@ def build_reflection_context(
         raise KeyError(f"Unknown session: {session_id}")
     budget = json.loads(row["budget_json"])
 
-    readiness_signal = compute_readiness(metadata_store, session_id, budget)
+    all_live = load_live_claims(metadata_store, session_id)
+    readiness_signal = compute_readiness(metadata_store, session_id, budget, claims=all_live)
     readiness_score = round(
         sum(readiness_signal[k] for k in _NUMERIC_READINESS_DIMS) / len(_NUMERIC_READINESS_DIMS),
         4,
@@ -58,7 +60,6 @@ def build_reflection_context(
 
     # tentative_claims: claims with status='tentative' OR inference_level in ('L0', 'L1')
     # These represent claims where more evidence could strengthen the analysis.
-    all_live = load_live_claims(metadata_store, session_id)
     tentative_claims = [
         {
             "claim_id": c["claim_id"],
@@ -92,8 +93,6 @@ def _confounders_for(claim: dict[str, Any]) -> list[str]:
     Prefers the stored causal_basis confounders if available,
     otherwise falls back to the inference_level lookup table.
     """
-    from app.evidence_engine.schemas import _CAUSAL_CONFOUNDERS  # noqa: PLC0415
-
     level = claim.get("inference_level", "L0")
     return list(_CAUSAL_CONFOUNDERS.get(level, _CAUSAL_CONFOUNDERS["L0"]))
 

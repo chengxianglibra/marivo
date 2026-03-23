@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.api.deps import get_services, http_error
 from app.api.models import SessionCreateRequest
+from app.reflection.context import build_reflection_context
 
 
 router = APIRouter()
@@ -44,8 +45,6 @@ def get_reflection_context(
     services = get_services(request)
     if not services.reflection_enabled:
         raise HTTPException(status_code=404, detail="Reflection context is disabled")
-    from app.reflection.context import build_reflection_context  # noqa: PLC0415
-
     try:
         return build_reflection_context(services.metadata_store, session_id, plan_id=plan_id)
     except KeyError as error:

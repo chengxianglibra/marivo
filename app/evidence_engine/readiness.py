@@ -42,6 +42,8 @@ def compute_readiness(
     metadata_store: MetadataStore,
     session_id: str,
     budget: dict[str, Any],
+    *,
+    claims: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Compute five-dimensional readiness signal for a session.
 
@@ -49,7 +51,8 @@ def compute_readiness(
         goal_coverage, evidence_sufficiency, contradiction_resolution,
         budget_remaining, diminishing_returns, suggested_action
     """
-    claims = load_live_claims(metadata_store, session_id)
+    if claims is None:
+        claims = load_live_claims(metadata_store, session_id)
 
     # 1. goal_coverage: claims with confidence >= 0.5 / 5, clipped [0,1]
     qualifying = [c for c in claims if c.get("confidence", 0) >= 0.5]
