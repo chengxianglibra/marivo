@@ -548,6 +548,32 @@ class SemanticLayerService:
         self._insert_step(step_id, session_id, step_type, summary, result, provenance=provenance)
         return result
 
+    def _fetch_column_metadata(self, short_name: str, columns: list[str]) -> dict[str, dict[str, str]]:
+        """Look up synced column source_objects to get data_type and unit.
+
+        Uses the table short_name (last FQN segment) for a LIKE lookup.
+        Returns {} gracefully if no column objects are synced.
+        """
+        if not columns:
+            return {}
+        try:
+            rows = self.metadata.query_rows(
+                "SELECT native_name, properties_json FROM source_objects "
+                "WHERE object_type = 'column' AND fqn LIKE ?",
+                [f"%.{short_name}.%"],
+            )
+            result: dict[str, dict[str, str]] = {}
+            for row in rows:
+                col_name = row["native_name"]
+                if col_name in columns:
+                    props = json.loads(row["properties_json"])
+                    entry = {k: props[k] for k in ("data_type", "unit") if k in props}
+                    if entry:
+                        result[col_name] = entry
+            return result
+        except Exception:
+            return {}
+
     def _run_profile_table(self, session_id: str, params: dict[str, Any]) -> dict[str, Any]:
         """Profile a table: row count, column stats (null rate, distinct count).
 
@@ -617,6 +643,7 @@ class SemanticLayerService:
                 except Exception:
                     continue
 
+        col_metadata = self._fetch_column_metadata(short_name, columns)
         col_profiles = []
         for col in columns[:20]:  # cap at 20 columns for safety
             try:
@@ -633,15 +660,21 @@ class SemanticLayerService:
                     engine_type=engine_type,
                 )
                 stats = execute_compiled(engine, stats_query).rows[0]
-                col_profiles.append({
+                entry: dict[str, Any] = {
                     "column": col,
                     "total": stats["total"],
                     "non_null": stats["non_null"],
                     "null_rate": round(1 - stats["non_null"] / max(stats["total"], 1), 4),
                     "distinct_count": stats["distinct_count"],
-                })
+                }
+                if col in col_metadata:
+                    entry.update(col_metadata[col])
+                col_profiles.append(entry)
             except Exception:
-                col_profiles.append({"column": col, "error": "failed to profile"})
+                err_entry: dict[str, Any] = {"column": col, "error": "failed to profile"}
+                if col in col_metadata:
+                    err_entry.update(col_metadata[col])
+                col_profiles.append(err_entry)
 
         profile_scope = None
         if profile_date_column:
@@ -770,10 +803,13 @@ class SemanticLayerService:
         )
         rows = execute_compiled(engine, compiled_query).rows
 
+        actual_columns = list(rows[0].keys()) if rows else list(params.get("columns") or [])
+        col_metadata = self._fetch_column_metadata(short_name, actual_columns)
+
         artifact_id = self._insert_artifact(session_id, step_id, "sample", f"{short_name}_sample", rows)
         summary = f"Sampled {len(rows)} rows from '{table_name}'."
         provenance = self._make_provenance(compiled_query.sql, compiled_query.params, engine_type=engine_type)
-        result = {"step_type": step_type, "summary": summary, "artifact_id": artifact_id, "rows": rows}
+        result = {"step_type": step_type, "summary": summary, "artifact_id": artifact_id, "rows": rows, "columns_metadata": col_metadata}
         self._insert_step(step_id, session_id, step_type, summary, result, provenance=provenance)
         return result
 

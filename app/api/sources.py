@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.api.deps import get_services
-from app.api.models import SourceRegisterRequest, SourceUpdateRequest, SyncSelectionRequest
+from app.api.models import ColumnPropertiesUpdateRequest, SourceRegisterRequest, SourceUpdateRequest, SyncSelectionRequest
 from app.registry.source_registry import DependencyError
 
 
@@ -144,6 +144,18 @@ def browse_catalog_tables(source_id: str, request: Request, schema: str = Query(
         return get_services(request).source_service.browse_catalog_tables(source_id, schema)
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@router.patch("/sources/{source_id}/objects/{object_id}/properties")
+def patch_column_properties(source_id: str, object_id: str, payload: ColumnPropertiesUpdateRequest, request: Request) -> dict[str, object]:
+    services = get_services(request)
+    user_props = {k: v for k, v in payload.model_dump().items() if v is not None}
+    try:
+        return services.source_service.patch_object_properties(source_id, object_id, user_props)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @router.get("/sources/{source_id}/objects")
