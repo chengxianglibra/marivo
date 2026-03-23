@@ -14,6 +14,7 @@ from app.evidence_engine.schemas import (
     Claim,
     Observation,
     Recommendation,
+    _build_causal_basis,
 )
 from app.evidence_engine.scoring import ConfidenceScorer, DefaultConfidenceScorer
 from app.evidence_engine.synthesizers import ClaimSynthesizer, DefaultClaimSynthesizer
@@ -216,6 +217,19 @@ class EvidencePipeline:
                     ) if claim["claim_id"] in level_updates else claim["confidence"],
                 }
                 for claim in claims
+            ]
+
+        # M-10: attach causal_basis using final (post-upgrade) inference_level
+        if recommendations:
+            _claim_idx: dict[str, Any] = {c["claim_id"]: c for c in claims}
+            recommendations = [
+                {
+                    **rec,
+                    "causal_basis": _build_causal_basis(_claim_idx[rec["claim_id"]])
+                    if rec["claim_id"] in _claim_idx
+                    else None,
+                }
+                for rec in recommendations
             ]
 
         return {

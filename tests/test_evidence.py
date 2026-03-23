@@ -1247,5 +1247,198 @@ class EvidenceEdgeTypesM07Tests(unittest.TestCase):
                           f"Level {level} for edge type {et} not in INFERENCE_LEVEL_ORDER")
 
 
+class CausalBasisTests(unittest.TestCase):
+    """M-10: causal_basis metadata attached to Recommendations."""
+
+    # ── helpers ──────────────────────────────────────────────────────────────
+
+    def _make_claim(self, level: str = "L0", text: str = "metric dropped", confidence: float = 0.7) -> dict:
+        return {
+            "claim_id": "claim_cb",
+            "type": "root_cause_candidate",
+            "text": text,
+            "scope": {"metric": "watch_time", "slice": {}},
+            "confidence": confidence,
+            "status": "supported",
+            "supporting_observations": ["obs_cb"],
+            "contradicting_observations": [],
+            "confidence_breakdown": {
+                "effect_strength": 0.7, "consistency": 0.8,
+                "sample_score": 0.6, "data_quality_score": 0.9,
+                "contradiction_penalty": 0.0,
+            },
+            "inference_level": level,
+            "inference_justification": [],
+        }
+
+    def _make_obs(self, obs_id: str = "obs_cb") -> dict:
+        return {
+            "observation_id": obs_id,
+            "type": "metric_change",
+            "subject": {"metric": "watch_time", "slice": {"platform": "android"}},
+            "payload": {"delta_pct": -14.0, "current_sessions": 300, "baseline_sessions": 310},
+            "significance": {"sample_size": 300, "practical_significance": True},
+            "quality": {"freshness_ok": True, "sample_size_ok": True},
+        }
+
+    # ── unit tests for _build_causal_basis ───────────────────────────────────
+
+    def test_build_causal_basis_l0_has_three_confounders(self) -> None:
+        from app.evidence_engine.schemas import _build_causal_basis
+        cb = _build_causal_basis(self._make_claim("L0"))
+        self.assertEqual(cb["inference_level"], "L0")
+        self.assertEqual(len(cb["unresolved_confounders"]), 3)
+        self.assertIn("temporal precedence", cb["suggested_validation"])
+
+    def test_build_causal_basis_l5_has_empty_confounders(self) -> None:
+        from app.evidence_engine.schemas import _build_causal_basis
+        cb = _build_causal_basis(self._make_claim("L5"))
+        self.assertEqual(cb["inference_level"], "L5")
+        self.assertEqual(cb["unresolved_confounders"], [])
+        self.assertIn("generalizability", cb["suggested_validation"])
+
+    def test_build_causal_basis_summary_embeds_text_and_confidence(self) -> None:
+        from app.evidence_engine.schemas import _build_causal_basis
+        cb = _build_causal_basis(self._make_claim("L0", "Watch time dropped", 0.75))
+        self.assertIn("Watch time dropped", cb["strongest_evidence_summary"])
+        self.assertIn("0.75", cb["strongest_evidence_summary"])
+
+    def test_build_causal_basis_all_levels_produce_valid_dicts(self) -> None:
+        from app.evidence_engine.schemas import _build_causal_basis, INFERENCE_LEVEL_ORDER
+        for level in INFERENCE_LEVEL_ORDER:
+            cb = _build_causal_basis(self._make_claim(level))
+            self.assertEqual(cb["inference_level"], level)
+            self.assertIsInstance(cb["unresolved_confounders"], list)
+            self.assertIsInstance(cb["suggested_validation"], str)
+            self.assertGreater(len(cb["suggested_validation"]), 0)
+
+    # ── pipeline-level tests ─────────────────────────────────────────────────
+
+    def test_pipeline_attaches_causal_basis_to_recommendation(self) -> None:
+        claim = self._make_claim()
+
+        def _synth(observations):
+            return [claim], [], []
+
+        result = EvidencePipeline(_synth).build_synthesis([self._make_obs()])
+        recs = result["recommendations"]
+        self.assertGreaterEqual(len(recs), 1)
+        for rec in recs:
+            self.assertIn("causal_basis", rec)
+            cb = rec["causal_basis"]
+            self.assertIsNotNone(cb)
+            self.assertIn("inference_level", cb)
+            self.assertIn("unresolved_confounders", cb)
+            self.assertIn("suggested_validation", cb)
+            self.assertIn("strongest_evidence_summary", cb)
+
+    def test_pipeline_causal_basis_uses_upgraded_level(self) -> None:
+        """causal_basis.inference_level must reflect post-M-07 upgrade, not pre-upgrade L0."""
+        from app.evidence_engine.schemas import EDGE_TYPE_TEMPORALLY_PRECEDES
+        obs_id = "obs_cb_upgrade"
+        claim = self._make_claim()
+        causal_edge = {
+            "from_node_id": obs_id,
+            "from_node_type": "observation",
+            "to_node_id": claim["claim_id"],
+            "to_node_type": "claim",
+            "edge_type": EDGE_TYPE_TEMPORALLY_PRECEDES,
+            "weight": 0.85,
+            "explanation": "temporal precedence",
+        }
+
+        def _synth(observations):
+            return [claim], [], [causal_edge]
+
+        result = EvidencePipeline(_synth).build_synthesis([self._make_obs(obs_id)])
+        self.assertEqual(result["claims"][0]["inference_level"], "L2")
+        recs = result["recommendations"]
+        self.assertGreaterEqual(len(recs), 1)
+        self.assertEqual(recs[0]["causal_basis"]["inference_level"], "L2")
+
+    # ── integration tests (DB persistence) ───────────────────────────────────
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        import tempfile
+        from pathlib import Path
+        from app.service import SemanticLayerService
+        from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
+        from app.storage.sqlite_metadata import SQLiteMetadataStore
+        from app.semantic import SemanticService
+
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        meta = SQLiteMetadataStore(Path(cls.temp_dir.name) / "cb.meta.sqlite")
+        duck_path = Path(cls.temp_dir.name) / "cb.duckdb"
+        get_seeded_duckdb_path(duck_path)
+        analytics = DuckDBAnalyticsEngine(duck_path)
+        meta.initialize()
+        analytics.initialize()
+        cls.service = SemanticLayerService(meta, analytics)
+
+        semantic = SemanticService(cls.service.metadata)
+        entity = semantic.create_entity("cb_entity", "CB Entity", ["session_id"])
+        semantic.publish_entity(entity["entity_id"])
+        metric = semantic.create_metric(
+            "cb_watch_time", "Watch Time CB", "avg(play_duration_seconds)",
+            ["platform", "app_version", "network_type", "content_type"],
+            entity_id=entity["entity_id"],
+        )
+        semantic.publish_metric(metric["metric_id"])
+
+        cls.session_id = cls.service.create_session("CB test", {}, {}, {})["session_id"]
+        cls.service.run_step(
+            cls.session_id, "compare_metric",
+            {"metric_name": "cb_watch_time", "table_name": "analytics.watch_events"},
+        )
+        cls.service.run_step(cls.session_id, "synthesize_findings")
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.temp_dir.cleanup()
+
+    def test_causal_basis_persisted_and_read_back(self) -> None:
+        graph = self.service.get_evidence_graph(self.session_id)
+        recs = graph.get("recommendations", [])
+        self.assertGreaterEqual(len(recs), 1)
+        # All recs must have causal_basis key; those from synthesize_findings have non-null value.
+        # (Other recs may have causal_basis=None if they were inserted without the column — see backward compat test.)
+        for rec in recs:
+            self.assertIn("causal_basis", rec)
+        # At least one recommendation from synthesize_findings should have a fully-populated causal_basis.
+        synthesized_recs = [r for r in recs if r.get("causal_basis") is not None]
+        self.assertGreaterEqual(len(synthesized_recs), 1)
+        for rec in synthesized_recs:
+            cb = rec["causal_basis"]
+            self.assertIn("inference_level", cb)
+            self.assertIn("unresolved_confounders", cb)
+            self.assertIn("suggested_validation", cb)
+            self.assertIn("strongest_evidence_summary", cb)
+
+    def test_backward_compat_null_causal_basis(self) -> None:
+        """Rows inserted without causal_basis_json must return causal_basis=None without error."""
+        import json
+        from uuid import uuid4
+        rec_id = f"rec_{uuid4().hex[:12]}"
+        self.service.metadata.execute(
+            """
+            INSERT INTO recommendations
+                (rec_id, session_id, claim_id, action_text, priority, expected_impact, risk, validation_metric_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [rec_id, self.session_id, "claim_old", "do something", "P1",
+             "some impact", "low", json.dumps({"primary_metric": "x"})],
+        )
+        graph = self.service.get_evidence_graph(self.session_id)
+        old_recs = [r for r in graph["recommendations"] if r["rec_id"] == rec_id]
+        self.assertEqual(len(old_recs), 1)
+        self.assertIsNone(old_recs[0]["causal_basis"])
+
+    def test_causal_basis_json_column_in_schema(self) -> None:
+        rows = self.service.metadata.query_rows("PRAGMA table_info(recommendations)", [])
+        col_names = {row["name"] for row in rows}
+        self.assertIn("causal_basis_json", col_names)
+
+
 if __name__ == "__main__":
     unittest.main()
