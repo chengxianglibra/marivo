@@ -230,6 +230,8 @@ class SemanticLayerService:
             )
             result["live_claims"] = load_live_claims(self.metadata, session_id)
 
+        result["constraints_applied"] = self._build_constraints_applied(session_id, normalized)
+
         return result
 
     def get_evidence_graph(self, session_id: str) -> dict[str, Any]:
@@ -397,6 +399,35 @@ class SemanticLayerService:
         if not parts:
             return None
         return " AND ".join(f"({p})" for p in parts)
+
+    _CONSTRAINT_APPLYING_STEPS = frozenset({"compare_metric", "sample_rows", "aggregate_query"})
+
+    _CONSTRAINT_SKIP_REASONS: dict[str, str] = {
+        "profile_table": "profile_table scans the full table; session filters are not applied",
+        "synthesize_findings": "synthesize_findings operates on existing evidence, not raw data",
+    }
+
+    def _build_constraints_applied(self, session_id: str, step_type: str) -> dict[str, Any]:
+        session = self.get_session(session_id)
+        constraints = session.get("constraints") or {}
+        raw_filter = session.get("raw_filter")
+
+        descriptors: list[str] = []
+        if constraints and isinstance(constraints, dict):
+            for key, value in constraints.items():
+                if not isinstance(value, (dict, list)):
+                    descriptors.append(f"constraint: {key} = '{value}'")
+        if raw_filter:
+            descriptors.append(f"raw_filter: {raw_filter}")
+
+        if not descriptors:
+            return {"applied": [], "skipped": [], "note": None}
+
+        if step_type in self._CONSTRAINT_APPLYING_STEPS:
+            return {"applied": descriptors, "skipped": [], "note": None}
+        else:
+            note = self._CONSTRAINT_SKIP_REASONS.get(step_type)
+            return {"applied": [], "skipped": descriptors, "note": note}
 
     def _run_compare_metric(self, session_id: str, params: dict[str, Any]) -> dict[str, Any]:
         """Generic metric comparison step driven by semantic metric definitions.
