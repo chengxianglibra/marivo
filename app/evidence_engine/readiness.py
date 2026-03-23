@@ -143,7 +143,7 @@ def compute_readiness(
         suggested_action = "resolve_contradiction"
     elif goal_coverage >= 0.7 and evidence_sufficiency >= 0.7:
         suggested_action = "synthesize"
-    elif budget_remaining < 0.15 or (diminishing_returns < 0.2 and evidence_sufficiency >= 0.6):
+    elif budget_remaining <= (1.0 / max_steps if max_steps else 0.10) or (diminishing_returns < 0.2 and evidence_sufficiency >= 0.6):
         suggested_action = "stop"
     else:
         suggested_action = "continue_exploring"
