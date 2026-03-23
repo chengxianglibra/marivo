@@ -271,7 +271,8 @@ class SemanticLayerService:
         )
         recommendations = self.metadata.query_rows(
             """
-            SELECT rec_id, claim_id, action_text, priority, expected_impact, risk, validation_metric_json
+            SELECT rec_id, claim_id, action_text, priority, expected_impact, risk,
+                   validation_metric_json, causal_basis_json
             FROM recommendations
             WHERE session_id = ?
             ORDER BY created_at
@@ -287,6 +288,8 @@ class SemanticLayerService:
             claim["inference_justification"] = json.loads(claim.pop("inference_justification_json"))
         for recommendation in recommendations:
             recommendation["validation_metric"] = json.loads(recommendation.pop("validation_metric_json"))
+            raw_cb = recommendation.pop("causal_basis_json")
+            recommendation["causal_basis"] = json.loads(raw_cb) if raw_cb is not None else None
             recommendation["action"] = recommendation["action_text"]  # alias for agent compatibility
 
         return {
@@ -1478,11 +1481,13 @@ class SemanticLayerService:
         )
 
     def _insert_recommendation(self, session_id: str, recommendation: dict[str, Any]) -> None:
+        causal_basis = recommendation.get("causal_basis")
         self.metadata.execute(
             """
             INSERT INTO recommendations (
-                rec_id, session_id, claim_id, action_text, priority, expected_impact, risk, validation_metric_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                rec_id, session_id, claim_id, action_text, priority, expected_impact, risk,
+                validation_metric_json, causal_basis_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 recommendation["rec_id"],
@@ -1493,6 +1498,7 @@ class SemanticLayerService:
                 recommendation["expected_impact"],
                 recommendation["risk"],
                 self._dump(recommendation["validation_metric"]),
+                self._dump(causal_basis) if causal_basis is not None else None,
             ],
         )
 

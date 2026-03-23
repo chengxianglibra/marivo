@@ -97,10 +97,49 @@ class Claim(TypedDict):
 
 
 class Recommendation(TypedDict):
-    rec_id: str                   # Signal: unique recommendation identifier
-    claim_id: str                 # Signal: backing claim
-    action_text: str              # Signal: proposed action (agent decides whether to take it)
-    priority: str                 # Signal: P0/P1/P2 — agent uses to triage, not a command
-    expected_impact: str          # Signal: estimated outcome if action is taken
-    risk: str                     # Signal: risk level of the action
+    rec_id: str                        # Signal: unique recommendation identifier
+    claim_id: str                      # Signal: backing claim
+    action_text: str                   # Signal: proposed action (agent decides whether to take it)
+    priority: str                      # Signal: P0/P1/P2 — agent uses to triage, not a command
+    expected_impact: str               # Signal: estimated outcome if action is taken
+    risk: str                          # Signal: risk level of the action
     validation_metric: dict[str, Any]  # Signal: how to verify the action worked
+    causal_basis: dict[str, Any] | None  # Signal: M-10 causal evidence summary; None for old rows
+
+
+_CAUSAL_CONFOUNDERS: dict[str, list[str]] = {
+    "L0": [
+        "correlation only; directionality not established",
+        "concurrent changes not controlled",
+        "selection bias not assessed",
+    ],
+    "L1": ["temporal precedence not established", "dose-response not confirmed"],
+    "L2": ["causal mechanism not identified", "alternative explanations not ruled out"],
+    "L3": ["confounders not fully eliminated"],
+    "L4": ["experimental confirmation pending"],
+    "L5": [],
+}
+
+_CAUSAL_VALIDATION: dict[str, str] = {
+    "L0": "Perform time-series analysis or controlled experiment to establish temporal precedence",
+    "L1": "Verify temporal ordering; check for dose-response relationship",
+    "L2": "Identify mechanistic pathway; run intervention to rule out alternatives",
+    "L3": "Design experiment to eliminate remaining confounders",
+    "L4": "Run randomized controlled experiment to confirm causal link",
+    "L5": "Monitor for effect persistence and generalizability",
+}
+
+
+def _build_causal_basis(claim: Claim) -> dict[str, Any]:
+    """Build causal_basis metadata deterministically from a claim's inference_level.
+
+    Must be called after M-07 causal upgrades so inference_level is final.
+    """
+    level = claim.get("inference_level", "L0")
+    confidence = claim.get("confidence", 0.0)
+    return {
+        "inference_level": level,
+        "strongest_evidence_summary": f"{claim.get('text', '')} (confidence={confidence:.2f})",
+        "unresolved_confounders": _CAUSAL_CONFOUNDERS.get(level, _CAUSAL_CONFOUNDERS["L0"]),
+        "suggested_validation": _CAUSAL_VALIDATION.get(level, _CAUSAL_VALIDATION["L0"]),
+    }

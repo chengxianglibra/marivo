@@ -98,6 +98,7 @@ METADATA_DDL: list[str] = [
         expected_impact TEXT NOT NULL,
         risk            TEXT NOT NULL,
         validation_metric_json TEXT NOT NULL,
+        causal_basis_json TEXT,
         created_at      TEXT NOT NULL DEFAULT (datetime('now'))
     )
     """,
@@ -337,4 +338,5 @@ METADATA_MIGRATIONS: list[str] = [
     "ALTER TABLE sessions ADD COLUMN raw_filter TEXT",
     "ALTER TABLE observations ADD COLUMN observed_window_json TEXT",
     "ALTER TABLE observations ADD COLUMN temporal_order INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE recommendations ADD COLUMN causal_basis_json TEXT",
 ]
