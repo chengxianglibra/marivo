@@ -778,6 +778,42 @@ class SemanticLayerService:
         engine, engine_type, qualified = self._resolve_engine([short_name])
         qualified_table = qualified.get(short_name, table_name)
 
+        compare_period = params.get("compare_period", False)
+        period_params: list[Any] = []
+        if compare_period:
+            date_column = params.get("date_column")
+            if not date_column:
+                raise ValueError("aggregate_query with compare_period=True requires 'date_column' param")
+            user_ps = params.get("period_start")
+            user_pe = params.get("period_end")
+            if user_ps and user_pe:
+                ps = date.fromisoformat(str(user_ps))
+                pe = date.fromisoformat(str(user_pe))
+                period_length = (pe - ps).days
+                baseline_end = ps - timedelta(days=1)
+                baseline_start = baseline_end - timedelta(days=period_length)
+                try:
+                    row = engine.query_rows(
+                        f"SELECT MAX({date_column}) AS max_date FROM {qualified_table}"
+                    )[0]
+                    date_fmt = self._detect_date_format(row["max_date"])
+                except Exception:
+                    date_fmt = self._detect_date_format(str(user_ps))
+                current_start, current_end = ps, pe
+            else:
+                current_start, current_end, baseline_start, baseline_end, date_fmt = (
+                    self._period_bounds(engine, table_name=qualified_table, date_column=date_column)
+                )
+
+            def _fmt(d: date) -> str:
+                return d.strftime(date_fmt) if date_fmt else d.isoformat()
+
+            period_params = [
+                _fmt(current_start), _fmt(current_end),
+                _fmt(baseline_start), _fmt(baseline_end),
+                _fmt(baseline_start), _fmt(current_end),
+            ]
+
         compiler_params: dict[str, Any] = {
             "table_name": qualified_table,
             "select": params["select"],
@@ -789,24 +825,35 @@ class SemanticLayerService:
             compiler_params["order_by"] = params["order_by"]
         if params.get("limit"):
             compiler_params["limit"] = params["limit"]
+        if compare_period:
+            compiler_params["compare_period"] = True
+            compiler_params["date_column"] = params["date_column"]
 
         compiled_query = self._compile_step_with_feedback(
             from_legacy_step(0, {"step_type": step_type, "params": compiler_params}),
             engine_type=engine_type,
+            semantic_context={"period_params": period_params} if compare_period else None,
         )
         rows = execute_compiled(engine, compiled_query).rows
 
         # Extract observations from aggregate rows (opt-out via extract_observations=false)
         if params.get("extract_observations", True):
-            group_by = params.get("group_by", [])
+            group_by_cols = params.get("group_by", [])
+            # For compare_period, auto-select the first delta_pct column as value_column
+            value_column = params.get("value_column")
+            if compare_period and not value_column and rows:
+                first_key = next(
+                    (k for k in rows[0] if k.endswith("_delta_pct")), None
+                )
+                value_column = first_key
             observations = self.evidence_pipeline.extract_observations(
                 "aggregate_rows",
                 rows,
                 context={
-                    "group_by": group_by,
+                    "group_by": group_by_cols,
                     "observation_type": params.get("observation_type", "metric_change"),
                     "metric": params.get("metric", "aggregate"),
-                    "value_column": params.get("value_column"),
+                    "value_column": value_column,
                 },
             )
             for observation in observations:
@@ -827,6 +874,13 @@ class SemanticLayerService:
                 )
             else:
                 summary = f"Aggregate query on '{table_name}' returned 0 rows."
+        elif compare_period:
+            summary = (
+                f"Period-over-period aggregate on '{table_name}': "
+                f"{len(rows)} dimension slice(s) compared "
+                f"(current {period_params[0]}–{period_params[1]} vs "
+                f"baseline {period_params[2]}–{period_params[3]})."
+            )
         else:
             summary = f"Aggregate query on '{table_name}' returned {len(rows)} rows."
         provenance = self._make_provenance(compiled_query.sql, compiled_query.params, engine_type=engine_type)
