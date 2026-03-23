@@ -77,6 +77,9 @@ METADATA_DDL: list[str] = [
         from_node_type  TEXT NOT NULL,
         to_node_id      TEXT NOT NULL,
         to_node_type    TEXT NOT NULL,
+        -- edge_type: basic layer: supports, contradicts, justifies
+        --            causal layer (M-07): correlates_with, temporally_precedes,
+        --            mechanistically_explains, eliminates_alternative, experimentally_confirms
         edge_type       TEXT NOT NULL,
         weight          REAL NOT NULL,
         explanation     TEXT NOT NULL,

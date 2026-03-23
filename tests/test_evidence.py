@@ -1045,5 +1045,207 @@ class PromotionIntegrationTests(unittest.TestCase):
             self.assertEqual(rec["action"], rec["action_text"])
 
 
+class EvidenceEdgeTypesM07Tests(unittest.TestCase):
+    """M-07: Extend Evidence Edge Types — backward compat + new causal type behavior."""
+
+    def _make_obs(self, obs_id: str = "obs_1") -> dict:
+        return {
+            "observation_id": obs_id,
+            "type": "metric_change",
+            "subject": {"metric": "watch_time", "slice": {"platform": "android"}},
+            "payload": {"delta_pct": -14.0, "current_sessions": 300, "baseline_sessions": 310},
+            "significance": {"sample_size": 300, "practical_significance": True},
+            "quality": {"freshness_ok": True, "sample_size_ok": True},
+        }
+
+    def _make_claim(self, claim_id: str = "claim_test", obs_id: str = "obs_1") -> dict:
+        return {
+            "claim_id": claim_id,
+            "type": "root_cause_candidate",
+            "text": "Test claim",
+            "scope": {"slice": {}},
+            "confidence": 0.70,
+            "status": "supported",
+            "supporting_observations": [obs_id],
+            "contradicting_observations": [],
+            "confidence_breakdown": {
+                "effect_strength": 0.7, "consistency": 0.8,
+                "sample_score": 0.6, "data_quality_score": 0.9,
+                "contradiction_penalty": 0.0,
+            },
+            "inference_level": "L0",
+            "inference_justification": [],
+        }
+
+    def _pipeline_with_causal_edge(self, edge_type: str, obs_id: str = "obs_1") -> "EvidencePipeline":
+        """Build a pipeline whose synthesizer injects one causal edge."""
+        claim = self._make_claim(obs_id=obs_id)
+        causal_edge = {
+            "from_node_id": obs_id,
+            "from_node_type": "observation",
+            "to_node_id": claim["claim_id"],
+            "to_node_type": "claim",
+            "edge_type": edge_type,
+            "weight": 0.85,
+            "explanation": f"Causal edge of type {edge_type}.",
+        }
+
+        def _synthesize(observations):
+            return [claim], [], [causal_edge]
+
+        return EvidencePipeline(_synthesize)
+
+    # ── M-07.3a: Basic edge types unchanged ─────────────────────────────────
+
+    def test_basic_supports_edge_created(self) -> None:
+        result = EvidencePipeline(synthesize_claims).build_synthesis([self._make_obs()])
+        support_edges = [e for e in result["edges"] if e["edge_type"] == "supports"]
+        self.assertGreater(len(support_edges), 0)
+
+    def test_basic_contradicts_edge_weight_fixed(self) -> None:
+        claim = self._make_claim()
+        claim["supporting_observations"] = []
+        claim["contradicting_observations"] = ["obs_1"]
+
+        def _synth(observations):
+            return [claim], [], []
+
+        result = EvidencePipeline(_synth).build_synthesis([self._make_obs()])
+        contradicts_edges = [e for e in result["edges"] if e["edge_type"] == "contradicts"]
+        self.assertEqual(len(contradicts_edges), 1)
+        self.assertAlmostEqual(contradicts_edges[0]["weight"], 0.35)
+
+    def test_basic_justifies_edge_created(self) -> None:
+        result = EvidencePipeline(synthesize_claims).build_synthesis([self._make_obs()])
+        justifies_edges = [e for e in result["edges"] if e["edge_type"] == "justifies"]
+        self.assertGreater(len(justifies_edges), 0)
+
+    def test_basic_edges_do_not_change_inference_level(self) -> None:
+        result = EvidencePipeline(synthesize_claims).build_synthesis([self._make_obs()])
+        for claim in result["claims"]:
+            self.assertEqual(claim["inference_level"], "L0",
+                             f"Claim {claim['claim_id']} should remain L0 with only basic edges")
+            self.assertEqual(claim["inference_justification"], [])
+
+    # ── M-07.3b: New causal edge types accepted ──────────────────────────────
+
+    def test_correlates_with_edge_accepted(self) -> None:
+        from app.evidence_engine.schemas import EDGE_TYPE_CORRELATES_WITH
+        result = self._pipeline_with_causal_edge(EDGE_TYPE_CORRELATES_WITH).build_synthesis([self._make_obs()])
+        self.assertTrue(any(e["edge_type"] == EDGE_TYPE_CORRELATES_WITH for e in result["edges"]))
+
+    def test_temporally_precedes_edge_accepted(self) -> None:
+        from app.evidence_engine.schemas import EDGE_TYPE_TEMPORALLY_PRECEDES
+        result = self._pipeline_with_causal_edge(EDGE_TYPE_TEMPORALLY_PRECEDES).build_synthesis([self._make_obs()])
+        self.assertTrue(any(e["edge_type"] == EDGE_TYPE_TEMPORALLY_PRECEDES for e in result["edges"]))
+
+    def test_mechanistically_explains_edge_accepted(self) -> None:
+        from app.evidence_engine.schemas import EDGE_TYPE_MECHANISTICALLY_EXPLAINS
+        result = self._pipeline_with_causal_edge(EDGE_TYPE_MECHANISTICALLY_EXPLAINS).build_synthesis([self._make_obs()])
+        self.assertTrue(any(e["edge_type"] == EDGE_TYPE_MECHANISTICALLY_EXPLAINS for e in result["edges"]))
+
+    def test_eliminates_alternative_edge_accepted(self) -> None:
+        from app.evidence_engine.schemas import EDGE_TYPE_ELIMINATES_ALTERNATIVE
+        result = self._pipeline_with_causal_edge(EDGE_TYPE_ELIMINATES_ALTERNATIVE).build_synthesis([self._make_obs()])
+        self.assertTrue(any(e["edge_type"] == EDGE_TYPE_ELIMINATES_ALTERNATIVE for e in result["edges"]))
+
+    def test_experimentally_confirms_edge_accepted(self) -> None:
+        from app.evidence_engine.schemas import EDGE_TYPE_EXPERIMENTALLY_CONFIRMS
+        result = self._pipeline_with_causal_edge(EDGE_TYPE_EXPERIMENTALLY_CONFIRMS).build_synthesis([self._make_obs()])
+        self.assertTrue(any(e["edge_type"] == EDGE_TYPE_EXPERIMENTALLY_CONFIRMS for e in result["edges"]))
+
+    # ── M-07.3c: inference_level auto-update ─────────────────────────────────
+
+    def test_correlates_with_upgrades_claim_to_L1(self) -> None:
+        from app.evidence_engine.schemas import EDGE_TYPE_CORRELATES_WITH
+        result = self._pipeline_with_causal_edge(EDGE_TYPE_CORRELATES_WITH).build_synthesis([self._make_obs()])
+        claim = result["claims"][0]
+        self.assertEqual(claim["inference_level"], "L1")
+        self.assertIn(f"{EDGE_TYPE_CORRELATES_WITH}→L1", claim["inference_justification"])
+
+    def test_temporally_precedes_upgrades_claim_to_L2(self) -> None:
+        from app.evidence_engine.schemas import EDGE_TYPE_TEMPORALLY_PRECEDES
+        result = self._pipeline_with_causal_edge(EDGE_TYPE_TEMPORALLY_PRECEDES).build_synthesis([self._make_obs()])
+        self.assertEqual(result["claims"][0]["inference_level"], "L2")
+
+    def test_mechanistically_explains_upgrades_claim_to_L3(self) -> None:
+        from app.evidence_engine.schemas import EDGE_TYPE_MECHANISTICALLY_EXPLAINS
+        result = self._pipeline_with_causal_edge(EDGE_TYPE_MECHANISTICALLY_EXPLAINS).build_synthesis([self._make_obs()])
+        self.assertEqual(result["claims"][0]["inference_level"], "L3")
+
+    def test_eliminates_alternative_upgrades_claim_to_L4(self) -> None:
+        from app.evidence_engine.schemas import EDGE_TYPE_ELIMINATES_ALTERNATIVE
+        result = self._pipeline_with_causal_edge(EDGE_TYPE_ELIMINATES_ALTERNATIVE).build_synthesis([self._make_obs()])
+        self.assertEqual(result["claims"][0]["inference_level"], "L4")
+
+    def test_experimentally_confirms_upgrades_claim_to_L5(self) -> None:
+        from app.evidence_engine.schemas import EDGE_TYPE_EXPERIMENTALLY_CONFIRMS
+        result = self._pipeline_with_causal_edge(EDGE_TYPE_EXPERIMENTALLY_CONFIRMS).build_synthesis([self._make_obs()])
+        self.assertEqual(result["claims"][0]["inference_level"], "L5")
+
+    def test_highest_level_wins_with_multiple_causal_edges(self) -> None:
+        from app.evidence_engine.schemas import EDGE_TYPE_CORRELATES_WITH, EDGE_TYPE_TEMPORALLY_PRECEDES
+        obs_id = "obs_multi"
+        claim = self._make_claim(claim_id="claim_multi", obs_id=obs_id)
+
+        def _synth(observations):
+            edges = [
+                {"from_node_id": obs_id, "from_node_type": "observation",
+                 "to_node_id": "claim_multi", "to_node_type": "claim",
+                 "edge_type": EDGE_TYPE_CORRELATES_WITH, "weight": 0.7, "explanation": "correlation"},
+                {"from_node_id": obs_id, "from_node_type": "observation",
+                 "to_node_id": "claim_multi", "to_node_type": "claim",
+                 "edge_type": EDGE_TYPE_TEMPORALLY_PRECEDES, "weight": 0.8, "explanation": "temporal"},
+            ]
+            return [claim], [], edges
+
+        result = EvidencePipeline(_synth).build_synthesis([self._make_obs(obs_id)])
+        updated = result["claims"][0]
+        self.assertEqual(updated["inference_level"], "L2")
+        self.assertIn(f"{EDGE_TYPE_TEMPORALLY_PRECEDES}→L2", updated["inference_justification"])
+        self.assertIn(f"{EDGE_TYPE_CORRELATES_WITH}→L1", updated["inference_justification"])
+
+    def test_multiple_causal_edge_types_boost_confidence(self) -> None:
+        from app.evidence_engine.schemas import EDGE_TYPE_CORRELATES_WITH, EDGE_TYPE_TEMPORALLY_PRECEDES
+        obs_id = "obs_boost"
+
+        # Single causal edge → baseline confidence
+        single_result = self._pipeline_with_causal_edge(EDGE_TYPE_CORRELATES_WITH, obs_id).build_synthesis([self._make_obs(obs_id)])
+        single_confidence = single_result["claims"][0]["confidence"]
+
+        claim = self._make_claim(claim_id="claim_boost", obs_id=obs_id)
+
+        def _synth_two(observations):
+            edges = [
+                {"from_node_id": obs_id, "from_node_type": "observation",
+                 "to_node_id": "claim_boost", "to_node_type": "claim",
+                 "edge_type": EDGE_TYPE_CORRELATES_WITH, "weight": 0.7, "explanation": "corr"},
+                {"from_node_id": obs_id, "from_node_type": "observation",
+                 "to_node_id": "claim_boost", "to_node_type": "claim",
+                 "edge_type": EDGE_TYPE_TEMPORALLY_PRECEDES, "weight": 0.8, "explanation": "temp"},
+            ]
+            return [claim], [], edges
+
+        two_result = EvidencePipeline(_synth_two).build_synthesis([self._make_obs(obs_id)])
+        self.assertGreater(two_result["claims"][0]["confidence"], single_confidence)
+
+    # ── M-07.3d: Schema constants ─────────────────────────────────────────────
+
+    def test_all_edge_types_is_union_of_basic_and_causal(self) -> None:
+        from app.evidence_engine.schemas import ALL_EDGE_TYPES, BASIC_EDGE_TYPES, CAUSAL_EDGE_TYPES
+        self.assertEqual(ALL_EDGE_TYPES, BASIC_EDGE_TYPES | CAUSAL_EDGE_TYPES)
+
+    def test_causal_edge_to_inference_level_mapping_complete(self) -> None:
+        from app.evidence_engine.schemas import (
+            CAUSAL_EDGE_TYPES, CAUSAL_EDGE_TO_INFERENCE_LEVEL, INFERENCE_LEVEL_ORDER,
+        )
+        for et in CAUSAL_EDGE_TYPES:
+            self.assertIn(et, CAUSAL_EDGE_TO_INFERENCE_LEVEL,
+                          f"Missing mapping for causal edge type: {et}")
+            level = CAUSAL_EDGE_TO_INFERENCE_LEVEL[et]
+            self.assertIn(level, INFERENCE_LEVEL_ORDER,
+                          f"Level {level} for edge type {et} not in INFERENCE_LEVEL_ORDER")
+
+
 if __name__ == "__main__":
     unittest.main()
