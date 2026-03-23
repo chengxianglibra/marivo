@@ -33,6 +33,14 @@ class SessionCreateRequest(BaseModel):
             "not a governance constraint."
         ),
     )
+    raw_filter: str | None = Field(
+        default=None,
+        description=(
+            "Raw SQL filter expression appended (AND) to session constraint filters. "
+            "Supports IN, BETWEEN, IS NOT NULL, and any valid SQL predicate. "
+            "Example: \"cluster IN ('k8sbi-bi1', 'k8sbi-bi2') AND log_date >= '20260301'\""
+        ),
+    )
     budget: dict[str, Any] = Field(
         default_factory=lambda: {
             "max_scan_bytes": 500_000_000_000,

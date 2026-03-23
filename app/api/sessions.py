@@ -18,6 +18,7 @@ def create_session(payload: SessionCreateRequest, request: Request) -> dict[str,
         constraints=payload.constraints,
         budget=payload.budget,
         policy=payload.policy,
+        raw_filter=payload.raw_filter,
     )
 
 

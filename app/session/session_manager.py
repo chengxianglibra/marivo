@@ -19,14 +19,15 @@ class SessionManager:
         constraints: dict[str, Any],
         budget: dict[str, Any],
         policy: dict[str, Any],
+        raw_filter: str | None = None,
     ) -> dict[str, Any]:
         session_id = f"sess_{uuid4().hex[:12]}"
         self.metadata.execute(
             """
-            INSERT INTO sessions (session_id, goal, constraints_json, budget_json, policy_json, status)
-            VALUES (?, ?, ?, ?, ?, 'open')
+            INSERT INTO sessions (session_id, goal, constraints_json, budget_json, policy_json, status, raw_filter)
+            VALUES (?, ?, ?, ?, ?, 'open', ?)
             """,
-            [session_id, goal, self._dump(constraints), self._dump(budget), self._dump(policy)],
+            [session_id, goal, self._dump(constraints), self._dump(budget), self._dump(policy), raw_filter],
         )
         return {
             "session_id": session_id,
@@ -35,10 +36,11 @@ class SessionManager:
             "constraints": constraints,
             "budget": budget,
             "policy": policy,
+            "raw_filter": raw_filter,
         }
 
     def list_sessions(self, status: str | None = None) -> list[dict[str, Any]]:
-        sql = "SELECT session_id, goal, status, constraints_json, budget_json, policy_json, created_at FROM sessions"
+        sql = "SELECT session_id, goal, status, constraints_json, budget_json, policy_json, raw_filter, created_at FROM sessions"
         params: list[Any] = []
         if status:
             sql += " WHERE status = ?"
@@ -50,7 +52,7 @@ class SessionManager:
     def get_session(self, session_id: str) -> dict[str, Any]:
         row = self.metadata.query_one(
             """
-            SELECT session_id, goal, status, constraints_json, budget_json, policy_json, created_at
+            SELECT session_id, goal, status, constraints_json, budget_json, policy_json, raw_filter, created_at
             FROM sessions
             WHERE session_id = ?
             """,
@@ -76,6 +78,7 @@ class SessionManager:
             "constraints": json.loads(row["constraints_json"]),
             "budget": json.loads(row["budget_json"]),
             "policy": json.loads(row["policy_json"]),
+            "raw_filter": row.get("raw_filter"),
             "created_at": row["created_at"],
         }
 

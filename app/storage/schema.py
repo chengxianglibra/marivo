@@ -329,4 +329,5 @@ METADATA_MIGRATIONS: list[str] = [
     "ALTER TABLE semantic_metrics ADD COLUMN quality_expectations_json TEXT NOT NULL DEFAULT '{}'",
     "ALTER TABLE claims ADD COLUMN inference_level TEXT NOT NULL DEFAULT 'L0'",
     "ALTER TABLE claims ADD COLUMN inference_justification_json TEXT NOT NULL DEFAULT '[]'",
+    "ALTER TABLE sessions ADD COLUMN raw_filter TEXT",
 ]
