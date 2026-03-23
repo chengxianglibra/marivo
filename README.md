@@ -22,10 +22,12 @@ Factum is an **agentic analytics system** — not a text-to-SQL tool. It provide
   - re-planning on step failure
   - cross-engine query federation
 - **Deterministic evidence packaging** that converts SQL results into:
-  - observations (4 types: `metric_change`, `funnel_drop`, `contribution_shift`, `anomaly_detection`)
-  - claims with confidence scoring and `inference_level` (L0=correlation; L1–L3 causal, reserved for Phase 2)
-  - support / contradiction edges
-  - recommendations with priority/risk/impact
+  - observations (5 types: `metric_comparison`, `funnel_drop`, `contribution_shift`, `anomaly_detection`, `aggregate_observation`) extracted by a pluggable **Extractor Registry** (`ComparisonRowExtractor`, `AggregateRowExtractor`, `FunnelExtractor`, `AnomalyExtractor`, `ContributionShiftExtractor`)
+  - claims with confidence scoring, `status` (tentative/confirmed/insufficient), and `inference_level` (L0=correlation; L1=temporal precedence; L2=mechanism; L3–L5 reserved). Incremental synthesis runs after every primitive step and promotes claims at `synthesize_findings`
+  - evidence edges: base types (`supports`, `contradicts`, `justifies`) + causal layer (`correlates_with`, `temporally_precedes`, `mechanistically_explains`, `eliminates_alternative`, `experimentally_confirms`)
+  - recommendations with priority/risk/impact and `causal_basis` metadata (inference level, confounders, suggested validation)
+- **Readiness signal** — every primitive step response includes a 5-dimensional `readiness` object (`goal_coverage`, `evidence_sufficiency`, `contradiction_resolution`, `budget_remaining`, `diminishing_returns`) and a `suggested_action` (`continue_exploring`, `synthesize`, `stop`, `resolve_contradiction`), plus `live_claims` (current tentative + confirmed claims). Signals are deterministic facts; the agent decides what to do.
+- **Deterministic causal checkers** — `CrossSliceConsistencyChecker` (L0→L1), `TemporalPrecedenceChecker` (L1→L2), `DoseResponseChecker` (bonus justification), `ReversalChecker` (bonus justification) run automatically after each incremental synthesis step to upgrade claim `inference_level` without LLM involvement.
 - YAML-driven configuration for sources, engines, bindings, governance, and UI.
 - A split web UI: Admin (`/admin`) for infrastructure management, User (`/ui`) for analysis and investigation.
 
@@ -163,6 +165,7 @@ curl -s -X POST http://127.0.0.1:8000/sessions/<session_id>/plans/<plan_id>/exec
 - `POST /sessions/{session_id}/steps/{step_type}`
 - `GET /sessions/{session_id}/evidence`
 - `GET /sessions/{session_id}/planner-context`
+- `GET /sessions/{session_id}/reflection-context` — structured evidence-gap summary for agents (readiness, tentative claims, evidence gaps, available step types)
 
 #### Planning
 
@@ -175,6 +178,7 @@ curl -s -X POST http://127.0.0.1:8000/sessions/<session_id>/plans/<plan_id>/exec
 - `GET .../plans/{plan_id}/explain`
 - `POST .../plans/{plan_id}/estimate-costs`
 - `GET .../plans/{plan_id}/budget-check`
+- `POST .../plans/{plan_id}/patch` — agent-submitted incremental patch (add/modify/skip steps)
 
 #### Source registry
 
@@ -264,7 +268,11 @@ Browser / Agent / HTTP Client
   → Execution layer (app/execution/):
       orchestrator, federation, routing_runtime, costing, capabilities, translation
   → Evidence engine (app/evidence_engine/):
-      extractors (comparison, aggregate), factories, pipeline, scoring, synthesizers
+      registry (ExtractorRegistry), extractors (comparison, aggregate, funnel, anomaly,
+      contribution_shift), factories, pipeline, scoring, synthesizers,
+      incremental_synthesizer, causal_checkers, readiness
+  → Reflection (app/reflection/):
+      context (build_reflection_context)
   → Storage:
       MetadataStore ABC  → SQLiteMetadataStore
       AnalyticsEngine ABC → DuckDBAnalyticsEngine, TrinoAnalyticsEngine
@@ -279,14 +287,17 @@ Browser / Agent / HTTP Client
 - The query router resolves table names through `source_objects → source → binding → engine`, supporting multi-source queries when a common engine exists.
 - SQL dialect translation (`app/dialect.py`): DuckDB SQL is translated to Trino dialect (casts).
 - Evidence packaging produces structured observations, claims, and recommendations rather than free-form SQL results. Facts are extracted deterministically; language models may assist with synthesis but not with fact extraction.
-- Plan lifecycle: draft → validated → approved → executing → completed/failed. Clean plans are auto-approved; plans with governance/budget blocks require explicit approval.
+- **Incremental synthesis**: after every primitive step, `IncrementalSynthesizer` creates or updates `tentative` claims keyed by (metric, slice). `synthesize_findings` promotes tentative → `confirmed` or `insufficient` — it does not create claims from scratch.
+- **Readiness signal**: every primitive step response includes `readiness` (5 float dimensions in [0, 1]) and `live_claims`. `suggested_action` is a deterministic signal — Factum never auto-triggers next steps.
+- **Causal inference levels**: `inference_level` on claims is upgraded deterministically by causal checkers running after each incremental synthesis. L0 = correlation; L1 = temporal precedence; L2 = mechanism. L3–L5 are reserved for experimental/A-B evidence.
+- Plan lifecycle: draft → validated → approved → executing → completed/failed. Clean plans are auto-approved; plans with governance/budget blocks require explicit approval. Plans can be patched via `POST .../patch` which resets to draft, applies the patch, and re-validates.
 - Session constraints are auto-injected as SQL WHERE filters into `compare_metric`, `sample_rows`, and `aggregate_query` steps.
 - Cross-engine federation is supported via `FederationPlanner` and `FederationRuntime` in `app/execution/federation.py`.
 
 ## Running tests
 
 ```bash
-.venv/bin/python3 -m unittest discover -s tests -v    # all ~500 tests
+.venv/bin/python3 -m unittest discover -s tests -v    # all ~663 tests
 .venv/bin/python3 -m unittest tests.test_storage -v   # single module
 .venv/bin/python3 -m unittest tests.test_storage.SQLiteMetadataStoreTests.test_execute_and_query  # single test
 ```

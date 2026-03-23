@@ -61,6 +61,7 @@ Fields that store structured data are represented as JSON objects in responses. 
 |----------|---------------|
 | Session | `active`, `completed`, `abandoned` |
 | Plan | `draft` → `validated` → `approved` → `executing` → `completed` / `failed` |
+| Claim | `tentative` → `confirmed` / `insufficient` (promoted by `synthesize_findings`) |
 | Semantic entity / metric | `draft` → `published` → `deprecated` |
 | Job | `pending` → `running` → `completed` / `failed` / `cancelled` |
 | Approval request | `pending` → `approved` / `rejected` |

@@ -11,6 +11,7 @@ Sessions are the primary unit of analysis in Factum. Every investigation belongs
 | `GET` | `/sessions/{session_id}` | Get a session |
 | `POST` | `/sessions/{session_id}/steps/{step_type}` | Execute a step |
 | `GET` | `/sessions/{session_id}/evidence` | Get the evidence graph |
+| `GET` | `/sessions/{session_id}/reflection-context` | Get structured evidence-gap summary for agents |
 
 ---
 
@@ -180,9 +181,55 @@ POST /sessions/{session_id}/steps/compare_metric
     "engine": "duckdb",
     "timestamp": "2024-01-15T10:05:00+00:00",
     "param_count": 4
-  }
+  },
+  "readiness": {
+    "goal_coverage": 0.4,
+    "evidence_sufficiency": 0.33,
+    "contradiction_resolution": 1.0,
+    "budget_remaining": 0.87,
+    "diminishing_returns": 0.0,
+    "suggested_action": "continue_exploring"
+  },
+  "live_claims": [
+    {
+      "claim_id": "claim_...",
+      "claim_type": "metric_regression",
+      "text": "Average watch time declined 14.2% on iOS mobile",
+      "confidence": 0.72,
+      "status": "tentative",
+      "scope": {"device_type": "iOS"},
+      "inference_level": "L0",
+      "inference_justification": []
+    }
+  ]
 }
 ```
+
+**Readiness signal (all primitive steps):**
+
+Every primitive step response includes `readiness` and `live_claims`. These are signals — Factum never auto-triggers next steps; the agent decides what to do next.
+
+**`readiness` fields:**
+
+| Field | Range | Description |
+|-------|-------|-------------|
+| `goal_coverage` | [0, 1] | Fraction of session goal covered by claims with confidence ≥ 0.5 (denominator: 5) |
+| `evidence_sufficiency` | [0, 1] | Average supporting observations per claim, clipped to [0, 1] |
+| `contradiction_resolution` | [0, 1] | Fraction of claims with no contradicting observations |
+| `budget_remaining` | [0, 1] | (max_steps − primitive_step_count) / max_steps |
+| `diminishing_returns` | [0, 1] | Fraction of last 3 steps that produced ≥ 1 new claim |
+| `suggested_action` | string | Recommended next action (see below) |
+
+**`suggested_action` cascade (checked in order):**
+
+| Action | Condition |
+|--------|-----------|
+| `resolve_contradiction` | Any claim has contradicting observations |
+| `synthesize` | `goal_coverage` ≥ 0.7 AND `evidence_sufficiency` ≥ 0.7 |
+| `stop` | Budget nearly exhausted OR `diminishing_returns` < 0.2 with sufficient evidence |
+| `continue_exploring` | Otherwise |
+
+**`live_claims`** — list of all `tentative` and `confirmed` claims in the session, fully hydrated with scope, confidence, inference level, and supporting/contradicting observations.
 
 ---
 
@@ -271,12 +318,11 @@ POST /sessions/{session_id}/steps/aggregate_query
 ```json
 {
   "table_name": "events.user_video_watch",
+  "select": ["device_type", "region", "AVG(watch_duration_sec) as avg_watch_sec", "COUNT(*) as cnt"],
   "group_by": ["device_type", "region"],
-  "measures": [
-    {"expr": "AVG(watch_duration_sec)", "alias": "avg_watch_sec"},
-    {"expr": "COUNT(*)", "alias": "session_count"}
-  ],
-  "filter": "event_date >= '2024-01-01'",
+  "where": "event_date >= '2024-01-01'",
+  "order_by": "avg_watch_sec DESC",
+  "limit": 50,
   "extract_observations": true
 }
 ```
@@ -284,23 +330,24 @@ POST /sessions/{session_id}/steps/aggregate_query
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `table_name` | string | yes | Table to query |
+| `select` | array[string] | yes | SELECT expressions (column names or SQL aggregate expressions with aliases) |
 | `group_by` | array[string] | yes | Columns to group by |
-| `measures` | array[object] | yes | Aggregation expressions with aliases |
-| `filter` | string | no | SQL filter expression (ANDed with session constraints) |
+| `where` | string | no | SQL filter expression (ANDed with session constraints) |
+| `order_by` | string | no | ORDER BY clause (e.g., `avg_watch_sec DESC`) |
+| `limit` | integer | no | Maximum rows (default: `100`) |
 | `extract_observations` | boolean | no | Extract observations from result rows (default: `true`). Set to `false` to skip. |
-
-**`measures` object:**
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `expr` | string | SQL aggregate expression (e.g., `AVG(col)`, `COUNT(*)`) |
-| `alias` | string | Output column alias |
 
 ---
 
 ### synthesize_findings
 
-Composite step that synthesizes all observations in the session into claims and recommendations. This step reads from the evidence graph accumulated by prior steps — it does not require additional parameters.
+Composite step that promotes `tentative` claims (created incrementally after each primitive step) into `confirmed` or `insufficient` status, then generates recommendations. This step does **not** count toward `budget.max_steps`.
+
+After every primitive step, `IncrementalSynthesizer` automatically creates or updates tentative claims keyed by (metric, slice). `synthesize_findings` promotes them:
+- `tentative` → `confirmed` — confidence ≥ 0.5 AND no contradicting observations
+- `tentative` → `insufficient` — otherwise
+
+Recommendations are generated from confirmed claims. If all claims are insufficient, a P2 investigation recommendation is generated from the highest-confidence claim.
 
 ```
 POST /sessions/{session_id}/steps/synthesize_findings
@@ -324,6 +371,7 @@ POST /sessions/{session_id}/steps/synthesize_findings
         "claim_type": "metric_regression",
         "text": "Average watch time declined 14.2% on iOS mobile in January 2024",
         "confidence": 0.87,
+        "status": "confirmed",
         "scope": {"platform": "mobile", "device_type": "iOS"},
         "inference_level": "L0",
         "inference_justification": []
@@ -381,7 +429,9 @@ Returns the full evidence graph for a session: all steps, artifacts, observation
         "direction": "down"
       },
       "significance": {"score": 0.92},
-      "quality": {"completeness": 1.0}
+      "quality": {"completeness": 1.0},
+      "observed_window": {"start": "2024-01-01", "end": "2024-01-31"},
+      "temporal_order": 1
     }
   ],
   "claims": [
@@ -391,7 +441,7 @@ Returns the full evidence graph for a session: all steps, artifacts, observation
       "text": "Metric decline is concentrated in iOS / mobile traffic...",
       "scope": {"slice": {"platform": "iOS", "device_type": "mobile"}},
       "confidence": 0.87,
-      "status": "supported",
+      "status": "confirmed",
       "supporting_observations": ["obs_..."],
       "contradicting_observations": [],
       "confidence_breakdown": {
@@ -401,8 +451,8 @@ Returns the full evidence graph for a session: all steps, artifacts, observation
         "data_quality_score": 0.95,
         "contradiction_penalty": 0.0
       },
-      "inference_level": "L0",
-      "inference_justification": []
+      "inference_level": "L1",
+      "inference_justification": ["cross_slice_consistency:6/8_slices_down→L1"]
     }
   ],
   "evidence_edges": [
@@ -423,19 +473,131 @@ Returns the full evidence graph for a session: all steps, artifacts, observation
 
 **Evidence edge types:**
 
+Base layer:
+
 | Type | Description |
 |------|-------------|
 | `supports` | Observation/claim supports a claim |
 | `contradicts` | Observation/claim contradicts a claim |
 | `justifies` | Observation justifies a recommendation |
 
+Causal layer (assigned by causal checkers when inference level is upgraded):
+
+| Type | Inference level | Description |
+|------|----------------|-------------|
+| `correlates_with` | L0/L1 | Statistical association between two observations |
+| `temporally_precedes` | L1/L2 | Cause event observed before effect event |
+| `mechanistically_explains` | L2/L3 | Plausible causal mechanism described |
+| `eliminates_alternative` | L3/L4 | Alternative explanation ruled out |
+| `experimentally_confirms` | L4/L5 | A/B test or natural experiment confirms the claim |
+
+**Observation fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `observed_window` | object or null | `{start, end}` ISO dates for the time window observed. Populated for `compare_metric` and period-comparison `aggregate_query`; `null` for `profile_table` and plain aggregations. |
+| `temporal_order` | integer | Sequential position of this observation within the session (1-based). Used for temporal ordering in the evidence graph. |
+
+**Claim `status` values:**
+
+| Status | Description |
+|--------|-------------|
+| `tentative` | Created by incremental synthesis after a primitive step; awaiting promotion |
+| `confirmed` | Promoted by `synthesize_findings` — confidence ≥ 0.5 AND no contradictions |
+| `insufficient` | Promoted by `synthesize_findings` — confidence < 0.5 OR contradictions present |
+
 **Claim `inference_level` values:**
 
-| Level | Meaning |
-|-------|---------|
-| `L0` | Correlation / association only. No causal claim is made. *(all Phase 1 claims)* |
-| `L1` | Temporal precedence established (cause precedes effect in time). *(Phase 2)* |
-| `L2` | Mechanism identified — a plausible causal pathway is described. *(Phase 2)* |
-| `L3` | Counterfactual / experimental evidence (A/B test, natural experiment). *(Phase 2)* |
+| Level | Meaning | Set by |
+|-------|---------|--------|
+| `L0` | Correlation / association only | Default (all new claims) |
+| `L1` | Temporal precedence established (cross-slice consistency) | `CrossSliceConsistencyChecker` |
+| `L2` | Mechanism identified — temporal precedence confirmed | `TemporalPrecedenceChecker` |
+| `L3`–`L5` | Counterfactual / experimental evidence | Reserved (not yet implemented) |
 
-`inference_justification` is a list of provenance tokens that establish the stated level. It is always `[]` for `L0`.
+`inference_justification` is a list of provenance tokens encoding how the level was achieved (e.g. `"cross_slice_consistency:6/8_slices_down→L1"`). It is always `[]` for `L0`.
+
+**Recommendation `causal_basis` field:**
+
+```json
+{
+  "rec_id": "rec_...",
+  "action_text": "...",
+  "priority": "P0",
+  "risk": "low",
+  "causal_basis": {
+    "inference_level": "L1",
+    "strongest_evidence_summary": "6/8 dimension slices show consistent decline (cross-slice consistency)",
+    "unresolved_confounders": ["seasonal effects", "concurrent feature rollout"],
+    "suggested_validation": "Run A/B test isolating the iOS build version variable"
+  }
+}
+```
+
+`causal_basis` is `null` for recommendations without associated claims or for rows created before M-10.
+
+---
+
+## Get Reflection Context
+
+```
+GET /sessions/{session_id}/reflection-context?plan_id={plan_id}
+```
+
+Returns a compact, token-efficient evidence-gap summary designed for agent consumption. The response is deterministically computed from the session's evidence state — no LLM is involved.
+
+**Design principle:** Factum produces structured facts (gaps, readiness, confounders). The agent decides what steps to run next.
+
+Requires `reflection.enabled: true` in `factum.yaml` (default: `true`).
+
+### Query Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `plan_id` | string | optional | If provided, plan context is included in the response |
+
+### Response
+
+```json
+{
+  "session_id": "sess_...",
+  "plan_id": null,
+  "readiness_signal": {
+    "goal_coverage": 0.4,
+    "evidence_sufficiency": 0.33,
+    "contradiction_resolution": 1.0,
+    "budget_remaining": 0.73,
+    "diminishing_returns": 0.33,
+    "suggested_action": "continue_exploring"
+  },
+  "readiness_score": 0.56,
+  "tentative_claims": [
+    {
+      "claim_id": "claim_...",
+      "text": "Average watch time declined 14.2% on iOS mobile",
+      "scope": {"device_type": "iOS"},
+      "confidence": 0.72,
+      "inference_level": "L0",
+      "unresolved_confounders": ["concurrent feature rollout", "seasonal effects"]
+    }
+  ],
+  "evidence_gaps": [
+    {
+      "rec_id": "rec_...",
+      "claim_id": "claim_...",
+      "inference_level": "L0",
+      "suggested_validation": "Compare iOS vs Android buffering event rates",
+      "unresolved_confounders": ["seasonal effects"]
+    }
+  ],
+  "available_step_types": ["compare_metric", "profile_table", "sample_rows", "aggregate_query", "synthesize_findings"]
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `readiness_signal` | Full 5-dimensional readiness signal (same as in step responses) |
+| `readiness_score` | Scalar average of the 5 dimensions |
+| `tentative_claims` | Claims with `inference_level` < L2 that still need supporting evidence |
+| `evidence_gaps` | Recommendations that have `suggested_validation` or `unresolved_confounders` |
+| `available_step_types` | Step types available to the agent for next steps |
