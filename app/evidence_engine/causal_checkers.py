@@ -6,9 +6,11 @@ All logic is purely deterministic — no LLMs involved.
 
 Checker chain (executed in order by CausalCheckerRegistry.run_all):
   1. CrossSliceConsistencyChecker  — L0 → L1  (directional consistency across slices)
-  2. TemporalPrecedenceChecker     — L1 → L2  (strict temporal ordering of windows)
-  3. DoseResponseChecker           — L1+ bonus (Spearman ρ ≥ 0.7 on numeric dimension)
-  4. ReversalChecker               — L2+ bonus (sustained direction reversal ≥ 2 periods)
+  2. CrossScopeCorrelationChecker  — L0 → L1  (cross-scope temporal correlation)
+  3. MechanisticExplanationChecker  — L0/L1/L2 → L3  (contribution_shift explanation)
+  4. TemporalPrecedenceChecker     — L1 → L2  (strict temporal ordering of windows)
+  5. DoseResponseChecker           — L1+ bonus (Spearman ρ ≥ 0.7 on numeric dimension)
+  6. ReversalChecker               — L2+ bonus (sustained direction reversal ≥ 2 periods)
 """
 
 from __future__ import annotations
@@ -18,7 +20,11 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.evidence_engine.schemas import INFERENCE_LEVEL_ORDER
+from app.evidence_engine.schemas import (
+    EDGE_TYPE_CORRELATES_WITH,
+    EDGE_TYPE_MECHANISTICALLY_EXPLAINS,
+    INFERENCE_LEVEL_ORDER,
+)
 
 
 # ── CausalEdge ───────────────────────────────────────────────────────────────
@@ -433,6 +439,78 @@ class DoseResponseChecker(CausalChecker):
         return upgrades
 
 
+class MechanisticExplanationChecker(CausalChecker):
+    """Upgrade claims when a contribution_shift observation explains the top slice."""
+
+    @property
+    def name(self) -> str:
+        return "mechanistic_explanation"
+
+    def check(
+        self,
+        claims: list[dict[str, Any]],
+        observations: list[dict[str, Any]],
+        edges: list[dict[str, Any]],
+    ) -> list[LevelUpgrade]:
+        obs_by_metric: dict[str, list[dict[str, Any]]] = {}
+        for obs in observations:
+            if obs.get("type") != "contribution_shift":
+                continue
+            metric = str(obs.get("subject", {}).get("metric", ""))
+            if metric:
+                obs_by_metric.setdefault(metric, []).append(obs)
+
+        upgrades: list[LevelUpgrade] = []
+        for claim in claims:
+            current_level = claim.get("inference_level", "L0")
+            if current_level not in ("L0", "L1", "L2"):
+                continue
+
+            claim_scope = claim.get("scope", {})
+            claim_metric = str(claim_scope.get("metric", ""))
+            claim_slice = claim_scope.get("slice", {})
+            if not claim_metric or not isinstance(claim_slice, dict):
+                continue
+
+            for obs in obs_by_metric.get(claim_metric, []):
+                payload = obs.get("payload", {})
+                segment_name = str(payload.get("segment_name", ""))
+                biggest_shift = payload.get("biggest_shift_segment")
+                if not segment_name or biggest_shift is None:
+                    continue
+                if not _claim_matches_contribution_shift(
+                    claim_slice,
+                    obs.get("subject", {}).get("slice", {}),
+                    segment_name,
+                    biggest_shift,
+                ):
+                    continue
+
+                token = f"mechanistic_explanation:{segment_name}:{biggest_shift}→L3"
+                edge = CausalEdge(
+                    from_node_id=obs["observation_id"],
+                    from_node_type="observation",
+                    to_node_id=claim["claim_id"],
+                    to_node_type="claim",
+                    edge_type=EDGE_TYPE_MECHANISTICALLY_EXPLAINS,
+                    weight=0.9,
+                    explanation=(
+                        f"Contribution shift in {segment_name} points to {biggest_shift} "
+                        f"as the strongest contributor for the claim's slice."
+                    ),
+                )
+                upgrades.append(LevelUpgrade(
+                    claim_id=claim["claim_id"],
+                    new_level="L3",
+                    justification_tokens=[token],
+                    confidence_boost=0.05,
+                    causal_edges=[edge],
+                ))
+                break
+
+        return upgrades
+
+
 class ReversalChecker(CausalChecker):
     """L2+ bonus: sustained direction reversal across ≥2 consecutive periods.
 
@@ -496,6 +574,131 @@ class ReversalChecker(CausalChecker):
         return upgrades
 
 
+class CrossScopeCorrelationChecker(CausalChecker):
+    """L0 → L1: cross-scope temporal correlation.
+
+    Two mechanisms:
+    1. Automatic: When observation A's observed_window precedes observation B's window,
+       propose a correlates_with edge: A → claim_for_B.
+    2. Explicit: When a causal_candidate observation has candidate_cause_observation_id,
+       propose a correlates_with edge from that cause observation to the claim.
+
+    This enables cross-step causal chains like:
+    - Step A: sys_titan query volume +524%
+      → Step B: others RG queue congestion
+        → Step C: oneservice RG timeout failures
+    """
+
+    MAX_LAG_DAYS = 7  # Maximum temporal lag to consider
+
+    @property
+    def name(self) -> str:
+        return "cross_scope_correlation"
+
+    def check(
+        self,
+        claims: list[dict[str, Any]],
+        observations: list[dict[str, Any]],
+        edges: list[dict[str, Any]],
+    ) -> list[LevelUpgrade]:
+        obs_by_id = {o["observation_id"]: o for o in observations}
+        upgrades: list[LevelUpgrade] = []
+        upgraded_claim_ids: set[str] = set()
+
+        # 1. Handle explicit causal_candidate observations
+        for obs in observations:
+            if obs.get("type") != "causal_candidate":
+                continue
+            cause_id = obs.get("payload", {}).get("candidate_cause_observation_id")
+            if not cause_id or cause_id not in obs_by_id:
+                continue
+            # Find claim that has this observation as supporting
+            claim = self._find_claim_for_obs(obs["observation_id"], claims)
+            if not claim:
+                continue
+            if claim["claim_id"] in upgraded_claim_ids:
+                continue
+            cause_short = cause_id[:12] if len(cause_id) >= 12 else cause_id
+            token = f"cross_scope_explicit:{cause_short}→L1"
+            edge = CausalEdge(
+                from_node_id=cause_id,
+                from_node_type="observation",
+                to_node_id=claim["claim_id"],
+                to_node_type="claim",
+                edge_type=EDGE_TYPE_CORRELATES_WITH,
+                weight=0.7,
+                explanation=f"Explicit causal_candidate link from observation {cause_short}",
+            )
+            upgrades.append(LevelUpgrade(
+                claim_id=claim["claim_id"],
+                new_level="L1",
+                justification_tokens=[token],
+                confidence_boost=0.03,
+                causal_edges=[edge],
+            ))
+            upgraded_claim_ids.add(claim["claim_id"])
+
+        # 2. Automatic temporal predecessor detection
+        # Build list of windowed observations
+        windowed_obs = [
+            o for o in observations
+            if o.get("observed_window") is not None
+        ]
+        if len(windowed_obs) < 2:
+            return upgrades
+
+        # For each claim with windowed supporting observations, find predecessors
+        for claim in claims:
+            if claim.get("inference_level", "L0") != "L0":
+                continue
+            if claim["claim_id"] in upgraded_claim_ids:
+                continue
+            supporting_ids = set(claim.get("supporting_observations", []))
+            claim_windowed = [
+                o for o in windowed_obs
+                if o["observation_id"] in supporting_ids
+            ]
+            if not claim_windowed:
+                continue
+
+            claim_start = min(o["observed_window"]["start"] for o in claim_windowed)
+
+            # Find observations that precede this claim
+            for pred_obs in windowed_obs:
+                if pred_obs["observation_id"] in supporting_ids:
+                    continue  # Skip same-claim observations
+                pred_end = pred_obs["observed_window"]["end"]
+                lag_days = _date_diff_days(pred_end, claim_start)
+                if 0 < lag_days <= self.MAX_LAG_DAYS:
+                    token = f"cross_scope_temporal:lag={lag_days}d→L1"
+                    edge = CausalEdge(
+                        from_node_id=pred_obs["observation_id"],
+                        from_node_type="observation",
+                        to_node_id=claim["claim_id"],
+                        to_node_type="claim",
+                        edge_type=EDGE_TYPE_CORRELATES_WITH,
+                        weight=0.5,
+                        explanation=f"Temporal predecessor detected: {pred_end} precedes {claim_start} by {lag_days} days",
+                    )
+                    upgrades.append(LevelUpgrade(
+                        claim_id=claim["claim_id"],
+                        new_level="L1",
+                        justification_tokens=[token],
+                        confidence_boost=0.02,
+                        causal_edges=[edge],
+                    ))
+                    upgraded_claim_ids.add(claim["claim_id"])
+                    break  # One predecessor is enough per claim
+
+        return upgrades
+
+    def _find_claim_for_obs(self, obs_id: str, claims: list[dict[str, Any]]) -> dict[str, Any] | None:
+        for claim in claims:
+            if obs_id in claim.get("supporting_observations", []):
+                return claim
+        return None
+
+
 # ── Shared persistence helper ─────────────────────────────────────────────────
 
 
@@ -554,6 +757,8 @@ def build_default_registry() -> CausalCheckerRegistry:
     """Build a registry with all standard checkers registered in execution order."""
     registry = CausalCheckerRegistry()
     registry.register(CrossSliceConsistencyChecker())
+    registry.register(CrossScopeCorrelationChecker())
+    registry.register(MechanisticExplanationChecker())
     registry.register(TemporalPrecedenceChecker())
     registry.register(DoseResponseChecker())
     registry.register(ReversalChecker())
@@ -615,6 +820,27 @@ def _pearson_correlation(x: list[float], y: list[float]) -> float:
     if var_x == 0.0 or var_y == 0.0:
         return 0.0
     return cov / math.sqrt(var_x * var_y)
+
+
+def _claim_matches_contribution_shift(
+    claim_slice: dict[str, Any],
+    obs_slice: dict[str, Any],
+    segment_name: str,
+    biggest_shift: Any,
+) -> bool:
+    """Return True when a claim slice matches a contribution_shift explanation.
+
+    The contribution_shift claim generated by the incremental synthesizer stores
+    ``{"segment": <dimension>, "biggest_shift": <top_value>}`` in its slice.
+    For robustness, we also accept a direct ``{segment_name: top_value}`` slice
+    shape when callers materialize claims differently.
+    """
+    expected_shift = str(biggest_shift)
+    if obs_slice.get("segment") == segment_name and str(obs_slice.get("biggest_shift")) == expected_shift:
+        return claim_slice == obs_slice
+    if len(claim_slice) == 1 and claim_slice.get(segment_name) == biggest_shift:
+        return True
+    return claim_slice == obs_slice
 
 
 def _date_diff_days(start_iso: str, end_iso: str) -> int:

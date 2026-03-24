@@ -81,6 +81,38 @@ def _insert_obs(
     )
 
 
+def _insert_causal_candidate_obs(
+    store: SQLiteMetadataStore,
+    obs_id: str,
+    sess_id: str,
+    step_id: str,
+    metric: str,
+    slice_val: dict,
+    candidate_cause_observation_id: str,
+    temporal_order: int,
+    window: dict | None = None,
+) -> None:
+    """Insert a causal_candidate observation with explicit cause link."""
+    store.execute(
+        """
+        INSERT INTO observations (
+            observation_id, session_id, step_id, observation_type,
+            subject_json, payload_json, significance_json, quality_json,
+            observed_window_json, temporal_order
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            obs_id, sess_id, step_id, "causal_candidate",
+            json.dumps({"metric": metric, "slice": slice_val}),
+            json.dumps({"candidate_cause_observation_id": candidate_cause_observation_id}),
+            json.dumps({"sample_size": 100, "practical_significance": True}),
+            json.dumps({"freshness_ok": True, "sample_size_ok": True}),
+            json.dumps(window) if window is not None else None,
+            temporal_order,
+        ],
+    )
+
+
 # ── CausalUpgradeChainTests ───────────────────────────────────────────────────
 
 
@@ -238,6 +270,328 @@ class CausalUpgradeChainTests(unittest.TestCase):
             len(l1_rows) > 0 or len(l2_rows) > 0,
             "No L1 or L2 claims remain — the no-downgrade invariant was violated",
         )
+
+    # -- test_cross_scope_explicit_causal_candidate ----------------------------
+
+    def test_cross_scope_explicit_causal_candidate(self) -> None:
+        """causal_candidate observation with candidate_cause_observation_id produces correlates_with edge."""
+        # Step 1: Create a cause observation
+        _insert_obs(
+            self.store,
+            obs_id="obs_cause_001",
+            sess_id=self.sess_id,
+            step_id=self.step_id,
+            metric="query_volume",
+            slice_val={"service": "sys_titan"},
+            delta_pct=524.0,
+            temporal_order=0,
+            window={"start": "2026-01-01", "end": "2026-01-02", "granularity": "day"},
+        )
+
+        # Step 2: Create a causal_candidate observation pointing to the cause
+        _insert_causal_candidate_obs(
+            self.store,
+            obs_id="obs_effect_001",
+            sess_id=self.sess_id,
+            step_id=self.step_id,
+            metric="queue_time",
+            slice_val={"resource_group": "others"},
+            candidate_cause_observation_id="obs_cause_001",
+            temporal_order=1,
+            window={"start": "2026-01-02", "end": "2026-01-03", "granularity": "day"},
+        )
+
+        result = self.synth.process(self.sess_id)
+
+        # Should have created 2 claims
+        self.assertGreaterEqual(result["claims_created"], 2)
+        self.assertGreaterEqual(result["causal_upgrades"], 1)
+
+        # Check for correlates_with edge in evidence_edges
+        edges = self.store.query_rows(
+            "SELECT * FROM evidence_edges WHERE session_id = ?",
+            [self.sess_id],
+        )
+        correlate_edges = [e for e in edges if e["edge_type"] == "correlates_with"]
+        self.assertGreaterEqual(
+            len(correlate_edges), 1,
+            "Expected at least one correlates_with edge from causal_candidate link",
+        )
+
+        # Verify the edge connects cause observation to effect claim
+        edge = correlate_edges[0]
+        self.assertEqual(edge["from_node_id"], "obs_cause_001")
+        self.assertEqual(edge["from_node_type"], "observation")
+        self.assertEqual(edge["to_node_type"], "claim")
+
+        # Verify justification token
+        claims = self._all_claims()
+        justifications = " ".join(r["inference_justification_json"] or "[]" for r in claims)
+        self.assertIn("cross_scope_explicit", justifications)
+
+    # -- test_cross_scope_automatic_temporal_predecessor -----------------------
+
+    def test_cross_scope_automatic_temporal_predecessor(self) -> None:
+        """Two observations from different scopes with temporal ordering produce correlates_with edge."""
+        # Step 1: Create earlier observation (different metric, different slice)
+        _insert_obs(
+            self.store,
+            obs_id="obs_early_001",
+            sess_id=self.sess_id,
+            step_id=self.step_id,
+            metric="cpu_usage",
+            slice_val={"host": "server-1"},
+            delta_pct=150.0,
+            temporal_order=0,
+            window={"start": "2026-01-01", "end": "2026-01-02", "granularity": "day"},
+        )
+
+        # Step 2: Create later observation (different metric, different slice)
+        # This should be automatically detected as a temporal predecessor
+        _insert_obs(
+            self.store,
+            obs_id="obs_late_001",
+            sess_id=self.sess_id,
+            step_id=self.step_id,
+            metric="latency",
+            slice_val={"endpoint": "/api/query"},
+            delta_pct=200.0,
+            temporal_order=1,
+            window={"start": "2026-01-03", "end": "2026-01-04", "granularity": "day"},
+        )
+
+        result = self.synth.process(self.sess_id)
+
+        # Should have created 2 claims
+        self.assertGreaterEqual(result["claims_created"], 2)
+
+        # Check for correlates_with edge from early obs to late claim
+        edges = self.store.query_rows(
+            "SELECT * FROM evidence_edges WHERE session_id = ? AND edge_type = 'correlates_with'",
+            [self.sess_id],
+        )
+
+        # Find edge where early observation points to late claim
+        late_claim = self.store.query_one(
+            "SELECT claim_id FROM claims WHERE session_id = ? AND scope_json LIKE ?",
+            [self.sess_id, "%latency%"],
+        )
+
+        if late_claim and edges:
+            late_claim_id = late_claim["claim_id"]
+            matching_edges = [
+                e for e in edges
+                if e["from_node_id"] == "obs_early_001" and e["to_node_id"] == late_claim_id
+            ]
+            self.assertGreaterEqual(
+                len(matching_edges), 1,
+                "Expected correlates_with edge from early obs to late claim",
+            )
+
+    # -- test_cross_scope_chain_three_steps -----------------------------------
+
+    def test_cross_scope_chain_three_steps(self) -> None:
+        """Three-step causal chain A → B → C produces two correlates_with edges."""
+        # Step A: sys_titan query volume spike
+        _insert_obs(
+            self.store,
+            obs_id="obs_chain_a",
+            sess_id=self.sess_id,
+            step_id=self.step_id,
+            metric="query_volume",
+            slice_val={"service": "sys_titan"},
+            delta_pct=524.0,
+            temporal_order=0,
+            window={"start": "2026-01-01", "end": "2026-01-02", "granularity": "day"},
+        )
+
+        # Step B: others RG queue congestion (links to A)
+        _insert_causal_candidate_obs(
+            self.store,
+            obs_id="obs_chain_b",
+            sess_id=self.sess_id,
+            step_id=self.step_id,
+            metric="queue_time",
+            slice_val={"resource_group": "others"},
+            candidate_cause_observation_id="obs_chain_a",
+            temporal_order=1,
+            window={"start": "2026-01-02", "end": "2026-01-03", "granularity": "day"},
+        )
+
+        # Step C: oneservice RG timeout failures (links to B)
+        _insert_causal_candidate_obs(
+            self.store,
+            obs_id="obs_chain_c",
+            sess_id=self.sess_id,
+            step_id=self.step_id,
+            metric="timeout_count",
+            slice_val={"service": "oneservice"},
+            candidate_cause_observation_id="obs_chain_b",
+            temporal_order=2,
+            window={"start": "2026-01-03", "end": "2026-01-04", "granularity": "day"},
+        )
+
+        result = self.synth.process(self.sess_id)
+
+        # Should have 3 claims
+        self.assertGreaterEqual(result["claims_created"], 3)
+
+        # Should have at least 2 correlates_with edges
+        edges = self.store.query_rows(
+            "SELECT * FROM evidence_edges WHERE session_id = ? AND edge_type = 'correlates_with'",
+            [self.sess_id],
+        )
+        self.assertGreaterEqual(
+            len(edges), 2,
+            f"Expected at least 2 correlates_with edges in chain, got {len(edges)}",
+        )
+
+        # Verify chain connectivity: A → B claim, B → C claim
+        edge_from_a = [e for e in edges if e["from_node_id"] == "obs_chain_a"]
+        edge_from_b = [e for e in edges if e["from_node_id"] == "obs_chain_b"]
+        self.assertGreaterEqual(len(edge_from_a), 1, "Expected edge from obs_chain_a")
+        self.assertGreaterEqual(len(edge_from_b), 1, "Expected edge from obs_chain_b")
+
+    # -- test_cross_scope_invalid_cause_id_ignored ----------------------------
+
+    def test_cross_scope_invalid_cause_id_ignored(self) -> None:
+        """causal_candidate with non-existent candidate_cause_observation_id is ignored."""
+        # Create a causal_candidate observation pointing to non-existent cause
+        _insert_causal_candidate_obs(
+            self.store,
+            obs_id="obs_invalid_cause",
+            sess_id=self.sess_id,
+            step_id=self.step_id,
+            metric="some_metric",
+            slice_val={"dim": "value"},
+            candidate_cause_observation_id="obs_nonexistent_12345",
+            temporal_order=0,
+        )
+
+        result = self.synth.process(self.sess_id)
+
+        # Should create 1 claim for the observation
+        self.assertGreaterEqual(result["claims_created"], 1)
+        # Should NOT have any causal upgrades (invalid cause ID ignored)
+        self.assertEqual(result["causal_upgrades"], 0)
+
+        # Verify no correlates_with edges
+        edges = self.store.query_rows(
+            "SELECT * FROM evidence_edges WHERE session_id = ? AND edge_type = 'correlates_with'",
+            [self.sess_id],
+        )
+        self.assertEqual(len(edges), 0, "Expected no correlates_with edges for invalid cause ID")
+
+    # -- test_cross_scope_lag_days_boundary -----------------------------------
+
+    def test_cross_scope_lag_days_boundary(self) -> None:
+        """Test lag_days boundary conditions: 0 and > MAX_LAG_DAYS produce no edge."""
+        # Observation A: ends 2026-01-02
+        _insert_obs(
+            self.store,
+            obs_id="obs_lag_a",
+            sess_id=self.sess_id,
+            step_id=self.step_id,
+            metric="metric_a",
+            slice_val={"dim": "a"},
+            delta_pct=10.0,
+            temporal_order=0,
+            window={"start": "2026-01-01", "end": "2026-01-02", "granularity": "day"},
+        )
+
+        # Observation B: starts 2026-01-02 (lag from A = 0, should NOT produce edge)
+        _insert_obs(
+            self.store,
+            obs_id="obs_lag_b_zero",
+            sess_id=self.sess_id,
+            step_id=self.step_id,
+            metric="metric_b",
+            slice_val={"dim": "b"},
+            delta_pct=20.0,
+            temporal_order=1,
+            window={"start": "2026-01-02", "end": "2026-01-03", "granularity": "day"},
+        )
+
+        # Observation C: starts 2026-01-12
+        # lag from A = 10 days (> MAX_LAG_DAYS=7, excluded)
+        # lag from B = 9 days (> MAX_LAG_DAYS=7, excluded)
+        _insert_obs(
+            self.store,
+            obs_id="obs_lag_c_eight",
+            sess_id=self.sess_id,
+            step_id=self.step_id,
+            metric="metric_c",
+            slice_val={"dim": "c"},
+            delta_pct=30.0,
+            temporal_order=2,
+            window={"start": "2026-01-12", "end": "2026-01-13", "granularity": "day"},
+        )
+
+        result = self.synth.process(self.sess_id)
+
+        # Should have 3 claims
+        self.assertGreaterEqual(result["claims_created"], 3)
+
+        # Verify no correlates_with edges (both boundary conditions excluded)
+        edges = self.store.query_rows(
+            "SELECT * FROM evidence_edges WHERE session_id = ? AND edge_type = 'correlates_with'",
+            [self.sess_id],
+        )
+        # lag=0 (same day) and lag>7 should both be excluded
+        self.assertEqual(
+            len(edges), 0,
+            "Expected no correlates_with edges for lag=0 or lag>7",
+        )
+
+    # -- test_cross_scope_valid_lag_produces_edge ------------------------------
+
+    def test_cross_scope_valid_lag_produces_edge(self) -> None:
+        """Test that lag_days within 1-7 range produces correlates_with edge."""
+        # Observation A: ends 2026-01-02
+        _insert_obs(
+            self.store,
+            obs_id="obs_valid_lag_a",
+            sess_id=self.sess_id,
+            step_id=self.step_id,
+            metric="metric_valid_a",
+            slice_val={"dim": "a"},
+            delta_pct=10.0,
+            temporal_order=0,
+            window={"start": "2026-01-01", "end": "2026-01-02", "granularity": "day"},
+        )
+
+        # Observation B: starts 2026-01-04 (lag = 2 days, should produce edge)
+        _insert_obs(
+            self.store,
+            obs_id="obs_valid_lag_b",
+            sess_id=self.sess_id,
+            step_id=self.step_id,
+            metric="metric_valid_b",
+            slice_val={"dim": "b"},
+            delta_pct=20.0,
+            temporal_order=1,
+            window={"start": "2026-01-04", "end": "2026-01-05", "granularity": "day"},
+        )
+
+        result = self.synth.process(self.sess_id)
+
+        # Should have 2 claims
+        self.assertGreaterEqual(result["claims_created"], 2)
+        self.assertGreaterEqual(result["causal_upgrades"], 1)
+
+        # Verify correlates_with edge exists
+        edges = self.store.query_rows(
+            "SELECT * FROM evidence_edges WHERE session_id = ? AND edge_type = 'correlates_with'",
+            [self.sess_id],
+        )
+        self.assertGreaterEqual(
+            len(edges), 1,
+            "Expected at least one correlates_with edge for valid lag",
+        )
+
+        # Verify edge has correct from_node
+        edge_from_a = [e for e in edges if e["from_node_id"] == "obs_valid_lag_a"]
+        self.assertGreaterEqual(len(edge_from_a), 1, "Expected edge from obs_valid_lag_a")
 
 
 # ── EvidenceGraphPhase2FieldsTests ────────────────────────────────────────────

@@ -124,3 +124,50 @@ def make_anomaly_observation(
         },
         "quality": quality,
     }
+
+
+def make_causal_candidate_observation(
+    metric: str,
+    slice_info: dict[str, Any],
+    candidate_cause_observation_id: str,
+    payload: dict[str, Any],
+    quality: dict[str, Any],
+    observed_window: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Create a causal_candidate observation linking to a potential cause.
+
+    This observation type enables cross-step causal chain linking. The
+    candidate_cause_observation_id points to an observation from a prior step
+    that is hypothesized to be the cause of the current observation.
+
+    Args:
+        metric: Metric name for the observation.
+        slice_info: Slice dimensions for the observation.
+        candidate_cause_observation_id: ID of the observation that is a candidate cause.
+        payload: Additional payload data.
+        quality: Data quality metadata.
+        observed_window: Optional temporal window for the observation.
+
+    Returns:
+        A causal_candidate observation dict.
+    """
+    obs: dict[str, Any] = {
+        "observation_id": f"obs_{uuid4().hex[:12]}",
+        "type": "causal_candidate",
+        "subject": {
+            "metric": metric,
+            "slice": slice_info,
+        },
+        "payload": {
+            **payload,
+            "candidate_cause_observation_id": candidate_cause_observation_id,
+        },
+        "significance": {
+            "sample_size": int(payload.get("sample_size", 0)),
+            "practical_significance": True,  # Candidate cause is always notable
+        },
+        "quality": quality,
+    }
+    if observed_window is not None:
+        obs["observed_window"] = observed_window
+    return obs
