@@ -519,10 +519,29 @@ POST /sessions/{session_id}/steps/synthesize_findings
         "expected_impact": "Recover ~6 minutes of average watch time",
         "risk": "low"
       }
+    ],
+    "evidence_gaps": [
+      {
+        "gap_key": "watch_time|platform=android",
+        "text": "Claim 'watch_time on android' remains tentative — insufficient corroborating observations.",
+        "suggested_validation": "Run compare_metric for watch_time scoped to android; add aggregate_query to cross-check session counts.",
+        "affected_claims": ["claim_..."]
+      }
     ]
   }
 }
 ```
+
+`evidence_gaps` is a session-level summary of claims that could not be confirmed. Each entry:
+
+| Field | Description |
+|-------|-------------|
+| `gap_key` | Deduplication key: `metric\|dimension_slice` |
+| `text` | Human-readable description of the gap |
+| `suggested_validation` | Recommended next step to resolve the gap |
+| `affected_claims` | Claim IDs that remain unconfirmed due to this gap |
+
+Agents should treat `evidence_gaps` as the primary signal for deciding whether to run additional steps before finalizing the investigation. The same field is available in `GET /sessions/{id}/reflection-context` for stateless polling.
 
 ---
 

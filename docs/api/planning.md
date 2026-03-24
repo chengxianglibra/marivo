@@ -158,7 +158,23 @@ Validates a draft plan. Validation checks:
 1. **Step type validity** — all `step_type` values must be recognized
 2. **Dependency acyclicity** — `depends_on` references must not form cycles
 3. **Required params** — required parameters must be present for each step type
-4. **Governance** — steps are checked against active policies
+4. **Semantic resolution** — `compare_metric` metrics must be published; requested `dimensions` must be supported by the metric
+5. **Contract constraints** — forbidden param combinations are rejected (e.g. `compare_metric` with `filter` or `where`)
+6. **Governance** — steps are checked against active policies
+
+**Validation issue codes** (non-exhaustive):
+
+| Code | Category | Description |
+|------|----------|-------------|
+| `missing_required_param` | params | A required param is absent for the step type |
+| `compare_metric_filter_not_allowed` | params | `compare_metric` received a step-level `filter` or `where` param — use session `raw_filter`/`constraints` instead |
+| `semantic_metric_not_found` | semantic | Metric is not published or does not exist |
+| `semantic_dimension_not_supported` | semantic | Requested dimension is not in the metric's dimension list |
+| `correlate_metrics_missing_left` | semantic | `correlate_metrics` is missing `left_artifact_id` or `left_step_id` |
+| `correlate_metrics_missing_right` | semantic | `correlate_metrics` is missing `right_artifact_id` or `right_step_id` |
+| `aggregate_only_forbids_sample_rows` | governance | Active policy forbids `sample_rows` |
+| `budget_rows_exceeded` | budget | Estimated row scan exceeds session budget |
+| `routing_table_unresolved` | routing | Table cannot be resolved to a configured engine (warning, non-blocking) |
 
 If all checks pass, the plan transitions to `validated` and is auto-approved (unless blocked by governance or budget issues). If governance or budget blocks exist, the plan remains `validated` and requires explicit approval.
 

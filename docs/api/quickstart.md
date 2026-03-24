@@ -142,12 +142,9 @@ curl -s -X POST http://localhost:8000/sessions/sess_.../steps/aggregate_query \
   -H "Content-Type: application/json" \
   -d '{
     "table_name": "events.user_video_watch",
+    "select": ["device_type", "os_version", "AVG(watch_duration_sec) as avg_watch_sec", "COUNT(*) as session_count"],
     "group_by": ["device_type", "os_version"],
-    "measures": [
-      {"expr": "AVG(watch_duration_sec)", "alias": "avg_watch_sec"},
-      {"expr": "COUNT(*)", "alias": "session_count"}
-    ],
-    "filter": "event_date >= '\''2024-01-01'\'' AND event_date < '\''2024-02-01'\''"
+    "where": "event_date >= '\''2024-01-01'\'' AND event_date < '\''2024-02-01'\''"
   }' | jq .
 ```
 
