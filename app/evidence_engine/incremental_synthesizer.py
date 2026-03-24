@@ -188,6 +188,10 @@ class IncrementalSynthesizer:
                 f"{metric} showed an anomalous {direction} "
                 f"({magnitude}) for {slice_str} (tentative)"
             )
+        elif obs.get("type") == "causal_candidate":
+            cause_id = payload.get("candidate_cause_observation_id", "unknown")
+            cause_short = cause_id[:12] if len(cause_id) >= 12 else cause_id
+            text = f"{metric} is a candidate effect of observation {cause_short} for {slice_str} (tentative)"
         else:
             # Aggregate observation: build text from payload numeric values
             SKIP_KEYS = {"current_value", "delta_pct"}
