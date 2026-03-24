@@ -918,7 +918,6 @@ class PromotionIntegrationTests(unittest.TestCase):
         meta.initialize()
         analytics.initialize()
         cls.service = SemanticLayerService(meta, analytics)
-        cls.service._incremental_synthesizer = IncrementalSynthesizer(meta)
 
         semantic = SemanticService(meta)
         entity = semantic.create_entity("prom_entity", "Prom Entity", ["session_id"])
@@ -983,8 +982,7 @@ class PromotionIntegrationTests(unittest.TestCase):
             analytics = DuckDBAnalyticsEngine(duck_path)
             meta.initialize()
             analytics.initialize()
-            svc = SemanticLayerService(meta, analytics)
-            # No _incremental_synthesizer set → fallback mode
+            svc = SemanticLayerService(meta, analytics, incremental_synthesizer=None)
 
             semantic = SemanticService(meta)
             entity = semantic.create_entity("fb_entity", "FB Entity", ["session_id"])
