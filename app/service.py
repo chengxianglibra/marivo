@@ -34,6 +34,9 @@ if TYPE_CHECKING:
     from app.routing import QueryRouter
 
 
+_AUTO_INCREMENTAL_SYNTHESIZER = object()
+
+
 class SemanticLayerService:
     def __init__(
         self,
@@ -44,6 +47,7 @@ class SemanticLayerService:
         metrics: MetricsCollector | None = None,
         approvals: ApprovalService | None = None,
         replanner: ReplanningService | None = None,
+        incremental_synthesizer: Any | None = _AUTO_INCREMENTAL_SYNTHESIZER,
     ) -> None:
         self.metadata = metadata_store
         self.analytics = analytics_engine
@@ -63,7 +67,11 @@ class SemanticLayerService:
             analytics_engine=analytics_engine,
             query_router=query_router,
         )
-        self._incremental_synthesizer: Any | None = None  # IncrementalSynthesizer, injected post-construction
+        if incremental_synthesizer is _AUTO_INCREMENTAL_SYNTHESIZER:
+            from app.evidence_engine.incremental_synthesizer import IncrementalSynthesizer
+
+            incremental_synthesizer = IncrementalSynthesizer(metadata_store)
+        self._incremental_synthesizer: Any | None = incremental_synthesizer
         self._governance_context: dict[str, Any] | None = None
         self._routing_feedback_context: dict[str, Any] | None = None
         self.routing_runtime = RoutingRuntime(query_router, analytics_engine)

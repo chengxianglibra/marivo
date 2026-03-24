@@ -402,6 +402,82 @@ class PlanExecutionTests(unittest.TestCase):
             self.assertEqual(step["status"], "completed")
             self.assertIn("actual_cost_feedback", step)
 
+    def test_direct_service_step_writes_live_claims_by_default(self) -> None:
+        result = self.service.run_step(
+            self.session["session_id"],
+            "compare_metric",
+            {"metric_name": "watch_time", "table_name": "analytics.watch_events"},
+        )
+
+        self.assertIn("readiness", result)
+        self.assertIn("live_claims", result)
+        self.assertGreater(len(result["live_claims"]), 0)
+
+        observations = self.metadata.query_one(
+            "SELECT COUNT(*) AS cnt FROM observations WHERE session_id = ?",
+            [self.session["session_id"]],
+        )
+        claims = self.metadata.query_one(
+            "SELECT COUNT(*) AS cnt FROM claims WHERE session_id = ? AND status = 'tentative'",
+            [self.session["session_id"]],
+        )
+        self.assertGreater(observations["cnt"], 0)
+        self.assertGreater(claims["cnt"], 0)
+
+    def test_execute_plan_populates_claims_for_session(self) -> None:
+        session = self.service.create_session("Execution claims test", {}, {}, {})
+        plan = self.planning.draft_plan(session["session_id"], [
+            {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
+            {"step_type": "aggregate_query", "params": {
+                "table_name": "analytics.watch_events",
+                "select": ["platform", "count(*) AS cnt"],
+                "group_by": ["platform"],
+            }},
+        ])
+        self.planning.validate_plan(plan["plan_id"])
+        self.planning.approve_plan(plan["plan_id"])
+
+        result = self.planning.execute_plan(plan["plan_id"], self.service)
+
+        self.assertEqual(result["status"], "completed")
+        live_claims = self.metadata.query_rows(
+            "SELECT claim_id, session_id, status FROM claims WHERE session_id = ? ORDER BY created_at",
+            [session["session_id"]],
+        )
+        self.assertGreater(len(live_claims), 0)
+        self.assertEqual({row["session_id"] for row in live_claims}, {session["session_id"]})
+        self.assertTrue(all(row["status"] == "tentative" for row in live_claims))
+
+    def test_execute_plan_then_synthesize_consumes_tentative_claims(self) -> None:
+        session = self.service.create_session("Execution synthesize test", {}, {}, {})
+        plan = self.planning.draft_plan(session["session_id"], [
+            {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
+            {"step_type": "aggregate_query", "params": {
+                "table_name": "analytics.watch_events",
+                "select": ["platform", "count(*) AS cnt"],
+                "group_by": ["platform"],
+            }},
+        ])
+        self.planning.validate_plan(plan["plan_id"])
+        self.planning.approve_plan(plan["plan_id"])
+        self.planning.execute_plan(plan["plan_id"], self.service)
+
+        tentative_before = self.metadata.query_one(
+            "SELECT COUNT(*) AS cnt FROM claims WHERE session_id = ? AND status = 'tentative'",
+            [session["session_id"]],
+        )
+        self.assertGreater(tentative_before["cnt"], 0)
+
+        synth = self.service.run_step(session["session_id"], "synthesize_findings")
+
+        self.assertIn("claims", synth)
+        self.assertGreater(len(synth["claims"]), 0)
+        promoted = self.metadata.query_one(
+            "SELECT COUNT(*) AS cnt FROM claims WHERE session_id = ? AND status IN ('confirmed', 'insufficient')",
+            [session["session_id"]],
+        )
+        self.assertGreater(promoted["cnt"], 0)
+
     def test_execute_non_approved_fails(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [
             {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
