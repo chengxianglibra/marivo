@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import re
 import statistics
+from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime, timedelta
 from typing import Any, ClassVar
 from uuid import uuid4
 
 from app.evidence_engine.contract import ExtractorContract
+from app.evidence_engine.extractors.anomaly import _compute_outliers
+from app.evidence_engine.factories import make_anomaly_observation
 from app.evidence_engine.schemas import Observation
 
 
@@ -153,7 +156,7 @@ class AggregateRowExtractor(ExtractorContract):
 
     name = "aggregate_rows"
     artifact_type: ClassVar[str] = "aggregate_rows"
-    observation_types: ClassVar[list[str]] = ["metric_change"]
+    observation_types: ClassVar[list[str]] = ["metric_change", "anomaly_detection"]
     preconditions: ClassVar[list[str]] = []
 
     def extract(
@@ -242,6 +245,112 @@ class AggregateRowExtractor(ExtractorContract):
             if observed_window is not None:
                 obs["observed_window"] = observed_window
             observations.append(obs)
+
+        anomaly_value_column = context.get("anomaly_value_column")
+        anomaly_column = (
+            str(anomaly_value_column)
+            if anomaly_value_column
+            else vc_resolved
+        )
+        observations.extend(
+            self._detect_anomalies(
+                row_list,
+                group_by=group_by,
+                metric=metric,
+                value_column=anomaly_column,
+                temporal_col=temporal_col,
+                anomaly_group_by=context.get("anomaly_group_by"),
+                z_threshold=float(context.get("anomaly_z_threshold", 2.5)),
+            )
+        )
+        return observations
+
+    def _detect_anomalies(
+        self,
+        row_list: list[dict[str, Any]],
+        *,
+        group_by: list[str],
+        metric: str,
+        value_column: str | None,
+        temporal_col: str | None,
+        anomaly_group_by: Any,
+        z_threshold: float,
+    ) -> list[Observation]:
+        if len(row_list) < 5 or not value_column:
+            return []
+
+        stratum_columns = self._resolve_anomaly_group_by(
+            group_by,
+            temporal_col=temporal_col,
+            anomaly_group_by=anomaly_group_by,
+        )
+
+        grouped_rows: dict[tuple[Any, ...], list[tuple[dict[str, Any], float]]] = defaultdict(list)
+        for row_dict in row_list:
+            value = row_dict.get(value_column)
+            if not isinstance(value, (int, float)):
+                continue
+            stratum_key = tuple(row_dict.get(col) for col in stratum_columns)
+            grouped_rows[stratum_key].append((row_dict, float(value)))
+
+        observations: list[Observation] = []
+        for stratum_key, members in grouped_rows.items():
+            if len(members) < 5:
+                continue
+
+            values = [value for _, value in members]
+            use_iqr = len(members) < 20
+            outlier_indices = _compute_outliers(
+                values,
+                z_threshold=z_threshold,
+                use_iqr=use_iqr,
+            )
+            if not outlier_indices:
+                continue
+
+            mean = statistics.mean(values)
+            try:
+                std = statistics.stdev(values)
+            except statistics.StatisticsError:
+                std = 0.0
+
+            stratum = {
+                col: value
+                for col, value in zip(stratum_columns, stratum_key, strict=False)
+            }
+            iqr_bounds = self._compute_iqr_bounds(values) if use_iqr else None
+            for idx in outlier_indices:
+                row_dict, value = members[idx]
+                z_score = (value - mean) / std if std != 0.0 else 0.0
+                method = "z_score"
+                if iqr_bounds is not None:
+                    lower, upper = iqr_bounds
+                    if value < lower or value > upper:
+                        method = "iqr"
+
+                payload = {
+                    "value": value,
+                    "mean": mean,
+                    "std": std,
+                    "z_score": z_score,
+                    "outlier_factor": self._compute_outlier_factor(value, mean),
+                    "method": method,
+                    "stratum": stratum,
+                    "sample_size": len(values),
+                }
+                quality = {"freshness_ok": True, "sample_size_ok": True}
+                anomaly = make_anomaly_observation(
+                    metric,
+                    {col: row_dict[col] for col in group_by if col in row_dict},
+                    payload,
+                    quality,
+                )
+                if temporal_col and temporal_col in row_dict:
+                    parsed = _parse_temporal_value(row_dict[temporal_col])
+                    if parsed[0] is not None and parsed[1] is not None:
+                        anomaly["observed_window"] = _build_observed_window(parsed[0], parsed[1])
+                observations.append(anomaly)
+
         return observations
 
     @staticmethod
@@ -277,6 +386,42 @@ class AggregateRowExtractor(ExtractorContract):
             if k not in group_by and isinstance(v, (int, float)):
                 return k
         return None
+
+    @staticmethod
+    def _resolve_anomaly_group_by(
+        group_by: list[str],
+        *,
+        temporal_col: str | None,
+        anomaly_group_by: Any,
+    ) -> list[str]:
+        if anomaly_group_by:
+            return [str(col) for col in anomaly_group_by]
+
+        non_temporal = [col for col in group_by if col != temporal_col]
+        if len(non_temporal) <= 1:
+            return []
+        return non_temporal[:-1]
+
+    @staticmethod
+    def _compute_iqr_bounds(values: list[float]) -> tuple[float, float] | None:
+        try:
+            quartiles = statistics.quantiles(values, n=4, method="inclusive")
+        except statistics.StatisticsError:
+            return None
+        if len(quartiles) < 3:
+            return None
+        q1 = quartiles[0]
+        q3 = quartiles[2]
+        iqr = q3 - q1
+        if iqr == 0.0:
+            return None
+        return (q1 - 1.5 * iqr, q3 + 1.5 * iqr)
+
+    @staticmethod
+    def _compute_outlier_factor(value: float, mean: float) -> float | None:
+        if mean == 0.0:
+            return None
+        return value / mean
 
     # ── Unit inference (G-5a) ─────────────────────────────────────────────────
 
