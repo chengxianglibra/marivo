@@ -234,7 +234,7 @@ curl -s -X POST http://127.0.0.1:8000/sessions/<session_id>/plans/<plan_id>/exec
 
 - `GET /metrics` — request count, step count, error count, timing statistics
 
-**Supported step types:** `compare_metric`, `profile_table`, `sample_rows`, `aggregate_query`, `synthesize_findings`
+**Supported step types:** `compare_metric`, `profile_table`, `sample_rows`, `aggregate_query`, `correlate_metrics`, `synthesize_findings`
 
 ## Architecture
 
