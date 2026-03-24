@@ -670,6 +670,8 @@ Causal layer (assigned by causal checkers when inference level is upgraded):
 
 `inference_justification` is a list of provenance tokens encoding how the level was achieved (e.g. `"cross_slice_consistency:6/8_slices_down→L1"`). It is always `[]` for `L0`.
 
+> **Inference-level promotion**: for a detailed explanation of how claims move from L0 through L2 — including exact checker conditions, required step patterns, and a worked example — see [Causal Inference Guide](../service/causal-inference.md).
+
 **Recommendation `causal_basis` field:**
 
 ```json

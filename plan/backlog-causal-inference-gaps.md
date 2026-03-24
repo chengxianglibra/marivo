@@ -397,7 +397,7 @@ Two issues combine:
   (i.e. claims backed by a longer or more recent window score higher on
   `evidence_sufficiency`).
 
-- [ ] **X-2 — Document the inference-level promotion path**
+- [x] **X-2 — Document the inference-level promotion path**
   Add a section to `docs/api/sessions.md` (or a new
   `docs/service/causal-inference.md`) that explains exactly which step types
   and observation patterns are required to move a claim from L0 through L2,
