@@ -100,14 +100,20 @@ class JSONFormatter(logging.Formatter):
 
 
 def setup_logging(level: str = "INFO") -> None:
-    """Configure root logger with JSON formatter."""
+    """Configure root logger with JSON formatter.
+
+    The LOG_LEVEL environment variable, if set, overrides the *level* argument.
+    Set LOG_LEVEL=WARNING to suppress INFO output during test runs.
+    """
+    import os
+    effective_level = os.environ.get("LOG_LEVEL", level).upper()
     root = logging.getLogger()
     # Remove existing handlers to avoid duplicates during tests
     root.handlers.clear()
     handler = logging.StreamHandler()
     handler.setFormatter(JSONFormatter())
     root.addHandler(handler)
-    root.setLevel(getattr(logging, level.upper(), logging.INFO))
+    root.setLevel(getattr(logging, effective_level, logging.INFO))
 
 
 # ── Metrics collector ───────────────────────────────────────────────

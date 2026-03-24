@@ -15,6 +15,10 @@ dependencies = [
 
 [project.optional-dependencies]
 trino = ["trino>=0.330"]
+dev = [
+    "pytest>=8",
+    "pytest-xdist>=3",
+]
 
 [build-system]
 requires = ["setuptools>=68.0"]

@@ -1,14 +1,14 @@
-"""Sprint 8 — Phase 2 integration tests.
+"""Causal reasoning integration tests.
 
 Coverage:
-- P2-INT.1  Causal reasoning end-to-end (direct DB injection + HTTP API)
-- P2-INT.2  Evidence edge type schema constants
-- P2-INT.3  (run as part of the full regression suite)
+- Causal reasoning end-to-end (direct DB injection + HTTP API)
+- Evidence edge type schema constants
+- Full regression suite integration
 
 Test classes
 ------------
 CausalUpgradeChainTests      — direct SQLite injection, no HTTP
-EvidenceGraphPhase2FieldsTests — HTTP TestClient
+EvidenceGraphAPIFieldsTests  — HTTP TestClient
 EvidenceEdgeSchemaTests      — pure constant validation, no DB
 """
 
@@ -243,8 +243,8 @@ class CausalUpgradeChainTests(unittest.TestCase):
 # ── EvidenceGraphPhase2FieldsTests ────────────────────────────────────────────
 
 
-class EvidenceGraphPhase2FieldsTests(unittest.TestCase):
-    """HTTP integration tests: evidence graph exposes all Phase 2 fields."""
+class EvidenceGraphAPIFieldsTests(unittest.TestCase):
+    """HTTP integration tests: evidence graph exposes all causal edge fields."""
 
     @classmethod
     def setUpClass(cls) -> None:

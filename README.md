@@ -297,9 +297,10 @@ Browser / Agent / HTTP Client
 ## Running tests
 
 ```bash
-.venv/bin/python3 -m unittest discover -s tests -v    # all ~663 tests
-.venv/bin/python3 -m unittest tests.test_storage -v   # single module
-.venv/bin/python3 -m unittest tests.test_storage.SQLiteMetadataStoreTests.test_execute_and_query  # single test
+.venv/bin/pytest                                                                              # all tests (parallel via -n auto)
+.venv/bin/pytest tests/test_storage.py -v                                                     # single module
+.venv/bin/pytest tests/test_storage.py::SQLiteMetadataStoreTests::test_execute_and_query -v  # single test
+.venv/bin/pytest -x                                                                           # stop on first failure
 ```
 
-Uses `unittest` only (no pytest). Tests use `tempfile.TemporaryDirectory` for isolated SQLite/DuckDB files. Integration tests spin up a real FastAPI `TestClient`. Playwright-based E2E tests (`tests/test_ui_playwright.py`) are skipped gracefully when playwright is not installed.
+Tests are written with `unittest.TestCase` and collected by pytest. Tests use `tempfile.TemporaryDirectory` for isolated SQLite/DuckDB files. Integration tests spin up a real FastAPI `TestClient`. Playwright-based E2E tests (`tests/test_ui_playwright.py`) are skipped gracefully when playwright is not installed.

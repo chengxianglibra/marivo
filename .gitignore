@@ -43,9 +43,3 @@ factum.yaml
 # Claude Code
 .claude/
 
-# Plans
-plan/
-
-# Agent instructions
-CLAUDE.md
-.github/copilot-instructions.md
