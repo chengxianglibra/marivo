@@ -168,6 +168,10 @@ class AggregateRowExtractor(ExtractorContract):
         group_by: list[str] = list(context.get("group_by", []))
         observation_type = str(context.get("observation_type", "metric_change"))
         metric = str(context.get("metric", "aggregate"))
+        temporal_group_by_columns_data = context.get("temporal_group_by_columns")
+        temporal_group_by_columns = [
+            str(col) for col in (temporal_group_by_columns_data or [])
+        ]
         value_column: str | None = context.get("value_column")
         observed_window_column: str | None = context.get("observed_window_column")
         # G-5a: optional column metadata from caller (synced source_objects properties)
@@ -242,6 +246,8 @@ class AggregateRowExtractor(ExtractorContract):
                     "sample_size_ok": True,
                 },
             }
+            if temporal_group_by_columns:
+                obs["subject"]["temporal_group_by_columns"] = temporal_group_by_columns
             if observed_window is not None:
                 obs["observed_window"] = observed_window
             observations.append(obs)

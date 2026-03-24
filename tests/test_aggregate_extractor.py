@@ -162,6 +162,29 @@ class AggregateRowExtractorTests(unittest.TestCase):
             {"resource_group": "rg_a"},
         )
 
+    def test_detect_temporal_column_is_position_independent(self) -> None:
+        self.assertEqual(
+            self.extractor._detect_temporal_column(["resource_group", "log_date"], None),
+            "log_date",
+        )
+
+    def test_detect_temporal_column_prefers_day_over_hour(self) -> None:
+        self.assertEqual(
+            self.extractor._detect_temporal_column(["log_date", "log_hour"], None),
+            "log_date",
+        )
+
+    def test_temporal_group_by_columns_are_persisted_on_subject(self) -> None:
+        rows = [{"log_date": "2024-01-15", "resource_group": "rg_a", "cnt": 42}]
+        observations = self.extractor.extract(rows, context={
+            "group_by": ["log_date", "resource_group"],
+            "temporal_group_by_columns": ["log_date"],
+        })
+        self.assertEqual(
+            observations[0]["subject"]["temporal_group_by_columns"],
+            ["log_date"],
+        )
+
 
 class UnitInferenceTests(unittest.TestCase):
     """G-5a: column_unit_hint inference in AggregateRowExtractor."""

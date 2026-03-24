@@ -86,10 +86,28 @@ class IncrementalSynthesizer:
     # ── Scope + contradiction logic ───────────────────────────────────────────
 
     @staticmethod
+    def _effective_scope_from_subject(subject: dict[str, Any]) -> dict[str, Any]:
+        slice_dict = dict(subject.get("slice", {}) or {})
+        temporal_dims = {
+            str(col) for col in subject.get("temporal_group_by_columns", []) or []
+        }
+        if temporal_dims:
+            slice_dict = {
+                key: value
+                for key, value in slice_dict.items()
+                if key not in temporal_dims
+            }
+        return {
+            "metric": subject.get("metric"),
+            "slice": slice_dict,
+        }
+
+    @staticmethod
     def _scope_matches(obs_subject: dict[str, Any], claim_scope: dict[str, Any]) -> bool:
+        obs_scope = IncrementalSynthesizer._effective_scope_from_subject(obs_subject)
         return (
-            obs_subject.get("metric") == claim_scope.get("metric")
-            and obs_subject.get("slice", {}) == claim_scope.get("slice", {})
+            obs_scope.get("metric") == claim_scope.get("metric")
+            and obs_scope.get("slice", {}) == claim_scope.get("slice", {})
         )
 
     def _find_matching_claim(
@@ -145,8 +163,9 @@ class IncrementalSynthesizer:
         significance = obs.get("significance", {})
         quality = obs.get("quality", {})
 
-        metric = subject.get("metric", "unknown")
-        slice_dict = subject.get("slice", {})
+        scope = self._effective_scope_from_subject(subject)
+        metric = scope.get("metric", "unknown")
+        slice_dict = scope.get("slice", {})
         slice_str = (
             ", ".join(f"{k}={v}" for k, v in slice_dict.items())
             if slice_dict

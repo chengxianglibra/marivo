@@ -599,7 +599,6 @@ class SemanticLayerService:
         )
         all_rows = execute_compiled(engine, compiled_query).rows
         rows = [r for r in all_rows if r.get("delta_pct") is not None]
-
         observations = self.evidence_pipeline.extract_observations(
             "comparison_rows",
             rows,
@@ -1111,17 +1110,21 @@ class SemanticLayerService:
             # authoritative unit information instead of falling back to heuristics.
             all_cols = list(rows[0].keys()) if rows else []
             col_metadata = self._fetch_column_metadata(short_name, all_cols)
+            observation_context = {
+                "group_by": group_by_cols,
+                "observation_type": params.get("observation_type", "metric_change"),
+                "metric": params.get("metric", "aggregate"),
+                "value_column": value_column,
+                "observed_window_column": params.get("observed_window_column"),  # G-2: explicit override
+                "column_metadata": col_metadata,  # G-5a: authoritative unit source
+            }
+            if params.get("temporal_group_by_columns") is not None:
+                observation_context["temporal_group_by_columns"] = params["temporal_group_by_columns"]
+
             observations = self.evidence_pipeline.extract_observations(
                 "aggregate_rows",
                 rows,
-                context={
-                    "group_by": group_by_cols,
-                    "observation_type": params.get("observation_type", "metric_change"),
-                    "metric": params.get("metric", "aggregate"),
-                    "value_column": value_column,
-                    "observed_window_column": params.get("observed_window_column"),  # G-2: explicit override
-                    "column_metadata": col_metadata,  # G-5a: authoritative unit source
-                },
+                context=observation_context,
             )
             # M-08: annotate temporal info. For compare_period, use the current window.
             # G-2: Only set window if not already inferred by extractor from temporal column.
