@@ -138,6 +138,52 @@ class AdvancedPlanValidationTests(unittest.TestCase):
         self.assertIn("budget_rows_exceeded", [issue["code"] for issue in result["issues"]])
         self.assertGreater(result["cost_estimates"][0]["estimated_rows"], 0)
 
+    def test_validate_plan_rejects_compare_metric_with_filter(self) -> None:
+        session_id = self.client.post("/sessions", json={"goal": "filter contract"}).json()["session_id"]
+        plan_id = self.client.post(
+            f"/sessions/{session_id}/plans",
+            json={
+                "steps": [
+                    {
+                        "step_type": "compare_metric",
+                        "params": {
+                            "metric_name": "watch_time",
+                            "table_name": "analytics.watch_events",
+                            "filter": "platform = 'android'",
+                        },
+                    }
+                ]
+            },
+        ).json()["plan_id"]
+
+        result = self.client.post(f"/sessions/{session_id}/plans/{plan_id}/validate").json()
+
+        self.assertFalse(result["valid"])
+        self.assertIn("compare_metric_filter_not_allowed", [issue["code"] for issue in result["issues"]])
+
+    def test_validate_plan_rejects_compare_metric_with_where(self) -> None:
+        session_id = self.client.post("/sessions", json={"goal": "where contract"}).json()["session_id"]
+        plan_id = self.client.post(
+            f"/sessions/{session_id}/plans",
+            json={
+                "steps": [
+                    {
+                        "step_type": "compare_metric",
+                        "params": {
+                            "metric_name": "watch_time",
+                            "table_name": "analytics.watch_events",
+                            "where": "platform = 'android'",
+                        },
+                    }
+                ]
+            },
+        ).json()["plan_id"]
+
+        result = self.client.post(f"/sessions/{session_id}/plans/{plan_id}/validate").json()
+
+        self.assertFalse(result["valid"])
+        self.assertIn("compare_metric_filter_not_allowed", [issue["code"] for issue in result["issues"]])
+
     def test_validate_plan_warns_when_router_requires_fallback(self) -> None:
         meta_path = Path(self.temp_dir.name) / "fallback.meta.sqlite"
         duck_path = Path(self.temp_dir.name) / "fallback.duckdb"

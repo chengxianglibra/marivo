@@ -375,6 +375,42 @@ class MetricResolutionTests(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 400)
 
+    def test_compare_metric_rejects_step_level_filter(self) -> None:
+        session_id = self.client.post(
+            "/sessions", json={"goal": "Test filter rejection."},
+        ).json()["session_id"]
+
+        resp = self.client.post(
+            f"/sessions/{session_id}/steps/compare_metric",
+            json={
+                "metric_name": "watch_time",
+                "table_name": "analytics.watch_events",
+                "filter": "platform = 'android'",
+            },
+        )
+        self.assertEqual(resp.status_code, 400)
+        detail = resp.json().get("detail", "")
+        self.assertIn("filter", detail)
+        self.assertIn("raw_filter", detail)
+
+    def test_compare_metric_rejects_step_level_where(self) -> None:
+        session_id = self.client.post(
+            "/sessions", json={"goal": "Test where rejection."},
+        ).json()["session_id"]
+
+        resp = self.client.post(
+            f"/sessions/{session_id}/steps/compare_metric",
+            json={
+                "metric_name": "watch_time",
+                "table_name": "analytics.watch_events",
+                "where": "platform = 'android'",
+            },
+        )
+        self.assertEqual(resp.status_code, 400)
+        detail = resp.json().get("detail", "")
+        self.assertIn("where", detail)
+        self.assertIn("raw_filter", detail)
+
     def test_compare_metric_unpublished_metric(self) -> None:
         session_id = self.client.post(
             "/sessions", json={"goal": "Test unpublished metric."},

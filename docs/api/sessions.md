@@ -128,6 +128,14 @@ Session constraints are automatically merged into the WHERE clause for `compare_
 
 Compare a published semantic metric between a baseline window and a current window. Requires that the metric is published in the semantic layer and has a corresponding mapping to a source object.
 
+`compare_metric` is a **time-window primitive**: the two comparison periods are controlled exclusively by `period_start` / `period_end`. It does **not** accept a step-level `filter` param — doing so can silently truncate one window and produce null deltas. Use the scoping layers below instead:
+
+| Scoping need | Mechanism |
+|---|---|
+| Scalar entity scope (e.g. `cluster = 'k8sbi-bi1'`) | Session `constraints` key-value pairs |
+| Complex row predicate (e.g. `state = 'SUCCEED'`) | Session `raw_filter` SQL expression |
+| Time window | Step `period_start` / `period_end` |
+
 ```
 POST /sessions/{session_id}/steps/compare_metric
 ```
@@ -139,7 +147,6 @@ POST /sessions/{session_id}/steps/compare_metric
   "metric_name": "avg_watch_time_minutes",
   "period_start": "2024-01-01",
   "period_end": "2024-01-31",
-  "filter": "platform = 'mobile'",
   "order": "DESC",
   "limit": 20
 }
@@ -150,7 +157,6 @@ POST /sessions/{session_id}/steps/compare_metric
 | `metric_name` | string | yes | Name of a published semantic metric |
 | `period_start` | string | no | Start of the current window (ISO date or engine-native format) |
 | `period_end` | string | no | End of the current window |
-| `filter` | string | no | Additional SQL filter expression (ANDed with session constraints) |
 | `order` | string | no | `ASC` or `DESC` (default: `DESC`) |
 | `limit` | integer | no | Maximum rows to return (default: `10`) |
 

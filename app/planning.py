@@ -957,6 +957,21 @@ class PlanningService:
                             detail={"required_params": ["metric_name", "table_name"], "missing_params": missing},
                         )
                     )
+                for _forbidden in ("filter", "where"):
+                    if step.params.get(_forbidden):
+                        issues.append(
+                            PlanValidationIssue(
+                                code="compare_metric_filter_not_allowed",
+                                category="params",
+                                step_index=step.index,
+                                message=(
+                                    f"Step {step.index}: compare_metric does not accept a step-level '{_forbidden}' param. "
+                                    "Use session 'raw_filter' or 'constraints' for entity/row scoping, "
+                                    "or 'period_start' / 'period_end' for time window scoping."
+                                ),
+                                detail={"forbidden_param": _forbidden},
+                            )
+                        )
             elif step.step_type == "profile_table":
                 if not step.params.get("table_name"):
                     issues.append(
