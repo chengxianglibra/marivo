@@ -236,7 +236,11 @@ class CompilerTests(unittest.TestCase):
         )
         self.assertIn("LIMIT 10", compiled.sql)
 
-    def test_compile_compare_metric_with_filter(self) -> None:
+    def test_compile_compare_metric_with_session_constraints_filter(self) -> None:
+        """The compiler accepts filter expressions used internally for session constraints.
+        Step-level user-provided 'filter' params are rejected at the service layer
+        before reaching the compiler; see test_mvp.py for service-level contract tests.
+        """
         compiled = compile_step(
             AnalysisStepIR(
                 index=0,
@@ -244,7 +248,8 @@ class CompilerTests(unittest.TestCase):
                 params={
                     "metric_name": "watch_time",
                     "table_name": "analytics.watch_events",
-                    "filter": "platform = 'android'",
+                    # Simulates a session-constraints filter injected by the service layer
+                    "filter": "cluster = 'k8sbi-bi1'",
                 },
             ),
             engine_type="duckdb",
@@ -254,7 +259,7 @@ class CompilerTests(unittest.TestCase):
                 "period_params": ["c1", "c2", "b1", "b2", "b1", "c2"],
             },
         )
-        self.assertIn("AND platform = 'android'", compiled.sql)
+        self.assertIn("AND cluster = 'k8sbi-bi1'", compiled.sql)
 
     def test_compile_unsupported_step_raises(self) -> None:
         with self.assertRaises(ValueError):

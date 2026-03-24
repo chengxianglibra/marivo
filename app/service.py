@@ -482,10 +482,22 @@ class SemanticLayerService:
         obs_type = params.get("observation_type", "metric_change")
         limit = params.get("limit", 10)
 
-        # Merge session constraints into filter
+        # compare_metric is a time-window primitive; step-level row predicates conflict
+        # with its period semantics and can silently truncate the baseline window,
+        # producing null deltas that are then filtered out.  Entity/row scoping belongs
+        # in session raw_filter or constraints; time scoping belongs in
+        # period_start / period_end.
+        for _forbidden in ("filter", "where"):
+            if params.get(_forbidden):
+                raise ValueError(
+                    f"compare_metric does not accept a step-level '{_forbidden}' param. "
+                    "Use session 'raw_filter' or 'constraints' for entity/row scoping, "
+                    "or 'period_start' / 'period_end' for time window scoping."
+                )
+
+        # Merge session constraints into filter (session-level scoping is always applied)
         constraints_filter = self._session_constraints_to_filter(session_id)
-        user_filter = params.get("filter")
-        merged_filter = self._merge_filters(user_filter, constraints_filter)
+        merged_filter = self._merge_filters(None, constraints_filter)
         if merged_filter:
             params = {**params, "filter": merged_filter}
 
@@ -543,7 +555,8 @@ class SemanticLayerService:
                 "period_params": period_params,
             },
         )
-        rows = [r for r in execute_compiled(engine, compiled_query).rows if r.get("delta_pct") is not None]
+        all_rows = execute_compiled(engine, compiled_query).rows
+        rows = [r for r in all_rows if r.get("delta_pct") is not None]
 
         observations = self.evidence_pipeline.extract_observations(
             "comparison_rows",
@@ -575,11 +588,22 @@ class SemanticLayerService:
             self._insert_observation(session_id, step_id, observation)
 
         artifact_id = self._insert_artifact(session_id, step_id, "table", f"{metric_name}_comparison", rows)
-        summary = (
-            f"Metric '{metric_name}' comparison: top decline is {rows[0]['delta_pct']}% "
-            f"in {' / '.join(str(rows[0].get(d, '')) for d in dimensions)} traffic."
-            if rows else f"Metric '{metric_name}' comparison returned no results."
-        )
+        if rows:
+            summary = (
+                f"Metric '{metric_name}' comparison: top decline is {rows[0]['delta_pct']}% "
+                f"in {' / '.join(str(rows[0].get(d, '')) for d in dimensions)} traffic."
+            )
+        elif all_rows:
+            summary = (
+                f"Metric '{metric_name}' comparison: rows exist but all delta values are null — "
+                "at least one comparison window (baseline or current) may contain no data. "
+                "Check that both 'period_start'/'period_end' windows have rows."
+            )
+        else:
+            summary = (
+                f"Metric '{metric_name}' comparison returned no results — "
+                "both comparison windows may be empty for the specified period."
+            )
         provenance = self._make_provenance(compiled_query.sql, compiled_query.params, engine_type=engine_type)
         result = {
             "step_type": step_type,
