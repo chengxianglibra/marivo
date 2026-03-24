@@ -803,6 +803,44 @@ class IncrementalSynthesizerTests(unittest.TestCase):
             ],
         )
 
+    def _insert_anomaly_obs(
+        self,
+        session_id: str,
+        obs_id: str,
+        metric: str,
+        slice_dict: dict,
+        *,
+        z_score: float,
+        outlier_factor: float | None = None,
+        sample_size: int = 10,
+    ) -> None:
+        import json
+        payload = {
+            "value": 1000.0 if z_score >= 0 else 10.0,
+            "mean": 100.0,
+            "std": 50.0,
+            "z_score": z_score,
+            "outlier_factor": outlier_factor,
+            "method": "z_score",
+            "stratum": {},
+            "sample_size": sample_size,
+        }
+        self.meta.execute(
+            """
+            INSERT INTO observations (
+                observation_id, session_id, step_id, observation_type,
+                subject_json, payload_json, significance_json, quality_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                obs_id, session_id, "step_test", "anomaly_detection",
+                json.dumps({"metric": metric, "slice": slice_dict}),
+                json.dumps(payload),
+                json.dumps({"sample_size": sample_size, "practical_significance": True}),
+                json.dumps({"freshness_ok": True, "sample_size_ok": True}),
+            ],
+        )
+
     def test_aggregate_observation_generates_payload_based_claim_text(self) -> None:
         session_id = self._make_session()
         self._insert_agg_obs(
@@ -836,6 +874,79 @@ class IncrementalSynthesizerTests(unittest.TestCase):
         text = rows[0]["text"]
         self.assertIn("aggregate snapshot", text)
         self.assertIn("region=us", text)
+
+    def test_anomaly_observation_creates_tentative_claim(self) -> None:
+        session_id = self._make_session()
+        self._insert_anomaly_obs(
+            session_id,
+            "obs_h1",
+            "query_count",
+            {"log_hour": "02"},
+            z_score=3.5,
+            outlier_factor=10.0,
+        )
+        synth = self._make_synth()
+        result = synth.process(session_id)
+        self.assertEqual(result["claims_created"], 1)
+        row = self.meta.query_one(
+            "SELECT text, confidence FROM claims WHERE session_id = ?",
+            [session_id],
+        )
+        self.assertIn("anomalous spike", row["text"])
+        self.assertIn("10.0x normal", row["text"])
+        self.assertGreater(row["confidence"], 0.0)
+
+    def test_anomaly_observations_do_not_create_contradictions_without_delta_pct(self) -> None:
+        session_id = self._make_session()
+        self._insert_anomaly_obs(
+            session_id,
+            "obs_i1",
+            "query_count",
+            {"resource_group": "rg_a"},
+            z_score=3.0,
+            outlier_factor=8.0,
+        )
+        synth = self._make_synth()
+        synth.process(session_id)
+        self._insert_anomaly_obs(
+            session_id,
+            "obs_i2",
+            "query_count",
+            {"resource_group": "rg_a"},
+            z_score=-2.8,
+            outlier_factor=0.1,
+        )
+        result = synth.process(session_id)
+        self.assertEqual(result["contradictions_found"], 0)
+        row = self.meta.query_one(
+            "SELECT supporting_observation_ids_json, contradicting_observation_ids_json "
+            "FROM claims WHERE session_id = ?",
+            [session_id],
+        )
+        import json
+        self.assertEqual(json.loads(row["contradicting_observation_ids_json"]), [])
+        self.assertEqual(len(json.loads(row["supporting_observation_ids_json"])), 2)
+
+    def test_anomaly_claim_uses_z_score_when_outlier_factor_missing(self) -> None:
+        session_id = self._make_session()
+        self._insert_anomaly_obs(
+            session_id,
+            "obs_j1",
+            "queue_time",
+            {"resource_group": "others"},
+            z_score=4.0,
+            outlier_factor=None,
+        )
+        synth = self._make_synth()
+        synth.process(session_id)
+        row = self.meta.query_one(
+            "SELECT text, confidence_breakdown_json FROM claims WHERE session_id = ?",
+            [session_id],
+        )
+        import json
+        self.assertIn("z=4.0", row["text"])
+        breakdown = json.loads(row["confidence_breakdown_json"])
+        self.assertGreater(breakdown["effect_strength"], 0.0)
 
 
 class DefaultRecommendationPolicyTests(unittest.TestCase):

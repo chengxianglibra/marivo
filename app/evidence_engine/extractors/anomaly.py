@@ -9,6 +9,57 @@ from app.evidence_engine.factories import make_anomaly_observation
 from app.evidence_engine.schemas import Observation
 
 
+def _compute_outliers(
+    values: list[float],
+    z_threshold: float,
+    use_iqr: bool,
+) -> list[int]:
+    """Return indices of outlier values using z-score and optional IQR rules."""
+    if len(values) < 3:
+        return []
+
+    try:
+        mean = statistics.mean(values)
+        std = statistics.stdev(values)
+    except statistics.StatisticsError:
+        return []
+
+    if std == 0.0:
+        z_outliers: set[int] = set()
+    else:
+        z_outliers = {
+            idx
+            for idx, value in enumerate(values)
+            if abs((value - mean) / std) > z_threshold
+        }
+
+    if not use_iqr:
+        return sorted(z_outliers)
+
+    try:
+        quartiles = statistics.quantiles(values, n=4, method="inclusive")
+    except statistics.StatisticsError:
+        return sorted(z_outliers)
+
+    if len(quartiles) < 3:
+        return sorted(z_outliers)
+
+    q1 = quartiles[0]
+    q3 = quartiles[2]
+    iqr = q3 - q1
+    if iqr == 0.0:
+        return sorted(z_outliers)
+
+    lower = q1 - 1.5 * iqr
+    upper = q3 + 1.5 * iqr
+    iqr_outliers = {
+        idx
+        for idx, value in enumerate(values)
+        if value < lower or value > upper
+    }
+    return sorted(z_outliers | iqr_outliers)
+
+
 class AnomalyExtractor(ExtractorContract):
     name = "anomaly_rows"
     artifact_type: ClassVar[str] = "anomaly_rows"
@@ -38,23 +89,24 @@ class AnomalyExtractor(ExtractorContract):
         if len(values) < 3:
             return []
 
-        mean = statistics.mean(values)
-        try:
-            std = statistics.stdev(values)
-        except statistics.StatisticsError:
-            std = 0.0
-
-        if std == 0.0:
+        outlier_indices = set(
+            _compute_outliers(values, z_threshold=z_threshold, use_iqr=False)
+        )
+        if not outlier_indices:
             return []
 
+        mean = statistics.mean(values)
+        std = statistics.stdev(values)
+
         observations: list[Observation] = []
+        value_idx = 0
         for row in row_list:
             row_dict = dict(row)
             if value_col not in row_dict:
                 continue
             val = float(row_dict[value_col])
-            z = (val - mean) / std
-            if abs(z) > z_threshold:
+            z = (val - mean) / std if std != 0.0 else 0.0
+            if value_idx in outlier_indices:
                 slice_info = {str(dim_col): row_dict.get(dim_col)}
                 payload = {
                     "value": val,
@@ -65,5 +117,6 @@ class AnomalyExtractor(ExtractorContract):
                 }
                 quality = {"freshness_ok": True, "sample_size_ok": True}
                 observations.append(make_anomaly_observation(metric, slice_info, payload, quality))
+            value_idx += 1
 
         return observations

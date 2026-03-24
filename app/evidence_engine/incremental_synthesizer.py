@@ -121,6 +121,22 @@ class IncrementalSynthesizer:
                 return True
         return False
 
+    @staticmethod
+    def _observation_magnitude(payload: dict[str, Any]) -> float:
+        delta_pct = payload.get("delta_pct")
+        if delta_pct is not None:
+            return abs(float(delta_pct))
+
+        outlier_factor = payload.get("outlier_factor")
+        if outlier_factor is not None:
+            return max(0.0, abs(float(outlier_factor)) - 1.0)
+
+        z_score = payload.get("z_score")
+        if z_score is not None:
+            return abs(float(z_score))
+
+        return 0.0
+
     # ── Claim construction ────────────────────────────────────────────────────
 
     def _make_tentative_claim(self, obs: dict[str, Any]) -> dict[str, Any]:
@@ -141,6 +157,18 @@ class IncrementalSynthesizer:
         if delta_pct is not None:
             direction = "increased" if float(delta_pct) > 0 else "declined"
             text = f"{metric} {direction} {abs(float(delta_pct)):.1f}% for {slice_str} (tentative)"
+        elif obs.get("type") == "anomaly_detection":
+            z_score = float(payload.get("z_score", 0.0))
+            direction = "spike" if z_score >= 0 else "decline"
+            outlier_factor = payload.get("outlier_factor")
+            if outlier_factor is not None:
+                magnitude = f"{abs(float(outlier_factor)):.1f}x normal"
+            else:
+                magnitude = f"z={abs(z_score):.1f}"
+            text = (
+                f"{metric} showed an anomalous {direction} "
+                f"({magnitude}) for {slice_str} (tentative)"
+            )
         else:
             # Aggregate observation: build text from payload numeric values
             SKIP_KEYS = {"current_value", "delta_pct"}
@@ -190,8 +218,8 @@ class IncrementalSynthesizer:
         n_contradictions: int,
         n_supporting: int = 1,
     ) -> dict[str, Any]:
-        delta_pct = payload.get("delta_pct", 0.0)
-        effect_strength = min(1.0, abs(float(delta_pct)) / 20.0)
+        magnitude = IncrementalSynthesizer._observation_magnitude(payload)
+        effect_strength = min(1.0, magnitude / 20.0)
 
         sample_size = significance.get("sample_size") or 0
         sample_score = min(1.0, float(sample_size) / 150.0)
