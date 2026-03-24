@@ -457,6 +457,7 @@ class PlanningService:
 
                     step["status"] = "completed"
                     step["result_summary"] = result.get("summary", "")
+                    step["result"] = self._snapshot_step_result(step_ir.step_type, result)
                     step["actual_cost_feedback"] = self.cost_model.build_actual_feedback(
                         step_ir,
                         result,
@@ -654,6 +655,42 @@ class PlanningService:
                 "status": raw.get("status", "pending"),
             })
         return normalized
+
+    @staticmethod
+    def _preview_list(items: Any, limit: int = 10) -> tuple[list[Any], bool]:
+        if not isinstance(items, list):
+            return [], False
+        return items[:limit], len(items) > limit
+
+    def _snapshot_step_result(self, step_type: str, result: dict[str, Any]) -> dict[str, Any]:
+        snapshot = dict(result)
+        limit = 10
+
+        def _truncate_rows_field(field_name: str) -> None:
+            preview, truncated = self._preview_list(snapshot.get(field_name), limit=limit)
+            if field_name in snapshot:
+                snapshot[field_name] = preview
+            if truncated:
+                snapshot[f"{field_name}_truncated"] = True
+
+        if step_type in {"compare_metric", "aggregate_query", "sample_rows"}:
+            _truncate_rows_field("rows")
+            _truncate_rows_field("observations")
+            return json.loads(json.dumps(snapshot, default=str))
+
+        if step_type == "profile_table":
+            profile = snapshot.get("profile")
+            if isinstance(profile, dict):
+                profile_snapshot = dict(profile)
+                columns = profile_snapshot.get("columns")
+                if isinstance(columns, list):
+                    profile_snapshot["columns"] = columns[:limit]
+                    if len(columns) > limit:
+                        profile_snapshot["columns_truncated"] = True
+                snapshot["profile"] = profile_snapshot
+            return json.loads(json.dumps(snapshot, default=str))
+
+        return json.loads(json.dumps(snapshot, default=str))
 
     def _plan_step_irs(self, steps: list[dict[str, Any]]) -> list[AnalysisStepIR]:
         return [from_legacy_step(step["index"], step) for step in steps]
