@@ -18,6 +18,7 @@ from app.evidence_engine import EvidencePipeline
 from app.evidence_engine.causal_checkers import _pearson_correlation, _rank, _spearman_correlation
 from app.evidence_engine.synthesizers.default import DefaultClaimSynthesizer
 from app.evidence_engine.readiness import compute_readiness, load_live_claims
+from app.evidence_engine.schemas import EDGE_TYPE_JUSTIFIES
 from app.execution.feedback import compile_failure_from_error
 from app.execution.orchestrator import WorkflowOrchestrator
 from app.execution.routing_runtime import RoutingRuntime
@@ -416,7 +417,7 @@ class SemanticLayerService:
             return None
         return " AND ".join(f"({p})" for p in parts)
 
-    _CONSTRAINT_APPLYING_STEPS = frozenset({"compare_metric", "sample_rows", "aggregate_query"})
+    _CONSTRAINT_APPLYING_STEPS = frozenset({"compare_metric", "sample_rows", "aggregate_query", "attribute_change"})
 
     _CONSTRAINT_SKIP_REASONS: dict[str, str] = {
         "profile_table": "profile_table scans the full table; session filters are not applied",
@@ -1168,6 +1169,290 @@ class SemanticLayerService:
         if observations:
             result["observations"] = observations
         self._insert_step(step_id, session_id, step_type, summary, result, provenance=provenance)
+        return result
+
+    def _run_attribute_change(self, session_id: str, params: dict[str, Any]) -> dict[str, Any]:
+        """Attribute a metric change across candidate dimensions.
+
+        Required params:
+            metric_name: published semantic metric name
+            table_name: backing table
+            period_end: current window end date
+            baseline_start / baseline_end: baseline window boundaries
+            candidate_dimensions: list of dimensions to attribute across
+        Optional params:
+            period_start: current window start date (defaults to period_end)
+            anomaly_observation_id: upstream anomaly observation to link with a justifies edge
+            top_k: number of top contributors to return per dimension
+            min_contribution_pct: minimum contribution share to keep a contributor
+            date_column: explicit date column override
+            where / filter: ad-hoc filter merged with session constraints
+            limit: max rows returned per dimension query (default 1000)
+        """
+        metric_name = params.get("metric_name")
+        table_name = params.get("table_name")
+        if not metric_name or not table_name:
+            raise ValueError("attribute_change requires 'metric_name' and 'table_name' params")
+
+        candidate_dimensions_raw = params.get("candidate_dimensions")
+        if not isinstance(candidate_dimensions_raw, list):
+            raise ValueError("candidate_dimensions must not be empty")
+        candidate_dimensions = [str(dim).strip() for dim in candidate_dimensions_raw if str(dim).strip()]
+        candidate_dimensions = list(dict.fromkeys(candidate_dimensions))
+        if not candidate_dimensions:
+            raise ValueError("candidate_dimensions must not be empty")
+
+        metric_sql = self.resolve_metric_sql(str(metric_name))
+        if metric_sql is None:
+            raise ValueError(f"Metric '{metric_name}' not found or not published in semantic_metrics")
+
+        period_end_p = params.get("period_end")
+        baseline_start_p = params.get("baseline_start")
+        baseline_end_p = params.get("baseline_end")
+        if not period_end_p or not baseline_start_p or not baseline_end_p:
+            raise ValueError(
+                "attribute_change requires 'period_end', 'baseline_start', and 'baseline_end' params"
+            )
+
+        period_start_p = params.get("period_start") or period_end_p
+        period_start = date.fromisoformat(str(period_start_p))
+        period_end = date.fromisoformat(str(period_end_p))
+        baseline_start = date.fromisoformat(str(baseline_start_p))
+        baseline_end = date.fromisoformat(str(baseline_end_p))
+        step_id = self._new_step_id()
+
+        metric_dimensions = self.resolve_metric_dimensions(str(metric_name)) or []
+        date_column = str(params.get("date_column") or self._infer_date_column(metric_dimensions))
+        top_k = max(1, int(params.get("top_k", 5)))
+        min_contribution_pct = max(0.0, float(params.get("min_contribution_pct", 5.0)))
+        min_contribution_fraction = min_contribution_pct / 100.0
+        query_limit = max(top_k, int(params.get("limit", 1000)))
+
+        user_where = params.get("where") or params.get("filter")
+        constraints_filter = self._session_constraints_to_filter(session_id)
+        merged_where = self._merge_filters(user_where, constraints_filter)
+
+        short_name = str(table_name).split(".")[-1]
+        engine, engine_type, qualified = self._resolve_engine([short_name])
+        qualified_table = qualified.get(short_name, str(table_name))
+
+        try:
+            row = engine.query_rows(f"SELECT MAX({date_column}) AS max_date FROM {qualified_table}")[0]
+            date_fmt = self._detect_date_format(row["max_date"])
+        except Exception:
+            date_fmt = self._detect_date_format(str(period_end_p))
+
+        def _fmt(d: date) -> str | date:
+            return d.strftime(date_fmt) if date_fmt else d
+
+        period_params = [
+            _fmt(period_start),
+            _fmt(period_end),
+            _fmt(baseline_start),
+            _fmt(baseline_end),
+            _fmt(baseline_start),
+            _fmt(period_end),
+        ]
+
+        anomaly_observation_id = params.get("anomaly_observation_id")
+        if anomaly_observation_id:
+            anomaly_row = self.metadata.query_one(
+                """
+                SELECT observation_id
+                FROM observations
+                WHERE observation_id = ? AND session_id = ?
+                """,
+                [anomaly_observation_id, session_id],
+            )
+            if anomaly_row is None:
+                raise ValueError(f"anomaly_observation_id not found: {anomaly_observation_id}")
+
+        observations: list[dict[str, Any]] = []
+        contributions: list[dict[str, Any]] = []
+        query_sql_parts: list[str] = []
+        query_params: list[Any] = []
+        current_has_data = False
+        baseline_has_data = False
+
+        for dimension in candidate_dimensions:
+            select_exprs = [dimension, f"{metric_sql} AS metric_value"]
+            step_ir = from_legacy_step(
+                0,
+                {
+                    "step_type": "aggregate_query",
+                    "params": {
+                        "table_name": qualified_table,
+                        "select": select_exprs,
+                        "group_by": [dimension],
+                        "compare_period": True,
+                        "date_column": date_column,
+                        "limit": query_limit,
+                        **({"where": merged_where} if merged_where else {}),
+                    },
+                },
+            )
+            compiled_query = self._compile_step_with_feedback(
+                step_ir,
+                engine_type=engine_type,
+                semantic_context={"period_params": period_params},
+            )
+            rows = execute_compiled(engine, compiled_query).rows
+            query_sql_parts.append(compiled_query.sql)
+            query_params.extend(compiled_query.params)
+
+            has_current_rows = any(row.get("metric_value_current") is not None for row in rows)
+            has_baseline_rows = any(row.get("metric_value_baseline") is not None for row in rows)
+            baseline_has_data = baseline_has_data or has_baseline_rows
+            if not has_current_rows:
+                continue
+
+            dim_contributors: list[dict[str, Any]] = []
+            for row in rows:
+                current_value_raw = row.get("metric_value_current")
+                baseline_value_raw = row.get("metric_value_baseline")
+                if current_value_raw is None and baseline_value_raw is None:
+                    continue
+
+                current_value = float(current_value_raw or 0.0)
+                baseline_value = float(baseline_value_raw or 0.0)
+                delta_value = current_value - baseline_value
+                delta_pct = None if baseline_value == 0.0 else (delta_value / baseline_value) * 100.0
+                dim_value = row.get(dimension)
+                if current_value_raw is not None:
+                    current_has_data = True
+                if baseline_value_raw is not None:
+                    baseline_has_data = True
+                dim_contributors.append(
+                    {
+                        "value": dim_value,
+                        "current_value": current_value,
+                        "baseline_value": baseline_value,
+                        "delta_value": delta_value,
+                        "delta_pct": delta_pct,
+                        "current_row_count": None,
+                        "baseline_row_count": None,
+                    }
+                )
+
+            total_abs_delta = sum(abs(entry["delta_value"]) for entry in dim_contributors)
+            for entry in dim_contributors:
+                entry["contribution_pct"] = (
+                    (abs(entry["delta_value"]) / total_abs_delta) * 100.0 if total_abs_delta > 0 else 0.0
+                )
+
+            sorted_contributors = sorted(
+                dim_contributors,
+                key=lambda entry: (
+                    abs(entry["delta_pct"]) if entry["delta_pct"] is not None else abs(entry["delta_value"]),
+                    abs(entry["delta_value"]),
+                ),
+                reverse=True,
+            )
+            top_contributors = [
+                {
+                    "value": entry["value"],
+                    "current_value": entry["current_value"],
+                    "baseline_value": entry["baseline_value"],
+                    "delta_pct": entry["delta_pct"],
+                    "contribution_pct": entry["contribution_pct"],
+                    "current_row_count": entry["current_row_count"],
+                    "baseline_row_count": entry["baseline_row_count"],
+                }
+                for entry in sorted_contributors
+                if entry["contribution_pct"] >= min_contribution_fraction
+            ][:top_k]
+
+            contributions.append(
+                {
+                    "dimension": dimension,
+                    "top_contributors": top_contributors,
+                }
+            )
+
+            extractor_rows = [
+                {
+                    dimension: entry["value"],
+                    "baseline_value": entry["baseline_value"],
+                    "current_value": entry["current_value"],
+                }
+                for entry in dim_contributors
+            ]
+            extracted = self.evidence_pipeline.extract_observations(
+                "contribution_shift_rows",
+                extractor_rows,
+                context={
+                    "dim_col": dimension,
+                    "baseline_col": "baseline_value",
+                    "current_col": "current_value",
+                    "metric": str(metric_name),
+                    "share_threshold": min_contribution_fraction,
+                },
+            )
+            self._annotate_temporal(
+                extracted,
+                session_id,
+                {
+                    "start": str(period_start),
+                    "end": str(period_end),
+                    "granularity": "day",
+                },
+            )
+            for observation in extracted:
+                self._insert_observation(session_id, step_id, observation)
+                observations.append(observation)
+                if anomaly_observation_id:
+                    self._insert_edge(
+                        session_id,
+                        observation["observation_id"],
+                        "observation",
+                        str(anomaly_observation_id),
+                        "observation",
+                        EDGE_TYPE_JUSTIFIES,
+                        0.7,
+                        "Attributed contribution is justified by the upstream anomaly.",
+                    )
+
+        artifact_id = self._insert_artifact(
+            session_id,
+            step_id,
+            "table",
+            f"{short_name}_attribution",
+            {
+                "metric_name": metric_name,
+                "table_name": qualified_table,
+                "candidate_dimensions": candidate_dimensions,
+                "contributions": contributions,
+            },
+        )
+
+        query_blob = "\n".join(query_sql_parts)
+        provenance = self._make_provenance(query_blob, query_params, engine_type=engine_type)
+        summary = (
+            f"Attributed metric '{metric_name}' across {len(candidate_dimensions)} dimension(s)."
+            if contributions
+            else f"Attribute change on '{metric_name}' returned no results."
+        )
+
+        debug = {
+            "current_window": [str(period_start), str(period_end)],
+            "baseline_window": [str(baseline_start), str(baseline_end)],
+            "current_has_data": current_has_data,
+            "baseline_has_data": baseline_has_data,
+            "dimensions": candidate_dimensions,
+        }
+
+        result = {
+            "step_type": "attribute_change",
+            "metric_name": metric_name,
+            "table_name": qualified_table,
+            "summary": summary,
+            "artifact_id": artifact_id,
+            "contributions": contributions,
+            "observations": observations,
+            "debug": debug,
+        }
+
+        self._insert_step(step_id, session_id, "attribute_change", summary, result, provenance=provenance)
         return result
 
     # ── Artifact-to-artifact helpers ──────────────────────────────────────────

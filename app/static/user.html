@@ -260,7 +260,12 @@ const localApi = {
   listSessions: (params) => localApi._fetch('/sessions' + (params ? '?' + new URLSearchParams(params) : '')),
   createSession: (d) => localApi._fetch('/sessions', { method: 'POST', body: JSON.stringify(d) }),
   getSession: (id) => localApi._fetch(`/sessions/${id}`),
-  runStep: (id, stepType, params) => localApi._fetch(`/sessions/${id}/steps/${stepType}`, { method: 'POST', body: JSON.stringify(params || {}) }),
+  runStep: (id, stepType, params) => {
+    const path = stepType === 'attribute_change'
+      ? `/sessions/${id}/steps/attribute_change`
+      : `/sessions/${id}/steps/${stepType}`;
+    return localApi._fetch(path, { method: 'POST', body: JSON.stringify(params || {}) });
+  },
   // Evidence
   getEvidence: (id) => localApi._fetch(`/sessions/${id}/evidence`),
   // Plans
@@ -614,6 +619,7 @@ async function showSessionDetail(id) {
                 <option value="profile_table">profile_table</option>
                 <option value="sample_rows">sample_rows</option>
                 <option value="aggregate_query">aggregate_query</option>
+                <option value="attribute_change">attribute_change</option>
                 <option value="correlate_metrics">correlate_metrics</option>
                 <option value="synthesize_findings">synthesize_findings</option>
               </select>
@@ -1244,7 +1250,7 @@ async function loadPlans(sessionId) {
 }
 
 function openDraftPlanModal(sessionId) {
-  const stepTypes = ['compare_metric', 'profile_table', 'sample_rows', 'aggregate_query', 'correlate_metrics', 'synthesize_findings'];
+  const stepTypes = ['compare_metric', 'profile_table', 'sample_rows', 'aggregate_query', 'attribute_change', 'correlate_metrics', 'synthesize_findings'];
   const stepOpts = stepTypes.map(t => `<option value="${t}">${t}</option>`).join('');
   const draftSteps = [];
 

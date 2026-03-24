@@ -117,9 +117,10 @@ Defined in `app/analysis_core/primitives.py` (`STEP_TAXONOMY`):
 - **`profile_table`** — profile table row count and column-level completeness/cardinality signals
 - **`sample_rows`** — return a bounded sample of rows; supports `filter`, `columns`, auto-partition
 - **`aggregate_query`** — ad-hoc GROUP BY + aggregation; generates observations via `AggregateRowExtractor`; opt-out with `extract_observations=false`
+- **`attribute_change`** — explicit attribution step for a published metric across candidate dimensions; produces `contribution_shift` observations and can justify an upstream anomaly via `anomaly_observation_id`
 - **`synthesize_findings`** — composite step; promotes `tentative` claims → `confirmed`/`insufficient`; generates recommendations; does **not** count toward `budget.max_steps`
 
-Every primitive step response includes `readiness` (5-dimensional signal) and `live_claims` (tentative + confirmed claims). Incremental synthesis via `IncrementalSynthesizer` runs automatically after each primitive step as a side-effect. Session constraints are auto-injected into `compare_metric`, `sample_rows`, `aggregate_query` WHERE clauses. Each step run generates independent step_id/observations (no deletion of prior same-type outputs).
+Every primitive step response includes `readiness` (5-dimensional signal) and `live_claims` (tentative + confirmed claims). Incremental synthesis via `IncrementalSynthesizer` runs automatically after each primitive step as a side-effect. Session constraints are auto-injected into `compare_metric`, `sample_rows`, `aggregate_query`, and `attribute_change` WHERE clauses. Each step run generates independent step_id/observations (no deletion of prior same-type outputs).
 
 ### Analysis core (`app/analysis_core/`)
 
@@ -130,6 +131,7 @@ Every primitive step response includes `readiness` (5-dimensional signal) and `l
 - **`composites.py`** — `CompositeStepTemplate`, `CompositeWorkflowSpec` for multi-step workflows
 - **`step_registry.py`** — `StepRunnerRegistry` for registering and dispatching step runners
 - **`step_runners/generic.py`** — primitive step runners (compare_metric, profile_table, sample_rows, aggregate_query)
+- **`step_runners/attribution.py`** — primitive step runner for attribute_change
 - **`step_runners/synthesis.py`** — synthesize_findings runner
 - **`workflows/`** — catalog workflow runtime
 

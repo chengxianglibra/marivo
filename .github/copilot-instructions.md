@@ -48,7 +48,7 @@ Run tests with the virtualenv interpreter:
 - Keep metadata DDL dialect-neutral in `app/storage/schema.py`. Do not add engine-specific SQL types or casts there.
 - Prefer the repository’s core design principles when adding features: sessions over one-shot queries, semantics over schema guessing, typed steps over raw SQL interfaces, and deterministic fact extraction over freeform LLM output.
 - Semantic entities and metrics use a lifecycle of `draft -> published -> deprecated`; publishing increments `revision`.
-- Supported step types are `compare_metric`, `profile_table`, `sample_rows`, `aggregate_query`, and `synthesize_findings`. Session constraints are injected into the executable query steps.
+- Supported step types are `compare_metric`, `profile_table`, `sample_rows`, `aggregate_query`, `attribute_change`, and `synthesize_findings`. Session constraints are injected into the executable query steps.
 - External catalogs are authoritative. Factum syncs snapshots into SQLite and resolves runtime behavior from those snapshots rather than re-reading adapters during every request.
 - Config is YAML-driven through `factum.yaml` or `FACTUM_CONFIG`. Startup registration is intended to be idempotent and resolves bindings by source/engine display name.
 - UI files live under `app/static` with no build tooling. Respect the config gates `ui.enabled`, `ui.admin_enabled`, and `ui.user_enabled`.
