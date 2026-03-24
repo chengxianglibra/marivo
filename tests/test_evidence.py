@@ -1045,8 +1045,8 @@ class PromotionIntegrationTests(unittest.TestCase):
             self.assertEqual(rec["action"], rec["action_text"])
 
 
-class EvidenceEdgeTypesM07Tests(unittest.TestCase):
-    """M-07: Extend Evidence Edge Types — backward compat + new causal type behavior."""
+class CausalEvidenceEdgeTypesTests(unittest.TestCase):
+    """Causal evidence edge types — backward compat + causal type behavior."""
 
     def _make_obs(self, obs_id: str = "obs_1") -> dict:
         return {

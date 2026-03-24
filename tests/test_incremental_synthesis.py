@@ -1,4 +1,4 @@
-"""Sprint 4 Integration Tests — end-to-end M-02/M-03/M-04 flow."""
+"""Incremental synthesis end-to-end integration tests."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ _VALID_SUGGESTED_ACTIONS = {
 }
 
 
-class Sprint4IntegrationTests(unittest.TestCase):
+class IncrementalSynthesisE2ETests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.temp_dir = tempfile.TemporaryDirectory()
