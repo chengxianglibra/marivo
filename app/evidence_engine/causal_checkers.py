@@ -21,6 +21,22 @@ from typing import Any
 from app.evidence_engine.schemas import INFERENCE_LEVEL_ORDER
 
 
+# ── CausalEdge ───────────────────────────────────────────────────────────────
+
+
+@dataclass
+class CausalEdge:
+    """A causal edge to be materialized in the evidence graph."""
+
+    from_node_id: str
+    from_node_type: str   # "observation"
+    to_node_id: str
+    to_node_type: str     # "claim"
+    edge_type: str        # e.g. "temporally_precedes"
+    weight: float
+    explanation: str
+
+
 # ── LevelUpgrade ─────────────────────────────────────────────────────────────
 
 
@@ -32,6 +48,7 @@ class LevelUpgrade:
     new_level: str                         # "L1", "L2", etc.
     justification_tokens: list[str] = field(default_factory=list)
     confidence_boost: float = 0.0
+    causal_edges: list[CausalEdge] = field(default_factory=list)
 
 
 # ── Base class ────────────────────────────────────────────────────────────────
@@ -91,6 +108,7 @@ class CausalCheckerRegistry:
                         new_level=upgrade.new_level,
                         justification_tokens=list(upgrade.justification_tokens),
                         confidence_boost=upgrade.confidence_boost,
+                        causal_edges=list(upgrade.causal_edges),
                     )
                 else:
                     existing = merged[cid]
@@ -103,6 +121,16 @@ class CausalCheckerRegistry:
                         if token not in existing.justification_tokens:
                             existing.justification_tokens.append(token)
                     existing.confidence_boost += upgrade.confidence_boost
+                    # Merge causal edges (deduplicate by from+to+type)
+                    existing_edge_keys = {
+                        (e.from_node_id, e.to_node_id, e.edge_type)
+                        for e in existing.causal_edges
+                    }
+                    for edge in upgrade.causal_edges:
+                        key = (edge.from_node_id, edge.to_node_id, edge.edge_type)
+                        if key not in existing_edge_keys:
+                            existing.causal_edges.append(edge)
+                            existing_edge_keys.add(key)
 
         return list(merged.values())
 
@@ -231,12 +259,28 @@ class TemporalPrecedenceChecker(CausalChecker):
             # Strict non-overlap: earliest window ends before latest window starts
             if first_end < last_start:
                 lag_days = _date_diff_days(first_end, last_start)
+                earliest_obs_id = sorted_obs[0]["observation_id"]
+                latest_obs_id = sorted_obs[-1]["observation_id"]
                 token = f"temporal_precedence:lag={lag_days}d→L2"
+                edge = CausalEdge(
+                    from_node_id=earliest_obs_id,
+                    from_node_type="observation",
+                    to_node_id=claim["claim_id"],
+                    to_node_type="claim",
+                    edge_type="temporally_precedes",
+                    weight=0.8,
+                    explanation=(
+                        f"Observation {earliest_obs_id} (window end={first_end}) "
+                        f"precedes {latest_obs_id} (window start={last_start}) "
+                        f"by {lag_days} days, establishing temporal ordering."
+                    ),
+                )
                 upgrades.append(LevelUpgrade(
                     claim_id=claim["claim_id"],
                     new_level="L2",
                     justification_tokens=[token],
                     confidence_boost=0.03,
+                    causal_edges=[edge],
                 ))
 
         return upgrades
@@ -450,6 +494,57 @@ class ReversalChecker(CausalChecker):
                 ))
 
         return upgrades
+
+
+# ── Shared persistence helper ─────────────────────────────────────────────────
+
+
+def reconcile_causal_edges(
+    store: Any,
+    session_id: str,
+    claim_id: str,
+    edges: list[CausalEdge],
+) -> None:
+    """Delete existing causal edges for (session, claim, edge_types) then insert fresh ones.
+
+    Using delete+insert per claim keeps the reconcile idempotent: repeated calls
+    on the same upgrade produce exactly one edge per (from, to, type) triple.
+
+    ``store`` must expose the MetadataStore ABC (``execute`` method).
+    """
+    if not edges:
+        return
+    from uuid import uuid4
+
+    edge_types = list({e.edge_type for e in edges})
+    placeholders = ",".join("?" * len(edge_types))
+    store.execute(
+        f"""
+        DELETE FROM evidence_edges
+        WHERE session_id = ? AND to_node_id = ? AND edge_type IN ({placeholders})
+        """,
+        [session_id, claim_id, *edge_types],
+    )
+    for edge in edges:
+        store.execute(
+            """
+            INSERT INTO evidence_edges (
+                edge_id, session_id, from_node_id, from_node_type,
+                to_node_id, to_node_type, edge_type, weight, explanation
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                f"edge_{uuid4().hex[:12]}",
+                session_id,
+                edge.from_node_id,
+                edge.from_node_type,
+                edge.to_node_id,
+                edge.to_node_type,
+                edge.edge_type,
+                edge.weight,
+                edge.explanation,
+            ],
+        )
 
 
 # ── Registry factory ──────────────────────────────────────────────────────────
