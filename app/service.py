@@ -274,7 +274,7 @@ class SemanticLayerService:
         recommendations = self.metadata.query_rows(
             """
             SELECT rec_id, claim_id, action_text, priority, expected_impact, risk,
-                   validation_metric_json, causal_basis_json
+                   validation_metric_json, causal_basis_json, entity_patch_json
             FROM recommendations
             WHERE session_id = ?
             ORDER BY created_at
@@ -292,6 +292,8 @@ class SemanticLayerService:
             recommendation["validation_metric"] = json.loads(recommendation.pop("validation_metric_json"))
             raw_cb = recommendation.pop("causal_basis_json")
             recommendation["causal_basis"] = json.loads(raw_cb) if raw_cb is not None else None
+            raw_ep = recommendation.pop("entity_patch_json", None)
+            recommendation["entity_patch"] = json.loads(raw_ep) if raw_ep is not None else None
             recommendation["action"] = recommendation["action_text"]  # alias for agent compatibility
 
         return {
@@ -605,6 +607,10 @@ class SemanticLayerService:
                 "both comparison windows may be empty for the specified period."
             )
         provenance = self._make_provenance(compiled_query.sql, compiled_query.params, engine_type=engine_type)
+
+        # G-5e: resolve unit for the metric from confirmed hints or entity properties
+        unit_note = self._resolve_metric_unit_note(metric_name, session_id)
+
         result = {
             "step_type": step_type,
             "metric_name": metric_name,
@@ -612,8 +618,55 @@ class SemanticLayerService:
             "artifact_id": artifact_id,
             "observations": observations,
         }
+        if unit_note:
+            result["unit_note"] = unit_note
         self._insert_step(step_id, session_id, step_type, summary, result, provenance=provenance)
         return result
+
+    def _resolve_metric_unit_note(self, metric_name: str, session_id: str) -> str | None:
+        """G-5e: Return a concise unit note for a metric if one is available.
+
+        Priority:
+        1. Applied entity properties.unit (authoritative)
+        2. Confirmed hint in session recommendations' entity_patch
+
+        Returns None if no unit is known.
+        """
+        try:
+            # Priority 1: published entity field-level units (properties.fields.<col>.unit)
+            entity = self._resolve_entity_for_metric(metric_name)
+            if entity:
+                fields = entity.get("properties", {}).get("fields", {})
+                field_units = {
+                    col: info["unit"]
+                    for col, info in fields.items()
+                    if isinstance(info, dict) and info.get("unit")
+                }
+                if field_units:
+                    parts = ", ".join(f"{col}: {u}" for col, u in field_units.items())
+                    return f"Unit (from entity): {parts}"
+
+            # Priority 2: confirmed hint from session recommendations
+            rows = self.metadata.query_rows(
+                """
+                SELECT r.entity_patch_json
+                FROM recommendations r
+                WHERE r.session_id = ? AND r.entity_patch_json IS NOT NULL
+                ORDER BY r.created_at DESC
+                LIMIT 10
+                """,
+                [session_id],
+            )
+            for row in rows:
+                patch = json.loads(row["entity_patch_json"])
+                if patch.get("metric_name") == metric_name and patch.get("suggested_value"):
+                    confidence = patch.get("confidence", 0.0)
+                    source = patch.get("source", "heuristic")
+                    unit = patch["suggested_value"]
+                    return f"Unit (inferred, {source}, confidence={confidence:.2f}): {unit}"
+        except Exception:
+            pass
+        return None
 
     def _fetch_column_metadata(self, short_name: str, columns: list[str]) -> dict[str, dict[str, str]]:
         """Look up synced column source_objects to get data_type and unit.
@@ -983,6 +1036,10 @@ class SemanticLayerService:
                     (k for k in rows[0] if k.endswith("_delta_pct")), None
                 )
                 value_column = first_key
+            # G-5a: fetch synced column metadata so AggregateRowExtractor can use
+            # authoritative unit information instead of falling back to heuristics.
+            all_cols = list(rows[0].keys()) if rows else []
+            col_metadata = self._fetch_column_metadata(short_name, all_cols)
             observations = self.evidence_pipeline.extract_observations(
                 "aggregate_rows",
                 rows,
@@ -992,6 +1049,7 @@ class SemanticLayerService:
                     "metric": params.get("metric", "aggregate"),
                     "value_column": value_column,
                     "observed_window_column": params.get("observed_window_column"),  # G-2: explicit override
+                    "column_metadata": col_metadata,  # G-5a: authoritative unit source
                 },
             )
             # M-08: annotate temporal info. For compare_period, use the current window.
@@ -1296,6 +1354,9 @@ class SemanticLayerService:
                 observations,
                 existing_claims=promoted,
             )
+            # G-5b: attach entity patch proposals to recommendations backed by confirmed claims
+            claim_map = {c["claim_id"]: c for c in promoted}
+            self._attach_entity_patches(synthesis["recommendations"], observations, claim_map)
             # Claims already in DB (promoted in place); only insert recs + edges.
             for recommendation in synthesis["recommendations"]:
                 self._insert_recommendation(session_id, recommendation)
@@ -1308,6 +1369,9 @@ class SemanticLayerService:
             # FALLBACK MODE: no IncrementalSynthesizer in use — from-scratch synthesis.
             self._delete_step_outputs(session_id, step_type)
             synthesis = self.evidence_pipeline.build_synthesis(observations)
+            # G-5b: attach entity patch proposals to recommendations
+            claim_map_fb = {c["claim_id"]: c for c in synthesis["claims"]}
+            self._attach_entity_patches(synthesis["recommendations"], observations, claim_map_fb)
             for claim in synthesis["claims"]:
                 self._insert_claim(session_id, claim)
             for recommendation in synthesis["recommendations"]:
@@ -1334,6 +1398,146 @@ class SemanticLayerService:
         }
         self._insert_step(step_id, session_id, step_type, summary, result, provenance=provenance)
         return result
+
+    # ── Entity patch helpers (G-5b) ───────────────────────────────────────────
+
+    def _attach_entity_patches(
+        self,
+        recommendations: list[dict[str, Any]],
+        observations: list[dict[str, Any]],
+        claim_map: dict[str, dict[str, Any]],
+    ) -> None:
+        """Attach entity_patch proposals to recommendations backed by confirmed claims.
+
+        For each recommendation whose claim is confirmed (or better), inspect
+        its supporting observations for `column_unit_hint` payloads.  When a
+        strong hint is found (confidence >= 0.6) and the claim's metric maps to
+        a published entity, build a machine-readable patch proposal and attach it
+        as `entity_patch` on the recommendation dict.
+
+        The patch proposal shape:
+            {
+                "entity_id": str,
+                "entity_name": str,
+                "field": "unit",
+                "current_value": str | None,   # existing entity properties.unit
+                "suggested_value": str,         # unit from the hint
+                "confidence": float,
+                "source": str,                 # from column_unit_hint.source
+                "evidence_step_id": str | None, # step that produced the hint obs
+                "metric_name": str,
+            }
+
+        This does not write to the DB — the caller persists via _insert_recommendation.
+        """
+        obs_map = {o["observation_id"]: o for o in observations}
+
+        for rec in recommendations:
+            if rec.get("entity_patch") is not None:
+                continue  # already set
+            claim = claim_map.get(rec.get("claim_id", ""))
+            if claim is None:
+                continue
+            if claim.get("status") not in ("confirmed", "supported"):
+                continue
+
+            metric_name = claim.get("scope", {}).get("metric")
+            if not metric_name:
+                continue
+
+            # Find the strongest unit hint among supporting observations
+            best_hint: dict[str, Any] | None = None
+            best_obs_id: str | None = None
+            for obs_id in claim.get("supporting_observations", []):
+                obs = obs_map.get(obs_id)
+                if obs is None:
+                    continue
+                hint = obs.get("payload", {}).get("column_unit_hint")
+                if hint and isinstance(hint, dict):
+                    confidence = hint.get("confidence", 0.0)
+                    if confidence >= 0.6:
+                        if best_hint is None or confidence > best_hint.get("confidence", 0.0):
+                            best_hint = hint
+                            best_obs_id = obs_id
+
+            if best_hint is None:
+                continue
+
+            # Don't generate patch if metadata was the source (metadata already authoritative)
+            if best_hint.get("source") == "metadata":
+                continue
+
+            # Require column name so we can generate a field-level (not entity-level) patch.
+            column_name = best_hint.get("column")
+            if not column_name:
+                continue
+
+            # Resolve metric → entity
+            entity = self._resolve_entity_for_metric(metric_name)
+            if entity is None or entity.get("status") != "published":
+                continue
+
+            # Read existing field-level unit (properties.fields.<col>.unit) not entity-level
+            current_unit = (
+                entity.get("properties", {})
+                .get("fields", {})
+                .get(column_name, {})
+                .get("unit")
+            )
+            suggested_unit = best_hint["unit"]
+
+            # If metadata conflicts with heuristic, confidence should already be low;
+            # here we also skip if current field unit differs from hint (conflict)
+            if current_unit and current_unit != suggested_unit:
+                continue
+
+            # Look up the step_id for the best observation
+            step_id = self._obs_step_id(best_obs_id) if best_obs_id else None
+
+            rec["entity_patch"] = {
+                "entity_id": entity["entity_id"],
+                "entity_name": entity["name"],
+                "column_name": column_name,
+                "field": f"fields.{column_name}.unit",
+                "current_value": current_unit,
+                "suggested_value": suggested_unit,
+                "confidence": best_hint["confidence"],
+                "source": best_hint.get("source", "heuristic"),
+                "evidence_step_id": step_id,
+                "metric_name": metric_name,
+            }
+
+    def _resolve_entity_for_metric(self, metric_name: str) -> dict[str, Any] | None:
+        """Return the published entity linked to the given metric name, or None."""
+        try:
+            metric_row = self.metadata.query_one(
+                "SELECT entity_id FROM semantic_metrics WHERE name = ? AND status = 'published'",
+                [metric_name],
+            )
+            if metric_row is None or not metric_row.get("entity_id"):
+                return None
+            entity_row = self.metadata.query_one(
+                "SELECT entity_id, name, status, properties_json FROM semantic_entities WHERE entity_id = ?",
+                [metric_row["entity_id"]],
+            )
+            if entity_row is None:
+                return None
+            entity = dict(entity_row)
+            entity["properties"] = json.loads(entity.pop("properties_json", "{}"))
+            return entity
+        except Exception:
+            return None
+
+    def _obs_step_id(self, observation_id: str) -> str | None:
+        """Return the step_id that produced the given observation_id, or None."""
+        try:
+            row = self.metadata.query_one(
+                "SELECT step_id FROM observations WHERE observation_id = ?",
+                [observation_id],
+            )
+            return row["step_id"] if row else None
+        except Exception:
+            return None
 
     # ── Metadata helpers ──────────────────────────────────────────────
 
@@ -1761,12 +1965,13 @@ class SemanticLayerService:
 
     def _insert_recommendation(self, session_id: str, recommendation: dict[str, Any]) -> None:
         causal_basis = recommendation.get("causal_basis")
+        entity_patch = recommendation.get("entity_patch")
         self.metadata.execute(
             """
             INSERT INTO recommendations (
                 rec_id, session_id, claim_id, action_text, priority, expected_impact, risk,
-                validation_metric_json, causal_basis_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                validation_metric_json, causal_basis_json, entity_patch_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 recommendation["rec_id"],
@@ -1778,6 +1983,7 @@ class SemanticLayerService:
                 recommendation["risk"],
                 self._dump(recommendation["validation_metric"]),
                 self._dump(causal_basis) if causal_basis is not None else None,
+                self._dump(entity_patch) if entity_patch is not None else None,
             ],
         )
 

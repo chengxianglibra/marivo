@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from app.api.deps import get_services
 from app.api.models import (
     EntityCreateRequest,
+    EntityPropertiesPatchRequest,
     EntityUpdateRequest,
     MappingCreateRequest,
     MetricCreateRequest,
@@ -50,6 +51,21 @@ def update_entity(entity_id: str, payload: EntityUpdateRequest, request: Request
         return get_services(request).semantic_service.update_entity(entity_id, **payload.model_dump(exclude_none=True))
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@router.patch("/semantic/entities/{entity_id}/properties")
+def patch_entity_properties(
+    entity_id: str, payload: EntityPropertiesPatchRequest, request: Request
+) -> dict[str, object]:
+    """G-5d: Incrementally patch properties on a published entity (e.g. apply a unit hint)."""
+    try:
+        return get_services(request).semantic_service.patch_entity_properties(
+            entity_id, payload.properties
+        )
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
 
 
 @router.post("/semantic/entities/{entity_id}/publish")

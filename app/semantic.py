@@ -127,6 +127,52 @@ class SemanticService:
         )
         return self.get_entity(entity_id)
 
+    def patch_entity_properties(
+        self, entity_id: str, properties_patch: dict[str, Any]
+    ) -> dict[str, Any]:
+        """G-5d: Incrementally merge properties_patch into a published entity's properties_json.
+
+        Only published entities may be patched (draft entities must go through
+        publish first).  Bumps revision and updated_at.
+
+        Raises:
+            KeyError: entity not found.
+            ValueError: entity is not published, or properties_patch is empty/invalid.
+        """
+        entity = self.get_entity(entity_id)  # raises KeyError if missing
+        if entity.get("status") != "published":
+            raise ValueError(
+                f"Entity '{entity_id}' is not published (status={entity.get('status')}). "
+                "Only published entities may be patched."
+            )
+        if not properties_patch or not isinstance(properties_patch, dict):
+            raise ValueError("properties_patch must be a non-empty dict")
+
+        current_props: dict[str, Any] = dict(entity.get("properties") or {})
+        # Deep merge: if both sides have a "fields" dict, merge field-by-field
+        # so patching one column's unit doesn't wipe other columns.
+        if "fields" in properties_patch and isinstance(properties_patch["fields"], dict):
+            merged_fields = dict(current_props.get("fields") or {})
+            for col, col_props in properties_patch["fields"].items():
+                if isinstance(col_props, dict):
+                    existing = dict(merged_fields.get(col) or {})
+                    existing.update(col_props)
+                    merged_fields[col] = existing
+                else:
+                    merged_fields[col] = col_props
+            current_props = {k: v for k, v in current_props.items() if k != "fields"}
+            current_props["fields"] = merged_fields
+            remaining_patch = {k: v for k, v in properties_patch.items() if k != "fields"}
+            current_props.update(remaining_patch)
+        else:
+            current_props.update(properties_patch)
+        now = _now_iso()
+        self.metadata.execute(
+            "UPDATE semantic_entities SET properties_json = ?, revision = revision + 1, updated_at = ? WHERE entity_id = ?",
+            [json.dumps(current_props), now, entity_id],
+        )
+        return self.get_entity(entity_id)
+
     def publish_entity(self, entity_id: str) -> dict[str, Any]:
         entity = self.get_entity(entity_id)
         now = _now_iso()
