@@ -210,6 +210,37 @@ These decisions guide all future work:
 6. **Engine abstraction with implementation honesty** — abstract across engines, but surface engine differences through cost/capability metadata.
 7. **Sync-based catalog integration** — Factum syncs snapshots from external catalogs rather than querying them at read time.
 
+## Post-Implementation Checklist
+
+After completing any feature, API change, step type addition, or behaviour change, verify whether the following need updating. Do not skip this check — documentation drift is a first-class bug.
+
+### 1. Web UI (`app/static/`)
+- **`admin.html`** — if you added/changed sources, engines, bindings, semantic objects, governance policies, or observability
+- **`user.html`** — if you added/changed sessions, steps, plans, evidence display, catalog, or jobs
+- **`shared.js` / `shared.css`** — if you changed shared components, status badges, graph rendering, or design tokens
+
+### 2. API models / route docs
+- **`app/api/models.py`** — if request or response shapes changed
+- **`app/models.py`** — if domain model fields changed
+- FastAPI auto-generates `/docs` (Swagger) from Pydantic models — keep models in sync with actual behaviour
+
+### 3. README (`README.md`)
+- Update if public-facing behaviour, setup steps, environment variables, or supported step types changed
+
+### 4. Agent docs (all three must stay in sync)
+- **`CLAUDE.md`** — Claude Code instructions (this file)
+- **`AGENTS.md`** — identical copy of CLAUDE.md; sync manually after every edit
+- **`.github/copilot-instructions.md`** — GitHub Copilot instructions; update the relevant section if architecture, conventions, or step types changed
+
+### 5. Factum skill docs (`~/.claude/skills/factum/`)
+- **`SKILL.md`** — update if step types, API endpoints, request/response fields, scoping rules, or causal inference behaviour changed
+- **`references/planning.md`** — update if plan lifecycle, patch semantics, or execution behaviour changed
+- **`references/semantic-layer.md`** — update if entity/metric/mapping CRUD or lifecycle changed
+- **`references/governance.md`** — update if policy types, quality rules, or approval flow changed
+- **`references/infrastructure.md`** — update if source/engine/binding/routing/sync/jobs/observability changed
+
+> Rule of thumb: if an agent calling the Factum API would get a different result or a 4xx error compared to what the docs say, update the docs first before considering the implementation done.
+
 ## Roadmap
 
 Completed:

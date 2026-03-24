@@ -55,3 +55,21 @@ Run tests with the virtualenv interpreter:
 - FastAPI request models live in `app/api/models.py`; broader domain models live in `app/models.py`. Keep API transport code thin and domain logic in the service/runtime layers.
 - Tests are written with `unittest.TestCase`, collected by pytest, and use `tempfile.TemporaryDirectory` + FastAPI `TestClient`.
 - Route registration order matters in FastAPI routers: literal paths should be declared before parameterized routes.
+
+## Post-implementation checklist
+
+After any feature, API change, or behaviour change, verify whether these need updating — documentation drift is a first-class bug:
+
+| What changed | What to update |
+|---|---|
+| Sessions, steps, plans, evidence, catalog, jobs | `app/static/user.html` |
+| Sources, engines, bindings, semantic objects, governance, observability | `app/static/admin.html` |
+| Shared UI components, status badges, graph rendering | `app/static/shared.js` / `shared.css` |
+| Request/response shapes | `app/api/models.py`, `app/models.py` |
+| Setup, env vars, supported step types (public-facing) | `README.md` |
+| Architecture, conventions, step types | `CLAUDE.md` → then copy to `AGENTS.md` (they are kept identical) |
+| API endpoints, step behaviour, scoping rules, causal inference | `~/.claude/skills/factum/SKILL.md` |
+| Plan lifecycle, patch semantics | `~/.claude/skills/factum/references/planning.md` |
+| Entity/metric/mapping CRUD | `~/.claude/skills/factum/references/semantic-layer.md` |
+| Governance policies, quality rules, approval flow | `~/.claude/skills/factum/references/governance.md` |
+| Sources, engines, bindings, routing, sync, jobs, observability | `~/.claude/skills/factum/references/infrastructure.md` |
