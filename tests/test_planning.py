@@ -478,6 +478,67 @@ class PlanExecutionTests(unittest.TestCase):
         )
         self.assertGreater(promoted["cnt"], 0)
 
+    def test_execute_plan_persists_step_result_snapshot(self) -> None:
+        session = self.service.create_session("Execution snapshot test", {}, {}, {})
+        plan = self.planning.draft_plan(session["session_id"], [
+            {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
+            {"step_type": "synthesize_findings", "dependencies": [0]},
+        ])
+        self.planning.validate_plan(plan["plan_id"])
+        self.planning.approve_plan(plan["plan_id"])
+
+        self.planning.execute_plan(plan["plan_id"], self.service)
+
+        final = self.planning.get_plan(plan["plan_id"])
+        compare_step = final["steps"][0]
+        synth_step = final["steps"][1]
+
+        self.assertIn("result", compare_step)
+        self.assertEqual(compare_step["result"]["step_type"], "compare_metric")
+        self.assertIn("summary", compare_step["result"])
+        self.assertIn("artifact_id", compare_step["result"])
+        self.assertIn("observations", compare_step["result"])
+        self.assertLessEqual(len(compare_step["result"]["observations"]), 10)
+
+        self.assertIn("result", synth_step)
+        self.assertEqual(synth_step["result"]["step_type"], "synthesize_findings")
+        self.assertIn("claims", synth_step["result"])
+        self.assertIn("recommendations", synth_step["result"])
+
+    def test_execute_plan_truncates_rows_result_snapshot(self) -> None:
+        session = self.service.create_session("Execution rows snapshot test", {}, {}, {})
+        plan = self.planning.draft_plan(session["session_id"], [
+            {"step_type": "sample_rows", "params": {"table_name": "analytics.watch_events", "limit": 20}},
+        ])
+        self.planning.validate_plan(plan["plan_id"])
+        self.planning.approve_plan(plan["plan_id"])
+
+        self.planning.execute_plan(plan["plan_id"], self.service)
+
+        final = self.planning.get_plan(plan["plan_id"])
+        step_result = final["steps"][0]["result"]
+        self.assertIn("rows", step_result)
+        self.assertEqual(len(step_result["rows"]), 10)
+        self.assertTrue(step_result["rows_truncated"])
+        self.assertIn("artifact_id", step_result)
+
+    def test_execute_plan_truncates_profile_columns_in_snapshot(self) -> None:
+        session = self.service.create_session("Execution profile snapshot test", {}, {}, {})
+        plan = self.planning.draft_plan(session["session_id"], [
+            {"step_type": "profile_table", "params": {"table_name": "analytics.watch_events"}},
+        ])
+        self.planning.validate_plan(plan["plan_id"])
+        self.planning.approve_plan(plan["plan_id"])
+
+        self.planning.execute_plan(plan["plan_id"], self.service)
+
+        final = self.planning.get_plan(plan["plan_id"])
+        profile = final["steps"][0]["result"]["profile"]
+        self.assertIn("columns", profile)
+        self.assertLessEqual(len(profile["columns"]), 10)
+        if "columns_truncated" in profile:
+            self.assertTrue(profile["columns_truncated"])
+
     def test_execute_non_approved_fails(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [
             {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
@@ -802,6 +863,28 @@ class PlanningAPITests(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["status"], "partial")
+
+    def test_get_plan_returns_step_result_after_execution(self) -> None:
+        resp = self.client.post(f"/sessions/{self.session_id}/plans", json={
+            "steps": [
+                {"step_type": "sample_rows", "params": {"table_name": "analytics.watch_events", "limit": 20}},
+            ],
+        })
+        plan_id = resp.json()["plan_id"]
+
+        self.client.post(f"/sessions/{self.session_id}/plans/{plan_id}/validate")
+        self.client.post(f"/sessions/{self.session_id}/plans/{plan_id}/approve")
+
+        execute_resp = self.client.post(f"/sessions/{self.session_id}/plans/{plan_id}/execute")
+        self.assertEqual(execute_resp.status_code, 200)
+
+        detail_resp = self.client.get(f"/sessions/{self.session_id}/plans/{plan_id}")
+        self.assertEqual(detail_resp.status_code, 200)
+        step = detail_resp.json()["steps"][0]
+        self.assertIn("result", step)
+        self.assertEqual(step["result"]["step_type"], "sample_rows")
+        self.assertEqual(len(step["result"]["rows"]), 10)
+        self.assertTrue(step["result"]["rows_truncated"])
 
 
 if __name__ == "__main__":

@@ -56,6 +56,11 @@
 .plan-step-card .psc-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-sm); }
 .plan-step-card .psc-type { font-weight: 600; font-size: var(--font-size-base); }
 .plan-step-card .psc-deps { font-size: var(--font-size-xs); color: var(--color-text-muted); margin-top: var(--space-xs); }
+.plan-step-card .psc-result { margin-top: var(--space-md); padding-top: var(--space-md); border-top: 1px solid var(--color-border); }
+.plan-step-card .psc-result-label { font-size: var(--font-size-xs); color: var(--color-text-secondary); font-weight: 600; margin-bottom: var(--space-xs); text-transform: uppercase; letter-spacing: 0.03em; }
+.plan-step-card .psc-result-meta { font-size: var(--font-size-xs); color: var(--color-text-muted); margin-top: var(--space-xs); }
+.plan-step-card .psc-result-note { font-size: var(--font-size-xs); color: var(--color-text-muted); margin-top: var(--space-xs); }
+.plan-step-card .psc-result pre { margin: var(--space-sm) 0 0; max-height: 220px; overflow: auto; }
 
 /* Catalog search result cards */
 .cat-result-card { display: flex; align-items: flex-start; gap: var(--space-md); padding: var(--space-md) var(--space-lg); border: 1px solid var(--color-border); border-radius: var(--radius-lg); margin-bottom: var(--space-sm); background: var(--color-surface); transition: box-shadow var(--transition-fast); }
@@ -1294,6 +1299,41 @@ function openDraftPlanModal(sessionId) {
   };
 }
 
+function renderPlanResultPreview(result) {
+  if (!result || typeof result !== 'object') return '';
+
+  let preview = result;
+  if (Array.isArray(result.rows)) {
+    preview = { rows: result.rows };
+    if (Array.isArray(result.observations) && result.observations.length) preview.observations = result.observations;
+  } else if (result.profile && typeof result.profile === 'object') {
+    preview = { profile: result.profile };
+  }
+
+  return `<pre>${esc(JSON.stringify(preview, null, 2))}</pre>`;
+}
+
+function renderPlanStepResult(step) {
+  const result = step.result;
+  if (!result || typeof result !== 'object') return '';
+
+  const meta = [];
+  if (result.artifact_id) meta.push(`artifact: <code>${esc(result.artifact_id)}</code>`);
+
+  const previewFlags = [];
+  if (result.rows_truncated) previewFlags.push('rows');
+  if (result.observations_truncated) previewFlags.push('observations');
+  if (result.profile && result.profile.columns_truncated) previewFlags.push('profile columns');
+
+  return `<div class="psc-result">
+    <div class="psc-result-label">Result</div>
+    ${result.summary ? `<div>${esc(result.summary)}</div>` : ''}
+    ${meta.length ? `<div class="psc-result-meta">${meta.join(' · ')}</div>` : ''}
+    ${renderPlanResultPreview(result)}
+    ${previewFlags.length ? `<div class="psc-result-note">Preview only: ${esc(previewFlags.join(', '))}</div>` : ''}
+  </div>`;
+}
+
 async function showPlanDetail(sessionId, planId) {
   const area = $('#plans-content');
   area.innerHTML = '<div class="card" style="text-align:center;padding:var(--space-2xl);"><span class="spinner"></span></div>';
@@ -1351,6 +1391,7 @@ async function showPlanDetail(sessionId, planId) {
               <div style="font-size:var(--font-size-xs);color:var(--color-text-muted);">Step ${i}</div>
               ${s.params && Object.keys(s.params).length ? `<div style="margin-top:var(--space-sm);"><code style="font-size:var(--font-size-xs);">${esc(truncate(JSON.stringify(s.params), 60))}</code></div>` : ''}
               <div class="psc-deps">${(s.dependencies || []).length ? 'Depends on: ' + (s.dependencies).join(', ') : 'No dependencies'}</div>
+              ${renderPlanStepResult(s)}
             </div>`;
           }).join('')
         }</div>` : '<p class="empty">No steps.</p>'}
