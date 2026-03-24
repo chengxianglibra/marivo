@@ -515,35 +515,67 @@ class SemanticLayerService:
         engine, engine_type, qualified = self._resolve_engine([short_name])
         qualified_table = qualified.get(short_name, table_name)
 
-        # Support user-provided period_start/period_end
+        # Support user-provided period_start/period_end + comparison_type / explicit baseline
         user_period_start = params.get("period_start")
         user_period_end = params.get("period_end")
-        if user_period_start and user_period_end:
-            # Parse user-provided dates
-            ps = date.fromisoformat(str(user_period_start))
+        comparison_type = params.get("comparison_type")
+        baseline_start_p = params.get("baseline_start")
+        baseline_end_p = params.get("baseline_end")
+
+        # Validate comparison_type early
+        _VALID_CT = {"dod", "wow", "mom", "yoy"}
+        if comparison_type and comparison_type.lower() not in _VALID_CT:
+            raise ValueError(
+                f"Invalid comparison_type '{comparison_type}'. "
+                f"Supported: {sorted(_VALID_CT)}"
+            )
+
+        if not user_period_end and (comparison_type or baseline_start_p or baseline_end_p):
+            raise ValueError(
+                "period_end is required when comparison_type or baseline_start/baseline_end are specified."
+            )
+
+        if user_period_end:
             pe = date.fromisoformat(str(user_period_end))
-            period_length = (pe - ps).days
-            baseline_end_d = ps - timedelta(days=1)
-            baseline_start_d = baseline_end_d - timedelta(days=period_length)
-            # Detect date format from the engine data
+            # period_start is optional; omitting it means a single-day window
+            ps = date.fromisoformat(str(user_period_start)) if user_period_start else pe
+
+            if baseline_start_p and baseline_end_p:
+                # Priority 1: explicit baseline window
+                baseline_start = date.fromisoformat(str(baseline_start_p))
+                baseline_end = date.fromisoformat(str(baseline_end_p))
+            elif comparison_type:
+                # Priority 2: comparison_type enum
+                baseline_start, baseline_end = self._compute_baseline_from_type(ps, pe, comparison_type)
+            else:
+                # Priority 3: legacy rolling-shift (equal-length window before period_start)
+                period_length = (pe - ps).days
+                baseline_end = ps - timedelta(days=1)
+                baseline_start = baseline_end - timedelta(days=period_length)
+
+            current_start, current_end = ps, pe
             try:
                 row = engine.query_rows(
                     f"SELECT MAX({date_column}) AS max_date FROM {qualified_table}"
                 )[0]
                 date_fmt = self._detect_date_format(row["max_date"])
             except Exception:
-                date_fmt = self._detect_date_format(str(user_period_start))
-            current_start, current_end = ps, pe
-            baseline_start, baseline_end = baseline_start_d, baseline_end_d
+                date_fmt = self._detect_date_format(str(user_period_end))
         else:
             current_start, current_end, baseline_start, baseline_end, date_fmt = self._period_bounds(
                 engine, table_name=qualified_table, date_column=date_column,
             )
 
+        current_len = (current_end - current_start).days
+        baseline_len = (baseline_end - baseline_start).days
+        window_size_mismatch = current_len != baseline_len
+
         def _fmt(d: date) -> str | date:
             return d.strftime(date_fmt) if date_fmt else d
 
-        period_params = [_fmt(current_start), _fmt(current_end), _fmt(baseline_start), _fmt(baseline_end), _fmt(baseline_start), _fmt(current_end)]
+        scan_start = min(baseline_start, current_start)
+        scan_end = max(baseline_end, current_end)
+        period_params = [_fmt(current_start), _fmt(current_end), _fmt(baseline_start), _fmt(baseline_end), _fmt(scan_start), _fmt(scan_end)]
         compiled_query = self._compile_step_with_feedback(
             from_legacy_step(
                 0,
@@ -598,22 +630,49 @@ class SemanticLayerService:
             self._insert_observation(session_id, step_id, observation)
 
         artifact_id = self._insert_artifact(session_id, step_id, "table", f"{metric_name}_comparison", rows)
+
+        _debug = {
+            "current_window": [str(_fmt(current_start)), str(_fmt(current_end))],
+            "baseline_window": [str(_fmt(baseline_start)), str(_fmt(baseline_end))],
+            "current_has_data": any(r.get("current_sessions") for r in all_rows),
+            "baseline_has_data": any(r.get("baseline_sessions") for r in all_rows),
+            "window_length_match": not window_size_mismatch,
+        }
+        if comparison_type:
+            _debug["comparison_type"] = comparison_type
+
         if rows:
+            top = rows[0]
+            direction = "decline" if (top.get("delta_pct") or 0) < 0 else "increase"
             summary = (
-                f"Metric '{metric_name}' comparison: top decline is {rows[0]['delta_pct']}% "
-                f"in {' / '.join(str(rows[0].get(d, '')) for d in dimensions)} traffic."
+                f"Metric '{metric_name}' comparison: top {direction} is "
+                f"{top['delta_pct']}% for {top}."
             )
+            if window_size_mismatch:
+                summary += (
+                    f" \u26a0 Window size mismatch: current={current_len + 1}d, "
+                    f"baseline={baseline_len + 1}d — count/sum metrics may not be comparable."
+                )
         elif all_rows:
+            missing = []
+            if not _debug["current_has_data"]:
+                missing.append("current")
+            if not _debug["baseline_has_data"]:
+                missing.append("baseline")
+            missing_str = " and ".join(missing) if missing else "one"
+            hint = ""
+            if not comparison_type and not (baseline_start_p and baseline_end_p):
+                hint = " Tip: use comparison_type=wow|dod|mom|yoy or explicit baseline_start/end."
             summary = (
-                f"Metric '{metric_name}' comparison: rows exist but all delta values are null — "
-                "at least one comparison window (baseline or current) may contain no data. "
-                "Check that both 'period_start'/'period_end' windows have rows."
+                f"Metric '{metric_name}' comparison: {missing_str} window has no data. "
+                f"current={_debug['current_window']}, baseline={_debug['baseline_window']}.{hint}"
             )
         else:
             summary = (
-                f"Metric '{metric_name}' comparison returned no results — "
-                "both comparison windows may be empty for the specified period."
+                f"Metric '{metric_name}' comparison returned no results. "
+                f"current={_debug['current_window']}, baseline={_debug['baseline_window']}."
             )
+
         provenance = self._make_provenance(compiled_query.sql, compiled_query.params, engine_type=engine_type)
 
         # G-5e: resolve unit for the metric from confirmed hints or entity properties
@@ -628,6 +687,10 @@ class SemanticLayerService:
         }
         if unit_note:
             result["unit_note"] = unit_note
+        if not rows:
+            result["debug"] = _debug
+        elif window_size_mismatch:
+            result["debug"] = {k: _debug[k] for k in ("current_window", "baseline_window", "window_length_match")}
         self._insert_step(step_id, session_id, step_type, summary, result, provenance=provenance)
         return result
 
@@ -1724,6 +1787,44 @@ class SemanticLayerService:
         if isinstance(raw_value, str) and len(raw_value) == 8 and raw_value.isdigit():
             return "%Y%m%d"
         return None
+
+    @staticmethod
+    def _shift_calendar_date(d: date, *, months: int = 0, years: int = 0) -> date:
+        """Calendar shift with end-of-month clamp (e.g. 2026-03-31 → 2026-02-28)."""
+        from calendar import monthrange
+        target_month = d.month + months
+        target_year = d.year + years + (target_month - 1) // 12
+        target_month = (target_month - 1) % 12 + 1
+        target_day = min(d.day, monthrange(target_year, target_month)[1])
+        return date(target_year, target_month, target_day)
+
+    @staticmethod
+    def _compute_baseline_from_type(
+        current_start: date, current_end: date, comparison_type: str
+    ) -> tuple[date, date]:
+        """Compute baseline window from a comparison_type enum.
+
+        dod: shift -1 day  wow: shift -7 days
+        mom: shift -1 calendar month  yoy: shift -1 calendar year
+        The baseline window preserves the same span as the current window.
+        """
+        ct = comparison_type.lower()
+        if ct == "dod":
+            delta = timedelta(days=1)
+            return current_start - delta, current_end - delta
+        if ct == "wow":
+            delta = timedelta(days=7)
+            return current_start - delta, current_end - delta
+        if ct == "mom":
+            bs = SemanticLayerService._shift_calendar_date(current_start, months=-1)
+            return bs, bs + (current_end - current_start)
+        if ct == "yoy":
+            bs = SemanticLayerService._shift_calendar_date(current_start, years=-1)
+            return bs, bs + (current_end - current_start)
+        raise ValueError(
+            f"Unknown comparison_type '{comparison_type}'. "
+            "Supported values: dod, wow, mom, yoy."
+        )
 
     def _period_bounds(
         self,
