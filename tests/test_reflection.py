@@ -104,6 +104,41 @@ def _insert_recommendation(
     return rec_id
 
 
+def _insert_observation(
+    store: SQLiteMetadataStore,
+    session_id: str,
+    *,
+    metric: str,
+    slice_dict: dict | None = None,
+    observed_window: dict | None = None,
+    temporal_order: int = 0,
+    delta_pct: float = -5.0,
+) -> str:
+    obs_id = f"obs_{uuid4().hex[:12]}"
+    store.execute(
+        """
+        INSERT INTO observations (
+            observation_id, session_id, step_id, observation_type,
+            subject_json, payload_json, significance_json, quality_json,
+            observed_window_json, temporal_order
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            obs_id,
+            session_id,
+            "step_test",
+            "metric_change",
+            json.dumps({"metric": metric, "slice": slice_dict or {}}),
+            json.dumps({"delta_pct": delta_pct}),
+            "{}",
+            "{}",
+            json.dumps(observed_window) if observed_window is not None else None,
+            temporal_order,
+        ],
+    )
+    return obs_id
+
+
 # ── Fixture setup ─────────────────────────────────────────────────────────────
 
 class ReflectionContextUnitTests(unittest.TestCase):
@@ -201,21 +236,11 @@ class ReflectionContextUnitTests(unittest.TestCase):
     def test_scope_aware_confounder_missing_observed_window(self) -> None:
         """A claim with supporting observations but no observed_window gets missing_observed_window gap."""
         session_id = self._new_session()
-        # Insert an observation with no observed_window
-        obs_id = f"obs_{uuid4().hex[:12]}"
-        self.store.execute(
-            """
-            INSERT INTO observations (
-                observation_id, session_id, step_id, observation_type,
-                subject_json, payload_json, significance_json, quality_json,
-                observed_window_json, temporal_order
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 0)
-            """,
-            [
-                obs_id, session_id, "step_test", "metric_change",
-                '{"metric": "elapsed_time", "slice": {"cluster": "k8sbi-bi1"}}',
-                '{"delta_pct": -5.0}', '{}', '{}',
-            ],
+        obs_id = _insert_observation(
+            self.store,
+            session_id,
+            metric="elapsed_time",
+            slice_dict={"cluster": "k8sbi-bi1"},
         )
         # Insert a claim with elapsed_time metric and the above observation
         claim_id = f"claim_{uuid4().hex[:12]}"
@@ -242,6 +267,63 @@ class ReflectionContextUnitTests(unittest.TestCase):
             any("observed_window" in t for t in tc["unresolved_confounders"]),
             f"Expected missing_observed_window in confounders; got: {tc['unresolved_confounders']}",
         )
+
+    # ── Test 17b: windowed observations satisfy temporal evidence path ────
+
+    def test_observed_window_reflection_context_uses_temporal_evidence_without_redefining_readiness(self) -> None:
+        """Windowed supporting observations clear temporal confounders; readiness stays support-count based."""
+        session_id = self._new_session()
+        obs_ids = [
+            _insert_observation(
+                self.store,
+                session_id,
+                metric="elapsed_time",
+                slice_dict={"cluster": "k8sbi-bi1"},
+                observed_window={"start": "2026-03-01", "end": "2026-03-02"},
+                temporal_order=1,
+                delta_pct=-4.0,
+            ),
+            _insert_observation(
+                self.store,
+                session_id,
+                metric="elapsed_time",
+                slice_dict={"cluster": "k8sbi-bi1"},
+                observed_window={"start": "2026-03-03", "end": "2026-03-04"},
+                temporal_order=2,
+                delta_pct=-6.0,
+            ),
+        ]
+        claim_id = f"claim_{uuid4().hex[:12]}"
+        self.store.execute(
+            """
+            INSERT INTO claims (
+                claim_id, session_id, claim_type, text, scope_json, confidence, status,
+                supporting_observation_ids_json, contradicting_observation_ids_json,
+                confidence_breakdown_json, inference_level, inference_justification_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                claim_id, session_id, "root_cause_candidate",
+                "elapsed_time declined for cluster=k8sbi-bi1 (tentative)",
+                '{"metric": "elapsed_time", "slice": {"cluster": "k8sbi-bi1"}}',
+                0.7, "tentative",
+                json.dumps(obs_ids), "[]", "{}", "L0", "[]",
+            ],
+        )
+
+        ctx = build_reflection_context(self.store, session_id)
+        tc = next(c for c in ctx["tentative_claims"] if c["claim_id"] == claim_id)
+        confounders = tc["unresolved_confounders"]
+
+        self.assertFalse(
+            any("observed_window" in t for t in confounders),
+            f"Did not expect missing_observed_window when observations are windowed; got: {confounders}",
+        )
+        self.assertFalse(
+            any("temporal ordering" in t for t in confounders),
+            f"Did not expect missing_temporal_ordering when temporal evidence is present; got: {confounders}",
+        )
+        self.assertAlmostEqual(ctx["readiness_signal"]["evidence_sufficiency"], 2.0 / 3.0, places=4)
 
     # ── Test 18: scope-aware confounder — normalise workload volume ────────
 
