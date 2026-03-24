@@ -2,6 +2,11 @@
 
 Design: Factum produces structured signals (facts by code). Agents decide
 what patches to apply or what steps to run next (language by model).
+
+G-3c breaking change: ``evidence_gaps`` is now a session-level deduplicated
+list of ``{"gap_key", "text", "suggested_validation", "affected_claims"}``
+dicts rather than a per-recommendation list.  Each unique gap_key appears at
+most once; ``affected_claims`` lists every claim that contributes the gap.
 """
 
 from __future__ import annotations
@@ -10,8 +15,11 @@ import json
 from typing import Any
 
 from app.analysis_core.primitives import STEP_TAXONOMY
+from app.evidence_engine.causal_basis import (
+    _build_scope_aware_gaps,
+    derive_session_summary,
+)
 from app.evidence_engine.readiness import compute_readiness, load_live_claims
-from app.evidence_engine.schemas import _CAUSAL_CONFOUNDERS
 from app.storage.metadata import MetadataStore
 
 _NUMERIC_READINESS_DIMS = (
@@ -40,6 +48,10 @@ def build_reflection_context(
             session_id, plan_id, readiness_signal, readiness_score,
             tentative_claims, evidence_gaps, available_step_types
 
+        ``evidence_gaps`` (G-3c): a session-level deduplicated list of
+        ``{"gap_key", "text", "suggested_validation", "affected_claims"}``
+        dicts.  Each unique gap_key appears at most once across all claims.
+
     Raises:
         KeyError: If the session is not found.
     """
@@ -58,8 +70,12 @@ def build_reflection_context(
         4,
     )
 
+    # Load all session observations once for use by the rule engine.
+    all_observations = _load_session_observations(metadata_store, session_id)
+    obs_map = {o["observation_id"]: o for o in all_observations}
+
     # tentative_claims: claims with status='tentative' OR inference_level in ('L0', 'L1')
-    # These represent claims where more evidence could strengthen the analysis.
+    # unresolved_confounders is now scope-aware (G-3a) when supporting observations exist.
     tentative_claims = [
         {
             "claim_id": c["claim_id"],
@@ -67,13 +83,13 @@ def build_reflection_context(
             "scope": c["scope"],
             "confidence": c["confidence"],
             "inference_level": c.get("inference_level", "L0"),
-            "unresolved_confounders": _confounders_for(c),
+            "unresolved_confounders": _confounders_for(c, obs_map, all_observations),
         }
         for c in all_live
         if c.get("status") == "tentative" or c.get("inference_level", "L0") in ("L0", "L1")
     ]
 
-    # evidence_gaps: recommendations with causal_basis where unresolved_confounders is non-empty
+    # evidence_gaps (G-3c): session-level deduplicated across all recommendations.
     evidence_gaps = _load_evidence_gaps(metadata_store, session_id)
 
     return {
@@ -87,21 +103,73 @@ def build_reflection_context(
     }
 
 
-def _confounders_for(claim: dict[str, Any]) -> list[str]:
-    """Extract unresolved confounders from a claim dict.
+def _confounders_for(
+    claim: dict[str, Any],
+    obs_map: dict[str, Any],
+    all_observations: list[dict[str, Any]],
+) -> list[str]:
+    """Build scope-aware confounder strings for a claim.
 
-    Prefers the stored causal_basis confounders if available,
-    otherwise falls back to the inference_level lookup table.
+    Uses the rule engine (G-3a) when supporting observations are available.
+    Returns a plain list[str] so that the tentative_claims API shape is unchanged.
     """
-    level = claim.get("inference_level", "L0")
-    return list(_CAUSAL_CONFOUNDERS.get(level, _CAUSAL_CONFOUNDERS["L0"]))
+    supporting_obs = [
+        obs_map[oid]
+        for oid in claim.get("supporting_observations", [])
+        if oid in obs_map
+    ]
+    session_summary = derive_session_summary(claim.get("scope", {}), all_observations)
+    gaps = _build_scope_aware_gaps(claim, supporting_obs, session_summary)
+    return [g.text for g in gaps]
+
+
+def _load_session_observations(
+    metadata_store: MetadataStore,
+    session_id: str,
+) -> list[dict[str, Any]]:
+    """Load all observations for a session, including observed_window and temporal_order."""
+    rows = metadata_store.query_rows(
+        """
+        SELECT observation_id, observation_type, subject_json, payload_json,
+               significance_json, quality_json,
+               observed_window_json, temporal_order
+        FROM observations
+        WHERE session_id = ?
+        ORDER BY created_at
+        """,
+        [session_id],
+    )
+    result = []
+    for row in rows:
+        obs: dict[str, Any] = {
+            "observation_id": row["observation_id"],
+            "type": row["observation_type"],
+            "subject": json.loads(row["subject_json"]),
+            "payload": json.loads(row["payload_json"]),
+            "significance": json.loads(row["significance_json"]),
+            "quality": json.loads(row["quality_json"]),
+            "temporal_order": row.get("temporal_order") or 0,
+        }
+        raw_window = row.get("observed_window_json")
+        obs["observed_window"] = json.loads(raw_window) if raw_window else None
+        result.append(obs)
+    return result
 
 
 def _load_evidence_gaps(
     metadata_store: MetadataStore,
     session_id: str,
 ) -> list[dict[str, Any]]:
-    """Load recommendations with non-empty unresolved_confounders as evidence gaps."""
+    """Load session-level deduplicated evidence gaps from persisted recommendations.
+
+    G-3c: rather than returning one entry per recommendation, this aggregates
+    all confounders across recommendations and deduplicates by gap_key.  The
+    returned list has one entry per unique gap_key, with ``affected_claims``
+    listing every claim that contributes the gap.
+
+    Handles both structured gap format ({"key": ..., "text": ...}) and the
+    legacy plain-string format for backward compatibility with older rows.
+    """
     rows = metadata_store.query_rows(
         """
         SELECT rec_id, claim_id, causal_basis_json
@@ -110,16 +178,45 @@ def _load_evidence_gaps(
         """,
         [session_id],
     )
-    gaps: list[dict[str, Any]] = []
+
+    # (gap_key, text) → {gap_key, text, suggested_validation, affected_claims (set)}.
+    # Using (gap_key, text) as the composite dedup key so that metric-specific
+    # variants of the same rule (e.g. missing_temporal_ordering for elapsed_time
+    # vs failure_rate) are kept as separate entries rather than collapsed into one.
+    aggregated: dict[tuple[str, str], dict[str, Any]] = {}
+
     for row in rows:
         causal_basis = json.loads(row["causal_basis_json"])
         confounders = causal_basis.get("unresolved_confounders", [])
-        if confounders:
-            gaps.append({
-                "rec_id": row["rec_id"],
-                "claim_id": row["claim_id"],
-                "inference_level": causal_basis.get("inference_level", "L0"),
-                "suggested_validation": causal_basis.get("suggested_validation", ""),
-                "unresolved_confounders": confounders,
-            })
-    return gaps
+        suggested_validation = causal_basis.get("suggested_validation", "")
+        claim_id = row["claim_id"]
+
+        for item in confounders:
+            if isinstance(item, dict):
+                gap_key = item.get("key", "unknown")
+                text = item.get("text", "")
+            else:
+                # Legacy plain-string format: use the string as both key and text.
+                gap_key = str(item)
+                text = str(item)
+
+            dedup_key = (gap_key, text)
+            if dedup_key not in aggregated:
+                aggregated[dedup_key] = {
+                    "gap_key": gap_key,
+                    "text": text,
+                    "suggested_validation": suggested_validation,
+                    "affected_claims": set(),
+                }
+            aggregated[dedup_key]["affected_claims"].add(claim_id)
+
+    # Convert sets to sorted lists for stable serialisation.
+    return [
+        {
+            "gap_key": entry["gap_key"],
+            "text": entry["text"],
+            "suggested_validation": entry["suggested_validation"],
+            "affected_claims": sorted(entry["affected_claims"]),
+        }
+        for entry in aggregated.values()
+    ]

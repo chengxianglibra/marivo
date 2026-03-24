@@ -711,11 +711,16 @@ Requires `reflection.enabled: true` in `factum.yaml` (default: `true`).
   ],
   "evidence_gaps": [
     {
-      "rec_id": "rec_...",
-      "claim_id": "claim_...",
-      "inference_level": "L0",
-      "suggested_validation": "Compare iOS vs Android buffering event rates",
-      "unresolved_confounders": ["seasonal effects"]
+      "gap_key": "missing_observed_window",
+      "text": "populate `observed_window` (use `observed_window_column` param in `aggregate_query`) to enable temporal precedence checking",
+      "suggested_validation": "Run `aggregate_query` with `observed_window_column` set to a time column to enable temporal ordering.",
+      "affected_claims": ["claim_..."]
+    },
+    {
+      "gap_key": "missing_temporal_ordering",
+      "text": "run `aggregate_query` grouped by a time column with `observed_window_column` to establish temporal ordering for `elapsed_time`; optionally run `correlate_metrics` to test cross-series association",
+      "suggested_validation": "Run `aggregate_query` grouped by a time column with `observed_window_column` to establish temporal ordering for `elapsed_time`.",
+      "affected_claims": ["claim_...", "claim_..."]
     }
   ],
   "available_step_types": ["compare_metric", "profile_table", "sample_rows", "aggregate_query", "correlate_metrics", "synthesize_findings"]
@@ -726,6 +731,6 @@ Requires `reflection.enabled: true` in `factum.yaml` (default: `true`).
 |-------|-------------|
 | `readiness_signal` | Full 5-dimensional readiness signal (same as in step responses) |
 | `readiness_score` | Scalar average of the 5 dimensions |
-| `tentative_claims` | Claims with `inference_level` < L2 that still need supporting evidence |
-| `evidence_gaps` | Recommendations that have `suggested_validation` or `unresolved_confounders` |
+| `tentative_claims` | Claims with `inference_level` < L2 that still need supporting evidence; `unresolved_confounders` is a list of scope-aware strings |
+| `evidence_gaps` | **Session-level deduplicated** gaps derived from persisted recommendations. Dedup key is `(gap_key, text)` — the same `gap_key` can appear more than once if the text differs (e.g. `missing_temporal_ordering` for different metrics). Each entry has `gap_key` (stable identifier), `text` (human-readable), `suggested_validation` (concrete next step), and `affected_claims` (claim IDs that contribute the gap). |
 | `available_step_types` | Step types available to the agent for next steps |
