@@ -673,9 +673,10 @@ class PlanningService:
             if truncated:
                 snapshot[f"{field_name}_truncated"] = True
 
-        if step_type in {"compare_metric", "aggregate_query", "sample_rows"}:
+        if step_type in {"compare_metric", "aggregate_query", "attribute_change", "sample_rows"}:
             _truncate_rows_field("rows")
             _truncate_rows_field("observations")
+            _truncate_rows_field("contributions")
             return json.loads(json.dumps(snapshot, default=str))
 
         if step_type == "profile_table":
@@ -991,9 +992,9 @@ class PlanningService:
                                 f"Step {step.index}: compare_metric requires "
                                 "'metric_name' and 'table_name' params"
                             ),
-                            detail={"required_params": ["metric_name", "table_name"], "missing_params": missing},
+                                detail={"required_params": ["metric_name", "table_name"], "missing_params": missing},
+                            )
                         )
-                    )
                 for _forbidden in ("filter", "where"):
                     if step.params.get(_forbidden):
                         issues.append(
@@ -1009,6 +1010,49 @@ class PlanningService:
                                 detail={"forbidden_param": _forbidden},
                             )
                         )
+            elif step.step_type == "attribute_change":
+                missing = [
+                    key
+                    for key in ("metric_name", "table_name", "period_end", "baseline_start", "baseline_end")
+                    if not step.params.get(key)
+                ]
+                if missing:
+                    issues.append(
+                        PlanValidationIssue(
+                            code="missing_required_param",
+                            category="params",
+                            step_index=step.index,
+                            message=(
+                                f"Step {step.index}: attribute_change requires "
+                                "'metric_name', 'table_name', 'period_end', 'baseline_start', "
+                                "and 'baseline_end' params"
+                            ),
+                            detail={
+                                "required_params": [
+                                    "metric_name",
+                                    "table_name",
+                                    "period_end",
+                                    "baseline_start",
+                                    "baseline_end",
+                                ],
+                                "missing_params": missing,
+                            },
+                        )
+                    )
+                candidate_dimensions = step.params.get("candidate_dimensions")
+                if not isinstance(candidate_dimensions, list) or not candidate_dimensions:
+                    issues.append(
+                        PlanValidationIssue(
+                            code="attribute_change_missing_candidate_dimensions",
+                            category="params",
+                            step_index=step.index,
+                            message=(
+                                f"Step {step.index}: attribute_change requires a non-empty "
+                                "'candidate_dimensions' list"
+                            ),
+                            detail={"missing_param": "candidate_dimensions"},
+                        )
+                    )
             elif step.step_type == "profile_table":
                 if not step.params.get("table_name"):
                     issues.append(
@@ -1105,7 +1149,7 @@ class PlanningService:
         issues: list[PlanValidationIssue] = []
         if step.step_type == "correlate_metrics":
             return self._validate_correlate_metrics_params(step)
-        if step.step_type != "compare_metric":
+        if step.step_type not in {"compare_metric", "attribute_change"}:
             return issues
 
         metric_name = ""
@@ -1129,6 +1173,9 @@ class PlanningService:
                     detail={"metric_name": metric_name},
                 )
             )
+            return issues
+
+        if step.step_type == "attribute_change":
             return issues
 
         requested_dimensions = (

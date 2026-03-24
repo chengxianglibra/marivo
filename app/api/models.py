@@ -238,6 +238,41 @@ class ApprovalDecisionRequest(BaseModel):
     reason: str = ""
 
 
+class AttributeChangeStep(BaseModel):
+    metric_name: str = Field(description="Published semantic metric to attribute.")
+    table_name: str = Field(description="Physical table that backs the metric.")
+    period_start: str | None = Field(
+        default=None,
+        description="Current window start date (YYYY-MM-DD). Defaults to period_end when omitted.",
+    )
+    period_end: str = Field(description="Current window end date (YYYY-MM-DD).")
+    baseline_start: str = Field(description="Baseline window start date (YYYY-MM-DD).")
+    baseline_end: str = Field(description="Baseline window end date (YYYY-MM-DD).")
+    candidate_dimensions: list[str] = Field(
+        default_factory=list,
+        min_length=1,
+        description="Candidate attribution dimensions to compare one-by-one.",
+    )
+    anomaly_observation_id: str | None = Field(
+        default=None,
+        description="Optional upstream anomaly observation to link with a justifies edge.",
+    )
+    top_k: int = Field(default=5, ge=1, description="Number of top contributors to return per dimension.")
+    min_contribution_pct: float = Field(
+        default=5.0,
+        ge=0.0,
+        description="Minimum contribution percentage required to keep a contributor.",
+    )
+    date_column: str | None = Field(
+        default=None,
+        description="Optional explicit date column. When omitted, the service infers one.",
+    )
+    where: str | None = Field(
+        default=None,
+        description="Optional SQL filter merged with session constraints before attribution queries.",
+    )
+
+
 class AutoFlagRequest(BaseModel):
     risk_threshold: str = "P0"
 

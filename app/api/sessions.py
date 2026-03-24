@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.api.deps import get_services, http_error
-from app.api.models import SessionCreateRequest
+from app.api.models import AttributeChangeStep, SessionCreateRequest
 from app.reflection.context import build_reflection_context
 
 
@@ -49,6 +49,26 @@ def get_reflection_context(
         return build_reflection_context(services.metadata_store, session_id, plan_id=plan_id)
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@router.post("/sessions/{session_id}/steps/attribute_change")
+def run_attribute_change(
+    session_id: str,
+    payload: AttributeChangeStep,
+    request: Request,
+) -> dict[str, object]:
+    try:
+        return get_services(request).service.run_step(
+            session_id,
+            "attribute_change",
+            params=payload.model_dump(exclude_none=True),
+        )
+    except KeyError as error:
+        raise http_error(error) from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except Exception as error:
+        raise HTTPException(status_code=502, detail=f"Engine execution error: {error}") from error
 
 
 @router.post("/sessions/{session_id}/steps/{step_type}")

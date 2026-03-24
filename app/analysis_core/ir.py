@@ -13,16 +13,19 @@ DEFAULT_SLICE_DIMENSIONS = ("platform", "app_version", "network_type", "content_
 PERIOD_CONTEXT_STEP_TYPES = frozenset(
     {
         "compare_metric",
+        "attribute_change",
     }
 )
 STEP_METRICS: dict[str, str] = {}
 STEP_OBSERVATION_TYPES = {
     "profile_table": ["table_profile"],
     "sample_rows": ["sample_rows"],
+    "attribute_change": ["contribution_shift"],
     "synthesize_findings": ["root_cause_candidate", "recommendation"],
 }
 STEP_ARTIFACT_KINDS = {
     "compare_metric": "table",
+    "attribute_change": "table",
     "profile_table": "profile",
     "profile_table_row_count": "profile",
     "profile_table_columns": "profile",

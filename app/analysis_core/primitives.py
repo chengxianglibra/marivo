@@ -24,6 +24,13 @@ STEP_TAXONOMY = {
         "category": "primitive",
         "description": "Run an ad-hoc GROUP BY + aggregation query on a table.",
     },
+    "attribute_change": {
+        "category": "primitive",
+        "description": (
+            "Attribute a metric change across candidate dimensions using current "
+            "and baseline windows; produces contribution_shift observations."
+        ),
+    },
     "correlate_metrics": {
         "category": "primitive",
         "description": (
