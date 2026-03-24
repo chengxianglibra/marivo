@@ -880,11 +880,12 @@ function renderReflectionContext(area, ctx) {
     <h3 style="font-size:var(--font-size-base);font-weight:600;margin:0 0 var(--space-sm);">Evidence Gaps (${gaps.length})</h3>`;
   if (gaps.length) {
     gaps.forEach(g => {
-      const confounders = (g.unresolved_confounders || []).join('; ') || '—';
+      const claimsNote = g.affected_claims && g.affected_claims.length
+        ? `${g.affected_claims.length} claim${g.affected_claims.length > 1 ? 's' : ''}` : '';
       html += `<div class="gap-row">
-        <div class="gap-title"><code>${esc(truncate(g.rec_id || '', 20))}</code> &nbsp;<span class="badge badge-gray">${esc(g.inference_level || 'L0')}</span></div>
-        <div class="gap-meta">Confounders: ${esc(confounders)}</div>
-        ${g.suggested_validation ? `<div class="gap-meta" style="color:var(--color-primary);">Suggested: ${esc(g.suggested_validation)}</div>` : ''}
+        <div class="gap-title"><code>${esc(g.gap_key || '')}</code>${claimsNote ? ` &nbsp;<span class="badge badge-gray">${esc(claimsNote)}</span>` : ''}</div>
+        <div class="gap-meta">${esc(g.text || '')}</div>
+        ${g.suggested_validation ? `<div class="gap-meta" style="color:var(--color-primary);">Next step: ${esc(g.suggested_validation)}</div>` : ''}
       </div>`;
     });
   } else {
@@ -1077,7 +1078,7 @@ function renderEvidence(area, ev) {
         ${r.validation_metric ? `<div style="margin-top:var(--space-xs);font-size:var(--font-size-xs);color:var(--color-text-muted);">Validation: ${esc(typeof r.validation_metric === 'object' ? (r.validation_metric.primary_metric || '') + (r.validation_metric.secondary_metric ? ' / ' + r.validation_metric.secondary_metric : '') : String(r.validation_metric))}</div>` : ''}
         ${r.causal_basis ? `<div class="causal-basis-block">
           <div class="cb-label">Causal Basis</div>
-          <div>Level: <span class="badge badge-gray">${esc(r.causal_basis.inference_level || 'L0')}</span>${r.causal_basis.unresolved_confounders && r.causal_basis.unresolved_confounders.length ? `&nbsp;&middot;&nbsp;Confounders: ${esc(r.causal_basis.unresolved_confounders.join('; '))}` : ''}</div>
+          <div>Level: <span class="badge badge-gray">${esc(r.causal_basis.inference_level || 'L0')}</span>${r.causal_basis.unresolved_confounders && r.causal_basis.unresolved_confounders.length ? `&nbsp;&middot;&nbsp;Confounders: ${esc(r.causal_basis.unresolved_confounders.map(c => typeof c === 'string' ? c : (c.text || c.key || '')).join('; '))}` : ''}</div>
           ${r.causal_basis.suggested_validation ? `<div style="margin-top:2px;color:var(--color-text-secondary);">Next step: ${esc(r.causal_basis.suggested_validation)}</div>` : ''}
         </div>` : ''}
       </div>`;

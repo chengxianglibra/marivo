@@ -1283,12 +1283,14 @@ class CausalBasisTests(unittest.TestCase):
 
     # ── unit tests for _build_causal_basis ───────────────────────────────────
 
-    def test_build_causal_basis_l0_has_three_confounders(self) -> None:
+    def test_build_causal_basis_l0_has_fallback_confounders(self) -> None:
+        # _build_causal_basis provides no observation context so the fallback
+        # rules fire: L0 → 2 gaps (correlation_only, concurrent_changes).
         from app.evidence_engine.schemas import _build_causal_basis
         cb = _build_causal_basis(self._make_claim("L0"))
         self.assertEqual(cb["inference_level"], "L0")
-        self.assertEqual(len(cb["unresolved_confounders"]), 3)
-        self.assertIn("temporal precedence", cb["suggested_validation"])
+        self.assertEqual(len(cb["unresolved_confounders"]), 2)
+        self.assertIn("temporal", cb["suggested_validation"])
 
     def test_build_causal_basis_l5_has_empty_confounders(self) -> None:
         from app.evidence_engine.schemas import _build_causal_basis

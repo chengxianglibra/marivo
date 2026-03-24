@@ -8,13 +8,17 @@ from app.evidence_engine.recommendation_policy import (
     DefaultRecommendationPolicy,
     RecommendationPolicy,
 )
+from app.evidence_engine.causal_basis import (
+    SessionSummary,
+    build_causal_basis,
+    derive_session_summary,
+)
 from app.evidence_engine.schemas import (
     CAUSAL_EDGE_TO_INFERENCE_LEVEL,
     INFERENCE_LEVEL_ORDER,
     Claim,
     Observation,
     Recommendation,
-    _build_causal_basis,
 )
 from app.evidence_engine.scoring import ConfidenceScorer, DefaultConfidenceScorer
 from app.evidence_engine.synthesizers import ClaimSynthesizer, DefaultClaimSynthesizer
@@ -219,13 +223,27 @@ class EvidencePipeline:
                 for claim in claims
             ]
 
-        # M-10: attach causal_basis using final (post-upgrade) inference_level
+        # M-10: attach causal_basis using final (post-upgrade) inference_level.
+        # Pass supporting observations and a session summary so that the rule engine
+        # can generate scope-aware confounders (G-3a/G-3b).
         if recommendations:
             _claim_idx: dict[str, Any] = {c["claim_id"]: c for c in claims}
+            _obs_map: dict[str, Any] = {o["observation_id"]: o for o in observations}
             recommendations = [
                 {
                     **rec,
-                    "causal_basis": _build_causal_basis(_claim_idx[rec["claim_id"]])
+                    "causal_basis": build_causal_basis(
+                        _claim_idx[rec["claim_id"]],
+                        [
+                            _obs_map[oid]
+                            for oid in _claim_idx[rec["claim_id"]].get("supporting_observations", [])
+                            if oid in _obs_map
+                        ],
+                        derive_session_summary(
+                            _claim_idx[rec["claim_id"]].get("scope", {}),
+                            observations,
+                        ),
+                    )
                     if rec["claim_id"] in _claim_idx
                     else None,
                 }

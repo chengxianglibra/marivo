@@ -19,6 +19,10 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
+from app.evidence_engine.causal_basis import (
+    GAP_MISSING_OBSERVED_WINDOW,
+    GAP_NORMALISE_WORKLOAD_VOLUME,
+)
 from app.main import create_app
 from app.planning import PlanningService
 from app.planner.replanning import ReplanningService
@@ -62,16 +66,29 @@ def _insert_recommendation(
     claim_id: str,
     *,
     inference_level: str = "L0",
+    scope: dict | None = None,
 ) -> str:
     rec_id = f"rec_{uuid4().hex[:12]}"
-    from app.evidence_engine.schemas import _build_causal_basis  # noqa: PLC0415
+    from app.evidence_engine.causal_basis import (  # noqa: PLC0415
+        SessionSummary,
+        build_causal_basis,
+    )
 
-    # Build causal_basis from a minimal claim-like dict
-    causal_basis = _build_causal_basis({  # type: ignore[arg-type]
-        "inference_level": inference_level,
-        "confidence": 0.6,
-        "text": "test claim",
-    })
+    # Build causal_basis from a minimal claim-like dict (no observation context)
+    causal_basis = build_causal_basis(
+        {
+            "inference_level": inference_level,
+            "confidence": 0.6,
+            "text": "test claim",
+            "scope": scope or {},
+        },
+        [],
+        SessionSummary(
+            has_comparable_slices=False,
+            has_windowed_observations=False,
+            metric_names=frozenset(),
+        ),
+    )
     store.execute(
         """
         INSERT INTO recommendations (
@@ -131,19 +148,24 @@ class ReflectionContextUnitTests(unittest.TestCase):
         claim_ids = [c["claim_id"] for c in ctx["tentative_claims"]]
         self.assertIn(claim_id, claim_ids)
 
-    # ── Test 3: evidence_gaps from recommendations ─────────────────────────
+    # ── Test 3: evidence_gaps is session-level deduplicated (G-3c) ────────
 
-    def test_evidence_gaps_from_recommendations_with_confounders(self) -> None:
+    def test_evidence_gaps_session_level_structure(self) -> None:
+        """evidence_gaps is now a session-level deduplicated list (breaking change G-3c)."""
         session_id = self._new_session()
         claim_id = _insert_claim(self.store, session_id, inference_level="L0")
-        rec_id = _insert_recommendation(self.store, session_id, claim_id, inference_level="L0")
+        _insert_recommendation(self.store, session_id, claim_id, inference_level="L0")
         ctx = build_reflection_context(self.store, session_id)
-        rec_ids = [g["rec_id"] for g in ctx["evidence_gaps"]]
-        self.assertIn(rec_id, rec_ids)
-        gap = next(g for g in ctx["evidence_gaps"] if g["rec_id"] == rec_id)
-        self.assertEqual(gap["inference_level"], "L0")
-        self.assertIsInstance(gap["unresolved_confounders"], list)
-        self.assertTrue(len(gap["unresolved_confounders"]) > 0)
+        self.assertIsInstance(ctx["evidence_gaps"], list)
+        self.assertTrue(len(ctx["evidence_gaps"]) > 0)
+        gap = ctx["evidence_gaps"][0]
+        # New session-level structure
+        self.assertIn("gap_key", gap)
+        self.assertIn("text", gap)
+        self.assertIn("suggested_validation", gap)
+        self.assertIn("affected_claims", gap)
+        self.assertIsInstance(gap["affected_claims"], list)
+        self.assertIn(claim_id, gap["affected_claims"])
 
     # ── Test 4: plan_id query param passed through ─────────────────────────
 
@@ -172,6 +194,119 @@ class ReflectionContextUnitTests(unittest.TestCase):
         ctx = build_reflection_context(self.store, session_id)
         expected = {"compare_metric", "profile_table", "sample_rows", "aggregate_query", "correlate_metrics", "synthesize_findings"}
         self.assertEqual(set(ctx["available_step_types"]), expected)
+
+    # ── Test 17: scope-aware confounder — missing observed_window ──────────
+
+    def test_scope_aware_confounder_missing_observed_window(self) -> None:
+        """A claim with supporting observations but no observed_window gets missing_observed_window gap."""
+        session_id = self._new_session()
+        # Insert an observation with no observed_window
+        obs_id = f"obs_{uuid4().hex[:12]}"
+        self.store.execute(
+            """
+            INSERT INTO observations (
+                observation_id, session_id, step_id, observation_type,
+                subject_json, payload_json, significance_json, quality_json,
+                observed_window_json, temporal_order
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 0)
+            """,
+            [
+                obs_id, session_id, "step_test", "metric_change",
+                '{"metric": "elapsed_time", "slice": {"cluster": "k8sbi-bi1"}}',
+                '{"delta_pct": -5.0}', '{}', '{}',
+            ],
+        )
+        # Insert a claim with elapsed_time metric and the above observation
+        claim_id = f"claim_{uuid4().hex[:12]}"
+        self.store.execute(
+            """
+            INSERT INTO claims (
+                claim_id, session_id, claim_type, text, scope_json, confidence, status,
+                supporting_observation_ids_json, contradicting_observation_ids_json,
+                confidence_breakdown_json, inference_level, inference_justification_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                claim_id, session_id, "root_cause_candidate",
+                "elapsed_time declined 5.0% for cluster=k8sbi-bi1 (tentative)",
+                '{"metric": "elapsed_time", "slice": {"cluster": "k8sbi-bi1"}}',
+                0.6, "tentative",
+                f'["{obs_id}"]', "[]", "{}", "L0", "[]",
+            ],
+        )
+        ctx = build_reflection_context(self.store, session_id)
+        tc = next(c for c in ctx["tentative_claims"] if c["claim_id"] == claim_id)
+        # Should get scope-aware confounders mentioning observed_window
+        self.assertTrue(
+            any("observed_window" in t for t in tc["unresolved_confounders"]),
+            f"Expected missing_observed_window in confounders; got: {tc['unresolved_confounders']}",
+        )
+
+    # ── Test 18: scope-aware confounder — normalise workload volume ────────
+
+    def test_scope_aware_confounder_normalise_workload(self) -> None:
+        """Resource-slice claim with comparable slices gets normalise_workload_volume gap."""
+        session_id = self._new_session()
+        # Insert two observations for the same metric but different clusters
+        for cluster in ("k8sbi-bi1", "k8sbi-bi2"):
+            obs_id = f"obs_{uuid4().hex[:12]}"
+            self.store.execute(
+                """
+                INSERT INTO observations (
+                    observation_id, session_id, step_id, observation_type,
+                    subject_json, payload_json, significance_json, quality_json,
+                    observed_window_json, temporal_order
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 0)
+                """,
+                [
+                    obs_id, session_id, "step_test2", "metric_change",
+                    f'{{"metric": "query_count", "slice": {{"cluster": "{cluster}"}}}}',
+                    '{"delta_pct": 10.0}', '{}', '{}',
+                ],
+            )
+        # Insert a claim scoped to one cluster
+        claim_id = f"claim_{uuid4().hex[:12]}"
+        self.store.execute(
+            """
+            INSERT INTO claims (
+                claim_id, session_id, claim_type, text, scope_json, confidence, status,
+                supporting_observation_ids_json, contradicting_observation_ids_json,
+                confidence_breakdown_json, inference_level, inference_justification_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                claim_id, session_id, "root_cause_candidate",
+                "query_count increased 10% for cluster=k8sbi-bi1 (tentative)",
+                '{"metric": "query_count", "slice": {"cluster": "k8sbi-bi1"}}',
+                0.6, "tentative",
+                "[]", "[]", "{}", "L0", "[]",
+            ],
+        )
+        ctx = build_reflection_context(self.store, session_id)
+        tc = next(c for c in ctx["tentative_claims"] if c["claim_id"] == claim_id)
+        self.assertTrue(
+            any("workload" in t or "normalise" in t for t in tc["unresolved_confounders"]),
+            f"Expected normalise_workload_volume in confounders; got: {tc['unresolved_confounders']}",
+        )
+
+    # ── Test 19: evidence_gaps deduplication across two claims ────────────
+
+    def test_evidence_gaps_deduplicated_across_claims(self) -> None:
+        """Two recommendations with the same gap_key appear as one session-level gap."""
+        session_id = self._new_session()
+        claim_id_a = _insert_claim(self.store, session_id, inference_level="L0")
+        claim_id_b = _insert_claim(self.store, session_id, inference_level="L0")
+        _insert_recommendation(self.store, session_id, claim_id_a)
+        _insert_recommendation(self.store, session_id, claim_id_b)
+        ctx = build_reflection_context(self.store, session_id)
+        # Both claims share the same fallback gap(s); they should be deduplicated
+        gap_keys = [g["gap_key"] for g in ctx["evidence_gaps"]]
+        # No duplicate gap_keys
+        self.assertEqual(len(gap_keys), len(set(gap_keys)))
+        # Both claim IDs appear somewhere in affected_claims
+        all_affected = {cid for g in ctx["evidence_gaps"] for cid in g["affected_claims"]}
+        self.assertIn(claim_id_a, all_affected)
+        self.assertIn(claim_id_b, all_affected)
 
 
 # ── patch_plan_incremental unit tests ─────────────────────────────────────────
