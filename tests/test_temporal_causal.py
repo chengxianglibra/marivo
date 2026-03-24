@@ -190,6 +190,56 @@ class TemporalWindowInferenceTests(unittest.TestCase):
         no_upgrades = checker.check([claim_overlap], [obs_a, obs_overlap], [])
         self.assertEqual(len(no_upgrades), 0, "Overlapping windows must NOT trigger L2 upgrade")
 
+    def test_aggregate_query_temporal_scope_folding_enables_l2_upgrade(self) -> None:
+        from app.evidence_engine.causal_checkers import TemporalPrecedenceChecker
+
+        session_id = self.client.post(
+            "/sessions", json={"goal": "P1 temporal scope folding test."},
+        ).json()["session_id"]
+
+        resp = self.client.post(
+            f"/sessions/{session_id}/steps/aggregate_query",
+            json={
+                "table_name": "analytics.watch_events",
+                "select": ["event_date", "platform", "count(*) as cnt"],
+                "group_by": ["event_date", "platform"],
+                "order_by": "event_date, platform",
+                "metric": self.g2_metric_name,
+                "temporal_group_by_columns": ["event_date"],
+                "limit": 50,
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        result = resp.json()
+        self.assertGreater(len(result.get("observations", [])), 0)
+
+        evidence = self.client.get(f"/sessions/{session_id}/evidence").json()
+        claims = evidence["claims"]
+        self.assertGreater(len(claims), 0)
+
+        matching_claims = [
+            claim for claim in claims
+            if claim["scope"].get("metric") == self.g2_metric_name
+            and claim["scope"].get("slice", {}).get("platform") == "ios"
+        ]
+        self.assertGreater(len(matching_claims), 0, f"No folded claim found in claims: {claims}")
+        self.assertTrue(
+            any(len(claim["supporting_observations"]) >= 2 for claim in matching_claims),
+            f"Expected folded ios claim with multiple supporting observations, got: {matching_claims}",
+        )
+
+        observations = evidence["observations"]
+        checker = TemporalPrecedenceChecker()
+        # Claim is L0 in the evidence graph; promote to L1 to exercise the checker deterministically.
+        claim_for_check = {**matching_claims[0], "inference_level": "L1"}
+        upgrades = checker.check([claim_for_check], observations, [])
+        self.assertEqual(len(upgrades), 1, f"Expected L2 upgrade from folded claim, got: {upgrades}")
+        self.assertEqual(upgrades[0].new_level, "L2")
+        self.assertTrue(
+            any("temporal_precedence" in token for token in upgrades[0].justification_tokens),
+            f"Unexpected justification tokens: {upgrades[0].justification_tokens}",
+        )
+
 
 class TemporallyPrecedesEdgePromotionTests(unittest.TestCase):
     """Causal edge promotion: temporally_precedes edges survive synthesize_findings promotion.

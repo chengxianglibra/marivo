@@ -701,6 +701,42 @@ class IncrementalSynthesizerTests(unittest.TestCase):
             ],
         )
 
+    def _insert_temporal_folded_obs(
+        self,
+        session_id: str,
+        obs_id: str,
+        metric: str,
+        slice_dict: dict,
+        delta_pct: float,
+        *,
+        temporal_group_by_columns: list[str] | None = None,
+        observed_window: dict[str, str] | None = None,
+        sample_size: int = 300,
+    ) -> None:
+        import json
+
+        subject = {"metric": metric, "slice": slice_dict}
+        if temporal_group_by_columns:
+            subject["temporal_group_by_columns"] = temporal_group_by_columns
+
+        self.meta.execute(
+            """
+            INSERT INTO observations (
+                observation_id, session_id, step_id, observation_type,
+                subject_json, payload_json, significance_json, quality_json,
+                observed_window_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                obs_id, session_id, "step_test", "metric_change",
+                json.dumps(subject),
+                json.dumps({"delta_pct": delta_pct}),
+                json.dumps({"sample_size": sample_size, "practical_significance": True}),
+                json.dumps({"freshness_ok": True, "sample_size_ok": True}),
+                json.dumps(observed_window) if observed_window is not None else None,
+            ],
+        )
+
     def _make_session(self) -> str:
         import json
         from uuid import uuid4
@@ -771,6 +807,104 @@ class IncrementalSynthesizerTests(unittest.TestCase):
             "SELECT claim_id FROM claims WHERE session_id = ?", [session_id]
         )
         self.assertEqual(len(rows), 2)
+
+    def test_temporal_group_by_columns_fold_claim_scope(self) -> None:
+        session_id = self._make_session()
+        self._insert_temporal_folded_obs(
+            session_id,
+            "obs_fold_1",
+            "queued_time",
+            {"log_date": "2026-03-16", "resource_group": "rg_a"},
+            10.0,
+            temporal_group_by_columns=["log_date"],
+            observed_window={"start": "2026-03-16", "end": "2026-03-17", "granularity": "day"},
+        )
+        self._insert_temporal_folded_obs(
+            session_id,
+            "obs_fold_2",
+            "queued_time",
+            {"log_date": "2026-03-23", "resource_group": "rg_a"},
+            12.0,
+            temporal_group_by_columns=["log_date"],
+            observed_window={"start": "2026-03-23", "end": "2026-03-24", "granularity": "day"},
+        )
+
+        synth = self._make_synth()
+        result = synth.process(session_id)
+        self.assertEqual(result["claims_created"], 1)
+        self.assertEqual(result["claims_updated"], 1)
+
+        import json
+        row = self.meta.query_one(
+            "SELECT scope_json, supporting_observation_ids_json FROM claims WHERE session_id = ?",
+            [session_id],
+        )
+        assert row is not None
+        scope = json.loads(row["scope_json"])
+        supporting = json.loads(row["supporting_observation_ids_json"])
+        self.assertEqual(scope, {"metric": "queued_time", "slice": {"resource_group": "rg_a"}})
+        self.assertEqual(set(supporting), {"obs_fold_1", "obs_fold_2"})
+
+    def test_without_temporal_group_by_columns_time_series_rows_remain_separate_claims(self) -> None:
+        session_id = self._make_session()
+        self._insert_temporal_folded_obs(
+            session_id,
+            "obs_sep_1",
+            "queued_time",
+            {"log_date": "2026-03-16", "resource_group": "rg_a"},
+            10.0,
+        )
+        self._insert_temporal_folded_obs(
+            session_id,
+            "obs_sep_2",
+            "queued_time",
+            {"log_date": "2026-03-23", "resource_group": "rg_a"},
+            12.0,
+        )
+
+        synth = self._make_synth()
+        result = synth.process(session_id)
+        self.assertEqual(result["claims_created"], 2)
+
+        rows = self.meta.query_rows(
+            "SELECT claim_id FROM claims WHERE session_id = ?",
+            [session_id],
+        )
+        self.assertEqual(len(rows), 2)
+
+    def test_temporal_group_by_columns_missing_column_is_ignored(self) -> None:
+        session_id = self._make_session()
+        self._insert_temporal_folded_obs(
+            session_id,
+            "obs_miss_1",
+            "queued_time",
+            {"log_date": "2026-03-16", "resource_group": "rg_a"},
+            10.0,
+            temporal_group_by_columns=["missing_col"],
+            observed_window={"start": "2026-03-16", "end": "2026-03-17", "granularity": "day"},
+        )
+        self._insert_temporal_folded_obs(
+            session_id,
+            "obs_miss_2",
+            "queued_time",
+            {"log_date": "2026-03-23", "resource_group": "rg_a"},
+            12.0,
+            temporal_group_by_columns=["missing_col"],
+            observed_window={"start": "2026-03-23", "end": "2026-03-24", "granularity": "day"},
+        )
+        synth = self._make_synth()
+        result = synth.process(session_id)
+        self.assertEqual(result["claims_created"], 2)
+
+        rows = self.meta.query_rows(
+            "SELECT scope_json FROM claims WHERE session_id = ? ORDER BY created_at",
+            [session_id],
+        )
+        import json
+        self.assertEqual(len(rows), 2)
+        scopes = [json.loads(row["scope_json"]) for row in rows]
+        self.assertEqual(scopes[0]["slice"]["log_date"], "2026-03-16")
+        self.assertEqual(scopes[1]["slice"]["log_date"], "2026-03-23")
 
     def test_process_idempotent_for_already_processed_observations(self) -> None:
         session_id = self._make_session()
