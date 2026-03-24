@@ -390,7 +390,7 @@ Two issues combine:
 
 ## Cross-cutting
 
-- [ ] **X-1 — `observed_window` integration test**
+- [x] **X-1 — `observed_window` integration test**
   Extend `tests/test_reflection.py` with a fixture that seeds observations
   carrying `observed_window` values and asserts that `readiness_signal` and
   `tentative_claims` in the reflection context reflect the temporal ordering
