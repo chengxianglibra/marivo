@@ -1237,6 +1237,9 @@ class SemanticLayerService:
 
         if tentative_claims:
             # M-03 PROMOTION MODE: tentative claims exist from IncrementalSynthesizer.
+            # Save causal edges before wiping, then replay them after promotion.
+            tentative_claim_ids = [c["claim_id"] for c in tentative_claims]
+            saved_causal_edges = self._load_causal_edges_for_claims(session_id, tentative_claim_ids)
             # Clear any confirmed/insufficient claims and recs/edges from prior synthesis,
             # then promote tentative claims to confirmed or insufficient.
             self._delete_non_tentative_synthesis_outputs(session_id)
@@ -1274,6 +1277,9 @@ class SemanticLayerService:
                 self._insert_recommendation(session_id, recommendation)
             for edge in synthesis["edges"]:
                 self._insert_edge(session_id, **edge)
+            # Replay causal edges that were established during incremental synthesis.
+            for causal_edge in saved_causal_edges:
+                self._insert_edge(session_id, **causal_edge)
         else:
             # FALLBACK MODE: no IncrementalSynthesizer in use — from-scratch synthesis.
             self._delete_step_outputs(session_id, step_type)
@@ -1359,6 +1365,30 @@ class SemanticLayerService:
             )
             result.append(claim)
         return result
+
+    def _load_causal_edges_for_claims(
+        self, session_id: str, claim_ids: list[str]
+    ) -> list[dict[str, Any]]:
+        """Load causal evidence edges whose target node is one of the given claim_ids."""
+        from app.evidence_engine.schemas import CAUSAL_EDGE_TYPES
+
+        if not claim_ids:
+            return []
+        claim_placeholders = ",".join("?" * len(claim_ids))
+        edge_placeholders = ",".join("?" * len(CAUSAL_EDGE_TYPES))
+        causal_edge_list = list(CAUSAL_EDGE_TYPES)
+        rows = self.metadata.query_rows(
+            f"""
+            SELECT from_node_id, from_node_type, to_node_id, to_node_type,
+                   edge_type, weight, explanation
+            FROM evidence_edges
+            WHERE session_id = ?
+              AND to_node_id IN ({claim_placeholders})
+              AND edge_type IN ({edge_placeholders})
+            """,
+            [session_id, *claim_ids, *causal_edge_list],
+        )
+        return [dict(row) for row in rows]
 
     def _delete_non_tentative_synthesis_outputs(self, session_id: str) -> None:
         """Delete confirmed/insufficient claims + recommendations + edges from a previous

@@ -18,6 +18,7 @@ from pathlib import Path
 from app.evidence_engine.causal_checkers import (
     CausalChecker,
     CausalCheckerRegistry,
+    CausalEdge,
     CrossSliceConsistencyChecker,
     DoseResponseChecker,
     LevelUpgrade,
@@ -486,6 +487,178 @@ class CausalCheckerRegistryTests(unittest.TestCase):
             self.assertGreater(len(rows), 0)
             upgraded = any(r["inference_level"] != "L0" for r in rows)
             self.assertTrue(upgraded, "Expected at least one claim to be upgraded from L0")
+
+
+# ── G-2d: CausalEdge contract tests ──────────────────────────────────────────
+
+
+class CausalEdgeContractTests(unittest.TestCase):
+    """Verify TemporalPrecedenceChecker emits CausalEdge and registry merges edges."""
+
+    def test_temporal_precedence_emits_causal_edge(self) -> None:
+        """Checker returns a CausalEdge pointing earliest obs → claim."""
+        checker = TemporalPrecedenceChecker()
+        obs = [
+            _make_obs("o1", "m", delta_pct=5.0,
+                      window={"start": "2024-01-01", "end": "2024-01-07", "granularity": "day"}),
+            _make_obs("o2", "m", delta_pct=8.0,
+                      window={"start": "2024-01-10", "end": "2024-01-17", "granularity": "day"}),
+        ]
+        claim = _make_claim("c1", "m", level="L1", obs_ids=["o1", "o2"])
+        upgrades = checker.check([claim], obs, [])
+        self.assertEqual(len(upgrades), 1)
+        edges = upgrades[0].causal_edges
+        self.assertEqual(len(edges), 1)
+        edge = edges[0]
+        self.assertIsInstance(edge, CausalEdge)
+        self.assertEqual(edge.edge_type, "temporally_precedes")
+        self.assertEqual(edge.from_node_id, "o1")   # earliest obs
+        self.assertEqual(edge.from_node_type, "observation")
+        self.assertEqual(edge.to_node_id, "c1")
+        self.assertEqual(edge.to_node_type, "claim")
+        self.assertIn("3 days", edge.explanation)
+        self.assertIn("o2", edge.explanation)  # paired obs mentioned
+
+    def test_no_causal_edge_without_upgrade(self) -> None:
+        """When temporal precedence check fails, no causal edge is produced."""
+        checker = TemporalPrecedenceChecker()
+        obs = [
+            _make_obs("o1", "m", delta_pct=5.0,
+                      window={"start": "2024-01-01", "end": "2024-01-10", "granularity": "day"}),
+            _make_obs("o2", "m", delta_pct=8.0,
+                      window={"start": "2024-01-08", "end": "2024-01-15", "granularity": "day"}),
+        ]
+        claim = _make_claim("c1", "m", level="L1", obs_ids=["o1", "o2"])
+        upgrades = checker.check([claim], obs, [])
+        self.assertEqual(len(upgrades), 0)
+
+    def test_registry_merges_causal_edges(self) -> None:
+        """run_all merges causal edges from multiple checkers, deduplicating by key."""
+        registry = CausalCheckerRegistry()
+
+        edge_a = CausalEdge("obs_a", "observation", "c1", "claim", "temporally_precedes", 0.8, "x")
+        edge_b = CausalEdge("obs_b", "observation", "c1", "claim", "temporally_precedes", 0.7, "y")
+
+        class _CheckerA(CausalChecker):
+            @property
+            def name(self) -> str:
+                return "a"
+            def check(self, claims, observations, edges):
+                return [LevelUpgrade("c1", "L2", ["tok_a"], 0.01, [edge_a])]
+
+        class _CheckerB(CausalChecker):
+            @property
+            def name(self) -> str:
+                return "b"
+            def check(self, claims, observations, edges):
+                # Same key as edge_a — should be deduped
+                return [LevelUpgrade("c1", "L2", ["tok_b"], 0.01, [edge_a])]
+
+        class _CheckerC(CausalChecker):
+            @property
+            def name(self) -> str:
+                return "c"
+            def check(self, claims, observations, edges):
+                # Different from_node_id — should be kept
+                return [LevelUpgrade("c1", "L2", ["tok_c"], 0.01, [edge_b])]
+
+        registry.register(_CheckerA())
+        registry.register(_CheckerB())
+        registry.register(_CheckerC())
+        upgrades = registry.run_all([], [], [])
+        self.assertEqual(len(upgrades), 1)
+        edges_out = upgrades[0].causal_edges
+        # edge_a should appear once (deduped), edge_b should appear once
+        self.assertEqual(len(edges_out), 2)
+        from_ids = {e.from_node_id for e in edges_out}
+        self.assertIn("obs_a", from_ids)
+        self.assertIn("obs_b", from_ids)
+
+
+class CausalEdgePersistenceTests(unittest.TestCase):
+    """Verify IncrementalSynthesizer writes and reconciles causal edges in the DB."""
+
+    def _make_session_with_windowed_obs(self, store, sess_id: str, step_id: str) -> None:
+        """Insert session + 2 non-overlapping-window observations for metric 'm'."""
+        store.execute(
+            "INSERT INTO sessions (session_id, goal, constraints_json, budget_json, policy_json, status) VALUES (?, ?, ?, ?, ?, ?)",
+            [sess_id, "test", "{}", "{}", "{}", "active"],
+        )
+        windows = [
+            ("obs_w1", {"start": "2024-01-01", "end": "2024-01-07", "granularity": "day"}),
+            ("obs_w2", {"start": "2024-01-10", "end": "2024-01-17", "granularity": "day"}),
+        ]
+        for oid, win in windows:
+            store.execute(
+                """
+                INSERT INTO observations (
+                    observation_id, session_id, step_id, observation_type,
+                    subject_json, payload_json, significance_json, quality_json,
+                    observed_window_json, temporal_order
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    oid, sess_id, step_id, "metric_change",
+                    json.dumps({"metric": "m", "slice": {}}),
+                    json.dumps({"delta_pct": 5.0}),
+                    json.dumps({"sample_size": 100, "practical_significance": True}),
+                    json.dumps({"freshness_ok": True, "sample_size_ok": True}),
+                    json.dumps(win),
+                    0,
+                ],
+            )
+
+    def test_temporally_precedes_edge_written_to_db(self) -> None:
+        """After two process() calls, evidence_edges contains a temporally_precedes row.
+
+        Two calls are required because CrossSliceConsistencyChecker (call 1) must
+        upgrade the claim to L1 before TemporalPrecedenceChecker (call 2) fires.
+        Both checkers run in a single run_all() invocation that sees the original
+        claim state, so the L1 prerequisite is not visible until the next process().
+        """
+        from app.evidence_engine.incremental_synthesizer import IncrementalSynthesizer
+        from app.storage.sqlite_metadata import SQLiteMetadataStore
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = SQLiteMetadataStore(Path(tmpdir) / "test.meta.sqlite")
+            store.initialize()
+            sess_id = "sess_edgetest01"
+            self._make_session_with_windowed_obs(store, sess_id, "step_e01")
+
+            synth = IncrementalSynthesizer(store)
+            synth.process(sess_id)   # call 1: CrossSlice → L1
+            synth.process(sess_id)   # call 2: TemporalPrecedence → L2 + edge
+
+            edges = store.query_rows(
+                "SELECT edge_type, from_node_id, to_node_type FROM evidence_edges WHERE session_id = ?",
+                [sess_id],
+            )
+            tp_edges = [e for e in edges if e["edge_type"] == "temporally_precedes"]
+            self.assertEqual(len(tp_edges), 1, "Expected exactly one temporally_precedes edge")
+            self.assertEqual(tp_edges[0]["from_node_id"], "obs_w1")
+            self.assertEqual(tp_edges[0]["to_node_type"], "claim")
+
+    def test_causal_edge_not_duplicated_on_repeated_process(self) -> None:
+        """Calling process() three times does not duplicate the causal edge in the DB."""
+        from app.evidence_engine.incremental_synthesizer import IncrementalSynthesizer
+        from app.storage.sqlite_metadata import SQLiteMetadataStore
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = SQLiteMetadataStore(Path(tmpdir) / "test.meta.sqlite")
+            store.initialize()
+            sess_id = "sess_edgetest02"
+            self._make_session_with_windowed_obs(store, sess_id, "step_e02")
+
+            synth = IncrementalSynthesizer(store)
+            synth.process(sess_id)   # call 1: CrossSlice → L1
+            synth.process(sess_id)   # call 2: TemporalPrecedence → L2 + edge
+            synth.process(sess_id)   # call 3: reconcile should keep exactly one edge
+
+            edges = store.query_rows(
+                "SELECT edge_type FROM evidence_edges WHERE session_id = ? AND edge_type = 'temporally_precedes'",
+                [sess_id],
+            )
+            self.assertEqual(len(edges), 1, "Duplicate causal edges must not be inserted")
 
 
 # ── Helper function unit tests ────────────────────────────────────────────────

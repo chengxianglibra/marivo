@@ -74,7 +74,7 @@ class IncrementalSynthesizer:
                 claims_updated += 1
 
         # Run causal checkers after all claims have been created/updated
-        causal_upgrades = self._run_causal_checkers(tentative_claims, observations)
+        causal_upgrades = self._run_causal_checkers(session_id, tentative_claims, observations)
 
         return {
             "claims_created": claims_created,
@@ -276,13 +276,16 @@ class IncrementalSynthesizer:
 
     def _run_causal_checkers(
         self,
+        session_id: str,
         tentative_claims: list[dict[str, Any]],
         all_observations: list[dict[str, Any]],
     ) -> int:
-        """Run the causal checker chain and persist any inference_level upgrades.
+        """Run the causal checker chain, persist inference_level upgrades and causal edges.
 
         Returns the number of claims that received at least one upgrade.
         """
+        from uuid import uuid4
+
         from app.evidence_engine.causal_checkers import get_default_registry
         from app.evidence_engine.schemas import INFERENCE_LEVEL_ORDER
 
@@ -330,6 +333,14 @@ class IncrementalSynthesizer:
             claim["inference_level"] = new_level
             claim["inference_justification"] = new_tokens
             claim["confidence"] = new_confidence
+
+            # Persist causal edges via shared per-claim reconcile helper
+            if upgrade.causal_edges:
+                from app.evidence_engine.causal_checkers import reconcile_causal_edges
+                reconcile_causal_edges(
+                    self._store, session_id, upgrade.claim_id, upgrade.causal_edges
+                )
+
             applied += 1
 
         return applied
