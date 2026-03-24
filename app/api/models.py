@@ -114,6 +114,21 @@ class EntityUpdateRequest(BaseModel):
     properties: dict[str, Any] | None = None
 
 
+class EntityPropertiesPatchRequest(BaseModel):
+    """G-5d: Incrementally patch properties_json on a published entity.
+
+    Only the keys present in `properties` are merged into the existing
+    properties dict.  Bumps revision and updated_at.
+
+    Supported patch shapes: any key/value pairs in `properties`.
+    Use `{"unit": "milliseconds"}` to apply a unit hint suggestion.
+    """
+    properties: dict[str, Any] = Field(
+        ...,
+        description="Properties keys to merge into the entity's existing properties_json.",
+    )
+
+
 class MetricCreateRequest(BaseModel):
     name: str
     display_name: str

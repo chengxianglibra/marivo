@@ -134,7 +134,8 @@ class ReflectionContextUnitTests(unittest.TestCase):
         session_id = self._new_session()
         ctx = build_reflection_context(self.store, session_id)
         for key in ("session_id", "plan_id", "readiness_signal", "readiness_score",
-                    "tentative_claims", "evidence_gaps", "available_step_types"):
+                    "tentative_claims", "evidence_gaps", "entity_update_suggestions",
+                    "available_step_types"):
             self.assertIn(key, ctx, f"Missing key: {key}")
         self.assertEqual(ctx["session_id"], session_id)
         self.assertIsNone(ctx["plan_id"])
@@ -484,6 +485,107 @@ class ReflectionContextHTTPTests(unittest.TestCase):
         resp = client.get(f"/sessions/{session_id}/reflection-context")
         self.assertEqual(resp.status_code, 404)
         config_dir.cleanup()
+
+
+# ── G-5c: entity_update_suggestions in reflection context ──────────────────
+
+class EntityUpdateSuggestionsTests(unittest.TestCase):
+    """G-5c: reflection context exposes entity_update_suggestions from recommendations."""
+
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        meta_path = Path(self.temp_dir.name) / "g5c.meta.sqlite"
+        duck_path = Path(self.temp_dir.name) / "g5c.duckdb"
+        self.store = SQLiteMetadataStore(meta_path)
+        get_seeded_duckdb_path(duck_path)
+        self.store.initialize()
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def _new_session(self) -> str:
+        session_id = f"sess_{uuid4().hex[:12]}"
+        self.store.execute(
+            "INSERT INTO sessions (session_id, goal, constraints_json, budget_json, policy_json, status) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            [session_id, "test", "{}", "{}", "{}", "open"],
+        )
+        return session_id
+
+    def _insert_rec_with_patch(self, session_id: str, claim_id: str, entity_patch: dict) -> str:
+        rec_id = f"rec_{uuid4().hex[:12]}"
+        self.store.execute(
+            """
+            INSERT INTO recommendations (
+                rec_id, session_id, claim_id, action_text, priority,
+                expected_impact, risk, validation_metric_json, entity_patch_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [rec_id, session_id, claim_id, "action", "P1", "impact", "low",
+             "{}", json.dumps(entity_patch)],
+        )
+        return rec_id
+
+    def test_entity_update_suggestions_empty_when_no_recs(self) -> None:
+        session_id = self._new_session()
+        ctx = build_reflection_context(self.store, session_id)
+        self.assertIn("entity_update_suggestions", ctx)
+        self.assertEqual(ctx["entity_update_suggestions"], [])
+
+    def test_entity_update_suggestions_populated_from_patch(self) -> None:
+        session_id = self._new_session()
+        claim_id = _insert_claim(self.store, session_id, status="confirmed")
+        patch = {
+            "entity_id": "ent_abc",
+            "entity_name": "video",
+            "column_name": "elapsed_time",
+            "field": "fields.elapsed_time.unit",
+            "current_value": None,
+            "suggested_value": "milliseconds",
+            "confidence": 0.75,
+            "source": "heuristic",
+            "metric_name": "elapsed_time",
+        }
+        rec_id = self._insert_rec_with_patch(session_id, claim_id, patch)
+        ctx = build_reflection_context(self.store, session_id)
+        suggestions = ctx["entity_update_suggestions"]
+        self.assertEqual(len(suggestions), 1)
+        s = suggestions[0]
+        self.assertEqual(s["entity_id"], "ent_abc")
+        self.assertEqual(s["column_name"], "elapsed_time")
+        self.assertEqual(s["field"], "fields.elapsed_time.unit")
+        self.assertEqual(s["suggested_value"], "milliseconds")
+        self.assertEqual(s["confidence"], 0.75)
+        self.assertEqual(s["rec_id"], rec_id)
+
+    def test_entity_update_suggestions_deduplicates(self) -> None:
+        """Two recs with identical (entity_id, field, suggested_value) → one suggestion."""
+        session_id = self._new_session()
+        claim_id = _insert_claim(self.store, session_id, status="confirmed")
+        patch = {
+            "entity_id": "ent_abc", "entity_name": "video",
+            "column_name": "elapsed_time", "field": "fields.elapsed_time.unit",
+            "current_value": None, "suggested_value": "milliseconds",
+            "confidence": 0.75, "source": "heuristic", "metric_name": "elapsed_time",
+        }
+        self._insert_rec_with_patch(session_id, claim_id, patch)
+        self._insert_rec_with_patch(session_id, claim_id, patch)
+        ctx = build_reflection_context(self.store, session_id)
+        self.assertEqual(len(ctx["entity_update_suggestions"]), 1)
+
+    def test_entity_update_suggestions_different_fields_not_deduplicated(self) -> None:
+        session_id = self._new_session()
+        claim_id = _insert_claim(self.store, session_id, status="confirmed")
+        for unit in ("milliseconds", "seconds"):
+            patch = {
+                "entity_id": "ent_abc", "entity_name": "video",
+                "column_name": "elapsed_time", "field": "fields.elapsed_time.unit",
+                "current_value": None, "suggested_value": unit,
+                "confidence": 0.7, "source": "heuristic", "metric_name": "elapsed_time",
+            }
+            self._insert_rec_with_patch(session_id, claim_id, patch)
+        ctx = build_reflection_context(self.store, session_id)
+        self.assertEqual(len(ctx["entity_update_suggestions"]), 2)
 
 
 if __name__ == "__main__":

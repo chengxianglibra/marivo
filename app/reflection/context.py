@@ -92,6 +92,9 @@ def build_reflection_context(
     # evidence_gaps (G-3c): session-level deduplicated across all recommendations.
     evidence_gaps = _load_evidence_gaps(metadata_store, session_id)
 
+    # entity_update_suggestions (G-5c): sourced from recommendations with entity_patch_json
+    entity_update_suggestions = _load_entity_update_suggestions(metadata_store, session_id)
+
     return {
         "session_id": session_id,
         "plan_id": plan_id,
@@ -99,6 +102,7 @@ def build_reflection_context(
         "readiness_score": readiness_score,
         "tentative_claims": tentative_claims,
         "evidence_gaps": evidence_gaps,
+        "entity_update_suggestions": entity_update_suggestions,
         "available_step_types": list(STEP_TAXONOMY.keys()),
     }
 
@@ -154,6 +158,54 @@ def _load_session_observations(
         obs["observed_window"] = json.loads(raw_window) if raw_window else None
         result.append(obs)
     return result
+
+
+def _load_entity_update_suggestions(
+    metadata_store: MetadataStore,
+    session_id: str,
+) -> list[dict[str, Any]]:
+    """Load entity update suggestions from recommendations with non-null entity_patch_json.
+
+    G-5c: Returns a token-friendly list of unique (entity_id, field) patches sourced
+    from confirmed recommendations.  Deduplicates by (entity_id, field, suggested_value)
+    so the same patch is not repeated across multiple recommendations.
+    """
+    rows = metadata_store.query_rows(
+        """
+        SELECT rec_id, entity_patch_json
+        FROM recommendations
+        WHERE session_id = ? AND entity_patch_json IS NOT NULL
+        """,
+        [session_id],
+    )
+
+    seen: set[tuple[str, str, str]] = set()
+    suggestions: list[dict[str, Any]] = []
+
+    for row in rows:
+        patch = json.loads(row["entity_patch_json"])
+        dedup_key = (
+            patch.get("entity_id", ""),
+            patch.get("field", ""),
+            str(patch.get("suggested_value", "")),
+        )
+        if dedup_key in seen:
+            continue
+        seen.add(dedup_key)
+        suggestions.append({
+            "entity_id": patch.get("entity_id"),
+            "entity_name": patch.get("entity_name"),
+            "column_name": patch.get("column_name"),
+            "field": patch.get("field"),
+            "current_value": patch.get("current_value"),
+            "suggested_value": patch.get("suggested_value"),
+            "confidence": patch.get("confidence"),
+            "source": patch.get("source"),
+            "metric_name": patch.get("metric_name"),
+            "rec_id": row["rec_id"],
+        })
+
+    return suggestions
 
 
 def _load_evidence_gaps(

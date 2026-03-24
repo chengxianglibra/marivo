@@ -272,6 +272,8 @@ const localApi = {
   getReflectionContext: (id, planId) => localApi._fetch(`/sessions/${id}/reflection-context` + (planId ? `?plan_id=${encodeURIComponent(planId)}` : '')),
   // Plan Patch (M-11)
   patchPlan: (sid, pid, patch) => localApi._fetch(`/sessions/${sid}/plans/${pid}/patch`, { method: 'POST', body: JSON.stringify(patch) }),
+  // Semantic entity patch (G-5d)
+  patchEntityProperties: (entityId, properties) => localApi._fetch(`/semantic/entities/${encodeURIComponent(entityId)}/properties`, { method: 'PATCH', body: JSON.stringify({ properties }) }),
   // Jobs
   listJobs: (params) => localApi._fetch('/jobs' + (params ? '?' + new URLSearchParams(params) : '')),
   submitJob: (d) => localApi._fetch('/jobs', { method: 'POST', body: JSON.stringify(d) }),
@@ -1081,6 +1083,19 @@ function renderEvidence(area, ev) {
           <div>Level: <span class="badge badge-gray">${esc(r.causal_basis.inference_level || 'L0')}</span>${r.causal_basis.unresolved_confounders && r.causal_basis.unresolved_confounders.length ? `&nbsp;&middot;&nbsp;Confounders: ${esc(r.causal_basis.unresolved_confounders.map(c => typeof c === 'string' ? c : (c.text || c.key || '')).join('; '))}` : ''}</div>
           ${r.causal_basis.suggested_validation ? `<div style="margin-top:2px;color:var(--color-text-secondary);">Next step: ${esc(r.causal_basis.suggested_validation)}</div>` : ''}
         </div>` : ''}
+        ${r.entity_patch ? `<div class="entity-patch-block">
+          <div style="font-size:var(--font-size-xs);color:var(--color-text-muted);margin-bottom:4px;">
+            Unit hint: <strong>${esc(r.entity_patch.column_name || r.entity_patch.field || '')}</strong>
+            &rarr; <code>${esc(String(r.entity_patch.suggested_value || ''))}</code>
+            <span class="badge badge-gray">${esc(r.entity_patch.source || 'heuristic')}</span>
+            &nbsp;confidence&nbsp;${(r.entity_patch.confidence || 0).toFixed(2)}
+          </div>
+          <button class="btn btn-sm apply-entity-patch-btn"
+            data-entity-id="${esc(r.entity_patch.entity_id || '')}"
+            data-column="${esc(r.entity_patch.column_name || '')}"
+            data-unit="${esc(String(r.entity_patch.suggested_value || ''))}"
+            data-rec-id="${esc(r.recommendation_id || '')}">Apply to entity</button>
+        </div>` : ''}
       </div>`;
     });
   } else { html += '<p class="empty">No recommendations.</p>'; }
@@ -1135,6 +1150,28 @@ function renderEvidence(area, ev) {
       if (row) {
         row.classList.toggle('open');
         btn.innerHTML = row.classList.contains('open') ? '&#9660;' : '&#9654;';
+      }
+    };
+  });
+
+  // Wire up "Apply to entity" buttons (G-5d)
+  $$('.apply-entity-patch-btn', area).forEach(btn => {
+    btn.onclick = async () => {
+      const entityId = btn.dataset.entityId;
+      const column = btn.dataset.column;
+      const unit = btn.dataset.unit;
+      if (!entityId || !column || !unit) { toast('Incomplete patch data', 'error'); return; }
+      btn.disabled = true;
+      btn.textContent = 'Applying…';
+      try {
+        await localApi.patchEntityProperties(entityId, { fields: { [column]: { unit } } });
+        btn.textContent = 'Applied';
+        btn.classList.add('btn-success');
+        toast(`Unit "${unit}" applied to ${column} on entity ${entityId}`, 'success');
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = 'Apply to entity';
+        toast(err.message, 'error');
       }
     };
   });

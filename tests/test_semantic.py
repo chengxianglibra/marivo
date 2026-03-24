@@ -267,5 +267,113 @@ class SemanticMappingTests(unittest.TestCase):
         self.assertEqual(len(resp.json()), 0)
 
 
+class EntityPropertiesPatchTests(unittest.TestCase):
+    """G-5d: PATCH /semantic/entities/{id}/properties endpoint."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        db_path = Path(cls.temp_dir.name) / "test_patch.duckdb"
+        get_seeded_duckdb_path(db_path)
+        cls.client = TestClient(create_app(db_path))
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.client.close()
+        cls.temp_dir.cleanup()
+
+    def _create_and_publish_entity(self, name: str = "video_event") -> str:
+        resp = self.client.post(
+            "/semantic/entities",
+            json={"name": name, "display_name": "Video Event", "keys": ["vid_id"]},
+        )
+        entity_id = resp.json()["entity_id"]
+        self.client.post(f"/semantic/entities/{entity_id}/publish")
+        return entity_id
+
+    def test_patch_unit_on_published_entity(self) -> None:
+        entity_id = self._create_and_publish_entity("video_event_patch_unit")
+        resp = self.client.patch(
+            f"/semantic/entities/{entity_id}/properties",
+            json={"properties": {"unit": "milliseconds"}},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        data = resp.json()
+        self.assertEqual(data["properties"].get("unit"), "milliseconds")
+        self.assertEqual(data["status"], "published")
+
+    def test_patch_bumps_revision(self) -> None:
+        entity_id = self._create_and_publish_entity("video_event_bump_rev")
+        before = self.client.get(f"/semantic/entities/{entity_id}").json()
+        self.client.patch(
+            f"/semantic/entities/{entity_id}/properties",
+            json={"properties": {"unit": "seconds"}},
+        )
+        after = self.client.get(f"/semantic/entities/{entity_id}").json()
+        self.assertGreater(after["revision"], before["revision"])
+
+    def test_patch_merges_existing_properties(self) -> None:
+        entity_id = self._create_and_publish_entity("video_event_merge")
+        # Set initial properties via PUT
+        self.client.put(
+            f"/semantic/entities/{entity_id}",
+            json={"properties": {"unit": "seconds", "category": "streaming"}},
+        )
+        # Patch only unit
+        resp = self.client.patch(
+            f"/semantic/entities/{entity_id}/properties",
+            json={"properties": {"unit": "milliseconds"}},
+        )
+        self.assertEqual(resp.status_code, 200)
+        props = resp.json()["properties"]
+        self.assertEqual(props["unit"], "milliseconds")
+        self.assertEqual(props["category"], "streaming")  # preserved
+
+    def test_patch_fields_deep_merge_preserves_other_columns(self) -> None:
+        """Patching fields.col_a.unit must not wipe fields.col_b."""
+        entity_id = self._create_and_publish_entity("video_event_fields_merge")
+        # Set initial field-level properties
+        self.client.put(
+            f"/semantic/entities/{entity_id}",
+            json={"properties": {"fields": {"col_a": {"unit": "bytes"}, "col_b": {"unit": "seconds"}}}},
+        )
+        # Patch only col_a
+        resp = self.client.patch(
+            f"/semantic/entities/{entity_id}/properties",
+            json={"properties": {"fields": {"col_a": {"unit": "megabytes"}}}},
+        )
+        self.assertEqual(resp.status_code, 200)
+        props = resp.json()["properties"]
+        self.assertEqual(props["fields"]["col_a"]["unit"], "megabytes")  # updated
+        self.assertEqual(props["fields"]["col_b"]["unit"], "seconds")    # preserved
+
+    def test_patch_draft_entity_returns_422(self) -> None:
+        resp = self.client.post(
+            "/semantic/entities",
+            json={"name": "draft_entity_patch", "display_name": "Draft", "keys": ["id"]},
+        )
+        entity_id = resp.json()["entity_id"]
+        resp = self.client.patch(
+            f"/semantic/entities/{entity_id}/properties",
+            json={"properties": {"unit": "bytes"}},
+        )
+        self.assertEqual(resp.status_code, 422)
+
+    def test_patch_nonexistent_entity_returns_404(self) -> None:
+        resp = self.client.patch(
+            "/semantic/entities/ent_nonexistent/properties",
+            json={"properties": {"unit": "bytes"}},
+        )
+        self.assertEqual(resp.status_code, 404)
+
+    def test_patch_empty_properties_returns_422(self) -> None:
+        entity_id = self._create_and_publish_entity("video_event_empty_patch")
+        resp = self.client.patch(
+            f"/semantic/entities/{entity_id}/properties",
+            json={"properties": {}},
+        )
+        self.assertEqual(resp.status_code, 422)
+
+
 if __name__ == "__main__":
     unittest.main()
