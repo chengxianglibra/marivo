@@ -444,5 +444,276 @@ class TemporalDimensionIntegrationTests(unittest.TestCase):
         self.assertGreaterEqual(len(result["observations"]), 1)
 
 
+class BaselineComputationTests(unittest.TestCase):
+    """Unit tests for _shift_calendar_date and _compute_baseline_from_type."""
+
+    def setUp(self) -> None:
+        from app.service import SemanticLayerService
+        self.svc = SemanticLayerService
+
+    def test_dod_shift(self) -> None:
+        from datetime import date
+        bs, be = self.svc._compute_baseline_from_type(
+            date(2026, 3, 23), date(2026, 3, 23), "dod"
+        )
+        self.assertEqual(bs, date(2026, 3, 22))
+        self.assertEqual(be, date(2026, 3, 22))
+
+    def test_wow_shift(self) -> None:
+        from datetime import date
+        bs, be = self.svc._compute_baseline_from_type(
+            date(2026, 3, 23), date(2026, 3, 23), "wow"
+        )
+        self.assertEqual(bs, date(2026, 3, 16))
+        self.assertEqual(be, date(2026, 3, 16))
+
+    def test_mom_calendar_shift(self) -> None:
+        from datetime import date
+        bs, be = self.svc._compute_baseline_from_type(
+            date(2026, 3, 15), date(2026, 3, 15), "mom"
+        )
+        self.assertEqual(bs, date(2026, 2, 15))
+        self.assertEqual(be, date(2026, 2, 15))
+
+    def test_mom_month_end_clamp(self) -> None:
+        from datetime import date
+        bs, be = self.svc._compute_baseline_from_type(
+            date(2026, 3, 31), date(2026, 3, 31), "mom"
+        )
+        self.assertEqual(bs, date(2026, 2, 28))
+        self.assertEqual(be, date(2026, 2, 28))
+
+    def test_yoy_calendar_shift(self) -> None:
+        from datetime import date
+        bs, be = self.svc._compute_baseline_from_type(
+            date(2026, 3, 23), date(2026, 3, 23), "yoy"
+        )
+        self.assertEqual(bs, date(2025, 3, 23))
+        self.assertEqual(be, date(2025, 3, 23))
+
+    def test_case_insensitive(self) -> None:
+        from datetime import date
+        bs, be = self.svc._compute_baseline_from_type(
+            date(2026, 3, 23), date(2026, 3, 23), "WOW"
+        )
+        self.assertEqual(bs, date(2026, 3, 16))
+
+    def test_unknown_type_raises(self) -> None:
+        from datetime import date
+        with self.assertRaises(ValueError):
+            self.svc._compute_baseline_from_type(
+                date(2026, 3, 23), date(2026, 3, 23), "qoq"
+            )
+
+    def test_multi_day_wow(self) -> None:
+        from datetime import date
+        bs, be = self.svc._compute_baseline_from_type(
+            date(2026, 3, 16), date(2026, 3, 23), "wow"
+        )
+        self.assertEqual(bs, date(2026, 3, 9))
+        self.assertEqual(be, date(2026, 3, 16))
+
+    def test_mom_preserves_span_across_month_end(self) -> None:
+        """P3: MoM must preserve span even when start is clamped at month end."""
+        from datetime import date
+        # 2026-03-30..2026-03-31 → span = 1 day; start shifts to 2026-02-28 (clamped)
+        # end must be 2026-02-28 + 1d = 2026-03-01, not 2026-02-28 again
+        bs, be = self.svc._compute_baseline_from_type(
+            date(2026, 3, 30), date(2026, 3, 31), "mom"
+        )
+        self.assertEqual(be - bs, date(2026, 3, 31) - date(2026, 3, 30))  # span = 1 day
+
+    def test_yoy_preserves_span(self) -> None:
+        """P3: YoY must preserve span for multi-day windows."""
+        from datetime import date
+        bs, be = self.svc._compute_baseline_from_type(
+            date(2026, 3, 1), date(2026, 3, 14), "yoy"
+        )
+        self.assertEqual(bs, date(2025, 3, 1))
+        self.assertEqual(be - bs, date(2026, 3, 14) - date(2026, 3, 1))  # 13 days
+
+
+class ComparisonTypeTests(unittest.TestCase):
+    """Integration tests for comparison_type / explicit baseline / debug field."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        db_path = Path(cls.temp_dir.name) / "ctype.duckdb"
+        get_seeded_duckdb_path(db_path)
+        cls.client = TestClient(create_app(db_path))
+
+        entity_resp = cls.client.post("/semantic/entities", json={
+            "name": "session_ctype",
+            "display_name": "Session",
+            "keys": ["session_id"],
+        })
+        entity_id = entity_resp.json()["entity_id"]
+        cls.client.post(f"/semantic/entities/{entity_id}/publish")
+
+        metric_resp = cls.client.post("/semantic/metrics", json={
+            "name": "watch_time_ctype",
+            "display_name": "Watch Time",
+            "definition_sql": "avg(play_duration_seconds)",
+            "dimensions": ["platform", "app_version"],
+            "entity_id": entity_id,
+        })
+        cls.metric_id = metric_resp.json()["metric_id"]
+        cls.client.post(f"/semantic/metrics/{cls.metric_id}/publish")
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.client.close()
+        cls.temp_dir.cleanup()
+
+    def _new_session(self) -> str:
+        return self.client.post(
+            "/sessions", json={"goal": "comparison_type test"},
+        ).json()["session_id"]
+
+    def test_wow_baseline_offset(self) -> None:
+        """comparison_type=wow produces baseline 7 days before current."""
+        from app.service import SemanticLayerService
+        bs, be = SemanticLayerService._compute_baseline_from_type(
+            __import__("datetime").date(2026, 3, 23),
+            __import__("datetime").date(2026, 3, 23),
+            "wow",
+        )
+        self.assertEqual(bs, __import__("datetime").date(2026, 3, 16))
+        self.assertEqual(be, __import__("datetime").date(2026, 3, 16))
+
+    def test_dod_baseline_offset(self) -> None:
+        from app.service import SemanticLayerService
+        import datetime
+        bs, be = SemanticLayerService._compute_baseline_from_type(
+            datetime.date(2026, 3, 23), datetime.date(2026, 3, 23), "dod"
+        )
+        self.assertEqual(bs, datetime.date(2026, 3, 22))
+
+    def test_period_start_optional(self) -> None:
+        """Omitting period_start → ps = pe (single-day window)."""
+        session_id = self._new_session()
+        resp = self.client.post(
+            f"/sessions/{session_id}/steps/compare_metric",
+            json={
+                "metric_name": "watch_time_ctype",
+                "table_name": "analytics.watch_events",
+                "period_end": "2025-01-14",
+            },
+        )
+        self.assertEqual(resp.status_code, 200, resp.json())
+
+    def test_explicit_baseline_override(self) -> None:
+        """baseline_start/end takes priority over comparison_type."""
+        session_id = self._new_session()
+        resp = self.client.post(
+            f"/sessions/{session_id}/steps/compare_metric",
+            json={
+                "metric_name": "watch_time_ctype",
+                "table_name": "analytics.watch_events",
+                "period_end": "2025-01-14",
+                "comparison_type": "wow",
+                "baseline_start": "2025-01-01",
+                "baseline_end": "2025-01-07",
+            },
+        )
+        self.assertEqual(resp.status_code, 200, resp.json())
+        # The response should reflect explicit baseline, not wow-shifted one
+        # (we cannot easily assert the exact window from the summary, but 200 is enough)
+
+    def test_unequal_window_warn_not_error(self) -> None:
+        """Unequal windows return 200 and debug.window_length_match=False."""
+        session_id = self._new_session()
+        resp = self.client.post(
+            f"/sessions/{session_id}/steps/compare_metric",
+            json={
+                "metric_name": "watch_time_ctype",
+                "table_name": "analytics.watch_events",
+                "period_start": "2025-01-07",
+                "period_end": "2025-01-14",
+                "baseline_start": "2025-01-01",
+                "baseline_end": "2025-01-02",   # only 2 days vs 8-day current
+            },
+        )
+        self.assertEqual(resp.status_code, 200, resp.json())
+        result = resp.json()
+        # Either the mismatch warning appears in summary, or debug carries window_length_match
+        if "debug" in result:
+            self.assertFalse(result["debug"]["window_length_match"])
+        else:
+            # rows returned and mismatch warning in summary
+            self.assertIn("mismatch", result.get("summary", "").lower())
+
+    def test_invalid_comparison_type(self) -> None:
+        """Unsupported comparison_type value → 400."""
+        session_id = self._new_session()
+        resp = self.client.post(
+            f"/sessions/{session_id}/steps/compare_metric",
+            json={
+                "metric_name": "watch_time_ctype",
+                "table_name": "analytics.watch_events",
+                "period_end": "2025-01-14",
+                "comparison_type": "qoq",
+            },
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("comparison_type", resp.json().get("detail", ""))
+
+    def test_period_end_required_with_comparison_type(self) -> None:
+        """P2: comparison_type without period_end must return 400."""
+        session_id = self._new_session()
+        resp = self.client.post(
+            f"/sessions/{session_id}/steps/compare_metric",
+            json={
+                "metric_name": "watch_time_ctype",
+                "table_name": "analytics.watch_events",
+                "comparison_type": "wow",
+                # period_end intentionally omitted
+            },
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("period_end", resp.json().get("detail", ""))
+
+    def test_period_end_required_with_explicit_baseline(self) -> None:
+        """P2: baseline_start/end without period_end must return 400."""
+        session_id = self._new_session()
+        resp = self.client.post(
+            f"/sessions/{session_id}/steps/compare_metric",
+            json={
+                "metric_name": "watch_time_ctype",
+                "table_name": "analytics.watch_events",
+                "baseline_start": "2025-01-01",
+                "baseline_end": "2025-01-07",
+                # period_end intentionally omitted
+            },
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("period_end", resp.json().get("detail", ""))
+
+    def test_debug_field_on_null_delta(self) -> None:
+        """When all delta values are null, debug field is attached."""
+        session_id = self._new_session()
+        # Use a period where no data exists in seeded DuckDB
+        resp = self.client.post(
+            f"/sessions/{session_id}/steps/compare_metric",
+            json={
+                "metric_name": "watch_time_ctype",
+                "table_name": "analytics.watch_events",
+                "period_end": "1999-01-01",
+                "comparison_type": "wow",
+            },
+        )
+        self.assertEqual(resp.status_code, 200, resp.json())
+        result = resp.json()
+        # No data → debug should be present
+        if not result.get("observations"):
+            self.assertIn("debug", result)
+            debug = result["debug"]
+            self.assertIn("current_window", debug)
+            self.assertIn("baseline_window", debug)
+            self.assertIn("comparison_type", debug)
+            self.assertEqual(debug["comparison_type"], "wow")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -3,7 +3,14 @@ from __future__ import annotations
 STEP_TAXONOMY = {
     "compare_metric": {
         "category": "primitive",
-        "description": "Compare a published semantic metric between baseline and current windows.",
+        "description": (
+            "Compare a published semantic metric between baseline and current windows. "
+            "Params: metric_name, table_name, period_end (required), period_start (optional, defaults to period_end for single-day), "
+            "comparison_type (dod|wow|mom|yoy — sets baseline automatically), "
+            "baseline_start/baseline_end (explicit override, takes priority over comparison_type), "
+            "dimensions, order (ASC|DESC), limit. "
+            "Unequal windows produce a warning in summary/debug but are not rejected."
+        ),
     },
     "profile_table": {
         "category": "primitive",

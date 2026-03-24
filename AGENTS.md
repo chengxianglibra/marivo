@@ -113,7 +113,7 @@ Core principle: **facts by code, language by model** — factual extraction shou
 
 Defined in `app/analysis_core/primitives.py` (`STEP_TAXONOMY`):
 
-- **`compare_metric`** — compare a published semantic metric between baseline and current windows; supports custom `period_start/period_end`, `filter`, `order` ASC/DESC, default `limit=10`
+- **`compare_metric`** — compare a published semantic metric between baseline and current windows; `period_end` required, `period_start` optional (defaults to `period_end` for single-day); `comparison_type` (`dod|wow|mom|yoy`) auto-computes baseline; `baseline_start/end` for explicit override (takes priority); unequal windows warn, not reject; `debug` field attached on failure; `order` ASC/DESC, default `limit=10`
 - **`profile_table`** — profile table row count and column-level completeness/cardinality signals
 - **`sample_rows`** — return a bounded sample of rows; supports `filter`, `columns`, auto-partition
 - **`aggregate_query`** — ad-hoc GROUP BY + aggregation; generates observations via `AggregateRowExtractor`; opt-out with `extract_observations=false`
