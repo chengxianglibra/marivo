@@ -46,6 +46,7 @@ Rules:
 
 - `compare_metric` and `aggregate_query` use typed `time_scope` and `scope`
 - normalized windows are half-open: `[start, end)`
+- `compare_metric` observations inherit `time_scope.current` as their `observed_window`
 - `aggregate_query` observations inherit the request window; temporal `group_by` can refine them to per-row windows
 - session constraints auto-inject into supported query steps
 

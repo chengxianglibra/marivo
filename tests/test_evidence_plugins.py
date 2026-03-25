@@ -50,6 +50,31 @@ class EvidencePluginTests(unittest.TestCase):
         self.assertEqual(observations[0]["type"], "metric_change")
         self.assertEqual(observations[0]["payload"]["current_value"], 82)
 
+    def test_comparison_row_extractor_rejects_missing_required_fields(self) -> None:
+        extractor = ComparisonRowExtractor()
+
+        with self.assertRaisesRegex(ValueError, "requires mapped comparison fields"):
+            extractor.extract(
+                [
+                    {
+                        "platform": "android",
+                        "current_watch_time": 82,
+                        "delta_pct": -14.2,
+                        "current_sessions": 280,
+                    }
+                ],
+                context={
+                    "metric": "watch_time",
+                    "payload_fields": {
+                        "current_value": "current_watch_time",
+                        "baseline_value": "baseline_watch_time",
+                        "delta_pct": "delta_pct",
+                        "current_sessions": "current_sessions",
+                        "baseline_sessions": "baseline_sessions",
+                    },
+                },
+            )
+
     def test_pipeline_supports_extractor_and_default_synthesizer(self) -> None:
         pipeline = EvidencePipeline(synthesize_claims)
 
