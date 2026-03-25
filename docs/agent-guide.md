@@ -66,7 +66,7 @@ Evidence packaging is central:
 - artifact = raw output
 - observation = deterministic fact extracted from output
 - claim = synthesized conclusion with inference level; L1 may come from cross-slice, cross-scope, or cross-metric consistency
-- `temporally_precedes` is a claim-to-claim causal edge backed by real observation windows, not by step execution order
+- `temporally_precedes` is a claim-to-claim causal edge backed by real observation windows or relation-backed hourly peak/decay lead-lag, not by step execution order; current comparisons assume observations in the same session use a consistent timezone/time basis
 - evidence edge = relation between evidence objects
 - recommendation = action backed by confirmed claims
 

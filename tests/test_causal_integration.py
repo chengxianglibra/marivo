@@ -173,55 +173,59 @@ class CausalUpgradeChainTests(unittest.TestCase):
     # -- test_l0_to_l1_to_l2_full_chain ---------------------------------------
 
     def test_l0_to_l1_to_l2_full_chain(self) -> None:
-        """Full upgrade chain: 3 same-sign obs → L1 via CrossSlice,
-        then 3 more obs with a later non-overlapping window → L2 via TemporalPrecedence."""
+        """Full upgrade chain: cross-slice consistency yields L1, then relation-backed
+        non-overlapping windows yield L2 during final synthesis."""
+        from app.service import SemanticLayerService
+        from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
+
         window_a = {"start": "2026-01-01", "end": "2026-01-14", "granularity": "day"}
+        window_b = {"start": "2026-02-01", "end": "2026-02-14", "granularity": "day"}
         slices = [{"seg": "android"}, {"seg": "ios"}, {"seg": "web"}]
 
-        # Batch 1 — establishes L1 for each slice claim
+        analytics = DuckDBAnalyticsEngine(Path(self.tmpdir.name) / "causal_chain.duckdb")
+        analytics.initialize()
+        service = SemanticLayerService(self.store, analytics)
+        service._incremental_synthesizer = self.synth
+
+        # Batch 1 — two related metrics on the same slices. CrossSlice promotes
+        # both metrics to L1; final temporal promotion is deferred to synthesis.
         for i, sl in enumerate(slices):
             _insert_obs(
                 self.store,
-                obs_id=f"obs_a{i:04d}",
+                obs_id=f"obs_q{i:04d}",
                 sess_id=self.sess_id,
                 step_id=self.step_id,
-                metric="watch_time",
+                metric="query_count",
                 slice_val=sl,
                 delta_pct=-5.0,
                 temporal_order=i,
                 window=window_a,
             )
-
-        result1 = self.synth.process(self.sess_id)
-        self.assertGreaterEqual(result1["claims_created"], 1)
-
-        rows_after_l1 = self._all_claims()
-        levels_after_l1 = [r["inference_level"] for r in rows_after_l1]
-        self.assertIn("L1", levels_after_l1, "Expected L1 upgrade after first batch")
-
-        # Batch 2 — same slices, later non-overlapping window → triggers L2
-        window_b = {"start": "2026-02-01", "end": "2026-02-14", "granularity": "day"}
-        for i, sl in enumerate(slices):
             _insert_obs(
                 self.store,
-                obs_id=f"obs_b{i:04d}",
+                obs_id=f"obs_t{i:04d}",
                 sess_id=self.sess_id,
                 step_id=self.step_id,
-                metric="watch_time",
+                metric="queued_time",
                 slice_val=sl,
                 delta_pct=-4.0,
-                temporal_order=3 + i,
+                temporal_order=10 + i,
                 window=window_b,
             )
 
-        result2 = self.synth.process(self.sess_id)
-        _ = result2  # result may show 0 claims_created if attributed to existing claims
+        result = self.synth.process(self.sess_id)
+        self.assertGreaterEqual(result["claims_created"], 2)
+
+        rows_after_l1 = self._all_claims()
+        levels_after_l1 = [r["inference_level"] for r in rows_after_l1]
+        self.assertIn("L1", levels_after_l1, "Expected L1 upgrade after incremental synthesis")
+
+        service._run_synthesis(self.sess_id)
 
         rows_after_l2 = self._all_claims()
         levels_after_l2 = [r["inference_level"] for r in rows_after_l2]
         self.assertIn("L2", levels_after_l2, "Expected at least one claim upgraded to L2")
 
-        # Verify both checker tokens are present
         justifications = " ".join(
             r["inference_justification_json"] or "[]" for r in rows_after_l2
         )
