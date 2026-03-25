@@ -1691,14 +1691,9 @@ class SemanticLayerService:
     def _run_synthesis(self, session_id: str) -> dict[str, Any]:
         step_type = "synthesize_findings"
         step_id = self._new_step_id()
+        self._delete_non_tentative_synthesis_outputs(session_id)
         observations = self._load_observations(session_id)
         tentative_claims = self._load_tentative_claims(session_id)
-
-        self._delete_non_tentative_synthesis_outputs(session_id)
-        self.metadata.execute(
-            "DELETE FROM steps WHERE session_id = ? AND step_type = ?",
-            [session_id, step_type],
-        )
         promoted = self._promote_claims(session_id, tentative_claims, observations)
         promotion_audit = {
             "stage": "promotion",
@@ -1726,6 +1721,11 @@ class SemanticLayerService:
         self._persist_synthesized_claim_updates(synthesis["claims"])
         claim_map = {c["claim_id"]: c for c in promoted}
         self._attach_entity_patches(synthesis["recommendations"], observations, claim_map)
+        derived_observations = synthesis.get("derived_observations", [])
+        if derived_observations:
+            self._annotate_temporal(derived_observations, session_id, None)
+            for observation in derived_observations:
+                self._insert_observation(session_id, step_id, observation)
         for recommendation in synthesis["recommendations"]:
             self._insert_recommendation(session_id, recommendation)
         for edge in synthesis["edges"]:
@@ -1738,6 +1738,7 @@ class SemanticLayerService:
             "summary": summary,
             "claims": synthesis["claims"],
             "recommendations": synthesis["recommendations"],
+            "derived_observations": derived_observations,
         }
         self._insert_step(step_id, session_id, step_type, summary, result, provenance=provenance)
         return result
@@ -1959,6 +1960,18 @@ class SemanticLayerService:
     def _delete_non_tentative_synthesis_outputs(self, session_id: str) -> None:
         """Delete confirmed/insufficient claims + recommendations + edges from a previous
         synthesize_findings run, but preserve tentative claims created by IncrementalSynthesizer."""
+        synth_step_rows = self.metadata.query_rows(
+            "SELECT step_id FROM steps WHERE session_id = ? AND step_type = 'synthesize_findings'",
+            [session_id],
+        )
+        for row in synth_step_rows:
+            step_id = row["step_id"]
+            self.metadata.execute("DELETE FROM artifacts WHERE step_id = ?", [step_id])
+            self.metadata.execute("DELETE FROM observations WHERE step_id = ?", [step_id])
+        self.metadata.execute(
+            "DELETE FROM steps WHERE session_id = ? AND step_type = 'synthesize_findings'",
+            [session_id],
+        )
         self.metadata.execute(
             "DELETE FROM claims WHERE session_id = ? AND status != 'tentative'",
             [session_id],

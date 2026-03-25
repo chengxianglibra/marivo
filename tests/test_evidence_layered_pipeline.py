@@ -296,5 +296,152 @@ class DefaultClaimRelationDiscoveryTests(unittest.TestCase):
         ]
         self.assertEqual(causal_edges, [])
 
+    def test_pipeline_emits_cross_metric_correlation_derived_observation_for_component(self) -> None:
+        observations = [
+            self._obs("obs_q", "query_count", 30.0, {"user": "sys_titan"}),
+            self._obs("obs_c", "cpu_time", 8.6, {"user": "sys_titan"}),
+            self._obs("obs_t", "queued_time", 58.5, {"user": "sys_titan"}),
+        ]
+        claims = [
+            self._claim("claim_q", "query_count", "obs_q", {"user": "sys_titan"}),
+            self._claim("claim_c", "cpu_time", "obs_c", {"user": "sys_titan"}),
+            self._claim("claim_t", "queued_time", "obs_t", {"user": "sys_titan"}),
+        ]
+
+        pipeline = EvidencePipeline(lambda _: ([], [], []))
+        result = pipeline.build_synthesis(observations, existing_claims=claims)
+
+        derived = [
+            obs for obs in result["derived_observations"]
+            if obs["type"] == "cross_metric_correlation"
+        ]
+        self.assertEqual(len(derived), 1)
+        payload = derived[0]["payload"]
+        self.assertEqual(payload["group_direction"], "group_up")
+        self.assertEqual(payload["shared_slice"], {"user": "sys_titan"})
+        self.assertEqual(payload["component_size"], 3)
+        self.assertEqual(
+            payload["metrics"],
+            ["cpu_time", "query_count", "queued_time"],
+        )
+
+    def test_pipeline_emits_temporal_pattern_derived_observation_from_hourly_support(self) -> None:
+        observations = [
+            self._obs(
+                "obs_h1",
+                "query_count",
+                5.0,
+                {"user": "sys_titan", "log_hour": "2024-01-01T01:00"},
+            ),
+            self._obs(
+                "obs_h2",
+                "query_count",
+                9.0,
+                {"user": "sys_titan", "log_hour": "2024-01-01T02:00"},
+            ),
+            self._obs(
+                "obs_h3",
+                "query_count",
+                6.0,
+                {"user": "sys_titan", "log_hour": "2024-01-01T03:00"},
+            ),
+        ]
+        observations[0]["payload"]["current_value"] = 100.0
+        observations[1]["payload"]["current_value"] = 180.0
+        observations[2]["payload"]["current_value"] = 120.0
+        observations[0]["observed_window"] = {"start": "2024-01-01T01:00", "end": "2024-01-01T02:00", "granularity": "hour"}
+        observations[1]["observed_window"] = {"start": "2024-01-01T02:00", "end": "2024-01-01T03:00", "granularity": "hour"}
+        observations[2]["observed_window"] = {"start": "2024-01-01T03:00", "end": "2024-01-01T04:00", "granularity": "hour"}
+        observations[0]["subject"]["temporal_group_by_columns"] = ["log_hour"]
+        observations[1]["subject"]["temporal_group_by_columns"] = ["log_hour"]
+        observations[2]["subject"]["temporal_group_by_columns"] = ["log_hour"]
+
+        claims = [
+            self._claim("claim_q", "query_count", "obs_h1", {"user": "sys_titan"}),
+        ]
+        claims[0]["supporting_observations"] = ["obs_h1", "obs_h2", "obs_h3"]
+
+        pipeline = EvidencePipeline(lambda _: ([], [], []))
+        result = pipeline.build_synthesis(observations, existing_claims=claims)
+
+        derived = [
+            obs for obs in result["derived_observations"]
+            if obs["type"] == "temporal_pattern"
+        ]
+        self.assertEqual(len(derived), 1)
+        payload = derived[0]["payload"]
+        self.assertEqual(payload["pattern_type"], "spike_and_decay")
+        self.assertEqual(payload["supporting_claim_id"], "claim_q")
+        self.assertEqual(payload["peak_window"]["start"], "2024-01-01T02:00")
+        self.assertEqual(payload["supporting_observation_ids"], ["obs_h1", "obs_h2", "obs_h3"])
+
+    def test_pipeline_skips_temporal_pattern_without_temporal_grouping_metadata(self) -> None:
+        observations = [
+            self._obs("obs_h1", "query_count", 5.0, {"user": "sys_titan"}),
+            self._obs("obs_h2", "query_count", 9.0, {"user": "sys_titan"}),
+            self._obs("obs_h3", "query_count", 6.0, {"user": "sys_titan"}),
+        ]
+        observations[0]["payload"]["current_value"] = 100.0
+        observations[1]["payload"]["current_value"] = 180.0
+        observations[2]["payload"]["current_value"] = 120.0
+        observations[0]["observed_window"] = {"start": "2024-01-01T01:00", "end": "2024-01-01T02:00", "granularity": "hour"}
+        observations[1]["observed_window"] = {"start": "2024-01-01T02:00", "end": "2024-01-01T03:00", "granularity": "hour"}
+        observations[2]["observed_window"] = {"start": "2024-01-01T03:00", "end": "2024-01-01T04:00", "granularity": "hour"}
+
+        claims = [self._claim("claim_q", "query_count", "obs_h1", {"user": "sys_titan"})]
+        claims[0]["supporting_observations"] = ["obs_h1", "obs_h2", "obs_h3"]
+
+        pipeline = EvidencePipeline(lambda _: ([], [], []))
+        result = pipeline.build_synthesis(observations, existing_claims=claims)
+
+        derived = [
+            obs for obs in result["derived_observations"]
+            if obs["type"] == "temporal_pattern"
+        ]
+        self.assertEqual(derived, [])
+
+    def test_pipeline_skips_temporal_pattern_for_non_confirmed_claim(self) -> None:
+        observations = [
+            self._obs(
+                "obs_h1",
+                "query_count",
+                5.0,
+                {"user": "sys_titan", "log_hour": "2024-01-01T01:00"},
+            ),
+            self._obs(
+                "obs_h2",
+                "query_count",
+                9.0,
+                {"user": "sys_titan", "log_hour": "2024-01-01T02:00"},
+            ),
+            self._obs(
+                "obs_h3",
+                "query_count",
+                6.0,
+                {"user": "sys_titan", "log_hour": "2024-01-01T03:00"},
+            ),
+        ]
+        for idx, obs in enumerate(observations, start=1):
+            obs["payload"]["current_value"] = [100.0, 180.0, 120.0][idx - 1]
+            obs["observed_window"] = {
+                "start": f"2024-01-01T0{idx}:00",
+                "end": f"2024-01-01T0{idx + 1}:00",
+                "granularity": "hour",
+            }
+            obs["subject"]["temporal_group_by_columns"] = ["log_hour"]
+
+        claims = [self._claim("claim_q", "query_count", "obs_h1", {"user": "sys_titan"})]
+        claims[0]["supporting_observations"] = ["obs_h1", "obs_h2", "obs_h3"]
+        claims[0]["status"] = "insufficient"
+
+        pipeline = EvidencePipeline(lambda _: ([], [], []))
+        result = pipeline.build_synthesis(observations, existing_claims=claims)
+
+        derived = [
+            obs for obs in result["derived_observations"]
+            if obs["type"] == "temporal_pattern"
+        ]
+        self.assertEqual(derived, [])
+
 if __name__ == "__main__":
     unittest.main()
