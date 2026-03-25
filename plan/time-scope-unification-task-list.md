@@ -346,13 +346,13 @@
 
 - [x] **TSU-12.1** 实现 day-only partition pruning
   - 典型字段：`log_date`
-- [ ] **TSU-12.2** 实现 day + hour partition pruning
+- [x] **TSU-12.2** 实现 day + hour partition pruning
   - 典型字段：`log_date` + `log_hour`
-- [ ] **TSU-12.3** 实现 edge-day bounded hour pruning
+- [x] **TSU-12.3** 实现 edge-day bounded hour pruning
   - 同一天内小时过滤
   - 跨天窗口的首尾日小时过滤
-- [ ] **TSU-12.4** mixed layout 中同时注入 timestamp correctness + partition pruning
-- [ ] **TSU-12.5** 审计 DuckDB / Trino 差异
+- [x] **TSU-12.4** mixed layout 中同时注入 timestamp correctness + partition pruning
+- [x] **TSU-12.5** 审计 DuckDB / Trino 差异
   - expression compatibility
   - string/date casting
   - partition predicate formatting
@@ -370,15 +370,15 @@
 
 > 前置依赖：TSU-04 ~ TSU-12 | 工作量：大 | 风险：中
 
-- [ ] **TSU-13.1** 新增 `TimeScopeResolver` 单测
-- [ ] **TSU-13.2** 新增 `TimeAxisResolver` 单测
-- [ ] **TSU-13.3** 新增 shared compiler 单测
+- [x] **TSU-13.1** 新增 `TimeScopeResolver` 单测
+- [x] **TSU-13.2** 新增 `TimeAxisResolver` 单测
+- [x] **TSU-13.3** 新增 shared compiler 单测
   - partition-only
   - timestamp-only
   - mixed
-- [ ] **TSU-13.4** 新增 `scope.predicate` 时间条件拒绝测试
-- [ ] **TSU-13.5** 新增 `day` / `hour` granularity observation 测试
-- [ ] **TSU-13.6** 新增 metadata 优先于 heuristic 的解析测试
+- [x] **TSU-13.4** 新增 `scope.predicate` 时间条件拒绝测试
+- [x] **TSU-13.5** 新增 `day` / `hour` granularity observation 测试
+- [x] **TSU-13.6** 新增 metadata 优先于 heuristic 的解析测试
 
 验收标准：
 
