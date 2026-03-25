@@ -436,12 +436,12 @@ assert len(correlates) >= 1  # query_count ↔ queued_time
 #### 2.2 CrossMetricCorrelationChecker Consumes Claim Relations（对应 P3）
 **文件**: `app/evidence_engine/causal_checkers.py`
 
-- [ ] 新增 `CrossMetricCorrelationChecker` 注册到 `CausalCheckerRegistry`
-- [ ] 输入改为：claims + claim relations + observations，而不是 checker 内部重新做 session 级 pair mining
-- [ ] 检测：由 `correlates_with` claim relations 支撑的不同 metric 在同一/相近 scope 的方向一致性
-- [ ] 输出：L0→L1升级（"cross-metric consistency"），职责限定为 promotion，不负责 relation discovery
-- [ ] 当≥3个不同 metric 在同一 slice 方向一致，升级为 L1
-- [ ] 如无 relation graph，则明确返回“输入不足”而非静默重跑 discovery 逻辑
+- [x] 新增 `CrossMetricCorrelationChecker` 注册到 `CausalCheckerRegistry`
+- [x] 输入改为：claims + claim relations + observations，而不是 checker 内部重新做 session 级 pair mining
+- [x] 检测：由 `correlates_with` claim relations 支撑的不同 metric 在同一/相近 scope 的方向一致性
+- [x] 输出：L0→L1升级（"cross-metric consistency"），职责限定为 promotion，不负责 relation discovery
+- [x] 当≥3个不同 metric 在同一 slice 方向一致，升级为 L1
+- [x] 如无 relation graph，则明确返回“输入不足”而非静默重跑 discovery 逻辑
 
 **验收标准**：
 ```python
@@ -457,11 +457,11 @@ assert result.justification == "3 metrics directionally consistent for user=sys_
 #### 2.3 TemporalPrecedenceChecker Consumes Relation + Temporal Signals（对应 P4）
 **文件**: `app/evidence_engine/causal_checkers.py`
 
-- [ ] 扩展支持跨claim的 temporal precedence，但以 claim relation 为入口，而不是裸 claims 全对比较
-- [ ] 优先使用真实时间信号（`observed_window`, `temporal_pattern` 等），避免把 step 执行顺序误当数据时间
-- [ ] 当存在相关 claim relation 且 claim_A 的时间窗口先于 claim_B，创建 `temporally_precedes` edge
-- [ ] 扩展支持 `temporal_group_by_columns` / `temporal_pattern` observation 提供的“高峰→衰减”模式
-- [ ] 触发 L1→L2 升级；职责限定为 promotion，不负责生成基础 relation graph
+- [x] 扩展支持跨claim的 temporal precedence，但以 claim relation 为入口，而不是裸 claims 全对比较
+- [x] 优先使用真实时间信号（`observed_window`, `temporal_pattern` 等），避免把 step 执行顺序误当数据时间
+- [x] 当存在相关 claim relation 且 claim_A 的时间窗口先于 claim_B，创建 `temporally_precedes` edge
+- [x] 扩展支持 `temporal_group_by_columns` / `temporal_pattern` observation 提供的“高峰→衰减”模式
+- [x] 触发 L1→L2 升级；职责限定为 promotion，不负责生成基础 relation graph
 
 **验收标准**：
 ```python
@@ -478,11 +478,11 @@ assert len(temporal) >= 1
 #### 3.1 Layer-Aware Recommendation Generation
 **文件**: `app/evidence_engine/recommendation_templates.py` (新建), `app/evidence_engine/recommendation_policy.py`
 
-- [ ] 定义基于 claims + claim relations + inference levels 的 recommendation 模板
-- [ ] 支持变量插值：`{{metric}}`, `{{slice}}`, `{{delta_pct}}`, `{{baseline_value}}`, `{{current_value}}`
-- [ ] 模板按 `(claim_type, inference_level, relation_types, edge_types)` 索引
-- [ ] recommendation policy 只消费五层流水线的最终产物，不在模板层自行重建 graph
-- [ ] 区分“单 claim 建议”“多 claim 聚合建议”“无需行动”三类模板入口
+- [x] 定义基于 claims + claim relations + inference levels 的 recommendation 模板
+- [x] 支持变量插值：`{{metric}}`, `{{slice}}`, `{{delta_pct}}`, `{{baseline_value}}`, `{{current_value}}`
+- [x] 模板按 `(claim_type, inference_level, relation_types, edge_types)` 索引
+- [x] recommendation policy 只消费五层流水线的最终产物，不在模板层自行重建 graph
+- [x] 区分“单 claim 建议”“多 claim 聚合建议”“无需行动”三类模板入口
 
 **模板示例**：
 ```python
@@ -505,11 +505,11 @@ TEMPLATES = {
 #### 3.2 Causal Chain Narrative Generation（基于 claim graph）
 **文件**: `app/evidence_engine/recommendation_policy.py`, `app/evidence_engine/claim_relations.py`
 
-- [ ] 利用 Phase 2 产生的 claim relations + promoted causal edges，构建因果链叙述
-- [ ] 从最高 confidence 的 confirmed claim 出发，沿 claim graph 遍历
-- [ ] 生成`causal_chain`字段：`"query_count↑30% → others资源组并发打满 → queued_time↑58.5%"`
-- [ ] 附在 recommendation 的 `causal_basis` 中
-- [ ] narrative 生成只做链路组织与压缩，不重新做因果判断
+- [x] 利用 Phase 2 产生的 claim relations + promoted causal edges，构建因果链叙述
+- [x] 从最高 confidence 的 confirmed claim 出发，沿 claim graph 遍历
+- [x] 生成`causal_chain`字段：`"query_count↑30% → others资源组并发打满 → queued_time↑58.5%"`
+- [x] 附在 recommendation 的 `causal_basis` 中
+- [x] narrative 生成只做链路组织与压缩，不重新做因果判断
 
 ---
 
@@ -518,19 +518,19 @@ TEMPLATES = {
 #### 4.1 Add Cross-Metric Observation Type
 **文件**: `app/evidence_engine/schemas.py`, `app/evidence_engine/extractors/`
 
-- [ ] 新增 `cross_metric_correlation` observation type
-- [ ] 当同一step或同一session中的两个metric在同一slice方向一致时自动生成
-- [ ] 包含 `correlation_direction`("both_up"/"both_down"/"divergent"), `scope_overlap`, `sample_sizes`
+- [x] 新增 `cross_metric_correlation` observation type
+- [x] 当同一step或同一session中的两个metric在同一slice方向一致时自动生成
+- [x] 包含 `correlation_direction`("both_up"/"both_down"/"divergent"), `scope_overlap`, `sample_sizes`
 
 ---
 
 #### 4.2 Temporal Pattern Observation Type
 **文件**: `app/evidence_engine/extractors/`
 
-- [ ] 新增 `temporal_pattern` observation type
-- [ ] 当`temporal_group_by_columns`产生的时序数据显示明显的"尖峰→回落"或"持续升高"模式时自动生成
-- [ ] 包含 `pattern_type`("spike_and_decay"/"sustained_increase"/"sustained_decrease"), `peak_window`, `magnitude`
-- [ ] 为TemporalPrecedenceChecker提供更好的输入信号
+- [x] 新增 `temporal_pattern` observation type
+- [x] 当`temporal_group_by_columns`产生的时序数据显示明显的"尖峰→回落"或"持续升高"模式时自动生成
+- [x] 包含 `pattern_type`("spike_and_decay"/"sustained_increase"/"sustained_decrease"), `peak_window`, `magnitude`
+- [x] 为TemporalPrecedenceChecker提供更好的输入信号
 
 ---
 

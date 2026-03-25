@@ -5,7 +5,12 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.api.deps import get_services, http_error
-from app.api.models import AttributeChangeStep, EvidenceGraphResponse, SessionCreateRequest
+from app.api.models import (
+    AttributeChangeStep,
+    EvidenceGraphResponse,
+    SessionCreateRequest,
+    SessionDebugResponse,
+)
 from app.reflection.context import build_reflection_context
 
 
@@ -87,8 +92,29 @@ def run_step(
 
 
 @router.get("/sessions/{session_id}/evidence", response_model=EvidenceGraphResponse)
-def evidence_graph(session_id: str, request: Request) -> dict[str, object]:
+def evidence_graph(
+    session_id: str,
+    request: Request,
+    claims_only: str | None = Query(default=None),
+    edge_types: list[str] | None = Query(default=None),
+    include_debug: bool = Query(default=False),
+) -> dict[str, object]:
     try:
-        return get_services(request).service.get_evidence_graph(session_id)
+        return get_services(request).service.get_evidence_graph(
+            session_id,
+            claims_only=claims_only,
+            edge_types=edge_types,
+            include_debug=include_debug,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@router.get("/sessions/{session_id}/debug", response_model=SessionDebugResponse)
+def session_debug(session_id: str, request: Request) -> dict[str, object]:
+    try:
+        return get_services(request).service.get_session_debug(session_id)
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error

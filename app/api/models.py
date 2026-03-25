@@ -310,6 +310,13 @@ class EvidenceGraphResponse(BaseModel):
     claims: list[EvidenceClaimResponse] = Field(default_factory=list)
     edges: list[EvidenceEdgeResponse] = Field(default_factory=list)
     recommendations: list[EvidenceRecommendationResponse] = Field(default_factory=list)
+    debug: dict[str, Any] | None = None
+
+
+class SessionDebugResponse(BaseModel):
+    session_id: str
+    relation_discovery: dict[str, Any] = Field(default_factory=dict)
+    checker_logs: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class AttributeChangeStep(BaseModel):
