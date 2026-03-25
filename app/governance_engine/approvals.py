@@ -79,6 +79,8 @@ class ApprovalRuntime:
 
         created: list[dict[str, object]] = []
         for recommendation in self.repository.list_session_recommendations(session_id):
+            if recommendation.get("type", "action_required") == "no_action_required":
+                continue
             if recommendation["risk"] in flaggable:
                 created.append(self.request_approval(session_id, recommendation["rec_id"]))
         return created

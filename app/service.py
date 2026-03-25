@@ -59,9 +59,12 @@ class SemanticLayerService:
         self.session_manager = SessionManager(metadata_store)
         self.step_registry = build_service_step_registry(self)
         self._default_synthesizer = DefaultClaimSynthesizer()
-        self.evidence_pipeline = EvidencePipeline(self._default_synthesizer)
         self.semantic_repository = SemanticRuntimeRepository(metadata_store)
         self.semantic_resolver = self.semantic_repository.resolver
+        self.evidence_pipeline = EvidencePipeline(
+            self._default_synthesizer,
+            metric_direction_resolver=self._resolve_metric_direction,
+        )
         self.planner_context_provider = self.semantic_repository.planner_context_provider
         self.workflow_runtime = CompositeWorkflowRuntime()
         self.replanner = replanner or ReplanningService(
@@ -282,7 +285,7 @@ class SemanticLayerService:
         )
         recommendations = self.metadata.query_rows(
             """
-            SELECT rec_id, claim_id, action_text, priority, expected_impact, risk,
+            SELECT rec_id, type, claim_id, action_text, priority, expected_impact, risk,
                    validation_metric_json, causal_basis_json, entity_patch_json,
                    supporting_claims_json
             FROM recommendations
@@ -318,6 +321,11 @@ class SemanticLayerService:
         }
 
     # ── Metric resolution ────────────────────────────────────────────
+
+    def _resolve_metric_direction(self, metric_name: str) -> str | None:
+        """Look up a published metric's desired_direction for recommendation policy."""
+        resolved = self.semantic_resolver.resolve_metric(metric_name)
+        return resolved.desired_direction if resolved else None
 
     def resolve_metric_sql(self, metric_name: str) -> str | None:
         """Look up a published metric's definition_sql from semantic runtime."""
@@ -2367,12 +2375,14 @@ class SemanticLayerService:
         causal_basis = recommendation.get("causal_basis")
         entity_patch = recommendation.get("entity_patch")
         supporting_claims = recommendation.get("supporting_claims")
+        rec_type = recommendation.get("type", "action_required")
         self.metadata.execute(
             """
             INSERT INTO recommendations (
                 rec_id, session_id, claim_id, action_text, priority, expected_impact, risk,
-                validation_metric_json, causal_basis_json, entity_patch_json, supporting_claims_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                validation_metric_json, causal_basis_json, entity_patch_json, supporting_claims_json,
+                type
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 recommendation["rec_id"],
@@ -2386,6 +2396,7 @@ class SemanticLayerService:
                 self._dump(causal_basis) if causal_basis is not None else None,
                 self._dump(entity_patch) if entity_patch is not None else None,
                 self._dump(supporting_claims) if supporting_claims is not None else None,
+                rec_type,
             ],
         )
 

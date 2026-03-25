@@ -1082,6 +1082,7 @@ function renderEvidence(area, ev) {
         <div class="rec-header">
           <div class="rec-action">${esc(r.action || '')}</div>
           ${priorityBadge(r.priority || '')}
+          ${r.type === 'no_action_required' ? '<span class="badge badge-gray" style="margin-left:4px;">No Action</span>' : ''}
         </div>
         <div class="rec-meta">
           <span>ID: <code>${esc(truncate(r.recommendation_id || '', 20))}</code></span>

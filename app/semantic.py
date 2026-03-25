@@ -207,6 +207,7 @@ class SemanticService:
         lineage: list[str] | None = None,
         quality_expectations: dict[str, Any] | None = None,
         properties: dict[str, Any] | None = None,
+        desired_direction: str | None = None,
     ) -> dict[str, Any]:
         metric_id = f"met_{uuid4().hex[:12]}"
         now = _now_iso()
@@ -216,9 +217,10 @@ class SemanticService:
                 (
                     metric_id, name, display_name, description, definition_sql, dimensions_json,
                     entity_id, grain, measure_type, allowed_dimensions_json, lineage_json,
-                    quality_expectations_json, properties_json, status, revision, created_at, updated_at
+                    quality_expectations_json, properties_json, desired_direction,
+                    status, revision, created_at, updated_at
                 )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', 1, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', 1, ?, ?)
             """,
             [
                 metric_id,
@@ -234,6 +236,7 @@ class SemanticService:
                 json.dumps(lineage or []),
                 json.dumps(quality_expectations or {}),
                 json.dumps(properties or {}),
+                desired_direction,
                 now,
                 now,
             ],
@@ -290,6 +293,9 @@ class SemanticService:
         if "properties" in kwargs:
             updates.append("properties_json = ?")
             params.append(json.dumps(kwargs["properties"]))
+        if "desired_direction" in kwargs:
+            updates.append("desired_direction = ?")
+            params.append(kwargs["desired_direction"])
         if not updates:
             return metric
         updates.append("updated_at = ?")
@@ -405,6 +411,7 @@ class SemanticService:
             "definition_sql": row["definition_sql"],
             "dimensions": dimensions,
             "entity_id": row["entity_id"],
+            "desired_direction": row.get("desired_direction"),
             "properties": properties,
             **semantic_metadata,
             "status": row["status"],

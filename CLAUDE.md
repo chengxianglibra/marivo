@@ -85,7 +85,7 @@ Browser / Agent / HTTP Client
 ### Three-layer data model
 
 1. **Physical layer** — `source_objects` table holds schemas/tables/columns/partitions synced from external catalogs via `SyncEngine` (`app/sync.py`). Adapters are only called during `trigger_sync()`; post-sync all queries hit SQLite.
-2. **Semantic layer** — `semantic_entities`, `semantic_metrics`, `semantic_mappings` (`app/semantic.py`). User-defined with draft/published/deprecated lifecycle and revision tracking. Mappings link semantic objects to physical `source_objects`.
+2. **Semantic layer** — `semantic_entities`, `semantic_metrics`, `semantic_mappings` (`app/semantic.py`). User-defined with draft/published/deprecated lifecycle and revision tracking. Metrics support optional `desired_direction` (`up`/`down`/`neutral`) to indicate whether increases or decreases are desirable. Mappings link semantic objects to physical `source_objects`.
 3. **Evidence layer** — sessions → steps → artifacts → observations → claims → evidence_edges → recommendations. Orchestrated by `SemanticLayerService` (`app/service.py`), evidence engine in `app/evidence_engine/`.
 
 ### Evidence packaging (core design concept)
@@ -96,7 +96,7 @@ Evidence packaging is the most important design concept. Instead of returning ra
 - **Observation** — typed factual finding extracted from artifact (e.g. "metric down 14.2% for slice X"); includes `observed_window` (ISO date range, nullable) and `temporal_order` (session-scoped sequence number)
 - **Claim** — synthesized conclusion; `status` is `tentative` (incremental) → `confirmed`/`insufficient` (after `synthesize_findings`); includes `inference_level` (L0–L5) and `inference_justification` tokens
 - **Evidence edge** — base layer: `supports`, `contradicts`, `justifies`; causal layer: `correlates_with`, `temporally_precedes`, `mechanistically_explains`, `eliminates_alternative`, `experimentally_confirms`
-- **Recommendation** — action proposal backed by claims, with priority/risk/validation metric and `causal_basis` (inference level, confounders, suggested validation)
+- **Recommendation** — action proposal backed by claims; `type` is `action_required` (default) or `no_action_required` (metric aligned with `desired_direction` or delta < 5%); includes priority/risk/validation metric and `causal_basis` (inference level, confounders, suggested validation)
 
 Evidence engine is in `app/evidence_engine/`:
 - **Extractor Registry** (`registry.py`) — `ExtractorRegistry` with 5 registered extractors: `ComparisonRowExtractor`, `AggregateRowExtractor`, `FunnelExtractor` (`extractors/funnel.py`), `AnomalyExtractor` (`extractors/anomaly.py`), `ContributionShiftExtractor` (`extractors/contribution_shift.py`)

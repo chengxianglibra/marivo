@@ -118,7 +118,7 @@ class GovernanceRepository:
 
     def list_session_recommendations(self, session_id: str) -> list[dict[str, Any]]:
         rows = self.metadata.query_rows(
-            "SELECT rec_id, risk FROM recommendations WHERE session_id = ? ORDER BY created_at",
+            "SELECT rec_id, risk, type FROM recommendations WHERE session_id = ? ORDER BY created_at",
             [session_id],
         )
         return [dict(row) for row in rows]

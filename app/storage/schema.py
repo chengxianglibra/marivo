@@ -101,6 +101,7 @@ METADATA_DDL: list[str] = [
         causal_basis_json TEXT,
         entity_patch_json TEXT,
         supporting_claims_json TEXT,
+        type            TEXT NOT NULL DEFAULT 'action_required',
         created_at      TEXT NOT NULL DEFAULT (datetime('now'))
     )
     """,
@@ -168,6 +169,7 @@ METADATA_DDL: list[str] = [
         lineage_json    TEXT NOT NULL DEFAULT '[]',
         quality_expectations_json TEXT NOT NULL DEFAULT '{}',
         properties_json TEXT NOT NULL DEFAULT '{}',
+        desired_direction TEXT,
         status          TEXT NOT NULL DEFAULT 'draft',
         revision        INTEGER NOT NULL DEFAULT 1,
         created_at      TEXT NOT NULL,
