@@ -110,15 +110,12 @@ class CausalCheckerRegistry:
         merged: dict[str, LevelUpgrade] = {}
 
         for checker in self._checkers:
-            try:
-                checker_upgrades = checker.check(
-                    claims,
-                    observations,
-                    edges,
-                    relations=relations,
-                )
-            except TypeError:
-                checker_upgrades = checker.check(claims, observations, edges)
+            checker_upgrades = checker.check(
+                claims,
+                observations,
+                edges,
+                relations=relations,
+            )
             for upgrade in checker_upgrades:
                 cid = upgrade.claim_id
                 if cid not in merged:
@@ -255,7 +252,7 @@ class TemporalPrecedenceChecker(CausalChecker):
 
         upgrades: list[LevelUpgrade] = []
         for claim in claims:
-            if claim.get("inference_level", "L0") != "L1":
+            if claim.get("inference_level", "L0") == "L0":
                 continue
 
             supporting_obs = [
@@ -334,7 +331,6 @@ class DoseResponseChecker(CausalChecker):
         obs_by_id = {o["observation_id"]: o for o in observations}
         upgrades: list[LevelUpgrade] = []
 
-        # Pre-computed correlation_result path (priority)
         for claim in claims:
             current_level = claim.get("inference_level", "L0")
             if current_level not in ("L1", "L2", "L3", "L4", "L5"):
@@ -343,9 +339,6 @@ class DoseResponseChecker(CausalChecker):
             supporting_obs_ids = set(claim.get("supporting_observations", []))
             claim_scope = claim.get("scope", {})
             claim_metric = str(claim_scope.get("metric", ""))
-            claim_slice = claim_scope.get("slice", {})
-
-            # Check supporting observations first
             for obs_id in supporting_obs_ids:
                 obs = obs_by_id.get(obs_id)
                 if obs is None or obs.get("type") != "correlation_result":
@@ -367,40 +360,11 @@ class DoseResponseChecker(CausalChecker):
                 ))
                 break  # One match is enough per claim
 
-            # If already upgraded via supporting obs, skip session-wide scan for this claim
             if any(u.claim_id == claim["claim_id"] for u in upgrades):
                 continue
 
-            # Session-wide scan for correlation_result observations
-            for obs in observations:
-                if obs.get("type") != "correlation_result":
-                    continue
-                payload = obs.get("payload", {})
-                rho = float(payload.get("rho", 0.0))
-                if abs(rho) < self.SPEARMAN_THRESHOLD:
-                    continue
-                left_metric = str(payload.get("left_metric", ""))
-                right_metric = str(payload.get("right_metric", ""))
-                if claim_metric not in (left_metric, right_metric):
-                    continue
-                # Match slice if correlation observation has one
-                obs_subject = obs.get("subject", {})
-                obs_slice = obs_subject.get("slice", {})
-                if obs_slice and claim_slice != obs_slice:
-                    continue
-                token = f"dose_response_precomputed_session:ρ={rho:.3f}"
-                upgrades.append(LevelUpgrade(
-                    claim_id=claim["claim_id"],
-                    new_level=current_level,
-                    justification_tokens=[token],
-                    confidence_boost=0.02,
-                ))
-                break
-
-        # Track already-upgraded claims to avoid double-upgrade
         upgraded_claim_ids = {u.claim_id for u in upgrades}
 
-        # Original re-computation path (fallback)
         for claim in claims:
             if claim["claim_id"] in upgraded_claim_ids:
                 continue
@@ -482,10 +446,6 @@ class MechanisticExplanationChecker(CausalChecker):
 
         upgrades: list[LevelUpgrade] = []
         for claim in claims:
-            current_level = claim.get("inference_level", "L0")
-            if current_level not in ("L0", "L1", "L2"):
-                continue
-
             claim_scope = claim.get("scope", {})
             claim_metric = str(claim_scope.get("metric", ""))
             claim_slice = claim_scope.get("slice", {})
@@ -671,8 +631,6 @@ class CrossScopeCorrelationChecker(CausalChecker):
 
         # For each claim with windowed supporting observations, find predecessors
         for claim in claims:
-            if claim.get("inference_level", "L0") != "L0":
-                continue
             if claim["claim_id"] in upgraded_claim_ids:
                 continue
             supporting_ids = set(claim.get("supporting_observations", []))
@@ -719,58 +677,6 @@ class CrossScopeCorrelationChecker(CausalChecker):
             if obs_id in claim.get("supporting_observations", []):
                 return claim
         return None
-
-
-# ── Shared persistence helper ─────────────────────────────────────────────────
-
-
-def reconcile_causal_edges(
-    store: Any,
-    session_id: str,
-    claim_id: str,
-    edges: list[CausalEdge],
-) -> None:
-    """Delete existing causal edges for (session, claim, edge_types) then insert fresh ones.
-
-    Using delete+insert per claim keeps the reconcile idempotent: repeated calls
-    on the same upgrade produce exactly one edge per (from, to, type) triple.
-
-    ``store`` must expose the MetadataStore ABC (``execute`` method).
-    """
-    if not edges:
-        return
-    from uuid import uuid4
-
-    edge_types = list({e.edge_type for e in edges})
-    placeholders = ",".join("?" * len(edge_types))
-    store.execute(
-        f"""
-        DELETE FROM evidence_edges
-        WHERE session_id = ? AND to_node_id = ? AND edge_type IN ({placeholders})
-        """,
-        [session_id, claim_id, *edge_types],
-    )
-    for edge in edges:
-        store.execute(
-            """
-            INSERT INTO evidence_edges (
-                edge_id, session_id, from_node_id, from_node_type,
-                to_node_id, to_node_type, edge_type, weight, explanation
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            [
-                f"edge_{uuid4().hex[:12]}",
-                session_id,
-                edge.from_node_id,
-                edge.from_node_type,
-                edge.to_node_id,
-                edge.to_node_type,
-                edge.edge_type,
-                edge.weight,
-                edge.explanation,
-            ],
-        )
-
 
 # ── Registry factory ──────────────────────────────────────────────────────────
 
@@ -850,19 +756,13 @@ def _claim_matches_contribution_shift(
     segment_name: str,
     biggest_shift: Any,
 ) -> bool:
-    """Return True when a claim slice matches a contribution_shift explanation.
-
-    The contribution_shift claim generated by the incremental synthesizer stores
-    ``{"segment": <dimension>, "biggest_shift": <top_value>}`` in its slice.
-    For robustness, we also accept a direct ``{segment_name: top_value}`` slice
-    shape when callers materialize claims differently.
-    """
+    """Return True when a claim slice matches a contribution_shift explanation."""
     expected_shift = str(biggest_shift)
-    if obs_slice.get("segment") == segment_name and str(obs_slice.get("biggest_shift")) == expected_shift:
-        return claim_slice == obs_slice
-    if len(claim_slice) == 1 and claim_slice.get(segment_name) == biggest_shift:
-        return True
-    return claim_slice == obs_slice
+    return (
+        obs_slice.get("segment") == segment_name
+        and str(obs_slice.get("biggest_shift")) == expected_shift
+        and claim_slice == obs_slice
+    )
 
 
 def _date_diff_days(start_iso: str, end_iso: str) -> int:

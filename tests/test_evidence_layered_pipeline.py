@@ -102,26 +102,6 @@ class _TrackingPolicy(RecommendationPolicy):
         ]
 
 
-class _LegacyPolicy(RecommendationPolicy):
-    name = "legacy"
-
-    def derive(self, observations: list[dict], claims: list[dict], recommendations: list[dict]) -> list[dict]:
-        return [
-            {
-                "rec_id": "rec_legacy",
-                "type": "action_required",
-                "claim_id": claims[0]["claim_id"],
-                "supporting_claims": None,
-                "action_text": "legacy",
-                "priority": "P2",
-                "expected_impact": "compat",
-                "risk": "low",
-                "validation_metric": {"primary_metric": "watch_time"},
-                "causal_basis": None,
-            }
-        ]
-
-
 class LayeredEvidencePipelineTests(unittest.TestCase):
     def test_build_synthesis_executes_layered_flow(self) -> None:
         calls: list[str] = []
@@ -206,20 +186,6 @@ class LayeredEvidencePipelineTests(unittest.TestCase):
         self.assertEqual(calls, ["relations", "causal", "recommendations"])
         self.assertEqual(result["claims"], [])
         self.assertEqual(result["recommendations"], [])
-
-    def test_legacy_recommendation_policy_signature_remains_supported(self) -> None:
-        pipeline = EvidencePipeline(
-            lambda observations: ([_claim("c1")], [], []),
-            recommendation_policies={"legacy": _LegacyPolicy()},
-        )
-
-        result = pipeline.build_synthesis(
-            [_obs()],
-            recommendation_policy_name="legacy",
-        )
-
-        self.assertEqual(result["recommendations"][0]["rec_id"], "rec_legacy")
-
 
 if __name__ == "__main__":
     unittest.main()

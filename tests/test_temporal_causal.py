@@ -242,11 +242,11 @@ class TemporalWindowInferenceTests(unittest.TestCase):
 
 
 class TemporallyPrecedesEdgePromotionTests(unittest.TestCase):
-    """Causal edge promotion: temporally_precedes edges survive synthesize_findings promotion.
+    """Causal edge materialization: temporally_precedes edges are emitted at synthesis time.
 
     Proves that:
-    1. IncrementalSynthesizer writes a temporally_precedes edge during incremental synthesis.
-    2. _run_synthesis (synthesize_findings) preserves the edge via the causal-edge replay path.
+    1. IncrementalSynthesizer upgrades claim inference level but does not materialize edges.
+    2. _run_synthesis materializes the temporally_precedes edge from the final pipeline output.
     3. The claim remains at L2 after promotion.
     """
 
@@ -270,8 +270,8 @@ class TemporallyPrecedesEdgePromotionTests(unittest.TestCase):
         svc._incremental_synthesizer = synth
         return svc, synth, meta
 
-    def test_causal_edge_survives_synthesize_findings(self) -> None:
-        """Causal edge written during incremental synthesis must survive promotion."""
+    def test_causal_edge_materialized_during_synthesize_findings(self) -> None:
+        """Temporal causal edges should be created only during final synthesis."""
         import json
         import tempfile
 
@@ -321,7 +321,7 @@ class TemporallyPrecedesEdgePromotionTests(unittest.TestCase):
                 "SELECT edge_type FROM evidence_edges WHERE session_id = ? AND edge_type = 'temporally_precedes'",
                 [sess_id],
             )
-            self.assertEqual(len(edges_before), 1, "Edge must be present before synthesize_findings")
+            self.assertEqual(len(edges_before), 0, "Incremental synthesis must not materialize causal edges")
 
             claims_before = meta.query_rows(
                 "SELECT inference_level FROM claims WHERE session_id = ? AND status = 'tentative'",
@@ -332,7 +332,7 @@ class TemporallyPrecedesEdgePromotionTests(unittest.TestCase):
                 "Claim must be at L2 before synthesize_findings",
             )
 
-            # Step 2: synthesize_findings → promotion + edge replay
+            # Step 2: synthesize_findings → promotion + final edge materialization
             svc._run_synthesis(sess_id)
 
             edges_after = meta.query_rows(
@@ -346,7 +346,7 @@ class TemporallyPrecedesEdgePromotionTests(unittest.TestCase):
             )
             self.assertEqual(
                 len(edges_after), 1,
-                "temporally_precedes edge must survive synthesize_findings promotion",
+                "temporally_precedes edge must be materialized during synthesize_findings",
             )
             edge = dict(edges_after[0])
             self.assertEqual(edge["from_node_id"], "obs_g2d_01",
@@ -372,14 +372,8 @@ class TemporallyPrecedesEdgePromotionTests(unittest.TestCase):
                 f"Claim must be promoted (not tentative), got: {promoted_statuses}",
             )
 
-    def test_synthesize_findings_replay_idempotent(self) -> None:
-        """Promotion replay must not multiply causal edges across repeated calls.
-
-        We simulate two successive PROMOTION-path synthesize_findings runs by
-        manually resetting claim status back to 'tentative' between calls.
-        This directly verifies that the save → clear → replay pattern produces
-        exactly the same number of edges each time, not N*k.
-        """
+    def test_synthesize_findings_remains_idempotent_for_causal_edges(self) -> None:
+        """Repeated synthesize_findings runs must not multiply causal edges."""
         import json
         import tempfile
 
@@ -425,22 +419,20 @@ class TemporallyPrecedesEdgePromotionTests(unittest.TestCase):
                     [sess_id],
                 ))
 
-            self.assertEqual(_count_tp_edges(), 1, "One edge before first synthesis")
+            self.assertEqual(_count_tp_edges(), 0, "No causal edge should exist before final synthesis")
 
-            # First synthesize_findings (PROMOTION path)
+            # First synthesize_findings
             svc._run_synthesis(sess_id)
             self.assertEqual(_count_tp_edges(), 1,
                              "Edge count must be exactly 1 after first synthesize_findings")
 
-            # Simulate a second PROMOTION-path run by resetting the claim to 'tentative'.
-            # This is intentionally artificial to isolate the replay path: we want to
-            # prove that save→clear→replay is idempotent and never produces N*k edges.
+            # Simulate a second promotion-path run by resetting the claim to tentative.
             meta.execute(
                 "UPDATE claims SET status = 'tentative' WHERE session_id = ?",
                 [sess_id],
             )
 
-            # Second synthesize_findings (PROMOTION path again on the same claim)
+            # Second synthesize_findings on the same claim
             svc._run_synthesis(sess_id)
             self.assertEqual(
                 _count_tp_edges(), 1,

@@ -169,19 +169,12 @@ class TestMultiClaimAggregation(unittest.TestCase):
         self.assertEqual(len(recs), 1)
         self.assertEqual(recs[0]["claim_id"], "c2")
 
-    def test_existing_recommendations_returned_unchanged(self) -> None:
-        """If recommendations already exist, they should be returned as-is."""
-        existing = [{"rec_id": "rec_existing", "claim_id": "c1", "action_text": "existing"}]
-        recs = self.policy.derive([], [], existing)
-        self.assertEqual(recs, existing)
-
-    def test_fallback_when_no_confirmed_claims(self) -> None:
-        """When no confirmed claims exist, fallback to highest-confidence claim."""
+    def test_no_recommendation_when_no_confirmed_claims(self) -> None:
+        """Without confirmed claims, recommendation derivation should return no actions."""
         obs = [_make_observation("obs_1", "query_count", 33.5)]
         claims = [_make_claim("c1", "query_count", status="tentative", confidence=0.3, supporting_obs=["obs_1"])]
         recs = self.policy.derive(obs, claims, [])
-        self.assertEqual(len(recs), 1)
-        self.assertEqual(recs[0]["claim_id"], "c1")
+        self.assertEqual(recs, [])
 
 
 class TestSupportingClaimsPersistence(unittest.TestCase):

@@ -96,12 +96,13 @@ Evidence packaging is the most important design concept. Instead of returning ra
 - **Observation** — typed factual finding extracted from artifact (e.g. "metric down 14.2% for slice X"); includes `observed_window` (ISO date range, nullable) and `temporal_order` (session-scoped sequence number)
 - **Claim** — synthesized conclusion; `status` is `tentative` (incremental) → `confirmed`/`insufficient` (after `synthesize_findings`); includes `inference_level` (L0–L5) and `inference_justification` tokens
 - **Evidence edge** — base layer: `supports`, `contradicts`, `justifies`; causal layer: `correlates_with`, `temporally_precedes`, `mechanistically_explains`, `eliminates_alternative`, `experimentally_confirms`
-- **Recommendation** — action proposal backed by claims; `type` is `action_required` (default) or `no_action_required` (metric aligned with `desired_direction` or delta < 5%); includes priority/risk/validation metric and `causal_basis` (inference level, confounders, suggested validation)
+- **Recommendation** — action proposal backed by confirmed claims; `type` is `action_required` (default) or `no_action_required` (metric aligned with `desired_direction` or delta < 5%); includes priority/risk/validation metric and `causal_basis` (inference level, confounders, suggested validation)
 
 Evidence engine is in `app/evidence_engine/`:
 - **Extractor Registry** (`registry.py`) — `ExtractorRegistry` with 5 registered extractors: `ComparisonRowExtractor`, `AggregateRowExtractor`, `FunnelExtractor` (`extractors/funnel.py`), `AnomalyExtractor` (`extractors/anomaly.py`), `ContributionShiftExtractor` (`extractors/contribution_shift.py`)
-- **Incremental synthesizer** (`incremental_synthesizer.py`) — runs after every primitive step; creates/updates tentative claims keyed by (metric, slice); detects contradictions; runs causal checkers
-- **Causal checkers** (`causal_checkers.py`) — `CausalCheckerRegistry` with 4 checkers: `CrossSliceConsistencyChecker` (L0→L1, threshold 80% directional consistency), `TemporalPrecedenceChecker` (L1→L2, requires `observed_window`), `DoseResponseChecker` (bonus, Spearman ρ≥0.7), `ReversalChecker` (bonus, sustained reversal ≥2 periods)
+- **Incremental synthesizer** (`incremental_synthesizer.py`) — runs after every primitive step; creates/updates tentative claims keyed by (metric, slice); detects contradictions; runs causal checkers; does **not** materialize final evidence edges or recommendations
+- **Causal checkers** (`causal_checkers.py`) — `CausalCheckerRegistry` with 6 checkers: `CrossSliceConsistencyChecker` (L0→L1, threshold 80% directional consistency), `CrossScopeCorrelationChecker` (L0→L1 via explicit or temporal predecessor links), `MechanisticExplanationChecker` (→L3 from `contribution_shift`), `TemporalPrecedenceChecker` (L1+→L2, requires `observed_window`), `DoseResponseChecker` (bonus, Spearman ρ≥0.7), `ReversalChecker` (bonus, sustained reversal ≥2 periods)
+- **Five-layer synthesis pipeline** (`pipeline.py`) — final synthesis runs claim synthesis, relation discovery, causal promotion, recommendation derivation, and edge materialization in order
 - **Readiness** (`readiness.py`) — `compute_readiness()` and `load_live_claims()`; appended to every primitive step response
 - Factories, pipeline, schemas, scoring, synthesizers, extractors (comparison, aggregate). Confidence scoring: `app/evidence_engine/scoring.py`. Legacy facade at `app/evidence.py`.
 
@@ -118,9 +119,9 @@ Defined in `app/analysis_core/primitives.py` (`STEP_TAXONOMY`):
 - **`sample_rows`** — return a bounded sample of rows; supports `filter`, `columns`, auto-partition
 - **`aggregate_query`** — ad-hoc GROUP BY + aggregation; generates observations via `AggregateRowExtractor`; opt-out with `extract_observations=false`
 - **`attribute_change`** — explicit attribution step for a published metric across candidate dimensions; produces `contribution_shift` observations and can justify an upstream anomaly via `anomaly_observation_id`
-- **`synthesize_findings`** — composite step; promotes `tentative` claims → `confirmed`/`insufficient`; generates recommendations; does **not** count toward `budget.max_steps`
+- **`synthesize_findings`** — composite step; promotes `tentative` claims → `confirmed`/`insufficient`, then materializes final evidence edges and recommendations; does **not** count toward `budget.max_steps`
 
-Every primitive step response includes `readiness` (5-dimensional signal) and `live_claims` (tentative + confirmed claims). Incremental synthesis via `IncrementalSynthesizer` runs automatically after each primitive step as a side-effect. Session constraints are auto-injected into `compare_metric`, `sample_rows`, `aggregate_query`, and `attribute_change` WHERE clauses. Each step run generates independent step_id/observations (no deletion of prior same-type outputs).
+Every primitive step response includes `readiness` (5-dimensional signal) and `live_claims` (tentative + confirmed claims). Incremental synthesis via `IncrementalSynthesizer` runs automatically after each primitive step as a side-effect, but final evidence edges and recommendations are only materialized by `synthesize_findings`. Session constraints are auto-injected into `compare_metric`, `sample_rows`, `aggregate_query`, and `attribute_change` WHERE clauses. Each step run generates independent step_id/observations (no deletion of prior same-type outputs).
 
 ### Analysis core (`app/analysis_core/`)
 

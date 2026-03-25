@@ -338,8 +338,8 @@ class DoseResponseCheckerPrecomputedTests(unittest.TestCase):
         upgrades = checker.check([claim], [observation], [])
         self.assertEqual(len(upgrades), 0)
 
-    def test_session_wide_scan_finds_correlation(self) -> None:
-        """DoseResponseChecker finds correlation_result not in supporting_observations."""
+    def test_session_wide_scan_does_not_upgrade_claim(self) -> None:
+        """DoseResponseChecker should ignore unrelated session-wide correlation results."""
         checker = DoseResponseChecker()
 
         claim = {
@@ -363,8 +363,7 @@ class DoseResponseCheckerPrecomputedTests(unittest.TestCase):
         }
 
         upgrades = checker.check([claim], [observation], [])
-        self.assertEqual(len(upgrades), 1)
-        self.assertIn("dose_response_precomputed_session", upgrades[0].justification_tokens[0])
+        self.assertEqual(upgrades, [])
 
 
 if __name__ == "__main__":

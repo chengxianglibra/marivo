@@ -403,21 +403,12 @@ class EvidencePipeline:
         if resolved_name not in self._recommendation_policies:
             raise KeyError(f"Unknown recommendation policy: {resolved_name}")
         policy = self._recommendation_policies[resolved_name]
-        try:
-            return policy.derive(
-                observations,
-                claims,
-                recommendations,
-                relations=relations,
-            )
-        except TypeError:
-            # Backward compatibility for custom policies still implementing the
-            # pre-Phase-1.4 signature.
-            return policy.derive(
-                observations,
-                claims,
-                recommendations,
-            )
+        return policy.derive(
+            observations,
+            claims,
+            recommendations,
+            relations=relations,
+        )
 
 
 def _coerce_synthesizer(synthesizer: Synthesizer | ClaimSynthesizer) -> ClaimSynthesizer:

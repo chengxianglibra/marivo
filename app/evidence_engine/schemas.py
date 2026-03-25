@@ -123,27 +123,3 @@ class Recommendation(TypedDict):
     validation_metric: dict[str, Any]  # Signal: how to verify the action worked
     causal_basis: dict[str, Any] | None  # Signal: M-10 causal evidence summary; None for old rows
     supporting_claims: list[str] | None  # Signal: all claim_ids backing this rec (multi-claim aggregation)
-
-
-def _build_causal_basis(claim: Claim) -> dict[str, Any]:
-    """Build causal_basis metadata from a claim with no observation context.
-
-    This is the minimal call path used by callers that do not have access to
-    supporting observations or a session summary.  For richer, scope-aware output
-    call ``app.evidence_engine.causal_basis.build_causal_basis`` directly.
-
-    Must be called after M-07 causal upgrades so inference_level is final.
-    """
-    from app.evidence_engine.causal_basis import (  # noqa: PLC0415
-        SessionSummary,
-        build_causal_basis,
-    )
-    return build_causal_basis(
-        claim,  # type: ignore[arg-type]
-        [],
-        SessionSummary(
-            has_comparable_slices=False,
-            has_windowed_observations=False,
-            metric_names=frozenset(),
-        ),
-    )

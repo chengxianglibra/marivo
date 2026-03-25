@@ -1687,76 +1687,41 @@ class SemanticLayerService:
         observations = self._load_observations(session_id)
         tentative_claims = self._load_tentative_claims(session_id)
 
-        if tentative_claims:
-            # M-03 PROMOTION MODE: tentative claims exist from IncrementalSynthesizer.
-            # Save causal edges before wiping, then replay them after promotion.
-            tentative_claim_ids = [c["claim_id"] for c in tentative_claims]
-            saved_causal_edges = self._load_causal_edges_for_claims(session_id, tentative_claim_ids)
-            # Clear any confirmed/insufficient claims and recs/edges from prior synthesis,
-            # then promote tentative claims to confirmed or insufficient.
-            self._delete_non_tentative_synthesis_outputs(session_id)
-            self.metadata.execute(
-                "DELETE FROM steps WHERE session_id = ? AND step_type = ?",
-                [session_id, step_type],
-            )
-            promoted = self._promote_claims(session_id, tentative_claims, observations)
-            # M-06: promotion audit log
-            promotion_audit = {
-                "stage": "promotion",
-                "claims_promoted": [
-                    {
-                        "claim_id": c["claim_id"],
-                        "new_status": c["status"],
-                        "confidence": c["confidence"],
-                        "promotion_reason": (
-                            "confidence >= 0.5 and no contradictions"
-                            if c["status"] == "confirmed"
-                            else "confidence < 0.5 or has contradictions"
-                        ),
-                    }
-                    for c in promoted
-                ],
-                "confirmed_count": sum(1 for c in promoted if c["status"] == "confirmed"),
-                "insufficient_count": sum(1 for c in promoted if c["status"] == "insufficient"),
-            }
-            self._insert_artifact(session_id, step_id, "synthesis_audit", "promotion_audit", promotion_audit)
-            synthesis = self.evidence_pipeline.build_synthesis(
-                observations,
-                existing_claims=promoted,
-            )
-            # G-5b: attach entity patch proposals to recommendations backed by confirmed claims
-            claim_map = {c["claim_id"]: c for c in promoted}
-            self._attach_entity_patches(synthesis["recommendations"], observations, claim_map)
-            # Claims already in DB (promoted in place); only insert recs + edges.
-            for recommendation in synthesis["recommendations"]:
-                self._insert_recommendation(session_id, recommendation)
-            for edge in synthesis["edges"]:
-                self._insert_edge(session_id, **edge)
-            # Replay causal edges that were established during incremental synthesis.
-            for causal_edge in saved_causal_edges:
-                self._insert_edge(session_id, **causal_edge)
-        else:
-            # FALLBACK MODE: no IncrementalSynthesizer in use — from-scratch synthesis.
-            self._delete_step_outputs(session_id, step_type)
-            synthesis = self.evidence_pipeline.build_synthesis(observations)
-            # G-5b: attach entity patch proposals to recommendations
-            claim_map_fb = {c["claim_id"]: c for c in synthesis["claims"]}
-            self._attach_entity_patches(synthesis["recommendations"], observations, claim_map_fb)
-            for claim in synthesis["claims"]:
-                self._insert_claim(session_id, claim)
-            for recommendation in synthesis["recommendations"]:
-                self._insert_recommendation(session_id, recommendation)
-            for edge in synthesis["edges"]:
-                self._insert_edge(session_id, **edge)
-            # M-06: three-stage audit log (Mode B only)
-            import dataclasses as _dc
-            audit_log = self._default_synthesizer.last_audit_log
-            if audit_log is not None:
-                self._insert_artifact(
-                    session_id, step_id, "synthesis_audit",
-                    "three_stage_audit", _dc.asdict(audit_log),
-                )
-                self._default_synthesizer.last_audit_log = None
+        self._delete_non_tentative_synthesis_outputs(session_id)
+        self.metadata.execute(
+            "DELETE FROM steps WHERE session_id = ? AND step_type = ?",
+            [session_id, step_type],
+        )
+        promoted = self._promote_claims(session_id, tentative_claims, observations)
+        promotion_audit = {
+            "stage": "promotion",
+            "claims_promoted": [
+                {
+                    "claim_id": c["claim_id"],
+                    "new_status": c["status"],
+                    "confidence": c["confidence"],
+                    "promotion_reason": (
+                        "confidence >= 0.5 and no contradictions"
+                        if c["status"] == "confirmed"
+                        else "confidence < 0.5 or has contradictions"
+                    ),
+                }
+                for c in promoted
+            ],
+            "confirmed_count": sum(1 for c in promoted if c["status"] == "confirmed"),
+            "insufficient_count": sum(1 for c in promoted if c["status"] == "insufficient"),
+        }
+        self._insert_artifact(session_id, step_id, "synthesis_audit", "promotion_audit", promotion_audit)
+        synthesis = self.evidence_pipeline.build_synthesis(
+            observations,
+            existing_claims=promoted,
+        )
+        claim_map = {c["claim_id"]: c for c in promoted}
+        self._attach_entity_patches(synthesis["recommendations"], observations, claim_map)
+        for recommendation in synthesis["recommendations"]:
+            self._insert_recommendation(session_id, recommendation)
+        for edge in synthesis["edges"]:
+            self._insert_edge(session_id, **edge)
 
         summary = synthesis["summary"]
         provenance = self._make_provenance("synthesize_findings", engine_type="heuristic")
@@ -1963,30 +1928,6 @@ class SemanticLayerService:
             )
             result.append(claim)
         return result
-
-    def _load_causal_edges_for_claims(
-        self, session_id: str, claim_ids: list[str]
-    ) -> list[dict[str, Any]]:
-        """Load causal evidence edges whose target node is one of the given claim_ids."""
-        from app.evidence_engine.schemas import CAUSAL_EDGE_TYPES
-
-        if not claim_ids:
-            return []
-        claim_placeholders = ",".join("?" * len(claim_ids))
-        edge_placeholders = ",".join("?" * len(CAUSAL_EDGE_TYPES))
-        causal_edge_list = list(CAUSAL_EDGE_TYPES)
-        rows = self.metadata.query_rows(
-            f"""
-            SELECT from_node_id, from_node_type, to_node_id, to_node_type,
-                   edge_type, weight, explanation
-            FROM evidence_edges
-            WHERE session_id = ?
-              AND to_node_id IN ({claim_placeholders})
-              AND edge_type IN ({edge_placeholders})
-            """,
-            [session_id, *claim_ids, *causal_edge_list],
-        )
-        return [dict(row) for row in rows]
 
     def _delete_non_tentative_synthesis_outputs(self, session_id: str) -> None:
         """Delete confirmed/insufficient claims + recommendations + edges from a previous

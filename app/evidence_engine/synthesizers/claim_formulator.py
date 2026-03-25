@@ -121,7 +121,10 @@ class ClaimFormulator:
             "claim_id": f"claim_{uuid4().hex[:12]}",
             "type": "root_cause_candidate",
             "text": text,
-            "scope": {"slice": impacted_slice},
+            "scope": {
+                "metric": primary["subject"].get("metric", ""),
+                "slice": impacted_slice,
+            },
             "confidence": 0.0,
             "status": "supported",
             "supporting_observations": signal.supporting_obs_ids,
@@ -191,7 +194,10 @@ class ClaimFormulator:
             "claim_id": f"claim_{uuid4().hex[:12]}",
             "type": "finding",
             "text": text,
-            "scope": {"slice": impacted_slice},
+            "scope": {
+                "metric": primary["subject"].get("metric", ""),
+                "slice": impacted_slice,
+            },
             "confidence": 0.0,
             "status": "supported",
             "supporting_observations": signal.supporting_obs_ids,

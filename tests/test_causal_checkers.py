@@ -392,7 +392,7 @@ class CausalCheckerRegistryTests(unittest.TestCase):
             def name(self) -> str:
                 return "c1"
 
-            def check(self, claims, observations, edges):
+            def check(self, claims, observations, edges, relations=None):
                 return [LevelUpgrade(claim_id="claim_a", new_level="L1",
                                      justification_tokens=["token_from_c1"])]
 
@@ -401,7 +401,7 @@ class CausalCheckerRegistryTests(unittest.TestCase):
             def name(self) -> str:
                 return "c2"
 
-            def check(self, claims, observations, edges):
+            def check(self, claims, observations, edges, relations=None):
                 return [LevelUpgrade(claim_id="claim_a", new_level="L1",
                                      justification_tokens=["token_from_c2"])]
 
@@ -422,7 +422,7 @@ class CausalCheckerRegistryTests(unittest.TestCase):
             def name(self) -> str:
                 return "l1_proposer"
 
-            def check(self, claims, observations, edges):
+            def check(self, claims, observations, edges, relations=None):
                 return [LevelUpgrade(claim_id="c1", new_level="L1",
                                      justification_tokens=["t"])]
 
@@ -442,7 +442,7 @@ class CausalCheckerRegistryTests(unittest.TestCase):
             def name(self) -> str:
                 return "a"
 
-            def check(self, claims, observations, edges):
+            def check(self, claims, observations, edges, relations=None):
                 return [LevelUpgrade(claim_id="c1", new_level="L1", confidence_boost=0.08)]
 
         class _CheckerB(CausalChecker):
@@ -450,7 +450,7 @@ class CausalCheckerRegistryTests(unittest.TestCase):
             def name(self) -> str:
                 return "b"
 
-            def check(self, claims, observations, edges):
+            def check(self, claims, observations, edges, relations=None):
                 return [LevelUpgrade(claim_id="c1", new_level="L1", confidence_boost=0.07)]
 
         registry.register(_CheckerA())
@@ -569,14 +569,14 @@ class CausalEdgeContractTests(unittest.TestCase):
             @property
             def name(self) -> str:
                 return "a"
-            def check(self, claims, observations, edges):
+            def check(self, claims, observations, edges, relations=None):
                 return [LevelUpgrade("c1", "L2", ["tok_a"], 0.01, [edge_a])]
 
         class _CheckerB(CausalChecker):
             @property
             def name(self) -> str:
                 return "b"
-            def check(self, claims, observations, edges):
+            def check(self, claims, observations, edges, relations=None):
                 # Same key as edge_a — should be deduped
                 return [LevelUpgrade("c1", "L2", ["tok_b"], 0.01, [edge_a])]
 
@@ -584,7 +584,7 @@ class CausalEdgeContractTests(unittest.TestCase):
             @property
             def name(self) -> str:
                 return "c"
-            def check(self, claims, observations, edges):
+            def check(self, claims, observations, edges, relations=None):
                 # Different from_node_id — should be kept
                 return [LevelUpgrade("c1", "L2", ["tok_c"], 0.01, [edge_b])]
 
@@ -602,7 +602,7 @@ class CausalEdgeContractTests(unittest.TestCase):
 
 
 class CausalEdgePersistenceTests(unittest.TestCase):
-    """Verify IncrementalSynthesizer writes and reconciles causal edges in the DB."""
+    """Verify causal edges are not materialized during incremental synthesis."""
 
     def _make_session_with_windowed_obs(self, store, sess_id: str, step_id: str) -> None:
         """Insert session + 2 non-overlapping-window observations for metric 'm'."""
@@ -634,14 +634,8 @@ class CausalEdgePersistenceTests(unittest.TestCase):
                 ],
             )
 
-    def test_temporally_precedes_edge_written_to_db(self) -> None:
-        """After two process() calls, evidence_edges contains a temporally_precedes row.
-
-        Two calls are required because CrossSliceConsistencyChecker (call 1) must
-        upgrade the claim to L1 before TemporalPrecedenceChecker (call 2) fires.
-        Both checkers run in a single run_all() invocation that sees the original
-        claim state, so the L1 prerequisite is not visible until the next process().
-        """
+    def test_temporally_precedes_edge_not_written_during_incremental_processing(self) -> None:
+        """Incremental synthesis upgrades claims but leaves causal edge materialization to final synthesis."""
         from app.evidence_engine.incremental_synthesizer import IncrementalSynthesizer
         from app.storage.sqlite_metadata import SQLiteMetadataStore
 
@@ -659,13 +653,10 @@ class CausalEdgePersistenceTests(unittest.TestCase):
                 "SELECT edge_type, from_node_id, to_node_type FROM evidence_edges WHERE session_id = ?",
                 [sess_id],
             )
-            tp_edges = [e for e in edges if e["edge_type"] == "temporally_precedes"]
-            self.assertEqual(len(tp_edges), 1, "Expected exactly one temporally_precedes edge")
-            self.assertEqual(tp_edges[0]["from_node_id"], "obs_w1")
-            self.assertEqual(tp_edges[0]["to_node_type"], "claim")
+            self.assertEqual(edges, [])
 
-    def test_causal_edge_not_duplicated_on_repeated_process(self) -> None:
-        """Calling process() three times does not duplicate the causal edge in the DB."""
+    def test_repeated_incremental_processing_keeps_edge_table_empty(self) -> None:
+        """Repeated incremental processing should not materialize causal edges."""
         from app.evidence_engine.incremental_synthesizer import IncrementalSynthesizer
         from app.storage.sqlite_metadata import SQLiteMetadataStore
 
@@ -684,7 +675,7 @@ class CausalEdgePersistenceTests(unittest.TestCase):
                 "SELECT edge_type FROM evidence_edges WHERE session_id = ? AND edge_type = 'temporally_precedes'",
                 [sess_id],
             )
-            self.assertEqual(len(edges), 1, "Duplicate causal edges must not be inserted")
+            self.assertEqual(edges, [])
 
 
 # ── Helper function unit tests ────────────────────────────────────────────────

@@ -78,23 +78,15 @@ class DefaultRecommendationPolicy(RecommendationPolicy):
         recommendations: list[Recommendation],
         relations: list[ClaimRelation] | None = None,
     ) -> list[Recommendation]:
-        if recommendations:
-            return recommendations
-
         confirmed_claims = [
             c for c in claims
             if c["type"] == "root_cause_candidate"
             and c["status"] in {"supported", "confirmed"}
         ]
 
-        if confirmed_claims:
-            return self._derive_from_confirmed(observations, confirmed_claims)
-
-        # Fallback: use the highest-confidence claim regardless of status
-        candidate = max(claims, key=lambda c: c["confidence"], default=None)
-        if candidate is None or candidate["confidence"] < 0.2:
+        if not confirmed_claims:
             return []
-        return [self._single_claim_recommendation(observations, candidate)]
+        return self._derive_from_confirmed(observations, confirmed_claims)
 
     # ── No-action detection ──────────────────────────────────────────────────
 

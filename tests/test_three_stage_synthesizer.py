@@ -116,11 +116,11 @@ class TestScopeClusterer(unittest.TestCase):
         self.assertEqual(len(clusters[0].funnel_drop_obs), 1)
         self.assertEqual(clusters[0].total_observation_count, 2)
 
-    def test_non_metric_only_produces_fallback_cluster(self):
+    def test_non_metric_only_with_stable_scope_produces_cluster(self):
         obs = _anomaly_obs()
         clusters = self.clusterer.cluster([obs])
         self.assertEqual(len(clusters), 1)
-        self.assertEqual(clusters[0].cluster_reason, "non_metric_fallback")
+        self.assertEqual(clusters[0].cluster_reason, "exact_scope_match")
         self.assertEqual(len(clusters[0].anomaly_detection_obs), 1)
 
     def test_empty_observations_returns_empty_list(self):
@@ -148,6 +148,18 @@ class TestScopeClusterer(unittest.TestCase):
         # Both obs have same scope — should produce 1 cluster
         self.assertEqual(len(clusters), 1)
         self.assertEqual(clusters[0].scope_key, "revenue/a=1,b=2")
+
+    def test_observation_without_stable_scope_is_dropped(self):
+        obs = {
+            "observation_id": "obs_bad_scope",
+            "type": "metric_change",
+            "subject": {"metric": "", "slice": None},
+            "payload": {"delta_pct": -3.0},
+            "significance": {"sample_size": 50, "practical_significance": True},
+            "quality": {"sample_size_ok": True, "freshness_ok": True},
+        }
+        clusters = self.clusterer.cluster([obs])
+        self.assertEqual(clusters, [])
 
 
 # ── SignalAligner ─────────────────────────────────────────────────────────────
@@ -359,8 +371,8 @@ class TestAuditLogPersistence(unittest.TestCase):
 
         return SemanticLayerService(metadata, analytics), metadata
 
-    def test_mode_b_synthesis_audit_log_persisted(self):
-        """synthesize_findings with no tentative claims persists a three_stage_pipeline audit."""
+    def test_synthesis_without_tentative_claims_persists_empty_promotion_audit(self):
+        """synthesize_findings always records promotion-mode audit metadata."""
         with tempfile.TemporaryDirectory() as tmp:
             svc, metadata = self._make_service(tmp)
 
@@ -374,7 +386,7 @@ class TestAuditLogPersistence(unittest.TestCase):
             svc._insert_step(step_id, session_id, "compare_metric", "test step", {})
             svc._insert_observation(session_id, step_id, obs)
 
-            # Run synthesize_findings (Mode B — no tentative claims)
+            # Run synthesize_findings with no tentative claims.
             svc._run_synthesis(session_id)
 
             rows = metadata.query_rows(
@@ -384,7 +396,24 @@ class TestAuditLogPersistence(unittest.TestCase):
             synthesis_artifacts = [r for r in rows if r["artifact_type"] == "synthesis_audit"]
             self.assertGreater(len(synthesis_artifacts), 0, "No synthesis_audit artifact found")
             content = json.loads(synthesis_artifacts[0]["content_json"])
-            self.assertEqual(content["stage"], "three_stage_pipeline")
+            self.assertEqual(content["stage"], "promotion")
+            self.assertEqual(content["claims_promoted"], [])
+
+    def test_three_stage_audit_counts_dropped_observations(self):
+        pipeline = ThreeStagePipeline()
+        bad_obs = {
+            "observation_id": "obs_bad_scope",
+            "type": "metric_change",
+            "subject": {"metric": "", "slice": None},
+            "payload": {"delta_pct": -3.0},
+            "significance": {"sample_size": 50, "practical_significance": True},
+            "quality": {"sample_size_ok": True, "freshness_ok": True},
+        }
+        claims, recs, edges, audit = pipeline.run([_metric_obs(), bad_obs])
+        self.assertGreaterEqual(len(claims), 1)
+        self.assertEqual(recs, [])
+        self.assertEqual(edges, [])
+        self.assertEqual(audit.dropped_observation_count, 1)
 
     def test_mode_a_promotion_audit_log_persisted(self):
         """synthesize_findings with tentative claims persists a promotion audit."""

@@ -142,7 +142,7 @@ class NoActionRecommendationTests(unittest.TestCase):
         self.assertEqual(len(no_action_recs), 2)  # queued_time aligned + cpu_time small delta
 
     def test_no_action_excluded_from_existing_recommendations(self) -> None:
-        """When recommendations already exist, derive() returns them unchanged."""
+        """Existing recommendations are no longer passed through by the policy layer."""
         existing = [{
             "rec_id": "rec_existing",
             "type": REC_TYPE_ACTION,
@@ -157,8 +157,7 @@ class NoActionRecommendationTests(unittest.TestCase):
         }]
         policy = DefaultRecommendationPolicy()
         recs = policy.derive([], [], existing)
-        self.assertEqual(len(recs), 1)
-        self.assertEqual(recs[0]["rec_id"], "rec_existing")
+        self.assertEqual(recs, [])
 
 
 class GetClaimDeltaTests(unittest.TestCase):
