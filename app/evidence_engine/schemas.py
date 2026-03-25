@@ -118,6 +118,7 @@ class Recommendation(TypedDict):
     type: str                          # Signal: "action_required" or "no_action_required"
     claim_id: str                      # Signal: primary backing claim (highest confidence)
     action_text: str                   # Signal: proposed action (agent decides whether to take it)
+    template_id: str | None            # Signal: stable template identifier for debugging / UX
     priority: str                      # Signal: P0/P1/P2/P3 — agent uses to triage, not a command
     expected_impact: str               # Signal: estimated outcome if action is taken
     risk: str                          # Signal: risk level of the action

@@ -292,6 +292,7 @@ class EvidenceRecommendationResponse(BaseModel):
     type: str
     claim_id: str
     action_text: str
+    template_id: str | None = None
     priority: str
     expected_impact: str
     risk: str

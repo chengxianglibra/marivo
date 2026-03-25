@@ -287,7 +287,7 @@ class SemanticLayerService:
         recommendations = self.metadata.query_rows(
             """
             SELECT rec_id, type, claim_id, action_text, priority, expected_impact, risk,
-                   validation_metric_json, causal_basis_json, entity_patch_json,
+                   template_id, validation_metric_json, causal_basis_json, entity_patch_json,
                    supporting_claims_json
             FROM recommendations
             WHERE session_id = ?
@@ -2364,16 +2364,17 @@ class SemanticLayerService:
         self.metadata.execute(
             """
             INSERT INTO recommendations (
-                rec_id, session_id, claim_id, action_text, priority, expected_impact, risk,
+                rec_id, session_id, claim_id, action_text, template_id, priority, expected_impact, risk,
                 validation_metric_json, causal_basis_json, entity_patch_json, supporting_claims_json,
                 type
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 recommendation["rec_id"],
                 session_id,
                 recommendation["claim_id"],
                 recommendation["action_text"],
+                recommendation.get("template_id"),
                 recommendation["priority"],
                 recommendation["expected_impact"],
                 recommendation["risk"],

@@ -258,6 +258,7 @@ class IncrementalSynthesizer:
         consistency = round(min(1.0, 0.5 + 0.5 * math.log1p(n_supporting) / math.log1p(5)), 3)
 
         contradiction_penalty = round(min(0.5, n_contradictions * 0.15), 3)
+        delta_pct = payload.get("delta_pct")
 
         return {
             "effect_strength": round(effect_strength, 3),
@@ -265,6 +266,13 @@ class IncrementalSynthesizer:
             "sample_score": round(sample_score, 3),
             "data_quality_score": data_quality_score,
             "contradiction_penalty": contradiction_penalty,
+            "primary_delta_pct": round(float(delta_pct), 3) if delta_pct is not None else None,
+            "primary_direction": (
+                "up" if delta_pct is not None and float(delta_pct) > 0
+                else "down" if delta_pct is not None and float(delta_pct) < 0
+                else None
+            ),
+            "current_value": payload.get("current_value"),
         }
 
     # ── In-memory claim mutation helpers ─────────────────────────────────────

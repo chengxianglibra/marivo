@@ -11,6 +11,7 @@ def score_confidence(
     sample_score: float,
     data_quality_score: float,
     contradiction_penalty: float,
+    **_ignored: float,
 ) -> float:
     raw = (
         0.30 * effect_strength
