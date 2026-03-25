@@ -10,6 +10,23 @@ from app.main import create_app
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 
+def _single_window_scope() -> dict[str, object]:
+    return {
+        "mode": "single_window",
+        "grain": "day",
+        "current": {"start": "2026-03-01", "end": "2026-03-08"},
+    }
+
+
+def _compare_scope() -> dict[str, object]:
+    return {
+        "mode": "compare",
+        "grain": "day",
+        "current": {"start": "2026-02-28", "end": "2026-03-06"},
+        "baseline": {"start": "2026-02-22", "end": "2026-02-28"},
+    }
+
+
 class DeltaPctIntegerDivisionTests(unittest.TestCase):
     """Fix 1 (P0): delta_pct SQL should use float division, not integer division."""
 
@@ -57,8 +74,9 @@ class DeltaPctIntegerDivisionTests(unittest.TestCase):
             resp = client.post(
                 f"/sessions/{session_id}/steps/compare_metric",
                 json={
-                    "metric_name": "event_count",
-                    "table_name": "analytics.watch_events",
+                    "table": "analytics.watch_events",
+                    "metric": "event_count",
+                    "time_scope": _compare_scope(),
                 },
             )
             self.assertEqual(resp.status_code, 200)
@@ -147,10 +165,11 @@ class AggregateQueryStepTests(unittest.TestCase):
         resp = self.client.post(
             f"/sessions/{session_id}/steps/aggregate_query",
             json={
-                "table_name": "analytics.watch_events",
-                "select": ["platform", "count(*) as cnt"],
+                "table": "analytics.watch_events",
                 "group_by": ["platform"],
-                "order_by": "cnt DESC",
+                "measures": [{"expr": "COUNT(*)", "as": "cnt"}],
+                "time_scope": _single_window_scope(),
+                "order": "cnt DESC",
                 "limit": 10,
             },
         )
@@ -164,41 +183,53 @@ class AggregateQueryStepTests(unittest.TestCase):
             self.assertIn("platform", row)
             self.assertIn("cnt", row)
 
-    def test_aggregate_query_missing_select(self) -> None:
+    def test_aggregate_query_missing_measures(self) -> None:
         session_id = self.client.post(
-            "/sessions", json={"goal": "Test missing select."},
-        ).json()["session_id"]
-
-        resp = self.client.post(
-            f"/sessions/{session_id}/steps/aggregate_query",
-            json={"table_name": "analytics.watch_events", "group_by": ["platform"]},
-        )
-        self.assertEqual(resp.status_code, 400)
-
-    def test_aggregate_query_missing_group_by(self) -> None:
-        session_id = self.client.post(
-            "/sessions", json={"goal": "Test missing group_by."},
-        ).json()["session_id"]
-
-        resp = self.client.post(
-            f"/sessions/{session_id}/steps/aggregate_query",
-            json={"table_name": "analytics.watch_events", "select": ["count(*) as cnt"]},
-        )
-        self.assertEqual(resp.status_code, 400)
-
-    def test_aggregate_query_with_where(self) -> None:
-        """aggregate_query with WHERE filter should work."""
-        session_id = self.client.post(
-            "/sessions", json={"goal": "Test aggregate with where."},
+            "/sessions", json={"goal": "Test missing measures."},
         ).json()["session_id"]
 
         resp = self.client.post(
             f"/sessions/{session_id}/steps/aggregate_query",
             json={
-                "table_name": "analytics.watch_events",
-                "select": ["platform", "count(*) as cnt"],
+                "table": "analytics.watch_events",
                 "group_by": ["platform"],
-                "where": "platform = 'android'",
+                "time_scope": _single_window_scope(),
+            },
+        )
+        self.assertEqual(resp.status_code, 422)
+
+    def test_aggregate_query_without_group_by_returns_overall_aggregate(self) -> None:
+        session_id = self.client.post(
+            "/sessions", json={"goal": "Test overall aggregate."},
+        ).json()["session_id"]
+
+        resp = self.client.post(
+            f"/sessions/{session_id}/steps/aggregate_query",
+            json={
+                "table": "analytics.watch_events",
+                "measures": [{"expr": "COUNT(*)", "as": "cnt"}],
+                "time_scope": _single_window_scope(),
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        rows = resp.json()["rows"]
+        self.assertGreater(len(rows), 0)
+        self.assertIn("cnt", rows[0])
+
+    def test_aggregate_query_with_scope_predicate(self) -> None:
+        """aggregate_query with scope predicate should work."""
+        session_id = self.client.post(
+            "/sessions", json={"goal": "Test aggregate with scope predicate."},
+        ).json()["session_id"]
+
+        resp = self.client.post(
+            f"/sessions/{session_id}/steps/aggregate_query",
+            json={
+                "table": "analytics.watch_events",
+                "group_by": ["platform"],
+                "measures": [{"expr": "COUNT(*)", "as": "cnt"}],
+                "time_scope": _single_window_scope(),
+                "scope": {"predicate": "platform = 'android'"},
             },
         )
         self.assertEqual(resp.status_code, 200)
@@ -231,10 +262,11 @@ class AggregateQueryObservationTests(unittest.TestCase):
         resp = self.client.post(
             f"/sessions/{session_id}/steps/aggregate_query",
             json={
-                "table_name": "analytics.watch_events",
-                "select": ["platform", "count(*) as cnt"],
+                "table": "analytics.watch_events",
                 "group_by": ["platform"],
-                "order_by": "cnt DESC",
+                "measures": [{"expr": "COUNT(*)", "as": "cnt"}],
+                "time_scope": _single_window_scope(),
+                "order": "cnt DESC",
                 "limit": 10,
             },
         )
@@ -252,17 +284,16 @@ class AggregateQueryObservationTests(unittest.TestCase):
             "/sessions", json={"goal": "Test aggregate no-obs."},
         ).json()["session_id"]
 
-        resp = self.client.post(
-            f"/sessions/{session_id}/steps/aggregate_query",
-            json={
-                "table_name": "analytics.watch_events",
-                "select": ["platform", "count(*) as cnt"],
+        result = self.client.app.state.service._run_aggregate_query(
+            session_id,
+            {
+                "table": "analytics.watch_events",
                 "group_by": ["platform"],
+                "measures": [{"expr": "COUNT(*)", "as": "cnt"}],
+                "time_scope": _single_window_scope(),
                 "extract_observations": False,
             },
         )
-        self.assertEqual(resp.status_code, 200)
-        result = resp.json()
         self.assertNotIn("observations", result)
 
 
@@ -310,9 +341,10 @@ class SessionConstraintInjectionTests(unittest.TestCase):
         resp = self.client.post(
             f"/sessions/{session_id}/steps/aggregate_query",
             json={
-                "table_name": "analytics.watch_events",
-                "select": ["platform", "count(*) as cnt"],
+                "table": "analytics.watch_events",
                 "group_by": ["platform"],
+                "measures": [{"expr": "COUNT(*)", "as": "cnt"}],
+                "time_scope": _single_window_scope(),
             },
         )
         self.assertEqual(resp.status_code, 200)
@@ -329,9 +361,10 @@ class SessionConstraintInjectionTests(unittest.TestCase):
         resp = self.client.post(
             f"/sessions/{session_id}/steps/aggregate_query",
             json={
-                "table_name": "analytics.watch_events",
-                "select": ["platform", "count(*) as cnt"],
+                "table": "analytics.watch_events",
                 "group_by": ["platform"],
+                "measures": [{"expr": "COUNT(*)", "as": "cnt"}],
+                "time_scope": _single_window_scope(),
             },
         )
         self.assertEqual(resp.status_code, 200)
@@ -341,13 +374,13 @@ class SessionConstraintInjectionTests(unittest.TestCase):
         self.assertGreater(len(platforms), 1)
 
 
-class AggregateQueryComparePeriodTests(unittest.TestCase):
-    """Tests for compare_period parameter on aggregate_query step."""
+class AggregateQueryTimeScopeTests(unittest.TestCase):
+    """Tests for typed compare and single-window aggregate_query execution."""
 
     @classmethod
     def setUpClass(cls) -> None:
         cls.temp_dir = tempfile.TemporaryDirectory()
-        db_path = Path(cls.temp_dir.name) / "compare_period.duckdb"
+        db_path = Path(cls.temp_dir.name) / "aggregate_time_scope.duckdb"
         get_seeded_duckdb_path(db_path)
         cls.client = TestClient(create_app(db_path))
 
@@ -361,19 +394,16 @@ class AggregateQueryComparePeriodTests(unittest.TestCase):
             "/sessions", json={"goal": "WoW comparison test."}
         ).json()["session_id"]
 
-    def test_compare_period_returns_delta_columns(self) -> None:
-        """compare_period=True should produce {alias}_current, _baseline, _delta_pct columns."""
+    def test_compare_mode_returns_delta_columns(self) -> None:
+        """compare mode should produce {alias}_current, _baseline, _delta_pct columns."""
         session_id = self._new_session()
         resp = self.client.post(
             f"/sessions/{session_id}/steps/aggregate_query",
             json={
-                "table_name": "analytics.watch_events",
-                "select": ["platform", "count(*) as cnt"],
+                "table": "analytics.watch_events",
                 "group_by": ["platform"],
-                "date_column": "event_date",
-                "compare_period": True,
-                "period_start": "2026-02-21",
-                "period_end": "2026-03-06",
+                "measures": [{"expr": "COUNT(*)", "as": "cnt"}],
+                "time_scope": _compare_scope(),
             },
         )
         self.assertEqual(resp.status_code, 200)
@@ -386,60 +416,66 @@ class AggregateQueryComparePeriodTests(unittest.TestCase):
         self.assertIn("cnt_delta_pct", first_row)
         self.assertIn("platform", first_row)
 
-    def test_compare_period_explicit_period(self) -> None:
-        """Explicitly supplied period_start/period_end should succeed and return rows."""
+    def test_compare_mode_summary_mentions_current_and_baseline_windows(self) -> None:
         session_id = self._new_session()
         resp = self.client.post(
             f"/sessions/{session_id}/steps/aggregate_query",
             json={
-                "table_name": "analytics.watch_events",
-                "select": ["platform", "avg(play_duration_seconds) as avg_dur"],
+                "table": "analytics.watch_events",
                 "group_by": ["platform"],
-                "date_column": "event_date",
-                "compare_period": True,
-                "period_start": "2026-02-21",
-                "period_end": "2026-03-06",
+                "measures": [{"expr": "AVG(play_duration_seconds)", "as": "avg_dur"}],
+                "time_scope": _compare_scope(),
             },
         )
         self.assertEqual(resp.status_code, 200)
         result = resp.json()
         self.assertIn("summary", result)
-        self.assertIn("2026-02-21", result["summary"])
+        self.assertIn("current 2026-02-28", result["summary"])
+        self.assertIn("baseline 2026-02-22", result["summary"])
 
-    def test_compare_period_requires_date_column(self) -> None:
-        """compare_period=True without date_column should return a 4xx or 5xx error."""
+    def test_compare_mode_generates_observations(self) -> None:
+        """compare mode should produce at least one observation."""
         session_id = self._new_session()
         resp = self.client.post(
             f"/sessions/{session_id}/steps/aggregate_query",
             json={
-                "table_name": "analytics.watch_events",
-                "select": ["platform", "count(*) as cnt"],
+                "table": "analytics.watch_events",
                 "group_by": ["platform"],
-                "compare_period": True,
-                # intentionally omit date_column
-            },
-        )
-        self.assertGreaterEqual(resp.status_code, 400)
-
-    def test_compare_period_generates_observations(self) -> None:
-        """compare_period step should produce at least one observation."""
-        session_id = self._new_session()
-        resp = self.client.post(
-            f"/sessions/{session_id}/steps/aggregate_query",
-            json={
-                "table_name": "analytics.watch_events",
-                "select": ["platform", "count(*) as cnt"],
-                "group_by": ["platform"],
-                "date_column": "event_date",
-                "compare_period": True,
-                "period_start": "2026-02-21",
-                "period_end": "2026-03-06",
+                "measures": [{"expr": "COUNT(*)", "as": "cnt"}],
+                "time_scope": _compare_scope(),
             },
         )
         self.assertEqual(resp.status_code, 200)
         result = resp.json()
         observations = result.get("observations", [])
         self.assertGreater(len(observations), 0)
+
+    def test_scope_predicate_rejects_time_condition(self) -> None:
+        session_id = self._new_session()
+        resp = self.client.post(
+            f"/sessions/{session_id}/steps/aggregate_query",
+            json={
+                "table": "analytics.watch_events",
+                "group_by": ["platform"],
+                "measures": [{"expr": "COUNT(*)", "as": "cnt"}],
+                "time_scope": _single_window_scope(),
+                "scope": {"predicate": "event_date >= '2026-03-01'"},
+            },
+        )
+        self.assertEqual(resp.status_code, 422)
+
+    def test_legacy_select_contract_is_rejected(self) -> None:
+        session_id = self._new_session()
+        resp = self.client.post(
+            f"/sessions/{session_id}/steps/aggregate_query",
+            json={
+                "table": "analytics.watch_events",
+                "select": ["platform", "COUNT(*) AS cnt"],
+                "group_by": ["platform"],
+                "time_scope": _single_window_scope(),
+            },
+        )
+        self.assertEqual(resp.status_code, 422)
 
 
 if __name__ == "__main__":
