@@ -67,6 +67,7 @@ def _make_claim(
     level: str = "L0",
     obs_ids: list[str] | None = None,
     slice_val: dict | None = None,
+    status: str = "tentative",
 ) -> dict:
     return {
         "claim_id": claim_id,
@@ -74,12 +75,33 @@ def _make_claim(
         "text": f"{metric} changed (tentative)",
         "scope": {"metric": metric, "slice": slice_val or {}},
         "confidence": 0.50,
-        "status": "tentative",
+        "status": status,
         "supporting_observations": list(obs_ids or []),
         "contradicting_observations": [],
         "confidence_breakdown": {},
         "inference_level": level,
         "inference_justification": [],
+    }
+
+
+def _make_relation(
+    from_claim_id: str,
+    to_claim_id: str,
+    *,
+    category: str = "exact_match",
+    direction: str = "up",
+    relation_type: str = "correlates_with",
+    supporting_observation_ids: list[str] | None = None,
+) -> dict:
+    return {
+        "from_claim_id": from_claim_id,
+        "to_claim_id": to_claim_id,
+        "relation_type": relation_type,
+        "weight": 0.92,
+        "match_basis": {"category": category, "direction": direction},
+        "score_components": {},
+        "supporting_observation_ids": list(supporting_observation_ids or []),
+        "explanation": "test relation",
     }
 
 
@@ -140,65 +162,133 @@ class TemporalPrecedenceCheckerTests(unittest.TestCase):
     def setUp(self) -> None:
         self.checker = TemporalPrecedenceChecker()
 
-    def test_upgrade_l1_to_l2_with_temporal_gap(self) -> None:
-        """First window ends before second window starts → strict precedence → L2."""
+    def test_upgrade_effect_claim_to_l2_with_temporal_gap(self) -> None:
+        """Relation-backed non-overlapping claim windows upgrade the later claim to L2."""
         obs = [
-            _make_obs("o1", "m", delta_pct=5.0,
+            _make_obs("o1", "query_count", delta_pct=5.0,
                       window={"start": "2024-01-01", "end": "2024-01-07", "granularity": "day"}),
-            _make_obs("o2", "m", delta_pct=8.0,
+            _make_obs("o2", "queued_time", delta_pct=8.0,
                       window={"start": "2024-01-10", "end": "2024-01-17", "granularity": "day"}),
         ]
-        claim = _make_claim("c1", "m", level="L1", obs_ids=["o1", "o2"])
-        upgrades = self.checker.check([claim], obs, [])
+        claims = [
+            _make_claim("c1", "query_count", level="L1", obs_ids=["o1"], slice_val={"user": "sys_titan"}, status="confirmed"),
+            _make_claim("c2", "queued_time", level="L1", obs_ids=["o2"], slice_val={"user": "sys_titan"}, status="confirmed"),
+        ]
+        relations = [_make_relation("c1", "c2", supporting_observation_ids=["o1", "o2"])]
+        upgrades = self.checker.check(claims, obs, [], relations=relations)
         self.assertEqual(len(upgrades), 1)
+        self.assertEqual(upgrades[0].claim_id, "c2")
         self.assertEqual(upgrades[0].new_level, "L2")
         self.assertIn("temporal_precedence", upgrades[0].justification_tokens[0])
         self.assertIn("lag=3d", upgrades[0].justification_tokens[0])
 
-    def test_no_upgrade_l0_claim(self) -> None:
-        """L0 claim is not eligible for TemporalPrecedenceChecker (requires L1)."""
+    def test_no_upgrade_without_relations(self) -> None:
+        """The checker does not pair raw claims directly when relations are absent."""
         obs = [
-            _make_obs("o1", "m", delta_pct=5.0,
+            _make_obs("o1", "query_count", delta_pct=5.0,
                       window={"start": "2024-01-01", "end": "2024-01-07", "granularity": "day"}),
-            _make_obs("o2", "m", delta_pct=8.0,
+            _make_obs("o2", "queued_time", delta_pct=8.0,
                       window={"start": "2024-01-10", "end": "2024-01-17", "granularity": "day"}),
         ]
-        claim = _make_claim("c1", "m", level="L0", obs_ids=["o1", "o2"])
-        upgrades = self.checker.check([claim], obs, [])
+        claims = [
+            _make_claim("c1", "query_count", level="L1", obs_ids=["o1"], slice_val={"user": "sys_titan"}, status="confirmed"),
+            _make_claim("c2", "queued_time", level="L1", obs_ids=["o2"], slice_val={"user": "sys_titan"}, status="confirmed"),
+        ]
+        upgrades = self.checker.check(claims, obs, [], relations=None)
         self.assertEqual(len(upgrades), 0)
 
     def test_no_upgrade_null_observed_window(self) -> None:
-        """Observations without observed_window are not windowed → no upgrade."""
+        """Claims missing real observed_window signals remain below L2."""
         obs = [
-            _make_obs("o1", "m", delta_pct=5.0, window=None),
-            _make_obs("o2", "m", delta_pct=8.0, window=None),
+            _make_obs("o1", "query_count", delta_pct=5.0, window=None),
+            _make_obs("o2", "queued_time", delta_pct=8.0, window=None),
         ]
-        claim = _make_claim("c1", "m", level="L1", obs_ids=["o1", "o2"])
-        upgrades = self.checker.check([claim], obs, [])
+        claims = [
+            _make_claim("c1", "query_count", level="L1", obs_ids=["o1"], slice_val={"user": "sys_titan"}, status="confirmed"),
+            _make_claim("c2", "queued_time", level="L1", obs_ids=["o2"], slice_val={"user": "sys_titan"}, status="confirmed"),
+        ]
+        relations = [_make_relation("c1", "c2", supporting_observation_ids=["o1", "o2"])]
+        upgrades = self.checker.check(claims, obs, [], relations=relations)
         self.assertEqual(len(upgrades), 0)
 
     def test_no_upgrade_overlapping_windows(self) -> None:
-        """Overlapping windows (end >= start of next) → no strict precedence."""
+        """Overlapping claim windows remain correlation-only."""
         obs = [
-            _make_obs("o1", "m", delta_pct=5.0,
+            _make_obs("o1", "query_count", delta_pct=5.0,
                       window={"start": "2024-01-01", "end": "2024-01-10", "granularity": "day"}),
-            _make_obs("o2", "m", delta_pct=8.0,
+            _make_obs("o2", "queued_time", delta_pct=8.0,
                       window={"start": "2024-01-08", "end": "2024-01-15", "granularity": "day"}),
         ]
-        claim = _make_claim("c1", "m", level="L1", obs_ids=["o1", "o2"])
-        upgrades = self.checker.check([claim], obs, [])
+        claims = [
+            _make_claim("c1", "query_count", level="L1", obs_ids=["o1"], slice_val={"user": "sys_titan"}, status="confirmed"),
+            _make_claim("c2", "queued_time", level="L1", obs_ids=["o2"], slice_val={"user": "sys_titan"}, status="confirmed"),
+        ]
+        relations = [_make_relation("c1", "c2", supporting_observation_ids=["o1", "o2"])]
+        upgrades = self.checker.check(claims, obs, [], relations=relations)
         self.assertEqual(len(upgrades), 0)
 
-    def test_no_upgrade_only_one_windowed_observation(self) -> None:
-        """Only 1 observation has observed_window → below MIN_WINDOWED_OBSERVATIONS=2."""
+    def test_no_upgrade_for_ineligible_relation_category(self) -> None:
+        """Complementary-dimension relations do not imply temporal precedence."""
         obs = [
-            _make_obs("o1", "m", delta_pct=5.0,
+            _make_obs("o1", "queued_time", delta_pct=5.0,
                       window={"start": "2024-01-01", "end": "2024-01-07", "granularity": "day"}),
-            _make_obs("o2", "m", delta_pct=8.0, window=None),
+            _make_obs("o2", "queued_time", delta_pct=8.0,
+                      slice_val={"user": "sys_oneservice"},
+                      window={"start": "2024-01-10", "end": "2024-01-17", "granularity": "day"}),
         ]
-        claim = _make_claim("c1", "m", level="L1", obs_ids=["o1", "o2"])
-        upgrades = self.checker.check([claim], obs, [])
+        claims = [
+            _make_claim("c1", "queued_time", level="L1", obs_ids=["o1"], slice_val={"user": "sys_titan"}, status="confirmed"),
+            _make_claim("c2", "queued_time", level="L1", obs_ids=["o2"], slice_val={"user": "sys_oneservice"}, status="confirmed"),
+        ]
+        relations = [_make_relation(
+            "c1",
+            "c2",
+            category="complementary_dimension",
+            supporting_observation_ids=["o1", "o2"],
+        )]
+        upgrades = self.checker.check(claims, obs, [], relations=relations)
         self.assertEqual(len(upgrades), 0)
+
+    def test_claim_window_none_without_supporting_observations(self) -> None:
+        claim = _make_claim("c1", "query_count", level="L1", obs_ids=[], status="confirmed")
+        window = self.checker._claim_window(claim, {})
+        self.assertIsNone(window)
+
+    def test_claim_window_none_when_window_missing_end(self) -> None:
+        claim = _make_claim("c1", "query_count", level="L1", obs_ids=["o1"], status="confirmed")
+        obs_by_id = {
+            "o1": _make_obs("o1", "query_count", delta_pct=5.0, window={"start": "2024-01-01"}),
+        }
+        window = self.checker._claim_window(claim, obs_by_id)
+        self.assertIsNone(window)
+
+    def test_claim_window_uses_conservative_envelope_for_multiple_windows(self) -> None:
+        claim = _make_claim("c1", "query_count", level="L1", obs_ids=["o1", "o2"], status="confirmed")
+        obs_by_id = {
+            "o1": _make_obs("o1", "query_count", delta_pct=5.0, window={"start": "2024-01-01", "end": "2024-01-03"}),
+            "o2": _make_obs("o2", "query_count", delta_pct=6.0, window={"start": "2024-01-10", "end": "2024-01-15"}),
+        }
+        window = self.checker._claim_window(claim, obs_by_id)
+        self.assertEqual(window, {"start": "2024-01-01", "end": "2024-01-15"})
+
+    def test_duplicate_relations_for_same_pair_emit_one_upgrade(self) -> None:
+        obs = [
+            _make_obs("o1", "query_count", delta_pct=5.0,
+                      window={"start": "2024-01-01", "end": "2024-01-07", "granularity": "day"}),
+            _make_obs("o2", "queued_time", delta_pct=8.0,
+                      window={"start": "2024-01-10", "end": "2024-01-17", "granularity": "day"}),
+        ]
+        claims = [
+            _make_claim("c1", "query_count", level="L1", obs_ids=["o1"], slice_val={"user": "sys_titan"}, status="confirmed"),
+            _make_claim("c2", "queued_time", level="L1", obs_ids=["o2"], slice_val={"user": "sys_titan"}, status="confirmed"),
+        ]
+        relations = [
+            _make_relation("c1", "c2", supporting_observation_ids=["o1", "o2"]),
+            _make_relation("c1", "c2", category="subset_or_overlap", supporting_observation_ids=["o1", "o2"]),
+        ]
+        upgrades = self.checker.check(claims, obs, [], relations=relations)
+        self.assertEqual(len(upgrades), 1)
+        self.assertEqual(upgrades[0].claim_id, "c2")
 
 
 # ── DoseResponseChecker ───────────────────────────────────────────────────────
@@ -700,48 +790,56 @@ class CausalEdgeContractTests(unittest.TestCase):
     """Verify TemporalPrecedenceChecker emits CausalEdge and registry merges edges."""
 
     def test_temporal_precedence_emits_causal_edge(self) -> None:
-        """Checker returns a CausalEdge pointing earliest obs → claim."""
+        """Checker returns a claim-to-claim CausalEdge for the temporal predecessor."""
         checker = TemporalPrecedenceChecker()
         obs = [
-            _make_obs("o1", "m", delta_pct=5.0,
+            _make_obs("o1", "query_count", delta_pct=5.0,
                       window={"start": "2024-01-01", "end": "2024-01-07", "granularity": "day"}),
-            _make_obs("o2", "m", delta_pct=8.0,
+            _make_obs("o2", "queued_time", delta_pct=8.0,
                       window={"start": "2024-01-10", "end": "2024-01-17", "granularity": "day"}),
         ]
-        claim = _make_claim("c1", "m", level="L1", obs_ids=["o1", "o2"])
-        upgrades = checker.check([claim], obs, [])
+        claims = [
+            _make_claim("c1", "query_count", level="L1", obs_ids=["o1"], slice_val={"user": "sys_titan"}, status="confirmed"),
+            _make_claim("c2", "queued_time", level="L1", obs_ids=["o2"], slice_val={"user": "sys_titan"}, status="confirmed"),
+        ]
+        relations = [_make_relation("c1", "c2", supporting_observation_ids=["o1", "o2"])]
+        upgrades = checker.check(claims, obs, [], relations=relations)
         self.assertEqual(len(upgrades), 1)
         edges = upgrades[0].causal_edges
         self.assertEqual(len(edges), 1)
         edge = edges[0]
         self.assertIsInstance(edge, CausalEdge)
         self.assertEqual(edge.edge_type, "temporally_precedes")
-        self.assertEqual(edge.from_node_id, "o1")   # earliest obs
-        self.assertEqual(edge.from_node_type, "observation")
-        self.assertEqual(edge.to_node_id, "c1")
+        self.assertEqual(edge.from_node_id, "c1")
+        self.assertEqual(edge.from_node_type, "claim")
+        self.assertEqual(edge.to_node_id, "c2")
         self.assertEqual(edge.to_node_type, "claim")
         self.assertIn("3 days", edge.explanation)
-        self.assertIn("o2", edge.explanation)  # paired obs mentioned
+        self.assertIn("c2", edge.explanation)
 
     def test_no_causal_edge_without_upgrade(self) -> None:
         """When temporal precedence check fails, no causal edge is produced."""
         checker = TemporalPrecedenceChecker()
         obs = [
-            _make_obs("o1", "m", delta_pct=5.0,
+            _make_obs("o1", "query_count", delta_pct=5.0,
                       window={"start": "2024-01-01", "end": "2024-01-10", "granularity": "day"}),
-            _make_obs("o2", "m", delta_pct=8.0,
+            _make_obs("o2", "queued_time", delta_pct=8.0,
                       window={"start": "2024-01-08", "end": "2024-01-15", "granularity": "day"}),
         ]
-        claim = _make_claim("c1", "m", level="L1", obs_ids=["o1", "o2"])
-        upgrades = checker.check([claim], obs, [])
+        claims = [
+            _make_claim("c1", "query_count", level="L1", obs_ids=["o1"], slice_val={"user": "sys_titan"}, status="confirmed"),
+            _make_claim("c2", "queued_time", level="L1", obs_ids=["o2"], slice_val={"user": "sys_titan"}, status="confirmed"),
+        ]
+        relations = [_make_relation("c1", "c2", supporting_observation_ids=["o1", "o2"])]
+        upgrades = checker.check(claims, obs, [], relations=relations)
         self.assertEqual(len(upgrades), 0)
 
     def test_registry_merges_causal_edges(self) -> None:
         """run_all merges causal edges from multiple checkers, deduplicating by key."""
         registry = CausalCheckerRegistry()
 
-        edge_a = CausalEdge("obs_a", "observation", "c1", "claim", "temporally_precedes", 0.8, "x")
-        edge_b = CausalEdge("obs_b", "observation", "c1", "claim", "temporally_precedes", 0.7, "y")
+        edge_a = CausalEdge("c0", "claim", "c1", "claim", "temporally_precedes", 0.8, "x")
+        edge_b = CausalEdge("c2", "claim", "c1", "claim", "temporally_precedes", 0.7, "y")
 
         class _CheckerA(CausalChecker):
             @property
@@ -775,8 +873,8 @@ class CausalEdgeContractTests(unittest.TestCase):
         # edge_a should appear once (deduped), edge_b should appear once
         self.assertEqual(len(edges_out), 2)
         from_ids = {e.from_node_id for e in edges_out}
-        self.assertIn("obs_a", from_ids)
-        self.assertIn("obs_b", from_ids)
+        self.assertIn("c0", from_ids)
+        self.assertIn("c2", from_ids)
 
 
 class CausalEdgePersistenceTests(unittest.TestCase):
