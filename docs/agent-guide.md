@@ -48,6 +48,7 @@ Rules:
 - `time_axis` resolution prefers `semantic_entities.properties.time_capabilities`, then synced `source_objects.properties.time_capabilities`, then heuristics
 - phase-1 timezone policy is session-consistent naive timestamps only; hour-grain windows must not include timezone offsets
 - normalized windows are half-open: `[start, end)`
+- mixed layouts use timestamp fields for correctness and partition fields for pruning; hour-grain partition pruning bounds edge days by hour when those fields exist
 - `compare_metric` observations inherit `time_scope.current` as their `observed_window`
 - `aggregate_query` observations inherit the request window; temporal `group_by` can refine them to per-row windows
 - session constraints auto-inject into supported query steps

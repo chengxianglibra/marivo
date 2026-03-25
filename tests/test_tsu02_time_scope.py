@@ -8,6 +8,7 @@ from pathlib import Path
 import app.service as service_module
 from app.analysis_core.compiler import CompiledQuery
 from app.main import create_app
+from app.time_axis_metadata import TimeAxisMetadataContext
 from app.time_scope import AdHocAggregateValueSpec
 from app.time_scope import SemanticMetricValueSpec
 from app.time_scope import TimeAxisResolver
@@ -327,6 +328,107 @@ class TimeAxisResolverTests(unittest.TestCase):
             "ds >= '20260324' AND ds < '20260326'",
         )
 
+    def test_resolver_day_only_pruning_uses_current_window_for_single_window_mode(self) -> None:
+        request = normalize_compare_metric_request({
+            "table": "iceberg.analytics.query_events",
+            "metric": "queued_time",
+            "time_scope": {
+                "mode": "single_window",
+                "grain": "day",
+                "current": {"start": "2026-03-25", "end": "2026-03-28"},
+            },
+        })
+        resolved = TimeAxisResolver(
+            request=request,
+            engine_type="trino",
+            available_columns=["log_date", "resource_group"],
+        ).resolve()
+        self.assertEqual(resolved.analysis_time_kind, "date_field")
+        self.assertEqual(
+            resolved.partition_pruning_predicate,
+            "log_date >= '20260325' AND log_date < '20260328'",
+        )
+
+    def test_resolver_builds_cross_day_hour_partition_pruning(self) -> None:
+        request = normalize_compare_metric_request({
+            "table": "iceberg.analytics.query_events",
+            "metric": "queued_time",
+            "time_scope": {
+                "mode": "compare",
+                "grain": "hour",
+                "current": {
+                    "start": "2026-03-25T22:00:00",
+                    "end": "2026-03-26T02:00:00",
+                },
+                "baseline": {
+                    "start": "2026-03-24T22:00:00",
+                    "end": "2026-03-25T02:00:00",
+                },
+            },
+        })
+        resolved = TimeAxisResolver(
+            request=request,
+            engine_type="trino",
+            available_columns=["log_date", "log_hour"],
+            source_time_capabilities={
+                "analysis_time": {
+                    "fallback_date_column": "log_date",
+                    "fallback_hour_column": "log_hour",
+                },
+                "partition_time": {
+                    "date_column": "log_date",
+                    "date_format": "yyyymmdd",
+                    "hour_column": "log_hour",
+                    "hour_format": "hh",
+                },
+            },
+        ).resolve()
+        self.assertEqual(
+            resolved.partition_pruning_predicate,
+            "(log_date = '20260324' AND log_hour >= '22') OR "
+            "(log_date > '20260324' AND log_date < '20260326') OR "
+            "(log_date = '20260326' AND log_hour < '02')",
+        )
+
+    def test_resolver_builds_midnight_terminated_cross_day_hour_pruning(self) -> None:
+        request = normalize_compare_metric_request({
+            "table": "iceberg.analytics.query_events",
+            "metric": "queued_time",
+            "time_scope": {
+                "mode": "compare",
+                "grain": "hour",
+                "current": {
+                    "start": "2026-03-25T22:00:00",
+                    "end": "2026-03-26T00:00:00",
+                },
+                "baseline": {
+                    "start": "2026-03-24T22:00:00",
+                    "end": "2026-03-25T00:00:00",
+                },
+            },
+        })
+        resolved = TimeAxisResolver(
+            request=request,
+            engine_type="duckdb",
+            available_columns=["log_date", "log_hour"],
+            source_time_capabilities={
+                "analysis_time": {
+                    "fallback_date_column": "log_date",
+                    "fallback_hour_column": "log_hour",
+                },
+                "partition_time": {
+                    "date_column": "log_date",
+                    "date_format": "yyyymmdd",
+                    "hour_column": "log_hour",
+                    "hour_format": "hh",
+                },
+            },
+        ).resolve()
+        self.assertEqual(
+            resolved.partition_pruning_predicate,
+            "(log_date = '20260324' AND log_hour >= '22') OR (log_date = '20260325')",
+        )
+
     def test_resolver_heuristics_prefer_timestamp_when_mixed_columns_exist(self) -> None:
         request = self._compare_request()
         resolved = TimeAxisResolver(
@@ -551,6 +653,77 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         self.assertEqual(scoped_query["session_raw_filter"], "country = 'US'")
         self.assertEqual(scoped_query["scope_constraints_filter"], "region = 'us-east'")
         self.assertEqual(scoped_query["scope_predicate_filter"], "device_type = 'phone'")
+
+    def test_compare_metric_service_passes_mixed_layout_pruning_to_trino_scoped_query(self) -> None:
+        captured: dict[str, object] = {}
+        original_compile = self.service._compile_step_with_feedback
+        original_execute = service_module.execute_compiled
+        original_resolve_engine = self.service._resolve_engine
+        original_extract = self.service.evidence_pipeline.extract_observations
+        original_metadata_load = self.service.time_axis_metadata_provider.load_for_windowed_query
+        self.service._resolve_engine = lambda table_names: (_FakeEngine(), "trino", {table_names[0]: f"iceberg.analytics.{table_names[0]}"})
+        self.service.evidence_pipeline.extract_observations = lambda *args, **kwargs: []
+        self.service.time_axis_metadata_provider.load_for_windowed_query = lambda **kwargs: TimeAxisMetadataContext(
+            available_columns=["event_time", "log_date", "log_hour"],
+            source_time_capabilities={
+                "analysis_time": {
+                    "timestamp_column": "event_time",
+                    "fallback_date_column": "log_date",
+                    "fallback_hour_column": "log_hour",
+                },
+                "partition_time": {
+                    "date_column": "log_date",
+                    "date_format": "yyyymmdd",
+                    "hour_column": "log_hour",
+                    "hour_format": "hh",
+                },
+            },
+        )
+
+        def fake_compile(step, *, engine_type, semantic_context=None):
+            captured["params"] = dict(step.params)
+            captured["engine_type"] = engine_type
+            return CompiledQuery(sql="SELECT 1", params=[])
+
+        class _Result:
+            rows = [{
+                "platform": "android",
+                "current_value": 10.0,
+                "baseline_value": 5.0,
+                "delta_pct": 100.0,
+                "current_sessions": 10,
+                "baseline_sessions": 8,
+            }]
+
+        self.service._compile_step_with_feedback = fake_compile
+        service_module.execute_compiled = lambda engine, compiled: _Result()
+        try:
+            self.service._run_compare_metric(self.session_id, {
+                "table": "iceberg.analytics.watch_events",
+                "metric": self.metric_name,
+                "dimensions": ["platform"],
+                "time_scope": {
+                    "mode": "compare",
+                    "grain": "hour",
+                    "current": {"start": "2026-03-25T10:00:00", "end": "2026-03-25T14:00:00"},
+                    "baseline": {"start": "2026-03-25T06:00:00", "end": "2026-03-25T10:00:00"},
+                },
+            })
+        finally:
+            self.service._compile_step_with_feedback = original_compile
+            service_module.execute_compiled = original_execute
+            self.service._resolve_engine = original_resolve_engine
+            self.service.evidence_pipeline.extract_observations = original_extract
+            self.service.time_axis_metadata_provider.load_for_windowed_query = original_metadata_load
+
+        self.assertEqual(captured["engine_type"], "trino")
+        scoped_query = captured["params"]["scoped_query"]
+        self.assertEqual(scoped_query["analysis_time_kind"], "timestamp")
+        self.assertEqual(scoped_query["analysis_time_expr"], "event_time")
+        self.assertEqual(
+            scoped_query["partition_pruning_predicate"],
+            "log_date = '20260325' AND log_hour >= '06' AND log_hour < '14'",
+        )
 
     def test_compare_metric_hour_grain_annotations_use_hour_window(self) -> None:
         original_compile = self.service._compile_step_with_feedback
