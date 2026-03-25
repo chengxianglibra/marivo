@@ -1723,6 +1723,7 @@ class SemanticLayerService:
             observations,
             existing_claims=promoted,
         )
+        self._persist_synthesized_claim_updates(synthesis["claims"])
         claim_map = {c["claim_id"]: c for c in promoted}
         self._attach_entity_patches(synthesis["recommendations"], observations, claim_map)
         for recommendation in synthesis["recommendations"]:
@@ -1740,6 +1741,25 @@ class SemanticLayerService:
         }
         self._insert_step(step_id, session_id, step_type, summary, result, provenance=provenance)
         return result
+
+    def _persist_synthesized_claim_updates(self, claims: list[dict[str, Any]]) -> None:
+        """Persist post-promotion inference and confidence updates from the evidence pipeline."""
+        for claim in claims:
+            self.metadata.execute(
+                """
+                UPDATE claims
+                SET confidence = ?,
+                    inference_level = ?,
+                    inference_justification_json = ?
+                WHERE claim_id = ?
+                """,
+                [
+                    claim.get("confidence"),
+                    claim.get("inference_level", "L0"),
+                    self._dump(claim.get("inference_justification", [])),
+                    claim.get("claim_id"),
+                ],
+            )
 
     # ── Entity patch helpers (G-5b) ───────────────────────────────────────────
 

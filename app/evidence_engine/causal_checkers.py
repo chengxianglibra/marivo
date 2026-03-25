@@ -9,7 +9,7 @@ Checker chain (executed in order by CausalCheckerRegistry.run_all):
   2. CrossScopeCorrelationChecker  — L0 → L1  (cross-scope temporal correlation)
   3. CrossMetricCorrelationChecker — L0 → L1  (multi-metric consistency via claim relations)
   4. MechanisticExplanationChecker — L0/L1/L2 → L3  (contribution_shift explanation)
-  5. TemporalPrecedenceChecker     — L1 → L2  (strict temporal ordering of windows)
+  5. TemporalPrecedenceChecker     — L1/L1-like relation → L2  (strict claim-level temporal ordering)
   6. DoseResponseChecker           — L1+ bonus (Spearman ρ ≥ 0.7 on numeric dimension)
   7. ReversalChecker               — L2+ bonus (sustained direction reversal ≥ 2 periods)
 """
@@ -38,10 +38,10 @@ class CausalEdge:
     """A causal edge to be materialized in the evidence graph."""
 
     from_node_id: str
-    from_node_type: str   # "observation"
+    from_node_type: str
     to_node_id: str
-    to_node_type: str     # "claim"
-    edge_type: str        # e.g. "temporally_precedes"
+    to_node_type: str
+    edge_type: str
     weight: float
     explanation: str
 
@@ -231,13 +231,21 @@ class CrossSliceConsistencyChecker(CausalChecker):
 
 
 class TemporalPrecedenceChecker(CausalChecker):
-    """L1 → L2: strict temporal ordering of supporting observation windows.
+    """Promote relation-backed claims to L2 when real time windows establish precedence.
 
-    Requires ≥2 supporting observations with non-null observed_window where
-    the earliest window's end precedes the latest window's start (no overlap).
+    The checker consumes existing claim relations as the entry point for pairing:
+    it never mines raw claim pairs on its own. A claim relation is eligible when:
+    - relation_type is ``correlates_with``
+    - relation category is an overlapping-scope variant (exact/subset/overlap)
+    - both claims have supporting observations with real ``observed_window`` values
+
+    Promotion is conservative:
+    - only strict, non-overlapping claim windows qualify
+    - step execution order is ignored as causal evidence
+    - only the temporally later claim is upgraded to L2
     """
 
-    MIN_WINDOWED_OBSERVATIONS = 2
+    ELIGIBLE_RELATION_CATEGORIES = frozenset({"exact_match", "subset_or_overlap"})
 
     @property
     def name(self) -> str:
@@ -250,63 +258,118 @@ class TemporalPrecedenceChecker(CausalChecker):
         edges: list[dict[str, Any]],
         relations: list[ClaimRelation] | None = None,
     ) -> list[LevelUpgrade]:
-        obs_by_id = {o["observation_id"]: o for o in observations}
+        if not relations:
+            return []
 
+        obs_by_id = {
+            str(observation["observation_id"]): observation
+            for observation in observations
+            if observation.get("observation_id")
+        }
+        claim_by_id = {
+            str(claim.get("claim_id")): claim
+            for claim in claims
+            if claim.get("claim_id")
+        }
         upgrades: list[LevelUpgrade] = []
-        for claim in claims:
-            if claim.get("inference_level", "L0") == "L0":
+        emitted_pairs: set[tuple[str, str]] = set()
+
+        for relation in relations:
+            if relation.get("relation_type") != EDGE_TYPE_CORRELATES_WITH:
+                continue
+            match_basis = relation.get("match_basis", {})
+            if str(match_basis.get("category", "")) not in self.ELIGIBLE_RELATION_CATEGORIES:
                 continue
 
-            supporting_obs = [
-                obs_by_id[oid]
-                for oid in claim.get("supporting_observations", [])
-                if oid in obs_by_id
-            ]
-
-            windowed = [
-                o for o in supporting_obs
-                if o.get("observed_window") is not None
-            ]
-
-            if len(windowed) < self.MIN_WINDOWED_OBSERVATIONS:
+            left_claim = claim_by_id.get(str(relation.get("from_claim_id", "")))
+            right_claim = claim_by_id.get(str(relation.get("to_claim_id", "")))
+            if left_claim is None or right_claim is None:
                 continue
 
-            sorted_obs = sorted(
-                windowed,
-                key=lambda o: o["observed_window"]["start"],
+            left_window = self._claim_window(left_claim, obs_by_id)
+            right_window = self._claim_window(right_claim, obs_by_id)
+            if left_window is None or right_window is None:
+                continue
+
+            precedence = self._resolve_precedence(left_claim, left_window, right_claim, right_window)
+            if precedence is None:
+                continue
+
+            earlier_claim, earlier_window, later_claim, later_window = precedence
+            pair_key = (earlier_claim["claim_id"], later_claim["claim_id"])
+            if pair_key in emitted_pairs:
+                continue
+            emitted_pairs.add(pair_key)
+
+            lag_days = _date_diff_days(earlier_window["end"], later_window["start"])
+            if lag_days < 0:
+                continue
+            token = (
+                "temporal_precedence:"
+                f"{earlier_claim['claim_id']}→{later_claim['claim_id']}:"
+                f"lag={lag_days}d→L2"
             )
-
-            first_end = sorted_obs[0]["observed_window"]["end"]
-            last_start = sorted_obs[-1]["observed_window"]["start"]
-
-            # Strict non-overlap: earliest window ends before latest window starts
-            if first_end < last_start:
-                lag_days = _date_diff_days(first_end, last_start)
-                earliest_obs_id = sorted_obs[0]["observation_id"]
-                latest_obs_id = sorted_obs[-1]["observation_id"]
-                token = f"temporal_precedence:lag={lag_days}d→L2"
-                edge = CausalEdge(
-                    from_node_id=earliest_obs_id,
-                    from_node_type="observation",
-                    to_node_id=claim["claim_id"],
-                    to_node_type="claim",
-                    edge_type="temporally_precedes",
-                    weight=0.8,
-                    explanation=(
-                        f"Observation {earliest_obs_id} (window end={first_end}) "
-                        f"precedes {latest_obs_id} (window start={last_start}) "
-                        f"by {lag_days} days, establishing temporal ordering."
-                    ),
-                )
-                upgrades.append(LevelUpgrade(
-                    claim_id=claim["claim_id"],
-                    new_level="L2",
-                    justification_tokens=[token],
-                    confidence_boost=0.03,
-                    causal_edges=[edge],
-                ))
+            edge = CausalEdge(
+                from_node_id=earlier_claim["claim_id"],
+                from_node_type="claim",
+                to_node_id=later_claim["claim_id"],
+                to_node_type="claim",
+                edge_type="temporally_precedes",
+                weight=0.8,
+                explanation=(
+                    f"Claim {earlier_claim['claim_id']} "
+                    f"(window end={earlier_window['end']}) precedes "
+                    f"claim {later_claim['claim_id']} "
+                    f"(window start={later_window['start']}) by {lag_days} days."
+                ),
+            )
+            upgrades.append(LevelUpgrade(
+                claim_id=later_claim["claim_id"],
+                new_level="L2",
+                justification_tokens=[token],
+                confidence_boost=0.03,
+                causal_edges=[edge],
+            ))
 
         return upgrades
+
+    def _claim_window(
+        self,
+        claim: dict[str, Any],
+        observation_by_id: dict[str, dict[str, Any]],
+    ) -> dict[str, str] | None:
+        # Use a conservative envelope across all supporting windows. This can
+        # yield false negatives for disjoint support, but it avoids claiming
+        # precedence when a claim has overlapping evidence in another window.
+        windows = [
+            observation.get("observed_window")
+            for observation_id in claim.get("supporting_observations", [])
+            for observation in [observation_by_id.get(str(observation_id))]
+            if observation is not None and observation.get("observed_window") is not None
+        ]
+        if not windows:
+            return None
+        starts = [str(window["start"]) for window in windows if window.get("start")]
+        ends = [str(window["end"]) for window in windows if window.get("end")]
+        if not starts or not ends:
+            return None
+        return {
+            "start": min(starts),
+            "end": max(ends),
+        }
+
+    def _resolve_precedence(
+        self,
+        left_claim: dict[str, Any],
+        left_window: dict[str, str],
+        right_claim: dict[str, Any],
+        right_window: dict[str, str],
+    ) -> tuple[dict[str, Any], dict[str, str], dict[str, Any], dict[str, str]] | None:
+        if left_window["end"] < right_window["start"]:
+            return left_claim, left_window, right_claim, right_window
+        if right_window["end"] < left_window["start"]:
+            return right_claim, right_window, left_claim, left_window
+        return None
 
 
 class DoseResponseChecker(CausalChecker):

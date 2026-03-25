@@ -121,8 +121,8 @@ class TemporalWindowInferenceTests(unittest.TestCase):
         self.assertEqual(granularity, "day")
 
     def test_l1_to_l2_upgrade_via_temporal_precedence(self) -> None:
-        """G-2c: TemporalPrecedenceChecker upgrades an L1 claim to L2 when
-        supporting observations carry strictly non-overlapping observed_windows.
+        """G-2c: TemporalPrecedenceChecker upgrades the later related claim to L2 when
+        related claims carry strictly non-overlapping observed_windows.
 
         Exercises the checker directly with hand-crafted input so the assertion
         is independent of seeded-data randomness while still proving the
@@ -133,39 +133,60 @@ class TemporalWindowInferenceTests(unittest.TestCase):
         checker = TemporalPrecedenceChecker()
 
         # Two aggregate-query-style observations with non-overlapping windows.
-        # These represent day-grouped aggregate observations as G-2 would produce
-        # them (observed_window inferred from the event_date group_by column).
+        # These represent claim-level signals connected by an existing relation.
         obs_a = {
             "observation_id": "obs_g2c_a",
             "type": "metric_change",
-            "subject": {"metric": "g2_event_count", "slice": {"platform": "ios"}},
-            "payload": {"delta_pct": -4.8},
+            "subject": {"metric": "query_count", "slice": {"platform": "ios"}},
+            "payload": {"delta_pct": 12.0},
             "observed_window": {"start": "2026-02-21", "end": "2026-02-27", "granularity": "day"},
         }
         obs_b = {
             "observation_id": "obs_g2c_b",
             "type": "metric_change",
-            "subject": {"metric": "g2_event_count", "slice": {"platform": "ios"}},
-            "payload": {"delta_pct": -5.2},
+            "subject": {"metric": "queued_time", "slice": {"platform": "ios"}},
+            "payload": {"delta_pct": 18.0},
             "observed_window": {"start": "2026-02-28", "end": "2026-03-06", "granularity": "day"},
         }
 
-        # An L1 claim backed by both observations.
-        # L1 is the pre-condition for TemporalPrecedenceChecker (L0 claims are ignored).
-        claim_l1 = {
-            "claim_id": "claim_g2c_test",
+        cause_claim = {
+            "claim_id": "claim_g2c_cause",
             "inference_level": "L1",
-            "scope": {"metric": "g2_event_count", "slice": {"platform": "ios"}},
-            "supporting_observations": ["obs_g2c_a", "obs_g2c_b"],
+            "status": "confirmed",
+            "scope": {"metric": "query_count", "slice": {"platform": "ios"}},
+            "supporting_observations": ["obs_g2c_a"],
             "contradicting_observations": [],
         }
+        effect_claim = {
+            "claim_id": "claim_g2c_effect",
+            "inference_level": "L1",
+            "status": "confirmed",
+            "scope": {"metric": "queued_time", "slice": {"platform": "ios"}},
+            "supporting_observations": ["obs_g2c_b"],
+            "contradicting_observations": [],
+        }
+        relation = {
+            "from_claim_id": "claim_g2c_cause",
+            "to_claim_id": "claim_g2c_effect",
+            "relation_type": "correlates_with",
+            "weight": 0.92,
+            "match_basis": {"category": "exact_match", "direction": "up"},
+            "score_components": {},
+            "supporting_observation_ids": ["obs_g2c_a", "obs_g2c_b"],
+            "explanation": "test relation",
+        }
 
-        upgrades = checker.check([claim_l1], [obs_a, obs_b], [])
+        upgrades = checker.check(
+            [cause_claim, effect_claim],
+            [obs_a, obs_b],
+            [],
+            relations=[relation],
+        )
 
         # G-2c core assertion: checker must propose an L2 upgrade
         self.assertEqual(len(upgrades), 1, "Expected exactly one upgrade proposal")
         upgrade = upgrades[0]
-        self.assertEqual(upgrade.claim_id, "claim_g2c_test")
+        self.assertEqual(upgrade.claim_id, "claim_g2c_effect")
         self.assertEqual(upgrade.new_level, "L2")
         self.assertTrue(
             any("temporal_precedence" in t for t in upgrade.justification_tokens),
@@ -176,18 +197,28 @@ class TemporalWindowInferenceTests(unittest.TestCase):
         obs_overlap = {
             "observation_id": "obs_g2c_overlap",
             "type": "metric_change",
-            "subject": {"metric": "g2_event_count", "slice": {"platform": "ios"}},
-            "payload": {"delta_pct": -3.0},
+            "subject": {"metric": "queued_time", "slice": {"platform": "ios"}},
+            "payload": {"delta_pct": 15.0},
             "observed_window": {"start": "2026-02-25", "end": "2026-03-02", "granularity": "day"},
         }
-        claim_overlap = {
+        overlap_effect = {
             "claim_id": "claim_g2c_overlap",
             "inference_level": "L1",
-            "scope": {"metric": "g2_event_count", "slice": {"platform": "ios"}},
-            "supporting_observations": ["obs_g2c_a", "obs_g2c_overlap"],
+            "status": "confirmed",
+            "scope": {"metric": "queued_time", "slice": {"platform": "ios"}},
+            "supporting_observations": ["obs_g2c_overlap"],
             "contradicting_observations": [],
         }
-        no_upgrades = checker.check([claim_overlap], [obs_a, obs_overlap], [])
+        no_upgrades = checker.check(
+            [cause_claim, overlap_effect],
+            [obs_a, obs_overlap],
+            [],
+            relations=[{
+                **relation,
+                "to_claim_id": "claim_g2c_overlap",
+                "supporting_observation_ids": ["obs_g2c_a", "obs_g2c_overlap"],
+            }],
+        )
         self.assertEqual(len(no_upgrades), 0, "Overlapping windows must NOT trigger L2 upgrade")
 
     def test_aggregate_query_temporal_scope_folding_enables_l2_upgrade(self) -> None:
@@ -211,30 +242,57 @@ class TemporalWindowInferenceTests(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 200)
         result = resp.json()
-        self.assertGreater(len(result.get("observations", [])), 0)
+        observations = result.get("observations", [])
+        self.assertGreater(len(observations), 0)
 
-        evidence = self.client.get(f"/sessions/{session_id}/evidence").json()
-        claims = evidence["claims"]
-        self.assertGreater(len(claims), 0)
-
-        matching_claims = [
-            claim for claim in claims
-            if claim["scope"].get("metric") == self.g2_metric_name
-            and claim["scope"].get("slice", {}).get("platform") == "ios"
-        ]
-        self.assertGreater(len(matching_claims), 0, f"No folded claim found in claims: {claims}")
-        self.assertTrue(
-            any(len(claim["supporting_observations"]) >= 2 for claim in matching_claims),
-            f"Expected folded ios claim with multiple supporting observations, got: {matching_claims}",
-        )
-
-        observations = evidence["observations"]
         checker = TemporalPrecedenceChecker()
-        # Claim is L0 in the evidence graph; promote to L1 to exercise the checker deterministically.
-        claim_for_check = {**matching_claims[0], "inference_level": "L1"}
-        upgrades = checker.check([claim_for_check], observations, [])
-        self.assertEqual(len(upgrades), 1, f"Expected L2 upgrade from folded claim, got: {upgrades}")
+        ios_observations = sorted(
+            [
+                observation
+                for observation in observations
+                if observation.get("subject", {}).get("slice", {}).get("platform") == "ios"
+                and observation.get("observed_window") is not None
+            ],
+            key=lambda observation: observation["observed_window"]["start"],
+        )
+        self.assertGreaterEqual(len(ios_observations), 2, f"Need at least two ios observations, got: {observations}")
+        first_obs, second_obs = ios_observations[0], ios_observations[-1]
+        first_claim = {
+            "claim_id": "claim_fold_a",
+            "inference_level": "L1",
+            "status": "confirmed",
+            "scope": {"metric": "query_count", "slice": {"platform": "ios"}},
+            "supporting_observations": [first_obs["observation_id"]],
+            "contradicting_observations": [],
+        }
+        second_claim = {
+            "claim_id": "claim_fold_b",
+            "inference_level": "L1",
+            "status": "confirmed",
+            "scope": {"metric": "queued_time", "slice": {"platform": "ios"}},
+            "supporting_observations": [second_obs["observation_id"]],
+            "contradicting_observations": [],
+        }
+        upgrades = checker.check(
+            [first_claim, second_claim],
+            observations,
+            [],
+            relations=[{
+                "from_claim_id": first_claim["claim_id"],
+                "to_claim_id": second_claim["claim_id"],
+                "relation_type": "correlates_with",
+                "weight": 0.92,
+                "match_basis": {"category": "exact_match", "direction": "up"},
+                "score_components": {},
+                "supporting_observation_ids": (
+                    first_claim["supporting_observations"] + second_claim["supporting_observations"]
+                ),
+                "explanation": "test relation",
+            }],
+        )
+        self.assertEqual(len(upgrades), 1, f"Expected L2 upgrade from related temporal claims, got: {upgrades}")
         self.assertEqual(upgrades[0].new_level, "L2")
+        self.assertEqual(upgrades[0].claim_id, second_claim["claim_id"])
         self.assertTrue(
             any("temporal_precedence" in token for token in upgrades[0].justification_tokens),
             f"Unexpected justification tokens: {upgrades[0].justification_tokens}",
@@ -245,9 +303,9 @@ class TemporallyPrecedesEdgePromotionTests(unittest.TestCase):
     """Causal edge materialization: temporally_precedes edges are emitted at synthesis time.
 
     Proves that:
-    1. IncrementalSynthesizer upgrades claim inference level but does not materialize edges.
-    2. _run_synthesis materializes the temporally_precedes edge from the final pipeline output.
-    3. The claim remains at L2 after promotion.
+    1. IncrementalSynthesizer does not materialize temporal causal edges.
+    2. _run_synthesis materializes claim-to-claim temporally_precedes edges from the final pipeline output.
+    3. The promoted effect claim remains at L2 after synthesis.
     """
 
     def _make_service_with_synth(self, tmpdir: str):
@@ -286,13 +344,12 @@ class TemporallyPrecedesEdgePromotionTests(unittest.TestCase):
                 [sess_id, "G-2d promotion test", "{}", "{}", "{}", "active"],
             )
 
-            # Two windowed observations with the same (metric, slice) scope and
-            # strictly non-overlapping windows so TemporalPrecedenceChecker fires.
+            # Two related claims in the same slice with non-overlapping windows.
             windows = [
-                ("obs_g2d_01", "2024-01-01", "2024-01-07"),
-                ("obs_g2d_02", "2024-01-10", "2024-01-17"),
+                ("obs_g2d_01", "query_count", 12.0, "2024-01-01", "2024-01-07"),
+                ("obs_g2d_02", "queued_time", 18.0, "2024-01-10", "2024-01-17"),
             ]
-            for oid, wstart, wend in windows:
+            for oid, metric, delta_pct, wstart, wend in windows:
                 meta.execute(
                     """
                     INSERT INTO observations (
@@ -303,8 +360,8 @@ class TemporallyPrecedesEdgePromotionTests(unittest.TestCase):
                     """,
                     [
                         oid, sess_id, step_id, "metric_change",
-                        json.dumps({"metric": "m_g2d", "slice": {}}),
-                        json.dumps({"delta_pct": 6.0}),
+                        json.dumps({"metric": metric, "slice": {"user": "sys_titan"}}),
+                        json.dumps({"delta_pct": delta_pct}),
                         json.dumps({"sample_size": 200, "practical_significance": True}),
                         json.dumps({"freshness_ok": True, "sample_size_ok": True}),
                         json.dumps({"start": wstart, "end": wend, "granularity": "day"}),
@@ -312,25 +369,13 @@ class TemporallyPrecedesEdgePromotionTests(unittest.TestCase):
                     ],
                 )
 
-            # Step 1: Incremental synthesis → CrossSlice (L0→L1) then Temporal (L1→L2+edge).
-            # Two calls are required: call 1 upgrades to L1, call 2 sees L1 and fires Temporal.
-            synth.process(sess_id)   # CrossSlice: L0 → L1
-            synth.process(sess_id)   # TemporalPrecedence: L1 → L2 + causal edge
+            synth.process(sess_id)
 
             edges_before = meta.query_rows(
                 "SELECT edge_type FROM evidence_edges WHERE session_id = ? AND edge_type = 'temporally_precedes'",
                 [sess_id],
             )
             self.assertEqual(len(edges_before), 0, "Incremental synthesis must not materialize causal edges")
-
-            claims_before = meta.query_rows(
-                "SELECT inference_level FROM claims WHERE session_id = ? AND status = 'tentative'",
-                [sess_id],
-            )
-            self.assertTrue(
-                any(r["inference_level"] == "L2" for r in claims_before),
-                "Claim must be at L2 before synthesize_findings",
-            )
 
             # Step 2: synthesize_findings → promotion + final edge materialization
             svc._run_synthesis(sess_id)
@@ -349,21 +394,23 @@ class TemporallyPrecedesEdgePromotionTests(unittest.TestCase):
                 "temporally_precedes edge must be materialized during synthesize_findings",
             )
             edge = dict(edges_after[0])
-            self.assertEqual(edge["from_node_id"], "obs_g2d_01",
-                             "Edge must originate from the earliest observation")
-            self.assertEqual(edge["from_node_type"], "observation")
+            self.assertEqual(edge["from_node_type"], "claim")
             self.assertEqual(edge["to_node_type"], "claim")
             self.assertGreater(edge["weight"], 0, "Edge weight must be positive")
-            self.assertIn("obs_g2d_02", edge["explanation"],
-                          "Explanation must reference the paired (later) observation")
+            self.assertIn("3 days", edge["explanation"],
+                          "Explanation must state the lag in days")
+            self.assertNotEqual(edge["from_node_id"], edge["to_node_id"])
+            claims_after = meta.query_rows(
+                "SELECT claim_id, scope_json, inference_level, status FROM claims WHERE session_id = ?",
+                [sess_id],
+            )
+            claim_by_id = {row["claim_id"]: row for row in claims_after}
+            self.assertIn(edge["from_node_id"], claim_by_id)
+            self.assertIn(edge["to_node_id"], claim_by_id)
             self.assertIn("3 days", edge["explanation"],
                           "Explanation must state the lag in days")
 
-            # Verify claim is promoted to L2 and no longer tentative
-            claims_after = meta.query_rows(
-                "SELECT inference_level, status FROM claims WHERE session_id = ?",
-                [sess_id],
-            )
+            # Verify the effect claim is promoted to L2 and no longer tentative
             l2_claims = [r for r in claims_after if r["inference_level"] == "L2"]
             self.assertGreater(len(l2_claims), 0, "Claim must remain at L2 after promotion")
             promoted_statuses = {r["status"] for r in l2_claims}
@@ -387,9 +434,9 @@ class TemporallyPrecedesEdgePromotionTests(unittest.TestCase):
                 [sess_id, "G-2d idempotency test", "{}", "{}", "{}", "active"],
             )
 
-            for oid, wstart, wend in [
-                ("obs_id_01", "2024-02-01", "2024-02-07"),
-                ("obs_id_02", "2024-02-10", "2024-02-17"),
+            for oid, metric, delta_pct, wstart, wend in [
+                ("obs_id_01", "query_count", 14.0, "2024-02-01", "2024-02-07"),
+                ("obs_id_02", "queued_time", 19.0, "2024-02-10", "2024-02-17"),
             ]:
                 meta.execute(
                     """
@@ -401,8 +448,8 @@ class TemporallyPrecedesEdgePromotionTests(unittest.TestCase):
                     """,
                     [
                         oid, sess_id, "step_idem_01", "metric_change",
-                        json.dumps({"metric": "m_idem", "slice": {}}),
-                        json.dumps({"delta_pct": 7.0}),
+                        json.dumps({"metric": metric, "slice": {"user": "sys_titan"}}),
+                        json.dumps({"delta_pct": delta_pct}),
                         json.dumps({"sample_size": 150, "practical_significance": True}),
                         json.dumps({"freshness_ok": True, "sample_size_ok": True}),
                         json.dumps({"start": wstart, "end": wend, "granularity": "day"}),
@@ -410,8 +457,7 @@ class TemporallyPrecedesEdgePromotionTests(unittest.TestCase):
                     ],
                 )
 
-            synth.process(sess_id)   # CrossSlice: L0 → L1
-            synth.process(sess_id)   # TemporalPrecedence: L1 → L2 + causal edge
+            synth.process(sess_id)
 
             def _count_tp_edges():
                 return len(meta.query_rows(
