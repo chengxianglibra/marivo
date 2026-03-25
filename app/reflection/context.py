@@ -15,6 +15,7 @@ import json
 from typing import Any
 
 from app.analysis_core.primitives import STEP_TAXONOMY
+from app.evidence_engine.confounder_resolution import filter_resolved_gap_keys
 from app.evidence_engine.causal_basis import (
     _build_scope_aware_gaps,
     derive_session_summary,
@@ -76,6 +77,8 @@ def build_reflection_context(
 
     # tentative_claims: claims with status='tentative' OR inference_level in ('L0', 'L1')
     # unresolved_confounders is now scope-aware (G-3a) when supporting observations exist.
+    # Gaps already resolved by confirmed claims are filtered out (roadmap 1.1).
+    _confirmed_claims = [c for c in all_live if c.get("status") == "confirmed"]
     tentative_claims = [
         {
             "claim_id": c["claim_id"],
@@ -83,7 +86,7 @@ def build_reflection_context(
             "scope": c["scope"],
             "confidence": c["confidence"],
             "inference_level": c.get("inference_level", "L0"),
-            "unresolved_confounders": _confounders_for(c, obs_map, all_observations),
+            "unresolved_confounders": _confounders_for(c, obs_map, all_observations, _confirmed_claims),
         }
         for c in all_live
         if c.get("status") == "tentative" or c.get("inference_level", "L0") in ("L0", "L1")
@@ -111,10 +114,13 @@ def _confounders_for(
     claim: dict[str, Any],
     obs_map: dict[str, Any],
     all_observations: list[dict[str, Any]],
+    confirmed_claims: list[dict[str, Any]] | None = None,
 ) -> list[str]:
     """Build scope-aware confounder strings for a claim.
 
     Uses the rule engine (G-3a) when supporting observations are available.
+    Gaps already resolved by confirmed claims in the session are filtered out
+    (roadmap 1.1).
     Returns a plain list[str] so that the tentative_claims API shape is unchanged.
     """
     supporting_obs = [
@@ -124,6 +130,8 @@ def _confounders_for(
     ]
     session_summary = derive_session_summary(claim.get("scope", {}), all_observations)
     gaps = _build_scope_aware_gaps(claim, supporting_obs, session_summary)
+    if confirmed_claims:
+        gaps = filter_resolved_gap_keys(gaps, confirmed_claims)
     return [g.text for g in gaps]
 
 

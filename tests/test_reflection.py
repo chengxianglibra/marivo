@@ -372,6 +372,74 @@ class ReflectionContextUnitTests(unittest.TestCase):
             f"Expected normalise_workload_volume in confounders; got: {tc['unresolved_confounders']}",
         )
 
+    # ── Test 18b: confounder auto-resolution via confirmed claim ────────
+
+    def test_confounder_auto_resolved_by_confirmed_volume_claim(self) -> None:
+        """normalise_workload_volume gap is filtered when a confirmed query_count claim exists."""
+        session_id = self._new_session()
+        # Two observations for same metric, different clusters → triggers normalise_workload_volume
+        obs_ids = []
+        for cluster in ("k8sbi-bi1", "k8sbi-bi2"):
+            obs_id = f"obs_{uuid4().hex[:12]}"
+            obs_ids.append(obs_id)
+            self.store.execute(
+                """
+                INSERT INTO observations (
+                    observation_id, session_id, step_id, observation_type,
+                    subject_json, payload_json, significance_json, quality_json,
+                    observed_window_json, temporal_order
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 0)
+                """,
+                [
+                    obs_id, session_id, "step_test_ar", "metric_change",
+                    f'{{"metric": "query_count", "slice": {{"cluster": "{cluster}"}}}}',
+                    '{"delta_pct": 10.0}', '{}', '{}',
+                ],
+            )
+        # Tentative claim scoped to one cluster — would normally get normalise_workload_volume
+        tentative_claim_id = f"claim_{uuid4().hex[:12]}"
+        self.store.execute(
+            """
+            INSERT INTO claims (
+                claim_id, session_id, claim_type, text, scope_json, confidence, status,
+                supporting_observation_ids_json, contradicting_observation_ids_json,
+                confidence_breakdown_json, inference_level, inference_justification_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                tentative_claim_id, session_id, "root_cause_candidate",
+                "queued_time increased 58% for cluster=k8sbi-bi1 (tentative)",
+                '{"metric": "queued_time", "slice": {"cluster": "k8sbi-bi1"}}',
+                0.6, "tentative",
+                f'["{obs_ids[0]}"]', "[]", "{}", "L0", "[]",
+            ],
+        )
+        # Confirmed claim about query_count — this resolves the workload volume confounder
+        confirmed_claim_id = f"claim_{uuid4().hex[:12]}"
+        self.store.execute(
+            """
+            INSERT INTO claims (
+                claim_id, session_id, claim_type, text, scope_json, confidence, status,
+                supporting_observation_ids_json, contradicting_observation_ids_json,
+                confidence_breakdown_json, inference_level, inference_justification_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                confirmed_claim_id, session_id, "root_cause_candidate",
+                "query_count increased 30% for cluster=k8sbi-bi1",
+                '{"metric": "query_count", "slice": {"cluster": "k8sbi-bi1"}}',
+                0.91, "confirmed",
+                f'["{obs_ids[0]}"]', "[]", "{}", "L0", "[]",
+            ],
+        )
+        ctx = build_reflection_context(self.store, session_id)
+        tc = next(c for c in ctx["tentative_claims"] if c["claim_id"] == tentative_claim_id)
+        # The normalise_workload_volume gap should be resolved and filtered out
+        self.assertFalse(
+            any("workload" in t or "normalise" in t for t in tc["unresolved_confounders"]),
+            f"Expected normalise_workload_volume to be auto-resolved; got: {tc['unresolved_confounders']}",
+        )
+
     # ── Test 19: evidence_gaps deduplication across two claims ────────────
 
     def test_evidence_gaps_deduplicated_across_claims(self) -> None:
