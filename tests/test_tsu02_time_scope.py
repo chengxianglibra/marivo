@@ -605,6 +605,78 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         self.assertEqual(result["observations"][0]["observed_window"]["start"], "2026-03-25T10:00:00")
         self.assertEqual(result["observations"][0]["observed_window"]["end"], "2026-03-25T14:00:00")
 
+    def test_compare_metric_rejects_rows_missing_required_comparison_columns(self) -> None:
+        original_compile = self.service._compile_step_with_feedback
+        original_execute = service_module.execute_compiled
+        original_resolve_engine = self.service._resolve_engine
+        self.service._resolve_engine = lambda table_names: (_FakeEngine(), "duckdb", {table_names[0]: f"analytics.{table_names[0]}"})
+
+        def fake_compile(step, *, engine_type, semantic_context=None):
+            return CompiledQuery(sql="SELECT 1", params=[])
+
+        class _Result:
+            rows = [{"platform": "android", "current_value": 10.0, "baseline_value": 5.0, "delta_pct": 100.0}]
+
+        self.service._compile_step_with_feedback = fake_compile
+        service_module.execute_compiled = lambda engine, compiled: _Result()
+        try:
+            with self.assertRaisesRegex(ValueError, "missing required columns"):
+                self.service._run_compare_metric(self.session_id, {
+                    "table": "analytics.watch_events",
+                    "metric": self.metric_name,
+                    "dimensions": ["platform"],
+                    "time_scope": {
+                        "mode": "compare",
+                        "grain": "day",
+                        "current": {"start": "2026-03-10", "end": "2026-03-17"},
+                        "baseline": {"start": "2026-03-03", "end": "2026-03-10"},
+                    },
+                })
+        finally:
+            self.service._compile_step_with_feedback = original_compile
+            service_module.execute_compiled = original_execute
+            self.service._resolve_engine = original_resolve_engine
+
+    def test_compare_metric_summary_uses_window_wording_not_period_wording(self) -> None:
+        original_compile = self.service._compile_step_with_feedback
+        original_execute = service_module.execute_compiled
+        original_resolve_engine = self.service._resolve_engine
+        original_extract = self.service.evidence_pipeline.extract_observations
+        self.service._resolve_engine = lambda table_names: (_FakeEngine(), "duckdb", {table_names[0]: f"analytics.{table_names[0]}"})
+        self.service.evidence_pipeline.extract_observations = lambda *args, **kwargs: []
+
+        def fake_compile(step, *, engine_type, semantic_context=None):
+            return CompiledQuery(sql="SELECT 1", params=[])
+
+        class _Result:
+            rows = []
+
+        self.service._compile_step_with_feedback = fake_compile
+        service_module.execute_compiled = lambda engine, compiled: _Result()
+        try:
+            result = self.service._run_compare_metric(self.session_id, {
+                "table": "analytics.watch_events",
+                "metric": self.metric_name,
+                "dimensions": ["platform"],
+                "time_scope": {
+                    "mode": "compare",
+                    "grain": "day",
+                    "current": {"start": "2026-03-10", "end": "2026-03-17"},
+                    "baseline": {"start": "2026-03-03", "end": "2026-03-10"},
+                },
+            })
+        finally:
+            self.service._compile_step_with_feedback = original_compile
+            service_module.execute_compiled = original_execute
+            self.service._resolve_engine = original_resolve_engine
+            self.service.evidence_pipeline.extract_observations = original_extract
+
+        self.assertIn("current_window", result["summary"])
+        self.assertIn("baseline_window", result["summary"])
+        self.assertNotIn("period", result["summary"].lower())
+        self.assertIn("current_window", result["debug"])
+        self.assertIn("baseline_window", result["debug"])
+
     def test_aggregate_query_hour_grain_annotations_use_hour_window(self) -> None:
         original_compile = self.service._compile_step_with_feedback
         original_execute = service_module.execute_compiled

@@ -51,6 +51,15 @@ _AUTO_INCREMENTAL_SYNTHESIZER = object()
 
 
 class SemanticLayerService:
+    _COMPARE_METRIC_PAYLOAD_FIELDS = {
+        "current_value": "current_value",
+        "baseline_value": "baseline_value",
+        "delta_pct": "delta_pct",
+        "current_sessions": "current_sessions",
+        "baseline_sessions": "baseline_sessions",
+    }
+    _COMPARE_METRIC_REQUIRED_ROW_FIELDS = tuple(_COMPARE_METRIC_PAYLOAD_FIELDS.values())
+
     def __init__(
         self,
         metadata_store: MetadataStore,
@@ -977,6 +986,100 @@ class SemanticLayerService:
             "granularity": request.resolved_time_axis.observation_grain,
         }
 
+    @classmethod
+    def _normalize_comparison_rows(cls, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        normalized: list[dict[str, Any]] = []
+        for index, row in enumerate(rows):
+            row_dict = dict(row)
+            missing = [
+                field
+                for field in cls._COMPARE_METRIC_REQUIRED_ROW_FIELDS
+                if field not in row_dict
+            ]
+            if missing:
+                missing_str = ", ".join(missing)
+                raise ValueError(
+                    "compare_metric comparison rows missing required columns "
+                    f"at row {index}: {missing_str}"
+                )
+            normalized.append(row_dict)
+        return normalized
+
+    @staticmethod
+    def _comparison_slice_label(row: dict[str, Any], dimensions: list[str]) -> str:
+        if not dimensions:
+            return "overall"
+        parts = [
+            f"{dimension}={row[dimension]}"
+            for dimension in dimensions
+            if row.get(dimension) is not None
+        ]
+        return ", ".join(parts) if parts else "overall"
+
+    @classmethod
+    def _compare_metric_debug_payload(
+        cls,
+        request: ResolvedWindowedQueryRequest,
+        *,
+        all_rows: list[dict[str, Any]],
+        window_length_match: bool,
+    ) -> dict[str, Any]:
+        if request.time_scope.baseline is None:
+            raise ValueError("compare_metric debug payload requires baseline window")
+        return {
+            "current_window": [request.time_scope.current.start, request.time_scope.current.end],
+            "baseline_window": [request.time_scope.baseline.start, request.time_scope.baseline.end],
+            "current_has_data": any(row.get("current_sessions") for row in all_rows),
+            "baseline_has_data": any(row.get("baseline_sessions") for row in all_rows),
+            "window_length_match": window_length_match,
+        }
+
+    @classmethod
+    def _compare_metric_summary(
+        cls,
+        metric_name: str,
+        rows: list[dict[str, Any]],
+        *,
+        debug: dict[str, Any],
+        dimensions: list[str],
+        grain: str,
+        current_len: int,
+        baseline_len: int,
+    ) -> str:
+        if rows:
+            top = rows[0]
+            direction = "decline" if (top.get("delta_pct") or 0) < 0 else "increase"
+            slice_label = cls._comparison_slice_label(top, dimensions)
+            summary = (
+                f"Metric '{metric_name}' comparison: top {direction} is "
+                f"{top['delta_pct']}% for {slice_label} "
+                f"(current_value={top['current_value']}, baseline_value={top['baseline_value']})."
+            )
+            if not debug["window_length_match"]:
+                unit = "h" if grain == "hour" else "d"
+                summary += (
+                    f" Window size mismatch: current={current_len}{unit}, "
+                    f"baseline={baseline_len}{unit}; count/sum metrics may not be comparable."
+                )
+            return summary
+
+        if debug["current_has_data"] or debug["baseline_has_data"]:
+            missing = []
+            if not debug["current_has_data"]:
+                missing.append("current")
+            if not debug["baseline_has_data"]:
+                missing.append("baseline")
+            missing_str = " and ".join(missing) if missing else "one"
+            return (
+                f"Metric '{metric_name}' comparison: {missing_str} window has no data. "
+                f"current_window={debug['current_window']}, baseline_window={debug['baseline_window']}."
+            )
+
+        return (
+            f"Metric '{metric_name}' comparison returned no results. "
+            f"current_window={debug['current_window']}, baseline_window={debug['baseline_window']}."
+        )
+
     @staticmethod
     def _window_length(request: ResolvedWindowedQueryRequest, which: str) -> int:
         if which == "current":
@@ -1197,8 +1300,8 @@ class SemanticLayerService:
                 "dimensions": dimensions,
             },
         )
-        all_rows = execute_compiled(engine, compiled_query).rows
-        rows = [r for r in all_rows if r.get("delta_pct") is not None]
+        all_rows = self._normalize_comparison_rows(execute_compiled(engine, compiled_query).rows)
+        rows = [row for row in all_rows if row.get("delta_pct") is not None]
         observations = self.evidence_pipeline.extract_observations(
             "comparison_rows",
             rows,
@@ -1206,13 +1309,7 @@ class SemanticLayerService:
                 "metric": metric_name,
                 "observation_type": obs_type,
                 "dimensions": dimensions,
-                "payload_fields": {
-                    "current_value": "current_value",
-                    "baseline_value": "baseline_value",
-                    "delta_pct": "delta_pct",
-                    "current_sessions": "current_sessions",
-                    "baseline_sessions": "baseline_sessions",
-                },
+                "payload_fields": self._COMPARE_METRIC_PAYLOAD_FIELDS,
                 "quality_builder": lambda row: {
                     "freshness_ok": True,
                     "sample_size_ok": min(row["current_sessions"] or 0, row["baseline_sessions"] or 0) >= 150,
@@ -1226,43 +1323,20 @@ class SemanticLayerService:
 
         artifact_id = self._insert_artifact(session_id, step_id, "table", f"{metric_name}_comparison", rows)
 
-        _debug = {
-            "current_window": [resolved.time_scope.current.start, resolved.time_scope.current.end],
-            "baseline_window": [resolved.time_scope.baseline.start, resolved.time_scope.baseline.end],
-            "current_has_data": any(r.get("current_sessions") for r in all_rows),
-            "baseline_has_data": any(r.get("baseline_sessions") for r in all_rows),
-            "window_length_match": not window_size_mismatch,
-        }
-
-        if rows:
-            top = rows[0]
-            direction = "decline" if (top.get("delta_pct") or 0) < 0 else "increase"
-            summary = (
-                f"Metric '{metric_name}' comparison: top {direction} is "
-                f"{top['delta_pct']}% for {top}."
-            )
-            if window_size_mismatch:
-                unit = "h" if resolved.time_scope.grain == "hour" else "d"
-                summary += (
-                    f" Window size mismatch: current={current_len}{unit}, "
-                    f"baseline={baseline_len}{unit}; count/sum metrics may not be comparable."
-                )
-        elif all_rows:
-            missing = []
-            if not _debug["current_has_data"]:
-                missing.append("current")
-            if not _debug["baseline_has_data"]:
-                missing.append("baseline")
-            missing_str = " and ".join(missing) if missing else "one"
-            summary = (
-                f"Metric '{metric_name}' comparison: {missing_str} window has no data. "
-                f"current={_debug['current_window']}, baseline={_debug['baseline_window']}."
-            )
-        else:
-            summary = (
-                f"Metric '{metric_name}' comparison returned no results. "
-                f"current={_debug['current_window']}, baseline={_debug['baseline_window']}."
-            )
+        _debug = self._compare_metric_debug_payload(
+            resolved,
+            all_rows=all_rows,
+            window_length_match=not window_size_mismatch,
+        )
+        summary = self._compare_metric_summary(
+            metric_name,
+            rows,
+            debug=_debug,
+            dimensions=dimensions,
+            grain=resolved.time_scope.grain,
+            current_len=current_len,
+            baseline_len=baseline_len,
+        )
 
         provenance = self._make_provenance(compiled_query.sql, compiled_query.params, engine_type=engine_type)
 

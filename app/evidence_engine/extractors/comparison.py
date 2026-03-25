@@ -13,6 +13,13 @@ class ComparisonRowExtractor(ExtractorContract):
     artifact_type: ClassVar[str] = "comparison_rows"
     observation_types: ClassVar[list[str]] = ["metric_change"]
     preconditions: ClassVar[list[str]] = []
+    _REQUIRED_PAYLOAD_KEYS: ClassVar[tuple[str, ...]] = (
+        "current_value",
+        "baseline_value",
+        "delta_pct",
+        "current_sessions",
+        "baseline_sessions",
+    )
 
     def extract(
         self,
@@ -31,14 +38,25 @@ class ComparisonRowExtractor(ExtractorContract):
         dimensions = context.get("dimensions")
 
         observations: list[Observation] = []
-        for row in rows:
+        for index, row in enumerate(rows):
+            row_dict = dict(row)
+            missing = [
+                payload_name
+                for payload_name in self._REQUIRED_PAYLOAD_KEYS
+                if payload_name not in payload_fields or payload_fields[payload_name] not in row_dict
+            ]
+            if missing:
+                missing_str = ", ".join(missing)
+                raise ValueError(
+                    "comparison_rows extractor requires mapped comparison fields "
+                    f"at row {index}: {missing_str}"
+                )
             payload = {
-                payload_name: row[row_field]
+                payload_name: row_dict[row_field]
                 for payload_name, row_field in payload_fields.items()
-                if row_field in row
             }
             quality = (
-                quality_builder(row)
+                quality_builder(row_dict)
                 if callable(quality_builder)
                 else {"freshness_ok": True, "sample_size_ok": True}
             )
@@ -46,7 +64,7 @@ class ComparisonRowExtractor(ExtractorContract):
                 make_observation(
                     observation_type,
                     metric,
-                    dict(row),
+                    row_dict,
                     payload,
                     quality,
                     dimensions=dimensions,

@@ -196,8 +196,10 @@ non-overlap → L2 fires. A `temporally_precedes` edge is written to the graph.
 
 **Pattern B — two `compare_metric` steps with different `time_scope.current` windows:**
 
-`compare_metric` populates `observed_window` from its typed `time_scope`. Running the
-step twice for non-overlapping periods has the same effect as Pattern A.
+`compare_metric` populates `observed_window` from `time_scope.current`. Running the
+step twice for non-overlapping current windows has the same effect as Pattern A. The
+baseline window remains part of the comparison payload/debug context; it is not emitted
+as a second observation window.
 
 ### Output
 

@@ -204,52 +204,38 @@ POST /sessions/{session_id}/steps/compare_metric
 
 ```json
 {
-  "step_id": "step_...",
   "step_type": "compare_metric",
-  "status": "completed",
-  "summary": "avg_watch_time_minutes: 14.2% decrease across 8 slices",
-  "result": {
-    "metric": "avg_watch_time_minutes",
-    "rows": [
-      {
-        "dimension_values": {"device_type": "iOS"},
-        "baseline_value": 42.3,
-        "current_value": 36.3,
-        "absolute_change": -6.0,
-        "relative_change_pct": -14.2,
-        "direction": "down"
-      }
-    ]
-  },
-  "observations": [...],
-  "provenance": {
-    "query_hash": "sha256:...",
-    "engine": "duckdb",
-    "timestamp": "2024-01-15T10:05:00+00:00",
-    "param_count": 4
-  },
-  "readiness": {
-    "goal_coverage": 0.4,
-    "evidence_sufficiency": 0.33,
-    "contradiction_resolution": 1.0,
-    "budget_remaining": 0.87,
-    "diminishing_returns": 0.0,
-    "suggested_action": "continue_exploring"
-  },
-  "live_claims": [
+  "metric_name": "avg_watch_time_minutes",
+  "summary": "Metric 'avg_watch_time_minutes' comparison: top decline is -14.2% for device_type=iOS (current_value=36.3, baseline_value=42.3).",
+  "artifact_id": "art_...",
+  "observations": [
     {
-      "claim_id": "claim_...",
-      "claim_type": "metric_regression",
-      "text": "Average watch time declined 14.2% on iOS mobile",
-      "confidence": 0.72,
-      "status": "tentative",
-      "scope": {"device_type": "iOS"},
-      "inference_level": "L0",
-      "inference_justification": []
+      "observation_id": "obs_...",
+      "type": "metric_change",
+      "subject": {
+        "metric": "avg_watch_time_minutes",
+        "slice": {"device_type": "iOS"}
+      },
+      "payload": {
+        "current_value": 36.3,
+        "baseline_value": 42.3,
+        "delta_pct": -14.2,
+        "current_sessions": 180,
+        "baseline_sessions": 175
+      },
+      "observed_window": {
+        "start": "2024-01-24",
+        "end": "2024-01-31",
+        "granularity": "day"
+      }
     }
   ]
 }
 ```
+
+`compare_metric` observations inherit `time_scope.current` as `observed_window`. The
+baseline window remains in the comparison/debug context and is not emitted as a second
+observation window.
 
 **Readiness signal (all primitive steps):**
 
