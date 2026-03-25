@@ -142,6 +142,7 @@ class MetricCreateRequest(BaseModel):
     lineage: list[str] | None = None
     quality_expectations: dict[str, Any] | None = None
     properties: dict[str, Any] = Field(default_factory=dict)
+    desired_direction: str | None = None
 
 
 class MetricUpdateRequest(BaseModel):
@@ -156,6 +157,7 @@ class MetricUpdateRequest(BaseModel):
     lineage: list[str] | None = None
     quality_expectations: dict[str, Any] | None = None
     properties: dict[str, Any] | None = None
+    desired_direction: str | None = None
 
 
 class MappingCreateRequest(BaseModel):

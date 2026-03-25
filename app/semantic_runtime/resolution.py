@@ -19,6 +19,7 @@ class ResolvedMetric:
     lineage: list[str] = field(default_factory=list)
     quality_expectations: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
+    desired_direction: str | None = None
 
 
 @dataclass(slots=True)
@@ -45,7 +46,7 @@ class SemanticResolver:
             SELECT
                 metric_id, name, display_name, description, definition_sql, dimensions_json,
                 grain, measure_type, allowed_dimensions_json, lineage_json,
-                quality_expectations_json, properties_json, status, revision
+                quality_expectations_json, properties_json, desired_direction, status, revision
             FROM semantic_metrics
             WHERE name = ? AND status = 'published'
             """,
@@ -74,6 +75,7 @@ class SemanticResolver:
             allowed_dimensions=runtime_metadata["allowed_dimensions"],
             lineage=runtime_metadata["lineage"],
             quality_expectations=runtime_metadata["quality_expectations"],
+            desired_direction=row.get("desired_direction"),
             metadata={
                 "metric_id": row["metric_id"],
                 "display_name": row["display_name"],

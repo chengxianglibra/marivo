@@ -78,12 +78,15 @@ class EvidencePipeline:
         synthesizers: Mapping[str, ClaimSynthesizer] | None = None,
         confidence_scorers: Mapping[str, ConfidenceScorer] | None = None,
         recommendation_policies: Mapping[str, RecommendationPolicy] | None = None,
+        metric_direction_resolver: Callable[[str], str | None] | None = None,
     ) -> None:
         from app.evidence_engine.registry import ExtractorRegistry, _default_registry
 
         default_synthesizer = _coerce_synthesizer(synthesizer)
         default_confidence_scorer = DefaultConfidenceScorer()
-        default_recommendation_policy = DefaultRecommendationPolicy()
+        default_recommendation_policy = DefaultRecommendationPolicy(
+            metric_direction_resolver=metric_direction_resolver,
+        )
         default_extractors = dict(_default_registry.as_mapping())
         if extractors is not None:
             if isinstance(extractors, ExtractorRegistry):

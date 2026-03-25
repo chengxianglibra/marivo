@@ -848,7 +848,8 @@ renderers.metrics = async () => {
        <div class="form-group"><label>Description</label><textarea id="f-met-desc"></textarea></div>
        <div class="form-group"><label>Definition SQL</label><textarea id="f-met-sql" placeholder="SUM(watch_seconds)"></textarea></div>
        <div class="form-group"><label>Dimensions (comma-separated)</label><input type="text" id="f-met-dims" placeholder="platform, country"></div>
-       <div class="form-group"><label>Entity</label><select id="f-met-ent">${entOpts}</select></div>`,
+       <div class="form-group"><label>Entity</label><select id="f-met-ent">${entOpts}</select></div>
+       <div class="form-group"><label>Desired Direction</label><select id="f-met-dir"><option value="">-- none --</option><option value="up">up</option><option value="down">down</option><option value="neutral">neutral</option></select></div>`,
       `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" id="f-met-submit">Create</button>`);
     $('#f-met-submit').onclick = async () => {
       try {
@@ -856,6 +857,8 @@ renderers.metrics = async () => {
         const data = { name: $('#f-met-name').value, display_name: $('#f-met-dname').value, description: $('#f-met-desc').value, definition_sql: $('#f-met-sql').value, dimensions: dims };
         const entVal = $('#f-met-ent').value;
         if (entVal) data.entity_id = entVal;
+        const dirVal = $('#f-met-dir').value;
+        if (dirVal) data.desired_direction = dirVal;
         await api.createMetric(data);
         toast('Metric created');
         closeModal();
@@ -904,12 +907,16 @@ function editMetric(id, metrics) {
     `<div class="form-group"><label>Display Name</label><input type="text" id="f-met-dname" value="${attr(m.display_name)}"></div>
      <div class="form-group"><label>Description</label><textarea id="f-met-desc">${esc(m.description || '')}</textarea></div>
      <div class="form-group"><label>Definition SQL</label><textarea id="f-met-sql">${esc(m.definition_sql || '')}</textarea></div>
-     <div class="form-group"><label>Dimensions (comma-separated)</label><input type="text" id="f-met-dims" value="${attr(dims.join(', '))}"></div>`,
+     <div class="form-group"><label>Dimensions (comma-separated)</label><input type="text" id="f-met-dims" value="${attr(dims.join(', '))}"></div>
+     <div class="form-group"><label>Desired Direction</label><select id="f-met-dir"><option value="">-- none --</option><option value="up"${m.desired_direction === 'up' ? ' selected' : ''}>up</option><option value="down"${m.desired_direction === 'down' ? ' selected' : ''}>down</option><option value="neutral"${m.desired_direction === 'neutral' ? ' selected' : ''}>neutral</option></select></div>`,
     `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" id="f-met-save">Save</button>`);
   $('#f-met-save').onclick = async () => {
     try {
       const newDims = $('#f-met-dims').value.split(',').map(d => d.trim()).filter(Boolean);
-      await api.updateMetric(id, { display_name: $('#f-met-dname').value, description: $('#f-met-desc').value, definition_sql: $('#f-met-sql').value, dimensions: newDims });
+      const updateData = { display_name: $('#f-met-dname').value, description: $('#f-met-desc').value, definition_sql: $('#f-met-sql').value, dimensions: newDims };
+      const dirEdit = $('#f-met-dir').value;
+      if (dirEdit) updateData.desired_direction = dirEdit; else updateData.desired_direction = null;
+      await api.updateMetric(id, updateData);
       toast('Metric updated');
       closeModal();
       renderers.metrics();

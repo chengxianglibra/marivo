@@ -96,11 +96,16 @@ class Claim(TypedDict):
     inference_justification: list[str]   # Signal: provenance tokens justifying the level
 
 
+REC_TYPE_ACTION = "action_required"
+REC_TYPE_NO_ACTION = "no_action_required"
+
+
 class Recommendation(TypedDict):
     rec_id: str                        # Signal: unique recommendation identifier
+    type: str                          # Signal: "action_required" or "no_action_required"
     claim_id: str                      # Signal: primary backing claim (highest confidence)
     action_text: str                   # Signal: proposed action (agent decides whether to take it)
-    priority: str                      # Signal: P0/P1/P2 — agent uses to triage, not a command
+    priority: str                      # Signal: P0/P1/P2/P3 — agent uses to triage, not a command
     expected_impact: str               # Signal: estimated outcome if action is taken
     risk: str                          # Signal: risk level of the action
     validation_metric: dict[str, Any]  # Signal: how to verify the action worked

@@ -2,10 +2,17 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections import defaultdict
+from collections.abc import Callable
 from typing import Any
 from uuid import uuid4
 
-from app.evidence_engine.schemas import Claim, Observation, Recommendation
+from app.evidence_engine.schemas import (
+    REC_TYPE_ACTION,
+    REC_TYPE_NO_ACTION,
+    Claim,
+    Observation,
+    Recommendation,
+)
 
 
 class RecommendationPolicy(ABC):
@@ -39,8 +46,28 @@ def _best_priority(*priorities: str) -> str:
     return min(priorities, key=lambda p: _PRIORITY_RANK.get(p, 99))
 
 
+def _get_claim_delta(
+    claim: Claim,
+    obs_map: dict[str, Observation],
+) -> float | None:
+    """Extract delta_pct from the claim's primary supporting observation."""
+    for obs_id in claim.get("supporting_observations", []):
+        obs = obs_map.get(obs_id)
+        if obs:
+            delta = obs.get("payload", {}).get("delta_pct")
+            if delta is not None:
+                return float(delta)
+    return None
+
+
 class DefaultRecommendationPolicy(RecommendationPolicy):
     name = "default"
+
+    def __init__(
+        self,
+        metric_direction_resolver: Callable[[str], str | None] | None = None,
+    ) -> None:
+        self._resolve_direction = metric_direction_resolver
 
     def derive(
         self,
@@ -66,6 +93,31 @@ class DefaultRecommendationPolicy(RecommendationPolicy):
             return []
         return [self._single_claim_recommendation(observations, candidate)]
 
+    # ── No-action detection ──────────────────────────────────────────────────
+
+    def _is_no_action(self, metric: str, delta_pct: float | None) -> bool:
+        """Determine if a metric change requires no action.
+
+        Rules:
+        - abs(delta_pct) < 5% → no action (trivial change)
+        - metric has desired_direction and delta aligns → no action
+        - Otherwise → action required
+        """
+        if delta_pct is None:
+            return False
+        if abs(delta_pct) < 5.0:
+            return True
+        if self._resolve_direction is None:
+            return False
+        direction = self._resolve_direction(metric)
+        if direction is None or direction == "neutral":
+            return False
+        if direction == "down" and delta_pct < 0:
+            return True
+        if direction == "up" and delta_pct > 0:
+            return True
+        return False
+
     # ── Multi-claim aggregation ──────────────────────────────────────────────
 
     def _derive_from_confirmed(
@@ -73,18 +125,70 @@ class DefaultRecommendationPolicy(RecommendationPolicy):
         observations: list[Observation],
         confirmed_claims: list[Claim],
     ) -> list[Recommendation]:
-        # Group by slice
-        groups: dict[tuple[tuple[str, Any], ...], list[Claim]] = defaultdict(list)
+        obs_map = {o["observation_id"]: o for o in observations}
+
+        # Split claims into action vs no-action BEFORE slice grouping
+        action_claims: list[Claim] = []
+        no_action_claims: list[Claim] = []
         for claim in confirmed_claims:
-            groups[_slice_key(claim)].append(claim)
+            metric = claim.get("scope", {}).get("metric", "")
+            delta = _get_claim_delta(claim, obs_map)
+            if self._is_no_action(metric, delta):
+                no_action_claims.append(claim)
+            else:
+                action_claims.append(claim)
 
         result: list[Recommendation] = []
-        for _key, group in groups.items():
-            if len(group) >= 2:
-                result.append(self._aggregated_recommendation(observations, group))
-            else:
-                result.append(self._single_claim_recommendation(observations, group[0]))
+
+        # Action claims: group by slice (existing logic)
+        if action_claims:
+            groups: dict[tuple[tuple[str, Any], ...], list[Claim]] = defaultdict(list)
+            for claim in action_claims:
+                groups[_slice_key(claim)].append(claim)
+            for _key, group in groups.items():
+                if len(group) >= 2:
+                    result.append(self._aggregated_recommendation(observations, group))
+                else:
+                    result.append(self._single_claim_recommendation(observations, group[0]))
+
+        # No-action claims: one recommendation per claim
+        for claim in no_action_claims:
+            result.append(self._no_action_recommendation(observations, claim))
+
         return result
+
+    def _no_action_recommendation(
+        self,
+        observations: list[Observation],
+        claim: Claim,
+    ) -> Recommendation:
+        """Build a no-action-required recommendation for a claim aligned with desired direction."""
+        metric = claim.get("scope", {}).get("metric", "")
+        slice_dict = claim.get("scope", {}).get("slice", {})
+        scope_desc = (
+            " / ".join(f"{k}={v}" for k, v in slice_dict.items())
+            if slice_dict else "overall"
+        )
+
+        obs_map = {o["observation_id"]: o for o in observations}
+        delta = _get_claim_delta(claim, obs_map)
+        delta_desc = f" ({abs(delta):.1f}%)" if delta is not None else ""
+
+        return {
+            "rec_id": f"rec_{uuid4().hex[:12]}",
+            "type": REC_TYPE_NO_ACTION,
+            "claim_id": claim["claim_id"],
+            "supporting_claims": None,
+            "action_text": (
+                f"{metric} change{delta_desc} in [{scope_desc}] is within expected bounds "
+                f"or aligned with desired direction. No investigation needed."
+            ),
+            "priority": "P3",
+            "expected_impact": "Metric is behaving as expected; no intervention required.",
+            "risk": "none",
+            "validation_metric": {"primary_metric": metric or "metric_under_investigation"},
+            "causal_basis": None,
+        }
 
     def _aggregated_recommendation(
         self,
@@ -110,18 +214,11 @@ class DefaultRecommendationPolicy(RecommendationPolicy):
         for claim in group:
             metric = claim.get("scope", {}).get("metric", "unknown")
             # Determine direction from the primary supporting observation
-            sup_ids = claim.get("supporting_observations", [])
-            delta = None
-            for sid in sup_ids:
-                obs = obs_map.get(sid)
-                if obs:
-                    delta = obs.get("payload", {}).get("delta_pct")
-                    if delta is not None:
-                        break
+            delta = _get_claim_delta(claim, obs_map)
             if delta is not None:
-                pct = abs(float(delta))
+                pct = abs(delta)
                 label = f"{metric} ({pct:.1f}%)"
-                if float(delta) > 0:
+                if delta > 0:
                     increased.append(label)
                 else:
                     declined.append(label)
@@ -160,6 +257,7 @@ class DefaultRecommendationPolicy(RecommendationPolicy):
 
         return {
             "rec_id": f"rec_{uuid4().hex[:12]}",
+            "type": REC_TYPE_ACTION,
             "claim_id": primary["claim_id"],
             "supporting_claims": all_claim_ids,
             "action_text": action_text,
@@ -227,6 +325,7 @@ class DefaultRecommendationPolicy(RecommendationPolicy):
 
         return {
             "rec_id": f"rec_{uuid4().hex[:12]}",
+            "type": REC_TYPE_ACTION,
             "claim_id": claim["claim_id"],
             "supporting_claims": None,
             "action_text": action_text,
