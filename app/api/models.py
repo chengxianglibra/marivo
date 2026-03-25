@@ -240,6 +240,77 @@ class ApprovalDecisionRequest(BaseModel):
     reason: str = ""
 
 
+class EvidenceStepResponse(BaseModel):
+    step_id: str
+    step_type: str
+    status: str
+    summary: str
+    provenance: dict[str, Any] = Field(default_factory=dict)
+
+
+class EvidenceObservationResponse(BaseModel):
+    observation_id: str
+    type: str
+    subject: dict[str, Any] = Field(default_factory=dict)
+    payload: dict[str, Any] = Field(default_factory=dict)
+    significance: dict[str, Any] = Field(default_factory=dict)
+    quality: dict[str, Any] = Field(default_factory=dict)
+    observed_window: dict[str, Any] | None = None
+    temporal_order: int = 0
+
+
+class EvidenceClaimResponse(BaseModel):
+    claim_id: str
+    claim_type: str
+    text: str
+    scope: dict[str, Any] = Field(default_factory=dict)
+    confidence: float
+    status: str
+    supporting_observations: list[str] = Field(default_factory=list)
+    contradicting_observations: list[str] = Field(default_factory=list)
+    confidence_breakdown: dict[str, Any] = Field(default_factory=dict)
+    inference_level: str
+    inference_justification: list[str] = Field(default_factory=list)
+
+
+class EvidenceEdgeResponse(BaseModel):
+    edge_id: str
+    from_node_id: str
+    from_node_type: str
+    to_node_id: str
+    to_node_type: str
+    edge_type: str
+    weight: float
+    explanation: str
+    match_basis: dict[str, Any] = Field(default_factory=dict)
+    score_components: dict[str, Any] = Field(default_factory=dict)
+    supporting_observation_ids: list[str] = Field(default_factory=list)
+
+
+class EvidenceRecommendationResponse(BaseModel):
+    rec_id: str
+    type: str
+    claim_id: str
+    action_text: str
+    priority: str
+    expected_impact: str
+    risk: str
+    validation_metric: dict[str, Any] = Field(default_factory=dict)
+    causal_basis: dict[str, Any] | None = None
+    entity_patch: dict[str, Any] | None = None
+    supporting_claims: list[str] | None = None
+    action: str | None = None
+
+
+class EvidenceGraphResponse(BaseModel):
+    session_id: str
+    steps: list[EvidenceStepResponse] = Field(default_factory=list)
+    observations: list[EvidenceObservationResponse] = Field(default_factory=list)
+    claims: list[EvidenceClaimResponse] = Field(default_factory=list)
+    edges: list[EvidenceEdgeResponse] = Field(default_factory=list)
+    recommendations: list[EvidenceRecommendationResponse] = Field(default_factory=list)
+
+
 class AttributeChangeStep(BaseModel):
     metric_name: str = Field(description="Published semantic metric to attribute.")
     table_name: str = Field(description="Physical table that backs the metric.")

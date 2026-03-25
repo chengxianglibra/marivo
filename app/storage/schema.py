@@ -85,6 +85,9 @@ METADATA_DDL: list[str] = [
         edge_type       TEXT NOT NULL,
         weight          REAL NOT NULL,
         explanation     TEXT NOT NULL,
+        match_basis_json TEXT NOT NULL DEFAULT '{}',
+        score_components_json TEXT NOT NULL DEFAULT '{}',
+        supporting_observation_ids_json TEXT NOT NULL DEFAULT '[]',
         created_at      TEXT NOT NULL DEFAULT (datetime('now'))
     )
     """,
@@ -343,4 +346,7 @@ METADATA_MIGRATIONS: list[str] = [
     "ALTER TABLE observations ADD COLUMN observed_window_json TEXT",
     "ALTER TABLE observations ADD COLUMN temporal_order INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE recommendations ADD COLUMN causal_basis_json TEXT",
+    "ALTER TABLE evidence_edges ADD COLUMN match_basis_json TEXT NOT NULL DEFAULT '{}'",
+    "ALTER TABLE evidence_edges ADD COLUMN score_components_json TEXT NOT NULL DEFAULT '{}'",
+    "ALTER TABLE evidence_edges ADD COLUMN supporting_observation_ids_json TEXT NOT NULL DEFAULT '[]'",
 ]
