@@ -344,7 +344,7 @@
 
 > 前置依赖：TSU-05 + TSU-06 | 工作量：大 | 风险：高
 
-- [ ] **TSU-12.1** 实现 day-only partition pruning
+- [x] **TSU-12.1** 实现 day-only partition pruning
   - 典型字段：`log_date`
 - [ ] **TSU-12.2** 实现 day + hour partition pruning
   - 典型字段：`log_date` + `log_hour`
