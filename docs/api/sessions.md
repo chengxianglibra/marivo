@@ -407,9 +407,13 @@ POST /sessions/{session_id}/steps/aggregate_query
 | `order` | string | no | Output ordering expression (e.g. `cnt_delta_pct DESC`) |
 | `limit` | integer | no | Maximum rows (default: `100`) |
 
-**Temporal column auto-detection (G-2):**
+**Observation window behavior (G-2):**
 
-When `observed_window_column` is not specified, the extractor checks for these column names in `group_by`:
+`aggregate_query` observations always inherit the request-level `time_scope` window.
+When `group_by` includes a recognized temporal column, the extractor refines that to
+per-row `observed_window` buckets instead of the coarser request window.
+
+Recognized temporal columns in `group_by`:
 
 - **Day granularity:** `date`, `day`, `dt`, `log_date`, `event_date`, `partition_date`, `report_date`, `transaction_date`, `created_date`, `updated_date`
 - **Hour granularity:** `hour`, `dt_hour`, `log_hour`, `event_hour`, `report_hour`
@@ -886,14 +890,14 @@ Requires `reflection.enabled: true` in `factum.yaml` (default: `true`).
   "evidence_gaps": [
     {
       "gap_key": "missing_observed_window",
-      "text": "populate `observed_window` (use `observed_window_column` param in `aggregate_query`) to enable temporal precedence checking",
-      "suggested_validation": "Run `aggregate_query` with `observed_window_column` set to a time column to enable temporal ordering.",
+      "text": "populate `observed_window` by running `aggregate_query` with a typed `time_scope` to enable temporal precedence checking",
+      "suggested_validation": "Run `aggregate_query` with a typed `time_scope` to enable temporal ordering.",
       "affected_claims": ["claim_..."]
     },
     {
       "gap_key": "missing_temporal_ordering",
-      "text": "run `aggregate_query` grouped by a time column with `observed_window_column` to establish temporal ordering for `elapsed_time`; optionally run `correlate_metrics` to test cross-series association",
-      "suggested_validation": "Run `aggregate_query` grouped by a time column with `observed_window_column` to establish temporal ordering for `elapsed_time`.",
+      "text": "run `aggregate_query` with a typed `time_scope`, grouped by a time column, to establish temporal ordering for `elapsed_time`; optionally run `correlate_metrics` to test cross-series association",
+      "suggested_validation": "Run `aggregate_query` with a typed `time_scope`, grouped by a time column, to establish temporal ordering for `elapsed_time`.",
       "affected_claims": ["claim_...", "claim_..."]
     }
   ],

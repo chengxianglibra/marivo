@@ -164,13 +164,13 @@ class AggregateRowExtractorTests(unittest.TestCase):
 
     def test_detect_temporal_column_is_position_independent(self) -> None:
         self.assertEqual(
-            self.extractor._detect_temporal_column(["resource_group", "log_date"], None),
+            self.extractor._detect_temporal_column(["resource_group", "log_date"]),
             "log_date",
         )
 
     def test_detect_temporal_column_prefers_day_over_hour(self) -> None:
         self.assertEqual(
-            self.extractor._detect_temporal_column(["log_date", "log_hour"], None),
+            self.extractor._detect_temporal_column(["log_date", "log_hour"]),
             "log_date",
         )
 

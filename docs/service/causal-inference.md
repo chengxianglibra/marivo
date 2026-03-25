@@ -73,24 +73,11 @@ Recognised hour-level column names: `hour`, `hour_slot`, `hour_ts`.
 
 Each result row will carry `observed_window: {"start": "2026-02-01", "end": "2026-02-02", "granularity": "day"}` (half-open bucket: `[day, next_day)`).
 
-### 2. `aggregate_query` with `observed_window_column` (explicit override)
+### 2. `aggregate_query` request window fallback
 
-Use this when the time column has a non-standard name that the heuristic does not
-recognise:
-
-```json
-{
-  "step_type": "aggregate_query",
-  "params": {
-    "sql": "SELECT query_day, cluster, COUNT(*) AS heavy_count FROM ...",
-    "group_by": ["query_day", "cluster"],
-    "observed_window_column": "query_day"
-  }
-}
-```
-
-The named column must be present in the aggregate result row. It supports the same
-date formats as the heuristic (ISO date, YYYYMMDD, ISO datetime, `YYYY-MM-DD HH:MM:SS`).
+Every typed `aggregate_query` observation inherits the request's `time_scope` as its
+default `observed_window`. When `group_by` contains a recognized temporal column, the
+extractor refines that to per-row buckets instead of the coarser request window.
 
 ### 3. `correlate_metrics` (derived from series date range)
 
@@ -198,18 +185,18 @@ periods, so that both sets are attributed to the same claim.
 
 **Pattern A — two `aggregate_query` steps in different periods:**
 
-1. Run `aggregate_query` for the baseline period (e.g. Feb 1–14) with
-   `observed_window_column: "log_date"`. Observations carry `observed_window` for Feb.
-2. Run `aggregate_query` for the current period (e.g. Mar 1–14) with the same column.
-   Observations carry `observed_window` for March.
+1. Run `aggregate_query` for the baseline period (e.g. Feb 1–14) with a typed
+   `time_scope`. Observations carry `observed_window` for Feb.
+2. Run `aggregate_query` for the current period (e.g. Mar 1–14) with the same
+   shape. Observations carry `observed_window` for March.
 
 Both sets are attributed to the same claim (same metric + compatible slice). The checker
 sees: earliest window ends 2026-02-14, latest window starts 2026-03-01 — strict
 non-overlap → L2 fires. A `temporally_precedes` edge is written to the graph.
 
-**Pattern B — two `compare_metric` steps with different `period_start`/`period_end`:**
+**Pattern B — two `compare_metric` steps with different `time_scope.current` windows:**
 
-`compare_metric` populates `observed_window` from its period parameters. Running the
+`compare_metric` populates `observed_window` from its typed `time_scope`. Running the
 step twice for non-overlapping periods has the same effect as Pattern A.
 
 ### Output
@@ -293,9 +280,8 @@ observations, the token is added automatically.
 
 | Step type | Produces observations? | `observed_window` populated? | Contributes to L0→L1 | Contributes to L1→L2 |
 |-----------|------------------------|------------------------------|----------------------|----------------------|
-| `compare_metric` | Yes (`comparison_row`) | Yes (from `period_start`/`period_end`) | Yes | Yes — run for two non-overlapping periods |
-| `aggregate_query` with temporal column | Yes (`aggregate_row`) | Yes (heuristic) | Yes | Yes — run for two non-overlapping periods |
-| `aggregate_query` with `observed_window_column` | Yes | Yes (explicit) | Yes | Yes |
+| `compare_metric` | Yes (`comparison_row`) | Yes (from typed `time_scope`) | Yes | Yes — run for two non-overlapping periods |
+| `aggregate_query` | Yes (`aggregate_row`) | Yes (request `time_scope`, optionally refined by temporal `group_by`) | Yes | Yes — run for two non-overlapping periods |
 | `correlate_metrics` | Yes (`correlation_result`) | Yes (union of series date range) | Indirect | Via DoseResponse bonus at L1+ |
 | `profile_table` | Yes (`profile_row`) | No | Limited | No |
 | `sample_rows` | No | No | No | No |
@@ -317,8 +303,7 @@ observations, the token is added automatically.
   "step_type": "aggregate_query",
   "params": {
     "sql": "SELECT log_date, cluster, COUNT(*) AS heavy_count FROM iceberg.iceberg_inf.ods_trino_query_info WHERE log_date BETWEEN '20260201' AND '20260214' AND user = 'sycpb_bi' AND scan_data_size >= 536870912000 GROUP BY log_date, cluster",
-    "group_by": ["log_date", "cluster"],
-    "observed_window_column": "log_date"
+    "group_by": ["log_date", "cluster"]
   }
 }
 ```
@@ -342,8 +327,7 @@ claim to **L1**.
   "step_type": "aggregate_query",
   "params": {
     "sql": "SELECT log_date, cluster, CAST(SUM(CASE WHEN query_state = 'FAILED' THEN 1 ELSE 0 END) AS DOUBLE) / COUNT(*) AS failure_rate FROM iceberg.iceberg_inf.ods_trino_query_info WHERE log_date BETWEEN '20260301' AND '20260314' AND cluster IN ('k8sbi-bi1', 'k8sbi-bi2') AND user != 'sycpb_bi' GROUP BY log_date, cluster",
-    "group_by": ["log_date", "cluster"],
-    "observed_window_column": "log_date"
+    "group_by": ["log_date", "cluster"]
   }
 }
 ```
@@ -417,7 +401,7 @@ recommendations backed by the accumulated causal evidence.
 |---------|-----------|-----|
 | Claim stays at L0 | Fewer than 2 observations with `delta_pct` | Run more slices, or use `aggregate_query` to produce more than one row |
 | Claim stays at L0 despite many observations | < 80% of observations share the same `delta_pct` sign | Investigate contradictions first; filter to a cleaner slice dimension |
-| Claim stays at L1 | `observed_window` is null on all supporting observations | Add `observed_window_column` to `aggregate_query` params |
+| Claim stays at L1 | `observed_window` is null on all supporting observations | Run `aggregate_query` with a typed `time_scope`; add temporal `group_by` if you need per-bucket windows |
 | Claim stays at L1 | Baseline and current observations cover overlapping date ranges | Ensure the two `aggregate_query` or `compare_metric` steps use strictly non-overlapping periods |
 | DoseResponse bonus missing | `correlate_metrics` metric labels do not match the claim's `scope.metric` | Set `left_metric` / `right_metric` to match the claim metric name exactly |
 | No `temporally_precedes` edge in graph | Claim was promoted before the causal edge persistence path ran | Run one more primitive step to trigger re-synthesis, or call `synthesize_findings` |

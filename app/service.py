@@ -1011,10 +1011,11 @@ class SemanticLayerService:
                 entity_time_capabilities = raw_time_capabilities
 
         available_columns = list(source_columns)
-        for column in fallback_columns or []:
-            name = str(column).strip()
-            if name and name not in available_columns:
-                available_columns.append(name)
+        if available_columns:
+            for column in fallback_columns or []:
+                name = str(column).strip()
+                if name and name not in available_columns:
+                    available_columns.append(name)
 
         resolver = TimeAxisResolver(
             request=request,
@@ -1181,11 +1182,15 @@ class SemanticLayerService:
                 {
                     "step_type": step_type,
                     "params": {
-                        "metric_name": metric_name,
-                        "table_name": qualified_table,
-                        "limit": limit,
-                        "order": self._normalize_compare_metric_order(resolved.order),
-                        "scoped_query": scoped_query,
+                        key: value
+                        for key, value in {
+                            "metric_name": metric_name,
+                            "table_name": qualified_table,
+                            "limit": limit,
+                            "order": self._normalize_compare_metric_order(resolved.order),
+                            "scoped_query": scoped_query,
+                        }.items()
+                        if value is not None
                     },
                 },
             ),
@@ -1596,21 +1601,22 @@ class SemanticLayerService:
     def _run_aggregate_query(self, session_id: str, params: dict[str, Any]) -> dict[str, Any]:
         """Run an ad-hoc GROUP BY + aggregation query.
 
-        Required params:
-            table_name: fully qualified table name
-            select: list of SQL expressions (e.g. ["platform", "count(*) as cnt"])
-            group_by: list of column names to group by
-        Optional params:
-            where: SQL WHERE clause expression
-            order_by: SQL ORDER BY expression
+        Public contract:
+            table: fully qualified table name
+            measures: list of aggregate expressions with explicit aliases
+            time_scope: typed time window contract
+        Optional:
+            group_by: grouping columns
+            scope: non-time constraints / predicate
+            time_axis: advanced analysis-time override
+            order: output ordering expression
             limit: max rows (default: 100)
-            extract_observations: extract observations from result (default: true)
-            observed_window_column: explicit column for observed_window inference (G-2)
+
+        Execution-only extras such as extract_observations remain supported for
+        the evidence pipeline but are not part of the typed API model.
         """
         resolved = normalize_aggregate_query_request(params)
         table_name = resolved.table
-        if not table_name:
-            raise ValueError("aggregate_query requires 'table_name' param")
 
         step_type = "aggregate_query"
         step_id = self._new_step_id()
@@ -1622,20 +1628,20 @@ class SemanticLayerService:
             fallback_columns=list(resolved.grouping),
         )
         scoped_query = self._build_scoped_query(session_id, resolved)
-        select_exprs = list(resolved.grouping) + [
-            f"{measure.expr} AS {measure.alias}" for measure in resolved.value_spec.measures
-        ]
         qualified_table = qualified.get(short_name, table_name)
 
         compiler_params: dict[str, Any] = {
             "table_name": qualified_table,
-            "select": select_exprs,
+            "measures": [
+                {"expr": measure.expr, "as": measure.alias}
+                for measure in resolved.value_spec.measures
+            ],
             "group_by": list(resolved.grouping),
             "limit": resolved.limit or 100,
             "scoped_query": scoped_query,
         }
         if resolved.order:
-            compiler_params["order_by"] = resolved.order
+            compiler_params["order"] = resolved.order
 
         compiled_query = self._compile_step_with_feedback(
             from_legacy_step(0, {"step_type": step_type, "params": compiler_params}),
@@ -1663,7 +1669,6 @@ class SemanticLayerService:
                 "observation_type": params.get("observation_type", "metric_change"),
                 "metric": resolved.value_spec.measures[0].alias if resolved.value_spec.measures else "aggregate",
                 "value_column": value_column,
-                "observed_window_column": params.get("observed_window_column"),  # G-2: explicit override
                 "column_metadata": col_metadata,  # G-5a: authoritative unit source
             }
             if params.get("temporal_group_by_columns") is not None:
@@ -1674,11 +1679,10 @@ class SemanticLayerService:
                 rows,
                 context=observation_context,
             )
-            # M-08: annotate temporal info. For compare_period, use the current window.
-            # G-2: Only set window if not already inferred by extractor from temporal column.
-            agg_window: dict[str, Any] | None = None
-            if compare_period:
-                agg_window = self._observation_window_for_request(resolved)
+            # Annotate all aggregate observations with the request-level window.
+            # Row-level temporal groupings still win because _annotate_temporal()
+            # preserves windows already inferred by the extractor.
+            agg_window = self._observation_window_for_request(resolved)
             self._annotate_temporal(observations, session_id, agg_window)
             for observation in observations:
                 self._insert_observation(session_id, step_id, observation)

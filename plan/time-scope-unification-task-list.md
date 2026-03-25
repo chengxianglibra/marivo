@@ -241,18 +241,18 @@
 
 > 前置依赖：TSU-01 + TSU-06 | 工作量：大 | 风险：高
 
-- [ ] **TSU-07.1** 重写 [`app/service.py`](/Users/lichengxiang/source/oss/factum/app/service.py) 中 `_run_aggregate_query()`
+- [x] **TSU-07.1** 重写 [`app/service.py`](/Users/lichengxiang/source/oss/factum/app/service.py) 中 `_run_aggregate_query()`
   - 不再接受 `select`
   - 不再接受 `compare_period`
   - 不再接受 `date_column`
   - 不再接受 step-level `where`
-- [ ] **TSU-07.2** 用 `measures` 替换原 `select` contract
+- [x] **TSU-07.2** 用 `measures` 替换原 `select` contract
   - 每个 measure 显式 alias
-- [ ] **TSU-07.3** `group_by` 迁移到统一 grouping 流程
-- [ ] **TSU-07.4** 支持 `time_scope.mode = single_window`
-- [ ] **TSU-07.5** 支持 `time_scope.mode = compare`
-- [ ] **TSU-07.6** `scope.constraints` / `scope.predicate` 注入新的 shared compiler
-- [ ] **TSU-07.7** 拒绝 `scope.predicate` 中的时间条件
+- [x] **TSU-07.3** `group_by` 迁移到统一 grouping 流程
+- [x] **TSU-07.4** 支持 `time_scope.mode = single_window`
+- [x] **TSU-07.5** 支持 `time_scope.mode = compare`
+- [x] **TSU-07.6** `scope.constraints` / `scope.predicate` 注入新的 shared compiler
+- [x] **TSU-07.7** 拒绝 `scope.predicate` 中的时间条件
   - service 层与 planner 层双重防线
 
 验收标准：
@@ -264,12 +264,12 @@
 
 > 前置依赖：TSU-07 | 工作量：中 | 风险：中
 
-- [ ] **TSU-08.1** 审计 `AggregateRowExtractor` 是否仍假设旧列名 / 旧 period 结构
-- [ ] **TSU-08.2** 调整 observation window 注入逻辑
+- [x] **TSU-08.1** 审计 `AggregateRowExtractor` 是否仍假设旧列名 / 旧 period 结构
+- [x] **TSU-08.2** 调整 observation window 注入逻辑
   - compare 模式和 single-window 模式都要输出与 `time_scope.grain` 一致的 window/granularity
-- [ ] **TSU-08.3** 审计 temporal causal 相关 checker 是否依赖旧 aggregate 观察方式
+- [x] **TSU-08.3** 审计 temporal causal 相关 checker 是否依赖旧 aggregate 观察方式
   - 重点：`observed_window` 是否仍然来自 compare_period 或 group_by heuristic
-- [ ] **TSU-08.4** 明确保留或删除 `observed_window_column` 机制
+- [x] **TSU-08.4** 明确保留或删除 `observed_window_column` 机制
   - 若保留，需要说明其与 `time_scope` 的关系
   - 若删除，需要同步清理相关文档与测试
 

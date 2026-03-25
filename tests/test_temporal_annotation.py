@@ -3,8 +3,8 @@
 Verifies:
 - observed_window_json and temporal_order columns exist in the DB schema
 - compare_metric observations carry an observed_window with start/end/granularity
-- aggregate_query observations carry observed_window when compare_period=True
-- aggregate_query observations have null observed_window for plain aggregations
+- aggregate_query observations carry observed_window when compare mode is used
+- aggregate_query observations carry request-level observed_window for plain aggregations
 - temporal_order increments correctly across observations in the same session
 - _load_observations returns temporal_order and observed_window correctly
 - evidence graph API includes temporal fields in observations
@@ -144,9 +144,15 @@ class CompareMetricTemporalTests(unittest.TestCase):
         resp = self.client.post(
             f"/sessions/{session_id}/steps/compare_metric",
             json={
-                "metric_name": "avg_duration_m08",
-                "table_name": "analytics.watch_events",
+                "table": "analytics.watch_events",
+                "metric": "avg_duration_m08",
                 "dimensions": dims,
+                "time_scope": {
+                    "mode": "compare",
+                    "grain": "day",
+                    "current": {"start": "2026-02-28", "end": "2026-03-06"},
+                    "baseline": {"start": "2026-02-22", "end": "2026-02-28"},
+                },
             },
         )
         self.assertEqual(resp.status_code, 200, resp.text)
@@ -244,9 +250,14 @@ class AggregateQueryTemporalTests(unittest.TestCase):
 
     def _run_agg(self, session_id: str, **kwargs) -> list[dict]:
         body = {
-            "table_name": "analytics.watch_events",
-            "select": ["platform", "COUNT(*) AS cnt"],
+            "table": "analytics.watch_events",
             "group_by": ["platform"],
+            "measures": [{"expr": "COUNT(*)", "as": "cnt"}],
+            "time_scope": {
+                "mode": "single_window",
+                "grain": "day",
+                "current": {"start": "2026-03-01", "end": "2026-03-08"},
+            },
             **kwargs,
         }
         resp = self.client.post(
@@ -255,14 +266,21 @@ class AggregateQueryTemporalTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200, resp.text)
         return resp.json().get("observations", [])
 
-    def test_plain_aggregate_has_no_observed_window(self) -> None:
+    def test_plain_aggregate_uses_request_level_observed_window(self) -> None:
         sess = self._new_session()
         obs = self._run_agg(sess)
         if not obs:
             self.skipTest("No observations generated")
         for o in obs:
-            self.assertNotIn("observed_window", o,
-                             "Plain aggregate without compare_period must not carry observed_window")
+            self.assertIn("observed_window", o)
+            self.assertEqual(
+                o["observed_window"],
+                {
+                    "start": "2026-03-01",
+                    "end": "2026-03-08",
+                    "granularity": "day",
+                },
+            )
 
     def test_temporal_order_assigned_for_plain_aggregate(self) -> None:
         sess = self._new_session()
