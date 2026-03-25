@@ -18,7 +18,7 @@ class ScopeCluster:
     other_obs: list[dict[str, Any]]
     # Audit fields
     total_observation_count: int = 0
-    cluster_reason: str = ""                # "exact_scope_match" | "non_metric_fallback"
+    cluster_reason: str = ""                # "exact_scope_match"
 
 
 @dataclass
@@ -71,4 +71,5 @@ class PipelineAuditLog:
     formulation_decisions: list[dict[str, Any]] = field(default_factory=list)
     claims_produced: int = 0
     overall_trend_generated: bool = False
+    dropped_observation_count: int = 0
     error: str | None = None

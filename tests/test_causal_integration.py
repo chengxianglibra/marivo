@@ -274,7 +274,7 @@ class CausalUpgradeChainTests(unittest.TestCase):
     # -- test_cross_scope_explicit_causal_candidate ----------------------------
 
     def test_cross_scope_explicit_causal_candidate(self) -> None:
-        """causal_candidate observation with candidate_cause_observation_id produces correlates_with edge."""
+        """causal_candidate observation should upgrade the effect claim without materializing edges incrementally."""
         # Step 1: Create a cause observation
         _insert_obs(
             self.store,
@@ -307,27 +307,17 @@ class CausalUpgradeChainTests(unittest.TestCase):
         self.assertGreaterEqual(result["claims_created"], 2)
         self.assertGreaterEqual(result["causal_upgrades"], 1)
 
-        # Check for correlates_with edge in evidence_edges
         edges = self.store.query_rows(
             "SELECT * FROM evidence_edges WHERE session_id = ?",
             [self.sess_id],
         )
-        correlate_edges = [e for e in edges if e["edge_type"] == "correlates_with"]
-        self.assertGreaterEqual(
-            len(correlate_edges), 1,
-            "Expected at least one correlates_with edge from causal_candidate link",
-        )
-
-        # Verify the edge connects cause observation to effect claim
-        edge = correlate_edges[0]
-        self.assertEqual(edge["from_node_id"], "obs_cause_001")
-        self.assertEqual(edge["from_node_type"], "observation")
-        self.assertEqual(edge["to_node_type"], "claim")
+        self.assertEqual(edges, [])
 
         # Verify justification token
         claims = self._all_claims()
         justifications = " ".join(r["inference_justification_json"] or "[]" for r in claims)
         self.assertIn("cross_scope_explicit", justifications)
+        self.assertIn("L1", [r["inference_level"] for r in claims])
 
     # -- test_cross_scope_automatic_temporal_predecessor -----------------------
 
@@ -391,7 +381,7 @@ class CausalUpgradeChainTests(unittest.TestCase):
     # -- test_cross_scope_chain_three_steps -----------------------------------
 
     def test_cross_scope_chain_three_steps(self) -> None:
-        """Three-step causal chain A → B → C produces two correlates_with edges."""
+        """Three-step causal chain A → B → C upgrades downstream claims without incremental edge writes."""
         # Step A: sys_titan query volume spike
         _insert_obs(
             self.store,
@@ -436,21 +426,16 @@ class CausalUpgradeChainTests(unittest.TestCase):
         # Should have 3 claims
         self.assertGreaterEqual(result["claims_created"], 3)
 
-        # Should have at least 2 correlates_with edges
         edges = self.store.query_rows(
             "SELECT * FROM evidence_edges WHERE session_id = ? AND edge_type = 'correlates_with'",
             [self.sess_id],
         )
-        self.assertGreaterEqual(
-            len(edges), 2,
-            f"Expected at least 2 correlates_with edges in chain, got {len(edges)}",
-        )
-
-        # Verify chain connectivity: A → B claim, B → C claim
-        edge_from_a = [e for e in edges if e["from_node_id"] == "obs_chain_a"]
-        edge_from_b = [e for e in edges if e["from_node_id"] == "obs_chain_b"]
-        self.assertGreaterEqual(len(edge_from_a), 1, "Expected edge from obs_chain_a")
-        self.assertGreaterEqual(len(edge_from_b), 1, "Expected edge from obs_chain_b")
+        self.assertEqual(edges, [])
+        claims = self._all_claims()
+        l1_claims = [c for c in claims if c["inference_level"] == "L1"]
+        self.assertGreaterEqual(len(l1_claims), 2)
+        justifications = " ".join(r["inference_justification_json"] or "[]" for r in claims)
+        self.assertIn("cross_scope_explicit", justifications)
 
     # -- test_cross_scope_invalid_cause_id_ignored ----------------------------
 
@@ -546,7 +531,7 @@ class CausalUpgradeChainTests(unittest.TestCase):
     # -- test_cross_scope_valid_lag_produces_edge ------------------------------
 
     def test_cross_scope_valid_lag_produces_edge(self) -> None:
-        """Test that lag_days within 1-7 range produces correlates_with edge."""
+        """Valid lag should upgrade a downstream claim without incremental edge materialization."""
         # Observation A: ends 2026-01-02
         _insert_obs(
             self.store,
@@ -579,19 +564,15 @@ class CausalUpgradeChainTests(unittest.TestCase):
         self.assertGreaterEqual(result["claims_created"], 2)
         self.assertGreaterEqual(result["causal_upgrades"], 1)
 
-        # Verify correlates_with edge exists
         edges = self.store.query_rows(
             "SELECT * FROM evidence_edges WHERE session_id = ? AND edge_type = 'correlates_with'",
             [self.sess_id],
         )
-        self.assertGreaterEqual(
-            len(edges), 1,
-            "Expected at least one correlates_with edge for valid lag",
-        )
-
-        # Verify edge has correct from_node
-        edge_from_a = [e for e in edges if e["from_node_id"] == "obs_valid_lag_a"]
-        self.assertGreaterEqual(len(edge_from_a), 1, "Expected edge from obs_valid_lag_a")
+        self.assertEqual(edges, [])
+        claims = self._all_claims()
+        self.assertIn("L1", [r["inference_level"] for r in claims])
+        justifications = " ".join(r["inference_justification_json"] or "[]" for r in claims)
+        self.assertIn("cross_scope_temporal", justifications)
 
 
 # ── EvidenceGraphPhase2FieldsTests ────────────────────────────────────────────

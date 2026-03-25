@@ -151,16 +151,20 @@ class EvidencePluginTests(unittest.TestCase):
                 observations: list[dict],
                 claims: list[dict],
                 recommendations: list[dict],
+                relations=None,
             ) -> list[dict]:
                 return [
                     {
                         "rec_id": "rec_fixed",
+                        "type": "action_required",
                         "claim_id": claims[0]["claim_id"],
+                        "supporting_claims": None,
                         "action_text": "Escalate fixed follow-up",
                         "priority": "P2",
                         "expected_impact": "Validate custom policy wiring.",
                         "risk": "Low",
                         "validation_metric": {"primary_metric": "watch_time"},
+                        "causal_basis": None,
                     }
                 ]
 

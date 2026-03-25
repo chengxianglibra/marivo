@@ -43,6 +43,9 @@ class ThreeStagePipeline:
             # Stage 1: cluster
             clusters = self._clusterer.cluster(observations)
             audit.scope_clusters = [_cluster_audit(c) for c in clusters]
+            audit.dropped_observation_count = len(observations) - sum(
+                c.total_observation_count for c in clusters
+            )
 
             if not clusters:
                 return [], [], [], audit

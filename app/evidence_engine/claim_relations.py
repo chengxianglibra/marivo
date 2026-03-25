@@ -35,10 +35,12 @@ class ClaimRelationDiscovery(ABC):
 
 
 class DefaultClaimRelationDiscovery(ClaimRelationDiscovery):
-    """Conservative relation discovery used for the pure refactor phase.
+    """Default relation discovery for the strict five-layer pipeline.
 
-    Current behaviour is preserved by only translating existing claim-to-claim
-    edges into explicit relation objects. No new claim pair mining happens here.
+    Relation discovery must not depend on previously materialized edges,
+    otherwise the pipeline becomes cyclical: edges create relations and
+    relations create edges again. Until Factum has observation-first relation
+    mining rules, the default implementation returns no derived relations.
     """
 
     name = "default"
@@ -49,37 +51,7 @@ class DefaultClaimRelationDiscovery(ClaimRelationDiscovery):
         observations: list[dict[str, Any]],
         existing_edges: list[dict[str, Any]],
     ) -> list[ClaimRelation]:
-        claim_ids = {claim["claim_id"] for claim in claims}
-        relations: list[ClaimRelation] = []
-        seen: set[tuple[str, str, str]] = set()
-
-        for edge in existing_edges:
-            if edge.get("from_node_type") != "claim" or edge.get("to_node_type") != "claim":
-                continue
-            from_id = edge.get("from_node_id")
-            to_id = edge.get("to_node_id")
-            relation_type = edge.get("edge_type")
-            if from_id not in claim_ids or to_id not in claim_ids or not relation_type:
-                continue
-            key = (str(from_id), str(to_id), str(relation_type))
-            if key in seen:
-                continue
-            seen.add(key)
-            relations.append(
-                {
-                    "from_claim_id": str(from_id),
-                    "to_claim_id": str(to_id),
-                    "relation_type": str(relation_type),
-                    "weight": float(edge.get("weight", 0.0)),
-                    "match_basis": {"source": "existing_edge"},
-                    "supporting_observation_ids": [],
-                    "explanation": str(
-                        edge.get("explanation")
-                        or "Claim relation derived from synthesized graph edge."
-                    ),
-                }
-            )
-        return relations
+        return []
 
 
 def materialize_relations_as_edges(relations: list[ClaimRelation]) -> list[dict[str, Any]]:

@@ -334,7 +334,7 @@ class IncrementalSynthesizer:
         tentative_claims: list[dict[str, Any]],
         all_observations: list[dict[str, Any]],
     ) -> int:
-        """Run the causal checker chain, persist inference_level upgrades and causal edges.
+        """Run the causal checker chain and persist inference_level upgrades.
 
         Returns the number of claims that received at least one upgrade.
         """
@@ -395,13 +395,6 @@ class IncrementalSynthesizer:
             claim["inference_level"] = new_level
             claim["inference_justification"] = new_tokens
             claim["confidence"] = new_confidence
-
-            # Persist causal edges via shared per-claim reconcile helper
-            if upgrade.causal_edges:
-                from app.evidence_engine.causal_checkers import reconcile_causal_edges
-                reconcile_causal_edges(
-                    self._store, session_id, upgrade.claim_id, upgrade.causal_edges
-                )
 
             applied += 1
 

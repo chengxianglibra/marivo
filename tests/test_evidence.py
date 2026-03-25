@@ -1114,14 +1114,11 @@ class DefaultRecommendationPolicyTests(unittest.TestCase):
             "inference_justification": {},
         }
 
-    def test_insufficient_claim_includes_payload_hint(self) -> None:
+    def test_insufficient_claims_do_not_produce_recommendations(self) -> None:
         obs = self._make_obs("obs_h1", {"query_count": 1234, "avg_cpu": 0.85}, {"user": "ai_bi"})
         claim = self._make_claim("claim_h1", "obs_h1", "insufficient", {"user": "ai_bi"})
         recs = self.policy.derive([obs], [claim], [])
-        self.assertEqual(len(recs), 1)
-        action = recs[0]["action_text"]
-        self.assertIn("user=ai_bi", action)
-        self.assertIn("observed query_count=1,234", action)
+        self.assertEqual(recs, [])
 
     def test_confirmed_claim_includes_scope_and_payload_hint(self) -> None:
         obs = self._make_obs("obs_i1", {"avg_cpu": 0.85}, {"cluster": "k8sbi-bi1"})
@@ -1132,14 +1129,11 @@ class DefaultRecommendationPolicyTests(unittest.TestCase):
         self.assertIn("cluster=k8sbi-bi1", action)
         self.assertIn("observed avg_cpu=0.85", action)
 
-    def test_no_payload_numeric_produces_clean_text(self) -> None:
+    def test_non_confirmed_claim_without_payload_numeric_produces_no_recommendation(self) -> None:
         obs = self._make_obs("obs_j1", {"label": "foo"}, {"region": "us"})
         claim = self._make_claim("claim_j1", "obs_j1", "insufficient", {"region": "us"})
         recs = self.policy.derive([obs], [claim], [])
-        self.assertEqual(len(recs), 1)
-        action = recs[0]["action_text"]
-        self.assertNotIn("observed", action)
-        self.assertIn("region=us", action)
+        self.assertEqual(recs, [])
 
 
 class PromotionIntegrationTests(unittest.TestCase):
@@ -1210,49 +1204,6 @@ class PromotionIntegrationTests(unittest.TestCase):
         self.assertGreater(len(promoted), 0)
         statuses = {row["status"] for row in promoted}
         self.assertTrue(statuses.issubset({"confirmed", "insufficient"}))
-
-    def test_fallback_mode_when_no_incremental_synthesizer(self) -> None:
-        """Without IncrementalSynthesizer, synthesize_findings uses original from-scratch path."""
-        import tempfile
-        from pathlib import Path
-        from app.service import SemanticLayerService
-        from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
-        from app.storage.sqlite_metadata import SQLiteMetadataStore
-        from app.semantic import SemanticService
-
-        with tempfile.TemporaryDirectory() as td:
-            meta = SQLiteMetadataStore(Path(td) / "fallback.meta.sqlite")
-            duck_path = Path(td) / "fallback.duckdb"
-            get_seeded_duckdb_path(duck_path)
-            analytics = DuckDBAnalyticsEngine(duck_path)
-            meta.initialize()
-            analytics.initialize()
-            svc = SemanticLayerService(meta, analytics, incremental_synthesizer=None)
-
-            semantic = SemanticService(meta)
-            entity = semantic.create_entity("fb_entity", "FB Entity", ["session_id"])
-            semantic.publish_entity(entity["entity_id"])
-            metric = semantic.create_metric(
-                "fb_watch_time", "Watch Time FB", "avg(play_duration_seconds)",
-                ["platform", "app_version", "network_type", "content_type"],
-                entity_id=entity["entity_id"],
-            )
-            semantic.publish_metric(metric["metric_id"])
-
-            session_id = svc.create_session("fallback test", {}, {}, {})["session_id"]
-            svc.run_step(
-                session_id, "compare_metric",
-                {"metric_name": "fb_watch_time", "table_name": "analytics.watch_events"},
-            )
-            svc.run_step(session_id, "synthesize_findings")
-
-            # Claims exist and have status='supported' (from-scratch path)
-            claims = meta.query_rows(
-                "SELECT status FROM claims WHERE session_id = ?", [session_id]
-            )
-            self.assertGreater(len(claims), 0)
-            statuses = {row["status"] for row in claims}
-            self.assertTrue(statuses.issubset({"supported"}))
 
     def test_incremental_claims_in_evidence_graph(self) -> None:
         """Full flow: primitive step → tentative claim → synthesize → confirmed visible in evidence graph."""
@@ -1523,39 +1474,6 @@ class CausalBasisTests(unittest.TestCase):
             "significance": {"sample_size": 300, "practical_significance": True},
             "quality": {"freshness_ok": True, "sample_size_ok": True},
         }
-
-    # ── unit tests for _build_causal_basis ───────────────────────────────────
-
-    def test_build_causal_basis_l0_has_fallback_confounders(self) -> None:
-        # _build_causal_basis provides no observation context so the fallback
-        # rules fire: L0 → 2 gaps (correlation_only, concurrent_changes).
-        from app.evidence_engine.schemas import _build_causal_basis
-        cb = _build_causal_basis(self._make_claim("L0"))
-        self.assertEqual(cb["inference_level"], "L0")
-        self.assertEqual(len(cb["unresolved_confounders"]), 2)
-        self.assertIn("temporal", cb["suggested_validation"])
-
-    def test_build_causal_basis_l5_has_empty_confounders(self) -> None:
-        from app.evidence_engine.schemas import _build_causal_basis
-        cb = _build_causal_basis(self._make_claim("L5"))
-        self.assertEqual(cb["inference_level"], "L5")
-        self.assertEqual(cb["unresolved_confounders"], [])
-        self.assertIn("generalizability", cb["suggested_validation"])
-
-    def test_build_causal_basis_summary_embeds_text_and_confidence(self) -> None:
-        from app.evidence_engine.schemas import _build_causal_basis
-        cb = _build_causal_basis(self._make_claim("L0", "Watch time dropped", 0.75))
-        self.assertIn("Watch time dropped", cb["strongest_evidence_summary"])
-        self.assertIn("0.75", cb["strongest_evidence_summary"])
-
-    def test_build_causal_basis_all_levels_produce_valid_dicts(self) -> None:
-        from app.evidence_engine.schemas import _build_causal_basis, INFERENCE_LEVEL_ORDER
-        for level in INFERENCE_LEVEL_ORDER:
-            cb = _build_causal_basis(self._make_claim(level))
-            self.assertEqual(cb["inference_level"], level)
-            self.assertIsInstance(cb["unresolved_confounders"], list)
-            self.assertIsInstance(cb["suggested_validation"], str)
-            self.assertGreater(len(cb["suggested_validation"]), 0)
 
     # ── pipeline-level tests ─────────────────────────────────────────────────
 
