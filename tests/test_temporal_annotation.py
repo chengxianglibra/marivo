@@ -169,6 +169,8 @@ class CompareMetricTemporalTests(unittest.TestCase):
         self.assertIn("end", window)
         self.assertIn("granularity", window)
         self.assertEqual(window["granularity"], "day")
+        self.assertEqual(window["start"], "2026-02-28")
+        self.assertEqual(window["end"], "2026-03-06")
 
     def test_compare_metric_observed_window_has_string_dates(self) -> None:
         sess = self._new_session()
@@ -278,6 +280,30 @@ class AggregateQueryTemporalTests(unittest.TestCase):
                 {
                     "start": "2026-03-01",
                     "end": "2026-03-08",
+                    "granularity": "day",
+                },
+            )
+
+    def test_compare_aggregate_uses_current_time_scope_window(self) -> None:
+        sess = self._new_session()
+        obs = self._run_agg(
+            sess,
+            time_scope={
+                "mode": "compare",
+                "grain": "day",
+                "current": {"start": "2026-02-28", "end": "2026-03-06"},
+                "baseline": {"start": "2026-02-22", "end": "2026-02-28"},
+            },
+        )
+        if not obs:
+            self.skipTest("No observations generated")
+        for o in obs:
+            self.assertIn("observed_window", o)
+            self.assertEqual(
+                o["observed_window"],
+                {
+                    "start": "2026-02-28",
+                    "end": "2026-03-06",
                     "granularity": "day",
                 },
             )

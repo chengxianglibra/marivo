@@ -30,6 +30,21 @@ def _typed_compare_metric_params(**overrides: object) -> dict[str, object]:
     return params
 
 
+def _typed_aggregate_query_params(**overrides: object) -> dict[str, object]:
+    params: dict[str, object] = {
+        "table": "analytics.watch_events",
+        "group_by": ["platform"],
+        "measures": [{"expr": "COUNT(*)", "as": "cnt"}],
+        "time_scope": {
+            "mode": "single_window",
+            "grain": "day",
+            "current": {"start": "2026-03-01", "end": "2026-03-08"},
+        },
+    }
+    params.update(overrides)
+    return params
+
+
 class AdvancedPlanValidationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -164,6 +179,25 @@ class AdvancedPlanValidationTests(unittest.TestCase):
         self.assertFalse(result["valid"])
         self.assertIn("legacy_param_not_supported", [issue["code"] for issue in result["issues"]])
 
+    def test_validate_plan_rejects_legacy_aggregate_query_params(self) -> None:
+        session_id = self.client.post("/sessions", json={"goal": "legacy aggregate contract"}).json()["session_id"]
+        plan_id = self.client.post(
+            f"/sessions/{session_id}/plans",
+            json={
+                "steps": [
+                    {
+                        "step_type": "aggregate_query",
+                        "params": _typed_aggregate_query_params(select=["platform", "COUNT(*) AS cnt"]),
+                    }
+                ]
+            },
+        ).json()["plan_id"]
+
+        result = self.client.post(f"/sessions/{session_id}/plans/{plan_id}/validate").json()
+
+        self.assertFalse(result["valid"])
+        self.assertIn("legacy_param_not_supported", [issue["code"] for issue in result["issues"]])
+
     def test_validate_plan_rejects_time_predicate_in_scope(self) -> None:
         session_id = self.client.post("/sessions", json={"goal": "time predicate contract"}).json()["session_id"]
         plan_id = self.client.post(
@@ -185,6 +219,27 @@ class AdvancedPlanValidationTests(unittest.TestCase):
         self.assertFalse(result["valid"])
         self.assertIn("time_predicate_not_allowed_in_scope", [issue["code"] for issue in result["issues"]])
 
+    def test_validate_aggregate_plan_rejects_time_predicate_in_scope(self) -> None:
+        session_id = self.client.post("/sessions", json={"goal": "aggregate time predicate contract"}).json()["session_id"]
+        plan_id = self.client.post(
+            f"/sessions/{session_id}/plans",
+            json={
+                "steps": [
+                    {
+                        "step_type": "aggregate_query",
+                        "params": _typed_aggregate_query_params(
+                            scope={"predicate": "event_time >= TIMESTAMP '2026-03-01 00:00:00'"}
+                        ),
+                    }
+                ]
+            },
+        ).json()["plan_id"]
+
+        result = self.client.post(f"/sessions/{session_id}/plans/{plan_id}/validate").json()
+
+        self.assertFalse(result["valid"])
+        self.assertIn("time_predicate_not_allowed_in_scope", [issue["code"] for issue in result["issues"]])
+
     def test_validate_plan_allows_non_time_scope_predicate(self) -> None:
         session_id = self.client.post("/sessions", json={"goal": "non time scope predicate"}).json()["session_id"]
         plan_id = self.client.post(
@@ -194,6 +249,24 @@ class AdvancedPlanValidationTests(unittest.TestCase):
                     {
                         "step_type": "compare_metric",
                         "params": _typed_compare_metric_params(scope={"predicate": "platform = 'android'"}),
+                    }
+                ]
+            },
+        ).json()["plan_id"]
+
+        result = self.client.post(f"/sessions/{session_id}/plans/{plan_id}/validate").json()
+
+        self.assertTrue(result["valid"])
+
+    def test_validate_aggregate_plan_allows_non_time_scope_predicate(self) -> None:
+        session_id = self.client.post("/sessions", json={"goal": "aggregate non time scope predicate"}).json()["session_id"]
+        plan_id = self.client.post(
+            f"/sessions/{session_id}/plans",
+            json={
+                "steps": [
+                    {
+                        "step_type": "aggregate_query",
+                        "params": _typed_aggregate_query_params(scope={"predicate": "platform = 'android'"}),
                     }
                 ]
             },
