@@ -3,6 +3,12 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, TypedDict
 
+from app.evidence_engine.causal_checkers import CausalCheckerRegistry, get_default_registry
+from app.evidence_engine.claim_relations import (
+    ClaimRelationDiscovery,
+    DefaultClaimRelationDiscovery,
+    materialize_relations_as_edges,
+)
 from app.evidence_engine.extractors.base import ObservationExtractor
 from app.evidence_engine.recommendation_policy import (
     DefaultRecommendationPolicy,
@@ -18,6 +24,7 @@ from app.evidence_engine.schemas import (
     CAUSAL_EDGE_TO_INFERENCE_LEVEL,
     INFERENCE_LEVEL_ORDER,
     Claim,
+    ClaimRelation,
     Observation,
     Recommendation,
 )
@@ -33,6 +40,11 @@ class SynthesisResult(TypedDict):
     recommendations: list[Recommendation]
     edges: list[dict[str, Any]]
     summary: str
+
+
+class CausalPromotionResult(TypedDict):
+    claims: list[Claim]
+    edges: list[dict[str, Any]]
 
 
 def _derive_inference_level_from_edges(
@@ -68,7 +80,17 @@ def _derive_inference_level_from_edges(
 
 
 class EvidencePipeline:
-    """Evidence extraction + synthesis pipeline with pluggable strategy seams."""
+    """Evidence extraction + synthesis pipeline with explicit layered seams.
+
+    The synthesis path is intentionally modeled as five layers:
+    1. Claim Synthesis
+    2. Claim Relation Discovery
+    3. Causal Promotion
+    4. Recommendation Derivation
+    5. Edge Materialization
+
+    Observation extraction is exposed separately via ``extract_observations()``.
+    """
 
     def __init__(
         self,
@@ -78,6 +100,8 @@ class EvidencePipeline:
         synthesizers: Mapping[str, ClaimSynthesizer] | None = None,
         confidence_scorers: Mapping[str, ConfidenceScorer] | None = None,
         recommendation_policies: Mapping[str, RecommendationPolicy] | None = None,
+        relation_discoveries: Mapping[str, ClaimRelationDiscovery] | None = None,
+        causal_checker_registry: CausalCheckerRegistry | None = None,
         metric_direction_resolver: Callable[[str], str | None] | None = None,
     ) -> None:
         from app.evidence_engine.registry import ExtractorRegistry, _default_registry
@@ -115,6 +139,15 @@ class EvidencePipeline:
         self._recommendation_policies = default_recommendation_policies
         self._default_recommendation_policy_name = default_recommendation_policy.name
 
+        default_relation_discovery = DefaultClaimRelationDiscovery()
+        default_relation_discoveries = {default_relation_discovery.name: default_relation_discovery}
+        if relation_discoveries:
+            default_relation_discoveries.update(relation_discoveries)
+        self._relation_discoveries = default_relation_discoveries
+        self._default_relation_discovery_name = default_relation_discovery.name
+
+        self._causal_checker_registry = causal_checker_registry or get_default_registry()
+
     def extract_observations(
         self,
         extractor_name: str,
@@ -143,92 +176,39 @@ class EvidencePipeline:
         *,
         existing_claims: list[Claim] | None = None,
         synthesizer_name: str | None = None,
+        relation_discovery_name: str | None = None,
         confidence_scorer_name: str | None = None,
         recommendation_policy_name: str | None = None,
     ) -> SynthesisResult:
-        if existing_claims is not None:
-            # M-03 promotion mode: skip fresh claim synthesis; use already-promoted claims.
-            claims: list[Claim] = existing_claims
-            recommendations: list[Recommendation] = []
-            edges: list[dict[str, Any]] = []
-        else:
-            claims, recommendations, edges = self.synthesize(
-                observations,
-                synthesizer_name=synthesizer_name,
-            )
+        claims, recommendations, edges = self._synthesize_claims_layer(
+            observations,
+            existing_claims=existing_claims,
+            synthesizer_name=synthesizer_name,
+        )
         claims = self.score_claims(
             observations,
             claims,
             confidence_scorer_name=confidence_scorer_name,
         )
+        relations = self.discover_relations(
+            observations,
+            claims,
+            edges,
+            relation_discovery_name=relation_discovery_name,
+        )
+        promotion = self.promote_causality(observations, claims, edges, relations)
+        claims = promotion["claims"]
+        edges.extend(promotion["edges"])
         recommendations = self.derive_recommendations(
             observations,
             claims,
+            relations,
             recommendations,
             recommendation_policy_name=recommendation_policy_name,
         )
-
-        for claim in claims:
-            for observation_id in claim["supporting_observations"]:
-                edges.append(
-                    {
-                        "from_node_id": observation_id,
-                        "from_node_type": "observation",
-                        "to_node_id": claim["claim_id"],
-                        "to_node_type": "claim",
-                        "edge_type": "supports",
-                        "weight": claim["confidence"],
-                        "explanation": "Observation strengthens the claim.",
-                    }
-                )
-            for observation_id in claim["contradicting_observations"]:
-                edges.append(
-                    {
-                        "from_node_id": observation_id,
-                        "from_node_type": "observation",
-                        "to_node_id": claim["claim_id"],
-                        "to_node_type": "claim",
-                        "edge_type": "contradicts",
-                        "weight": 0.35,
-                        "explanation": "Observation weakens the claim.",
-                    }
-                )
-
-        for recommendation in recommendations:
-            # Multi-claim aggregation: create justifies edge for each supporting claim
-            backing_claim_ids = recommendation.get("supporting_claims") or [recommendation["claim_id"]]
-            for backing_id in backing_claim_ids:
-                edges.append(
-                    {
-                        "from_node_id": backing_id,
-                        "from_node_type": "claim",
-                        "to_node_id": recommendation["rec_id"],
-                        "to_node_type": "recommendation",
-                        "edge_type": "justifies",
-                        "weight": 0.9,
-                        "explanation": "Claim justifies the recommendation.",
-                    }
-                )
-
-        # M-07: upgrade claim inference_level based on connected causal edges
-        level_updates = _derive_inference_level_from_edges(edges, claims)
-        if level_updates:
-            claims = [
-                {
-                    **claim,
-                    "inference_level": level_updates[claim["claim_id"]][0]
-                        if claim["claim_id"] in level_updates
-                        else claim.get("inference_level", "L0"),
-                    "inference_justification": level_updates[claim["claim_id"]][1]
-                        if claim["claim_id"] in level_updates
-                        else claim.get("inference_justification", []),
-                    "confidence": min(
-                        0.99,
-                        claim["confidence"] + level_updates[claim["claim_id"]][2],
-                    ) if claim["claim_id"] in level_updates else claim["confidence"],
-                }
-                for claim in claims
-            ]
+        edges.extend(self.materialize_relation_edges(relations))
+        edges.extend(self.materialize_support_edges(claims))
+        edges.extend(self.materialize_recommendation_edges(recommendations))
 
         # M-10: attach causal_basis using final (post-upgrade) inference_level.
         # Pass supporting observations and a session summary so that the rule engine
@@ -265,9 +245,138 @@ class EvidencePipeline:
         return {
             "claims": claims,
             "recommendations": recommendations,
-            "edges": edges,
+            "edges": _dedupe_edges(edges),
             "summary": claims[0]["text"] if claims else "No supported claims were generated.",
         }
+
+    def _synthesize_claims_layer(
+        self,
+        observations: list[Observation],
+        *,
+        existing_claims: list[Claim] | None,
+        synthesizer_name: str | None,
+    ) -> tuple[list[Claim], list[Recommendation], list[dict[str, Any]]]:
+        # Any explicit existing_claims value, including [], means the caller is
+        # supplying the claim layer and wants synthesis skipped.
+        if existing_claims is not None:
+            return existing_claims, [], []
+        return self.synthesize(observations, synthesizer_name=synthesizer_name)
+
+    def discover_relations(
+        self,
+        observations: list[Observation],
+        claims: list[Claim],
+        edges: list[dict[str, Any]],
+        *,
+        relation_discovery_name: str | None = None,
+    ) -> list[ClaimRelation]:
+        resolved_name = relation_discovery_name or self._default_relation_discovery_name
+        if resolved_name not in self._relation_discoveries:
+            raise KeyError(f"Unknown claim relation discovery: {resolved_name}")
+        return self._relation_discoveries[resolved_name].discover(claims, observations, edges)
+
+    def promote_causality(
+        self,
+        observations: list[Observation],
+        claims: list[Claim],
+        edges: list[dict[str, Any]],
+        relations: list[ClaimRelation],
+    ) -> CausalPromotionResult:
+        upgrades = self._causal_checker_registry.run_all(
+            claims,
+            observations,
+            edges,
+            relations=relations,
+        )
+        promoted_edges: list[dict[str, Any]] = []
+        for upgrade in upgrades:
+            for edge in upgrade.causal_edges:
+                promoted_edges.append(
+                    {
+                        "from_node_id": edge.from_node_id,
+                        "from_node_type": edge.from_node_type,
+                        "to_node_id": edge.to_node_id,
+                        "to_node_type": edge.to_node_type,
+                        "edge_type": edge.edge_type,
+                        "weight": edge.weight,
+                        "explanation": edge.explanation,
+                    }
+                )
+
+        combined_edges = edges + promoted_edges
+        level_updates = _derive_inference_level_from_edges(combined_edges, claims)
+        if not level_updates:
+            return {"claims": claims, "edges": promoted_edges}
+        promoted_claims = [
+            {
+                **claim,
+                "inference_level": level_updates[claim["claim_id"]][0]
+                    if claim["claim_id"] in level_updates
+                    else claim.get("inference_level", "L0"),
+                "inference_justification": level_updates[claim["claim_id"]][1]
+                    if claim["claim_id"] in level_updates
+                    else claim.get("inference_justification", []),
+                "confidence": min(
+                    0.99,
+                    claim["confidence"] + level_updates[claim["claim_id"]][2],
+                ) if claim["claim_id"] in level_updates else claim["confidence"],
+            }
+            for claim in claims
+        ]
+        return {"claims": promoted_claims, "edges": promoted_edges}
+
+    def materialize_support_edges(self, claims: list[Claim]) -> list[dict[str, Any]]:
+        edges: list[dict[str, Any]] = []
+        for claim in claims:
+            for observation_id in claim["supporting_observations"]:
+                edges.append(
+                    {
+                        "from_node_id": observation_id,
+                        "from_node_type": "observation",
+                        "to_node_id": claim["claim_id"],
+                        "to_node_type": "claim",
+                        "edge_type": "supports",
+                        "weight": claim["confidence"],
+                        "explanation": "Observation strengthens the claim.",
+                    }
+                )
+            for observation_id in claim["contradicting_observations"]:
+                edges.append(
+                    {
+                        "from_node_id": observation_id,
+                        "from_node_type": "observation",
+                        "to_node_id": claim["claim_id"],
+                        "to_node_type": "claim",
+                        "edge_type": "contradicts",
+                        "weight": 0.35,
+                        "explanation": "Observation weakens the claim.",
+                    }
+                )
+        return edges
+
+    def materialize_relation_edges(self, relations: list[ClaimRelation]) -> list[dict[str, Any]]:
+        return materialize_relations_as_edges(relations)
+
+    def materialize_recommendation_edges(
+        self,
+        recommendations: list[Recommendation],
+    ) -> list[dict[str, Any]]:
+        edges: list[dict[str, Any]] = []
+        for recommendation in recommendations:
+            backing_claim_ids = recommendation.get("supporting_claims") or [recommendation["claim_id"]]
+            for backing_id in backing_claim_ids:
+                edges.append(
+                    {
+                        "from_node_id": backing_id,
+                        "from_node_type": "claim",
+                        "to_node_id": recommendation["rec_id"],
+                        "to_node_type": "recommendation",
+                        "edge_type": "justifies",
+                        "weight": 0.9,
+                        "explanation": "Claim justifies the recommendation.",
+                    }
+                )
+        return edges
 
     def score_claims(
         self,
@@ -285,6 +394,7 @@ class EvidencePipeline:
         self,
         observations: list[Observation],
         claims: list[Claim],
+        relations: list[ClaimRelation],
         recommendations: list[Recommendation],
         *,
         recommendation_policy_name: str | None = None,
@@ -292,11 +402,22 @@ class EvidencePipeline:
         resolved_name = recommendation_policy_name or self._default_recommendation_policy_name
         if resolved_name not in self._recommendation_policies:
             raise KeyError(f"Unknown recommendation policy: {resolved_name}")
-        return self._recommendation_policies[resolved_name].derive(
-            observations,
-            claims,
-            recommendations,
-        )
+        policy = self._recommendation_policies[resolved_name]
+        try:
+            return policy.derive(
+                observations,
+                claims,
+                recommendations,
+                relations=relations,
+            )
+        except TypeError:
+            # Backward compatibility for custom policies still implementing the
+            # pre-Phase-1.4 signature.
+            return policy.derive(
+                observations,
+                claims,
+                recommendations,
+            )
 
 
 def _coerce_synthesizer(synthesizer: Synthesizer | ClaimSynthesizer) -> ClaimSynthesizer:
@@ -316,3 +437,21 @@ class _CallableClaimSynthesizer(ClaimSynthesizer):
         observations: list[Observation],
     ) -> tuple[list[Claim], list[Recommendation], list[dict[str, Any]]]:
         return self._synthesizer(observations)
+
+
+def _dedupe_edges(edges: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    deduped: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str, str, str]] = set()
+    for edge in edges:
+        key = (
+            str(edge.get("from_node_id")),
+            str(edge.get("from_node_type")),
+            str(edge.get("to_node_id")),
+            str(edge.get("to_node_type")),
+            str(edge.get("edge_type")),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(edge)
+    return deduped

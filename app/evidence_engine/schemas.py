@@ -96,6 +96,18 @@ class Claim(TypedDict):
     inference_justification: list[str]   # Signal: provenance tokens justifying the level
 
 
+class ClaimRelation(TypedDict):
+    """Stable intermediate relation discovered between two claims before edge materialization."""
+
+    from_claim_id: str
+    to_claim_id: str
+    relation_type: str
+    weight: float
+    match_basis: dict[str, Any]
+    supporting_observation_ids: list[str]
+    explanation: str
+
+
 REC_TYPE_ACTION = "action_required"
 REC_TYPE_NO_ACTION = "no_action_required"
 

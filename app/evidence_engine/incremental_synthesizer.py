@@ -8,8 +8,9 @@ claims to ``confirmed`` or ``insufficient``.
 
 Design principles:
 - All fact extraction is deterministic (no LLMs).
-- IncrementalSynthesizer writes directly to the metadata store —
-  it is independent of EvidencePipeline.
+- IncrementalSynthesizer owns tentative-claim maintenance and persistence.
+- Relation discovery / causal promotion are delegated to evidence-engine seams
+  so the incremental path matches the layered synthesis path.
 - Claims are keyed by scope (metric + slice dict).  One tentative claim per
   unique scope per session.
 - Contradiction: two observations in the same scope have opposing delta_pct
@@ -23,6 +24,7 @@ import math
 from typing import Any
 from uuid import uuid4
 
+from app.evidence_engine.claim_relations import DefaultClaimRelationDiscovery
 from app.evidence_engine.scoring import score_confidence
 from app.storage.metadata import MetadataStore
 
@@ -35,6 +37,7 @@ class IncrementalSynthesizer:
 
     def __init__(self, metadata_store: MetadataStore) -> None:
         self._store = metadata_store
+        self._relation_discovery = DefaultClaimRelationDiscovery()
 
     def process(self, session_id: str) -> dict[str, Any]:
         """Process all unattributed observations and update tentative claims.
@@ -335,12 +338,20 @@ class IncrementalSynthesizer:
 
         Returns the number of claims that received at least one upgrade.
         """
-        from uuid import uuid4
-
         from app.evidence_engine.causal_checkers import get_default_registry
         from app.evidence_engine.schemas import INFERENCE_LEVEL_ORDER
 
-        upgrades = get_default_registry().run_all(tentative_claims, all_observations, edges=[])
+        relations = self._relation_discovery.discover(
+            tentative_claims,
+            all_observations,
+            existing_edges=[],
+        )
+        upgrades = get_default_registry().run_all(
+            tentative_claims,
+            all_observations,
+            edges=[],
+            relations=relations,
+        )
         if not upgrades:
             return 0
 

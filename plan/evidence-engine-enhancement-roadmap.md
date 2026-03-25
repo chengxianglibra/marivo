@@ -297,12 +297,12 @@ synthesize_findings生成的recommendation中包含：
 #### 1.1 Confounder Auto-Resolution（对应 P5）
 **文件**: `app/evidence_engine/synthesizers.py` 或 recommendation 生成逻辑
 
-- [ ] synthesize_findings时，遍历recommendation的`unresolved_confounders`列表
-- [ ] 对每个confounder，在session的confirmed claims中搜索匹配：
+- [x] synthesize_findings时，遍历recommendation的`unresolved_confounders`列表
+- [x] 对每个confounder，在session的confirmed claims中搜索匹配：
   - confounder key含"workload_volume" → 匹配metric含"query_count"的claim
   - confounder key含"seasonality" → 匹配WoW comparison的claim
-- [ ] 匹配到的confounder从`unresolved`移至`resolved`，附上claim_id和摘要
-- [ ] 添加单元测试：session含query_count confirmed claim时，workload confounder自动resolved
+- [x] 匹配到的confounder从`unresolved`移至`resolved`，附上claim_id和摘要
+- [x] 添加单元测试：session含query_count confirmed claim时，workload confounder自动resolved
 
 **验收标准**：
 ```python
@@ -317,10 +317,10 @@ assert rec.causal_basis.resolved_confounders[0].resolved_by == "claim_a6177ad8b3
 #### 1.2 Multi-Claim Recommendation Aggregation（对应 P2）
 **文件**: `app/evidence_engine/synthesizers.py`
 
-- [ ] 识别共享相同slice的confirmed claims群组（例如所有`user=sys_titan`的claims）
-- [ ] 为每个群组生成一条整合recommendation，而非每个claim独立生成
-- [ ] `supporting_claims`字段列出所有相关claim_id
-- [ ] `action_text`整合多个metric的变化趋势
+- [x] 识别共享相同slice的confirmed claims群组（例如所有`user=sys_titan`的claims）
+- [x] 为每个群组生成一条整合recommendation，而非每个claim独立生成
+- [x] `supporting_claims`字段列出所有相关claim_id
+- [x] `action_text`整合多个metric的变化趋势
 
 **验收标准**：
 ```python
@@ -351,66 +351,120 @@ assert "sys_oneservice" in no_action[0].action_text
 
 ---
 
+#### 1.4 Layered Evidence Engine Refactor（架构前置任务）
+**目标**: 将 evidence engine 重构为五层流水线，再继续 Phase 2 / Phase 3 的增强工作
+
+**目标分层**：
+1. `Observation Extraction` — rows/result → observations
+2. `Claim Synthesis` — observations → claims
+3. `Claim Relation Discovery` — claims/observations → claim-to-claim relations
+4. `Causal Promotion` — claims + relations → inference level upgrades / causal edges
+5. `Recommendation Derivation` — claims + relations + promoted levels → recommendations
+
+**文件**:
+- `app/evidence_engine/pipeline.py`
+- `app/evidence_engine/incremental_synthesizer.py`
+- `app/evidence_engine/causal_checkers.py`
+- `app/evidence_engine/recommendation_policy.py`
+- `app/evidence_engine/schemas.py`
+- `app/evidence_engine/claim_relations.py`（新建）
+
+- [ ] 在 `pipeline.py` 中显式建模五层执行顺序，而不是由 `IncrementalSynthesizer` 隐式承担多层职责
+- [ ] 新增 `claim_relations.py`，定义 typed `ClaimRelation` / `ClaimRelationDiscovery`
+- [ ] 将 claim-to-claim 关系发现从 `IncrementalSynthesizer` 中拆出；`IncrementalSynthesizer` 仅负责增量 claim 维护与调用编排
+- [ ] 将 causal checker 明确限定为消费 relations / observations 后做 inference promotion，不直接承担 session 级 pair mining
+- [ ] 将 recommendation policy 明确限定为消费最终 claims + relations + causal levels，不再自行推断 graph 结构
+- [ ] 明确 relation 与 persisted `evidence_edges` 的 materialization 边界，支持 relation 先计算、后落库
+- [ ] 补充模块级注释 / 文档，使五层职责在代码中可读
+
+**设计原则**：
+- Claim Relation Discovery 负责“发现关系”，不直接负责 L1/L2/L3 升级
+- Causal Promotion 负责“解释这些关系是否足以升级 inference level”
+- Recommendation Derivation 只消费前面各层的稳定输出，不重复做推理
+- 允许 incremental path 调用五层中的前四层，但最终 `synthesize_findings` 要执行一次稳定版 reconcile
+
+**验收标准**：
+```python
+result = evidence_pipeline.build_synthesis(observations, existing_claims=claims)
+assert result["summary"]
+assert "claims" in result and "recommendations" in result and "edges" in result
+
+# pipeline internals are layered:
+# observations -> claims -> relations -> causal promotion -> recommendations
+```
+
+---
+
 ### Phase 2: Cross-Claim Edge Generation (P1)
 
-#### 2.1 Scope-Based Cross-Claim Edge Discovery（对应 P1, P3）
-**文件**: `app/evidence_engine/incremental_synthesizer.py`
+#### 2.1 Claim Relation Discovery（对应 P1, P3；重构后版本）
+**文件**: `app/evidence_engine/claim_relations.py`, `app/evidence_engine/pipeline.py`
 
-- [ ] synthesize_findings时新增 `_create_cross_claim_edges()` 阶段
-- [ ] 遍历所有confirmed claims对，计算scope overlap（slice字段交集/并集比）
-- [ ] scope overlap ≥ 0.8 且 metric不同 → 创建 `correlates_with` edge
-- [ ] scope完全互补（同一维度不同值，如`resource_group=others` vs `resource_group=oneservice`）→ 创建 `mechanistically_explains` edge
-- [ ] Edge存入`evidence_edges`表，返回在evidence graph API中
+- [ ] 在五层架构下新增 `ClaimRelationDiscovery.discover()` 阶段
+- [ ] 输入优先使用 confirmed claims；保留后续支持 tentative/provisional relation 的扩展点
+- [ ] 遍历 claims 对，计算 scope relationship：exact match / subset / overlap / complementary dimension
+- [ ] 首版只产出 claim-to-claim 的弱语义 relation，避免在 discovery 阶段直接做强因果判定
+- [ ] 将 relation materialize 为 `evidence_edges`，并在 evidence graph API 返回
+- [ ] relation 输出需保留 provenance：match_basis、score_components、supporting_observation_ids
 
-**Edge生成规则**：
-| Condition | Edge Type | Example |
-|-----------|-----------|---------|
+**首版 Relation/Edge 规则**：
+| Condition | Relation / Edge Type | Example |
+|-----------|----------------------|---------|
 | 同一slice，不同metric，同方向变化 | `correlates_with` | query_count↑ & queued_time↑ for sys_titan |
-| 同一slice，不同metric，反方向变化 | `contradicts` | 如果cpu_time↓但queued_time↑ |
-| 同维度不同值，互补解释 | `mechanistically_explains` | others有排队 → oneservice无排队 |
-| claim_A.metric变化可能导致claim_B.metric变化 | `justifies` | query_count↑ justifies queued_time↑ |
+| 一方slice是另一方的子集，且metric不同 | `correlates_with` | user=sys_titan 与 cluster+user=sys_titan |
+| 同一维度不同值，呈互补结构 | `correlates_with`（先不直接升格为 `mechanistically_explains`） | others vs oneservice |
+
+**非目标（首版不做）**：
+- [ ] 不在 relation discovery 中直接生成 `mechanistically_explains`
+- [ ] 不在 relation discovery 中直接做 L1/L2/L3 inference upgrade
+- [ ] 不复用 `justifies` 表达 claim-to-claim 关系（保留给 claim→recommendation）
 
 **验收标准**：
 ```python
 edges = get_evidence_graph(session).edges
-correlates = [e for e in edges if e.edge_type == "correlates_with"]
+correlates = [
+    e for e in edges
+    if e.edge_type == "correlates_with"
+    and e.from_node_type == "claim"
+    and e.to_node_type == "claim"
+]
 assert len(correlates) >= 1  # query_count ↔ queued_time
 ```
 
 ---
 
-#### 2.2 Implement CrossMetricCorrelationChecker（对应 P3）
+#### 2.2 CrossMetricCorrelationChecker Consumes Claim Relations（对应 P3）
 **文件**: `app/evidence_engine/causal_checkers.py`
 
 - [ ] 新增 `CrossMetricCorrelationChecker` 注册到 `CausalCheckerRegistry`
-- [ ] 输入：session中所有confirmed claims
-- [ ] 检测：不同metric在同一slice的方向一致性（同升/同降）
-- [ ] 输出：L0→L1升级（"cross-metric consistency"，类比现有CrossSliceConsistencyChecker的"cross-slice consistency"）
-- [ ] 当≥3个不同metric在同一slice方向一致，升级为L1
+- [ ] 输入改为：claims + claim relations + observations，而不是 checker 内部重新做 session 级 pair mining
+- [ ] 检测：由 `correlates_with` claim relations 支撑的不同 metric 在同一/相近 scope 的方向一致性
+- [ ] 输出：L0→L1升级（"cross-metric consistency"），职责限定为 promotion，不负责 relation discovery
+- [ ] 当≥3个不同 metric 在同一 slice 方向一致，升级为 L1
+- [ ] 如无 relation graph，则明确返回“输入不足”而非静默重跑 discovery 逻辑
 
 **验收标准**：
 ```python
 # query_count↑, cpu_time↑, queued_time↑ 三者方向一致 for sys_titan
 checker = CrossMetricCorrelationChecker()
-result = checker.check(claims, observations)
+result = checker.check(claims, observations, claim_relations)
 assert result.upgrade_to == "L1"
 assert result.justification == "3 metrics directionally consistent for user=sys_titan"
 ```
 
 ---
 
-#### 2.3 Enhance TemporalPrecedenceChecker（对应 P4）
+#### 2.3 TemporalPrecedenceChecker Consumes Relation + Temporal Signals（对应 P4）
 **文件**: `app/evidence_engine/causal_checkers.py`
 
-- [ ] 扩展支持跨claim的temporal_order比较（当前仅检查单claim内的observed_window）
-- [ ] 当同一slice的两个claims，claim_A的max(temporal_order) < claim_B的min(temporal_order)，创建`temporally_precedes` edge
-- [ ] 扩展支持`temporal_group_by_columns`产生的时序observations：检测"高峰→衰减"模式
-- [ ] 触发L1→L2升级
+- [ ] 扩展支持跨claim的 temporal precedence，但以 claim relation 为入口，而不是裸 claims 全对比较
+- [ ] 优先使用真实时间信号（`observed_window`, `temporal_pattern` 等），避免把 step 执行顺序误当数据时间
+- [ ] 当存在相关 claim relation 且 claim_A 的时间窗口先于 claim_B，创建 `temporally_precedes` edge
+- [ ] 扩展支持 `temporal_group_by_columns` / `temporal_pattern` observation 提供的“高峰→衰减”模式
+- [ ] 触发 L1→L2 升级；职责限定为 promotion，不负责生成基础 relation graph
 
 **验收标准**：
 ```python
-# query_count观测(temporal_order=35)在queued_time WoW(temporal_order=47)之前
-# 但这里temporal_order反映的是step执行顺序，不是数据的时间先后
 # 更好的信号是：小时级数据显示query_count高峰(02-03h) → queued_time高峰(02-03h)
 edges = get_evidence_graph(session).edges
 temporal = [e for e in edges if e.edge_type == "temporally_precedes"]
@@ -421,22 +475,24 @@ assert len(temporal) >= 1
 
 ### Phase 3: Recommendation Templates (P2)
 
-#### 3.1 Template-Based Recommendation Generation
-**文件**: `app/evidence_engine/recommendation_templates.py` (新建)
+#### 3.1 Layer-Aware Recommendation Generation
+**文件**: `app/evidence_engine/recommendation_templates.py` (新建), `app/evidence_engine/recommendation_policy.py`
 
-- [ ] 定义基于claim pattern的recommendation模板
+- [ ] 定义基于 claims + claim relations + inference levels 的 recommendation 模板
 - [ ] 支持变量插值：`{{metric}}`, `{{slice}}`, `{{delta_pct}}`, `{{baseline_value}}`, `{{current_value}}`
-- [ ] 模板按(claim_type, inference_level, edge_types)索引
+- [ ] 模板按 `(claim_type, inference_level, relation_types, edge_types)` 索引
+- [ ] recommendation policy 只消费五层流水线的最终产物，不在模板层自行重建 graph
+- [ ] 区分“单 claim 建议”“多 claim 聚合建议”“无需行动”三类模板入口
 
 **模板示例**：
 ```python
 TEMPLATES = {
-    ("root_cause_candidate", "L1+", "correlates_with"): {
+    ("root_cause_candidate", "L1+", ("correlates_with",), ("correlates_with",)): {
         "template": "{{primary_metric}}变化({{delta_pct}}%)与{{correlated_metrics}}在{{slice}}上方向一致，"
                     "建议优先排查{{primary_metric}}的上游变化",
         "priority_fn": lambda claims: "P1" if max(c.confidence for c in claims) > 0.8 else "P2"
     },
-    ("no_impact", "L0+", None): {
+    ("no_impact", "L0+", (), ()): {
         "template": "{{entity}}不受影响：{{isolation_reason}}。{{metric}}昨天{{current_value}}，"
                     "环比{{delta_pct}}%。无需干预。",
         "priority": "P3"
@@ -446,13 +502,14 @@ TEMPLATES = {
 
 ---
 
-#### 3.2 Causal Chain Narrative Generation
-**文件**: `app/evidence_engine/synthesizers.py`
+#### 3.2 Causal Chain Narrative Generation（基于 claim graph）
+**文件**: `app/evidence_engine/recommendation_policy.py`, `app/evidence_engine/claim_relations.py`
 
-- [ ] 利用Phase 2产生的evidence edges，构建因果链叙述
-- [ ] 从最高confidence的confirmed claim出发，沿edges遍历
+- [ ] 利用 Phase 2 产生的 claim relations + promoted causal edges，构建因果链叙述
+- [ ] 从最高 confidence 的 confirmed claim 出发，沿 claim graph 遍历
 - [ ] 生成`causal_chain`字段：`"query_count↑30% → others资源组并发打满 → queued_time↑58.5%"`
-- [ ] 附在recommendation的`causal_basis`中
+- [ ] 附在 recommendation 的 `causal_basis` 中
+- [ ] narrative 生成只做链路组织与压缩，不重新做因果判断
 
 ---
 
@@ -544,22 +601,23 @@ TEMPLATES = {
 
 ## Implementation Priority
 
-Phase 1 先行——不需要动 causal checkers / inference level 机制，只改 recommendation 生成逻辑，ROI 最高。
+实施顺序调整为：先完成 recommendation quick wins，再做五层架构重构，随后推进 relation / causal / recommendation 增强。这样可以避免在旧的 `IncrementalSynthesizer` 边界上继续堆逻辑。
 
 ```
 Phase 1 (Recommendation Quick Wins — 最高ROI):
 ├── 1.1 Confounder Auto-Resolution ──────────── Week 1     (P5)
 ├── 1.2 Multi-Claim Recommendation Aggregation ── Week 1-2   (P2 部分)
 ├── 1.3 No-Action-Required Recommendation Type ── Week 2     (P6)
+├── 1.4 Layered Evidence Engine Refactor ─────── Week 2-3   (架构前置)
 │
 Phase 2 (Cross-Claim Edge Generation):
-├── 2.1 Scope-Based Cross-Claim Edge Discovery ── Week 3-4   (P1, P3)
+├── 2.1 Claim Relation Discovery ─────────────── Week 3-4   (P1, P3)
 ├── 2.2 CrossMetricCorrelationChecker ─────────── Week 4-5   (P3)
-├── 2.3 Enhanced TemporalPrecedenceChecker ────── Week 5     (P4)
+├── 2.3 TemporalPrecedence via Relation Graph ─── Week 5     (P4)
 │
 Phase 3 (Recommendation Templates):
-├── 3.1 Template-Based Recommendation Generation ─ Week 6    (P2 完整)
-├── 3.2 Causal Chain Narrative Generation ────────── Week 6-7
+├── 3.1 Layer-Aware Recommendation Generation ─── Week 6    (P2 完整)
+├── 3.2 Causal Chain Narrative Generation ─────── Week 6-7
 │
 Phase 4 (Enhanced Observations):
 ├── 4.1 Cross-Metric Observation Type ─────────── Week 7
@@ -572,10 +630,11 @@ Phase 5 (API & UX):
 
 ### Phase依赖关系
 ```
-Phase 1 (独立，无依赖) ─────────────────────────────────┐
-                                                         ├→ Phase 3 (依赖 Phase 1 + 2)
-Phase 2 (独立，无依赖) ─────────────────────────────────┘
-Phase 4 (独立，但为 Phase 2 提供更好输入)
+Phase 1.1-1.3 (独立，无依赖) ───────────────────────────┐
+                                                         ├→ Phase 3 (依赖 Phase 1.4 + 2)
+Phase 1.4 (五层重构，作为后续前置) ──────────────────────┤
+                                                         └→ Phase 2 (依赖 Phase 1.4)
+Phase 4 (独立，但为 Phase 2.3 提供更好时间信号)
 Phase 5 (独立，可随时开始)
 ```
 
@@ -586,11 +645,12 @@ Phase 5 (独立，可随时开始)
 ### Related Code
 
 - `app/evidence_engine/incremental_synthesizer.py` — 主synthesizer，claim聚合/升级/edge创建的核心
-- `app/evidence_engine/causal_checkers.py` — CausalCheckerRegistry + 4个checker (CrossSlice, TemporalPrecedence, DoseResponse, Reversal)
+- `app/evidence_engine/claim_relations.py` — claim relation discovery层（新增，重构后）
+- `app/evidence_engine/causal_checkers.py` — Causal promotion层，消费relations/observations做L1-L3升级
 - `app/evidence_engine/scoring.py` — confidence scoring（effect_strength, consistency, sample_score等）
 - `app/evidence_engine/readiness.py` — readiness信号计算
 - `app/evidence_engine/extractors/` — observation提取器（comparison, aggregate, funnel, anomaly, contribution_shift）
-- `app/evidence_engine/schemas.py` — observation/claim/edge/recommendation数据结构
+- `app/evidence_engine/schemas.py` — observation/claim/relation/edge/recommendation数据结构
 - `app/analysis_core/step_runners/synthesis.py` — synthesize_findings step runner
 - `app/analysis_core/step_runners/attribution.py` — attribute_change step runner
 - `app/service.py` — SemanticLayerService.run_step()，调用evidence engine的入口
