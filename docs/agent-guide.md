@@ -89,6 +89,10 @@ Rules:
 
 - prefer typed steps over raw SQL as the external contract
 - `compare_metric` and `aggregate_query` use typed `time_scope` / `scope` contracts rather than legacy period/filter params
+- `time_scope` is normalized before execution: all windows are half-open `[start, end)`, `day` stores date boundaries, and `hour` uses naive datetime boundaries in phase 1
+- `time_axis` is resolved metadata-first with request override precedence; for `compare_metric`, entity `time_capabilities` override source-object metadata, and mixed layouts default to timestamp correctness plus partition pruning
+- `compare_metric` and `aggregate_query` now compile through a shared scoped/periodized path: window membership always uses `analysis_time_expr`, scoped bounds are formatted to the resolved analysis-axis encoding, pruning stays in `partition_pruning_predicate`, and filter order is window -> pruning -> session constraints/raw_filter -> scope constraints -> scope predicate
+- compare-style observation windows come from the normalized current window and preserve the resolved grain for both `day` and `hour`
 - primitive steps produce `readiness` and `live_claims`
 - final evidence edges, recommendations, and session-level derived observations are materialized by `synthesize_findings`
 - session constraints are auto-injected into supported query steps

@@ -196,9 +196,105 @@ class CompilerTests(unittest.TestCase):
                 "metric_sql": "avg(play_duration_seconds)",
                 "dimensions": ["platform"],
                 "period_params": ["c1", "c2", "b1", "b2", "b1", "c2"],
+                },
+            )
+        self.assertIn("ORDER BY delta_pct DESC", compiled.sql)
+
+    def test_compile_compare_metric_with_scoped_query_uses_ordered_filters(self) -> None:
+        compiled = compile_step(
+            AnalysisStepIR(
+                index=0,
+                step_type="compare_metric",
+                params={
+                    "metric_name": "watch_time",
+                    "table_name": "analytics.watch_events",
+                    "scoped_query": {
+                        "mode": "compare",
+                        "analysis_time_expr": "event_time",
+                        "partition_pruning_predicate": "log_date >= '20260325'",
+                        "session_constraints_filter": "platform = 'android'",
+                        "session_raw_filter": "country = 'US'",
+                        "scope_constraints_filter": "region = 'us-east'",
+                        "scope_predicate_filter": "device_type = 'phone'",
+                        "current": {"start": "2026-03-25T10:00:00", "end": "2026-03-25T14:00:00"},
+                        "baseline": {"start": "2026-03-25T06:00:00", "end": "2026-03-25T10:00:00"},
+                    },
+                },
+            ),
+            engine_type="duckdb",
+            semantic_context={
+                "metric_sql": "avg(play_duration_seconds)",
+                "dimensions": ["platform"],
             },
         )
-        self.assertIn("ORDER BY delta_pct DESC", compiled.sql)
+
+        self.assertIn("event_time >= ? AND event_time < ?", compiled.sql)
+        self.assertIn("CASE", compiled.sql)
+        self.assertIn("FROM scoped", compiled.sql)
+        self.assertEqual(
+            compiled.params,
+            [
+                "2026-03-25T10:00:00",
+                "2026-03-25T14:00:00",
+                "2026-03-25T06:00:00",
+                "2026-03-25T10:00:00",
+                "2026-03-25T10:00:00",
+                "2026-03-25T14:00:00",
+                "2026-03-25T06:00:00",
+                "2026-03-25T10:00:00",
+            ],
+        )
+        window_idx = compiled.sql.index("((event_time >= ? AND event_time < ?) OR (event_time >= ? AND event_time < ?))")
+        pruning_idx = compiled.sql.index("(log_date >= '20260325')")
+        session_idx = compiled.sql.index("(platform = 'android')")
+        raw_filter_idx = compiled.sql.index("(country = 'US')")
+        scope_constraints_idx = compiled.sql.index("(region = 'us-east')")
+        scope_predicate_idx = compiled.sql.index("(device_type = 'phone')")
+        self.assertLess(window_idx, pruning_idx)
+        self.assertLess(pruning_idx, session_idx)
+        self.assertLess(session_idx, raw_filter_idx)
+        self.assertLess(raw_filter_idx, scope_constraints_idx)
+        self.assertLess(scope_constraints_idx, scope_predicate_idx)
+
+    def test_compile_compare_metric_formats_date_field_bounds_to_resolved_encoding(self) -> None:
+        compiled = compile_step(
+            AnalysisStepIR(
+                index=0,
+                step_type="compare_metric",
+                params={
+                    "metric_name": "watch_time",
+                    "table_name": "analytics.watch_events",
+                    "scoped_query": {
+                        "mode": "compare",
+                        "analysis_time_kind": "date_field",
+                        "analysis_time_expr": "log_date",
+                        "analysis_time_format": "yyyymmdd",
+                        "current": {"start": "2026-03-25", "end": "2026-03-26"},
+                        "baseline": {"start": "2026-03-24", "end": "2026-03-25"},
+                    },
+                },
+            ),
+            engine_type="duckdb",
+            semantic_context={
+                "metric_sql": "avg(play_duration_seconds)",
+                "dimensions": ["platform"],
+            },
+        )
+
+        self.assertIn("log_date >= ? AND log_date < ?", compiled.sql)
+        self.assertEqual(
+            compiled.params,
+            [
+                "20260325",
+                "20260326",
+                "20260324",
+                "20260325",
+                "20260325",
+                "20260326",
+                "20260324",
+                "20260325",
+            ],
+        )
 
     def test_compile_compare_metric_invalid_order_raises(self) -> None:
         with self.assertRaises(ValueError):
@@ -301,6 +397,53 @@ class AggregateGroupByAliasTests(unittest.TestCase):
         )
         self.assertIn("CASE WHEN cluster IN", compiled.sql)
         self.assertNotIn("GROUP BY cluster_group", compiled.sql)
+
+    def test_compile_aggregate_query_single_window_scoped_query_uses_scoped_cte(self) -> None:
+        compiled = compile_step(
+            AnalysisStepIR(
+                index=0,
+                step_type="aggregate_query",
+                params={
+                    "table_name": "events",
+                    "select": ["platform", "count(*) AS query_count"],
+                    "group_by": ["platform"],
+                    "scoped_query": {
+                        "mode": "single_window",
+                        "analysis_time_expr": "event_time",
+                        "partition_pruning_predicate": "log_date = '20260325'",
+                        "current": {"start": "2026-03-25T10:00:00", "end": "2026-03-25T14:00:00"},
+                    },
+                },
+            ),
+            engine_type="duckdb",
+        )
+        self.assertIn("WITH", compiled.sql)
+        self.assertIn("FROM scoped", compiled.sql)
+        self.assertIn("event_time >= ? AND event_time < ?", compiled.sql)
+        self.assertEqual(compiled.params, ["2026-03-25T10:00:00", "2026-03-25T14:00:00"])
+
+    def test_compile_aggregate_query_scoped_query_formats_day_field_bounds(self) -> None:
+        compiled = compile_step(
+            AnalysisStepIR(
+                index=0,
+                step_type="aggregate_query",
+                params={
+                    "table_name": "events",
+                    "select": ["platform", "count(*) AS query_count"],
+                    "group_by": ["platform"],
+                    "scoped_query": {
+                        "mode": "single_window",
+                        "analysis_time_kind": "date_field",
+                        "analysis_time_expr": "ds",
+                        "analysis_time_format": "yyyymmdd",
+                        "current": {"start": "2026-03-25", "end": "2026-03-26"},
+                    },
+                },
+            ),
+            engine_type="duckdb",
+        )
+        self.assertIn("ds >= ? AND ds < ?", compiled.sql)
+        self.assertEqual(compiled.params, ["20260325", "20260326"])
 
     def test_compile_aggregate_query_compare_period_expands_alias_in_by_period(self) -> None:
         sql = build_aggregate_comparison_query(
