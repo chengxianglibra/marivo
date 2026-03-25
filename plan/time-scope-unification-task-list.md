@@ -285,17 +285,17 @@
 
 > 前置依赖：TSU-01 + TSU-06 | 工作量：大 | 风险：高
 
-- [ ] **TSU-09.1** 重写 [`app/service.py`](/Users/lichengxiang/source/oss/factum/app/service.py) 中 `_run_compare_metric()`
+- [x] **TSU-09.1** 重写 [`app/service.py`](/Users/lichengxiang/source/oss/factum/app/service.py) 中 `_run_compare_metric()`
   - 不再使用 `metric_name` / `table_name`
   - 不再使用 `period_start` / `period_end`
   - 不再使用 `baseline_start` / `baseline_end`
   - 不再使用 `comparison_type`
   - 不再使用 step-level `filter` / `where`
-- [ ] **TSU-09.2** 切换到统一输入：`table`、`metric`、`dimensions`、`time_scope`、`scope`、`time_axis`
-- [ ] **TSU-09.3** 复用 shared compare compiler，而不是 compare_metric 自己拼双窗口逻辑
-- [ ] **TSU-09.4** 保持 semantic metric resolution 的职责边界不变
+- [x] **TSU-09.2** 切换到统一输入：`table`、`metric`、`dimensions`、`time_scope`、`scope`、`time_axis`
+- [x] **TSU-09.3** 复用 shared compare compiler，而不是 compare_metric 自己拼双窗口逻辑
+- [x] **TSU-09.4** 保持 semantic metric resolution 的职责边界不变
   - 只改时间合同与编译入口，不把 metric resolution 逻辑混进 resolver
-- [ ] **TSU-09.5** 支持 `hour` grain compare
+- [x] **TSU-09.5** 支持 `hour` grain compare
   - 包含 partition-only / timestamp-only / mixed 三类布局
 
 验收标准：

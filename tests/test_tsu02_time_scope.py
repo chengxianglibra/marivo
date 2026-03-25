@@ -476,8 +476,8 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
             self.service.evidence_pipeline.extract_observations = original_extract
 
         self.assertEqual(result["step_type"], "compare_metric")
-        self.assertEqual(captured["params"]["metric_name"], self.metric_name)
-        self.assertEqual(captured["params"]["table_name"], "analytics.watch_events")
+        self.assertEqual(captured["params"]["metric"], self.metric_name)
+        self.assertEqual(captured["params"]["table"], "analytics.watch_events")
         scoped_query = captured["params"]["scoped_query"]
         self.assertEqual(scoped_query["analysis_time_kind"], "date_field")
         self.assertEqual(scoped_query["analysis_time_expr"], "event_date")

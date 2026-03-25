@@ -623,8 +623,14 @@ class EvidenceGraphAPIFieldsTests(unittest.TestCase):
 
     def _run_compare_metric(self, sess_id: str, extra: dict | None = None) -> dict:
         body: dict = {
-            "metric_name": self.metric_name,
-            "table_name": "analytics.watch_events",
+            "table": "analytics.watch_events",
+            "metric": self.metric_name,
+            "time_scope": {
+                "mode": "compare",
+                "grain": "day",
+                "current": {"start": "2026-02-28", "end": "2026-03-06"},
+                "baseline": {"start": "2026-02-22", "end": "2026-02-28"},
+            },
         }
         if extra:
             body.update(extra)
@@ -668,7 +674,15 @@ class EvidenceGraphAPIFieldsTests(unittest.TestCase):
         sess_id = self._new_session()
         self._run_compare_metric(
             sess_id,
-            extra={"period_start": "2026-02-21", "period_end": "2026-03-06", "dimensions": ["platform"]},
+            extra={
+                "dimensions": ["platform"],
+                "time_scope": {
+                    "mode": "compare",
+                    "grain": "day",
+                    "current": {"start": "2026-02-21", "end": "2026-03-06"},
+                    "baseline": {"start": "2026-02-07", "end": "2026-02-21"},
+                },
+            },
         )
         graph = self._get_graph(sess_id)
 
@@ -735,11 +749,25 @@ class EvidenceGraphAPIFieldsTests(unittest.TestCase):
         sess_id = self._new_session()
         self._run_compare_metric(
             sess_id,
-            extra={"period_start": "2026-01-01", "period_end": "2026-01-14"},
+            extra={
+                "time_scope": {
+                    "mode": "compare",
+                    "grain": "day",
+                    "current": {"start": "2026-01-01", "end": "2026-01-14"},
+                    "baseline": {"start": "2025-12-19", "end": "2026-01-01"},
+                },
+            },
         )
         self._run_compare_metric(
             sess_id,
-            extra={"period_start": "2026-02-01", "period_end": "2026-02-14"},
+            extra={
+                "time_scope": {
+                    "mode": "compare",
+                    "grain": "day",
+                    "current": {"start": "2026-02-01", "end": "2026-02-14"},
+                    "baseline": {"start": "2026-01-18", "end": "2026-02-01"},
+                },
+            },
         )
 
         graph = self._get_graph(sess_id)

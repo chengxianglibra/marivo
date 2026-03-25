@@ -1147,10 +1147,7 @@ class SemanticLayerService:
             fallback_columns=all_dimensions,
         )
         scoped_query = self._build_scoped_query(session_id, resolved)
-        date_column = (
-            resolved.resolved_time_axis.override_analysis_time_column
-            or self._infer_date_column(all_dimensions)
-        )
+        comparison_time_column = self._comparison_time_dimension_column(resolved, all_dimensions)
 
         # Allow caller to select a subset of dimensions for grouping
         requested_dims = list(resolved.grouping)
@@ -1160,13 +1157,13 @@ class SemanticLayerService:
                 raise ValueError(f"Invalid dimensions {invalid}; valid: {all_dimensions}")
 
         dimensions = self._comparison_dimensions(
-            all_dimensions, date_column, requested=requested_dims,
+            all_dimensions, comparison_time_column, requested=requested_dims,
         )
         if requested_dims and not dimensions:
-            filtered_out = [d for d in requested_dims if d == date_column]
+            filtered_out = [d for d in requested_dims if d == comparison_time_column]
             raise ValueError(
                 f"Cannot use '{filtered_out[0]}' as comparison dimension because "
-                f"it is the period-splitting column (date_column='{date_column}'). "
+                f"it is the period-splitting column (date_column='{comparison_time_column}'). "
                 f"Use a different dimension or omit dimensions for overall aggregate comparison."
             )
         obs_type = "metric_change"
@@ -1184,8 +1181,8 @@ class SemanticLayerService:
                     "params": {
                         key: value
                         for key, value in {
-                            "metric_name": metric_name,
-                            "table_name": qualified_table,
+                            "table": qualified_table,
+                            "metric": metric_name,
                             "limit": limit,
                             "order": self._normalize_compare_metric_order(resolved.order),
                             "scoped_query": scoped_query,
@@ -2585,6 +2582,19 @@ class SemanticLayerService:
         excluded = SemanticLayerService._TEMPORAL_DIMENSIONS | {date_column}
         dims = [d for d in all_dimensions if d not in excluded]
         return dims[:SemanticLayerService._MAX_DEFAULT_DIMENSIONS]
+
+    @staticmethod
+    def _comparison_time_dimension_column(
+        request: ResolvedWindowedQueryRequest,
+        all_dimensions: list[str],
+    ) -> str:
+        analysis_expr = str(request.resolved_time_axis.analysis_time_expr or "").strip()
+        if analysis_expr in all_dimensions:
+            return analysis_expr
+        override = request.resolved_time_axis.override_analysis_time_column
+        if override:
+            return override
+        return SemanticLayerService._infer_date_column(all_dimensions)
 
     @staticmethod
     def _detect_date_format(raw_value: Any) -> str | None:

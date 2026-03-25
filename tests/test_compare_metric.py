@@ -10,6 +10,25 @@ from app.main import create_app
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 
+def _compare_scope() -> dict[str, object]:
+    return {
+        "mode": "compare",
+        "grain": "day",
+        "current": {"start": "2026-02-28", "end": "2026-03-06"},
+        "baseline": {"start": "2026-02-22", "end": "2026-02-28"},
+    }
+
+
+def _typed_compare_payload(metric: str, **overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "table": "analytics.watch_events",
+        "metric": metric,
+        "time_scope": _compare_scope(),
+    }
+    payload.update(overrides)
+    return payload
+
+
 class MetricResolutionTests(unittest.TestCase):
     """Tests for resolving metrics from semantic layer and compare_metric step."""
 
@@ -67,10 +86,7 @@ class MetricResolutionTests(unittest.TestCase):
 
         resp = self.client.post(
             f"/sessions/{session_id}/steps/compare_metric",
-            json={
-                "metric_name": "watch_time",
-                "table_name": "analytics.watch_events",
-            },
+            json=_typed_compare_payload("watch_time"),
         )
         self.assertEqual(resp.status_code, 200)
         result = resp.json()
@@ -88,43 +104,29 @@ class MetricResolutionTests(unittest.TestCase):
             f"/sessions/{session_id}/steps/compare_metric",
             json={},
         )
-        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.status_code, 422)
 
     def test_compare_metric_rejects_step_level_filter(self) -> None:
         session_id = self.client.post(
             "/sessions", json={"goal": "Test filter rejection."},
         ).json()["session_id"]
-
-        resp = self.client.post(
-            f"/sessions/{session_id}/steps/compare_metric",
-            json={
-                "metric_name": "watch_time",
-                "table_name": "analytics.watch_events",
+        service = self.client.app.state.service
+        with self.assertRaisesRegex(ValueError, "legacy fields: filter"):
+            service._run_compare_metric(session_id, {
+                **_typed_compare_payload("watch_time"),
                 "filter": "platform = 'android'",
-            },
-        )
-        self.assertEqual(resp.status_code, 400)
-        detail = resp.json().get("detail", "")
-        self.assertIn("filter", detail)
-        self.assertIn("raw_filter", detail)
+            })
 
     def test_compare_metric_rejects_step_level_where(self) -> None:
         session_id = self.client.post(
             "/sessions", json={"goal": "Test where rejection."},
         ).json()["session_id"]
-
-        resp = self.client.post(
-            f"/sessions/{session_id}/steps/compare_metric",
-            json={
-                "metric_name": "watch_time",
-                "table_name": "analytics.watch_events",
+        service = self.client.app.state.service
+        with self.assertRaisesRegex(ValueError, "legacy fields: where"):
+            service._run_compare_metric(session_id, {
+                **_typed_compare_payload("watch_time"),
                 "where": "platform = 'android'",
-            },
-        )
-        self.assertEqual(resp.status_code, 400)
-        detail = resp.json().get("detail", "")
-        self.assertIn("where", detail)
-        self.assertIn("raw_filter", detail)
+            })
 
     def test_compare_metric_unpublished_metric(self) -> None:
         session_id = self.client.post(
@@ -133,9 +135,9 @@ class MetricResolutionTests(unittest.TestCase):
 
         resp = self.client.post(
             f"/sessions/{session_id}/steps/compare_metric",
-            json={"metric_name": "nonexistent", "table_name": "analytics.watch_events"},
+            json=_typed_compare_payload("nonexistent"),
         )
-        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.status_code, 422)
 
     def test_build_comparison_query(self) -> None:
         service = self.client.app.state.service
@@ -151,8 +153,8 @@ class MetricResolutionTests(unittest.TestCase):
         self.assertIn("analytics.watch_events", query)
 
 
-class CustomPeriodTests(unittest.TestCase):
-    """Fix 5: compare_metric with user-supplied period_start/period_end."""
+class TimeScopeCompareTests(unittest.TestCase):
+    """compare_metric accepts explicit typed compare windows."""
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -184,20 +186,23 @@ class CustomPeriodTests(unittest.TestCase):
         cls.client.close()
         cls.temp_dir.cleanup()
 
-    def test_custom_period_bounds(self) -> None:
-        """compare_metric with period_start/period_end should succeed."""
+    def test_custom_time_scope_bounds(self) -> None:
+        """compare_metric with explicit current/baseline windows should succeed."""
         session_id = self.client.post(
             "/sessions", json={"goal": "Test custom period."},
         ).json()["session_id"]
 
         resp = self.client.post(
             f"/sessions/{session_id}/steps/compare_metric",
-            json={
-                "metric_name": "watch_time_period",
-                "table_name": "analytics.watch_events",
-                "period_start": "2025-01-01",
-                "period_end": "2025-01-14",
-            },
+            json=_typed_compare_payload(
+                "watch_time_period",
+                time_scope={
+                    "mode": "compare",
+                    "grain": "day",
+                    "current": {"start": "2026-03-01", "end": "2026-03-08"},
+                    "baseline": {"start": "2026-02-22", "end": "2026-03-01"},
+                },
+            ),
         )
         self.assertEqual(resp.status_code, 200)
         result = resp.json()
@@ -303,11 +308,7 @@ class MultipleStepRunTests(unittest.TestCase):
         # First run: group by platform
         resp1 = self.client.post(
             f"/sessions/{session_id}/steps/compare_metric",
-            json={
-                "metric_name": "watch_time_multi",
-                "table_name": "analytics.watch_events",
-                "dimensions": ["platform"],
-            },
+            json=_typed_compare_payload("watch_time_multi", dimensions=["platform"]),
         )
         self.assertEqual(resp1.status_code, 200)
         obs_count_1 = len(resp1.json()["observations"])
@@ -316,11 +317,7 @@ class MultipleStepRunTests(unittest.TestCase):
         # Second run: group by network_type
         resp2 = self.client.post(
             f"/sessions/{session_id}/steps/compare_metric",
-            json={
-                "metric_name": "watch_time_multi",
-                "table_name": "analytics.watch_events",
-                "dimensions": ["network_type"],
-            },
+            json=_typed_compare_payload("watch_time_multi", dimensions=["network_type"]),
         )
         self.assertEqual(resp2.status_code, 200)
         obs_count_2 = len(resp2.json()["observations"])
@@ -377,13 +374,9 @@ class DimensionDateColumnErrorTests(unittest.TestCase):
 
         resp = self.client.post(
             f"/sessions/{session_id}/steps/compare_metric",
-            json={
-                "metric_name": "watch_time_dim_err",
-                "table_name": "analytics.watch_events",
-                "dimensions": ["event_date"],
-            },
+            json=_typed_compare_payload("watch_time_dim_err", dimensions=["event_date"]),
         )
-        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.status_code, 422)
         detail = resp.json()["detail"]
         self.assertIn("period-splitting column", detail)
         self.assertIn("event_date", detail)
@@ -431,10 +424,7 @@ class TemporalDimensionIntegrationTests(unittest.TestCase):
 
         resp = self.client.post(
             f"/sessions/{session_id}/steps/compare_metric",
-            json={
-                "metric_name": "watch_time_temporal",
-                "table_name": "analytics.watch_events",
-            },
+            json=_typed_compare_payload("watch_time_temporal"),
         )
         self.assertEqual(resp.status_code, 200, resp.json())
         result = resp.json()
@@ -533,8 +523,8 @@ class BaselineComputationTests(unittest.TestCase):
         self.assertEqual(be - bs, date(2026, 3, 14) - date(2026, 3, 1))  # 13 days
 
 
-class ComparisonTypeTests(unittest.TestCase):
-    """Integration tests for comparison_type / explicit baseline / debug field."""
+class CompareMetricTypedContractTests(unittest.TestCase):
+    """Integration tests for typed compare_metric windows and legacy-field rejection."""
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -568,72 +558,47 @@ class ComparisonTypeTests(unittest.TestCase):
 
     def _new_session(self) -> str:
         return self.client.post(
-            "/sessions", json={"goal": "comparison_type test"},
+            "/sessions", json={"goal": "typed compare_metric test"},
         ).json()["session_id"]
 
-    def test_wow_baseline_offset(self) -> None:
-        """comparison_type=wow produces baseline 7 days before current."""
-        from app.service import SemanticLayerService
-        bs, be = SemanticLayerService._compute_baseline_from_type(
-            __import__("datetime").date(2026, 3, 23),
-            __import__("datetime").date(2026, 3, 23),
-            "wow",
-        )
-        self.assertEqual(bs, __import__("datetime").date(2026, 3, 16))
-        self.assertEqual(be, __import__("datetime").date(2026, 3, 16))
-
-    def test_dod_baseline_offset(self) -> None:
-        from app.service import SemanticLayerService
-        import datetime
-        bs, be = SemanticLayerService._compute_baseline_from_type(
-            datetime.date(2026, 3, 23), datetime.date(2026, 3, 23), "dod"
-        )
-        self.assertEqual(bs, datetime.date(2026, 3, 22))
-
-    def test_period_start_optional(self) -> None:
-        """Omitting period_start → ps = pe (single-day window)."""
+    def test_typed_compare_windows_succeed(self) -> None:
         session_id = self._new_session()
         resp = self.client.post(
             f"/sessions/{session_id}/steps/compare_metric",
-            json={
-                "metric_name": "watch_time_ctype",
-                "table_name": "analytics.watch_events",
-                "period_end": "2025-01-14",
-            },
+            json=_typed_compare_payload("watch_time_ctype"),
         )
         self.assertEqual(resp.status_code, 200, resp.json())
 
-    def test_explicit_baseline_override(self) -> None:
-        """baseline_start/end takes priority over comparison_type."""
+    def test_explicit_baseline_window_is_used(self) -> None:
         session_id = self._new_session()
         resp = self.client.post(
             f"/sessions/{session_id}/steps/compare_metric",
-            json={
-                "metric_name": "watch_time_ctype",
-                "table_name": "analytics.watch_events",
-                "period_end": "2025-01-14",
-                "comparison_type": "wow",
-                "baseline_start": "2025-01-01",
-                "baseline_end": "2025-01-07",
-            },
+            json=_typed_compare_payload(
+                "watch_time_ctype",
+                time_scope={
+                    "mode": "compare",
+                    "grain": "day",
+                    "current": {"start": "2026-03-01", "end": "2026-03-08"},
+                    "baseline": {"start": "2026-02-20", "end": "2026-02-24"},
+                },
+            ),
         )
         self.assertEqual(resp.status_code, 200, resp.json())
-        # The response should reflect explicit baseline, not wow-shifted one
-        # (we cannot easily assert the exact window from the summary, but 200 is enough)
 
     def test_unequal_window_warn_not_error(self) -> None:
         """Unequal windows return 200 and debug.window_length_match=False."""
         session_id = self._new_session()
         resp = self.client.post(
             f"/sessions/{session_id}/steps/compare_metric",
-            json={
-                "metric_name": "watch_time_ctype",
-                "table_name": "analytics.watch_events",
-                "period_start": "2025-01-07",
-                "period_end": "2025-01-14",
-                "baseline_start": "2025-01-01",
-                "baseline_end": "2025-01-02",   # only 2 days vs 8-day current
-            },
+            json=_typed_compare_payload(
+                "watch_time_ctype",
+                time_scope={
+                    "mode": "compare",
+                    "grain": "day",
+                    "current": {"start": "2026-02-28", "end": "2026-03-06"},
+                    "baseline": {"start": "2026-02-22", "end": "2026-02-24"},
+                },
+            ),
         )
         self.assertEqual(resp.status_code, 200, resp.json())
         result = resp.json()
@@ -644,51 +609,24 @@ class ComparisonTypeTests(unittest.TestCase):
             # rows returned and mismatch warning in summary
             self.assertIn("mismatch", result.get("summary", "").lower())
 
-    def test_invalid_comparison_type(self) -> None:
-        """Unsupported comparison_type value → 400."""
+    def test_service_rejects_legacy_comparison_type(self) -> None:
         session_id = self._new_session()
-        resp = self.client.post(
-            f"/sessions/{session_id}/steps/compare_metric",
-            json={
-                "metric_name": "watch_time_ctype",
-                "table_name": "analytics.watch_events",
-                "period_end": "2025-01-14",
+        service = self.client.app.state.service
+        with self.assertRaisesRegex(ValueError, "legacy fields: comparison_type"):
+            service._run_compare_metric(session_id, {
+                **_typed_compare_payload("watch_time_ctype"),
                 "comparison_type": "qoq",
-            },
-        )
-        self.assertEqual(resp.status_code, 400)
-        self.assertIn("comparison_type", resp.json().get("detail", ""))
+            })
 
-    def test_period_end_required_with_comparison_type(self) -> None:
-        """P2: comparison_type without period_end must return 400."""
+    def test_service_rejects_legacy_period_fields(self) -> None:
         session_id = self._new_session()
-        resp = self.client.post(
-            f"/sessions/{session_id}/steps/compare_metric",
-            json={
-                "metric_name": "watch_time_ctype",
-                "table_name": "analytics.watch_events",
-                "comparison_type": "wow",
-                # period_end intentionally omitted
-            },
-        )
-        self.assertEqual(resp.status_code, 400)
-        self.assertIn("period_end", resp.json().get("detail", ""))
-
-    def test_period_end_required_with_explicit_baseline(self) -> None:
-        """P2: baseline_start/end without period_end must return 400."""
-        session_id = self._new_session()
-        resp = self.client.post(
-            f"/sessions/{session_id}/steps/compare_metric",
-            json={
-                "metric_name": "watch_time_ctype",
-                "table_name": "analytics.watch_events",
+        service = self.client.app.state.service
+        with self.assertRaisesRegex(ValueError, "legacy fields: baseline_start, period_end"):
+            service._run_compare_metric(session_id, {
+                **_typed_compare_payload("watch_time_ctype"),
+                "period_end": "2025-01-14",
                 "baseline_start": "2025-01-01",
-                "baseline_end": "2025-01-07",
-                # period_end intentionally omitted
-            },
-        )
-        self.assertEqual(resp.status_code, 400)
-        self.assertIn("period_end", resp.json().get("detail", ""))
+            })
 
     def test_debug_field_on_null_delta(self) -> None:
         """When all delta values are null, debug field is attached."""
@@ -696,12 +634,15 @@ class ComparisonTypeTests(unittest.TestCase):
         # Use a period where no data exists in seeded DuckDB
         resp = self.client.post(
             f"/sessions/{session_id}/steps/compare_metric",
-            json={
-                "metric_name": "watch_time_ctype",
-                "table_name": "analytics.watch_events",
-                "period_end": "1999-01-01",
-                "comparison_type": "wow",
-            },
+            json=_typed_compare_payload(
+                "watch_time_ctype",
+                time_scope={
+                    "mode": "compare",
+                    "grain": "day",
+                    "current": {"start": "1999-01-01", "end": "1999-01-08"},
+                    "baseline": {"start": "1998-12-25", "end": "1999-01-01"},
+                },
+            ),
         )
         self.assertEqual(resp.status_code, 200, resp.json())
         result = resp.json()
@@ -711,8 +652,6 @@ class ComparisonTypeTests(unittest.TestCase):
             debug = result["debug"]
             self.assertIn("current_window", debug)
             self.assertIn("baseline_window", debug)
-            self.assertIn("comparison_type", debug)
-            self.assertEqual(debug["comparison_type"], "wow")
 
 
 if __name__ == "__main__":

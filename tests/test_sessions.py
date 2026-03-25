@@ -10,6 +10,23 @@ from app.main import create_app
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 
+def _compare_scope() -> dict[str, object]:
+    return {
+        "mode": "compare",
+        "grain": "day",
+        "current": {"start": "2026-02-28", "end": "2026-03-06"},
+        "baseline": {"start": "2026-02-22", "end": "2026-02-28"},
+    }
+
+
+def _compare_metric_payload(metric: str) -> dict[str, object]:
+    return {
+        "table": "analytics.watch_events",
+        "metric": metric,
+        "time_scope": _compare_scope(),
+    }
+
+
 class SessionAPITests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -64,7 +81,7 @@ class SessionAPITests(unittest.TestCase):
 
         self.client.post(
             f"/sessions/{session_id}/steps/compare_metric",
-            json={"metric_name": "watch_time_mvp", "table_name": "analytics.watch_events"},
+            json=_compare_metric_payload("watch_time_mvp"),
         )
         self.client.post(f"/sessions/{session_id}/steps/synthesize_findings")
 
@@ -139,7 +156,7 @@ class SessionAPITests(unittest.TestCase):
 
         self.client.post(
             f"/sessions/{session_id}/steps/compare_metric",
-            json={"metric_name": "watch_time_debug_metric", "table_name": "analytics.watch_events"},
+            json=_compare_metric_payload("watch_time_debug_metric"),
         )
         self.client.post(f"/sessions/{session_id}/steps/synthesize_findings")
 
@@ -179,7 +196,7 @@ class SessionAPITests(unittest.TestCase):
 
         self.client.post(
             f"/sessions/{session_id}/steps/compare_metric",
-            json={"metric_name": "watch_time_tentative_metric", "table_name": "analytics.watch_events"},
+            json=_compare_metric_payload("watch_time_tentative_metric"),
         )
 
         resp = self.client.get(f"/sessions/{session_id}/evidence?claims_only=confirmed")
@@ -213,7 +230,7 @@ class SessionAPITests(unittest.TestCase):
 
         self.client.post(
             f"/sessions/{session_id}/steps/compare_metric",
-            json={"metric_name": "watch_time_edge_filter_metric", "table_name": "analytics.watch_events"},
+            json=_compare_metric_payload("watch_time_edge_filter_metric"),
         )
         self.client.post(f"/sessions/{session_id}/steps/synthesize_findings")
 
@@ -246,7 +263,7 @@ class SessionAPITests(unittest.TestCase):
 
         self.client.post(
             f"/sessions/{session_id}/steps/compare_metric",
-            json={"metric_name": "watch_time_include_debug_metric", "table_name": "analytics.watch_events"},
+            json=_compare_metric_payload("watch_time_include_debug_metric"),
         )
         self.client.post(f"/sessions/{session_id}/steps/synthesize_findings")
 
@@ -280,7 +297,7 @@ class SessionAPITests(unittest.TestCase):
 
         self.client.post(
             f"/sessions/{session_id}/steps/compare_metric",
-            json={"metric_name": "watch_time_filtered_debug_metric", "table_name": "analytics.watch_events"},
+            json=_compare_metric_payload("watch_time_filtered_debug_metric"),
         )
         self.client.post(f"/sessions/{session_id}/steps/synthesize_findings")
 
