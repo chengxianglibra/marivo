@@ -434,6 +434,32 @@ class CausalCheckerRegistryTests(unittest.TestCase):
         self.assertEqual(len(upgrades), 1)
         self.assertEqual(upgrades[0].new_level, "L1")
 
+    def test_registry_caps_merged_confidence_boost(self) -> None:
+        registry = CausalCheckerRegistry()
+
+        class _CheckerA(CausalChecker):
+            @property
+            def name(self) -> str:
+                return "a"
+
+            def check(self, claims, observations, edges):
+                return [LevelUpgrade(claim_id="c1", new_level="L1", confidence_boost=0.08)]
+
+        class _CheckerB(CausalChecker):
+            @property
+            def name(self) -> str:
+                return "b"
+
+            def check(self, claims, observations, edges):
+                return [LevelUpgrade(claim_id="c1", new_level="L1", confidence_boost=0.07)]
+
+        registry.register(_CheckerA())
+        registry.register(_CheckerB())
+
+        upgrades = registry.run_all([], [], [])
+        self.assertEqual(len(upgrades), 1)
+        self.assertEqual(upgrades[0].confidence_boost, 0.12)
+
     def test_incremental_synthesizer_applies_causal_checkers(self) -> None:
         """IncrementalSynthesizer.process() returns causal_upgrades and upgrades DB."""
         from app.evidence_engine.incremental_synthesizer import IncrementalSynthesizer

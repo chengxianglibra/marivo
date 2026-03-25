@@ -10,6 +10,7 @@ from app.evidence_engine.schemas import (
     REC_TYPE_ACTION,
     REC_TYPE_NO_ACTION,
     Claim,
+    ClaimRelation,
     Observation,
     Recommendation,
 )
@@ -27,6 +28,7 @@ class RecommendationPolicy(ABC):
         observations: list[Observation],
         claims: list[Claim],
         recommendations: list[Recommendation],
+        relations: list[ClaimRelation] | None = None,
     ) -> list[Recommendation]:
         raise NotImplementedError
 
@@ -74,6 +76,7 @@ class DefaultRecommendationPolicy(RecommendationPolicy):
         observations: list[Observation],
         claims: list[Claim],
         recommendations: list[Recommendation],
+        relations: list[ClaimRelation] | None = None,
     ) -> list[Recommendation]:
         if recommendations:
             return recommendations

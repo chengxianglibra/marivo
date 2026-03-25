@@ -23,6 +23,7 @@ from typing import Any
 from app.evidence_engine.schemas import (
     EDGE_TYPE_CORRELATES_WITH,
     EDGE_TYPE_MECHANISTICALLY_EXPLAINS,
+    ClaimRelation,
     INFERENCE_LEVEL_ORDER,
 )
 
@@ -74,6 +75,7 @@ class CausalChecker(ABC):
         claims: list[dict[str, Any]],
         observations: list[dict[str, Any]],
         edges: list[dict[str, Any]],
+        relations: list[ClaimRelation] | None = None,
     ) -> list[LevelUpgrade]:
         """Inspect claims + observations and return upgrade proposals."""
 
@@ -87,7 +89,8 @@ class CausalCheckerRegistry:
     Merge strategy (per claim_id):
     - Level: keep highest proposed level (never downgrade from current).
     - Justification tokens: union of all tokens across checkers.
-    - Confidence boost: sum of all boosts (capped externally at 0.99).
+    - Confidence boost: sum of all boosts, capped at +0.12 for consistency
+      with pipeline-level causal-edge-derived boosts.
     """
 
     def __init__(self) -> None:
@@ -101,12 +104,22 @@ class CausalCheckerRegistry:
         claims: list[dict[str, Any]],
         observations: list[dict[str, Any]],
         edges: list[dict[str, Any]],
+        relations: list[ClaimRelation] | None = None,
     ) -> list[LevelUpgrade]:
         """Run all checkers and return merged upgrades keyed by claim_id."""
         merged: dict[str, LevelUpgrade] = {}
 
         for checker in self._checkers:
-            for upgrade in checker.check(claims, observations, edges):
+            try:
+                checker_upgrades = checker.check(
+                    claims,
+                    observations,
+                    edges,
+                    relations=relations,
+                )
+            except TypeError:
+                checker_upgrades = checker.check(claims, observations, edges)
+            for upgrade in checker_upgrades:
                 cid = upgrade.claim_id
                 if cid not in merged:
                     merged[cid] = LevelUpgrade(
@@ -126,7 +139,10 @@ class CausalCheckerRegistry:
                     for token in upgrade.justification_tokens:
                         if token not in existing.justification_tokens:
                             existing.justification_tokens.append(token)
-                    existing.confidence_boost += upgrade.confidence_boost
+                    existing.confidence_boost = min(
+                        0.12,
+                        existing.confidence_boost + upgrade.confidence_boost,
+                    )
                     # Merge causal edges (deduplicate by from+to+type)
                     existing_edge_keys = {
                         (e.from_node_id, e.to_node_id, e.edge_type)
@@ -163,6 +179,7 @@ class CrossSliceConsistencyChecker(CausalChecker):
         claims: list[dict[str, Any]],
         observations: list[dict[str, Any]],
         edges: list[dict[str, Any]],
+        relations: list[ClaimRelation] | None = None,
     ) -> list[LevelUpgrade]:
         # Index observations by metric
         obs_by_metric: dict[str, list[dict[str, Any]]] = {}
@@ -232,6 +249,7 @@ class TemporalPrecedenceChecker(CausalChecker):
         claims: list[dict[str, Any]],
         observations: list[dict[str, Any]],
         edges: list[dict[str, Any]],
+        relations: list[ClaimRelation] | None = None,
     ) -> list[LevelUpgrade]:
         obs_by_id = {o["observation_id"]: o for o in observations}
 
@@ -311,6 +329,7 @@ class DoseResponseChecker(CausalChecker):
         claims: list[dict[str, Any]],
         observations: list[dict[str, Any]],
         edges: list[dict[str, Any]],
+        relations: list[ClaimRelation] | None = None,
     ) -> list[LevelUpgrade]:
         obs_by_id = {o["observation_id"]: o for o in observations}
         upgrades: list[LevelUpgrade] = []
@@ -451,6 +470,7 @@ class MechanisticExplanationChecker(CausalChecker):
         claims: list[dict[str, Any]],
         observations: list[dict[str, Any]],
         edges: list[dict[str, Any]],
+        relations: list[ClaimRelation] | None = None,
     ) -> list[LevelUpgrade]:
         obs_by_metric: dict[str, list[dict[str, Any]]] = {}
         for obs in observations:
@@ -529,6 +549,7 @@ class ReversalChecker(CausalChecker):
         claims: list[dict[str, Any]],
         observations: list[dict[str, Any]],
         edges: list[dict[str, Any]],
+        relations: list[ClaimRelation] | None = None,
     ) -> list[LevelUpgrade]:
         obs_by_id = {o["observation_id"]: o for o in observations}
 
@@ -600,6 +621,7 @@ class CrossScopeCorrelationChecker(CausalChecker):
         claims: list[dict[str, Any]],
         observations: list[dict[str, Any]],
         edges: list[dict[str, Any]],
+        relations: list[ClaimRelation] | None = None,
     ) -> list[LevelUpgrade]:
         obs_by_id = {o["observation_id"]: o for o in observations}
         upgrades: list[LevelUpgrade] = []
