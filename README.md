@@ -129,7 +129,19 @@ Run a generic step:
 curl -s http://127.0.0.1:8000/sessions/<session_id>/steps/compare_metric \
   -X POST \
   -H "Content-Type: application/json" \
-  -d '{"params": {"metric_name": "watch_time", "limit": 20}}'
+  -d '{
+    "table": "analytics.watch_events",
+    "metric": "watch_time",
+    "time_scope": {
+      "mode": "single_window",
+      "grain": "day",
+      "current": {
+        "start": "2026-03-01",
+        "end": "2026-03-08"
+      }
+    },
+    "limit": 20
+  }'
 ```
 
 Fetch the evidence graph:

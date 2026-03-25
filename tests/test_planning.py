@@ -30,6 +30,37 @@ def _seed_watch_time_metric(metadata: SQLiteMetadataStore) -> None:
     semantic.publish_metric(metric["metric_id"])
 
 
+def _typed_compare_metric_params(**overrides: object) -> dict[str, object]:
+    params: dict[str, object] = {
+        "table": "analytics.watch_events",
+        "metric": "watch_time",
+        "order": "DESC",
+        "time_scope": {
+            "mode": "compare",
+            "grain": "day",
+            "current": {"start": "2026-03-01", "end": "2026-03-08"},
+            "baseline": {"start": "2026-02-22", "end": "2026-03-01"},
+        },
+    }
+    params.update(overrides)
+    return params
+
+
+def _typed_aggregate_query_params(**overrides: object) -> dict[str, object]:
+    params: dict[str, object] = {
+        "table": "analytics.watch_events",
+        "group_by": ["platform"],
+        "measures": [{"expr": "COUNT(*)", "as": "cnt"}],
+        "time_scope": {
+            "mode": "single_window",
+            "grain": "day",
+            "current": {"start": "2026-03-01", "end": "2026-03-08"},
+        },
+    }
+    params.update(overrides)
+    return params
+
+
 class PlanningServiceTests(unittest.TestCase):
     """Unit tests for PlanningService."""
 
@@ -54,7 +85,7 @@ class PlanningServiceTests(unittest.TestCase):
 
     def test_draft_plan(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
+            {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
             {"step_type": "profile_table", "params": {"table_name": "analytics.watch_events"}, "dependencies": [0]},
             {"step_type": "synthesize_findings", "dependencies": [0, 1]},
         ])
@@ -82,17 +113,17 @@ class PlanningServiceTests(unittest.TestCase):
 
     def test_patch_plan(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
+            {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
         ])
         patched = self.planning.patch_plan(plan["plan_id"], steps=[
-            {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
+            {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
             {"step_type": "profile_table", "params": {"table_name": "analytics.watch_events"}},
         ])
         self.assertEqual(len(patched["steps"]), 2)
 
     def test_get_execution_plan_ir(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
+            {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
             {"step_type": "sample_rows", "params": {"table_name": "analytics.watch_events"}, "dependencies": [0]},
         ])
 
@@ -127,7 +158,7 @@ class PlanningServiceTests(unittest.TestCase):
             {"aggregate_only": True},
         )
         plan = self.planning.draft_plan(session["session_id"], [
-            {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
+            {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
         ])
 
         plan_ir = self.planning.get_execution_plan_ir(plan["plan_id"])
@@ -144,7 +175,7 @@ class PlanningServiceTests(unittest.TestCase):
             semantic_repository=self.service.semantic_repository,
         )
         plan = planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
+            {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
         ])
 
         plan_ir = planning.get_execution_plan_ir(plan["plan_id"])
@@ -214,8 +245,8 @@ class PlanningServiceTests(unittest.TestCase):
             {
                 "step_type": "compare_metric",
                 "params": {
-                    "metric_name": "watch_time",
-                    "table_name": "analytics.planning_semantic_table",
+                    **_typed_compare_metric_params(),
+                    "table": "analytics.planning_semantic_table",
                     "dimensions": ["platform", "app_version", "network_type"],
                 },
             },
@@ -236,7 +267,7 @@ class PlanningServiceTests(unittest.TestCase):
 
     def test_patch_non_draft_fails(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
+            {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
         ])
         self.planning.validate_plan(plan["plan_id"])
         with self.assertRaises(ValueError):
@@ -244,7 +275,7 @@ class PlanningServiceTests(unittest.TestCase):
 
     def test_delete_plan(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
+            {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
         ])
         result = self.planning.delete_plan(plan["plan_id"])
         self.assertEqual(result["status"], "deleted")
@@ -276,7 +307,7 @@ class PlanValidationTests(unittest.TestCase):
 
     def test_validate_valid_plan(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
+            {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
             {"step_type": "profile_table", "params": {"table_name": "analytics.watch_events"}},
             {"step_type": "synthesize_findings", "dependencies": [0, 1]},
         ])
@@ -306,12 +337,12 @@ class PlanValidationTests(unittest.TestCase):
         self.assertEqual(result["issues"][0]["step_index"], 0)
         self.assertEqual(
             result["issues"][0]["detail"]["missing_params"],
-            ["metric_name", "table_name"],
+            ["table", "metric", "time_scope"],
         )
 
     def test_validate_forward_dependency(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}, "dependencies": [1]},
+            {"step_type": "compare_metric", "params": _typed_compare_metric_params(), "dependencies": [1]},
             {"step_type": "profile_table", "params": {"table_name": "analytics.watch_events"}},
         ])
         result = self.planning.validate_plan(plan["plan_id"])
@@ -319,11 +350,11 @@ class PlanValidationTests(unittest.TestCase):
 
     def test_validate_missing_params(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_metric"},  # missing metric_name and table_name
+            {"step_type": "compare_metric"},
         ])
         result = self.planning.validate_plan(plan["plan_id"])
         self.assertFalse(result["valid"])
-        self.assertTrue(any("metric_name" in e for e in result["errors"]))
+        self.assertTrue(any("time_scope" in e for e in result["errors"]))
 
     def test_validate_profile_table_missing_params(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [
@@ -335,7 +366,7 @@ class PlanValidationTests(unittest.TestCase):
     def test_validate_auto_approves_clean_plan(self) -> None:
         """Plans with no governance/budget warnings are auto-approved."""
         plan = self.planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
+            {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
         ])
         result = self.planning.validate_plan(plan["plan_id"])
         self.assertTrue(result["auto_approved"])
@@ -345,7 +376,7 @@ class PlanValidationTests(unittest.TestCase):
     def test_approve_already_approved_is_noop(self) -> None:
         """approve_plan on an already-approved plan is a no-op."""
         plan = self.planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
+            {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
         ])
         self.planning.validate_plan(plan["plan_id"])
         approved = self.planning.approve_plan(plan["plan_id"])
@@ -354,7 +385,7 @@ class PlanValidationTests(unittest.TestCase):
     def test_approve_draft_fails(self) -> None:
         """approve_plan on a draft plan should fail."""
         plan = self.planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
+            {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
         ])
         with self.assertRaises(ValueError):
             self.planning.approve_plan(plan["plan_id"])
@@ -384,7 +415,7 @@ class PlanExecutionTests(unittest.TestCase):
 
     def test_execute_plan(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
+            {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
             {"step_type": "profile_table", "params": {"table_name": "analytics.watch_events"}, "dependencies": [0]},
             {"step_type": "synthesize_findings", "dependencies": [0, 1]},
         ])
@@ -406,7 +437,7 @@ class PlanExecutionTests(unittest.TestCase):
         result = self.service.run_step(
             self.session["session_id"],
             "compare_metric",
-            {"metric_name": "watch_time", "table_name": "analytics.watch_events"},
+            _typed_compare_metric_params(),
         )
 
         self.assertIn("readiness", result)
@@ -427,11 +458,9 @@ class PlanExecutionTests(unittest.TestCase):
     def test_execute_plan_populates_claims_for_session(self) -> None:
         session = self.service.create_session("Execution claims test", {}, {}, {})
         plan = self.planning.draft_plan(session["session_id"], [
-            {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
+            {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
             {"step_type": "aggregate_query", "params": {
-                "table_name": "analytics.watch_events",
-                "select": ["platform", "count(*) AS cnt"],
-                "group_by": ["platform"],
+                **_typed_aggregate_query_params(),
             }},
         ])
         self.planning.validate_plan(plan["plan_id"])
@@ -451,11 +480,9 @@ class PlanExecutionTests(unittest.TestCase):
     def test_execute_plan_then_synthesize_consumes_tentative_claims(self) -> None:
         session = self.service.create_session("Execution synthesize test", {}, {}, {})
         plan = self.planning.draft_plan(session["session_id"], [
-            {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
+            {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
             {"step_type": "aggregate_query", "params": {
-                "table_name": "analytics.watch_events",
-                "select": ["platform", "count(*) AS cnt"],
-                "group_by": ["platform"],
+                **_typed_aggregate_query_params(),
             }},
         ])
         self.planning.validate_plan(plan["plan_id"])
@@ -481,7 +508,7 @@ class PlanExecutionTests(unittest.TestCase):
     def test_execute_plan_persists_step_result_snapshot(self) -> None:
         session = self.service.create_session("Execution snapshot test", {}, {}, {})
         plan = self.planning.draft_plan(session["session_id"], [
-            {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
+            {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
             {"step_type": "synthesize_findings", "dependencies": [0]},
         ])
         self.planning.validate_plan(plan["plan_id"])
@@ -541,14 +568,14 @@ class PlanExecutionTests(unittest.TestCase):
 
     def test_execute_non_approved_fails(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
+            {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
         ])
         with self.assertRaises(ValueError):
             self.planning.execute_plan(plan["plan_id"], self.service)
 
     def test_explain_plan(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
+            {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
             {"step_type": "synthesize_findings", "dependencies": [0]},
         ])
         explanation = self.planning.explain_plan(plan["plan_id"])
@@ -669,7 +696,7 @@ class CostEstimationTests(unittest.TestCase):
 
     def test_estimate_costs(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
+            {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
             {"step_type": "synthesize_findings"},
         ])
         result = self.planning.estimate_costs(plan["plan_id"], self.analytics)
@@ -691,7 +718,7 @@ class CostEstimationTests(unittest.TestCase):
     def test_budget_check_within(self) -> None:
         session = self.service.create_session("Budget test", {}, {"max_rows_scanned": 999999999}, {})
         plan = self.planning.draft_plan(session["session_id"], [
-            {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
+            {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
         ])
         self.planning.estimate_costs(plan["plan_id"], self.analytics)
         result = self.planning.check_budget(plan["plan_id"], session["session_id"])
@@ -701,7 +728,7 @@ class CostEstimationTests(unittest.TestCase):
     def test_budget_check_exceeded(self) -> None:
         session = self.service.create_session("Budget tight", {}, {"max_rows_scanned": 1}, {})
         plan = self.planning.draft_plan(session["session_id"], [
-            {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
+            {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
         ])
         self.planning.estimate_costs(plan["plan_id"], self.analytics)
         result = self.planning.check_budget(plan["plan_id"], session["session_id"])
@@ -750,7 +777,7 @@ class PlanningAPITests(unittest.TestCase):
         # Draft
         resp = self.client.post(f"/sessions/{self.session_id}/plans", json={
             "steps": [
-                {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
+                {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
                 {"step_type": "profile_table", "params": {"table_name": "analytics.watch_events"}, "dependencies": [0]},
                 {"step_type": "synthesize_findings", "dependencies": [0, 1]},
             ],
@@ -794,7 +821,7 @@ class PlanningAPITests(unittest.TestCase):
 
     def test_estimate_costs_via_api(self) -> None:
         resp = self.client.post(f"/sessions/{self.session_id}/plans", json={
-            "steps": [{"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}}],
+            "steps": [{"step_type": "compare_metric", "params": _typed_compare_metric_params()}],
         })
         plan_id = resp.json()["plan_id"]
 
@@ -808,7 +835,7 @@ class PlanningAPITests(unittest.TestCase):
             "budget": {"max_rows_scanned": 999999999},
         }).json()
         resp = self.client.post(f"/sessions/{session['session_id']}/plans", json={
-            "steps": [{"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}}],
+            "steps": [{"step_type": "compare_metric", "params": _typed_compare_metric_params()}],
         })
         plan_id = resp.json()["plan_id"]
 
@@ -821,13 +848,13 @@ class PlanningAPITests(unittest.TestCase):
 
     def test_patch_plan_via_api(self) -> None:
         resp = self.client.post(f"/sessions/{self.session_id}/plans", json={
-            "steps": [{"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}}],
+            "steps": [{"step_type": "compare_metric", "params": _typed_compare_metric_params()}],
         })
         plan_id = resp.json()["plan_id"]
 
         resp = self.client.patch(f"/sessions/{self.session_id}/plans/{plan_id}", json={
             "steps": [
-                {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}},
+                {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
                 {"step_type": "profile_table", "params": {"table_name": "analytics.watch_events"}},
             ],
         })

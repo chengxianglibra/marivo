@@ -18,9 +18,12 @@ Session constraints summary:
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from pydantic import BaseModel, Field
+from pydantic import field_validator
+from pydantic import model_validator
 
 
 class SessionCreateRequest(BaseModel):
@@ -319,6 +322,168 @@ class SessionDebugResponse(BaseModel):
     checker_logs: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class TimeWindow(BaseModel):
+    start: str = Field(description="Window start boundary. Interpreted as inclusive.")
+    end: str = Field(description="Window end boundary. Interpreted as exclusive.")
+
+
+class TimeScope(BaseModel):
+    mode: str = Field(description="Time-scope mode: 'single_window' or 'compare'.")
+    grain: str = Field(description="Observation grain: 'day' or 'hour'.")
+    current: TimeWindow
+    baseline: TimeWindow | None = Field(
+        default=None,
+        description="Required only when mode='compare'. Omit when mode='single_window'.",
+    )
+
+    @field_validator("mode")
+    @classmethod
+    def _validate_mode(cls, value: str) -> str:
+        if value not in {"single_window", "compare"}:
+            raise ValueError("time_scope.mode must be 'single_window' or 'compare'")
+        return value
+
+    @field_validator("grain")
+    @classmethod
+    def _validate_grain(cls, value: str) -> str:
+        if value not in {"day", "hour"}:
+            raise ValueError("time_scope.grain must be 'day' or 'hour'")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_windows(self) -> TimeScope:
+        if self.mode == "compare" and self.baseline is None:
+            raise ValueError("time_scope.baseline is required when mode='compare'")
+        if self.mode == "single_window" and self.baseline is not None:
+            raise ValueError("time_scope.baseline is only allowed when mode='compare'")
+
+        windows = [self.current]
+        if self.baseline is not None:
+            windows.append(self.baseline)
+        for window in windows:
+            self._validate_boundary(window.start)
+            self._validate_boundary(window.end)
+        return self
+
+    def _validate_boundary(self, value: str) -> None:
+        if self.grain == "day":
+            if not _is_date_or_datetime_string(value):
+                raise ValueError("day-grain boundaries must be date or datetime strings")
+            return
+        if not _is_datetime_string(value):
+            raise ValueError("hour-grain boundaries must be datetime-compatible strings")
+
+
+class Scope(BaseModel):
+    constraints: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Typed non-time equality constraints for row/entity scoping.",
+    )
+    predicate: str | None = Field(
+        default=None,
+        description="Optional non-time SQL predicate. Time-axis conditions are not allowed.",
+    )
+
+
+class AnalysisTimeOverride(BaseModel):
+    column: str = Field(description="Column to use as the semantic analysis time axis.")
+
+
+class PartitionPruningOverride(BaseModel):
+    date_column: str | None = Field(
+        default=None,
+        description="Optional partition date column used only for pruning.",
+    )
+    hour_column: str | None = Field(
+        default=None,
+        description="Optional partition hour column used only for pruning.",
+    )
+
+    @model_validator(mode="after")
+    def _validate_partition_columns(self) -> PartitionPruningOverride:
+        if self.date_column is None and self.hour_column is None:
+            raise ValueError("partition_pruning must include date_column or hour_column")
+        return self
+
+
+class TimeAxis(BaseModel):
+    analysis_time: AnalysisTimeOverride | None = Field(
+        default=None,
+        description="Advanced override for the semantic analysis time axis.",
+    )
+    partition_pruning: PartitionPruningOverride | None = Field(
+        default=None,
+        description="Advanced override for partition pruning columns.",
+    )
+
+    @model_validator(mode="after")
+    def _validate_non_empty(self) -> TimeAxis:
+        if self.analysis_time is None and self.partition_pruning is None:
+            raise ValueError("time_axis must include analysis_time or partition_pruning")
+        return self
+
+
+class Measure(BaseModel):
+    expr: str = Field(description="Aggregate SQL expression.")
+    as_: str = Field(serialization_alias="as", validation_alias="as", description="Required output alias.")
+
+    @field_validator("expr")
+    @classmethod
+    def _validate_aggregate_expr(cls, value: str) -> str:
+        expr = value.strip()
+        if not expr:
+            raise ValueError("measure.expr must not be empty")
+        if not _looks_like_aggregate_expression(expr):
+            raise ValueError("measure.expr must be an aggregate expression")
+        return expr
+
+    @field_validator("as_")
+    @classmethod
+    def _validate_alias(cls, value: str) -> str:
+        alias = value.strip()
+        if not alias:
+            raise ValueError("measure.as must not be empty")
+        return alias
+
+
+class CompareMetricStep(BaseModel):
+    table: str = Field(description="Physical table that backs the semantic metric.")
+    metric: str = Field(description="Published semantic metric name.")
+    dimensions: list[str] = Field(default_factory=list, description="Optional grouping dimensions.")
+    time_scope: TimeScope
+    scope: Scope | None = Field(default=None, description="Optional non-time row/entity scope.")
+    time_axis: TimeAxis | None = Field(
+        default=None,
+        description=(
+            "Advanced time-axis override. If omitted, Factum resolves from metadata or heuristics. "
+            "Legacy fields period_start, period_end, baseline_start, baseline_end, comparison_type, "
+            "date_column, where, and filter are no longer supported."
+        ),
+    )
+    order: str | None = Field(default=None, description="Optional ordering expression for output rows.")
+    limit: int | None = Field(default=None, ge=1, description="Optional row limit.")
+
+
+class AggregateQueryStep(BaseModel):
+    table: str = Field(description="Physical table to aggregate.")
+    group_by: list[str] = Field(default_factory=list, description="Optional grouping columns.")
+    measures: list[Measure] = Field(
+        min_length=1,
+        description=(
+            "Aggregate measures. Each item must be an aggregate expression and must include an explicit alias. "
+            "Legacy fields select, where, compare_period, and date_column are no longer supported."
+        ),
+    )
+    time_scope: TimeScope
+    scope: Scope | None = Field(default=None, description="Optional non-time row/entity scope.")
+    time_axis: TimeAxis | None = Field(
+        default=None,
+        description="Advanced time-axis override resolved ahead of execution.",
+    )
+    order: str | None = Field(default=None, description="Optional ordering expression for output rows.")
+    limit: int | None = Field(default=None, ge=1, description="Optional row limit.")
+
+
 class AttributeChangeStep(BaseModel):
     metric_name: str = Field(description="Published semantic metric to attribute.")
     table_name: str = Field(description="Physical table that backs the metric.")
@@ -449,3 +614,26 @@ class PlanPatchRequest(BaseModel):
         default_factory=list,
         description="Indices of steps to mark as 'skipped'.",
     )
+
+
+_DATE_ONLY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_DATETIME_RE = re.compile(
+    r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d{1,6})?)?([zZ]|[+-]\d{2}:\d{2})?$"
+)
+_AGGREGATE_FN_RE = re.compile(
+    r"\b(count|sum|avg|min|max|approx_distinct|count_if|stddev|stddev_samp|stddev_pop|variance|var_samp|var_pop)\s*\(",
+    re.IGNORECASE,
+)
+
+
+def _is_date_or_datetime_string(value: str) -> bool:
+    stripped = value.strip()
+    return bool(_DATE_ONLY_RE.fullmatch(stripped) or _DATETIME_RE.fullmatch(stripped))
+
+
+def _is_datetime_string(value: str) -> bool:
+    return bool(_DATETIME_RE.fullmatch(value.strip()))
+
+
+def _looks_like_aggregate_expression(value: str) -> bool:
+    return bool(_AGGREGATE_FN_RE.search(value))

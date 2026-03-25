@@ -13,15 +13,20 @@ from app.analysis_core import (
 
 
 class AnalysisIRTests(unittest.TestCase):
-    def test_from_legacy_compare_metric_infers_semantic_and_artifact_contract(self) -> None:
+    def test_from_typed_compare_metric_infers_semantic_and_artifact_contract(self) -> None:
         step = from_legacy_step(
             2,
             {
                 "step_type": "compare_metric",
                 "params": {
-                    "metric_name": "watch_time",
-                    "table_name": "analytics.watch_events",
+                    "metric": "watch_time",
+                    "table": "analytics.watch_events",
                     "dimensions": ["platform", "app_version"],
+                    "time_scope": {
+                        "mode": "single_window",
+                        "grain": "day",
+                        "current": {"start": "2026-03-01", "end": "2026-03-08"},
+                    },
                     "observation_type": "metric_change",
                     "limit": 5,
                 },
@@ -41,6 +46,28 @@ class AnalysisIRTests(unittest.TestCase):
         self.assertEqual(step.observation_types(), ["metric_change"])
         self.assertEqual(step.execution_hints["limit"], 5)
         self.assertTrue(step.execution_hints["requires_period_context"])
+
+    def test_typed_fields_take_priority_over_legacy_fallbacks(self) -> None:
+        step = from_legacy_step(
+            0,
+            {
+                "step_type": "compare_metric",
+                "params": {
+                    "metric": "watch_time",
+                    "metric_name": "legacy_metric",
+                    "table": "analytics.watch_events",
+                    "table_name": "analytics.legacy_watch_events",
+                    "time_scope": {
+                        "mode": "single_window",
+                        "grain": "day",
+                        "current": {"start": "2026-03-01", "end": "2026-03-08"},
+                    },
+                },
+            },
+        )
+
+        self.assertEqual(step.table_name(), "analytics.watch_events")
+        self.assertEqual(step.primary_metric_name(), "watch_time")
 
     def test_from_legacy_step_without_table_returns_none_table_and_not_optional(self) -> None:
         step = from_legacy_step(0, {"step_type": "synthesize_findings"})
@@ -72,8 +99,13 @@ class AnalysisIRTests(unittest.TestCase):
                 {
                     "step_type": "compare_metric",
                     "params": {
-                        "metric_name": "watch_time",
-                        "table_name": "analytics.watch_events",
+                        "metric": "watch_time",
+                        "table": "analytics.watch_events",
+                        "time_scope": {
+                            "mode": "single_window",
+                            "grain": "day",
+                            "current": {"start": "2026-03-01", "end": "2026-03-08"},
+                        },
                     },
                 },
             ),
@@ -102,6 +134,34 @@ class AnalysisIRTests(unittest.TestCase):
         self.assertEqual(request.plan_id, "plan_123")
         self.assertEqual(request.requested_step_types, ["compare_metric", "sample_rows"])
         self.assertEqual(request.requested_metrics, ["watch_time"])
+        self.assertEqual(request.requested_tables, ["analytics.watch_events"])
+
+    def test_typed_aggregate_query_populates_requested_tables(self) -> None:
+        steps = [
+            from_legacy_step(
+                0,
+                {
+                    "step_type": "aggregate_query",
+                    "params": {
+                        "table": "analytics.watch_events",
+                        "group_by": ["platform"],
+                        "measures": [{"expr": "COUNT(*)", "as": "query_count"}],
+                        "time_scope": {
+                            "mode": "single_window",
+                            "grain": "day",
+                            "current": {"start": "2026-03-01", "end": "2026-03-08"},
+                        },
+                    },
+                },
+            ),
+        ]
+
+        request = request_from_legacy_session(
+            {"session_id": "sess_123", "goal": "Aggregate", "constraints": {}, "budget": {}, "policy": {}},
+            plan_id="plan_123",
+            steps=steps,
+        )
+
         self.assertEqual(request.requested_tables, ["analytics.watch_events"])
 
     def test_execution_plan_ir_lookup_helpers(self) -> None:

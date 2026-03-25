@@ -49,6 +49,7 @@ from app.runtime_contracts import (
 from app.semantic_runtime import SemanticResolver, SemanticRuntimeRepository
 from app.storage.analytics import AnalyticsEngine
 from app.storage.metadata import MetadataStore
+from app.time_scope import scope_predicate_contains_time_condition
 
 if TYPE_CHECKING:
     from app.governance import GovernanceService
@@ -57,6 +58,28 @@ if TYPE_CHECKING:
 
 # Valid step types (must match SemanticLayerService.run_step dispatcher)
 VALID_STEP_TYPES = frozenset(SUPPORTED_STEP_TYPES)
+COMPARE_METRIC_REQUIRED_PARAMS = ("table", "metric", "time_scope")
+AGGREGATE_QUERY_REQUIRED_PARAMS = ("table", "measures", "time_scope")
+COMPARE_METRIC_LEGACY_PARAMS = frozenset({
+    "metric_name",
+    "table_name",
+    "period_start",
+    "period_end",
+    "baseline_start",
+    "baseline_end",
+    "comparison_type",
+    "date_column",
+    "where",
+    "filter",
+})
+AGGREGATE_QUERY_LEGACY_PARAMS = frozenset({
+    "table_name",
+    "select",
+    "where",
+    "compare_period",
+    "date_column",
+    "filter",
+})
 
 PLAN_STATUS_TRANSITIONS = {
     "draft": {"validated", "deleted"},
@@ -980,7 +1003,7 @@ class PlanningService:
         for step in step_irs:
             if step.step_type == "compare_metric":
                 missing = [
-                    key for key in ("metric_name", "table_name") if not step.params.get(key)
+                    key for key in COMPARE_METRIC_REQUIRED_PARAMS if not step.params.get(key)
                 ]
                 if missing:
                     issues.append(
@@ -990,26 +1013,64 @@ class PlanningService:
                             step_index=step.index,
                             message=(
                                 f"Step {step.index}: compare_metric requires "
-                                "'metric_name' and 'table_name' params"
+                                "'table', 'metric', and 'time_scope' params"
                             ),
-                                detail={"required_params": ["metric_name", "table_name"], "missing_params": missing},
-                            )
+                            detail={
+                                "required_params": list(COMPARE_METRIC_REQUIRED_PARAMS),
+                                "missing_params": missing,
+                            },
                         )
-                for _forbidden in ("filter", "where"):
-                    if step.params.get(_forbidden):
+                    )
+                for legacy_param in sorted(COMPARE_METRIC_LEGACY_PARAMS):
+                    if step.params.get(legacy_param) is not None:
                         issues.append(
                             PlanValidationIssue(
-                                code="compare_metric_filter_not_allowed",
+                                code="legacy_param_not_supported",
                                 category="params",
                                 step_index=step.index,
                                 message=(
-                                    f"Step {step.index}: compare_metric does not accept a step-level '{_forbidden}' param. "
-                                    "Use session 'raw_filter' or 'constraints' for entity/row scoping, "
-                                    "or 'period_start' / 'period_end' for time window scoping."
+                                    f"Step {step.index}: compare_metric does not accept legacy param "
+                                    f"'{legacy_param}'. Use the typed 'table'/'metric'/'time_scope'/'scope' contract."
                                 ),
-                                detail={"forbidden_param": _forbidden},
+                                detail={"forbidden_param": legacy_param, "step_type": "compare_metric"},
                             )
                         )
+                issues.extend(self._validate_scope_predicate(step))
+            elif step.step_type == "aggregate_query":
+                missing = [
+                    key for key in AGGREGATE_QUERY_REQUIRED_PARAMS if not step.params.get(key)
+                ]
+                if missing:
+                    issues.append(
+                        PlanValidationIssue(
+                            code="missing_required_param",
+                            category="params",
+                            step_index=step.index,
+                            message=(
+                                f"Step {step.index}: aggregate_query requires "
+                                "'table', 'measures', and 'time_scope' params"
+                            ),
+                            detail={
+                                "required_params": list(AGGREGATE_QUERY_REQUIRED_PARAMS),
+                                "missing_params": missing,
+                            },
+                        )
+                    )
+                for legacy_param in sorted(AGGREGATE_QUERY_LEGACY_PARAMS):
+                    if step.params.get(legacy_param) is not None:
+                        issues.append(
+                            PlanValidationIssue(
+                                code="legacy_param_not_supported",
+                                category="params",
+                                step_index=step.index,
+                                message=(
+                                    f"Step {step.index}: aggregate_query does not accept legacy param "
+                                    f"'{legacy_param}'. Use the typed 'table'/'measures'/'time_scope'/'scope' contract."
+                                ),
+                                detail={"forbidden_param": legacy_param, "step_type": "aggregate_query"},
+                            )
+                        )
+                issues.extend(self._validate_scope_predicate(step))
             elif step.step_type == "attribute_change":
                 missing = [
                     key
@@ -1099,6 +1160,28 @@ class PlanningService:
             issues=issues,
             cost_estimates=budget_result.cost_estimates,
         )
+
+    def _validate_scope_predicate(self, step: AnalysisStepIR) -> list[PlanValidationIssue]:
+        scope = step.params.get("scope")
+        if not isinstance(scope, dict):
+            return []
+        predicate = scope.get("predicate")
+        if not isinstance(predicate, str) or not predicate.strip():
+            return []
+        if not scope_predicate_contains_time_condition(predicate):
+            return []
+        return [
+            PlanValidationIssue(
+                code="time_predicate_not_allowed_in_scope",
+                category="params",
+                step_index=step.index,
+                message=(
+                    f"Step {step.index}: scope.predicate must not contain time-axis predicates. "
+                    "Move time conditions into 'time_scope'."
+                ),
+                detail={"predicate": predicate},
+            )
+        ]
 
     def _validate_correlate_metrics_params(
         self,

@@ -160,6 +160,9 @@ class AnalysisStepIR:
     evidence_hints: dict[str, Any] = field(default_factory=dict)
 
     def table_name(self) -> str | None:
+        explicit = self.params.get("table")
+        if explicit:
+            return str(explicit)
         explicit = self.params.get("table_name")
         if explicit:
             return str(explicit)
@@ -305,8 +308,10 @@ def _infer_step_category(step_type: str) -> str:
 
 
 def _infer_semantic_intent(step_type: str, params: Mapping[str, Any]) -> SemanticIntent | None:
-    metric_name = str(params.get("metric_name") or STEP_METRICS.get(step_type) or "").strip()
+    metric_name = str(params.get("metric") or params.get("metric_name") or STEP_METRICS.get(step_type) or "").strip()
     raw_dimensions = params.get("dimensions")
+    if step_type == "aggregate_query":
+        raw_dimensions = params.get("group_by")
     if isinstance(raw_dimensions, list):
         dimensions = [str(dimension) for dimension in raw_dimensions]
     else:
@@ -316,7 +321,7 @@ def _infer_semantic_intent(step_type: str, params: Mapping[str, Any]) -> Semanti
         for key in DEFAULT_SLICE_DIMENSIONS
         if key in params and params[key] is not None
     }
-    source_table = str(params.get("table_name") or "") or None
+    source_table = str(params.get("table") or params.get("table_name") or "") or None
     date_column = str(params.get("date_column", "event_date")) if step_type in PERIOD_CONTEXT_STEP_TYPES else None
     if not any([metric_name, dimensions, filters, source_table, date_column]):
         return None
@@ -351,7 +356,7 @@ def _infer_execution_hints(step_type: str, params: Mapping[str, Any]) -> dict[st
         "requires_period_context": step_type in PERIOD_CONTEXT_STEP_TYPES,
         "optional": False,
     }
-    explicit_table_name = params.get("table_name")
+    explicit_table_name = params.get("table") or params.get("table_name")
     if explicit_table_name:
         hints["explicit_table_name"] = str(explicit_table_name)
         hints["routing_table_name"] = str(explicit_table_name).split(".")[-1]
@@ -367,7 +372,7 @@ def _infer_evidence_hints(step_type: str, params: Mapping[str, Any]) -> dict[str
     hints: dict[str, Any] = {}
     if observation_types:
         hints["observation_types"] = observation_types
-    metric_name = str(params.get("metric_name") or STEP_METRICS.get(step_type) or "").strip()
+    metric_name = str(params.get("metric") or params.get("metric_name") or STEP_METRICS.get(step_type) or "").strip()
     if metric_name:
         hints["primary_metric"] = metric_name
     return hints
@@ -382,15 +387,15 @@ def _infer_observation_types(step_type: str, params: Mapping[str, Any]) -> list[
 
 def _infer_artifact_key(step_type: str, params: Mapping[str, Any]) -> str | None:
     if step_type == "compare_metric":
-        metric_name = str(params.get("metric_name", "")).strip()
+        metric_name = str(params.get("metric") or params.get("metric_name", "")).strip()
         if metric_name:
             return f"{metric_name}_comparison"
     if step_type == "profile_table":
-        table_name = str(params.get("table_name", "")).strip()
+        table_name = str(params.get("table") or params.get("table_name", "")).strip()
         if table_name:
             return f"{table_name.split('.')[-1]}_profile"
     if step_type == "sample_rows":
-        table_name = str(params.get("table_name", "")).strip()
+        table_name = str(params.get("table") or params.get("table_name", "")).strip()
         if table_name:
             return f"{table_name.split('.')[-1]}_sample"
     if step_type == "synthesize_findings":
