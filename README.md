@@ -138,6 +138,10 @@ Fetch the evidence graph:
 curl -s http://127.0.0.1:8000/sessions/<session_id>/evidence | python3 -m json.tool
 ```
 
+After `synthesize_findings`, the evidence graph may include claim-to-claim
+`correlates_with` edges. Those edges carry relation provenance in
+`match_basis`, `score_components`, and `supporting_observation_ids`.
+
 Draft and execute an analysis plan:
 
 ```bash
@@ -288,6 +292,7 @@ Browser / Agent / HTTP Client
 - SQL dialect translation (`app/dialect.py`): DuckDB SQL is translated to Trino dialect (casts).
 - Evidence packaging produces structured observations, claims, and recommendations rather than free-form SQL results. Facts are extracted deterministically; language models may assist with synthesis but not with fact extraction.
 - **Five-layer final synthesis**: `EvidencePipeline` runs claim synthesis, relation discovery, causal promotion, recommendation derivation, and edge materialization as separate layers. Only the final synthesis step materializes evidence edges and recommendations.
+- Claim-to-claim relation discovery is conservative in Phase 2.1: final synthesis emits `correlates_with` edges only for confirmed claims, and the persisted edge includes relation provenance (`match_basis`, `score_components`, `supporting_observation_ids`) for audit/debug use.
 - **Incremental synthesis**: after every primitive step, `IncrementalSynthesizer` creates or updates `tentative` claims keyed by (metric, slice) and applies deterministic inference-level upgrades. `synthesize_findings` promotes tentative → `confirmed` or `insufficient`; it does not create claims from scratch and it is the only path that materializes final evidence edges and recommendations.
 - **Readiness signal**: every primitive step response includes `readiness` (5 float dimensions in [0, 1]) and `live_claims`. `suggested_action` is a deterministic signal — Factum never auto-triggers next steps.
 - **Causal inference levels**: `inference_level` on claims is upgraded deterministically by causal checkers running after each incremental synthesis. L0 = correlation; L1 = cross-scope or cross-slice causal signal; L2 = temporal precedence; L3 = mechanism. L4–L5 are reserved for confounder elimination and experimental confirmation.

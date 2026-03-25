@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.api.deps import get_services, http_error
-from app.api.models import AttributeChangeStep, SessionCreateRequest
+from app.api.models import AttributeChangeStep, EvidenceGraphResponse, SessionCreateRequest
 from app.reflection.context import build_reflection_context
 
 
@@ -86,7 +86,7 @@ def run_step(
         raise HTTPException(status_code=502, detail=f"Engine execution error: {error}") from error
 
 
-@router.get("/sessions/{session_id}/evidence")
+@router.get("/sessions/{session_id}/evidence", response_model=EvidenceGraphResponse)
 def evidence_graph(session_id: str, request: Request) -> dict[str, object]:
     try:
         return get_services(request).service.get_evidence_graph(session_id)

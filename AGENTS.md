@@ -95,14 +95,14 @@ Evidence packaging is the most important design concept. Instead of returning ra
 - **Artifact** — raw step output (comparison table, aggregated result)
 - **Observation** — typed factual finding extracted from artifact (e.g. "metric down 14.2% for slice X"); includes `observed_window` (ISO date range, nullable) and `temporal_order` (session-scoped sequence number)
 - **Claim** — synthesized conclusion; `status` is `tentative` (incremental) → `confirmed`/`insufficient` (after `synthesize_findings`); includes `inference_level` (L0–L5) and `inference_justification` tokens
-- **Evidence edge** — base layer: `supports`, `contradicts`, `justifies`; causal layer: `correlates_with`, `temporally_precedes`, `mechanistically_explains`, `eliminates_alternative`, `experimentally_confirms`
+- **Evidence edge** — base layer: `supports`, `contradicts`, `justifies`; causal layer: `correlates_with`, `temporally_precedes`, `mechanistically_explains`, `eliminates_alternative`, `experimentally_confirms`. Claim-to-claim relation edges may include persisted provenance fields `match_basis`, `score_components`, and `supporting_observation_ids`.
 - **Recommendation** — action proposal backed by confirmed claims; `type` is `action_required` (default) or `no_action_required` (metric aligned with `desired_direction` or delta < 5%); includes priority/risk/validation metric and `causal_basis` (inference level, confounders, suggested validation)
 
 Evidence engine is in `app/evidence_engine/`:
 - **Extractor Registry** (`registry.py`) — `ExtractorRegistry` with 5 registered extractors: `ComparisonRowExtractor`, `AggregateRowExtractor`, `FunnelExtractor` (`extractors/funnel.py`), `AnomalyExtractor` (`extractors/anomaly.py`), `ContributionShiftExtractor` (`extractors/contribution_shift.py`)
 - **Incremental synthesizer** (`incremental_synthesizer.py`) — runs after every primitive step; creates/updates tentative claims keyed by (metric, slice); detects contradictions; runs causal checkers; does **not** materialize final evidence edges or recommendations
 - **Causal checkers** (`causal_checkers.py`) — `CausalCheckerRegistry` with 6 checkers: `CrossSliceConsistencyChecker` (L0→L1, threshold 80% directional consistency), `CrossScopeCorrelationChecker` (L0→L1 via explicit or temporal predecessor links), `MechanisticExplanationChecker` (→L3 from `contribution_shift`), `TemporalPrecedenceChecker` (L1+→L2, requires `observed_window`), `DoseResponseChecker` (bonus, Spearman ρ≥0.7), `ReversalChecker` (bonus, sustained reversal ≥2 periods)
-- **Five-layer synthesis pipeline** (`pipeline.py`) — final synthesis runs claim synthesis, relation discovery, causal promotion, recommendation derivation, and edge materialization in order
+- **Five-layer synthesis pipeline** (`pipeline.py`) — final synthesis runs claim synthesis, relation discovery, causal promotion, recommendation derivation, and edge materialization in order; Phase 2.1 relation discovery only materializes final claim-to-claim `correlates_with` edges for confirmed claims
 - **Readiness** (`readiness.py`) — `compute_readiness()` and `load_live_claims()`; appended to every primitive step response
 - Factories, pipeline, schemas, scoring, synthesizers, extractors (comparison, aggregate). Confidence scoring: `app/evidence_engine/scoring.py`. Legacy facade at `app/evidence.py`.
 

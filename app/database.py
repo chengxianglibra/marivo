@@ -92,6 +92,9 @@ class DuckDBStore:
                     edge_type TEXT NOT NULL,
                     weight DOUBLE NOT NULL,
                     explanation TEXT NOT NULL,
+                    match_basis_json TEXT NOT NULL DEFAULT '{}',
+                    score_components_json TEXT NOT NULL DEFAULT '{}',
+                    supporting_observation_ids_json TEXT NOT NULL DEFAULT '[]',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
 
@@ -341,4 +344,3 @@ class DuckDBStore:
             """,
             recommendation_rows,
         )
-
