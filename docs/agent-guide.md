@@ -88,6 +88,7 @@ Supported step types:
 Rules:
 
 - prefer typed steps over raw SQL as the external contract
+- `compare_metric` and `aggregate_query` use typed `time_scope` / `scope` contracts rather than legacy period/filter params
 - primitive steps produce `readiness` and `live_claims`
 - final evidence edges, recommendations, and session-level derived observations are materialized by `synthesize_findings`
 - session constraints are auto-injected into supported query steps

@@ -6,7 +6,9 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.api.deps import get_services, http_error
 from app.api.models import (
+    AggregateQueryStep,
     AttributeChangeStep,
+    CompareMetricStep,
     EvidenceGraphResponse,
     SessionCreateRequest,
     SessionDebugResponse,
@@ -67,6 +69,46 @@ def run_attribute_change(
             session_id,
             "attribute_change",
             params=payload.model_dump(exclude_none=True),
+        )
+    except KeyError as error:
+        raise http_error(error) from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except Exception as error:
+        raise HTTPException(status_code=502, detail=f"Engine execution error: {error}") from error
+
+
+@router.post("/sessions/{session_id}/steps/compare_metric")
+def run_compare_metric(
+    session_id: str,
+    payload: CompareMetricStep,
+    request: Request,
+) -> dict[str, object]:
+    try:
+        return get_services(request).service.run_step(
+            session_id,
+            "compare_metric",
+            params=payload.model_dump(by_alias=True, exclude_defaults=True, exclude_none=True),
+        )
+    except KeyError as error:
+        raise http_error(error) from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except Exception as error:
+        raise HTTPException(status_code=502, detail=f"Engine execution error: {error}") from error
+
+
+@router.post("/sessions/{session_id}/steps/aggregate_query")
+def run_aggregate_query(
+    session_id: str,
+    payload: AggregateQueryStep,
+    request: Request,
+) -> dict[str, object]:
+    try:
+        return get_services(request).service.run_step(
+            session_id,
+            "aggregate_query",
+            params=payload.model_dump(by_alias=True, exclude_defaults=True, exclude_none=True),
         )
     except KeyError as error:
         raise http_error(error) from error

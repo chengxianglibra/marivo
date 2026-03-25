@@ -4,12 +4,11 @@ STEP_TAXONOMY = {
     "compare_metric": {
         "category": "primitive",
         "description": (
-            "Compare a published semantic metric between baseline and current windows. "
-            "Params: metric_name, table_name, period_end (required), period_start (optional, defaults to period_end for single-day), "
-            "comparison_type (dod|wow|mom|yoy — sets baseline automatically), "
-            "baseline_start/baseline_end (explicit override, takes priority over comparison_type), "
-            "dimensions, order (ASC|DESC), limit. "
-            "Unequal windows produce a warning in summary/debug but are not rejected."
+            "Compare a published semantic metric across typed time windows. "
+            "Params: table, metric, time_scope (required), dimensions, scope, time_axis, order, limit. "
+            "time_scope is the only time-window contract; scope is the only non-time row/entity scope; "
+            "legacy params metric_name, table_name, period_start, period_end, baseline_start, baseline_end, "
+            "comparison_type, date_column, where, and filter are no longer part of the public contract."
         ),
     },
     "profile_table": {
@@ -22,7 +21,12 @@ STEP_TAXONOMY = {
     },
     "aggregate_query": {
         "category": "primitive",
-        "description": "Run an ad-hoc GROUP BY + aggregation query on a table.",
+        "description": (
+            "Run a window-aware typed aggregate query on a table. "
+            "Params: table, measures, time_scope (required), group_by, scope, time_axis, order, limit. "
+            "time_scope is the only time-window contract; scope is the only non-time row/entity scope; "
+            "legacy params select, where, compare_period, and date_column are no longer part of the public contract."
+        ),
     },
     "attribute_change": {
         "category": "primitive",

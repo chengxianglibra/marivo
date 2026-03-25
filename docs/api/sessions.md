@@ -140,13 +140,13 @@ Session `constraints` / `raw_filter` are automatically merged into supported que
 
 Compare a published semantic metric between a baseline window and a current window. Requires that the metric is published in the semantic layer and has a corresponding mapping to a source object.
 
-`compare_metric` is a **time-window primitive**: the two comparison periods are controlled exclusively by `period_start` / `period_end`. It does **not** accept a step-level `filter` param — doing so can silently truncate one window and produce null deltas. Use the scoping layers below instead:
+`compare_metric` is a typed time-window primitive. Time windows are expressed only through `time_scope`; non-time row/entity scoping is expressed only through `scope`. Legacy fields such as `metric_name`, `table_name`, `period_start`, `period_end`, `baseline_start`, `baseline_end`, `comparison_type`, `date_column`, `where`, and `filter` are no longer supported.
 
 | Scoping need | Mechanism |
 |---|---|
-| Scalar entity scope (e.g. `cluster = 'k8sbi-bi1'`) | Session `constraints` key-value pairs |
-| Complex row predicate (e.g. `state = 'SUCCEED'`) | Session `raw_filter` SQL expression |
-| Time window | Step `period_start` / `period_end` |
+| Scalar entity scope (e.g. `cluster = 'k8sbi-bi1'`) | Step `scope.constraints` |
+| Complex non-time row predicate (e.g. `state = 'SUCCEED'`) | Step `scope.predicate` |
+| Time window | Step `time_scope` |
 
 ```
 POST /sessions/{session_id}/steps/compare_metric
@@ -156,33 +156,49 @@ POST /sessions/{session_id}/steps/compare_metric
 
 ```json
 {
-  "metric_name": "avg_watch_time_minutes",
-  "table_name": "events.user_video_watch",
-  "period_start": "2024-01-01",
-  "period_end": "2024-01-31",
-  "comparison_type": "wow",
-  "order": "DESC",
+  "table": "events.user_video_watch",
+  "metric": "avg_watch_time_minutes",
+  "dimensions": ["device_type"],
+  "time_scope": {
+    "mode": "compare",
+    "grain": "day",
+    "current": {
+      "start": "2024-01-24",
+      "end": "2024-01-31"
+    },
+    "baseline": {
+      "start": "2024-01-17",
+      "end": "2024-01-24"
+    }
+  },
+  "scope": {
+    "constraints": {
+      "region": "us"
+    },
+    "predicate": "watch_duration_sec > 30"
+  },
+  "order": "delta_pct DESC",
   "limit": 20
 }
 ```
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `metric_name` | string | yes | Name of a published semantic metric |
-| `table_name` | string | yes | Physical table that backs the metric |
-| `period_start` | string | no | Start of the current window. Defaults to `period_end` when omitted. |
-| `period_end` | string | yes | End of the current window |
-| `comparison_type` | string | no | `dod`, `wow`, `mom`, or `yoy`; auto-computes the baseline window |
-| `baseline_start` | string | no | Explicit baseline start. Overrides `comparison_type` when paired with `baseline_end`. |
-| `baseline_end` | string | no | Explicit baseline end. Overrides `comparison_type` when paired with `baseline_start`. |
+| `table` | string | yes | Physical table that backs the metric |
+| `metric` | string | yes | Name of a published semantic metric |
 | `dimensions` | array[string] | no | Dimensions to group by |
-| `order` | string | no | `ASC` or `DESC` (default: `ASC`) |
+| `time_scope` | object | yes | Typed time contract with `mode`, `grain`, `current`, and optional `baseline` |
+| `scope` | object | no | Non-time scope with `constraints` and optional non-time `predicate` |
+| `time_axis` | object | no | Advanced override for analysis-time and partition-pruning columns |
+| `order` | string | no | Output ordering expression, e.g. `delta_pct DESC` |
 | `limit` | integer | no | Maximum rows to return (default: `10`) |
 
-Baseline resolution priority:
-1. `baseline_start` + `baseline_end`
-2. `comparison_type`
-3. Legacy equal-length previous window
+`time_scope` rules:
+
+- `mode` must be `single_window` or `compare`
+- `grain` must be `day` or `hour`
+- `baseline` is required only when `mode = compare`
+- all windows are interpreted as half-open intervals `[start, end)`
 
 **Response:**
 
@@ -339,6 +355,8 @@ POST /sessions/{session_id}/steps/sample_rows
 
 Execute an ad-hoc GROUP BY aggregation. Observations are extracted automatically from the result. Session constraints are auto-injected.
 
+`aggregate_query` now uses the same typed `time_scope` / `scope` / `time_axis` contract as `compare_metric`. Legacy fields `table_name`, `select`, `where`, `order_by`, `compare_period`, and `date_column` are no longer part of the public request contract.
+
 **G-2 enhancement:** When a temporal column (e.g., `log_date`, `event_date`, `dt`) is present in `group_by`, observations automatically receive `observed_window` inferred from the slice key. This enables `TemporalPrecedenceChecker` to recognize time-ordered evidence and promote claims from L1 to L2.
 
 ```
@@ -349,26 +367,45 @@ POST /sessions/{session_id}/steps/aggregate_query
 
 ```json
 {
-  "table_name": "events.user_video_watch",
-  "select": ["device_type", "region", "AVG(watch_duration_sec) as avg_watch_sec", "COUNT(*) as cnt"],
+  "table": "events.user_video_watch",
   "group_by": ["device_type", "region"],
-  "where": "event_date >= '2024-01-01'",
-  "order_by": "avg_watch_sec DESC",
-  "limit": 50,
-  "extract_observations": true
+  "measures": [
+    {"expr": "AVG(watch_duration_sec)", "as": "avg_watch_sec"},
+    {"expr": "COUNT(*)", "as": "cnt"}
+  ],
+  "time_scope": {
+    "mode": "compare",
+    "grain": "day",
+    "current": {
+      "start": "2024-01-24",
+      "end": "2024-01-31"
+    },
+    "baseline": {
+      "start": "2024-01-17",
+      "end": "2024-01-24"
+    }
+  },
+  "scope": {
+    "constraints": {
+      "region": "us"
+    },
+    "predicate": "watch_duration_sec > 30"
+  },
+  "order": "cnt_delta_pct DESC",
+  "limit": 50
 }
 ```
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `table_name` | string | yes | Table to query |
-| `select` | array[string] | yes | SELECT expressions (column names or SQL aggregate expressions with aliases) |
-| `group_by` | array[string] | yes | Columns to group by |
-| `where` | string | no | SQL filter expression (ANDed with session constraints) |
-| `order_by` | string | no | ORDER BY clause (e.g., `avg_watch_sec DESC`) |
+| `table` | string | yes | Table to query |
+| `measures` | array[object] | yes | Aggregate expressions, each with required `expr` and explicit `as` alias |
+| `group_by` | array[string] | no | Columns to group by |
+| `time_scope` | object | yes | Typed time contract with `mode`, `grain`, `current`, and optional `baseline` |
+| `scope` | object | no | Non-time scope with `constraints` and optional non-time `predicate` |
+| `time_axis` | object | no | Advanced override for analysis-time and partition-pruning columns |
+| `order` | string | no | Output ordering expression (e.g. `cnt_delta_pct DESC`) |
 | `limit` | integer | no | Maximum rows (default: `100`) |
-| `extract_observations` | boolean | no | Extract observations from result rows (default: `true`). Set to `false` to skip. |
-| `observed_window_column` | string | no | Explicit column for `observed_window` inference (G-2). Default: auto-detect from temporal column names (`log_date`, `event_date`, `dt`, `date`, `day`, `hour`). |
 
 **Temporal column auto-detection (G-2):**
 

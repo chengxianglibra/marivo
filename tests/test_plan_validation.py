@@ -16,6 +16,20 @@ from app.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 
+def _typed_compare_metric_params(**overrides: object) -> dict[str, object]:
+    params: dict[str, object] = {
+        "table": "analytics.watch_events",
+        "metric": "watch_time",
+        "time_scope": {
+            "mode": "single_window",
+            "grain": "day",
+            "current": {"start": "2026-03-01", "end": "2026-03-08"},
+        },
+    }
+    params.update(overrides)
+    return params
+
+
 class AdvancedPlanValidationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -64,10 +78,7 @@ class AdvancedPlanValidationTests(unittest.TestCase):
                 "steps": [
                     {
                         "step_type": "compare_metric",
-                        "params": {
-                            "metric_name": "missing_metric",
-                            "table_name": "analytics.watch_events",
-                        },
+                        "params": _typed_compare_metric_params(metric="missing_metric"),
                     }
                 ]
             },
@@ -107,11 +118,7 @@ class AdvancedPlanValidationTests(unittest.TestCase):
                 "steps": [
                     {
                         "step_type": "compare_metric",
-                        "params": {
-                            "metric_name": "watch_time",
-                            "table_name": "analytics.watch_events",
-                            "dimensions": ["country"],
-                        },
+                        "params": _typed_compare_metric_params(dimensions=["country"]),
                     }
                 ]
             },
@@ -129,7 +136,7 @@ class AdvancedPlanValidationTests(unittest.TestCase):
         ).json()["session_id"]
         plan_id = self.client.post(
             f"/sessions/{session_id}/plans",
-            json={"steps": [{"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}}]},
+            json={"steps": [{"step_type": "compare_metric", "params": _typed_compare_metric_params()}]},
         ).json()["plan_id"]
 
         result = self.client.post(f"/sessions/{session_id}/plans/{plan_id}/validate").json()
@@ -138,19 +145,15 @@ class AdvancedPlanValidationTests(unittest.TestCase):
         self.assertIn("budget_rows_exceeded", [issue["code"] for issue in result["issues"]])
         self.assertGreater(result["cost_estimates"][0]["estimated_rows"], 0)
 
-    def test_validate_plan_rejects_compare_metric_with_filter(self) -> None:
-        session_id = self.client.post("/sessions", json={"goal": "filter contract"}).json()["session_id"]
+    def test_validate_plan_rejects_legacy_compare_metric_params(self) -> None:
+        session_id = self.client.post("/sessions", json={"goal": "legacy contract"}).json()["session_id"]
         plan_id = self.client.post(
             f"/sessions/{session_id}/plans",
             json={
                 "steps": [
                     {
                         "step_type": "compare_metric",
-                        "params": {
-                            "metric_name": "watch_time",
-                            "table_name": "analytics.watch_events",
-                            "filter": "platform = 'android'",
-                        },
+                        "params": _typed_compare_metric_params(filter="platform = 'android'"),
                     }
                 ]
             },
@@ -159,21 +162,19 @@ class AdvancedPlanValidationTests(unittest.TestCase):
         result = self.client.post(f"/sessions/{session_id}/plans/{plan_id}/validate").json()
 
         self.assertFalse(result["valid"])
-        self.assertIn("compare_metric_filter_not_allowed", [issue["code"] for issue in result["issues"]])
+        self.assertIn("legacy_param_not_supported", [issue["code"] for issue in result["issues"]])
 
-    def test_validate_plan_rejects_compare_metric_with_where(self) -> None:
-        session_id = self.client.post("/sessions", json={"goal": "where contract"}).json()["session_id"]
+    def test_validate_plan_rejects_time_predicate_in_scope(self) -> None:
+        session_id = self.client.post("/sessions", json={"goal": "time predicate contract"}).json()["session_id"]
         plan_id = self.client.post(
             f"/sessions/{session_id}/plans",
             json={
                 "steps": [
                     {
                         "step_type": "compare_metric",
-                        "params": {
-                            "metric_name": "watch_time",
-                            "table_name": "analytics.watch_events",
-                            "where": "platform = 'android'",
-                        },
+                        "params": _typed_compare_metric_params(
+                            scope={"predicate": "event_time >= TIMESTAMP '2026-03-01 00:00:00'"}
+                        ),
                     }
                 ]
             },
@@ -182,7 +183,43 @@ class AdvancedPlanValidationTests(unittest.TestCase):
         result = self.client.post(f"/sessions/{session_id}/plans/{plan_id}/validate").json()
 
         self.assertFalse(result["valid"])
-        self.assertIn("compare_metric_filter_not_allowed", [issue["code"] for issue in result["issues"]])
+        self.assertIn("time_predicate_not_allowed_in_scope", [issue["code"] for issue in result["issues"]])
+
+    def test_validate_plan_allows_non_time_scope_predicate(self) -> None:
+        session_id = self.client.post("/sessions", json={"goal": "non time scope predicate"}).json()["session_id"]
+        plan_id = self.client.post(
+            f"/sessions/{session_id}/plans",
+            json={
+                "steps": [
+                    {
+                        "step_type": "compare_metric",
+                        "params": _typed_compare_metric_params(scope={"predicate": "platform = 'android'"}),
+                    }
+                ]
+            },
+        ).json()["plan_id"]
+
+        result = self.client.post(f"/sessions/{session_id}/plans/{plan_id}/validate").json()
+
+        self.assertTrue(result["valid"])
+
+    def test_validate_plan_allows_non_axis_suffix_columns_in_scope_predicate(self) -> None:
+        session_id = self.client.post("/sessions", json={"goal": "suffix predicate"}).json()["session_id"]
+        plan_id = self.client.post(
+            f"/sessions/{session_id}/plans",
+            json={
+                "steps": [
+                    {
+                        "step_type": "compare_metric",
+                        "params": _typed_compare_metric_params(scope={"predicate": "business_hour = 9 AND state_date = '2026-03-01'"}),
+                    }
+                ]
+            },
+        ).json()["plan_id"]
+
+        result = self.client.post(f"/sessions/{session_id}/plans/{plan_id}/validate").json()
+
+        self.assertTrue(result["valid"])
 
     def test_validate_plan_warns_when_router_requires_fallback(self) -> None:
         meta_path = Path(self.temp_dir.name) / "fallback.meta.sqlite"
@@ -212,7 +249,7 @@ class AdvancedPlanValidationTests(unittest.TestCase):
         )
 
         session = service.create_session("routing fallback validation", {}, {}, {})
-        plan = planning.draft_plan(session["session_id"], [{"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}}])
+        plan = planning.draft_plan(session["session_id"], [{"step_type": "compare_metric", "params": _typed_compare_metric_params()}])
         result = planning.validate_plan(plan["plan_id"])
 
         self.assertTrue(result["valid"])
