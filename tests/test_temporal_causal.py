@@ -322,6 +322,164 @@ class TemporalWindowInferenceTests(unittest.TestCase):
             f"Unexpected justification tokens: {upgrades[0].justification_tokens}",
         )
 
+    def test_compare_metric_day_window_observations_support_temporal_precedence(self) -> None:
+        from app.evidence_engine.causal_checkers import TemporalPrecedenceChecker
+
+        session_id = self.client.post(
+            "/sessions", json={"goal": "compare_metric day temporal precedence test."},
+        ).json()["session_id"]
+
+        resp = self.client.post(
+            f"/sessions/{session_id}/steps/compare_metric",
+            json={
+                "table": "analytics.watch_events",
+                "metric": self.g2_metric_name,
+                "dimensions": ["platform"],
+                "time_scope": {
+                    "mode": "compare",
+                    "grain": "day",
+                    "current": {"start": "2026-02-28", "end": "2026-03-06"},
+                    "baseline": {"start": "2026-02-22", "end": "2026-02-28"},
+                },
+            },
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        observations = [
+            observation
+            for observation in resp.json().get("observations", [])
+            if observation.get("subject", {}).get("slice", {}).get("platform") == "ios"
+            and observation.get("observed_window") is not None
+        ]
+        if len(observations) < 1:
+            self.skipTest("Seeded data did not produce compare_metric observations")
+
+        checker = TemporalPrecedenceChecker()
+        earlier = {
+            "observation_id": "obs_cmp_day_earlier",
+            "type": "metric_change",
+            "subject": {"metric": "query_count", "slice": {"platform": "ios"}},
+            "payload": {"delta_pct": 8.0},
+            "observed_window": {"start": "2026-02-20", "end": "2026-02-27", "granularity": "day"},
+        }
+        later = observations[0]
+        cause_claim = {
+            "claim_id": "claim_cmp_day_cause",
+            "inference_level": "L1",
+            "status": "confirmed",
+            "scope": {"metric": "query_count", "slice": {"platform": "ios"}},
+            "supporting_observations": [earlier["observation_id"]],
+            "contradicting_observations": [],
+        }
+        effect_claim = {
+            "claim_id": "claim_cmp_day_effect",
+            "inference_level": "L1",
+            "status": "confirmed",
+            "scope": later["subject"],
+            "supporting_observations": [later["observation_id"]],
+            "contradicting_observations": [],
+        }
+        upgrades = checker.check(
+            [cause_claim, effect_claim],
+            [earlier, later],
+            [],
+            relations=[{
+                "from_claim_id": cause_claim["claim_id"],
+                "to_claim_id": effect_claim["claim_id"],
+                "relation_type": "correlates_with",
+                "weight": 0.92,
+                "match_basis": {"category": "exact_match", "direction": "up"},
+                "score_components": {},
+                "supporting_observation_ids": [earlier["observation_id"], later["observation_id"]],
+                "explanation": "compare day relation",
+            }],
+        )
+        self.assertEqual(len(upgrades), 1)
+        self.assertEqual(upgrades[0].claim_id, effect_claim["claim_id"])
+        self.assertEqual(upgrades[0].new_level, "L2")
+
+    def test_compare_metric_hour_window_observations_support_temporal_precedence(self) -> None:
+        from app.evidence_engine.causal_checkers import TemporalPrecedenceChecker
+
+        checker = TemporalPrecedenceChecker()
+        observations = [
+            {
+                "observation_id": "obs_cmp_hour_01",
+                "type": "metric_change",
+                "subject": {"metric": "query_count", "slice": {"platform": "ios"}},
+                "payload": {"delta_pct": 5.0, "current_value": 100.0},
+                "observed_window": {"start": "2026-03-01T01:00", "end": "2026-03-01T02:00", "granularity": "hour"},
+            },
+            {
+                "observation_id": "obs_cmp_hour_02",
+                "type": "metric_change",
+                "subject": {"metric": "query_count", "slice": {"platform": "ios"}},
+                "payload": {"delta_pct": 14.0, "current_value": 180.0},
+                "observed_window": {"start": "2026-03-01T02:00", "end": "2026-03-01T03:00", "granularity": "hour"},
+            },
+            {
+                "observation_id": "obs_cmp_hour_03",
+                "type": "metric_change",
+                "subject": {"metric": "query_count", "slice": {"platform": "ios"}},
+                "payload": {"delta_pct": 7.0, "current_value": 120.0},
+                "observed_window": {"start": "2026-03-01T03:00", "end": "2026-03-01T04:00", "granularity": "hour"},
+            },
+            {
+                "observation_id": "obs_cmp_hour_04",
+                "type": "metric_change",
+                "subject": {"metric": "queued_time", "slice": {"platform": "ios"}},
+                "payload": {"delta_pct": 2.0, "current_value": 4.0},
+                "observed_window": {"start": "2026-03-01T02:00", "end": "2026-03-01T03:00", "granularity": "hour"},
+            },
+            {
+                "observation_id": "obs_cmp_hour_05",
+                "type": "metric_change",
+                "subject": {"metric": "queued_time", "slice": {"platform": "ios"}},
+                "payload": {"delta_pct": 9.0, "current_value": 10.0},
+                "observed_window": {"start": "2026-03-01T03:00", "end": "2026-03-01T04:00", "granularity": "hour"},
+            },
+            {
+                "observation_id": "obs_cmp_hour_06",
+                "type": "metric_change",
+                "subject": {"metric": "queued_time", "slice": {"platform": "ios"}},
+                "payload": {"delta_pct": 3.0, "current_value": 6.0},
+                "observed_window": {"start": "2026-03-01T04:00", "end": "2026-03-01T05:00", "granularity": "hour"},
+            },
+        ]
+        cause_claim = {
+            "claim_id": "claim_cmp_hour_cause",
+            "inference_level": "L1",
+            "status": "confirmed",
+            "scope": {"metric": "query_count", "slice": {"platform": "ios"}},
+            "supporting_observations": ["obs_cmp_hour_01", "obs_cmp_hour_02", "obs_cmp_hour_03"],
+            "contradicting_observations": [],
+        }
+        effect_claim = {
+            "claim_id": "claim_cmp_hour_effect",
+            "inference_level": "L1",
+            "status": "confirmed",
+            "scope": {"metric": "queued_time", "slice": {"platform": "ios"}},
+            "supporting_observations": ["obs_cmp_hour_04", "obs_cmp_hour_05", "obs_cmp_hour_06"],
+            "contradicting_observations": [],
+        }
+        upgrades = checker.check(
+            [cause_claim, effect_claim],
+            observations,
+            [],
+            relations=[{
+                "from_claim_id": cause_claim["claim_id"],
+                "to_claim_id": effect_claim["claim_id"],
+                "relation_type": "correlates_with",
+                "weight": 0.92,
+                "match_basis": {"category": "exact_match", "direction": "up"},
+                "score_components": {},
+                "supporting_observation_ids": [obs["observation_id"] for obs in observations],
+                "explanation": "compare hour relation",
+            }],
+        )
+        self.assertEqual(len(upgrades), 1)
+        self.assertEqual(upgrades[0].claim_id, effect_claim["claim_id"])
+        self.assertEqual(upgrades[0].new_level, "L2")
+
     def test_hourly_peak_decay_relation_promotes_effect_claim(self) -> None:
         """Hourly lead-lag with peak-then-decay should promote the later claim to L2."""
         from app.evidence_engine.causal_checkers import TemporalPrecedenceChecker

@@ -13,6 +13,21 @@ from fastapi.testclient import TestClient
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 
+def _typed_compare_metric_params(**overrides: object) -> dict[str, object]:
+    params: dict[str, object] = {
+        "metric": "watch_time",
+        "table": "analytics.watch_events",
+        "time_scope": {
+            "mode": "compare",
+            "grain": "day",
+            "current": {"start": "2026-03-01", "end": "2026-03-08"},
+            "baseline": {"start": "2026-02-22", "end": "2026-03-01"},
+        },
+    }
+    params.update(overrides)
+    return params
+
+
 class CostModelTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -32,7 +47,10 @@ class CostModelTests(unittest.TestCase):
 
     def test_estimate_step_uses_bound_route(self) -> None:
         estimate = self.cost_model.estimate_step(
-            from_legacy_step(0, {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}})
+            from_legacy_step(
+                0,
+                {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
+            )
         )
 
         self.assertGreater(estimate.estimated_rows or 0, 0)
@@ -60,7 +78,10 @@ class CostModelTests(unittest.TestCase):
     def test_estimate_step_with_execution_target_includes_engine_capabilities(self) -> None:
         engine = self.client.app.state.engine_service.list_engines()[0]
         estimate = self.cost_model.estimate_step(
-            from_legacy_step(0, {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}}),
+            from_legacy_step(
+                0,
+                {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
+            ),
             execution_target=ExecutionTargetIR(
                 step_index=0,
                 table_names=["analytics.watch_events"],
@@ -90,7 +111,10 @@ class CostModelTests(unittest.TestCase):
 
     def test_build_actual_feedback_summarizes_execution(self) -> None:
         feedback = self.cost_model.build_actual_feedback(
-            from_legacy_step(0, {"step_type": "compare_metric", "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"}}),
+            from_legacy_step(
+                0,
+                {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
+            ),
             {"summary": "ok", "observations": [1, 2], "claims": [1]},
             12.3456,
             estimate=CostEstimate(subject="step:0", confidence="medium"),

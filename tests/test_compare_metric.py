@@ -139,20 +139,6 @@ class MetricResolutionTests(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 422)
 
-    def test_build_comparison_query(self) -> None:
-        service = self.client.app.state.service
-        query = service.build_comparison_query(
-            metric_name="watch_time",
-            table_name="analytics.watch_events",
-            metric_sql="avg(play_duration_seconds)",
-            dimensions=["platform", "app_version"],
-        )
-        self.assertIn("current_value", query)
-        self.assertIn("baseline_value", query)
-        self.assertIn("delta_pct", query)
-        self.assertIn("analytics.watch_events", query)
-
-
 class TimeScopeCompareTests(unittest.TestCase):
     """compare_metric accepts explicit typed compare windows."""
 
@@ -432,95 +418,6 @@ class TemporalDimensionIntegrationTests(unittest.TestCase):
         # Should NOT say "no results" — temporal dimensions were excluded
         self.assertNotIn("no results", result["summary"])
         self.assertGreaterEqual(len(result["observations"]), 1)
-
-
-class BaselineComputationTests(unittest.TestCase):
-    """Unit tests for _shift_calendar_date and _compute_baseline_from_type."""
-
-    def setUp(self) -> None:
-        from app.service import SemanticLayerService
-        self.svc = SemanticLayerService
-
-    def test_dod_shift(self) -> None:
-        from datetime import date
-        bs, be = self.svc._compute_baseline_from_type(
-            date(2026, 3, 23), date(2026, 3, 23), "dod"
-        )
-        self.assertEqual(bs, date(2026, 3, 22))
-        self.assertEqual(be, date(2026, 3, 22))
-
-    def test_wow_shift(self) -> None:
-        from datetime import date
-        bs, be = self.svc._compute_baseline_from_type(
-            date(2026, 3, 23), date(2026, 3, 23), "wow"
-        )
-        self.assertEqual(bs, date(2026, 3, 16))
-        self.assertEqual(be, date(2026, 3, 16))
-
-    def test_mom_calendar_shift(self) -> None:
-        from datetime import date
-        bs, be = self.svc._compute_baseline_from_type(
-            date(2026, 3, 15), date(2026, 3, 15), "mom"
-        )
-        self.assertEqual(bs, date(2026, 2, 15))
-        self.assertEqual(be, date(2026, 2, 15))
-
-    def test_mom_month_end_clamp(self) -> None:
-        from datetime import date
-        bs, be = self.svc._compute_baseline_from_type(
-            date(2026, 3, 31), date(2026, 3, 31), "mom"
-        )
-        self.assertEqual(bs, date(2026, 2, 28))
-        self.assertEqual(be, date(2026, 2, 28))
-
-    def test_yoy_calendar_shift(self) -> None:
-        from datetime import date
-        bs, be = self.svc._compute_baseline_from_type(
-            date(2026, 3, 23), date(2026, 3, 23), "yoy"
-        )
-        self.assertEqual(bs, date(2025, 3, 23))
-        self.assertEqual(be, date(2025, 3, 23))
-
-    def test_case_insensitive(self) -> None:
-        from datetime import date
-        bs, be = self.svc._compute_baseline_from_type(
-            date(2026, 3, 23), date(2026, 3, 23), "WOW"
-        )
-        self.assertEqual(bs, date(2026, 3, 16))
-
-    def test_unknown_type_raises(self) -> None:
-        from datetime import date
-        with self.assertRaises(ValueError):
-            self.svc._compute_baseline_from_type(
-                date(2026, 3, 23), date(2026, 3, 23), "qoq"
-            )
-
-    def test_multi_day_wow(self) -> None:
-        from datetime import date
-        bs, be = self.svc._compute_baseline_from_type(
-            date(2026, 3, 16), date(2026, 3, 23), "wow"
-        )
-        self.assertEqual(bs, date(2026, 3, 9))
-        self.assertEqual(be, date(2026, 3, 16))
-
-    def test_mom_preserves_span_across_month_end(self) -> None:
-        """P3: MoM must preserve span even when start is clamped at month end."""
-        from datetime import date
-        # 2026-03-30..2026-03-31 → span = 1 day; start shifts to 2026-02-28 (clamped)
-        # end must be 2026-02-28 + 1d = 2026-03-01, not 2026-02-28 again
-        bs, be = self.svc._compute_baseline_from_type(
-            date(2026, 3, 30), date(2026, 3, 31), "mom"
-        )
-        self.assertEqual(be - bs, date(2026, 3, 31) - date(2026, 3, 30))  # span = 1 day
-
-    def test_yoy_preserves_span(self) -> None:
-        """P3: YoY must preserve span for multi-day windows."""
-        from datetime import date
-        bs, be = self.svc._compute_baseline_from_type(
-            date(2026, 3, 1), date(2026, 3, 14), "yoy"
-        )
-        self.assertEqual(bs, date(2025, 3, 1))
-        self.assertEqual(be - bs, date(2026, 3, 14) - date(2026, 3, 1))  # 13 days
 
 
 class CompareMetricTypedContractTests(unittest.TestCase):
