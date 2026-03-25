@@ -369,13 +369,13 @@ assert "sys_oneservice" in no_action[0].action_text
 - `app/evidence_engine/schemas.py`
 - `app/evidence_engine/claim_relations.py`（新建）
 
-- [ ] 在 `pipeline.py` 中显式建模五层执行顺序，而不是由 `IncrementalSynthesizer` 隐式承担多层职责
-- [ ] 新增 `claim_relations.py`，定义 typed `ClaimRelation` / `ClaimRelationDiscovery`
-- [ ] 将 claim-to-claim 关系发现从 `IncrementalSynthesizer` 中拆出；`IncrementalSynthesizer` 仅负责增量 claim 维护与调用编排
-- [ ] 将 causal checker 明确限定为消费 relations / observations 后做 inference promotion，不直接承担 session 级 pair mining
-- [ ] 将 recommendation policy 明确限定为消费最终 claims + relations + causal levels，不再自行推断 graph 结构
-- [ ] 明确 relation 与 persisted `evidence_edges` 的 materialization 边界，支持 relation 先计算、后落库
-- [ ] 补充模块级注释 / 文档，使五层职责在代码中可读
+- [x] 在 `pipeline.py` 中显式建模五层执行顺序，而不是由 `IncrementalSynthesizer` 隐式承担多层职责
+- [x] 新增 `claim_relations.py`，定义 typed `ClaimRelation` / `ClaimRelationDiscovery`
+- [x] 将 claim-to-claim 关系发现从 `IncrementalSynthesizer` 中拆出；`IncrementalSynthesizer` 仅负责增量 claim 维护与调用编排
+- [x] 将 causal checker 明确限定为消费 relations / observations 后做 inference promotion，不直接承担 session 级 pair mining
+- [x] 将 recommendation policy 明确限定为消费最终 claims + relations + causal levels，不再自行推断 graph 结构
+- [x] 明确 relation 与 persisted `evidence_edges` 的 materialization 边界，支持 relation 先计算、后落库
+- [x] 补充模块级注释 / 文档，使五层职责在代码中可读
 
 **设计原则**：
 - Claim Relation Discovery 负责“发现关系”，不直接负责 L1/L2/L3 升级

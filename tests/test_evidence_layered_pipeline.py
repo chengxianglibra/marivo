@@ -187,5 +187,82 @@ class LayeredEvidencePipelineTests(unittest.TestCase):
         self.assertEqual(result["claims"], [])
         self.assertEqual(result["recommendations"], [])
 
+
+class DefaultClaimRelationDiscoveryTests(unittest.TestCase):
+    def _obs(self, obs_id: str, metric: str, delta_pct: float, slice_dict: dict) -> dict:
+        return {
+            "observation_id": obs_id,
+            "type": "metric_change",
+            "subject": {"metric": metric, "slice": slice_dict},
+            "payload": {"delta_pct": delta_pct, "current_value": 100},
+            "significance": {"sample_size": 120, "practical_significance": True},
+            "quality": {"sample_size_ok": True, "freshness_ok": True},
+        }
+
+    def _claim(self, claim_id: str, metric: str, obs_id: str, slice_dict: dict) -> dict:
+        return {
+            "claim_id": claim_id,
+            "type": "root_cause_candidate",
+            "text": f"claim {claim_id}",
+            "scope": {"metric": metric, "slice": slice_dict},
+            "confidence": 0.72,
+            "status": "confirmed",
+            "supporting_observations": [obs_id],
+            "contradicting_observations": [],
+            "confidence_breakdown": {
+                "effect_strength": 0.7,
+                "consistency": 0.8,
+                "sample_score": 0.8,
+                "data_quality_score": 0.95,
+                "contradiction_penalty": 0.0,
+            },
+            "inference_level": "L0",
+            "inference_justification": [],
+        }
+
+    def test_default_relation_discovery_emits_claim_to_claim_edge_with_provenance(self) -> None:
+        observations = [
+            self._obs("obs_q", "query_count", 30.0, {"user": "sys_titan"}),
+            self._obs("obs_t", "queued_time", 58.5, {"user": "sys_titan"}),
+        ]
+        claims = [
+            self._claim("claim_q", "query_count", "obs_q", {"user": "sys_titan"}),
+            self._claim("claim_t", "queued_time", "obs_t", {"user": "sys_titan"}),
+        ]
+
+        pipeline = EvidencePipeline(lambda _: ([], [], []))
+        result = pipeline.build_synthesis(observations, existing_claims=claims)
+
+        correlates = [
+            edge for edge in result["edges"]
+            if edge["edge_type"] == "correlates_with"
+            and edge["from_node_type"] == "claim"
+            and edge["to_node_type"] == "claim"
+        ]
+        self.assertEqual(len(correlates), 1)
+        relation = correlates[0]
+        self.assertEqual(relation["match_basis"]["category"], "exact_match")
+        self.assertEqual(relation["match_basis"]["direction"], "up")
+        self.assertIn("scope_match", relation["score_components"])
+        self.assertEqual(sorted(relation["supporting_observation_ids"]), ["obs_q", "obs_t"])
+
+    def test_default_relation_discovery_skips_non_confirmed_claims(self) -> None:
+        observations = [
+            self._obs("obs_q", "query_count", 30.0, {"user": "sys_titan"}),
+            self._obs("obs_t", "queued_time", 58.5, {"user": "sys_titan"}),
+        ]
+        claims = [
+            self._claim("claim_q", "query_count", "obs_q", {"user": "sys_titan"}),
+            {
+                **self._claim("claim_t", "queued_time", "obs_t", {"user": "sys_titan"}),
+                "status": "tentative",
+            },
+        ]
+
+        pipeline = EvidencePipeline(lambda _: ([], [], []))
+        result = pipeline.build_synthesis(observations, existing_claims=claims)
+        correlates = [edge for edge in result["edges"] if edge["edge_type"] == "correlates_with"]
+        self.assertEqual(correlates, [])
+
 if __name__ == "__main__":
     unittest.main()

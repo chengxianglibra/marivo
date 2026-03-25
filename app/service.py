@@ -276,7 +276,8 @@ class SemanticLayerService:
         )
         edges = self.metadata.query_rows(
             """
-            SELECT edge_id, from_node_id, from_node_type, to_node_id, to_node_type, edge_type, weight, explanation
+            SELECT edge_id, from_node_id, from_node_type, to_node_id, to_node_type, edge_type, weight, explanation,
+                   match_basis_json, score_components_json, supporting_observation_ids_json
             FROM evidence_edges
             WHERE session_id = ?
             ORDER BY created_at
@@ -310,6 +311,12 @@ class SemanticLayerService:
             raw_sc = recommendation.pop("supporting_claims_json", None)
             recommendation["supporting_claims"] = json.loads(raw_sc) if raw_sc is not None else None
             recommendation["action"] = recommendation["action_text"]  # alias for agent compatibility
+        for edge in edges:
+            edge["match_basis"] = json.loads(edge.pop("match_basis_json") or "{}")
+            edge["score_components"] = json.loads(edge.pop("score_components_json") or "{}")
+            edge["supporting_observation_ids"] = json.loads(
+                edge.pop("supporting_observation_ids_json") or "[]"
+            )
 
         return {
             "session_id": session_id,
@@ -2302,14 +2309,31 @@ class SemanticLayerService:
         edge_type: str,
         weight: float,
         explanation: str,
+        match_basis: dict[str, Any] | None = None,
+        score_components: dict[str, Any] | None = None,
+        supporting_observation_ids: list[str] | None = None,
     ) -> None:
         self.metadata.execute(
             """
             INSERT INTO evidence_edges (
-                edge_id, session_id, from_node_id, from_node_type, to_node_id, to_node_type, edge_type, weight, explanation
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                edge_id, session_id, from_node_id, from_node_type, to_node_id, to_node_type, edge_type, weight, explanation,
+                match_basis_json, score_components_json, supporting_observation_ids_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            [f"edge_{uuid4().hex[:12]}", session_id, from_node_id, from_node_type, to_node_id, to_node_type, edge_type, weight, explanation],
+            [
+                f"edge_{uuid4().hex[:12]}",
+                session_id,
+                from_node_id,
+                from_node_type,
+                to_node_id,
+                to_node_type,
+                edge_type,
+                weight,
+                explanation,
+                self._dump(match_basis or {}),
+                self._dump(score_components or {}),
+                self._dump(supporting_observation_ids or []),
+            ],
         )
 
     def _insert_recommendation(self, session_id: str, recommendation: dict[str, Any]) -> None:

@@ -521,6 +521,41 @@ class ProvenanceTests(unittest.TestCase):
             self.assertIn("provenance", step)
             self.assertIsInstance(step["provenance"], dict)
 
+    def test_relation_edge_provenance_in_evidence_graph(self) -> None:
+        import json
+
+        session_id = self.session["session_id"]
+        self.service.metadata.execute(
+            """
+            INSERT INTO evidence_edges (
+                edge_id, session_id, from_node_id, from_node_type, to_node_id, to_node_type, edge_type,
+                weight, explanation, match_basis_json, score_components_json, supporting_observation_ids_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                "edge_rel_test",
+                session_id,
+                "claim_a",
+                "claim",
+                "claim_b",
+                "claim",
+                "correlates_with",
+                0.81,
+                "relation test",
+                json.dumps({"category": "exact_match", "direction": "up"}),
+                json.dumps({"scope_match": 0.92, "direction_match": 1.0}),
+                json.dumps(["obs_1", "obs_2"]),
+            ],
+        )
+
+        graph = self.service.get_evidence_graph(session_id)
+        relation_edges = [edge for edge in graph["edges"] if edge["edge_id"] == "edge_rel_test"]
+        self.assertEqual(len(relation_edges), 1)
+        edge = relation_edges[0]
+        self.assertEqual(edge["match_basis"]["category"], "exact_match")
+        self.assertEqual(edge["score_components"]["direction_match"], 1.0)
+        self.assertEqual(edge["supporting_observation_ids"], ["obs_1", "obs_2"])
+
 
 class ConfidenceScoringTests(unittest.TestCase):
     """Tests for score_confidence."""
@@ -1601,6 +1636,13 @@ class CausalBasisTests(unittest.TestCase):
         rows = self.service.metadata.query_rows("PRAGMA table_info(recommendations)", [])
         col_names = {row["name"] for row in rows}
         self.assertIn("causal_basis_json", col_names)
+
+    def test_evidence_edges_relation_provenance_columns_in_schema(self) -> None:
+        rows = self.service.metadata.query_rows("PRAGMA table_info(evidence_edges)", [])
+        col_names = {row["name"] for row in rows}
+        self.assertIn("match_basis_json", col_names)
+        self.assertIn("score_components_json", col_names)
+        self.assertIn("supporting_observation_ids_json", col_names)
 
 
 if __name__ == "__main__":

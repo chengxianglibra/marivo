@@ -300,6 +300,9 @@ class EvidencePipeline:
                         "edge_type": edge.edge_type,
                         "weight": edge.weight,
                         "explanation": edge.explanation,
+                        "match_basis": {},
+                        "score_components": {},
+                        "supporting_observation_ids": [],
                     }
                 )
 
@@ -338,6 +341,9 @@ class EvidencePipeline:
                         "edge_type": "supports",
                         "weight": claim["confidence"],
                         "explanation": "Observation strengthens the claim.",
+                        "match_basis": {},
+                        "score_components": {},
+                        "supporting_observation_ids": [observation_id],
                     }
                 )
             for observation_id in claim["contradicting_observations"]:
@@ -350,6 +356,9 @@ class EvidencePipeline:
                         "edge_type": "contradicts",
                         "weight": 0.35,
                         "explanation": "Observation weakens the claim.",
+                        "match_basis": {},
+                        "score_components": {},
+                        "supporting_observation_ids": [observation_id],
                     }
                 )
         return edges
@@ -374,6 +383,9 @@ class EvidencePipeline:
                         "edge_type": "justifies",
                         "weight": 0.9,
                         "explanation": "Claim justifies the recommendation.",
+                        "match_basis": {},
+                        "score_components": {},
+                        "supporting_observation_ids": [],
                     }
                 )
         return edges
@@ -434,6 +446,7 @@ def _dedupe_edges(edges: list[dict[str, Any]]) -> list[dict[str, Any]]:
     deduped: list[dict[str, Any]] = []
     seen: set[tuple[str, str, str, str, str]] = set()
     for edge in edges:
+        edge = _normalize_edge(edge)
         key = (
             str(edge.get("from_node_id")),
             str(edge.get("from_node_type")),
@@ -446,3 +459,12 @@ def _dedupe_edges(edges: list[dict[str, Any]]) -> list[dict[str, Any]]:
         seen.add(key)
         deduped.append(edge)
     return deduped
+
+
+def _normalize_edge(edge: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **edge,
+        "match_basis": edge.get("match_basis", {}) or {},
+        "score_components": edge.get("score_components", {}) or {},
+        "supporting_observation_ids": edge.get("supporting_observation_ids", []) or [],
+    }

@@ -104,6 +104,7 @@ class ClaimRelation(TypedDict):
     relation_type: str
     weight: float
     match_basis: dict[str, Any]
+    score_components: dict[str, Any]
     supporting_observation_ids: list[str]
     explanation: str
 
