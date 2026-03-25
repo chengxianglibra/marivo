@@ -91,6 +91,7 @@ def create_metric(payload: MetricCreateRequest, request: Request) -> dict[str, o
         lineage=payload.lineage,
         quality_expectations=payload.quality_expectations,
         properties=payload.properties,
+        desired_direction=payload.desired_direction,
     )
 
 
@@ -110,7 +111,7 @@ def get_metric(metric_id: str, request: Request) -> dict[str, object]:
 @router.put("/semantic/metrics/{metric_id}")
 def update_metric(metric_id: str, payload: MetricUpdateRequest, request: Request) -> dict[str, object]:
     try:
-        return get_services(request).semantic_service.update_metric(metric_id, **payload.model_dump(exclude_none=True))
+        return get_services(request).semantic_service.update_metric(metric_id, **payload.model_dump(exclude_unset=True))
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
 

@@ -159,6 +159,28 @@ class SemanticMetricTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["dimensions"], ["platform", "network_type"])
 
+    def test_update_metric_allows_clearing_desired_direction(self) -> None:
+        resp = self.client.post(
+            "/semantic/metrics",
+            json={
+                "name": "retention",
+                "display_name": "Retention",
+                "definition_sql": "avg(retained)",
+                "dimensions": ["platform"],
+                "desired_direction": "up",
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        metric_id = resp.json()["metric_id"]
+        self.assertEqual(resp.json()["desired_direction"], "up")
+
+        resp = self.client.put(
+            f"/semantic/metrics/{metric_id}",
+            json={"desired_direction": None},
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertIsNone(resp.json()["desired_direction"])
+
     def test_metric_execution_semantics_round_trip(self) -> None:
         resp = self.client.post(
             "/semantic/metrics",
