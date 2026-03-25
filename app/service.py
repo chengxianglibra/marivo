@@ -1185,8 +1185,8 @@ class SemanticLayerService:
     def _run_compare_metric(self, session_id: str, params: dict[str, Any]) -> dict[str, Any]:
         """Generic metric comparison step driven by semantic metric definitions.
 
-        Externally accepts the TSU typed contract. Internally bridges that
-        request into the shared scoped comparison compiler.
+        Externally and internally uses the TSU typed contract, with
+        `scoped_query` carrying the resolved time/window execution context.
         """
         resolved = normalize_compare_metric_request(params)
         if not isinstance(resolved.value_spec, SemanticMetricValueSpec):
@@ -1240,21 +1240,19 @@ class SemanticLayerService:
         baseline_len = self._window_length(resolved, "baseline")
         window_size_mismatch = current_len != baseline_len
         compiled_query = self._compile_step_with_feedback(
-            from_legacy_step(
-                0,
-                {
-                    "step_type": step_type,
-                    "params": {
-                        key: value
-                        for key, value in {
-                            "table": qualified_table,
-                            "metric": metric_name,
-                            "limit": limit,
-                            "order": self._normalize_compare_metric_order(resolved.order),
-                            "scoped_query": scoped_query,
-                        }.items()
-                        if value is not None
-                    },
+            AnalysisStepIR(
+                index=0,
+                step_type=step_type,
+                params={
+                    key: value
+                    for key, value in {
+                        "table": qualified_table,
+                        "metric": metric_name,
+                        "limit": limit,
+                        "order": self._normalize_compare_metric_order(resolved.order),
+                        "scoped_query": scoped_query,
+                    }.items()
+                    if value is not None
                 },
             ),
             engine_type=engine_type,
@@ -1665,7 +1663,7 @@ class SemanticLayerService:
         qualified_table = qualified.get(short_name, table_name)
 
         compiler_params: dict[str, Any] = {
-            "table_name": qualified_table,
+            "table": qualified_table,
             "measures": [
                 {"expr": measure.expr, "as": measure.alias}
                 for measure in resolved.value_spec.measures
@@ -1678,7 +1676,7 @@ class SemanticLayerService:
             compiler_params["order"] = resolved.order
 
         compiled_query = self._compile_step_with_feedback(
-            from_legacy_step(0, {"step_type": step_type, "params": compiler_params}),
+            AnalysisStepIR(index=0, step_type=step_type, params=compiler_params),
             engine_type=engine_type,
         )
         rows = execute_compiled(engine, compiled_query).rows

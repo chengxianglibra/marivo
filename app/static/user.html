@@ -233,6 +233,74 @@ const $$ = (sel, ctx = document) => [...ctx.querySelectorAll(sel)];
 
 function parseJSON(s, fallback) { try { return JSON.parse(s); } catch { return fallback; } }
 
+const STEP_PARAM_TEMPLATES = {
+  compare_metric: {
+    table: "analytics.watch_events",
+    metric: "watch_time",
+    dimensions: ["platform"],
+    time_scope: {
+      mode: "compare",
+      grain: "day",
+      current: { start: "2026-03-10", end: "2026-03-17" },
+      baseline: { start: "2026-03-03", end: "2026-03-10" }
+    },
+    scope: {
+      constraints: { platform: "android" },
+      predicate: "device_type = 'phone'"
+    }
+  },
+  aggregate_query: {
+    table: "analytics.watch_events",
+    group_by: ["platform"],
+    measures: [{ expr: "COUNT(*)", as: "event_count" }],
+    time_scope: {
+      mode: "single_window",
+      grain: "day",
+      current: { start: "2026-03-10", end: "2026-03-17" }
+    },
+    scope: {
+      constraints: { platform: "android" }
+    },
+    order: "event_count DESC"
+  },
+  profile_table: { table_name: "analytics.watch_events" },
+  sample_rows: { table_name: "analytics.watch_events", limit: 10 },
+  attribute_change: {
+    metric_name: "watch_time",
+    table_name: "analytics.watch_events",
+    period_end: "2026-03-17",
+    baseline_start: "2026-03-03",
+    baseline_end: "2026-03-10",
+    candidate_dimensions: ["platform", "app_version"]
+  },
+  correlate_metrics: {},
+  synthesize_findings: {}
+};
+
+const STEP_PARAM_HINTS = {
+  compare_metric: "Use only typed fields: `table`, `metric`, `dimensions`, `time_scope`, optional `scope`/`time_axis`/`order`/`limit`.",
+  aggregate_query: "Use only typed fields: `table`, `group_by`, `measures`, `time_scope`, optional `scope`/`time_axis`/`order`/`limit`.",
+  profile_table: "Legacy table utilities still use `table_name`.",
+  sample_rows: "Legacy table utilities still use `table_name`, optional `limit`, `filter`, `columns`.",
+  attribute_change: "This step still uses the legacy attribution contract.",
+  correlate_metrics: "Provide artifact/step references plus join/value columns.",
+  synthesize_findings: "Usually no params are required."
+};
+
+function stepParamsTemplateText(stepType) {
+  const template = STEP_PARAM_TEMPLATES[stepType] ?? {};
+  return JSON.stringify(template, null, 2);
+}
+
+function renderStepParamTemplate(typeId, textareaId, helpId) {
+  const stepType = $('#' + typeId)?.value;
+  const textarea = $('#' + textareaId);
+  const help = $('#' + helpId);
+  if (!stepType || !textarea) return;
+  textarea.value = stepParamsTemplateText(stepType);
+  if (help) help.innerHTML = STEP_PARAM_HINTS[stepType] || '';
+}
+
 // ── Modal (local wrappers that match old API: title, bodyHtml, footerHtml) ─
 function openModal(title, bodyHtml, footerHtml) {
   $('#modal-title').textContent = title;
@@ -627,6 +695,7 @@ async function showSessionDetail(id) {
             <button class="btn btn-primary" id="sess-run-step-btn">Run</button>
           </div>
           <div class="form-group"><label>Params (JSON)</label><textarea id="sess-step-params" style="min-height:60px;">{}</textarea></div>
+          <div id="sess-step-help" style="font-size:var(--font-size-xs);color:var(--color-text-muted);"></div>
         </div>
         <div id="sess-step-result"></div>
       </div>
@@ -658,6 +727,8 @@ async function showSessionDetail(id) {
     // Open by default
     stepToggle.classList.add('open');
     stepBody.classList.add('open');
+    $('#sess-step-type').onchange = () => renderStepParamTemplate('sess-step-type', 'sess-step-params', 'sess-step-help');
+    renderStepParamTemplate('sess-step-type', 'sess-step-params', 'sess-step-help');
 
     // Render session steps as timeline if available
     if (sess.steps && sess.steps.length) {
@@ -1258,6 +1329,7 @@ function openDraftPlanModal(sessionId) {
   openModal('Draft Plan',
     `<div class="form-group"><label>Step Type</label><select id="f-plan-step-type">${stepOpts}</select></div>
      <div class="form-group"><label>Params (JSON)</label><textarea id="f-plan-step-params" style="min-height:60px;">{}</textarea></div>
+     <div id="f-plan-step-help" style="font-size:var(--font-size-xs);color:var(--color-text-muted);margin-top:-4px;"></div>
      <div class="form-group"><label>Dependencies (comma-separated step indices, e.g. 0,1)</label><input id="f-plan-step-deps" placeholder=""></div>
      <button class="btn btn-sm" id="f-plan-add-step" type="button">Add Step</button>
      <div id="f-plan-steps-list" style="margin-top:12px;"></div>`,
@@ -1279,6 +1351,8 @@ function openDraftPlanModal(sessionId) {
   }
 
   renderStepsList();
+  $('#f-plan-step-type').onchange = () => renderStepParamTemplate('f-plan-step-type', 'f-plan-step-params', 'f-plan-step-help');
+  renderStepParamTemplate('f-plan-step-type', 'f-plan-step-params', 'f-plan-step-help');
 
   $('#f-plan-add-step').onclick = () => {
     const stepType = $('#f-plan-step-type').value;
@@ -1291,8 +1365,8 @@ function openDraftPlanModal(sessionId) {
     draftSteps.push(step);
     renderStepsList();
     // Reset inputs
-    $('#f-plan-step-params').value = '{}';
     $('#f-plan-step-deps').value = '';
+    renderStepParamTemplate('f-plan-step-type', 'f-plan-step-params', 'f-plan-step-help');
   };
 
   $('#f-plan-submit').onclick = async () => {

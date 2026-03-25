@@ -579,7 +579,7 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
 
         return TestClient(self.app)
 
-    def test_compare_metric_service_bridges_normalized_request(self) -> None:
+    def test_compare_metric_service_uses_typed_execution_request(self) -> None:
         captured: dict[str, object] = {}
         original_compile = self.service._compile_step_with_feedback
         original_execute = service_module.execute_compiled
@@ -636,7 +636,7 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         self.assertEqual(scoped_query["scope_constraints_filter"], "region = 'us-east'")
         self.assertEqual(scoped_query["scope_predicate_filter"], "device_type = 'phone'")
 
-    def test_aggregate_query_service_bridges_normalized_request(self) -> None:
+    def test_aggregate_query_service_uses_typed_execution_request(self) -> None:
         captured: dict[str, object] = {}
         original_compile = self.service._compile_step_with_feedback
         original_execute = service_module.execute_compiled
@@ -680,7 +680,7 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
             self.service.evidence_pipeline.extract_observations = original_extract
 
         self.assertEqual(result["step_type"], "aggregate_query")
-        self.assertEqual(captured["params"]["table_name"], "analytics.watch_events")
+        self.assertEqual(captured["params"]["table"], "analytics.watch_events")
         self.assertEqual(captured["params"]["measures"], [{"expr": "COUNT(*)", "as": "query_count"}])
         self.assertEqual(captured["params"]["group_by"], ["platform"])
         self.assertEqual(captured["params"]["order"], "query_count_delta_pct DESC")

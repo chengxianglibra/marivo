@@ -212,7 +212,7 @@ Validates a draft plan. Validation checks:
 2. **Dependency acyclicity** - `depends_on` references must not form cycles
 3. **Required params** - required parameters must be present for each step type
 4. **Semantic resolution** - `compare_metric` metrics must be published; requested `dimensions` must be supported by the metric
-5. **Contract constraints** - forbidden param combinations are rejected, including legacy params and time predicates inside `scope.predicate`
+5. **Contract constraints** - typed step params must satisfy the final `time_scope` contract, and `scope.predicate` cannot contain time predicates
 6. **Governance** - steps are checked against active policies
 
 For the typed time-scope steps:
@@ -220,14 +220,14 @@ For the typed time-scope steps:
 - `compare_metric` requires `table`, `metric`, and `time_scope`
 - `aggregate_query` requires `table`, `measures`, and `time_scope`
 - `scope.predicate` must not contain time conditions; move all time filtering into `time_scope`
-- legacy params such as `metric_name`, `table_name`, `period_start`, `period_end`, `baseline_start`, `baseline_end`, `comparison_type`, `compare_period`, `date_column`, `select`, `where`, `order_by`, and `filter` are rejected
+- typed step payloads are validated through the final `compare_metric` / `aggregate_query` normalizers; legacy fields such as `metric_name`, `table_name`, `period_start`, `period_end`, `baseline_start`, `baseline_end`, `comparison_type`, `compare_period`, `date_column`, `select`, `where`, `order_by`, and `filter` are therefore invalid contract inputs
 
 **Validation issue codes** (non-exhaustive):
 
 | Code | Category | Description |
 |------|----------|-------------|
 | `missing_required_param` | params | A required param is absent for the step type |
-| `legacy_param_not_supported` | params | A step used deprecated pre-TSU request params instead of the typed contract |
+| `invalid_step_contract` | params | A typed step payload failed contract normalization, including legacy-field usage |
 | `time_predicate_not_allowed_in_scope` | params | `scope.predicate` contains time-axis conditions; move them into `time_scope` |
 | `semantic_metric_not_found` | semantic | Metric is not published or does not exist |
 | `semantic_dimension_not_supported` | semantic | Requested dimension is not in the metric's dimension list |

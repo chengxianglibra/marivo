@@ -411,17 +411,17 @@
 
 > 前置依赖：TSU-07 + TSU-09 完成 | 工作量：大 | 风险：中
 
-- [ ] **TSU-15.1** 更新 [`docs/api/sessions.md`](/Users/lichengxiang/source/oss/factum/docs/api/sessions.md)
+- [x] **TSU-15.1** 更新 [`docs/api/sessions.md`](/Users/lichengxiang/source/oss/factum/docs/api/sessions.md)
   - 完整替换 `compare_metric` / `aggregate_query` 请求示例
-- [ ] **TSU-15.2** 更新 [`docs/api/planning.md`](/Users/lichengxiang/source/oss/factum/docs/api/planning.md)
+- [x] **TSU-15.2** 更新 [`docs/api/planning.md`](/Users/lichengxiang/source/oss/factum/docs/api/planning.md)
   - plan validate 错误码和示例切到新字段
-- [ ] **TSU-15.3** 更新 [`docs/api/quickstart.md`](/Users/lichengxiang/source/oss/factum/docs/api/quickstart.md)
+- [x] **TSU-15.3** 更新 [`docs/api/quickstart.md`](/Users/lichengxiang/source/oss/factum/docs/api/quickstart.md)
   - 删除旧 curl 示例
-- [ ] **TSU-15.4** 更新 [`docs/service/causal-inference.md`](/Users/lichengxiang/source/oss/factum/docs/service/causal-inference.md)
+- [x] **TSU-15.4** 更新 [`docs/service/causal-inference.md`](/Users/lichengxiang/source/oss/factum/docs/service/causal-inference.md)
   - 去掉对 `period_start` / `observed_window_column` / `compare_period` 的过时描述
-- [ ] **TSU-15.5** 更新 [`docs/agent-guide.md`](/Users/lichengxiang/source/oss/factum/docs/agent-guide.md)
+- [x] **TSU-15.5** 更新 [`docs/agent-guide.md`](/Users/lichengxiang/source/oss/factum/docs/agent-guide.md)
   - 明确新的 step contract 与时间语义
-- [ ] **TSU-15.6** 审计并更新 `plan/` 下所有还引用旧 compare 参数的文档
+- [x] **TSU-15.6** 审计并更新 `plan/` 下所有还引用旧 compare 参数的文档
   - 重点关注：
     - `plan/task-list.md`
     - `plan/backlog-causal-inference-gaps.md`
