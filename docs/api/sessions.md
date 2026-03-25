@@ -11,6 +11,7 @@ Sessions are the primary unit of analysis in Factum. Every investigation belongs
 | `GET` | `/sessions/{session_id}` | Get a session |
 | `POST` | `/sessions/{session_id}/steps/{step_type}` | Execute a step |
 | `GET` | `/sessions/{session_id}/evidence` | Get the evidence graph |
+| `GET` | `/sessions/{session_id}/debug` | Get request-time evidence-engine introspection for the current graph |
 | `GET` | `/sessions/{session_id}/reflection-context` | Get structured evidence-gap summary for agents |
 
 ---
@@ -21,7 +22,7 @@ Sessions are the primary unit of analysis in Factum. Every investigation belongs
 POST /sessions
 ```
 
-Creates a new analysis session with a goal, constraints, budget, and policy.
+Creates a new analysis session with a goal, constraints, optional `raw_filter`, budget, and policy.
 
 ### Request Body
 
@@ -32,6 +33,7 @@ Creates a new analysis session with a goal, constraints, budget, and policy.
     "platform": "mobile",
     "region": "US"
   },
+  "raw_filter": "cluster IN ('k8sbi-bi1', 'k8sbi-bi2')",
   "budget": {
     "max_scan_bytes": 500000000000,
     "max_latency_sec": 120
@@ -46,9 +48,18 @@ Creates a new analysis session with a goal, constraints, budget, and policy.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `goal` | string | yes | Human-readable description of the analysis objective |
-| `constraints` | object | no | Key-value pairs injected as WHERE filters into steps (default: `{}`) |
+| `constraints` | object | no | Scalar key-value filters injected as `col = value` predicates into supported steps (default: `{}`) |
+| `raw_filter` | string | no | Raw SQL predicate appended to session constraints. Use this for `IN`, `BETWEEN`, `IS NOT NULL`, and compound filters. |
 | `budget` | object | no | Execution limits (default: `{"max_scan_bytes": 500000000000, "max_latency_sec": 120}`) |
 | `policy` | object | no | Data governance policy (default: `{"aggregate_only": true, "min_group_size": 100}`) |
+
+**Scoping guidance:**
+
+| Need | Mechanism |
+|------|-----------|
+| Stable scalar scope | `constraints` |
+| Complex row predicate | `raw_filter` |
+| Time window | Step params |
 
 **Budget fields:**
 
@@ -71,6 +82,7 @@ Creates a new analysis session with a goal, constraints, budget, and policy.
   "session_id": "sess_a1b2c3d4e5f6",
   "goal": "Investigate watch time drop among mobile users in Q1 2024",
   "constraints": {"platform": "mobile", "region": "US"},
+  "raw_filter": "cluster IN ('k8sbi-bi1', 'k8sbi-bi2')",
   "budget": {"max_scan_bytes": 500000000000, "max_latency_sec": 120},
   "policy": {"aggregate_only": true, "min_group_size": 100},
   "status": "active",
@@ -118,9 +130,9 @@ POST /sessions/{session_id}/steps/{step_type}
 
 Executes a typed analysis step within the session. Step parameters are provided in the request body. The response contains the step result, extracted observations, and provenance metadata.
 
-**Valid `step_type` values:** `compare_metric`, `profile_table`, `sample_rows`, `aggregate_query`, `correlate_metrics`, `synthesize_findings`
+**Valid `step_type` values:** `compare_metric`, `profile_table`, `sample_rows`, `aggregate_query`, `correlate_metrics`, `attribute_change`, `synthesize_findings`
 
-Session constraints are automatically merged into the WHERE clause for `compare_metric`, `sample_rows`, and `aggregate_query` steps.
+Session `constraints` / `raw_filter` are automatically merged into supported query steps, including `compare_metric`, `sample_rows`, `aggregate_query`, and `attribute_change`.
 
 ---
 
@@ -145,8 +157,10 @@ POST /sessions/{session_id}/steps/compare_metric
 ```json
 {
   "metric_name": "avg_watch_time_minutes",
+  "table_name": "events.user_video_watch",
   "period_start": "2024-01-01",
   "period_end": "2024-01-31",
+  "comparison_type": "wow",
   "order": "DESC",
   "limit": 20
 }
@@ -155,10 +169,20 @@ POST /sessions/{session_id}/steps/compare_metric
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `metric_name` | string | yes | Name of a published semantic metric |
-| `period_start` | string | no | Start of the current window (ISO date or engine-native format) |
-| `period_end` | string | no | End of the current window |
-| `order` | string | no | `ASC` or `DESC` (default: `DESC`) |
+| `table_name` | string | yes | Physical table that backs the metric |
+| `period_start` | string | no | Start of the current window. Defaults to `period_end` when omitted. |
+| `period_end` | string | yes | End of the current window |
+| `comparison_type` | string | no | `dod`, `wow`, `mom`, or `yoy`; auto-computes the baseline window |
+| `baseline_start` | string | no | Explicit baseline start. Overrides `comparison_type` when paired with `baseline_end`. |
+| `baseline_end` | string | no | Explicit baseline end. Overrides `comparison_type` when paired with `baseline_start`. |
+| `dimensions` | array[string] | no | Dimensions to group by |
+| `order` | string | no | `ASC` or `DESC` (default: `ASC`) |
 | `limit` | integer | no | Maximum rows to return (default: `10`) |
+
+Baseline resolution priority:
+1. `baseline_start` + `baseline_end`
+2. `comparison_type`
+3. Legacy equal-length previous window
 
 **Response:**
 
@@ -551,29 +575,34 @@ Agents should treat `evidence_gaps` as the primary signal for deciding whether t
 GET /sessions/{session_id}/evidence
 ```
 
-Returns the full evidence graph for a session: all steps, artifacts, observations, claims, evidence edges, and recommendations.
+Returns the persisted evidence graph for a session: steps, observations, claims, edges, and recommendations.
+
+### Query Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `claims_only` | string | Optional. Currently supports only `confirmed`. Filters claims first, then trims claim-linked edges and recommendations to avoid dangling references. Observations remain as full context. |
+| `edge_types` | string[] | Optional repeated query param. Keeps only the selected edge types. Invalid values return `422`. |
+| `include_debug` | boolean | Optional. When `true`, attaches the same request-time introspection payload returned by `/sessions/{session_id}/debug`. |
 
 ### Response
 
 ```json
 {
   "session_id": "sess_...",
-  "goal": "Investigate watch time drop...",
   "steps": [
     {
       "step_id": "step_...",
       "step_type": "compare_metric",
       "status": "completed",
       "summary": "...",
-      "provenance": {...},
-      "created_at": "..."
+      "provenance": {...}
     }
   ],
-  "artifacts": [...],
   "observations": [
     {
       "observation_id": "obs_...",
-      "observation_type": "metric_comparison",
+      "type": "metric_change",
       "subject": {"metric": "avg_watch_time_minutes", "slice": {"device_type": "iOS"}},
       "payload": {
         "baseline_value": 42.3,
@@ -608,7 +637,7 @@ Returns the full evidence graph for a session: all steps, artifacts, observation
       "inference_justification": ["cross_slice_consistency:6/8_slices_down→L1"]
     }
   ],
-  "evidence_edges": [
+  "edges": [
     {
       "edge_id": "edge_...",
       "from_node_id": "obs_...",
@@ -620,7 +649,38 @@ Returns the full evidence graph for a session: all steps, artifacts, observation
       "explanation": "Direct metric measurement supports the regression claim"
     }
   ],
-  "recommendations": [...]
+  "recommendations": [
+    {
+      "rec_id": "rec_...",
+      "type": "action",
+      "claim_id": "claim_queued_time",
+      "supporting_claims": ["claim_query_count", "claim_queued_time"],
+      "template_id": "multi_claim_correlated_action_v1",
+      "action_text": "...",
+      "priority": "P1",
+      "expected_impact": "...",
+      "risk": "...",
+      "validation_metric": {
+        "primary_metric": "query_count",
+        "correlated_metrics": ["queued_time"]
+      },
+      "causal_basis": {
+        "inference_level": "L2",
+        "strongest_evidence_summary": "...",
+        "unresolved_confounders": [{"key": "seasonality", "text": "check whether seasonal effects explain the change"}],
+        "resolved_confounders": [{"key": "normalise_workload_volume", "resolved_by": "claim_query_count", "summary": "query_count increased for the same slice"}],
+        "suggested_validation": "Run a follow-up aggregate_query grouped by hour.",
+        "causal_chain": "query_count changed -> queued_time changed",
+        "causal_path_claim_ids": ["claim_query_count", "claim_queued_time"]
+      },
+      "action": "..."
+    }
+  ],
+  "debug": {
+    "session_id": "sess_...",
+    "relation_discovery": {"relations_emitted": 1},
+    "checker_logs": [...]
+  }
 }
 ```
 
@@ -632,17 +692,19 @@ Base layer:
 |------|-------------|
 | `supports` | Observation/claim supports a claim |
 | `contradicts` | Observation/claim contradicts a claim |
-| `justifies` | Observation justifies a recommendation |
+| `justifies` | Observation/claim justifies a recommendation |
 
 Causal layer (assigned by causal checkers when inference level is upgraded):
 
 | Type | Inference level | Description |
 |------|----------------|-------------|
-| `correlates_with` | L0/L1 | Statistical association between two observations |
-| `temporally_precedes` | L1/L2 | Cause event observed before effect event |
-| `mechanistically_explains` | L2/L3 | Plausible causal mechanism described |
-| `eliminates_alternative` | L3/L4 | Alternative explanation ruled out |
-| `experimentally_confirms` | L4/L5 | A/B test or natural experiment confirms the claim |
+| `correlates_with` | L0/L1 | Claim-to-claim scope or metric relation discovered during synthesis |
+| `temporally_precedes` | L1/L2 | Claim-to-claim directional edge backed by real observation windows or hourly lead-lag patterns |
+| `mechanistically_explains` | L2/L3 | Claim-to-claim explanation grounded in contribution evidence |
+| `eliminates_alternative` | L3/L4 | Claim-to-claim alternative elimination |
+| `experimentally_confirms` | L4/L5 | Claim-to-claim experimental confirmation |
+
+Claim-to-claim relation edges may also carry `match_basis`, `score_components`, and `supporting_observation_ids`.
 
 **Observation fields:**
 
@@ -650,6 +712,8 @@ Causal layer (assigned by causal checkers when inference level is upgraded):
 |-------|------|-------------|
 | `observed_window` | object or null | `{start, end, granularity}` ISO dates/datetimes for the time window observed. Populated for `compare_metric`; inferred per-row for `aggregate_query` when a recognized temporal column (e.g. `date`, `event_date`, `log_date`, `hour`, `hour_slot`) appears in `group_by` (G-2). Null for `profile_table`, `sample_rows`, and aggregations with no temporal group-by column. |
 | `temporal_order` | integer | Sequential position of this observation within the session (1-based). Used for temporal ordering in the evidence graph. |
+
+Derived observations may also appear after `synthesize_findings`: `cross_metric_correlation` and `temporal_pattern`.
 
 **Claim `status` values:**
 
@@ -664,9 +728,11 @@ Causal layer (assigned by causal checkers when inference level is upgraded):
 | Level | Meaning | Set by |
 |-------|---------|--------|
 | `L0` | Correlation / association only | Default (all new claims) |
-| `L1` | Temporal precedence established (cross-slice consistency) | `CrossSliceConsistencyChecker` |
-| `L2` | Mechanism identified — temporal precedence confirmed | `TemporalPrecedenceChecker` |
-| `L3`–`L5` | Counterfactual / experimental evidence | Reserved (not yet implemented) |
+| `L1` | Cross-slice consistency or cross-scope / cross-metric correlation established | `CrossSliceConsistencyChecker`, `CrossScopeCorrelationChecker`, `CrossMetricCorrelationChecker` |
+| `L2` | Temporal precedence established | `TemporalPrecedenceChecker` |
+| `L3` | Mechanistic explanation identified | `MechanisticExplanationChecker` |
+| `L4` | Alternative explanations / confounders substantially eliminated | Future / reserved |
+| `L5` | Experimental confirmation | Future / reserved |
 
 `inference_justification` is a list of provenance tokens encoding how the level was achieved (e.g. `"cross_slice_consistency:6/8_slices_down→L1"`). It is always `[]` for `L0`.
 
@@ -683,8 +749,12 @@ Causal layer (assigned by causal checkers when inference level is upgraded):
   "causal_basis": {
     "inference_level": "L1",
     "strongest_evidence_summary": "6/8 dimension slices show consistent decline (cross-slice consistency)",
-    "unresolved_confounders": ["seasonal effects", "concurrent feature rollout"],
-    "resolved_confounders": [],
+    "unresolved_confounders": [
+      {"key": "seasonal_effects", "text": "check whether seasonality explains the shift"}
+    ],
+    "resolved_confounders": [
+      {"key": "normalise_workload_volume", "resolved_by": "claim_query_count", "summary": "query_count increased for the same slice"}
+    ],
     "suggested_validation": "Run A/B test isolating the iOS build version variable",
     "causal_chain": "query_count +30.0% -> queued_time +58.5%",
     "causal_path_claim_ids": ["claim_query_count", "claim_queued_time"]
@@ -698,6 +768,35 @@ Causal layer (assigned by causal checkers when inference level is upgraded):
 - it is selected only from the recommendation-local claim subgraph (`supporting_claims` or the primary `claim_id`)
 - it may use `correlates_with` relations as connectors, but it is emitted only when the selected path contains at least one directional claim-to-claim causal edge such as `temporally_precedes` or `mechanistically_explains`
 - it is a deterministic compression of existing claim graph structure, not a new causal inference pass
+
+`template_id` is a stable recommendation-template identifier for debugging and UI use. `supporting_claims` is populated for aggregated recommendations and omitted for single-claim actions.
+
+---
+
+## Get Session Debug
+
+```
+GET /sessions/{session_id}/debug
+```
+
+Returns request-time introspection for the current persisted evidence graph. This endpoint does not read a historical snapshot; its explanation payload may change as causal-checker and relation-discovery implementations evolve.
+
+### Response
+
+```json
+{
+  "session_id": "sess_...",
+  "relation_discovery": {
+    "relations_emitted": 2
+  },
+  "checker_logs": [
+    {
+      "checker": "temporal_precedence",
+      "upgrades": 1
+    }
+  ]
+}
+```
 
 ---
 
@@ -741,7 +840,10 @@ Requires `reflection.enabled: true` in `factum.yaml` (default: `true`).
       "scope": {"device_type": "iOS"},
       "confidence": 0.72,
       "inference_level": "L0",
-      "unresolved_confounders": ["concurrent feature rollout", "seasonal effects"]
+      "unresolved_confounders": [
+        {"key": "concurrent_rollout", "text": "check whether a concurrent rollout explains the change"},
+        {"key": "seasonal_effects", "text": "check whether seasonality explains the shift"}
+      ]
     }
   ],
   "evidence_gaps": [
@@ -758,7 +860,7 @@ Requires `reflection.enabled: true` in `factum.yaml` (default: `true`).
       "affected_claims": ["claim_...", "claim_..."]
     }
   ],
-  "available_step_types": ["compare_metric", "profile_table", "sample_rows", "aggregate_query", "correlate_metrics", "synthesize_findings"]
+  "available_step_types": ["compare_metric", "profile_table", "sample_rows", "aggregate_query", "correlate_metrics", "attribute_change", "synthesize_findings"]
 }
 ```
 
@@ -766,6 +868,6 @@ Requires `reflection.enabled: true` in `factum.yaml` (default: `true`).
 |-------|-------------|
 | `readiness_signal` | Full 5-dimensional readiness signal (same as in step responses) |
 | `readiness_score` | Scalar average of the 5 dimensions |
-| `tentative_claims` | Claims with `inference_level` < L2 that still need supporting evidence; `unresolved_confounders` is a list of scope-aware strings |
+| `tentative_claims` | Claims with `inference_level` < L2 that still need supporting evidence; `unresolved_confounders` is a list of scope-aware gap objects |
 | `evidence_gaps` | **Session-level deduplicated** gaps derived from persisted recommendations. Dedup key is `(gap_key, text)` — the same `gap_key` can appear more than once if the text differs (e.g. `missing_temporal_ordering` for different metrics). Each entry has `gap_key` (stable identifier), `text` (human-readable), `suggested_validation` (concrete next step), and `affected_claims` (claim IDs that contribute the gap). |
 | `available_step_types` | Step types available to the agent for next steps |
