@@ -545,58 +545,108 @@ class TimeAxisResolver:
         if axis is None or axis.date_column is None:
             return None
         if self.request.time_scope.grain == "day":
-            start_day, end_day = self._day_envelope()
-            return (
-                f"{axis.date_column} >= '{_format_partition_date(start_day, axis.date_format)}' "
-                f"AND {axis.date_column} < '{_format_partition_date(end_day, axis.date_format)}'"
-            )
+            return self._build_day_partition_pruning_predicate(axis)
 
+        return self._build_hour_partition_pruning_predicate(axis)
+
+    def _build_day_partition_pruning_predicate(self, axis: _PartitionAxis) -> str:
+        start_day, end_day = self._day_envelope()
+        return (
+            f"{axis.date_column} >= '{self._format_partition_date_literal(start_day, axis.date_format)}' "
+            f"AND {axis.date_column} < '{self._format_partition_date_literal(end_day, axis.date_format)}'"
+        )
+
+    def _build_hour_partition_pruning_predicate(self, axis: _PartitionAxis) -> str:
         start_dt, end_dt = self._hour_envelope()
         if axis.hour_column is None:
             last_day = (end_dt - timedelta(seconds=1)).date()
             return (
-                f"{axis.date_column} >= '{_format_partition_date(start_dt.date(), axis.date_format)}' "
-                f"AND {axis.date_column} < '{_format_partition_date(last_day + timedelta(days=1), axis.date_format)}'"
+                f"{axis.date_column} >= '{self._format_partition_date_literal(start_dt.date(), axis.date_format)}' "
+                f"AND {axis.date_column} < '{self._format_partition_date_literal(last_day + timedelta(days=1), axis.date_format)}'"
             )
 
         start_day = start_dt.date()
         last_day = (end_dt - timedelta(seconds=1)).date()
-        start_hour = _format_partition_hour(start_dt.hour, axis.hour_format)
-        end_hour = _format_partition_hour(end_dt.hour, axis.hour_format)
-
         if start_day == last_day:
-            parts = [
-                f"{axis.date_column} = '{_format_partition_date(start_day, axis.date_format)}'",
-                f"{axis.hour_column} >= '{start_hour}'",
-            ]
-            if end_dt.date() == start_day:
-                parts.append(f"{axis.hour_column} < '{end_hour}'")
-            return " AND ".join(parts)
+            return self._build_same_day_hour_partition_pruning(
+                axis,
+                start_day=start_day,
+                start_hour=start_dt.hour,
+                end_day=end_dt.date(),
+                end_hour=end_dt.hour,
+            )
+        return self._build_cross_day_hour_partition_pruning(
+            axis,
+            start_day=start_day,
+            start_hour=start_dt.hour,
+            last_day=last_day,
+            end_dt=end_dt,
+        )
 
+    def _build_same_day_hour_partition_pruning(
+        self,
+        axis: _PartitionAxis,
+        *,
+        start_day: date,
+        start_hour: int,
+        end_day: date,
+        end_hour: int,
+    ) -> str:
+        parts = [
+            f"{axis.date_column} = '{self._format_partition_date_literal(start_day, axis.date_format)}'",
+            f"{axis.hour_column} >= '{self._format_partition_hour_literal(start_hour, axis.hour_format)}'",
+        ]
+        if end_day == start_day:
+            parts.append(f"{axis.hour_column} < '{self._format_partition_hour_literal(end_hour, axis.hour_format)}'")
+        return " AND ".join(parts)
+
+    def _build_cross_day_hour_partition_pruning(
+        self,
+        axis: _PartitionAxis,
+        *,
+        start_day: date,
+        start_hour: int,
+        last_day: date,
+        end_dt: datetime,
+    ) -> str:
         clauses = [
             (
-                f"{axis.date_column} = '{_format_partition_date(start_day, axis.date_format)}' "
-                f"AND {axis.hour_column} >= '{start_hour}'"
+                f"{axis.date_column} = '{self._format_partition_date_literal(start_day, axis.date_format)}' "
+                f"AND {axis.hour_column} >= '{self._format_partition_hour_literal(start_hour, axis.hour_format)}'"
             )
         ]
         if start_day + timedelta(days=1) <= last_day - timedelta(days=1):
             clauses.append(
-                f"{axis.date_column} > '{_format_partition_date(start_day, axis.date_format)}' "
-                f"AND {axis.date_column} < '{_format_partition_date(last_day, axis.date_format)}'"
+                f"{axis.date_column} > '{self._format_partition_date_literal(start_day, axis.date_format)}' "
+                f"AND {axis.date_column} < '{self._format_partition_date_literal(last_day, axis.date_format)}'"
             )
         if end_dt.time() == time(0, 0):
-            clauses.append(f"{axis.date_column} = '{_format_partition_date(last_day, axis.date_format)}'")
+            clauses.append(f"{axis.date_column} = '{self._format_partition_date_literal(last_day, axis.date_format)}'")
         else:
             clauses.append(
-                f"{axis.date_column} = '{_format_partition_date(last_day, axis.date_format)}' "
-                f"AND {axis.hour_column} < '{end_hour}'"
+                f"{axis.date_column} = '{self._format_partition_date_literal(last_day, axis.date_format)}' "
+                f"AND {axis.hour_column} < '{self._format_partition_hour_literal(end_dt.hour, axis.hour_format)}'"
             )
         return "(" + ") OR (".join(clauses) + ")"
 
     def _partition_hour_analysis_expr(self, date_column: str, hour_column: str, date_format: str | None) -> str:
-        date_text_expr = _partition_date_text_expr(date_column, date_format)
-        hour_text_expr = f"LPAD(CAST({hour_column} AS VARCHAR), 2, '0')"
-        return f"CAST(CONCAT({date_text_expr}, ' ', {hour_text_expr}, ':00:00') AS TIMESTAMP)"
+        date_text_expr = _partition_date_text_expr(
+            date_column,
+            date_format,
+            engine_type=self.engine_type,
+        )
+        hour_text_expr = _partition_hour_text_expr(hour_column, engine_type=self.engine_type)
+        return _partition_hour_timestamp_expr(
+            date_text_expr,
+            hour_text_expr,
+            engine_type=self.engine_type,
+        )
+
+    def _format_partition_date_literal(self, value: date, date_format: str | None) -> str:
+        return _format_partition_date(value, date_format, engine_type=self.engine_type)
+
+    def _format_partition_hour_literal(self, value: int, hour_format: str | None) -> str:
+        return _format_partition_hour(value, hour_format, engine_type=self.engine_type)
 
     def _day_envelope(self) -> tuple[date, date]:
         windows = [self.request.time_scope.current]
@@ -781,8 +831,13 @@ def _default_hour_format_for_column(column: str | None) -> str | None:
     return "hh"
 
 
-def _partition_date_text_expr(column: str, date_format: str | None) -> str:
-    raw = f"CAST({column} AS VARCHAR)"
+def _varchar_cast_expr(column: str, *, engine_type: str) -> str:
+    del engine_type  # DuckDB and Trino both accept VARCHAR casts in phase 1.
+    return f"CAST({column} AS VARCHAR)"
+
+
+def _partition_date_text_expr(column: str, date_format: str | None, *, engine_type: str) -> str:
+    raw = _varchar_cast_expr(column, engine_type=engine_type)
     if date_format == "yyyymmdd":
         return (
             f"CONCAT(SUBSTR({raw}, 1, 4), '-', SUBSTR({raw}, 5, 2), '-', SUBSTR({raw}, 7, 2))"
@@ -790,13 +845,24 @@ def _partition_date_text_expr(column: str, date_format: str | None) -> str:
     return raw
 
 
-def _format_partition_date(value: date, date_format: str | None) -> str:
+def _partition_hour_text_expr(column: str, *, engine_type: str) -> str:
+    return f"LPAD({_varchar_cast_expr(column, engine_type=engine_type)}, 2, '0')"
+
+
+def _partition_hour_timestamp_expr(date_text_expr: str, hour_text_expr: str, *, engine_type: str) -> str:
+    del engine_type  # DuckDB and Trino both accept CAST(CONCAT(... ) AS TIMESTAMP) in phase 1.
+    return f"CAST(CONCAT({date_text_expr}, ' ', {hour_text_expr}, ':00:00') AS TIMESTAMP)"
+
+
+def _format_partition_date(value: date, date_format: str | None, *, engine_type: str) -> str:
+    del engine_type  # Phase-1 engines share literal formatting.
     if date_format == "yyyymmdd":
         return value.strftime("%Y%m%d")
     return value.isoformat()
 
 
-def _format_partition_hour(value: int, hour_format: str | None) -> str:
+def _format_partition_hour(value: int, hour_format: str | None, *, engine_type: str) -> str:
+    del engine_type  # Phase-1 engines share literal formatting.
     if hour_format in {"h", "int"}:
         return str(value)
     return f"{value:02d}"

@@ -110,6 +110,6 @@ When using a Trino engine, query errors from the Trino coordinator are wrapped a
 
 | Trino Error | Cause | Resolution |
 |-------------|-------|------------|
-| `QUERY_REJECTED: Missing required partition filter` | Table requires a partition column in WHERE clause | Add a partition filter (e.g., `log_date`) in step params or session constraints |
+| `QUERY_REJECTED: Missing required partition filter` | Table requires a partition column in WHERE clause | Ensure the step uses typed `time_scope`; Factum will resolve partition pruning automatically when time metadata or heuristics can identify the partition columns |
 | `Table ... does not exist` | Table not found in Trino catalog | Check the namespace configuration in the engine binding |
 | `identityAccountPassword can't be empty` | Wrong Trino user | Use the correct user in engine connection config |
