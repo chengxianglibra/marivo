@@ -13,6 +13,7 @@ from app.evidence_engine.causal_basis import (
     build_causal_basis,
     derive_session_summary,
 )
+from app.evidence_engine.confounder_resolution import resolve_confounders
 from app.evidence_engine.schemas import (
     CAUSAL_EDGE_TO_INFERENCE_LEVEL,
     INFERENCE_LEVEL_ORDER,
@@ -249,6 +250,11 @@ class EvidencePipeline:
                 }
                 for rec in recommendations
             ]
+
+        # 1.1: auto-resolve confounders against confirmed claims in the session.
+        if recommendations:
+            _confirmed = [c for c in claims if c.get("status") == "confirmed"]
+            recommendations = resolve_confounders(recommendations, _confirmed)
 
         return {
             "claims": claims,
