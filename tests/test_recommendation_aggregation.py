@@ -11,7 +11,10 @@ import unittest
 from pathlib import Path
 from typing import Any
 
-from app.evidence_engine.recommendation_policy import DefaultRecommendationPolicy
+from app.evidence_engine.recommendation_policy import (
+    DefaultRecommendationPolicy,
+    attach_causal_chain_metadata,
+)
 
 
 def _make_observation(obs_id: str, metric: str, delta_pct: float, **slice_kv: Any) -> dict[str, Any]:
@@ -272,6 +275,100 @@ class TestRecommendationPersistence(unittest.TestCase):
             )
             self.assertIsNotNone(row)
             self.assertIsNone(row["supporting_claims_json"])
+
+
+class TestCausalChainNarrative(unittest.TestCase):
+    def _recommendation(self, primary_claim_id: str, supporting_claims: list[str] | None = None) -> dict[str, Any]:
+        return {
+            "rec_id": "rec_1",
+            "type": "action_required",
+            "claim_id": primary_claim_id,
+            "supporting_claims": supporting_claims,
+            "template_id": "multi_claim_correlated_action_v1",
+            "action_text": "test",
+            "priority": "P1",
+            "expected_impact": "test",
+            "risk": "low",
+            "validation_metric": {},
+            "causal_basis": {
+                "inference_level": "L2",
+                "strongest_evidence_summary": "test",
+                "unresolved_confounders": [],
+                "resolved_confounders": [],
+                "suggested_validation": "test",
+            },
+        }
+
+    def test_causal_chain_generated_from_local_subgraph(self) -> None:
+        claims = [
+            _make_claim("c1", "query_count", 33.5, supporting_obs=["obs_1"], inference_level="L1", user="sys_titan"),
+            _make_claim("c2", "queued_time", 120.3, supporting_obs=["obs_2"], inference_level="L2", user="sys_titan"),
+            _make_claim("c3", "cpu_time", 15.0, supporting_obs=["obs_3"], inference_level="L1", user="sys_titan"),
+        ]
+        rec = self._recommendation("c2", ["c1", "c2", "c3"])
+        relations = [_relation("c1", "c3"), _relation("c3", "c2")]
+        promoted_edges = [
+            {
+                "from_node_id": "c1",
+                "from_node_type": "claim",
+                "to_node_id": "c2",
+                "to_node_type": "claim",
+                "edge_type": "temporally_precedes",
+                "weight": 0.8,
+                "explanation": "temporal precedence",
+            }
+        ]
+
+        result = attach_causal_chain_metadata([rec], claims, relations, promoted_edges)
+        causal_basis = result[0]["causal_basis"]
+        self.assertEqual(causal_basis["causal_path_claim_ids"], ["c1", "c2"])
+        self.assertEqual(causal_basis["causal_chain"], "query_count +33.5% -> queued_time +120.3%")
+
+    def test_causal_chain_requires_directional_edge(self) -> None:
+        claims = [
+            _make_claim("c1", "query_count", 33.5, supporting_obs=["obs_1"], inference_level="L1", user="sys_titan"),
+            _make_claim("c2", "queued_time", 120.3, supporting_obs=["obs_2"], inference_level="L1", user="sys_titan"),
+        ]
+        rec = self._recommendation("c2", ["c1", "c2"])
+        relations = [_relation("c1", "c2")]
+
+        result = attach_causal_chain_metadata([rec], claims, relations, [])
+        causal_basis = result[0]["causal_basis"]
+        self.assertIsNone(causal_basis["causal_chain"])
+        self.assertEqual(causal_basis["causal_path_claim_ids"], [])
+
+    def test_causal_chain_ignores_claims_outside_recommendation_scope(self) -> None:
+        claims = [
+            _make_claim("c1", "query_count", 33.5, supporting_obs=["obs_1"], inference_level="L1", user="sys_titan"),
+            _make_claim("c2", "queued_time", 120.3, supporting_obs=["obs_2"], inference_level="L2", user="sys_titan"),
+            _make_claim("c3", "resource_pressure", 88.0, supporting_obs=["obs_3"], inference_level="L3", user="sys_other"),
+        ]
+        rec = self._recommendation("c2", ["c1", "c2"])
+        promoted_edges = [
+            {
+                "from_node_id": "c3",
+                "from_node_type": "claim",
+                "to_node_id": "c2",
+                "to_node_type": "claim",
+                "edge_type": "mechanistically_explains",
+                "weight": 0.9,
+                "explanation": "external mechanism",
+            },
+            {
+                "from_node_id": "c1",
+                "from_node_type": "claim",
+                "to_node_id": "c2",
+                "to_node_type": "claim",
+                "edge_type": "temporally_precedes",
+                "weight": 0.8,
+                "explanation": "local temporal precedence",
+            },
+        ]
+
+        result = attach_causal_chain_metadata([rec], claims, [_relation("c1", "c2")], promoted_edges)
+        causal_basis = result[0]["causal_basis"]
+        self.assertEqual(causal_basis["causal_path_claim_ids"], ["c1", "c2"])
+        self.assertNotIn("resource_pressure", causal_basis["causal_chain"])
 
     def test_template_id_persisted_and_read_back(self) -> None:
         from app.storage.sqlite_metadata import SQLiteMetadataStore

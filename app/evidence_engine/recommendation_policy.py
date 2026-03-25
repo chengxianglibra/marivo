@@ -8,6 +8,11 @@ from uuid import uuid4
 
 from app.evidence_engine.recommendation_templates import RecommendationTemplateRegistry
 from app.evidence_engine.schemas import (
+    EDGE_TYPE_CORRELATES_WITH,
+    EDGE_TYPE_ELIMINATES_ALTERNATIVE,
+    EDGE_TYPE_EXPERIMENTALLY_CONFIRMS,
+    EDGE_TYPE_MECHANISTICALLY_EXPLAINS,
+    EDGE_TYPE_TEMPORALLY_PRECEDES,
     REC_TYPE_ACTION,
     REC_TYPE_NO_ACTION,
     Claim,
@@ -32,6 +37,18 @@ class RecommendationPolicy(ABC):
         relations: list[ClaimRelation] | None = None,
     ) -> list[Recommendation]:
         raise NotImplementedError
+
+
+_DIRECTIONAL_EDGE_PRIORITY: dict[str, int] = {
+    EDGE_TYPE_MECHANISTICALLY_EXPLAINS: 4,
+    EDGE_TYPE_TEMPORALLY_PRECEDES: 3,
+    EDGE_TYPE_ELIMINATES_ALTERNATIVE: 2,
+    EDGE_TYPE_EXPERIMENTALLY_CONFIRMS: 1,
+}
+_PATH_EDGE_PRIORITY: dict[str, int] = {
+    **_DIRECTIONAL_EDGE_PRIORITY,
+    EDGE_TYPE_CORRELATES_WITH: 0,
+}
 
 
 def _slice_key(claim: Claim) -> tuple[tuple[str, Any], ...]:
@@ -66,6 +83,202 @@ def _relation_types_for_group(
         if relation["from_claim_id"] in claim_ids and relation["to_claim_id"] in claim_ids:
             relation_types.add(relation["relation_type"])
     return relation_types
+
+
+def attach_causal_chain_metadata(
+    recommendations: list[Recommendation],
+    claims: list[Claim],
+    relations: list[ClaimRelation] | None,
+    edges: list[dict[str, Any]] | None,
+) -> list[Recommendation]:
+    """Attach deterministic claim-path metadata to recommendation causal_basis.
+
+    Narrative generation is intentionally conservative:
+    - search only within the recommendation-local claim subgraph
+    - allow `correlates_with` only as a connector, never as sufficient evidence
+    - require at least one directional claim-to-claim edge in the selected path
+    """
+
+    if not recommendations:
+        return recommendations
+
+    claim_index = {claim["claim_id"]: claim for claim in claims}
+    relation_rows = relations or []
+    edge_rows = edges or []
+    enriched: list[Recommendation] = []
+
+    for recommendation in recommendations:
+        causal_basis = recommendation.get("causal_basis")
+        if causal_basis is None:
+            enriched.append(recommendation)
+            continue
+
+        local_claim_ids = recommendation.get("supporting_claims") or [recommendation["claim_id"]]
+        local_claim_ids = [
+            claim_id
+            for claim_id in local_claim_ids
+            if claim_id in claim_index
+        ]
+        path_claim_ids = _select_causal_path(
+            local_claim_ids=local_claim_ids,
+            primary_claim_id=recommendation["claim_id"],
+            claims_by_id=claim_index,
+            relations=relation_rows,
+            edges=edge_rows,
+        )
+
+        enriched.append(
+            {
+                **recommendation,
+                "causal_basis": {
+                    **causal_basis,
+                    "causal_chain": (
+                        _render_causal_chain(path_claim_ids, claim_index)
+                        if path_claim_ids
+                        else None
+                    ),
+                    "causal_path_claim_ids": path_claim_ids,
+                },
+            }
+        )
+    return enriched
+
+
+def _select_causal_path(
+    *,
+    local_claim_ids: list[str],
+    primary_claim_id: str,
+    claims_by_id: dict[str, Claim],
+    relations: list[ClaimRelation],
+    edges: list[dict[str, Any]],
+) -> list[str]:
+    if primary_claim_id not in local_claim_ids or len(local_claim_ids) < 2:
+        return []
+
+    local_set = set(local_claim_ids)
+    adjacency: dict[str, list[tuple[str, str, float, bool]]] = defaultdict(list)
+
+    for relation in relations:
+        if relation.get("relation_type") != EDGE_TYPE_CORRELATES_WITH:
+            continue
+        left = relation.get("from_claim_id")
+        right = relation.get("to_claim_id")
+        if left not in local_set or right not in local_set:
+            continue
+        weight = float(relation.get("weight", 0.0) or 0.0)
+        adjacency[str(left)].append((str(right), EDGE_TYPE_CORRELATES_WITH, weight, False))
+        adjacency[str(right)].append((str(left), EDGE_TYPE_CORRELATES_WITH, weight, False))
+
+    for edge in edges:
+        if edge.get("from_node_type") != "claim" or edge.get("to_node_type") != "claim":
+            continue
+        edge_type = str(edge.get("edge_type", "") or "")
+        if edge_type not in _DIRECTIONAL_EDGE_PRIORITY:
+            continue
+        left = str(edge.get("from_node_id", "") or "")
+        right = str(edge.get("to_node_id", "") or "")
+        if left not in local_set or right not in local_set:
+            continue
+        weight = float(edge.get("weight", 0.0) or 0.0)
+        adjacency[left].append((right, edge_type, weight, True))
+
+    if not any(is_directional for neighbors in adjacency.values() for _, _, _, is_directional in neighbors):
+        return []
+
+    candidate_paths: list[tuple[tuple[Any, ...], list[str]]] = []
+    for start_claim_id in local_claim_ids:
+        if start_claim_id == primary_claim_id:
+            continue
+        _walk_paths(
+            current=start_claim_id,
+            target=primary_claim_id,
+            adjacency=adjacency,
+            claims_by_id=claims_by_id,
+            visited={start_claim_id},
+            path=[start_claim_id],
+            path_edges=[],
+            out=candidate_paths,
+        )
+
+    if not candidate_paths:
+        return []
+    candidate_paths.sort(key=lambda item: item[0], reverse=True)
+    return candidate_paths[0][1]
+
+
+def _walk_paths(
+    *,
+    current: str,
+    target: str,
+    adjacency: dict[str, list[tuple[str, str, float, bool]]],
+    claims_by_id: dict[str, Claim],
+    visited: set[str],
+    path: list[str],
+    path_edges: list[tuple[str, float, bool]],
+    out: list[tuple[tuple[Any, ...], list[str]]],
+) -> None:
+    if current == target:
+        if any(is_directional for _, _, is_directional in path_edges):
+            out.append((_score_path(path, path_edges, claims_by_id), list(path)))
+        return
+
+    for neighbor, edge_type, weight, is_directional in adjacency.get(current, []):
+        if neighbor in visited:
+            continue
+        visited.add(neighbor)
+        path.append(neighbor)
+        path_edges.append((edge_type, weight, is_directional))
+        _walk_paths(
+            current=neighbor,
+            target=target,
+            adjacency=adjacency,
+            claims_by_id=claims_by_id,
+            visited=visited,
+            path=path,
+            path_edges=path_edges,
+            out=out,
+        )
+        path_edges.pop()
+        path.pop()
+        visited.remove(neighbor)
+
+
+def _score_path(
+    path: list[str],
+    path_edges: list[tuple[str, float, bool]],
+    claims_by_id: dict[str, Claim],
+) -> tuple[Any, ...]:
+    directional_edges = [edge_type for edge_type, _, is_directional in path_edges if is_directional]
+    directional_count = len(directional_edges)
+    highest_priority = max((_PATH_EDGE_PRIORITY.get(edge_type, 0) for edge_type in directional_edges), default=0)
+    total_priority = sum(_PATH_EDGE_PRIORITY.get(edge_type, 0) for edge_type, _, _ in path_edges)
+    total_weight = round(sum(weight for _, weight, _ in path_edges), 6)
+    total_confidence = round(
+        sum(float(claims_by_id[claim_id].get("confidence", 0.0) or 0.0) for claim_id in path),
+        6,
+    )
+    return (
+        directional_count,
+        highest_priority,
+        total_priority,
+        -len(path),
+        total_weight,
+        total_confidence,
+        tuple(path),
+    )
+
+
+def _render_causal_chain(path_claim_ids: list[str], claims_by_id: dict[str, Claim]) -> str:
+    return " -> ".join(_render_claim_label(claims_by_id[claim_id]) for claim_id in path_claim_ids)
+
+
+def _render_claim_label(claim: Claim) -> str:
+    metric = str(claim.get("scope", {}).get("metric", "") or "metric")
+    delta = _get_claim_delta(claim)
+    if delta is None:
+        return metric
+    sign = "+" if delta >= 0 else ""
+    return f"{metric} {sign}{delta:.1f}%"
 
 
 class DefaultRecommendationPolicy(RecommendationPolicy):

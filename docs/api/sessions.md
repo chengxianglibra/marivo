@@ -684,12 +684,20 @@ Causal layer (assigned by causal checkers when inference level is upgraded):
     "inference_level": "L1",
     "strongest_evidence_summary": "6/8 dimension slices show consistent decline (cross-slice consistency)",
     "unresolved_confounders": ["seasonal effects", "concurrent feature rollout"],
-    "suggested_validation": "Run A/B test isolating the iOS build version variable"
+    "resolved_confounders": [],
+    "suggested_validation": "Run A/B test isolating the iOS build version variable",
+    "causal_chain": "query_count +30.0% -> queued_time +58.5%",
+    "causal_path_claim_ids": ["claim_query_count", "claim_queued_time"]
   }
 }
 ```
 
 `causal_basis` is `null` for recommendations without associated claims or for rows created before M-10.
+
+`causal_chain` is conservative by design:
+- it is selected only from the recommendation-local claim subgraph (`supporting_claims` or the primary `claim_id`)
+- it may use `correlates_with` relations as connectors, but it is emitted only when the selected path contains at least one directional claim-to-claim causal edge such as `temporally_precedes` or `mechanistically_explains`
+- it is a deterministic compression of existing claim graph structure, not a new causal inference pass
 
 ---
 
