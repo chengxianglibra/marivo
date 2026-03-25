@@ -177,7 +177,8 @@ class AdvancedPlanValidationTests(unittest.TestCase):
         result = self.client.post(f"/sessions/{session_id}/plans/{plan_id}/validate").json()
 
         self.assertFalse(result["valid"])
-        self.assertIn("legacy_param_not_supported", [issue["code"] for issue in result["issues"]])
+        self.assertIn("invalid_step_contract", [issue["code"] for issue in result["issues"]])
+        self.assertTrue(any("legacy fields" in issue["message"] for issue in result["issues"]))
 
     def test_validate_plan_rejects_legacy_aggregate_query_params(self) -> None:
         session_id = self.client.post("/sessions", json={"goal": "legacy aggregate contract"}).json()["session_id"]
@@ -196,7 +197,8 @@ class AdvancedPlanValidationTests(unittest.TestCase):
         result = self.client.post(f"/sessions/{session_id}/plans/{plan_id}/validate").json()
 
         self.assertFalse(result["valid"])
-        self.assertIn("legacy_param_not_supported", [issue["code"] for issue in result["issues"]])
+        self.assertIn("invalid_step_contract", [issue["code"] for issue in result["issues"]])
+        self.assertTrue(any("legacy fields" in issue["message"] for issue in result["issues"]))
 
     def test_validate_plan_rejects_time_predicate_in_scope(self) -> None:
         session_id = self.client.post("/sessions", json={"goal": "time predicate contract"}).json()["session_id"]

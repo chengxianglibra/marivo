@@ -41,6 +41,7 @@ class AnalysisIRTests(unittest.TestCase):
         self.assertEqual(step.primary_metric_name(), "watch_time")
         self.assertIsInstance(step.semantic_intent, SemanticIntent)
         self.assertEqual(step.semantic_intent.dimensions, ["platform", "app_version"])
+        self.assertIsNone(step.semantic_intent.date_column)
         self.assertIsInstance(step.artifact_expectation, ArtifactExpectation)
         self.assertEqual(step.artifact_expectation.artifact_key, "watch_time_comparison")
         self.assertEqual(step.observation_types(), ["metric_change"])

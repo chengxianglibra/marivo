@@ -49,6 +49,8 @@ from app.runtime_contracts import (
 from app.semantic_runtime import SemanticResolver, SemanticRuntimeRepository
 from app.storage.analytics import AnalyticsEngine
 from app.storage.metadata import MetadataStore
+from app.time_scope import normalize_aggregate_query_request
+from app.time_scope import normalize_compare_metric_request
 from app.time_scope import scope_predicate_contains_time_condition
 
 if TYPE_CHECKING:
@@ -60,26 +62,6 @@ if TYPE_CHECKING:
 VALID_STEP_TYPES = frozenset(SUPPORTED_STEP_TYPES)
 COMPARE_METRIC_REQUIRED_PARAMS = ("table", "metric", "time_scope")
 AGGREGATE_QUERY_REQUIRED_PARAMS = ("table", "measures", "time_scope")
-COMPARE_METRIC_LEGACY_PARAMS = frozenset({
-    "metric_name",
-    "table_name",
-    "period_start",
-    "period_end",
-    "baseline_start",
-    "baseline_end",
-    "comparison_type",
-    "date_column",
-    "where",
-    "filter",
-})
-AGGREGATE_QUERY_LEGACY_PARAMS = frozenset({
-    "table_name",
-    "select",
-    "where",
-    "compare_period",
-    "date_column",
-    "filter",
-})
 
 PLAN_STATUS_TRANSITIONS = {
     "draft": {"validated", "deleted"},
@@ -1021,20 +1003,7 @@ class PlanningService:
                             },
                         )
                     )
-                for legacy_param in sorted(COMPARE_METRIC_LEGACY_PARAMS):
-                    if step.params.get(legacy_param) is not None:
-                        issues.append(
-                            PlanValidationIssue(
-                                code="legacy_param_not_supported",
-                                category="params",
-                                step_index=step.index,
-                                message=(
-                                    f"Step {step.index}: compare_metric does not accept legacy param "
-                                    f"'{legacy_param}'. Use the typed 'table'/'metric'/'time_scope'/'scope' contract."
-                                ),
-                                detail={"forbidden_param": legacy_param, "step_type": "compare_metric"},
-                            )
-                        )
+                issues.extend(self._validate_typed_step_contract(step))
                 issues.extend(self._validate_scope_predicate(step))
             elif step.step_type == "aggregate_query":
                 missing = [
@@ -1056,20 +1025,7 @@ class PlanningService:
                             },
                         )
                     )
-                for legacy_param in sorted(AGGREGATE_QUERY_LEGACY_PARAMS):
-                    if step.params.get(legacy_param) is not None:
-                        issues.append(
-                            PlanValidationIssue(
-                                code="legacy_param_not_supported",
-                                category="params",
-                                step_index=step.index,
-                                message=(
-                                    f"Step {step.index}: aggregate_query does not accept legacy param "
-                                    f"'{legacy_param}'. Use the typed 'table'/'measures'/'time_scope'/'scope' contract."
-                                ),
-                                detail={"forbidden_param": legacy_param, "step_type": "aggregate_query"},
-                            )
-                        )
+                issues.extend(self._validate_typed_step_contract(step))
                 issues.extend(self._validate_scope_predicate(step))
             elif step.step_type == "attribute_change":
                 missing = [
@@ -1182,6 +1138,27 @@ class PlanningService:
                 detail={"predicate": predicate},
             )
         ]
+
+    def _validate_typed_step_contract(self, step: AnalysisStepIR) -> list[PlanValidationIssue]:
+        params = step.params or {}
+        try:
+            if step.step_type == "compare_metric":
+                normalize_compare_metric_request(params)
+            elif step.step_type == "aggregate_query":
+                normalize_aggregate_query_request(params)
+            else:
+                return []
+        except ValueError as exc:
+            return [
+                PlanValidationIssue(
+                    code="invalid_step_contract",
+                    category="params",
+                    step_index=step.index,
+                    message=f"Step {step.index}: {exc}",
+                    detail={"step_type": step.step_type},
+                )
+            ]
+        return []
 
     def _validate_correlate_metrics_params(
         self,
