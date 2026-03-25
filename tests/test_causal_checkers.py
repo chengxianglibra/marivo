@@ -290,6 +290,157 @@ class TemporalPrecedenceCheckerTests(unittest.TestCase):
         self.assertEqual(len(upgrades), 1)
         self.assertEqual(upgrades[0].claim_id, "c2")
 
+    def test_upgrade_effect_claim_to_l2_with_hourly_peak_decay(self) -> None:
+        obs = [
+            _make_obs(
+                "o1", "query_count", slice_val={"user": "sys_titan"},
+                window={"start": "2024-01-01T01:00", "end": "2024-01-01T02:00", "granularity": "hour"},
+                current_value=100.0,
+            ),
+            _make_obs(
+                "o2", "query_count", slice_val={"user": "sys_titan"},
+                window={"start": "2024-01-01T02:00", "end": "2024-01-01T03:00", "granularity": "hour"},
+                current_value=180.0,
+            ),
+            _make_obs(
+                "o3", "query_count", slice_val={"user": "sys_titan"},
+                window={"start": "2024-01-01T03:00", "end": "2024-01-01T04:00", "granularity": "hour"},
+                current_value=120.0,
+            ),
+            _make_obs(
+                "o4", "queued_time", slice_val={"user": "sys_titan"},
+                window={"start": "2024-01-01T02:00", "end": "2024-01-01T03:00", "granularity": "hour"},
+                current_value=5.0,
+            ),
+            _make_obs(
+                "o5", "queued_time", slice_val={"user": "sys_titan"},
+                window={"start": "2024-01-01T03:00", "end": "2024-01-01T04:00", "granularity": "hour"},
+                current_value=11.0,
+            ),
+            _make_obs(
+                "o6", "queued_time", slice_val={"user": "sys_titan"},
+                window={"start": "2024-01-01T04:00", "end": "2024-01-01T05:00", "granularity": "hour"},
+                current_value=7.0,
+            ),
+        ]
+        claims = [
+            _make_claim("c1", "query_count", level="L1", obs_ids=["o1", "o2", "o3"], slice_val={"user": "sys_titan"}, status="confirmed"),
+            _make_claim("c2", "queued_time", level="L1", obs_ids=["o4", "o5", "o6"], slice_val={"user": "sys_titan"}, status="confirmed"),
+        ]
+        relations = [_make_relation("c1", "c2", supporting_observation_ids=[o["observation_id"] for o in obs])]
+        upgrades = self.checker.check(claims, obs, [], relations=relations)
+        self.assertEqual(len(upgrades), 1)
+        self.assertEqual(upgrades[0].claim_id, "c2")
+        self.assertIn("hourly_peak_decay", upgrades[0].justification_tokens[0])
+
+    def test_upgrade_effect_claim_to_l2_with_two_hour_plateau(self) -> None:
+        obs = [
+            _make_obs("o1", "query_count", window={"start": "2024-01-01T01:00", "end": "2024-01-01T02:00", "granularity": "hour"}, current_value=100.0),
+            _make_obs("o2", "query_count", window={"start": "2024-01-01T02:00", "end": "2024-01-01T03:00", "granularity": "hour"}, current_value=180.0),
+            _make_obs("o3", "query_count", window={"start": "2024-01-01T03:00", "end": "2024-01-01T04:00", "granularity": "hour"}, current_value=180.0),
+            _make_obs("o4", "query_count", window={"start": "2024-01-01T04:00", "end": "2024-01-01T05:00", "granularity": "hour"}, current_value=120.0),
+            _make_obs("o5", "queued_time", window={"start": "2024-01-01T03:00", "end": "2024-01-01T04:00", "granularity": "hour"}, current_value=5.0),
+            _make_obs("o6", "queued_time", window={"start": "2024-01-01T04:00", "end": "2024-01-01T05:00", "granularity": "hour"}, current_value=11.0),
+            _make_obs("o7", "queued_time", window={"start": "2024-01-01T05:00", "end": "2024-01-01T06:00", "granularity": "hour"}, current_value=7.0),
+        ]
+        claims = [
+            _make_claim("c1", "query_count", level="L1", obs_ids=["o1", "o2", "o3", "o4"], status="confirmed"),
+            _make_claim("c2", "queued_time", level="L1", obs_ids=["o5", "o6", "o7"], status="confirmed"),
+        ]
+        relations = [_make_relation("c1", "c2", supporting_observation_ids=[o["observation_id"] for o in obs])]
+        upgrades = self.checker.check(claims, obs, [], relations=relations)
+        self.assertEqual(len(upgrades), 1)
+        self.assertEqual(upgrades[0].claim_id, "c2")
+        self.assertIn("cause_peak=02:00", upgrades[0].justification_tokens[0])
+
+    def test_no_upgrade_for_same_hour_peak_co_movement(self) -> None:
+        obs = [
+            _make_obs("o1", "query_count", window={"start": "2024-01-01T01:00", "end": "2024-01-01T02:00", "granularity": "hour"}, current_value=100.0),
+            _make_obs("o2", "query_count", window={"start": "2024-01-01T02:00", "end": "2024-01-01T03:00", "granularity": "hour"}, current_value=180.0),
+            _make_obs("o3", "query_count", window={"start": "2024-01-01T03:00", "end": "2024-01-01T04:00", "granularity": "hour"}, current_value=120.0),
+            _make_obs("o4", "queued_time", window={"start": "2024-01-01T01:00", "end": "2024-01-01T02:00", "granularity": "hour"}, current_value=5.0),
+            _make_obs("o5", "queued_time", window={"start": "2024-01-01T02:00", "end": "2024-01-01T03:00", "granularity": "hour"}, current_value=11.0),
+            _make_obs("o6", "queued_time", window={"start": "2024-01-01T03:00", "end": "2024-01-01T04:00", "granularity": "hour"}, current_value=7.0),
+        ]
+        claims = [
+            _make_claim("c1", "query_count", level="L1", obs_ids=["o1", "o2", "o3"], status="confirmed"),
+            _make_claim("c2", "queued_time", level="L1", obs_ids=["o4", "o5", "o6"], status="confirmed"),
+        ]
+        relations = [_make_relation("c1", "c2", supporting_observation_ids=[o["observation_id"] for o in obs])]
+        upgrades = self.checker.check(claims, obs, [], relations=relations)
+        self.assertEqual(len(upgrades), 0)
+
+    def test_no_upgrade_without_decay_after_hourly_peak(self) -> None:
+        obs = [
+            _make_obs("o1", "query_count", window={"start": "2024-01-01T01:00", "end": "2024-01-01T02:00", "granularity": "hour"}, current_value=100.0),
+            _make_obs("o2", "query_count", window={"start": "2024-01-01T02:00", "end": "2024-01-01T03:00", "granularity": "hour"}, current_value=180.0),
+            _make_obs("o3", "query_count", window={"start": "2024-01-01T03:00", "end": "2024-01-01T04:00", "granularity": "hour"}, current_value=180.0),
+            _make_obs("o4", "queued_time", window={"start": "2024-01-01T02:00", "end": "2024-01-01T03:00", "granularity": "hour"}, current_value=5.0),
+            _make_obs("o5", "queued_time", window={"start": "2024-01-01T03:00", "end": "2024-01-01T04:00", "granularity": "hour"}, current_value=11.0),
+            _make_obs("o6", "queued_time", window={"start": "2024-01-01T04:00", "end": "2024-01-01T05:00", "granularity": "hour"}, current_value=7.0),
+        ]
+        claims = [
+            _make_claim("c1", "query_count", level="L1", obs_ids=["o1", "o2", "o3"], status="confirmed"),
+            _make_claim("c2", "queued_time", level="L1", obs_ids=["o4", "o5", "o6"], status="confirmed"),
+        ]
+        relations = [_make_relation("c1", "c2", supporting_observation_ids=[o["observation_id"] for o in obs])]
+        upgrades = self.checker.check(claims, obs, [], relations=relations)
+        self.assertEqual(len(upgrades), 0)
+
+    def test_no_upgrade_when_hourly_lag_exceeds_threshold(self) -> None:
+        obs = [
+            _make_obs("o1", "query_count", window={"start": "2024-01-01T01:00", "end": "2024-01-01T02:00", "granularity": "hour"}, current_value=100.0),
+            _make_obs("o2", "query_count", window={"start": "2024-01-01T02:00", "end": "2024-01-01T03:00", "granularity": "hour"}, current_value=180.0),
+            _make_obs("o3", "query_count", window={"start": "2024-01-01T03:00", "end": "2024-01-01T04:00", "granularity": "hour"}, current_value=120.0),
+            _make_obs("o3b", "query_count", window={"start": "2024-01-01T05:00", "end": "2024-01-01T06:00", "granularity": "hour"}, current_value=20.0),
+            _make_obs("o4", "queued_time", window={"start": "2024-01-01T05:00", "end": "2024-01-01T06:00", "granularity": "hour"}, current_value=5.0),
+            _make_obs("o5", "queued_time", window={"start": "2024-01-01T06:00", "end": "2024-01-01T07:00", "granularity": "hour"}, current_value=11.0),
+            _make_obs("o6", "queued_time", window={"start": "2024-01-01T07:00", "end": "2024-01-01T08:00", "granularity": "hour"}, current_value=7.0),
+        ]
+        claims = [
+            _make_claim("c1", "query_count", level="L1", obs_ids=["o1", "o2", "o3", "o3b"], status="confirmed"),
+            _make_claim("c2", "queued_time", level="L1", obs_ids=["o4", "o5", "o6"], status="confirmed"),
+        ]
+        relations = [_make_relation("c1", "c2", supporting_observation_ids=[o["observation_id"] for o in obs])]
+        upgrades = self.checker.check(claims, obs, [], relations=relations)
+        self.assertEqual(len(upgrades), 0)
+
+    def test_hourly_peak_decay_falls_back_to_delta_pct_when_current_value_missing(self) -> None:
+        obs = [
+            _make_obs("o1", "query_count", delta_pct=1.0, window={"start": "2024-01-01T01:00", "end": "2024-01-01T02:00", "granularity": "hour"}),
+            _make_obs("o2", "query_count", delta_pct=5.0, window={"start": "2024-01-01T02:00", "end": "2024-01-01T03:00", "granularity": "hour"}),
+            _make_obs("o3", "query_count", delta_pct=2.0, window={"start": "2024-01-01T03:00", "end": "2024-01-01T04:00", "granularity": "hour"}),
+            _make_obs("o4", "queued_time", delta_pct=2.0, window={"start": "2024-01-01T02:00", "end": "2024-01-01T03:00", "granularity": "hour"}),
+            _make_obs("o5", "queued_time", delta_pct=7.0, window={"start": "2024-01-01T03:00", "end": "2024-01-01T04:00", "granularity": "hour"}),
+            _make_obs("o6", "queued_time", delta_pct=3.0, window={"start": "2024-01-01T04:00", "end": "2024-01-01T05:00", "granularity": "hour"}),
+        ]
+        claims = [
+            _make_claim("c1", "query_count", level="L1", obs_ids=["o1", "o2", "o3"], status="confirmed"),
+            _make_claim("c2", "queued_time", level="L1", obs_ids=["o4", "o5", "o6"], status="confirmed"),
+        ]
+        relations = [_make_relation("c1", "c2", supporting_observation_ids=[o["observation_id"] for o in obs])]
+        upgrades = self.checker.check(claims, obs, [], relations=relations)
+        self.assertEqual(len(upgrades), 1)
+        self.assertEqual(upgrades[0].claim_id, "c2")
+
+    def test_upgrade_hourly_peak_decay_across_midnight(self) -> None:
+        obs = [
+            _make_obs("o1", "query_count", window={"start": "2024-01-01T22:00", "end": "2024-01-01T23:00", "granularity": "hour"}, current_value=90.0),
+            _make_obs("o2", "query_count", window={"start": "2024-01-01T23:00", "end": "2024-01-02T00:00", "granularity": "hour"}, current_value=180.0),
+            _make_obs("o3", "query_count", window={"start": "2024-01-02T00:00", "end": "2024-01-02T01:00", "granularity": "hour"}, current_value=110.0),
+            _make_obs("o4", "queued_time", window={"start": "2024-01-02T00:00", "end": "2024-01-02T01:00", "granularity": "hour"}, current_value=5.0),
+            _make_obs("o5", "queued_time", window={"start": "2024-01-02T01:00", "end": "2024-01-02T02:00", "granularity": "hour"}, current_value=12.0),
+            _make_obs("o6", "queued_time", window={"start": "2024-01-02T02:00", "end": "2024-01-02T03:00", "granularity": "hour"}, current_value=7.0),
+        ]
+        claims = [
+            _make_claim("c1", "query_count", level="L1", obs_ids=["o1", "o2", "o3"], status="confirmed"),
+            _make_claim("c2", "queued_time", level="L1", obs_ids=["o4", "o5", "o6"], status="confirmed"),
+        ]
+        relations = [_make_relation("c1", "c2", supporting_observation_ids=[o["observation_id"] for o in obs])]
+        upgrades = self.checker.check(claims, obs, [], relations=relations)
+        self.assertEqual(len(upgrades), 1)
+        self.assertEqual(upgrades[0].claim_id, "c2")
+
 
 # ── DoseResponseChecker ───────────────────────────────────────────────────────
 

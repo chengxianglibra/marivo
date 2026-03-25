@@ -20,6 +20,7 @@ import math
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
 from app.evidence_engine.schemas import (
@@ -246,6 +247,9 @@ class TemporalPrecedenceChecker(CausalChecker):
     """
 
     ELIGIBLE_RELATION_CATEGORIES = frozenset({"exact_match", "subset_or_overlap"})
+    MIN_HOURLY_BUCKETS = 3
+    MIN_HOURLY_LAG_HOURS = 1
+    MAX_HOURLY_LAG_HOURS = 3
 
     @property
     def name(self) -> str:
@@ -286,43 +290,80 @@ class TemporalPrecedenceChecker(CausalChecker):
             if left_claim is None or right_claim is None:
                 continue
 
+            precedence_kind: str | None = None
             left_window = self._claim_window(left_claim, obs_by_id)
             right_window = self._claim_window(right_claim, obs_by_id)
-            if left_window is None or right_window is None:
-                continue
-
-            precedence = self._resolve_precedence(left_claim, left_window, right_claim, right_window)
+            precedence = None
+            if left_window is not None and right_window is not None:
+                precedence = self._resolve_precedence(left_claim, left_window, right_claim, right_window)
+                if precedence is not None:
+                    precedence_kind = "window"
+            if precedence is None:
+                precedence = self._resolve_hourly_precedence(left_claim, right_claim, obs_by_id)
+                if precedence is not None:
+                    precedence_kind = "hourly_peak_decay"
             if precedence is None:
                 continue
 
-            earlier_claim, earlier_window, later_claim, later_window = precedence
+            earlier_claim = precedence["earlier_claim"]
+            later_claim = precedence["later_claim"]
             pair_key = (earlier_claim["claim_id"], later_claim["claim_id"])
             if pair_key in emitted_pairs:
                 continue
             emitted_pairs.add(pair_key)
 
-            lag_days = _date_diff_days(earlier_window["end"], later_window["start"])
-            if lag_days < 0:
-                continue
-            token = (
-                "temporal_precedence:"
-                f"{earlier_claim['claim_id']}→{later_claim['claim_id']}:"
-                f"lag={lag_days}d→L2"
-            )
-            edge = CausalEdge(
-                from_node_id=earlier_claim["claim_id"],
-                from_node_type="claim",
-                to_node_id=later_claim["claim_id"],
-                to_node_type="claim",
-                edge_type="temporally_precedes",
-                weight=0.8,
-                explanation=(
-                    f"Claim {earlier_claim['claim_id']} "
-                    f"(window end={earlier_window['end']}) precedes "
-                    f"claim {later_claim['claim_id']} "
-                    f"(window start={later_window['start']}) by {lag_days} days."
-                ),
-            )
+            if precedence_kind == "window":
+                earlier_window = precedence["earlier_window"]
+                later_window = precedence["later_window"]
+                lag_days = _date_diff_days(earlier_window["end"], later_window["start"])
+                if lag_days < 0:
+                    continue
+                token = (
+                    "temporal_precedence:window:"
+                    f"{earlier_claim['claim_id']}→{later_claim['claim_id']}:"
+                    f"lag={lag_days}d→L2"
+                )
+                edge = CausalEdge(
+                    from_node_id=earlier_claim["claim_id"],
+                    from_node_type="claim",
+                    to_node_id=later_claim["claim_id"],
+                    to_node_type="claim",
+                    edge_type="temporally_precedes",
+                    weight=0.8,
+                    explanation=(
+                        f"Claim {earlier_claim['claim_id']} "
+                        f"(window end={earlier_window['end']}) precedes "
+                        f"claim {later_claim['claim_id']} "
+                        f"(window start={later_window['start']}) by {lag_days} days."
+                    ),
+                )
+            else:
+                earlier_pattern = precedence["earlier_pattern"]
+                later_pattern = precedence["later_pattern"]
+                lag_hours = int(precedence["lag_hours"])
+                token = (
+                    "temporal_precedence:hourly_peak_decay:"
+                    f"{earlier_claim['claim_id']}→{later_claim['claim_id']}:"
+                    f"cause_peak={earlier_pattern['peak_start'].strftime('%H:%M')},"
+                    f"effect_peak={later_pattern['peak_start'].strftime('%H:%M')},"
+                    f"lag={lag_hours}h→L2"
+                )
+                edge = CausalEdge(
+                    from_node_id=earlier_claim["claim_id"],
+                    from_node_type="claim",
+                    to_node_id=later_claim["claim_id"],
+                    to_node_type="claim",
+                    edge_type="temporally_precedes",
+                    weight=0.82,
+                    explanation=(
+                        f"Claim {earlier_claim['claim_id']} peaks at "
+                        f"{earlier_pattern['peak_start'].strftime('%Y-%m-%d %H:00')} "
+                        f"and starts decaying by {earlier_pattern['decay_start'].strftime('%H:%M')}; "
+                        f"claim {later_claim['claim_id']} peaks at "
+                        f"{later_pattern['peak_start'].strftime('%Y-%m-%d %H:00')} "
+                        f"{lag_hours} hours later."
+                    ),
+                )
             upgrades.append(LevelUpgrade(
                 claim_id=later_claim["claim_id"],
                 new_level="L2",
@@ -364,12 +405,149 @@ class TemporalPrecedenceChecker(CausalChecker):
         left_window: dict[str, str],
         right_claim: dict[str, Any],
         right_window: dict[str, str],
-    ) -> tuple[dict[str, Any], dict[str, str], dict[str, Any], dict[str, str]] | None:
+    ) -> dict[str, Any] | None:
         if left_window["end"] < right_window["start"]:
-            return left_claim, left_window, right_claim, right_window
+            return {
+                "earlier_claim": left_claim,
+                "earlier_window": left_window,
+                "later_claim": right_claim,
+                "later_window": right_window,
+            }
         if right_window["end"] < left_window["start"]:
-            return right_claim, right_window, left_claim, left_window
+            return {
+                "earlier_claim": right_claim,
+                "earlier_window": right_window,
+                "later_claim": left_claim,
+                "later_window": left_window,
+            }
         return None
+
+    def _resolve_hourly_precedence(
+        self,
+        left_claim: dict[str, Any],
+        right_claim: dict[str, Any],
+        observation_by_id: dict[str, dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        left_patterns = self._claim_hourly_patterns(left_claim, observation_by_id)
+        right_patterns = self._claim_hourly_patterns(right_claim, observation_by_id)
+        if not left_patterns or not right_patterns:
+            return None
+
+        for left_pattern in left_patterns:
+            for right_pattern in right_patterns:
+                if left_pattern["peak_start"] < right_pattern["peak_start"]:
+                    earlier_claim, earlier_pattern = left_claim, left_pattern
+                    later_claim, later_pattern = right_claim, right_pattern
+                elif right_pattern["peak_start"] < left_pattern["peak_start"]:
+                    earlier_claim, earlier_pattern = right_claim, right_pattern
+                    later_claim, later_pattern = left_claim, left_pattern
+                else:
+                    continue
+
+                lag_hours = int(
+                    (later_pattern["peak_start"] - earlier_pattern["peak_start"]).total_seconds() / 3600
+                )
+                if not (self.MIN_HOURLY_LAG_HOURS <= lag_hours <= self.MAX_HOURLY_LAG_HOURS):
+                    continue
+                if later_pattern["peak_start"] < earlier_pattern["decay_start"]:
+                    continue
+                return {
+                    "earlier_claim": earlier_claim,
+                    "earlier_pattern": earlier_pattern,
+                    "later_claim": later_claim,
+                    "later_pattern": later_pattern,
+                    "lag_hours": lag_hours,
+                }
+        return None
+
+    def _claim_hourly_patterns(
+        self,
+        claim: dict[str, Any],
+        observation_by_id: dict[str, dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        by_start: dict[datetime, float] = {}
+        for observation_id in claim.get("supporting_observations", []):
+            observation = observation_by_id.get(str(observation_id))
+            if observation is None:
+                continue
+            window = observation.get("observed_window") or {}
+            if window.get("granularity") != "hour" or not window.get("start"):
+                continue
+            value = self._hourly_signal_value(observation)
+            if value is None:
+                continue
+            start = self._parse_hour_start(str(window["start"]))
+            if start is None:
+                continue
+            existing = by_start.get(start)
+            if existing is None or value > existing:
+                by_start[start] = value
+
+        buckets = sorted(by_start.items(), key=lambda item: item[0])
+        return self._detect_hourly_peak_decay_patterns(buckets)
+
+    def _detect_hourly_peak_decay_patterns(
+        self,
+        buckets: list[tuple[datetime, float]],
+    ) -> list[dict[str, Any]]:
+        if len(buckets) < self.MIN_HOURLY_BUCKETS:
+            return []
+
+        patterns: list[dict[str, Any]] = []
+        for index in range(1, len(buckets) - 1):
+            prev_start, prev_value = buckets[index - 1]
+            peak_start, peak_value = buckets[index]
+            next_start, next_value = buckets[index + 1]
+            if int((peak_start - prev_start).total_seconds() / 3600) != 1:
+                continue
+            if int((next_start - peak_start).total_seconds() / 3600) != 1:
+                continue
+
+            if prev_value < peak_value and next_value < peak_value:
+                patterns.append(
+                    {
+                        "peak_start": peak_start,
+                        "peak_value": peak_value,
+                        "decay_start": next_start,
+                        "decay_value": next_value,
+                    }
+                )
+                continue
+
+            # Allow a conservative two-hour plateau followed by immediate decay.
+            if next_value != peak_value or prev_value >= peak_value:
+                continue
+            if index + 2 >= len(buckets):
+                continue
+            after_start, after_value = buckets[index + 2]
+            if int((after_start - next_start).total_seconds() / 3600) != 1:
+                continue
+            if after_value >= peak_value:
+                continue
+            patterns.append(
+                {
+                    "peak_start": peak_start,
+                    "peak_value": peak_value,
+                    "decay_start": after_start,
+                    "decay_value": after_value,
+                }
+            )
+
+        return patterns
+
+    def _hourly_signal_value(self, observation: dict[str, Any]) -> float | None:
+        payload = observation.get("payload", {})
+        for key in ("current_value", "delta_pct"):
+            value = payload.get(key)
+            if isinstance(value, (int, float)):
+                return float(value)
+        return None
+
+    def _parse_hour_start(self, value: str) -> datetime | None:
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return None
 
 
 class DoseResponseChecker(CausalChecker):

@@ -298,6 +298,181 @@ class TemporalWindowInferenceTests(unittest.TestCase):
             f"Unexpected justification tokens: {upgrades[0].justification_tokens}",
         )
 
+    def test_hourly_peak_decay_relation_promotes_effect_claim(self) -> None:
+        """Hourly lead-lag with peak-then-decay should promote the later claim to L2."""
+        from app.evidence_engine.causal_checkers import TemporalPrecedenceChecker
+
+        checker = TemporalPrecedenceChecker()
+        observations = [
+            {
+                "observation_id": "obs_hp_01",
+                "type": "metric_change",
+                "subject": {"metric": "query_count", "slice": {"platform": "ios"}},
+                "payload": {"current_value": 100.0},
+                "observed_window": {"start": "2026-03-01T01:00", "end": "2026-03-01T02:00", "granularity": "hour"},
+            },
+            {
+                "observation_id": "obs_hp_02",
+                "type": "metric_change",
+                "subject": {"metric": "query_count", "slice": {"platform": "ios"}},
+                "payload": {"current_value": 180.0},
+                "observed_window": {"start": "2026-03-01T02:00", "end": "2026-03-01T03:00", "granularity": "hour"},
+            },
+            {
+                "observation_id": "obs_hp_03",
+                "type": "metric_change",
+                "subject": {"metric": "query_count", "slice": {"platform": "ios"}},
+                "payload": {"current_value": 120.0},
+                "observed_window": {"start": "2026-03-01T03:00", "end": "2026-03-01T04:00", "granularity": "hour"},
+            },
+            {
+                "observation_id": "obs_hp_04",
+                "type": "metric_change",
+                "subject": {"metric": "queued_time", "slice": {"platform": "ios"}},
+                "payload": {"current_value": 4.0},
+                "observed_window": {"start": "2026-03-01T02:00", "end": "2026-03-01T03:00", "granularity": "hour"},
+            },
+            {
+                "observation_id": "obs_hp_05",
+                "type": "metric_change",
+                "subject": {"metric": "queued_time", "slice": {"platform": "ios"}},
+                "payload": {"current_value": 10.0},
+                "observed_window": {"start": "2026-03-01T03:00", "end": "2026-03-01T04:00", "granularity": "hour"},
+            },
+            {
+                "observation_id": "obs_hp_06",
+                "type": "metric_change",
+                "subject": {"metric": "queued_time", "slice": {"platform": "ios"}},
+                "payload": {"current_value": 6.0},
+                "observed_window": {"start": "2026-03-01T04:00", "end": "2026-03-01T05:00", "granularity": "hour"},
+            },
+        ]
+        cause_claim = {
+            "claim_id": "claim_hp_cause",
+            "inference_level": "L1",
+            "status": "confirmed",
+            "scope": {"metric": "query_count", "slice": {"platform": "ios"}},
+            "supporting_observations": ["obs_hp_01", "obs_hp_02", "obs_hp_03"],
+            "contradicting_observations": [],
+        }
+        effect_claim = {
+            "claim_id": "claim_hp_effect",
+            "inference_level": "L1",
+            "status": "confirmed",
+            "scope": {"metric": "queued_time", "slice": {"platform": "ios"}},
+            "supporting_observations": ["obs_hp_04", "obs_hp_05", "obs_hp_06"],
+            "contradicting_observations": [],
+        }
+        relation = {
+            "from_claim_id": cause_claim["claim_id"],
+            "to_claim_id": effect_claim["claim_id"],
+            "relation_type": "correlates_with",
+            "weight": 0.92,
+            "match_basis": {"category": "exact_match", "direction": "up"},
+            "score_components": {},
+            "supporting_observation_ids": [obs["observation_id"] for obs in observations],
+            "explanation": "hourly peak-decay test relation",
+        }
+
+        upgrades = checker.check(
+            [cause_claim, effect_claim],
+            observations,
+            [],
+            relations=[relation],
+        )
+        self.assertEqual(len(upgrades), 1, f"Expected one hourly L2 upgrade, got: {upgrades}")
+        self.assertEqual(upgrades[0].claim_id, effect_claim["claim_id"])
+        self.assertEqual(upgrades[0].new_level, "L2")
+        self.assertTrue(
+            any("hourly_peak_decay" in token for token in upgrades[0].justification_tokens),
+            f"Expected hourly peak-decay token, got: {upgrades[0].justification_tokens}",
+        )
+
+    def test_hourly_peak_decay_relation_promotes_effect_claim_across_midnight(self) -> None:
+        """Cross-midnight hourly lead-lag should still count as temporal precedence."""
+        from app.evidence_engine.causal_checkers import TemporalPrecedenceChecker
+
+        checker = TemporalPrecedenceChecker()
+        observations = [
+            {
+                "observation_id": "obs_mid_01",
+                "type": "metric_change",
+                "subject": {"metric": "query_count", "slice": {"platform": "ios"}},
+                "payload": {"current_value": 100.0},
+                "observed_window": {"start": "2026-03-01T22:00", "end": "2026-03-01T23:00", "granularity": "hour"},
+            },
+            {
+                "observation_id": "obs_mid_02",
+                "type": "metric_change",
+                "subject": {"metric": "query_count", "slice": {"platform": "ios"}},
+                "payload": {"current_value": 180.0},
+                "observed_window": {"start": "2026-03-01T23:00", "end": "2026-03-02T00:00", "granularity": "hour"},
+            },
+            {
+                "observation_id": "obs_mid_03",
+                "type": "metric_change",
+                "subject": {"metric": "query_count", "slice": {"platform": "ios"}},
+                "payload": {"current_value": 110.0},
+                "observed_window": {"start": "2026-03-02T00:00", "end": "2026-03-02T01:00", "granularity": "hour"},
+            },
+            {
+                "observation_id": "obs_mid_04",
+                "type": "metric_change",
+                "subject": {"metric": "queued_time", "slice": {"platform": "ios"}},
+                "payload": {"current_value": 4.0},
+                "observed_window": {"start": "2026-03-02T00:00", "end": "2026-03-02T01:00", "granularity": "hour"},
+            },
+            {
+                "observation_id": "obs_mid_05",
+                "type": "metric_change",
+                "subject": {"metric": "queued_time", "slice": {"platform": "ios"}},
+                "payload": {"current_value": 10.0},
+                "observed_window": {"start": "2026-03-02T01:00", "end": "2026-03-02T02:00", "granularity": "hour"},
+            },
+            {
+                "observation_id": "obs_mid_06",
+                "type": "metric_change",
+                "subject": {"metric": "queued_time", "slice": {"platform": "ios"}},
+                "payload": {"current_value": 6.0},
+                "observed_window": {"start": "2026-03-02T02:00", "end": "2026-03-02T03:00", "granularity": "hour"},
+            },
+        ]
+        cause_claim = {
+            "claim_id": "claim_mid_cause",
+            "inference_level": "L1",
+            "status": "confirmed",
+            "scope": {"metric": "query_count", "slice": {"platform": "ios"}},
+            "supporting_observations": ["obs_mid_01", "obs_mid_02", "obs_mid_03"],
+            "contradicting_observations": [],
+        }
+        effect_claim = {
+            "claim_id": "claim_mid_effect",
+            "inference_level": "L1",
+            "status": "confirmed",
+            "scope": {"metric": "queued_time", "slice": {"platform": "ios"}},
+            "supporting_observations": ["obs_mid_04", "obs_mid_05", "obs_mid_06"],
+            "contradicting_observations": [],
+        }
+        relation = {
+            "from_claim_id": cause_claim["claim_id"],
+            "to_claim_id": effect_claim["claim_id"],
+            "relation_type": "correlates_with",
+            "weight": 0.92,
+            "match_basis": {"category": "exact_match", "direction": "up"},
+            "score_components": {},
+            "supporting_observation_ids": [obs["observation_id"] for obs in observations],
+            "explanation": "cross-midnight peak-decay test relation",
+        }
+
+        upgrades = checker.check(
+            [cause_claim, effect_claim],
+            observations,
+            [],
+            relations=[relation],
+        )
+        self.assertEqual(len(upgrades), 1, f"Expected one cross-midnight L2 upgrade, got: {upgrades}")
+        self.assertEqual(upgrades[0].claim_id, effect_claim["claim_id"])
+
 
 class TemporallyPrecedesEdgePromotionTests(unittest.TestCase):
     """Causal edge materialization: temporally_precedes edges are emitted at synthesis time.
@@ -484,6 +659,101 @@ class TemporallyPrecedesEdgePromotionTests(unittest.TestCase):
                 _count_tp_edges(), 1,
                 "Repeated synthesize_findings must not multiply causal edges (expected exactly 1)",
             )
+
+    def test_hourly_peak_decay_edge_materialized_during_synthesize_findings(self) -> None:
+        """Hourly lead-lag should materialize a claim-to-claim temporally_precedes edge."""
+        import json
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            svc, synth, meta = self._make_service_with_synth(tmpdir)
+
+            sess_id = "sess_g2d_hourly01"
+            step_id = "step_g2d_hourly01"
+
+            meta.execute(
+                "INSERT INTO sessions (session_id, goal, constraints_json, budget_json, policy_json, status) VALUES (?, ?, ?, ?, ?, ?)",
+                [sess_id, "G-2d hourly promotion test", "{}", "{}", "{}", "active"],
+            )
+
+            hourly_windows = [
+                ("obs_h_01", "query_count", 100.0, 5.0, "2024-01-01T01:00", "2024-01-01T02:00"),
+                ("obs_h_02", "query_count", 180.0, 9.0, "2024-01-01T02:00", "2024-01-01T03:00"),
+                ("obs_h_03", "query_count", 120.0, 6.0, "2024-01-01T03:00", "2024-01-01T04:00"),
+                ("obs_h_04", "queued_time", 4.0, 2.0, "2024-01-01T02:00", "2024-01-01T03:00"),
+                ("obs_h_05", "queued_time", 10.0, 7.0, "2024-01-01T03:00", "2024-01-01T04:00"),
+                ("obs_h_06", "queued_time", 6.0, 3.0, "2024-01-01T04:00", "2024-01-01T05:00"),
+            ]
+            for oid, metric, current_value, delta_pct, wstart, wend in hourly_windows:
+                meta.execute(
+                    """
+                    INSERT INTO observations (
+                        observation_id, session_id, step_id, observation_type,
+                        subject_json, payload_json, significance_json, quality_json,
+                        observed_window_json, temporal_order
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        oid,
+                        sess_id,
+                        step_id,
+                        "metric_change",
+                        json.dumps(
+                            {
+                                "metric": metric,
+                                "slice": {"user": "sys_titan", "log_hour": wstart},
+                                "temporal_group_by_columns": ["log_hour"],
+                            }
+                        ),
+                        json.dumps({"current_value": current_value, "delta_pct": delta_pct}),
+                        json.dumps({"sample_size": 200, "practical_significance": True}),
+                        json.dumps({"freshness_ok": True, "sample_size_ok": True}),
+                        json.dumps({"start": wstart, "end": wend, "granularity": "hour"}),
+                        0,
+                    ],
+                )
+
+            synth.process(sess_id)
+
+            claims_before = meta.query_rows(
+                "SELECT claim_id, scope_json, inference_level FROM claims WHERE session_id = ? ORDER BY claim_id",
+                [sess_id],
+            )
+            self.assertEqual(len(claims_before), 2, f"Expected 2 folded hourly claims, got: {claims_before}")
+            self.assertTrue(
+                all(row["inference_level"] in {"L0", "L1"} for row in claims_before),
+                f"Expected pre-synthesis hourly claims to remain below L2, got: {claims_before}",
+            )
+
+            edges_before = meta.query_rows(
+                "SELECT edge_type FROM evidence_edges WHERE session_id = ? AND edge_type = 'temporally_precedes'",
+                [sess_id],
+            )
+            self.assertEqual(len(edges_before), 0, "Incremental synthesis must not materialize hourly temporal edges")
+
+            svc._run_synthesis(sess_id)
+
+            edges_after = meta.query_rows(
+                """
+                SELECT edge_type, from_node_id, to_node_id, weight, explanation
+                FROM evidence_edges
+                WHERE session_id = ? AND edge_type = 'temporally_precedes'
+                """,
+                [sess_id],
+            )
+            self.assertEqual(len(edges_after), 1, "Expected one hourly temporally_precedes edge after synthesis")
+            edge = dict(edges_after[0])
+            self.assertGreater(edge["weight"], 0)
+            self.assertIn("peaks at 2024-01-01 02:00", edge["explanation"])
+            self.assertIn("1 hours later", edge["explanation"])
+
+            claims_after = meta.query_rows(
+                "SELECT claim_id, inference_level, status FROM claims WHERE session_id = ? ORDER BY claim_id",
+                [sess_id],
+            )
+            l2_claims = [row for row in claims_after if row["inference_level"] == "L2"]
+            self.assertEqual(len(l2_claims), 1, f"Expected exactly one L2 hourly effect claim, got: {claims_after}")
+            self.assertIn(l2_claims[0]["status"], {"confirmed", "insufficient"})
 
 
 if __name__ == "__main__":
