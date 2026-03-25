@@ -462,7 +462,7 @@
     - planner 不再需要“旧字段拒绝器”，因为旧字段路径会在系统中彻底消失
 - [ ] **TSU-16.3d** 清理测试中的过渡断言
   - 当前中间态：
-    - `tests/test_tsu02_time_scope.py` 仍显式断言 bridge 后的 legacy params，如 `order_by`、`select`、`period_*`
+    - `tests/test_time_scope_resolution.py` 仍显式断言 bridge 后的 legacy params，如 `order_by`、`select`、`period_*`
     - 这些断言是阶段性必要，但不应成为最终 contract
   - 清理目标：
     - service / integration 测试改为验证 shared compiler / resolved request / final artifact 行为
