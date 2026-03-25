@@ -264,5 +264,37 @@ class DefaultClaimRelationDiscoveryTests(unittest.TestCase):
         correlates = [edge for edge in result["edges"] if edge["edge_type"] == "correlates_with"]
         self.assertEqual(correlates, [])
 
+    def test_pipeline_promotes_cross_metric_claim_group_to_l1_without_new_causal_edges(self) -> None:
+        observations = [
+            self._obs("obs_q", "query_count", 30.0, {"user": "sys_titan"}),
+            self._obs("obs_c", "cpu_time", 8.6, {"user": "sys_titan"}),
+            self._obs("obs_t", "queued_time", 58.5, {"user": "sys_titan"}),
+        ]
+        claims = [
+            self._claim("claim_q", "query_count", "obs_q", {"user": "sys_titan"}),
+            self._claim("claim_c", "cpu_time", "obs_c", {"user": "sys_titan"}),
+            self._claim("claim_t", "queued_time", "obs_t", {"user": "sys_titan"}),
+        ]
+
+        pipeline = EvidencePipeline(lambda _: ([], [], []))
+        result = pipeline.build_synthesis(observations, existing_claims=claims)
+
+        levels = {claim["claim_id"]: claim["inference_level"] for claim in result["claims"]}
+        self.assertEqual(levels["claim_q"], "L1")
+        self.assertEqual(levels["claim_c"], "L1")
+        self.assertEqual(levels["claim_t"], "L1")
+
+        justifications = {
+            claim["claim_id"]: claim["inference_justification"]
+            for claim in result["claims"]
+        }
+        self.assertTrue(any("cross_metric_consistency" in token for token in justifications["claim_q"]))
+
+        causal_edges = [
+            edge for edge in result["edges"]
+            if edge["edge_type"] in {"temporally_precedes", "mechanistically_explains"}
+        ]
+        self.assertEqual(causal_edges, [])
+
 if __name__ == "__main__":
     unittest.main()

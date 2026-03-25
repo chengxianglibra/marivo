@@ -400,12 +400,12 @@ assert "claims" in result and "recommendations" in result and "edges" in result
 #### 2.1 Claim Relation Discovery（对应 P1, P3；重构后版本）
 **文件**: `app/evidence_engine/claim_relations.py`, `app/evidence_engine/pipeline.py`
 
-- [ ] 在五层架构下新增 `ClaimRelationDiscovery.discover()` 阶段
-- [ ] 输入优先使用 confirmed claims；保留后续支持 tentative/provisional relation 的扩展点
-- [ ] 遍历 claims 对，计算 scope relationship：exact match / subset / overlap / complementary dimension
-- [ ] 首版只产出 claim-to-claim 的弱语义 relation，避免在 discovery 阶段直接做强因果判定
-- [ ] 将 relation materialize 为 `evidence_edges`，并在 evidence graph API 返回
-- [ ] relation 输出需保留 provenance：match_basis、score_components、supporting_observation_ids
+- [x] 在五层架构下新增 `ClaimRelationDiscovery.discover()` 阶段
+- [x] 输入优先使用 confirmed claims；保留后续支持 tentative/provisional relation 的扩展点
+- [x] 遍历 claims 对，计算 scope relationship：exact match / subset / overlap / complementary dimension
+- [x] 首版只产出 claim-to-claim 的弱语义 relation，避免在 discovery 阶段直接做强因果判定
+- [x] 将 relation materialize 为 `evidence_edges`，并在 evidence graph API 返回
+- [x] relation 输出需保留 provenance：match_basis、score_components、supporting_observation_ids
 
 **首版 Relation/Edge 规则**：
 | Condition | Relation / Edge Type | Example |
@@ -415,9 +415,9 @@ assert "claims" in result and "recommendations" in result and "edges" in result
 | 同一维度不同值，呈互补结构 | `correlates_with`（先不直接升格为 `mechanistically_explains`） | others vs oneservice |
 
 **非目标（首版不做）**：
-- [ ] 不在 relation discovery 中直接生成 `mechanistically_explains`
-- [ ] 不在 relation discovery 中直接做 L1/L2/L3 inference upgrade
-- [ ] 不复用 `justifies` 表达 claim-to-claim 关系（保留给 claim→recommendation）
+- [x] 不在 relation discovery 中直接生成 `mechanistically_explains`
+- [x] 不在 relation discovery 中直接做 L1/L2/L3 inference upgrade
+- [x] 不复用 `justifies` 表达 claim-to-claim 关系（保留给 claim→recommendation）
 
 **验收标准**：
 ```python

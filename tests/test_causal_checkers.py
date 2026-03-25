@@ -19,6 +19,7 @@ from app.evidence_engine.causal_checkers import (
     CausalChecker,
     CausalCheckerRegistry,
     CausalEdge,
+    CrossMetricCorrelationChecker,
     CrossSliceConsistencyChecker,
     DoseResponseChecker,
     LevelUpgrade,
@@ -336,6 +337,183 @@ class ReversalCheckerTests(unittest.TestCase):
         upgrades = self.checker.check([claim], obs, [])
         self.assertEqual(len(upgrades), 1)
         self.assertIn("sustained_3_periods", upgrades[0].justification_tokens[0])
+
+
+# ── CrossMetricCorrelationChecker ─────────────────────────────────────────────
+
+
+class CrossMetricCorrelationCheckerTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.checker = CrossMetricCorrelationChecker()
+
+    def _relation(
+        self,
+        from_claim_id: str,
+        to_claim_id: str,
+        *,
+        category: str = "exact_match",
+        direction: str = "up",
+    ) -> dict:
+        return {
+            "from_claim_id": from_claim_id,
+            "to_claim_id": to_claim_id,
+            "relation_type": "correlates_with",
+            "weight": 0.9,
+            "match_basis": {"category": category, "direction": direction},
+            "score_components": {"scope_match": 0.9},
+            "supporting_observation_ids": [],
+            "explanation": "test relation",
+        }
+
+    def test_promotes_exact_match_component_with_three_metrics(self) -> None:
+        obs = [
+            _make_obs("oq", "query_count", delta_pct=30.0, slice_val={"user": "sys_titan"}),
+            _make_obs("oc", "cpu_time", delta_pct=8.6, slice_val={"user": "sys_titan"}),
+            _make_obs("ot", "queued_time", delta_pct=58.5, slice_val={"user": "sys_titan"}),
+        ]
+        claims = [
+            {**_make_claim("cq", "query_count", obs_ids=["oq"], slice_val={"user": "sys_titan"}), "status": "confirmed"},
+            {**_make_claim("cc", "cpu_time", obs_ids=["oc"], slice_val={"user": "sys_titan"}), "status": "confirmed"},
+            {**_make_claim("ct", "queued_time", obs_ids=["ot"], slice_val={"user": "sys_titan"}), "status": "confirmed"},
+        ]
+        relations = [
+            self._relation("cq", "cc"),
+            self._relation("cc", "ct"),
+        ]
+
+        upgrades = self.checker.check(claims, obs, [], relations=relations)
+        self.assertEqual(len(upgrades), 3)
+        self.assertTrue(all(upgrade.new_level == "L1" for upgrade in upgrades))
+        self.assertTrue(all("cross_metric_consistency:3_metrics:user=sys_titan" in upgrade.justification_tokens[0] for upgrade in upgrades))
+
+    def test_promotes_subset_overlap_component(self) -> None:
+        obs = [
+            _make_obs("oq", "query_count", delta_pct=30.0, slice_val={"user": "sys_titan"}),
+            _make_obs("oc", "cpu_time", delta_pct=8.6, slice_val={"cluster": "k1", "user": "sys_titan"}),
+            _make_obs("ot", "queued_time", delta_pct=58.5, slice_val={"cluster": "k1", "user": "sys_titan"}),
+        ]
+        claims = [
+            {**_make_claim("cq", "query_count", obs_ids=["oq"], slice_val={"user": "sys_titan"}), "status": "confirmed"},
+            {**_make_claim("cc", "cpu_time", obs_ids=["oc"], slice_val={"cluster": "k1", "user": "sys_titan"}), "status": "confirmed"},
+            {**_make_claim("ct", "queued_time", obs_ids=["ot"], slice_val={"cluster": "k1", "user": "sys_titan"}), "status": "confirmed"},
+        ]
+        relations = [
+            self._relation("cq", "cc", category="subset_or_overlap"),
+            self._relation("cc", "ct", category="exact_match"),
+        ]
+
+        upgrades = self.checker.check(claims, obs, [], relations=relations)
+        self.assertEqual(len(upgrades), 3)
+
+    def test_no_upgrade_without_relations(self) -> None:
+        obs = [
+            _make_obs("oq", "query_count", delta_pct=30.0, slice_val={"user": "sys_titan"}),
+            _make_obs("oc", "cpu_time", delta_pct=8.6, slice_val={"user": "sys_titan"}),
+            _make_obs("ot", "queued_time", delta_pct=58.5, slice_val={"user": "sys_titan"}),
+        ]
+        claims = [
+            {**_make_claim("cq", "query_count", obs_ids=["oq"], slice_val={"user": "sys_titan"}), "status": "confirmed"},
+            {**_make_claim("cc", "cpu_time", obs_ids=["oc"], slice_val={"user": "sys_titan"}), "status": "confirmed"},
+            {**_make_claim("ct", "queued_time", obs_ids=["ot"], slice_val={"user": "sys_titan"}), "status": "confirmed"},
+        ]
+
+        self.assertEqual(self.checker.check(claims, obs, [], relations=None), [])
+        self.assertEqual(self.checker.check(claims, obs, [], relations=[]), [])
+
+    def test_no_upgrade_when_claim_has_no_supporting_observations(self) -> None:
+        obs = [
+            _make_obs("oq", "query_count", delta_pct=30.0, slice_val={"user": "sys_titan"}),
+            _make_obs("oc", "cpu_time", delta_pct=8.6, slice_val={"user": "sys_titan"}),
+            _make_obs("ot", "queued_time", delta_pct=58.5, slice_val={"user": "sys_titan"}),
+        ]
+        claims = [
+            {**_make_claim("cq", "query_count", obs_ids=[], slice_val={"user": "sys_titan"}), "status": "confirmed"},
+            {**_make_claim("cc", "cpu_time", obs_ids=["oc"], slice_val={"user": "sys_titan"}), "status": "confirmed"},
+            {**_make_claim("ct", "queued_time", obs_ids=["ot"], slice_val={"user": "sys_titan"}), "status": "confirmed"},
+        ]
+        relations = [
+            self._relation("cq", "cc"),
+            self._relation("cc", "ct"),
+        ]
+
+        upgrades = self.checker.check(claims, obs, [], relations=relations)
+        self.assertEqual(upgrades, [])
+
+    def test_no_upgrade_for_complementary_dimension_relation(self) -> None:
+        obs = [
+            _make_obs("oq", "query_count", delta_pct=30.0, slice_val={"resource_group": "others"}),
+            _make_obs("oc", "cpu_time", delta_pct=8.6, slice_val={"resource_group": "oneservice"}),
+            _make_obs("ot", "queued_time", delta_pct=58.5, slice_val={"resource_group": "others"}),
+        ]
+        claims = [
+            {**_make_claim("cq", "query_count", obs_ids=["oq"], slice_val={"resource_group": "others"}), "status": "confirmed"},
+            {**_make_claim("cc", "cpu_time", obs_ids=["oc"], slice_val={"resource_group": "oneservice"}), "status": "confirmed"},
+            {**_make_claim("ct", "queued_time", obs_ids=["ot"], slice_val={"resource_group": "others"}), "status": "confirmed"},
+        ]
+        relations = [
+            self._relation("cq", "cc", category="complementary_dimension"),
+            self._relation("cc", "ct", category="complementary_dimension"),
+        ]
+
+        upgrades = self.checker.check(claims, obs, [], relations=relations)
+        self.assertEqual(upgrades, [])
+
+    def test_no_upgrade_when_directions_disagree(self) -> None:
+        obs = [
+            _make_obs("oq", "query_count", delta_pct=30.0, slice_val={"user": "sys_titan"}),
+            _make_obs("oc", "cpu_time", delta_pct=-8.6, slice_val={"user": "sys_titan"}),
+            _make_obs("ot", "queued_time", delta_pct=58.5, slice_val={"user": "sys_titan"}),
+        ]
+        claims = [
+            {**_make_claim("cq", "query_count", obs_ids=["oq"], slice_val={"user": "sys_titan"}), "status": "confirmed"},
+            {**_make_claim("cc", "cpu_time", obs_ids=["oc"], slice_val={"user": "sys_titan"}), "status": "confirmed"},
+            {**_make_claim("ct", "queued_time", obs_ids=["ot"], slice_val={"user": "sys_titan"}), "status": "confirmed"},
+        ]
+        relations = [
+            self._relation("cq", "cc", direction="up"),
+            self._relation("cc", "ct", direction="up"),
+        ]
+
+        upgrades = self.checker.check(claims, obs, [], relations=relations)
+        self.assertEqual(upgrades, [])
+
+    def test_skips_component_with_only_two_distinct_metrics(self) -> None:
+        obs = [
+            _make_obs("oq1", "query_count", delta_pct=30.0, slice_val={"user": "sys_titan"}),
+            _make_obs("oq2", "query_count", delta_pct=32.0, slice_val={"cluster": "k1", "user": "sys_titan"}),
+            _make_obs("ot", "queued_time", delta_pct=58.5, slice_val={"cluster": "k1", "user": "sys_titan"}),
+        ]
+        claims = [
+            {**_make_claim("cq1", "query_count", obs_ids=["oq1"], slice_val={"user": "sys_titan"}), "status": "confirmed"},
+            {**_make_claim("cq2", "query_count", obs_ids=["oq2"], slice_val={"cluster": "k1", "user": "sys_titan"}), "status": "confirmed"},
+            {**_make_claim("ct", "queued_time", obs_ids=["ot"], slice_val={"cluster": "k1", "user": "sys_titan"}), "status": "confirmed"},
+        ]
+        relations = [
+            self._relation("cq1", "cq2", category="subset_or_overlap"),
+            self._relation("cq2", "ct", category="exact_match"),
+        ]
+
+        upgrades = self.checker.check(claims, obs, [], relations=relations)
+        self.assertEqual(upgrades, [])
+
+    def test_skips_claims_already_at_l1(self) -> None:
+        obs = [
+            _make_obs("oq", "query_count", delta_pct=30.0, slice_val={"user": "sys_titan"}),
+            _make_obs("oc", "cpu_time", delta_pct=8.6, slice_val={"user": "sys_titan"}),
+            _make_obs("ot", "queued_time", delta_pct=58.5, slice_val={"user": "sys_titan"}),
+        ]
+        claims = [
+            {**_make_claim("cq", "query_count", level="L1", obs_ids=["oq"], slice_val={"user": "sys_titan"}), "status": "confirmed"},
+            {**_make_claim("cc", "cpu_time", obs_ids=["oc"], slice_val={"user": "sys_titan"}), "status": "confirmed"},
+            {**_make_claim("ct", "queued_time", obs_ids=["ot"], slice_val={"user": "sys_titan"}), "status": "confirmed"},
+        ]
+        relations = [
+            self._relation("cq", "cc"),
+            self._relation("cc", "ct"),
+        ]
+
+        upgrades = self.checker.check(claims, obs, [], relations=relations)
+        self.assertEqual(upgrades, [])
 
 
 # ── Registry and integration ──────────────────────────────────────────────────

@@ -15,7 +15,7 @@ assembled so far. The level never decreases — it can only be promoted upward.
 | Level | Meaning | Automated? |
 |-------|---------|------------|
 | `L0` | Correlation / association only — default for all new claims | n/a (start state) |
-| `L1` | Effect is statistically consistent across ≥80% of observed slices | Yes — `CrossSliceConsistencyChecker` |
+| `L1` | Effect shows a deterministic consistency signal across slices, scopes, or correlated metrics | Yes — `CrossSliceConsistencyChecker`, `CrossScopeCorrelationChecker`, `CrossMetricCorrelationChecker` |
 | `L2` | Temporal precedence established — cause observed before effect in non-overlapping windows | Yes — `TemporalPrecedenceChecker` |
 | `L3` | Causal mechanism identified | Reserved (not yet implemented) |
 | `L4` | Confounders ruled out | Reserved (not yet implemented) |
@@ -132,6 +132,49 @@ confidence_boost: +0.02
 
 No causal edge is written for L0 → L1. This is a statistical association signal, not
 yet causal evidence.
+
+## Alternate L0 → L1 path: Cross-metric consistency
+
+### What triggers it
+
+`CrossMetricCorrelationChecker` runs during causal promotion when the pipeline already
+has claim relations from the relation-discovery layer. It does not mine claim pairs on
+its own and it does not write new causal edges. Instead, it consumes existing
+claim-to-claim `correlates_with` relations and upgrades the participating claims.
+
+**Promotion fires when:**
+- Relation discovery has already produced `correlates_with` relations
+- Only `exact_match` and `subset_or_overlap` relation categories are considered
+- A connected claim group contains at least 3 distinct metrics
+- Every participating claim has a resolvable `delta_pct` sign
+- All participating claims move in the same direction
+
+### Step recipe
+
+1. Run primitive steps that produce confirmed claims for multiple metrics in the same
+   scope or a near-equivalent scope, for example:
+   - `query_count` for `user=sys_titan`
+   - `cpu_time` for `cluster=k8soneservice-oneservice, user=sys_titan`
+   - `queued_time` for `cluster=k8soneservice-oneservice, user=sys_titan`
+2. Call `synthesize_findings` so the final synthesis path can:
+   - discover claim relations
+   - reuse those relations in `CrossMetricCorrelationChecker`
+   - upgrade the whole qualifying claim group to `L1`
+
+### Output
+
+```json
+{
+  "inference_level": "L1",
+  "inference_justification": [
+    "cross_metric_consistency:3_metrics:user=sys_titan→L1"
+  ]
+}
+```
+
+The evidence graph still shows the original claim-to-claim `correlates_with` edges from
+relation discovery. `CrossMetricCorrelationChecker` only changes claim levels; it does
+not add a second edge layer of its own.
 
 ---
 
