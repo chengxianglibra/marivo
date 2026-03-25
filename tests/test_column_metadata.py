@@ -196,9 +196,14 @@ class ConstraintsAppliedTests(unittest.TestCase):
         resp = self.client.post(
             f"/sessions/{session_id}/steps/aggregate_query",
             json={
-                "table_name": "analytics.watch_events",
-                "select": ["platform", "count(*) as cnt"],
+                "table": "analytics.watch_events",
                 "group_by": ["platform"],
+                "measures": [{"expr": "COUNT(*)", "as": "cnt"}],
+                "time_scope": {
+                    "mode": "single_window",
+                    "grain": "day",
+                    "current": {"start": "2026-03-01", "end": "2026-03-08"},
+                },
             },
         )
         self.assertEqual(resp.status_code, 200)

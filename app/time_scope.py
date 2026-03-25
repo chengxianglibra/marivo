@@ -126,6 +126,7 @@ _TIME_PREDICATE_PATTERN = re.compile(
 _TIMESTAMP_CANDIDATES = ("event_time", "timestamp", "created_at", "updated_at", "time")
 _DAY_CANDIDATES = ("log_date", "event_date", "dt", "date", "day")
 _HOUR_CANDIDATES = ("log_hour", "event_hour", "hour", "dt_hour")
+_EMPTY_SCHEMA_DAY_CANDIDATES = ("event_date", "date", "day", "dt", "log_date")
 
 
 def normalize_compare_metric_request(params: Mapping[str, Any]) -> ResolvedWindowedQueryRequest:
@@ -416,6 +417,17 @@ class TimeAxisResolver:
                     column=caps.fallback_date_column,
                     date_column=caps.fallback_date_column,
                     date_format=self._analysis_date_format(metadata_chain, caps.fallback_date_column),
+                )
+
+        if not columns and self.request.time_scope.grain == "day":
+            day_column = self._first_candidate(columns, _EMPTY_SCHEMA_DAY_CANDIDATES)
+            if day_column is not None:
+                return _AnalysisAxis(
+                    kind="date_field",
+                    expr=day_column,
+                    column=day_column,
+                    date_column=day_column,
+                    date_format=self._analysis_date_format(metadata_chain, day_column),
                 )
 
         timestamp_column = self._first_candidate(columns, _TIMESTAMP_CANDIDATES)

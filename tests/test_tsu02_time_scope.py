@@ -536,9 +536,9 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
 
         self.assertEqual(result["step_type"], "aggregate_query")
         self.assertEqual(captured["params"]["table_name"], "analytics.watch_events")
-        self.assertEqual(captured["params"]["select"], ["platform", "COUNT(*) AS query_count"])
+        self.assertEqual(captured["params"]["measures"], [{"expr": "COUNT(*)", "as": "query_count"}])
         self.assertEqual(captured["params"]["group_by"], ["platform"])
-        self.assertEqual(captured["params"]["order_by"], "query_count_delta_pct DESC")
+        self.assertEqual(captured["params"]["order"], "query_count_delta_pct DESC")
         scoped_query = captured["params"]["scoped_query"]
         self.assertEqual(scoped_query["analysis_time_kind"], "date_field")
         self.assertEqual(scoped_query["analysis_time_expr"], "event_date")

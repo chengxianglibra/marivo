@@ -12,9 +12,14 @@ from app.main import create_app
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 _STEP_PARAMS = {
-    "table_name": "analytics.watch_events",
-    "select": ["platform", "count(*) as cnt"],
+    "table": "analytics.watch_events",
     "group_by": ["platform"],
+    "measures": [{"expr": "COUNT(*)", "as": "cnt"}],
+    "time_scope": {
+        "mode": "single_window",
+        "grain": "day",
+        "current": {"start": "2026-03-01", "end": "2026-03-08"},
+    },
 }
 
 _VALID_SUGGESTED_ACTIONS = {

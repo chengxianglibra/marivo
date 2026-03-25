@@ -460,6 +460,65 @@ class AggregateGroupByAliasTests(unittest.TestCase):
         # pivoted GROUP BY references by_period columns (alias-as-column-ref is fine)
         self.assertIn("cluster_group", sql)
 
+    def test_compile_typed_aggregate_query_single_window_uses_measures(self) -> None:
+        compiled = compile_step(
+            AnalysisStepIR(
+                index=0,
+                step_type="aggregate_query",
+                params={
+                    "table_name": "events",
+                    "group_by": ["platform"],
+                    "measures": [{"expr": "COUNT(*)", "as": "query_count"}],
+                    "order": "query_count DESC",
+                    "scoped_query": {
+                        "mode": "single_window",
+                        "analysis_time_expr": "event_time",
+                        "current": {"start": "2026-03-25T10:00:00", "end": "2026-03-25T14:00:00"},
+                    },
+                },
+            ),
+            engine_type="duckdb",
+        )
+        self.assertIn("COUNT(*) AS query_count", compiled.sql)
+        self.assertIn("FROM scoped GROUP BY platform ORDER BY query_count DESC", compiled.sql)
+        self.assertEqual(compiled.params, ["2026-03-25T10:00:00", "2026-03-25T14:00:00"])
+
+    def test_compile_typed_aggregate_query_compare_mode_emits_delta_columns(self) -> None:
+        compiled = compile_step(
+            AnalysisStepIR(
+                index=0,
+                step_type="aggregate_query",
+                params={
+                    "table_name": "events",
+                    "group_by": ["platform"],
+                    "measures": [{"expr": "COUNT(*)", "as": "query_count"}],
+                    "scoped_query": {
+                        "mode": "compare",
+                        "analysis_time_expr": "event_time",
+                        "current": {"start": "2026-03-25T10:00:00", "end": "2026-03-25T14:00:00"},
+                        "baseline": {"start": "2026-03-25T06:00:00", "end": "2026-03-25T10:00:00"},
+                    },
+                },
+            ),
+            engine_type="duckdb",
+        )
+        self.assertIn("query_count_current", compiled.sql)
+        self.assertIn("query_count_baseline", compiled.sql)
+        self.assertIn("query_count_delta_pct", compiled.sql)
+        self.assertEqual(
+            compiled.params,
+            [
+                "2026-03-25T10:00:00",
+                "2026-03-25T14:00:00",
+                "2026-03-25T06:00:00",
+                "2026-03-25T10:00:00",
+                "2026-03-25T10:00:00",
+                "2026-03-25T14:00:00",
+                "2026-03-25T06:00:00",
+                "2026-03-25T10:00:00",
+            ],
+        )
+
 
 class ExecutorTests(unittest.TestCase):
     def test_execute_compiled_translates_sql(self) -> None:

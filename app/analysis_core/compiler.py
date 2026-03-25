@@ -277,6 +277,105 @@ def _expand_group_by_aliases(select_exprs: list[str], group_by: list[str]) -> li
     return expanded
 
 
+def _normalize_typed_aggregate_measures(raw_measures: Any) -> list[tuple[str, str]]:
+    if not isinstance(raw_measures, list) or not raw_measures:
+        raise ValueError("aggregate_query requires 'measures' param (list of measure objects)")
+
+    normalized: list[tuple[str, str]] = []
+    for measure in raw_measures:
+        if not isinstance(measure, Mapping):
+            raise ValueError("aggregate_query measures must be objects with 'expr' and 'as'")
+        expr = str(measure.get("expr") or "").strip()
+        alias = str(measure.get("as") or "").strip()
+        if not expr or not alias:
+            raise ValueError("aggregate_query measures must include non-empty 'expr' and 'as'")
+        normalized.append((expr, alias))
+    return normalized
+
+
+def build_windowed_aggregate_query(
+    table_name: str,
+    measures: list[Mapping[str, Any]] | list[dict[str, Any]],
+    group_by: list[str],
+    *,
+    order_by: str | None = None,
+    limit: int = 100,
+    scoped_query: Mapping[str, Any] | None = None,
+) -> str:
+    """Build typed aggregate_query SQL for single-window and compare modes.
+
+    This is the execution-facing compiler path for the TSU aggregate contract:
+    grouping is expressed via ``group_by`` and values are expressed only via
+    ``measures``. When ``scoped_query.mode == 'compare'``, the shared
+    scoped/periodized comparison skeleton is used.
+    """
+
+    agg_exprs = _normalize_typed_aggregate_measures(measures)
+    group_by_sql = ", ".join(group_by)
+    agg_select = ", ".join(f"{expr} AS {alias}" for expr, alias in agg_exprs)
+    select_prefix = f"{group_by_sql}, " if group_by_sql else ""
+
+    compare_mode = (
+        scoped_query is not None
+        and str(scoped_query.get("mode") or "").strip() == "compare"
+    )
+    if compare_mode:
+        first_alias = agg_exprs[0][1]
+        effective_order_by = order_by or f"{first_alias}_delta_pct DESC"
+        scoped = _build_scoped_query_parts(table_name, scoped_query, include_period=True)
+        by_period_select_prefix = f"_period, {group_by_sql}, " if group_by_sql else "_period, "
+
+        pivot_parts: list[str] = []
+        final_parts: list[str] = []
+        for _, alias in agg_exprs:
+            pivot_parts.append(
+                f"MAX(CASE WHEN _period = 'current' THEN {alias} END) AS {alias}_current"
+            )
+            pivot_parts.append(
+                f"MAX(CASE WHEN _period = 'baseline' THEN {alias} END) AS {alias}_baseline"
+            )
+            final_parts.append(f"{alias}_current")
+            final_parts.append(f"{alias}_baseline")
+            final_parts.append(
+                f"ROUND(({alias}_current - {alias}_baseline) * 1.0 / NULLIF({alias}_baseline, 0) * 100, 2) "
+                f"AS {alias}_delta_pct"
+            )
+
+        by_period_group_by = f"GROUP BY _period, {group_by_sql}" if group_by_sql else "GROUP BY _period"
+        pivot_group_by = f"GROUP BY {group_by_sql}" if group_by_sql else ""
+        pivot_select_prefix = f"{group_by_sql},\n            " if group_by_sql else ""
+        final_select_prefix = f"{group_by_sql},\n            " if group_by_sql else ""
+        return f"""
+            WITH {scoped.cte_sql},
+            by_period AS (
+                SELECT {by_period_select_prefix}{agg_select}
+                FROM scoped
+                {by_period_group_by}
+            ),
+            pivoted AS (
+                SELECT {pivot_select_prefix}{",\n            ".join(pivot_parts)}
+                FROM by_period
+                {pivot_group_by}
+            )
+            SELECT {final_select_prefix}{",\n            ".join(final_parts)}
+            FROM pivoted
+            ORDER BY {effective_order_by}
+            LIMIT {limit}
+        """
+
+    group_clause = f" GROUP BY {group_by_sql}" if group_by_sql else ""
+    order_clause = f" ORDER BY {order_by}" if order_by else ""
+
+    if scoped_query is not None:
+        scoped = _build_scoped_query_parts(table_name, scoped_query, include_period=False)
+        return (
+            f"WITH {scoped.cte_sql} "
+            f"SELECT {select_prefix}{agg_select} FROM scoped{group_clause}{order_clause} LIMIT {limit}"
+        )
+
+    return f"SELECT {select_prefix}{agg_select} FROM {table_name}{group_clause}{order_clause} LIMIT {limit}"
+
+
 def build_aggregate_comparison_query(
     table_name: str,
     select_exprs: list[str],
@@ -529,20 +628,50 @@ def compile_step(
         )
 
     if step.step_type == "aggregate_query":
-        table_name = _require_param(step, "table_name")
-        select_exprs = params.get("select")
-        if not select_exprs or not isinstance(select_exprs, list):
-            raise ValueError("aggregate_query requires 'select' param (list of expressions)")
+        table_name = step.table_name()
+        if table_name is None:
+            raise ValueError("aggregate_query requires 'table' or 'table_name' param")
         group_by = params.get("group_by", [])
         if not isinstance(group_by, list):
             raise ValueError("aggregate_query requires 'group_by' param (list of columns)")
-        where = params.get("where")
-        order_by = params.get("order_by")
         limit = int(params.get("limit", 100))
         scoped_query = params.get("scoped_query")
         has_scoped_query = isinstance(scoped_query, Mapping)
-        if not group_by and not has_scoped_query:
-            raise ValueError("aggregate_query requires 'group_by' param (list of columns)")
+        order_by = params.get("order_by") or params.get("order")
+        typed_measures = params.get("measures")
+
+        if typed_measures is not None:
+            sql = build_windowed_aggregate_query(
+                table_name=table_name,
+                measures=typed_measures,
+                group_by=list(group_by),
+                order_by=str(order_by) if order_by else None,
+                limit=limit,
+                scoped_query=scoped_query if has_scoped_query else None,
+            )
+            compiled_params: list[Any] = []
+            compare_period = has_scoped_query and str(scoped_query.get("mode") or "") == "compare"
+            if has_scoped_query:
+                compiled_params = _build_scoped_query_parts(
+                    table_name,
+                    scoped_query,
+                    include_period=compare_period,
+                ).params
+            return CompiledQuery(
+                sql=sql,
+                params=compiled_params,
+                metadata={
+                    **metadata,
+                    "table_name": table_name,
+                    "limit": limit,
+                    "compare_period": compare_period,
+                },
+            )
+
+        select_exprs = params.get("select")
+        if not select_exprs or not isinstance(select_exprs, list):
+            raise ValueError("aggregate_query requires 'select' param (list of expressions)")
+        where = params.get("where")
 
         if params.get("compare_period") or (has_scoped_query and str(scoped_query.get("mode") or "") == "compare"):
             date_column = str(params.get("date_column", "event_date"))
