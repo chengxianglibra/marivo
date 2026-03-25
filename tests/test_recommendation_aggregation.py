@@ -1,7 +1,7 @@
 """Tests for multi-claim recommendation aggregation (roadmap 1.2).
 
-Validates that DefaultRecommendationPolicy groups confirmed claims by slice
-and generates aggregated recommendations with supporting_claims.
+Validates that DefaultRecommendationPolicy uses claim relations to decide
+whether same-slice claims should be aggregated.
 """
 from __future__ import annotations
 
@@ -28,9 +28,11 @@ def _make_observation(obs_id: str, metric: str, delta_pct: float, **slice_kv: An
 def _make_claim(
     claim_id: str,
     metric: str,
+    delta_pct: float = 10.0,
     status: str = "confirmed",
     confidence: float = 0.7,
     supporting_obs: list[str] | None = None,
+    inference_level: str = "L0",
     **slice_kv: Any,
 ) -> dict[str, Any]:
     return {
@@ -42,9 +44,26 @@ def _make_claim(
         "status": status,
         "supporting_observations": supporting_obs or [],
         "contradicting_observations": [],
-        "confidence_breakdown": {},
-        "inference_level": "L0",
+        "confidence_breakdown": {
+            "primary_delta_pct": delta_pct,
+            "primary_direction": "up" if delta_pct > 0 else "down",
+            "current_value": 100,
+        },
+        "inference_level": inference_level,
         "inference_justification": [],
+    }
+
+
+def _relation(left: str, right: str, relation_type: str = "correlates_with") -> dict[str, Any]:
+    return {
+        "from_claim_id": left,
+        "to_claim_id": right,
+        "relation_type": relation_type,
+        "weight": 0.9,
+        "match_basis": {},
+        "score_components": {},
+        "supporting_observation_ids": [],
+        "explanation": "test relation",
     }
 
 
@@ -54,26 +73,44 @@ class TestMultiClaimAggregation(unittest.TestCase):
     def setUp(self) -> None:
         self.policy = DefaultRecommendationPolicy()
 
-    def test_three_claims_same_slice_produce_one_aggregated_rec(self) -> None:
-        """3 confirmed claims sharing user=sys_titan → 1 rec with supporting_claims >= 3."""
+    def test_three_claims_same_slice_with_relations_produce_one_aggregated_rec(self) -> None:
+        """3 confirmed claims with same slice + relations → 1 aggregated recommendation."""
         obs = [
             _make_observation("obs_1", "query_count", 33.5, user="sys_titan"),
             _make_observation("obs_2", "queued_time", 120.3, user="sys_titan"),
             _make_observation("obs_3", "cpu_time", 15.0, user="sys_titan"),
         ]
         claims = [
-            _make_claim("c1", "query_count", supporting_obs=["obs_1"], user="sys_titan"),
-            _make_claim("c2", "queued_time", supporting_obs=["obs_2"], user="sys_titan"),
-            _make_claim("c3", "cpu_time", supporting_obs=["obs_3"], user="sys_titan"),
+            _make_claim("c1", "query_count", 33.5, supporting_obs=["obs_1"], inference_level="L1", user="sys_titan"),
+            _make_claim("c2", "queued_time", 120.3, supporting_obs=["obs_2"], inference_level="L1", user="sys_titan"),
+            _make_claim("c3", "cpu_time", 15.0, supporting_obs=["obs_3"], inference_level="L1", user="sys_titan"),
         ]
-        recs = self.policy.derive(obs, claims, [])
+        relations = [_relation("c1", "c2"), _relation("c2", "c3")]
+        recs = self.policy.derive(obs, claims, [], relations)
         self.assertEqual(len(recs), 1)
         rec = recs[0]
         self.assertIsNotNone(rec.get("supporting_claims"))
         self.assertGreaterEqual(len(rec["supporting_claims"]), 3)
+        self.assertEqual(rec["template_id"], "multi_claim_correlated_action_v1")
         self.assertIn("query_count", rec["action_text"])
         self.assertIn("queued_time", rec["action_text"])
         self.assertIn("cpu_time", rec["action_text"])
+
+    def test_same_slice_without_relations_falls_back_to_single_claim_recs(self) -> None:
+        """Same-slice claims without relations should not be force-aggregated."""
+        obs = [
+            _make_observation("obs_1", "query_count", 33.5, user="sys_titan"),
+            _make_observation("obs_2", "queued_time", 120.3, user="sys_titan"),
+        ]
+        claims = [
+            _make_claim("c1", "query_count", 33.5, supporting_obs=["obs_1"], user="sys_titan"),
+            _make_claim("c2", "queued_time", 120.3, supporting_obs=["obs_2"], user="sys_titan"),
+        ]
+        recs = self.policy.derive(obs, claims, [])
+        self.assertEqual(len(recs), 2)
+        for rec in recs:
+            self.assertIsNone(rec.get("supporting_claims"))
+            self.assertEqual(rec["template_id"], "single_claim_action_v1")
 
     def test_different_slices_produce_separate_recs(self) -> None:
         """Claims with different slices get independent recommendations."""
@@ -84,26 +121,22 @@ class TestMultiClaimAggregation(unittest.TestCase):
             _make_observation("obs_4", "cpu_time", -5.0, user="sys_oneservice"),
         ]
         claims = [
-            _make_claim("c1", "query_count", supporting_obs=["obs_1"], user="sys_titan"),
-            _make_claim("c2", "queued_time", supporting_obs=["obs_2"], user="sys_titan"),
-            _make_claim("c3", "query_count", supporting_obs=["obs_3"], user="sys_oneservice"),
-            _make_claim("c4", "cpu_time", supporting_obs=["obs_4"], user="sys_oneservice"),
+            _make_claim("c1", "query_count", 33.5, supporting_obs=["obs_1"], user="sys_titan"),
+            _make_claim("c2", "queued_time", 120.3, supporting_obs=["obs_2"], user="sys_titan"),
+            _make_claim("c3", "query_count", -10.0, supporting_obs=["obs_3"], user="sys_oneservice"),
+            _make_claim("c4", "cpu_time", -5.0, supporting_obs=["obs_4"], user="sys_oneservice"),
         ]
         recs = self.policy.derive(obs, claims, [])
-        self.assertEqual(len(recs), 2)
-        # Each rec has supporting_claims
-        for rec in recs:
-            self.assertIsNotNone(rec.get("supporting_claims"))
-            self.assertEqual(len(rec["supporting_claims"]), 2)
+        self.assertEqual(len(recs), 4)
 
     def test_single_claim_group_falls_back_to_single_rec(self) -> None:
         """A group with only 1 claim produces a single-claim rec (no supporting_claims)."""
         obs = [_make_observation("obs_1", "query_count", 33.5, user="sys_titan")]
-        claims = [_make_claim("c1", "query_count", supporting_obs=["obs_1"], user="sys_titan")]
+        claims = [_make_claim("c1", "query_count", 33.5, supporting_obs=["obs_1"], user="sys_titan")]
         recs = self.policy.derive(obs, claims, [])
         self.assertEqual(len(recs), 1)
-        # Single claim rec has supporting_claims = None
         self.assertIsNone(recs[0].get("supporting_claims"))
+        self.assertEqual(recs[0]["template_id"], "single_claim_action_v1")
 
     def test_only_confirmed_claims_are_aggregated(self) -> None:
         """Insufficient claims should not be included in aggregation groups."""
@@ -113,33 +146,16 @@ class TestMultiClaimAggregation(unittest.TestCase):
             _make_observation("obs_3", "cpu_time", 5.0, user="sys_titan"),
         ]
         claims = [
-            _make_claim("c1", "query_count", status="confirmed", supporting_obs=["obs_1"], user="sys_titan"),
-            _make_claim("c2", "queued_time", status="confirmed", supporting_obs=["obs_2"], user="sys_titan"),
-            _make_claim("c3", "cpu_time", status="insufficient", supporting_obs=["obs_3"], user="sys_titan"),
+            _make_claim("c1", "query_count", 33.5, status="confirmed", supporting_obs=["obs_1"], inference_level="L1", user="sys_titan"),
+            _make_claim("c2", "queued_time", 120.3, status="confirmed", supporting_obs=["obs_2"], inference_level="L1", user="sys_titan"),
+            _make_claim("c3", "cpu_time", 5.0, status="insufficient", supporting_obs=["obs_3"], user="sys_titan"),
         ]
-        recs = self.policy.derive(obs, claims, [])
+        recs = self.policy.derive(obs, claims, [], [_relation("c1", "c2")])
         self.assertEqual(len(recs), 1)
         rec = recs[0]
-        # Only 2 confirmed claims are aggregated
         self.assertIsNotNone(rec.get("supporting_claims"))
         self.assertEqual(len(rec["supporting_claims"]), 2)
         self.assertNotIn("c3", rec["supporting_claims"])
-
-    def test_action_text_groups_by_direction(self) -> None:
-        """action_text should separate increased and declined metrics."""
-        obs = [
-            _make_observation("obs_1", "query_count", 33.5, user="sys_titan"),
-            _make_observation("obs_2", "error_rate", -15.0, user="sys_titan"),
-        ]
-        claims = [
-            _make_claim("c1", "query_count", supporting_obs=["obs_1"], user="sys_titan"),
-            _make_claim("c2", "error_rate", supporting_obs=["obs_2"], user="sys_titan"),
-        ]
-        recs = self.policy.derive(obs, claims, [])
-        self.assertEqual(len(recs), 1)
-        text = recs[0]["action_text"]
-        self.assertIn("increased", text)
-        self.assertIn("declined", text)
 
     def test_priority_takes_highest_urgency(self) -> None:
         """Priority should be the most urgent across the group (all confirmed → P1)."""
@@ -148,10 +164,10 @@ class TestMultiClaimAggregation(unittest.TestCase):
             _make_observation("obs_2", "queued_time", 120.3, user="sys_titan"),
         ]
         claims = [
-            _make_claim("c1", "query_count", status="confirmed", supporting_obs=["obs_1"], user="sys_titan"),
-            _make_claim("c2", "queued_time", status="confirmed", supporting_obs=["obs_2"], user="sys_titan"),
+            _make_claim("c1", "query_count", 33.5, status="confirmed", supporting_obs=["obs_1"], inference_level="L1", user="sys_titan"),
+            _make_claim("c2", "queued_time", 120.3, status="confirmed", supporting_obs=["obs_2"], inference_level="L1", user="sys_titan"),
         ]
-        recs = self.policy.derive(obs, claims, [])
+        recs = self.policy.derive(obs, claims, [], [_relation("c1", "c2")])
         self.assertEqual(len(recs), 1)
         self.assertEqual(recs[0]["priority"], "P1")
 
@@ -162,23 +178,23 @@ class TestMultiClaimAggregation(unittest.TestCase):
             _make_observation("obs_2", "queued_time", 120.3, user="sys_titan"),
         ]
         claims = [
-            _make_claim("c1", "query_count", confidence=0.6, supporting_obs=["obs_1"], user="sys_titan"),
-            _make_claim("c2", "queued_time", confidence=0.9, supporting_obs=["obs_2"], user="sys_titan"),
+            _make_claim("c1", "query_count", 33.5, confidence=0.6, supporting_obs=["obs_1"], inference_level="L1", user="sys_titan"),
+            _make_claim("c2", "queued_time", 120.3, confidence=0.9, supporting_obs=["obs_2"], inference_level="L1", user="sys_titan"),
         ]
-        recs = self.policy.derive(obs, claims, [])
+        recs = self.policy.derive(obs, claims, [], [_relation("c1", "c2")])
         self.assertEqual(len(recs), 1)
         self.assertEqual(recs[0]["claim_id"], "c2")
 
     def test_no_recommendation_when_no_confirmed_claims(self) -> None:
         """Without confirmed claims, recommendation derivation should return no actions."""
         obs = [_make_observation("obs_1", "query_count", 33.5)]
-        claims = [_make_claim("c1", "query_count", status="tentative", confidence=0.3, supporting_obs=["obs_1"])]
+        claims = [_make_claim("c1", "query_count", 33.5, status="tentative", confidence=0.3, supporting_obs=["obs_1"])]
         recs = self.policy.derive(obs, claims, [])
         self.assertEqual(recs, [])
 
 
-class TestSupportingClaimsPersistence(unittest.TestCase):
-    """Integration test: supporting_claims_json survives write → read round-trip."""
+class TestRecommendationPersistence(unittest.TestCase):
+    """Integration tests for recommendation persistence columns."""
 
     def test_supporting_claims_persisted_and_read_back(self) -> None:
         from app.storage.sqlite_metadata import SQLiteMetadataStore
@@ -200,13 +216,13 @@ class TestSupportingClaimsPersistence(unittest.TestCase):
             meta.execute(
                 """
                 INSERT INTO recommendations (
-                    rec_id, session_id, claim_id, action_text, priority,
+                    rec_id, session_id, claim_id, action_text, template_id, priority,
                     expected_impact, risk, validation_metric_json, supporting_claims_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     "rec_test123456", session_id, "claim_aaa",
-                    "test action", "P1", "test impact", "test risk",
+                    "test action", "multi_claim_correlated_action_v1", "P1", "test impact", "test risk",
                     json.dumps({"primary_metric": "m1"}),
                     json.dumps(supporting),
                 ],
@@ -256,6 +272,39 @@ class TestSupportingClaimsPersistence(unittest.TestCase):
             )
             self.assertIsNotNone(row)
             self.assertIsNone(row["supporting_claims_json"])
+
+    def test_template_id_persisted_and_read_back(self) -> None:
+        from app.storage.sqlite_metadata import SQLiteMetadataStore
+
+        with tempfile.TemporaryDirectory() as td:
+            meta = SQLiteMetadataStore(Path(td) / "test.meta.sqlite")
+            meta.initialize()
+
+            session_id = "sess_test345678"
+            meta.execute(
+                "INSERT INTO sessions (session_id, goal, constraints_json, budget_json, policy_json, status) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                [session_id, "test", "{}", "{}", "{}", "active"],
+            )
+            meta.execute(
+                """
+                INSERT INTO recommendations (
+                    rec_id, session_id, claim_id, action_text, template_id, priority,
+                    expected_impact, risk, validation_metric_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    "rec_test345678", session_id, "claim_aaa", "test action",
+                    "single_claim_action_v1", "P1", "impact", "risk",
+                    json.dumps({"primary_metric": "m1"}),
+                ],
+            )
+            row = meta.query_one(
+                "SELECT template_id FROM recommendations WHERE rec_id = ?",
+                ["rec_test345678"],
+            )
+            self.assertIsNotNone(row)
+            self.assertEqual(row["template_id"], "single_claim_action_v1")
 
 
 if __name__ == "__main__":

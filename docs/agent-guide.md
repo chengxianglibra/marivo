@@ -68,7 +68,7 @@ Evidence packaging is central:
 - claim = synthesized conclusion with inference level; L1 may come from cross-slice, cross-scope, or cross-metric consistency
 - `temporally_precedes` is a claim-to-claim causal edge backed by real observation windows or relation-backed hourly peak/decay lead-lag, not by step execution order; current comparisons assume observations in the same session use a consistent timezone/time basis
 - evidence edge = relation between evidence objects
-- recommendation = action backed by confirmed claims
+- recommendation = action backed by confirmed claims; derivation is template-driven from final claims + claim relations, and responses include a stable `template_id` for debugging/UX
 
 ## Step Model
 

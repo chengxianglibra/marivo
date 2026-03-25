@@ -26,6 +26,7 @@ def _claim(
     claim_id: str,
     metric: str,
     obs_id: str,
+    delta_pct: float,
     *,
     status: str = "confirmed",
     confidence: float = 0.9,
@@ -40,7 +41,11 @@ def _claim(
         "status": status,
         "supporting_observations": [obs_id],
         "contradicting_observations": [],
-        "confidence_breakdown": {},
+        "confidence_breakdown": {
+            "primary_delta_pct": delta_pct,
+            "primary_direction": "up" if delta_pct > 0 else "down",
+            "current_value": 100,
+        },
         "inference_level": "L0",
         "inference_justification": [],
     }
@@ -52,7 +57,7 @@ class NoActionRecommendationTests(unittest.TestCase):
     def test_small_delta_produces_no_action(self) -> None:
         """delta_pct < 5% should produce no_action_required regardless of direction."""
         obs = [_obs("obs1", "cpu_time", 3.2)]
-        claims = [_claim("c1", "cpu_time", "obs1")]
+        claims = [_claim("c1", "cpu_time", "obs1", 3.2)]
         policy = DefaultRecommendationPolicy()
         recs = policy.derive(obs, claims, [])
         self.assertEqual(len(recs), 1)
@@ -64,7 +69,7 @@ class NoActionRecommendationTests(unittest.TestCase):
         directions = {"queued_time": "down"}
         resolver = lambda name: directions.get(name)
         obs = [_obs("obs1", "queued_time", -71.5)]
-        claims = [_claim("c1", "queued_time", "obs1")]
+        claims = [_claim("c1", "queued_time", "obs1", -71.5)]
         policy = DefaultRecommendationPolicy(metric_direction_resolver=resolver)
         recs = policy.derive(obs, claims, [])
         self.assertEqual(len(recs), 1)
@@ -74,7 +79,7 @@ class NoActionRecommendationTests(unittest.TestCase):
         """Metric with desired_direction='up' and positive delta → no action."""
         resolver = lambda name: "up" if name == "throughput" else None
         obs = [_obs("obs1", "throughput", 25.0)]
-        claims = [_claim("c1", "throughput", "obs1")]
+        claims = [_claim("c1", "throughput", "obs1", 25.0)]
         policy = DefaultRecommendationPolicy(metric_direction_resolver=resolver)
         recs = policy.derive(obs, claims, [])
         self.assertEqual(len(recs), 1)
@@ -84,7 +89,7 @@ class NoActionRecommendationTests(unittest.TestCase):
         """Metric with desired_direction='down' but positive delta → action required."""
         resolver = lambda name: "down" if name == "queued_time" else None
         obs = [_obs("obs1", "queued_time", 58.5)]
-        claims = [_claim("c1", "queued_time", "obs1")]
+        claims = [_claim("c1", "queued_time", "obs1", 58.5)]
         policy = DefaultRecommendationPolicy(metric_direction_resolver=resolver)
         recs = policy.derive(obs, claims, [])
         self.assertEqual(len(recs), 1)
@@ -93,7 +98,7 @@ class NoActionRecommendationTests(unittest.TestCase):
     def test_no_direction_large_delta_produces_action(self) -> None:
         """No desired_direction and large delta → action required."""
         obs = [_obs("obs1", "query_count", 30.0)]
-        claims = [_claim("c1", "query_count", "obs1")]
+        claims = [_claim("c1", "query_count", "obs1", 30.0)]
         policy = DefaultRecommendationPolicy()
         recs = policy.derive(obs, claims, [])
         self.assertEqual(len(recs), 1)
@@ -103,7 +108,7 @@ class NoActionRecommendationTests(unittest.TestCase):
         """desired_direction='neutral' treated like None — large delta → action."""
         resolver = lambda name: "neutral"
         obs = [_obs("obs1", "query_count", 30.0)]
-        claims = [_claim("c1", "query_count", "obs1")]
+        claims = [_claim("c1", "query_count", "obs1", 30.0)]
         policy = DefaultRecommendationPolicy(metric_direction_resolver=resolver)
         recs = policy.derive(obs, claims, [])
         self.assertEqual(len(recs), 1)
@@ -112,7 +117,7 @@ class NoActionRecommendationTests(unittest.TestCase):
     def test_no_action_has_p3_priority_and_none_risk(self) -> None:
         """No-action recs should have P3 priority and 'none' risk."""
         obs = [_obs("obs1", "cpu_time", 2.0)]
-        claims = [_claim("c1", "cpu_time", "obs1")]
+        claims = [_claim("c1", "cpu_time", "obs1", 2.0)]
         policy = DefaultRecommendationPolicy()
         recs = policy.derive(obs, claims, [])
         self.assertEqual(recs[0]["priority"], "P3")
@@ -128,9 +133,9 @@ class NoActionRecommendationTests(unittest.TestCase):
             _obs("obs3", "cpu_time", 2.0),  # small delta
         ]
         claims = [
-            _claim("c1", "query_count", "obs1", slice_dict={"user": "sys_titan"}),
-            _claim("c2", "queued_time", "obs2", slice_dict={"user": "sys_oneservice"}),
-            _claim("c3", "cpu_time", "obs3", slice_dict={"user": "sys_titan"}),
+            _claim("c1", "query_count", "obs1", 30.0, slice_dict={"user": "sys_titan"}),
+            _claim("c2", "queued_time", "obs2", -71.5, slice_dict={"user": "sys_oneservice"}),
+            _claim("c3", "cpu_time", "obs3", 2.0, slice_dict={"user": "sys_titan"}),
         ]
         policy = DefaultRecommendationPolicy(metric_direction_resolver=resolver)
         recs = policy.derive(obs, claims, [])
@@ -164,13 +169,13 @@ class GetClaimDeltaTests(unittest.TestCase):
     """Tests for the _get_claim_delta helper."""
 
     def test_extracts_delta_from_observation(self) -> None:
-        obs_map = {"obs1": _obs("obs1", "m", -14.2)}
-        claim = _claim("c1", "m", "obs1")
-        self.assertAlmostEqual(_get_claim_delta(claim, obs_map), -14.2)
+        claim = _claim("c1", "m", "obs1", -14.2)
+        self.assertAlmostEqual(_get_claim_delta(claim), -14.2)
 
     def test_returns_none_when_no_observations(self) -> None:
-        claim = _claim("c1", "m", "obs_missing")
-        self.assertIsNone(_get_claim_delta(claim, {}))
+        claim = _claim("c1", "m", "obs_missing", 0.0)
+        claim["confidence_breakdown"] = {}
+        self.assertIsNone(_get_claim_delta(claim))
 
 
 if __name__ == "__main__":

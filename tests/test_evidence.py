@@ -1119,7 +1119,7 @@ class IncrementalSynthesizerTests(unittest.TestCase):
 
 
 class DefaultRecommendationPolicyTests(unittest.TestCase):
-    """Tests for DefaultRecommendationPolicy action text with payload hints."""
+    """Tests for DefaultRecommendationPolicy template-driven action text."""
 
     def setUp(self) -> None:
         from app.evidence_engine.recommendation_policy import DefaultRecommendationPolicy
@@ -1145,8 +1145,9 @@ class DefaultRecommendationPolicyTests(unittest.TestCase):
             "scope": {"metric": "aggregate", "slice": slice_dict or {}},
             "supporting_observations": [obs_id],
             "contradicting_observations": [],
-            "confidence_breakdown": {},
-            "inference_justification": {},
+            "confidence_breakdown": {"current_value": 0.85},
+            "inference_level": "L0",
+            "inference_justification": [],
         }
 
     def test_insufficient_claims_do_not_produce_recommendations(self) -> None:
@@ -1158,11 +1159,13 @@ class DefaultRecommendationPolicyTests(unittest.TestCase):
     def test_confirmed_claim_includes_scope_and_payload_hint(self) -> None:
         obs = self._make_obs("obs_i1", {"avg_cpu": 0.85}, {"cluster": "k8sbi-bi1"})
         claim = self._make_claim("claim_i1", "obs_i1", "confirmed", {"cluster": "k8sbi-bi1"})
+        claim["text"] = "aggregate changed for cluster"
         recs = self.policy.derive([obs], [claim], [])
         self.assertEqual(len(recs), 1)
         action = recs[0]["action_text"]
         self.assertIn("cluster=k8sbi-bi1", action)
-        self.assertIn("observed avg_cpu=0.85", action)
+        self.assertIn("aggregate changed for cluster", action)
+        self.assertEqual(recs[0]["template_id"], "single_claim_action_v1")
 
     def test_non_confirmed_claim_without_payload_numeric_produces_no_recommendation(self) -> None:
         obs = self._make_obs("obs_j1", {"label": "foo"}, {"region": "us"})
@@ -1636,6 +1639,7 @@ class CausalBasisTests(unittest.TestCase):
         rows = self.service.metadata.query_rows("PRAGMA table_info(recommendations)", [])
         col_names = {row["name"] for row in rows}
         self.assertIn("causal_basis_json", col_names)
+        self.assertIn("template_id", col_names)
 
     def test_evidence_edges_relation_provenance_columns_in_schema(self) -> None:
         rows = self.service.metadata.query_rows("PRAGMA table_info(evidence_edges)", [])

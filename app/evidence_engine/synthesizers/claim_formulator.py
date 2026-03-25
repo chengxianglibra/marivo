@@ -115,6 +115,11 @@ class ClaimFormulator:
             "data_quality_score": round(signal.data_quality_score, 2),
             "contradiction_penalty": round(signal.contradiction_penalty, 2),
         }
+        recommendation_metadata = {
+            "primary_delta_pct": round(float(primary["payload"].get("delta_pct", 0.0)), 2),
+            "primary_direction": "up" if float(primary["payload"].get("delta_pct", 0.0)) > 0 else "down",
+            "current_value": primary["payload"].get("current_value"),
+        }
         final_confidence = score_confidence(**confidence_inputs)
 
         claim = {
@@ -129,7 +134,10 @@ class ClaimFormulator:
             "status": "supported",
             "supporting_observations": signal.supporting_obs_ids,
             "contradicting_observations": signal.contradicting_obs_ids,
-            "confidence_breakdown": confidence_inputs,
+            "confidence_breakdown": {
+                **confidence_inputs,
+                **recommendation_metadata,
+            },
             "inference_level": "L0",
             "inference_justification": [],
         }
