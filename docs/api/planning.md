@@ -1,6 +1,6 @@
 # Plans
 
-Plans allow you to define a sequence of analysis steps as a structured workflow, validate them, estimate costs, and execute them in dependency order. Plans follow the lifecycle: `draft` → `validated` → `approved` → `executing` → `completed` / `failed`.
+Plans allow you to define a sequence of analysis steps as a structured workflow, validate them, estimate costs, and execute them in dependency order. Plans follow the lifecycle: `draft` -> `validated` -> `approved` -> `executing` -> `completed` / `failed`.
 
 ## Endpoints
 
@@ -29,12 +29,23 @@ Each step in a plan is a JSON object describing a typed step to execute:
   "step_id": "s1",
   "step_type": "compare_metric",
   "params": {
-    "metric_name": "avg_watch_time_minutes",
-    "period_start": "2024-01-01",
-    "period_end": "2024-01-31"
+    "table": "events.user_video_watch",
+    "metric": "avg_watch_time_minutes",
+    "time_scope": {
+      "mode": "compare",
+      "grain": "day",
+      "current": {
+        "start": "2024-01-24",
+        "end": "2024-01-31"
+      },
+      "baseline": {
+        "start": "2024-01-17",
+        "end": "2024-01-24"
+      }
+    }
   },
   "depends_on": [],
-  "description": "Measure watch time change in January"
+  "description": "Measure week-over-week watch time change"
 }
 ```
 
@@ -72,18 +83,60 @@ Creates a plan in `draft` status. Plans are not validated or executed until expl
       "step_id": "s2",
       "step_type": "compare_metric",
       "params": {
-        "metric_name": "avg_watch_time_minutes",
-        "period_start": "2024-01-01",
-        "period_end": "2024-01-31"
+        "table": "events.user_video_watch",
+        "metric": "avg_watch_time_minutes",
+        "dimensions": ["device_type"],
+        "time_scope": {
+          "mode": "compare",
+          "grain": "day",
+          "current": {
+            "start": "2024-01-24",
+            "end": "2024-01-31"
+          },
+          "baseline": {
+            "start": "2024-01-17",
+            "end": "2024-01-24"
+          }
+        },
+        "scope": {
+          "constraints": {
+            "region": "us"
+          }
+        }
       },
       "depends_on": ["s1"],
-      "description": "Watch time comparison"
+      "description": "Watch time week-over-week comparison"
     },
     {
       "step_id": "s3",
+      "step_type": "aggregate_query",
+      "params": {
+        "table": "events.user_video_watch",
+        "group_by": ["device_type", "region"],
+        "measures": [
+          {"expr": "AVG(watch_duration_sec)", "as": "avg_watch_sec"},
+          {"expr": "COUNT(*)", "as": "cnt"}
+        ],
+        "time_scope": {
+          "mode": "single_window",
+          "grain": "day",
+          "current": {
+            "start": "2024-01-24",
+            "end": "2024-01-31"
+          }
+        },
+        "scope": {
+          "predicate": "watch_duration_sec > 30"
+        }
+      },
+      "depends_on": ["s2"],
+      "description": "Break down the current window by device and region"
+    },
+    {
+      "step_id": "s4",
       "step_type": "synthesize_findings",
       "params": {},
-      "depends_on": ["s2"],
+      "depends_on": ["s2", "s3"],
       "description": "Synthesize all evidence"
     }
   ]
@@ -155,19 +208,27 @@ POST /sessions/{session_id}/plans/{plan_id}/validate
 
 Validates a draft plan. Validation checks:
 
-1. **Step type validity** — all `step_type` values must be recognized
-2. **Dependency acyclicity** — `depends_on` references must not form cycles
-3. **Required params** — required parameters must be present for each step type
-4. **Semantic resolution** — `compare_metric` metrics must be published; requested `dimensions` must be supported by the metric
-5. **Contract constraints** — forbidden param combinations are rejected (e.g. `compare_metric` with `filter` or `where`)
-6. **Governance** — steps are checked against active policies
+1. **Step type validity** - all `step_type` values must be recognized
+2. **Dependency acyclicity** - `depends_on` references must not form cycles
+3. **Required params** - required parameters must be present for each step type
+4. **Semantic resolution** - `compare_metric` metrics must be published; requested `dimensions` must be supported by the metric
+5. **Contract constraints** - forbidden param combinations are rejected, including legacy params and time predicates inside `scope.predicate`
+6. **Governance** - steps are checked against active policies
+
+For the typed time-scope steps:
+
+- `compare_metric` requires `table`, `metric`, and `time_scope`
+- `aggregate_query` requires `table`, `measures`, and `time_scope`
+- `scope.predicate` must not contain time conditions; move all time filtering into `time_scope`
+- legacy params such as `metric_name`, `table_name`, `period_start`, `period_end`, `baseline_start`, `baseline_end`, `comparison_type`, `compare_period`, `date_column`, `select`, `where`, `order_by`, and `filter` are rejected
 
 **Validation issue codes** (non-exhaustive):
 
 | Code | Category | Description |
 |------|----------|-------------|
 | `missing_required_param` | params | A required param is absent for the step type |
-| `compare_metric_filter_not_allowed` | params | `compare_metric` received a step-level `filter` or `where` param — use session `raw_filter`/`constraints` instead |
+| `legacy_param_not_supported` | params | A step used deprecated pre-TSU request params instead of the typed contract |
+| `time_predicate_not_allowed_in_scope` | params | `scope.predicate` contains time-axis conditions; move them into `time_scope` |
 | `semantic_metric_not_found` | semantic | Metric is not published or does not exist |
 | `semantic_dimension_not_supported` | semantic | Requested dimension is not in the metric's dimension list |
 | `correlate_metrics_missing_left` | semantic | `correlate_metrics` is missing `left_artifact_id` or `left_step_id` |
@@ -280,12 +341,13 @@ Returns a human-readable explanation of what the plan will do, the execution ord
 ```json
 {
   "plan_id": "plan_...",
-  "execution_order": ["s1", "s2", "s3"],
-  "explanation": "This plan will first profile the table to establish baseline counts, then compare the watch time metric over January, and finally synthesize all observations into claims and recommendations.",
+  "execution_order": ["s1", "s2", "s3", "s4"],
+  "explanation": "This plan will first profile the table to establish baseline counts, then compare the watch time metric over two weekly windows, then break down the current window by device and region, and finally synthesize all observations into claims and recommendations.",
   "dependency_graph": {
     "s1": [],
     "s2": ["s1"],
-    "s3": ["s2"]
+    "s3": ["s2"],
+    "s4": ["s2", "s3"]
   }
 }
 ```
@@ -374,7 +436,7 @@ When budget is exceeded, `violations` lists the specific breaches:
 POST /sessions/{session_id}/plans/{plan_id}/patch
 ```
 
-Incrementally patches a plan. Intended for agent workflows where the agent wants to add, modify, or skip steps based on new evidence (e.g., after reading a `reflection-context` response).
+Incrementally patches a plan. Intended for agent workflows where the agent wants to add, modify, or skip steps based on new evidence (for example, after reading a `reflection-context` response).
 
 The patch workflow:
 1. Plan is reset to `draft`
@@ -392,10 +454,19 @@ Illegal patches (unknown step type, cyclic dependency, invalid params) return `4
     {
       "step_type": "aggregate_query",
       "params": {
-        "table_name": "events.user_video_watch",
-        "select": ["platform", "COUNT(*) as cnt"],
+        "table": "events.user_video_watch",
         "group_by": ["platform"],
-        "where": "event_date = '2024-01-15'"
+        "measures": [
+          {"expr": "COUNT(*)", "as": "cnt"}
+        ],
+        "time_scope": {
+          "mode": "single_window",
+          "grain": "day",
+          "current": {
+            "start": "2024-01-15",
+            "end": "2024-01-16"
+          }
+        }
       },
       "depends_on": ["s2"],
       "description": "Breakdown by platform after metric comparison"

@@ -7,7 +7,7 @@ This guide walks through a complete end-to-end analysis workflow using the Factu
 - Factum service running at `http://localhost:8000`
 - A DuckDB database with data to analyze
 
-## Step 1 — Register a Source
+## Step 1 - Register a Source
 
 Register the DuckDB database as a data source:
 
@@ -23,7 +23,7 @@ curl -s -X POST http://localhost:8000/sources \
 
 Save the returned `source_id`.
 
-## Step 2 — Register an Engine
+## Step 2 - Register an Engine
 
 Register an analytics engine (can share the same DuckDB file):
 
@@ -39,7 +39,7 @@ curl -s -X POST http://localhost:8000/engines \
 
 Save the returned `engine_id`.
 
-## Step 3 — Create a Binding
+## Step 3 - Create a Binding
 
 Link the source to the engine:
 
@@ -53,7 +53,7 @@ curl -s -X POST http://localhost:8000/bindings \
   }' | jq .
 ```
 
-## Step 4 — Sync the Catalog
+## Step 4 - Sync the Catalog
 
 Trigger a catalog sync to snapshot the source's schemas and tables:
 
@@ -65,7 +65,7 @@ curl -s -X POST http://localhost:8000/sources/src_.../sync | jq .
 curl -s http://localhost:8000/sources/src_.../sync/sync_... | jq .status
 ```
 
-## Step 5 — Create a Metric
+## Step 5 - Create a Metric
 
 Define a semantic metric in draft status:
 
@@ -83,7 +83,7 @@ curl -s -X POST http://localhost:8000/semantic/metrics \
 
 Save the returned `metric_id`.
 
-## Step 6 — Map the Metric to a Table
+## Step 6 - Map the Metric to a Table
 
 Link the metric to the physical table (get the `object_id` from Step 4 sync results):
 
@@ -101,13 +101,13 @@ curl -s -X POST http://localhost:8000/semantic/mappings \
   }' | jq .
 ```
 
-## Step 7 — Publish the Metric
+## Step 7 - Publish the Metric
 
 ```bash
 curl -s -X POST http://localhost:8000/semantic/metrics/met_.../publish | jq .
 ```
 
-## Step 8 — Create a Session
+## Step 8 - Create a Session
 
 ```bash
 curl -s -X POST http://localhost:8000/sessions \
@@ -121,7 +121,7 @@ curl -s -X POST http://localhost:8000/sessions \
 
 Save the returned `session_id`.
 
-## Step 9 — Run Analysis Steps
+## Step 9 - Run Analysis Steps
 
 **Compare the metric:**
 
@@ -129,9 +129,24 @@ Save the returned `session_id`.
 curl -s -X POST http://localhost:8000/sessions/sess_.../steps/compare_metric \
   -H "Content-Type: application/json" \
   -d '{
-    "metric_name": "avg_watch_time_minutes",
-    "period_start": "2024-01-01",
-    "period_end": "2024-01-31"
+    "table": "events.user_video_watch",
+    "metric": "avg_watch_time_minutes",
+    "dimensions": ["device_type"],
+    "time_scope": {
+      "mode": "compare",
+      "grain": "day",
+      "current": {
+        "start": "2024-01-24",
+        "end": "2024-01-31"
+      },
+      "baseline": {
+        "start": "2024-01-17",
+        "end": "2024-01-24"
+      }
+    },
+    "scope": {
+      "constraints": {"region": "us"}
+    }
   }' | jq .
 ```
 
@@ -141,10 +156,23 @@ curl -s -X POST http://localhost:8000/sessions/sess_.../steps/compare_metric \
 curl -s -X POST http://localhost:8000/sessions/sess_.../steps/aggregate_query \
   -H "Content-Type: application/json" \
   -d '{
-    "table_name": "events.user_video_watch",
-    "select": ["device_type", "os_version", "AVG(watch_duration_sec) as avg_watch_sec", "COUNT(*) as session_count"],
+    "table": "events.user_video_watch",
     "group_by": ["device_type", "os_version"],
-    "where": "event_date >= '\''2024-01-01'\'' AND event_date < '\''2024-02-01'\''"
+    "measures": [
+      {"expr": "AVG(watch_duration_sec)", "as": "avg_watch_sec"},
+      {"expr": "COUNT(*)", "as": "session_count"}
+    ],
+    "time_scope": {
+      "mode": "single_window",
+      "grain": "day",
+      "current": {
+        "start": "2024-01-24",
+        "end": "2024-01-31"
+      }
+    },
+    "scope": {
+      "predicate": "watch_duration_sec > 30"
+    }
   }' | jq .
 ```
 
@@ -156,7 +184,7 @@ curl -s -X POST http://localhost:8000/sessions/sess_.../steps/synthesize_finding
   -d '{}' | jq .
 ```
 
-## Step 10 — Review the Evidence Graph
+## Step 10 - Review the Evidence Graph
 
 ```bash
 curl -s http://localhost:8000/sessions/sess_.../evidence | jq '{
@@ -182,9 +210,20 @@ PLAN=$(curl -s -X POST http://localhost:8000/sessions/sess_.../plans \
         "step_id": "s1",
         "step_type": "compare_metric",
         "params": {
-          "metric_name": "avg_watch_time_minutes",
-          "period_start": "2024-01-01",
-          "period_end": "2024-01-31"
+          "table": "events.user_video_watch",
+          "metric": "avg_watch_time_minutes",
+          "time_scope": {
+            "mode": "compare",
+            "grain": "day",
+            "current": {
+              "start": "2024-01-24",
+              "end": "2024-01-31"
+            },
+            "baseline": {
+              "start": "2024-01-17",
+              "end": "2024-01-24"
+            }
+          }
         },
         "depends_on": []
       },
@@ -200,7 +239,7 @@ PLAN=$(curl -s -X POST http://localhost:8000/sessions/sess_.../plans \
 PLAN_ID=$(echo $PLAN | jq -r .plan_id)
 
 # Validate (auto-approves if clean)
-curl -s -X POST http://localhost:8000/sessions/sess_.../$PLAN_ID/validate | jq .
+curl -s -X POST http://localhost:8000/sessions/sess_.../plans/$PLAN_ID/validate | jq .
 
 # Execute
 curl -s -X POST http://localhost:8000/sessions/sess_.../plans/$PLAN_ID/execute \
@@ -212,7 +251,7 @@ curl -s -X POST http://localhost:8000/sessions/sess_.../plans/$PLAN_ID/execute \
 
 ## Next Steps
 
-- [Sessions & Steps](sessions.md) — full step type reference
-- [Semantic Layer](semantic.md) — entities, metrics, mappings, and catalog search
-- [Governance](governance.md) — policies and quality rules
-- [Planning](planning.md) — multi-step plans with validation and cost estimation
+- [Sessions & Steps](sessions.md) - full step type reference
+- [Semantic Layer](semantic.md) - entities, metrics, mappings, and catalog search
+- [Governance](governance.md) - policies and quality rules
+- [Planning](planning.md) - multi-step plans with validation and cost estimation

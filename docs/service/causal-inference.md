@@ -50,7 +50,39 @@ all have `observed_window: null`.
 
 Three ways to ensure `observed_window` is set:
 
-### 1. `aggregate_query` with a recognised temporal column (automatic)
+### 1. Typed `aggregate_query` request window (default)
+
+Every typed `aggregate_query` observation inherits the request's `time_scope` as its
+default `observed_window`.
+
+```json
+{
+  "step_type": "aggregate_query",
+  "params": {
+    "table": "iceberg.iceberg_inf.ods_trino_query_info",
+    "group_by": ["cluster"],
+    "measures": [
+      {"expr": "COUNT(*)", "as": "heavy_count"}
+    ],
+    "time_scope": {
+      "mode": "single_window",
+      "grain": "day",
+      "current": {
+        "start": "2026-02-01",
+        "end": "2026-02-15"
+      }
+    },
+    "scope": {
+      "predicate": "user = '\''sycpb_bi'\'' AND scan_data_size >= 536870912000"
+    }
+  }
+}
+```
+
+Rows inherit the request window (`2026-02-01` to `2026-02-15`) unless a temporal
+`group_by` refines them further.
+
+### 2. `aggregate_query` with a recognised temporal column (automatic refinement)
 
 `AggregateRowExtractor` inspects the `group_by` columns after a step runs. If any column
 name matches a known temporal pattern, it infers a per-row `observed_window` from the
@@ -65,19 +97,24 @@ Recognised hour-level column names: `hour`, `hour_slot`, `hour_ts`.
 {
   "step_type": "aggregate_query",
   "params": {
-    "sql": "SELECT log_date, cluster, COUNT(*) AS heavy_count FROM ods_trino_query_info WHERE log_date BETWEEN '20260201' AND '20260214' GROUP BY log_date, cluster",
-    "group_by": ["log_date", "cluster"]
+    "table": "ods_trino_query_info",
+    "group_by": ["log_date", "cluster"],
+    "measures": [
+      {"expr": "COUNT(*)", "as": "heavy_count"}
+    ],
+    "time_scope": {
+      "mode": "single_window",
+      "grain": "day",
+      "current": {
+        "start": "2026-02-01",
+        "end": "2026-02-15"
+      }
+    }
   }
 }
 ```
 
 Each result row will carry `observed_window: {"start": "2026-02-01", "end": "2026-02-02", "granularity": "day"}` (half-open bucket: `[day, next_day)`).
-
-### 2. `aggregate_query` request window fallback
-
-Every typed `aggregate_query` observation inherits the request's `time_scope` as its
-default `observed_window`. When `group_by` contains a recognized temporal column, the
-extractor refines that to per-row buckets instead of the coarser request window.
 
 ### 3. `correlate_metrics` (derived from series date range)
 
@@ -183,7 +220,7 @@ session observations).
 Produce two sets of observations for the same metric in two non-overlapping time
 periods, so that both sets are attributed to the same claim.
 
-**Pattern A — two `aggregate_query` steps in different periods:**
+**Pattern A — two typed `aggregate_query` steps in different periods:**
 
 1. Run `aggregate_query` for the baseline period (e.g. Feb 1–14) with a typed
    `time_scope`. Observations carry `observed_window` for Feb.
@@ -304,8 +341,22 @@ observations, the token is added automatically.
 {
   "step_type": "aggregate_query",
   "params": {
-    "sql": "SELECT log_date, cluster, COUNT(*) AS heavy_count FROM iceberg.iceberg_inf.ods_trino_query_info WHERE log_date BETWEEN '20260201' AND '20260214' AND user = 'sycpb_bi' AND scan_data_size >= 536870912000 GROUP BY log_date, cluster",
-    "group_by": ["log_date", "cluster"]
+    "table": "iceberg.iceberg_inf.ods_trino_query_info",
+    "group_by": ["log_date", "cluster"],
+    "measures": [
+      {"expr": "COUNT(*)", "as": "heavy_count"}
+    ],
+    "time_scope": {
+      "mode": "single_window",
+      "grain": "day",
+      "current": {
+        "start": "2026-02-01",
+        "end": "2026-02-15"
+      }
+    },
+    "scope": {
+      "predicate": "user = '\''sycpb_bi'\'' AND scan_data_size >= 536870912000"
+    }
   }
 }
 ```
@@ -315,8 +366,8 @@ that day in February.
 
 ### Step B — current heavy-query count (March)
 
-Same query with `log_date BETWEEN '20260301' AND '20260314'`. Produces observations for
-March.
+Same request shape with `time_scope.current = [2026-03-01, 2026-03-15)`. Produces
+observations for March.
 
 After incremental synthesis: if ≥80% of daily observations show increased heavy-query
 count in the same direction, `CrossSliceConsistencyChecker` promotes the `heavy_count`
@@ -328,8 +379,25 @@ claim to **L1**.
 {
   "step_type": "aggregate_query",
   "params": {
-    "sql": "SELECT log_date, cluster, CAST(SUM(CASE WHEN query_state = 'FAILED' THEN 1 ELSE 0 END) AS DOUBLE) / COUNT(*) AS failure_rate FROM iceberg.iceberg_inf.ods_trino_query_info WHERE log_date BETWEEN '20260301' AND '20260314' AND cluster IN ('k8sbi-bi1', 'k8sbi-bi2') AND user != 'sycpb_bi' GROUP BY log_date, cluster",
-    "group_by": ["log_date", "cluster"]
+    "table": "iceberg.iceberg_inf.ods_trino_query_info",
+    "group_by": ["log_date", "cluster"],
+    "measures": [
+      {
+        "expr": "CAST(SUM(CASE WHEN query_state = 'FAILED' THEN 1 ELSE 0 END) AS DOUBLE) / COUNT(*)",
+        "as": "failure_rate"
+      }
+    ],
+    "time_scope": {
+      "mode": "single_window",
+      "grain": "day",
+      "current": {
+        "start": "2026-03-01",
+        "end": "2026-03-15"
+      }
+    },
+    "scope": {
+      "predicate": "cluster IN ('k8sbi-bi1', 'k8sbi-bi2') AND user != '\''sycpb_bi'\'''"
+    }
   }
 }
 ```
@@ -358,8 +426,8 @@ If |ρ| ≥ 0.7, `DoseResponseChecker` adds `dose_response_precomputed:ρ=…` t
 
 ### Step E — baseline failure rate (Feb)
 
-Same query as step C but for `log_date BETWEEN '20260201' AND '20260214'`. Produces
-`failure_rate` observations for February with `observed_window` for each Feb day.
+Same request shape as step C but with `time_scope.current = [2026-02-01, 2026-02-15)`.
+Produces `failure_rate` observations for February with `observed_window` for each Feb day.
 
 Now the `failure_rate` claim has supporting observations from two non-overlapping
 windows:
