@@ -16,6 +16,19 @@ from app.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 
+def _compare_metric_payload(metric: str) -> dict[str, object]:
+    return {
+        "table": "analytics.watch_events",
+        "metric": metric,
+        "time_scope": {
+            "mode": "compare",
+            "grain": "day",
+            "current": {"start": "2026-02-28", "end": "2026-03-06"},
+            "baseline": {"start": "2026-02-22", "end": "2026-02-28"},
+        },
+    }
+
+
 class ApprovalServiceTests(unittest.TestCase):
     """Unit tests for ApprovalService."""
 
@@ -47,7 +60,7 @@ class ApprovalServiceTests(unittest.TestCase):
         cls.session_id = session["session_id"]
         cls.service.run_step(
             cls.session_id, "compare_metric",
-            {"metric_name": "watch_time_approval", "table_name": "analytics.watch_events"},
+            _compare_metric_payload("watch_time_approval"),
         )
         cls.service.run_step(cls.session_id, "synthesize_findings")
         # Get recommendation IDs
@@ -113,7 +126,7 @@ class ApprovalServiceTests(unittest.TestCase):
         session = self.service.create_session("Auto-flag test", {}, {}, {})
         self.service.run_step(
             session["session_id"], "compare_metric",
-            {"metric_name": "watch_time_approval", "table_name": "analytics.watch_events"},
+            _compare_metric_payload("watch_time_approval"),
         )
         self.service.run_step(session["session_id"], "synthesize_findings")
         flagged = self.approval.auto_flag_recommendations(session["session_id"], risk_threshold="P1")
@@ -183,7 +196,16 @@ class ApprovalAPITests(unittest.TestCase):
         cls.session_id = resp.json()["session_id"]
         cls.client.post(
             f"/sessions/{cls.session_id}/steps/compare_metric",
-            json={"metric_name": "watch_time_approval_api", "table_name": "analytics.watch_events"},
+            json={
+                "table": "analytics.watch_events",
+                "metric": "watch_time_approval_api",
+                "time_scope": {
+                    "mode": "compare",
+                    "grain": "day",
+                    "current": {"start": "2026-02-28", "end": "2026-03-06"},
+                    "baseline": {"start": "2026-02-22", "end": "2026-02-28"},
+                },
+            },
         )
         cls.client.post(f"/sessions/{cls.session_id}/steps/synthesize_findings")
 

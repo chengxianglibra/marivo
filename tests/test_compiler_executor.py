@@ -39,7 +39,7 @@ class CompilerTests(unittest.TestCase):
             AnalysisStepIR(
                 index=0,
                 step_type="compare_metric",
-                params={"metric_name": "watch_time", "table_name": "analytics.watch_events"},
+                params={"metric": "watch_time", "table": "analytics.watch_events"},
             ),
             engine_type="duckdb",
             semantic_context={
@@ -88,7 +88,7 @@ class CompilerTests(unittest.TestCase):
             AnalysisStepIR(
                 index=0,
                 step_type="compare_metric",
-                params={"metric_name": "failure_rate", "table_name": "ods_trino_query_info"},
+                params={"metric": "failure_rate", "table": "ods_trino_query_info"},
             ),
             engine_type="duckdb",
             semantic_context={
@@ -186,8 +186,8 @@ class CompilerTests(unittest.TestCase):
                 index=0,
                 step_type="compare_metric",
                 params={
-                    "metric_name": "watch_time",
-                    "table_name": "analytics.watch_events",
+                    "metric": "watch_time",
+                    "table": "analytics.watch_events",
                     "order": "DESC",
                 },
             ),
@@ -206,8 +206,8 @@ class CompilerTests(unittest.TestCase):
                 index=0,
                 step_type="compare_metric",
                 params={
-                    "metric_name": "watch_time",
-                    "table_name": "analytics.watch_events",
+                    "metric": "watch_time",
+                    "table": "analytics.watch_events",
                     "scoped_query": {
                         "mode": "compare",
                         "analysis_time_expr": "event_time",
@@ -262,8 +262,8 @@ class CompilerTests(unittest.TestCase):
                 index=0,
                 step_type="compare_metric",
                 params={
-                    "metric_name": "watch_time",
-                    "table_name": "analytics.watch_events",
+                    "metric": "watch_time",
+                    "table": "analytics.watch_events",
                     "scoped_query": {
                         "mode": "compare",
                         "analysis_time_kind": "date_field",
@@ -300,11 +300,11 @@ class CompilerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             compile_step(
                 AnalysisStepIR(
-                    index=0,
-                    step_type="compare_metric",
-                    params={
-                        "metric_name": "watch_time",
-                        "table_name": "analytics.watch_events",
+                index=0,
+                step_type="compare_metric",
+                params={
+                        "metric": "watch_time",
+                        "table": "analytics.watch_events",
                         "order": "DROP TABLE",
                     },
                 ),
@@ -321,7 +321,7 @@ class CompilerTests(unittest.TestCase):
             AnalysisStepIR(
                 index=0,
                 step_type="compare_metric",
-                params={"metric_name": "watch_time", "table_name": "analytics.watch_events"},
+                params={"metric": "watch_time", "table": "analytics.watch_events"},
             ),
             engine_type="duckdb",
             semantic_context={
@@ -333,29 +333,30 @@ class CompilerTests(unittest.TestCase):
         self.assertIn("LIMIT 10", compiled.sql)
 
     def test_compile_compare_metric_with_session_constraints_filter(self) -> None:
-        """The compiler accepts filter expressions used internally for session constraints.
-        Step-level user-provided 'filter' params are rejected at the service layer
-        before reaching the compiler; see test_mvp.py for service-level contract tests.
-        """
+        """Session constraints flow through the shared scoped-query contract."""
         compiled = compile_step(
             AnalysisStepIR(
                 index=0,
                 step_type="compare_metric",
                 params={
-                    "metric_name": "watch_time",
-                    "table_name": "analytics.watch_events",
-                    # Simulates a session-constraints filter injected by the service layer
-                    "filter": "cluster = 'k8sbi-bi1'",
+                    "metric": "watch_time",
+                    "table": "analytics.watch_events",
+                    "scoped_query": {
+                        "mode": "single_window",
+                        "analysis_time_expr": "event_date",
+                        "session_constraints_filter": "cluster = 'k8sbi-bi1'",
+                        "current": {"start": "2026-03-01", "end": "2026-03-08"},
+                    },
                 },
             ),
             engine_type="duckdb",
             semantic_context={
                 "metric_sql": "avg(play_duration_seconds)",
                 "dimensions": ["platform"],
-                "period_params": ["c1", "c2", "b1", "b2", "b1", "c2"],
             },
         )
-        self.assertIn("AND cluster = 'k8sbi-bi1'", compiled.sql)
+        self.assertIn("(cluster = 'k8sbi-bi1')", compiled.sql)
+        self.assertEqual(compiled.params, ["2026-03-01", "2026-03-08"])
 
     def test_compile_unsupported_step_raises(self) -> None:
         with self.assertRaises(ValueError):
@@ -541,7 +542,7 @@ class ExecutorTests(unittest.TestCase):
             AnalysisStepIR(
                 index=0,
                 step_type="compare_metric",
-                params={"metric_name": "watch_time", "table_name": "analytics.watch_events"},
+                params={"metric": "watch_time", "table": "analytics.watch_events"},
             ),
             engine_type="trino",
             semantic_context={

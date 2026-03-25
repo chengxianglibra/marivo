@@ -14,6 +14,19 @@ from app.evidence import (
 from app.evidence_engine import EvidencePipeline
 
 
+def _compare_metric_payload(metric: str) -> dict[str, object]:
+    return {
+        "table": "analytics.watch_events",
+        "metric": metric,
+        "time_scope": {
+            "mode": "compare",
+            "grain": "day",
+            "current": {"start": "2026-02-28", "end": "2026-03-06"},
+            "baseline": {"start": "2026-02-22", "end": "2026-02-28"},
+        },
+    }
+
+
 class ObservationFactoryTests(unittest.TestCase):
     """Tests for observation factory functions."""
 
@@ -366,7 +379,7 @@ class EvidencePipelineServiceIntegrationTests(unittest.TestCase):
         semantic.publish_metric(metric["metric_id"])
         self.service.run_step(
             session_id, "compare_metric",
-            {"metric_name": "watch_time_pipeline", "table_name": "analytics.watch_events"},
+            _compare_metric_payload("watch_time_pipeline"),
         )
         captured: dict[str, int] = {}
 
@@ -670,7 +683,7 @@ class InferenceLevelIntegrationTests(unittest.TestCase):
         cls.session_id = cls.service.create_session("IL test", {}, {}, {})["session_id"]
         cls.service.run_step(
             cls.session_id, "compare_metric",
-            {"metric_name": "il_watch_time", "table_name": "analytics.watch_events"},
+            _compare_metric_payload("il_watch_time"),
         )
         cls.service.run_step(cls.session_id, "synthesize_findings")
 
@@ -1217,7 +1230,7 @@ class PromotionIntegrationTests(unittest.TestCase):
         session_id = self._new_session()
         self.service.run_step(
             session_id, "compare_metric",
-            {"metric_name": "prom_watch_time", "table_name": "analytics.watch_events"},
+            _compare_metric_payload("prom_watch_time"),
         )
         # After primitive step, tentative claims should exist
         tentative = self.service.metadata.query_rows(
@@ -1248,7 +1261,7 @@ class PromotionIntegrationTests(unittest.TestCase):
         session_id = self._new_session()
         self.service.run_step(
             session_id, "compare_metric",
-            {"metric_name": "prom_watch_time", "table_name": "analytics.watch_events"},
+            _compare_metric_payload("prom_watch_time"),
         )
         self.service.run_step(session_id, "synthesize_findings")
 
@@ -1265,7 +1278,7 @@ class PromotionIntegrationTests(unittest.TestCase):
         session_id = self._new_session()
         self.service.run_step(
             session_id, "compare_metric",
-            {"metric_name": "prom_watch_time", "table_name": "analytics.watch_events"},
+            _compare_metric_payload("prom_watch_time"),
         )
         result = self.service.run_step(session_id, "synthesize_findings")
         self.assertIn("recommendations", result)
@@ -1590,7 +1603,7 @@ class CausalBasisTests(unittest.TestCase):
         cls.session_id = cls.service.create_session("CB test", {}, {}, {})["session_id"]
         cls.service.run_step(
             cls.session_id, "compare_metric",
-            {"metric_name": "cb_watch_time", "table_name": "analytics.watch_events"},
+            _compare_metric_payload("cb_watch_time"),
         )
         cls.service.run_step(cls.session_id, "synthesize_findings")
 

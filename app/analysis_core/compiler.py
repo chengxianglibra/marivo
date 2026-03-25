@@ -585,28 +585,30 @@ def compile_step(
         )
 
     if step.step_type == "compare_metric":
-        table_name = _require_param(step, "table_name")
-        metric_name = _require_param(step, "metric_name")
+        table_name = step.table_name()
+        if table_name is None:
+            raise ValueError("compare_metric requires 'table' or 'table_name' param")
+        metric_name = (
+            step.primary_metric_name()
+            or params.get("metric")
+            or _require_param(step, "metric_name")
+        )
         metric_sql = semantic_context.get("metric_sql")
         dimensions = semantic_context.get("dimensions")
         if metric_sql is None or dimensions is None:
             raise ValueError("compare_metric compilation requires semantic_context with 'metric_sql' and 'dimensions'")
-        date_column = str(params.get("date_column", "event_date"))
         limit = int(params.get("limit", 10))
         order = str(params.get("order", "ASC")).upper()
         if order not in ("ASC", "DESC"):
             raise ValueError(f"Invalid order '{order}'; must be ASC or DESC")
-        filter_expr = params.get("filter") or None
         scoped_query = params.get("scoped_query")
         sql = build_comparison_query(
             metric_name=metric_name,
             table_name=table_name,
             metric_sql=str(metric_sql),
             dimensions=list(dimensions),
-            date_column=date_column,
             order=order,
             limit=limit,
-            filter_expr=str(filter_expr) if filter_expr else None,
             scoped_query=scoped_query if isinstance(scoped_query, Mapping) else None,
         )
         compiled_params = list(semantic_context.get("period_params", []))
