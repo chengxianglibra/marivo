@@ -7,16 +7,18 @@ All logic is purely deterministic — no LLMs involved.
 Checker chain (executed in order by CausalCheckerRegistry.run_all):
   1. CrossSliceConsistencyChecker  — L0 → L1  (directional consistency across slices)
   2. CrossScopeCorrelationChecker  — L0 → L1  (cross-scope temporal correlation)
-  3. MechanisticExplanationChecker  — L0/L1/L2 → L3  (contribution_shift explanation)
-  4. TemporalPrecedenceChecker     — L1 → L2  (strict temporal ordering of windows)
-  5. DoseResponseChecker           — L1+ bonus (Spearman ρ ≥ 0.7 on numeric dimension)
-  6. ReversalChecker               — L2+ bonus (sustained direction reversal ≥ 2 periods)
+  3. CrossMetricCorrelationChecker — L0 → L1  (multi-metric consistency via claim relations)
+  4. MechanisticExplanationChecker — L0/L1/L2 → L3  (contribution_shift explanation)
+  5. TemporalPrecedenceChecker     — L1 → L2  (strict temporal ordering of windows)
+  6. DoseResponseChecker           — L1+ bonus (Spearman ρ ≥ 0.7 on numeric dimension)
+  7. ReversalChecker               — L2+ bonus (sustained direction reversal ≥ 2 periods)
 """
 
 from __future__ import annotations
 
 import math
 from abc import ABC, abstractmethod
+from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -678,6 +680,146 @@ class CrossScopeCorrelationChecker(CausalChecker):
                 return claim
         return None
 
+
+class CrossMetricCorrelationChecker(CausalChecker):
+    """L0 → L1: promote relation-backed multi-metric consistency groups.
+
+    The checker consumes precomputed claim relations and upgrades confirmed
+    claims when a connected component contains at least three distinct metrics
+    that all move in the same direction. It never discovers relations itself
+    and does not emit new causal edges.
+    """
+
+    MIN_DISTINCT_METRICS = 3
+    ELIGIBLE_RELATION_CATEGORIES = frozenset({"exact_match", "subset_or_overlap"})
+
+    @property
+    def name(self) -> str:
+        return "cross_metric_correlation"
+
+    def check(
+        self,
+        claims: list[dict[str, Any]],
+        observations: list[dict[str, Any]],
+        edges: list[dict[str, Any]],
+        relations: list[ClaimRelation] | None = None,
+    ) -> list[LevelUpgrade]:
+        if not relations:
+            return []
+
+        claim_by_id = {
+            str(claim.get("claim_id")): claim
+            for claim in claims
+            if claim.get("claim_id")
+        }
+        observation_by_id = {
+            str(obs.get("observation_id")): obs
+            for obs in observations
+            if obs.get("observation_id")
+        }
+        adjacency = self._build_eligible_adjacency(
+            relations,
+            claim_by_id,
+            observation_by_id,
+        )
+        if not adjacency:
+            return []
+
+        upgrades: list[LevelUpgrade] = []
+        for component in _connected_components(adjacency):
+            component_claims = [
+                claim_by_id[claim_id]
+                for claim_id in component
+                if claim_id in claim_by_id
+            ]
+            component_claims = [
+                claim for claim in component_claims
+                if claim.get("inference_level", "L0") == "L0"
+            ]
+            if len(component_claims) < self.MIN_DISTINCT_METRICS:
+                continue
+
+            metrics = {
+                str((claim.get("scope", {})).get("metric", ""))
+                for claim in component_claims
+                if (claim.get("scope", {})).get("metric")
+            }
+            if len(metrics) < self.MIN_DISTINCT_METRICS:
+                continue
+
+            directions = {
+                claim["claim_id"]: _claim_support_direction(claim, observation_by_id)
+                for claim in component_claims
+            }
+            if any(direction is None for direction in directions.values()):
+                continue
+            if len(set(directions.values())) != 1:
+                continue
+
+            token = (
+                f"cross_metric_consistency:{len(metrics)}_metrics:"
+                f"{_render_component_scope_label(component_claims)}→L1"
+            )
+            for claim in component_claims:
+                upgrades.append(
+                    LevelUpgrade(
+                        claim_id=claim["claim_id"],
+                        new_level="L1",
+                        justification_tokens=[token],
+                        confidence_boost=0.02,
+                    )
+                )
+
+        return upgrades
+
+    def _build_eligible_adjacency(
+        self,
+        relations: list[ClaimRelation],
+        claim_by_id: dict[str, dict[str, Any]],
+        observation_by_id: dict[str, dict[str, Any]],
+    ) -> dict[str, set[str]]:
+        adjacency: dict[str, set[str]] = defaultdict(set)
+        for relation in relations:
+            if relation.get("relation_type") != EDGE_TYPE_CORRELATES_WITH:
+                continue
+            from_claim_id = str(relation.get("from_claim_id", ""))
+            to_claim_id = str(relation.get("to_claim_id", ""))
+            if not from_claim_id or not to_claim_id or from_claim_id == to_claim_id:
+                continue
+
+            left_claim = claim_by_id.get(from_claim_id)
+            right_claim = claim_by_id.get(to_claim_id)
+            if left_claim is None or right_claim is None:
+                continue
+            if left_claim.get("status") != "confirmed" or right_claim.get("status") != "confirmed":
+                continue
+
+            left_metric = str((left_claim.get("scope", {})).get("metric", ""))
+            right_metric = str((right_claim.get("scope", {})).get("metric", ""))
+            if not left_metric or not right_metric or left_metric == right_metric:
+                continue
+
+            match_basis = relation.get("match_basis", {})
+            category = str(match_basis.get("category", ""))
+            relation_direction = str(match_basis.get("direction", ""))
+            if category not in self.ELIGIBLE_RELATION_CATEGORIES:
+                continue
+
+            left_direction = _claim_support_direction(left_claim, observation_by_id)
+            right_direction = _claim_support_direction(right_claim, observation_by_id)
+            if (
+                relation_direction not in {"up", "down"}
+                or left_direction is None
+                or right_direction is None
+                or left_direction != right_direction
+                or left_direction != relation_direction
+            ):
+                continue
+
+            adjacency[from_claim_id].add(to_claim_id)
+            adjacency[to_claim_id].add(from_claim_id)
+        return adjacency
+
 # ── Registry factory ──────────────────────────────────────────────────────────
 
 
@@ -686,6 +828,7 @@ def build_default_registry() -> CausalCheckerRegistry:
     registry = CausalCheckerRegistry()
     registry.register(CrossSliceConsistencyChecker())
     registry.register(CrossScopeCorrelationChecker())
+    registry.register(CrossMetricCorrelationChecker())
     registry.register(MechanisticExplanationChecker())
     registry.register(TemporalPrecedenceChecker())
     registry.register(DoseResponseChecker())
@@ -763,6 +906,75 @@ def _claim_matches_contribution_shift(
         and str(obs_slice.get("biggest_shift")) == expected_shift
         and claim_slice == obs_slice
     )
+
+
+def _claim_support_direction(
+    claim: dict[str, Any],
+    observation_by_id: dict[str, dict[str, Any]],
+) -> str | None:
+    deltas: list[float] = []
+    for observation_id in claim.get("supporting_observations", []):
+        observation = observation_by_id.get(str(observation_id))
+        if observation is None:
+            continue
+        delta = observation.get("payload", {}).get("delta_pct")
+        if delta is None:
+            continue
+        deltas.append(float(delta))
+    if not deltas:
+        return None
+    positive = sum(1 for delta in deltas if delta > 0)
+    negative = sum(1 for delta in deltas if delta < 0)
+    if positive == negative:
+        return None
+    return "up" if positive > negative else "down"
+
+
+def _connected_components(adjacency: dict[str, set[str]]) -> list[set[str]]:
+    components: list[set[str]] = []
+    visited: set[str] = set()
+    for node in adjacency:
+        if node in visited:
+            continue
+        stack = [node]
+        component: set[str] = set()
+        while stack:
+            current = stack.pop()
+            if current in visited:
+                continue
+            visited.add(current)
+            component.add(current)
+            stack.extend(sorted(adjacency.get(current, set()) - visited))
+        if component:
+            components.append(component)
+    return components
+
+
+def _render_component_scope_label(claims: list[dict[str, Any]]) -> str:
+    if not claims:
+        return "overall"
+
+    slices: list[dict[str, Any]] = []
+    for claim in claims:
+        scope = claim.get("scope", {})
+        slice_dict = scope.get("slice", {})
+        if isinstance(slice_dict, dict):
+            slices.append(slice_dict)
+    if not slices:
+        return "overall"
+
+    common_items = sorted(set(slices[0].items()))
+    for slice_dict in slices[1:]:
+        common_items = [item for item in common_items if slice_dict.get(item[0]) == item[1]]
+        if not common_items:
+            break
+    if common_items:
+        return ",".join(f"{key}={value}" for key, value in common_items)
+
+    best_slice = max(slices, key=lambda item: (len(item), sorted(item.items())))
+    if not best_slice:
+        return "overall"
+    return ",".join(f"{key}={value}" for key, value in sorted(best_slice.items()))
 
 
 def _date_diff_days(start_iso: str, end_iso: str) -> int:

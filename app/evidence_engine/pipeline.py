@@ -3,7 +3,11 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, TypedDict
 
-from app.evidence_engine.causal_checkers import CausalCheckerRegistry, get_default_registry
+from app.evidence_engine.causal_checkers import (
+    CausalCheckerRegistry,
+    LevelUpgrade,
+    get_default_registry,
+)
 from app.evidence_engine.claim_relations import (
     ClaimRelationDiscovery,
     DefaultClaimRelationDiscovery,
@@ -77,6 +81,55 @@ def _derive_inference_level_from_edges(
         boost = min(0.12, (len(set(causal_types)) - 1) * 0.03)
         result[claim["claim_id"]] = (max_level, justification, boost)
     return result
+
+
+def _resolved_claim_level(
+    claim: Claim,
+    direct_upgrade: LevelUpgrade | None,
+    edge_upgrade: tuple[str, list[str], float] | None,
+) -> str:
+    candidates = [claim.get("inference_level", "L0")]
+    if direct_upgrade is not None:
+        candidates.append(direct_upgrade.new_level)
+    if edge_upgrade is not None:
+        candidates.append(edge_upgrade[0])
+    return max(candidates, key=lambda level: INFERENCE_LEVEL_ORDER.index(level))
+
+
+def _resolved_claim_justifications(
+    claim: Claim,
+    direct_upgrade: LevelUpgrade | None,
+    edge_upgrade: tuple[str, list[str], float] | None,
+) -> list[str]:
+    tokens: list[str] = []
+    for token in claim.get("inference_justification", []):
+        if token not in tokens:
+            tokens.append(token)
+    if direct_upgrade is not None:
+        for token in direct_upgrade.justification_tokens:
+            if token not in tokens:
+                tokens.append(token)
+    if edge_upgrade is not None:
+        for token in edge_upgrade[1]:
+            if token not in tokens:
+                tokens.append(token)
+    return tokens
+
+
+def _resolved_claim_confidence(
+    claim: Claim,
+    direct_upgrade: LevelUpgrade | None,
+    edge_upgrade: tuple[str, list[str], float] | None,
+) -> float:
+    # Keep checker-level boost and edge-derived bonus additive: registry already
+    # merges checker boosts, while edge_upgrade adds only the extra "multiple
+    # distinct causal edge types" bonus implied by the materialized graph.
+    boost = 0.0
+    if direct_upgrade is not None:
+        boost += direct_upgrade.confidence_boost
+    if edge_upgrade is not None:
+        boost += edge_upgrade[2]
+    return min(0.99, claim["confidence"] + boost)
 
 
 class EvidencePipeline:
@@ -304,25 +357,35 @@ class EvidencePipeline:
                         "score_components": {},
                         "supporting_observation_ids": [],
                     }
-                )
+        )
 
         combined_edges = edges + promoted_edges
         level_updates = _derive_inference_level_from_edges(combined_edges, claims)
-        if not level_updates:
+        direct_updates = {
+            upgrade.claim_id: upgrade
+            for upgrade in upgrades
+            if upgrade.claim_id
+        }
+        if not level_updates and not direct_updates:
             return {"claims": claims, "edges": promoted_edges}
         promoted_claims = [
             {
                 **claim,
-                "inference_level": level_updates[claim["claim_id"]][0]
-                    if claim["claim_id"] in level_updates
-                    else claim.get("inference_level", "L0"),
-                "inference_justification": level_updates[claim["claim_id"]][1]
-                    if claim["claim_id"] in level_updates
-                    else claim.get("inference_justification", []),
-                "confidence": min(
-                    0.99,
-                    claim["confidence"] + level_updates[claim["claim_id"]][2],
-                ) if claim["claim_id"] in level_updates else claim["confidence"],
+                "inference_level": _resolved_claim_level(
+                    claim,
+                    direct_updates.get(claim["claim_id"]),
+                    level_updates.get(claim["claim_id"]),
+                ),
+                "inference_justification": _resolved_claim_justifications(
+                    claim,
+                    direct_updates.get(claim["claim_id"]),
+                    level_updates.get(claim["claim_id"]),
+                ),
+                "confidence": _resolved_claim_confidence(
+                    claim,
+                    direct_updates.get(claim["claim_id"]),
+                    level_updates.get(claim["claim_id"]),
+                ),
             }
             for claim in claims
         ]
