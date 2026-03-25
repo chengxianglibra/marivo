@@ -34,9 +34,9 @@ from app.semantic_runtime import SemanticRuntimeRepository
 from app.session import SessionManager
 from app.storage.analytics import AnalyticsEngine
 from app.storage.metadata import MetadataStore
-from app.time_scope import AdHocAggregateValueSpec
 from app.time_scope import ResolvedWindowedQueryRequest
 from app.time_scope import SemanticMetricValueSpec
+from app.time_scope import TimeAxisResolver
 from app.time_scope import normalize_aggregate_query_request
 from app.time_scope import normalize_compare_metric_request
 
@@ -916,59 +916,164 @@ class SemanticLayerService:
             parts.append(f"{key} = '{value}'")
         return " AND ".join(parts) if parts else None
 
+    def _session_filter_parts(self, session_id: str) -> tuple[str | None, str | None]:
+        session = self.get_session(session_id)
+        constraints_filter = self._constraints_dict_to_filter(session.get("constraints") or {})
+        raw_filter = str(session.get("raw_filter") or "").strip() or None
+        return constraints_filter, raw_filter
+
     def _resolved_scope_filter(
         self,
         session_id: str,
         request: ResolvedWindowedQueryRequest,
     ) -> str | None:
-        session_filter = self._session_constraints_to_filter(session_id)
+        session_constraints_filter, session_raw_filter = self._session_filter_parts(session_id)
         scope_constraints = self._constraints_dict_to_filter(request.scope.constraints)
-        return self._merge_filters(session_filter, scope_constraints, request.scope.predicate)
+        return self._merge_filters(
+            session_constraints_filter,
+            session_raw_filter,
+            scope_constraints,
+            request.scope.predicate,
+        )
 
-    @staticmethod
-    def _day_window_to_legacy_bounds(start: str, end: str) -> tuple[str, str]:
-        start_day = date.fromisoformat(start[:10]).isoformat()
-        end_day = (date.fromisoformat(end[:10]) - timedelta(days=1)).isoformat()
-        return start_day, end_day
-
-    def _bridge_compare_metric_request(
+    def _build_scoped_query(
         self,
         session_id: str,
         request: ResolvedWindowedQueryRequest,
-        metric_dimensions: list[str],
     ) -> dict[str, Any]:
-        if request.time_scope.grain != "day":
-            raise ValueError("compare_metric hour-grain execution is not implemented yet")
-        if request.time_scope.mode != "compare" or request.time_scope.baseline is None:
-            raise ValueError("compare_metric currently requires time_scope.mode='compare' for execution")
-        if not isinstance(request.value_spec, SemanticMetricValueSpec):
-            raise ValueError("compare_metric requires a semantic metric value_spec")
-
-        date_column = (
-            request.resolved_time_axis.override_analysis_time_column
-            or self._infer_date_column(metric_dimensions)
-        )
-        period_start, period_end = self._day_window_to_legacy_bounds(
-            request.time_scope.current.start,
-            request.time_scope.current.end,
-        )
-        baseline_start, baseline_end = self._day_window_to_legacy_bounds(
-            request.time_scope.baseline.start,
-            request.time_scope.baseline.end,
-        )
+        analysis_time_expr = request.resolved_time_axis.analysis_time_expr
+        if not analysis_time_expr:
+            raise ValueError("windowed execution requires resolved_time_axis.analysis_time_expr")
+        session_constraints_filter, session_raw_filter = self._session_filter_parts(session_id)
         return {
-            "metric_name": request.value_spec.metric,
-            "table_name": request.table,
-            "dimensions": list(request.grouping),
-            "date_column": date_column,
-            "period_start": period_start,
-            "period_end": period_end,
-            "baseline_start": baseline_start,
-            "baseline_end": baseline_end,
-            "filter": self._resolved_scope_filter(session_id, request),
-            "limit": request.limit or 10,
-            "order": self._normalize_compare_metric_order(request.order),
+            "mode": request.time_scope.mode,
+            "analysis_time_kind": request.resolved_time_axis.analysis_time_kind,
+            "analysis_time_expr": analysis_time_expr,
+            "analysis_time_format": request.resolved_time_axis.analysis_time_format,
+            "partition_pruning_predicate": request.resolved_time_axis.partition_pruning_predicate,
+            "current": {
+                "start": request.time_scope.current.start,
+                "end": request.time_scope.current.end,
+            },
+            "baseline": (
+                {
+                    "start": request.time_scope.baseline.start,
+                    "end": request.time_scope.baseline.end,
+                }
+                if request.time_scope.baseline is not None
+                else None
+            ),
+            "session_constraints_filter": session_constraints_filter,
+            "session_raw_filter": session_raw_filter,
+            "scope_constraints_filter": self._constraints_dict_to_filter(request.scope.constraints),
+            "scope_predicate_filter": request.scope.predicate,
         }
+
+    @staticmethod
+    def _observation_window_for_request(request: ResolvedWindowedQueryRequest) -> dict[str, Any]:
+        return {
+            "start": request.time_scope.current.start,
+            "end": request.time_scope.current.end,
+            "granularity": request.resolved_time_axis.observation_grain,
+        }
+
+    @staticmethod
+    def _window_length(request: ResolvedWindowedQueryRequest, which: str) -> int:
+        if which == "current":
+            window = request.time_scope.current
+        else:
+            if request.time_scope.baseline is None:
+                raise ValueError("baseline window is not available")
+            window = request.time_scope.baseline
+        if request.time_scope.grain == "hour":
+            start_dt = datetime.fromisoformat(window.start)
+            end_dt = datetime.fromisoformat(window.end)
+            return int((end_dt - start_dt).total_seconds() // 3600)
+        start_day = date.fromisoformat(window.start)
+        end_day = date.fromisoformat(window.end)
+        return (end_day - start_day).days
+
+    def _resolve_windowed_query_time_axis(
+        self,
+        request: ResolvedWindowedQueryRequest,
+        *,
+        engine_type: str,
+        metric_name: str | None = None,
+        fallback_columns: list[str] | None = None,
+    ) -> None:
+        source_time_capabilities, source_columns = self._load_table_time_capabilities(request.table)
+        entity_time_capabilities: dict[str, Any] | None = None
+        if metric_name:
+            entity = self._resolve_entity_for_metric(metric_name)
+            properties = entity.get("properties", {}) if entity else {}
+            raw_time_capabilities = properties.get("time_capabilities")
+            if isinstance(raw_time_capabilities, dict):
+                entity_time_capabilities = raw_time_capabilities
+
+        available_columns = list(source_columns)
+        for column in fallback_columns or []:
+            name = str(column).strip()
+            if name and name not in available_columns:
+                available_columns.append(name)
+
+        resolver = TimeAxisResolver(
+            request=request,
+            engine_type=engine_type,
+            available_columns=available_columns,
+            entity_time_capabilities=entity_time_capabilities,
+            source_time_capabilities=source_time_capabilities,
+        )
+        has_explicit_override = any(
+            (
+                request.resolved_time_axis.override_analysis_time_column,
+                request.resolved_time_axis.override_partition_date_column,
+                request.resolved_time_axis.override_partition_hour_column,
+            )
+        )
+        try:
+            request.resolved_time_axis = resolver.resolve()
+        except ValueError:
+            if has_explicit_override or entity_time_capabilities or source_time_capabilities:
+                raise
+
+    def _load_table_time_capabilities(self, table_name: str) -> tuple[dict[str, Any] | None, list[str]]:
+        table_row = self._find_source_table_object(table_name)
+        if table_row is None:
+            return None, []
+        try:
+            table_props = json.loads(table_row["properties_json"] or "{}")
+        except Exception:
+            table_props = {}
+        time_capabilities = table_props.get("time_capabilities")
+        if not isinstance(time_capabilities, dict):
+            time_capabilities = None
+
+        column_rows = self.metadata.query_rows(
+            """
+            SELECT native_name
+            FROM source_objects
+            WHERE parent_id = ? AND object_type = 'column'
+            ORDER BY native_name
+            """,
+            [table_row["object_id"]],
+        )
+        columns = [str(row["native_name"]) for row in column_rows if row.get("native_name")]
+        return time_capabilities, columns
+
+    def _find_source_table_object(self, table_name: str) -> dict[str, Any] | None:
+        short_name = table_name.split(".")[-1]
+        rows = self.metadata.query_rows(
+            """
+            SELECT object_id, fqn, native_name, properties_json
+            FROM source_objects
+            WHERE object_type = 'table' AND (fqn = ? OR native_name = ?)
+            ORDER BY CASE WHEN fqn = ? THEN 0 ELSE 1 END, updated_at DESC
+            """,
+            [table_name, short_name, table_name],
+        )
+        if not rows:
+            return None
+        return dict(rows[0])
 
     @staticmethod
     def _normalize_compare_metric_order(order: str | None) -> str | None:
@@ -980,64 +1085,6 @@ class SemanticLayerService:
         if normalized in {"DELTA_PCT ASC", "DELTA_PCT DESC"}:
             return normalized.split()[-1]
         raise ValueError("compare_metric order currently supports only delta_pct ASC/DESC")
-
-    def _bridge_aggregate_query_request(
-        self,
-        session_id: str,
-        request: ResolvedWindowedQueryRequest,
-    ) -> dict[str, Any]:
-        if not isinstance(request.value_spec, AdHocAggregateValueSpec):
-            raise ValueError("aggregate_query requires an ad-hoc aggregate value_spec")
-        if request.time_scope.grain != "day":
-            raise ValueError("aggregate_query hour-grain execution is not implemented yet")
-
-        select_exprs = list(request.grouping) + [
-            f"{measure.expr} AS {measure.alias}" for measure in request.value_spec.measures
-        ]
-        date_column = request.resolved_time_axis.override_analysis_time_column or "event_date"
-        merged_where = self._resolved_scope_filter(session_id, request)
-        bridged: dict[str, Any] = {
-            "table_name": request.table,
-            "select": select_exprs,
-            "group_by": list(request.grouping),
-            "metric": request.value_spec.measures[0].alias if request.value_spec.measures else "aggregate",
-            "limit": request.limit or 100,
-        }
-        if request.order:
-            # The typed contract uses `order`; the legacy aggregate compiler still expects `order_by`.
-            bridged["order_by"] = request.order
-
-        if request.time_scope.mode == "compare":
-            if request.time_scope.baseline is None:
-                raise ValueError("aggregate_query compare mode requires baseline")
-            if not request.grouping:
-                raise ValueError("aggregate_query compare mode currently requires non-empty group_by")
-            period_start, period_end = self._day_window_to_legacy_bounds(
-                request.time_scope.current.start,
-                request.time_scope.current.end,
-            )
-            baseline_start, baseline_end = self._day_window_to_legacy_bounds(
-                request.time_scope.baseline.start,
-                request.time_scope.baseline.end,
-            )
-            bridged.update({
-                "compare_period": True,
-                "date_column": date_column,
-                "period_start": period_start,
-                "period_end": period_end,
-                "baseline_start": baseline_start,
-                "baseline_end": baseline_end,
-            })
-            if merged_where:
-                bridged["where"] = merged_where
-            return bridged
-
-        window_filter = (
-            f"{date_column} >= '{request.time_scope.current.start[:10]}' "
-            f"AND {date_column} < '{request.time_scope.current.end[:10]}'"
-        )
-        bridged["where"] = self._merge_filters(merged_where, window_filter)
-        return bridged
 
     _CONSTRAINT_APPLYING_STEPS = frozenset({"compare_metric", "sample_rows", "aggregate_query", "attribute_change"})
 
@@ -1072,12 +1119,13 @@ class SemanticLayerService:
         """Generic metric comparison step driven by semantic metric definitions.
 
         Externally accepts the TSU typed contract. Internally bridges that
-        request into the legacy comparison compiler inputs until the shared
-        time-scope compiler lands.
+        request into the shared scoped comparison compiler.
         """
         resolved = normalize_compare_metric_request(params)
         if not isinstance(resolved.value_spec, SemanticMetricValueSpec):
             raise ValueError("compare_metric requires a semantic metric request")
+        if resolved.time_scope.mode != "compare" or resolved.time_scope.baseline is None:
+            raise ValueError("compare_metric currently requires time_scope.mode='compare' for execution")
 
         metric_name = resolved.value_spec.metric
 
@@ -1089,12 +1137,22 @@ class SemanticLayerService:
         if metric_sql is None or all_dimensions is None:
             raise ValueError(f"Metric '{metric_name}' not found or not published in semantic_metrics")
 
-        bridged_params = self._bridge_compare_metric_request(session_id, resolved, all_dimensions)
-        table_name = bridged_params["table_name"]
-        date_column = bridged_params["date_column"]
+        short_name = resolved.table.split(".")[-1]
+        engine, engine_type, qualified = self._resolve_engine([short_name])
+        self._resolve_windowed_query_time_axis(
+            resolved,
+            engine_type=engine_type,
+            metric_name=metric_name,
+            fallback_columns=all_dimensions,
+        )
+        scoped_query = self._build_scoped_query(session_id, resolved)
+        date_column = (
+            resolved.resolved_time_axis.override_analysis_time_column
+            or self._infer_date_column(all_dimensions)
+        )
 
         # Allow caller to select a subset of dimensions for grouping
-        requested_dims = bridged_params.get("dimensions")
+        requested_dims = list(resolved.grouping)
         if requested_dims:
             invalid = set(requested_dims) - set(all_dimensions)
             if invalid:
@@ -1111,44 +1169,23 @@ class SemanticLayerService:
                 f"Use a different dimension or omit dimensions for overall aggregate comparison."
             )
         obs_type = "metric_change"
-        limit = bridged_params.get("limit", 10)
+        limit = resolved.limit or 10
 
-        short_name = table_name.split(".")[-1]
-        engine, engine_type, qualified = self._resolve_engine([short_name])
-        qualified_table = qualified.get(short_name, table_name)
-        current_start = date.fromisoformat(str(bridged_params["period_start"]))
-        current_end = date.fromisoformat(str(bridged_params["period_end"]))
-        baseline_start = date.fromisoformat(str(bridged_params["baseline_start"]))
-        baseline_end = date.fromisoformat(str(bridged_params["baseline_end"]))
-        try:
-            row = engine.query_rows(
-                f"SELECT MAX({date_column}) AS max_date FROM {qualified_table}"
-            )[0]
-            date_fmt = self._detect_date_format(row["max_date"])
-        except Exception:
-            date_fmt = self._detect_date_format(str(bridged_params["period_end"]))
-
-        current_len = (current_end - current_start).days
-        baseline_len = (baseline_end - baseline_start).days
+        qualified_table = qualified.get(short_name, resolved.table)
+        current_len = self._window_length(resolved, "current")
+        baseline_len = self._window_length(resolved, "baseline")
         window_size_mismatch = current_len != baseline_len
-
-        def _fmt(d: date) -> str | date:
-            return d.strftime(date_fmt) if date_fmt else d
-
-        scan_start = min(baseline_start, current_start)
-        scan_end = max(baseline_end, current_end)
-        period_params = [_fmt(current_start), _fmt(current_end), _fmt(baseline_start), _fmt(baseline_end), _fmt(scan_start), _fmt(scan_end)]
         compiled_query = self._compile_step_with_feedback(
             from_legacy_step(
                 0,
                 {
                     "step_type": step_type,
                     "params": {
-                        **bridged_params,
                         "metric_name": metric_name,
                         "table_name": qualified_table,
-                        "date_column": date_column,
                         "limit": limit,
+                        "order": self._normalize_compare_metric_order(resolved.order),
+                        "scoped_query": scoped_query,
                     },
                 },
             ),
@@ -1156,7 +1193,6 @@ class SemanticLayerService:
             semantic_context={
                 "metric_sql": metric_sql,
                 "dimensions": dimensions,
-                "period_params": period_params,
             },
         )
         all_rows = execute_compiled(engine, compiled_query).rows
@@ -1181,11 +1217,7 @@ class SemanticLayerService:
                 },
             },
         )
-        window = {
-            "start": str(current_start),
-            "end": str(current_end),
-            "granularity": "day",
-        }
+        window = self._observation_window_for_request(resolved)
         self._annotate_temporal(observations, session_id, window)
         for observation in observations:
             self._insert_observation(session_id, step_id, observation)
@@ -1193,8 +1225,8 @@ class SemanticLayerService:
         artifact_id = self._insert_artifact(session_id, step_id, "table", f"{metric_name}_comparison", rows)
 
         _debug = {
-            "current_window": [str(_fmt(current_start)), str(_fmt(current_end))],
-            "baseline_window": [str(_fmt(baseline_start)), str(_fmt(baseline_end))],
+            "current_window": [resolved.time_scope.current.start, resolved.time_scope.current.end],
+            "baseline_window": [resolved.time_scope.baseline.start, resolved.time_scope.baseline.end],
             "current_has_data": any(r.get("current_sessions") for r in all_rows),
             "baseline_has_data": any(r.get("baseline_sessions") for r in all_rows),
             "window_length_match": not window_size_mismatch,
@@ -1208,9 +1240,10 @@ class SemanticLayerService:
                 f"{top['delta_pct']}% for {top}."
             )
             if window_size_mismatch:
+                unit = "h" if resolved.time_scope.grain == "hour" else "d"
                 summary += (
-                    f" \u26a0 Window size mismatch: current={current_len + 1}d, "
-                    f"baseline={baseline_len + 1}d — count/sum metrics may not be comparable."
+                    f" Window size mismatch: current={current_len}{unit}, "
+                    f"baseline={baseline_len}{unit}; count/sum metrics may not be comparable."
                 )
         elif all_rows:
             missing = []
@@ -1219,12 +1252,9 @@ class SemanticLayerService:
             if not _debug["baseline_has_data"]:
                 missing.append("baseline")
             missing_str = " and ".join(missing) if missing else "one"
-            hint = ""
-            if not comparison_type and not (baseline_start_p and baseline_end_p):
-                hint = " Tip: use comparison_type=wow|dod|mom|yoy or explicit baseline_start/end."
             summary = (
                 f"Metric '{metric_name}' comparison: {missing_str} window has no data. "
-                f"current={_debug['current_window']}, baseline={_debug['baseline_window']}.{hint}"
+                f"current={_debug['current_window']}, baseline={_debug['baseline_window']}."
             )
         else:
             summary = (
@@ -1578,75 +1608,47 @@ class SemanticLayerService:
             observed_window_column: explicit column for observed_window inference (G-2)
         """
         resolved = normalize_aggregate_query_request(params)
-        bridged_params = self._bridge_aggregate_query_request(session_id, resolved)
-
-        table_name = bridged_params.get("table_name")
+        table_name = resolved.table
         if not table_name:
             raise ValueError("aggregate_query requires 'table_name' param")
-        if not bridged_params.get("select"):
-            raise ValueError("aggregate_query requires 'select' param")
 
         step_type = "aggregate_query"
         step_id = self._new_step_id()
         short_name = table_name.split(".")[-1]
         engine, engine_type, qualified = self._resolve_engine([short_name])
+        self._resolve_windowed_query_time_axis(
+            resolved,
+            engine_type=engine_type,
+            fallback_columns=list(resolved.grouping),
+        )
+        scoped_query = self._build_scoped_query(session_id, resolved)
+        select_exprs = list(resolved.grouping) + [
+            f"{measure.expr} AS {measure.alias}" for measure in resolved.value_spec.measures
+        ]
         qualified_table = qualified.get(short_name, table_name)
-
-        compare_period = bridged_params.get("compare_period", False)
-        period_params: list[Any] = []
-        if compare_period:
-            date_column = bridged_params.get("date_column")
-            if not date_column:
-                raise ValueError("aggregate_query with compare_period=True requires 'date_column' param")
-            ps = date.fromisoformat(str(bridged_params["period_start"]))
-            pe = date.fromisoformat(str(bridged_params["period_end"]))
-            baseline_start = date.fromisoformat(str(bridged_params["baseline_start"]))
-            baseline_end = date.fromisoformat(str(bridged_params["baseline_end"]))
-            try:
-                row = engine.query_rows(
-                    f"SELECT MAX({date_column}) AS max_date FROM {qualified_table}"
-                )[0]
-                date_fmt = self._detect_date_format(row["max_date"])
-            except Exception:
-                date_fmt = self._detect_date_format(str(bridged_params["period_start"]))
-            current_start, current_end = ps, pe
-
-            def _fmt(d: date) -> str:
-                return d.strftime(date_fmt) if date_fmt else d.isoformat()
-
-            period_params = [
-                _fmt(current_start), _fmt(current_end),
-                _fmt(baseline_start), _fmt(baseline_end),
-                _fmt(baseline_start), _fmt(current_end),
-            ]
 
         compiler_params: dict[str, Any] = {
             "table_name": qualified_table,
-            "select": bridged_params["select"],
-            "group_by": bridged_params["group_by"],
+            "select": select_exprs,
+            "group_by": list(resolved.grouping),
+            "limit": resolved.limit or 100,
+            "scoped_query": scoped_query,
         }
-        if bridged_params.get("where"):
-            compiler_params["where"] = bridged_params["where"]
-        if bridged_params.get("order_by"):
-            compiler_params["order_by"] = bridged_params["order_by"]
-        if bridged_params.get("limit"):
-            compiler_params["limit"] = bridged_params["limit"]
-        if compare_period:
-            compiler_params["compare_period"] = True
-            compiler_params["date_column"] = bridged_params["date_column"]
+        if resolved.order:
+            compiler_params["order_by"] = resolved.order
 
         compiled_query = self._compile_step_with_feedback(
             from_legacy_step(0, {"step_type": step_type, "params": compiler_params}),
             engine_type=engine_type,
-            semantic_context={"period_params": period_params} if compare_period else None,
         )
         rows = execute_compiled(engine, compiled_query).rows
+        compare_period = resolved.time_scope.mode == "compare"
 
         # Extract observations from aggregate rows (opt-out via extract_observations=false)
-        if bridged_params.get("extract_observations", True):
-            group_by_cols = bridged_params.get("group_by", [])
+        if params.get("extract_observations", True):
+            group_by_cols = list(resolved.grouping)
             # For compare_period, auto-select the first delta_pct column as value_column
-            value_column = bridged_params.get("value_column")
+            value_column = params.get("value_column")
             if compare_period and not value_column and rows:
                 first_key = next(
                     (k for k in rows[0] if k.endswith("_delta_pct")), None
@@ -1658,14 +1660,14 @@ class SemanticLayerService:
             col_metadata = self._fetch_column_metadata(short_name, all_cols)
             observation_context = {
                 "group_by": group_by_cols,
-                "observation_type": bridged_params.get("observation_type", "metric_change"),
-                "metric": bridged_params.get("metric", "aggregate"),
+                "observation_type": params.get("observation_type", "metric_change"),
+                "metric": resolved.value_spec.measures[0].alias if resolved.value_spec.measures else "aggregate",
                 "value_column": value_column,
-                "observed_window_column": bridged_params.get("observed_window_column"),  # G-2: explicit override
+                "observed_window_column": params.get("observed_window_column"),  # G-2: explicit override
                 "column_metadata": col_metadata,  # G-5a: authoritative unit source
             }
-            if bridged_params.get("temporal_group_by_columns") is not None:
-                observation_context["temporal_group_by_columns"] = bridged_params["temporal_group_by_columns"]
+            if params.get("temporal_group_by_columns") is not None:
+                observation_context["temporal_group_by_columns"] = params["temporal_group_by_columns"]
 
             observations = self.evidence_pipeline.extract_observations(
                 "aggregate_rows",
@@ -1675,12 +1677,8 @@ class SemanticLayerService:
             # M-08: annotate temporal info. For compare_period, use the current window.
             # G-2: Only set window if not already inferred by extractor from temporal column.
             agg_window: dict[str, Any] | None = None
-            if compare_period and period_params:
-                agg_window = {
-                    "start": str(period_params[0]),
-                    "end": str(period_params[1]),
-                    "granularity": "day",
-                }
+            if compare_period:
+                agg_window = self._observation_window_for_request(resolved)
             self._annotate_temporal(observations, session_id, agg_window)
             for observation in observations:
                 self._insert_observation(session_id, step_id, observation)
@@ -1690,7 +1688,7 @@ class SemanticLayerService:
         artifact_id = self._insert_artifact(session_id, step_id, "aggregate", f"{short_name}_aggregate", rows)
         if not rows:
             _partition_cols = {"log_date", "event_date", "dt", "date", "day"}
-            where_lower = str(bridged_params.get("where") or "").lower()
+            where_lower = str(scoped_query.get("partition_pruning_predicate") or "").lower()
             has_partition_hint = any(col in where_lower for col in _partition_cols)
             if has_partition_hint:
                 summary = (
@@ -1704,8 +1702,8 @@ class SemanticLayerService:
             summary = (
                 f"Period-over-period aggregate on '{table_name}': "
                 f"{len(rows)} dimension slice(s) compared "
-                f"(current {period_params[0]}–{period_params[1]} vs "
-                f"baseline {period_params[2]}–{period_params[3]})."
+                f"(current {resolved.time_scope.current.start}–{resolved.time_scope.current.end} vs "
+                f"baseline {resolved.time_scope.baseline.start}–{resolved.time_scope.baseline.end})."
             )
         else:
             summary = f"Aggregate query on '{table_name}' returned {len(rows)} rows."

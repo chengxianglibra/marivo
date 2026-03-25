@@ -93,20 +93,20 @@
 
 > 前置依赖：无 | 工作量：中 | 风险：高
 
-- [ ] **TSU-01.1** 定义共享子模型：`TimeWindow` / `TimeScope` / `Scope` / `TimeAxis`
+- [x] **TSU-01.1** 定义共享子模型：`TimeWindow` / `TimeScope` / `Scope` / `TimeAxis`
   - 文件：`app/api/models.py`
   - 约束：
     - `time_scope.mode in {"single_window", "compare"}`
     - `time_scope.grain in {"day", "hour"}`
     - `baseline` 仅在 compare 模式出现
     - `scope.predicate` 只允许非时间条件
-- [ ] **TSU-01.2** 重定义 `compare_metric` 请求模型
+- [x] **TSU-01.2** 重定义 `compare_metric` 请求模型
   - 字段对齐 RFC：`table`、`metric`、`dimensions`、`time_scope`、`scope`、`time_axis`、`order`、`limit`
-- [ ] **TSU-01.3** 重定义 `aggregate_query` 请求模型
+- [x] **TSU-01.3** 重定义 `aggregate_query` 请求模型
   - 字段对齐 RFC：`table`、`group_by`、`measures`、`time_scope`、`scope`、`time_axis`、`order`、`limit`
-- [ ] **TSU-01.4** 给 `measure` 定义强约束
+- [x] **TSU-01.4** 给 `measure` 定义强约束
   - 规则：必须是聚合表达式，且每项都必须显式 `as`
-- [ ] **TSU-01.5** 在 response / schema 描述里明确“旧字段已废弃且不再支持”
+- [x] **TSU-01.5** 在 response / schema 描述里明确“旧字段已废弃且不再支持”
   - 重点字段：`period_start`、`period_end`、`baseline_start`、`baseline_end`、`comparison_type`、`compare_period`、`date_column`、`where`、`filter`
 
 验收标准：
@@ -118,12 +118,12 @@
 
 > 前置依赖：TSU-01 | 工作量：中 | 风险：中
 
-- [ ] **TSU-02.1** 定义统一的 service-layer resolved request 结构
+- [x] **TSU-02.1** 定义统一的 service-layer resolved request 结构
   - 建议位置：`app/models.py` 或新增 `app/time_scope.py`
   - 字段参考 RFC 第 6 节：`compare_kind`、`grouping`、`value_spec`、`resolved_time_axis`
-- [ ] **TSU-02.2** 为 `compare_metric` 与 `aggregate_query` 增加 normalize 入口
+- [x] **TSU-02.2** 为 `compare_metric` 与 `aggregate_query` 增加 normalize 入口
   - 输出统一 resolved object，而不是各自拼装 SQL 参数
-- [ ] **TSU-02.3** 明确 `analysis_time_expr` 与 `partition_pruning_predicate` 的职责边界
+- [x] **TSU-02.3** 明确 `analysis_time_expr` 与 `partition_pruning_predicate` 的职责边界
   - 注释和类型文档必须说明：
     - correctness 由 `analysis_time_expr` 控制
     - pruning 由 `partition_pruning_predicate` 控制
@@ -137,18 +137,18 @@
 
 > 前置依赖：TSU-01 | 工作量：中 | 风险：中
 
-- [ ] **TSU-03.1** 更新 [`app/analysis_core/primitives.py`](/Users/lichengxiang/source/oss/factum/app/analysis_core/primitives.py) 的 step 描述
+- [x] **TSU-03.1** 更新 [`app/analysis_core/primitives.py`](/Users/lichengxiang/source/oss/factum/app/analysis_core/primitives.py) 的 step 描述
   - 去掉旧 compare 参数说明
   - 明确 `aggregate_query` 现在也是 window-aware typed step
-- [ ] **TSU-03.2** 更新 `app/planning.py` 对 `compare_metric` / `aggregate_query` 的参数校验
+- [x] **TSU-03.2** 更新 `app/planning.py` 对 `compare_metric` / `aggregate_query` 的参数校验
   - 新必填项：
     - `compare_metric`: `table`, `metric`, `time_scope`
     - `aggregate_query`: `table`, `measures`, `time_scope`
-- [ ] **TSU-03.3** 增加对 `scope.predicate` 时间条件禁用的 plan-time 报错
+- [x] **TSU-03.3** 增加对 `scope.predicate` 时间条件禁用的 plan-time 报错
   - 新 issue code 建议：`time_predicate_not_allowed_in_scope`
-- [ ] **TSU-03.4** 更新 `app/analysis_core/ir.py` 的 legacy-step 归一化逻辑
+- [x] **TSU-03.4** 更新 `app/analysis_core/ir.py` 的 legacy-step 归一化逻辑
   - 避免 IR 还假设 `metric_name` / `table_name`
-- [ ] **TSU-03.5** 更新 plan explanation / costing / artifact contract 注释
+- [x] **TSU-03.5** 更新 plan explanation / costing / artifact contract 注释
   - 确保 planner 输出不再引用旧字段名
 
 验收标准：
@@ -164,15 +164,15 @@
 
 > 前置依赖：TSU-02 | 工作量：中 | 风险：高
 
-- [ ] **TSU-04.1** 实现 `TimeScopeResolver`
+- [x] **TSU-04.1** 实现 `TimeScopeResolver`
   - 规范化成半开区间 `[start, end)`
-- [ ] **TSU-04.2** 实现 `day` / `hour` 边界合法性校验
+- [x] **TSU-04.2** 实现 `day` / `hour` 边界合法性校验
   - `hour` 必须是 datetime-compatible
   - `day` 可接受 date-only 输入，但内部要规范化
-- [ ] **TSU-04.3** 实现 compare/single-window 统一输出
+- [x] **TSU-04.3** 实现 compare/single-window 统一输出
   - compare 输出 current + baseline
   - single-window 输出 current only
-- [ ] **TSU-04.4** 处理 unequal window 的明确策略
+- [x] **TSU-04.4** 处理 unequal window 的明确策略
   - RFC 未禁止 unequal windows；需明确：
     - 是否允许
     - 是否仅 summary warning
@@ -187,23 +187,23 @@
 
 > 前置依赖：TSU-02 | 工作量：大 | 风险：高
 
-- [ ] **TSU-05.1** 实现 metadata-first 的 time axis 解析
+- [x] **TSU-05.1** 实现 metadata-first 的 time axis 解析
   - 优先读取 entity/source metadata 的 `time_capabilities`
-- [ ] **TSU-05.2** 实现 heuristic fallback
+- [x] **TSU-05.2** 实现 heuristic fallback
   - timestamp 候选：`event_time`、`timestamp`、`created_at`、`updated_at`、`time`
   - day 候选：`log_date`、`event_date`、`dt`、`date`、`day`
   - hour 候选：`log_hour`、`event_hour`、`hour`、`dt_hour`
-- [ ] **TSU-05.3** 产出统一 `ResolvedTimeAxis`
+- [x] **TSU-05.3** 产出统一 `ResolvedTimeAxis`
   - 字段至少包含：
     - `analysis_time_kind`
     - `analysis_time_expr`
     - `partition_pruning_predicate`
     - `observation_grain`
-- [ ] **TSU-05.4** 实现三类布局分支
+- [x] **TSU-05.4** 实现三类布局分支
   - partition-only
   - timestamp-only
   - timestamp + partition mixed
-- [ ] **TSU-05.5** 实现请求级 `time_axis` override
+- [x] **TSU-05.5** 实现请求级 `time_axis` override
   - 明确 override 优先级高于 metadata / heuristics
 
 验收标准：
@@ -215,16 +215,16 @@
 
 > 前置依赖：TSU-04 + TSU-05 | 工作量：大 | 风险：高
 
-- [ ] **TSU-06.1** 提取共享 scoped/periodized CTE builder
+- [x] **TSU-06.1** 提取共享 scoped/periodized CTE builder
   - 建议位置：`app/service.py` 拆出 helper，或新增 `app/query_compilation/time_scope.py`
-- [ ] **TSU-06.2** 实现 compare-mode SQL skeleton
+- [x] **TSU-06.2** 实现 compare-mode SQL skeleton
   - 产出 `_period in {"current", "baseline"}`
-- [ ] **TSU-06.3** 实现 single-window SQL skeleton
+- [x] **TSU-06.3** 实现 single-window SQL skeleton
   - 无 baseline，但仍走统一 scoped path
-- [ ] **TSU-06.4** 接入 `analysis_time_expr` + `partition_pruning_predicate`
-- [ ] **TSU-06.5** 保证 session constraints / session raw_filter 仍被自动注入
+- [x] **TSU-06.4** 接入 `analysis_time_expr` + `partition_pruning_predicate`
+- [x] **TSU-06.5** 保证 session constraints / session raw_filter 仍被自动注入
   - 且顺序明确：window filter、pruning、session constraints、scope constraints、scope predicate
-- [ ] **TSU-06.6** 统一 observation window 输出输入
+- [x] **TSU-06.6** 统一 observation window 输出输入
   - compare by day -> `granularity="day"`
   - compare by hour -> `granularity="hour"`
 

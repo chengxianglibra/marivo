@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,6 +10,8 @@ from app.analysis_core.compiler import CompiledQuery
 from app.main import create_app
 from app.time_scope import AdHocAggregateValueSpec
 from app.time_scope import SemanticMetricValueSpec
+from app.time_scope import TimeAxisResolver
+from app.time_scope import TimeScopeResolver
 from app.time_scope import normalize_aggregate_query_request
 from app.time_scope import normalize_compare_metric_request
 from tests.shared_fixtures import get_seeded_duckdb_path
@@ -33,6 +36,9 @@ class TimeScopeNormalizationTests(unittest.TestCase):
         self.assertIsInstance(resolved.value_spec, SemanticMetricValueSpec)
         self.assertEqual(resolved.value_spec.metric, "watch_time")
         self.assertEqual(resolved.resolved_time_axis.observation_grain, "day")
+        self.assertEqual(resolved.time_scope.current.start, "2026-03-10")
+        self.assertEqual(resolved.time_scope.current.end, "2026-03-17")
+        self.assertEqual(resolved.time_scope.warnings, [])
 
     def test_aggregate_query_normalizes_measures_and_time_axis_override(self) -> None:
         resolved = normalize_aggregate_query_request({
@@ -113,6 +119,254 @@ class TimeScopeNormalizationTests(unittest.TestCase):
         })
         self.assertEqual(resolved.scope.predicate, "business_hour = 9 AND state_date = '2026-03-01'")
 
+    def test_day_grain_normalizes_datetime_boundaries_to_dates(self) -> None:
+        resolved = normalize_compare_metric_request({
+            "table": "analytics.watch_events",
+            "metric": "watch_time",
+            "time_scope": {
+                "mode": "single_window",
+                "grain": "day",
+                "current": {
+                    "start": "2026-03-10T08:15:00",
+                    "end": "2026-03-17 00:00:00",
+                },
+            },
+        })
+        self.assertEqual(resolved.time_scope.current.start, "2026-03-10")
+        self.assertEqual(resolved.time_scope.current.end, "2026-03-17")
+
+    def test_hour_grain_normalizes_to_second_precision(self) -> None:
+        resolved = TimeScopeResolver(step_type="compare_metric").resolve({
+            "mode": "single_window",
+            "grain": "hour",
+            "current": {
+                "start": "2026-03-25 10:00:00.999999",
+                "end": "2026-03-25T14:00:00",
+            },
+        })
+        self.assertEqual(resolved.current.start, "2026-03-25T10:00:00")
+        self.assertEqual(resolved.current.end, "2026-03-25T14:00:00")
+
+    def test_hour_grain_rejects_date_only_boundaries(self) -> None:
+        with self.assertRaisesRegex(ValueError, "datetime string for hour grain"):
+            TimeScopeResolver(step_type="compare_metric").resolve({
+                "mode": "single_window",
+                "grain": "hour",
+                "current": {"start": "2026-03-25", "end": "2026-03-26"},
+            })
+
+    def test_hour_grain_rejects_timezone_aware_boundaries(self) -> None:
+        with self.assertRaisesRegex(ValueError, "naive datetime"):
+            TimeScopeResolver(step_type="compare_metric").resolve({
+                "mode": "single_window",
+                "grain": "hour",
+                "current": {
+                    "start": "2026-03-25T10:00:00+08:00",
+                    "end": "2026-03-25T14:00:00+08:00",
+                },
+            })
+
+    def test_time_scope_rejects_non_increasing_windows(self) -> None:
+        with self.assertRaisesRegex(ValueError, "start < end"):
+            TimeScopeResolver(step_type="compare_metric").resolve({
+                "mode": "single_window",
+                "grain": "day",
+                "current": {"start": "2026-03-25", "end": "2026-03-25"},
+            })
+
+    def test_compare_mode_keeps_unequal_windows_and_adds_warning(self) -> None:
+        resolved = TimeScopeResolver(step_type="compare_metric").resolve({
+            "mode": "compare",
+            "grain": "day",
+            "current": {"start": "2026-03-10", "end": "2026-03-17"},
+            "baseline": {"start": "2026-03-01", "end": "2026-03-03"},
+        })
+        self.assertEqual(len(resolved.warnings), 1)
+        self.assertEqual(resolved.warnings[0]["code"], "window_length_mismatch")
+        self.assertEqual(resolved.warnings[0]["current_duration"], 7)
+        self.assertEqual(resolved.warnings[0]["baseline_duration"], 2)
+
+
+class TimeAxisResolverTests(unittest.TestCase):
+    def _compare_request(self, *, grain: str = "hour", time_axis: dict[str, object] | None = None):
+        payload: dict[str, object] = {
+            "table": "iceberg.analytics.query_events",
+            "metric": "queued_time",
+            "time_scope": {
+                "mode": "compare",
+                "grain": grain,
+                "current": {
+                    "start": "2026-03-25T10:00:00" if grain == "hour" else "2026-03-25",
+                    "end": "2026-03-25T14:00:00" if grain == "hour" else "2026-03-26",
+                },
+                "baseline": {
+                    "start": "2026-03-25T06:00:00" if grain == "hour" else "2026-03-24",
+                    "end": "2026-03-25T10:00:00" if grain == "hour" else "2026-03-25",
+                },
+            },
+        }
+        if time_axis is not None:
+            payload["time_axis"] = time_axis
+        return normalize_compare_metric_request(payload)
+
+    def test_resolver_prefers_timestamp_analysis_with_partition_pruning_for_mixed_layout(self) -> None:
+        request = self._compare_request()
+        resolved = TimeAxisResolver(
+            request=request,
+            engine_type="duckdb",
+            available_columns=["event_time", "log_date", "log_hour"],
+            entity_time_capabilities={
+                "analysis_time": {
+                    "timestamp_column": "event_time",
+                    "fallback_date_column": "log_date",
+                    "fallback_hour_column": "log_hour",
+                },
+                "partition_time": {
+                    "date_column": "log_date",
+                    "date_format": "yyyymmdd",
+                    "hour_column": "log_hour",
+                    "hour_format": "hh",
+                },
+            },
+        ).resolve()
+        self.assertEqual(resolved.analysis_time_kind, "timestamp")
+        self.assertEqual(resolved.analysis_time_expr, "event_time")
+        self.assertIn("log_date = '20260325'", resolved.partition_pruning_predicate)
+        self.assertIn("log_hour >= '06'", resolved.partition_pruning_predicate)
+        self.assertIn("log_hour < '14'", resolved.partition_pruning_predicate)
+
+    def test_resolver_builds_partition_only_hour_expression(self) -> None:
+        request = self._compare_request()
+        resolved = TimeAxisResolver(
+            request=request,
+            engine_type="trino",
+            available_columns=["log_date", "log_hour"],
+            source_time_capabilities={
+                "analysis_time": {
+                    "fallback_date_column": "log_date",
+                    "fallback_hour_column": "log_hour",
+                },
+                "partition_time": {
+                    "date_column": "log_date",
+                    "date_format": "yyyymmdd",
+                    "hour_column": "log_hour",
+                    "hour_format": "hh",
+                },
+            },
+        ).resolve()
+        self.assertEqual(resolved.analysis_time_kind, "partition_fields")
+        self.assertIn("CAST(CONCAT(", resolved.analysis_time_expr)
+        self.assertIn("SUBSTR(CAST(log_date AS VARCHAR), 1, 4)", resolved.analysis_time_expr)
+        self.assertEqual(
+            resolved.partition_pruning_predicate,
+            "log_date = '20260325' AND log_hour >= '06' AND log_hour < '14'",
+        )
+
+    def test_resolver_reuses_metadata_date_format_for_partition_only_hour_expression(self) -> None:
+        request = self._compare_request()
+        resolved = TimeAxisResolver(
+            request=request,
+            engine_type="trino",
+            available_columns=["ds", "hh"],
+            source_time_capabilities={
+                "analysis_time": {
+                    "fallback_date_column": "ds",
+                    "fallback_hour_column": "hh",
+                },
+                "partition_time": {
+                    "date_column": "ds",
+                    "date_format": "yyyymmdd",
+                    "hour_column": "hh",
+                    "hour_format": "hh",
+                },
+            },
+        ).resolve()
+        self.assertEqual(resolved.analysis_time_kind, "partition_fields")
+        self.assertEqual(resolved.analysis_time_format, "yyyymmdd")
+        self.assertIn("SUBSTR(CAST(ds AS VARCHAR), 1, 4)", resolved.analysis_time_expr)
+        self.assertEqual(
+            resolved.partition_pruning_predicate,
+            "ds = '20260325' AND hh >= '06' AND hh < '14'",
+        )
+
+    def test_resolver_falls_back_to_date_field_for_day_partition_layout(self) -> None:
+        request = self._compare_request(grain="day")
+        resolved = TimeAxisResolver(
+            request=request,
+            engine_type="duckdb",
+            available_columns=["log_date", "resource_group"],
+        ).resolve()
+        self.assertEqual(resolved.analysis_time_kind, "date_field")
+        self.assertEqual(resolved.analysis_time_expr, "log_date")
+        self.assertEqual(
+            resolved.partition_pruning_predicate,
+            "log_date >= '20260324' AND log_date < '20260326'",
+        )
+
+    def test_resolver_reuses_metadata_date_format_for_day_field_analysis(self) -> None:
+        request = self._compare_request(grain="day")
+        resolved = TimeAxisResolver(
+            request=request,
+            engine_type="duckdb",
+            available_columns=["ds", "resource_group"],
+            source_time_capabilities={
+                "analysis_time": {
+                    "fallback_date_column": "ds",
+                },
+                "partition_time": {
+                    "date_column": "ds",
+                    "date_format": "yyyymmdd",
+                },
+            },
+        ).resolve()
+        self.assertEqual(resolved.analysis_time_kind, "date_field")
+        self.assertEqual(resolved.analysis_time_expr, "ds")
+        self.assertEqual(resolved.analysis_time_format, "yyyymmdd")
+        self.assertEqual(
+            resolved.partition_pruning_predicate,
+            "ds >= '20260324' AND ds < '20260326'",
+        )
+
+    def test_resolver_heuristics_prefer_timestamp_when_mixed_columns_exist(self) -> None:
+        request = self._compare_request()
+        resolved = TimeAxisResolver(
+            request=request,
+            engine_type="duckdb",
+            available_columns=["event_time", "log_date", "log_hour"],
+        ).resolve()
+        self.assertEqual(resolved.analysis_time_kind, "timestamp")
+        self.assertEqual(resolved.analysis_time_expr, "event_time")
+        self.assertIsNotNone(resolved.partition_pruning_predicate)
+
+    def test_resolver_request_override_beats_metadata(self) -> None:
+        request = self._compare_request(time_axis={"analysis_time": {"column": "created_at"}})
+        resolved = TimeAxisResolver(
+            request=request,
+            engine_type="duckdb",
+            available_columns=["event_time", "created_at"],
+            entity_time_capabilities={"analysis_time": {"timestamp_column": "event_time"}},
+        ).resolve()
+        self.assertEqual(resolved.analysis_time_expr, "created_at")
+
+    def test_resolver_rejects_metadata_columns_not_present_in_known_schema(self) -> None:
+        request = self._compare_request(grain="day")
+        with self.assertRaisesRegex(ValueError, "unknown column 'event_time'"):
+            TimeAxisResolver(
+                request=request,
+                engine_type="duckdb",
+                available_columns=["event_date"],
+                source_time_capabilities={"analysis_time": {"timestamp_column": "event_time"}},
+            ).resolve()
+
+    def test_resolver_rejects_hour_grain_without_hour_capable_axis(self) -> None:
+        request = self._compare_request()
+        with self.assertRaisesRegex(ValueError, "hour-compatible time axis"):
+            TimeAxisResolver(
+                request=request,
+                engine_type="duckdb",
+                available_columns=["log_date"],
+            ).resolve()
+
 
 class _FakeEngine:
     def query_rows(self, sql: str) -> list[dict[str, str]]:
@@ -129,6 +383,17 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         get_seeded_duckdb_path(db_path)
         cls.app = create_app(db_path=db_path)
         cls.service = cls.app.state.service
+        from fastapi.testclient import TestClient
+
+        client = TestClient(cls.app)
+        try:
+            source_id = client.post(
+                "/sources",
+                json={"source_type": "duckdb", "display_name": "TSU-05 Source", "connection": {"path": str(db_path)}},
+            ).json()["source_id"]
+            client.post(f"/sources/{source_id}/sync")
+        finally:
+            client.close()
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -142,15 +407,15 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
                 "display_name": "Session",
                 "keys": ["session_id"],
             })
-            entity_id = entity_resp.json()["entity_id"]
-            client.post(f"/semantic/entities/{entity_id}/publish")
+            self.entity_id = entity_resp.json()["entity_id"]
+            client.post(f"/semantic/entities/{self.entity_id}/publish")
 
             metric_resp = client.post("/semantic/metrics", json={
                 "name": f"watch_time_tsu02_{id(self)}",
                 "display_name": "Watch Time",
                 "definition_sql": "avg(play_duration_seconds)",
                 "dimensions": ["platform", "event_date"],
-                "entity_id": entity_id,
+                "entity_id": self.entity_id,
             })
             metric_id = metric_resp.json()["metric_id"]
             client.post(f"/semantic/metrics/{metric_id}/publish")
@@ -213,14 +478,18 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         self.assertEqual(result["step_type"], "compare_metric")
         self.assertEqual(captured["params"]["metric_name"], self.metric_name)
         self.assertEqual(captured["params"]["table_name"], "analytics.watch_events")
-        self.assertEqual(captured["params"]["period_start"], "2026-03-10")
-        self.assertEqual(captured["params"]["period_end"], "2026-03-16")
-        self.assertEqual(captured["params"]["baseline_start"], "2026-03-03")
-        self.assertEqual(captured["params"]["baseline_end"], "2026-03-09")
-        self.assertIn("platform = 'android'", captured["params"]["filter"])
-        self.assertIn("country = 'US'", captured["params"]["filter"])
-        self.assertIn("region = 'us-east'", captured["params"]["filter"])
-        self.assertIn("device_type = 'phone'", captured["params"]["filter"])
+        scoped_query = captured["params"]["scoped_query"]
+        self.assertEqual(scoped_query["analysis_time_kind"], "date_field")
+        self.assertEqual(scoped_query["analysis_time_expr"], "event_date")
+        self.assertIsNone(scoped_query["analysis_time_format"])
+        self.assertEqual(scoped_query["current"]["start"], "2026-03-10")
+        self.assertEqual(scoped_query["current"]["end"], "2026-03-17")
+        self.assertEqual(scoped_query["baseline"]["start"], "2026-03-03")
+        self.assertEqual(scoped_query["baseline"]["end"], "2026-03-10")
+        self.assertIn("platform = 'android'", scoped_query["session_constraints_filter"])
+        self.assertEqual(scoped_query["session_raw_filter"], "country = 'US'")
+        self.assertEqual(scoped_query["scope_constraints_filter"], "region = 'us-east'")
+        self.assertEqual(scoped_query["scope_predicate_filter"], "device_type = 'phone'")
 
     def test_aggregate_query_service_bridges_normalized_request(self) -> None:
         captured: dict[str, object] = {}
@@ -269,10 +538,172 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         self.assertEqual(captured["params"]["table_name"], "analytics.watch_events")
         self.assertEqual(captured["params"]["select"], ["platform", "COUNT(*) AS query_count"])
         self.assertEqual(captured["params"]["group_by"], ["platform"])
-        self.assertEqual(captured["params"]["date_column"], "event_date")
-        self.assertTrue(captured["params"]["compare_period"])
         self.assertEqual(captured["params"]["order_by"], "query_count_delta_pct DESC")
-        self.assertIn("platform = 'android'", captured["params"]["where"])
-        self.assertIn("country = 'US'", captured["params"]["where"])
-        self.assertIn("region = 'us-east'", captured["params"]["where"])
-        self.assertIn("device_type = 'phone'", captured["params"]["where"])
+        scoped_query = captured["params"]["scoped_query"]
+        self.assertEqual(scoped_query["analysis_time_kind"], "date_field")
+        self.assertEqual(scoped_query["analysis_time_expr"], "event_date")
+        self.assertIsNone(scoped_query["analysis_time_format"])
+        self.assertEqual(scoped_query["current"]["start"], "2026-03-10")
+        self.assertEqual(scoped_query["current"]["end"], "2026-03-17")
+        self.assertEqual(scoped_query["baseline"]["start"], "2026-03-03")
+        self.assertEqual(scoped_query["baseline"]["end"], "2026-03-10")
+        self.assertIn("platform = 'android'", scoped_query["session_constraints_filter"])
+        self.assertEqual(scoped_query["session_raw_filter"], "country = 'US'")
+        self.assertEqual(scoped_query["scope_constraints_filter"], "region = 'us-east'")
+        self.assertEqual(scoped_query["scope_predicate_filter"], "device_type = 'phone'")
+
+    def test_compare_metric_hour_grain_annotations_use_hour_window(self) -> None:
+        original_compile = self.service._compile_step_with_feedback
+        original_execute = service_module.execute_compiled
+        original_resolve_engine = self.service._resolve_engine
+        original_resolve_time_axis = self.service._resolve_windowed_query_time_axis
+        original_extract = self.service.evidence_pipeline.extract_observations
+        self.service._resolve_engine = lambda table_names: (_FakeEngine(), "duckdb", {table_names[0]: f"analytics.{table_names[0]}"})
+        self.service._resolve_windowed_query_time_axis = lambda request, **kwargs: setattr(
+            request.resolved_time_axis,
+            "analysis_time_expr",
+            "event_time",
+        )
+        self.service.evidence_pipeline.extract_observations = lambda *args, **kwargs: [{
+            "observation_id": f"obs_cmp_hour_{id(self)}",
+            "type": "metric_change",
+            "subject": {"metric": self.metric_name, "slice": {"platform": "android"}},
+            "payload": {"current_value": 10.0, "baseline_value": 5.0, "delta_pct": 100.0},
+            "significance": {"sample_size": 10, "practical_significance": True},
+            "quality": {"freshness_ok": True, "sample_size_ok": True},
+        }]
+
+        def fake_compile(step, *, engine_type, semantic_context=None):
+            return CompiledQuery(sql="SELECT 1", params=[])
+
+        class _Result:
+            rows = [{"platform": "android", "current_value": 10.0, "baseline_value": 5.0, "delta_pct": 100.0, "current_sessions": 10, "baseline_sessions": 8}]
+
+        self.service._compile_step_with_feedback = fake_compile
+        service_module.execute_compiled = lambda engine, compiled: _Result()
+        try:
+            result = self.service._run_compare_metric(self.session_id, {
+                "table": "analytics.watch_events",
+                "metric": self.metric_name,
+                "dimensions": ["platform"],
+                "time_scope": {
+                    "mode": "compare",
+                    "grain": "hour",
+                    "current": {"start": "2026-03-25T10:00:00", "end": "2026-03-25T14:00:00"},
+                    "baseline": {"start": "2026-03-25T06:00:00", "end": "2026-03-25T10:00:00"},
+                },
+                "time_axis": {"analysis_time": {"column": "event_time"}},
+            })
+        finally:
+            self.service._compile_step_with_feedback = original_compile
+            service_module.execute_compiled = original_execute
+            self.service._resolve_engine = original_resolve_engine
+            self.service._resolve_windowed_query_time_axis = original_resolve_time_axis
+            self.service.evidence_pipeline.extract_observations = original_extract
+
+        self.assertEqual(result["observations"][0]["observed_window"]["granularity"], "hour")
+        self.assertEqual(result["observations"][0]["observed_window"]["start"], "2026-03-25T10:00:00")
+        self.assertEqual(result["observations"][0]["observed_window"]["end"], "2026-03-25T14:00:00")
+
+    def test_aggregate_query_hour_grain_annotations_use_hour_window(self) -> None:
+        original_compile = self.service._compile_step_with_feedback
+        original_execute = service_module.execute_compiled
+        original_resolve_engine = self.service._resolve_engine
+        original_resolve_time_axis = self.service._resolve_windowed_query_time_axis
+        original_extract = self.service.evidence_pipeline.extract_observations
+        self.service._resolve_engine = lambda table_names: (_FakeEngine(), "duckdb", {table_names[0]: f"analytics.{table_names[0]}"})
+        self.service._resolve_windowed_query_time_axis = lambda request, **kwargs: setattr(
+            request.resolved_time_axis,
+            "analysis_time_expr",
+            "event_time",
+        )
+        self.service.evidence_pipeline.extract_observations = lambda *args, **kwargs: [{
+            "observation_id": f"obs_agg_hour_{id(self)}",
+            "type": "metric_change",
+            "subject": {"metric": "query_count", "slice": {"platform": "android"}},
+            "payload": {"query_count_current": 10, "query_count_baseline": 5, "query_count_delta_pct": 100.0},
+            "significance": {"sample_size": 10, "practical_significance": True},
+            "quality": {"freshness_ok": True, "sample_size_ok": True},
+        }]
+
+        def fake_compile(step, *, engine_type, semantic_context=None):
+            return CompiledQuery(sql="SELECT 1", params=[])
+
+        class _Result:
+            rows = [{"platform": "android", "query_count_current": 10, "query_count_baseline": 5, "query_count_delta_pct": 100.0}]
+
+        self.service._compile_step_with_feedback = fake_compile
+        service_module.execute_compiled = lambda engine, compiled: _Result()
+        try:
+            result = self.service._run_aggregate_query(self.session_id, {
+                "table": "analytics.watch_events",
+                "group_by": ["platform"],
+                "measures": [{"expr": "COUNT(*)", "as": "query_count"}],
+                "time_scope": {
+                    "mode": "compare",
+                    "grain": "hour",
+                    "current": {"start": "2026-03-25T10:00:00", "end": "2026-03-25T14:00:00"},
+                    "baseline": {"start": "2026-03-25T06:00:00", "end": "2026-03-25T10:00:00"},
+                },
+                "time_axis": {"analysis_time": {"column": "event_time"}},
+            })
+        finally:
+            self.service._compile_step_with_feedback = original_compile
+            service_module.execute_compiled = original_execute
+            self.service._resolve_engine = original_resolve_engine
+            self.service._resolve_windowed_query_time_axis = original_resolve_time_axis
+            self.service.evidence_pipeline.extract_observations = original_extract
+
+        self.assertEqual(result["observations"][0]["observed_window"]["granularity"], "hour")
+        self.assertEqual(result["observations"][0]["observed_window"]["start"], "2026-03-25T10:00:00")
+        self.assertEqual(result["observations"][0]["observed_window"]["end"], "2026-03-25T14:00:00")
+
+    def test_service_resolver_prefers_entity_time_capabilities_over_source_time_capabilities(self) -> None:
+        client = self._client()
+        try:
+            table_row = self.service.metadata.query_one(
+                "SELECT object_id, properties_json FROM source_objects WHERE object_type = 'table' AND native_name = ?",
+                ["watch_events"],
+            )
+            self.assertIsNotNone(table_row)
+            table_props = json.loads(table_row["properties_json"] or "{}")
+            table_props["time_capabilities"] = {
+                "analysis_time": {"fallback_date_column": "platform"},
+            }
+            self.service.metadata.execute(
+                "UPDATE source_objects SET properties_json = ? WHERE object_id = ?",
+                [json.dumps(table_props), table_row["object_id"]],
+            )
+
+            patch_resp = client.patch(
+                f"/semantic/entities/{self.entity_id}/properties",
+                json={"properties": {"time_capabilities": {"analysis_time": {"fallback_date_column": "event_date"}}}},
+            )
+            self.assertEqual(patch_resp.status_code, 200)
+
+            request = normalize_compare_metric_request({
+                "table": "analytics.watch_events",
+                "metric": self.metric_name,
+                "time_scope": {
+                    "mode": "compare",
+                    "grain": "day",
+                    "current": {"start": "2026-03-10", "end": "2026-03-17"},
+                    "baseline": {"start": "2026-03-03", "end": "2026-03-10"},
+                },
+            })
+            self.service._resolve_windowed_query_time_axis(
+                request,
+                engine_type="duckdb",
+                metric_name=self.metric_name,
+                fallback_columns=["event_date", "platform"],
+            )
+        finally:
+            client.close()
+
+        self.assertEqual(request.resolved_time_axis.analysis_time_kind, "date_field")
+        self.assertEqual(request.resolved_time_axis.analysis_time_expr, "event_date")
+        self.assertIsNone(request.resolved_time_axis.analysis_time_format)
+        self.assertEqual(
+            request.resolved_time_axis.partition_pruning_predicate,
+            "event_date >= '2026-03-03' AND event_date < '2026-03-17'",
+        )
