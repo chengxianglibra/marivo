@@ -192,17 +192,20 @@ class EvidencePipeline:
                 )
 
         for recommendation in recommendations:
-            edges.append(
-                {
-                    "from_node_id": recommendation["claim_id"],
-                    "from_node_type": "claim",
-                    "to_node_id": recommendation["rec_id"],
-                    "to_node_type": "recommendation",
-                    "edge_type": "justifies",
-                    "weight": 0.9,
-                    "explanation": "Claim justifies the recommendation.",
-                }
-            )
+            # Multi-claim aggregation: create justifies edge for each supporting claim
+            backing_claim_ids = recommendation.get("supporting_claims") or [recommendation["claim_id"]]
+            for backing_id in backing_claim_ids:
+                edges.append(
+                    {
+                        "from_node_id": backing_id,
+                        "from_node_type": "claim",
+                        "to_node_id": recommendation["rec_id"],
+                        "to_node_type": "recommendation",
+                        "edge_type": "justifies",
+                        "weight": 0.9,
+                        "explanation": "Claim justifies the recommendation.",
+                    }
+                )
 
         # M-07: upgrade claim inference_level based on connected causal edges
         level_updates = _derive_inference_level_from_edges(edges, claims)

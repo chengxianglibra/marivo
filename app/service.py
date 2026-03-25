@@ -283,7 +283,8 @@ class SemanticLayerService:
         recommendations = self.metadata.query_rows(
             """
             SELECT rec_id, claim_id, action_text, priority, expected_impact, risk,
-                   validation_metric_json, causal_basis_json, entity_patch_json
+                   validation_metric_json, causal_basis_json, entity_patch_json,
+                   supporting_claims_json
             FROM recommendations
             WHERE session_id = ?
             ORDER BY created_at
@@ -303,6 +304,8 @@ class SemanticLayerService:
             recommendation["causal_basis"] = json.loads(raw_cb) if raw_cb is not None else None
             raw_ep = recommendation.pop("entity_patch_json", None)
             recommendation["entity_patch"] = json.loads(raw_ep) if raw_ep is not None else None
+            raw_sc = recommendation.pop("supporting_claims_json", None)
+            recommendation["supporting_claims"] = json.loads(raw_sc) if raw_sc is not None else None
             recommendation["action"] = recommendation["action_text"]  # alias for agent compatibility
 
         return {
@@ -2363,12 +2366,13 @@ class SemanticLayerService:
     def _insert_recommendation(self, session_id: str, recommendation: dict[str, Any]) -> None:
         causal_basis = recommendation.get("causal_basis")
         entity_patch = recommendation.get("entity_patch")
+        supporting_claims = recommendation.get("supporting_claims")
         self.metadata.execute(
             """
             INSERT INTO recommendations (
                 rec_id, session_id, claim_id, action_text, priority, expected_impact, risk,
-                validation_metric_json, causal_basis_json, entity_patch_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                validation_metric_json, causal_basis_json, entity_patch_json, supporting_claims_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 recommendation["rec_id"],
@@ -2381,6 +2385,7 @@ class SemanticLayerService:
                 self._dump(recommendation["validation_metric"]),
                 self._dump(causal_basis) if causal_basis is not None else None,
                 self._dump(entity_patch) if entity_patch is not None else None,
+                self._dump(supporting_claims) if supporting_claims is not None else None,
             ],
         )
 

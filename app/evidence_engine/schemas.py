@@ -98,13 +98,14 @@ class Claim(TypedDict):
 
 class Recommendation(TypedDict):
     rec_id: str                        # Signal: unique recommendation identifier
-    claim_id: str                      # Signal: backing claim
+    claim_id: str                      # Signal: primary backing claim (highest confidence)
     action_text: str                   # Signal: proposed action (agent decides whether to take it)
     priority: str                      # Signal: P0/P1/P2 — agent uses to triage, not a command
     expected_impact: str               # Signal: estimated outcome if action is taken
     risk: str                          # Signal: risk level of the action
     validation_metric: dict[str, Any]  # Signal: how to verify the action worked
     causal_basis: dict[str, Any] | None  # Signal: M-10 causal evidence summary; None for old rows
+    supporting_claims: list[str] | None  # Signal: all claim_ids backing this rec (multi-claim aggregation)
 
 
 def _build_causal_basis(claim: Claim) -> dict[str, Any]:
