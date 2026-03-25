@@ -45,6 +45,8 @@ Supported: `compare_metric`, `profile_table`, `sample_rows`, `aggregate_query`, 
 Rules:
 
 - `compare_metric` and `aggregate_query` use typed `time_scope` and `scope`
+- `time_axis` resolution prefers `semantic_entities.properties.time_capabilities`, then synced `source_objects.properties.time_capabilities`, then heuristics
+- phase-1 timezone policy is session-consistent naive timestamps only; hour-grain windows must not include timezone offsets
 - normalized windows are half-open: `[start, end)`
 - `compare_metric` observations inherit `time_scope.current` as their `observed_window`
 - `aggregate_query` observations inherit the request window; temporal `group_by` can refine them to per-row windows

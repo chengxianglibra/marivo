@@ -307,10 +307,10 @@
 
 > 前置依赖：TSU-09 | 工作量：中 | 风险：中
 
-- [ ] **TSU-10.1** 校验 comparison artifact 输出列是否仍满足 extractor 期望
-- [ ] **TSU-10.2** 让 observation 的 `observed_window` 基于 resolved `time_scope`
-- [ ] **TSU-10.3** 校验 `hour` compare 的 observation granularity 与 temporal checker 兼容
-- [ ] **TSU-10.4** 审计 summary/debug 中所有旧字段表述
+- [x] **TSU-10.1** 校验 comparison artifact 输出列是否仍满足 extractor 期望
+- [x] **TSU-10.2** 让 observation 的 `observed_window` 基于 resolved `time_scope`
+- [x] **TSU-10.3** 校验 `hour` compare 的 observation granularity 与 temporal checker 兼容
+- [x] **TSU-10.4** 审计 summary/debug 中所有旧字段表述
   - 例如 period wording、baseline wording、warning wording
 
 验收标准：
@@ -325,15 +325,15 @@
 
 > 前置依赖：TSU-05 | 工作量：中 | 风险：中
 
-- [ ] **TSU-11.1** 定义 `time_capabilities` 最小 schema
+- [x] **TSU-11.1** 定义 `time_capabilities` 最小 schema
   - 参考 RFC 第 12 节
-- [ ] **TSU-11.2** 决定 schema 先挂载在哪里
+- [x] **TSU-11.2** 决定 schema 先挂载在哪里
   - `entity.properties`
   - `source_object.properties`
   - 或双层策略
-- [ ] **TSU-11.3** 实现 metadata 读取入口
+- [x] **TSU-11.3** 实现 metadata 读取入口
   - 让 resolver 不直接散落访问各表 JSON 字段
-- [ ] **TSU-11.4** 明确 timezone phase-1 策略
+- [x] **TSU-11.4** 明确 timezone phase-1 策略
   - 若仍采用 session-consistent naive timestamps，需要文档写明限制
 
 验收标准：

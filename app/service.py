@@ -34,6 +34,7 @@ from app.semantic_runtime import SemanticRuntimeRepository
 from app.session import SessionManager
 from app.storage.analytics import AnalyticsEngine
 from app.storage.metadata import MetadataStore
+from app.time_axis_metadata import TimeAxisMetadataProvider
 from app.time_scope import ResolvedWindowedQueryRequest
 from app.time_scope import SemanticMetricValueSpec
 from app.time_scope import TimeAxisResolver
@@ -82,6 +83,7 @@ class SemanticLayerService:
         self._default_synthesizer = DefaultClaimSynthesizer()
         self.semantic_repository = SemanticRuntimeRepository(metadata_store)
         self.semantic_resolver = self.semantic_repository.resolver
+        self.time_axis_metadata_provider = TimeAxisMetadataProvider(metadata_store)
         self.evidence_pipeline = EvidencePipeline(
             self._default_synthesizer,
             metric_direction_resolver=self._resolve_metric_direction,
@@ -1104,16 +1106,12 @@ class SemanticLayerService:
         metric_name: str | None = None,
         fallback_columns: list[str] | None = None,
     ) -> None:
-        source_time_capabilities, source_columns = self._load_table_time_capabilities(request.table)
-        entity_time_capabilities: dict[str, Any] | None = None
-        if metric_name:
-            entity = self._resolve_entity_for_metric(metric_name)
-            properties = entity.get("properties", {}) if entity else {}
-            raw_time_capabilities = properties.get("time_capabilities")
-            if isinstance(raw_time_capabilities, dict):
-                entity_time_capabilities = raw_time_capabilities
+        metadata_context = self.time_axis_metadata_provider.load_for_windowed_query(
+            table_name=request.table,
+            metric_name=metric_name,
+        )
 
-        available_columns = list(source_columns)
+        available_columns = list(metadata_context.available_columns)
         if available_columns:
             for column in fallback_columns or []:
                 name = str(column).strip()
@@ -1124,8 +1122,8 @@ class SemanticLayerService:
             request=request,
             engine_type=engine_type,
             available_columns=available_columns,
-            entity_time_capabilities=entity_time_capabilities,
-            source_time_capabilities=source_time_capabilities,
+            entity_time_capabilities=metadata_context.entity_time_capabilities,
+            source_time_capabilities=metadata_context.source_time_capabilities,
         )
         has_explicit_override = any(
             (
@@ -1137,47 +1135,12 @@ class SemanticLayerService:
         try:
             request.resolved_time_axis = resolver.resolve()
         except ValueError:
-            if has_explicit_override or entity_time_capabilities or source_time_capabilities:
+            if (
+                has_explicit_override
+                or metadata_context.entity_time_capabilities
+                or metadata_context.source_time_capabilities
+            ):
                 raise
-
-    def _load_table_time_capabilities(self, table_name: str) -> tuple[dict[str, Any] | None, list[str]]:
-        table_row = self._find_source_table_object(table_name)
-        if table_row is None:
-            return None, []
-        try:
-            table_props = json.loads(table_row["properties_json"] or "{}")
-        except Exception:
-            table_props = {}
-        time_capabilities = table_props.get("time_capabilities")
-        if not isinstance(time_capabilities, dict):
-            time_capabilities = None
-
-        column_rows = self.metadata.query_rows(
-            """
-            SELECT native_name
-            FROM source_objects
-            WHERE parent_id = ? AND object_type = 'column'
-            ORDER BY native_name
-            """,
-            [table_row["object_id"]],
-        )
-        columns = [str(row["native_name"]) for row in column_rows if row.get("native_name")]
-        return time_capabilities, columns
-
-    def _find_source_table_object(self, table_name: str) -> dict[str, Any] | None:
-        short_name = table_name.split(".")[-1]
-        rows = self.metadata.query_rows(
-            """
-            SELECT object_id, fqn, native_name, properties_json
-            FROM source_objects
-            WHERE object_type = 'table' AND (fqn = ? OR native_name = ?)
-            ORDER BY CASE WHEN fqn = ? THEN 0 ELSE 1 END, updated_at DESC
-            """,
-            [table_name, short_name, table_name],
-        )
-        if not rows:
-            return None
-        return dict(rows[0])
 
     @staticmethod
     def _normalize_compare_metric_order(order: str | None) -> str | None:

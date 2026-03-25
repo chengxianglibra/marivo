@@ -8,6 +8,8 @@ from datetime import timedelta
 import re
 from typing import Any, Literal, Mapping, Sequence
 
+from app.time_axis_metadata import normalize_time_capabilities
+
 
 CompareKind = Literal["semantic_metric", "ad_hoc_aggregate"]
 TimeScopeMode = Literal["single_window", "compare"]
@@ -284,13 +286,15 @@ class _TimeCapabilities:
     partition_date_format: str | None = None
     partition_hour_column: str | None = None
     partition_hour_format: str | None = None
+    default_compare_grain: TimeScopeGrain | None = None
 
     @classmethod
     def from_mapping(cls, payload: Mapping[str, Any] | None) -> _TimeCapabilities:
-        if not isinstance(payload, Mapping):
+        normalized_payload = normalize_time_capabilities(payload)
+        if not isinstance(normalized_payload, Mapping):
             return cls()
-        analysis_time = payload.get("analysis_time")
-        partition_time = payload.get("partition_time")
+        analysis_time = normalized_payload.get("analysis_time")
+        partition_time = normalized_payload.get("partition_time")
         if not isinstance(analysis_time, Mapping):
             analysis_time = {}
         if not isinstance(partition_time, Mapping):
@@ -303,6 +307,7 @@ class _TimeCapabilities:
             partition_date_format=_normalize_date_format(partition_time.get("date_format")),
             partition_hour_column=_optional_str(partition_time.get("hour_column")),
             partition_hour_format=_normalize_hour_format(partition_time.get("hour_format")),
+            default_compare_grain=_optional_str(normalized_payload.get("default_compare_grain")),
         )
 
 
