@@ -345,8 +345,8 @@ The recommended pattern is a two-layer design:
 
 **Metric resolution**
 
-`attribute_change` resolves `metric_name` through the same service-layer path used by
-`compare_metric`: `SemanticLayerService.resolve_metric_sql(metric_name)` provides the
+`attribute_change` resolves `metric` through the same service-layer path used by
+`compare_metric`: `SemanticLayerService.resolve_metric_sql(metric)` provides the
 published metric's `definition_sql` (e.g., `avg(queued_time)`) to use as the aggregate
 expression. If the metric does not exist or is not in `published` status, return 422.
 Table resolution uses the same `QueryRouter` / service infrastructure already exercised
@@ -358,12 +358,14 @@ by `_run_aggregate_query()` in `app/service.py`, not any special-case runner log
 POST /sessions/{session_id}/steps/attribute_change
 
 {
-  "metric_name": "queued_time",           // must be a published semantic metric
-  "table_name": "ods_trino_query_info",   // resolved through QueryRouter
-  "period_start": "2026-03-23",           // current window (YYYY-MM-DD); optional, defaults to period_end
-  "period_end": "2026-03-23",             // required
-  "baseline_start": "2026-03-16",         // required
-  "baseline_end": "2026-03-16",           // required
+  "metric": "queued_time",                // must be a published semantic metric
+  "table": "ods_trino_query_info",        // resolved through QueryRouter
+  "time_scope": {
+    "mode": "compare",
+    "grain": "day",
+    "current": {"start": "2026-03-23", "end": "2026-03-24"},
+    "baseline": {"start": "2026-03-16", "end": "2026-03-17"}
+  },
   "candidate_dimensions": ["resource_group", "user", "source"],
   "anomaly_observation_id": "obs_abc123", // optional: link to upstream anomaly obs
   "top_k": 5,                             // top contributors per dimension (default 5)
@@ -393,14 +395,17 @@ layer over the existing service/compiler path, not a parallel mini query engine.
 # Conceptual — actual implementation should call through the service layer
 for d in candidate_dimensions:
     current_rows = service._run_aggregate_query(session_id, {
-        "table_name": table_name,
-        "select": [d, f"{metric_definition_sql} AS metric_value", "COUNT(*) AS row_count"],
+        "table": table,
         "group_by": [d],
-        "where": f"{date_col} BETWEEN '{period_start}' AND '{period_end}'",
+        "measures": [
+            {"expr": metric_definition_sql, "as": "metric_value"},
+            {"expr": "COUNT(*)", "as": "row_count"},
+        ],
+        "time_scope": current_time_scope,
         "extract_observations": False,  # attribution handles its own extraction
     })
     baseline_rows = service._run_aggregate_query(session_id, {
-        # same, with baseline dates
+        # same shape, with baseline_time_scope
     })
 ```
 
@@ -465,7 +470,7 @@ folded in. The top-contributor detail is in `payload.biggest_shift_segment`.
 ```json
 {
   "step_type": "attribute_change",
-  "metric_name": "queued_time",
+  "metric": "queued_time",
   "contributions": [
     {
       "dimension": "resource_group",
@@ -580,13 +585,12 @@ L3 upgrade is driven entirely by the checker's obs→claim `mechanistically_expl
   - Category: `"primitive"` (counts toward budget)
 - [ ] **P2.2** Add `AttributeChangeStep` request model
   - File: `app/api/models.py`
-  - Fields: `metric_name`, `table_name`, `period_start: str | None`,
-    `period_end: str`, `baseline_start: str`, `baseline_end: str`,
+  - Fields: `metric`, `table`, `time_scope`,
     `candidate_dimensions: list[str]`,
     `anomaly_observation_id: str | None = None`,
     `top_k: int = 5`, `min_contribution_pct: float = 5.0`
-  - Validate: `candidate_dimensions` must be non-empty; `period_end`, `baseline_start`,
-    `baseline_end` are required
+  - Validate: `candidate_dimensions` must be non-empty; `time_scope.mode` must be
+    `compare`
 - [ ] **P2.3** Implement `_run_attribute_change()` in `SemanticLayerService`
   - File: `app/service.py`
   - MUST follow the existing `_run_compare_metric()` / `_run_aggregate_query()` pattern:

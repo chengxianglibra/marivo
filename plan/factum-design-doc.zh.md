@@ -846,7 +846,7 @@ rec_analysis     → RecommendationExtractor（待实现）→ recommendation_si
 
 #### 时间先后检验（L1→L2）
 
-比较同一 scope 下不同指标变化的 `period_start`。如果指标 A 的变化时间点持续先于指标 B，且 lag 一致，将 inference_level 从 L1 升至 L2。
+比较 supporting observations 的 `observed_window`。如果早期窗口持续先于后期窗口，且两者严格不重叠，将 inference_level 从 L1 升至 L2。
 
 #### 剂量-反应检验（L1 bonus）
 
@@ -1110,13 +1110,13 @@ tests/                       # ~500 个测试，37 个测试模块（含 Playwri
 
 定义在 `app/analysis_core/primitives.py`（`STEP_TAXONOMY`）：
 
-- `compare_metric` — 比较已发布语义指标在 baseline 与 current 窗口的变化；支持自定义 `period_start/period_end`、`filter`、`order` ASC/DESC，默认 `limit=10`
+- `compare_metric` — 比较已发布语义指标在 typed `time_scope` 定义的 current 与 baseline 窗口中的变化；支持 `table`、`metric`、`dimensions`、`scope`、`time_axis`、`order`、`limit`
 - `profile_table` — 分析表的行数与列级完整性/基数信号
 - `sample_rows` — 返回有界行样本；支持 `filter`、`columns`、自动分区
 - `aggregate_query` — 临时 GROUP BY + 聚合；通过 `AggregateRowExtractor` 生成 observations；可用 `extract_observations=false` 关闭
 - `synthesize_findings` — 复合步骤；将 observations 转化为 claims 和 recommendations
 
-Session 约束自动注入 `compare_metric`、`sample_rows`、`aggregate_query` 的 WHERE 子句。每次 step 执行生成独立的 step_id/observations（不删除同类型先前输出）。
+Session `constraints` / `raw_filter` 会自动注入 `compare_metric`、`sample_rows`、`aggregate_query`、`attribute_change` 等支持的 query step。每次 step 执行生成独立的 step_id/observations（不删除同类型先前输出）。
 
 ### 16.3 当前 semantic catalog
 
@@ -1206,14 +1206,14 @@ Session 约束自动注入 `compare_metric`、`sample_rows`、`aggregate_query` 
 - 按 slice 比较 baseline vs current 窗口
 - 对下降最明显的切片排序
 - 通过 `ComparisonRowExtractor` 生成 `metric_change` observations
-- 支持自定义 `period_start/period_end`、`filter`、`order`、`limit`
+- 使用 `scope` 表达非时间过滤；所有时间条件都进入 `time_scope`
 - **增量合成**：新 observations 自动归入或创建 tentative claims
 
 #### `aggregate_query`
 
 - 执行 ad-hoc GROUP BY + 聚合
 - 通过 `AggregateRowExtractor` 生成 observations（可用 `extract_observations=false` 关闭）
-- 支持任意 SQL 聚合逻辑
+- 使用 `measures` 表达聚合逻辑，并与 `compare_metric` 共享 `time_scope` / `scope` / `time_axis` 契约
 - **增量合成**：同上
 
 #### `profile_table` / `sample_rows`

@@ -234,6 +234,10 @@ POST /sessions/{session_id}/steps/compare_metric
 }
 ```
 
+The response example still shows the current response field name `metric_name`. The
+typed contract change applies to the request payload: callers must send `metric`, not
+legacy request fields.
+
 `compare_metric` observations inherit `time_scope.current` as `observed_window`. The
 baseline window remains in the comparison/debug context and is not emitted as a second
 observation window.

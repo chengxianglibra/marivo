@@ -90,10 +90,12 @@ Completed in three slices on 2026-03-24:
   per-row `observed_window` from recognized slice keys with day/hour granularity.
   File: `app/evidence_engine/extractors/aggregate.py`.
 
-- [x] **G-2b — `observed_window_column` override in step params**
-  Added `observed_window_column` param to `aggregate_query` request schema.
-  Callers can explicitly declare which column carries the time axis, overriding
-  the heuristic for non-standard column names.
+- [x] **G-2b — typed `time_scope` fallback plus temporal-column refinement**
+  `aggregate_query` now inherits `observed_window` from the typed request
+  `time_scope`, then refines that window per row when `group_by` contains a
+  recognized temporal column. Earlier design discussion referenced an
+  `observed_window_column` override; TSU replaced that with the unified
+  `time_scope` / `time_axis` contract.
   Files: `app/service.py`, `docs/api/sessions.md`.
 
 - [x] **G-2c — Regression test proving L1→L2 upgrade path**
@@ -108,7 +110,7 @@ Completed in three slices on 2026-03-24:
 
 - Represent inferred windows as half-open buckets: `[day, next_day)` for day granularity.
 - Skip `observed_window` for unparseable values rather than fabricating one.
-- `observed_window_column` only points to columns or aliases present in the aggregate result row.
+- per-row temporal refinement only occurs when the grouped result itself exposes a recognized temporal slice key.
 - `_annotate_temporal` in `service.py` preserves extractor-inferred windows (does not overwrite).
 
 **Remaining follow-up:**
@@ -159,7 +161,8 @@ supporting observations.
   claim's scope (metric name, slice keys), supporting observations, and a
   small `SessionSummary` derived from all session observations. Three rules:
   - `missing_observed_window`: supporting observations exist but none have
-    `observed_window` set → prompt to add `observed_window_column` param.
+    `observed_window` set → prompt to add typed `time_scope` and, when needed,
+    a temporal `group_by`.
   - `missing_temporal_ordering`: metric is time/failure-based AND supporting
     observations lack both temporal order and observed windows.
   - `normalise_workload_volume`: slice key uses a resource dimension (cluster,
@@ -170,8 +173,8 @@ supporting observations.
 
 - [x] **G-3b — `suggested_validation` should reference available step types**
   `_build_suggested_validation` in `causal_basis.py` generates concrete step
-  templates from fired gap keys (e.g. "Run `aggregate_query` with
-  `observed_window_column` set to a time column...") and falls back to
+  templates from fired gap keys (e.g. "Run `aggregate_query` with a typed
+  `time_scope` and temporal `group_by`...") and falls back to
   corrected level-based text that no longer claims `correlate_metrics`
   establishes directionality.
   File: `app/evidence_engine/causal_basis.py`.
@@ -236,7 +239,7 @@ Two separate issues combine:
 with a narrow contract:
 
 - entity / slice scoping belongs in session `constraints` or `raw_filter`
-- time scoping belongs in `period_start` / `period_end`
+- time scoping belongs in typed `time_scope`
 - step-level `filter` / `where` is not part of the supported contract
 
 This is expected to remain compatible with existing partition-filter policy as
@@ -253,7 +256,7 @@ support.
   input. Reject it at the service entry point before SQL compilation, and add
   matching plan-validation coverage so draft/validate and runtime agree. The
   error should explicitly direct callers to use session `constraints` /
-  `raw_filter` for entity scoping and `period_start` / `period_end` for time
+  `raw_filter` for entity scoping and `time_scope` for time
   windowing. If needed, add a defensive rejection in the compiler path so the
   old contract cannot leak through indirectly.
   Files: `app/service.py`, `app/planning.py`, optionally
@@ -265,7 +268,7 @@ support.
   params dict, this is not a single schema deletion; the public contract must
   instead be aligned across runtime behaviour, plan validation, and docs. Add a
   positive worked example showing a cluster-scoped month-over-month comparison
-  using session `raw_filter` plus `period_start` / `period_end`.
+  using session `raw_filter` plus typed `time_scope`.
   Files: `docs/api/sessions.md`, `docs/api/quickstart.md`, and any other
   `compare_metric` examples.
 
@@ -273,7 +276,7 @@ support.
   Remove or rewrite any positive `compare_metric + filter` tests so they do not
   preserve the old behaviour by accident. Add regressions for: runtime rejection
   of `filter`, plan-validation rejection of `filter`, and the recommended
-  success path using session `raw_filter` plus `period_start` / `period_end`.
+  success path using session `raw_filter` plus typed `time_scope`.
   Where feasible, add a sanity-check that `compare_metric`'s generated period
   WHERE remains sufficient for environments whose partition filter policy uses
   the same date axis.

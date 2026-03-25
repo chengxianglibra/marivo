@@ -388,15 +388,15 @@
 
 > 前置依赖：TSU-07 + TSU-09 | 工作量：大 | 风险：高
 
-- [ ] **TSU-14.1** 重写 `tests/test_aggregate_query.py`
+- [x] **TSU-14.1** 重写 `tests/test_aggregate_query.py`
   - 删除对 `select` / `where` / `compare_period` / `date_column` 的正向依赖
-- [ ] **TSU-14.2** 重写 compare_metric 相关测试
+- [x] **TSU-14.2** 重写 compare_metric 相关测试
   - 删除对 `period_start` / `period_end` / `comparison_type` / `filter` 的正向依赖
-- [ ] **TSU-14.3** 更新 `tests/test_temporal_annotation.py`
+- [x] **TSU-14.3** 更新 `tests/test_temporal_annotation.py`
   - 从“compare_period 推导 observed_window”切到“time_scope 推导 observed_window”
-- [ ] **TSU-14.4** 更新 `tests/test_temporal_causal.py`
+- [x] **TSU-14.4** 更新 `tests/test_temporal_causal.py`
   - 覆盖日级与小时级 compare window
-- [ ] **TSU-14.5** 更新 plan validation / planning / costing / IR 测试
+- [x] **TSU-14.5** 更新 plan validation / planning / costing / IR 测试
   - 重点文件：
     - `tests/test_planning.py`
     - `tests/test_plan_validation.py`

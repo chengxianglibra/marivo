@@ -190,8 +190,8 @@
   - 增加列：`temporal_order INTEGER`（session 内发现顺序）
 - [x] **M-08.2** Step runner 填充时序信息
   - 文件：`app/service.py`（`_annotate_temporal`, `_observation_count`）
-  - `compare_metric`：从 `current_start/current_end` 提取 observed_window（granularity=day）
-  - `aggregate_query`：compare_period 模式下提取 period window；普通聚合 observed_window=null
+  - `compare_metric`：从 typed `time_scope.current` 提取 observed_window
+  - `aggregate_query`：默认继承请求 `time_scope`；若 `group_by` 含 temporal column，再细化到每行 bucket
   - `temporal_order`：session 内全局自增序号（基于已有 observation count）
 - [x] **M-08.3** 时序信息 API 暴露
   - `_load_observations` 包含 `observed_window` 和 `temporal_order`
