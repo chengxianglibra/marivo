@@ -100,6 +100,7 @@ METADATA_DDL: list[str] = [
         validation_metric_json TEXT NOT NULL,
         causal_basis_json TEXT,
         entity_patch_json TEXT,
+        supporting_claims_json TEXT,
         created_at      TEXT NOT NULL DEFAULT (datetime('now'))
     )
     """,
