@@ -167,7 +167,8 @@ curl -s -X POST http://127.0.0.1:8000/sessions/<session_id>/plans/<plan_id>/exec
 - `GET /health`
 - `POST /sessions` / `GET /sessions` / `GET /sessions/{session_id}`
 - `POST /sessions/{session_id}/steps/{step_type}`
-- `GET /sessions/{session_id}/evidence`
+- `GET /sessions/{session_id}/evidence` — supports `claims_only=confirmed`, repeated `edge_types=...`, and `include_debug=true`
+- `GET /sessions/{session_id}/debug` — request-time causal checker / relation-discovery summary for the current evidence graph
 - `GET /sessions/{session_id}/planner-context`
 - `GET /sessions/{session_id}/reflection-context` — structured evidence-gap summary for agents (readiness, tentative claims, evidence gaps, available step types)
 

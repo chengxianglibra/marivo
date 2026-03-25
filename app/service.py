@@ -15,10 +15,17 @@ from app.analysis_core.compiler import compile_step
 from app.analysis_core.executor import execute_compiled
 from app.analysis_core.ir import AnalysisStepIR, from_legacy_step
 from app.evidence_engine import EvidencePipeline
+from app.evidence_engine.claim_relations import (
+    _claim_direction,
+    _complementary_dimension,
+    _is_subset,
+    _shared_values,
+    _slice_dict,
+)
 from app.evidence_engine.causal_checkers import _pearson_correlation, _rank, _spearman_correlation
 from app.evidence_engine.synthesizers.default import DefaultClaimSynthesizer
 from app.evidence_engine.readiness import compute_readiness, load_live_claims
-from app.evidence_engine.schemas import EDGE_TYPE_JUSTIFIES
+from app.evidence_engine.schemas import ALL_EDGE_TYPES, EDGE_TYPE_JUSTIFIES
 from app.execution.feedback import compile_failure_from_error
 from app.execution.orchestrator import WorkflowOrchestrator
 from app.execution.routing_runtime import RoutingRuntime
@@ -249,8 +256,50 @@ class SemanticLayerService:
 
         return result
 
-    def get_evidence_graph(self, session_id: str) -> dict[str, Any]:
+    def get_evidence_graph(
+        self,
+        session_id: str,
+        *,
+        claims_only: str | None = None,
+        edge_types: list[str] | None = None,
+        include_debug: bool = False,
+    ) -> dict[str, Any]:
         self._assert_session_exists(session_id)
+        if claims_only not in {None, "confirmed"}:
+            raise ValueError("claims_only currently supports only 'confirmed'")
+        if edge_types:
+            invalid_edge_types = sorted({edge_type for edge_type in edge_types if edge_type not in ALL_EDGE_TYPES})
+            if invalid_edge_types:
+                raise ValueError(
+                    "Unknown edge_types: " + ", ".join(invalid_edge_types)
+                )
+
+        graph = self._load_evidence_graph_components(session_id)
+        filtered = self._filter_evidence_graph(
+            graph,
+            claims_only=claims_only,
+            edge_types=edge_types,
+        )
+        if include_debug:
+            filtered["debug"] = self._build_session_debug_payload(
+                session_id,
+                filtered["observations"],
+                filtered["claims"],
+                filtered["edges"],
+            )
+        return filtered
+
+    def get_session_debug(self, session_id: str) -> dict[str, Any]:
+        self._assert_session_exists(session_id)
+        graph = self._load_evidence_graph_components(session_id)
+        return self._build_session_debug_payload(
+            session_id,
+            graph["observations"],
+            graph["claims"],
+            graph["edges"],
+        )
+
+    def _load_evidence_graph_components(self, session_id: str) -> dict[str, Any]:
         observations = self._load_observations(session_id)
         steps = self.metadata.query_rows(
             """
@@ -326,6 +375,424 @@ class SemanticLayerService:
             "edges": edges,
             "recommendations": recommendations,
         }
+
+    def _filter_evidence_graph(
+        self,
+        graph: dict[str, Any],
+        *,
+        claims_only: str | None,
+        edge_types: list[str] | None,
+    ) -> dict[str, Any]:
+        claims = list(graph["claims"])
+        if claims_only == "confirmed":
+            claims = [claim for claim in claims if claim.get("status") == "confirmed"]
+        kept_claim_ids = {claim["claim_id"] for claim in claims}
+        enforce_claim_subgraph = claims_only is not None
+
+        edges = list(graph["edges"])
+        if edge_types:
+            allowed_edge_types = set(edge_types)
+            edges = [edge for edge in edges if edge.get("edge_type") in allowed_edge_types]
+
+        if enforce_claim_subgraph:
+            edges = [
+                edge
+                for edge in edges
+                if self._edge_survives_claim_filter(edge, kept_claim_ids)
+            ]
+
+        recommendations: list[dict[str, Any]] = []
+        for recommendation in graph["recommendations"]:
+            primary_claim_id = recommendation.get("claim_id")
+            if enforce_claim_subgraph and primary_claim_id not in kept_claim_ids:
+                continue
+
+            supporting_claims = recommendation.get("supporting_claims")
+            updated = dict(recommendation)
+            if enforce_claim_subgraph and supporting_claims is not None:
+                trimmed_support = [claim_id for claim_id in supporting_claims if claim_id in kept_claim_ids]
+                if not trimmed_support:
+                    continue
+                updated["supporting_claims"] = trimmed_support
+            recommendations.append(updated)
+
+        return {
+            "session_id": graph["session_id"],
+            "steps": list(graph["steps"]),
+            "observations": list(graph["observations"]),
+            "claims": claims,
+            "edges": edges,
+            "recommendations": recommendations,
+        }
+
+    @staticmethod
+    def _edge_survives_claim_filter(edge: dict[str, Any], kept_claim_ids: set[str]) -> bool:
+        from_type = edge.get("from_node_type")
+        to_type = edge.get("to_node_type")
+        from_id = edge.get("from_node_id")
+        to_id = edge.get("to_node_id")
+        if from_type == "claim" and from_id not in kept_claim_ids:
+            return False
+        if to_type == "claim" and to_id not in kept_claim_ids:
+            return False
+        return True
+
+    def _build_session_debug_payload(
+        self,
+        session_id: str,
+        observations: list[dict[str, Any]],
+        claims: list[dict[str, Any]],
+        edges: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        relations = self._extract_persisted_relations(edges)
+        relation_debug = self._summarize_relation_discovery(claims, observations, relations)
+        checker_logs = self._summarize_checker_runs(claims, observations, edges, relations)
+        return {
+            "session_id": session_id,
+            "relation_discovery": relation_debug,
+            "checker_logs": checker_logs,
+        }
+
+    @staticmethod
+    def _extract_persisted_relations(edges: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return [
+            {
+                "from_claim_id": edge.get("from_node_id"),
+                "to_claim_id": edge.get("to_node_id"),
+                "relation_type": edge.get("edge_type"),
+                "weight": edge.get("weight", 0.0),
+                "match_basis": edge.get("match_basis", {}),
+                "score_components": edge.get("score_components", {}),
+                "supporting_observation_ids": edge.get("supporting_observation_ids", []),
+                "explanation": edge.get("explanation", ""),
+            }
+            for edge in edges
+            if edge.get("from_node_type") == "claim"
+            and edge.get("to_node_type") == "claim"
+            and edge.get("edge_type") == "correlates_with"
+        ]
+
+    def _summarize_relation_discovery(
+        self,
+        claims: list[dict[str, Any]],
+        observations: list[dict[str, Any]],
+        relations: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        confirmed_claims = [claim for claim in claims if claim.get("status") == "confirmed"]
+        observation_by_id = {
+            str(observation.get("observation_id")): observation
+            for observation in observations
+            if observation.get("observation_id")
+        }
+
+        reasons: dict[str, int] = {}
+        pair_samples: list[dict[str, Any]] = []
+        candidate_pairs_checked = 0
+        relation_keys = {
+            (
+                relation.get("from_claim_id"),
+                relation.get("to_claim_id"),
+                relation.get("relation_type"),
+            )
+            for relation in relations
+        }
+
+        for left_index in range(len(confirmed_claims)):
+            for right_index in range(left_index + 1, len(confirmed_claims)):
+                claim_a = confirmed_claims[left_index]
+                claim_b = confirmed_claims[right_index]
+                candidate_pairs_checked += 1
+                reason_code, sample = self._explain_claim_pair(claim_a, claim_b, observation_by_id, relation_keys)
+                reasons[reason_code] = reasons.get(reason_code, 0) + 1
+                if len(pair_samples) < 8:
+                    pair_samples.append(sample)
+
+        if not confirmed_claims:
+            reasons = {"not_enough_confirmed_claims": 1}
+        elif candidate_pairs_checked == 0:
+            reasons = {"not_enough_confirmed_claims": 1}
+
+        return {
+            "claims_considered": len(claims),
+            "confirmed_claims_considered": len(confirmed_claims),
+            "candidate_pairs_checked": candidate_pairs_checked,
+            "relations_emitted": len(relations),
+            "reasons": reasons,
+            "pair_samples": pair_samples,
+        }
+
+    def _explain_claim_pair(
+        self,
+        claim_a: dict[str, Any],
+        claim_b: dict[str, Any],
+        observation_by_id: dict[str, dict[str, Any]],
+        relation_keys: set[tuple[str | None, str | None, str | None]],
+    ) -> tuple[str, dict[str, Any]]:
+        scope_a = claim_a.get("scope", {}) or {}
+        scope_b = claim_b.get("scope", {}) or {}
+        metric_a = str(scope_a.get("metric", "") or "")
+        metric_b = str(scope_b.get("metric", "") or "")
+        slice_a = _slice_dict(scope_a)
+        slice_b = _slice_dict(scope_b)
+        direction_a = _claim_direction(claim_a, observation_by_id)
+        direction_b = _claim_direction(claim_b, observation_by_id)
+
+        shared_keys = sorted(set(slice_a).intersection(slice_b))
+        exact = slice_a == slice_b
+        subset = _is_subset(slice_a, slice_b) or _is_subset(slice_b, slice_a)
+        overlap_values = _shared_values(slice_a, slice_b)
+        overlap = bool(shared_keys) and bool(overlap_values)
+        complementary = _complementary_dimension(slice_a, slice_b)
+
+        emitted = False
+        category: str | None = None
+        if direction_a is not None and direction_a == direction_b:
+            if metric_a and metric_b and metric_a != metric_b and exact:
+                emitted = True
+                category = "exact_match"
+            elif metric_a and metric_b and metric_a != metric_b and (subset or overlap):
+                emitted = True
+                category = "subset_or_overlap"
+            elif metric_a and metric_a == metric_b and complementary:
+                emitted = True
+                category = "complementary_dimension"
+
+        ordered_claims = sorted(
+            [claim_a, claim_b],
+            key=lambda claim: (
+                str(claim.get("scope", {}).get("metric", "")),
+                sorted((claim.get("scope", {}).get("slice", {}) or {}).items()),
+                str(claim.get("claim_id", "")),
+            ),
+        )
+        relation_key = (
+            ordered_claims[0].get("claim_id"),
+            ordered_claims[1].get("claim_id"),
+            "correlates_with",
+        )
+        if emitted and relation_key in relation_keys:
+            reason_code = "relation_emitted"
+        elif direction_a is None or direction_b is None or direction_a != direction_b:
+            reason_code = "no_directional_consistency"
+        elif not overlap and not exact and not subset and not complementary:
+            reason_code = "no_scope_overlap"
+        else:
+            reason_code = "unsupported_relation_category"
+
+        return reason_code, {
+            "from_claim_id": claim_a.get("claim_id"),
+            "to_claim_id": claim_b.get("claim_id"),
+            "reason_code": reason_code,
+            "match_basis": {
+                "category": category,
+                "shared_scope_keys": shared_keys,
+                "shared_scope_values": overlap_values,
+                "left_metric": metric_a,
+                "right_metric": metric_b,
+                "direction_left": direction_a,
+                "direction_right": direction_b,
+            },
+        }
+
+    def _summarize_checker_runs(
+        self,
+        claims: list[dict[str, Any]],
+        observations: list[dict[str, Any]],
+        edges: list[dict[str, Any]],
+        relations: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        checker_specs = [
+            ("CrossSliceConsistencyChecker", "cross_slice_consistency"),
+            ("CrossScopeCorrelationChecker", "cross_scope_correlation"),
+            ("CrossMetricCorrelationChecker", "cross_metric_correlation"),
+            ("MechanisticExplanationChecker", "mechanistic_explanation"),
+            ("TemporalPrecedenceChecker", "temporal_precedence"),
+            ("DoseResponseChecker", "dose_response"),
+            ("ReversalChecker", "reversal"),
+        ]
+        checker_logs: list[dict[str, Any]] = []
+        for checker_class_name, checker_name in checker_specs:
+            persisted = self._persisted_checker_contributions(
+                checker_name,
+                claims,
+                edges,
+            )
+            reason_code, reason = self._checker_reason_summary(
+                checker_name,
+                claims,
+                observations,
+                edges,
+                relations,
+                persisted,
+            )
+            checker_logs.append(
+                {
+                    "checker": checker_class_name,
+                    "checker_name": checker_name,
+                    "claims_checked": self._claims_checked_for_checker(checker_name, claims),
+                    "result": "upgrade" if persisted["claims"] or persisted["edges"] else "no_upgrade",
+                    "reason_code": reason_code,
+                    "reason": reason,
+                    "claims_upgraded": len(persisted["claims"]),
+                    "causal_edges_emitted": len(persisted["edges"]),
+                    "claim_ids": persisted["claims"],
+                    "edge_types": persisted["edge_types"],
+                }
+            )
+        return checker_logs
+
+    def _persisted_checker_contributions(
+        self,
+        checker_name: str,
+        claims: list[dict[str, Any]],
+        edges: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        token_prefixes: dict[str, tuple[str, ...]] = {
+            "cross_slice_consistency": ("cross_slice_consistency:",),
+            "cross_scope_correlation": ("cross_scope_explicit:", "cross_scope_temporal:"),
+            "cross_metric_correlation": ("cross_metric_consistency:",),
+            "mechanistic_explanation": ("mechanistic_explanation:",),
+            "temporal_precedence": ("temporal_precedence:",),
+            "dose_response": ("dose_response:", "dose_response_precomputed:"),
+            "reversal": ("reversal:",),
+        }
+        checker_edge_types: dict[str, tuple[str, ...]] = {
+            "cross_scope_correlation": ("correlates_with",),
+            "temporal_precedence": ("temporally_precedes",),
+            "mechanistic_explanation": ("mechanistically_explains",),
+            "dose_response": (),
+            "reversal": (),
+            "cross_slice_consistency": (),
+            "cross_metric_correlation": (),
+        }
+
+        prefixes = token_prefixes.get(checker_name, ())
+        claim_ids = [
+            claim["claim_id"]
+            for claim in claims
+            if any(
+                any(str(token).startswith(prefix) for prefix in prefixes)
+                for token in claim.get("inference_justification", [])
+            )
+        ]
+        edge_types = checker_edge_types.get(checker_name, ())
+        checker_edges = [
+            edge
+            for edge in edges
+            if edge.get("from_node_type") in {"claim", "observation"}
+            and edge.get("to_node_type") == "claim"
+            and edge.get("edge_type") in edge_types
+        ]
+        return {
+            "claims": claim_ids,
+            "edges": checker_edges,
+            "edge_types": sorted({str(edge.get("edge_type")) for edge in checker_edges}),
+        }
+
+    @staticmethod
+    def _claims_checked_for_checker(checker_name: str, claims: list[dict[str, Any]]) -> int:
+        if checker_name in {"cross_metric_correlation", "temporal_precedence"}:
+            return len([claim for claim in claims if claim.get("status") == "confirmed"])
+        return len(claims)
+
+    def _checker_reason_summary(
+        self,
+        checker_name: str,
+        claims: list[dict[str, Any]],
+        observations: list[dict[str, Any]],
+        edges: list[dict[str, Any]],
+        relations: list[dict[str, Any]],
+        persisted: dict[str, Any],
+    ) -> tuple[str, str]:
+        if persisted["claims"] or persisted["edges"]:
+            parts: list[str] = []
+            if persisted["claims"]:
+                parts.append(f"{len(persisted['claims'])} claims carry this checker's justification tokens")
+            if persisted["edges"]:
+                parts.append(f"{len(persisted['edges'])} causal edges from this checker are present")
+            return "already_materialized", "; ".join(parts) + "."
+
+        if checker_name == "cross_slice_consistency":
+            metrics_with_deltas: dict[str, int] = {}
+            for observation in observations:
+                metric = observation.get("subject", {}).get("metric")
+                if not metric or observation.get("payload", {}).get("delta_pct") is None:
+                    continue
+                metrics_with_deltas[str(metric)] = metrics_with_deltas.get(str(metric), 0) + 1
+            if not any(count >= 2 for count in metrics_with_deltas.values()):
+                return (
+                    "insufficient_cross_slice_observations",
+                    "No metric has at least two delta-bearing observations across slices.",
+                )
+            return (
+                "no_directional_consistency",
+                "Observed slice deltas do not meet the consistency threshold for promotion.",
+            )
+
+        if checker_name == "cross_scope_correlation":
+            causal_candidates = [obs for obs in observations if obs.get("type") == "causal_candidate"]
+            windowed_obs = [obs for obs in observations if obs.get("observed_window") is not None]
+            if not causal_candidates and len(windowed_obs) < 2:
+                return (
+                    "missing_observed_window",
+                    "Cross-scope correlation needs explicit causal candidates or at least two real observed windows.",
+                )
+            return (
+                "no_matching_relations",
+                "No explicit causal candidate or temporal predecessor matched a claim strongly enough.",
+            )
+
+        if checker_name == "cross_metric_correlation":
+            if not relations:
+                return (
+                    "no_cross_metric_relation",
+                    "No persisted claim-to-claim correlates_with edges were available for cross-metric grouping.",
+                )
+            return (
+                "unsupported_relation_category",
+                "Available relations did not form an eligible same-direction multi-metric component.",
+            )
+
+        if checker_name == "temporal_precedence":
+            if not relations:
+                return (
+                    "no_matching_relations",
+                    "Temporal precedence only evaluates relation-backed claim pairs; none are present in this graph.",
+                )
+            if not any(observation.get("observed_window") is not None for observation in observations):
+                return (
+                    "missing_observed_window",
+                    "No supporting observations carried real observed_window values.",
+                )
+            return (
+                "no_non_overlapping_windows",
+                "Related claims did not establish a strict non-overlapping time precedence.",
+            )
+
+        if checker_name == "mechanistic_explanation":
+            if not any(edge.get("edge_type") == "correlates_with" for edge in edges):
+                return (
+                    "no_matching_relations",
+                    "No correlates_with edge is present to support a mechanistic promotion.",
+                )
+            return (
+                "no_mechanistic_signal",
+                "No mechanistic explanation signal linked claim relations to an identified causal pathway.",
+            )
+
+        if checker_name == "dose_response":
+            return (
+                "no_numeric_gradient",
+                "No eligible numeric dimension showed a strong monotonic dose-response pattern.",
+            )
+
+        if checker_name == "reversal":
+            return (
+                "no_temporal_reversal",
+                "No sustained multi-period reversal pattern was detected.",
+            )
+
+        return ("no_upgrade", "Checker ran without producing an inference upgrade.")
 
     # ── Metric resolution ────────────────────────────────────────────
 

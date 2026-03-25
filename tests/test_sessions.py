@@ -116,6 +116,180 @@ class SessionAPITests(unittest.TestCase):
         for s in resp.json():
             self.assertEqual(s["status"], "open")
 
+    def test_session_debug_endpoint_returns_summary(self) -> None:
+        session_id = self.client.post(
+            "/sessions",
+            json={"goal": "Investigate watch time drop and explain evidence upgrades."},
+        ).json()["session_id"]
+
+        entity_id = self.client.post("/semantic/entities", json={
+            "name": "session_debug_entity",
+            "display_name": "Session Debug Entity",
+            "keys": ["session_id"],
+        }).json()["entity_id"]
+        self.client.post(f"/semantic/entities/{entity_id}/publish")
+        metric_id = self.client.post("/semantic/metrics", json={
+            "name": "watch_time_debug_metric",
+            "display_name": "Watch Time Debug",
+            "definition_sql": "avg(play_duration_seconds)",
+            "dimensions": ["platform", "app_version", "network_type", "content_type"],
+            "entity_id": entity_id,
+        }).json()["metric_id"]
+        self.client.post(f"/semantic/metrics/{metric_id}/publish")
+
+        self.client.post(
+            f"/sessions/{session_id}/steps/compare_metric",
+            json={"metric_name": "watch_time_debug_metric", "table_name": "analytics.watch_events"},
+        )
+        self.client.post(f"/sessions/{session_id}/steps/synthesize_findings")
+
+        resp = self.client.get(f"/sessions/{session_id}/debug")
+        self.assertEqual(resp.status_code, 200)
+        payload = resp.json()
+        self.assertEqual(payload["session_id"], session_id)
+        self.assertIn("relation_discovery", payload)
+        self.assertIn("checker_logs", payload)
+        self.assertIsInstance(payload["checker_logs"], list)
+        self.assertGreater(len(payload["checker_logs"]), 0)
+
+    def test_session_debug_endpoint_returns_404_for_missing_session(self) -> None:
+        resp = self.client.get("/sessions/sess_missing_debug/debug")
+        self.assertEqual(resp.status_code, 404)
+
+    def test_evidence_graph_claims_only_confirmed_filters_tentative_subgraph(self) -> None:
+        session_id = self.client.post(
+            "/sessions",
+            json={"goal": "Investigate watch time drop before synthesis."},
+        ).json()["session_id"]
+
+        entity_id = self.client.post("/semantic/entities", json={
+            "name": "session_tentative_entity",
+            "display_name": "Session Tentative Entity",
+            "keys": ["session_id"],
+        }).json()["entity_id"]
+        self.client.post(f"/semantic/entities/{entity_id}/publish")
+        metric_id = self.client.post("/semantic/metrics", json={
+            "name": "watch_time_tentative_metric",
+            "display_name": "Watch Time Tentative",
+            "definition_sql": "avg(play_duration_seconds)",
+            "dimensions": ["platform", "app_version", "network_type", "content_type"],
+            "entity_id": entity_id,
+        }).json()["metric_id"]
+        self.client.post(f"/semantic/metrics/{metric_id}/publish")
+
+        self.client.post(
+            f"/sessions/{session_id}/steps/compare_metric",
+            json={"metric_name": "watch_time_tentative_metric", "table_name": "analytics.watch_events"},
+        )
+
+        resp = self.client.get(f"/sessions/{session_id}/evidence?claims_only=confirmed")
+        self.assertEqual(resp.status_code, 200)
+        graph = resp.json()
+        self.assertEqual(graph["claims"], [])
+        self.assertEqual(graph["edges"], [])
+        self.assertEqual(graph["recommendations"], [])
+        self.assertGreaterEqual(len(graph["observations"]), 1)
+
+    def test_evidence_graph_edge_types_filter_is_applied(self) -> None:
+        session_id = self.client.post(
+            "/sessions",
+            json={"goal": "Investigate watch time drop and filter graph edges."},
+        ).json()["session_id"]
+
+        entity_id = self.client.post("/semantic/entities", json={
+            "name": "session_edge_filter_entity",
+            "display_name": "Session Edge Filter Entity",
+            "keys": ["session_id"],
+        }).json()["entity_id"]
+        self.client.post(f"/semantic/entities/{entity_id}/publish")
+        metric_id = self.client.post("/semantic/metrics", json={
+            "name": "watch_time_edge_filter_metric",
+            "display_name": "Watch Time Edge Filter",
+            "definition_sql": "avg(play_duration_seconds)",
+            "dimensions": ["platform", "app_version", "network_type", "content_type"],
+            "entity_id": entity_id,
+        }).json()["metric_id"]
+        self.client.post(f"/semantic/metrics/{metric_id}/publish")
+
+        self.client.post(
+            f"/sessions/{session_id}/steps/compare_metric",
+            json={"metric_name": "watch_time_edge_filter_metric", "table_name": "analytics.watch_events"},
+        )
+        self.client.post(f"/sessions/{session_id}/steps/synthesize_findings")
+
+        resp = self.client.get(f"/sessions/{session_id}/evidence?edge_types=supports")
+        self.assertEqual(resp.status_code, 200)
+        graph = resp.json()
+        self.assertGreater(len(graph["edges"]), 0)
+        self.assertTrue(all(edge["edge_type"] == "supports" for edge in graph["edges"]))
+
+    def test_evidence_graph_include_debug_attaches_debug_payload(self) -> None:
+        session_id = self.client.post(
+            "/sessions",
+            json={"goal": "Investigate watch time drop with debug payload."},
+        ).json()["session_id"]
+
+        entity_id = self.client.post("/semantic/entities", json={
+            "name": "session_include_debug_entity",
+            "display_name": "Session Include Debug Entity",
+            "keys": ["session_id"],
+        }).json()["entity_id"]
+        self.client.post(f"/semantic/entities/{entity_id}/publish")
+        metric_id = self.client.post("/semantic/metrics", json={
+            "name": "watch_time_include_debug_metric",
+            "display_name": "Watch Time Include Debug",
+            "definition_sql": "avg(play_duration_seconds)",
+            "dimensions": ["platform", "app_version", "network_type", "content_type"],
+            "entity_id": entity_id,
+        }).json()["metric_id"]
+        self.client.post(f"/semantic/metrics/{metric_id}/publish")
+
+        self.client.post(
+            f"/sessions/{session_id}/steps/compare_metric",
+            json={"metric_name": "watch_time_include_debug_metric", "table_name": "analytics.watch_events"},
+        )
+        self.client.post(f"/sessions/{session_id}/steps/synthesize_findings")
+
+        resp = self.client.get(f"/sessions/{session_id}/evidence?include_debug=true")
+        self.assertEqual(resp.status_code, 200)
+        graph = resp.json()
+        self.assertIn("debug", graph)
+        self.assertIn("checker_logs", graph["debug"])
+        self.assertIn("relation_discovery", graph["debug"])
+
+    def test_evidence_graph_include_debug_respects_filtered_edges(self) -> None:
+        session_id = self.client.post(
+            "/sessions",
+            json={"goal": "Investigate watch time drop with filtered debug payload."},
+        ).json()["session_id"]
+
+        entity_id = self.client.post("/semantic/entities", json={
+            "name": "session_filtered_debug_entity",
+            "display_name": "Session Filtered Debug Entity",
+            "keys": ["session_id"],
+        }).json()["entity_id"]
+        self.client.post(f"/semantic/entities/{entity_id}/publish")
+        metric_id = self.client.post("/semantic/metrics", json={
+            "name": "watch_time_filtered_debug_metric",
+            "display_name": "Watch Time Filtered Debug",
+            "definition_sql": "avg(play_duration_seconds)",
+            "dimensions": ["platform", "app_version", "network_type", "content_type"],
+            "entity_id": entity_id,
+        }).json()["metric_id"]
+        self.client.post(f"/semantic/metrics/{metric_id}/publish")
+
+        self.client.post(
+            f"/sessions/{session_id}/steps/compare_metric",
+            json={"metric_name": "watch_time_filtered_debug_metric", "table_name": "analytics.watch_events"},
+        )
+        self.client.post(f"/sessions/{session_id}/steps/synthesize_findings")
+
+        resp = self.client.get(f"/sessions/{session_id}/evidence?edge_types=supports&include_debug=true")
+        self.assertEqual(resp.status_code, 200)
+        graph = resp.json()
+        self.assertTrue(all(edge["edge_type"] == "supports" for edge in graph["edges"]))
+        self.assertEqual(graph["debug"]["relation_discovery"]["relations_emitted"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

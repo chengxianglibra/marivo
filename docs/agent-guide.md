@@ -69,6 +69,8 @@ Evidence packaging is central:
 - `temporally_precedes` is a claim-to-claim causal edge backed by real observation windows or relation-backed hourly peak/decay lead-lag, not by step execution order; current comparisons assume observations in the same session use a consistent timezone/time basis
 - evidence edge = relation between evidence objects
 - recommendation = action backed by confirmed claims; derivation is template-driven from final claims + claim relations, and responses include a stable `template_id` for debugging/UX. `causal_basis.causal_chain` is a deterministic claim-graph narrative chosen from the recommendation-local claim subgraph; it organizes existing evidence and does not create new causal judgments.
+- `GET /sessions/{session_id}/debug` is a request-time explanation view over the current persisted evidence; it does not read a historical snapshot and may change as checker implementations evolve
+- `GET /sessions/{session_id}/evidence?claims_only=confirmed` returns a claim-filtered subgraph: claims are filtered first, then claim-linked edges and recommendations are trimmed to avoid dangling references; observations remain available as full context
 
 ## Step Model
 

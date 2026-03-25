@@ -757,6 +757,54 @@ class EvidenceGraphAPIFieldsTests(unittest.TestCase):
             "Expected observations from at least 2 distinct time windows",
         )
 
+    def test_session_debug_reports_materialized_temporal_precedence(self) -> None:
+        """Debug endpoint should describe persisted causal upgrades, not rerun checkers from scratch."""
+        store = self.client.app.state.services.metadata_store
+        service = self.client.app.state.services.service
+        sess_id = "sess_debugmaterial01"
+        step_id = "step_debugmaterial01"
+
+        _insert_session(store, sess_id)
+        _insert_step(store, sess_id, step_id)
+
+        window_a = {"start": "2026-01-01", "end": "2026-01-14", "granularity": "day"}
+        window_b = {"start": "2026-02-01", "end": "2026-02-14", "granularity": "day"}
+        slices = [{"seg": "android"}, {"seg": "ios"}, {"seg": "web"}]
+        for i, sl in enumerate(slices):
+            _insert_obs(
+                store,
+                obs_id=f"obs_dbg_q{i:04d}",
+                sess_id=sess_id,
+                step_id=step_id,
+                metric="query_count",
+                slice_val=sl,
+                delta_pct=-5.0,
+                temporal_order=i,
+                window=window_a,
+            )
+            _insert_obs(
+                store,
+                obs_id=f"obs_dbg_t{i:04d}",
+                sess_id=sess_id,
+                step_id=step_id,
+                metric="queued_time",
+                slice_val=sl,
+                delta_pct=-4.0,
+                temporal_order=10 + i,
+                window=window_b,
+            )
+
+        service._incremental_synthesizer.process(sess_id)
+        service._run_synthesis(sess_id)
+
+        resp = self.client.get(f"/sessions/{sess_id}/debug")
+        self.assertEqual(resp.status_code, 200)
+        payload = resp.json()
+        checker_log = next(log for log in payload["checker_logs"] if log["checker_name"] == "temporal_precedence")
+        self.assertEqual(checker_log["result"], "upgrade")
+        self.assertEqual(checker_log["reason_code"], "already_materialized")
+        self.assertGreaterEqual(checker_log["claims_upgraded"], 1)
+
 
 # ── EvidenceEdgeSchemaTests ───────────────────────────────────────────────────
 
