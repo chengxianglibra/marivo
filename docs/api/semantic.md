@@ -87,7 +87,7 @@ POST /semantic/entities
 | `upstream_dependencies` | array[string] | no | Entity names this entity depends on |
 | `lineage` | array[string] | no | Source table FQNs used to populate this entity |
 | `quality_expectations` | object | no | Quality thresholds to check during sync |
-| `properties` | object | no | Arbitrary metadata |
+| `properties` | object | no | Arbitrary metadata. `properties.time_capabilities` is the preferred semantic-level override for typed time-axis resolution |
 
 **Response:**
 
@@ -105,6 +105,29 @@ POST /semantic/entities
   "updated_at": "2024-01-15T10:00:00+00:00"
 }
 ```
+
+`properties.time_capabilities` minimal shape:
+
+```json
+{
+  "time_capabilities": {
+    "analysis_time": {
+      "timestamp_column": "event_time",
+      "fallback_date_column": "log_date",
+      "fallback_hour_column": "log_hour"
+    },
+    "partition_time": {
+      "date_column": "log_date",
+      "date_format": "yyyymmdd",
+      "hour_column": "log_hour",
+      "hour_format": "hh"
+    },
+    "default_compare_grain": "day"
+  }
+}
+```
+
+For typed time resolution, entity-level `time_capabilities` override source-object hints when both are present.
 
 ### List Entities
 

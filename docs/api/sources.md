@@ -358,7 +358,17 @@ Returns synced objects from the local metadata store. These are snapshots taken 
     "fqn": "events.user_video_watch",
     "properties": {
       "row_count": 15234891,
-      "partition_columns": ["event_date"]
+      "partition_columns": ["event_date"],
+      "time_capabilities": {
+        "analysis_time": {
+          "timestamp_column": "event_time",
+          "fallback_date_column": "event_date"
+        },
+        "partition_time": {
+          "date_column": "event_date"
+        },
+        "default_compare_grain": "day"
+      }
     },
     "synced_at": "2024-01-15T10:01:08+00:00"
   }
@@ -373,3 +383,5 @@ Returns synced objects from the local metadata store. These are snapshots taken 
 | `table` | Table or view |
 | `column` | Column within a table |
 | `partition` | Partition (if supported by the adapter) |
+
+For typed time resolution, table-level `properties.time_capabilities` is the source-metadata hint consumed after semantic-entity overrides and before field-name heuristics.

@@ -199,6 +199,7 @@ POST /sessions/{session_id}/steps/compare_metric
 - `grain` must be `day` or `hour`
 - `baseline` is required only when `mode = compare`
 - all windows are interpreted as half-open intervals `[start, end)`
+- hour-grain boundaries must be naive datetimes without timezone offsets; phase 1 assumes session-consistent naive timestamps only
 
 **Response:**
 
@@ -389,9 +390,11 @@ POST /sessions/{session_id}/steps/aggregate_query
 | `group_by` | array[string] | no | Columns to group by |
 | `time_scope` | object | yes | Typed time contract with `mode`, `grain`, `current`, and optional `baseline` |
 | `scope` | object | no | Non-time scope with `constraints` and optional non-time `predicate` |
-| `time_axis` | object | no | Advanced override for analysis-time and partition-pruning columns |
+| `time_axis` | object | no | Advanced override for analysis-time and partition-pruning columns. Resolution prefers entity `properties.time_capabilities`, then source-object `properties.time_capabilities`, then heuristics |
 | `order` | string | no | Output ordering expression (e.g. `cnt_delta_pct DESC`) |
 | `limit` | integer | no | Maximum rows (default: `100`) |
+
+Phase-1 time-axis note: Factum currently assumes session-consistent naive timestamps. If your table needs explicit timezone semantics, keep that conversion outside the typed step contract for now.
 
 **Observation window behavior (G-2):**
 
