@@ -75,7 +75,7 @@ _FALLBACK_GAPS: dict[str, list[tuple[str, str]]] = {
 
 _FALLBACK_VALIDATION: dict[str, str] = {
     "L0": (
-        "Run `aggregate_query` with `observed_window_column` to establish temporal ordering; "
+        "Run `aggregate_query` with a typed `time_scope` to establish temporal ordering; "
         "optionally run `correlate_metrics` to test cross-series association"
     ),
     "L1": (
@@ -198,8 +198,8 @@ def _build_scope_aware_gaps(
         _add(EvidenceGap(
             key=GAP_MISSING_OBSERVED_WINDOW,
             text=(
-                "populate `observed_window` (use `observed_window_column` param in "
-                "`aggregate_query`) to enable temporal precedence checking"
+                "populate `observed_window` by running `aggregate_query` with a typed "
+                "`time_scope` to enable temporal precedence checking"
             ),
         ))
 
@@ -214,7 +214,7 @@ def _build_scope_aware_gaps(
             _add(EvidenceGap(
                 key=GAP_MISSING_TEMPORAL_ORDERING,
                 text=(
-                    f"run `aggregate_query` grouped by a time column with `observed_window_column` "
+                    f"run `aggregate_query` with a typed `time_scope`, grouped by a time column, "
                     f"to establish temporal ordering for `{metric}`; "
                     "optionally run `correlate_metrics` to test cross-series association"
                 ),
@@ -253,18 +253,17 @@ def _build_suggested_validation(
 
     if GAP_MISSING_OBSERVED_WINDOW in gap_keys:
         parts.append(
-            "Run `aggregate_query` with `observed_window_column` set to a time column "
-            "to enable temporal ordering."
+            "Run `aggregate_query` with a typed `time_scope` to enable temporal ordering."
         )
     if GAP_MISSING_TEMPORAL_ORDERING in gap_keys:
         if metric:
             parts.append(
-                f"Run `aggregate_query` grouped by a time column with `observed_window_column` "
+                f"Run `aggregate_query` with a typed `time_scope`, grouped by a time column, "
                 f"to establish temporal ordering for `{metric}`."
             )
         else:
             parts.append(
-                "Run `aggregate_query` grouped by a time column with `observed_window_column` "
+                "Run `aggregate_query` with a typed `time_scope`, grouped by a time column, "
                 "to establish temporal ordering."
             )
     if GAP_NORMALISE_WORKLOAD_VOLUME in gap_keys:

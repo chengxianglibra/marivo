@@ -57,10 +57,15 @@ class TemporalWindowInferenceTests(unittest.TestCase):
         resp = self.client.post(
             f"/sessions/{session_id}/steps/aggregate_query",
             json={
-                "table_name": "analytics.watch_events",
-                "select": ["event_date", "platform", "count(*) as cnt"],
+                "table": "analytics.watch_events",
                 "group_by": ["event_date", "platform"],
-                "order_by": "event_date",
+                "measures": [{"expr": "COUNT(*)", "as": "cnt"}],
+                "time_scope": {
+                    "mode": "single_window",
+                    "grain": "day",
+                    "current": {"start": "2026-03-01", "end": "2026-03-08"},
+                },
+                "order": "event_date",
                 "limit": 5,
             },
         )
@@ -79,23 +84,30 @@ class TemporalWindowInferenceTests(unittest.TestCase):
             self.assertIn("start", window)
             self.assertIn("end", window)
             self.assertIn("granularity", window)
-            # Day granularity for date column
             self.assertEqual(window["granularity"], "day")
+            self.assertNotEqual(
+                window["end"],
+                "2026-03-08",
+                "Per-row temporal group_by windows must not be overwritten by the request window",
+            )
 
-    def test_aggregate_query_explicit_observed_window_column(self) -> None:
-        """aggregate_query with explicit observed_window_column param should use it."""
+    def test_aggregate_query_uses_request_window_without_temporal_group_by(self) -> None:
+        """aggregate_query without temporal group_by should fall back to request window."""
         session_id = self.client.post(
-            "/sessions", json={"goal": "G-2 explicit column test."},
+            "/sessions", json={"goal": "G-2 request window test."},
         ).json()["session_id"]
 
-        # Use explicit observed_window_column
         resp = self.client.post(
             f"/sessions/{session_id}/steps/aggregate_query",
             json={
-                "table_name": "analytics.watch_events",
-                "select": ["event_date", "count(*) as cnt"],
-                "group_by": ["event_date"],
-                "observed_window_column": "event_date",  # explicit override
+                "table": "analytics.watch_events",
+                "group_by": ["platform"],
+                "measures": [{"expr": "COUNT(*)", "as": "cnt"}],
+                "time_scope": {
+                    "mode": "single_window",
+                    "grain": "day",
+                    "current": {"start": "2026-03-01", "end": "2026-03-08"},
+                },
             },
         )
         self.assertEqual(resp.status_code, 200)
@@ -104,7 +116,14 @@ class TemporalWindowInferenceTests(unittest.TestCase):
         observations = result.get("observations", [])
         self.assertGreater(len(observations), 0)
         for obs in observations:
-            self.assertIn("observed_window", obs)
+            self.assertEqual(
+                obs.get("observed_window"),
+                {
+                    "start": "2026-03-01",
+                    "end": "2026-03-08",
+                    "granularity": "day",
+                },
+            )
 
     def test_aggregate_query_yyyymmdd_format(self) -> None:
         """aggregate_query should parse YYYYMMDD format temporal values."""
@@ -231,10 +250,15 @@ class TemporalWindowInferenceTests(unittest.TestCase):
         resp = self.client.post(
             f"/sessions/{session_id}/steps/aggregate_query",
             json={
-                "table_name": "analytics.watch_events",
-                "select": ["event_date", "platform", "count(*) as cnt"],
+                "table": "analytics.watch_events",
                 "group_by": ["event_date", "platform"],
-                "order_by": "event_date, platform",
+                "measures": [{"expr": "COUNT(*)", "as": "cnt"}],
+                "time_scope": {
+                    "mode": "single_window",
+                    "grain": "day",
+                    "current": {"start": "2026-03-01", "end": "2026-03-08"},
+                },
+                "order": "event_date, platform",
                 "metric": self.g2_metric_name,
                 "temporal_group_by_columns": ["event_date"],
                 "limit": 50,

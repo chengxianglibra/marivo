@@ -146,12 +146,9 @@ class AggregateRowExtractor(ExtractorContract):
         value_column (str | None): primary numeric column for payload.
             When omitted, auto-detects the first numeric column that isn't a group_by column.
         metric (str): metric label (default: "aggregate").
-        observed_window_column (str | None): explicit column to use for observed_window.
-            When omitted, auto-detects temporal columns from TEMPORAL_COLUMN_NAMES_DAY/HOUR.
-
-    G-2: When a temporal column is detected in group_by, infer per-row observed_window
-    from the slice key value. This enables TemporalPrecedenceChecker to recognize
-    time-ordered evidence and promote claims from L1 to L2.
+    When a temporal column is detected in ``group_by``, infer per-row
+    ``observed_window`` from the slice key value. This lets aggregate rows carry
+    finer-grained temporal evidence than the request-level time_scope window.
     """
 
     name = "aggregate_rows"
@@ -173,12 +170,11 @@ class AggregateRowExtractor(ExtractorContract):
             str(col) for col in (temporal_group_by_columns_data or [])
         ]
         value_column: str | None = context.get("value_column")
-        observed_window_column: str | None = context.get("observed_window_column")
         # G-5a: optional column metadata from caller (synced source_objects properties)
         column_metadata: dict[str, dict[str, str]] = dict(context.get("column_metadata") or {})
 
         # Detect temporal column for observed_window inference (G-2)
-        temporal_col = self._detect_temporal_column(group_by, observed_window_column)
+        temporal_col = self._detect_temporal_column(group_by)
 
         # G-5a: pre-compute value column and collect values for unit inference
         row_list = [dict(r) for r in rows]
@@ -360,20 +356,13 @@ class AggregateRowExtractor(ExtractorContract):
         return observations
 
     @staticmethod
-    def _detect_temporal_column(
-        group_by: list[str],
-        observed_window_column: str | None,
-    ) -> str | None:
+    def _detect_temporal_column(group_by: list[str]) -> str | None:
         """Detect temporal column for observed_window inference.
 
         Priority:
-        1. Explicit observed_window_column if provided and in group_by
-        2. First group_by column matching TEMPORAL_COLUMN_NAMES_DAY
-        3. First group_by column matching TEMPORAL_COLUMN_NAMES_HOUR
+        1. First group_by column matching TEMPORAL_COLUMN_NAMES_DAY
+        2. First group_by column matching TEMPORAL_COLUMN_NAMES_HOUR
         """
-        if observed_window_column and observed_window_column in group_by:
-            return observed_window_column
-
         # Check for day-granularity temporal columns
         for col in group_by:
             if col.lower() in TEMPORAL_COLUMN_NAMES_DAY:
