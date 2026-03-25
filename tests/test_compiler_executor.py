@@ -256,6 +256,45 @@ class CompilerTests(unittest.TestCase):
         self.assertLess(raw_filter_idx, scope_constraints_idx)
         self.assertLess(scope_constraints_idx, scope_predicate_idx)
 
+    def test_compile_compare_metric_timestamp_only_scoped_query_omits_pruning(self) -> None:
+        compiled = compile_step(
+            AnalysisStepIR(
+                index=0,
+                step_type="compare_metric",
+                params={
+                    "metric": "watch_time",
+                    "table": "analytics.watch_events",
+                    "scoped_query": {
+                        "mode": "compare",
+                        "analysis_time_expr": "event_time",
+                        "current": {"start": "2026-03-25T10:00:00", "end": "2026-03-25T14:00:00"},
+                        "baseline": {"start": "2026-03-25T06:00:00", "end": "2026-03-25T10:00:00"},
+                    },
+                },
+            ),
+            engine_type="duckdb",
+            semantic_context={
+                "metric_sql": "avg(play_duration_seconds)",
+                "dimensions": ["platform"],
+            },
+        )
+
+        self.assertIn("event_time >= ? AND event_time < ?", compiled.sql)
+        self.assertNotIn("log_date", compiled.sql)
+        self.assertEqual(
+            compiled.params,
+            [
+                "2026-03-25T10:00:00",
+                "2026-03-25T14:00:00",
+                "2026-03-25T06:00:00",
+                "2026-03-25T10:00:00",
+                "2026-03-25T10:00:00",
+                "2026-03-25T14:00:00",
+                "2026-03-25T06:00:00",
+                "2026-03-25T10:00:00",
+            ],
+        )
+
     def test_compile_compare_metric_formats_date_field_bounds_to_resolved_encoding(self) -> None:
         compiled = compile_step(
             AnalysisStepIR(
@@ -506,6 +545,47 @@ class AggregateGroupByAliasTests(unittest.TestCase):
         self.assertIn("query_count_current", compiled.sql)
         self.assertIn("query_count_baseline", compiled.sql)
         self.assertIn("query_count_delta_pct", compiled.sql)
+        self.assertEqual(
+            compiled.params,
+            [
+                "2026-03-25T10:00:00",
+                "2026-03-25T14:00:00",
+                "2026-03-25T06:00:00",
+                "2026-03-25T10:00:00",
+                "2026-03-25T10:00:00",
+                "2026-03-25T14:00:00",
+                "2026-03-25T06:00:00",
+                "2026-03-25T10:00:00",
+            ],
+        )
+
+    def test_compile_typed_aggregate_query_mixed_layout_uses_timestamp_correctness_and_partition_pruning(self) -> None:
+        compiled = compile_step(
+            AnalysisStepIR(
+                index=0,
+                step_type="aggregate_query",
+                params={
+                    "table_name": "events",
+                    "group_by": ["platform"],
+                    "measures": [{"expr": "COUNT(*)", "as": "query_count"}],
+                    "scoped_query": {
+                        "mode": "compare",
+                        "analysis_time_kind": "timestamp",
+                        "analysis_time_expr": "event_time",
+                        "partition_pruning_predicate": "log_date = '20260325' AND log_hour >= '06' AND log_hour < '14'",
+                        "current": {"start": "2026-03-25T10:00:00", "end": "2026-03-25T14:00:00"},
+                        "baseline": {"start": "2026-03-25T06:00:00", "end": "2026-03-25T10:00:00"},
+                    },
+                },
+            ),
+            engine_type="trino",
+        )
+
+        self.assertIn("event_time >= ? AND event_time < ?", compiled.sql)
+        self.assertIn("(log_date = '20260325' AND log_hour >= '06' AND log_hour < '14')", compiled.sql)
+        self.assertIn("FROM scoped", compiled.sql)
+        self.assertIn("query_count_current", compiled.sql)
+        self.assertIn("query_count_baseline", compiled.sql)
         self.assertEqual(
             compiled.params,
             [
