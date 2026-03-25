@@ -17,6 +17,7 @@ from app.evidence_engine.extractors.base import ObservationExtractor
 from app.evidence_engine.recommendation_policy import (
     DefaultRecommendationPolicy,
     RecommendationPolicy,
+    attach_causal_chain_metadata,
 )
 from app.evidence_engine.causal_basis import (
     SessionSummary,
@@ -289,6 +290,12 @@ class EvidencePipeline:
                 }
                 for rec in recommendations
             ]
+            recommendations = attach_causal_chain_metadata(
+                recommendations,
+                claims,
+                relations,
+                promotion["edges"],
+            )
 
         # 1.1: auto-resolve confounders against confirmed claims in the session.
         if recommendations:
