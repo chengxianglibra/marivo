@@ -660,6 +660,81 @@ class TemporallyPrecedesEdgePromotionTests(unittest.TestCase):
                 "Repeated synthesize_findings must not multiply causal edges (expected exactly 1)",
             )
 
+    def test_synthesize_findings_remains_idempotent_for_derived_observations(self) -> None:
+        """Repeated synthesize_findings runs must replace derived synth observations, not accumulate them."""
+        import json
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            svc, synth, meta = self._make_service_with_synth(tmpdir)
+
+            sess_id = "sess_g2d_idem_obs01"
+            step_id = "step_g2d_idem_obs01"
+
+            meta.execute(
+                "INSERT INTO sessions (session_id, goal, constraints_json, budget_json, policy_json, status) VALUES (?, ?, ?, ?, ?, ?)",
+                [sess_id, "derived observation idempotency test", "{}", "{}", "{}", "active"],
+            )
+
+            for oid, metric, current_value, delta_pct, wstart, wend in [
+                ("obs_h_01", "query_count", 100.0, 5.0, "2024-01-01T01:00", "2024-01-01T02:00"),
+                ("obs_h_02", "query_count", 180.0, 9.0, "2024-01-01T02:00", "2024-01-01T03:00"),
+                ("obs_h_03", "query_count", 120.0, 6.0, "2024-01-01T03:00", "2024-01-01T04:00"),
+                ("obs_h_04", "queued_time", 4.0, 2.0, "2024-01-01T02:00", "2024-01-01T03:00"),
+                ("obs_h_05", "queued_time", 10.0, 7.0, "2024-01-01T03:00", "2024-01-01T04:00"),
+                ("obs_h_06", "queued_time", 6.0, 3.0, "2024-01-01T04:00", "2024-01-01T05:00"),
+                ("obs_h_07", "cpu_time", 2.0, 1.0, "2024-01-01T02:00", "2024-01-01T03:00"),
+            ]:
+                meta.execute(
+                    """
+                    INSERT INTO observations (
+                        observation_id, session_id, step_id, observation_type,
+                        subject_json, payload_json, significance_json, quality_json,
+                        observed_window_json, temporal_order
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        oid,
+                        sess_id,
+                        step_id,
+                        "metric_change",
+                        json.dumps(
+                            {
+                                "metric": metric,
+                                "slice": {"user": "sys_titan", "log_hour": wstart},
+                                "temporal_group_by_columns": ["log_hour"],
+                            }
+                        ),
+                        json.dumps({"current_value": current_value, "delta_pct": delta_pct}),
+                        json.dumps({"sample_size": 200, "practical_significance": True}),
+                        json.dumps({"freshness_ok": True, "sample_size_ok": True}),
+                        json.dumps({"start": wstart, "end": wend, "granularity": "hour"}),
+                        0,
+                    ],
+                )
+
+            synth.process(sess_id)
+
+            def _count_obs(obs_type: str) -> int:
+                row = meta.query_one(
+                    "SELECT COUNT(*) AS cnt FROM observations WHERE session_id = ? AND observation_type = ?",
+                    [sess_id, obs_type],
+                )
+                return int(row["cnt"]) if row else 0
+
+            svc._run_synthesis(sess_id)
+            self.assertEqual(_count_obs("cross_metric_correlation"), 1)
+            self.assertEqual(_count_obs("temporal_pattern"), 2)
+
+            meta.execute(
+                "UPDATE claims SET status = 'tentative' WHERE session_id = ?",
+                [sess_id],
+            )
+
+            svc._run_synthesis(sess_id)
+            self.assertEqual(_count_obs("cross_metric_correlation"), 1)
+            self.assertEqual(_count_obs("temporal_pattern"), 2)
+
     def test_hourly_peak_decay_edge_materialized_during_synthesize_findings(self) -> None:
         """Hourly lead-lag should materialize a claim-to-claim temporally_precedes edge."""
         import json

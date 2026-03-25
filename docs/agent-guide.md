@@ -64,7 +64,7 @@ Three persistent layers matter:
 Evidence packaging is central:
 
 - artifact = raw output
-- observation = deterministic fact extracted from output
+- observation = deterministic fact extracted from output; `synthesize_findings` may also persist session-level derived observations such as cross-metric correlation groups and hourly temporal patterns for graph/debug reuse
 - claim = synthesized conclusion with inference level; L1 may come from cross-slice, cross-scope, or cross-metric consistency
 - `temporally_precedes` is a claim-to-claim causal edge backed by real observation windows or relation-backed hourly peak/decay lead-lag, not by step execution order; current comparisons assume observations in the same session use a consistent timezone/time basis
 - evidence edge = relation between evidence objects
@@ -87,7 +87,7 @@ Rules:
 
 - prefer typed steps over raw SQL as the external contract
 - primitive steps produce `readiness` and `live_claims`
-- final evidence edges and recommendations are materialized by `synthesize_findings`
+- final evidence edges, recommendations, and session-level derived observations are materialized by `synthesize_findings`
 - session constraints are auto-injected into supported query steps
 
 ## Important Modules

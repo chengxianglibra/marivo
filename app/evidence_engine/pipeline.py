@@ -13,6 +13,7 @@ from app.evidence_engine.claim_relations import (
     DefaultClaimRelationDiscovery,
     materialize_relations_as_edges,
 )
+from app.evidence_engine.derived_observations import DefaultDerivedObservationBuilder
 from app.evidence_engine.extractors.base import ObservationExtractor
 from app.evidence_engine.recommendation_policy import (
     DefaultRecommendationPolicy,
@@ -44,6 +45,7 @@ class SynthesisResult(TypedDict):
     claims: list[Claim]
     recommendations: list[Recommendation]
     edges: list[dict[str, Any]]
+    derived_observations: list[Observation]
     summary: str
 
 
@@ -201,6 +203,7 @@ class EvidencePipeline:
         self._default_relation_discovery_name = default_relation_discovery.name
 
         self._causal_checker_registry = causal_checker_registry or get_default_registry()
+        self._derived_observation_builder = DefaultDerivedObservationBuilder()
 
     def extract_observations(
         self,
@@ -253,6 +256,11 @@ class EvidencePipeline:
         promotion = self.promote_causality(observations, claims, edges, relations)
         claims = promotion["claims"]
         edges.extend(promotion["edges"])
+        derived_observations = self._derived_observation_builder.build(
+            observations,
+            claims,
+            relations,
+        )
         recommendations = self.derive_recommendations(
             observations,
             claims,
@@ -306,6 +314,7 @@ class EvidencePipeline:
             "claims": claims,
             "recommendations": recommendations,
             "edges": _dedupe_edges(edges),
+            "derived_observations": derived_observations,
             "summary": claims[0]["text"] if claims else "No supported claims were generated.",
         }
 
