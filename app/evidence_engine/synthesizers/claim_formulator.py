@@ -29,7 +29,7 @@ class ClaimFormulator:
         primary = signal.primary_obs
         obs_type = primary["type"]
 
-        if obs_type == "metric_change":
+        if obs_type == "metric_change" and primary.get("payload", {}).get("delta_pct") is not None:
             return self._formulate_metric(signal)
         return self._formulate_non_metric(signal)
 
@@ -42,15 +42,20 @@ class ClaimFormulator:
 
         Returns None when fewer than 2 distinct metrics are present.
         """
+        metric_change_with_delta = [
+            observation
+            for observation in metric_change_obs
+            if observation.get("payload", {}).get("delta_pct") is not None
+        ]
         distinct_metrics = {
             o.get("subject", {}).get("metric")
-            for o in metric_change_obs
+            for o in metric_change_with_delta
         }
         if len(distinct_metrics) < 2:
             return None
 
-        declining = [o for o in metric_change_obs if float(o["payload"]["delta_pct"]) < 0]
-        improving = [o for o in metric_change_obs if float(o["payload"]["delta_pct"]) > 0]
+        declining = [o for o in metric_change_with_delta if float(o["payload"]["delta_pct"]) < 0]
+        improving = [o for o in metric_change_with_delta if float(o["payload"]["delta_pct"]) > 0]
         trend_parts = []
         if declining:
             trend_parts.append(f"{len(declining)} declining")
@@ -69,7 +74,7 @@ class ClaimFormulator:
             "scope": {"slice": {}},
             "confidence": 0.0,
             "status": "supported",
-            "supporting_observations": [o["observation_id"] for o in metric_change_obs],
+            "supporting_observations": [o["observation_id"] for o in metric_change_with_delta],
             "contradicting_observations": [],
             "confidence_breakdown": {},
             "inference_level": "L0",
@@ -156,23 +161,35 @@ class ClaimFormulator:
         primary = signal.primary_obs
         obs_type = primary["type"]
         impacted_slice = primary["subject"].get("slice", {})
+        payload = primary.get("payload", {})
 
-        if obs_type == "funnel_drop":
-            stage = primary["payload"].get("worst_stage", "unknown")
+        if obs_type == "metric_change":
+            current_value = payload.get("current_value")
+            if impacted_slice:
+                slice_label = " / ".join(f"{k}={v}" for k, v in impacted_slice.items())
+            else:
+                slice_label = "overall"
+            if isinstance(current_value, (int, float)):
+                text = f"Current window observation for {slice_label}: value={current_value}."
+            else:
+                text = f"Current window observation recorded for {slice_label}."
+            template = "metric_current_window_observation"
+        elif obs_type == "funnel_drop":
+            stage = payload.get("worst_stage", "unknown")
             text = (
                 f"Funnel drop detected at stage '{stage}' "
                 f"with significant conversion loss."
             )
             template = "funnel_drop_detected"
         elif obs_type == "contribution_shift":
-            segment = primary["payload"].get("biggest_shift_segment", "unknown")
+            segment = payload.get("biggest_shift_segment", "unknown")
             text = (
                 f"Contribution shift detected in segment '{segment}' "
                 f"indicating redistribution."
             )
             template = "contribution_shift_detected"
         elif obs_type == "anomaly_detection":
-            z_score = primary["payload"].get("z_score", 0)
+            z_score = payload.get("z_score", 0)
             text = (
                 f"Statistical anomaly detected (z-score: {z_score}) "
                 f"indicating abnormal behavior."

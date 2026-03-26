@@ -176,9 +176,21 @@ class IncrementalSynthesizer:
         )
 
         delta_pct = payload.get("delta_pct")
+        claim_type = "root_cause_candidate"
         if delta_pct is not None:
             direction = "increased" if float(delta_pct) > 0 else "declined"
             text = f"{metric} {direction} {abs(float(delta_pct)):.1f}% for {slice_str} (tentative)"
+        elif obs.get("type") == "metric_change":
+            claim_type = "finding"
+            current_value = payload.get("current_value")
+            if isinstance(current_value, (int, float)):
+                text = (
+                    f"{metric} current window observation for {slice_str}: "
+                    f"value={current_value:,.2f}".rstrip("0").rstrip(".")
+                    + " (tentative)"
+                )
+            else:
+                text = f"{metric} current window observation for {slice_str} (tentative)"
         elif obs.get("type") == "anomaly_detection":
             z_score = float(payload.get("z_score", 0.0))
             direction = "spike" if z_score >= 0 else "decline"
@@ -223,7 +235,7 @@ class IncrementalSynthesizer:
 
         return {
             "claim_id": f"claim_{uuid4().hex[:12]}",
-            "type": "root_cause_candidate",
+            "type": claim_type,
             "text": text,
             "scope": {"metric": metric, "slice": slice_dict},
             "confidence": confidence,

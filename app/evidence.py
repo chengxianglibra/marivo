@@ -19,14 +19,23 @@ from app.evidence_engine.schemas import Claim, Recommendation
 def synthesize_claims(
     observations: list[dict[str, Any]],
 ) -> tuple[list[Claim], list[Recommendation], list[dict[str, Any]]]:
-    metric_observations = [obs for obs in observations if obs["type"] == "metric_change"]
+    metric_observations = [
+        obs
+        for obs in observations
+        if obs["type"] == "metric_change" and obs.get("payload", {}).get("delta_pct") is not None
+    ]
+    metric_window_observations = [
+        obs
+        for obs in observations
+        if obs["type"] == "metric_change" and obs.get("payload", {}).get("delta_pct") is None
+    ]
     funnel_observations = [obs for obs in observations if obs["type"] == "funnel_drop"]
     contribution_observations = [obs for obs in observations if obs["type"] == "contribution_shift"]
     anomaly_observations = [obs for obs in observations if obs["type"] == "anomaly_detection"]
 
     if not metric_observations:
         # No metric_change observations — try to synthesize from other types
-        all_typed = funnel_observations + contribution_observations + anomaly_observations
+        all_typed = metric_window_observations + funnel_observations + contribution_observations + anomaly_observations
         if not all_typed:
             return [], [], []
         return _synthesize_non_metric_claims(all_typed, funnel_observations, contribution_observations, anomaly_observations)
@@ -161,6 +170,16 @@ def _synthesize_non_metric_claims(
     elif obs_type == "anomaly_detection":
         z_score = primary["payload"].get("z_score", 0)
         text = f"Statistical anomaly detected (z-score: {z_score}) indicating abnormal behavior."
+    elif obs_type == "metric_change":
+        current_value = primary["payload"].get("current_value")
+        if impacted_slice:
+            slice_label = " / ".join(f"{k}={v}" for k, v in impacted_slice.items())
+        else:
+            slice_label = "overall"
+        if isinstance(current_value, (int, float)):
+            text = f"Current window observation for {slice_label}: value={current_value}."
+        else:
+            text = f"Current window observation recorded for {slice_label}."
     else:
         text = f"Finding of type '{obs_type}' detected with practical significance."
 
