@@ -54,7 +54,7 @@ class CompilerTests(unittest.TestCase):
         self.assertIn("analytics.watch_events", compiled.sql)
         self.assertEqual(len(compiled.params), 6)
 
-    def test_build_comparison_query_helper(self) -> None:
+    def test_build_comparison_query_helper_compare_mode(self) -> None:
         query = build_comparison_query(
             metric_name="watch_time",
             table_name="analytics.watch_events",
@@ -64,6 +64,27 @@ class CompilerTests(unittest.TestCase):
 
         self.assertIn("delta_pct", query)
         self.assertIn("analytics.watch_events", query)
+
+    def test_build_comparison_query_helper_single_window_mode(self) -> None:
+        query = build_comparison_query(
+            metric_name="watch_time",
+            table_name="analytics.watch_events",
+            metric_sql="avg(play_duration_seconds)",
+            dimensions=["platform", "app_version"],
+            order="DESC",
+            scoped_query={
+                "mode": "single_window",
+                "analysis_time_expr": "event_time",
+                "current": {"start": "2026-03-25T10:00:00", "end": "2026-03-25T14:00:00"},
+            },
+        )
+
+        self.assertIn("ROUND(avg(play_duration_seconds), 2) AS current_value", query)
+        self.assertIn("COUNT(*) AS current_sessions", query)
+        self.assertIn("GROUP BY platform, app_version", query)
+        self.assertIn("ORDER BY current_value DESC", query)
+        self.assertNotIn("baseline_value", query)
+        self.assertNotIn("delta_pct", query)
 
     def test_build_comparison_query_empty_dimensions(self) -> None:
         """Empty dimensions should produce aggregate-only SQL with no GROUP BY on dims."""
@@ -101,6 +122,60 @@ class CompilerTests(unittest.TestCase):
         self.assertIn("current_value", compiled.sql)
         self.assertIn("baseline_value", compiled.sql)
         self.assertEqual(len(compiled.params), 6)
+
+    def test_compile_compare_metric_single_window_scoped_query(self) -> None:
+        compiled = compile_step(
+            AnalysisStepIR(
+                index=0,
+                step_type="compare_metric",
+                params={
+                    "metric": "watch_time",
+                    "table": "analytics.watch_events",
+                    "order": "DESC",
+                    "scoped_query": {
+                        "mode": "single_window",
+                        "analysis_time_expr": "event_time",
+                        "current": {"start": "2026-03-25T10:00:00", "end": "2026-03-25T14:00:00"},
+                    },
+                },
+            ),
+            engine_type="duckdb",
+            semantic_context={
+                "metric_sql": "avg(play_duration_seconds)",
+                "dimensions": ["platform", "app_version"],
+            },
+        )
+
+        self.assertIn("ROUND(avg(play_duration_seconds), 2) AS current_value", compiled.sql)
+        self.assertIn("COUNT(*) AS current_sessions", compiled.sql)
+        self.assertIn("GROUP BY platform, app_version", compiled.sql)
+        self.assertIn("ORDER BY current_value DESC", compiled.sql)
+        self.assertNotIn("baseline_value", compiled.sql)
+        self.assertNotIn("baseline_sessions", compiled.sql)
+        self.assertNotIn("delta_pct", compiled.sql)
+        self.assertEqual(compiled.params, ["2026-03-25T10:00:00", "2026-03-25T14:00:00"])
+
+    def test_compile_compare_metric_scoped_query_requires_valid_mode(self) -> None:
+        with self.assertRaisesRegex(ValueError, "scoped_query.mode must be"):
+            compile_step(
+                AnalysisStepIR(
+                    index=0,
+                    step_type="compare_metric",
+                    params={
+                        "metric": "watch_time",
+                        "table": "analytics.watch_events",
+                        "scoped_query": {
+                            "analysis_time_expr": "event_time",
+                            "current": {"start": "2026-03-25T10:00:00", "end": "2026-03-25T14:00:00"},
+                        },
+                    },
+                ),
+                engine_type="duckdb",
+                semantic_context={
+                    "metric_sql": "avg(play_duration_seconds)",
+                    "dimensions": ["platform"],
+                },
+            )
 
     def test_compile_sample_rows_with_filter(self) -> None:
         compiled = compile_step(

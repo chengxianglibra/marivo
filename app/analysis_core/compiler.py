@@ -29,11 +29,17 @@ def _build_scoped_query_parts(
     *,
     include_period: bool,
 ) -> _ScopedQueryParts:
+    """Build the shared scoped CTE for windowed query execution.
+
+    ``include_period`` controls whether the CTE also materializes an internal
+    ``_period`` column for compare-style compilation. Single-window callers set
+    this to ``False`` because they aggregate only the current window.
+    """
     analysis_time_expr = str(scoped_query.get("analysis_time_expr") or "").strip()
     if not analysis_time_expr:
         raise ValueError("scoped_query requires 'analysis_time_expr'")
 
-    mode = str(scoped_query.get("mode") or "").strip() or "single_window"
+    mode = _require_scoped_query_mode(scoped_query)
     current = dict(scoped_query.get("current") or {})
     current_start = str(current.get("start") or "").strip()
     current_end = str(current.get("end") or "").strip()
@@ -130,6 +136,13 @@ def _parse_scoped_day_value(value: str) -> date:
     return datetime.fromisoformat(value).date()
 
 
+def _require_scoped_query_mode(scoped_query: Mapping[str, Any]) -> str:
+    mode = str(scoped_query.get("mode") or "").strip()
+    if mode not in {"single_window", "compare"}:
+        raise ValueError("scoped_query.mode must be 'single_window' or 'compare'")
+    return mode
+
+
 def build_comparison_query(
     metric_name: str,
     table_name: str,
@@ -141,10 +154,12 @@ def build_comparison_query(
     filter_expr: str | None = None,
     scoped_query: Mapping[str, Any] | None = None,
 ) -> str:
-    """Build a current-vs-baseline comparison query from semantic metric inputs.
+    """Build compare_metric SQL for compare and single-window semantic metric queries.
 
-    When *dimensions* is empty, an aggregate-only comparison is produced
-    (no GROUP BY, single row with overall current vs baseline).
+    When *dimensions* is empty, an aggregate-only query is produced
+    (no GROUP BY on dimensions). ``scoped_query.mode == 'compare'`` emits
+    current-vs-baseline columns; ``single_window`` emits current-window
+    observation columns only.
     """
 
     del metric_name
@@ -160,6 +175,23 @@ def build_comparison_query(
         select_dims = ""
 
     if scoped_query is not None:
+        mode = _require_scoped_query_mode(scoped_query)
+        if mode == "single_window":
+            scoped = _build_scoped_query_parts(table_name, scoped_query, include_period=False)
+            group_clause = f"GROUP BY {', '.join(dimensions)}" if dimensions else ""
+            order_clause = f"ORDER BY current_value {order}" if order else ""
+            return f"""
+                WITH {scoped.cte_sql}
+                SELECT
+                    {select_dims}
+                    ROUND({metric_sql}, 2) AS current_value,
+                    COUNT(*) AS current_sessions
+                FROM scoped
+                {group_clause}
+                {order_clause}
+                LIMIT {limit}
+            """
+
         scoped = _build_scoped_query_parts(table_name, scoped_query, include_period=True)
         return f"""
             WITH {scoped.cte_sql},
