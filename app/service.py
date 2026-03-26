@@ -52,14 +52,34 @@ _AUTO_INCREMENTAL_SYNTHESIZER = object()
 
 
 class SemanticLayerService:
-    _COMPARE_METRIC_PAYLOAD_FIELDS = {
-        "current_value": "current_value",
-        "baseline_value": "baseline_value",
-        "delta_pct": "delta_pct",
-        "current_sessions": "current_sessions",
-        "baseline_sessions": "baseline_sessions",
+    _COMPARE_METRIC_MODE_CONTRACTS = {
+        "compare": {
+            "payload_fields": {
+                "current_value": "current_value",
+                "baseline_value": "baseline_value",
+                "delta_pct": "delta_pct",
+                "current_sessions": "current_sessions",
+                "baseline_sessions": "baseline_sessions",
+            },
+            "required_payload_keys": (
+                "current_value",
+                "baseline_value",
+                "delta_pct",
+                "current_sessions",
+                "baseline_sessions",
+            ),
+        },
+        "single_window": {
+            "payload_fields": {
+                "current_value": "current_value",
+                "current_sessions": "current_sessions",
+            },
+            "required_payload_keys": (
+                "current_value",
+                "current_sessions",
+            ),
+        },
     }
-    _COMPARE_METRIC_REQUIRED_ROW_FIELDS = tuple(_COMPARE_METRIC_PAYLOAD_FIELDS.values())
 
     def __init__(
         self,
@@ -989,13 +1009,67 @@ class SemanticLayerService:
         }
 
     @classmethod
-    def _normalize_comparison_rows(cls, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _compare_metric_mode_contract(cls, mode: str) -> dict[str, Any]:
+        normalized = str(mode).strip().lower()
+        contract = cls._COMPARE_METRIC_MODE_CONTRACTS.get(normalized)
+        if contract is None:
+            raise ValueError(f"Unsupported compare_metric mode: {mode}")
+        payload_fields = dict(contract["payload_fields"])
+        required_payload_keys = tuple(contract["required_payload_keys"])
+        return {
+            "mode": normalized,
+            "payload_fields": payload_fields,
+            "required_payload_keys": required_payload_keys,
+            "required_row_fields": tuple(payload_fields[key] for key in required_payload_keys),
+        }
+
+    @classmethod
+    def _build_compare_metric_extractor_context(
+        cls,
+        *,
+        mode: str,
+        metric_name: str,
+        observation_type: str,
+        dimensions: list[str],
+        quality_builder: Any,
+    ) -> dict[str, Any]:
+        contract = cls._compare_metric_mode_contract(mode)
+        return {
+            "metric": metric_name,
+            "observation_type": observation_type,
+            "dimensions": dimensions,
+            "payload_fields": contract["payload_fields"],
+            "required_payload_keys": contract["required_payload_keys"],
+            "quality_builder": quality_builder,
+        }
+
+    @classmethod
+    def _compare_metric_quality_builder(cls, mode: str) -> Any:
+        normalized = cls._compare_metric_mode_contract(mode)["mode"]
+        if normalized == "compare":
+            return lambda row: {
+                "freshness_ok": True,
+                "sample_size_ok": min(row["current_sessions"] or 0, row["baseline_sessions"] or 0) >= 150,
+            }
+        return lambda row: {
+            "freshness_ok": True,
+            "sample_size_ok": (row.get("current_sessions") or 0) >= 150,
+        }
+
+    @classmethod
+    def _normalize_comparison_rows(
+        cls,
+        rows: list[dict[str, Any]],
+        *,
+        mode: str,
+    ) -> list[dict[str, Any]]:
+        contract = cls._compare_metric_mode_contract(mode)
         normalized: list[dict[str, Any]] = []
         for index, row in enumerate(rows):
             row_dict = dict(row)
             missing = [
                 field
-                for field in cls._COMPARE_METRIC_REQUIRED_ROW_FIELDS
+                for field in contract["required_row_fields"]
                 if field not in row_dict
             ]
             if missing:
@@ -1261,21 +1335,23 @@ class SemanticLayerService:
                 "dimensions": dimensions,
             },
         )
-        all_rows = self._normalize_comparison_rows(execute_compiled(engine, compiled_query).rows)
+        mode = resolved.time_scope.mode
+        all_rows = self._normalize_comparison_rows(
+            execute_compiled(engine, compiled_query).rows,
+            mode=mode,
+        )
         rows = [row for row in all_rows if row.get("delta_pct") is not None]
+        extractor_context = self._build_compare_metric_extractor_context(
+            mode=mode,
+            metric_name=metric_name,
+            observation_type=obs_type,
+            dimensions=dimensions,
+            quality_builder=self._compare_metric_quality_builder(mode),
+        )
         observations = self.evidence_pipeline.extract_observations(
             "comparison_rows",
             rows,
-            context={
-                "metric": metric_name,
-                "observation_type": obs_type,
-                "dimensions": dimensions,
-                "payload_fields": self._COMPARE_METRIC_PAYLOAD_FIELDS,
-                "quality_builder": lambda row: {
-                    "freshness_ok": True,
-                    "sample_size_ok": min(row["current_sessions"] or 0, row["baseline_sessions"] or 0) >= 150,
-                },
-            },
+            context=extractor_context,
         )
         window = self._observation_window_for_request(resolved)
         self._annotate_temporal(observations, session_id, window)
