@@ -11,15 +11,15 @@
 
 ## 0. 结论先行
 
-当前仓库里，`compare_metric` 对 `single_window` 的支持处于“半完成”状态：
+当前仓库里，`compare_metric` 对 `single_window` 的执行链路已经打通，剩余工作主要集中在文档/UI/测试收口：
 
 - `time_scope` 规范化和 API 校验已接受 `single_window`
 - shared scoped-query builder 已能表达 `single_window`
-- `compare_metric` service 仍在执行入口硬性要求 `mode = compare`
-- compare 结果、debug、summary、extractor payload 仍默认假设存在 baseline/current/delta
-- 对外文档也明确写了“请求模型接受，但 service layer 还不能执行”
+- `compare_metric` service / compiler / extractor 已支持 mode-aware single-window execution
+- `compare_metric(single_window)` 已按当前窗口 observation 语义产出 summary / observations / debug payload
+- `docs/api/sessions.md` 与 `docs/agent-guide.md` 已基本收口，剩余主要是 UI 默认示例与计划文档状态同步
 
-所以这次改动不是单点删一个 guard，而是一次跨 service / compiler / evidence / docs / tests 的收口。
+所以这项计划后半段的重点不再是 service 开通，而是把 API / UI / 共享指南 / 测试矩阵的最终状态与实际实现保持一致。
 
 ---
 
@@ -36,19 +36,17 @@
 
 ### 1.2 当前阻塞点
 
-- [ ] `app/service.py`
-  - `_run_compare_metric()` 在执行前直接拒绝 `single_window`
-  - `_normalize_comparison_rows()` 只接受 compare-shaped rows
-  - `_compare_metric_debug_payload()` 强依赖 baseline window
-  - `_compare_metric_summary()` 只会生成 comparison wording
-  - `rows = [row for row in all_rows if row.get("delta_pct") is not None]` 会把 single-window 结果全部丢掉
-- [ ] `app/analysis_core/compiler.py`
-  - `build_comparison_query()` 仍固定产出 compare-shaped SQL 列：`current_value` / `baseline_value` / `delta_pct` / `current_sessions` / `baseline_sessions`
-- [ ] `app/evidence_engine/extractors/comparison.py`
-  - `ComparisonRowExtractor` 把 compare payload 列设为 hard requirement
-- [ ] 文档 / UI / 示例
-  - `docs/api/sessions.md` 仍声明 compare-only execution
-  - `app/static/user.html` 的 `compare_metric` 模板仍只展示 compare 示例
+- [x] `app/service.py`
+  - `_run_compare_metric()` 已支持 `single_window`
+  - row normalization / debug / summary / filtering 已按 mode 分流
+- [x] `app/analysis_core/compiler.py`
+  - `build_comparison_query()` 已支持 compare-shaped 与 current-window-only 两种 SQL 输出
+- [x] `app/evidence_engine/extractors/comparison.py`
+  - `ComparisonRowExtractor` 已支持 mode-aware required payload keys
+- [x] 文档 / UI / 示例
+  - `docs/api/sessions.md` 已声明 compare / single-window 双模式
+  - `docs/agent-guide.md` 已同步双模式 contract 与 observation 语义
+  - `app/static/user.html` 已把默认模板与 hint 文案收口到双模式表达
 - [ ] 测试
   - 现有 `compare_metric` service / extractor / compiler 测试主要覆盖 compare-only shape
 
@@ -292,15 +290,17 @@
 
 > 前置依赖：CM-SW-05 | 工作量：中 | 风险：低
 
-- [ ] 更新 `docs/api/sessions.md`
-  - 删除“single_window 仅请求模型接受、service 不支持”的说明
-  - 增加 single-window 示例与字段说明
-- [ ] 更新 `docs/agent-guide.md`
-  - 把 `compare_metric` 描述改成真正支持 `single_window` / `compare`
-- [ ] 更新 `app/static/user.html`
-  - `compare_metric` 默认模板改成更能体现双模式的示例
-  - hint 文案说明 `time_scope.mode` 可选 `single_window` / `compare`
-- [ ] 视情况同步 README / planning docs 中的旧说法
+- [x] 更新 `docs/api/sessions.md`
+  - 已删除 compare-only 旧说明
+  - 已包含 single-window 示例与字段说明
+- [x] 更新 `docs/agent-guide.md`
+  - 已说明 `compare_metric` 真正支持 `single_window` / `compare`
+- [x] 更新 `app/static/user.html`
+  - 默认模板继续使用 `single_window`，但已补足双模式 hint 与 compare 示例片段
+  - hint 文案已说明 `time_scope.mode` 可选 `single_window` / `compare`
+- [x] 视情况同步 README / planning docs 中的旧说法
+  - README 当前示例与双模式状态一致，无需额外改动
+  - 本实施计划文档已同步当前状态，历史 RFC / task-list 保持历史上下文不重写
 
 验收标准：
 
