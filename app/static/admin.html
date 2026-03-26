@@ -585,14 +585,43 @@ async function showSourceDetail(id) {
 }
 
 function renderTablesWithColumns(tables, colsByParent) {
-  let html = '<table><thead><tr><th>Table</th><th>FQN</th><th>Columns</th></tr></thead><tbody>';
+  let html = '<table><thead><tr><th>Table</th><th>FQN</th><th>Columns</th><th>Properties</th></tr></thead><tbody>';
   tables.forEach(t => {
     const cols = colsByParent[t.object_id] || [];
     const colNames = cols.map(c => esc(c.native_name)).join(', ');
+    const props = t.properties || {};
+    const tableProps = props.table_properties || {};
+    const owner = tableProps.owner || props.owner || '';
+    const comment = tableProps.comment || props.comment || '';
+
+    // Format table properties for display
+    let propsHtml = '';
+    if (owner) {
+      propsHtml += `<div style="margin-bottom:4px;"><span style="color:var(--color-text-secondary);">Owner:</span> ${esc(owner)}</div>`;
+    }
+    if (comment) {
+      const shortComment = comment.length > 100 ? comment.substring(0, 100) + '...' : comment;
+      propsHtml += `<div style="margin-bottom:4px;"><span style="color:var(--color-text-secondary);">Comment:</span> ${esc(shortComment)}</div>`;
+    }
+    // Show other table properties
+    const otherProps = Object.entries(tableProps).filter(([k]) => !['owner', 'comment'].includes(k));
+    if (otherProps.length > 0) {
+      propsHtml += `<details style="margin-top:4px;"><summary style="cursor:pointer;color:var(--color-primary);font-size:var(--font-size-xs);">${otherProps.length} more properties</summary>`;
+      propsHtml += '<div style="margin-top:4px;font-size:var(--font-size-xs);">';
+      otherProps.forEach(([k, v]) => {
+        propsHtml += `<div><code>${esc(k)}</code>: ${esc(String(v))}</div>`;
+      });
+      propsHtml += '</div></details>';
+    }
+    if (!propsHtml) {
+      propsHtml = '<span class="empty">-</span>';
+    }
+
     html += `<tr>
       <td><strong>${esc(t.native_name)}</strong></td>
       <td><code style="font-size:12px;color:var(--color-text-secondary);">${esc(t.fqn)}</code></td>
       <td>${colNames || '<span class="empty">no columns synced</span>'}</td>
+      <td style="font-size:var(--font-size-xs);max-width:300px;">${propsHtml}</td>
     </tr>`;
   });
   html += '</tbody></table>';

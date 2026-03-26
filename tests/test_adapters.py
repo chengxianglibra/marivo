@@ -159,7 +159,7 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
     def test_list_schemas(self, mock_connect) -> None:
         cursor = self._mock_cursor(
             [("default",), ("analytics",), ("information_schema",)],
-            ["schema_name"],
+            ["Schema"],
         )
         mock_connect.return_value = self._mock_connection(cursor)
         # Pass explicit catalog_name; None now means "aggregate all catalogs"

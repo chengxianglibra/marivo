@@ -560,6 +560,12 @@ renderers.catalog = async () => {
     const metrics = catalog.metrics || [];
     const assets = catalog.assets || [];
 
+    // Extract unique schemas from asset FQNs
+    const schemas = [...new Set(assets.map(a => {
+      const parts = (a.fqn || '').split('.');
+      return parts.length >= 3 ? parts[1] : null;
+    }).filter(Boolean))].sort();
+
     let html = '';
     // Stat cards
     html += '<div class="stat-grid">';
@@ -586,16 +592,52 @@ renderers.catalog = async () => {
     }
     if (assets.length) {
       html += `<h3 style="font-size:var(--font-size-base);font-weight:600;margin:var(--space-lg) 0 var(--space-sm);">Assets</h3>`;
-      html += `<table><thead><tr><th>Name</th><th>Engine</th><th>Kind</th><th>Row Count</th></tr></thead><tbody>${
-        assets.map(a => `<tr>
-          <td><strong>${esc(a.id || a.name || '')}</strong></td><td>${esc(a.engine || '')}</td><td>${statusBadge(a.kind || a.type || '')}</td><td>${a.row_count != null ? Number(a.row_count).toLocaleString() : 'N/A'}</td>
-        </tr>`).join('')
+      // Schema filter dropdown
+      if (schemas.length > 0) {
+        html += `<div class="inline-form" style="margin-bottom:var(--space-sm);">
+          <div class="form-group"><label>Filter by Schema</label>
+            <select id="assets-schema-filter" style="min-width:150px;">
+              <option value="">All Schemas</option>
+              ${schemas.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('')}
+            </select>
+          </div>
+        </div>`;
+      }
+      // Assets table with schema column
+      html += `<table id="assets-table"><thead><tr><th>Name</th><th>Schema</th><th>Engine</th><th>Kind</th><th>Row Count</th></tr></thead><tbody id="assets-tbody">${
+        assets.map(a => {
+          const parts = (a.fqn || '').split('.');
+          const schema = parts.length >= 3 ? parts[1] : '';
+          return `<tr data-schema="${esc(schema)}">
+            <td><strong>${esc(a.id || a.name || '')}</strong></td>
+            <td>${esc(schema)}</td>
+            <td>${esc(a.engine || '')}</td>
+            <td>${statusBadge(a.kind || a.type || '')}</td>
+            <td>${a.row_count != null ? Number(a.row_count).toLocaleString() : 'N/A'}</td>
+          </tr>`;
+        }).join('')
       }</tbody></table>`;
     }
     if (!entities.length && !metrics.length && !assets.length) {
       html = '<p class="empty">Catalog is empty. Create entities and metrics in the Admin UI.</p>';
     }
     area.innerHTML = html;
+
+    // Add schema filter handler
+    const schemaFilter = $('#assets-schema-filter');
+    if (schemaFilter) {
+      schemaFilter.onchange = () => {
+        const selected = schemaFilter.value;
+        const rows = document.querySelectorAll('#assets-tbody tr');
+        rows.forEach(row => {
+          if (!selected || row.dataset.schema === selected) {
+            row.style.display = '';
+          } else {
+            row.style.display = 'none';
+          }
+        });
+      };
+    }
   } catch (err) { $('#cat-overview-content').innerHTML = `<p class="empty">Failed to load catalog: ${esc(err.message)}</p>`; }
 };
 
