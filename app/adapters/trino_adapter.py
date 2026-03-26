@@ -125,23 +125,24 @@ class TrinoCatalogAdapter(CatalogAdapter):
             # Aggregate schemas from all visible catalogs
             schemas: list[PhysicalObject] = []
             for cat_obj in self.list_catalogs():
-                schemas.extend(self.list_schemas(cat_obj.native_name))
+                try:
+                    schemas.extend(self.list_schemas(cat_obj.native_name))
+                except Exception:
+                    # Some catalogs (e.g., jmx, system) may not support SHOW SCHEMAS
+                    pass
             return schemas
-        cat = catalog_name
-        rows = self._query(
-            "SELECT schema_name FROM information_schema.schemata "
-            "WHERE catalog_name = ? ORDER BY schema_name",
-            [cat],
-        )
+        # Use SHOW SCHEMAS FROM <catalog> instead of information_schema
+        # because presto-gateway may not properly populate information_schema.schemata
+        rows = self._query(f"SHOW SCHEMAS FROM {catalog_name}")
         return [
             PhysicalObject(
-                native_name=r["schema_name"],
+                native_name=r["Schema"],
                 native_id=None,
                 object_type="schema",
-                parent_path=cat,
+                parent_path=catalog_name,
             )
             for r in rows
-            if r["schema_name"] != "information_schema"
+            if r["Schema"] != "information_schema"
         ]
 
     def list_tables(self, schema_name: str) -> list[PhysicalObject]:

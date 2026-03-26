@@ -417,7 +417,7 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
         adapter = TrinoCatalogAdapter(host="localhost", catalog="hive")
         cursor = self._make_cursor(
             [("default",), ("sales",), ("information_schema",)],
-            ["schema_name"],
+            ["Schema"],
         )
         with patch.object(adapter, "_connect", return_value=self._make_conn(cursor)):
             schemas = adapter.list_schemas("hive")
@@ -435,8 +435,8 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
         adapter = TrinoCatalogAdapter(host="localhost")
 
         catalog_cursor = self._make_cursor([("hive",), ("tpch",)], ["Catalog"])
-        hive_schema_cursor = self._make_cursor([("default",)], ["schema_name"])
-        tpch_schema_cursor = self._make_cursor([("sf1",)], ["schema_name"])
+        hive_schema_cursor = self._make_cursor([("default",)], ["Schema"])
+        tpch_schema_cursor = self._make_cursor([("sf1",)], ["Schema"])
 
         call_count = [0]
         cursors = [catalog_cursor, hive_schema_cursor, tpch_schema_cursor]
