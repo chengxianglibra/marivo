@@ -9,6 +9,22 @@ from app.evidence_engine.schemas import Observation
 
 
 class ComparisonRowExtractor(ExtractorContract):
+    """Extract metric observations from compare or single-window row payloads.
+
+    Context parameters:
+    - metric: semantic metric name
+    - payload_fields: maps payload field names to row column names
+    - required_payload_keys: payload keys that must be present; defaults to the
+      full compare contract
+    - observation_type: observation type; defaults to ``metric_change``
+    - quality_builder: optional callable building a quality dict from each row
+    - dimensions: optional dimension names used to build the observation slice
+
+    Callers can override ``required_payload_keys`` for narrower contracts such
+    as compare_metric(single_window), which only requires
+    ``("current_value", "current_sessions")``.
+    """
+
     name = "comparison_rows"
     artifact_type: ClassVar[str] = "comparison_rows"
     observation_types: ClassVar[list[str]] = ["metric_change"]
@@ -38,8 +54,18 @@ class ComparisonRowExtractor(ExtractorContract):
             for value in context.get("required_payload_keys", self._DEFAULT_REQUIRED_PAYLOAD_KEYS)
         )
         quality_builder = context.get("quality_builder")
-
         dimensions = context.get("dimensions")
+        unmapped_required_keys = [
+            payload_name
+            for payload_name in required_payload_keys
+            if payload_name not in payload_fields
+        ]
+        if unmapped_required_keys:
+            missing_str = ", ".join(unmapped_required_keys)
+            raise ValueError(
+                "comparison_rows extractor requires payload_fields mappings for "
+                f"required keys: {missing_str}"
+            )
 
         observations: list[Observation] = []
         for index, row in enumerate(rows):
@@ -47,12 +73,12 @@ class ComparisonRowExtractor(ExtractorContract):
             missing = [
                 payload_name
                 for payload_name in required_payload_keys
-                if payload_name not in payload_fields or payload_fields[payload_name] not in row_dict
+                if payload_fields[payload_name] not in row_dict
             ]
             if missing:
                 missing_str = ", ".join(missing)
                 raise ValueError(
-                    "comparison_rows extractor requires mapped comparison fields "
+                    "comparison_rows extractor requires row fields for mapped payload keys "
                     f"at row {index}: {missing_str}"
                 )
             payload = {
