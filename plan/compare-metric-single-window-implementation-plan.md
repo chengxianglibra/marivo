@@ -253,12 +253,12 @@
 
 > 前置依赖：CM-SW-02 | 工作量：中 | 风险：高
 
-- [ ] 修改 `app/evidence_engine/extractors/comparison.py`
+- [x] 修改 `app/evidence_engine/extractors/comparison.py`
   - required payload keys 改为由 context 指定
   - compare 维持严格校验
   - single-window 允许只有 `current_value` / `current_sessions`
   - single-window 抽取行为尽量向 `AggregateRowExtractor` 的 payload 习惯靠拢
-- [ ] 补单元测试覆盖 compare / single-window 两种 payload 约束
+- [x] 补单元测试覆盖 compare / single-window 两种 payload 约束
 
 验收标准：
 

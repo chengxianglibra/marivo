@@ -53,7 +53,7 @@ class EvidencePluginTests(unittest.TestCase):
     def test_comparison_row_extractor_rejects_missing_required_fields(self) -> None:
         extractor = ComparisonRowExtractor()
 
-        with self.assertRaisesRegex(ValueError, "requires mapped comparison fields"):
+        with self.assertRaisesRegex(ValueError, "requires row fields for mapped payload keys"):
             extractor.extract(
                 [
                     {
@@ -74,6 +74,36 @@ class EvidencePluginTests(unittest.TestCase):
                     },
                 },
             )
+
+    def test_comparison_row_extractor_preserves_additional_payload_fields(self) -> None:
+        extractor = ComparisonRowExtractor()
+
+        observations = extractor.extract(
+            [
+                {
+                    "platform": "android",
+                    "current_first_frame_ms": 2200,
+                    "baseline_first_frame_ms": 1800,
+                    "delta_pct": 18.0,
+                    "delta_ms": 400,
+                    "current_sessions": 280,
+                    "baseline_sessions": 285,
+                }
+            ],
+            context={
+                "metric": "first_frame_time",
+                "payload_fields": {
+                    "current_value": "current_first_frame_ms",
+                    "baseline_value": "baseline_first_frame_ms",
+                    "delta_pct": "delta_pct",
+                    "delta_ms": "delta_ms",
+                    "current_sessions": "current_sessions",
+                    "baseline_sessions": "baseline_sessions",
+                },
+            },
+        )
+
+        self.assertEqual(observations[0]["payload"]["delta_ms"], 400)
 
     def test_comparison_row_extractor_supports_single_window_contract(self) -> None:
         extractor = ComparisonRowExtractor()
@@ -101,11 +131,12 @@ class EvidencePluginTests(unittest.TestCase):
             observations[0]["payload"],
             {"current_value": 82, "current_sessions": 280},
         )
+        self.assertEqual(observations[0]["type"], "metric_change")
 
     def test_comparison_row_extractor_single_window_rejects_missing_current_sessions(self) -> None:
         extractor = ComparisonRowExtractor()
 
-        with self.assertRaisesRegex(ValueError, "requires mapped comparison fields"):
+        with self.assertRaisesRegex(ValueError, "requires row fields for mapped payload keys"):
             extractor.extract(
                 [
                     {
@@ -118,6 +149,27 @@ class EvidencePluginTests(unittest.TestCase):
                     "payload_fields": {
                         "current_value": "current_watch_time",
                         "current_sessions": "current_sessions",
+                    },
+                    "required_payload_keys": ("current_value", "current_sessions"),
+                },
+            )
+
+    def test_comparison_row_extractor_single_window_rejects_missing_mapping(self) -> None:
+        extractor = ComparisonRowExtractor()
+
+        with self.assertRaisesRegex(ValueError, "requires payload_fields mappings for required keys"):
+            extractor.extract(
+                [
+                    {
+                        "platform": "android",
+                        "current_watch_time": 82,
+                        "current_sessions": 280,
+                    }
+                ],
+                context={
+                    "metric": "watch_time",
+                    "payload_fields": {
+                        "current_value": "current_watch_time",
                     },
                     "required_payload_keys": ("current_value", "current_sessions"),
                 },
