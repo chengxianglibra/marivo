@@ -209,9 +209,7 @@ POST /sessions/{session_id}/steps/compare_metric
 Mode-specific request notes:
 
 - `compare` mode uses comparison semantics; `baseline` is required and `order` may target comparison fields such as `delta_pct DESC`
-- `single_window` mode uses current-window observation semantics; `baseline` must be omitted and callers must not assume comparison-only response fields
-
-Current execution note: request validation accepts both modes, but the service layer currently executes only `time_scope.mode = compare`. The `single_window` response example below defines the intended contract and field semantics; it is not yet executable until the corresponding runtime work lands.
+- `single_window` mode uses current-window observation semantics; `baseline` must be omitted, callers must not assume comparison-only response fields, and `order` may target `current_value` or `current_sessions`
 
 **Response (`compare` mode example):**
 
@@ -246,13 +244,13 @@ Current execution note: request validation accepts both modes, but the service l
 }
 ```
 
-**Response (`single_window` mode target contract):**
+**Response (`single_window` mode example):**
 
 ```json
 {
   "step_type": "compare_metric",
   "metric_name": "avg_watch_time_minutes",
-  "summary": "Metric 'avg_watch_time_minutes' current window observation: highest value is 41.2 for device_type=iOS.",
+  "summary": "Metric 'avg_watch_time_minutes' current window observation: highest value is 41.2 for device_type=iOS (current_sessions=180).",
   "artifact_id": "art_...",
   "observations": [
     {
