@@ -13,7 +13,7 @@ class ComparisonRowExtractor(ExtractorContract):
     artifact_type: ClassVar[str] = "comparison_rows"
     observation_types: ClassVar[list[str]] = ["metric_change"]
     preconditions: ClassVar[list[str]] = []
-    _REQUIRED_PAYLOAD_KEYS: ClassVar[tuple[str, ...]] = (
+    _DEFAULT_REQUIRED_PAYLOAD_KEYS: ClassVar[tuple[str, ...]] = (
         "current_value",
         "baseline_value",
         "delta_pct",
@@ -33,6 +33,10 @@ class ComparisonRowExtractor(ExtractorContract):
             str(key): str(value)
             for key, value in dict(context.get("payload_fields", {})).items()
         }
+        required_payload_keys = tuple(
+            str(value)
+            for value in context.get("required_payload_keys", self._DEFAULT_REQUIRED_PAYLOAD_KEYS)
+        )
         quality_builder = context.get("quality_builder")
 
         dimensions = context.get("dimensions")
@@ -42,7 +46,7 @@ class ComparisonRowExtractor(ExtractorContract):
             row_dict = dict(row)
             missing = [
                 payload_name
-                for payload_name in self._REQUIRED_PAYLOAD_KEYS
+                for payload_name in required_payload_keys
                 if payload_name not in payload_fields or payload_fields[payload_name] not in row_dict
             ]
             if missing:

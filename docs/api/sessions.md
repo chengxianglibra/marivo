@@ -138,7 +138,12 @@ Session `constraints` / `raw_filter` are automatically merged into supported que
 
 ### compare_metric
 
-Compare a published semantic metric between a baseline window and a current window. Requires that the metric is published in the semantic layer and has a corresponding mapping to a source object.
+Evaluate a published semantic metric over typed time windows. Requires that the metric is published in the semantic layer and has a corresponding mapping to a source object.
+
+`compare_metric` supports two execution semantics under the same typed contract:
+
+- `compare`: compare a current window against a baseline window and emit comparison-shaped metric observations
+- `single_window`: emit current-window metric observations without fabricating baseline or delta fields; this aligns with the current-window observation semantics of `aggregate_query(single_window)`
 
 `compare_metric` is a typed time-window primitive. Time windows are expressed only through `time_scope`; non-time row/entity scoping is expressed only through `scope`. Legacy fields such as `metric_name`, `table_name`, `period_start`, `period_end`, `baseline_start`, `baseline_end`, `comparison_type`, `date_column`, `where`, and `filter` are no longer supported.
 
@@ -190,18 +195,25 @@ POST /sessions/{session_id}/steps/compare_metric
 | `time_scope` | object | yes | Typed time contract with `mode`, `grain`, `current`, and optional `baseline` |
 | `scope` | object | no | Non-time scope with `constraints` and optional non-time `predicate` |
 | `time_axis` | object | no | Advanced override for analysis-time and partition-pruning columns |
-| `order` | string | no | Output ordering expression, e.g. `delta_pct DESC` |
+| `order` | string | no | Output ordering expression; valid fields are mode-specific |
 | `limit` | integer | no | Maximum rows to return (default: `10`) |
 
 `time_scope` rules:
 
-- `mode` must be `single_window` or `compare`
+- request validation accepts `single_window` or `compare`
 - `grain` must be `day` or `hour`
 - `baseline` is required only when `mode = compare`
 - all windows are interpreted as half-open intervals `[start, end)`
 - hour-grain boundaries must be naive datetimes without timezone offsets; phase 1 assumes session-consistent naive timestamps only
 
-**Response:**
+Mode-specific request notes:
+
+- `compare` mode uses comparison semantics; `baseline` is required and `order` may target comparison fields such as `delta_pct DESC`
+- `single_window` mode uses current-window observation semantics; `baseline` must be omitted and callers must not assume comparison-only response fields
+
+Current execution note: request validation accepts both modes, but the service layer currently executes only `time_scope.mode = compare`. The `single_window` response example below defines the intended contract and field semantics; it is not yet executable until the corresponding runtime work lands.
+
+**Response (`compare` mode example):**
 
 ```json
 {
@@ -234,6 +246,36 @@ POST /sessions/{session_id}/steps/compare_metric
 }
 ```
 
+**Response (`single_window` mode target contract):**
+
+```json
+{
+  "step_type": "compare_metric",
+  "metric_name": "avg_watch_time_minutes",
+  "summary": "Metric 'avg_watch_time_minutes' current window observation: highest value is 41.2 for device_type=iOS.",
+  "artifact_id": "art_...",
+  "observations": [
+    {
+      "observation_id": "obs_...",
+      "type": "metric_change",
+      "subject": {
+        "metric": "avg_watch_time_minutes",
+        "slice": {"device_type": "iOS"}
+      },
+      "payload": {
+        "current_value": 41.2,
+        "current_sessions": 180
+      },
+      "observed_window": {
+        "start": "2024-01-24",
+        "end": "2024-01-31",
+        "granularity": "day"
+      }
+    }
+  ]
+}
+```
+
 The response example still shows the current response field name `metric_name`. The
 typed contract change applies to the request payload: callers must send `metric`, not
 legacy request fields.
@@ -241,6 +283,12 @@ legacy request fields.
 `compare_metric` observations inherit `time_scope.current` as `observed_window`. The
 baseline window remains in the comparison/debug context and is not emitted as a second
 observation window.
+
+Mode-specific payload fields:
+
+- Present in both modes: `current_value`, `current_sessions`
+- Present only in `compare` mode: `baseline_value`, `baseline_sessions`, `delta_pct`
+- `single_window` is a current-window observation contract; callers must not rely on null-filled comparison fields
 
 **Readiness signal (all primitive steps):**
 

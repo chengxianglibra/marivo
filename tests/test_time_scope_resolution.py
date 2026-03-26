@@ -636,6 +636,122 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         self.assertEqual(scoped_query["scope_constraints_filter"], "region = 'us-east'")
         self.assertEqual(scoped_query["scope_predicate_filter"], "device_type = 'phone'")
 
+    def test_compare_metric_service_passes_compare_contract_to_extractor(self) -> None:
+        captured: dict[str, object] = {}
+        original_compile = self.service._compile_step_with_feedback
+        original_execute = service_module.execute_compiled
+        original_resolve_engine = self.service._resolve_engine
+        original_extract = self.service.evidence_pipeline.extract_observations
+        self.service._resolve_engine = lambda table_names: (_FakeEngine(), "duckdb", {table_names[0]: f"analytics.{table_names[0]}"})
+
+        def fake_extract(extractor_name, rows, *, context=None):
+            captured["extractor_name"] = extractor_name
+            captured["rows"] = rows
+            captured["context"] = context
+            return []
+
+        def fake_compile(step, *, engine_type, semantic_context=None):
+            return CompiledQuery(sql="SELECT 1", params=[])
+
+        class _Result:
+            rows = [{
+                "platform": "android",
+                "current_value": 10.0,
+                "baseline_value": 5.0,
+                "delta_pct": 100.0,
+                "current_sessions": 10,
+                "baseline_sessions": 8,
+            }]
+
+        self.service._compile_step_with_feedback = fake_compile
+        self.service.evidence_pipeline.extract_observations = fake_extract
+        service_module.execute_compiled = lambda engine, compiled: _Result()
+        try:
+            self.service._run_compare_metric(self.session_id, {
+                "table": "analytics.watch_events",
+                "metric": self.metric_name,
+                "dimensions": ["platform"],
+                "time_scope": {
+                    "mode": "compare",
+                    "grain": "day",
+                    "current": {"start": "2026-03-10", "end": "2026-03-17"},
+                    "baseline": {"start": "2026-03-03", "end": "2026-03-10"},
+                },
+            })
+        finally:
+            self.service._compile_step_with_feedback = original_compile
+            service_module.execute_compiled = original_execute
+            self.service._resolve_engine = original_resolve_engine
+            self.service.evidence_pipeline.extract_observations = original_extract
+
+        self.assertEqual(captured["extractor_name"], "comparison_rows")
+        self.assertEqual(
+            captured["context"]["required_payload_keys"],
+            ("current_value", "baseline_value", "delta_pct", "current_sessions", "baseline_sessions"),
+        )
+        self.assertEqual(
+            captured["context"]["payload_fields"],
+            {
+                "current_value": "current_value",
+                "baseline_value": "baseline_value",
+                "delta_pct": "delta_pct",
+                "current_sessions": "current_sessions",
+                "baseline_sessions": "baseline_sessions",
+            },
+        )
+
+    def test_compare_metric_single_window_row_contract_accepts_current_only_fields(self) -> None:
+        normalized = self.service._normalize_comparison_rows(
+            [
+                {
+                    "platform": "android",
+                    "current_value": 10.0,
+                    "current_sessions": 10,
+                }
+            ],
+            mode="single_window",
+        )
+
+        self.assertEqual(len(normalized), 1)
+        self.assertEqual(normalized[0]["current_value"], 10.0)
+        self.assertEqual(normalized[0]["current_sessions"], 10)
+
+    def test_compare_metric_single_window_extractor_context_uses_current_only_contract(self) -> None:
+        context = self.service._build_compare_metric_extractor_context(
+            mode="single_window",
+            metric_name=self.metric_name,
+            observation_type="metric_change",
+            dimensions=["platform"],
+            quality_builder=self.service._compare_metric_quality_builder("single_window"),
+        )
+
+        self.assertEqual(
+            context["required_payload_keys"],
+            ("current_value", "current_sessions"),
+        )
+        self.assertEqual(
+            context["payload_fields"],
+            {
+                "current_value": "current_value",
+                "current_sessions": "current_sessions",
+            },
+        )
+        self.assertTrue(context["quality_builder"]({"current_sessions": 200})["sample_size_ok"])
+        self.assertFalse(context["quality_builder"]({"current_sessions": 100})["sample_size_ok"])
+
+    def test_compare_metric_single_window_execution_guard_remains(self) -> None:
+        with self.assertRaisesRegex(ValueError, "requires time_scope.mode='compare'"):
+            self.service._run_compare_metric(self.session_id, {
+                "table": "analytics.watch_events",
+                "metric": self.metric_name,
+                "dimensions": ["platform"],
+                "time_scope": {
+                    "mode": "single_window",
+                    "grain": "day",
+                    "current": {"start": "2026-03-10", "end": "2026-03-17"},
+                },
+            })
+
     def test_aggregate_query_service_uses_typed_execution_request(self) -> None:
         captured: dict[str, object] = {}
         original_compile = self.service._compile_step_with_feedback

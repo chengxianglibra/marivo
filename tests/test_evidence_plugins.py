@@ -75,6 +75,54 @@ class EvidencePluginTests(unittest.TestCase):
                 },
             )
 
+    def test_comparison_row_extractor_supports_single_window_contract(self) -> None:
+        extractor = ComparisonRowExtractor()
+
+        observations = extractor.extract(
+            [
+                {
+                    "platform": "android",
+                    "current_watch_time": 82,
+                    "current_sessions": 280,
+                }
+            ],
+            context={
+                "metric": "watch_time",
+                "payload_fields": {
+                    "current_value": "current_watch_time",
+                    "current_sessions": "current_sessions",
+                },
+                "required_payload_keys": ("current_value", "current_sessions"),
+            },
+        )
+
+        self.assertEqual(len(observations), 1)
+        self.assertEqual(
+            observations[0]["payload"],
+            {"current_value": 82, "current_sessions": 280},
+        )
+
+    def test_comparison_row_extractor_single_window_rejects_missing_current_sessions(self) -> None:
+        extractor = ComparisonRowExtractor()
+
+        with self.assertRaisesRegex(ValueError, "requires mapped comparison fields"):
+            extractor.extract(
+                [
+                    {
+                        "platform": "android",
+                        "current_watch_time": 82,
+                    }
+                ],
+                context={
+                    "metric": "watch_time",
+                    "payload_fields": {
+                        "current_value": "current_watch_time",
+                        "current_sessions": "current_sessions",
+                    },
+                    "required_payload_keys": ("current_value", "current_sessions"),
+                },
+            )
+
     def test_pipeline_supports_extractor_and_default_synthesizer(self) -> None:
         pipeline = EvidencePipeline(synthesize_claims)
 
