@@ -125,7 +125,7 @@ Factum emits structured JSON logs when configured with the JSON formatter. Log e
   "message": "Step completed",
   "session_id": "sess_...",
   "step_id": "step_...",
-  "step_type": "compare_metric",
+  "step_type": "metric_query",
   "duration_sec": 3.2,
   "engine": "duckdb",
   "scan_bytes": 2100000000

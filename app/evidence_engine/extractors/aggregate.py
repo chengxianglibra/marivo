@@ -142,7 +142,7 @@ class AggregateRowExtractor(ExtractorContract):
 
     Context keys:
         group_by (list[str]): columns used for GROUP BY — become slice dimensions.
-        observation_type (str): observation type (default: "metric_change").
+        observation_type (str): observation type (default: "metric_observation").
         value_column (str | None): primary numeric column for payload.
             When omitted, auto-detects the first numeric column that isn't a group_by column.
         metric (str): metric label (default: "aggregate").
@@ -153,7 +153,7 @@ class AggregateRowExtractor(ExtractorContract):
 
     name = "aggregate_rows"
     artifact_type: ClassVar[str] = "aggregate_rows"
-    observation_types: ClassVar[list[str]] = ["metric_change", "anomaly_detection"]
+    observation_types: ClassVar[list[str]] = ["metric_observation", "anomaly_detection"]
     preconditions: ClassVar[list[str]] = []
 
     def extract(
@@ -163,7 +163,7 @@ class AggregateRowExtractor(ExtractorContract):
     ) -> list[Observation]:
         context = dict(context or {})
         group_by: list[str] = list(context.get("group_by", []))
-        observation_type = str(context.get("observation_type", "metric_change"))
+        observation_type = str(context.get("observation_type", "metric_observation"))
         metric = str(context.get("metric", "aggregate"))
         temporal_group_by_columns_data = context.get("temporal_group_by_columns")
         temporal_group_by_columns = [

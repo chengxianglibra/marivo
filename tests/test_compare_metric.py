@@ -30,7 +30,7 @@ def _typed_compare_payload(metric: str, **overrides: object) -> dict[str, object
 
 
 class MetricResolutionTests(unittest.TestCase):
-    """Tests for resolving metrics from semantic layer and compare_metric step."""
+    """Tests for resolving metrics from semantic layer and metric_query step."""
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -78,69 +78,69 @@ class MetricResolutionTests(unittest.TestCase):
         self.assertIsNone(service.resolve_metric_sql("nonexistent_metric"))
         self.assertIsNone(service.resolve_metric_dimensions("nonexistent_metric"))
 
-    def test_compare_metric_step(self) -> None:
+    def test_metric_query_step(self) -> None:
         session = self.client.post(
-            "/sessions", json={"goal": "Test compare_metric step."},
+            "/sessions", json={"goal": "Test metric_query step."},
         ).json()
         session_id = session["session_id"]
 
         resp = self.client.post(
-            f"/sessions/{session_id}/steps/compare_metric",
+            f"/sessions/{session_id}/steps/metric_query",
             json=_typed_compare_payload("watch_time"),
         )
         self.assertEqual(resp.status_code, 200)
         result = resp.json()
-        self.assertEqual(result["step_type"], "compare_metric")
+        self.assertEqual(result["step_type"], "metric_query")
         self.assertEqual(result["metric_name"], "watch_time")
         self.assertIn("summary", result)
         self.assertGreaterEqual(len(result["observations"]), 1)
 
-    def test_compare_metric_missing_params(self) -> None:
+    def test_metric_query_missing_params(self) -> None:
         session_id = self.client.post(
             "/sessions", json={"goal": "Test missing params."},
         ).json()["session_id"]
 
         resp = self.client.post(
-            f"/sessions/{session_id}/steps/compare_metric",
+            f"/sessions/{session_id}/steps/metric_query",
             json={},
         )
         self.assertEqual(resp.status_code, 422)
 
-    def test_compare_metric_rejects_step_level_filter(self) -> None:
+    def test_metric_query_rejects_step_level_filter(self) -> None:
         session_id = self.client.post(
             "/sessions", json={"goal": "Test filter rejection."},
         ).json()["session_id"]
         service = self.client.app.state.service
         with self.assertRaisesRegex(ValueError, "legacy fields: filter"):
-            service._run_compare_metric(session_id, {
+            service._run_metric_query(session_id, {
                 **_typed_compare_payload("watch_time"),
                 "filter": "platform = 'android'",
             })
 
-    def test_compare_metric_rejects_step_level_where(self) -> None:
+    def test_metric_query_rejects_step_level_where(self) -> None:
         session_id = self.client.post(
             "/sessions", json={"goal": "Test where rejection."},
         ).json()["session_id"]
         service = self.client.app.state.service
         with self.assertRaisesRegex(ValueError, "legacy fields: where"):
-            service._run_compare_metric(session_id, {
+            service._run_metric_query(session_id, {
                 **_typed_compare_payload("watch_time"),
                 "where": "platform = 'android'",
             })
 
-    def test_compare_metric_unpublished_metric(self) -> None:
+    def test_metric_query_unpublished_metric(self) -> None:
         session_id = self.client.post(
             "/sessions", json={"goal": "Test unpublished metric."},
         ).json()["session_id"]
 
         resp = self.client.post(
-            f"/sessions/{session_id}/steps/compare_metric",
+            f"/sessions/{session_id}/steps/metric_query",
             json=_typed_compare_payload("nonexistent"),
         )
         self.assertEqual(resp.status_code, 422)
 
 class TimeScopeCompareTests(unittest.TestCase):
-    """compare_metric accepts explicit typed compare windows."""
+    """metric_query accepts explicit typed compare windows."""
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -173,13 +173,13 @@ class TimeScopeCompareTests(unittest.TestCase):
         cls.temp_dir.cleanup()
 
     def test_custom_time_scope_bounds(self) -> None:
-        """compare_metric with explicit current/baseline windows should succeed."""
+        """metric_query with explicit current/baseline windows should succeed."""
         session_id = self.client.post(
             "/sessions", json={"goal": "Test custom period."},
         ).json()["session_id"]
 
         resp = self.client.post(
-            f"/sessions/{session_id}/steps/compare_metric",
+            f"/sessions/{session_id}/steps/metric_query",
             json=_typed_compare_payload(
                 "watch_time_period",
                 time_scope={
@@ -192,7 +192,7 @@ class TimeScopeCompareTests(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 200)
         result = resp.json()
-        self.assertEqual(result["step_type"], "compare_metric")
+        self.assertEqual(result["step_type"], "metric_query")
         self.assertIn("summary", result)
 
 
@@ -285,15 +285,15 @@ class MultipleStepRunTests(unittest.TestCase):
         cls.client.close()
         cls.temp_dir.cleanup()
 
-    def test_multiple_compare_metric_preserves_all_observations(self) -> None:
-        """Running compare_metric twice in the same session should keep both sets of observations."""
+    def test_multiple_metric_query_preserves_all_observations(self) -> None:
+        """Running metric_query twice in the same session should keep both sets of observations."""
         session_id = self.client.post(
-            "/sessions", json={"goal": "Test multiple compare_metric runs."},
+            "/sessions", json={"goal": "Test multiple metric_query runs."},
         ).json()["session_id"]
 
         # First run: group by platform
         resp1 = self.client.post(
-            f"/sessions/{session_id}/steps/compare_metric",
+            f"/sessions/{session_id}/steps/metric_query",
             json=_typed_compare_payload("watch_time_multi", dimensions=["platform"]),
         )
         self.assertEqual(resp1.status_code, 200)
@@ -302,7 +302,7 @@ class MultipleStepRunTests(unittest.TestCase):
 
         # Second run: group by network_type
         resp2 = self.client.post(
-            f"/sessions/{session_id}/steps/compare_metric",
+            f"/sessions/{session_id}/steps/metric_query",
             json=_typed_compare_payload("watch_time_multi", dimensions=["network_type"]),
         )
         self.assertEqual(resp2.status_code, 200)
@@ -315,7 +315,7 @@ class MultipleStepRunTests(unittest.TestCase):
         self.assertEqual(total_obs, obs_count_1 + obs_count_2)
 
         # Should have 2 steps in the evidence
-        compare_steps = [s for s in evidence["steps"] if s["step_type"] == "compare_metric"]
+        compare_steps = [s for s in evidence["steps"] if s["step_type"] == "metric_query"]
         self.assertEqual(len(compare_steps), 2)
 
 
@@ -359,7 +359,7 @@ class DimensionDateColumnErrorTests(unittest.TestCase):
         ).json()["session_id"]
 
         resp = self.client.post(
-            f"/sessions/{session_id}/steps/compare_metric",
+            f"/sessions/{session_id}/steps/metric_query",
             json=_typed_compare_payload("watch_time_dim_err", dimensions=["event_date"]),
         )
         self.assertEqual(resp.status_code, 422)
@@ -369,7 +369,7 @@ class DimensionDateColumnErrorTests(unittest.TestCase):
 
 
 class TemporalDimensionIntegrationTests(unittest.TestCase):
-    """Integration test: compare_metric with temporal dimensions still returns results."""
+    """Integration test: metric_query with temporal dimensions still returns results."""
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -402,26 +402,26 @@ class TemporalDimensionIntegrationTests(unittest.TestCase):
         cls.client.close()
         cls.temp_dir.cleanup()
 
-    def test_compare_metric_with_temporal_dims_returns_results(self) -> None:
-        """compare_metric should auto-exclude temporal dims and return rows."""
+    def test_metric_query_with_temporal_dims_returns_results(self) -> None:
+        """metric_query should auto-exclude temporal dims and return rows."""
         session_id = self.client.post(
             "/sessions", json={"goal": "Test temporal dim exclusion."},
         ).json()["session_id"]
 
         resp = self.client.post(
-            f"/sessions/{session_id}/steps/compare_metric",
+            f"/sessions/{session_id}/steps/metric_query",
             json=_typed_compare_payload("watch_time_temporal"),
         )
         self.assertEqual(resp.status_code, 200, resp.json())
         result = resp.json()
-        self.assertEqual(result["step_type"], "compare_metric")
+        self.assertEqual(result["step_type"], "metric_query")
         # Should NOT say "no results" — temporal dimensions were excluded
         self.assertNotIn("no results", result["summary"])
         self.assertGreaterEqual(len(result["observations"]), 1)
 
 
 class CompareMetricTypedContractTests(unittest.TestCase):
-    """Integration tests for typed compare_metric windows and legacy-field rejection."""
+    """Integration tests for typed metric_query windows and legacy-field rejection."""
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -455,13 +455,13 @@ class CompareMetricTypedContractTests(unittest.TestCase):
 
     def _new_session(self) -> str:
         return self.client.post(
-            "/sessions", json={"goal": "typed compare_metric test"},
+            "/sessions", json={"goal": "typed metric_query test"},
         ).json()["session_id"]
 
     def test_typed_compare_windows_succeed(self) -> None:
         session_id = self._new_session()
         resp = self.client.post(
-            f"/sessions/{session_id}/steps/compare_metric",
+            f"/sessions/{session_id}/steps/metric_query",
             json=_typed_compare_payload("watch_time_ctype"),
         )
         self.assertEqual(resp.status_code, 200, resp.json())
@@ -469,7 +469,7 @@ class CompareMetricTypedContractTests(unittest.TestCase):
     def test_explicit_baseline_window_is_used(self) -> None:
         session_id = self._new_session()
         resp = self.client.post(
-            f"/sessions/{session_id}/steps/compare_metric",
+            f"/sessions/{session_id}/steps/metric_query",
             json=_typed_compare_payload(
                 "watch_time_ctype",
                 time_scope={
@@ -485,7 +485,7 @@ class CompareMetricTypedContractTests(unittest.TestCase):
     def test_single_window_happy_path_returns_current_window_observations(self) -> None:
         session_id = self._new_session()
         resp = self.client.post(
-            f"/sessions/{session_id}/steps/compare_metric",
+            f"/sessions/{session_id}/steps/metric_query",
             json={
                 "table": "analytics.watch_events",
                 "metric": "watch_time_ctype",
@@ -498,7 +498,7 @@ class CompareMetricTypedContractTests(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 200, resp.json())
         result = resp.json()
-        self.assertEqual(result["step_type"], "compare_metric")
+        self.assertEqual(result["step_type"], "metric_query")
         self.assertIn("current window observation", result["summary"])
         self.assertNotIn("baseline", result["summary"].lower())
         self.assertGreaterEqual(len(result["observations"]), 1)
@@ -515,7 +515,7 @@ class CompareMetricTypedContractTests(unittest.TestCase):
     def test_single_window_no_data_path_returns_current_window_debug_only(self) -> None:
         session_id = self._new_session()
         resp = self.client.post(
-            f"/sessions/{session_id}/steps/compare_metric",
+            f"/sessions/{session_id}/steps/metric_query",
             json={
                 "table": "analytics.watch_events",
                 "metric": "watch_time_ctype",
@@ -539,7 +539,7 @@ class CompareMetricTypedContractTests(unittest.TestCase):
     def test_single_window_invalid_order_returns_422(self) -> None:
         session_id = self._new_session()
         resp = self.client.post(
-            f"/sessions/{session_id}/steps/compare_metric",
+            f"/sessions/{session_id}/steps/metric_query",
             json={
                 "table": "analytics.watch_events",
                 "metric": "watch_time_ctype",
@@ -558,7 +558,7 @@ class CompareMetricTypedContractTests(unittest.TestCase):
         """Unequal windows return 200 and debug.window_length_match=False."""
         session_id = self._new_session()
         resp = self.client.post(
-            f"/sessions/{session_id}/steps/compare_metric",
+            f"/sessions/{session_id}/steps/metric_query",
             json=_typed_compare_payload(
                 "watch_time_ctype",
                 time_scope={
@@ -582,7 +582,7 @@ class CompareMetricTypedContractTests(unittest.TestCase):
         session_id = self._new_session()
         service = self.client.app.state.service
         with self.assertRaisesRegex(ValueError, "legacy fields: comparison_type"):
-            service._run_compare_metric(session_id, {
+            service._run_metric_query(session_id, {
                 **_typed_compare_payload("watch_time_ctype"),
                 "comparison_type": "qoq",
             })
@@ -591,7 +591,7 @@ class CompareMetricTypedContractTests(unittest.TestCase):
         session_id = self._new_session()
         service = self.client.app.state.service
         with self.assertRaisesRegex(ValueError, "legacy fields: baseline_start, period_end"):
-            service._run_compare_metric(session_id, {
+            service._run_metric_query(session_id, {
                 **_typed_compare_payload("watch_time_ctype"),
                 "period_end": "2025-01-14",
                 "baseline_start": "2025-01-01",
@@ -602,7 +602,7 @@ class CompareMetricTypedContractTests(unittest.TestCase):
         session_id = self._new_session()
         # Use a period where no data exists in seeded DuckDB
         resp = self.client.post(
-            f"/sessions/{session_id}/steps/compare_metric",
+            f"/sessions/{session_id}/steps/metric_query",
             json=_typed_compare_payload(
                 "watch_time_ctype",
                 time_scope={

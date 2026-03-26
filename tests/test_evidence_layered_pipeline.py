@@ -10,7 +10,7 @@ from app.evidence_engine.recommendation_policy import RecommendationPolicy
 def _obs(obs_id: str = "obs_1") -> dict:
     return {
         "observation_id": obs_id,
-        "type": "metric_change",
+        "type": "metric_observation",
         "subject": {"metric": "watch_time", "slice": {"platform": "android"}},
         "payload": {"delta_pct": -14.2, "current_value": 100},
         "significance": {"sample_size": 120, "practical_significance": True},
@@ -192,7 +192,7 @@ class DefaultClaimRelationDiscoveryTests(unittest.TestCase):
     def _obs(self, obs_id: str, metric: str, delta_pct: float, slice_dict: dict) -> dict:
         return {
             "observation_id": obs_id,
-            "type": "metric_change",
+            "type": "metric_observation",
             "subject": {"metric": metric, "slice": slice_dict},
             "payload": {"delta_pct": delta_pct, "current_value": 100},
             "significance": {"sample_size": 120, "practical_significance": True},

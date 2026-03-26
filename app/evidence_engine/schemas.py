@@ -75,7 +75,7 @@ class ObservationSubject(TypedDict):
 
 class Observation(TypedDict):
     observation_id: str          # Signal: unique fact identifier
-    type: str                    # Signal: observation category (metric_change, funnel_drop, …)
+    type: str                    # Signal: observation category (metric_observation, funnel_drop, …)
     subject: ObservationSubject  # Signal: what entity/metric was observed
     payload: dict[str, Any]      # Signal: raw extracted values
     significance: dict[str, Any] # Signal: statistical and practical significance flags

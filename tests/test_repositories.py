@@ -29,7 +29,7 @@ class RepositorySeamTests(unittest.TestCase):
 
     def test_job_repository_round_trip(self) -> None:
         repository = JobRepository(self.store)
-        repository.create("job_test", "sess_test", "step", {"step_type": "compare_metric"})
+        repository.create("job_test", "sess_test", "step", {"step_type": "metric_query"})
         repository.mark_running("job_test")
         repository.mark_completed("job_test", {"status": "ok"})
         job = repository.get("job_test")

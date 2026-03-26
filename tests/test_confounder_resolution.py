@@ -244,7 +244,7 @@ class TestPipelineIntegration(unittest.TestCase):
 
         # Two observations: same metric, different slices → triggers normalise_workload_volume
         obs_base = {
-            "type": "metric_change",
+            "type": "metric_observation",
             "payload": {"current_value": 100, "baseline_value": 90, "delta_pct": 11.1,
                         "current_sessions": 500, "baseline_sessions": 480},
             "significance": {"sample_size": 500, "practical_significance": True},

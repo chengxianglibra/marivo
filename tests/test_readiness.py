@@ -36,7 +36,7 @@ def _claim(
     }
 
 
-def _step(session_id: str, step_type: str = "compare_metric") -> dict:
+def _step(session_id: str, step_type: str = "metric_query") -> dict:
     return {
         "step_id": f"step_{uuid4().hex[:12]}",
         "session_id": session_id,

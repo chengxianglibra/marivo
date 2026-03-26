@@ -2,7 +2,7 @@
 
 Verifies:
 - observed_window_json and temporal_order columns exist in the DB schema
-- compare_metric observations carry an observed_window with start/end/granularity
+- metric_query observations carry an observed_window with start/end/granularity
 - aggregate_query observations carry observed_window when compare mode is used
 - aggregate_query observations carry request-level observed_window for plain aggregations
 - temporal_order increments correctly across observations in the same session
@@ -66,7 +66,7 @@ class TemporalAnnotationSchemaTests(unittest.TestCase):
             INSERT INTO observations
                 (observation_id, session_id, step_id, observation_type,
                  subject_json, payload_json, significance_json, quality_json)
-            VALUES ('obs_m08a', 'sess_m08a', 'step_m08a', 'metric_change',
+            VALUES ('obs_m08a', 'sess_m08a', 'step_m08a', 'metric_observation',
                     '{}', '{}', '{}', '{}')
             """
         )
@@ -95,7 +95,7 @@ class TemporalAnnotationSchemaTests(unittest.TestCase):
                 (observation_id, session_id, step_id, observation_type,
                  subject_json, payload_json, significance_json, quality_json,
                  observed_window_json)
-            VALUES ('obs_m08b', 'sess_m08b', 'step_m08b', 'metric_change',
+            VALUES ('obs_m08b', 'sess_m08b', 'step_m08b', 'metric_observation',
                     '{}', '{}', '{}', '{}', NULL)
             """
         )
@@ -106,7 +106,7 @@ class TemporalAnnotationSchemaTests(unittest.TestCase):
 
 
 class CompareMetricTemporalTests(unittest.TestCase):
-    """M-08.2: compare_metric step fills observed_window and temporal_order."""
+    """M-08.2: metric_query step fills observed_window and temporal_order."""
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -142,7 +142,7 @@ class CompareMetricTemporalTests(unittest.TestCase):
 
     def _run_compare(self, session_id: str, dims: list[str]) -> list[dict]:
         resp = self.client.post(
-            f"/sessions/{session_id}/steps/compare_metric",
+            f"/sessions/{session_id}/steps/metric_query",
             json={
                 "table": "analytics.watch_events",
                 "metric": "avg_duration_m08",
@@ -158,7 +158,7 @@ class CompareMetricTemporalTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200, resp.text)
         return resp.json().get("observations", [])
 
-    def test_compare_metric_observations_have_observed_window(self) -> None:
+    def test_metric_query_observations_have_observed_window(self) -> None:
         sess = self._new_session()
         obs = self._run_compare(sess, ["platform"])
         if not obs:
@@ -172,7 +172,7 @@ class CompareMetricTemporalTests(unittest.TestCase):
         self.assertEqual(window["start"], "2026-02-28")
         self.assertEqual(window["end"], "2026-03-06")
 
-    def test_compare_metric_observed_window_has_string_dates(self) -> None:
+    def test_metric_query_observed_window_has_string_dates(self) -> None:
         sess = self._new_session()
         obs = self._run_compare(sess, ["platform"])
         if not obs:

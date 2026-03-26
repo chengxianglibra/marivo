@@ -9,7 +9,7 @@ from app.evidence_engine.synthesizers.stages import AlignedSignal, ScopeCluster
 class SignalAligner:
     """Stage 2: Aligns signal direction and strength within a ScopeCluster.
 
-    For metric_change clusters: selects the primary observation by
+    For metric_observation clusters with deltas: selects the primary observation by
     max(|delta_pct| * log1p(sample_size)), then classifies all other
     observations as supporting (same direction or practical significance
     agreement) or contradicting (opposite delta_pct sign).
@@ -28,7 +28,7 @@ class SignalAligner:
         - support_reasons list populated
         - alignment_notes list populated with anomalies detected
         """
-        if cluster.metric_change_obs:
+        if cluster.metric_observation_obs:
             return self._align_metric(cluster)
         return self._align_non_metric(cluster)
 
@@ -38,7 +38,7 @@ class SignalAligner:
     # ── private ───────────────────────────────────────────────────────────────
 
     def _align_metric(self, cluster: ScopeCluster) -> AlignedSignal:
-        metric_obs = cluster.metric_change_obs
+        metric_obs = cluster.metric_observation_obs
 
         # Select primary observation
         primary = max(
@@ -54,7 +54,7 @@ class SignalAligner:
         support_reasons: list[str] = []
         alignment_notes: list[str] = []
 
-        # Classify other metric_change observations
+        # Classify other metric_observation rows carrying delta fields
         for obs in metric_obs:
             if obs is primary:
                 continue
@@ -62,7 +62,7 @@ class SignalAligner:
             if _same_direction(primary_delta, obs_delta):
                 supporting_ids.append(obs["observation_id"])
                 metric_name = obs.get("subject", {}).get("metric", "metric")
-                support_reasons.append(f"{metric_name} change")
+                support_reasons.append(f"{metric_name} observation")
                 consistency_factors.append(0.9)
             else:
                 contradicting_ids.append(obs["observation_id"])

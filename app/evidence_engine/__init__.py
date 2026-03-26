@@ -8,7 +8,6 @@ __all__ = [
     "AggregateRowExtractor",
     "AnomalyExtractor",
     "ClaimSynthesizer",
-    "ComparisonRowExtractor",
     "ConfidenceScorer",
     "ContributionShiftExtractor",
     "DefaultConfidenceScorer",
@@ -18,6 +17,7 @@ __all__ = [
     "ExtractorContract",
     "ExtractorRegistry",
     "FunnelExtractor",
+    "MetricObservationExtractor",
     "ObservationExtractor",
     "RecommendationPolicy",
     "score_confidence",
@@ -40,20 +40,20 @@ def __getattr__(name: str) -> Any:
             "ConfidenceScorer": ConfidenceScorer,
             "DefaultConfidenceScorer": DefaultConfidenceScorer,
         }[name]
-    if name in {"ObservationExtractor", "ComparisonRowExtractor", "AggregateRowExtractor",
+    if name in {"ObservationExtractor", "MetricObservationExtractor", "AggregateRowExtractor",
                  "AnomalyExtractor", "FunnelExtractor", "ContributionShiftExtractor"}:
         from app.evidence_engine.extractors import (
             AggregateRowExtractor,
             AnomalyExtractor,
-            ComparisonRowExtractor,
             ContributionShiftExtractor,
             FunnelExtractor,
+            MetricObservationExtractor,
             ObservationExtractor,
         )
 
         return {
             "ObservationExtractor": ObservationExtractor,
-            "ComparisonRowExtractor": ComparisonRowExtractor,
+            "MetricObservationExtractor": MetricObservationExtractor,
             "AggregateRowExtractor": AggregateRowExtractor,
             "AnomalyExtractor": AnomalyExtractor,
             "FunnelExtractor": FunnelExtractor,

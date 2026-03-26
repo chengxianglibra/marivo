@@ -20,7 +20,7 @@ class StepTaxonomyTests(unittest.TestCase):
         self.assertTrue(set(PRIMITIVE_STEP_TYPES).isdisjoint(COMPOSITE_STEP_TYPES))
 
     def test_step_category_flags_are_explicit(self) -> None:
-        self.assertEqual(step_category_for("compare_metric"), "primitive")
+        self.assertEqual(step_category_for("metric_query"), "primitive")
         self.assertEqual(step_category_for("synthesize_findings"), "composite")
 
     def test_taxonomy_entries_include_descriptions(self) -> None:

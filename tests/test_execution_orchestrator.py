@@ -14,7 +14,7 @@ class WorkflowOrchestratorTests(unittest.TestCase):
                 "test_workflow": CompositeWorkflowSpec(
                     name="test_workflow",
                     steps=[
-                        CompositeStepTemplate("compare_metric"),
+                        CompositeStepTemplate("metric_query"),
                         CompositeStepTemplate("synthesize_findings", dependencies=[0]),
                     ],
                 )
@@ -22,8 +22,8 @@ class WorkflowOrchestratorTests(unittest.TestCase):
         )
         executor = FakeStepExecutor(
             {
-                "compare_metric": {
-                    "step_type": "compare_metric",
+                "metric_query": {
+                    "step_type": "metric_query",
                     "summary": "comparison ready",
                     "observations": [{"observation_id": "obs_1"}],
                     "claims": [],
@@ -52,9 +52,9 @@ class WorkflowOrchestratorTests(unittest.TestCase):
 
         self.assertEqual(result["workflow"], "test_workflow")
         self.assertEqual(result["final_summary"], "workflow summary")
-        self.assertEqual(result["replanning"]["final_plan"], ["compare_metric", "synthesize_findings"])
-        self.assertEqual(result["replanning"]["executed_step_types"], ["compare_metric", "synthesize_findings"])
-        self.assertEqual([step["step_type"] for step in result["steps"]], ["compare_metric", "synthesize_findings"])
+        self.assertEqual(result["replanning"]["final_plan"], ["metric_query", "synthesize_findings"])
+        self.assertEqual(result["replanning"]["executed_step_types"], ["metric_query", "synthesize_findings"])
+        self.assertEqual([step["step_type"] for step in result["steps"]], ["metric_query", "synthesize_findings"])
         self.assertEqual(approvals.calls, [("sess_demo", "P0")])
 
     def test_execute_workflow_inserts_supplementary_steps(self) -> None:
@@ -63,7 +63,7 @@ class WorkflowOrchestratorTests(unittest.TestCase):
                 "test_workflow": CompositeWorkflowSpec(
                     name="test_workflow",
                     steps=[
-                        CompositeStepTemplate("compare_metric"),
+                        CompositeStepTemplate("metric_query"),
                         CompositeStepTemplate("synthesize_findings", dependencies=[0]),
                     ],
                 )
@@ -71,8 +71,8 @@ class WorkflowOrchestratorTests(unittest.TestCase):
         )
         executor = FakeStepExecutor(
             {
-                "compare_metric": {
-                    "step_type": "compare_metric",
+                "metric_query": {
+                    "step_type": "metric_query",
                     "summary": "comparison ready",
                     "observations": [],
                     "claims": [],
@@ -95,7 +95,7 @@ class WorkflowOrchestratorTests(unittest.TestCase):
             runtime,
             FakeReplanner(
                 after={
-                    "compare_metric": ReplanDecision(
+                    "metric_query": ReplanDecision(
                         action="insert_steps",
                         reason="Need profiling",
                         detail={
@@ -114,10 +114,10 @@ class WorkflowOrchestratorTests(unittest.TestCase):
 
         self.assertEqual(
             result["replanning"]["executed_step_types"],
-            ["compare_metric", "profile_table", "synthesize_findings"],
+            ["metric_query", "profile_table", "synthesize_findings"],
         )
         self.assertIn("profile_table", result["replanning"]["final_plan"])
-        self.assertEqual(executor.provenance_updates[0][1], "compare_metric")
+        self.assertEqual(executor.provenance_updates[0][1], "metric_query")
 
     def test_execute_workflow_replaces_failed_step(self) -> None:
         runtime = CompositeWorkflowRuntime(
@@ -181,7 +181,7 @@ class WorkflowOrchestratorTests(unittest.TestCase):
                 "test_workflow": CompositeWorkflowSpec(
                     name="test_workflow",
                     steps=[
-                        CompositeStepTemplate("compare_metric"),
+                        CompositeStepTemplate("metric_query"),
                         CompositeStepTemplate("sample_rows"),
                         CompositeStepTemplate("synthesize_findings", dependencies=[0, 1]),
                     ],
@@ -190,8 +190,8 @@ class WorkflowOrchestratorTests(unittest.TestCase):
         )
         executor = FakeStepExecutor(
             {
-                "compare_metric": {
-                    "step_type": "compare_metric",
+                "metric_query": {
+                    "step_type": "metric_query",
                     "summary": "comparison ready",
                     "observations": [{"observation_id": "obs_1"}],
                     "claims": [],
@@ -224,11 +224,11 @@ class WorkflowOrchestratorTests(unittest.TestCase):
 
         self.assertEqual(
             result["replanning"]["executed_step_types"],
-            ["compare_metric", "synthesize_findings"],
+            ["metric_query", "synthesize_findings"],
         )
         self.assertEqual(
             result["replanning"]["final_plan"],
-            ["compare_metric", "sample_rows", "synthesize_findings"],
+            ["metric_query", "sample_rows", "synthesize_findings"],
         )
 
 

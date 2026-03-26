@@ -130,22 +130,22 @@ POST /sessions/{session_id}/steps/{step_type}
 
 Executes a typed analysis step within the session. Step parameters are provided in the request body. The response contains the step result, extracted observations, and provenance metadata.
 
-**Valid `step_type` values:** `compare_metric`, `profile_table`, `sample_rows`, `aggregate_query`, `correlate_metrics`, `attribute_change`, `synthesize_findings`
+**Valid `step_type` values:** `metric_query`, `profile_table`, `sample_rows`, `aggregate_query`, `correlate_metrics`, `attribute_change`, `synthesize_findings`
 
-Session `constraints` / `raw_filter` are automatically merged into supported query steps, including `compare_metric`, `sample_rows`, `aggregate_query`, and `attribute_change`.
+Session `constraints` / `raw_filter` are automatically merged into supported query steps, including `metric_query`, `sample_rows`, `aggregate_query`, and `attribute_change`.
 
 ---
 
-### compare_metric
+### metric_query
 
 Evaluate a published semantic metric over typed time windows. Requires that the metric is published in the semantic layer and has a corresponding mapping to a source object.
 
-`compare_metric` supports two execution semantics under the same typed contract:
+`metric_query` supports two execution semantics under the same typed contract:
 
 - `compare`: compare a current window against a baseline window and emit comparison-shaped metric observations
 - `single_window`: emit current-window metric observations without fabricating baseline or delta fields; this aligns with the current-window observation semantics of `aggregate_query(single_window)`
 
-`compare_metric` is a typed time-window primitive. Time windows are expressed only through `time_scope`; non-time row/entity scoping is expressed only through `scope`. Legacy fields such as `metric_name`, `table_name`, `period_start`, `period_end`, `baseline_start`, `baseline_end`, `comparison_type`, `date_column`, `where`, and `filter` are no longer supported.
+`metric_query` is a typed time-window primitive. Time windows are expressed only through `time_scope`; non-time row/entity scoping is expressed only through `scope`. Legacy fields such as `metric_name`, `table_name`, `period_start`, `period_end`, `baseline_start`, `baseline_end`, `comparison_type`, `date_column`, `where`, and `filter` are no longer supported.
 
 | Scoping need | Mechanism |
 |---|---|
@@ -154,7 +154,7 @@ Evaluate a published semantic metric over typed time windows. Requires that the 
 | Time window | Step `time_scope` |
 
 ```
-POST /sessions/{session_id}/steps/compare_metric
+POST /sessions/{session_id}/steps/metric_query
 ```
 
 **Request body:**
@@ -215,14 +215,14 @@ Mode-specific request notes:
 
 ```json
 {
-  "step_type": "compare_metric",
+  "step_type": "metric_query",
   "metric_name": "avg_watch_time_minutes",
   "summary": "Metric 'avg_watch_time_minutes' comparison: top decline is -14.2% for device_type=iOS (current_value=36.3, baseline_value=42.3).",
   "artifact_id": "art_...",
   "observations": [
     {
       "observation_id": "obs_...",
-      "type": "metric_change",
+      "type": "metric_observation",
       "subject": {
         "metric": "avg_watch_time_minutes",
         "slice": {"device_type": "iOS"}
@@ -248,14 +248,14 @@ Mode-specific request notes:
 
 ```json
 {
-  "step_type": "compare_metric",
+  "step_type": "metric_query",
   "metric_name": "avg_watch_time_minutes",
   "summary": "Metric 'avg_watch_time_minutes' current window observation: highest value is 41.2 for device_type=iOS (current_sessions=180).",
   "artifact_id": "art_...",
   "observations": [
     {
       "observation_id": "obs_...",
-      "type": "metric_change",
+      "type": "metric_observation",
       "subject": {
         "metric": "avg_watch_time_minutes",
         "slice": {"device_type": "iOS"}
@@ -278,7 +278,7 @@ The response example still shows the current response field name `metric_name`. 
 typed contract change applies to the request payload: callers must send `metric`, not
 legacy request fields.
 
-`compare_metric` observations inherit `time_scope.current` as `observed_window`. The
+`metric_query` observations inherit `time_scope.current` as `observed_window`. The
 baseline window remains in the comparison/debug context and is not emitted as a second
 observation window.
 
@@ -392,7 +392,7 @@ POST /sessions/{session_id}/steps/sample_rows
 
 Execute an ad-hoc GROUP BY aggregation. Observations are extracted automatically from the result. Session constraints are auto-injected.
 
-`aggregate_query` now uses the same typed `time_scope` / `scope` / `time_axis` contract as `compare_metric`. Legacy fields `table_name`, `select`, `where`, `order_by`, `compare_period`, and `date_column` are no longer part of the public request contract.
+`aggregate_query` now uses the same typed `time_scope` / `scope` / `time_axis` contract as `metric_query`. Legacy fields `table_name`, `select`, `where`, `order_by`, `compare_period`, and `date_column` are no longer part of the public request contract.
 
 **G-2 enhancement:** When a temporal column (e.g., `log_date`, `event_date`, `dt`) is present in `group_by`, observations automatically receive `observed_window` inferred from the slice key. This enables `TemporalPrecedenceChecker` to recognize time-ordered evidence and promote claims from L1 to L2.
 
@@ -628,7 +628,7 @@ POST /sessions/{session_id}/steps/synthesize_findings
       {
         "gap_key": "watch_time|platform=android",
         "text": "Claim 'watch_time on android' remains tentative — insufficient corroborating observations.",
-        "suggested_validation": "Run compare_metric for watch_time scoped to android; add aggregate_query to cross-check session counts.",
+        "suggested_validation": "Run metric_query for watch_time scoped to android; add aggregate_query to cross-check session counts.",
         "affected_claims": ["claim_..."]
       }
     ]
@@ -673,7 +673,7 @@ Returns the persisted evidence graph for a session: steps, observations, claims,
   "steps": [
     {
       "step_id": "step_...",
-      "step_type": "compare_metric",
+      "step_type": "metric_query",
       "status": "completed",
       "summary": "...",
       "provenance": {...}
@@ -682,7 +682,7 @@ Returns the persisted evidence graph for a session: steps, observations, claims,
   "observations": [
     {
       "observation_id": "obs_...",
-      "type": "metric_change",
+      "type": "metric_observation",
       "subject": {"metric": "avg_watch_time_minutes", "slice": {"device_type": "iOS"}},
       "payload": {
         "baseline_value": 42.3,
@@ -790,7 +790,7 @@ Claim-to-claim relation edges may also carry `match_basis`, `score_components`, 
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `observed_window` | object or null | `{start, end, granularity}` ISO dates/datetimes for the time window observed. Populated for `compare_metric`; inferred per-row for `aggregate_query` when a recognized temporal column (e.g. `date`, `event_date`, `log_date`, `hour`, `hour_slot`) appears in `group_by` (G-2). Null for `profile_table`, `sample_rows`, and aggregations with no temporal group-by column. |
+| `observed_window` | object or null | `{start, end, granularity}` ISO dates/datetimes for the time window observed. Populated for `metric_query`; inferred per-row for `aggregate_query` when a recognized temporal column (e.g. `date`, `event_date`, `log_date`, `hour`, `hour_slot`) appears in `group_by` (G-2). Null for `profile_table`, `sample_rows`, and aggregations with no temporal group-by column. |
 | `temporal_order` | integer | Sequential position of this observation within the session (1-based). Used for temporal ordering in the evidence graph. |
 
 Derived observations may also appear after `synthesize_findings`: `cross_metric_correlation` and `temporal_pattern`.
@@ -940,7 +940,7 @@ Requires `reflection.enabled: true` in `factum.yaml` (default: `true`).
       "affected_claims": ["claim_...", "claim_..."]
     }
   ],
-  "available_step_types": ["compare_metric", "profile_table", "sample_rows", "aggregate_query", "correlate_metrics", "attribute_change", "synthesize_findings"]
+  "available_step_types": ["metric_query", "profile_table", "sample_rows", "aggregate_query", "correlate_metrics", "attribute_change", "synthesize_findings"]
 }
 ```
 

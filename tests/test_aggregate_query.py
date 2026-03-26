@@ -30,10 +30,10 @@ def _compare_scope() -> dict[str, object]:
 class DeltaPctIntegerDivisionTests(unittest.TestCase):
     """Fix 1 (P0): delta_pct SQL should use float division, not integer division."""
 
-    def test_comparison_query_uses_float_division(self) -> None:
-        """build_comparison_query output must contain '* 1.0' to force float division."""
-        from app.analysis_core.compiler import build_comparison_query
-        sql = build_comparison_query(
+    def test_metric_query_uses_float_division(self) -> None:
+        """build_metric_query output must contain '* 1.0' to force float division."""
+        from app.analysis_core.compiler import build_metric_query
+        sql = build_metric_query(
             metric_name="event_count",
             table_name="analytics.watch_events",
             metric_sql="count(*)",
@@ -43,7 +43,7 @@ class DeltaPctIntegerDivisionTests(unittest.TestCase):
         self.assertIn("* 1.0", sql)
 
     def test_delta_pct_float_result_with_integer_metric(self) -> None:
-        """End-to-end: compare_metric with count(*) should produce float delta_pct."""
+        """End-to-end: metric_query with count(*) should produce float delta_pct."""
         temp_dir = tempfile.TemporaryDirectory()
         db_path = Path(temp_dir.name) / "int_div.duckdb"
         get_seeded_duckdb_path(db_path)
@@ -72,7 +72,7 @@ class DeltaPctIntegerDivisionTests(unittest.TestCase):
             ).json()["session_id"]
 
             resp = client.post(
-                f"/sessions/{session_id}/steps/compare_metric",
+                f"/sessions/{session_id}/steps/metric_query",
                 json={
                     "table": "analytics.watch_events",
                     "metric": "event_count",

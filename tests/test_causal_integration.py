@@ -46,7 +46,7 @@ def _insert_session(store: SQLiteMetadataStore, sess_id: str) -> None:
 def _insert_step(store: SQLiteMetadataStore, sess_id: str, step_id: str) -> None:
     store.execute(
         "INSERT INTO steps (step_id, session_id, step_type, status, summary, result_json) VALUES (?, ?, ?, ?, ?, ?)",
-        [step_id, sess_id, "compare_metric", "completed", "", "{}"],
+        [step_id, sess_id, "metric_query", "completed", "", "{}"],
     )
 
 
@@ -70,7 +70,7 @@ def _insert_obs(
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
-            obs_id, sess_id, step_id, "metric_change",
+            obs_id, sess_id, step_id, "metric_observation",
             json.dumps({"metric": metric, "slice": slice_val}),
             json.dumps({"delta_pct": delta_pct}),
             json.dumps({"sample_size": 100, "practical_significance": True}),
@@ -621,7 +621,7 @@ class EvidenceGraphAPIFieldsTests(unittest.TestCase):
         resp = self.client.post("/sessions", json={"goal": "Phase 2 integration test session."})
         return resp.json()["session_id"]
 
-    def _run_compare_metric(self, sess_id: str, extra: dict | None = None) -> dict:
+    def _run_metric_query(self, sess_id: str, extra: dict | None = None) -> dict:
         body: dict = {
             "table": "analytics.watch_events",
             "metric": self.metric_name,
@@ -634,7 +634,7 @@ class EvidenceGraphAPIFieldsTests(unittest.TestCase):
         }
         if extra:
             body.update(extra)
-        resp = self.client.post(f"/sessions/{sess_id}/steps/compare_metric", json=body)
+        resp = self.client.post(f"/sessions/{sess_id}/steps/metric_query", json=body)
         return resp.json()
 
     def _run_synthesize(self, sess_id: str) -> None:
@@ -650,7 +650,7 @@ class EvidenceGraphAPIFieldsTests(unittest.TestCase):
     def test_evidence_graph_claims_have_inference_level(self) -> None:
         """Every claim in the evidence graph must expose inference_level and inference_justification."""
         sess_id = self._new_session()
-        self._run_compare_metric(sess_id)
+        self._run_metric_query(sess_id)
         self._run_synthesize(sess_id)
 
         graph = self._get_graph(sess_id)
@@ -672,7 +672,7 @@ class EvidenceGraphAPIFieldsTests(unittest.TestCase):
     def test_evidence_graph_observations_have_temporal_fields(self) -> None:
         """Observations in the evidence graph must carry temporal_order; observed_window if set."""
         sess_id = self._new_session()
-        self._run_compare_metric(
+        self._run_metric_query(
             sess_id,
             extra={
                 "dimensions": ["platform"],
@@ -686,9 +686,9 @@ class EvidenceGraphAPIFieldsTests(unittest.TestCase):
         )
         graph = self._get_graph(sess_id)
 
-        metric_obs = [o for o in graph["observations"] if o.get("type") == "metric_change"]
+        metric_obs = [o for o in graph["observations"] if o.get("type") == "metric_observation"]
         if not metric_obs:
-            self.skipTest("No metric_change observations — check demo data date range")
+            self.skipTest("No metric_observation observations — check demo data date range")
 
         for obs in metric_obs:
             self.assertIn("temporal_order", obs, f"obs missing temporal_order: {obs.get('observation_id')}")
@@ -706,7 +706,7 @@ class EvidenceGraphAPIFieldsTests(unittest.TestCase):
     def test_evidence_graph_edge_types_are_valid(self) -> None:
         """All edge_type values in evidence graph must be in the known set."""
         sess_id = self._new_session()
-        self._run_compare_metric(sess_id)
+        self._run_metric_query(sess_id)
         self._run_synthesize(sess_id)
 
         graph = self._get_graph(sess_id)
@@ -722,7 +722,7 @@ class EvidenceGraphAPIFieldsTests(unittest.TestCase):
     def test_synthesize_findings_produces_synthesis_audit_artifact(self) -> None:
         """synthesize_findings must persist a synthesis_audit artifact."""
         sess_id = self._new_session()
-        self._run_compare_metric(sess_id)
+        self._run_metric_query(sess_id)
         self._run_synthesize(sess_id)
         self._get_graph(sess_id)  # ensure evidence route is exercised
 
@@ -745,9 +745,9 @@ class EvidenceGraphAPIFieldsTests(unittest.TestCase):
     # -- test_two_period_compare_produces_distinct_windows --------------------
 
     def test_two_period_compare_produces_distinct_windows(self) -> None:
-        """Running two compare_metric steps with different periods yields non-identical observed_windows."""
+        """Running two metric_query steps with different periods yields non-identical observed_windows."""
         sess_id = self._new_session()
-        self._run_compare_metric(
+        self._run_metric_query(
             sess_id,
             extra={
                 "time_scope": {
@@ -758,7 +758,7 @@ class EvidenceGraphAPIFieldsTests(unittest.TestCase):
                 },
             },
         )
-        self._run_compare_metric(
+        self._run_metric_query(
             sess_id,
             extra={
                 "time_scope": {

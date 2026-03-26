@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 STEP_TAXONOMY = {
-    "compare_metric": {
+    "metric_query": {
         "category": "primitive",
         "description": (
-            "Compare a published semantic metric across typed time windows. "
+            "Query a published semantic metric across typed time windows. "
             "Params: table, metric, time_scope (required), dimensions, scope, time_axis, order, limit. "
             "time_scope is the only time-window contract; scope is the only non-time row/entity scope; "
             "legacy params metric_name, table_name, period_start, period_end, baseline_start, baseline_end, "

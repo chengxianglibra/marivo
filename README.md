@@ -61,7 +61,7 @@ curl -s http://127.0.0.1:8000/sessions -X POST \
   -d '{"goal": "Investigate watch time drop"}'
 
 # Run step
-curl -s http://127.0.0.1:8000/sessions/<id>/steps/compare_metric -X POST \
+curl -s http://127.0.0.1:8000/sessions/<id>/steps/metric_query -X POST \
   -H "Content-Type: application/json" \
   -d '{"table": "analytics.watch_events", "metric": "watch_time",
        "time_scope": {"mode": "single_window", "grain": "day",
@@ -88,7 +88,7 @@ curl -s http://127.0.0.1:8000/sessions/<id>/evidence | python3 -m json.tool
 | Observability | `GET /metrics`, `GET /health` |
 | UI | `GET /admin`, `GET /ui` |
 
-**Steps**: `compare_metric`, `profile_table`, `sample_rows`, `aggregate_query`, `attribute_change`, `correlate_metrics`, `synthesize_findings`
+**Steps**: `metric_query`, `profile_table`, `sample_rows`, `aggregate_query`, `attribute_change`, `correlate_metrics`, `synthesize_findings`
 
 ## Architecture
 

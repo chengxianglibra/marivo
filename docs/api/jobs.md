@@ -78,7 +78,7 @@ Submits a step or plan for asynchronous execution. The job runs in the backgroun
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `step_type` | string | Step type to execute (e.g., `"compare_metric"`) |
+| `step_type` | string | Step type to execute (e.g., `"metric_query"`) |
 | `params` | object | Step parameters |
 
 **Payload for `job_type: "plan"`:**

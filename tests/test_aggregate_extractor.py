@@ -17,7 +17,7 @@ class AggregateRowExtractorTests(unittest.TestCase):
         observations = self.extractor.extract(rows, context={"group_by": ["cluster"]})
         self.assertEqual(len(observations), 2)
         self.assertTrue(observations[0]["observation_id"].startswith("obs_"))
-        self.assertEqual(observations[0]["type"], "metric_change")
+        self.assertEqual(observations[0]["type"], "metric_observation")
         self.assertEqual(observations[0]["subject"]["slice"], {"cluster": "web"})
         self.assertEqual(observations[0]["payload"]["current_value"], 100)
 
@@ -73,9 +73,9 @@ class AggregateRowExtractorTests(unittest.TestCase):
             for i in range(9)
         ] + [{"cluster": "outlier", "cnt": 1000.0}]
         observations = self.extractor.extract(rows, context={"group_by": ["cluster"]})
-        metric_changes = [obs for obs in observations if obs["type"] == "metric_change"]
+        metric_observations = [obs for obs in observations if obs["type"] == "metric_observation"]
         anomalies = [obs for obs in observations if obs["type"] == "anomaly_detection"]
-        self.assertEqual(len(metric_changes), 10)
+        self.assertEqual(len(metric_observations), 10)
         self.assertEqual(len(anomalies), 1)
         self.assertEqual(anomalies[0]["subject"]["slice"], {"cluster": "outlier"})
         self.assertIn("outlier_factor", anomalies[0]["payload"])
@@ -90,7 +90,7 @@ class AggregateRowExtractorTests(unittest.TestCase):
         rows = [{"cluster": f"c{i}", "cnt": 10.0} for i in range(3)] + [{"cluster": "x", "cnt": 1000.0}]
         observations = self.extractor.extract(rows, context={"group_by": ["cluster"]})
         self.assertEqual(len(observations), 4)
-        self.assertTrue(all(obs["type"] == "metric_change" for obs in observations))
+        self.assertTrue(all(obs["type"] == "metric_observation" for obs in observations))
 
     def test_anomaly_z_threshold_override_is_respected(self) -> None:
         rows = [

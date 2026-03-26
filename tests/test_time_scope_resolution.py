@@ -14,13 +14,13 @@ from app.time_scope import SemanticMetricValueSpec
 from app.time_scope import TimeAxisResolver
 from app.time_scope import TimeScopeResolver
 from app.time_scope import normalize_aggregate_query_request
-from app.time_scope import normalize_compare_metric_request
+from app.time_scope import normalize_metric_query_request
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 
 class TimeScopeNormalizationTests(unittest.TestCase):
-    def test_compare_metric_normalizes_to_shared_request(self) -> None:
-        resolved = normalize_compare_metric_request({
+    def test_metric_query_normalizes_to_shared_request(self) -> None:
+        resolved = normalize_metric_query_request({
             "table": "analytics.watch_events",
             "metric": "watch_time",
             "dimensions": ["platform"],
@@ -80,7 +80,7 @@ class TimeScopeNormalizationTests(unittest.TestCase):
 
     def test_normalizers_reject_legacy_fields(self) -> None:
         with self.assertRaisesRegex(ValueError, "legacy fields"):
-            normalize_compare_metric_request({
+            normalize_metric_query_request({
                 "table": "analytics.watch_events",
                 "metric": "watch_time",
                 "time_scope": {
@@ -94,7 +94,7 @@ class TimeScopeNormalizationTests(unittest.TestCase):
 
     def test_normalizers_reject_time_predicates_in_scope(self) -> None:
         with self.assertRaisesRegex(ValueError, "scope.predicate must not contain time-axis predicates"):
-            normalize_compare_metric_request({
+            normalize_metric_query_request({
                 "table": "analytics.watch_events",
                 "metric": "watch_time",
                 "time_scope": {
@@ -107,7 +107,7 @@ class TimeScopeNormalizationTests(unittest.TestCase):
             })
 
     def test_normalizers_allow_non_axis_suffix_predicates_in_scope(self) -> None:
-        resolved = normalize_compare_metric_request({
+        resolved = normalize_metric_query_request({
             "table": "analytics.watch_events",
             "metric": "watch_time",
             "time_scope": {
@@ -121,7 +121,7 @@ class TimeScopeNormalizationTests(unittest.TestCase):
         self.assertEqual(resolved.scope.predicate, "business_hour = 9 AND state_date = '2026-03-01'")
 
     def test_day_grain_normalizes_datetime_boundaries_to_dates(self) -> None:
-        resolved = normalize_compare_metric_request({
+        resolved = normalize_metric_query_request({
             "table": "analytics.watch_events",
             "metric": "watch_time",
             "time_scope": {
@@ -137,7 +137,7 @@ class TimeScopeNormalizationTests(unittest.TestCase):
         self.assertEqual(resolved.time_scope.current.end, "2026-03-17")
 
     def test_hour_grain_normalizes_to_second_precision(self) -> None:
-        resolved = TimeScopeResolver(step_type="compare_metric").resolve({
+        resolved = TimeScopeResolver(step_type="metric_query").resolve({
             "mode": "single_window",
             "grain": "hour",
             "current": {
@@ -150,7 +150,7 @@ class TimeScopeNormalizationTests(unittest.TestCase):
 
     def test_hour_grain_rejects_date_only_boundaries(self) -> None:
         with self.assertRaisesRegex(ValueError, "datetime string for hour grain"):
-            TimeScopeResolver(step_type="compare_metric").resolve({
+            TimeScopeResolver(step_type="metric_query").resolve({
                 "mode": "single_window",
                 "grain": "hour",
                 "current": {"start": "2026-03-25", "end": "2026-03-26"},
@@ -158,7 +158,7 @@ class TimeScopeNormalizationTests(unittest.TestCase):
 
     def test_hour_grain_rejects_timezone_aware_boundaries(self) -> None:
         with self.assertRaisesRegex(ValueError, "naive datetime"):
-            TimeScopeResolver(step_type="compare_metric").resolve({
+            TimeScopeResolver(step_type="metric_query").resolve({
                 "mode": "single_window",
                 "grain": "hour",
                 "current": {
@@ -169,7 +169,7 @@ class TimeScopeNormalizationTests(unittest.TestCase):
 
     def test_compare_mode_requires_baseline_window(self) -> None:
         with self.assertRaisesRegex(ValueError, "time_scope.baseline is required"):
-            TimeScopeResolver(step_type="compare_metric").resolve({
+            TimeScopeResolver(step_type="metric_query").resolve({
                 "mode": "compare",
                 "grain": "day",
                 "current": {"start": "2026-03-25", "end": "2026-03-26"},
@@ -177,7 +177,7 @@ class TimeScopeNormalizationTests(unittest.TestCase):
 
     def test_single_window_rejects_baseline_window(self) -> None:
         with self.assertRaisesRegex(ValueError, "only allowed when mode='compare'"):
-            TimeScopeResolver(step_type="compare_metric").resolve({
+            TimeScopeResolver(step_type="metric_query").resolve({
                 "mode": "single_window",
                 "grain": "day",
                 "current": {"start": "2026-03-25", "end": "2026-03-26"},
@@ -186,14 +186,14 @@ class TimeScopeNormalizationTests(unittest.TestCase):
 
     def test_time_scope_rejects_non_increasing_windows(self) -> None:
         with self.assertRaisesRegex(ValueError, "start < end"):
-            TimeScopeResolver(step_type="compare_metric").resolve({
+            TimeScopeResolver(step_type="metric_query").resolve({
                 "mode": "single_window",
                 "grain": "day",
                 "current": {"start": "2026-03-25", "end": "2026-03-25"},
             })
 
     def test_compare_mode_keeps_unequal_windows_and_adds_warning(self) -> None:
-        resolved = TimeScopeResolver(step_type="compare_metric").resolve({
+        resolved = TimeScopeResolver(step_type="metric_query").resolve({
             "mode": "compare",
             "grain": "day",
             "current": {"start": "2026-03-10", "end": "2026-03-17"},
@@ -225,7 +225,7 @@ class TimeAxisResolverTests(unittest.TestCase):
         }
         if time_axis is not None:
             payload["time_axis"] = time_axis
-        return normalize_compare_metric_request(payload)
+        return normalize_metric_query_request(payload)
 
     def test_resolver_prefers_timestamp_analysis_with_partition_pruning_for_mixed_layout(self) -> None:
         request = self._compare_request()
@@ -346,7 +346,7 @@ class TimeAxisResolverTests(unittest.TestCase):
         )
 
     def test_resolver_day_only_pruning_uses_current_window_for_single_window_mode(self) -> None:
-        request = normalize_compare_metric_request({
+        request = normalize_metric_query_request({
             "table": "iceberg.analytics.query_events",
             "metric": "queued_time",
             "time_scope": {
@@ -367,7 +367,7 @@ class TimeAxisResolverTests(unittest.TestCase):
         )
 
     def test_resolver_builds_cross_day_hour_partition_pruning(self) -> None:
-        request = normalize_compare_metric_request({
+        request = normalize_metric_query_request({
             "table": "iceberg.analytics.query_events",
             "metric": "queued_time",
             "time_scope": {
@@ -408,7 +408,7 @@ class TimeAxisResolverTests(unittest.TestCase):
         )
 
     def test_resolver_builds_midnight_terminated_cross_day_hour_pruning(self) -> None:
-        request = normalize_compare_metric_request({
+        request = normalize_metric_query_request({
             "table": "iceberg.analytics.query_events",
             "metric": "queued_time",
             "time_scope": {
@@ -579,7 +579,7 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
 
         return TestClient(self.app)
 
-    def test_compare_metric_service_uses_typed_execution_request(self) -> None:
+    def test_metric_query_service_uses_typed_execution_request(self) -> None:
         captured: dict[str, object] = {}
         original_compile = self.service._compile_step_with_feedback
         original_execute = service_module.execute_compiled
@@ -599,7 +599,7 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         self.service._compile_step_with_feedback = fake_compile
         service_module.execute_compiled = lambda engine, compiled: _Result()
         try:
-            result = self.service._run_compare_metric(self.session_id, {
+            result = self.service._run_metric_query(self.session_id, {
                 "table": "analytics.watch_events",
                 "metric": self.metric_name,
                 "dimensions": ["platform"],
@@ -620,7 +620,7 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
             self.service._resolve_engine = original_resolve_engine
             self.service.evidence_pipeline.extract_observations = original_extract
 
-        self.assertEqual(result["step_type"], "compare_metric")
+        self.assertEqual(result["step_type"], "metric_query")
         self.assertEqual(captured["params"]["metric"], self.metric_name)
         self.assertEqual(captured["params"]["table"], "analytics.watch_events")
         scoped_query = captured["params"]["scoped_query"]
@@ -636,7 +636,7 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         self.assertEqual(scoped_query["scope_constraints_filter"], "region = 'us-east'")
         self.assertEqual(scoped_query["scope_predicate_filter"], "device_type = 'phone'")
 
-    def test_compare_metric_service_passes_compare_contract_to_extractor(self) -> None:
+    def test_metric_query_service_passes_compare_contract_to_extractor(self) -> None:
         captured: dict[str, object] = {}
         original_compile = self.service._compile_step_with_feedback
         original_execute = service_module.execute_compiled
@@ -667,7 +667,7 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         self.service.evidence_pipeline.extract_observations = fake_extract
         service_module.execute_compiled = lambda engine, compiled: _Result()
         try:
-            self.service._run_compare_metric(self.session_id, {
+            self.service._run_metric_query(self.session_id, {
                 "table": "analytics.watch_events",
                 "metric": self.metric_name,
                 "dimensions": ["platform"],
@@ -684,7 +684,7 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
             self.service._resolve_engine = original_resolve_engine
             self.service.evidence_pipeline.extract_observations = original_extract
 
-        self.assertEqual(captured["extractor_name"], "comparison_rows")
+        self.assertEqual(captured["extractor_name"], "metric_rows")
         self.assertEqual(
             captured["context"]["required_payload_keys"],
             ("current_value", "baseline_value", "delta_pct", "current_sessions", "baseline_sessions"),
@@ -700,8 +700,8 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
             },
         )
 
-    def test_compare_metric_single_window_row_contract_accepts_current_only_fields(self) -> None:
-        normalized = self.service._normalize_comparison_rows(
+    def test_metric_query_single_window_row_contract_accepts_current_only_fields(self) -> None:
+        normalized = self.service._normalize_metric_rows(
             [
                 {
                     "platform": "android",
@@ -716,13 +716,13 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         self.assertEqual(normalized[0]["current_value"], 10.0)
         self.assertEqual(normalized[0]["current_sessions"], 10)
 
-    def test_compare_metric_single_window_extractor_context_uses_current_only_contract(self) -> None:
-        context = self.service._build_compare_metric_extractor_context(
+    def test_metric_query_single_window_extractor_context_uses_current_only_contract(self) -> None:
+        context = self.service._build_metric_query_extractor_context(
             mode="single_window",
             metric_name=self.metric_name,
-            observation_type="metric_change",
+            observation_type="metric_observation",
             dimensions=["platform"],
-            quality_builder=self.service._compare_metric_quality_builder("single_window"),
+            quality_builder=self.service._metric_query_quality_builder("single_window"),
         )
 
         self.assertEqual(
@@ -739,7 +739,7 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         self.assertTrue(context["quality_builder"]({"current_sessions": 200})["sample_size_ok"])
         self.assertFalse(context["quality_builder"]({"current_sessions": 100})["sample_size_ok"])
 
-    def test_compare_metric_single_window_executes_without_delta_fields(self) -> None:
+    def test_metric_query_single_window_executes_without_delta_fields(self) -> None:
         captured: dict[str, object] = {}
         original_compile = self.service._compile_step_with_feedback
         original_execute = service_module.execute_compiled
@@ -764,7 +764,7 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         self.service.evidence_pipeline.extract_observations = fake_extract
         service_module.execute_compiled = lambda engine, compiled: _Result()
         try:
-            result = self.service._run_compare_metric(self.session_id, {
+            result = self.service._run_metric_query(self.session_id, {
                 "table": "analytics.watch_events",
                 "metric": self.metric_name,
                 "dimensions": ["platform"],
@@ -780,15 +780,15 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
             self.service._resolve_engine = original_resolve_engine
             self.service.evidence_pipeline.extract_observations = original_extract
 
-        self.assertEqual(result["step_type"], "compare_metric")
+        self.assertEqual(result["step_type"], "metric_query")
         self.assertNotIn("debug", result)
         self.assertIn("current window observation", result["summary"])
         self.assertNotIn("baseline", result["summary"].lower())
-        self.assertEqual(captured["extractor_name"], "comparison_rows")
+        self.assertEqual(captured["extractor_name"], "metric_rows")
         self.assertEqual(captured["rows"], [{"platform": "android", "current_value": 10.0, "current_sessions": 10}])
         self.assertEqual(captured["params"]["order"], "CURRENT_VALUE DESC")
 
-    def test_compare_metric_single_window_observations_inherit_current_window(self) -> None:
+    def test_metric_query_single_window_observations_inherit_current_window(self) -> None:
         original_compile = self.service._compile_step_with_feedback
         original_execute = service_module.execute_compiled
         original_resolve_engine = self.service._resolve_engine
@@ -802,7 +802,7 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
             return [
                 {
                     "observation_id": "obs_single_window",
-                    "type": "metric_change",
+                    "type": "metric_observation",
                     "subject": {"metric": self.metric_name, "slice": {"platform": "android"}},
                     "payload": {"current_value": 10.0, "current_sessions": 10},
                     "significance": {},
@@ -817,7 +817,7 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         self.service.evidence_pipeline.extract_observations = fake_extract
         service_module.execute_compiled = lambda engine, compiled: _Result()
         try:
-            result = self.service._run_compare_metric(self.session_id, {
+            result = self.service._run_metric_query(self.session_id, {
                 "table": "analytics.watch_events",
                 "metric": self.metric_name,
                 "dimensions": ["platform"],
@@ -839,7 +839,7 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         )
         self.assertEqual(result["observations"][0]["temporal_order"], 0)
 
-    def test_compare_metric_single_window_order_allows_current_sessions(self) -> None:
+    def test_metric_query_single_window_order_allows_current_sessions(self) -> None:
         captured: dict[str, object] = {}
         original_compile = self.service._compile_step_with_feedback
         original_execute = service_module.execute_compiled
@@ -858,7 +858,7 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         self.service._compile_step_with_feedback = fake_compile
         service_module.execute_compiled = lambda engine, compiled: _Result()
         try:
-            self.service._run_compare_metric(self.session_id, {
+            self.service._run_metric_query(self.session_id, {
                 "table": "analytics.watch_events",
                 "metric": self.metric_name,
                 "dimensions": ["platform"],
@@ -877,9 +877,9 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
 
         self.assertEqual(captured["order"], "CURRENT_SESSIONS ASC")
 
-    def test_compare_metric_single_window_rejects_delta_pct_order(self) -> None:
+    def test_metric_query_single_window_rejects_delta_pct_order(self) -> None:
         with self.assertRaisesRegex(ValueError, "single_window mode supports only current_value"):
-            self.service._run_compare_metric(self.session_id, {
+            self.service._run_metric_query(self.session_id, {
                 "table": "analytics.watch_events",
                 "metric": self.metric_name,
                 "dimensions": ["platform"],
@@ -952,7 +952,7 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         self.assertEqual(scoped_query["scope_constraints_filter"], "region = 'us-east'")
         self.assertEqual(scoped_query["scope_predicate_filter"], "device_type = 'phone'")
 
-    def test_compare_metric_service_passes_mixed_layout_pruning_to_trino_scoped_query(self) -> None:
+    def test_metric_query_service_passes_mixed_layout_pruning_to_trino_scoped_query(self) -> None:
         captured: dict[str, object] = {}
         original_compile = self.service._compile_step_with_feedback
         original_execute = service_module.execute_compiled
@@ -996,7 +996,7 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         self.service._compile_step_with_feedback = fake_compile
         service_module.execute_compiled = lambda engine, compiled: _Result()
         try:
-            self.service._run_compare_metric(self.session_id, {
+            self.service._run_metric_query(self.session_id, {
                 "table": "iceberg.analytics.watch_events",
                 "metric": self.metric_name,
                 "dimensions": ["platform"],
@@ -1023,7 +1023,7 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
             "log_date = '20260325' AND log_hour >= '06' AND log_hour < '14'",
         )
 
-    def test_compare_metric_hour_grain_annotations_use_hour_window(self) -> None:
+    def test_metric_query_hour_grain_annotations_use_hour_window(self) -> None:
         original_compile = self.service._compile_step_with_feedback
         original_execute = service_module.execute_compiled
         original_resolve_engine = self.service._resolve_engine
@@ -1037,7 +1037,7 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         )
         self.service.evidence_pipeline.extract_observations = lambda *args, **kwargs: [{
             "observation_id": f"obs_cmp_hour_{id(self)}",
-            "type": "metric_change",
+            "type": "metric_observation",
             "subject": {"metric": self.metric_name, "slice": {"platform": "android"}},
             "payload": {"current_value": 10.0, "baseline_value": 5.0, "delta_pct": 100.0},
             "significance": {"sample_size": 10, "practical_significance": True},
@@ -1053,7 +1053,7 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         self.service._compile_step_with_feedback = fake_compile
         service_module.execute_compiled = lambda engine, compiled: _Result()
         try:
-            result = self.service._run_compare_metric(self.session_id, {
+            result = self.service._run_metric_query(self.session_id, {
                 "table": "analytics.watch_events",
                 "metric": self.metric_name,
                 "dimensions": ["platform"],
@@ -1076,7 +1076,7 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         self.assertEqual(result["observations"][0]["observed_window"]["start"], "2026-03-25T10:00:00")
         self.assertEqual(result["observations"][0]["observed_window"]["end"], "2026-03-25T14:00:00")
 
-    def test_compare_metric_day_grain_annotations_use_day_window(self) -> None:
+    def test_metric_query_day_grain_annotations_use_day_window(self) -> None:
         original_compile = self.service._compile_step_with_feedback
         original_execute = service_module.execute_compiled
         original_resolve_engine = self.service._resolve_engine
@@ -1090,7 +1090,7 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         )
         self.service.evidence_pipeline.extract_observations = lambda *args, **kwargs: [{
             "observation_id": f"obs_cmp_day_{id(self)}",
-            "type": "metric_change",
+            "type": "metric_observation",
             "subject": {"metric": self.metric_name, "slice": {"platform": "android"}},
             "payload": {"current_value": 10.0, "baseline_value": 5.0, "delta_pct": 100.0},
             "significance": {"sample_size": 10, "practical_significance": True},
@@ -1106,7 +1106,7 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         self.service._compile_step_with_feedback = fake_compile
         service_module.execute_compiled = lambda engine, compiled: _Result()
         try:
-            result = self.service._run_compare_metric(self.session_id, {
+            result = self.service._run_metric_query(self.session_id, {
                 "table": "analytics.watch_events",
                 "metric": self.metric_name,
                 "dimensions": ["platform"],
@@ -1129,7 +1129,7 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         self.assertEqual(result["observations"][0]["observed_window"]["start"], "2026-03-10")
         self.assertEqual(result["observations"][0]["observed_window"]["end"], "2026-03-17")
 
-    def test_compare_metric_rejects_rows_missing_required_comparison_columns(self) -> None:
+    def test_metric_query_rejects_rows_missing_required_comparison_columns(self) -> None:
         original_compile = self.service._compile_step_with_feedback
         original_execute = service_module.execute_compiled
         original_resolve_engine = self.service._resolve_engine
@@ -1145,7 +1145,7 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         service_module.execute_compiled = lambda engine, compiled: _Result()
         try:
             with self.assertRaisesRegex(ValueError, "missing required columns"):
-                self.service._run_compare_metric(self.session_id, {
+                self.service._run_metric_query(self.session_id, {
                     "table": "analytics.watch_events",
                     "metric": self.metric_name,
                     "dimensions": ["platform"],
@@ -1161,7 +1161,7 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
             service_module.execute_compiled = original_execute
             self.service._resolve_engine = original_resolve_engine
 
-    def test_compare_metric_summary_uses_window_wording_not_period_wording(self) -> None:
+    def test_metric_query_summary_uses_window_wording_not_period_wording(self) -> None:
         original_compile = self.service._compile_step_with_feedback
         original_execute = service_module.execute_compiled
         original_resolve_engine = self.service._resolve_engine
@@ -1178,7 +1178,7 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         self.service._compile_step_with_feedback = fake_compile
         service_module.execute_compiled = lambda engine, compiled: _Result()
         try:
-            result = self.service._run_compare_metric(self.session_id, {
+            result = self.service._run_metric_query(self.session_id, {
                 "table": "analytics.watch_events",
                 "metric": self.metric_name,
                 "dimensions": ["platform"],
@@ -1215,7 +1215,7 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         )
         self.service.evidence_pipeline.extract_observations = lambda *args, **kwargs: [{
             "observation_id": f"obs_agg_hour_{id(self)}",
-            "type": "metric_change",
+            "type": "metric_observation",
             "subject": {"metric": "query_count", "slice": {"platform": "android"}},
             "payload": {"query_count_current": 10, "query_count_baseline": 5, "query_count_delta_pct": 100.0},
             "significance": {"sample_size": 10, "practical_significance": True},
@@ -1268,7 +1268,7 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         )
         self.service.evidence_pipeline.extract_observations = lambda *args, **kwargs: [{
             "observation_id": f"obs_agg_row_window_{id(self)}",
-            "type": "metric_change",
+            "type": "metric_observation",
             "subject": {"metric": "query_count", "slice": {"event_time": "2026-03-25T11:00:00"}},
             "payload": {"query_count": 10},
             "significance": {"sample_size": 10, "practical_significance": True},
@@ -1340,7 +1340,7 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
             )
             self.assertEqual(patch_resp.status_code, 200)
 
-            request = normalize_compare_metric_request({
+            request = normalize_metric_query_request({
                 "table": "analytics.watch_events",
                 "metric": self.metric_name,
                 "time_scope": {

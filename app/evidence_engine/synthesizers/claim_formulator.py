@@ -29,33 +29,33 @@ class ClaimFormulator:
         primary = signal.primary_obs
         obs_type = primary["type"]
 
-        if obs_type == "metric_change" and primary.get("payload", {}).get("delta_pct") is not None:
+        if obs_type == "metric_observation" and primary.get("payload", {}).get("delta_pct") is not None:
             return self._formulate_metric(signal)
         return self._formulate_non_metric(signal)
 
     def formulate_overall_trend(
         self,
         signals: list[AlignedSignal],
-        metric_change_obs: list[dict[str, Any]],
+        metric_observation_obs: list[dict[str, Any]],
     ) -> ClaimFormulation | None:
         """Optionally generate an overall_trend claim across multiple signals.
 
         Returns None when fewer than 2 distinct metrics are present.
         """
-        metric_change_with_delta = [
+        metric_observation_with_delta = [
             observation
-            for observation in metric_change_obs
+            for observation in metric_observation_obs
             if observation.get("payload", {}).get("delta_pct") is not None
         ]
         distinct_metrics = {
             o.get("subject", {}).get("metric")
-            for o in metric_change_with_delta
+            for o in metric_observation_with_delta
         }
         if len(distinct_metrics) < 2:
             return None
 
-        declining = [o for o in metric_change_with_delta if float(o["payload"]["delta_pct"]) < 0]
-        improving = [o for o in metric_change_with_delta if float(o["payload"]["delta_pct"]) > 0]
+        declining = [o for o in metric_observation_with_delta if float(o["payload"]["delta_pct"]) < 0]
+        improving = [o for o in metric_observation_with_delta if float(o["payload"]["delta_pct"]) > 0]
         trend_parts = []
         if declining:
             trend_parts.append(f"{len(declining)} declining")
@@ -74,7 +74,7 @@ class ClaimFormulator:
             "scope": {"slice": {}},
             "confidence": 0.0,
             "status": "supported",
-            "supporting_observations": [o["observation_id"] for o in metric_change_with_delta],
+            "supporting_observations": [o["observation_id"] for o in metric_observation_with_delta],
             "contradicting_observations": [],
             "confidence_breakdown": {},
             "inference_level": "L0",
@@ -150,7 +150,7 @@ class ClaimFormulator:
         return ClaimFormulation(
             claim=claim,
             claim_type_decision="root_cause_candidate",
-            claim_type_reason="dominant metric_change scope",
+            claim_type_reason="dominant metric_observation scope",
             text_template="metric_decline_concentrated",
             confidence_inputs=confidence_inputs,
             final_confidence=final_confidence,
@@ -163,7 +163,7 @@ class ClaimFormulator:
         impacted_slice = primary["subject"].get("slice", {})
         payload = primary.get("payload", {})
 
-        if obs_type == "metric_change":
+        if obs_type == "metric_observation":
             current_value = payload.get("current_value")
             if impacted_slice:
                 slice_label = " / ".join(f"{k}={v}" for k, v in impacted_slice.items())

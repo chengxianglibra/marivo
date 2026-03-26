@@ -8,8 +8,8 @@ from app.api.deps import get_services, http_error
 from app.api.models import (
     AggregateQueryStep,
     AttributeChangeStep,
-    CompareMetricStep,
     EvidenceGraphResponse,
+    MetricQueryStep,
     SessionCreateRequest,
     SessionDebugResponse,
 )
@@ -78,16 +78,16 @@ def run_attribute_change(
         raise HTTPException(status_code=502, detail=f"Engine execution error: {error}") from error
 
 
-@router.post("/sessions/{session_id}/steps/compare_metric")
-def run_compare_metric(
+@router.post("/sessions/{session_id}/steps/metric_query")
+def run_metric_query(
     session_id: str,
-    payload: CompareMetricStep,
+    payload: MetricQueryStep,
     request: Request,
 ) -> dict[str, object]:
     try:
         return get_services(request).service.run_step(
             session_id,
-            "compare_metric",
+            "metric_query",
             params=payload.model_dump(by_alias=True, exclude_defaults=True, exclude_none=True),
         )
     except KeyError as error:

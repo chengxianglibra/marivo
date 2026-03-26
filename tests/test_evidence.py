@@ -14,7 +14,7 @@ from app.evidence import (
 from app.evidence_engine import EvidencePipeline
 
 
-def _compare_metric_payload(metric: str) -> dict[str, object]:
+def _metric_query_payload(metric: str) -> dict[str, object]:
     return {
         "table": "analytics.watch_events",
         "metric": metric,
@@ -30,15 +30,15 @@ def _compare_metric_payload(metric: str) -> dict[str, object]:
 class ObservationFactoryTests(unittest.TestCase):
     """Tests for observation factory functions."""
 
-    def test_make_observation_metric_change(self) -> None:
+    def test_make_observation_metric_observation(self) -> None:
         row = {"platform": "android", "app_version": "8.3.1", "network_type": "4g", "content_type": "short"}
         obs = make_observation(
-            "metric_change", "watch_time", row,
+            "metric_observation", "watch_time", row,
             {"current_value": 82, "baseline_value": 96, "delta_pct": -14.2, "current_sessions": 280, "baseline_sessions": 285},
             {"freshness_ok": True, "sample_size_ok": True},
         )
         self.assertTrue(obs["observation_id"].startswith("obs_"))
-        self.assertEqual(obs["type"], "metric_change")
+        self.assertEqual(obs["type"], "metric_observation")
         self.assertEqual(obs["subject"]["metric"], "watch_time")
         self.assertEqual(obs["subject"]["slice"]["platform"], "android")
         self.assertTrue(obs["significance"]["practical_significance"])
@@ -107,7 +107,7 @@ class SynthesizeClaimsWithNewTypesTests(unittest.TestCase):
         return [
             {
                 "observation_id": "obs_watch_1",
-                "type": "metric_change",
+                "type": "metric_observation",
                 "subject": {"metric": "watch_time", "slice": {"platform": "android", "app_version": "8.3.1", "network_type": "4g", "content_type": "short"}},
                 "payload": {"delta_pct": -14.0, "current_sessions": 280, "baseline_sessions": 285},
                 "significance": {"sample_size": 280, "practical_significance": True},
@@ -186,7 +186,7 @@ class WeightedPrimarySelectionTests(unittest.TestCase):
         obs = [
             {
                 "observation_id": "obs_small",
-                "type": "metric_change",
+                "type": "metric_observation",
                 "subject": {"metric": "watch_time", "slice": {"platform": "web"}},
                 "payload": {"delta_pct": -10.0, "current_sessions": 20, "baseline_sessions": 25},
                 "significance": {"sample_size": 20, "practical_significance": True},
@@ -194,7 +194,7 @@ class WeightedPrimarySelectionTests(unittest.TestCase):
             },
             {
                 "observation_id": "obs_large",
-                "type": "metric_change",
+                "type": "metric_observation",
                 "subject": {"metric": "watch_time", "slice": {"platform": "android"}},
                 "payload": {"delta_pct": -10.0, "current_sessions": 5000, "baseline_sessions": 5200},
                 "significance": {"sample_size": 5000, "practical_significance": True},
@@ -212,7 +212,7 @@ class WeightedPrimarySelectionTests(unittest.TestCase):
         obs = [
             {
                 "observation_id": "obs_wt",
-                "type": "metric_change",
+                "type": "metric_observation",
                 "subject": {"metric": "watch_time", "slice": {"platform": "android"}},
                 "payload": {"delta_pct": -12.0, "current_sessions": 300, "baseline_sessions": 310},
                 "significance": {"sample_size": 300, "practical_significance": True},
@@ -220,7 +220,7 @@ class WeightedPrimarySelectionTests(unittest.TestCase):
             },
             {
                 "observation_id": "obs_vv",
-                "type": "metric_change",
+                "type": "metric_observation",
                 "subject": {"metric": "video_views", "slice": {"platform": "android"}},
                 "payload": {"delta_pct": -5.0, "current_sessions": 400, "baseline_sessions": 420},
                 "significance": {"sample_size": 400, "practical_significance": True},
@@ -232,10 +232,10 @@ class WeightedPrimarySelectionTests(unittest.TestCase):
         self.assertEqual(len(trend_claims), 1)
         self.assertIn("2 metrics", trend_claims[0]["text"])
 
-    def test_synthesize_claims_current_window_metric_change_produces_finding(self) -> None:
+    def test_synthesize_claims_current_window_metric_observation_produces_finding(self) -> None:
         obs = [{
             "observation_id": "obs_wt",
-            "type": "metric_change",
+            "type": "metric_observation",
             "subject": {"metric": "watch_time", "slice": {"platform": "android"}},
             "payload": {"current_value": 82.0, "current_sessions": 300},
             "significance": {"sample_size": 300, "practical_significance": True},
@@ -248,7 +248,7 @@ class WeightedPrimarySelectionTests(unittest.TestCase):
 
 
 class SynthesizeClaimsNonMetricTests(unittest.TestCase):
-    """Tests for synthesize_claims when only non-metric_change observations exist."""
+    """Tests for synthesize_claims when only non-metric_observation observations exist."""
 
     def test_synthesize_claims_funnel_only(self) -> None:
         observations = [{
@@ -331,7 +331,7 @@ class EvidencePipelineTests(unittest.TestCase):
         observations = [
             {
                 "observation_id": "obs_watch_1",
-                "type": "metric_change",
+                "type": "metric_observation",
                 "subject": {"metric": "watch_time", "slice": {"platform": "android", "app_version": "8.3.1", "network_type": "4g", "content_type": "short"}},
                 "payload": {"delta_pct": -14.0, "current_sessions": 280, "baseline_sessions": 285},
                 "significance": {"sample_size": 280, "practical_significance": True},
@@ -380,7 +380,7 @@ class EvidencePipelineServiceIntegrationTests(unittest.TestCase):
 
     def test_synthesize_step_uses_configured_pipeline(self) -> None:
         session_id = self.service.create_session("Pipeline test", {}, {}, {})["session_id"]
-        # Seed a published metric so compare_metric works
+        # Seed a published metric so metric_query works
         from app.semantic import SemanticService
         semantic = SemanticService(self.service.metadata)
         entity = semantic.create_entity("session_pipeline", "Session", ["session_id"])
@@ -392,8 +392,8 @@ class EvidencePipelineServiceIntegrationTests(unittest.TestCase):
         )
         semantic.publish_metric(metric["metric_id"])
         self.service.run_step(
-            session_id, "compare_metric",
-            _compare_metric_payload("watch_time_pipeline"),
+            session_id, "metric_query",
+            _metric_query_payload("watch_time_pipeline"),
         )
         captured: dict[str, int] = {}
 
@@ -612,7 +612,7 @@ class InferenceLevelUnitTests(unittest.TestCase):
     def _metric_obs(self, obs_id: str = "obs_m1", delta_pct: float = -12.0) -> dict:
         return {
             "observation_id": obs_id,
-            "type": "metric_change",
+            "type": "metric_observation",
             "subject": {"metric": "watch_time", "slice": {"platform": "android"}},
             "payload": {"delta_pct": delta_pct, "current_sessions": 300, "baseline_sessions": 310},
             "significance": {"sample_size": 300, "practical_significance": True},
@@ -647,7 +647,7 @@ class InferenceLevelUnitTests(unittest.TestCase):
             self._metric_obs("obs_m1", -12.0),
             {
                 "observation_id": "obs_m2",
-                "type": "metric_change",
+                "type": "metric_observation",
                 "subject": {"metric": "video_views", "slice": {"platform": "android"}},
                 "payload": {"delta_pct": -5.0, "current_sessions": 400, "baseline_sessions": 420},
                 "significance": {"sample_size": 400, "practical_significance": True},
@@ -696,8 +696,8 @@ class InferenceLevelIntegrationTests(unittest.TestCase):
 
         cls.session_id = cls.service.create_session("IL test", {}, {}, {})["session_id"]
         cls.service.run_step(
-            cls.session_id, "compare_metric",
-            _compare_metric_payload("il_watch_time"),
+            cls.session_id, "metric_query",
+            _metric_query_payload("il_watch_time"),
         )
         cls.service.run_step(cls.session_id, "synthesize_findings")
 
@@ -755,7 +755,7 @@ class IncrementalSynthesizerTests(unittest.TestCase):
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
-                obs_id, session_id, "step_test", "metric_change",
+                obs_id, session_id, "step_test", "metric_observation",
                 json.dumps({"metric": metric, "slice": slice_dict}),
                 json.dumps({"delta_pct": delta_pct}),
                 json.dumps({"sample_size": sample_size, "practical_significance": True}),
@@ -784,7 +784,7 @@ class IncrementalSynthesizerTests(unittest.TestCase):
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
-                obs_id, session_id, "step_test", "metric_change",
+                obs_id, session_id, "step_test", "metric_observation",
                 json.dumps({"metric": metric, "slice": slice_dict}),
                 json.dumps(
                     {
@@ -824,7 +824,7 @@ class IncrementalSynthesizerTests(unittest.TestCase):
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
-                obs_id, session_id, "step_test", "metric_change",
+                obs_id, session_id, "step_test", "metric_observation",
                 json.dumps(subject),
                 json.dumps({"delta_pct": delta_pct}),
                 json.dumps({"sample_size": sample_size, "practical_significance": True}),
@@ -1299,8 +1299,8 @@ class PromotionIntegrationTests(unittest.TestCase):
     def test_tentative_promoted_to_confirmed_after_synthesize_findings(self) -> None:
         session_id = self._new_session()
         self.service.run_step(
-            session_id, "compare_metric",
-            _compare_metric_payload("prom_watch_time"),
+            session_id, "metric_query",
+            _metric_query_payload("prom_watch_time"),
         )
         # After primitive step, tentative claims should exist
         tentative = self.service.metadata.query_rows(
@@ -1330,8 +1330,8 @@ class PromotionIntegrationTests(unittest.TestCase):
         """Full flow: primitive step → tentative claim → synthesize → confirmed visible in evidence graph."""
         session_id = self._new_session()
         self.service.run_step(
-            session_id, "compare_metric",
-            _compare_metric_payload("prom_watch_time"),
+            session_id, "metric_query",
+            _metric_query_payload("prom_watch_time"),
         )
         self.service.run_step(session_id, "synthesize_findings")
 
@@ -1347,8 +1347,8 @@ class PromotionIntegrationTests(unittest.TestCase):
         """Confirmed claims should still produce recommendations in promotion mode."""
         session_id = self._new_session()
         self.service.run_step(
-            session_id, "compare_metric",
-            _compare_metric_payload("prom_watch_time"),
+            session_id, "metric_query",
+            _metric_query_payload("prom_watch_time"),
         )
         result = self.service.run_step(session_id, "synthesize_findings")
         self.assertIn("recommendations", result)
@@ -1363,9 +1363,9 @@ class PromotionIntegrationTests(unittest.TestCase):
         session_id = self._new_session()
         self.service.run_step(
             session_id,
-            "compare_metric",
+            "metric_query",
             {
-                **_compare_metric_payload("prom_watch_time"),
+                **_metric_query_payload("prom_watch_time"),
                 "time_scope": {
                     "mode": "single_window",
                     "grain": "day",
@@ -1404,7 +1404,7 @@ class CausalEvidenceEdgeTypesTests(unittest.TestCase):
     def _make_obs(self, obs_id: str = "obs_1") -> dict:
         return {
             "observation_id": obs_id,
-            "type": "metric_change",
+            "type": "metric_observation",
             "subject": {"metric": "watch_time", "slice": {"platform": "android"}},
             "payload": {"delta_pct": -14.0, "current_sessions": 300, "baseline_sessions": 310},
             "significance": {"sample_size": 300, "practical_significance": True},
@@ -1627,7 +1627,7 @@ class CausalBasisTests(unittest.TestCase):
     def _make_obs(self, obs_id: str = "obs_cb") -> dict:
         return {
             "observation_id": obs_id,
-            "type": "metric_change",
+            "type": "metric_observation",
             "subject": {"metric": "watch_time", "slice": {"platform": "android"}},
             "payload": {"delta_pct": -14.0, "current_sessions": 300, "baseline_sessions": 310},
             "significance": {"sample_size": 300, "practical_significance": True},
@@ -1710,8 +1710,8 @@ class CausalBasisTests(unittest.TestCase):
 
         cls.session_id = cls.service.create_session("CB test", {}, {}, {})["session_id"]
         cls.service.run_step(
-            cls.session_id, "compare_metric",
-            _compare_metric_payload("cb_watch_time"),
+            cls.session_id, "metric_query",
+            _metric_query_payload("cb_watch_time"),
         )
         cls.service.run_step(cls.session_id, "synthesize_findings")
 

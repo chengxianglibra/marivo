@@ -13,11 +13,11 @@ from app.analysis_core import (
 
 
 class AnalysisIRTests(unittest.TestCase):
-    def test_from_typed_compare_metric_infers_semantic_and_artifact_contract(self) -> None:
+    def test_from_typed_metric_query_infers_semantic_and_artifact_contract(self) -> None:
         step = from_legacy_step(
             2,
             {
-                "step_type": "compare_metric",
+                "step_type": "metric_query",
                 "params": {
                     "metric": "watch_time",
                     "table": "analytics.watch_events",
@@ -27,7 +27,7 @@ class AnalysisIRTests(unittest.TestCase):
                         "grain": "day",
                         "current": {"start": "2026-03-01", "end": "2026-03-08"},
                     },
-                    "observation_type": "metric_change",
+                    "observation_type": "metric_observation",
                     "limit": 5,
                 },
                 "dependencies": [0, 1],
@@ -43,8 +43,8 @@ class AnalysisIRTests(unittest.TestCase):
         self.assertEqual(step.semantic_intent.dimensions, ["platform", "app_version"])
         self.assertIsNone(step.semantic_intent.date_column)
         self.assertIsInstance(step.artifact_expectation, ArtifactExpectation)
-        self.assertEqual(step.artifact_expectation.artifact_key, "watch_time_comparison")
-        self.assertEqual(step.observation_types(), ["metric_change"])
+        self.assertEqual(step.artifact_expectation.artifact_key, "watch_time_metric_query")
+        self.assertEqual(step.observation_types(), ["metric_observation"])
         self.assertEqual(step.execution_hints["limit"], 5)
         self.assertTrue(step.execution_hints["requires_period_context"])
 
@@ -76,7 +76,7 @@ class AnalysisIRTests(unittest.TestCase):
             from_legacy_step(
                 0,
                 {
-                    "step_type": "compare_metric",
+                    "step_type": "metric_query",
                     "params": {
                         "metric": "watch_time",
                         "table": "analytics.watch_events",
@@ -111,7 +111,7 @@ class AnalysisIRTests(unittest.TestCase):
 
         self.assertEqual(request.session_id, "sess_123")
         self.assertEqual(request.plan_id, "plan_123")
-        self.assertEqual(request.requested_step_types, ["compare_metric", "sample_rows"])
+        self.assertEqual(request.requested_step_types, ["metric_query", "sample_rows"])
         self.assertEqual(request.requested_metrics, ["watch_time"])
         self.assertEqual(request.requested_tables, ["analytics.watch_events"])
 

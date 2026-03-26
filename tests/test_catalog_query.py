@@ -153,7 +153,7 @@ class CatalogQueryTests(unittest.TestCase):
         self.assertIn("metrics", ctx)
         self.assertIn("entities", ctx)
         self.assertIn("available_step_types", ctx)
-        self.assertIn("compare_metric", ctx["available_step_types"])
+        self.assertIn("metric_query", ctx["available_step_types"])
         watch_metric = next(metric for metric in ctx["metrics"] if metric["name"] == "watch_time")
         self.assertEqual(watch_metric["grain"], "session")
         self.assertEqual(watch_metric["measure_type"], "average")

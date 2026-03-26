@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 
-def _typed_compare_metric_params(**overrides: object) -> dict[str, object]:
+def _typed_metric_query_params(**overrides: object) -> dict[str, object]:
     params: dict[str, object] = {
         "metric": "watch_time",
         "table": "analytics.watch_events",
@@ -49,7 +49,7 @@ class CostModelTests(unittest.TestCase):
         estimate = self.cost_model.estimate_step(
             from_legacy_step(
                 0,
-                {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
+                {"step_type": "metric_query", "params": _typed_metric_query_params()},
             )
         )
 
@@ -80,7 +80,7 @@ class CostModelTests(unittest.TestCase):
         estimate = self.cost_model.estimate_step(
             from_legacy_step(
                 0,
-                {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
+                {"step_type": "metric_query", "params": _typed_metric_query_params()},
             ),
             execution_target=ExecutionTargetIR(
                 step_index=0,
@@ -113,7 +113,7 @@ class CostModelTests(unittest.TestCase):
         feedback = self.cost_model.build_actual_feedback(
             from_legacy_step(
                 0,
-                {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
+                {"step_type": "metric_query", "params": _typed_metric_query_params()},
             ),
             {"summary": "ok", "observations": [1, 2], "claims": [1]},
             12.3456,

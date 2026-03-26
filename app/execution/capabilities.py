@@ -24,7 +24,7 @@ class EngineCapabilityProfile:
 _DEFAULT_STEP_TYPES = (
     "sample_rows",
     "profile_table",
-    "compare_metric",
+    "metric_query",
     "synthesize_findings",
 )
 

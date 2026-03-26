@@ -519,7 +519,7 @@ class QueryRouterTests(unittest.TestCase):
         route = QueryRouter(self.metadata, self.engine_service).resolve_tables(
             ["semantic_route_table"],
             routing_intent=RoutingIntent(
-                step_type="compare_metric",
+                step_type="metric_query",
                 metric_names=["watch_time"],
                 requested_dimensions=["platform", "app_version", "network_type"],
                 compatible_dimensions=["platform", "app_version", "network_type"],
@@ -816,7 +816,7 @@ class BindingAPITests(unittest.TestCase):
         resp = self.client.post("/routing/resolve", json={
             "table_names": ["semantic_api_table"],
             "routing_intent": {
-                "step_type": "compare_metric",
+                "step_type": "metric_query",
                 "metric_names": ["watch_time"],
                 "requested_dimensions": ["platform", "app_version", "network_type"],
                 "compatible_dimensions": ["platform", "app_version", "network_type"],

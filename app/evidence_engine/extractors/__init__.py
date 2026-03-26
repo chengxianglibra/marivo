@@ -7,9 +7,9 @@ from typing import Any
 __all__ = [
     "AggregateRowExtractor",
     "AnomalyExtractor",
-    "ComparisonRowExtractor",
     "ContributionShiftExtractor",
     "FunnelExtractor",
+    "MetricObservationExtractor",
     "ObservationExtractor",
 ]
 
@@ -18,9 +18,9 @@ def __getattr__(name: str) -> Any:
     if name == "ObservationExtractor":
         from app.evidence_engine.extractors.base import ObservationExtractor
         return ObservationExtractor
-    if name == "ComparisonRowExtractor":
-        from app.evidence_engine.extractors.comparison import ComparisonRowExtractor
-        return ComparisonRowExtractor
+    if name == "MetricObservationExtractor":
+        from app.evidence_engine.extractors.metric_observation import MetricObservationExtractor
+        return MetricObservationExtractor
     if name == "AggregateRowExtractor":
         from app.evidence_engine.extractors.aggregate import AggregateRowExtractor
         return AggregateRowExtractor

@@ -60,10 +60,10 @@ class ThreeStagePipeline:
 
             claims: list[Claim] = [f.claim for f in formulations]
 
-            # Check for overall_trend across all metric_change observations
+            # Check for overall_trend across all metric_observation rows with deltas
             all_metric_obs: list[dict[str, Any]] = []
             for cluster in clusters:
-                all_metric_obs.extend(cluster.metric_change_obs)
+                all_metric_obs.extend(cluster.metric_observation_obs)
 
             trend = self._formulator.formulate_overall_trend(signals, all_metric_obs)
             if trend is not None:
@@ -85,7 +85,7 @@ class ThreeStagePipeline:
 def _cluster_audit(c: Any) -> dict[str, Any]:
     d = dataclasses.asdict(c)
     # Replace full observation dicts with just their IDs to keep audit compact
-    for bucket in ("metric_change_obs", "funnel_drop_obs",
+    for bucket in ("metric_observation_obs", "funnel_drop_obs",
                    "contribution_shift_obs", "anomaly_detection_obs", "other_obs"):
         d[bucket] = [o.get("observation_id", "<no-id>") for o in d[bucket]]
     return d

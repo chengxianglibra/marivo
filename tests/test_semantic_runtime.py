@@ -187,7 +187,7 @@ class SemanticRuntimeTests(unittest.TestCase):
         context = runtime.planner_context(session["session_id"])
 
         self.assertEqual(context["session_id"], session["session_id"])
-        self.assertIn("compare_metric", context["available_step_types"])
+        self.assertIn("metric_query", context["available_step_types"])
         entity = next(entity for entity in context["entities"] if entity["name"] == "user")
         self.assertEqual(entity["level"], "user")
         self.assertEqual(entity["upstream_dependencies"], ["account"])

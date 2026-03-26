@@ -127,7 +127,7 @@ def _insert_observation(
             obs_id,
             session_id,
             "step_test",
-            "metric_change",
+            "metric_observation",
             json.dumps({"metric": metric, "slice": slice_dict or {}}),
             json.dumps({"delta_pct": delta_pct}),
             "{}",
@@ -228,7 +228,7 @@ class ReflectionContextUnitTests(unittest.TestCase):
     def test_available_step_types_all_present(self) -> None:
         session_id = self._new_session()
         ctx = build_reflection_context(self.store, session_id)
-        expected = {"compare_metric", "profile_table", "sample_rows", "aggregate_query", "attribute_change", "correlate_metrics", "synthesize_findings"}
+        expected = {"metric_query", "profile_table", "sample_rows", "aggregate_query", "attribute_change", "correlate_metrics", "synthesize_findings"}
         self.assertEqual(set(ctx["available_step_types"]), expected)
 
     # ── Test 17: scope-aware confounder — missing observed_window ──────────
@@ -342,7 +342,7 @@ class ReflectionContextUnitTests(unittest.TestCase):
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 0)
                 """,
                 [
-                    obs_id, session_id, "step_test2", "metric_change",
+                    obs_id, session_id, "step_test2", "metric_observation",
                     f'{{"metric": "query_count", "slice": {{"cluster": "{cluster}"}}}}',
                     '{"delta_pct": 10.0}', '{}', '{}',
                 ],
@@ -391,7 +391,7 @@ class ReflectionContextUnitTests(unittest.TestCase):
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 0)
                 """,
                 [
-                    obs_id, session_id, "step_test_ar", "metric_change",
+                    obs_id, session_id, "step_test_ar", "metric_observation",
                     f'{{"metric": "query_count", "slice": {{"cluster": "{cluster}"}}}}',
                     '{"delta_pct": 10.0}', '{}', '{}',
                 ],

@@ -16,7 +16,7 @@ from app.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 
-def _typed_compare_metric_params(**overrides: object) -> dict[str, object]:
+def _typed_metric_query_params(**overrides: object) -> dict[str, object]:
     params: dict[str, object] = {
         "table": "analytics.watch_events",
         "metric": "watch_time",
@@ -92,8 +92,8 @@ class AdvancedPlanValidationTests(unittest.TestCase):
             json={
                 "steps": [
                     {
-                        "step_type": "compare_metric",
-                        "params": _typed_compare_metric_params(metric="missing_metric"),
+                        "step_type": "metric_query",
+                        "params": _typed_metric_query_params(metric="missing_metric"),
                     }
                 ]
             },
@@ -132,8 +132,8 @@ class AdvancedPlanValidationTests(unittest.TestCase):
             json={
                 "steps": [
                     {
-                        "step_type": "compare_metric",
-                        "params": _typed_compare_metric_params(dimensions=["country"]),
+                        "step_type": "metric_query",
+                        "params": _typed_metric_query_params(dimensions=["country"]),
                     }
                 ]
             },
@@ -151,7 +151,7 @@ class AdvancedPlanValidationTests(unittest.TestCase):
         ).json()["session_id"]
         plan_id = self.client.post(
             f"/sessions/{session_id}/plans",
-            json={"steps": [{"step_type": "compare_metric", "params": _typed_compare_metric_params()}]},
+            json={"steps": [{"step_type": "metric_query", "params": _typed_metric_query_params()}]},
         ).json()["plan_id"]
 
         result = self.client.post(f"/sessions/{session_id}/plans/{plan_id}/validate").json()
@@ -160,15 +160,15 @@ class AdvancedPlanValidationTests(unittest.TestCase):
         self.assertIn("budget_rows_exceeded", [issue["code"] for issue in result["issues"]])
         self.assertGreater(result["cost_estimates"][0]["estimated_rows"], 0)
 
-    def test_validate_plan_rejects_legacy_compare_metric_params(self) -> None:
+    def test_validate_plan_rejects_legacy_metric_query_params(self) -> None:
         session_id = self.client.post("/sessions", json={"goal": "legacy contract"}).json()["session_id"]
         plan_id = self.client.post(
             f"/sessions/{session_id}/plans",
             json={
                 "steps": [
                     {
-                        "step_type": "compare_metric",
-                        "params": _typed_compare_metric_params(filter="platform = 'android'"),
+                        "step_type": "metric_query",
+                        "params": _typed_metric_query_params(filter="platform = 'android'"),
                     }
                 ]
             },
@@ -207,8 +207,8 @@ class AdvancedPlanValidationTests(unittest.TestCase):
             json={
                 "steps": [
                     {
-                        "step_type": "compare_metric",
-                        "params": _typed_compare_metric_params(
+                        "step_type": "metric_query",
+                        "params": _typed_metric_query_params(
                             scope={"predicate": "event_time >= TIMESTAMP '2026-03-01 00:00:00'"}
                         ),
                     }
@@ -249,8 +249,8 @@ class AdvancedPlanValidationTests(unittest.TestCase):
             json={
                 "steps": [
                     {
-                        "step_type": "compare_metric",
-                        "params": _typed_compare_metric_params(scope={"predicate": "platform = 'android'"}),
+                        "step_type": "metric_query",
+                        "params": _typed_metric_query_params(scope={"predicate": "platform = 'android'"}),
                     }
                 ]
             },
@@ -285,8 +285,8 @@ class AdvancedPlanValidationTests(unittest.TestCase):
             json={
                 "steps": [
                     {
-                        "step_type": "compare_metric",
-                        "params": _typed_compare_metric_params(scope={"predicate": "business_hour = 9 AND state_date = '2026-03-01'"}),
+                        "step_type": "metric_query",
+                        "params": _typed_metric_query_params(scope={"predicate": "business_hour = 9 AND state_date = '2026-03-01'"}),
                     }
                 ]
             },
@@ -324,7 +324,7 @@ class AdvancedPlanValidationTests(unittest.TestCase):
         )
 
         session = service.create_session("routing fallback validation", {}, {}, {})
-        plan = planning.draft_plan(session["session_id"], [{"step_type": "compare_metric", "params": _typed_compare_metric_params()}])
+        plan = planning.draft_plan(session["session_id"], [{"step_type": "metric_query", "params": _typed_metric_query_params()}])
         result = planning.validate_plan(plan["plan_id"])
 
         self.assertTrue(result["valid"])

@@ -27,7 +27,7 @@ def _metric_obs(
 ) -> dict:
     return {
         "observation_id": f"obs_{uuid4().hex[:12]}",
-        "type": "metric_change",
+        "type": "metric_observation",
         "subject": {"metric": metric, "slice": {"platform": platform}},
         "payload": {"delta_pct": delta_pct, "absolute_change": -1000},
         "significance": {"sample_size": sample_size, "practical_significance": practical},
@@ -43,7 +43,7 @@ def _current_window_metric_obs(
 ) -> dict:
     return {
         "observation_id": f"obs_{uuid4().hex[:12]}",
-        "type": "metric_change",
+        "type": "metric_observation",
         "subject": {"metric": metric, "slice": {"platform": platform}},
         "payload": {"current_value": current_value, "current_sessions": sample_size},
         "significance": {"sample_size": sample_size, "practical_significance": True},
@@ -109,7 +109,7 @@ class TestScopeClusterer(unittest.TestCase):
     def setUp(self):
         self.clusterer = ScopeClusterer()
 
-    def test_single_metric_change_obs_produces_one_cluster(self):
+    def test_single_metric_observation_obs_produces_one_cluster(self):
         obs = _metric_obs()
         clusters = self.clusterer.cluster([obs])
         self.assertEqual(len(clusters), 1)
@@ -146,7 +146,7 @@ class TestScopeClusterer(unittest.TestCase):
     def test_scope_key_is_deterministic(self):
         obs1 = {
             "observation_id": "obs_a",
-            "type": "metric_change",
+            "type": "metric_observation",
             "subject": {"metric": "revenue", "slice": {"b": "2", "a": "1"}},
             "payload": {"delta_pct": -5.0},
             "significance": {"sample_size": 50, "practical_significance": True},
@@ -154,7 +154,7 @@ class TestScopeClusterer(unittest.TestCase):
         }
         obs2 = {
             "observation_id": "obs_b",
-            "type": "metric_change",
+            "type": "metric_observation",
             "subject": {"metric": "revenue", "slice": {"a": "1", "b": "2"}},
             "payload": {"delta_pct": -3.0},
             "significance": {"sample_size": 50, "practical_significance": True},
@@ -168,7 +168,7 @@ class TestScopeClusterer(unittest.TestCase):
     def test_observation_without_stable_scope_is_dropped(self):
         obs = {
             "observation_id": "obs_bad_scope",
-            "type": "metric_change",
+            "type": "metric_observation",
             "subject": {"metric": "", "slice": None},
             "payload": {"delta_pct": -3.0},
             "significance": {"sample_size": 50, "practical_significance": True},
@@ -177,11 +177,11 @@ class TestScopeClusterer(unittest.TestCase):
         clusters = self.clusterer.cluster([obs])
         self.assertEqual(clusters, [])
 
-    def test_metric_change_without_delta_pct_is_clustered_as_other_observation(self):
+    def test_metric_observation_without_delta_pct_is_clustered_as_other_observation(self):
         obs = _current_window_metric_obs()
         clusters = self.clusterer.cluster([obs])
         self.assertEqual(len(clusters), 1)
-        self.assertEqual(clusters[0].metric_change_obs, [])
+        self.assertEqual(clusters[0].metric_observation_obs, [])
         self.assertEqual(len(clusters[0].other_obs), 1)
 
 
@@ -268,7 +268,7 @@ class TestClaimFormulator(unittest.TestCase):
         clusters = self.clusterer.cluster(list(obs_list))
         return self.aligner.align(clusters[0])
 
-    def test_metric_change_produces_root_cause_candidate(self):
+    def test_metric_observation_produces_root_cause_candidate(self):
         signal = self._signal_for(_metric_obs())
         formulation = self.formulator.formulate(signal)
         self.assertEqual(formulation.claim["type"], "root_cause_candidate")
@@ -280,7 +280,7 @@ class TestClaimFormulator(unittest.TestCase):
         self.assertEqual(formulation.claim["type"], "finding")
         self.assertEqual(formulation.claim_type_decision, "finding")
 
-    def test_current_window_metric_change_produces_finding_without_direction_metadata(self):
+    def test_current_window_metric_observation_produces_finding_without_direction_metadata(self):
         signal = self._signal_for(_current_window_metric_obs(current_value=91.5))
         formulation = self.formulator.formulate(signal)
         self.assertEqual(formulation.claim["type"], "finding")
@@ -441,11 +441,11 @@ class TestAuditLogPersistence(unittest.TestCase):
             session = svc.create_session("test_mode_b", {}, {}, {})
             session_id = session["session_id"]
 
-            # Insert a metric_change observation using service helpers
+            # Insert a metric_observation observation using service helpers
             obs = _metric_obs()
             obs["temporal_order"] = 0
             step_id = f"step_{uuid4().hex[:12]}"
-            svc._insert_step(step_id, session_id, "compare_metric", "test step", {})
+            svc._insert_step(step_id, session_id, "metric_query", "test step", {})
             svc._insert_observation(session_id, step_id, obs)
 
             # Run synthesize_findings with no tentative claims.
@@ -465,7 +465,7 @@ class TestAuditLogPersistence(unittest.TestCase):
         pipeline = ThreeStagePipeline()
         bad_obs = {
             "observation_id": "obs_bad_scope",
-            "type": "metric_change",
+            "type": "metric_observation",
             "subject": {"metric": "", "slice": None},
             "payload": {"delta_pct": -3.0},
             "significance": {"sample_size": 50, "practical_significance": True},
@@ -485,11 +485,11 @@ class TestAuditLogPersistence(unittest.TestCase):
             session = svc.create_session("test_mode_a", {}, {}, {})
             session_id = session["session_id"]
 
-            # Insert a metric_change observation using service helpers
+            # Insert a metric_observation observation using service helpers
             obs = _metric_obs()
             obs["temporal_order"] = 0
             step_id_obs = f"step_{uuid4().hex[:12]}"
-            svc._insert_step(step_id_obs, session_id, "compare_metric", "test step", {})
+            svc._insert_step(step_id_obs, session_id, "metric_query", "test step", {})
             svc._insert_observation(session_id, step_id_obs, obs)
 
             # Insert a tentative claim
