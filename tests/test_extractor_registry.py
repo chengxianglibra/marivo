@@ -8,7 +8,7 @@ from app.evidence_engine.contract import ExtractorContract
 from app.evidence_engine.extractors.aggregate import AggregateRowExtractor
 from app.evidence_engine.extractors.anomaly import AnomalyExtractor
 from app.evidence_engine.extractors.base import ObservationExtractor
-from app.evidence_engine.extractors.comparison import ComparisonRowExtractor
+from app.evidence_engine.extractors import MetricObservationExtractor
 from app.evidence_engine.extractors.contribution_shift import ContributionShiftExtractor
 from app.evidence_engine.extractors.funnel import FunnelExtractor
 from app.evidence_engine.registry import ExtractorRegistry, _default_registry
@@ -17,21 +17,21 @@ from app.evidence_engine.registry import ExtractorRegistry, _default_registry
 class ExtractorRegistryTests(unittest.TestCase):
     def setUp(self) -> None:
         self.registry = ExtractorRegistry()
-        self.registry.register(ComparisonRowExtractor())
+        self.registry.register(MetricObservationExtractor())
         self.registry.register(AggregateRowExtractor())
 
     def test_register_and_get(self) -> None:
-        extractor = self.registry.get("comparison_rows")
-        self.assertIsInstance(extractor, ComparisonRowExtractor)
+        extractor = self.registry.get("metric_rows")
+        self.assertIsInstance(extractor, MetricObservationExtractor)
 
     def test_get_unknown_raises_key_error(self) -> None:
         with self.assertRaises(KeyError):
             self.registry.get("nonexistent_extractor")
 
     def test_find_for_artifact_type(self) -> None:
-        results = self.registry.find_for_artifact("comparison_rows")
+        results = self.registry.find_for_artifact("metric_rows")
         self.assertEqual(len(results), 1)
-        self.assertIsInstance(results[0], ComparisonRowExtractor)
+        self.assertIsInstance(results[0], MetricObservationExtractor)
 
     def test_find_for_artifact_no_match(self) -> None:
         results = self.registry.find_for_artifact("unknown_type")
@@ -41,7 +41,7 @@ class ExtractorRegistryTests(unittest.TestCase):
         items = self.registry.list_all()
         self.assertEqual(len(items), 2)
         names = {item["name"] for item in items}
-        self.assertIn("comparison_rows", names)
+        self.assertIn("metric_rows", names)
         self.assertIn("aggregate_rows", names)
 
     def test_list_all_has_required_keys(self) -> None:
@@ -62,7 +62,7 @@ class ExtractorRegistryTests(unittest.TestCase):
         items = _default_registry.list_all()
         self.assertEqual(len(items), 6)
         names = {item["name"] for item in items}
-        self.assertIn("comparison_rows", names)
+        self.assertIn("metric_rows", names)
         self.assertIn("aggregate_rows", names)
         self.assertIn("funnel_rows", names)
         self.assertIn("anomaly_rows", names)
@@ -287,7 +287,7 @@ class ExtractorContractInheritanceTests(unittest.TestCase):
             self.assertTrue(issubclass(cls, ObservationExtractor))
 
     def test_existing_extractors_upgraded_to_contract(self) -> None:
-        for cls in (ComparisonRowExtractor, AggregateRowExtractor):
+        for cls in (MetricObservationExtractor, AggregateRowExtractor):
             self.assertTrue(issubclass(cls, ExtractorContract))
 
     def test_pipeline_uses_default_registry(self) -> None:
@@ -296,7 +296,7 @@ class ExtractorContractInheritanceTests(unittest.TestCase):
 
         pipeline = EvidencePipeline(DefaultClaimSynthesizer())
         # All 5 extractors from default registry should be available
-        for name in ("comparison_rows", "aggregate_rows", "funnel_rows", "anomaly_rows",
+        for name in ("metric_rows", "aggregate_rows", "funnel_rows", "anomaly_rows",
                      "contribution_shift_rows"):
             self.assertIn(name, pipeline._extractors)
 

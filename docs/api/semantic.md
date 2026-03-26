@@ -1,6 +1,6 @@
 # Semantic Layer
 
-The semantic layer provides a catalog of named entities, metrics, and mappings that agents and analysts use instead of raw table names and SQL. Metrics are defined once with a SQL expression, linked to physical tables via mappings, and then referenced by name in `compare_metric` steps.
+The semantic layer provides a catalog of named entities, metrics, and mappings that agents and analysts use instead of raw table names and SQL. Metrics are defined once with a SQL expression, linked to physical tables via mappings, and then referenced by name in `metric_query` steps.
 
 All semantic objects follow the lifecycle: `draft` → `published` → `deprecated`. Only `published` objects are available for step execution. Publishing increments the object's `revision`.
 
@@ -157,7 +157,7 @@ Request body: same fields as Create Entity (all optional).
 POST /semantic/entities/{entity_id}/publish
 ```
 
-Transitions the entity to `published`. Increments `revision`. Once published, the entity is available for use in metrics and `compare_metric` steps.
+Transitions the entity to `published`. Increments `revision`. Once published, the entity is available for use in metrics and `metric_query` steps.
 
 **Response:** Entity object with `status: "published"` and incremented `revision`.
 
@@ -165,7 +165,7 @@ Transitions the entity to `published`. Increments `revision`. Once published, th
 
 ## Metrics
 
-A **metric** is a named, reusable aggregation expression with a SQL definition, associated dimensions, and an optional entity. Published metrics are referenced by name in `compare_metric` steps.
+A **metric** is a named, reusable aggregation expression with a SQL definition, associated dimensions, and an optional entity. Published metrics are referenced by name in `metric_query` steps.
 
 ### Create Metric
 
@@ -431,7 +431,7 @@ Returns a structured context object designed for LLM-based planners. Includes th
   ],
   "available_entities": [...],
   "available_step_types": [
-    "compare_metric",
+    "metric_query",
     "profile_table",
     "sample_rows",
     "aggregate_query",

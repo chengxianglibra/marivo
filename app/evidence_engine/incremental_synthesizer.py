@@ -1,6 +1,6 @@
 """IncrementalSynthesizer: maintains tentative claims as observations accumulate.
 
-Incremental synthesis runs after every primitive step (compare_metric,
+Incremental synthesis runs after every primitive step (metric_query,
 aggregate_query, profile_table, sample_rows).  It creates or updates *tentative*
 claims so agents can inspect intermediate conclusions before
 ``synthesize_findings`` is called.  ``synthesize_findings`` promotes tentative
@@ -180,7 +180,7 @@ class IncrementalSynthesizer:
         if delta_pct is not None:
             direction = "increased" if float(delta_pct) > 0 else "declined"
             text = f"{metric} {direction} {abs(float(delta_pct)):.1f}% for {slice_str} (tentative)"
-        elif obs.get("type") == "metric_change":
+        elif obs.get("type") == "metric_observation":
             claim_type = "finding"
             current_value = payload.get("current_value")
             if isinstance(current_value, (int, float)):

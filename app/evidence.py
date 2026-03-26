@@ -22,19 +22,19 @@ def synthesize_claims(
     metric_observations = [
         obs
         for obs in observations
-        if obs["type"] == "metric_change" and obs.get("payload", {}).get("delta_pct") is not None
+        if obs["type"] == "metric_observation" and obs.get("payload", {}).get("delta_pct") is not None
     ]
     metric_window_observations = [
         obs
         for obs in observations
-        if obs["type"] == "metric_change" and obs.get("payload", {}).get("delta_pct") is None
+        if obs["type"] == "metric_observation" and obs.get("payload", {}).get("delta_pct") is None
     ]
     funnel_observations = [obs for obs in observations if obs["type"] == "funnel_drop"]
     contribution_observations = [obs for obs in observations if obs["type"] == "contribution_shift"]
     anomaly_observations = [obs for obs in observations if obs["type"] == "anomaly_detection"]
 
     if not metric_observations:
-        # No metric_change observations — try to synthesize from other types
+        # No delta-bearing metric_observation rows — try to synthesize from other types
         all_typed = metric_window_observations + funnel_observations + contribution_observations + anomaly_observations
         if not all_typed:
             return [], [], []
@@ -51,7 +51,7 @@ def synthesize_claims(
     consistency_factors = [1.0]
     contradiction_penalty = 0.0
 
-    # Incorporate additional metric_change observations that match the impacted slice
+    # Incorporate additional metric_observation rows that match the impacted slice
     for obs in metric_observations:
         if obs is primary_metric:
             continue
@@ -151,7 +151,7 @@ def _synthesize_non_metric_claims(
     contribution_observations: list[dict[str, Any]],
     anomaly_observations: list[dict[str, Any]],
 ) -> tuple[list[Claim], list[Recommendation], list[dict[str, Any]]]:
-    """Synthesize claims when only non-metric_change observations are present."""
+    """Synthesize claims when only non-delta metric observations are present."""
 
     # Pick the most significant observation as primary
     primary = max(all_observations, key=lambda o: o["significance"]["sample_size"])
@@ -170,7 +170,7 @@ def _synthesize_non_metric_claims(
     elif obs_type == "anomaly_detection":
         z_score = primary["payload"].get("z_score", 0)
         text = f"Statistical anomaly detected (z-score: {z_score}) indicating abnormal behavior."
-    elif obs_type == "metric_change":
+    elif obs_type == "metric_observation":
         current_value = primary["payload"].get("current_value")
         if impacted_slice:
             slice_label = " / ".join(f"{k}={v}" for k, v in impacted_slice.items())

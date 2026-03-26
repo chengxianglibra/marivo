@@ -40,11 +40,11 @@ class MetricsCollectorTests(unittest.TestCase):
 
     def test_record_step(self) -> None:
         mc = MetricsCollector()
-        mc.record_step("compare_metric", 150.0, engine="duckdb", stage="executor")
-        mc.record_step("compare_metric", 200.0)
+        mc.record_step("metric_query", 150.0, engine="duckdb", stage="executor")
+        mc.record_step("metric_query", 200.0)
         snap = mc.snapshot()
-        self.assertEqual(snap["step_count"]["compare_metric"], 2)
-        self.assertEqual(len(snap["step_duration_ms"]["compare_metric"]), 2)
+        self.assertEqual(snap["step_count"]["metric_query"], 2)
+        self.assertEqual(len(snap["step_duration_ms"]["metric_query"]), 2)
         self.assertIn("step_dimension_count", snap)
         self.assertTrue(any("engine=duckdb" in key for key in snap["step_dimension_count"]))
 

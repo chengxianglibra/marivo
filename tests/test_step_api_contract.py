@@ -7,7 +7,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from app.api.models import AggregateQueryStep
-from app.api.models import CompareMetricStep
+from app.api.models import MetricQueryStep
 from app.api.models import TimeScope
 from app.main import create_app
 from tests.shared_fixtures import get_seeded_duckdb_path
@@ -49,8 +49,8 @@ class TimeScopeModelTests(unittest.TestCase):
 
 
 class StepModelTests(unittest.TestCase):
-    def test_compare_metric_accepts_rfc_shape(self) -> None:
-        payload = CompareMetricStep.model_validate({
+    def test_metric_query_accepts_rfc_shape(self) -> None:
+        payload = MetricQueryStep.model_validate({
             "table": "iceberg.analytics.watch_events",
             "metric": "avg_watch_time_minutes",
             "dimensions": ["device_type"],
@@ -123,7 +123,7 @@ class TypedStepRouteTests(unittest.TestCase):
     def setUp(self) -> None:
         self.session_id = self.client.post("/sessions", json={"goal": "TSU-01 contract test"}).json()["session_id"]
 
-    def test_compare_metric_route_uses_typed_body_schema(self) -> None:
+    def test_metric_query_route_uses_typed_body_schema(self) -> None:
         captured: dict[str, object] = {}
 
         def fake_run_step(session_id: str, step_type: str, params: dict[str, object] | None = None) -> dict[str, object]:
@@ -136,7 +136,7 @@ class TypedStepRouteTests(unittest.TestCase):
         self.app.state.service.run_step = fake_run_step
         try:
             response = self.client.post(
-                f"/sessions/{self.session_id}/steps/compare_metric",
+                f"/sessions/{self.session_id}/steps/metric_query",
                 json={
                     "table": "analytics.watch_events",
                     "metric": "watch_time",
@@ -152,7 +152,7 @@ class TypedStepRouteTests(unittest.TestCase):
             self.app.state.service.run_step = original
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(captured["step_type"], "compare_metric")
+        self.assertEqual(captured["step_type"], "metric_query")
         self.assertEqual(captured["params"], {
             "table": "analytics.watch_events",
             "metric": "watch_time",
@@ -164,9 +164,9 @@ class TypedStepRouteTests(unittest.TestCase):
             "limit": 20,
         })
 
-    def test_compare_metric_route_rejects_invalid_time_scope_before_service(self) -> None:
+    def test_metric_query_route_rejects_invalid_time_scope_before_service(self) -> None:
         response = self.client.post(
-            f"/sessions/{self.session_id}/steps/compare_metric",
+            f"/sessions/{self.session_id}/steps/metric_query",
             json={
                 "table": "analytics.watch_events",
                 "metric": "watch_time",
@@ -179,7 +179,7 @@ class TypedStepRouteTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 422)
 
-    def test_compare_metric_route_accepts_single_window_response_contract(self) -> None:
+    def test_metric_query_route_accepts_single_window_response_contract(self) -> None:
         original = self.app.state.service.run_step
         self.app.state.service.run_step = lambda session_id, step_type, params=None: {
             "step_type": step_type,
@@ -188,7 +188,7 @@ class TypedStepRouteTests(unittest.TestCase):
             "observations": [
                 {
                     "observation_id": "obs_single_window",
-                    "type": "metric_change",
+                    "type": "metric_observation",
                     "subject": {"metric": "watch_time", "slice": {"platform": "android"}},
                     "payload": {"current_value": 12.5, "current_sessions": 320},
                     "significance": {},
@@ -204,7 +204,7 @@ class TypedStepRouteTests(unittest.TestCase):
         }
         try:
             response = self.client.post(
-                f"/sessions/{self.session_id}/steps/compare_metric",
+                f"/sessions/{self.session_id}/steps/metric_query",
                 json={
                     "table": "analytics.watch_events",
                     "metric": "watch_time",
@@ -220,7 +220,7 @@ class TypedStepRouteTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         body = response.json()
-        self.assertEqual(body["step_type"], "compare_metric")
+        self.assertEqual(body["step_type"], "metric_query")
         self.assertIn("summary", body)
         self.assertEqual(
             body["observations"][0]["payload"],
@@ -233,12 +233,12 @@ class TypedStepRouteTests(unittest.TestCase):
 
     def test_openapi_exposes_specialized_request_bodies(self) -> None:
         schema = self.client.get("/openapi.json").json()
-        compare_path = schema["paths"]["/sessions/{session_id}/steps/compare_metric"]["post"]
+        compare_path = schema["paths"]["/sessions/{session_id}/steps/metric_query"]["post"]
         aggregate_path = schema["paths"]["/sessions/{session_id}/steps/aggregate_query"]["post"]
-        self.assertIn("CompareMetricStep", compare_path["requestBody"]["content"]["application/json"]["schema"]["$ref"])
+        self.assertIn("MetricQueryStep", compare_path["requestBody"]["content"]["application/json"]["schema"]["$ref"])
         self.assertIn("AggregateQueryStep", aggregate_path["requestBody"]["content"]["application/json"]["schema"]["$ref"])
 
-    def test_openapi_compare_metric_time_scope_documents_single_window_mode(self) -> None:
+    def test_openapi_metric_query_time_scope_documents_single_window_mode(self) -> None:
         schema = self.client.get("/openapi.json").json()
         time_scope = schema["components"]["schemas"]["TimeScope"]
         self.assertIn("single_window", time_scope["properties"]["mode"]["description"])

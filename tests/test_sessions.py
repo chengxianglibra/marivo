@@ -19,7 +19,7 @@ def _compare_scope() -> dict[str, object]:
     }
 
 
-def _compare_metric_payload(metric: str) -> dict[str, object]:
+def _metric_query_payload(metric: str) -> dict[str, object]:
     return {
         "table": "analytics.watch_events",
         "metric": metric,
@@ -61,7 +61,7 @@ class SessionAPITests(unittest.TestCase):
             json={"goal": "Investigate watch time drop and recommend fixes."},
         ).json()["session_id"]
 
-        # Seed a published metric for compare_metric
+        # Seed a published metric for metric_query
         entity_resp = self.client.post("/semantic/entities", json={
             "name": "session_mvp",
             "display_name": "Session",
@@ -80,8 +80,8 @@ class SessionAPITests(unittest.TestCase):
         self.client.post(f"/semantic/metrics/{metric_id}/publish")
 
         self.client.post(
-            f"/sessions/{session_id}/steps/compare_metric",
-            json=_compare_metric_payload("watch_time_mvp"),
+            f"/sessions/{session_id}/steps/metric_query",
+            json=_metric_query_payload("watch_time_mvp"),
         )
         self.client.post(f"/sessions/{session_id}/steps/synthesize_findings")
 
@@ -155,8 +155,8 @@ class SessionAPITests(unittest.TestCase):
         self.client.post(f"/semantic/metrics/{metric_id}/publish")
 
         self.client.post(
-            f"/sessions/{session_id}/steps/compare_metric",
-            json=_compare_metric_payload("watch_time_debug_metric"),
+            f"/sessions/{session_id}/steps/metric_query",
+            json=_metric_query_payload("watch_time_debug_metric"),
         )
         self.client.post(f"/sessions/{session_id}/steps/synthesize_findings")
 
@@ -195,8 +195,8 @@ class SessionAPITests(unittest.TestCase):
         self.client.post(f"/semantic/metrics/{metric_id}/publish")
 
         self.client.post(
-            f"/sessions/{session_id}/steps/compare_metric",
-            json=_compare_metric_payload("watch_time_tentative_metric"),
+            f"/sessions/{session_id}/steps/metric_query",
+            json=_metric_query_payload("watch_time_tentative_metric"),
         )
 
         resp = self.client.get(f"/sessions/{session_id}/evidence?claims_only=confirmed")
@@ -229,8 +229,8 @@ class SessionAPITests(unittest.TestCase):
         self.client.post(f"/semantic/metrics/{metric_id}/publish")
 
         self.client.post(
-            f"/sessions/{session_id}/steps/compare_metric",
-            json=_compare_metric_payload("watch_time_edge_filter_metric"),
+            f"/sessions/{session_id}/steps/metric_query",
+            json=_metric_query_payload("watch_time_edge_filter_metric"),
         )
         self.client.post(f"/sessions/{session_id}/steps/synthesize_findings")
 
@@ -262,8 +262,8 @@ class SessionAPITests(unittest.TestCase):
         self.client.post(f"/semantic/metrics/{metric_id}/publish")
 
         self.client.post(
-            f"/sessions/{session_id}/steps/compare_metric",
-            json=_compare_metric_payload("watch_time_include_debug_metric"),
+            f"/sessions/{session_id}/steps/metric_query",
+            json=_metric_query_payload("watch_time_include_debug_metric"),
         )
         self.client.post(f"/sessions/{session_id}/steps/synthesize_findings")
 
@@ -296,8 +296,8 @@ class SessionAPITests(unittest.TestCase):
         self.client.post(f"/semantic/metrics/{metric_id}/publish")
 
         self.client.post(
-            f"/sessions/{session_id}/steps/compare_metric",
-            json=_compare_metric_payload("watch_time_filtered_debug_metric"),
+            f"/sessions/{session_id}/steps/metric_query",
+            json=_metric_query_payload("watch_time_filtered_debug_metric"),
         )
         self.client.post(f"/sessions/{session_id}/steps/synthesize_findings")
 

@@ -143,7 +143,7 @@ def _require_scoped_query_mode(scoped_query: Mapping[str, Any]) -> str:
     return mode
 
 
-def _normalize_compare_metric_order(order: str, *, mode: str) -> tuple[str, str]:
+def _normalize_metric_query_order(order: str, *, mode: str) -> tuple[str, str]:
     normalized_mode = str(mode or "").strip().lower()
     normalized = str(order or "").strip().upper()
     if normalized_mode == "compare":
@@ -152,18 +152,18 @@ def _normalize_compare_metric_order(order: str, *, mode: str) -> tuple[str, str]
         if normalized in {"DELTA_PCT ASC", "DELTA_PCT DESC"}:
             field, direction = normalized.split()
             return (field.lower(), direction)
-        raise ValueError(f"Invalid compare_metric compare order '{order}'; must be delta_pct ASC or DESC")
+        raise ValueError(f"Invalid metric_query compare order '{order}'; must be delta_pct ASC or DESC")
     if normalized_mode == "single_window":
         if normalized in {"CURRENT_VALUE ASC", "CURRENT_VALUE DESC", "CURRENT_SESSIONS ASC", "CURRENT_SESSIONS DESC"}:
             field, direction = normalized.split()
             return (field.lower(), direction)
         raise ValueError(
-            f"Invalid compare_metric single_window order '{order}'; must be current_value/current_sessions ASC or DESC"
+            f"Invalid metric_query single_window order '{order}'; must be current_value/current_sessions ASC or DESC"
         )
-    raise ValueError("compare_metric order mode must be 'compare' or 'single_window'")
+    raise ValueError("metric_query order mode must be 'compare' or 'single_window'")
 
 
-def build_comparison_query(
+def build_metric_query(
     metric_name: str,
     table_name: str,
     metric_sql: str,
@@ -174,7 +174,7 @@ def build_comparison_query(
     filter_expr: str | None = None,
     scoped_query: Mapping[str, Any] | None = None,
 ) -> str:
-    """Build compare_metric SQL for compare and single-window semantic metric queries.
+    """Build metric_query SQL for compare and single-window semantic metric queries.
 
     When *dimensions* is empty, an aggregate-only query is produced
     (no GROUP BY on dimensions). ``scoped_query.mode == 'compare'`` emits
@@ -199,7 +199,7 @@ def build_comparison_query(
         effective_order = order
         if not str(effective_order or "").strip():
             effective_order = "CURRENT_VALUE DESC" if mode == "single_window" else "DELTA_PCT ASC"
-        order_field, order_direction = _normalize_compare_metric_order(effective_order, mode=mode)
+        order_field, order_direction = _normalize_metric_query_order(effective_order, mode=mode)
         if mode == "single_window":
             scoped = _build_scoped_query_parts(table_name, scoped_query, include_period=False)
             group_clause = f"GROUP BY {', '.join(dimensions)}" if dimensions else ""
@@ -250,7 +250,7 @@ def build_comparison_query(
             LIMIT {limit}
         """
 
-    legacy_order_field, legacy_order_direction = _normalize_compare_metric_order(order, mode="compare")
+    legacy_order_field, legacy_order_direction = _normalize_metric_query_order(order, mode="compare")
     filter_clause = f" AND {filter_expr}" if filter_expr else ""
 
     return f"""
@@ -445,10 +445,10 @@ def build_aggregate_comparison_query(
 ) -> str:
     """Build a current-vs-baseline comparison query for ad-hoc aggregate steps.
 
-    Mirrors ``build_comparison_query`` but driven by user-supplied ``select``
+    Mirrors ``build_metric_query`` but driven by user-supplied ``select``
     and ``group_by`` instead of a registered semantic metric.
 
-    SQL ``?`` placeholder order (6 params, same as build_comparison_query):
+    SQL ``?`` placeholder order (6 params, same as build_metric_query):
         current_start, current_end,   (CASE WHEN … THEN 'current')
         baseline_start, baseline_end, (CASE WHEN … THEN 'baseline')
         baseline_start, current_end   (outer WHERE range)
@@ -641,10 +641,10 @@ def compile_step(
             metadata={**metadata, "table_name": table_name, "column_name": column_name},
         )
 
-    if step.step_type == "compare_metric":
+    if step.step_type == "metric_query":
         table_name = step.table_name()
         if table_name is None:
-            raise ValueError("compare_metric requires 'table' or 'table_name' param")
+            raise ValueError("metric_query requires 'table' or 'table_name' param")
         metric_name = (
             step.primary_metric_name()
             or params.get("metric")
@@ -653,7 +653,7 @@ def compile_step(
         metric_sql = semantic_context.get("metric_sql")
         dimensions = semantic_context.get("dimensions")
         if metric_sql is None or dimensions is None:
-            raise ValueError("compare_metric compilation requires semantic_context with 'metric_sql' and 'dimensions'")
+            raise ValueError("metric_query compilation requires semantic_context with 'metric_sql' and 'dimensions'")
         limit = int(params.get("limit", 10))
         order_param = params.get("order")
         scoped_query = params.get("scoped_query")
@@ -662,8 +662,8 @@ def compile_step(
             mode = _require_scoped_query_mode(scoped_query)
         default_order = "CURRENT_VALUE DESC" if mode == "single_window" else "DELTA_PCT ASC"
         order = str(order_param or default_order).upper()
-        _normalize_compare_metric_order(order, mode=mode)
-        sql = build_comparison_query(
+        _normalize_metric_query_order(order, mode=mode)
+        sql = build_metric_query(
             metric_name=metric_name,
             table_name=table_name,
             metric_sql=str(metric_sql),

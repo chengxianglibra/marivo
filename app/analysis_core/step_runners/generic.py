@@ -10,8 +10,8 @@ if TYPE_CHECKING:
 
 def register(registry: StepRunnerRegistry, service: "SemanticLayerService") -> None:
     registry.register(
-        "compare_metric",
-        lambda session_id, params=None: service._run_compare_metric(session_id, _normalize_params(params)),
+        "metric_query",
+        lambda session_id, params=None: service._run_metric_query(session_id, _normalize_params(params)),
     )
     registry.register(
         "profile_table",

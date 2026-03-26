@@ -138,11 +138,11 @@ claim's metric name and extracts their `delta_pct` value from the observation pa
 
 ### Step recipe
 
-Run `compare_metric` or `aggregate_query` to produce observations for the same metric
+Run `metric_query` or `aggregate_query` to produce observations for the same metric
 across multiple slice values or multiple time periods. Observations are attributed to the
 same claim when they share the same `scope.metric`.
 
-Example: run `compare_metric` for `failure_rate` on clusters `k8sbi-bi1` and `k8sbi-bi2`
+Example: run `metric_query` for `failure_rate` on clusters `k8sbi-bi1` and `k8sbi-bi2`
 separately. Each produces observations carrying `delta_pct`. If both show the same
 direction, the 2/2 = 100% > 80% threshold triggers L1 promotion.
 
@@ -231,9 +231,9 @@ Both sets are attributed to the same claim (same metric + compatible slice). The
 sees: earliest window ends 2026-02-14, latest window starts 2026-03-01 — strict
 non-overlap → L2 fires. A `temporally_precedes` edge is written to the graph.
 
-**Pattern B — two `compare_metric` steps with different `time_scope.current` windows:**
+**Pattern B — two `metric_query` steps with different `time_scope.current` windows:**
 
-`compare_metric` populates `observed_window` from `time_scope.current`. Running the
+`metric_query` populates `observed_window` from `time_scope.current`. Running the
 step twice for non-overlapping current windows has the same effect as Pattern A. The
 baseline window remains part of the comparison payload/debug context; it is not emitted
 as a second observation window.
@@ -319,7 +319,7 @@ observations, the token is added automatically.
 
 | Step type | Produces observations? | `observed_window` populated? | Contributes to L0→L1 | Contributes to L1→L2 |
 |-----------|------------------------|------------------------------|----------------------|----------------------|
-| `compare_metric` | Yes (`comparison_row`) | Yes (from typed `time_scope`) | Yes | Yes — run for two non-overlapping periods |
+| `metric_query` | Yes (`metric_observation`) | Yes (from typed `time_scope`) | Yes | Yes — run for two non-overlapping periods |
 | `aggregate_query` | Yes (`aggregate_row`) | Yes (request `time_scope`, optionally refined by temporal `group_by`) | Yes | Yes — run for two non-overlapping periods |
 | `correlate_metrics` | Yes (`correlation_result`) | Yes (union of series date range) | Indirect | Via DoseResponse bonus at L1+ |
 | `profile_table` | Yes (`profile_row`) | No | Limited | No |
@@ -472,6 +472,6 @@ recommendations backed by the accumulated causal evidence.
 | Claim stays at L0 | Fewer than 2 observations with `delta_pct` | Run more slices, or use `aggregate_query` to produce more than one row |
 | Claim stays at L0 despite many observations | < 80% of observations share the same `delta_pct` sign | Investigate contradictions first; filter to a cleaner slice dimension |
 | Claim stays at L1 | `observed_window` is null on all supporting observations | Run `aggregate_query` with a typed `time_scope`; add temporal `group_by` if you need per-bucket windows |
-| Claim stays at L1 | Baseline and current observations cover overlapping date ranges | Ensure the two `aggregate_query` or `compare_metric` steps use strictly non-overlapping periods |
+| Claim stays at L1 | Baseline and current observations cover overlapping date ranges | Ensure the two `aggregate_query` or `metric_query` steps use strictly non-overlapping periods |
 | DoseResponse bonus missing | `correlate_metrics` metric labels do not match the claim's `scope.metric` | Set `left_metric` / `right_metric` to match the claim metric name exactly |
 | No `temporally_precedes` edge in graph | Claim was promoted before the causal edge persistence path ran | Run one more primitive step to trigger re-synthesis, or call `synthesize_findings` |

@@ -16,7 +16,7 @@ from app.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 
-def _compare_metric_payload(metric: str) -> dict[str, object]:
+def _metric_query_payload(metric: str) -> dict[str, object]:
     return {
         "table": "analytics.watch_events",
         "metric": metric,
@@ -44,7 +44,7 @@ class ApprovalServiceTests(unittest.TestCase):
         cls.analytics.initialize()
         cls.service = SemanticLayerService(cls.metadata, cls.analytics)
         cls.approval = ApprovalService(cls.metadata)
-        # Seed a published metric for compare_metric
+        # Seed a published metric for metric_query
         from app.semantic import SemanticService
         semantic = SemanticService(cls.metadata)
         entity = semantic.create_entity("session_approval", "Session", ["session_id"])
@@ -59,8 +59,8 @@ class ApprovalServiceTests(unittest.TestCase):
         session = cls.service.create_session("Approval test", {}, {}, {})
         cls.session_id = session["session_id"]
         cls.service.run_step(
-            cls.session_id, "compare_metric",
-            _compare_metric_payload("watch_time_approval"),
+            cls.session_id, "metric_query",
+            _metric_query_payload("watch_time_approval"),
         )
         cls.service.run_step(cls.session_id, "synthesize_findings")
         # Get recommendation IDs
@@ -125,8 +125,8 @@ class ApprovalServiceTests(unittest.TestCase):
         # Create a fresh session with steps that produce recommendations
         session = self.service.create_session("Auto-flag test", {}, {}, {})
         self.service.run_step(
-            session["session_id"], "compare_metric",
-            _compare_metric_payload("watch_time_approval"),
+            session["session_id"], "metric_query",
+            _metric_query_payload("watch_time_approval"),
         )
         self.service.run_step(session["session_id"], "synthesize_findings")
         flagged = self.approval.auto_flag_recommendations(session["session_id"], risk_threshold="P1")
@@ -174,7 +174,7 @@ class ApprovalAPITests(unittest.TestCase):
         db_path = Path(cls.temp_dir.name) / "approval_api.duckdb"
         get_seeded_duckdb_path(db_path)
         cls.client = TestClient(create_app(db_path))
-        # Seed a published metric for compare_metric
+        # Seed a published metric for metric_query
         entity_resp = cls.client.post("/semantic/entities", json={
             "name": "session_approval_api",
             "display_name": "Session",
@@ -195,7 +195,7 @@ class ApprovalAPITests(unittest.TestCase):
         resp = cls.client.post("/sessions", json={"goal": "Approval API test"})
         cls.session_id = resp.json()["session_id"]
         cls.client.post(
-            f"/sessions/{cls.session_id}/steps/compare_metric",
+            f"/sessions/{cls.session_id}/steps/metric_query",
             json={
                 "table": "analytics.watch_events",
                 "metric": "watch_time_approval_api",

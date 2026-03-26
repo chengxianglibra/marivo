@@ -11,7 +11,7 @@ class ScopeCluster:
     scope_key: str                          # "<metric>/<k=v,...>" canonical key
     metric: str
     slice_dict: dict[str, Any]
-    metric_change_obs: list[dict[str, Any]]
+    metric_observation_obs: list[dict[str, Any]]
     funnel_drop_obs: list[dict[str, Any]]
     contribution_shift_obs: list[dict[str, Any]]
     anomaly_detection_obs: list[dict[str, Any]]

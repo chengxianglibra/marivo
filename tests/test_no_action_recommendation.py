@@ -14,7 +14,7 @@ from app.evidence_engine.schemas import REC_TYPE_ACTION, REC_TYPE_NO_ACTION
 def _obs(obs_id: str, metric: str, delta_pct: float) -> dict:
     return {
         "observation_id": obs_id,
-        "type": "metric_change",
+        "type": "metric_observation",
         "subject": {"metric": metric, "slice": {}},
         "payload": {"delta_pct": delta_pct, "current_value": 100},
         "significance": {"practical_significance": True},

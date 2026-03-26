@@ -234,7 +234,7 @@ const $$ = (sel, ctx = document) => [...ctx.querySelectorAll(sel)];
 function parseJSON(s, fallback) { try { return JSON.parse(s); } catch { return fallback; } }
 
 const STEP_PARAM_TEMPLATES = {
-  compare_metric: {
+  metric_query: {
     table: "analytics.watch_events",
     metric: "watch_time",
     dimensions: ["platform"],
@@ -278,7 +278,7 @@ const STEP_PARAM_TEMPLATES = {
 };
 
 const STEP_PARAM_HINTS = {
-  compare_metric: "Use only typed fields: `table`, `metric`, `dimensions`, `time_scope`, optional `scope`/`time_axis`/`order`/`limit`. `time_scope.mode` supports `single_window` or `compare`; use `current_value/current_sessions` ordering for `single_window`, `delta_pct` ordering for `compare`. Compare example: `{\"time_scope\":{\"mode\":\"compare\",\"grain\":\"day\",\"current\":{\"start\":\"2026-03-10\",\"end\":\"2026-03-17\"},\"baseline\":{\"start\":\"2026-03-03\",\"end\":\"2026-03-10\"}},\"order\":\"delta_pct DESC\"}`",
+  metric_query: "Use only typed fields: `table`, `metric`, `dimensions`, `time_scope`, optional `scope`/`time_axis`/`order`/`limit`. `time_scope.mode` supports `single_window` or `compare`; use `current_value/current_sessions` ordering for `single_window`, `delta_pct` ordering for `compare`. Compare example: `{\"time_scope\":{\"mode\":\"compare\",\"grain\":\"day\",\"current\":{\"start\":\"2026-03-10\",\"end\":\"2026-03-17\"},\"baseline\":{\"start\":\"2026-03-03\",\"end\":\"2026-03-10\"}},\"order\":\"delta_pct DESC\"}`",
   aggregate_query: "Use only typed fields: `table`, `group_by`, `measures`, `time_scope`, optional `scope`/`time_axis`/`order`/`limit`.",
   profile_table: "Legacy table utilities still use `table_name`.",
   sample_rows: "Legacy table utilities still use `table_name`, optional `limit`, `filter`, `columns`.",
@@ -725,7 +725,7 @@ async function showSessionDetail(id) {
           <div class="inline-form" style="margin-top:var(--space-md);">
             <div class="form-group"><label>Step Type</label>
               <select id="sess-step-type">
-                <option value="compare_metric">compare_metric</option>
+                <option value="metric_query">metric_query</option>
                 <option value="profile_table">profile_table</option>
                 <option value="sample_rows">sample_rows</option>
                 <option value="aggregate_query">aggregate_query</option>
@@ -1364,7 +1364,7 @@ async function loadPlans(sessionId) {
 }
 
 function openDraftPlanModal(sessionId) {
-  const stepTypes = ['compare_metric', 'profile_table', 'sample_rows', 'aggregate_query', 'attribute_change', 'correlate_metrics', 'synthesize_findings'];
+  const stepTypes = ['metric_query', 'profile_table', 'sample_rows', 'aggregate_query', 'attribute_change', 'correlate_metrics', 'synthesize_findings'];
   const stepOpts = stepTypes.map(t => `<option value="${t}">${t}</option>`).join('');
   const draftSteps = [];
 

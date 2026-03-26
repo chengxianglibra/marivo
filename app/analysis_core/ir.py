@@ -12,7 +12,7 @@ from app.analysis_core.primitives import (
 DEFAULT_SLICE_DIMENSIONS = ("platform", "app_version", "network_type", "content_type")
 PERIOD_CONTEXT_STEP_TYPES = frozenset(
     {
-        "compare_metric",
+        "metric_query",
         "attribute_change",
     }
 )
@@ -24,7 +24,7 @@ STEP_OBSERVATION_TYPES = {
     "synthesize_findings": ["root_cause_candidate", "recommendation"],
 }
 STEP_ARTIFACT_KINDS = {
-    "compare_metric": "table",
+    "metric_query": "table",
     "attribute_change": "table",
     "profile_table": "profile",
     "profile_table_row_count": "profile",
@@ -308,7 +308,7 @@ def _infer_step_category(step_type: str) -> str:
 
 
 def _infer_semantic_intent(step_type: str, params: Mapping[str, Any]) -> SemanticIntent | None:
-    metric_key = "metric" if step_type in {"compare_metric", "aggregate_query"} else "metric_name"
+    metric_key = "metric" if step_type in {"metric_query", "aggregate_query"} else "metric_name"
     metric_name = str(params.get(metric_key) or STEP_METRICS.get(step_type) or "").strip()
     raw_dimensions = params.get("dimensions")
     if step_type == "aggregate_query":
@@ -322,10 +322,10 @@ def _infer_semantic_intent(step_type: str, params: Mapping[str, Any]) -> Semanti
         for key in DEFAULT_SLICE_DIMENSIONS
         if key in params and params[key] is not None
     }
-    table_key = "table" if step_type in {"compare_metric", "aggregate_query"} else "table_name"
+    table_key = "table" if step_type in {"metric_query", "aggregate_query"} else "table_name"
     source_table = str(params.get(table_key) or "") or None
     date_column = None
-    if step_type in PERIOD_CONTEXT_STEP_TYPES and step_type != "compare_metric":
+    if step_type in PERIOD_CONTEXT_STEP_TYPES and step_type != "metric_query":
         date_column = str(params.get("date_column", "event_date"))
     if not any([metric_name, dimensions, filters, source_table, date_column]):
         return None
@@ -360,7 +360,7 @@ def _infer_execution_hints(step_type: str, params: Mapping[str, Any]) -> dict[st
         "requires_period_context": step_type in PERIOD_CONTEXT_STEP_TYPES,
         "optional": False,
     }
-    explicit_table_name = params.get("table") if step_type in {"compare_metric", "aggregate_query"} else params.get("table_name")
+    explicit_table_name = params.get("table") if step_type in {"metric_query", "aggregate_query"} else params.get("table_name")
     if explicit_table_name:
         hints["explicit_table_name"] = str(explicit_table_name)
         hints["routing_table_name"] = str(explicit_table_name).split(".")[-1]
@@ -376,7 +376,7 @@ def _infer_evidence_hints(step_type: str, params: Mapping[str, Any]) -> dict[str
     hints: dict[str, Any] = {}
     if observation_types:
         hints["observation_types"] = observation_types
-    metric_key = "metric" if step_type in {"compare_metric", "aggregate_query"} else "metric_name"
+    metric_key = "metric" if step_type in {"metric_query", "aggregate_query"} else "metric_name"
     metric_name = str(params.get(metric_key) or STEP_METRICS.get(step_type) or "").strip()
     if metric_name:
         hints["primary_metric"] = metric_name
@@ -384,17 +384,17 @@ def _infer_evidence_hints(step_type: str, params: Mapping[str, Any]) -> dict[str
 
 
 def _infer_observation_types(step_type: str, params: Mapping[str, Any]) -> list[str]:
-    if step_type == "compare_metric":
-        observation_type = str(params.get("observation_type", "metric_change")).strip()
+    if step_type == "metric_query":
+        observation_type = str(params.get("observation_type", "metric_observation")).strip()
         return [observation_type] if observation_type else []
     return list(STEP_OBSERVATION_TYPES.get(step_type, []))
 
 
 def _infer_artifact_key(step_type: str, params: Mapping[str, Any]) -> str | None:
-    if step_type == "compare_metric":
+    if step_type == "metric_query":
         metric_name = str(params.get("metric", "")).strip()
         if metric_name:
-            return f"{metric_name}_comparison"
+            return f"{metric_name}_metric_query"
     if step_type == "profile_table":
         table_name = str(params.get("table_name", "")).strip()
         if table_name:

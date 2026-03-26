@@ -155,14 +155,14 @@ class TemporalWindowInferenceTests(unittest.TestCase):
         # These represent claim-level signals connected by an existing relation.
         obs_a = {
             "observation_id": "obs_g2c_a",
-            "type": "metric_change",
+            "type": "metric_observation",
             "subject": {"metric": "query_count", "slice": {"platform": "ios"}},
             "payload": {"delta_pct": 12.0},
             "observed_window": {"start": "2026-02-21", "end": "2026-02-27", "granularity": "day"},
         }
         obs_b = {
             "observation_id": "obs_g2c_b",
-            "type": "metric_change",
+            "type": "metric_observation",
             "subject": {"metric": "queued_time", "slice": {"platform": "ios"}},
             "payload": {"delta_pct": 18.0},
             "observed_window": {"start": "2026-02-28", "end": "2026-03-06", "granularity": "day"},
@@ -215,7 +215,7 @@ class TemporalWindowInferenceTests(unittest.TestCase):
         # Verify the checker correctly rejects overlapping windows (regression guard)
         obs_overlap = {
             "observation_id": "obs_g2c_overlap",
-            "type": "metric_change",
+            "type": "metric_observation",
             "subject": {"metric": "queued_time", "slice": {"platform": "ios"}},
             "payload": {"delta_pct": 15.0},
             "observed_window": {"start": "2026-02-25", "end": "2026-03-02", "granularity": "day"},
@@ -322,15 +322,15 @@ class TemporalWindowInferenceTests(unittest.TestCase):
             f"Unexpected justification tokens: {upgrades[0].justification_tokens}",
         )
 
-    def test_compare_metric_day_window_observations_support_temporal_precedence(self) -> None:
+    def test_metric_query_day_window_observations_support_temporal_precedence(self) -> None:
         from app.evidence_engine.causal_checkers import TemporalPrecedenceChecker
 
         session_id = self.client.post(
-            "/sessions", json={"goal": "compare_metric day temporal precedence test."},
+            "/sessions", json={"goal": "metric_query day temporal precedence test."},
         ).json()["session_id"]
 
         resp = self.client.post(
-            f"/sessions/{session_id}/steps/compare_metric",
+            f"/sessions/{session_id}/steps/metric_query",
             json={
                 "table": "analytics.watch_events",
                 "metric": self.g2_metric_name,
@@ -351,12 +351,12 @@ class TemporalWindowInferenceTests(unittest.TestCase):
             and observation.get("observed_window") is not None
         ]
         if len(observations) < 1:
-            self.skipTest("Seeded data did not produce compare_metric observations")
+            self.skipTest("Seeded data did not produce metric_query observations")
 
         checker = TemporalPrecedenceChecker()
         earlier = {
             "observation_id": "obs_cmp_day_earlier",
-            "type": "metric_change",
+            "type": "metric_observation",
             "subject": {"metric": "query_count", "slice": {"platform": "ios"}},
             "payload": {"delta_pct": 8.0},
             "observed_window": {"start": "2026-02-20", "end": "2026-02-27", "granularity": "day"},
@@ -397,49 +397,49 @@ class TemporalWindowInferenceTests(unittest.TestCase):
         self.assertEqual(upgrades[0].claim_id, effect_claim["claim_id"])
         self.assertEqual(upgrades[0].new_level, "L2")
 
-    def test_compare_metric_hour_window_observations_support_temporal_precedence(self) -> None:
+    def test_metric_query_hour_window_observations_support_temporal_precedence(self) -> None:
         from app.evidence_engine.causal_checkers import TemporalPrecedenceChecker
 
         checker = TemporalPrecedenceChecker()
         observations = [
             {
                 "observation_id": "obs_cmp_hour_01",
-                "type": "metric_change",
+                "type": "metric_observation",
                 "subject": {"metric": "query_count", "slice": {"platform": "ios"}},
                 "payload": {"delta_pct": 5.0, "current_value": 100.0},
                 "observed_window": {"start": "2026-03-01T01:00", "end": "2026-03-01T02:00", "granularity": "hour"},
             },
             {
                 "observation_id": "obs_cmp_hour_02",
-                "type": "metric_change",
+                "type": "metric_observation",
                 "subject": {"metric": "query_count", "slice": {"platform": "ios"}},
                 "payload": {"delta_pct": 14.0, "current_value": 180.0},
                 "observed_window": {"start": "2026-03-01T02:00", "end": "2026-03-01T03:00", "granularity": "hour"},
             },
             {
                 "observation_id": "obs_cmp_hour_03",
-                "type": "metric_change",
+                "type": "metric_observation",
                 "subject": {"metric": "query_count", "slice": {"platform": "ios"}},
                 "payload": {"delta_pct": 7.0, "current_value": 120.0},
                 "observed_window": {"start": "2026-03-01T03:00", "end": "2026-03-01T04:00", "granularity": "hour"},
             },
             {
                 "observation_id": "obs_cmp_hour_04",
-                "type": "metric_change",
+                "type": "metric_observation",
                 "subject": {"metric": "queued_time", "slice": {"platform": "ios"}},
                 "payload": {"delta_pct": 2.0, "current_value": 4.0},
                 "observed_window": {"start": "2026-03-01T02:00", "end": "2026-03-01T03:00", "granularity": "hour"},
             },
             {
                 "observation_id": "obs_cmp_hour_05",
-                "type": "metric_change",
+                "type": "metric_observation",
                 "subject": {"metric": "queued_time", "slice": {"platform": "ios"}},
                 "payload": {"delta_pct": 9.0, "current_value": 10.0},
                 "observed_window": {"start": "2026-03-01T03:00", "end": "2026-03-01T04:00", "granularity": "hour"},
             },
             {
                 "observation_id": "obs_cmp_hour_06",
-                "type": "metric_change",
+                "type": "metric_observation",
                 "subject": {"metric": "queued_time", "slice": {"platform": "ios"}},
                 "payload": {"delta_pct": 3.0, "current_value": 6.0},
                 "observed_window": {"start": "2026-03-01T04:00", "end": "2026-03-01T05:00", "granularity": "hour"},
@@ -488,42 +488,42 @@ class TemporalWindowInferenceTests(unittest.TestCase):
         observations = [
             {
                 "observation_id": "obs_hp_01",
-                "type": "metric_change",
+                "type": "metric_observation",
                 "subject": {"metric": "query_count", "slice": {"platform": "ios"}},
                 "payload": {"current_value": 100.0},
                 "observed_window": {"start": "2026-03-01T01:00", "end": "2026-03-01T02:00", "granularity": "hour"},
             },
             {
                 "observation_id": "obs_hp_02",
-                "type": "metric_change",
+                "type": "metric_observation",
                 "subject": {"metric": "query_count", "slice": {"platform": "ios"}},
                 "payload": {"current_value": 180.0},
                 "observed_window": {"start": "2026-03-01T02:00", "end": "2026-03-01T03:00", "granularity": "hour"},
             },
             {
                 "observation_id": "obs_hp_03",
-                "type": "metric_change",
+                "type": "metric_observation",
                 "subject": {"metric": "query_count", "slice": {"platform": "ios"}},
                 "payload": {"current_value": 120.0},
                 "observed_window": {"start": "2026-03-01T03:00", "end": "2026-03-01T04:00", "granularity": "hour"},
             },
             {
                 "observation_id": "obs_hp_04",
-                "type": "metric_change",
+                "type": "metric_observation",
                 "subject": {"metric": "queued_time", "slice": {"platform": "ios"}},
                 "payload": {"current_value": 4.0},
                 "observed_window": {"start": "2026-03-01T02:00", "end": "2026-03-01T03:00", "granularity": "hour"},
             },
             {
                 "observation_id": "obs_hp_05",
-                "type": "metric_change",
+                "type": "metric_observation",
                 "subject": {"metric": "queued_time", "slice": {"platform": "ios"}},
                 "payload": {"current_value": 10.0},
                 "observed_window": {"start": "2026-03-01T03:00", "end": "2026-03-01T04:00", "granularity": "hour"},
             },
             {
                 "observation_id": "obs_hp_06",
-                "type": "metric_change",
+                "type": "metric_observation",
                 "subject": {"metric": "queued_time", "slice": {"platform": "ios"}},
                 "payload": {"current_value": 6.0},
                 "observed_window": {"start": "2026-03-01T04:00", "end": "2026-03-01T05:00", "granularity": "hour"},
@@ -578,42 +578,42 @@ class TemporalWindowInferenceTests(unittest.TestCase):
         observations = [
             {
                 "observation_id": "obs_mid_01",
-                "type": "metric_change",
+                "type": "metric_observation",
                 "subject": {"metric": "query_count", "slice": {"platform": "ios"}},
                 "payload": {"current_value": 100.0},
                 "observed_window": {"start": "2026-03-01T22:00", "end": "2026-03-01T23:00", "granularity": "hour"},
             },
             {
                 "observation_id": "obs_mid_02",
-                "type": "metric_change",
+                "type": "metric_observation",
                 "subject": {"metric": "query_count", "slice": {"platform": "ios"}},
                 "payload": {"current_value": 180.0},
                 "observed_window": {"start": "2026-03-01T23:00", "end": "2026-03-02T00:00", "granularity": "hour"},
             },
             {
                 "observation_id": "obs_mid_03",
-                "type": "metric_change",
+                "type": "metric_observation",
                 "subject": {"metric": "query_count", "slice": {"platform": "ios"}},
                 "payload": {"current_value": 110.0},
                 "observed_window": {"start": "2026-03-02T00:00", "end": "2026-03-02T01:00", "granularity": "hour"},
             },
             {
                 "observation_id": "obs_mid_04",
-                "type": "metric_change",
+                "type": "metric_observation",
                 "subject": {"metric": "queued_time", "slice": {"platform": "ios"}},
                 "payload": {"current_value": 4.0},
                 "observed_window": {"start": "2026-03-02T00:00", "end": "2026-03-02T01:00", "granularity": "hour"},
             },
             {
                 "observation_id": "obs_mid_05",
-                "type": "metric_change",
+                "type": "metric_observation",
                 "subject": {"metric": "queued_time", "slice": {"platform": "ios"}},
                 "payload": {"current_value": 10.0},
                 "observed_window": {"start": "2026-03-02T01:00", "end": "2026-03-02T02:00", "granularity": "hour"},
             },
             {
                 "observation_id": "obs_mid_06",
-                "type": "metric_change",
+                "type": "metric_observation",
                 "subject": {"metric": "queued_time", "slice": {"platform": "ios"}},
                 "payload": {"current_value": 6.0},
                 "observed_window": {"start": "2026-03-02T02:00", "end": "2026-03-02T03:00", "granularity": "hour"},
@@ -716,7 +716,7 @@ class TemporallyPrecedesEdgePromotionTests(unittest.TestCase):
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     [
-                        oid, sess_id, step_id, "metric_change",
+                        oid, sess_id, step_id, "metric_observation",
                         json.dumps({"metric": metric, "slice": {"user": "sys_titan"}}),
                         json.dumps({"delta_pct": delta_pct}),
                         json.dumps({"sample_size": 200, "practical_significance": True}),
@@ -804,7 +804,7 @@ class TemporallyPrecedesEdgePromotionTests(unittest.TestCase):
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     [
-                        oid, sess_id, "step_idem_01", "metric_change",
+                        oid, sess_id, "step_idem_01", "metric_observation",
                         json.dumps({"metric": metric, "slice": {"user": "sys_titan"}}),
                         json.dumps({"delta_pct": delta_pct}),
                         json.dumps({"sample_size": 150, "practical_significance": True}),
@@ -879,7 +879,7 @@ class TemporallyPrecedesEdgePromotionTests(unittest.TestCase):
                         oid,
                         sess_id,
                         step_id,
-                        "metric_change",
+                        "metric_observation",
                         json.dumps(
                             {
                                 "metric": metric,
@@ -954,7 +954,7 @@ class TemporallyPrecedesEdgePromotionTests(unittest.TestCase):
                         oid,
                         sess_id,
                         step_id,
-                        "metric_change",
+                        "metric_observation",
                         json.dumps(
                             {
                                 "metric": metric,

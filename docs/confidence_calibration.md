@@ -36,7 +36,7 @@ being used to gate agent decisions.
 
 ### Data required
 
-Run `compare_metric` on datasets where the ground truth is known:
+Run `metric_query` on datasets where the ground truth is known:
 - A/B test results where the winning variant is established
 - Post-incident root-cause reports with expert consensus
 - Manually labeled metric anomalies

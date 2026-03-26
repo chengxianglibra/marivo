@@ -126,7 +126,7 @@ Save the returned `session_id`.
 **Compare the metric:**
 
 ```bash
-curl -s -X POST http://localhost:8000/sessions/sess_.../steps/compare_metric \
+curl -s -X POST http://localhost:8000/sessions/sess_.../steps/metric_query \
   -H "Content-Type: application/json" \
   -d '{
     "table": "events.user_video_watch",
@@ -208,7 +208,7 @@ PLAN=$(curl -s -X POST http://localhost:8000/sessions/sess_.../plans \
     "steps": [
       {
         "step_id": "s1",
-        "step_type": "compare_metric",
+        "step_type": "metric_query",
         "params": {
           "table": "events.user_video_watch",
           "metric": "avg_watch_time_minutes",

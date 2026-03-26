@@ -20,7 +20,7 @@ from app.evidence_engine.recommendation_policy import (
 def _make_observation(obs_id: str, metric: str, delta_pct: float, **slice_kv: Any) -> dict[str, Any]:
     return {
         "observation_id": obs_id,
-        "type": "metric_change",
+        "type": "metric_observation",
         "subject": {"metric": metric, "slice": dict(slice_kv)},
         "payload": {"delta_pct": delta_pct, "current_value": 100},
         "significance": {"sample_size": 100},

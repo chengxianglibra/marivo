@@ -51,7 +51,7 @@ def _make_obs(
         payload["current_value"] = current_value
     return {
         "observation_id": obs_id,
-        "type": "metric_change",
+        "type": "metric_observation",
         "subject": {"metric": metric, "slice": slice_val or {}},
         "payload": payload,
         "significance": {"sample_size": 100, "practical_significance": True},
@@ -907,7 +907,7 @@ class CausalCheckerRegistryTests(unittest.TestCase):
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     [
-                        oid, sess_id, step_id, "metric_change",
+                        oid, sess_id, step_id, "metric_observation",
                         json.dumps({"metric": "watch_time", "slice": {"seg": str(i)}}),
                         json.dumps({"delta_pct": 5.0 + i}),
                         json.dumps({"sample_size": 100, "practical_significance": True}),
@@ -1051,7 +1051,7 @@ class CausalEdgePersistenceTests(unittest.TestCase):
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
-                    oid, sess_id, step_id, "metric_change",
+                    oid, sess_id, step_id, "metric_observation",
                     json.dumps({"metric": "m", "slice": {}}),
                     json.dumps({"delta_pct": 5.0}),
                     json.dumps({"sample_size": 100, "practical_significance": True}),

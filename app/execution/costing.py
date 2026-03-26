@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 STEP_BYTES_PER_ROW = {
     "sample_rows": 256,
     "profile_table": 160,
-    "compare_metric": 96,
+    "metric_query": 96,
     "synthesize_findings": 0,
 }
 
@@ -299,7 +299,7 @@ class CostModel:
             signals.append("row_count_unknown")
         if step.step_type == "sample_rows":
             signals.append("limit_pushdown_candidate")
-        if step.step_type == "compare_metric":
+        if step.step_type == "metric_query":
             signals.append("semantic_metric_projection")
         primary_metric = step.primary_metric_name()
         if primary_metric:

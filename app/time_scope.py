@@ -85,7 +85,7 @@ class ResolvedWindowedQueryRequest:
     limit: int | None = None
 
 
-_COMPARE_METRIC_LEGACY_FIELDS = frozenset(
+_METRIC_QUERY_LEGACY_FIELDS = frozenset(
     {
         "metric_name",
         "table_name",
@@ -131,11 +131,11 @@ _HOUR_CANDIDATES = ("log_hour", "event_hour", "hour", "dt_hour")
 _EMPTY_SCHEMA_DAY_CANDIDATES = ("event_date", "date", "day", "dt", "log_date")
 
 
-def normalize_compare_metric_request(params: Mapping[str, Any]) -> ResolvedWindowedQueryRequest:
-    _reject_legacy_fields(params, _COMPARE_METRIC_LEGACY_FIELDS, "compare_metric")
-    table = _required_str(params, "table", "compare_metric")
-    metric = _required_str(params, "metric", "compare_metric")
-    time_scope = _normalize_time_scope(params.get("time_scope"), "compare_metric")
+def normalize_metric_query_request(params: Mapping[str, Any]) -> ResolvedWindowedQueryRequest:
+    _reject_legacy_fields(params, _METRIC_QUERY_LEGACY_FIELDS, "metric_query")
+    table = _required_str(params, "table", "metric_query")
+    metric = _required_str(params, "metric", "metric_query")
+    time_scope = _normalize_time_scope(params.get("time_scope"), "metric_query")
     scope = _normalize_scope(params.get("scope"))
     time_axis = _normalize_time_axis(params.get("time_axis"), time_scope.grain)
     return ResolvedWindowedQueryRequest(

@@ -8,12 +8,12 @@ from app.evidence_engine import (
     EvidencePipeline,
     RecommendationPolicy,
 )
-from app.evidence_engine.extractors import ComparisonRowExtractor
+from app.evidence_engine.extractors import MetricObservationExtractor
 
 
 class EvidencePluginTests(unittest.TestCase):
     def test_comparison_row_extractor_builds_observations(self) -> None:
-        extractor = ComparisonRowExtractor()
+        extractor = MetricObservationExtractor()
 
         observations = extractor.extract(
             [
@@ -31,7 +31,7 @@ class EvidencePluginTests(unittest.TestCase):
             ],
             context={
                 "metric": "watch_time",
-                "observation_type": "metric_change",
+                "observation_type": "metric_observation",
                 "payload_fields": {
                     "current_value": "current_watch_time",
                     "baseline_value": "baseline_watch_time",
@@ -47,11 +47,11 @@ class EvidencePluginTests(unittest.TestCase):
         )
 
         self.assertEqual(len(observations), 1)
-        self.assertEqual(observations[0]["type"], "metric_change")
+        self.assertEqual(observations[0]["type"], "metric_observation")
         self.assertEqual(observations[0]["payload"]["current_value"], 82)
 
     def test_comparison_row_extractor_rejects_missing_required_fields(self) -> None:
-        extractor = ComparisonRowExtractor()
+        extractor = MetricObservationExtractor()
 
         with self.assertRaisesRegex(ValueError, "requires row fields for mapped payload keys"):
             extractor.extract(
@@ -76,7 +76,7 @@ class EvidencePluginTests(unittest.TestCase):
             )
 
     def test_comparison_row_extractor_preserves_additional_payload_fields(self) -> None:
-        extractor = ComparisonRowExtractor()
+        extractor = MetricObservationExtractor()
 
         observations = extractor.extract(
             [
@@ -106,7 +106,7 @@ class EvidencePluginTests(unittest.TestCase):
         self.assertEqual(observations[0]["payload"]["delta_ms"], 400)
 
     def test_comparison_row_extractor_supports_single_window_contract(self) -> None:
-        extractor = ComparisonRowExtractor()
+        extractor = MetricObservationExtractor()
 
         observations = extractor.extract(
             [
@@ -131,10 +131,10 @@ class EvidencePluginTests(unittest.TestCase):
             observations[0]["payload"],
             {"current_value": 82, "current_sessions": 280},
         )
-        self.assertEqual(observations[0]["type"], "metric_change")
+        self.assertEqual(observations[0]["type"], "metric_observation")
 
     def test_comparison_row_extractor_single_window_rejects_missing_current_sessions(self) -> None:
-        extractor = ComparisonRowExtractor()
+        extractor = MetricObservationExtractor()
 
         with self.assertRaisesRegex(ValueError, "requires row fields for mapped payload keys"):
             extractor.extract(
@@ -155,7 +155,7 @@ class EvidencePluginTests(unittest.TestCase):
             )
 
     def test_comparison_row_extractor_single_window_rejects_missing_mapping(self) -> None:
-        extractor = ComparisonRowExtractor()
+        extractor = MetricObservationExtractor()
 
         with self.assertRaisesRegex(ValueError, "requires payload_fields mappings for required keys"):
             extractor.extract(
@@ -179,7 +179,7 @@ class EvidencePluginTests(unittest.TestCase):
         pipeline = EvidencePipeline(synthesize_claims)
 
         observations = pipeline.extract_observations(
-            "comparison_rows",
+            "metric_rows",
             [
                 {
                     "platform": "android",
@@ -195,7 +195,7 @@ class EvidencePluginTests(unittest.TestCase):
             ],
             context={
                 "metric": "watch_time",
-                "observation_type": "metric_change",
+                "observation_type": "metric_observation",
                 "payload_fields": {
                     "current_value": "current_watch_time",
                     "baseline_value": "baseline_watch_time",
@@ -211,7 +211,7 @@ class EvidencePluginTests(unittest.TestCase):
         )
         observations.extend(
             pipeline.extract_observations(
-                "comparison_rows",
+                "metric_rows",
                 [
                     {
                         "platform": "android",
@@ -301,7 +301,7 @@ class EvidencePluginTests(unittest.TestCase):
         observations = [
             {
                 "observation_id": "obs_watch_1",
-                "type": "metric_change",
+                "type": "metric_observation",
                 "subject": {
                     "metric": "watch_time",
                     "slice": {

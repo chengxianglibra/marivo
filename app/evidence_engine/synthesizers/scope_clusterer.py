@@ -45,19 +45,19 @@ class ScopeClusterer:
         if not observations:
             return []
 
-        metric_change_obs = [
+        metric_observation_obs = [
             o for o in observations
-            if o["type"] == "metric_change" and o.get("payload", {}).get("delta_pct") is not None
+            if o["type"] == "metric_observation" and o.get("payload", {}).get("delta_pct") is not None
         ]
-        metric_observation_only_obs = [
+        metric_window_only_obs = [
             o for o in observations
-            if o["type"] == "metric_change" and o.get("payload", {}).get("delta_pct") is None
+            if o["type"] == "metric_observation" and o.get("payload", {}).get("delta_pct") is None
         ]
         funnel_drop_obs = [o for o in observations if o["type"] == "funnel_drop"]
         contribution_shift_obs = [o for o in observations if o["type"] == "contribution_shift"]
         anomaly_detection_obs = [o for o in observations if o["type"] == "anomaly_detection"]
         other_obs = [o for o in observations
-                     if o["type"] not in {"metric_change", "funnel_drop",
+                     if o["type"] not in {"metric_observation", "funnel_drop",
                                           "contribution_shift", "anomaly_detection"}]
 
         cluster_map: dict[str, ScopeCluster] = {}
@@ -74,7 +74,7 @@ class ScopeClusterer:
                     scope_key=key,
                     metric=metric,
                     slice_dict=slice_dict,
-                    metric_change_obs=[],
+                    metric_observation_obs=[],
                     funnel_drop_obs=[],
                     contribution_shift_obs=[],
                     anomaly_detection_obs=[],
@@ -83,12 +83,12 @@ class ScopeClusterer:
                 )
             return cluster_map[key]
 
-        for obs in metric_change_obs:
+        for obs in metric_observation_obs:
             cluster = _get_or_create_cluster(obs)
             if cluster is not None:
-                cluster.metric_change_obs.append(obs)
+                cluster.metric_observation_obs.append(obs)
 
-        for obs in metric_observation_only_obs:
+        for obs in metric_window_only_obs:
             cluster = _get_or_create_cluster(obs)
             if cluster is not None:
                 cluster.other_obs.append(obs)
@@ -116,7 +116,7 @@ class ScopeClusterer:
         # Set total counts
         for cluster in cluster_map.values():
             cluster.total_observation_count = (
-                len(cluster.metric_change_obs)
+                len(cluster.metric_observation_obs)
                 + len(cluster.funnel_drop_obs)
                 + len(cluster.contribution_shift_obs)
                 + len(cluster.anomaly_detection_obs)

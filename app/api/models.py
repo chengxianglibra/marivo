@@ -446,7 +446,7 @@ class Measure(BaseModel):
         return alias
 
 
-class CompareMetricStep(BaseModel):
+class MetricQueryStep(BaseModel):
     table: str = Field(description="Physical table that backs the semantic metric.")
     metric: str = Field(description="Published semantic metric name.")
     dimensions: list[str] = Field(default_factory=list, description="Optional grouping dimensions.")

@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from app.analysis_core import CompositeWorkflowRuntime, build_service_step_registry
-from app.analysis_core.compiler import build_comparison_query as compile_comparison_query
+from app.analysis_core.compiler import build_metric_query as compile_metric_query
 from app.analysis_core.compiler import compile_step
 from app.analysis_core.executor import execute_compiled
 from app.analysis_core.ir import AnalysisStepIR, from_legacy_step
@@ -39,7 +39,7 @@ from app.time_scope import ResolvedWindowedQueryRequest
 from app.time_scope import SemanticMetricValueSpec
 from app.time_scope import TimeAxisResolver
 from app.time_scope import normalize_aggregate_query_request
-from app.time_scope import normalize_compare_metric_request
+from app.time_scope import normalize_metric_query_request
 
 if TYPE_CHECKING:
     from app.approvals import ApprovalService
@@ -52,7 +52,7 @@ _AUTO_INCREMENTAL_SYNTHESIZER = object()
 
 
 class SemanticLayerService:
-    _COMPARE_METRIC_MODE_CONTRACTS = {
+    _METRIC_QUERY_MODE_CONTRACTS = {
         "compare": {
             "payload_fields": {
                 "current_value": "current_value",
@@ -845,7 +845,7 @@ class SemanticLayerService:
         """Look up a published metric's dimensions from semantic runtime."""
         return self.semantic_repository.resolve_metric_dimensions(metric_name)
 
-    def build_comparison_query(
+    def build_metric_query(
         self,
         metric_name: str,
         table_name: str,
@@ -860,7 +860,7 @@ class SemanticLayerService:
         Uses the metric's SQL expression and dimensions to generate a
         sliced comparison query with delta_pct calculation.
         """
-        return compile_comparison_query(
+        return compile_metric_query(
             metric_name=metric_name,
             table_name=table_name,
             metric_sql=metric_sql,
@@ -1009,11 +1009,11 @@ class SemanticLayerService:
         }
 
     @classmethod
-    def _compare_metric_mode_contract(cls, mode: str) -> dict[str, Any]:
+    def _metric_query_mode_contract(cls, mode: str) -> dict[str, Any]:
         normalized = str(mode).strip().lower()
-        contract = cls._COMPARE_METRIC_MODE_CONTRACTS.get(normalized)
+        contract = cls._METRIC_QUERY_MODE_CONTRACTS.get(normalized)
         if contract is None:
-            raise ValueError(f"Unsupported compare_metric mode: {mode}")
+            raise ValueError(f"Unsupported metric_query mode: {mode}")
         payload_fields = dict(contract["payload_fields"])
         required_payload_keys = tuple(contract["required_payload_keys"])
         return {
@@ -1024,7 +1024,7 @@ class SemanticLayerService:
         }
 
     @classmethod
-    def _build_compare_metric_extractor_context(
+    def _build_metric_query_extractor_context(
         cls,
         *,
         mode: str,
@@ -1033,7 +1033,7 @@ class SemanticLayerService:
         dimensions: list[str],
         quality_builder: Any,
     ) -> dict[str, Any]:
-        contract = cls._compare_metric_mode_contract(mode)
+        contract = cls._metric_query_mode_contract(mode)
         return {
             "metric": metric_name,
             "observation_type": observation_type,
@@ -1044,8 +1044,8 @@ class SemanticLayerService:
         }
 
     @classmethod
-    def _compare_metric_quality_builder(cls, mode: str) -> Any:
-        normalized = cls._compare_metric_mode_contract(mode)["mode"]
+    def _metric_query_quality_builder(cls, mode: str) -> Any:
+        normalized = cls._metric_query_mode_contract(mode)["mode"]
         if normalized == "compare":
             return lambda row: {
                 "freshness_ok": True,
@@ -1057,13 +1057,13 @@ class SemanticLayerService:
         }
 
     @classmethod
-    def _normalize_comparison_rows(
+    def _normalize_metric_rows(
         cls,
         rows: list[dict[str, Any]],
         *,
         mode: str,
     ) -> list[dict[str, Any]]:
-        contract = cls._compare_metric_mode_contract(mode)
+        contract = cls._metric_query_mode_contract(mode)
         normalized: list[dict[str, Any]] = []
         for index, row in enumerate(rows):
             row_dict = dict(row)
@@ -1075,7 +1075,7 @@ class SemanticLayerService:
             if missing:
                 missing_str = ", ".join(missing)
                 raise ValueError(
-                    "compare_metric comparison rows missing required columns "
+                    "metric_query rows missing required columns "
                     f"at row {index}: {missing_str}"
                 )
             normalized.append(row_dict)
@@ -1093,7 +1093,7 @@ class SemanticLayerService:
         return ", ".join(parts) if parts else "overall"
 
     @classmethod
-    def _compare_metric_debug_payload(
+    def _metric_query_debug_payload(
         cls,
         request: ResolvedWindowedQueryRequest,
         *,
@@ -1107,7 +1107,7 @@ class SemanticLayerService:
         if request.time_scope.mode == "single_window":
             return debug
         if request.time_scope.baseline is None:
-            raise ValueError("compare_metric debug payload requires baseline window")
+            raise ValueError("metric_query debug payload requires baseline window")
         debug.update({
             "baseline_window": [request.time_scope.baseline.start, request.time_scope.baseline.end],
             "baseline_has_data": any(row.get("baseline_sessions") for row in all_rows),
@@ -1116,7 +1116,7 @@ class SemanticLayerService:
         return debug
 
     @classmethod
-    def _compare_metric_summary(
+    def _metric_query_summary(
         cls,
         metric_name: str,
         rows: list[dict[str, Any]],
@@ -1158,7 +1158,7 @@ class SemanticLayerService:
             )
             if not debug["window_length_match"]:
                 if current_len is None or baseline_len is None:
-                    raise ValueError("compare_metric compare summary requires both window lengths")
+                    raise ValueError("metric_query compare summary requires both window lengths")
                 unit = "h" if grain == "hour" else "d"
                 summary += (
                     f" Window size mismatch: current={current_len}{unit}, "
@@ -1244,8 +1244,8 @@ class SemanticLayerService:
                 raise
 
     @classmethod
-    def _normalize_compare_metric_order(cls, order: str | None, *, mode: str) -> str | None:
-        normalized_mode = cls._compare_metric_mode_contract(mode)["mode"]
+    def _normalize_metric_query_order(cls, order: str | None, *, mode: str) -> str | None:
+        normalized_mode = cls._metric_query_mode_contract(mode)["mode"]
         if order is None:
             return "CURRENT_VALUE DESC" if normalized_mode == "single_window" else None
         normalized = order.strip().upper()
@@ -1254,14 +1254,14 @@ class SemanticLayerService:
                 return f"DELTA_PCT {normalized}"
             if normalized in {"DELTA_PCT ASC", "DELTA_PCT DESC"}:
                 return normalized
-            raise ValueError("compare_metric compare mode supports only delta_pct ASC/DESC")
+            raise ValueError("metric_query compare mode supports only delta_pct ASC/DESC")
         if normalized in {"CURRENT_VALUE ASC", "CURRENT_VALUE DESC", "CURRENT_SESSIONS ASC", "CURRENT_SESSIONS DESC"}:
             return normalized
         raise ValueError(
-            "compare_metric single_window mode supports only current_value ASC/DESC or current_sessions ASC/DESC"
+            "metric_query single_window mode supports only current_value ASC/DESC or current_sessions ASC/DESC"
         )
 
-    _CONSTRAINT_APPLYING_STEPS = frozenset({"compare_metric", "sample_rows", "aggregate_query", "attribute_change"})
+    _CONSTRAINT_APPLYING_STEPS = frozenset({"metric_query", "sample_rows", "aggregate_query", "attribute_change"})
 
     _CONSTRAINT_SKIP_REASONS: dict[str, str] = {
         "profile_table": "profile_table scans the full table; session filters are not applied",
@@ -1290,19 +1290,19 @@ class SemanticLayerService:
             note = self._CONSTRAINT_SKIP_REASONS.get(step_type)
             return {"applied": [], "skipped": descriptors, "note": note}
 
-    def _run_compare_metric(self, session_id: str, params: dict[str, Any]) -> dict[str, Any]:
+    def _run_metric_query(self, session_id: str, params: dict[str, Any]) -> dict[str, Any]:
         """Generic metric comparison step driven by semantic metric definitions.
 
         Externally and internally uses the TSU typed contract, with
         `scoped_query` carrying the resolved time/window execution context.
         """
-        resolved = normalize_compare_metric_request(params)
+        resolved = normalize_metric_query_request(params)
         if not isinstance(resolved.value_spec, SemanticMetricValueSpec):
-            raise ValueError("compare_metric requires a semantic metric request")
+            raise ValueError("metric_query requires a semantic metric request")
         mode = resolved.time_scope.mode
         metric_name = resolved.value_spec.metric
 
-        step_type = "compare_metric"
+        step_type = "metric_query"
         step_id = self._new_step_id()
 
         metric_sql = self.resolve_metric_sql(metric_name)
@@ -1338,7 +1338,7 @@ class SemanticLayerService:
                 f"it is the period-splitting column (date_column='{comparison_time_column}'). "
                 f"Use a different dimension or omit dimensions for overall aggregate comparison."
             )
-        obs_type = "metric_change"
+        obs_type = "metric_observation"
         limit = resolved.limit or 10
 
         qualified_table = qualified.get(short_name, resolved.table)
@@ -1358,7 +1358,7 @@ class SemanticLayerService:
                         "table": qualified_table,
                         "metric": metric_name,
                         "limit": limit,
-                        "order": self._normalize_compare_metric_order(resolved.order, mode=mode),
+                        "order": self._normalize_metric_query_order(resolved.order, mode=mode),
                         "scoped_query": scoped_query,
                     }.items()
                     if value is not None
@@ -1370,7 +1370,7 @@ class SemanticLayerService:
                 "dimensions": dimensions,
             },
         )
-        all_rows = self._normalize_comparison_rows(
+        all_rows = self._normalize_metric_rows(
             execute_compiled(engine, compiled_query).rows,
             mode=mode,
         )
@@ -1378,15 +1378,15 @@ class SemanticLayerService:
             rows = [row for row in all_rows if row.get("delta_pct") is not None]
         else:
             rows = list(all_rows)
-        extractor_context = self._build_compare_metric_extractor_context(
+        extractor_context = self._build_metric_query_extractor_context(
             mode=mode,
             metric_name=metric_name,
             observation_type=obs_type,
             dimensions=dimensions,
-            quality_builder=self._compare_metric_quality_builder(mode),
+            quality_builder=self._metric_query_quality_builder(mode),
         )
         observations = self.evidence_pipeline.extract_observations(
-            "comparison_rows",
+            "metric_rows",
             rows,
             context=extractor_context,
         )
@@ -1395,14 +1395,14 @@ class SemanticLayerService:
         for observation in observations:
             self._insert_observation(session_id, step_id, observation)
 
-        artifact_id = self._insert_artifact(session_id, step_id, "table", f"{metric_name}_comparison", rows)
+        artifact_id = self._insert_artifact(session_id, step_id, "table", f"{metric_name}_metric_query", rows)
 
-        _debug = self._compare_metric_debug_payload(
+        _debug = self._metric_query_debug_payload(
             resolved,
             all_rows=all_rows,
             window_length_match=(not window_size_mismatch) if mode == "compare" else None,
         )
-        summary = self._compare_metric_summary(
+        summary = self._metric_query_summary(
             metric_name,
             rows,
             mode=mode,
@@ -1812,7 +1812,7 @@ class SemanticLayerService:
             col_metadata = self._fetch_column_metadata(short_name, all_cols)
             observation_context = {
                 "group_by": group_by_cols,
-                "observation_type": params.get("observation_type", "metric_change"),
+                "observation_type": params.get("observation_type", "metric_observation"),
                 "metric": resolved.value_spec.measures[0].alias if resolved.value_spec.measures else "aggregate",
                 "value_column": value_column,
                 "column_metadata": col_metadata,  # G-5a: authoritative unit source

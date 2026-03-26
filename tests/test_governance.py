@@ -90,7 +90,7 @@ class GovernanceServiceTests(unittest.TestCase):
         self.assertTrue(result["transforms"]["aggregate_only"])
 
     def test_check_policies_allows_compare(self) -> None:
-        result = self.gov.check_policies("sess_fake", "compare_metric")
+        result = self.gov.check_policies("sess_fake", "metric_query")
         self.assertTrue(result["passed"])
         self.assertTrue(any(decision["code"] == "aggregate_only_enabled" for decision in result["decisions"]))
 
@@ -103,18 +103,18 @@ class GovernanceServiceTests(unittest.TestCase):
         self.assertTrue(result["passed"])
 
     def test_check_step_combined(self) -> None:
-        result = self.gov.check_step("sess_fake", "compare_metric")
+        result = self.gov.check_step("sess_fake", "metric_query")
         self.assertIn("passed", result)
         self.assertIn("violations", result)
         self.assertIn("decisions", result)
         self.assertIn("transforms", result)
 
     def test_check_step_records_audit_event(self) -> None:
-        self.gov.check_step("sess_audit", "compare_metric")
+        self.gov.check_step("sess_audit", "metric_query")
         events = self.gov.list_audit_events(session_id="sess_audit", subject_type="step")
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0]["event_type"], "governance_step_checked")
-        self.assertEqual(events[0]["subject_id"], "compare_metric")
+        self.assertEqual(events[0]["subject_id"], "metric_query")
 
 
 class GovernanceAPITests(unittest.TestCase):
@@ -173,7 +173,7 @@ class GovernanceAPITests(unittest.TestCase):
     def test_governance_check_endpoint(self) -> None:
         resp = self.client.post("/governance/check", json={
             "session_id": "sess_fake123456",
-            "step_type": "compare_metric",
+            "step_type": "metric_query",
         })
         self.assertEqual(resp.status_code, 200)
         self.assertIn("passed", resp.json())

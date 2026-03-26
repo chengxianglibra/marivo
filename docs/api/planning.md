@@ -26,7 +26,7 @@ Each step in a plan is a JSON object describing a typed step to execute:
 
 ```json
 {
-  "step_type": "compare_metric",
+  "step_type": "metric_query",
   "params": {
     "table": "events.user_video_watch",
     "metric": "avg_watch_time_minutes",
@@ -50,7 +50,7 @@ Each step in a plan is a JSON object describing a typed step to execute:
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `step_type` | string | yes | One of: `compare_metric`, `profile_table`, `sample_rows`, `aggregate_query`, `correlate_metrics`, `synthesize_findings` |
+| `step_type` | string | yes | One of: `metric_query`, `profile_table`, `sample_rows`, `aggregate_query`, `correlate_metrics`, `synthesize_findings` |
 | `params` | object | no | Step parameters (same as direct step execution; see [Sessions & Steps](sessions.md)) |
 | `dependencies` | array[integer] | no | Zero-based step indices that must complete before this step runs |
 | `description` | string | no | Human-readable description of the step's purpose |
@@ -77,7 +77,7 @@ Creates a plan in `draft` status. Plans are not validated or executed until expl
       "description": "Baseline table profile"
     },
     {
-      "step_type": "compare_metric",
+      "step_type": "metric_query",
       "params": {
         "table": "events.user_video_watch",
         "metric": "avg_watch_time_minutes",
@@ -205,16 +205,16 @@ Validates a draft plan. Validation checks:
 1. **Step type validity** - all `step_type` values must be recognized
 2. **Dependency acyclicity** - `dependencies` references must not form cycles
 3. **Required params** - required parameters must be present for each step type
-4. **Semantic resolution** - `compare_metric` metrics must be published; requested `dimensions` must be supported by the metric
+4. **Semantic resolution** - `metric_query` metrics must be published; requested `dimensions` must be supported by the metric
 5. **Contract constraints** - typed step params must satisfy the final `time_scope` contract, and `scope.predicate` cannot contain time predicates
 6. **Governance** - steps are checked against active policies
 
 For the typed time-scope steps:
 
-- `compare_metric` requires `table`, `metric`, and `time_scope`
+- `metric_query` requires `table`, `metric`, and `time_scope`
 - `aggregate_query` requires `table`, `measures`, and `time_scope`
 - `scope.predicate` must not contain time conditions; move all time filtering into `time_scope`
-- typed step payloads are validated through the final `compare_metric` / `aggregate_query` normalizers; legacy fields such as `metric_name`, `table_name`, `period_start`, `period_end`, `baseline_start`, `baseline_end`, `comparison_type`, `compare_period`, `date_column`, `select`, `where`, `order_by`, and `filter` are therefore invalid contract inputs
+- typed step payloads are validated through the final `metric_query` / `aggregate_query` normalizers; legacy fields such as `metric_name`, `table_name`, `period_start`, `period_end`, `baseline_start`, `baseline_end`, `comparison_type`, `compare_period`, `date_column`, `select`, `where`, `order_by`, and `filter` are therefore invalid contract inputs
 
 **Validation issue codes** (non-exhaustive):
 
@@ -299,7 +299,7 @@ Executes an `approved` plan. Steps are executed in topological order (respecting
   "step_results": [
     {
       "index": 0,
-      "step_type": "compare_metric",
+      "step_type": "metric_query",
       "status": "completed",
       "summary": "Metric comparison completed.",
       "cost_estimate": {
@@ -341,7 +341,7 @@ Returns a human-readable explanation of what the plan will do, the execution ord
 {
   "plan_id": "plan_...",
   "status": "draft",
-  "explanation": "Plan plan_... (draft): 4 steps\n  0. profile_table\n  1. compare_metric (depends on: [0])\n  2. aggregate_query (depends on: [1])\n  3. synthesize_findings (depends on: [1, 2])",
+  "explanation": "Plan plan_... (draft): 4 steps\n  0. profile_table\n  1. metric_query (depends on: [0])\n  2. aggregate_query (depends on: [1])\n  3. synthesize_findings (depends on: [1, 2])",
   "total_estimated_cost": 4200000
 }
 ```
@@ -387,7 +387,7 @@ Estimates the execution cost for each step in the plan based on the shared cost 
     },
     {
       "index": 1,
-      "step_type": "compare_metric",
+      "step_type": "metric_query",
       "estimated_cost": 2200000000,
       "estimated_cost_detail": {
         "subject": "step:1",

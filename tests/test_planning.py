@@ -17,7 +17,7 @@ from tests.shared_fixtures import get_seeded_duckdb_path
 
 
 def _seed_watch_time_metric(metadata: SQLiteMetadataStore) -> None:
-    """Seed a published 'watch_time' metric so compare_metric steps validate."""
+    """Seed a published 'watch_time' metric so metric_query steps validate."""
     from app.semantic import SemanticService
     semantic = SemanticService(metadata)
     entity = semantic.create_entity("session", "Session", ["session_id"])
@@ -30,7 +30,7 @@ def _seed_watch_time_metric(metadata: SQLiteMetadataStore) -> None:
     semantic.publish_metric(metric["metric_id"])
 
 
-def _typed_compare_metric_params(**overrides: object) -> dict[str, object]:
+def _typed_metric_query_params(**overrides: object) -> dict[str, object]:
     params: dict[str, object] = {
         "table": "analytics.watch_events",
         "metric": "watch_time",
@@ -85,14 +85,14 @@ class PlanningServiceTests(unittest.TestCase):
 
     def test_draft_plan(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
+            {"step_type": "metric_query", "params": _typed_metric_query_params()},
             {"step_type": "profile_table", "params": {"table_name": "analytics.watch_events"}, "dependencies": [0]},
             {"step_type": "synthesize_findings", "dependencies": [0, 1]},
         ])
         self.assertTrue(plan["plan_id"].startswith("plan_"))
         self.assertEqual(plan["status"], "draft")
         self.assertEqual(len(plan["steps"]), 3)
-        self.assertEqual(plan["steps"][0]["step_type"], "compare_metric")
+        self.assertEqual(plan["steps"][0]["step_type"], "metric_query")
         self.assertEqual(plan["steps"][2]["dependencies"], [0, 1])
 
     def test_get_plan(self) -> None:
@@ -113,17 +113,17 @@ class PlanningServiceTests(unittest.TestCase):
 
     def test_patch_plan(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
+            {"step_type": "metric_query", "params": _typed_metric_query_params()},
         ])
         patched = self.planning.patch_plan(plan["plan_id"], steps=[
-            {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
+            {"step_type": "metric_query", "params": _typed_metric_query_params()},
             {"step_type": "profile_table", "params": {"table_name": "analytics.watch_events"}},
         ])
         self.assertEqual(len(patched["steps"]), 2)
 
     def test_get_execution_plan_ir(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
+            {"step_type": "metric_query", "params": _typed_metric_query_params()},
             {"step_type": "sample_rows", "params": {"table_name": "analytics.watch_events"}, "dependencies": [0]},
         ])
 
@@ -135,7 +135,7 @@ class PlanningServiceTests(unittest.TestCase):
         self.assertEqual(plan_ir.request.goal, "Planning test")
         self.assertEqual(plan_ir.request.requested_metrics, ["watch_time"])
         self.assertEqual(plan_ir.request.requested_tables, ["analytics.watch_events"])
-        self.assertEqual([step.step_type for step in plan_ir.steps], ["compare_metric", "sample_rows"])
+        self.assertEqual([step.step_type for step in plan_ir.steps], ["metric_query", "sample_rows"])
         self.assertEqual(plan_ir.steps[1].params["table_name"], "analytics.watch_events")
         self.assertEqual(plan_ir.steps[1].dependencies, [0])
         semantic_resolution = plan_ir.semantic_resolution_for_step(0)
@@ -158,7 +158,7 @@ class PlanningServiceTests(unittest.TestCase):
             {"aggregate_only": True},
         )
         plan = self.planning.draft_plan(session["session_id"], [
-            {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
+            {"step_type": "metric_query", "params": _typed_metric_query_params()},
         ])
 
         plan_ir = self.planning.get_execution_plan_ir(plan["plan_id"])
@@ -175,7 +175,7 @@ class PlanningServiceTests(unittest.TestCase):
             semantic_repository=self.service.semantic_repository,
         )
         plan = planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
+            {"step_type": "metric_query", "params": _typed_metric_query_params()},
         ])
 
         plan_ir = planning.get_execution_plan_ir(plan["plan_id"])
@@ -243,9 +243,9 @@ class PlanningServiceTests(unittest.TestCase):
         )
         plan = planning.draft_plan(session["session_id"], [
             {
-                "step_type": "compare_metric",
+                "step_type": "metric_query",
                 "params": {
-                    **_typed_compare_metric_params(),
+                    **_typed_metric_query_params(),
                     "table": "analytics.planning_semantic_table",
                     "dimensions": ["platform", "app_version", "network_type"],
                 },
@@ -267,7 +267,7 @@ class PlanningServiceTests(unittest.TestCase):
 
     def test_patch_non_draft_fails(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
+            {"step_type": "metric_query", "params": _typed_metric_query_params()},
         ])
         self.planning.validate_plan(plan["plan_id"])
         with self.assertRaises(ValueError):
@@ -275,7 +275,7 @@ class PlanningServiceTests(unittest.TestCase):
 
     def test_delete_plan(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
+            {"step_type": "metric_query", "params": _typed_metric_query_params()},
         ])
         result = self.planning.delete_plan(plan["plan_id"])
         self.assertEqual(result["status"], "deleted")
@@ -307,7 +307,7 @@ class PlanValidationTests(unittest.TestCase):
 
     def test_validate_valid_plan(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
+            {"step_type": "metric_query", "params": _typed_metric_query_params()},
             {"step_type": "profile_table", "params": {"table_name": "analytics.watch_events"}},
             {"step_type": "synthesize_findings", "dependencies": [0, 1]},
         ])
@@ -328,7 +328,7 @@ class PlanValidationTests(unittest.TestCase):
 
     def test_validate_returns_structured_issues(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_metric"},
+            {"step_type": "metric_query"},
         ])
         result = self.planning.validate_plan(plan["plan_id"])
         self.assertFalse(result["valid"])
@@ -342,7 +342,7 @@ class PlanValidationTests(unittest.TestCase):
 
     def test_validate_forward_dependency(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_metric", "params": _typed_compare_metric_params(), "dependencies": [1]},
+            {"step_type": "metric_query", "params": _typed_metric_query_params(), "dependencies": [1]},
             {"step_type": "profile_table", "params": {"table_name": "analytics.watch_events"}},
         ])
         result = self.planning.validate_plan(plan["plan_id"])
@@ -350,7 +350,7 @@ class PlanValidationTests(unittest.TestCase):
 
     def test_validate_missing_params(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_metric"},
+            {"step_type": "metric_query"},
         ])
         result = self.planning.validate_plan(plan["plan_id"])
         self.assertFalse(result["valid"])
@@ -366,7 +366,7 @@ class PlanValidationTests(unittest.TestCase):
     def test_validate_auto_approves_clean_plan(self) -> None:
         """Plans with no governance/budget warnings are auto-approved."""
         plan = self.planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
+            {"step_type": "metric_query", "params": _typed_metric_query_params()},
         ])
         result = self.planning.validate_plan(plan["plan_id"])
         self.assertTrue(result["auto_approved"])
@@ -376,7 +376,7 @@ class PlanValidationTests(unittest.TestCase):
     def test_approve_already_approved_is_noop(self) -> None:
         """approve_plan on an already-approved plan is a no-op."""
         plan = self.planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
+            {"step_type": "metric_query", "params": _typed_metric_query_params()},
         ])
         self.planning.validate_plan(plan["plan_id"])
         approved = self.planning.approve_plan(plan["plan_id"])
@@ -385,7 +385,7 @@ class PlanValidationTests(unittest.TestCase):
     def test_approve_draft_fails(self) -> None:
         """approve_plan on a draft plan should fail."""
         plan = self.planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
+            {"step_type": "metric_query", "params": _typed_metric_query_params()},
         ])
         with self.assertRaises(ValueError):
             self.planning.approve_plan(plan["plan_id"])
@@ -415,7 +415,7 @@ class PlanExecutionTests(unittest.TestCase):
 
     def test_execute_plan(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
+            {"step_type": "metric_query", "params": _typed_metric_query_params()},
             {"step_type": "profile_table", "params": {"table_name": "analytics.watch_events"}, "dependencies": [0]},
             {"step_type": "synthesize_findings", "dependencies": [0, 1]},
         ])
@@ -436,8 +436,8 @@ class PlanExecutionTests(unittest.TestCase):
     def test_direct_service_step_writes_live_claims_by_default(self) -> None:
         result = self.service.run_step(
             self.session["session_id"],
-            "compare_metric",
-            _typed_compare_metric_params(),
+            "metric_query",
+            _typed_metric_query_params(),
         )
 
         self.assertIn("readiness", result)
@@ -458,7 +458,7 @@ class PlanExecutionTests(unittest.TestCase):
     def test_execute_plan_populates_claims_for_session(self) -> None:
         session = self.service.create_session("Execution claims test", {}, {}, {})
         plan = self.planning.draft_plan(session["session_id"], [
-            {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
+            {"step_type": "metric_query", "params": _typed_metric_query_params()},
             {"step_type": "aggregate_query", "params": {
                 **_typed_aggregate_query_params(),
             }},
@@ -480,7 +480,7 @@ class PlanExecutionTests(unittest.TestCase):
     def test_execute_plan_then_synthesize_consumes_tentative_claims(self) -> None:
         session = self.service.create_session("Execution synthesize test", {}, {}, {})
         plan = self.planning.draft_plan(session["session_id"], [
-            {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
+            {"step_type": "metric_query", "params": _typed_metric_query_params()},
             {"step_type": "aggregate_query", "params": {
                 **_typed_aggregate_query_params(),
             }},
@@ -508,7 +508,7 @@ class PlanExecutionTests(unittest.TestCase):
     def test_execute_plan_persists_step_result_snapshot(self) -> None:
         session = self.service.create_session("Execution snapshot test", {}, {}, {})
         plan = self.planning.draft_plan(session["session_id"], [
-            {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
+            {"step_type": "metric_query", "params": _typed_metric_query_params()},
             {"step_type": "synthesize_findings", "dependencies": [0]},
         ])
         self.planning.validate_plan(plan["plan_id"])
@@ -521,7 +521,7 @@ class PlanExecutionTests(unittest.TestCase):
         synth_step = final["steps"][1]
 
         self.assertIn("result", compare_step)
-        self.assertEqual(compare_step["result"]["step_type"], "compare_metric")
+        self.assertEqual(compare_step["result"]["step_type"], "metric_query")
         self.assertIn("summary", compare_step["result"])
         self.assertIn("artifact_id", compare_step["result"])
         self.assertIn("observations", compare_step["result"])
@@ -568,19 +568,19 @@ class PlanExecutionTests(unittest.TestCase):
 
     def test_execute_non_approved_fails(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
+            {"step_type": "metric_query", "params": _typed_metric_query_params()},
         ])
         with self.assertRaises(ValueError):
             self.planning.execute_plan(plan["plan_id"], self.service)
 
     def test_explain_plan(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
+            {"step_type": "metric_query", "params": _typed_metric_query_params()},
             {"step_type": "synthesize_findings", "dependencies": [0]},
         ])
         explanation = self.planning.explain_plan(plan["plan_id"])
         self.assertIn("explanation", explanation)
-        self.assertIn("compare_metric", explanation["explanation"])
+        self.assertIn("metric_query", explanation["explanation"])
         self.assertIn("synthesize_findings", explanation["explanation"])
 
 
@@ -696,14 +696,14 @@ class CostEstimationTests(unittest.TestCase):
 
     def test_estimate_costs(self) -> None:
         plan = self.planning.draft_plan(self.session["session_id"], [
-            {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
+            {"step_type": "metric_query", "params": _typed_metric_query_params()},
             {"step_type": "synthesize_findings"},
         ])
         result = self.planning.estimate_costs(plan["plan_id"], self.analytics)
         self.assertIn("total_estimated_cost", result)
         self.assertIn("cost_estimates", result)
         self.assertGreater(result["total_estimated_cost"], 0)
-        # compare_metric should have a cost, synthesize should be 0
+        # metric_query should have a cost, synthesize should be 0
         self.assertIsNotNone(result["steps"][0]["estimated_cost"])
         self.assertIn("estimated_cost_detail", result["steps"][0])
         self.assertEqual(result["steps"][1]["estimated_cost"], 0)
@@ -718,7 +718,7 @@ class CostEstimationTests(unittest.TestCase):
     def test_budget_check_within(self) -> None:
         session = self.service.create_session("Budget test", {}, {"max_rows_scanned": 999999999}, {})
         plan = self.planning.draft_plan(session["session_id"], [
-            {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
+            {"step_type": "metric_query", "params": _typed_metric_query_params()},
         ])
         self.planning.estimate_costs(plan["plan_id"], self.analytics)
         result = self.planning.check_budget(plan["plan_id"], session["session_id"])
@@ -728,7 +728,7 @@ class CostEstimationTests(unittest.TestCase):
     def test_budget_check_exceeded(self) -> None:
         session = self.service.create_session("Budget tight", {}, {"max_rows_scanned": 1}, {})
         plan = self.planning.draft_plan(session["session_id"], [
-            {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
+            {"step_type": "metric_query", "params": _typed_metric_query_params()},
         ])
         self.planning.estimate_costs(plan["plan_id"], self.analytics)
         result = self.planning.check_budget(plan["plan_id"], session["session_id"])
@@ -747,7 +747,7 @@ class PlanningAPITests(unittest.TestCase):
         from fastapi.testclient import TestClient
         get_seeded_duckdb_path(db_path)
         cls.client = TestClient(create_app(db_path))
-        # Seed a published metric for compare_metric steps
+        # Seed a published metric for metric_query steps
         entity_resp = cls.client.post("/semantic/entities", json={
             "name": "session",
             "display_name": "Session",
@@ -777,7 +777,7 @@ class PlanningAPITests(unittest.TestCase):
         # Draft
         resp = self.client.post(f"/sessions/{self.session_id}/plans", json={
             "steps": [
-                {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
+                {"step_type": "metric_query", "params": _typed_metric_query_params()},
                 {"step_type": "profile_table", "params": {"table_name": "analytics.watch_events"}, "dependencies": [0]},
                 {"step_type": "synthesize_findings", "dependencies": [0, 1]},
             ],
@@ -821,7 +821,7 @@ class PlanningAPITests(unittest.TestCase):
 
     def test_estimate_costs_via_api(self) -> None:
         resp = self.client.post(f"/sessions/{self.session_id}/plans", json={
-            "steps": [{"step_type": "compare_metric", "params": _typed_compare_metric_params()}],
+            "steps": [{"step_type": "metric_query", "params": _typed_metric_query_params()}],
         })
         plan_id = resp.json()["plan_id"]
 
@@ -835,7 +835,7 @@ class PlanningAPITests(unittest.TestCase):
             "budget": {"max_rows_scanned": 999999999},
         }).json()
         resp = self.client.post(f"/sessions/{session['session_id']}/plans", json={
-            "steps": [{"step_type": "compare_metric", "params": _typed_compare_metric_params()}],
+            "steps": [{"step_type": "metric_query", "params": _typed_metric_query_params()}],
         })
         plan_id = resp.json()["plan_id"]
 
@@ -848,13 +848,13 @@ class PlanningAPITests(unittest.TestCase):
 
     def test_patch_plan_via_api(self) -> None:
         resp = self.client.post(f"/sessions/{self.session_id}/plans", json={
-            "steps": [{"step_type": "compare_metric", "params": _typed_compare_metric_params()}],
+            "steps": [{"step_type": "metric_query", "params": _typed_metric_query_params()}],
         })
         plan_id = resp.json()["plan_id"]
 
         resp = self.client.patch(f"/sessions/{self.session_id}/plans/{plan_id}", json={
             "steps": [
-                {"step_type": "compare_metric", "params": _typed_compare_metric_params()},
+                {"step_type": "metric_query", "params": _typed_metric_query_params()},
                 {"step_type": "profile_table", "params": {"table_name": "analytics.watch_events"}},
             ],
         })

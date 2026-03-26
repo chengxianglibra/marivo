@@ -48,7 +48,7 @@ class TranslationContractTests(unittest.TestCase):
             translated_sql="SELECT 1",
             target_engine_type="trino",
             metadata={
-                "step_type": "compare_metric",
+                "step_type": "metric_query",
                 "table_names": ["watch_events", "ad_events"],
                 "federation": {
                     "required": True,
@@ -105,7 +105,7 @@ class FederationRuntimeTests(unittest.TestCase):
             translated_sql="SELECT 1",
             target_engine_type="trino",
             metadata={
-                "step_type": "compare_metric",
+                "step_type": "metric_query",
                 "federation": {
                     "required": True,
                     "sources": [

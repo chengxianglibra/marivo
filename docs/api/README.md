@@ -108,14 +108,14 @@ A **step** is a typed analysis operation executed within a session. Step types:
 
 | Step type | Category | Description |
 |-----------|----------|-------------|
-| `compare_metric` | Primitive | Evaluate a semantic metric in `compare` or `single_window` time-window mode |
+| `metric_query` | Primitive | Evaluate a semantic metric in `compare` or `single_window` time-window mode |
 | `profile_table` | Primitive | Profile row count and column-level completeness/cardinality |
 | `sample_rows` | Primitive | Return a bounded sample of rows |
 | `aggregate_query` | Primitive | Ad-hoc GROUP BY aggregation |
 | `correlate_metrics` | Primitive | Compute correlation between two artifact series |
 | `synthesize_findings` | Composite | Synthesize observations into claims and recommendations |
 
-Session constraints are automatically injected into `compare_metric`, `sample_rows`, and `aggregate_query` WHERE clauses. `correlate_metrics` operates on artifacts and does not apply session constraints.
+Session constraints are automatically injected into `metric_query`, `sample_rows`, and `aggregate_query` WHERE clauses. `correlate_metrics` operates on artifacts and does not apply session constraints.
 
 ### Evidence Graph
 

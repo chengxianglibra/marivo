@@ -5,7 +5,7 @@ import unittest
 from app.analysis_core.compiler import (
     _expand_group_by_aliases,
     build_aggregate_comparison_query,
-    build_comparison_query,
+    build_metric_query,
     compile_step,
 )
 from app.analysis_core.executor import execute_compiled
@@ -34,11 +34,11 @@ class CompilerTests(unittest.TestCase):
         self.assertIn("LIMIT 5", compiled.sql)
         self.assertEqual(compiled.metadata["engine_type"], "duckdb")
 
-    def test_compile_compare_metric(self) -> None:
+    def test_compile_metric_query(self) -> None:
         compiled = compile_step(
             AnalysisStepIR(
                 index=0,
-                step_type="compare_metric",
+                step_type="metric_query",
                 params={"metric": "watch_time", "table": "analytics.watch_events"},
             ),
             engine_type="duckdb",
@@ -54,8 +54,8 @@ class CompilerTests(unittest.TestCase):
         self.assertIn("analytics.watch_events", compiled.sql)
         self.assertEqual(len(compiled.params), 6)
 
-    def test_build_comparison_query_helper_compare_mode(self) -> None:
-        query = build_comparison_query(
+    def test_build_metric_query_helper_compare_mode(self) -> None:
+        query = build_metric_query(
             metric_name="watch_time",
             table_name="analytics.watch_events",
             metric_sql="avg(play_duration_seconds)",
@@ -65,8 +65,8 @@ class CompilerTests(unittest.TestCase):
         self.assertIn("delta_pct", query)
         self.assertIn("analytics.watch_events", query)
 
-    def test_build_comparison_query_helper_single_window_mode(self) -> None:
-        query = build_comparison_query(
+    def test_build_metric_query_helper_single_window_mode(self) -> None:
+        query = build_metric_query(
             metric_name="watch_time",
             table_name="analytics.watch_events",
             metric_sql="avg(play_duration_seconds)",
@@ -86,9 +86,9 @@ class CompilerTests(unittest.TestCase):
         self.assertNotIn("baseline_value", query)
         self.assertNotIn("delta_pct", query)
 
-    def test_build_comparison_query_empty_dimensions(self) -> None:
+    def test_build_metric_query_empty_dimensions(self) -> None:
         """Empty dimensions should produce aggregate-only SQL with no GROUP BY on dims."""
-        query = build_comparison_query(
+        query = build_metric_query(
             metric_name="failure_rate",
             table_name="ods_trino_query_info",
             metric_sql="avg(CASE WHEN state='FAILED' THEN 1 ELSE 0 END)",
@@ -103,12 +103,12 @@ class CompilerTests(unittest.TestCase):
         # Check it does not contain "GROUP BY \n" with dimension columns
         self.assertNotIn("GROUP BY period,", query)
 
-    def test_compile_compare_metric_empty_dimensions(self) -> None:
+    def test_compile_metric_query_empty_dimensions(self) -> None:
         """compile_step should handle empty dimensions in semantic_context."""
         compiled = compile_step(
             AnalysisStepIR(
                 index=0,
-                step_type="compare_metric",
+                step_type="metric_query",
                 params={"metric": "failure_rate", "table": "ods_trino_query_info"},
             ),
             engine_type="duckdb",
@@ -123,11 +123,11 @@ class CompilerTests(unittest.TestCase):
         self.assertIn("baseline_value", compiled.sql)
         self.assertEqual(len(compiled.params), 6)
 
-    def test_compile_compare_metric_single_window_scoped_query(self) -> None:
+    def test_compile_metric_query_single_window_scoped_query(self) -> None:
         compiled = compile_step(
             AnalysisStepIR(
                 index=0,
-                step_type="compare_metric",
+                step_type="metric_query",
                 params={
                     "metric": "watch_time",
                     "table": "analytics.watch_events",
@@ -155,12 +155,12 @@ class CompilerTests(unittest.TestCase):
         self.assertNotIn("delta_pct", compiled.sql)
         self.assertEqual(compiled.params, ["2026-03-25T10:00:00", "2026-03-25T14:00:00"])
 
-    def test_compile_compare_metric_scoped_query_requires_valid_mode(self) -> None:
+    def test_compile_metric_query_scoped_query_requires_valid_mode(self) -> None:
         with self.assertRaisesRegex(ValueError, "scoped_query.mode must be"):
             compile_step(
                 AnalysisStepIR(
                     index=0,
-                    step_type="compare_metric",
+                    step_type="metric_query",
                     params={
                         "metric": "watch_time",
                         "table": "analytics.watch_events",
@@ -244,8 +244,8 @@ class CompilerTests(unittest.TestCase):
         self.assertIn("log_date = '20260301'", compiled.sql)
         self.assertIn(" AND ", compiled.sql)
 
-    def test_build_comparison_query_with_filter(self) -> None:
-        query = build_comparison_query(
+    def test_build_metric_query_with_filter(self) -> None:
+        query = build_metric_query(
             metric_name="failure_rate",
             table_name="ods_trino_query_info",
             metric_sql="avg(CASE WHEN state='FAILED' THEN 1 ELSE 0 END)",
@@ -255,11 +255,11 @@ class CompilerTests(unittest.TestCase):
         self.assertIn("AND cluster = 'k8soneservice-oneservice'", query)
         self.assertIn("delta_pct", query)
 
-    def test_compile_compare_metric_custom_order(self) -> None:
+    def test_compile_metric_query_custom_order(self) -> None:
         compiled = compile_step(
             AnalysisStepIR(
                 index=0,
-                step_type="compare_metric",
+                step_type="metric_query",
                 params={
                     "metric": "watch_time",
                     "table": "analytics.watch_events",
@@ -275,11 +275,11 @@ class CompilerTests(unittest.TestCase):
             )
         self.assertIn("ORDER BY delta_pct DESC", compiled.sql)
 
-    def test_compile_compare_metric_single_window_current_sessions_order(self) -> None:
+    def test_compile_metric_query_single_window_current_sessions_order(self) -> None:
         compiled = compile_step(
             AnalysisStepIR(
                 index=0,
-                step_type="compare_metric",
+                step_type="metric_query",
                 params={
                     "metric": "watch_time",
                     "table": "analytics.watch_events",
@@ -300,11 +300,11 @@ class CompilerTests(unittest.TestCase):
 
         self.assertIn("ORDER BY current_sessions ASC", compiled.sql)
 
-    def test_compile_compare_metric_single_window_default_order_is_current_value_desc(self) -> None:
+    def test_compile_metric_query_single_window_default_order_is_current_value_desc(self) -> None:
         compiled = compile_step(
             AnalysisStepIR(
                 index=0,
-                step_type="compare_metric",
+                step_type="metric_query",
                 params={
                     "metric": "watch_time",
                     "table": "analytics.watch_events",
@@ -324,11 +324,11 @@ class CompilerTests(unittest.TestCase):
 
         self.assertIn("ORDER BY current_value DESC", compiled.sql)
 
-    def test_compile_compare_metric_with_scoped_query_uses_ordered_filters(self) -> None:
+    def test_compile_metric_query_with_scoped_query_uses_ordered_filters(self) -> None:
         compiled = compile_step(
             AnalysisStepIR(
                 index=0,
-                step_type="compare_metric",
+                step_type="metric_query",
                 params={
                     "metric": "watch_time",
                     "table": "analytics.watch_events",
@@ -380,11 +380,11 @@ class CompilerTests(unittest.TestCase):
         self.assertLess(raw_filter_idx, scope_constraints_idx)
         self.assertLess(scope_constraints_idx, scope_predicate_idx)
 
-    def test_compile_compare_metric_timestamp_only_scoped_query_omits_pruning(self) -> None:
+    def test_compile_metric_query_timestamp_only_scoped_query_omits_pruning(self) -> None:
         compiled = compile_step(
             AnalysisStepIR(
                 index=0,
-                step_type="compare_metric",
+                step_type="metric_query",
                 params={
                     "metric": "watch_time",
                     "table": "analytics.watch_events",
@@ -419,11 +419,11 @@ class CompilerTests(unittest.TestCase):
             ],
         )
 
-    def test_compile_compare_metric_formats_date_field_bounds_to_resolved_encoding(self) -> None:
+    def test_compile_metric_query_formats_date_field_bounds_to_resolved_encoding(self) -> None:
         compiled = compile_step(
             AnalysisStepIR(
                 index=0,
-                step_type="compare_metric",
+                step_type="metric_query",
                 params={
                     "metric": "watch_time",
                     "table": "analytics.watch_events",
@@ -459,12 +459,12 @@ class CompilerTests(unittest.TestCase):
             ],
         )
 
-    def test_compile_compare_metric_invalid_order_raises(self) -> None:
+    def test_compile_metric_query_invalid_order_raises(self) -> None:
         with self.assertRaises(ValueError):
             compile_step(
                 AnalysisStepIR(
                 index=0,
-                step_type="compare_metric",
+                step_type="metric_query",
                 params={
                         "metric": "watch_time",
                         "table": "analytics.watch_events",
@@ -479,12 +479,12 @@ class CompilerTests(unittest.TestCase):
                 },
             )
 
-    def test_compile_compare_metric_single_window_invalid_order_raises(self) -> None:
+    def test_compile_metric_query_single_window_invalid_order_raises(self) -> None:
         with self.assertRaisesRegex(ValueError, "current_value/current_sessions ASC or DESC"):
             compile_step(
                 AnalysisStepIR(
                     index=0,
-                    step_type="compare_metric",
+                    step_type="metric_query",
                     params={
                         "metric": "watch_time",
                         "table": "analytics.watch_events",
@@ -503,11 +503,11 @@ class CompilerTests(unittest.TestCase):
                 },
             )
 
-    def test_compare_metric_default_limit_is_10(self) -> None:
+    def test_metric_query_default_limit_is_10(self) -> None:
         compiled = compile_step(
             AnalysisStepIR(
                 index=0,
-                step_type="compare_metric",
+                step_type="metric_query",
                 params={"metric": "watch_time", "table": "analytics.watch_events"},
             ),
             engine_type="duckdb",
@@ -519,12 +519,12 @@ class CompilerTests(unittest.TestCase):
         )
         self.assertIn("LIMIT 10", compiled.sql)
 
-    def test_compile_compare_metric_with_session_constraints_filter(self) -> None:
+    def test_compile_metric_query_with_session_constraints_filter(self) -> None:
         """Session constraints flow through the shared scoped-query contract."""
         compiled = compile_step(
             AnalysisStepIR(
                 index=0,
-                step_type="compare_metric",
+                step_type="metric_query",
                 params={
                     "metric": "watch_time",
                     "table": "analytics.watch_events",
@@ -764,12 +764,12 @@ class ExecutorTests(unittest.TestCase):
         self.assertIsNotNone(engine.last_sql)
         self.assertIn("CAST(play_duration_seconds AS DOUBLE)", engine.last_sql)
 
-    def test_execute_compiled_translates_compare_metric(self) -> None:
+    def test_execute_compiled_translates_metric_query(self) -> None:
         engine = FakeEngine()
         compiled = compile_step(
             AnalysisStepIR(
                 index=0,
-                step_type="compare_metric",
+                step_type="metric_query",
                 params={"metric": "watch_time", "table": "analytics.watch_events"},
             ),
             engine_type="trino",

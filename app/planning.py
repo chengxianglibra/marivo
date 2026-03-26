@@ -50,7 +50,7 @@ from app.semantic_runtime import SemanticResolver, SemanticRuntimeRepository
 from app.storage.analytics import AnalyticsEngine
 from app.storage.metadata import MetadataStore
 from app.time_scope import normalize_aggregate_query_request
-from app.time_scope import normalize_compare_metric_request
+from app.time_scope import normalize_metric_query_request
 from app.time_scope import scope_predicate_contains_time_condition
 
 if TYPE_CHECKING:
@@ -60,7 +60,7 @@ if TYPE_CHECKING:
 
 # Valid step types (must match SemanticLayerService.run_step dispatcher)
 VALID_STEP_TYPES = frozenset(SUPPORTED_STEP_TYPES)
-COMPARE_METRIC_REQUIRED_PARAMS = ("table", "metric", "time_scope")
+METRIC_QUERY_REQUIRED_PARAMS = ("table", "metric", "time_scope")
 AGGREGATE_QUERY_REQUIRED_PARAMS = ("table", "measures", "time_scope")
 
 PLAN_STATUS_TRANSITIONS = {
@@ -678,7 +678,7 @@ class PlanningService:
             if truncated:
                 snapshot[f"{field_name}_truncated"] = True
 
-        if step_type in {"compare_metric", "aggregate_query", "attribute_change", "sample_rows"}:
+        if step_type in {"metric_query", "aggregate_query", "attribute_change", "sample_rows"}:
             _truncate_rows_field("rows")
             _truncate_rows_field("observations")
             _truncate_rows_field("contributions")
@@ -983,9 +983,9 @@ class PlanningService:
             )
 
         for step in step_irs:
-            if step.step_type == "compare_metric":
+            if step.step_type == "metric_query":
                 missing = [
-                    key for key in COMPARE_METRIC_REQUIRED_PARAMS if not step.params.get(key)
+                    key for key in METRIC_QUERY_REQUIRED_PARAMS if not step.params.get(key)
                 ]
                 if missing:
                     issues.append(
@@ -994,11 +994,11 @@ class PlanningService:
                             category="params",
                             step_index=step.index,
                             message=(
-                                f"Step {step.index}: compare_metric requires "
+                                f"Step {step.index}: metric_query requires "
                                 "'table', 'metric', and 'time_scope' params"
                             ),
                             detail={
-                                "required_params": list(COMPARE_METRIC_REQUIRED_PARAMS),
+                                "required_params": list(METRIC_QUERY_REQUIRED_PARAMS),
                                 "missing_params": missing,
                             },
                         )
@@ -1142,8 +1142,8 @@ class PlanningService:
     def _validate_typed_step_contract(self, step: AnalysisStepIR) -> list[PlanValidationIssue]:
         params = step.params or {}
         try:
-            if step.step_type == "compare_metric":
-                normalize_compare_metric_request(params)
+            if step.step_type == "metric_query":
+                normalize_metric_query_request(params)
             elif step.step_type == "aggregate_query":
                 normalize_aggregate_query_request(params)
             else:
@@ -1209,7 +1209,7 @@ class PlanningService:
         issues: list[PlanValidationIssue] = []
         if step.step_type == "correlate_metrics":
             return self._validate_correlate_metrics_params(step)
-        if step.step_type not in {"compare_metric", "attribute_change"}:
+        if step.step_type not in {"metric_query", "attribute_change"}:
             return issues
 
         metric_name = ""
