@@ -71,7 +71,7 @@ class CompilerTests(unittest.TestCase):
             table_name="analytics.watch_events",
             metric_sql="avg(play_duration_seconds)",
             dimensions=["platform", "app_version"],
-            order="DESC",
+            order="CURRENT_VALUE DESC",
             scoped_query={
                 "mode": "single_window",
                 "analysis_time_expr": "event_time",
@@ -131,7 +131,7 @@ class CompilerTests(unittest.TestCase):
                 params={
                     "metric": "watch_time",
                     "table": "analytics.watch_events",
-                    "order": "DESC",
+                    "order": "CURRENT_VALUE DESC",
                     "scoped_query": {
                         "mode": "single_window",
                         "analysis_time_expr": "event_time",
@@ -274,6 +274,31 @@ class CompilerTests(unittest.TestCase):
                 },
             )
         self.assertIn("ORDER BY delta_pct DESC", compiled.sql)
+
+    def test_compile_compare_metric_single_window_current_sessions_order(self) -> None:
+        compiled = compile_step(
+            AnalysisStepIR(
+                index=0,
+                step_type="compare_metric",
+                params={
+                    "metric": "watch_time",
+                    "table": "analytics.watch_events",
+                    "order": "CURRENT_SESSIONS ASC",
+                    "scoped_query": {
+                        "mode": "single_window",
+                        "analysis_time_expr": "event_time",
+                        "current": {"start": "2026-03-25T10:00:00", "end": "2026-03-25T14:00:00"},
+                    },
+                },
+            ),
+            engine_type="duckdb",
+            semantic_context={
+                "metric_sql": "avg(play_duration_seconds)",
+                "dimensions": ["platform"],
+            },
+        )
+
+        self.assertIn("ORDER BY current_sessions ASC", compiled.sql)
 
     def test_compile_compare_metric_with_scoped_query_uses_ordered_filters(self) -> None:
         compiled = compile_step(

@@ -143,13 +143,33 @@ def _require_scoped_query_mode(scoped_query: Mapping[str, Any]) -> str:
     return mode
 
 
+def _normalize_compare_metric_order(order: str, *, mode: str) -> tuple[str, str]:
+    normalized_mode = str(mode or "").strip().lower()
+    normalized = str(order or "").strip().upper()
+    if normalized_mode == "compare":
+        if normalized in {"ASC", "DESC"}:
+            return ("delta_pct", normalized)
+        if normalized in {"DELTA_PCT ASC", "DELTA_PCT DESC"}:
+            field, direction = normalized.split()
+            return (field.lower(), direction)
+        raise ValueError(f"Invalid compare_metric compare order '{order}'; must be delta_pct ASC or DESC")
+    if normalized_mode == "single_window":
+        if normalized in {"CURRENT_VALUE ASC", "CURRENT_VALUE DESC", "CURRENT_SESSIONS ASC", "CURRENT_SESSIONS DESC"}:
+            field, direction = normalized.split()
+            return (field.lower(), direction)
+        raise ValueError(
+            f"Invalid compare_metric single_window order '{order}'; must be current_value/current_sessions ASC or DESC"
+        )
+    raise ValueError("compare_metric order mode must be 'compare' or 'single_window'")
+
+
 def build_comparison_query(
     metric_name: str,
     table_name: str,
     metric_sql: str,
     dimensions: list[str],
     date_column: str = "event_date",
-    order: str = "ASC",
+    order: str = "DELTA_PCT ASC",
     limit: int = 10,
     filter_expr: str | None = None,
     scoped_query: Mapping[str, Any] | None = None,
@@ -176,10 +196,14 @@ def build_comparison_query(
 
     if scoped_query is not None:
         mode = _require_scoped_query_mode(scoped_query)
+        effective_order = order
+        if not str(effective_order or "").strip():
+            effective_order = "CURRENT_VALUE DESC" if mode == "single_window" else "DELTA_PCT ASC"
+        order_field, order_direction = _normalize_compare_metric_order(effective_order, mode=mode)
         if mode == "single_window":
             scoped = _build_scoped_query_parts(table_name, scoped_query, include_period=False)
             group_clause = f"GROUP BY {', '.join(dimensions)}" if dimensions else ""
-            order_clause = f"ORDER BY current_value {order}" if order else ""
+            order_clause = f"ORDER BY {order_field} {order_direction}" if order else ""
             return f"""
                 WITH {scoped.cte_sql}
                 SELECT
@@ -222,10 +246,11 @@ def build_comparison_query(
                 current_sessions,
                 baseline_sessions
             FROM pivoted
-            ORDER BY delta_pct {order}
+            ORDER BY {order_field} {order_direction}
             LIMIT {limit}
         """
 
+    legacy_order_field, legacy_order_direction = _normalize_compare_metric_order(order, mode="compare")
     filter_clause = f" AND {filter_expr}" if filter_expr else ""
 
     return f"""
@@ -266,7 +291,7 @@ def build_comparison_query(
             current_sessions,
             baseline_sessions
         FROM pivoted
-        ORDER BY delta_pct {order}
+        ORDER BY {legacy_order_field} {legacy_order_direction}
         LIMIT {limit}
     """
 
@@ -630,10 +655,14 @@ def compile_step(
         if metric_sql is None or dimensions is None:
             raise ValueError("compare_metric compilation requires semantic_context with 'metric_sql' and 'dimensions'")
         limit = int(params.get("limit", 10))
-        order = str(params.get("order", "ASC")).upper()
-        if order not in ("ASC", "DESC"):
-            raise ValueError(f"Invalid order '{order}'; must be ASC or DESC")
+        order_param = params.get("order")
         scoped_query = params.get("scoped_query")
+        mode = "compare"
+        if isinstance(scoped_query, Mapping):
+            mode = _require_scoped_query_mode(scoped_query)
+        default_order = "CURRENT_VALUE DESC" if mode == "single_window" else "DELTA_PCT ASC"
+        order = str(order_param or default_order).upper()
+        _normalize_compare_metric_order(order, mode=mode)
         sql = build_comparison_query(
             metric_name=metric_name,
             table_name=table_name,

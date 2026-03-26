@@ -48,12 +48,15 @@ Rules:
 - `aggregate_query` request contract: `table`, `measures`, `time_scope` (required), plus `group_by`, `scope`, `time_axis`, `order`, `limit`
 - `time_scope` is the only time-window contract; `scope` is the only step-level non-time scope contract
 - `scope.constraints` is for scalar entity/row scope; `scope.predicate` may contain only non-time conditions
+- `compare_metric` executes both `time_scope.mode = compare` and `time_scope.mode = single_window`
+- `compare_metric` order is mode-aware: `compare` supports `delta_pct ASC|DESC`; `single_window` supports `current_value ASC|DESC` and `current_sessions ASC|DESC`
 - `time_axis` request overrides take priority over metadata, which takes priority over heuristics
 - `time_axis` resolution prefers `semantic_entities.properties.time_capabilities`, then synced `source_objects.properties.time_capabilities`, then heuristics
 - phase-1 timezone policy is session-consistent naive timestamps only; hour-grain windows must not include timezone offsets
 - normalized windows are half-open: `[start, end)`
 - mixed layouts use timestamp fields for correctness and partition fields for pruning; hour-grain partition pruning bounds edge days by hour when those fields exist
 - `compare_metric` observations inherit `time_scope.current` as their `observed_window`
+- `compare_metric(single_window)` emits current-window observations only; it does not fabricate `baseline_*` or `delta_pct`
 - `aggregate_query` observations inherit the request window; temporal `group_by` can refine them to per-row windows
 - session `constraints` / `raw_filter` auto-inject into supported query steps
 

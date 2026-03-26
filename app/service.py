@@ -1098,17 +1098,22 @@ class SemanticLayerService:
         request: ResolvedWindowedQueryRequest,
         *,
         all_rows: list[dict[str, Any]],
-        window_length_match: bool,
+        window_length_match: bool | None = None,
     ) -> dict[str, Any]:
+        debug = {
+            "current_window": [request.time_scope.current.start, request.time_scope.current.end],
+            "current_has_data": any(row.get("current_sessions") for row in all_rows),
+        }
+        if request.time_scope.mode == "single_window":
+            return debug
         if request.time_scope.baseline is None:
             raise ValueError("compare_metric debug payload requires baseline window")
-        return {
-            "current_window": [request.time_scope.current.start, request.time_scope.current.end],
+        debug.update({
             "baseline_window": [request.time_scope.baseline.start, request.time_scope.baseline.end],
-            "current_has_data": any(row.get("current_sessions") for row in all_rows),
             "baseline_has_data": any(row.get("baseline_sessions") for row in all_rows),
-            "window_length_match": window_length_match,
-        }
+            "window_length_match": bool(window_length_match),
+        })
+        return debug
 
     @classmethod
     def _compare_metric_summary(
@@ -1116,12 +1121,32 @@ class SemanticLayerService:
         metric_name: str,
         rows: list[dict[str, Any]],
         *,
+        mode: str,
         debug: dict[str, Any],
         dimensions: list[str],
         grain: str,
-        current_len: int,
-        baseline_len: int,
+        current_len: int | None = None,
+        baseline_len: int | None = None,
     ) -> str:
+        if mode == "single_window":
+            if rows:
+                top = rows[0]
+                slice_label = cls._comparison_slice_label(top, dimensions)
+                return (
+                    f"Metric '{metric_name}' current window observation: highest value is "
+                    f"{top['current_value']} for {slice_label} "
+                    f"(current_sessions={top['current_sessions']})."
+                )
+            if debug["current_has_data"]:
+                return (
+                    f"Metric '{metric_name}' current window observation returned no retained rows. "
+                    f"current_window={debug['current_window']}."
+                )
+            return (
+                f"Metric '{metric_name}' current window has no data. "
+                f"current_window={debug['current_window']}."
+            )
+
         if rows:
             top = rows[0]
             direction = "decline" if (top.get("delta_pct") or 0) < 0 else "increase"
@@ -1132,6 +1157,8 @@ class SemanticLayerService:
                 f"(current_value={top['current_value']}, baseline_value={top['baseline_value']})."
             )
             if not debug["window_length_match"]:
+                if current_len is None or baseline_len is None:
+                    raise ValueError("compare_metric compare summary requires both window lengths")
                 unit = "h" if grain == "hour" else "d"
                 summary += (
                     f" Window size mismatch: current={current_len}{unit}, "
@@ -1216,16 +1243,23 @@ class SemanticLayerService:
             ):
                 raise
 
-    @staticmethod
-    def _normalize_compare_metric_order(order: str | None) -> str | None:
+    @classmethod
+    def _normalize_compare_metric_order(cls, order: str | None, *, mode: str) -> str | None:
+        normalized_mode = cls._compare_metric_mode_contract(mode)["mode"]
         if order is None:
-            return None
+            return "CURRENT_VALUE DESC" if normalized_mode == "single_window" else None
         normalized = order.strip().upper()
-        if normalized in {"ASC", "DESC"}:
+        if normalized_mode == "compare":
+            if normalized in {"ASC", "DESC"}:
+                return f"DELTA_PCT {normalized}"
+            if normalized in {"DELTA_PCT ASC", "DELTA_PCT DESC"}:
+                return normalized
+            raise ValueError("compare_metric compare mode supports only delta_pct ASC/DESC")
+        if normalized in {"CURRENT_VALUE ASC", "CURRENT_VALUE DESC", "CURRENT_SESSIONS ASC", "CURRENT_SESSIONS DESC"}:
             return normalized
-        if normalized in {"DELTA_PCT ASC", "DELTA_PCT DESC"}:
-            return normalized.split()[-1]
-        raise ValueError("compare_metric order currently supports only delta_pct ASC/DESC")
+        raise ValueError(
+            "compare_metric single_window mode supports only current_value ASC/DESC or current_sessions ASC/DESC"
+        )
 
     _CONSTRAINT_APPLYING_STEPS = frozenset({"compare_metric", "sample_rows", "aggregate_query", "attribute_change"})
 
@@ -1265,9 +1299,7 @@ class SemanticLayerService:
         resolved = normalize_compare_metric_request(params)
         if not isinstance(resolved.value_spec, SemanticMetricValueSpec):
             raise ValueError("compare_metric requires a semantic metric request")
-        if resolved.time_scope.mode != "compare" or resolved.time_scope.baseline is None:
-            raise ValueError("compare_metric currently requires time_scope.mode='compare' for execution")
-
+        mode = resolved.time_scope.mode
         metric_name = resolved.value_spec.metric
 
         step_type = "compare_metric"
@@ -1311,8 +1343,11 @@ class SemanticLayerService:
 
         qualified_table = qualified.get(short_name, resolved.table)
         current_len = self._window_length(resolved, "current")
-        baseline_len = self._window_length(resolved, "baseline")
-        window_size_mismatch = current_len != baseline_len
+        baseline_len: int | None = None
+        window_size_mismatch = False
+        if mode == "compare":
+            baseline_len = self._window_length(resolved, "baseline")
+            window_size_mismatch = current_len != baseline_len
         compiled_query = self._compile_step_with_feedback(
             AnalysisStepIR(
                 index=0,
@@ -1323,7 +1358,7 @@ class SemanticLayerService:
                         "table": qualified_table,
                         "metric": metric_name,
                         "limit": limit,
-                        "order": self._normalize_compare_metric_order(resolved.order),
+                        "order": self._normalize_compare_metric_order(resolved.order, mode=mode),
                         "scoped_query": scoped_query,
                     }.items()
                     if value is not None
@@ -1335,12 +1370,14 @@ class SemanticLayerService:
                 "dimensions": dimensions,
             },
         )
-        mode = resolved.time_scope.mode
         all_rows = self._normalize_comparison_rows(
             execute_compiled(engine, compiled_query).rows,
             mode=mode,
         )
-        rows = [row for row in all_rows if row.get("delta_pct") is not None]
+        if mode == "compare":
+            rows = [row for row in all_rows if row.get("delta_pct") is not None]
+        else:
+            rows = list(all_rows)
         extractor_context = self._build_compare_metric_extractor_context(
             mode=mode,
             metric_name=metric_name,
@@ -1363,11 +1400,12 @@ class SemanticLayerService:
         _debug = self._compare_metric_debug_payload(
             resolved,
             all_rows=all_rows,
-            window_length_match=not window_size_mismatch,
+            window_length_match=(not window_size_mismatch) if mode == "compare" else None,
         )
         summary = self._compare_metric_summary(
             metric_name,
             rows,
+            mode=mode,
             debug=_debug,
             dimensions=dimensions,
             grain=resolved.time_scope.grain,
@@ -1391,7 +1429,7 @@ class SemanticLayerService:
             result["unit_note"] = unit_note
         if not rows:
             result["debug"] = _debug
-        elif window_size_mismatch:
+        elif mode == "compare" and window_size_mismatch:
             result["debug"] = {k: _debug[k] for k in ("current_window", "baseline_window", "window_length_match")}
         self._insert_step(step_id, session_id, step_type, summary, result, provenance=provenance)
         return result

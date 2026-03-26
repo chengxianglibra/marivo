@@ -239,15 +239,15 @@ const STEP_PARAM_TEMPLATES = {
     metric: "watch_time",
     dimensions: ["platform"],
     time_scope: {
-      mode: "compare",
+      mode: "single_window",
       grain: "day",
-      current: { start: "2026-03-10", end: "2026-03-17" },
-      baseline: { start: "2026-03-03", end: "2026-03-10" }
+      current: { start: "2026-03-10", end: "2026-03-17" }
     },
     scope: {
       constraints: { platform: "android" },
       predicate: "device_type = 'phone'"
-    }
+    },
+    order: "current_value DESC"
   },
   aggregate_query: {
     table: "analytics.watch_events",
@@ -278,7 +278,7 @@ const STEP_PARAM_TEMPLATES = {
 };
 
 const STEP_PARAM_HINTS = {
-  compare_metric: "Use only typed fields: `table`, `metric`, `dimensions`, `time_scope`, optional `scope`/`time_axis`/`order`/`limit`.",
+  compare_metric: "Use only typed fields: `table`, `metric`, `dimensions`, `time_scope`, optional `scope`/`time_axis`/`order`/`limit`; `order` is mode-aware.",
   aggregate_query: "Use only typed fields: `table`, `group_by`, `measures`, `time_scope`, optional `scope`/`time_axis`/`order`/`limit`.",
   profile_table: "Legacy table utilities still use `table_name`.",
   sample_rows: "Legacy table utilities still use `table_name`, optional `limit`, `filter`, `columns`.",

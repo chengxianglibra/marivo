@@ -739,12 +739,100 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         self.assertTrue(context["quality_builder"]({"current_sessions": 200})["sample_size_ok"])
         self.assertFalse(context["quality_builder"]({"current_sessions": 100})["sample_size_ok"])
 
-    def test_compare_metric_single_window_execution_guard_remains(self) -> None:
-        with self.assertRaisesRegex(ValueError, "requires time_scope.mode='compare'"):
+    def test_compare_metric_single_window_executes_without_delta_fields(self) -> None:
+        captured: dict[str, object] = {}
+        original_compile = self.service._compile_step_with_feedback
+        original_execute = service_module.execute_compiled
+        original_resolve_engine = self.service._resolve_engine
+        original_extract = self.service.evidence_pipeline.extract_observations
+        self.service._resolve_engine = lambda table_names: (_FakeEngine(), "duckdb", {table_names[0]: f"analytics.{table_names[0]}"})
+
+        def fake_extract(extractor_name, rows, *, context=None):
+            captured["extractor_name"] = extractor_name
+            captured["rows"] = list(rows)
+            captured["context"] = context
+            return []
+
+        def fake_compile(step, *, engine_type, semantic_context=None):
+            captured["params"] = dict(step.params)
+            return CompiledQuery(sql="SELECT 1", params=[])
+
+        class _Result:
+            rows = [{"platform": "android", "current_value": 10.0, "current_sessions": 10}]
+
+        self.service._compile_step_with_feedback = fake_compile
+        self.service.evidence_pipeline.extract_observations = fake_extract
+        service_module.execute_compiled = lambda engine, compiled: _Result()
+        try:
+            result = self.service._run_compare_metric(self.session_id, {
+                "table": "analytics.watch_events",
+                "metric": self.metric_name,
+                "dimensions": ["platform"],
+                "time_scope": {
+                    "mode": "single_window",
+                    "grain": "day",
+                    "current": {"start": "2026-03-10", "end": "2026-03-17"},
+                },
+            })
+        finally:
+            self.service._compile_step_with_feedback = original_compile
+            service_module.execute_compiled = original_execute
+            self.service._resolve_engine = original_resolve_engine
+            self.service.evidence_pipeline.extract_observations = original_extract
+
+        self.assertEqual(result["step_type"], "compare_metric")
+        self.assertNotIn("debug", result)
+        self.assertIn("current window observation", result["summary"])
+        self.assertNotIn("baseline", result["summary"].lower())
+        self.assertEqual(captured["extractor_name"], "comparison_rows")
+        self.assertEqual(captured["rows"], [{"platform": "android", "current_value": 10.0, "current_sessions": 10}])
+        self.assertEqual(captured["params"]["order"], "CURRENT_VALUE DESC")
+
+    def test_compare_metric_single_window_order_allows_current_sessions(self) -> None:
+        captured: dict[str, object] = {}
+        original_compile = self.service._compile_step_with_feedback
+        original_execute = service_module.execute_compiled
+        original_resolve_engine = self.service._resolve_engine
+        original_extract = self.service.evidence_pipeline.extract_observations
+        self.service._resolve_engine = lambda table_names: (_FakeEngine(), "duckdb", {table_names[0]: f"analytics.{table_names[0]}"})
+        self.service.evidence_pipeline.extract_observations = lambda *args, **kwargs: []
+
+        def fake_compile(step, *, engine_type, semantic_context=None):
+            captured["order"] = step.params["order"]
+            return CompiledQuery(sql="SELECT 1", params=[])
+
+        class _Result:
+            rows = [{"platform": "android", "current_value": 10.0, "current_sessions": 10}]
+
+        self.service._compile_step_with_feedback = fake_compile
+        service_module.execute_compiled = lambda engine, compiled: _Result()
+        try:
             self.service._run_compare_metric(self.session_id, {
                 "table": "analytics.watch_events",
                 "metric": self.metric_name,
                 "dimensions": ["platform"],
+                "order": "current_sessions ASC",
+                "time_scope": {
+                    "mode": "single_window",
+                    "grain": "day",
+                    "current": {"start": "2026-03-10", "end": "2026-03-17"},
+                },
+            })
+        finally:
+            self.service._compile_step_with_feedback = original_compile
+            service_module.execute_compiled = original_execute
+            self.service._resolve_engine = original_resolve_engine
+            self.service.evidence_pipeline.extract_observations = original_extract
+
+        self.assertEqual(captured["order"], "CURRENT_SESSIONS ASC")
+
+    def test_compare_metric_single_window_rejects_delta_pct_order(self) -> None:
+        with self.assertRaisesRegex(ValueError, "single_window mode supports only current_value"):
+            self.service._run_compare_metric(self.session_id, {
+                "table": "analytics.watch_events",
+                "metric": self.metric_name,
+                "dimensions": ["platform"],
+                "order": "delta_pct DESC",
                 "time_scope": {
                     "mode": "single_window",
                     "grain": "day",

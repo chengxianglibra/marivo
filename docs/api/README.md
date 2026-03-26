@@ -108,7 +108,7 @@ A **step** is a typed analysis operation executed within a session. Step types:
 
 | Step type | Category | Description |
 |-----------|----------|-------------|
-| `compare_metric` | Primitive | Compare a semantic metric between two time windows |
+| `compare_metric` | Primitive | Evaluate a semantic metric in `compare` or `single_window` time-window mode |
 | `profile_table` | Primitive | Profile row count and column-level completeness/cardinality |
 | `sample_rows` | Primitive | Return a bounded sample of rows |
 | `aggregate_query` | Primitive | Ad-hoc GROUP BY aggregation |
