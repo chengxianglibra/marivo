@@ -482,6 +482,78 @@ class CompareMetricTypedContractTests(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 200, resp.json())
 
+    def test_single_window_happy_path_returns_current_window_observations(self) -> None:
+        session_id = self._new_session()
+        resp = self.client.post(
+            f"/sessions/{session_id}/steps/compare_metric",
+            json={
+                "table": "analytics.watch_events",
+                "metric": "watch_time_ctype",
+                "time_scope": {
+                    "mode": "single_window",
+                    "grain": "day",
+                    "current": {"start": "2026-02-28", "end": "2026-03-06"},
+                },
+            },
+        )
+        self.assertEqual(resp.status_code, 200, resp.json())
+        result = resp.json()
+        self.assertEqual(result["step_type"], "compare_metric")
+        self.assertIn("current window observation", result["summary"])
+        self.assertNotIn("baseline", result["summary"].lower())
+        self.assertGreaterEqual(len(result["observations"]), 1)
+        observation = result["observations"][0]
+        self.assertIn("current_value", observation["payload"])
+        self.assertIn("current_sessions", observation["payload"])
+        self.assertNotIn("baseline_value", observation["payload"])
+        self.assertNotIn("delta_pct", observation["payload"])
+        self.assertEqual(
+            observation["observed_window"],
+            {"start": "2026-02-28", "end": "2026-03-06", "granularity": "day"},
+        )
+
+    def test_single_window_no_data_path_returns_current_window_debug_only(self) -> None:
+        session_id = self._new_session()
+        resp = self.client.post(
+            f"/sessions/{session_id}/steps/compare_metric",
+            json={
+                "table": "analytics.watch_events",
+                "metric": "watch_time_ctype",
+                "time_scope": {
+                    "mode": "single_window",
+                    "grain": "day",
+                    "current": {"start": "1999-01-01", "end": "1999-01-08"},
+                },
+            },
+        )
+        self.assertEqual(resp.status_code, 200, resp.json())
+        result = resp.json()
+        self.assertEqual(result["observations"], [])
+        self.assertIn("current window has no data", result["summary"].lower())
+        self.assertIn("debug", result)
+        self.assertEqual(result["debug"]["current_window"], ["1999-01-01", "1999-01-08"])
+        self.assertIn("current_has_data", result["debug"])
+        self.assertNotIn("baseline_window", result["debug"])
+        self.assertNotIn("baseline_has_data", result["debug"])
+
+    def test_single_window_invalid_order_returns_422(self) -> None:
+        session_id = self._new_session()
+        resp = self.client.post(
+            f"/sessions/{session_id}/steps/compare_metric",
+            json={
+                "table": "analytics.watch_events",
+                "metric": "watch_time_ctype",
+                "order": "delta_pct DESC",
+                "time_scope": {
+                    "mode": "single_window",
+                    "grain": "day",
+                    "current": {"start": "2026-02-28", "end": "2026-03-06"},
+                },
+            },
+        )
+        self.assertEqual(resp.status_code, 422, resp.json())
+        self.assertIn("single_window mode supports only current_value", resp.json()["detail"])
+
     def test_unequal_window_warn_not_error(self) -> None:
         """Unequal windows return 200 and debug.window_length_match=False."""
         session_id = self._new_session()

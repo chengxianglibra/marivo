@@ -310,25 +310,27 @@
 
 > 前置依赖：CM-SW-04 + CM-SW-06 | 工作量：大 | 风险：高
 
-- [ ] `tests/test_step_api_contract.py`
+- [x] `tests/test_step_api_contract.py`
   - 保留 route-level `single_window` 接受测试
   - 增加响应 contract 示例校验
-- [ ] `tests/test_compiler_executor.py`
-  - 新增 `compare_metric(single_window)` 编译 SQL 测试
+  - 增加 OpenAPI `TimeScope.mode` 对 `single_window` 的声明校验
+- [x] `tests/test_compiler_executor.py`
+  - 覆盖 `compare_metric(single_window)` 编译 SQL
   - 覆盖默认排序 / 显式排序
-- [ ] `tests/test_time_scope_resolution.py`
-  - 新增 service 执行 `single_window` 的 typed request 测试
+  - 覆盖 invalid single-window order path
+- [x] `tests/test_time_scope_resolution.py`
+  - 覆盖 service 执行 `single_window` 的 typed request 测试
   - 校验 `scoped_query.mode = single_window`
   - 校验 `observed_window` 继承 `time_scope.current`
-- [ ] `tests/test_compare_metric.py`
-  - 新增真实 API happy path
-  - 新增 no-data path
-  - 新增 invalid single-window order path
-- [ ] `tests/test_evidence_plugins.py`
+- [x] `tests/test_compare_metric.py`
+  - 覆盖真实 API happy path
+  - 覆盖 no-data path
+  - 覆盖 invalid single-window order path
+- [x] `tests/test_evidence_plugins.py`
   - extractor 支持 single-window payload
-- [ ] 必要时补下游回归测试
-  - temporal causal
-  - evidence synthesis
+- [x] 下游回归测试
+  - `tests/test_evidence.py` 已覆盖 single-window finding promotion / no recommendation
+  - `tests/test_three_stage_synthesizer.py` 已覆盖 current-window metric_change -> finding
 
 验收标准：
 

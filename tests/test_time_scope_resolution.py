@@ -788,6 +788,57 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         self.assertEqual(captured["rows"], [{"platform": "android", "current_value": 10.0, "current_sessions": 10}])
         self.assertEqual(captured["params"]["order"], "CURRENT_VALUE DESC")
 
+    def test_compare_metric_single_window_observations_inherit_current_window(self) -> None:
+        original_compile = self.service._compile_step_with_feedback
+        original_execute = service_module.execute_compiled
+        original_resolve_engine = self.service._resolve_engine
+        original_extract = self.service.evidence_pipeline.extract_observations
+        self.service._resolve_engine = lambda table_names: (_FakeEngine(), "duckdb", {table_names[0]: f"analytics.{table_names[0]}"})
+
+        def fake_compile(step, *, engine_type, semantic_context=None):
+            return CompiledQuery(sql="SELECT 1", params=[])
+
+        def fake_extract(extractor_name, rows, *, context=None):
+            return [
+                {
+                    "observation_id": "obs_single_window",
+                    "type": "metric_change",
+                    "subject": {"metric": self.metric_name, "slice": {"platform": "android"}},
+                    "payload": {"current_value": 10.0, "current_sessions": 10},
+                    "significance": {},
+                    "quality": {"freshness_ok": True, "sample_size_ok": True},
+                }
+            ]
+
+        class _Result:
+            rows = [{"platform": "android", "current_value": 10.0, "current_sessions": 10}]
+
+        self.service._compile_step_with_feedback = fake_compile
+        self.service.evidence_pipeline.extract_observations = fake_extract
+        service_module.execute_compiled = lambda engine, compiled: _Result()
+        try:
+            result = self.service._run_compare_metric(self.session_id, {
+                "table": "analytics.watch_events",
+                "metric": self.metric_name,
+                "dimensions": ["platform"],
+                "time_scope": {
+                    "mode": "single_window",
+                    "grain": "day",
+                    "current": {"start": "2026-03-10", "end": "2026-03-17"},
+                },
+            })
+        finally:
+            self.service._compile_step_with_feedback = original_compile
+            service_module.execute_compiled = original_execute
+            self.service._resolve_engine = original_resolve_engine
+            self.service.evidence_pipeline.extract_observations = original_extract
+
+        self.assertEqual(
+            result["observations"][0]["observed_window"],
+            {"start": "2026-03-10", "end": "2026-03-17", "granularity": "day"},
+        )
+        self.assertEqual(result["observations"][0]["temporal_order"], 0)
+
     def test_compare_metric_single_window_order_allows_current_sessions(self) -> None:
         captured: dict[str, object] = {}
         original_compile = self.service._compile_step_with_feedback
