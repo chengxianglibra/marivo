@@ -232,6 +232,20 @@ class WeightedPrimarySelectionTests(unittest.TestCase):
         self.assertEqual(len(trend_claims), 1)
         self.assertIn("2 metrics", trend_claims[0]["text"])
 
+    def test_synthesize_claims_current_window_metric_change_produces_finding(self) -> None:
+        obs = [{
+            "observation_id": "obs_wt",
+            "type": "metric_change",
+            "subject": {"metric": "watch_time", "slice": {"platform": "android"}},
+            "payload": {"current_value": 82.0, "current_sessions": 300},
+            "significance": {"sample_size": 300, "practical_significance": True},
+            "quality": {"freshness_ok": True, "sample_size_ok": True},
+        }]
+        claims, _, _ = synthesize_claims(obs)
+        self.assertEqual(len(claims), 1)
+        self.assertEqual(claims[0]["type"], "finding")
+        self.assertIn("Current window observation", claims[0]["text"])
+
 
 class SynthesizeClaimsNonMetricTests(unittest.TestCase):
     """Tests for synthesize_claims when only non-metric_change observations exist."""
@@ -749,6 +763,40 @@ class IncrementalSynthesizerTests(unittest.TestCase):
             ],
         )
 
+    def _insert_current_window_obs(
+        self,
+        session_id: str,
+        obs_id: str,
+        metric: str,
+        slice_dict: dict,
+        current_value: float,
+        *,
+        current_sessions: int = 300,
+        sample_size: int = 300,
+    ) -> None:
+        import json
+
+        self.meta.execute(
+            """
+            INSERT INTO observations (
+                observation_id, session_id, step_id, observation_type,
+                subject_json, payload_json, significance_json, quality_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                obs_id, session_id, "step_test", "metric_change",
+                json.dumps({"metric": metric, "slice": slice_dict}),
+                json.dumps(
+                    {
+                        "current_value": current_value,
+                        "current_sessions": current_sessions,
+                    }
+                ),
+                json.dumps({"sample_size": sample_size, "practical_significance": True}),
+                json.dumps({"freshness_ok": True, "sample_size_ok": True}),
+            ],
+        )
+
     def _insert_temporal_folded_obs(
         self,
         session_id: str,
@@ -808,6 +856,28 @@ class IncrementalSynthesizerTests(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["status"], "tentative")
         self.assertEqual(rows[0]["claim_type"], "root_cause_candidate")
+
+    def test_creates_tentative_finding_from_current_window_metric_observation(self) -> None:
+        session_id = self._make_session()
+        self._insert_current_window_obs(
+            session_id,
+            "obs_sw1",
+            "watch_time",
+            {"platform": "ios"},
+            82.0,
+        )
+        synth = self._make_synth()
+        result = synth.process(session_id)
+        self.assertEqual(result["claims_created"], 1)
+        self.assertEqual(result["claims_updated"], 0)
+        rows = self.meta.query_rows(
+            "SELECT status, claim_type, text FROM claims WHERE session_id = ?",
+            [session_id],
+        )
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["status"], "tentative")
+        self.assertEqual(rows[0]["claim_type"], "finding")
+        self.assertIn("current window observation", rows[0]["text"])
 
     def test_scope_matching_updates_existing_tentative_claim(self) -> None:
         session_id = self._make_session()
@@ -1288,6 +1358,44 @@ class PromotionIntegrationTests(unittest.TestCase):
         for rec in graph.get("recommendations", []):
             self.assertIn("action", rec)
             self.assertEqual(rec["action"], rec["action_text"])
+
+    def test_single_window_metric_observation_promotes_as_finding_without_recommendations(self) -> None:
+        session_id = self._new_session()
+        self.service.run_step(
+            session_id,
+            "compare_metric",
+            {
+                **_compare_metric_payload("prom_watch_time"),
+                "time_scope": {
+                    "mode": "single_window",
+                    "grain": "day",
+                    "current": {"start": "2026-02-28", "end": "2026-03-06"},
+                },
+            },
+        )
+
+        tentative = self.service.metadata.query_rows(
+            "SELECT claim_type, status FROM claims WHERE session_id = ? AND status = 'tentative'",
+            [session_id],
+        )
+        self.assertGreater(len(tentative), 0)
+        self.assertTrue(all(row["claim_type"] == "finding" for row in tentative))
+
+        self.service.run_step(session_id, "synthesize_findings")
+
+        promoted = self.service.metadata.query_rows(
+            "SELECT claim_type, status FROM claims WHERE session_id = ?",
+            [session_id],
+        )
+        self.assertGreater(len(promoted), 0)
+        self.assertTrue(all(row["claim_type"] == "finding" for row in promoted))
+        self.assertTrue(all(row["status"] in {"confirmed", "insufficient"} for row in promoted))
+
+        recommendations = self.service.metadata.query_rows(
+            "SELECT rec_id FROM recommendations WHERE session_id = ?",
+            [session_id],
+        )
+        self.assertEqual(recommendations, [])
 
 
 class CausalEvidenceEdgeTypesTests(unittest.TestCase):

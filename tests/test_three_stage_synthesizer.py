@@ -35,6 +35,22 @@ def _metric_obs(
     }
 
 
+def _current_window_metric_obs(
+    metric: str = "watch_time",
+    platform: str = "android",
+    current_value: float = 82.0,
+    sample_size: int = 120,
+) -> dict:
+    return {
+        "observation_id": f"obs_{uuid4().hex[:12]}",
+        "type": "metric_change",
+        "subject": {"metric": metric, "slice": {"platform": platform}},
+        "payload": {"current_value": current_value, "current_sessions": sample_size},
+        "significance": {"sample_size": sample_size, "practical_significance": True},
+        "quality": {"sample_size_ok": True, "freshness_ok": True},
+    }
+
+
 def _funnel_obs(
     worst_stage: str = "click",
     sample_size: int = 80,
@@ -161,6 +177,13 @@ class TestScopeClusterer(unittest.TestCase):
         clusters = self.clusterer.cluster([obs])
         self.assertEqual(clusters, [])
 
+    def test_metric_change_without_delta_pct_is_clustered_as_other_observation(self):
+        obs = _current_window_metric_obs()
+        clusters = self.clusterer.cluster([obs])
+        self.assertEqual(len(clusters), 1)
+        self.assertEqual(clusters[0].metric_change_obs, [])
+        self.assertEqual(len(clusters[0].other_obs), 1)
+
 
 # ── SignalAligner ─────────────────────────────────────────────────────────────
 
@@ -215,6 +238,13 @@ class TestSignalAligner(unittest.TestCase):
         self.assertEqual(signal.primary_obs["observation_id"], large_obs["observation_id"])
         self.assertEqual(signal.primary_selection_reason, "max sample_size (non-metric cluster)")
 
+    def test_current_window_metric_observation_uses_non_metric_alignment(self):
+        obs = _current_window_metric_obs(current_value=90.0)
+        clusters = self.clusterer.cluster([obs])
+        signal = self.aligner.align(clusters[0])
+        self.assertEqual(signal.primary_obs["observation_id"], obs["observation_id"])
+        self.assertEqual(signal.primary_selection_reason, "max sample_size (non-metric cluster)")
+
     def test_audit_fields_populated_when_supporting_obs_present(self):
         m_obs = _metric_obs(metric="watch_time", platform="android")
         f_obs = _funnel_obs(metric="watch_time", platform="android", practical=True)
@@ -250,6 +280,13 @@ class TestClaimFormulator(unittest.TestCase):
         self.assertEqual(formulation.claim["type"], "finding")
         self.assertEqual(formulation.claim_type_decision, "finding")
 
+    def test_current_window_metric_change_produces_finding_without_direction_metadata(self):
+        signal = self._signal_for(_current_window_metric_obs(current_value=91.5))
+        formulation = self.formulator.formulate(signal)
+        self.assertEqual(formulation.claim["type"], "finding")
+        self.assertEqual(formulation.text_template, "metric_current_window_observation")
+        self.assertNotIn("primary_delta_pct", formulation.claim["confidence_breakdown"])
+
     def test_final_confidence_equals_score_confidence_call(self):
         signal = self._signal_for(_metric_obs())
         formulation = self.formulator.formulate(signal)
@@ -272,6 +309,14 @@ class TestClaimFormulator(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(result.claim["type"], "overall_trend")
         self.assertEqual(result.text_template, "multi_metric_trend")
+
+    def test_formulate_overall_trend_ignores_current_window_only_observations(self):
+        obs1 = _metric_obs(metric="watch_time", platform="android")
+        obs2 = _current_window_metric_obs(metric="revenue", platform="android", current_value=50.0)
+        clusters = self.clusterer.cluster([obs1, obs2])
+        signals = self.aligner.align_all(clusters)
+        result = self.formulator.formulate_overall_trend(signals, [obs1, obs2])
+        self.assertIsNone(result)
 
     def test_audit_fields_populated(self):
         signal = self._signal_for(_metric_obs())
@@ -313,6 +358,23 @@ class TestThreeStagePipeline(unittest.TestCase):
         claims, _, _, audit = self.pipeline.run([obs])
         self.assertEqual(len(claims), 1)
         self.assertEqual(claims[0]["type"], "finding")
+
+    def test_current_window_metric_observation_produces_finding_without_pipeline_error(self):
+        obs = _current_window_metric_obs(current_value=88.0)
+        claims, _, _, audit = self.pipeline.run([obs])
+        self.assertEqual(len(claims), 1)
+        self.assertEqual(claims[0]["type"], "finding")
+        self.assertEqual(audit.error, None)
+        self.assertFalse(audit.overall_trend_generated)
+
+    def test_mixed_metric_compare_and_current_window_keeps_overall_trend_based_on_delta_obs(self):
+        obs1 = _metric_obs(metric="watch_time")
+        obs2 = _metric_obs(metric="revenue", delta_pct=-8.0)
+        obs3 = _current_window_metric_obs(metric="sessions", current_value=1000.0)
+        claims, _, _, audit = self.pipeline.run([obs1, obs2, obs3])
+        trend_claims = [claim for claim in claims if claim["type"] == "overall_trend"]
+        self.assertEqual(len(trend_claims), 1)
+        self.assertTrue(audit.overall_trend_generated)
 
     def test_empty_observations_returns_empty_claims(self):
         claims, recs, edges, audit = self.pipeline.run([])

@@ -269,13 +269,13 @@
 
 > 前置依赖：CM-SW-06 | 工作量：中 | 风险：中
 
-- [ ] 逐个确认依赖 `metric_change.payload.delta_pct` 的路径
+- [x] 逐个确认依赖 `metric_change.payload.delta_pct` 的路径
   - causal checkers
   - contradiction / confidence / recommendation aggregation
   - reflection context
-- [ ] 对 compare-only 推断逻辑补保护
+- [x] 对 compare-only 推断逻辑补保护
   - 无 `delta_pct` 时跳过，不报错
-- [ ] 保留时间序列类能力
+- [x] 保留时间序列类能力
   - `current_value + observed_window` 仍能参与 temporal reasoning
   - 行为要与当前 `aggregate_query(single_window)` 产出的 observation 一致
 
