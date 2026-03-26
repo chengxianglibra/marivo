@@ -179,9 +179,66 @@ class TypedStepRouteTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 422)
 
+    def test_compare_metric_route_accepts_single_window_response_contract(self) -> None:
+        original = self.app.state.service.run_step
+        self.app.state.service.run_step = lambda session_id, step_type, params=None: {
+            "step_type": step_type,
+            "metric_name": "watch_time",
+            "summary": "Metric 'watch_time' current window observation: highest value is 12.5 for platform=android (current_sessions=320).",
+            "observations": [
+                {
+                    "observation_id": "obs_single_window",
+                    "type": "metric_change",
+                    "subject": {"metric": "watch_time", "slice": {"platform": "android"}},
+                    "payload": {"current_value": 12.5, "current_sessions": 320},
+                    "significance": {},
+                    "quality": {"freshness_ok": True, "sample_size_ok": True},
+                    "observed_window": {
+                        "start": "2026-03-01",
+                        "end": "2026-03-08",
+                        "granularity": "day",
+                    },
+                    "temporal_order": 0,
+                }
+            ],
+        }
+        try:
+            response = self.client.post(
+                f"/sessions/{self.session_id}/steps/compare_metric",
+                json={
+                    "table": "analytics.watch_events",
+                    "metric": "watch_time",
+                    "time_scope": {
+                        "mode": "single_window",
+                        "grain": "day",
+                        "current": {"start": "2026-03-01", "end": "2026-03-08"},
+                    },
+                },
+            )
+        finally:
+            self.app.state.service.run_step = original
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["step_type"], "compare_metric")
+        self.assertIn("summary", body)
+        self.assertEqual(
+            body["observations"][0]["payload"],
+            {"current_value": 12.5, "current_sessions": 320},
+        )
+        self.assertEqual(
+            body["observations"][0]["observed_window"],
+            {"start": "2026-03-01", "end": "2026-03-08", "granularity": "day"},
+        )
+
     def test_openapi_exposes_specialized_request_bodies(self) -> None:
         schema = self.client.get("/openapi.json").json()
         compare_path = schema["paths"]["/sessions/{session_id}/steps/compare_metric"]["post"]
         aggregate_path = schema["paths"]["/sessions/{session_id}/steps/aggregate_query"]["post"]
         self.assertIn("CompareMetricStep", compare_path["requestBody"]["content"]["application/json"]["schema"]["$ref"])
         self.assertIn("AggregateQueryStep", aggregate_path["requestBody"]["content"]["application/json"]["schema"]["$ref"])
+
+    def test_openapi_compare_metric_time_scope_documents_single_window_mode(self) -> None:
+        schema = self.client.get("/openapi.json").json()
+        time_scope = schema["components"]["schemas"]["TimeScope"]
+        self.assertIn("single_window", time_scope["properties"]["mode"]["description"])

@@ -300,6 +300,30 @@ class CompilerTests(unittest.TestCase):
 
         self.assertIn("ORDER BY current_sessions ASC", compiled.sql)
 
+    def test_compile_compare_metric_single_window_default_order_is_current_value_desc(self) -> None:
+        compiled = compile_step(
+            AnalysisStepIR(
+                index=0,
+                step_type="compare_metric",
+                params={
+                    "metric": "watch_time",
+                    "table": "analytics.watch_events",
+                    "scoped_query": {
+                        "mode": "single_window",
+                        "analysis_time_expr": "event_time",
+                        "current": {"start": "2026-03-25T10:00:00", "end": "2026-03-25T14:00:00"},
+                    },
+                },
+            ),
+            engine_type="duckdb",
+            semantic_context={
+                "metric_sql": "avg(play_duration_seconds)",
+                "dimensions": ["platform"],
+            },
+        )
+
+        self.assertIn("ORDER BY current_value DESC", compiled.sql)
+
     def test_compile_compare_metric_with_scoped_query_uses_ordered_filters(self) -> None:
         compiled = compile_step(
             AnalysisStepIR(
@@ -452,6 +476,30 @@ class CompilerTests(unittest.TestCase):
                     "metric_sql": "avg(play_duration_seconds)",
                     "dimensions": ["platform"],
                     "period_params": ["c1", "c2", "b1", "b2", "b1", "c2"],
+                },
+            )
+
+    def test_compile_compare_metric_single_window_invalid_order_raises(self) -> None:
+        with self.assertRaisesRegex(ValueError, "current_value/current_sessions ASC or DESC"):
+            compile_step(
+                AnalysisStepIR(
+                    index=0,
+                    step_type="compare_metric",
+                    params={
+                        "metric": "watch_time",
+                        "table": "analytics.watch_events",
+                        "order": "DELTA_PCT DESC",
+                        "scoped_query": {
+                            "mode": "single_window",
+                            "analysis_time_expr": "event_time",
+                            "current": {"start": "2026-03-25T10:00:00", "end": "2026-03-25T14:00:00"},
+                        },
+                    },
+                ),
+                engine_type="duckdb",
+                semantic_context={
+                    "metric_sql": "avg(play_duration_seconds)",
+                    "dimensions": ["platform"],
                 },
             )
 
