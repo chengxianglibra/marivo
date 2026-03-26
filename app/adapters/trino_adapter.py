@@ -90,6 +90,8 @@ class TrinoCatalogAdapter(CatalogAdapter):
             supports_lineage=False,
             supports_tags=False,
             supports_access_control=False,
+            supports_column_comments=True,
+            supports_table_properties=True,
         )
 
     def test_connection(self) -> bool:
@@ -169,6 +171,36 @@ class TrinoCatalogAdapter(CatalogAdapter):
             for r in rows
         ]
 
+    def _get_column_comments(self, schema_name: str, table_name: str) -> dict[str, str]:
+        """Retrieve column comments using SHOW COLUMNS.
+
+        Returns a dict mapping column_name -> comment (empty string if no comment).
+        """
+        try:
+            rows = self._query(f'SHOW COLUMNS FROM "{schema_name}"."{table_name}"')
+            # SHOW COLUMNS returns: Column, Type, Extra, Comment
+            return {
+                r["Column"]: r.get("Comment", "") or ""
+                for r in rows
+            }
+        except Exception:
+            # If SHOW COLUMNS fails (e.g., permission issue), return empty
+            return {}
+
+    def _get_table_properties(self, schema_name: str, table_name: str) -> dict[str, Any]:
+        """Retrieve table properties (e.g., Iceberg table$properties).
+
+        Returns a dict of key-value pairs, or empty dict if unavailable.
+        """
+        try:
+            rows = self._query(
+                f'SELECT key, value FROM "{schema_name}"."{table_name}$properties"'
+            )
+            return {r["key"]: r["value"] for r in rows}
+        except Exception:
+            # If query fails (non-Iceberg table, permission, etc.), return empty
+            return {}
+
     def get_table_detail(self, schema_name: str, table_name: str) -> PhysicalObject:
         # Verify table exists
         table_rows = self._query(
@@ -186,25 +218,43 @@ class TrinoCatalogAdapter(CatalogAdapter):
             "ORDER BY ordinal_position",
             [self._catalog, schema_name, table_name],
         )
+
+        # Fetch column comments and table properties
+        comments = self._get_column_comments(schema_name, table_name)
+        table_props = self._get_table_properties(schema_name, table_name)
+
         columns = [
             {
                 "name": r["column_name"],
                 "type": r["data_type"],
                 "position": r["ordinal_position"],
                 "nullable": r["is_nullable"] == "YES",
+                "comment": comments.get(r["column_name"], ""),
             }
             for r in col_rows
         ]
+
+        properties: dict[str, Any] = {
+            "columns": columns,
+            "column_count": len(columns),
+            "table_type": table_rows[0].get("table_type", ""),
+        }
+
+        # Add table properties if available
+        if table_props:
+            properties["table_properties"] = table_props
+            # Extract commonly-used properties as top-level for convenience
+            if "comment" in table_props:
+                properties["comment"] = table_props["comment"]
+            if "owner" in table_props:
+                properties["owner"] = table_props["owner"]
+
         return PhysicalObject(
             native_name=table_name,
             native_id=None,
             object_type="table",
             parent_path=schema_name,
-            properties={
-                "columns": columns,
-                "column_count": len(columns),
-                "table_type": table_rows[0].get("table_type", ""),
-            },
+            properties=properties,
         )
 
     def list_columns(self, schema_name: str, table_name: str) -> list[PhysicalObject]:
@@ -215,6 +265,10 @@ class TrinoCatalogAdapter(CatalogAdapter):
             "ORDER BY ordinal_position",
             [self._catalog, schema_name, table_name],
         )
+
+        # Fetch column comments
+        comments = self._get_column_comments(schema_name, table_name)
+
         return [
             PhysicalObject(
                 native_name=r["column_name"],
@@ -224,6 +278,7 @@ class TrinoCatalogAdapter(CatalogAdapter):
                 properties={
                     "data_type": r["data_type"],
                     "nullable": r["is_nullable"] == "YES",
+                    "comment": comments.get(r["column_name"], ""),
                 },
             )
             for r in rows

@@ -13,6 +13,8 @@ class CatalogCapabilities:
     supports_lineage: bool = False
     supports_tags: bool = False
     supports_access_control: bool = False
+    supports_column_comments: bool = False
+    supports_table_properties: bool = False
 
 
 @dataclass

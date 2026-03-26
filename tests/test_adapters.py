@@ -141,6 +141,8 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
         self.assertTrue(caps.supports_schemas)
         self.assertTrue(caps.supports_column_stats)
         self.assertFalse(caps.supports_partitions)
+        self.assertTrue(caps.supports_column_comments)
+        self.assertTrue(caps.supports_table_properties)
 
     @patch("app.adapters.trino_adapter.TrinoCatalogAdapter._connect")
     def test_test_connection(self, mock_connect) -> None:
@@ -193,14 +195,28 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
                 {"column_name": "id", "data_type": "integer", "ordinal_position": 1, "is_nullable": "NO"},
                 {"column_name": "name", "data_type": "varchar", "ordinal_position": 2, "is_nullable": "YES"},
             ],
+            # SHOW COLUMNS for comments
+            [
+                {"Column": "id", "Type": "integer", "Extra": "", "Comment": "Primary key"},
+                {"Column": "name", "Type": "varchar", "Extra": "", "Comment": "User name"},
+            ],
+            # table$properties
+            [
+                {"key": "comment", "value": "Events table"},
+                {"key": "owner", "value": "analytics_team"},
+            ],
         ]
         detail = self.adapter.get_table_detail("analytics", "events")
         self.assertEqual(detail.native_name, "events")
         self.assertIn("columns", detail.properties)
         self.assertEqual(len(detail.properties["columns"]), 2)
         self.assertEqual(detail.properties["columns"][0]["name"], "id")
+        self.assertEqual(detail.properties["columns"][0]["comment"], "Primary key")
         self.assertFalse(detail.properties["columns"][0]["nullable"])
         self.assertTrue(detail.properties["columns"][1]["nullable"])
+        self.assertIn("table_properties", detail.properties)
+        self.assertEqual(detail.properties["comment"], "Events table")
+        self.assertEqual(detail.properties["owner"], "analytics_team")
 
     @patch("app.adapters.trino_adapter.TrinoCatalogAdapter._query")
     def test_get_table_detail_not_found(self, mock_query) -> None:
@@ -210,14 +226,23 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
 
     @patch("app.adapters.trino_adapter.TrinoCatalogAdapter._query")
     def test_list_columns(self, mock_query) -> None:
-        mock_query.return_value = [
-            {"column_name": "id", "data_type": "integer", "ordinal_position": 1, "is_nullable": "NO"},
-            {"column_name": "ts", "data_type": "timestamp", "ordinal_position": 2, "is_nullable": "YES"},
+        mock_query.side_effect = [
+            # columns query
+            [
+                {"column_name": "id", "data_type": "integer", "ordinal_position": 1, "is_nullable": "NO"},
+                {"column_name": "ts", "data_type": "timestamp", "ordinal_position": 2, "is_nullable": "YES"},
+            ],
+            # SHOW COLUMNS for comments
+            [
+                {"Column": "id", "Type": "integer", "Extra": "", "Comment": "ID column"},
+                {"Column": "ts", "Type": "timestamp", "Extra": "", "Comment": "Timestamp"},
+            ],
         ]
         columns = self.adapter.list_columns("analytics", "events")
         self.assertEqual(len(columns), 2)
         self.assertEqual(columns[0].native_name, "id")
         self.assertEqual(columns[0].properties["data_type"], "integer")
+        self.assertEqual(columns[0].properties["comment"], "ID column")
         self.assertFalse(columns[0].properties["nullable"])
         self.assertEqual(columns[0].parent_path, "analytics.events")
 
@@ -247,6 +272,42 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
             "catalog": "hive",
         })
         self.assertIsInstance(adapter, TrinoCatalogAdapter)
+
+    @patch("app.adapters.trino_adapter.TrinoCatalogAdapter._query")
+    def test_list_columns_without_comments(self, mock_query) -> None:
+        """Test that list_columns handles missing comments gracefully."""
+        mock_query.side_effect = [
+            # columns query
+            [
+                {"column_name": "id", "data_type": "integer", "ordinal_position": 1, "is_nullable": "NO"},
+            ],
+            # SHOW COLUMNS fails
+            Exception("Permission denied"),
+        ]
+        columns = self.adapter.list_columns("analytics", "events")
+        self.assertEqual(len(columns), 1)
+        self.assertEqual(columns[0].properties["comment"], "")
+
+    @patch("app.adapters.trino_adapter.TrinoCatalogAdapter._query")
+    def test_get_table_detail_without_properties(self, mock_query) -> None:
+        """Test that get_table_detail handles missing table properties gracefully."""
+        mock_query.side_effect = [
+            # table existence check
+            [{"table_name": "events", "table_type": "TABLE"}],
+            # columns
+            [
+                {"column_name": "id", "data_type": "integer", "ordinal_position": 1, "is_nullable": "NO"},
+            ],
+            # SHOW COLUMNS fails
+            Exception("Permission denied"),
+            # table$properties fails (non-Iceberg table)
+            Exception("Table not found"),
+        ]
+        detail = self.adapter.get_table_detail("analytics", "events")
+        self.assertNotIn("table_properties", detail.properties)
+        self.assertNotIn("comment", detail.properties)
+        # Column comment should be empty
+        self.assertEqual(detail.properties["columns"][0]["comment"], "")
 
 
 if __name__ == "__main__":
