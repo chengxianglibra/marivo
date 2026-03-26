@@ -278,7 +278,7 @@ const STEP_PARAM_TEMPLATES = {
 };
 
 const STEP_PARAM_HINTS = {
-  compare_metric: "Use only typed fields: `table`, `metric`, `dimensions`, `time_scope`, optional `scope`/`time_axis`/`order`/`limit`; `order` is mode-aware.",
+  compare_metric: "Use only typed fields: `table`, `metric`, `dimensions`, `time_scope`, optional `scope`/`time_axis`/`order`/`limit`. `time_scope.mode` supports `single_window` or `compare`; use `current_value/current_sessions` ordering for `single_window`, `delta_pct` ordering for `compare`. Compare example: `{\"time_scope\":{\"mode\":\"compare\",\"grain\":\"day\",\"current\":{\"start\":\"2026-03-10\",\"end\":\"2026-03-17\"},\"baseline\":{\"start\":\"2026-03-03\",\"end\":\"2026-03-10\"}},\"order\":\"delta_pct DESC\"}`",
   aggregate_query: "Use only typed fields: `table`, `group_by`, `measures`, `time_scope`, optional `scope`/`time_axis`/`order`/`limit`.",
   profile_table: "Legacy table utilities still use `table_name`.",
   sample_rows: "Legacy table utilities still use `table_name`, optional `limit`, `filter`, `columns`.",
