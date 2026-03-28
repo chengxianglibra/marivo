@@ -86,6 +86,8 @@ Fields that store structured data are represented as JSON objects in responses. 
 - [Quickstart](quickstart.md) — end-to-end walkthrough with `curl` examples
 - [Error Reference](errors.md) — HTTP status codes, error formats, and common error scenarios
 
+Non-HTTP analysis-intent design drafts now live under `docs/analysis/`.
+
 ## Core Concepts
 
 ### Sessions

@@ -48,6 +48,10 @@ Rules:
 - `aggregate_query` request contract: `table`, `measures`, `time_scope` (required), plus `group_by`, `scope`, `time_axis`, `order`, `limit`
 - `time_scope` is the only time-window contract; `scope` is the only step-level non-time scope contract
 - `scope.constraints` is for scalar entity/row scope; `scope.predicate` may contain only non-time conditions
+- design drafts under `docs/analysis/` should use the same `time_scope` / `scope` split; do not introduce parallel non-time filter contracts
+- design drafts for analysis intents should keep artifact / projection separated; truncation, top-k, and compact agent views belong to projection, not artifact
+- when a step consumes prior step outputs, design drafts should prefer structured typed refs over bare string ids
+- inferential-ready numeric summaries in v1 only guarantee compatibility with `welch_t`; rate summaries map to `two_proportion_z`
 - `metric_query` executes both `time_scope.mode = compare` and `time_scope.mode = single_window`
 - `metric_query` order is mode-aware: `compare` supports `delta_pct ASC|DESC`; `single_window` supports `current_value ASC|DESC` and `current_sessions ASC|DESC`
 - `time_axis` request overrides take priority over metadata, which takes priority over heuristics
@@ -63,3 +67,9 @@ Rules:
 ## Keep In Sync
 
 After behavior changes, update this guide and any affected API models, UI docs, and entrypoint agent docs.
+
+Docs layout:
+
+- `docs/api/` is reserved for external HTTP API documentation only
+- analysis-intent design drafts and canonical evidence-schema proposals live under `docs/analysis/`
+- current canonical evidence design drafts include `finding.md`, `proposition.md`, `assessment.md`, `state-surface-schema.md`, and `context-surface-schema.md`
