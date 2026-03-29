@@ -484,9 +484,9 @@ v1 只支持 `delta_share`，语义完全继承 `decompose(method = "delta_share
 
 - 没有已知 warning 或 error issue
 
-`rows = []` 的唯一语义：
+`rows = []` 在 v1 成功响应中非法：
 
-- 该维度下没有可返回的 contribution rows；这不是“尚未计算”，而是“计算完成但结果为空”
+- v1 不允许成功 `attribute_bundle` 出现该状态；若某个维度无法形成任何 driver rows，对应内部 `decompose` 应失败，整个 `attribute` 请求也应失败
 
 ## Agent Consumption Contract
 
@@ -536,6 +536,7 @@ v1 只支持 `delta_share`，语义完全继承 `decompose(method = "delta_share
 - `drivers[*]` 缺少 `decompose_ref`
 - `comparison.comparability_status = "comparable"`，但 `comparison` 的关键数值字段以“未解析”之外的理由缺失
 - `drivers[*].attribution_status = "attributable"`，但 `rows`、`returned_row_count`、`total_row_count` 之间自相矛盾
+- 成功响应中任一 `drivers[*].rows = []`
 - `is_truncated = false`，但 `others_*` 非 `null`
 - `unexplained_reason = null`，但 `unexplained_*` 非 `null`
 - 任一 ref 指向 projection 或跨 session artifact

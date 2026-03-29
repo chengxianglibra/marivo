@@ -377,7 +377,6 @@ empty semantics：
 
 empty semantics：
 
-- `rows = []`：在当前契约下没有可返回的 contribution rows；不表示请求失败
 - `issues = []`：没有已知 attribution 问题
 
 ## 校验规则
@@ -388,6 +387,7 @@ empty semantics：
 - v1 中 `method` 只能是 `delta_share`
 - metric 必须是 additive；semi-additive 与 non-additive 在 v1 中必须拒绝
 - one-sided rows 必须显式保留，并通过 `presence` 标记
+- 成功 artifact 必须至少包含一条 contribution row；若当前请求无法形成任何 canonical contribution row，请求必须失败
 - 当 `scope_absolute_delta` 为 `0` 或 `null` 时，`contribution_share` 必须为 `null`
 - `unexplained_*` 只表示“未归因”的剩余部分，且非零时必须给出 `unexplained_reason`
 - 若 `reconciliation_expected = true`，则返回行与 `unexplained_*` 应能与 scope delta 对账
@@ -404,7 +404,9 @@ empty semantics：
 - `UNSUPPORTED_METHOD`
   method 不受支持
 - `NOT_ATTRIBUTABLE`
-  delta 存在，但在当前契约下无法做可辩护归因
+  delta 存在，但在当前契约下无法做可辩护归因，包括无法形成任何 canonical contribution row
+
+成功响应中 `rows = []` 属于非法状态，不得被解释为 successful empty result。
 
 ## Agent Consumption Contract
 

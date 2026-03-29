@@ -83,7 +83,7 @@ Factum 面向 agent 的交互接口不应被设计为：
 - time scope
 - typed reference
 
-当 contract 同时需要表达 session-level task boundary 与 planning hint 时，二者也应显式分离；不得把 focus hint 混入 enforced scope。
+当 contract 同时需要表达 session-level task boundary 与 planning hint 时，二者也应显式分离；不得把 focus hint 混入 enforced scope。对于 Factum 的根容器 schema，这意味着 session root 不应持有 enforced execution scope，执行约束应进入具体 action 的 step params。
 
 而不是围绕以下内容建模：
 
