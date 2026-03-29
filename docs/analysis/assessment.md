@@ -1,30 +1,30 @@
 # Assessment Schema
 
-本文档定义 Factum 判断层中 `assessment` 的拟议类型契约，以及与其配套的 `evidence_gap` / `inference_record` 规范对象。
+本文档定义 Factum 判断层中 `assessment` 的拟议类型契约，以及与其配套的证据缺口（`evidence_gap`）/ 推断记录（`inference_record`）规范对象。
 
 状态：draft design。本文是规划中的规范 `assessment` Schema 提案，不表示对应 HTTP endpoint 或持久化模型已经实现。
 
 ## 目的
 
-`assessment` 是 Factum 证据引擎中的规范评估状态（canonical evaluation state），用于表达系统当前对某个 `proposition` 已经判断到什么程度、还缺什么、以及这些判断是由哪些显式规则和事实支撑出来的。
+`assessment` 是 Factum 证据引擎中的规范评估状态（canonical evaluation state），用于表达系统当前对某个命题（`proposition`）已经判断到什么程度、还缺什么、以及这些判断是由哪些显式规则和事实支撑出来的。
 
 设计目标：
 
-- 明确分离 `proposition` 与 `assessment`
-- 让 agent 直接读取“当前判断状态”，而不是从 claim 文本中反推
-- 把实时证据归属、证据缺口、rule hits/misses 放入判断状态，而不是回写 proposition
+- 明确分离命题（`proposition`）与评估状态（`assessment`）
+- 让 agent 直接读取”当前判断状态”，而不是从 claim 文本中反推
+- 把实时证据归属（live evidence membership）、证据缺口（evidence gap）、规则命中/未命中（rule hits/misses）放入判断状态，而不是回写 proposition
 - 保持 assessment 可审计、可回溯、可版本化
-- 为 action proposal 提供稳定输入，但不把动作建议混入 assessment 本体
+- 为动作候选（action proposal）提供稳定输入，但不把动作建议混入 assessment 本体
 
 ## 核心设计决策
 
-### 1. `assessment` 是版本化快照，不是 mutable blob
+### 1. `assessment` 是版本化快照（versioned snapshot），不是可变 blob（mutable blob）
 
 v1 中 `assessment` 采用版本化快照。
 
 要求：
 
-- 每次评估建立新的不可变 assessment 快照
+- 每次评估建立新的不可变快照（immutable snapshot）
 - 同一 proposition 可有 `0..N` 个 assessment 快照
 - 对外主读取接口通过 `latest_assessment` 暴露当前快照
 - 历史快照不因新证据进入而被原地改写
@@ -33,14 +33,14 @@ v1 中 `assessment` 采用版本化快照。
 
 - agent 读取当前状态的简单性
 - 审计与回溯的稳定性
-- inference 结果与 gap 演化的可解释性
+- 推断（inference）结果与证据缺口（gap）演化的可解释性
 
-`latest_assessment` 是读取层 / projection 层选择出的“当前快照”，不是 snapshot 本体字段。canonical `Assessment` 不携带 `is_latest` 一类会随新 snapshot 出现而回写历史对象的状态位。
+`latest_assessment` 是读取层 / 投影层（projection layer）选择出的”当前快照”，不是快照本体字段。规范 `Assessment` 不携带 `is_latest` 一类会随新快照出现而回写历史对象的状态位。
 
 附加要求：
 
 - proposition-centered 的主读取接口必须把 `latest_assessment` 视为读取层职责，而不是 assessment 本体字段
-- context / focus projection 可以裁剪 assessment 列表，但不得改写 latest 选择规则
+- 上下文（context）/ 焦点（focus）投影可以裁剪 assessment 列表，但不得改写最新态（latest）选择规则
 - agent 不应被要求扫描同一 proposition 的全部历史快照，才能理解当前判断状态
 
 ### 2. `assessment` 回答“当前判断到什么程度”
@@ -64,9 +64,9 @@ v1 中 `assessment` 采用版本化快照。
 
 因此，一个 proposition 若尚未形成 `latest_assessment`，应由主读取接口显式表示“尚未进入评估流程”，而不是要求调用方从零散字段推断当前状态。
 
-### 3. `status` 使用 evidence-first lattice
+### 3. `status` 使用证据优先状态格（evidence-first lattice）
 
-v1 采用 evidence-first，而不是 workflow-centric 的状态机。
+v1 采用证据优先（evidence-first），而不是工作流中心（workflow-centric）的状态机。
 
 推荐通用状态：
 
@@ -82,11 +82,11 @@ v1 采用 evidence-first，而不是 workflow-centric 的状态机。
 - `contradicted` 表示当前证据主要反驳 proposition
 - `mixed` 表示同时存在实质支持与反驳，尚不能收敛为单向结论
 
-如果某个 assessment family 需要更细语义，应进入 subtype payload，而不是扩张 base lattice。
+如果某个评估家族（assessment family）需要更细语义，应进入 subtype payload，而不是扩张 base lattice。
 
-未进入 assessment 流程时，规范 Schema 统一用 `latest_assessment = null` 表示，不单独定义 `unassessed` status。
+未进入评估流程时，规范 Schema 统一用 `latest_assessment = null` 表示，不单独定义 `unassessed` status。
 
-### 4. `confidence` 使用 typed grade，而不是连续分数
+### 4. `confidence` 使用类型化等级（typed grade），而不是连续分数
 
 v1 不使用 `0..1` 或 `0..100` 数值分。
 
@@ -102,9 +102,9 @@ v1 不使用 `0..1` 或 `0..100` 数值分。
 
 - 避免伪精确
 - 保持 agent 排序和阈值判断稳定
-- 让 confidence 依赖结构化理由，而不是单一黑盒分值
+- 让置信度（confidence）依赖结构化理由，而不是单一黑盒分值
 
-### 5. `assessment` 必须显式引用 gaps 与 inference records
+### 5. `assessment` 必须显式引用证据缺口（gaps）与推断记录（inference records）
 
 assessment 不是只带几个 finding id 的薄壳对象。
 
@@ -116,8 +116,8 @@ v1 中：
 
 这样可避免：
 
-- 把 gap 压成匿名字符串数组
-- 把规则解释压成不可追踪的 explanation 文本
+- 把证据缺口（gap）压成匿名字符串数组
+- 把规则解释压成不可追踪的解释（explanation）文本
 - 在 assessment 更新时丢失 gap / inference 的独立生命周期
 
 ### 6. `assessment` 必须兼容 authored proposition 与 seeded proposition 共用轨道
@@ -313,6 +313,20 @@ type GapRequirement =
           | "null_rate";
         threshold_operator: ">=" | "<=" | "=";
         threshold_value: string | number | boolean;
+      };
+    }
+  | {
+      requirement_type: "comparability_requirement";
+      requirement_key: string;
+      requirement_params: {
+        comparability_dimension:
+          | "window_alignment"
+          | "subject_alignment"
+          | "slice_alignment"
+          | "grain_alignment"
+          | "method_precondition";
+        expected_relation: string;
+        comparison_scope: string;
       };
     }
   | {
@@ -591,6 +605,7 @@ rule family 的组织、固定 evaluation order、以及哪些规则结果必须
 
 - `requirement_key` 应稳定、可比较、可用于去重同类 requirement
 - `subject_coverage.requirement_params.required_subject` 必须是结构化对象，不允许使用裸字符串 locator
+- `comparability_requirement.requirement_params.expected_relation` 与 `comparison_scope` 必须承载稳定可重放的关系语义，不得退化成只靠 title / description 解释
 - v1 不提供 `other` 逃生口；若某种 requirement 尚未稳定建模，则不应进入 canonical schema
 
 ### opened_by_inference_record_id / resolved_by_inference_record_id
@@ -762,14 +777,19 @@ inference record 至少应支持按以下轴查询：
 围绕 proposition 的最小闭包推荐扩展为：
 
 ```ts
+type PropositionSeedEntry = {
+  seed_ref: PropositionSeedRef;
+  finding: Finding | null;
+};
+
 type PropositionFocusView = {
   proposition: Proposition;
-  seed_findings: Finding[];
+  seed_entries: PropositionSeedEntry[];
   relevant_findings: Finding[];
-  missing_seed_finding_refs: string[];
   latest_assessment: Assessment | null;
   blocking_gaps: EvidenceGap[] | null;
   applied_inference_records: InferenceRecord[] | null;
+  assessment_dependencies: Assessment[] | null;
 };
 ```
 
@@ -777,9 +797,11 @@ type PropositionFocusView = {
 
 - `latest_assessment` 是读取层选出的当前 snapshot，不要求 `Assessment` 本体携带 latest 标志
 - `latest_assessment = null` 表示尚未进入 assessment 流程
-- 若 `latest_assessment = null`，则 `blocking_gaps` 与 `applied_inference_records` 必须同时为 `null`
+- 若 `latest_assessment = null`，则 `blocking_gaps`、`applied_inference_records` 与 `assessment_dependencies` 必须同时为 `null`
 - `blocking_gaps = []` 表示已评估且当前无阻塞缺口
 - 若 assessment 存在但尚无 inference records，`applied_inference_records` 返回 `[]`
+- `seed_entries` 必须保留 `PropositionSeedRef.role`，不得在 hydration 时退化成只剩 `Finding[]`
+- `assessment_dependencies` 只覆盖 `applied_inference_records.input_assessment_ids` 的直接 assessment 输入，不递归展开全历史链
 
 ## Snapshot 创建触发规则
 

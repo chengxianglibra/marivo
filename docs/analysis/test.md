@@ -1,25 +1,25 @@
-# Test Step Schema
+# test 原子意图 Schema
 
-本文档定义 `test` 分析步骤的拟议类型契约。
+本文档定义 `test` 原子意图的拟议类型契约。
 
 状态：draft design。本文是规划中的原子 `test` 意图 Schema 提案，不表示对应 HTTP endpoint 已经实现。
 
 ## 目的
 
-`test` 用于在两个已定义、且 inferential-ready 的观测之上评估结构化统计假设。
+`test` 用于在两个已定义、且推断就绪（inferential-ready）的观测之上评估结构化统计假设。
 
 设计目标：
 
-- 让 `test` 聚焦 hypothesis evaluation（假设检验），不承担数据抽取或业务解释
-- 消费显式 observation artifacts，而不是原始样本或 ad hoc scopes
-- 显式表达 method selection、assumption status 与 validation semantics
+- 让 `test` 聚焦假设检验（hypothesis evaluation），不承担数据抽取或业务解释
+- 消费显式观测工件（observation artifacts），而不是原始样本或 ad hoc scopes
+- 显式表达方法选择（method selection）、假设状态（assumption status）与校验语义（validation semantics）
 - 保持输出类型稳定，便于下游推理
 
 ## 核心设计决策
 
-`test` 消费两个由 `observe` 产出的 inferential summary artifact，不接受：
+`test` 消费两个由 `observe` 产出的推断摘要工件（inferential summary artifact），不接受：
 
-- raw sample arrays
+- 原始样本数组（raw sample arrays）
 - 直接的 `metric + scope` 输入
 - 把 `compare`、`decompose` 或 `detect` 输出当作样本
 
@@ -28,15 +28,15 @@
 - `observe` 定义测量了什么总体摘要
 - `test` 定义在这些摘要之上要评估什么统计假设
 
-inferential-readiness 必须由上游 `observe` 建立，而不能在 `test` 内部靠隐式自动转换。
+推断就绪性（inferential-readiness）必须由上游 `observe` 建立，而不能在 `test` 内部靠隐式自动转换。
 
-因此 v1 只保留 typed-reference contract，不再维护一套 direct test 契约。
+因此 v1 只保留类型化引用契约（typed-reference contract），不再维护一套直接检验契约（direct test 契约）。
 
-## Artifact Identity 与 Lineage
+## 工件标识（Artifact Identity）与谱系（Lineage）
 
-`hypothesis_test` 是 immutable canonical artifact。
+`hypothesis_test` 是不可变规范工件（immutable canonical artifact）。
 
-identity boundary 绑定以下输入：
+标识边界（identity boundary）绑定以下输入：
 
 - `left_ref` 指向的 observe artifact lineage
 - `right_ref` 指向的 observe artifact lineage

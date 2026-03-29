@@ -180,6 +180,7 @@
 - `identity boundary` 固定译为“标识边界”；`identity normalization` 固定译为“标识归一化”，不要简写成泛化的“去重规则”。
 - `lineage` 固定译为“谱系”；用于强调对象的来源和派生路径，不与 `provenance` 的“溯源信息”混写。
 - `session-local` 固定译为“会话内局部”；用于强调 ID 或状态只在单个 session 内稳定。
+- 正文中的动作语义优先使用中文，不要把英文动词直接夹在中文句子里；例如字段名保留 `` `supersedes_assessment_id` ``，但正文应写“替代旧评估”或“被新评估取代”，不要写“supersede 旧评估”。
 - `seed` 在 evidence 设计语境下优先译为“种子”，如 `seed finding`、`system-seeded`；避免与“初始化输入”“前置证据”混写。
 - `live evidence membership` 固定译为“实时证据归属”；用于 assessment 当前纳入的支持/反驳证据集合，不与 proposition 的 `seed_finding_refs` 混写。
 - `snapshot` 在 assessment/proposal 设计中固定译为“快照”；若强调不可变版本语义，可写“版本化快照”或“不可变快照”。

@@ -1,6 +1,6 @@
-# Agent-First Intent Architecture
+# Agent-First 意图架构
 
-本文档讨论一个前提明确的设计问题：当 Agent 是 Factum 的唯一用户时，Factum 应如何设计 atomic intents（原子意图）与 derived intents（派生意图），才能既保持 typed、deterministic、auditable 的分析契约，又最大化 LLM 在真实互联网企业数据分析场景中的能力发挥。
+本文档讨论一个前提明确的设计问题：当 Agent 是 Factum 的唯一用户时，Factum 应如何设计原子意图（atomic intents）与派生意图（derived intents），才能既保持 typed、deterministic、auditable 的分析契约，又最大化 LLM 在真实互联网企业数据分析场景中的能力发挥。
 
 状态：draft design。本文是 analysis intent family 的架构性设计说明，不表示文中所有意图都已实现。
 
@@ -14,9 +14,9 @@
 
 Factum 更适合被设计为三层分析运行时：
 
-1. atomic intents：稳定、可组合、可审计的分析语义原语
-2. derived intents：面向高频完整分析动作的确定性 DAG 宏
-3. templates / policies：只给 Agent 提供分析套路，不直接作为可执行契约
+1. 原子意图（atomic intents）：稳定、可组合、可审计的分析语义原语
+2. 派生意图（derived intents）：面向高频完整分析动作的确定性 DAG 宏
+3. 模板 / 策略（templates / policies）：只给 Agent 提供分析套路，不直接作为可执行契约
 
 其中：
 
@@ -26,9 +26,9 @@ Factum 更适合被设计为三层分析运行时：
 
 这个分工最符合 Factum 的核心约束：
 
-- 外部契约应是 typed analysis steps，而不是 SQL
-- facts / evidence 必须由代码确定性抽取
-- 模型适合做 explanation，不适合定义 evidence structure
+- 外部契约应是类型化分析步骤（typed analysis steps），而不是 SQL
+- 事实 / 证据必须由代码确定性抽取
+- 模型适合做解释（explanation），不适合定义证据结构（evidence structure）
 
 ## 为什么 Agent-only 反而更需要清晰分层
 
@@ -53,15 +53,15 @@ Factum 更适合被设计为三层分析运行时：
 
 从交互面看，Factum 不应向 Agent 提供一个混合了执行、状态、摘要和建议的单一大接口，而应保持三层分离：
 
-1. analysis action surface：让 Agent 调用 typed analysis intents
-2. analysis state surface（分析状态面）：让 Agent 读取 machine-readable evidence state
-3. consumer projection surface：让 Agent 在有限上下文预算下读取 bounded projection / focus view
+1. 分析动作面（analysis action surface）：让 Agent 调用类型化分析意图（typed analysis intents）
+2. 分析状态面（analysis state surface）：让 Agent 读取机器可读的证据状态（machine-readable evidence state）
+3. 消费者投影面（consumer projection surface）：让 Agent 在有限上下文预算下读取有界投影（bounded projection）/ focus view
 
 在这三层里，本文主要定义第一层的架构边界：
 
-- Agent 通过 atomic / derived intents 发起分析动作
-- Factum 负责确定性执行、typed ref 连线、artifact 生成与投影
-- Agent 负责解释业务含义、决定下一步探索、消费分析状态面中的 findings / assessments / gaps
+- Agent 通过原子 / 派生意图（atomic / derived intents）发起分析动作
+- Factum 负责确定性执行、typed ref 连线、工件（artifact）生成与投影（projection）
+- Agent 负责解释业务含义、决定下一步探索、消费分析状态面中的事实单元（findings）/ 评估（assessments）/ 缺口（gaps）
 
 因此，意图层的职责不是输出一份“最终报告”，而是给 Agent 一个稳定的分析动作语法。
 
@@ -73,7 +73,7 @@ Factum 更适合被设计为三层分析运行时：
 
 Agent 最适合承担：
 
-- 把自然语言业务问题翻译成 typed analysis request
+- 把自然语言业务问题翻译成类型化分析请求（typed analysis request）
 - 识别本轮任务更适合 `observe`、`attribute` 还是 `diagnose`
 - 设定 metric、entity scope、time_scope、candidate dimensions、hypothesis
 - 结合多个确定性工件生成业务解释
@@ -83,7 +83,7 @@ Factum 最适合承担：
 
 - 语义解析后的确定性执行
 - 结构化证据抽取
-- 中间工件保存、引用、投影与审计
+- 中间工件保存、引用、投影（projection）与审计
 - 固定分析套路的 DAG 展开
 
 一句话说，Agent 负责“想清楚问什么”，Factum 负责“把回答做成可验证工件”。

@@ -1,40 +1,40 @@
-# Decompose Step Schema
+# decompose 原子意图 Schema
 
-本文档定义 `decompose` 分析步骤的拟议类型契约。
+本文档定义 `decompose` 原子意图的拟议类型契约。
 
 状态：draft design。本文是规划中的原子 `decompose` 意图 Schema 提案，不表示对应 HTTP endpoint 已经实现。
 
-> **V1 Scope**：当前版本只支持 **delta attribution（变化归因）**，不支持 total composition（总量构成分解）。
+> **V1 Scope**：当前版本只支持**变化归因（delta attribution）**，不支持总量构成分解（total composition）。
 > 如果要看当前值由哪些部分构成，请使用 `observe(segmented)`。
 
 ## 目的
 
-`decompose` 用于将一个已经明确定义的 metric delta 分配到排序后的维度贡献项。
+`decompose` 用于将一个已经明确定义的指标差值（metric delta）分配到排序后的维度贡献项。
 
 设计目标：
 
-- 让 `decompose` 只关注变化归因，而不是通用 breakdown
-- 消费显式上游 delta 定义，不重新引入 ad hoc scopes
-- 返回可排序、可下游消费的 typed contribution artifact
+- 让 `decompose` 只关注变化归因，而不是通用分解（breakdown）
+- 消费显式上游差值定义（delta 定义），不重新引入 ad hoc scopes
+- 返回可排序、可下游消费的类型化贡献工件（typed contribution artifact）
 - 当 metric 或方法无法支撑可辩护归因时拒绝请求
 
 ## 核心设计决策
 
-`decompose` 是 delta-attribution step，不是 generic composition step。
+`decompose` 是变化归因步骤（delta-attribution step），不是通用构成步骤（generic composition step）。
 
 v1 明确不支持：
 
 - 当前值总量分解
 - 多维交互项分析
-- 带不同证据语义的多种 attribution methods
+- 带不同证据语义的多种归因方法（attribution methods）
 
 这些场景要么属于 `observe(segmented)`，要么需要独立的未来契约。
 
-## Artifact Identity 与 Lineage
+## 工件标识（Artifact Identity）与谱系（Lineage）
 
-`delta_decomposition` 是 immutable canonical artifact。
+`delta_decomposition` 是不可变规范工件（immutable canonical artifact）。
 
-identity boundary 绑定以下输入：
+标识边界（identity boundary）绑定以下输入：
 
 - `compare_ref` 指向的 compare artifact lineage
 - `dimension`

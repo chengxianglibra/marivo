@@ -1,18 +1,18 @@
-# Canonical Schema 设计原则
+# 规范 Schema 设计原则
 
-本文档定义 Factum 中所有 canonical schema 设计必须遵守的通用原则。
+本文档定义 Factum 中所有规范 schema（canonical schema）设计必须遵守的通用原则。
 
-状态：canonical design principles。本文是跨领域的设计约束，适用于所有面向 agent 的结构化输出契约。
+状态：规范设计原则（canonical design principles）。本文是跨领域的设计约束，适用于所有面向 agent 的结构化输出契约。
 
 ## 目的
 
 Factum 的核心设计目标之一是提供 agent-first、machine-readable、可审计的分析状态接口。
 
-为了实现这一目标，所有 canonical schema（无论是 Evidence Engine 的内部实体、分析意图的输出契约，还是其他结构化输出）都必须遵守统一的设计原则。
+为了实现这一目标，所有规范 schema（canonical schema）（无论是证据引擎（Evidence Engine）的内部实体、分析意图的输出契约，还是其他结构化输出）都必须遵守统一的设计原则。
 
 本文档的目标是：
-- 确保所有 canonical schema 保持一致的设计质量
-- 避免每个 schema 文档各自发明 identity、null 语义、provenance 约定
+- 确保所有规范 schema（canonical schema）保持一致的设计质量
+- 避免每个 schema 文档各自发明标识（identity）、null 语义、溯源信息（provenance）约定
 - 为 schema 设计者提供明确的设计约束和检查清单
 - 支持 schema 的长期演进和跨系统互操作
 
@@ -20,9 +20,9 @@ Factum 的核心设计目标之一是提供 agent-first、machine-readable、可
 
 这些原则适用于：
 
-- **Evidence Engine 实体**：finding, proposition, assessment, action proposal
+- **证据引擎实体（Evidence Engine 实体）**：finding, proposition, assessment, action proposal
 - **分析意图输出**：原子意图和派生意图的响应契约
-- **其他 canonical 输出**：任何需要 agent 直接消费、可追溯、可演进的结构化输出
+- **其他规范输出（canonical 输出）**：任何需要 agent 直接消费、可追溯、可演进的结构化输出
 
 这些原则不适用于：
 
@@ -32,43 +32,43 @@ Factum 的核心设计目标之一是提供 agent-first、machine-readable、可
 
 ## 核心原则
 
-### 1. Identity 与 Lineage 必须显式声明
+### 1. 标识（Identity）与谱系（Lineage）必须显式声明
 
-每个 canonical 实体都必须显式回答：
+每个规范实体（canonical 实体）都必须显式回答：
 
-- 它的 identity boundary 是什么
-- 它绑定哪条 lineage
-- 它是否允许跨 lineage 复用 identity
-- 它是 immutable 还是 session-local 可演化状态
+- 它的标识边界（identity boundary）是什么
+- 它绑定哪条谱系（lineage）
+- 它是否允许跨谱系（lineage）复用标识（identity）
+- 它是 immutable 还是会话内局部（session-local）可演化状态
 
 推荐默认值：
 
-- `artifact` 与从 artifact 派生的 fact objects 绑定 source artifact lineage
+- 工件（`artifact`）与从工件（artifact）派生的 fact objects 绑定 source artifact lineage
 - fact objects 默认 immutable
 - judgment / assessment objects 可随新证据进入而更新
-- canonical layer 默认不做跨 lineage 的隐式 identity 合并
+- 规范层（canonical layer）默认不做跨谱系（lineage）的隐式标识（identity）合并
 
 必须明确区分：
 
-- 重读同一个 canonical object
-- 重新执行产生新 object
-- 语义相似但 lineage 不同的 object
+- 重读同一个规范对象（canonical object）
+- 重新执行产生新对象（object）
+- 语义相似但谱系（lineage）不同的对象（object）
 
 若这三者未被区分，后续几乎一定会在 ID、去重、缓存、审计和 agent 引用上出现歧义。
 
-#### 1.1 Identity 输入必须克制
+#### 1.1 标识（Identity）输入必须克制
 
-canonical ID 默认只应绑定语义 identity boundary，不应混入仅用于解释、渲染或版本隔离的字段。
+规范 ID（canonical ID）默认只应绑定语义标识边界（identity boundary），不应混入仅用于解释、渲染或版本隔离的字段。
 
-默认不应进入 identity 输入的字段包括但不限于：
+默认不应进入标识（identity）输入的字段包括但不限于：
 
 - `schema_version`
 - projection version
 - explanation / rationale 文本
 - 当前排序位置
-- 不改变 identity boundary 的冗余类型锚点
+- 不改变标识边界（identity boundary）的冗余类型锚点
 
-只有在某字段的变化会明确改变 canonical object 的 identity boundary 时，才应进入 ID 生成输入；否则应作为独立字段存储。
+只有在某字段的变化会明确改变规范对象（canonical object）的标识边界（identity boundary）时，才应进入 ID 生成输入；否则应作为独立字段存储。
 
 #### 1.2 可演化状态对象必须定义版本化规则
 

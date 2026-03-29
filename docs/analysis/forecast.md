@@ -1,6 +1,6 @@
-# Forecast Step Schema
+# forecast 原子意图 Schema
 
-本文档定义 `forecast` 分析步骤的拟议类型契约。
+本文档定义 `forecast` 原子意图的拟议类型契约。
 
 状态：draft design。本文是规划中的原子 `forecast` 意图 Schema 提案，不表示对应 HTTP endpoint 已经实现。
 
@@ -10,14 +10,14 @@
 
 设计目标：
 
-- 让 `forecast` 聚焦 forward projection（前向投影），不承担 explanation 或 planning
-- 消费显式上游 observations，而不是原始 metric-plus-scope 输入
-- 显式表达 forecastability、horizon 语义与 uncertainty
+- 让 `forecast` 聚焦前向投影（forward projection），不承担解释（explanation）或规划（planning）
+- 消费显式上游观测（observations），而不是原始 metric-plus-scope 输入
+- 显式表达可预测性（forecastability）、预测期长度（horizon）语义与不确定性（uncertainty）
 - 保持输出类型稳定，便于下游推理
 
 ## 核心设计决策
 
-`forecast` 消费一个 `observe(time_series)` 输出，而不是原始 metric 名、time scope、SQL 片段或任意 model config。
+`forecast` 消费一个 `observe(time_series)` 输出，而不是原始 metric 名、time scope、SQL 片段或任意模型配置（model config）。
 
 数据流因此保持清晰：
 
@@ -26,21 +26,21 @@
 
 v1 明确排除：
 
-- causal forecasting
-- scenario planning
-- intervention simulation
-- multi-series joint forecasting
-- 任意 model hyperparameters
-- budget allocation 或 target-solving
-- holidays / spend / campaign flags 等 exogenous regressors
+- 因果预测（causal forecasting）
+- 情景规划（scenario planning）
+- 干预模拟（intervention simulation）
+- 多序列联合预测（multi-series joint forecasting）
+- 任意模型超参数（model hyperparameters）
+- 预算分配（budget allocation）或目标求解（target-solving）
+- 节假日（holidays）/ 支出（spend）/ 活动标记（campaign flags）等外生回归变量（exogenous regressors）
 
-原子分析意图在这里的目标，是对单条有界历史序列提供稳定的 forward projection。
+原子分析意图在这里的目标，是对单条有界历史序列提供稳定的前向投影（forward projection）。
 
-## Artifact Identity 与 Lineage
+## 工件标识（Artifact Identity）与谱系（Lineage）
 
-`forecast_series` 是 immutable canonical artifact。
+`forecast_series` 是不可变规范工件（immutable canonical artifact）。
 
-identity boundary 绑定以下输入：
+标识边界（identity boundary）绑定以下输入：
 
 - `source_ref` 指向的 observe artifact lineage
 - `horizon`

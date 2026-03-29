@@ -48,6 +48,9 @@ Rules:
 - `aggregate_query` request contract: `table`, `measures`, `time_scope` (required), plus `group_by`, `scope`, `time_axis`, `order`, `limit`
 - `time_scope` is the only time-window contract; `scope` is the only step-level non-time scope contract
 - `scope.constraints` is for scalar entity/row scope; `scope.predicate` may contain only non-time conditions
+- session scope should only carry typed non-time constraint families; do not put time windows in session scope
+- session constraint targets must resolve to semantic-layer typed refs, not raw field names or source_objects ids
+- session focus hints must not be used as execution filters
 - design drafts under `docs/analysis/` should use the same `time_scope` / `scope` split; do not introduce parallel non-time filter contracts
 - design drafts for analysis intents should keep artifact / projection separated; truncation, top-k, and compact agent views belong to projection, not artifact
 - when a step consumes prior step outputs, design drafts should prefer structured typed refs over bare string ids
@@ -62,7 +65,7 @@ Rules:
 - `metric_query` observations inherit `time_scope.current` as their `observed_window`
 - `metric_query(single_window)` emits current-window observations only; it does not fabricate `baseline_*` or `delta_pct`
 - `aggregate_query` observations inherit the request window; temporal `group_by` can refine them to per-row windows
-- session `constraints` / `raw_filter` auto-inject into supported query steps
+- session `constraints` auto-inject into supported query steps
 
 ## Keep In Sync
 
@@ -72,4 +75,5 @@ Docs layout:
 
 - `docs/api/` is reserved for external HTTP API documentation only
 - analysis-intent design drafts and canonical evidence-schema proposals live under `docs/analysis/`
-- current canonical evidence design drafts include `finding.md`, `proposition.md`, `assessment.md`, `state-surface-schema.md`, and `context-surface-schema.md`
+- current canonical evidence design drafts include `session.md`, `finding.md`, `proposition.md`, `assessment.md`, `state-surface-schema.md`, and `context-surface-schema.md`
+- family-level rule contracts under `docs/analysis/` currently include `precondition-gate-contract.md`, `quality-gate-contract.md`, and `comparability-gate-contract.md`; keep them aligned with `inference-rule-engine-contract.md` and `assessment.md`

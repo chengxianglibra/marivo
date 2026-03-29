@@ -1,6 +1,6 @@
-# Correlate Step Schema
+# correlate 原子意图 Schema
 
-本文档定义 `correlate` 分析步骤的拟议类型契约。
+本文档定义 `correlate` 原子意图的拟议类型契约。
 
 状态：draft design。本文是规划中的原子 `correlate` 意图 Schema 提案，不表示对应 HTTP endpoint 已经实现。
 
@@ -10,9 +10,9 @@
 
 设计目标：
 
-- 让 `correlate` 只关注 pairwise association（两两关联），不承担数据抽取或因果解释
-- 消费显式上游 observations，而不是 raw metric-plus-scope 输入
-- 显式表达 alignment（对齐）与 data loss（数据损耗）语义
+- 让 `correlate` 只关注成对关联（pairwise association），不承担数据抽取或因果解释
+- 消费显式上游观测（observations），而不是原始 metric-plus-scope 输入
+- 显式表达对齐（alignment）与数据损耗（data loss）语义
 - 让输出对下游推理保持类型稳定
 
 ## 核心设计决策
@@ -24,13 +24,13 @@
 - `observe` 定义每条时间序列
 - `correlate` 定义这两条时间序列之间的关联
 
-因此 v1 只保留 typed-reference contract，不再维护一套 direct correlate 契约。
+因此 v1 只保留类型化引用契约（typed-reference contract），不再维护一套直接关联契约（direct correlate 契约）。
 
-## Artifact Identity 与 Lineage
+## 工件标识（Artifact Identity）与谱系（Lineage）
 
-`pairwise_time_series_association` 是 immutable canonical artifact。
+`pairwise_time_series_association` 是不可变规范工件（immutable canonical artifact）。
 
-identity boundary 绑定以下输入：
+标识边界（identity boundary）绑定以下输入：
 
 - `left_ref` 指向的 observe artifact lineage
 - `right_ref` 指向的 observe artifact lineage

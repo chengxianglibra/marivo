@@ -1,31 +1,31 @@
 # Evidence Graph Edge Semantics
 
-本文档定义 Factum 在 v1 canonical evidence model 下的 graph edge semantics。
+本文档定义 Factum 在 v1 规范证据模型（canonical evidence model）下的图边语义（graph edge semantics）。
 
-状态：draft design。本文是 `docs/analysis/` 下的 canonical relation 设计提案，不表示对应持久化表、graph storage、HTTP endpoint 或通用 graph query 已经实现。
+状态：draft design。本文是 `docs/analysis/` 下的规范关系（canonical relation）设计提案，不表示对应持久化表、图存储（graph storage）、HTTP endpoint 或通用图查询（graph query）已经实现。
 
 ## 目的
 
-`finding.md`、`proposition.md`、`assessment.md`、`action-proposal.md` 已分别定义 canonical objects 的字段与分层边界；`state-surface-schema.md` 与 `context-surface-schema.md` 已定义读取面如何解引用这些对象。
+事实单元（`finding.md`）、命题（`proposition.md`）、评估状态（`assessment.md`）、动作候选（`action-proposal.md`）已分别定义规范对象（canonical objects）的字段与分层边界；分析状态面（`state-surface-schema.md`）与上下文面（`context-surface-schema.md`）已定义读取面如何解引用这些对象。
 
-本文补足的是对象之间“哪些关系进入 canonical model、这些关系如何解释”的统一基线，回答以下问题：
+本文补足的是对象之间”哪些关系进入规范模型（canonical model）、这些关系如何解释”的统一基线，回答以下问题：
 
-- 哪些对象间关系属于 canonical edge，而不是实现层或读取层的临时拼接
-- 每类 edge 的方向、source/target 约束、创建 authority 与 runtime 含义是什么
-- 哪些 edge 只表达 lineage / provenance，哪些 edge 表达当前 judgment membership
-- replay、soft invalidation、latest/live selection 出现时，edge 应如何解释
+- 哪些对象间关系属于规范边（canonical edge），而不是实现层或读取层的临时拼接
+- 每类边（edge）的方向、source/target 约束、创建权威（authority）与运行时含义是什么
+- 哪些边只表达谱系（lineage）/ 溯源信息（provenance），哪些边表达当前判断归属（judgment membership）
+- 重放（replay）、软失效（soft invalidation）、最新态/活跃态选择（latest/live selection）出现时，边应如何解释
 
 ## 非目标
 
 本文不定义：
 
-- graph storage schema、表结构、索引或事务细节
+- 图存储 schema（graph storage schema）、表结构、索引或事务细节
 - 对外 HTTP graph contract、path、query、分页与兼容参数
-- 通用 graph query language
-- cross-proposition inference、cross-proposition support / contradiction / dependency
-- narrative summary、reflection-context 或 UI 文案中隐式拼装出的关系
+- 通用图查询语言（graph query language）
+- 跨命题推断（cross-proposition inference）、跨命题支持（cross-proposition support）/ 矛盾（contradiction）/ 依赖（dependency）
+- 叙述摘要（narrative summary）、反思上下文（reflection-context）或 UI 文案中隐式拼装出的关系
 
-若未来需要跨 proposition relation，必须在单独设计中把它先引入 canonical model；v1 不得通过 inference engine、state/context surface 或实现层临时约定隐式开放。
+若未来需要跨命题关系（cross-proposition relation），必须在单独设计中把它先引入规范模型（canonical model）；v1 不得通过推断引擎（inference engine）、状态/上下文面（state/context surface）或实现层临时约定隐式开放。
 
 ## Core Rules
 
@@ -56,22 +56,22 @@ edge semantics 由现有 object schema 中的 typed refs、id fields 与 lifecyc
 - 不得改变 edge 的 canonical source/target 定义
 - 不得把反向读取结果误解释为一个新的 edge family
 
-### 4. history 与 live membership 必须区分
+### 4. 历史（history）与实时归属（live membership）必须区分
 
-并非所有 edge 都表达当前 live membership。
+并非所有边都表达当前实时归属（live membership）。
 
 v1 固定两类语义：
 
-- lineage / provenance edge：表达来源、派生、直接输入；历史可保留，不因 latest 切换而失真
-- runtime membership edge：表达某个 assessment snapshot 下的 support / oppose / gap / inference 归属；其 live 性由 snapshot 选择与读取层解释决定
+- 谱系（lineage）/ 溯源信息（provenance）边：表达来源、派生、直接输入；历史可保留，不因最新态（latest）切换而失真
+- 运行时归属边（runtime membership edge）：表达某个评估快照（assessment snapshot）下的支持（support）/ 反驳（oppose）/ 证据缺口（gap）/ 推断（inference）归属；其实时性（live）由快照选择与读取层解释决定
 
-### 5. invalidation 采用 soft interpretation
+### 5. 失效（invalidation）采用软解释（soft interpretation）
 
-当 edge 指向的上游对象当前不可解引用时：
+当边指向的上游对象当前不可解引用时：
 
-- 历史 canonical edge 语义不自动消失
-- 不静默硬删 edge 语义
-- 通过 missing refs、gap 重开、membership 收缩、latest 选择变化等方式暴露影响
+- 历史规范边（canonical edge）语义不自动消失
+- 不静默硬删边语义
+- 通过缺失引用（missing refs）、证据缺口（gap）重开、归属收缩（membership 收缩）、最新态选择变化等方式暴露影响
 
 ## Canonical Node Set
 
@@ -121,7 +121,7 @@ v1 固定两类语义：
 
 - `seeded_by` 不等价于 `supports`
 - seed finding 可与后续 support finding 重叠，但语义仍分离
-- seed 当前不可解引用时，proposition 仍可读取；由 `missing_seed_finding_refs` 暴露缺失
+- seed 当前不可解引用时，proposition 仍可读取；由 `seed_entries.finding = null` 暴露缺失
 
 ### 3. `proposition -> proposition`
 
@@ -318,9 +318,10 @@ v1 的 edge 创建 authority 固定如下：
 
 `state-surface-schema.md` 与 `context-surface-schema.md` 必须按以下方式消费 edge semantics：
 
-- `seed_findings` 只解引用 `seeded_by`
+- `seed_entries` 只 hydration `seeded_by`，并保留 `PropositionSeedRef.role`
 - `relevant_findings` 只覆盖 `supports`、`opposes` 与 `reads_finding`
 - `latest_assessment`、live support/oppose、live gaps、applied inference records 都是读取层对 snapshot membership 的选择，不是对象本体状态位
+- `assessment_dependencies` 只覆盖 `reads_assessment` 的直接 assessment 输入，不递归展开更早链路
 - `artifact_refs` 是由 context/state 所涉及 edge 指向的 findings 再回溯 `extracted_from` 后得到的最小权威入口
 
 读取层不得新增：

@@ -1,33 +1,33 @@
-# Detect Step Schema
+# detect 原子意图 Schema
 
-本文档定义 `detect` 分析步骤的拟议类型契约。
+本文档定义 `detect` 原子意图的拟议类型契约。
 
 状态：draft design。本文是规划中的原子 `detect` 意图 Schema 提案，不表示对应 HTTP endpoint 已经实现。
 
 ## 目的
 
-`detect` 用于在类型化时间范围内扫描单个指标，并返回排序后的 anomaly candidates（异常候选）。
+`detect` 用于在类型化时间范围内扫描单个指标，并返回排序后的异常候选（anomaly candidates）。
 
 设计目标：
 
-- 让 `detect` 聚焦 candidate discovery（候选发现），不承担 diagnosis 或 explanation
+- 让 `detect` 聚焦候选发现（candidate discovery），不承担诊断（diagnosis）或解释（explanation）
 - 复用 Factum 统一的 `time_scope` / `scope` 契约，而不是自定义平行过滤形状
 - 暴露稳定的产品契约，而不是泄漏建模内部细节
-- 显式表达 detectability、truncation、scan boundary 与 lineage
-- 区分 candidate flags 与 confirmed evidence，维持确定性下游推理边界
+- 显式表达可检测性（detectability）、截断（truncation）、扫描边界（scan boundary）与谱系（lineage）
+- 区分候选标记（candidate flags）与已确认证据（confirmed evidence），维持确定性下游推理边界
 
 ## 核心设计决策
 
-`detect` 是 candidate-scanning step，不是 anomaly-proof step。
+`detect` 是候选扫描步骤（candidate-scanning step），不是异常证明步骤（anomaly-proof step）。
 
 v1 明确排除：
 
 - 根因分析
 - 因果解释
-- 任意 detector 配置
+- 任意检测器（detector）配置
 - 多指标筛查
 - 无约束的多维爆炸
-- “这一定是异常”的 claim-level 语义
+- “这一定是异常”的声明级（claim-level）语义
 
 原子分析意图在这里的边界更窄：识别哪些 metric-time-slice 点值得进一步分析。
 
