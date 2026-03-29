@@ -204,7 +204,8 @@ type SessionLifecycle = {
     | "abandoned"
     | "rolled_over"
     | "governance_terminated"
-    | "expired"
+    | "budget_exhausted"
+    | "timed_out"
     | null;
   ended_at: string | null;
   rollover_from_session_id: string | null;
@@ -264,6 +265,8 @@ type SessionStateViewRef = {
 - `closed` 表示任务以正常完成态结束，不再接受新的 canonical writes
 - `aborted` 表示任务在未完成目标前终止，不再接受新的 canonical writes
 - `terminal_reason` 解释容器为何结束，不解释 proposition 是否成立
+- `answered` 与 `rolled_over` 只能映射到 `closed`
+- `abandoned`、`governance_terminated`、`budget_exhausted`、`timed_out` 只能映射到 `aborted`
 
 若 `status = "open"`：
 
@@ -330,6 +333,173 @@ type SessionStateViewRef = {
 - `rollover_from_session_id` 只表达容器级衔接，不表达 proposition / assessment 的跨 session 继承
 - v1 中 rollover 不继承现有 evidence objects
 
+## Session lifecycle transition details
+
+### 目标
+
+本节把 `SessionLifecycle` 从“字段约束”补足为“事件、authority、状态转换与终态归因”的 decision-complete 规则。
+
+v1 采用以下基线：
+
+- terminal transition 采用显式优先模型
+- 系统可以检测并暴露 lifecycle-related signals，但除 rollover 流程外，不直接把 session 自动推进到 terminal state
+- 不引入 `closing`、`terminating`、`pending_terminal` 一类中间态
+- `SessionLifecycle` 只记录已提交的 terminal outcome，不承载未提交的 signal 集合
+
+### 事件族与 authority
+
+v1 用下列事件族解释 session lifecycle transition：
+
+| 事件族 | 来源 | 是否直接改写 `SessionLifecycle` | 说明 |
+|------|------|------------------------------|------|
+| explicit completion | agent / 调用方显式结束 | 是 | 把 session 结束为 `closed + answered` |
+| explicit abandonment | agent / 调用方显式结束 | 是 | 把 session 结束为 `aborted + abandoned` |
+| rollover completion | rollover 流程 | 是 | 旧 session 结束为 `closed + rolled_over` |
+| governance termination signal | 系统治理层 | 否 | 仅声明当前 session 已出现治理终止信号；后续可显式结束为 `aborted + governance_terminated` |
+| budget exhaustion signal | 系统预算/执行层 | 否 | 仅声明当前 session 已出现预算耗尽信号；后续可显式结束为 `aborted + budget_exhausted` |
+| timeout signal | 系统预算/执行层 | 否 | 仅声明当前 session 已出现超时信号；后续可显式结束为 `aborted + timed_out` |
+| step execution failure | 执行面 | 否 | 普通 step 失败只作为执行结果返回，不直接进入 lifecycle terminal transition |
+
+补充规则：
+
+- terminal reason 的 authority 与事件族绑定，不允许自由伪报
+- 系统派生的 signal 是 terminal reason 的 eligibility condition，不是自动状态转换器
+- 若同一 session 同时出现多个 system-derived signals，v1 不定义全局优先级；显式结束时只允许提交一个最能解释终止原因的 `terminal_reason`
+
+### 允许的状态转换
+
+v1 只允许以下转换：
+
+- `open -> closed`
+- `open -> aborted`
+
+不允许以下转换：
+
+- `closed -> open`
+- `aborted -> open`
+- `closed -> aborted`
+- `aborted -> closed`
+- 任何 terminal -> terminal 的二次改写
+
+附加规则：
+
+- 一旦提交 terminal transition，`ended_at` 必须同步固定
+- terminal transition 提交后，`terminal_reason` 不得再被覆写
+- system-derived signal 本身不改变 `ended_at`
+
+### `terminal_reason` 与状态映射
+
+| `terminal_reason` | 目标状态 | 允许写入者 | 前置条件 |
+|------|----------|------------|----------|
+| `answered` | `closed` | 显式结束调用方 | 无额外 signal 要求 |
+| `abandoned` | `aborted` | 显式结束调用方 | 无额外 signal 要求 |
+| `rolled_over` | `closed` | rollover 流程 | 必须已经创建后继 session，并把 `rollover_from_session_id` 指回当前 session |
+| `governance_terminated` | `aborted` | 显式结束调用方 | 当前 session 已存在 governance termination signal |
+| `budget_exhausted` | `aborted` | 显式结束调用方 | 当前 session 已存在 budget exhaustion signal |
+| `timed_out` | `aborted` | 显式结束调用方 | 当前 session 已存在 timeout signal |
+
+补充规则：
+
+- `answered` / `abandoned` 始终可作为显式终止原因，不受 system-derived signal 约束
+- system-derived signal 已存在时，agent 仍可选择 `answered` 或 `abandoned`；`terminal_reason` 记录的是“最终为何结束”，不是“出现过哪些 signal”
+- `rolled_over` 只用于容器衔接，不应用来表达人工放弃后重开新任务
+
+### signal 语义
+
+#### governance termination signal
+
+`governance_terminated` 只用于 session 级治理边界已不允许继续维持当前容器的情况，例如：
+
+- 当前治理策略被撤销或失效
+- 会话级访问授权被收回
+- 平台治理层明确判定当前 session 必须终止
+
+以下情况默认不构成 governance termination signal：
+
+- 某个 step request 因字段级/查询级 policy 被拒绝，但 session 的治理边界本身仍有效
+- 普通执行失败中顺带返回的 policy warning
+
+#### budget exhaustion signal
+
+`budget_exhausted` 只表示当前 session 已达到或超过既定 budget 边界，例如：
+
+- 达到 `max_steps`
+- 达到 `max_scan_bytes`
+
+v1 规则：
+
+- signal 出现后 session 仍保持 `open`
+- signal 本身不自动封禁后续 canonical writes
+- 是否继续尝试新的 step 由 agent / 调用方自行决定
+- 若最终决定结束，可显式提交 `aborted + budget_exhausted`
+
+#### timeout signal
+
+`timed_out` 只表示当前 session 已达到或超过既定时间边界，例如：
+
+- 达到 `max_latency_sec`
+- 外层运行时对 session 施加的 wall-clock 超时已命中
+
+v1 规则：
+
+- signal 出现后 session 仍保持 `open`
+- signal 本身不自动封禁后续 canonical writes
+- 是否继续尝试新的 step 由 agent / 调用方自行决定
+- 若最终决定结束，可显式提交 `aborted + timed_out`
+
+### 执行失败与 lifecycle 的关系
+
+普通 step execution failure 不构成独立 `terminal_reason`。
+
+规则：
+
+- 单次 step 失败只由执行面返回，不直接改写 `SessionLifecycle`
+- `SessionLifecycle` 不记录失败中的中间协调态
+- 若失败根因只是一般查询错误、规划错误或外部依赖错误，session 仍保持 `open`
+- 若失败根因触发了 governance / budget / timeout signal，可额外产生对应 signal；但 terminal transition 仍需显式提交
+- 若 agent 因累计失败决定不再继续，终止原因统一记为 `abandoned`
+
+因此，v1 不引入 `execution_failed` 一类独立 terminal reason。
+
+### rollover 的 lifecycle 语义
+
+rollover 是唯一允许直接提交 terminal transition 的系统流程。
+
+规则：
+
+- 当不可变治理边界变化时，必须创建新 session，而不是改写旧 session
+- 旧 session 以 `closed + rolled_over` 结束
+- 新 session 的 `rollover_from_session_id` 指向旧 session
+- rollover 不继承旧 session 的 canonical evidence objects
+- rollover 是容器切换，不是 evidence merge 或 cross-session continuation registry
+
+### 提交与读取约束
+
+在 session 保持 `open` 时：
+
+- 可以继续追加 canonical writes
+- 可以继续读取 `SessionStateView` 与 `PropositionContextView`
+- 可以出现 lifecycle-related signals，但这些 signals 不直接改写 root lifecycle
+
+一旦 session 进入 terminal state：
+
+- 不得新增新的 canonical evidence objects
+- 仍必须允许读取 `state_summary`、`SessionStateView` 与 `PropositionContextView`
+- 历史 refs 与 evidence objects 必须保持可解释、可审计
+- terminal state 不得因后续 signal 再次改写
+
+### 非目标
+
+本节不定义以下内容：
+
+- 触发显式终止的 HTTP path、payload 或错误码
+- signal 的具体持久化位置或读取面
+- signal 是否需要单独暴露为 API 资源
+- runtime 如何调度 terminate / rollover 操作
+- agent 是否“应该”在某个 signal 出现后立即结束 session
+
+这些内容若后续需要对外收敛，应进入 `docs/api/` 或独立 runtime / state-surface 设计文档。
+
 ## 生命周期与写入协调
 
 ### 创建
@@ -354,6 +524,8 @@ typed intent 成功执行后产生的 `artifact / finding / proposition / assess
 - `state_summary` 的刷新属于读取入口维护，不改写下游 evidence semantics
 - v1 中单次 step 执行为同步语义；step 成功返回时，对应 canonical writes 应已完成提交
 - v1 中 step 执行失败不在 `session` root 保留中间协调态；失败由执行面直接返回
+- budget / timeout / governance signal 的出现本身不自动终止 session，也不自动封禁写入
+- 显式终止时使用的 `terminal_reason` 必须满足本节前述 authority 与前置条件约束
 
 ### 关闭
 
