@@ -15,22 +15,36 @@ Design choices (roadmap 1.1):
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from app.evidence_engine.causal_basis import GAP_NORMALISE_WORKLOAD_VOLUME
 
 # ---------------------------------------------------------------------------
 # Volume / count keywords used to identify "workload volume" claims.
 # ---------------------------------------------------------------------------
-_VOLUME_KEYWORDS: frozenset[str] = frozenset({
-    "count", "volume", "throughput", "qps", "requests", "queries",
-    "num_queries", "query_count", "request_count",
-})
+_VOLUME_KEYWORDS: frozenset[str] = frozenset(
+    {
+        "count",
+        "volume",
+        "throughput",
+        "qps",
+        "requests",
+        "queries",
+        "num_queries",
+        "query_count",
+        "request_count",
+    }
+)
 
 # Metrics that contain a volume keyword as a substring but are not volume metrics.
-_VOLUME_FALSE_POSITIVES: frozenset[str] = frozenset({
-    "discount", "account", "counter_example",
-})
+_VOLUME_FALSE_POSITIVES: frozenset[str] = frozenset(
+    {
+        "discount",
+        "account",
+        "counter_example",
+    }
+)
 
 
 def _is_volume_claim(claim: dict[str, Any]) -> bool:
@@ -121,10 +135,12 @@ def resolve_confounders(
 
         unresolved = causal_basis.get("unresolved_confounders", [])
         if not unresolved:
-            result.append({
-                **rec,
-                "causal_basis": {**causal_basis, "resolved_confounders": []},
-            })
+            result.append(
+                {
+                    **rec,
+                    "causal_basis": {**causal_basis, "resolved_confounders": []},
+                }
+            )
             continue
 
         # Determine the backing claim's slice for same-slice preference.
@@ -150,20 +166,24 @@ def resolve_confounders(
                 still_unresolved.append(gap)
                 continue
 
-            resolved.append({
-                "key": gap_key,
-                "resolved_by": match["claim_id"],
-                "summary": match.get("text", "")[:200],
-            })
+            resolved.append(
+                {
+                    "key": gap_key,
+                    "resolved_by": match["claim_id"],
+                    "summary": match.get("text", "")[:200],
+                }
+            )
 
-        result.append({
-            **rec,
-            "causal_basis": {
-                **causal_basis,
-                "unresolved_confounders": still_unresolved,
-                "resolved_confounders": resolved,
-            },
-        })
+        result.append(
+            {
+                **rec,
+                "causal_basis": {
+                    **causal_basis,
+                    "unresolved_confounders": still_unresolved,
+                    "resolved_confounders": resolved,
+                },
+            }
+        )
 
     return result
 

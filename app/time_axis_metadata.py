@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any, Literal, Mapping
+from typing import Any, Literal
 
 from app.storage.metadata import MetadataStore
-
 
 TimeGrain = Literal["day", "hour"]
 
@@ -43,8 +43,12 @@ def normalize_time_capabilities(
     if partition_time is not None and not isinstance(partition_time, Mapping):
         raise ValueError(f"{label}.partition_time must be an object")
 
-    normalized_analysis = _normalize_analysis_time_section(analysis_time, label=f"{label}.analysis_time")
-    normalized_partition = _normalize_partition_time_section(partition_time, label=f"{label}.partition_time")
+    normalized_analysis = _normalize_analysis_time_section(
+        analysis_time, label=f"{label}.analysis_time"
+    )
+    normalized_partition = _normalize_partition_time_section(
+        partition_time, label=f"{label}.partition_time"
+    )
 
     default_compare_grain = _optional_str(payload.get("default_compare_grain"))
     if default_compare_grain is not None and default_compare_grain not in {"day", "hour"}:

@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-
 StepRunner = Callable[[str, dict[str, Any] | None], dict[str, Any]]
 
 
@@ -22,7 +21,9 @@ class StepRunnerRegistry:
             raise KeyError(f"Unknown step runner: {step_type}")
         return self._runners[normalized]
 
-    def run(self, session_id: str, step_type: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    def run(
+        self, session_id: str, step_type: str, params: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         return self.get(step_type)(session_id, params)
 
     def keys(self) -> list[str]:

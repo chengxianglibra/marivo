@@ -65,7 +65,9 @@ class PolicyApplicationTests(unittest.TestCase):
             definition={"predicate": "platform = 'ios'"},
             scope={"step_types": ["profile_table"]},
         )
-        session_id = self.client.post("/sessions", json={"goal": "policy provenance"}).json()["session_id"]
+        session_id = self.client.post("/sessions", json={"goal": "policy provenance"}).json()[
+            "session_id"
+        ]
 
         response = self.client.post(
             f"/sessions/{session_id}/steps/profile_table",

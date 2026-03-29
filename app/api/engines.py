@@ -5,7 +5,6 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from app.api.deps import get_services
 from app.api.models import BindingCreateRequest, EngineRegisterRequest
 
-
 router = APIRouter()
 
 
@@ -53,7 +52,9 @@ def list_bindings(
     source_id: str | None = Query(default=None),
     engine_id: str | None = Query(default=None),
 ) -> list[dict[str, object]]:
-    return get_services(request).binding_service.list_bindings(source_id=source_id, engine_id=engine_id)
+    return get_services(request).binding_service.list_bindings(
+        source_id=source_id, engine_id=engine_id
+    )
 
 
 @router.get("/bindings/{binding_id}")

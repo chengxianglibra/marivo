@@ -33,6 +33,7 @@ class DeltaPctIntegerDivisionTests(unittest.TestCase):
     def test_metric_query_uses_float_division(self) -> None:
         """build_metric_query output must contain '* 1.0' to force float division."""
         from app.analysis_core.compiler import build_metric_query
+
         sql = build_metric_query(
             metric_name="event_count",
             table_name="analytics.watch_events",
@@ -49,26 +50,33 @@ class DeltaPctIntegerDivisionTests(unittest.TestCase):
         get_seeded_duckdb_path(db_path)
         client = TestClient(create_app(db_path))
         try:
-            entity_resp = client.post("/semantic/entities", json={
-                "name": "session_intdiv",
-                "display_name": "Session",
-                "keys": ["session_id"],
-            })
+            entity_resp = client.post(
+                "/semantic/entities",
+                json={
+                    "name": "session_intdiv",
+                    "display_name": "Session",
+                    "keys": ["session_id"],
+                },
+            )
             entity_id = entity_resp.json()["entity_id"]
             client.post(f"/semantic/entities/{entity_id}/publish")
 
-            metric_resp = client.post("/semantic/metrics", json={
-                "name": "event_count",
-                "display_name": "Event Count",
-                "definition_sql": "count(*)",
-                "dimensions": ["platform"],
-                "entity_id": entity_id,
-            })
+            metric_resp = client.post(
+                "/semantic/metrics",
+                json={
+                    "name": "event_count",
+                    "display_name": "Event Count",
+                    "definition_sql": "count(*)",
+                    "dimensions": ["platform"],
+                    "entity_id": entity_id,
+                },
+            )
             metric_id = metric_resp.json()["metric_id"]
             client.post(f"/semantic/metrics/{metric_id}/publish")
 
             session_id = client.post(
-                "/sessions", json={"goal": "Test integer division fix."},
+                "/sessions",
+                json={"goal": "Test integer division fix."},
             ).json()["session_id"]
 
             resp = client.post(
@@ -107,7 +115,8 @@ class ProfileScopeTests(unittest.TestCase):
     def test_profile_table_includes_scope(self) -> None:
         """profile_table result should contain profile_scope when partition-filtered."""
         session_id = self.client.post(
-            "/sessions", json={"goal": "Test profile scope."},
+            "/sessions",
+            json={"goal": "Test profile scope."},
         ).json()["session_id"]
 
         resp = self.client.post(
@@ -132,10 +141,12 @@ class DefaultDimensionCapTests(unittest.TestCase):
 
     def test_max_default_dimensions_is_2(self) -> None:
         from app.service import SemanticLayerService
+
         self.assertEqual(SemanticLayerService._MAX_DEFAULT_DIMENSIONS, 2)
 
     def test_auto_dimensions_capped_at_2(self) -> None:
         from app.service import SemanticLayerService
+
         all_dims = [f"dim_{i}" for i in range(10)]
         dims = SemanticLayerService._comparison_dimensions(all_dims, date_column="event_date")
         self.assertLessEqual(len(dims), 2)
@@ -159,7 +170,8 @@ class AggregateQueryStepTests(unittest.TestCase):
     def test_aggregate_query_step(self) -> None:
         """aggregate_query should execute GROUP BY query and return rows."""
         session_id = self.client.post(
-            "/sessions", json={"goal": "Test aggregate_query."},
+            "/sessions",
+            json={"goal": "Test aggregate_query."},
         ).json()["session_id"]
 
         resp = self.client.post(
@@ -185,7 +197,8 @@ class AggregateQueryStepTests(unittest.TestCase):
 
     def test_aggregate_query_missing_measures(self) -> None:
         session_id = self.client.post(
-            "/sessions", json={"goal": "Test missing measures."},
+            "/sessions",
+            json={"goal": "Test missing measures."},
         ).json()["session_id"]
 
         resp = self.client.post(
@@ -200,7 +213,8 @@ class AggregateQueryStepTests(unittest.TestCase):
 
     def test_aggregate_query_without_group_by_returns_overall_aggregate(self) -> None:
         session_id = self.client.post(
-            "/sessions", json={"goal": "Test overall aggregate."},
+            "/sessions",
+            json={"goal": "Test overall aggregate."},
         ).json()["session_id"]
 
         resp = self.client.post(
@@ -219,7 +233,8 @@ class AggregateQueryStepTests(unittest.TestCase):
     def test_aggregate_query_with_scope_predicate(self) -> None:
         """aggregate_query with scope predicate should work."""
         session_id = self.client.post(
-            "/sessions", json={"goal": "Test aggregate with scope predicate."},
+            "/sessions",
+            json={"goal": "Test aggregate with scope predicate."},
         ).json()["session_id"]
 
         resp = self.client.post(
@@ -256,7 +271,8 @@ class AggregateQueryObservationTests(unittest.TestCase):
 
     def test_aggregate_query_generates_observations(self) -> None:
         session_id = self.client.post(
-            "/sessions", json={"goal": "Test aggregate observations."},
+            "/sessions",
+            json={"goal": "Test aggregate observations."},
         ).json()["session_id"]
 
         resp = self.client.post(
@@ -281,7 +297,8 @@ class AggregateQueryObservationTests(unittest.TestCase):
 
     def test_aggregate_query_opt_out_observations(self) -> None:
         session_id = self.client.post(
-            "/sessions", json={"goal": "Test aggregate no-obs."},
+            "/sessions",
+            json={"goal": "Test aggregate no-obs."},
         ).json()["session_id"]
 
         result = self.client.app.state.service._run_aggregate_query(
@@ -314,7 +331,8 @@ class SessionConstraintInjectionTests(unittest.TestCase):
 
     def test_constraints_injected_into_sample_rows(self) -> None:
         session_id = self.client.post(
-            "/sessions", json={
+            "/sessions",
+            json={
                 "goal": "Test constraint injection.",
                 "constraints": {"platform": "android"},
             },
@@ -332,7 +350,8 @@ class SessionConstraintInjectionTests(unittest.TestCase):
 
     def test_constraints_injected_into_aggregate_query(self) -> None:
         session_id = self.client.post(
-            "/sessions", json={
+            "/sessions",
+            json={
                 "goal": "Test constraint injection aggregate.",
                 "constraints": {"platform": "android"},
             },
@@ -355,7 +374,8 @@ class SessionConstraintInjectionTests(unittest.TestCase):
 
     def test_no_constraints_no_filter(self) -> None:
         session_id = self.client.post(
-            "/sessions", json={"goal": "No constraints."},
+            "/sessions",
+            json={"goal": "No constraints."},
         ).json()["session_id"]
 
         resp = self.client.post(
@@ -390,9 +410,9 @@ class AggregateQueryTimeScopeTests(unittest.TestCase):
         cls.temp_dir.cleanup()
 
     def _new_session(self) -> str:
-        return self.client.post(
-            "/sessions", json={"goal": "WoW comparison test."}
-        ).json()["session_id"]
+        return self.client.post("/sessions", json={"goal": "WoW comparison test."}).json()[
+            "session_id"
+        ]
 
     def test_compare_mode_returns_delta_columns(self) -> None:
         """compare mode should produce {alias}_current, _baseline, _delta_pct columns."""

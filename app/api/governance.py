@@ -3,8 +3,12 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.api.deps import get_services, require_governance
-from app.api.models import GovernanceCheckRequest, PolicyCreateRequest, PolicyUpdateRequest, QualityRuleCreateRequest
-
+from app.api.models import (
+    GovernanceCheckRequest,
+    PolicyCreateRequest,
+    PolicyUpdateRequest,
+    QualityRuleCreateRequest,
+)
 
 router = APIRouter()
 
@@ -41,7 +45,9 @@ def get_policy(policy_id: str, request: Request) -> dict[str, object]:
 
 
 @router.put("/policies/{policy_id}")
-def update_policy(policy_id: str, payload: PolicyUpdateRequest, request: Request) -> dict[str, object]:
+def update_policy(
+    policy_id: str, payload: PolicyUpdateRequest, request: Request
+) -> dict[str, object]:
     governance = require_governance(get_services(request))
     try:
         return governance.update_policy(
@@ -78,7 +84,9 @@ def create_quality_rule(payload: QualityRuleCreateRequest, request: Request) -> 
 
 
 @router.get("/quality-rules")
-def list_quality_rules(request: Request, table: str | None = Query(default=None)) -> list[dict[str, object]]:
+def list_quality_rules(
+    request: Request, table: str | None = Query(default=None)
+) -> list[dict[str, object]]:
     services = get_services(request)
     if services.governance_service is None:
         return []

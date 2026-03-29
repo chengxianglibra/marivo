@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 
 from app.api.deps import get_services, http_error
 from app.api.models import RouteResolveRequest
 from app.routing import RoutingIntent
-
 
 router = APIRouter()
 
@@ -34,9 +33,7 @@ def routing_resolve(payload: RouteResolveRequest, request: Request) -> dict[str,
             "selection_reason": route.selection_reason,
             "routing_detail": route.routing_detail,
             "capability_profile": (
-                route.capability_profile.to_dict()
-                if route.capability_profile is not None
-                else None
+                route.capability_profile.to_dict() if route.capability_profile is not None else None
             ),
         }
     except (KeyError, ValueError) as error:

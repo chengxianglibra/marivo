@@ -221,7 +221,9 @@ class CostModel:
                 "engine_locality": "bound_engine",
                 "routing_strategy": "bound_route",
                 "engine_id": route.engine_id,
-                "engine_type": route.capability_profile.engine_type if route.capability_profile else None,
+                "engine_type": route.capability_profile.engine_type
+                if route.capability_profile
+                else None,
                 "qualified_name": route.qualified_names.get(native_table_name, table_name),
                 "capability_score": route.capability_score,
                 "engine_capabilities": (
@@ -259,8 +261,14 @@ class CostModel:
         if execution_target.routing_error is not None:
             detail["routing_error"] = execution_target.routing_error
         if execution_target.qualified_names:
-            routing_name = execution_target.routing_table_names[0] if execution_target.routing_table_names else table_name
-            detail["qualified_name"] = execution_target.qualified_names.get(routing_name, table_name)
+            routing_name = (
+                execution_target.routing_table_names[0]
+                if execution_target.routing_table_names
+                else table_name
+            )
+            detail["qualified_name"] = execution_target.qualified_names.get(
+                routing_name, table_name
+            )
         return detail
 
     @staticmethod

@@ -225,7 +225,11 @@ class SemanticMappingTests(unittest.TestCase):
         # Register and sync a source to get object_ids
         resp = cls.client.post(
             "/sources",
-            json={"source_type": "duckdb", "display_name": "Mapping Test Source", "connection": {"path": str(cls.db_path)}},
+            json={
+                "source_type": "duckdb",
+                "display_name": "Mapping Test Source",
+                "connection": {"path": str(cls.db_path)},
+            },
         )
         cls.source_id = resp.json()["source_id"]
         cls.client.post(f"/sources/{cls.source_id}/sync")
@@ -357,7 +361,9 @@ class EntityPropertiesPatchTests(unittest.TestCase):
         # Set initial field-level properties
         self.client.put(
             f"/semantic/entities/{entity_id}",
-            json={"properties": {"fields": {"col_a": {"unit": "bytes"}, "col_b": {"unit": "seconds"}}}},
+            json={
+                "properties": {"fields": {"col_a": {"unit": "bytes"}, "col_b": {"unit": "seconds"}}}
+            },
         )
         # Patch only col_a
         resp = self.client.patch(
@@ -367,7 +373,7 @@ class EntityPropertiesPatchTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         props = resp.json()["properties"]
         self.assertEqual(props["fields"]["col_a"]["unit"], "megabytes")  # updated
-        self.assertEqual(props["fields"]["col_b"]["unit"], "seconds")    # preserved
+        self.assertEqual(props["fields"]["col_b"]["unit"], "seconds")  # preserved
 
     def test_patch_draft_entity_returns_422(self) -> None:
         resp = self.client.post(

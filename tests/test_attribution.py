@@ -9,8 +9,8 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
-from app.main import create_app
 from app.evidence_engine.factories import make_anomaly_observation
+from app.main import create_app
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 
@@ -226,7 +226,12 @@ class AttributeChangeAPITests(unittest.TestCase):
             """,
             [session_id],
         )
-        self.assertTrue(any(edge["from_node_type"] == "observation" and edge["to_node_type"] == "observation" for edge in edges))
+        self.assertTrue(
+            any(
+                edge["from_node_type"] == "observation" and edge["to_node_type"] == "observation"
+                for edge in edges
+            )
+        )
 
     def test_attribute_change_rejects_missing_anomaly_observation(self) -> None:
         session_id = self._create_session("missing anomaly id")
@@ -310,7 +315,10 @@ class AttributeChangeAPITests(unittest.TestCase):
         claim_id = _insert_tentative_claim(
             store,
             session_id,
-            scope={"metric": "watch_time_attribution", "slice": {"segment": "platform", "biggest_shift": top_value}},
+            scope={
+                "metric": "watch_time_attribution",
+                "slice": {"segment": "platform", "biggest_shift": top_value},
+            },
         )
 
         resp = self.client.post(

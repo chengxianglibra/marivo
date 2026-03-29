@@ -46,8 +46,7 @@ class MetricObservationExtractor(ExtractorContract):
         metric = str(context.get("metric", "")).strip()
         observation_type = str(context.get("observation_type", "metric_observation")).strip()
         payload_fields = {
-            str(key): str(value)
-            for key, value in dict(context.get("payload_fields", {})).items()
+            str(key): str(value) for key, value in dict(context.get("payload_fields", {})).items()
         }
         required_payload_keys = tuple(
             str(value)

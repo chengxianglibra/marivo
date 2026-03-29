@@ -25,9 +25,7 @@ class DefaultDerivedObservationBuilder:
         relations: list[ClaimRelation],
     ) -> list[Observation]:
         observation_by_id = {
-            str(obs.get("observation_id")): obs
-            for obs in observations
-            if obs.get("observation_id")
+            str(obs.get("observation_id")): obs for obs in observations if obs.get("observation_id")
         }
         derived: list[Observation] = []
         derived.extend(
@@ -71,9 +69,7 @@ class DefaultDerivedObservationBuilder:
         derived: list[Observation] = []
         for component in _connected_components(adjacency):
             component_claims = [
-                confirmed_claims[claim_id]
-                for claim_id in component
-                if claim_id in confirmed_claims
+                confirmed_claims[claim_id] for claim_id in component if claim_id in confirmed_claims
             ]
             metrics = sorted(
                 {
@@ -97,7 +93,10 @@ class DefaultDerivedObservationBuilder:
             group_direction = "group_up" if "up" in unique_directions else "group_down"
 
             shared_slice = _shared_slice(
-                [(claim.get("scope", {}) or {}).get("slice", {}) or {} for claim in component_claims]
+                [
+                    (claim.get("scope", {}) or {}).get("slice", {}) or {}
+                    for claim in component_claims
+                ]
             )
             component_relations = [
                 relation
@@ -122,7 +121,11 @@ class DefaultDerivedObservationBuilder:
             )
             sample_sizes = {
                 claim["claim_id"]: sum(
-                    int((observation_by_id.get(str(obs_id), {}) or {}).get("significance", {}).get("sample_size", 0))
+                    int(
+                        (observation_by_id.get(str(obs_id), {}) or {})
+                        .get("significance", {})
+                        .get("sample_size", 0)
+                    )
                     for obs_id in claim.get("supporting_observations", [])
                 )
                 for claim in component_claims
@@ -182,7 +185,10 @@ class DefaultDerivedObservationBuilder:
             for obs in supporting:
                 temporal_group_by_columns = [
                     str(column)
-                    for column in (obs.get("subject", {}) or {}).get("temporal_group_by_columns", []) or []
+                    for column in (obs.get("subject", {}) or {}).get(
+                        "temporal_group_by_columns", []
+                    )
+                    or []
                 ]
                 if not temporal_group_by_columns:
                     continue
@@ -330,7 +336,9 @@ def _connected_components(adjacency: dict[str, set[str]]) -> list[set[str]]:
                 continue
             seen.add(current)
             component.add(current)
-            stack.extend(neighbor for neighbor in adjacency.get(current, set()) if neighbor not in seen)
+            stack.extend(
+                neighbor for neighbor in adjacency.get(current, set()) if neighbor not in seen
+            )
         if component:
             components.append(component)
     return components

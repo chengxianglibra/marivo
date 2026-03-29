@@ -29,7 +29,10 @@ class ClaimFormulator:
         primary = signal.primary_obs
         obs_type = primary["type"]
 
-        if obs_type == "metric_observation" and primary.get("payload", {}).get("delta_pct") is not None:
+        if (
+            obs_type == "metric_observation"
+            and primary.get("payload", {}).get("delta_pct") is not None
+        ):
             return self._formulate_metric(signal)
         return self._formulate_non_metric(signal)
 
@@ -48,14 +51,17 @@ class ClaimFormulator:
             if observation.get("payload", {}).get("delta_pct") is not None
         ]
         distinct_metrics = {
-            o.get("subject", {}).get("metric")
-            for o in metric_observation_with_delta
+            o.get("subject", {}).get("metric") for o in metric_observation_with_delta
         }
         if len(distinct_metrics) < 2:
             return None
 
-        declining = [o for o in metric_observation_with_delta if float(o["payload"]["delta_pct"]) < 0]
-        improving = [o for o in metric_observation_with_delta if float(o["payload"]["delta_pct"]) > 0]
+        declining = [
+            o for o in metric_observation_with_delta if float(o["payload"]["delta_pct"]) < 0
+        ]
+        improving = [
+            o for o in metric_observation_with_delta if float(o["payload"]["delta_pct"]) > 0
+        ]
         trend_parts = []
         if declining:
             trend_parts.append(f"{len(declining)} declining")
@@ -122,7 +128,9 @@ class ClaimFormulator:
         }
         recommendation_metadata = {
             "primary_delta_pct": round(float(primary["payload"].get("delta_pct", 0.0)), 2),
-            "primary_direction": "up" if float(primary["payload"].get("delta_pct", 0.0)) > 0 else "down",
+            "primary_direction": "up"
+            if float(primary["payload"].get("delta_pct", 0.0)) > 0
+            else "down",
             "current_value": primary["payload"].get("current_value"),
         }
         final_confidence = score_confidence(**confidence_inputs)
@@ -176,23 +184,16 @@ class ClaimFormulator:
             template = "metric_current_window_observation"
         elif obs_type == "funnel_drop":
             stage = payload.get("worst_stage", "unknown")
-            text = (
-                f"Funnel drop detected at stage '{stage}' "
-                f"with significant conversion loss."
-            )
+            text = f"Funnel drop detected at stage '{stage}' with significant conversion loss."
             template = "funnel_drop_detected"
         elif obs_type == "contribution_shift":
             segment = payload.get("biggest_shift_segment", "unknown")
-            text = (
-                f"Contribution shift detected in segment '{segment}' "
-                f"indicating redistribution."
-            )
+            text = f"Contribution shift detected in segment '{segment}' indicating redistribution."
             template = "contribution_shift_detected"
         elif obs_type == "anomaly_detection":
             z_score = payload.get("z_score", 0)
             text = (
-                f"Statistical anomaly detected (z-score: {z_score}) "
-                f"indicating abnormal behavior."
+                f"Statistical anomaly detected (z-score: {z_score}) indicating abnormal behavior."
             )
             template = "anomaly_detected"
         else:

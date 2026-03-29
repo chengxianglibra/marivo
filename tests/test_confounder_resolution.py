@@ -5,15 +5,15 @@ from __future__ import annotations
 import unittest
 from uuid import uuid4
 
+from app.evidence_engine.causal_basis import (
+    GAP_CORRELATION_ONLY,
+    GAP_NORMALISE_WORKLOAD_VOLUME,
+    EvidenceGap,
+)
 from app.evidence_engine.confounder_resolution import (
     RESOLUTION_RULES,
     filter_resolved_gap_keys,
     resolve_confounders,
-)
-from app.evidence_engine.causal_basis import (
-    EvidenceGap,
-    GAP_CORRELATION_ONLY,
-    GAP_NORMALISE_WORKLOAD_VOLUME,
 )
 
 
@@ -199,6 +199,7 @@ class TestScopeOverlap(unittest.TestCase):
 
     def test_unhashable_slice_values_do_not_crash(self) -> None:
         from app.evidence_engine.confounder_resolution import _scope_overlap
+
         overlap = _scope_overlap(
             {"user": "sys_titan", "tags": ["a", "b"]},
             {"user": "sys_titan", "tags": ["a", "b"]},
@@ -207,6 +208,7 @@ class TestScopeOverlap(unittest.TestCase):
 
     def test_unhashable_different_values(self) -> None:
         from app.evidence_engine.confounder_resolution import _scope_overlap
+
         overlap = _scope_overlap(
             {"user": "sys_titan", "tags": ["a"]},
             {"user": "sys_titan", "tags": ["b"]},
@@ -245,8 +247,13 @@ class TestPipelineIntegration(unittest.TestCase):
         # Two observations: same metric, different slices → triggers normalise_workload_volume
         obs_base = {
             "type": "metric_observation",
-            "payload": {"current_value": 100, "baseline_value": 90, "delta_pct": 11.1,
-                        "current_sessions": 500, "baseline_sessions": 480},
+            "payload": {
+                "current_value": 100,
+                "baseline_value": 90,
+                "delta_pct": 11.1,
+                "current_sessions": 500,
+                "baseline_sessions": 480,
+            },
             "significance": {"sample_size": 500, "practical_significance": True},
             "quality": {"freshness_ok": True, "sample_size_ok": True},
         }

@@ -23,7 +23,11 @@ class ColumnUnitMetadataTests(unittest.TestCase):
         # Register and sync a DuckDB source
         resp = cls.client.post(
             "/sources",
-            json={"source_type": "duckdb", "display_name": "ColUnit Test", "connection": {"path": str(cls.db_path)}},
+            json={
+                "source_type": "duckdb",
+                "display_name": "ColUnit Test",
+                "connection": {"path": str(cls.db_path)},
+            },
         )
         cls.source_id = resp.json()["source_id"]
         cls.client.post(f"/sources/{cls.source_id}/sync")
@@ -36,7 +40,8 @@ class ColumnUnitMetadataTests(unittest.TestCase):
     def test_profile_table_has_data_type(self) -> None:
         """After sync, profile_table column entries should have data_type from synced column objects."""
         session_id = self.client.post(
-            "/sessions", json={"goal": "Test data_type in profile."},
+            "/sessions",
+            json={"goal": "Test data_type in profile."},
         ).json()["session_id"]
 
         resp = self.client.post(
@@ -62,10 +67,15 @@ class ColumnUnitMetadataTests(unittest.TestCase):
             # Register source but don't sync
             fresh_client.post(
                 "/sources",
-                json={"source_type": "duckdb", "display_name": "Fresh", "connection": {"path": str(fresh_db)}},
+                json={
+                    "source_type": "duckdb",
+                    "display_name": "Fresh",
+                    "connection": {"path": str(fresh_db)},
+                },
             )
             session_id = fresh_client.post(
-                "/sessions", json={"goal": "Test no sync."},
+                "/sessions",
+                json={"goal": "Test no sync."},
             ).json()["session_id"]
             resp = fresh_client.post(
                 f"/sessions/{session_id}/steps/sample_rows",
@@ -104,7 +114,8 @@ class ColumnUnitMetadataTests(unittest.TestCase):
 
         # profile_table should include unit in the column entry
         session_id = self.client.post(
-            "/sessions", json={"goal": "Test unit in profile."},
+            "/sessions",
+            json={"goal": "Test unit in profile."},
         ).json()["session_id"]
         profile_resp = self.client.post(
             f"/sessions/{session_id}/steps/profile_table",
@@ -118,7 +129,8 @@ class ColumnUnitMetadataTests(unittest.TestCase):
 
         # sample_rows should include unit in columns_metadata
         session2_id = self.client.post(
-            "/sessions", json={"goal": "Test unit in sample."},
+            "/sessions",
+            json={"goal": "Test unit in sample."},
         ).json()["session_id"]
         sample_resp = self.client.post(
             f"/sessions/{session2_id}/steps/sample_rows",
@@ -150,9 +162,9 @@ class ConstraintsAppliedTests(unittest.TestCase):
 
     def test_no_constraints_returns_empty(self) -> None:
         """Session with no constraints → profile_table returns empty applied/skipped."""
-        session_id = self.client.post(
-            "/sessions", json={"goal": "No constraints test."}
-        ).json()["session_id"]
+        session_id = self.client.post("/sessions", json={"goal": "No constraints test."}).json()[
+            "session_id"
+        ]
         resp = self.client.post(
             f"/sessions/{session_id}/steps/profile_table",
             json={"table_name": "analytics.watch_events"},

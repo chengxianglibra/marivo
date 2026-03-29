@@ -26,9 +26,7 @@ def load_live_claims(metadata_store: MetadataStore, session_id: str) -> list[dic
         claim = dict(row)
         claim["type"] = claim.pop("claim_type")
         claim["scope"] = json.loads(claim.pop("scope_json"))
-        claim["supporting_observations"] = json.loads(
-            claim.pop("supporting_observation_ids_json")
-        )
+        claim["supporting_observations"] = json.loads(claim.pop("supporting_observation_ids_json"))
         claim["contradicting_observations"] = json.loads(
             claim.pop("contradicting_observation_ids_json")
         )
@@ -60,18 +58,16 @@ def compute_readiness(
 
     # 2. evidence_sufficiency: avg supporting obs count / 3, clipped [0,1]
     if claims:
-        avg_supporting = sum(
-            len(c.get("supporting_observations", [])) for c in claims
-        ) / len(claims)
+        avg_supporting = sum(len(c.get("supporting_observations", [])) for c in claims) / len(
+            claims
+        )
         evidence_sufficiency = min(avg_supporting / 3.0, 1.0)
     else:
         evidence_sufficiency = 0.0
 
     # 3. contradiction_resolution: fraction of claims with no contradicting obs
     if claims:
-        no_contradiction_count = sum(
-            1 for c in claims if not c.get("contradicting_observations")
-        )
+        no_contradiction_count = sum(1 for c in claims if not c.get("contradicting_observations"))
         contradiction_resolution = no_contradiction_count / len(claims)
     else:
         contradiction_resolution = 1.0
@@ -146,7 +142,9 @@ def compute_readiness(
         suggested_action = "resolve_contradiction"
     elif goal_coverage >= 0.7 and evidence_sufficiency >= 0.7:
         suggested_action = "synthesize"
-    elif budget_remaining <= (1.0 / max_steps if max_steps else 0.10) or (diminishing_returns < 0.2 and evidence_sufficiency >= 0.6):
+    elif budget_remaining <= (1.0 / max_steps if max_steps else 0.10) or (
+        diminishing_returns < 0.2 and evidence_sufficiency >= 0.6
+    ):
         suggested_action = "stop"
     else:
         suggested_action = "continue_exploring"

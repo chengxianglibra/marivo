@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import re
+from dataclasses import dataclass
 from typing import Any
 
 from app.evidence_engine.schemas import INFERENCE_LEVEL_ORDER
@@ -44,7 +44,9 @@ class RecommendationTemplate:
             self.min_inference_level
         ):
             return False
-        return all(relation_type in relation_types for relation_type in self.required_relation_types)
+        return all(
+            relation_type in relation_types for relation_type in self.required_relation_types
+        )
 
     def render_action(self, context: dict[str, Any]) -> str:
         return _render(self.action_template, context)

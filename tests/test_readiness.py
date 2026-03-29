@@ -57,10 +57,18 @@ def _insert_claim(store: SQLiteMetadataStore, c: dict) -> None:
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
-            c["claim_id"], c["session_id"], c["claim_type"], c["text"],
-            c["scope_json"], c["confidence"], c["status"],
-            c["supporting_observation_ids_json"], c["contradicting_observation_ids_json"],
-            c["confidence_breakdown_json"], c["inference_level"], c["inference_justification_json"],
+            c["claim_id"],
+            c["session_id"],
+            c["claim_type"],
+            c["text"],
+            c["scope_json"],
+            c["confidence"],
+            c["status"],
+            c["supporting_observation_ids_json"],
+            c["contradicting_observation_ids_json"],
+            c["confidence_breakdown_json"],
+            c["inference_level"],
+            c["inference_justification_json"],
         ],
     )
 
@@ -71,7 +79,14 @@ def _insert_step(store: SQLiteMetadataStore, s: dict) -> None:
         INSERT INTO steps (step_id, session_id, step_type, status, summary, result_json)
         VALUES (?, ?, ?, ?, ?, ?)
         """,
-        [s["step_id"], s["session_id"], s["step_type"], s["status"], s["summary"], s["result_json"]],
+        [
+            s["step_id"],
+            s["session_id"],
+            s["step_type"],
+            s["status"],
+            s["summary"],
+            s["result_json"],
+        ],
     )
 
 
@@ -243,16 +258,25 @@ class ReadinessSuggestedActionTests(unittest.TestCase):
     def test_all_dimensions_present_in_result(self) -> None:
         result = compute_readiness(self.store, self.session_id, {})
         for key in (
-            "goal_coverage", "evidence_sufficiency", "contradiction_resolution",
-            "budget_remaining", "diminishing_returns", "suggested_action",
+            "goal_coverage",
+            "evidence_sufficiency",
+            "contradiction_resolution",
+            "budget_remaining",
+            "diminishing_returns",
+            "suggested_action",
         ):
             self.assertIn(key, result)
 
     def test_all_float_dimensions_in_range(self) -> None:
         _insert_claim(self.store, _claim(self.session_id, confidence=0.8, supporting=["o1"]))
         result = compute_readiness(self.store, self.session_id, {})
-        for key in ("goal_coverage", "evidence_sufficiency", "contradiction_resolution",
-                    "budget_remaining", "diminishing_returns"):
+        for key in (
+            "goal_coverage",
+            "evidence_sufficiency",
+            "contradiction_resolution",
+            "budget_remaining",
+            "diminishing_returns",
+        ):
             self.assertGreaterEqual(result[key], 0.0)
             self.assertLessEqual(result[key], 1.0)
 

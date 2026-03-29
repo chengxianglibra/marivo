@@ -8,5 +8,7 @@ if TYPE_CHECKING:
     from app.service import SemanticLayerService
 
 
-def register(registry: StepRunnerRegistry, service: "SemanticLayerService") -> None:
-    registry.register("synthesize_findings", lambda session_id, _params=None: service._run_synthesis(session_id))
+def register(registry: StepRunnerRegistry, service: SemanticLayerService) -> None:
+    registry.register(
+        "synthesize_findings", lambda session_id, _params=None: service._run_synthesis(session_id)
+    )

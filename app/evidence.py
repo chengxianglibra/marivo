@@ -5,15 +5,14 @@ from typing import Any
 from uuid import uuid4
 
 from app.evidence_engine.factories import (
-    build_slice,
     make_anomaly_observation,
     make_contribution_observation,
     make_funnel_observation,
     make_observation,
     slice_matches,
 )
-from app.evidence_engine.scoring import score_confidence
 from app.evidence_engine.schemas import Claim, Recommendation
+from app.evidence_engine.scoring import score_confidence
 
 
 def synthesize_claims(
@@ -22,7 +21,8 @@ def synthesize_claims(
     metric_observations = [
         obs
         for obs in observations
-        if obs["type"] == "metric_observation" and obs.get("payload", {}).get("delta_pct") is not None
+        if obs["type"] == "metric_observation"
+        and obs.get("payload", {}).get("delta_pct") is not None
     ]
     metric_window_observations = [
         obs
@@ -35,14 +35,24 @@ def synthesize_claims(
 
     if not metric_observations:
         # No delta-bearing metric_observation rows — try to synthesize from other types
-        all_typed = metric_window_observations + funnel_observations + contribution_observations + anomaly_observations
+        all_typed = (
+            metric_window_observations
+            + funnel_observations
+            + contribution_observations
+            + anomaly_observations
+        )
         if not all_typed:
             return [], [], []
-        return _synthesize_non_metric_claims(all_typed, funnel_observations, contribution_observations, anomaly_observations)
+        return _synthesize_non_metric_claims(
+            all_typed, funnel_observations, contribution_observations, anomaly_observations
+        )
 
     primary_metric = max(
         metric_observations,
-        key=lambda item: abs(float(item["payload"]["delta_pct"])) * math.log1p(item["significance"]["sample_size"]),
+        key=lambda item: (
+            abs(float(item["payload"]["delta_pct"]))
+            * math.log1p(item["significance"]["sample_size"])
+        ),
     )
     impacted_slice = primary_metric["subject"]["slice"]
 
@@ -72,7 +82,9 @@ def synthesize_claims(
     for obs in contribution_observations:
         if obs["significance"]["practical_significance"]:
             supports.append(obs["observation_id"])
-            support_reasons.append(f"contribution shift in {obs['payload']['biggest_shift_segment']}")
+            support_reasons.append(
+                f"contribution shift in {obs['payload']['biggest_shift_segment']}"
+            )
             consistency_factors.append(0.80)
 
     # Incorporate anomaly observations -- anomalies in the impacted slice strengthen the claim
@@ -190,9 +202,13 @@ def _synthesize_non_metric_claims(
         if obs["significance"].get("practical_significance"):
             supports.append(obs["observation_id"])
             if obs["type"] == "funnel_drop":
-                support_reasons.append(f"funnel drop at {obs['payload'].get('worst_stage', 'unknown')}")
+                support_reasons.append(
+                    f"funnel drop at {obs['payload'].get('worst_stage', 'unknown')}"
+                )
             elif obs["type"] == "contribution_shift":
-                support_reasons.append(f"contribution shift in {obs['payload'].get('biggest_shift_segment', 'unknown')}")
+                support_reasons.append(
+                    f"contribution shift in {obs['payload'].get('biggest_shift_segment', 'unknown')}"
+                )
             elif obs["type"] == "anomaly_detection":
                 support_reasons.append("statistical anomaly detected")
             else:

@@ -803,6 +803,116 @@ type PropositionFocusView = {
 - `seed_entries` 必须保留 `PropositionSeedRef.role`，不得在 hydration 时退化成只剩 `Finding[]`
 - `assessment_dependencies` 只覆盖 `applied_inference_records.input_assessment_ids` 的直接 assessment 输入，不递归展开全历史链
 
+## Assessment Snapshot Transition Details
+
+本节补足 `assessment` 从 `latest_assessment = null` 进入首个 snapshot、以及后续 snapshot 如何 supersede 的规范 transition 语义。
+
+### `latest_assessment = null` 与首个 snapshot 的边界
+
+`latest_assessment = null` 是 proposition 的合法早期状态，不等价于 assessment failure，也不强制要求系统先写一个占位 `insufficient` snapshot。
+
+v1 采用按需创建（on-demand creation）：
+
+- proposition 注册成功后，可以暂时保持 `latest_assessment = null`
+- 只有在该 proposition 实际进入一次 assessment recompute，且形成 canonical assessment 输出时，才创建首个 snapshot
+- 首个 snapshot 的 `status` 可以直接是 `insufficient`、`supported`、`contradicted` 或 `mixed`
+- 不要求所有 proposition 都先经历 `null -> insufficient -> ...` 的固定路径
+
+因此：
+
+- “尚未评估” 与“已评估但证据不足”必须严格区分
+- 读取层不得把 `latest_assessment = null` 自动投影成 `status = insufficient`
+
+### 首个 snapshot 的合法转换
+
+当 proposition 首次形成 assessment snapshot 时，允许的 transition 为：
+
+- `null -> insufficient`
+- `null -> supported`
+- `null -> contradicted`
+- `null -> mixed`
+
+这里的 `null` 不是 `Assessment.status` 枚举成员，而是指 proposition 之前尚无任何 committed assessment snapshot。
+
+### 已评估 proposition 的状态转换矩阵
+
+对已有 latest snapshot 的 proposition，v1 允许以下 `status` 迁移：
+
+- `insufficient -> supported | contradicted | mixed`
+- `supported -> insufficient | contradicted | mixed`
+- `contradicted -> insufficient | supported | mixed`
+- `mixed -> insufficient | supported | contradicted`
+
+同状态保持（例如 `supported -> supported`）本身不是非法；只要其他 canonical output 发生变化，仍必须通过新的 superseding snapshot 表达，而不是原地修改旧 snapshot。
+
+### 必须形成 superseding snapshot 的变化
+
+以下任一变化都必须创建新的 superseding snapshot：
+
+- `status` 变化
+- `confidence_grade` 变化
+- `confidence_rationale` 变化
+- `supporting_finding_ids` 变化
+- `opposing_finding_ids` 变化
+- `blocking_gap_ids` 变化
+- `non_blocking_gap_ids` 变化
+- `applied_inference_record_ids` 变化
+- subtype payload 中任何影响 judgment semantics 或 agent 决策的 canonical 字段变化
+
+因此以下场景即使 `status` 不变，也必须 supersede：
+
+- 结论仍为 `supported`，但 support / oppose membership 收缩或扩张
+- 结论仍为 `insufficient`，但 blocking gaps 改变
+- 结论仍为 `contradicted`，但 confidence rationale 改变
+
+### 可以复用当前 latest snapshot 的情况
+
+以下情况可以不创建新 snapshot：
+
+- 重复执行 assessment recompute，但 canonical assessment 输出完全一致
+- 仅 projection 排序、截断或展示文案变化
+- 与当前 latest snapshot 无关的历史 inference record 补录
+- 仅补充非规范性说明文字，且不改变任何 canonical 字段
+
+### supersede 链规则
+
+v1 的 assessment 历史必须形成单条线性 supersede 链。
+
+要求：
+
+- 首个 snapshot 的 `supersedes_assessment_id = null`
+- 后续 snapshot 必须指向同一 proposition 的上一 latest snapshot
+- 不允许跳过上一 latest snapshot 直接 supersede 更早历史
+- 不允许并发分叉出多个 latest
+- `snapshot_seq` 必须与线性 supersede 链一致地单调递增
+
+### latest 选择规则
+
+`latest_assessment` 采用严格链路（strict-chain）规则，而不是容错兜底规则。
+
+要求：
+
+- 正常情况下，latest 由单调 `snapshot_seq` 与线性 `supersedes_assessment_id` 链唯一确定
+- 若 supersede 链断裂、跳链、形成分叉，或与 `snapshot_seq` 次序冲突，应视为 canonical integrity error
+- 出现上述损坏时，读取层必须显式暴露链损坏状态，而不是退回“最大 `snapshot_seq`”或“最新 `created_at`”作为兜底 latest
+
+### Gap reopen 规则
+
+`EvidenceGap` 的 reopen 以 requirement semantics 为事件语义，而不是对旧 gap object 原地回写。
+
+规则：
+
+- gap 被解决后，该 gap object 保持 `status = resolved`
+- 若后续 assessment 中相同 `missing_requirement` 再次缺失，应创建新的 `gap_id`
+- 新 gap 的打开必须由新的 `InferenceRecord.opened_gap_ids` 显式驱动
+- 旧 resolved gap 不得通过把 `status` 改回 `open` 来表示“重新打开”
+
+这种建模保证：
+
+- 单个 gap object 的生命周期是 `open -> resolved`
+- requirement 级的多次缺失事件可以通过多个 gap 实例审计
+- assessment snapshot 对 gap membership 的变化保持 append-only 语义
+
 ## Snapshot 创建触发规则
 
 以下任一变化都必须创建新的 assessment snapshot：
@@ -822,8 +932,8 @@ type PropositionFocusView = {
 
 对 `confidence_rationale` 的要求：
 
-- 若其变化导致 `confidence_grade`、gap 状态、evidence membership 或 subtype canonical 字段变化，必须新建 snapshot
-- 若只是补充非规范性说明文字，且不改变任何规范字段，不应新建 snapshot
+- 若 `confidence_rationale` 的 canonical 内容变化，必须新建 snapshot
+- 若只是补充投影说明文字或其他非 canonical 文案，且不改变任何规范字段，不应新建 snapshot
 
 ## 与 Proposition / Finding / Action Proposal 的边界
 
@@ -871,30 +981,36 @@ assessment 可以为动作规划提供输入，但不应包含：
 2. 新 finding 到来时建立新 assessment snapshot，而不是原地修改旧 snapshot。
 3. 新 snapshot 创建后，旧 snapshot 的字段值保持不变。
 4. `latest_assessment = null` 与 `status = insufficient` 可明确区分。
-5. `supported` assessment 仍可带 blocking gap。
-6. `mixed` assessment 可同时存在 `supporting_finding_ids` 与 `opposing_finding_ids`。
-7. `confidence_grade` 变化会产生新 assessment snapshot，但不改变 proposition identity。
-8. 同一 gap 跨多个 assessment snapshots 持续存在时复用 `gap_id`。
-9. gap 被解决后保留历史 object，并通过 `status = resolved` 标记。
-10. inference record 必须支持 `miss` 与 `partial`，不能只支持 `hit`。
-11. assessment 可通过 `applied_inference_record_ids` 完整回溯当前状态来源。
-12. projection 可以裁剪 gap / inference record / finding 列表，但不得改写规范标识。
-13. 不同 session 中语义相同的 assessment / gap / inference record 不复用 ID。
-14. `assessment_type` 若与 proposition `assessment_anchor` 不一致，必须校验失败。
-15. `latest_assessment = null` 时，`blocking_gaps` 与 `applied_inference_records` 不得返回 `[]`。
-16. `required_subject` / `suggested_subject` / `subject` 必须是结构化对象，不能是裸字符串。
-17. `AssessmentRef` / `EvidenceGapRef` / `InferenceRecordRef` 形状固定且可稳定引用。
+5. proposition 注册后允许继续保持 `latest_assessment = null`，直到首次实际重算形成 canonical 输出。
+6. proposition 的首个 snapshot 可以直接是 `supported`、`contradicted` 或 `mixed`，不要求先经过 `insufficient`。
+7. `supported` assessment 仍可带 blocking gap。
+8. `mixed` assessment 可同时存在 `supporting_finding_ids` 与 `opposing_finding_ids`。
+9. `confidence_grade` 或 `confidence_rationale` 变化会产生新 assessment snapshot，但不改变 proposition identity。
+10. 同一 open gap 跨多个 assessment snapshots 持续存在时复用 `gap_id`。
+11. gap 被解决后保留历史 object，并通过 `status = resolved` 标记。
+12. 已 resolved 的 gap 若再次满足相同缺失条件，必须创建新的 `gap_id`，而不是回写旧 gap。
+13. inference record 必须支持 `miss` 与 `partial`，不能只支持 `hit`。
+14. assessment 可通过 `applied_inference_record_ids` 完整回溯当前状态来源。
+15. projection 可以裁剪 gap / inference record / finding 列表，但不得改写规范标识。
+16. 不同 session 中语义相同的 assessment / gap / inference record 不复用 ID。
+17. `assessment_type` 若与 proposition `assessment_anchor` 不一致，必须校验失败。
+18. `latest_assessment = null` 时，`blocking_gaps` 与 `applied_inference_records` 不得返回 `[]`。
+19. assessment 链损坏时，读取层必须显式暴露 integrity error，而不是兜底选择 latest。
+20. `required_subject` / `suggested_subject` / `subject` 必须是结构化对象，不能是裸字符串。
+21. `AssessmentRef` / `EvidenceGapRef` / `InferenceRecordRef` 形状固定且可稳定引用。
 
 负向场景至少覆盖：
 
 1. 不允许在没有新 `InferenceRecord` 或其他规范状态变化的情况下空转生成新 snapshot。
 2. 不允许通过修改旧 snapshot 来表达“latest”变化。
 3. 不允许 `supersedes_assessment_id` 跳过上一 latest snapshot。
-4. 不允许 `input_assessment_ids` 跨 proposition 引用或形成循环。
-5. 不允许 `opened_by_inference_record_id` 指向其他 proposition 或其他 session 的 inference record。
-6. 不允许 `schema_version` 变化导致旧 snapshot 的 `assessment_id` 或 `inference_record_id` 被重新解释。
-7. 不允许在 canonical ref 位置继续使用字符串 locator。
-8. 不允许把核心 gap 语义只写在 `title` / `description` 等自由文本里。
+4. 不允许 assessment 链损坏时退回 `snapshot_seq` 或 `created_at` 兜底选择 latest。
+5. 不允许把已 resolved 的 gap 原地改回 `open` 来表达 reopen。
+6. 不允许 `input_assessment_ids` 跨 proposition 引用或形成循环。
+7. 不允许 `opened_by_inference_record_id` 指向其他 proposition 或其他 session 的 inference record。
+8. 不允许 `schema_version` 变化导致旧 snapshot 的 `assessment_id` 或 `inference_record_id` 被重新解释。
+9. 不允许在 canonical ref 位置继续使用字符串 locator。
+10. 不允许把核心 gap 语义只写在 `title` / `description` 等自由文本里。
 
 ## 非目标
 

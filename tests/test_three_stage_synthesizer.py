@@ -1,4 +1,5 @@
 """M-06 tests: ScopeClusterer, SignalAligner, ClaimFormulator, ThreeStagePipeline."""
+
 from __future__ import annotations
 
 import dataclasses
@@ -12,7 +13,6 @@ from app.evidence_engine.synthesizers.claim_formulator import ClaimFormulator
 from app.evidence_engine.synthesizers.scope_clusterer import ScopeClusterer
 from app.evidence_engine.synthesizers.signal_aligner import SignalAligner
 from app.evidence_engine.synthesizers.three_stage_pipeline import ThreeStagePipeline
-
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -205,9 +205,12 @@ class TestSignalAligner(unittest.TestCase):
         signal = self.aligner.align(clusters[0])
         # score(obs_a) = 5.0 * log1p(500) ≈ 31.2; score(obs_b) = 10.0 * log1p(10) ≈ 23.9
         import math
+
         score_a = abs(-5.0) * math.log1p(500)
         score_b = abs(-10.0) * math.log1p(10)
-        expected_primary_id = obs_a["observation_id"] if score_a >= score_b else obs_b["observation_id"]
+        expected_primary_id = (
+            obs_a["observation_id"] if score_a >= score_b else obs_b["observation_id"]
+        )
         self.assertEqual(signal.primary_obs["observation_id"], expected_primary_id)
 
     def test_funnel_obs_with_practical_significance_added_to_supporting(self):
@@ -386,6 +389,7 @@ class TestThreeStagePipeline(unittest.TestCase):
     def test_pipeline_output_structurally_equivalent_to_legacy(self):
         """Pipeline and synthesize_claims() should produce equivalent structure."""
         from app.evidence import synthesize_claims
+
         obs = [
             _metric_obs(metric="watch_time", platform="android", delta_pct=-14.0),
         ]
@@ -419,9 +423,10 @@ class TestAuditLogPersistence(unittest.TestCase):
 
     def _make_service(self, tmp_dir: str):
         import os
-        from app.storage.sqlite_metadata import SQLiteMetadataStore
-        from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
+
         from app.service import SemanticLayerService
+        from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
+        from app.storage.sqlite_metadata import SQLiteMetadataStore
 
         meta_path = os.path.join(tmp_dir, "test.meta.sqlite")
         duck_path = os.path.join(tmp_dir, "test.duckdb")
@@ -500,13 +505,28 @@ class TestAuditLogPersistence(unittest.TestCase):
                     supporting_observation_ids_json, contradicting_observation_ids_json,
                     confidence_breakdown_json, inference_level, inference_justification_json)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                [claim_id, session_id, "root_cause_candidate", "tentative claim",
-                 json.dumps({"slice": {}}), 0.72, "tentative",
-                 json.dumps([obs["observation_id"]]), json.dumps([]),
-                 json.dumps({"effect_strength": 0.7, "consistency": 0.95,
-                             "sample_score": 0.8, "data_quality_score": 0.95,
-                             "contradiction_penalty": 0.0}),
-                 "L0", json.dumps([])],
+                [
+                    claim_id,
+                    session_id,
+                    "root_cause_candidate",
+                    "tentative claim",
+                    json.dumps({"slice": {}}),
+                    0.72,
+                    "tentative",
+                    json.dumps([obs["observation_id"]]),
+                    json.dumps([]),
+                    json.dumps(
+                        {
+                            "effect_strength": 0.7,
+                            "consistency": 0.95,
+                            "sample_score": 0.8,
+                            "data_quality_score": 0.95,
+                            "contradiction_penalty": 0.0,
+                        }
+                    ),
+                    "L0",
+                    json.dumps([]),
+                ],
             )
 
             # Run synthesize_findings (Mode A — tentative claim exists)
@@ -516,9 +536,7 @@ class TestAuditLogPersistence(unittest.TestCase):
                 "SELECT artifact_type, content_json FROM artifacts WHERE session_id = ?",
                 [session_id],
             )
-            synthesis_artifacts = [
-                r for r in rows if r["artifact_type"] == "synthesis_audit"
-            ]
+            synthesis_artifacts = [r for r in rows if r["artifact_type"] == "synthesis_audit"]
             self.assertGreater(len(synthesis_artifacts), 0, "No synthesis_audit artifact found")
             content = json.loads(synthesis_artifacts[0]["content_json"])
             self.assertEqual(content["stage"], "promotion")

@@ -34,7 +34,9 @@ class GovernanceRepository:
 
     def list_policies(self, enabled_only: bool = True) -> list[dict[str, Any]]:
         if enabled_only:
-            rows = self.metadata.query_rows("SELECT * FROM policies WHERE enabled = 1 ORDER BY created_at")
+            rows = self.metadata.query_rows(
+                "SELECT * FROM policies WHERE enabled = 1 ORDER BY created_at"
+            )
         else:
             rows = self.metadata.query_rows("SELECT * FROM policies ORDER BY created_at")
         return [self._deserialize_policy(row) for row in rows]
@@ -102,7 +104,9 @@ class GovernanceRepository:
                 [table_name],
             )
         else:
-            rows = self.metadata.query_rows("SELECT * FROM quality_rules WHERE enabled = 1 ORDER BY created_at")
+            rows = self.metadata.query_rows(
+                "SELECT * FROM quality_rules WHERE enabled = 1 ORDER BY created_at"
+            )
         return [self._deserialize_rule(row) for row in rows]
 
     def delete_quality_rule(self, rule_id: str) -> dict[str, str]:
@@ -160,7 +164,9 @@ class GovernanceRepository:
         return [self._deserialize_request(row) for row in rows]
 
     def get_approval_request(self, request_id: str) -> dict[str, Any]:
-        row = self.metadata.query_one("SELECT * FROM approval_requests WHERE request_id = ?", [request_id])
+        row = self.metadata.query_one(
+            "SELECT * FROM approval_requests WHERE request_id = ?", [request_id]
+        )
         if row is None:
             raise KeyError(f"Unknown approval request: {request_id}")
         return self._deserialize_request(row)
@@ -198,7 +204,16 @@ class GovernanceRepository:
             INSERT INTO governance_events (event_id, session_id, subject_type, subject_id, event_type, actor, detail_json, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            [event_id, session_id, subject_type, subject_id, event_type, actor, json.dumps(payload), created_at],
+            [
+                event_id,
+                session_id,
+                subject_type,
+                subject_id,
+                event_type,
+                actor,
+                json.dumps(payload),
+                created_at,
+            ],
         )
         return {
             "event_id": event_id,

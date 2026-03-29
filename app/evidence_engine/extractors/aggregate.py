@@ -13,7 +13,6 @@ from app.evidence_engine.extractors.anomaly import _compute_outliers
 from app.evidence_engine.factories import make_anomaly_observation
 from app.evidence_engine.schemas import Observation
 
-
 # ── Unit inference constants (G-5a) ────────────────────────────────────────
 # Duration columns: values are expected to be in seconds, milliseconds, etc.
 _DURATION_COLUMN_PATTERNS = re.compile(
@@ -30,9 +29,9 @@ _BYTES_COLUMN_PATTERNS = re.compile(
 # seconds: 0–86400 range
 # microseconds: very small values
 _DURATION_BANDS = [
-    ("microseconds", 1e-3, 1.0),    # median < 1
+    ("microseconds", 1e-3, 1.0),  # median < 1
     ("milliseconds", 1.0, 10_000.0),  # median 1–10000 ms-class
-    ("seconds", 10_000.0, 1e9),     # median > 10000 → seconds or larger
+    ("seconds", 10_000.0, 1e9),  # median > 10000 → seconds or larger
 ]
 _BYTES_BANDS = [
     ("bytes", 1.0, 1_000.0),
@@ -44,16 +43,33 @@ _BYTES_BANDS = [
 
 # ── Temporal column name heuristics (G-2) ──────────────────────────────────────
 # These column names are recognized as temporal slice keys for observed_window inference.
-TEMPORAL_COLUMN_NAMES_DAY: frozenset[str] = frozenset({
-    "date", "day", "dt", "log_date", "event_date", "partition_date",
-    "report_date", "transaction_date", "created_date", "updated_date",
-    "create_date",
-})
+TEMPORAL_COLUMN_NAMES_DAY: frozenset[str] = frozenset(
+    {
+        "date",
+        "day",
+        "dt",
+        "log_date",
+        "event_date",
+        "partition_date",
+        "report_date",
+        "transaction_date",
+        "created_date",
+        "updated_date",
+        "create_date",
+    }
+)
 
-TEMPORAL_COLUMN_NAMES_HOUR: frozenset[str] = frozenset({
-    "hour", "dt_hour", "log_hour", "event_hour", "report_hour",
-    "hour_slot", "create_time",
-})
+TEMPORAL_COLUMN_NAMES_HOUR: frozenset[str] = frozenset(
+    {
+        "hour",
+        "dt_hour",
+        "log_hour",
+        "event_hour",
+        "report_hour",
+        "hour_slot",
+        "create_time",
+    }
+)
 
 # Regex patterns for temporal value parsing
 _ISO_DATE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -166,9 +182,7 @@ class AggregateRowExtractor(ExtractorContract):
         observation_type = str(context.get("observation_type", "metric_observation"))
         metric = str(context.get("metric", "aggregate"))
         temporal_group_by_columns_data = context.get("temporal_group_by_columns")
-        temporal_group_by_columns = [
-            str(col) for col in (temporal_group_by_columns_data or [])
-        ]
+        temporal_group_by_columns = [str(col) for col in (temporal_group_by_columns_data or [])]
         value_column: str | None = context.get("value_column")
         # G-5a: optional column metadata from caller (synced source_objects properties)
         column_metadata: dict[str, dict[str, str]] = dict(context.get("column_metadata") or {})
@@ -184,7 +198,11 @@ class AggregateRowExtractor(ExtractorContract):
 
         unit_hints: dict[str, dict[str, Any]] = {}
         if vc_resolved and row_list:
-            col_values = [r[vc_resolved] for r in row_list if vc_resolved in r and isinstance(r[vc_resolved], (int, float))]
+            col_values = [
+                r[vc_resolved]
+                for r in row_list
+                if vc_resolved in r and isinstance(r[vc_resolved], (int, float))
+            ]
             col_meta = column_metadata.get(vc_resolved, {})
             hint = self.infer_column_unit(
                 vc_resolved,
@@ -234,7 +252,9 @@ class AggregateRowExtractor(ExtractorContract):
                 },
                 "payload": payload,
                 "significance": {
-                    "sample_size": int(payload.get("current_value", 0)) if isinstance(payload.get("current_value"), (int, float)) else 0,
+                    "sample_size": int(payload.get("current_value", 0))
+                    if isinstance(payload.get("current_value"), (int, float))
+                    else 0,
                     "practical_significance": True,
                 },
                 "quality": {
@@ -249,11 +269,7 @@ class AggregateRowExtractor(ExtractorContract):
             observations.append(obs)
 
         anomaly_value_column = context.get("anomaly_value_column")
-        anomaly_column = (
-            str(anomaly_value_column)
-            if anomaly_value_column
-            else vc_resolved
-        )
+        anomaly_column = str(anomaly_value_column) if anomaly_value_column else vc_resolved
         observations.extend(
             self._detect_anomalies(
                 row_list,
@@ -316,10 +332,7 @@ class AggregateRowExtractor(ExtractorContract):
             except statistics.StatisticsError:
                 std = 0.0
 
-            stratum = {
-                col: value
-                for col, value in zip(stratum_columns, stratum_key, strict=False)
-            }
+            stratum = {col: value for col, value in zip(stratum_columns, stratum_key, strict=False)}
             iqr_bounds = self._compute_iqr_bounds(values) if use_iqr else None
             for idx in outlier_indices:
                 row_dict, value = members[idx]
@@ -487,7 +500,9 @@ class AggregateRowExtractor(ExtractorContract):
             return None
 
         # ── Step 3: distribution analysis ─────────────────────────────────
-        clean_values = [v for v in values if v is not None and not (isinstance(v, float) and (v != v))]
+        clean_values = [
+            v for v in values if v is not None and not (isinstance(v, float) and (v != v))
+        ]
         dist_family: str | None = None
         dist_unit: str | None = None
         dist_confidence: float = 0.0
@@ -512,7 +527,10 @@ class AggregateRowExtractor(ExtractorContract):
                     # Only produce a hint if one family clearly wins
                     if dur_conf > byt_conf and dur_conf >= 0.5:
                         dist_family = "duration"
-                        dist_unit, dist_confidence = dur_unit, dur_conf * 0.5  # halved (no name signal)
+                        dist_unit, dist_confidence = (
+                            dur_unit,
+                            dur_conf * 0.5,
+                        )  # halved (no name signal)
                         signals.append("duration_distribution_hint")
                     elif byt_conf > dur_conf and byt_conf >= 0.5:
                         dist_family = "bytes"
@@ -544,7 +562,9 @@ class AggregateRowExtractor(ExtractorContract):
         if final_confidence < 0.4:
             return None
 
-        candidates: list[dict[str, Any]] = [{"unit": final_unit, "score": round(final_confidence, 3)}]
+        candidates: list[dict[str, Any]] = [
+            {"unit": final_unit, "score": round(final_confidence, 3)}
+        ]
         # Add runner-up if distribution suggested something different from name default
         if dist_unit and dist_unit != final_unit:
             candidates.append({"unit": dist_unit, "score": round(dist_confidence, 3)})

@@ -61,9 +61,7 @@ class DefaultClaimRelationDiscovery(ClaimRelationDiscovery):
             return []
 
         observation_by_id = {
-            str(obs.get("observation_id")): obs
-            for obs in observations
-            if obs.get("observation_id")
+            str(obs.get("observation_id")): obs for obs in observations if obs.get("observation_id")
         }
         relations: list[ClaimRelation] = []
         seen_pairs: set[tuple[str, str]] = set()
@@ -128,11 +126,7 @@ class DefaultClaimRelationDiscovery(ClaimRelationDiscovery):
             }
         )
         different_keys = sorted(
-            {
-                key
-                for key in set(slice_a).union(slice_b)
-                if slice_a.get(key) != slice_b.get(key)
-            }
+            {key for key in set(slice_a).union(slice_b) if slice_a.get(key) != slice_b.get(key)}
         )
         score_components = {
             "scope_match": round(score, 2),
@@ -232,9 +226,7 @@ def _is_subset(left: dict[str, Any], right: dict[str, Any]) -> bool:
 
 def _shared_values(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:
     return {
-        key: left[key]
-        for key in set(left).intersection(right)
-        if left.get(key) == right.get(key)
+        key: left[key] for key in set(left).intersection(right) if left.get(key) == right.get(key)
     }
 
 
@@ -279,6 +271,4 @@ def _build_explanation(
             f"Claims for {metric_a} and {metric_b} overlap on {joined} and move {direction_text}."
         )
     changed = ", ".join(different_keys) if different_keys else "one complementary dimension"
-    return (
-        f"Claims for {metric_a} differ only on {changed} and form a complementary structure."
-    )
+    return f"Claims for {metric_a} differ only on {changed} and form a complementary structure."

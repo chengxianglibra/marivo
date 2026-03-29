@@ -14,16 +14,14 @@ if TYPE_CHECKING:
 
 
 class WorkflowStepExecutor(Protocol):
-    def execute_step(self, session_id: str, step_ir: AnalysisStepIR) -> dict[str, Any]:
-        ...
+    def execute_step(self, session_id: str, step_ir: AnalysisStepIR) -> dict[str, Any]: ...
 
     def attach_replanning_provenance(
         self,
         session_id: str,
         step_type: str,
         decisions: list[dict[str, Any]],
-    ) -> None:
-        ...
+    ) -> None: ...
 
 
 class WorkflowOrchestrator:
@@ -114,14 +112,18 @@ class WorkflowOrchestrator:
                 raise
 
             duration_ms = (time.perf_counter() - started) * 1000
-            feedback = self.replanner.build_feedback(step_ir, result, duration_ms, estimate=estimate)
+            feedback = self.replanner.build_feedback(
+                step_ir, result, duration_ms, estimate=estimate
+            )
             after_decision = self.replanner.decide_after_step(step_ir, result, estimate, feedback)
             if after_decision.action == "insert_steps":
                 insert_steps = after_decision.detail.get("insert_steps", [])
                 if isinstance(insert_steps, list) and insert_steps:
-                    workflow_plan[plan_cursor + 1:plan_cursor + 1] = self.workflow_runtime.materialize_runtime_steps(
-                        insert_steps,
-                        start_index=self.workflow_runtime.next_step_index(workflow_plan),
+                    workflow_plan[plan_cursor + 1 : plan_cursor + 1] = (
+                        self.workflow_runtime.materialize_runtime_steps(
+                            insert_steps,
+                            start_index=self.workflow_runtime.next_step_index(workflow_plan),
+                        )
                     )
                     applied_decisions.append(after_decision.to_dict())
                     replan_decisions.append(after_decision.to_dict())
@@ -132,7 +134,9 @@ class WorkflowOrchestrator:
             result["execution_feedback"] = feedback.to_dict()
             if applied_decisions:
                 result["replanning"] = applied_decisions
-                self.step_executor.attach_replanning_provenance(session_id, step_ir.step_type, applied_decisions)
+                self.step_executor.attach_replanning_provenance(
+                    session_id, step_ir.step_type, applied_decisions
+                )
 
             results.append(result)
             executed_step_types.append(step_ir.step_type)

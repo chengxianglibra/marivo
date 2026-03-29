@@ -114,11 +114,7 @@ def attach_causal_chain_metadata(
             continue
 
         local_claim_ids = recommendation.get("supporting_claims") or [recommendation["claim_id"]]
-        local_claim_ids = [
-            claim_id
-            for claim_id in local_claim_ids
-            if claim_id in claim_index
-        ]
+        local_claim_ids = [claim_id for claim_id in local_claim_ids if claim_id in claim_index]
         path_claim_ids = _select_causal_path(
             local_claim_ids=local_claim_ids,
             primary_claim_id=recommendation["claim_id"],
@@ -182,7 +178,9 @@ def _select_causal_path(
         weight = float(edge.get("weight", 0.0) or 0.0)
         adjacency[left].append((right, edge_type, weight, True))
 
-    if not any(is_directional for neighbors in adjacency.values() for _, _, _, is_directional in neighbors):
+    if not any(
+        is_directional for neighbors in adjacency.values() for _, _, _, is_directional in neighbors
+    ):
         return []
 
     candidate_paths: list[tuple[tuple[Any, ...], list[str]]] = []
@@ -250,7 +248,9 @@ def _score_path(
 ) -> tuple[Any, ...]:
     directional_edges = [edge_type for edge_type, _, is_directional in path_edges if is_directional]
     directional_count = len(directional_edges)
-    highest_priority = max((_PATH_EDGE_PRIORITY.get(edge_type, 0) for edge_type in directional_edges), default=0)
+    highest_priority = max(
+        (_PATH_EDGE_PRIORITY.get(edge_type, 0) for edge_type in directional_edges), default=0
+    )
     total_priority = sum(_PATH_EDGE_PRIORITY.get(edge_type, 0) for edge_type, _, _ in path_edges)
     total_weight = round(sum(weight for _, weight, _ in path_edges), 6)
     total_confidence = round(
@@ -400,7 +400,8 @@ class DefaultRecommendationPolicy(RecommendationPolicy):
             "slice_desc": _slice_desc(primary),
             "metrics_csv": ", ".join(metric for metric in all_metrics if metric),
             "primary_claim_text": primary["text"],
-            "primary_metric": primary.get("scope", {}).get("metric", "") or "metric_under_investigation",
+            "primary_metric": primary.get("scope", {}).get("metric", "")
+            or "metric_under_investigation",
         }
         return {
             "rec_id": f"rec_{uuid4().hex[:12]}",

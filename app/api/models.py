@@ -21,9 +21,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from pydantic import BaseModel, Field
-from pydantic import field_validator
-from pydantic import model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class SessionCreateRequest(BaseModel):
@@ -32,7 +30,7 @@ class SessionCreateRequest(BaseModel):
         default_factory=dict,
         description=(
             "Scalar key/value filters auto-injected into step WHERE clauses "
-            "(e.g. {\"region\": \"us-east\"}). Narrows analysis scope — a signal-shaping input, "
+            '(e.g. {"region": "us-east"}). Narrows analysis scope — a signal-shaping input, '
             "not a governance constraint."
         ),
     )
@@ -126,6 +124,7 @@ class EntityPropertiesPatchRequest(BaseModel):
     Supported patch shapes: any key/value pairs in `properties`.
     Use `{"unit": "milliseconds"}` to apply a unit hint suggestion.
     """
+
     properties: dict[str, Any] = Field(
         ...,
         description="Properties keys to merge into the entity's existing properties_json.",
@@ -425,7 +424,9 @@ class TimeAxis(BaseModel):
 
 class Measure(BaseModel):
     expr: str = Field(description="Aggregate SQL expression.")
-    as_: str = Field(serialization_alias="as", validation_alias="as", description="Required output alias.")
+    as_: str = Field(
+        serialization_alias="as", validation_alias="as", description="Required output alias."
+    )
 
     @field_validator("expr")
     @classmethod
@@ -460,7 +461,9 @@ class MetricQueryStep(BaseModel):
             "date_column, where, and filter are no longer supported."
         ),
     )
-    order: str | None = Field(default=None, description="Optional ordering expression for output rows.")
+    order: str | None = Field(
+        default=None, description="Optional ordering expression for output rows."
+    )
     limit: int | None = Field(default=None, ge=1, description="Optional row limit.")
 
 
@@ -480,7 +483,9 @@ class AggregateQueryStep(BaseModel):
         default=None,
         description="Advanced time-axis override resolved ahead of execution.",
     )
-    order: str | None = Field(default=None, description="Optional ordering expression for output rows.")
+    order: str | None = Field(
+        default=None, description="Optional ordering expression for output rows."
+    )
     limit: int | None = Field(default=None, ge=1, description="Optional row limit.")
 
 
@@ -503,7 +508,9 @@ class AttributeChangeStep(BaseModel):
         default=None,
         description="Optional upstream anomaly observation to link with a justifies edge.",
     )
-    top_k: int = Field(default=5, ge=1, description="Number of top contributors to return per dimension.")
+    top_k: int = Field(
+        default=5, ge=1, description="Number of top contributors to return per dimension."
+    )
     min_contribution_pct: float = Field(
         default=5.0,
         ge=0.0,

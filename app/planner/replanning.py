@@ -92,9 +92,7 @@ class ReplanningService:
             )
 
         conflicting_claims = [
-            claim
-            for claim in result.get("claims", [])
-            if claim.get("contradicting_observations")
+            claim for claim in result.get("claims", []) if claim.get("contradicting_observations")
         ]
         if conflicting_claims:
             return ExecutionFeedback(
@@ -278,7 +276,10 @@ class ReplanningService:
                 code="compile_failure",
                 source="execution",
                 message=message,
-                detail={"step_type": step.step_type, "cost_estimate": estimate.to_dict() if estimate else None},
+                detail={
+                    "step_type": step.step_type,
+                    "cost_estimate": estimate.to_dict() if estimate else None,
+                },
             )
             return ReplanDecision(
                 action="replace_step",
@@ -292,7 +293,10 @@ class ReplanningService:
                 code="step_execution_failed",
                 source="execution",
                 message=message,
-                detail={"step_type": step.step_type, "cost_estimate": estimate.to_dict() if estimate else None},
+                detail={
+                    "step_type": step.step_type,
+                    "cost_estimate": estimate.to_dict() if estimate else None,
+                },
             )
             return ReplanDecision(
                 action="skip_step",
@@ -305,7 +309,10 @@ class ReplanningService:
             code="workflow_abort",
             source="execution",
             message=message,
-            detail={"step_type": step.step_type, "cost_estimate": estimate.to_dict() if estimate else None},
+            detail={
+                "step_type": step.step_type,
+                "cost_estimate": estimate.to_dict() if estimate else None,
+            },
         )
         return ReplanDecision(
             action="abort",

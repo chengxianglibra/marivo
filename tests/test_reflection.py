@@ -19,21 +19,16 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
-from app.evidence_engine.causal_basis import (
-    GAP_MISSING_OBSERVED_WINDOW,
-    GAP_NORMALISE_WORKLOAD_VOLUME,
-)
 from app.main import create_app
 from app.planning import PlanningService
-from app.planner.replanning import ReplanningService
 from app.reflection.context import build_reflection_context
 from app.service import SemanticLayerService
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 from app.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.shared_fixtures import get_seeded_duckdb_path
 
-
 # ── Shared helpers ────────────────────────────────────────────────────────────
+
 
 def _insert_claim(
     store: SQLiteMetadataStore,
@@ -53,8 +48,18 @@ def _insert_claim(
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
-            claim_id, session_id, "trend", "test claim", "{}", confidence, status,
-            "[]", "[]", "{}", inference_level, "[]",
+            claim_id,
+            session_id,
+            "trend",
+            "test claim",
+            "{}",
+            confidence,
+            status,
+            "[]",
+            "[]",
+            "{}",
+            inference_level,
+            "[]",
         ],
     )
     return claim_id
@@ -69,7 +74,7 @@ def _insert_recommendation(
     scope: dict | None = None,
 ) -> str:
     rec_id = f"rec_{uuid4().hex[:12]}"
-    from app.evidence_engine.causal_basis import (  # noqa: PLC0415
+    from app.evidence_engine.causal_basis import (
         SessionSummary,
         build_causal_basis,
     )
@@ -97,8 +102,15 @@ def _insert_recommendation(
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
-            rec_id, session_id, claim_id, "take action", "P1",
-            "some impact", "low", "{}", json.dumps(causal_basis),
+            rec_id,
+            session_id,
+            claim_id,
+            "take action",
+            "P1",
+            "some impact",
+            "low",
+            "{}",
+            json.dumps(causal_basis),
         ],
     )
     return rec_id
@@ -141,6 +153,7 @@ def _insert_observation(
 
 # ── Fixture setup ─────────────────────────────────────────────────────────────
 
+
 class ReflectionContextUnitTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -168,9 +181,16 @@ class ReflectionContextUnitTests(unittest.TestCase):
     def test_build_reflection_context_required_keys(self) -> None:
         session_id = self._new_session()
         ctx = build_reflection_context(self.store, session_id)
-        for key in ("session_id", "plan_id", "readiness_signal", "readiness_score",
-                    "tentative_claims", "evidence_gaps", "entity_update_suggestions",
-                    "available_step_types"):
+        for key in (
+            "session_id",
+            "plan_id",
+            "readiness_signal",
+            "readiness_score",
+            "tentative_claims",
+            "evidence_gaps",
+            "entity_update_suggestions",
+            "available_step_types",
+        ):
             self.assertIn(key, ctx, f"Missing key: {key}")
         self.assertEqual(ctx["session_id"], session_id)
         self.assertIsNone(ctx["plan_id"])
@@ -228,7 +248,15 @@ class ReflectionContextUnitTests(unittest.TestCase):
     def test_available_step_types_all_present(self) -> None:
         session_id = self._new_session()
         ctx = build_reflection_context(self.store, session_id)
-        expected = {"metric_query", "profile_table", "sample_rows", "aggregate_query", "attribute_change", "correlate_metrics", "synthesize_findings"}
+        expected = {
+            "metric_query",
+            "profile_table",
+            "sample_rows",
+            "aggregate_query",
+            "attribute_change",
+            "correlate_metrics",
+            "synthesize_findings",
+        }
         self.assertEqual(set(ctx["available_step_types"]), expected)
 
     # ── Test 17: scope-aware confounder — missing observed_window ──────────
@@ -253,11 +281,18 @@ class ReflectionContextUnitTests(unittest.TestCase):
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
-                claim_id, session_id, "root_cause_candidate",
+                claim_id,
+                session_id,
+                "root_cause_candidate",
                 "elapsed_time declined 5.0% for cluster=k8sbi-bi1 (tentative)",
                 '{"metric": "elapsed_time", "slice": {"cluster": "k8sbi-bi1"}}',
-                0.6, "tentative",
-                f'["{obs_id}"]', "[]", "{}", "L0", "[]",
+                0.6,
+                "tentative",
+                f'["{obs_id}"]',
+                "[]",
+                "{}",
+                "L0",
+                "[]",
             ],
         )
         ctx = build_reflection_context(self.store, session_id)
@@ -270,7 +305,9 @@ class ReflectionContextUnitTests(unittest.TestCase):
 
     # ── Test 17b: windowed observations satisfy temporal evidence path ────
 
-    def test_observed_window_reflection_context_uses_temporal_evidence_without_redefining_readiness(self) -> None:
+    def test_observed_window_reflection_context_uses_temporal_evidence_without_redefining_readiness(
+        self,
+    ) -> None:
         """Windowed supporting observations clear temporal confounders; readiness stays support-count based."""
         session_id = self._new_session()
         obs_ids = [
@@ -303,11 +340,18 @@ class ReflectionContextUnitTests(unittest.TestCase):
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
-                claim_id, session_id, "root_cause_candidate",
+                claim_id,
+                session_id,
+                "root_cause_candidate",
                 "elapsed_time declined for cluster=k8sbi-bi1 (tentative)",
                 '{"metric": "elapsed_time", "slice": {"cluster": "k8sbi-bi1"}}',
-                0.7, "tentative",
-                json.dumps(obs_ids), "[]", "{}", "L0", "[]",
+                0.7,
+                "tentative",
+                json.dumps(obs_ids),
+                "[]",
+                "{}",
+                "L0",
+                "[]",
             ],
         )
 
@@ -342,9 +386,14 @@ class ReflectionContextUnitTests(unittest.TestCase):
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 0)
                 """,
                 [
-                    obs_id, session_id, "step_test2", "metric_observation",
+                    obs_id,
+                    session_id,
+                    "step_test2",
+                    "metric_observation",
                     f'{{"metric": "query_count", "slice": {{"cluster": "{cluster}"}}}}',
-                    '{"delta_pct": 10.0}', '{}', '{}',
+                    '{"delta_pct": 10.0}',
+                    "{}",
+                    "{}",
                 ],
             )
         # Insert a claim scoped to one cluster
@@ -358,11 +407,18 @@ class ReflectionContextUnitTests(unittest.TestCase):
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
-                claim_id, session_id, "root_cause_candidate",
+                claim_id,
+                session_id,
+                "root_cause_candidate",
                 "query_count increased 10% for cluster=k8sbi-bi1 (tentative)",
                 '{"metric": "query_count", "slice": {"cluster": "k8sbi-bi1"}}',
-                0.6, "tentative",
-                "[]", "[]", "{}", "L0", "[]",
+                0.6,
+                "tentative",
+                "[]",
+                "[]",
+                "{}",
+                "L0",
+                "[]",
             ],
         )
         ctx = build_reflection_context(self.store, session_id)
@@ -391,9 +447,14 @@ class ReflectionContextUnitTests(unittest.TestCase):
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 0)
                 """,
                 [
-                    obs_id, session_id, "step_test_ar", "metric_observation",
+                    obs_id,
+                    session_id,
+                    "step_test_ar",
+                    "metric_observation",
                     f'{{"metric": "query_count", "slice": {{"cluster": "{cluster}"}}}}',
-                    '{"delta_pct": 10.0}', '{}', '{}',
+                    '{"delta_pct": 10.0}',
+                    "{}",
+                    "{}",
                 ],
             )
         # Tentative claim scoped to one cluster — would normally get normalise_workload_volume
@@ -407,11 +468,18 @@ class ReflectionContextUnitTests(unittest.TestCase):
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
-                tentative_claim_id, session_id, "root_cause_candidate",
+                tentative_claim_id,
+                session_id,
+                "root_cause_candidate",
                 "queued_time increased 58% for cluster=k8sbi-bi1 (tentative)",
                 '{"metric": "queued_time", "slice": {"cluster": "k8sbi-bi1"}}',
-                0.6, "tentative",
-                f'["{obs_ids[0]}"]', "[]", "{}", "L0", "[]",
+                0.6,
+                "tentative",
+                f'["{obs_ids[0]}"]',
+                "[]",
+                "{}",
+                "L0",
+                "[]",
             ],
         )
         # Confirmed claim about query_count — this resolves the workload volume confounder
@@ -425,11 +493,18 @@ class ReflectionContextUnitTests(unittest.TestCase):
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
-                confirmed_claim_id, session_id, "root_cause_candidate",
+                confirmed_claim_id,
+                session_id,
+                "root_cause_candidate",
                 "query_count increased 30% for cluster=k8sbi-bi1",
                 '{"metric": "query_count", "slice": {"cluster": "k8sbi-bi1"}}',
-                0.91, "confirmed",
-                f'["{obs_ids[0]}"]', "[]", "{}", "L0", "[]",
+                0.91,
+                "confirmed",
+                f'["{obs_ids[0]}"]',
+                "[]",
+                "{}",
+                "L0",
+                "[]",
             ],
         )
         ctx = build_reflection_context(self.store, session_id)
@@ -461,6 +536,7 @@ class ReflectionContextUnitTests(unittest.TestCase):
 
 
 # ── patch_plan_incremental unit tests ─────────────────────────────────────────
+
 
 class PlanPatchIncrementalTests(unittest.TestCase):
     @classmethod
@@ -494,7 +570,9 @@ class PlanPatchIncrementalTests(unittest.TestCase):
         _, plan_id = self._make_plan()
         result = self.planning.patch_plan_incremental(
             plan_id,
-            add_steps=[{"step_type": "profile_table", "params": {"table_name": "analytics.ad_events"}}],
+            add_steps=[
+                {"step_type": "profile_table", "params": {"table_name": "analytics.ad_events"}}
+            ],
         )
         self.assertEqual(len(result["steps"]), 2)
         self.assertEqual(result["steps"][1]["step_type"], "profile_table")
@@ -551,6 +629,7 @@ class PlanPatchIncrementalTests(unittest.TestCase):
 
 # ── HTTP endpoint tests ───────────────────────────────────────────────────────
 
+
 class ReflectionContextHTTPTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -574,8 +653,14 @@ class ReflectionContextHTTPTests(unittest.TestCase):
         resp = self.client.get(f"/sessions/{self.session_id}/reflection-context")
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
-        for key in ("session_id", "readiness_signal", "readiness_score",
-                    "tentative_claims", "evidence_gaps", "available_step_types"):
+        for key in (
+            "session_id",
+            "readiness_signal",
+            "readiness_score",
+            "tentative_claims",
+            "evidence_gaps",
+            "available_step_types",
+        ):
             self.assertIn(key, data)
 
     # ── Test 13: plan_id query param round-trips ───────────────────────────
@@ -583,7 +668,14 @@ class ReflectionContextHTTPTests(unittest.TestCase):
     def test_reflection_context_with_plan_id_query(self) -> None:
         plan_resp = self.client.post(
             f"/sessions/{self.session_id}/plans",
-            json={"steps": [{"step_type": "profile_table", "params": {"table_name": "analytics.watch_events"}}]},
+            json={
+                "steps": [
+                    {
+                        "step_type": "profile_table",
+                        "params": {"table_name": "analytics.watch_events"},
+                    }
+                ]
+            },
         )
         plan_id = plan_resp.json()["plan_id"]
         resp = self.client.get(
@@ -604,12 +696,23 @@ class ReflectionContextHTTPTests(unittest.TestCase):
     def test_plan_patch_http_add_step(self) -> None:
         plan_resp = self.client.post(
             f"/sessions/{self.session_id}/plans",
-            json={"steps": [{"step_type": "profile_table", "params": {"table_name": "analytics.watch_events"}}]},
+            json={
+                "steps": [
+                    {
+                        "step_type": "profile_table",
+                        "params": {"table_name": "analytics.watch_events"},
+                    }
+                ]
+            },
         )
         plan_id = plan_resp.json()["plan_id"]
         patch_resp = self.client.post(
             f"/sessions/{self.session_id}/plans/{plan_id}/patch",
-            json={"add_steps": [{"step_type": "profile_table", "params": {"table_name": "analytics.ad_events"}}]},
+            json={
+                "add_steps": [
+                    {"step_type": "profile_table", "params": {"table_name": "analytics.ad_events"}}
+                ]
+            },
         )
         self.assertEqual(patch_resp.status_code, 200)
         data = patch_resp.json()
@@ -638,6 +741,7 @@ class ReflectionContextHTTPTests(unittest.TestCase):
 
 
 # ── G-5c: entity_update_suggestions in reflection context ──────────────────
+
 
 class EntityUpdateSuggestionsTests(unittest.TestCase):
     """G-5c: reflection context exposes entity_update_suggestions from recommendations."""
@@ -671,8 +775,17 @@ class EntityUpdateSuggestionsTests(unittest.TestCase):
                 expected_impact, risk, validation_metric_json, entity_patch_json
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            [rec_id, session_id, claim_id, "action", "P1", "impact", "low",
-             "{}", json.dumps(entity_patch)],
+            [
+                rec_id,
+                session_id,
+                claim_id,
+                "action",
+                "P1",
+                "impact",
+                "low",
+                "{}",
+                json.dumps(entity_patch),
+            ],
         )
         return rec_id
 
@@ -713,10 +826,15 @@ class EntityUpdateSuggestionsTests(unittest.TestCase):
         session_id = self._new_session()
         claim_id = _insert_claim(self.store, session_id, status="confirmed")
         patch = {
-            "entity_id": "ent_abc", "entity_name": "video",
-            "column_name": "elapsed_time", "field": "fields.elapsed_time.unit",
-            "current_value": None, "suggested_value": "milliseconds",
-            "confidence": 0.75, "source": "heuristic", "metric_name": "elapsed_time",
+            "entity_id": "ent_abc",
+            "entity_name": "video",
+            "column_name": "elapsed_time",
+            "field": "fields.elapsed_time.unit",
+            "current_value": None,
+            "suggested_value": "milliseconds",
+            "confidence": 0.75,
+            "source": "heuristic",
+            "metric_name": "elapsed_time",
         }
         self._insert_rec_with_patch(session_id, claim_id, patch)
         self._insert_rec_with_patch(session_id, claim_id, patch)
@@ -728,10 +846,15 @@ class EntityUpdateSuggestionsTests(unittest.TestCase):
         claim_id = _insert_claim(self.store, session_id, status="confirmed")
         for unit in ("milliseconds", "seconds"):
             patch = {
-                "entity_id": "ent_abc", "entity_name": "video",
-                "column_name": "elapsed_time", "field": "fields.elapsed_time.unit",
-                "current_value": None, "suggested_value": unit,
-                "confidence": 0.7, "source": "heuristic", "metric_name": "elapsed_time",
+                "entity_id": "ent_abc",
+                "entity_name": "video",
+                "column_name": "elapsed_time",
+                "field": "fields.elapsed_time.unit",
+                "current_value": None,
+                "suggested_value": unit,
+                "confidence": 0.7,
+                "source": "heuristic",
+                "metric_name": "elapsed_time",
             }
             self._insert_rec_with_patch(session_id, claim_id, patch)
         ctx = build_reflection_context(self.store, session_id)

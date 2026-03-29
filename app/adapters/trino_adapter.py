@@ -45,7 +45,8 @@ class TrinoCatalogAdapter(CatalogAdapter):
         safe_headers: dict[str, str] | None = None
         if self._http_headers:
             safe_headers = {
-                k: v for k, v in self._http_headers.items()
+                k: v
+                for k, v in self._http_headers.items()
                 if not k.lower().startswith(_RESERVED_PREFIXES)
             } or None
 
@@ -60,6 +61,7 @@ class TrinoCatalogAdapter(CatalogAdapter):
         )
         if self._password is not None:
             from trino.auth import BasicAuthentication
+
             kwargs["auth"] = BasicAuthentication(self._user, self._password)
         if self._client_tags is not None:
             kwargs["client_tags"] = self._client_tags
@@ -180,10 +182,7 @@ class TrinoCatalogAdapter(CatalogAdapter):
         try:
             rows = self._query(f'SHOW COLUMNS FROM "{schema_name}"."{table_name}"')
             # SHOW COLUMNS returns: Column, Type, Extra, Comment
-            return {
-                r["Column"]: r.get("Comment", "") or ""
-                for r in rows
-            }
+            return {r["Column"]: r.get("Comment", "") or "" for r in rows}
         except Exception:
             # If SHOW COLUMNS fails (e.g., permission issue), return empty
             return {}
@@ -194,9 +193,7 @@ class TrinoCatalogAdapter(CatalogAdapter):
         Returns a dict of key-value pairs, or empty dict if unavailable.
         """
         try:
-            rows = self._query(
-                f'SELECT key, value FROM "{schema_name}"."{table_name}$properties"'
-            )
+            rows = self._query(f'SELECT key, value FROM "{schema_name}"."{table_name}$properties"')
             return {r["key"]: r["value"] for r in rows}
         except Exception:
             # If query fails (non-Iceberg table, permission, etc.), return empty

@@ -28,9 +28,7 @@ def _compute_outliers(
         z_outliers: set[int] = set()
     else:
         z_outliers = {
-            idx
-            for idx, value in enumerate(values)
-            if abs((value - mean) / std) > z_threshold
+            idx for idx, value in enumerate(values) if abs((value - mean) / std) > z_threshold
         }
 
     if not use_iqr:
@@ -52,11 +50,7 @@ def _compute_outliers(
 
     lower = q1 - 1.5 * iqr
     upper = q3 + 1.5 * iqr
-    iqr_outliers = {
-        idx
-        for idx, value in enumerate(values)
-        if value < lower or value > upper
-    }
+    iqr_outliers = {idx for idx, value in enumerate(values) if value < lower or value > upper}
     return sorted(z_outliers | iqr_outliers)
 
 
@@ -89,9 +83,7 @@ class AnomalyExtractor(ExtractorContract):
         if len(values) < 3:
             return []
 
-        outlier_indices = set(
-            _compute_outliers(values, z_threshold=z_threshold, use_iqr=False)
-        )
+        outlier_indices = set(_compute_outliers(values, z_threshold=z_threshold, use_iqr=False))
         if not outlier_indices:
             return []
 

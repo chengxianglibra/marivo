@@ -5,7 +5,9 @@ from typing import Any, Protocol
 
 
 class JobExecutor(Protocol):
-    def run_step(self, session_id: str, step_type: str, params: dict[str, Any] | None = None) -> dict[str, Any]: ...
+    def run_step(
+        self, session_id: str, step_type: str, params: dict[str, Any] | None = None
+    ) -> dict[str, Any]: ...
 
 
 class PlanExecutor(Protocol):
@@ -77,34 +79,20 @@ class PolicyApplicationResult:
     @property
     def violations(self) -> list[dict[str, str]]:
         return [
-            decision.to_violation()
-            for decision in self.decisions
-            if decision.effect == "block"
+            decision.to_violation() for decision in self.decisions if decision.effect == "block"
         ]
 
     @property
     def warnings(self) -> list[dict[str, str]]:
-        return [
-            decision.to_violation()
-            for decision in self.decisions
-            if decision.effect == "warn"
-        ]
+        return [decision.to_violation() for decision in self.decisions if decision.effect == "warn"]
 
     @property
     def hard_constraints(self) -> list[dict[str, Any]]:
-        return [
-            decision.to_dict()
-            for decision in self.decisions
-            if decision.effect == "block"
-        ]
+        return [decision.to_dict() for decision in self.decisions if decision.effect == "block"]
 
     @property
     def soft_signals(self) -> list[dict[str, Any]]:
-        return [
-            decision.to_dict()
-            for decision in self.decisions
-            if decision.effect != "block"
-        ]
+        return [decision.to_dict() for decision in self.decisions if decision.effect != "block"]
 
     @property
     def passed(self) -> bool:

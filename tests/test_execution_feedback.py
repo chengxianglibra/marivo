@@ -49,7 +49,9 @@ class ExecutionFeedbackTests(unittest.TestCase):
 
     def test_execute_compiled_wraps_engine_error(self) -> None:
         engine = FailingEngine()
-        query = CompiledQuery("SELECT 1", metadata={"engine_type": "duckdb", "step_type": "sample_rows"})
+        query = CompiledQuery(
+            "SELECT 1", metadata={"engine_type": "duckdb", "step_type": "sample_rows"}
+        )
 
         with self.assertRaises(ExecutionFailure) as error:
             execute_compiled(engine, query)

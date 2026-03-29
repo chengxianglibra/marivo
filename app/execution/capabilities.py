@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
 from typing import Any
-from typing import Sequence
 
 
 @dataclass(frozen=True)
@@ -126,11 +126,7 @@ def describe_routing_fit(
     policy_score = (len(satisfied_policy_support) * 4) - (len(missing_policy_support) * 6)
 
     semantic_score = 0
-    if (
-        table_count > 1
-        or compatible_dimension_count >= 3
-        or metric_count >= 2
-    ):
+    if table_count > 1 or compatible_dimension_count >= 3 or metric_count >= 2:
         if profile.performance_class == "distributed":
             semantic_score += 6
         elif compatible_dimension_count >= 3 or metric_count >= 2:
@@ -169,17 +165,11 @@ def describe_routing_fit(
         else:
             reasons.append(f"does not advertise step type '{step_type}'")
     if satisfied_policy_support:
-        reasons.append(
-            "supports policies: " + ", ".join(sorted(satisfied_policy_support))
-        )
+        reasons.append("supports policies: " + ", ".join(sorted(satisfied_policy_support)))
     if missing_policy_support:
-        reasons.append(
-            "missing policies: " + ", ".join(sorted(missing_policy_support))
-        )
+        reasons.append("missing policies: " + ", ".join(sorted(missing_policy_support)))
     if (
-        table_count > 1
-        or compatible_dimension_count >= 3
-        or metric_count >= 2
+        table_count > 1 or compatible_dimension_count >= 3 or metric_count >= 2
     ) and profile.performance_class == "distributed":
         reasons.append("semantic complexity prefers distributed execution")
     elif (

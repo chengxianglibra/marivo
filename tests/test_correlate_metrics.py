@@ -1,4 +1,5 @@
 """Tests for correlate_metrics step type."""
+
 from __future__ import annotations
 
 import json
@@ -6,10 +7,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app.evidence_engine.causal_checkers import DoseResponseChecker, LevelUpgrade
+from app.evidence_engine.causal_checkers import DoseResponseChecker
 from app.service import SemanticLayerService
-from app.storage.sqlite_metadata import SQLiteMetadataStore
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
+from app.storage.sqlite_metadata import SQLiteMetadataStore
 
 
 class CorrelateMetricsStepTests(unittest.TestCase):
@@ -30,7 +31,7 @@ class CorrelateMetricsStepTests(unittest.TestCase):
 
     def setUp(self) -> None:
         # Generate unique session_id per test to avoid collisions
-        self._session_counter = getattr(self.__class__, '_session_counter', 0) + 1
+        self._session_counter = getattr(self.__class__, "_session_counter", 0) + 1
         self.__class__._session_counter = self._session_counter
 
     def _create_session(self) -> str:

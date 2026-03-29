@@ -1,15 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from datetime import date
-from datetime import datetime
-from datetime import time
-from datetime import timedelta
 import re
-from typing import Any, Literal, Mapping, Sequence
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
+from datetime import date, datetime, time, timedelta
+from typing import Any, Literal
 
 from app.time_axis_metadata import normalize_time_capabilities
-
 
 CompareKind = Literal["semantic_metric", "ad_hoc_aggregate"]
 TimeScopeMode = Literal["single_window", "compare"]
@@ -203,7 +200,9 @@ class TimeScopeResolver:
         if mode == "compare":
             if not isinstance(baseline_payload, Mapping):
                 raise ValueError("time_scope.baseline is required when mode='compare'")
-            baseline = self._normalize_time_window(payload.get("baseline"), "time_scope.baseline", grain)
+            baseline = self._normalize_time_window(
+                payload.get("baseline"), "time_scope.baseline", grain
+            )
         else:
             if baseline_payload is not None:
                 raise ValueError("time_scope.baseline is only allowed when mode='compare'")
@@ -214,13 +213,15 @@ class TimeScopeResolver:
             current_duration = self._window_duration(current, grain)
             baseline_duration = self._window_duration(baseline, grain)
             if current_duration != baseline_duration:
-                warnings.append({
-                    "code": "window_length_mismatch",
-                    "message": "current and baseline windows have different lengths",
-                    "grain": grain,
-                    "current_duration": current_duration,
-                    "baseline_duration": baseline_duration,
-                })
+                warnings.append(
+                    {
+                        "code": "window_length_mismatch",
+                        "message": "current and baseline windows have different lengths",
+                        "grain": grain,
+                        "current_duration": current_duration,
+                        "baseline_duration": baseline_duration,
+                    }
+                )
         return ResolvedTimeScope(
             mode=mode,
             grain=grain,
@@ -237,7 +238,9 @@ class TimeScopeResolver:
     ) -> ResolvedTimeWindow:
         if not isinstance(payload, Mapping):
             raise ValueError(f"{label} is required")
-        start = self._normalize_boundary(_required_str(payload, "start", label), f"{label}.start", grain)
+        start = self._normalize_boundary(
+            _required_str(payload, "start", label), f"{label}.start", grain
+        )
         end = self._normalize_boundary(_required_str(payload, "end", label), f"{label}.end", grain)
         if grain == "day":
             if date.fromisoformat(start) >= date.fromisoformat(end):
@@ -274,7 +277,11 @@ class TimeScopeResolver:
     def _window_duration(window: ResolvedTimeWindow, grain: TimeScopeGrain) -> int:
         if grain == "day":
             return (date.fromisoformat(window.end) - date.fromisoformat(window.start)).days
-        return int((datetime.fromisoformat(window.end) - datetime.fromisoformat(window.start)).total_seconds())
+        return int(
+            (
+                datetime.fromisoformat(window.end) - datetime.fromisoformat(window.start)
+            ).total_seconds()
+        )
 
 
 @dataclass(slots=True)
@@ -382,8 +389,14 @@ class TimeAxisResolver:
 
         for caps in metadata_chain:
             if caps.timestamp_column is not None:
-                self._ensure_known_column(caps.timestamp_column, columns, "time_capabilities.analysis_time.timestamp_column")
-                return _AnalysisAxis(kind="timestamp", expr=caps.timestamp_column, column=caps.timestamp_column)
+                self._ensure_known_column(
+                    caps.timestamp_column,
+                    columns,
+                    "time_capabilities.analysis_time.timestamp_column",
+                )
+                return _AnalysisAxis(
+                    kind="timestamp", expr=caps.timestamp_column, column=caps.timestamp_column
+                )
 
         for caps in metadata_chain:
             if self.request.time_scope.grain == "hour":
@@ -406,9 +419,13 @@ class TimeAxisResolver:
                             self._analysis_date_format(metadata_chain, caps.fallback_date_column),
                         ),
                         date_column=caps.fallback_date_column,
-                        date_format=self._analysis_date_format(metadata_chain, caps.fallback_date_column),
+                        date_format=self._analysis_date_format(
+                            metadata_chain, caps.fallback_date_column
+                        ),
                         hour_column=caps.fallback_hour_column,
-                        hour_format=self._analysis_hour_format(metadata_chain, caps.fallback_hour_column),
+                        hour_format=self._analysis_hour_format(
+                            metadata_chain, caps.fallback_hour_column
+                        ),
                     )
             elif caps.fallback_date_column:
                 self._ensure_known_column(
@@ -421,7 +438,9 @@ class TimeAxisResolver:
                     expr=caps.fallback_date_column,
                     column=caps.fallback_date_column,
                     date_column=caps.fallback_date_column,
-                    date_format=self._analysis_date_format(metadata_chain, caps.fallback_date_column),
+                    date_format=self._analysis_date_format(
+                        metadata_chain, caps.fallback_date_column
+                    ),
                 )
 
         if not columns and self.request.time_scope.grain == "day":
@@ -480,9 +499,13 @@ class TimeAxisResolver:
         override_date = self.request.resolved_time_axis.override_partition_date_column
         override_hour = self.request.resolved_time_axis.override_partition_hour_column
         if override_date is not None:
-            self._ensure_known_column(override_date, columns, "time_axis.partition_pruning.date_column")
+            self._ensure_known_column(
+                override_date, columns, "time_axis.partition_pruning.date_column"
+            )
         if override_hour is not None:
-            self._ensure_known_column(override_hour, columns, "time_axis.partition_pruning.hour_column")
+            self._ensure_known_column(
+                override_hour, columns, "time_axis.partition_pruning.hour_column"
+            )
 
         date_column = override_date
         hour_column = override_hour
@@ -498,7 +521,9 @@ class TimeAxisResolver:
                         "time_capabilities.partition_time.date_column",
                     )
                     date_column = caps.partition_date_column
-                    date_format = caps.partition_date_format or _default_date_format_for_column(date_column)
+                    date_format = caps.partition_date_format or _default_date_format_for_column(
+                        date_column
+                    )
                     break
         if hour_column is None:
             for caps in metadata_chain:
@@ -509,7 +534,9 @@ class TimeAxisResolver:
                         "time_capabilities.partition_time.hour_column",
                     )
                     hour_column = caps.partition_hour_column
-                    hour_format = caps.partition_hour_format or _default_hour_format_for_column(hour_column)
+                    hour_format = caps.partition_hour_format or _default_hour_format_for_column(
+                        hour_column
+                    )
                     break
 
         if date_column is None and analysis.date_column is not None:
@@ -597,7 +624,9 @@ class TimeAxisResolver:
             f"{axis.hour_column} >= '{self._format_partition_hour_literal(start_hour, axis.hour_format)}'",
         ]
         if end_day == start_day:
-            parts.append(f"{axis.hour_column} < '{self._format_partition_hour_literal(end_hour, axis.hour_format)}'")
+            parts.append(
+                f"{axis.hour_column} < '{self._format_partition_hour_literal(end_hour, axis.hour_format)}'"
+            )
         return " AND ".join(parts)
 
     def _build_cross_day_hour_partition_pruning(
@@ -621,7 +650,9 @@ class TimeAxisResolver:
                 f"AND {axis.date_column} < '{self._format_partition_date_literal(last_day, axis.date_format)}'"
             )
         if end_dt.time() == time(0, 0):
-            clauses.append(f"{axis.date_column} = '{self._format_partition_date_literal(last_day, axis.date_format)}'")
+            clauses.append(
+                f"{axis.date_column} = '{self._format_partition_date_literal(last_day, axis.date_format)}'"
+            )
         else:
             clauses.append(
                 f"{axis.date_column} = '{self._format_partition_date_literal(last_day, axis.date_format)}' "
@@ -629,7 +660,9 @@ class TimeAxisResolver:
             )
         return "(" + ") OR (".join(clauses) + ")"
 
-    def _partition_hour_analysis_expr(self, date_column: str, hour_column: str, date_format: str | None) -> str:
+    def _partition_hour_analysis_expr(
+        self, date_column: str, hour_column: str, date_format: str | None
+    ) -> str:
         date_text_expr = _partition_date_text_expr(
             date_column,
             date_format,
@@ -680,14 +713,18 @@ class TimeAxisResolver:
             raise ValueError(f"{label} references unknown column '{column}'")
 
     @staticmethod
-    def _analysis_date_format(metadata_chain: list[_TimeCapabilities], date_column: str | None) -> str | None:
+    def _analysis_date_format(
+        metadata_chain: list[_TimeCapabilities], date_column: str | None
+    ) -> str | None:
         for caps in metadata_chain:
             if caps.partition_date_column == date_column and caps.partition_date_format is not None:
                 return caps.partition_date_format
         return _default_date_format_for_column(date_column)
 
     @staticmethod
-    def _analysis_hour_format(metadata_chain: list[_TimeCapabilities], hour_column: str | None) -> str | None:
+    def _analysis_hour_format(
+        metadata_chain: list[_TimeCapabilities], hour_column: str | None
+    ) -> str | None:
         for caps in metadata_chain:
             if caps.partition_hour_column == hour_column and caps.partition_hour_format is not None:
                 return caps.partition_hour_format
@@ -704,7 +741,9 @@ def _normalize_scope(payload: Any) -> ResolvedScope:
         raise ValueError("scope.constraints must be an object")
     predicate = _optional_str(payload.get("predicate"))
     if scope_predicate_contains_time_condition(predicate):
-        raise ValueError("scope.predicate must not contain time-axis predicates; move time conditions into time_scope")
+        raise ValueError(
+            "scope.predicate must not contain time-axis predicates; move time conditions into time_scope"
+        )
     return ResolvedScope(
         constraints={str(key): value for key, value in constraints.items()},
         predicate=predicate,
@@ -738,7 +777,9 @@ def _normalize_measure(payload: Any) -> ResolvedMeasure:
     return ResolvedMeasure(expr=expr, alias=alias)
 
 
-def _reject_legacy_fields(params: Mapping[str, Any], fields: set[str] | frozenset[str], step_type: str) -> None:
+def _reject_legacy_fields(
+    params: Mapping[str, Any], fields: set[str] | frozenset[str], step_type: str
+) -> None:
     legacy_fields = sorted(field for field in fields if field in params)
     if legacy_fields:
         joined = ", ".join(legacy_fields)
@@ -839,9 +880,7 @@ def _varchar_cast_expr(column: str, *, engine_type: str) -> str:
 def _partition_date_text_expr(column: str, date_format: str | None, *, engine_type: str) -> str:
     raw = _varchar_cast_expr(column, engine_type=engine_type)
     if date_format == "yyyymmdd":
-        return (
-            f"CONCAT(SUBSTR({raw}, 1, 4), '-', SUBSTR({raw}, 5, 2), '-', SUBSTR({raw}, 7, 2))"
-        )
+        return f"CONCAT(SUBSTR({raw}, 1, 4), '-', SUBSTR({raw}, 5, 2), '-', SUBSTR({raw}, 7, 2))"
     return raw
 
 
@@ -849,7 +888,9 @@ def _partition_hour_text_expr(column: str, *, engine_type: str) -> str:
     return f"LPAD({_varchar_cast_expr(column, engine_type=engine_type)}, 2, '0')"
 
 
-def _partition_hour_timestamp_expr(date_text_expr: str, hour_text_expr: str, *, engine_type: str) -> str:
+def _partition_hour_timestamp_expr(
+    date_text_expr: str, hour_text_expr: str, *, engine_type: str
+) -> str:
     del engine_type  # DuckDB and Trino both accept CAST(CONCAT(... ) AS TIMESTAMP) in phase 1.
     return f"CAST(CONCAT({date_text_expr}, ' ', {hour_text_expr}, ':00:00') AS TIMESTAMP)"
 

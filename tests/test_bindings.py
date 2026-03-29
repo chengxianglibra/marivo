@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from datetime import UTC
 from pathlib import Path
 
 import yaml
@@ -36,13 +37,20 @@ class BindingServiceTests(unittest.TestCase):
         cls.duckdb_path = Path(cls.temp_dir.name) / "test_local.duckdb"
         get_seeded_duckdb_path(cls.duckdb_path)
         from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
+
         _ae = DuckDBAnalyticsEngine(cls.duckdb_path)
         _ae.initialize()
 
         # Register a source and two engines for tests
-        cls.source = cls.source_service.register_source("duckdb", "Test Source", {"path": str(cls.duckdb_path)})
-        cls.engine1 = cls.engine_service.register_engine("duckdb", "Engine A", {"path": "/tmp/a.duckdb"})
-        cls.engine2 = cls.engine_service.register_engine("duckdb", "Engine B", {"path": "/tmp/b.duckdb"})
+        cls.source = cls.source_service.register_source(
+            "duckdb", "Test Source", {"path": str(cls.duckdb_path)}
+        )
+        cls.engine1 = cls.engine_service.register_engine(
+            "duckdb", "Engine A", {"path": "/tmp/a.duckdb"}
+        )
+        cls.engine2 = cls.engine_service.register_engine(
+            "duckdb", "Engine B", {"path": "/tmp/b.duckdb"}
+        )
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -50,7 +58,9 @@ class BindingServiceTests(unittest.TestCase):
 
     def test_create_and_list_bindings(self) -> None:
         binding = self.binding_service.create_binding(
-            self.source["source_id"], self.engine1["engine_id"], priority=5,
+            self.source["source_id"],
+            self.engine1["engine_id"],
+            priority=5,
         )
         self.assertTrue(binding["binding_id"].startswith("bind_"))
         self.assertEqual(binding["source_id"], self.source["source_id"])
@@ -63,7 +73,9 @@ class BindingServiceTests(unittest.TestCase):
 
     def test_get_binding(self) -> None:
         binding = self.binding_service.create_binding(
-            self.source["source_id"], self.engine2["engine_id"], priority=3,
+            self.source["source_id"],
+            self.engine2["engine_id"],
+            priority=3,
         )
         fetched = self.binding_service.get_binding(binding["binding_id"])
         self.assertEqual(fetched["binding_id"], binding["binding_id"])
@@ -75,7 +87,9 @@ class BindingServiceTests(unittest.TestCase):
 
     def test_ensure_binding_idempotent(self) -> None:
         src = self.source_service.register_source("duckdb", "Idempotent Src", {})
-        eng = self.engine_service.register_engine("duckdb", "Idempotent Eng", {"path": "/tmp/idm.duckdb"})
+        eng = self.engine_service.register_engine(
+            "duckdb", "Idempotent Eng", {"path": "/tmp/idm.duckdb"}
+        )
 
         b1 = self.binding_service.ensure_binding(src["source_id"], eng["engine_id"], priority=7)
         b2 = self.binding_service.ensure_binding(src["source_id"], eng["engine_id"], priority=99)
@@ -102,8 +116,12 @@ class BindingServiceTests(unittest.TestCase):
 
     def test_get_engines_for_source(self) -> None:
         src = self.source_service.register_source("duckdb", "Multi-Eng Src", {})
-        eng_lo = self.engine_service.register_engine("duckdb", "Low Prio Eng", {"path": "/tmp/lo.duckdb"})
-        eng_hi = self.engine_service.register_engine("duckdb", "High Prio Eng", {"path": "/tmp/hi.duckdb"})
+        eng_lo = self.engine_service.register_engine(
+            "duckdb", "Low Prio Eng", {"path": "/tmp/lo.duckdb"}
+        )
+        eng_hi = self.engine_service.register_engine(
+            "duckdb", "High Prio Eng", {"path": "/tmp/hi.duckdb"}
+        )
 
         self.binding_service.create_binding(src["source_id"], eng_lo["engine_id"], priority=1)
         self.binding_service.create_binding(src["source_id"], eng_hi["engine_id"], priority=10)
@@ -118,7 +136,9 @@ class BindingServiceTests(unittest.TestCase):
     def test_unique_constraint(self) -> None:
         """Same (source_id, engine_id) can't be double-inserted; ensure handles it."""
         src = self.source_service.register_source("duckdb", "Unique Src", {})
-        eng = self.engine_service.register_engine("duckdb", "Unique Eng", {"path": "/tmp/uq.duckdb"})
+        eng = self.engine_service.register_engine(
+            "duckdb", "Unique Eng", {"path": "/tmp/uq.duckdb"}
+        )
 
         self.binding_service.create_binding(src["source_id"], eng["engine_id"])
         # Direct insert of same pair should fail (UNIQUE constraint)
@@ -133,10 +153,14 @@ class BindingServiceTests(unittest.TestCase):
 
     def test_create_binding_with_namespace(self) -> None:
         src = self.source_service.register_source("duckdb", "NS Create Src", {})
-        eng = self.engine_service.register_engine("duckdb", "NS Create Eng", {"path": "/tmp/ns_create.duckdb"})
+        eng = self.engine_service.register_engine(
+            "duckdb", "NS Create Eng", {"path": "/tmp/ns_create.duckdb"}
+        )
 
         binding = self.binding_service.create_binding(
-            src["source_id"], eng["engine_id"], priority=5,
+            src["source_id"],
+            eng["engine_id"],
+            priority=5,
             namespace={"catalog": "hive"},
         )
         self.assertEqual(binding["namespace"], {"catalog": "hive"})
@@ -147,17 +171,23 @@ class BindingServiceTests(unittest.TestCase):
 
     def test_ensure_binding_with_namespace(self) -> None:
         src = self.source_service.register_source("duckdb", "NS Ensure Src", {})
-        eng = self.engine_service.register_engine("duckdb", "NS Ensure Eng", {"path": "/tmp/ns_ensure.duckdb"})
+        eng = self.engine_service.register_engine(
+            "duckdb", "NS Ensure Eng", {"path": "/tmp/ns_ensure.duckdb"}
+        )
 
         b1 = self.binding_service.ensure_binding(
-            src["source_id"], eng["engine_id"], priority=5,
+            src["source_id"],
+            eng["engine_id"],
+            priority=5,
             namespace={"catalog": "spark_catalog"},
         )
         self.assertEqual(b1["namespace"], {"catalog": "spark_catalog"})
 
         # Idempotent: second call returns existing
         b2 = self.binding_service.ensure_binding(
-            src["source_id"], eng["engine_id"], priority=99,
+            src["source_id"],
+            eng["engine_id"],
+            priority=99,
             namespace={"catalog": "different"},
         )
         self.assertEqual(b1["binding_id"], b2["binding_id"])
@@ -166,19 +196,26 @@ class BindingServiceTests(unittest.TestCase):
 
     def test_namespace_default_empty(self) -> None:
         src = self.source_service.register_source("duckdb", "NS Default Src", {})
-        eng = self.engine_service.register_engine("duckdb", "NS Default Eng", {"path": "/tmp/ns_default.duckdb"})
+        eng = self.engine_service.register_engine(
+            "duckdb", "NS Default Eng", {"path": "/tmp/ns_default.duckdb"}
+        )
 
         binding = self.binding_service.create_binding(
-            src["source_id"], eng["engine_id"],
+            src["source_id"],
+            eng["engine_id"],
         )
         self.assertEqual(binding["namespace"], {})
 
     def test_get_engines_for_source_includes_namespace(self) -> None:
         src = self.source_service.register_source("duckdb", "NS Engines Src", {})
-        eng = self.engine_service.register_engine("duckdb", "NS Engines Eng", {"path": "/tmp/ns_engines.duckdb"})
+        eng = self.engine_service.register_engine(
+            "duckdb", "NS Engines Eng", {"path": "/tmp/ns_engines.duckdb"}
+        )
 
         self.binding_service.create_binding(
-            src["source_id"], eng["engine_id"], priority=5,
+            src["source_id"],
+            eng["engine_id"],
+            priority=5,
             namespace={"catalog": "hive", "schema": "prod"},
         )
 
@@ -210,16 +247,22 @@ class QueryRouterTests(unittest.TestCase):
         cls.sync_engine = SyncEngine(cls.metadata)
 
         # Register source, sync it (creates source_objects for local demo tables)
-        cls.source = cls.source_service.register_source("duckdb", "Router Source", {"path": str(cls.local_duckdb_path)})
+        cls.source = cls.source_service.register_source(
+            "duckdb", "Router Source", {"path": str(cls.local_duckdb_path)}
+        )
         adapter = cls.source_service.get_adapter(cls.source["source_id"])
         cls.sync_engine.trigger_sync(cls.source["source_id"], adapter)
 
         # Register an engine and bind it
         cls.engine = cls.engine_service.register_engine(
-            "duckdb", "Router Engine", {"path": str(db_path)},
+            "duckdb",
+            "Router Engine",
+            {"path": str(db_path)},
         )
         cls.binding_service.create_binding(
-            cls.source["source_id"], cls.engine["engine_id"], priority=5,
+            cls.source["source_id"],
+            cls.engine["engine_id"],
+            priority=5,
         )
 
         cls.router = QueryRouter(cls.metadata, cls.engine_service)
@@ -238,12 +281,16 @@ class QueryRouterTests(unittest.TestCase):
 
     def test_resolve_tables_different_sources_common_engine(self) -> None:
         # Create a second source, sync it, and bind it to the same engine
-        src2 = self.source_service.register_source("duckdb", "Router Source 2", {"path": str(self.local_duckdb_path)})
+        src2 = self.source_service.register_source(
+            "duckdb", "Router Source 2", {"path": str(self.local_duckdb_path)}
+        )
         adapter2 = self.source_service.get_adapter(src2["source_id"])
         self.sync_engine.trigger_sync(src2["source_id"], adapter2)
 
         self.binding_service.create_binding(
-            src2["source_id"], self.engine["engine_id"], priority=3,
+            src2["source_id"],
+            self.engine["engine_id"],
+            priority=3,
         )
 
         # Tables from local demo exist in both sources — pick one from each
@@ -267,17 +314,21 @@ class QueryRouterTests(unittest.TestCase):
         src_a = self.source_service.register_source("duckdb", "No Common A", {})
         src_b = self.source_service.register_source("duckdb", "No Common B", {})
 
-        eng_a = self.engine_service.register_engine("duckdb", "Eng Only A", {"path": "/tmp/eng_a.duckdb"})
-        eng_b = self.engine_service.register_engine("duckdb", "Eng Only B", {"path": "/tmp/eng_b.duckdb"})
+        eng_a = self.engine_service.register_engine(
+            "duckdb", "Eng Only A", {"path": "/tmp/eng_a.duckdb"}
+        )
+        eng_b = self.engine_service.register_engine(
+            "duckdb", "Eng Only B", {"path": "/tmp/eng_b.duckdb"}
+        )
 
         self.binding_service.create_binding(src_a["source_id"], eng_a["engine_id"])
         self.binding_service.create_binding(src_b["source_id"], eng_b["engine_id"])
 
         # Insert synthetic source_objects with unique table names
-        from datetime import datetime, timezone
+        from datetime import datetime
         from uuid import uuid4
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         for src, tbl_name in [(src_a, "unique_table_a"), (src_b, "unique_table_b")]:
             obj_id = f"obj_{uuid4().hex[:12]}"
             self.metadata.execute(
@@ -300,10 +351,10 @@ class QueryRouterTests(unittest.TestCase):
         # Create a source with synced objects but no bindings
         src = self.source_service.register_source("duckdb", "No Bindings Src", {})
 
-        from datetime import datetime, timezone
+        from datetime import datetime
         from uuid import uuid4
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         obj_id = f"obj_{uuid4().hex[:12]}"
         self.metadata.execute(
             """
@@ -325,7 +376,8 @@ class QueryRouterTests(unittest.TestCase):
         # Tables synced from the local adapter have a parent schema 'analytics'.
         # With empty namespace, qualify_table_name should return 'analytics.watch_events'.
         qualified = self.router.qualify_table_name(
-            "watch_events", self.source["source_id"],
+            "watch_events",
+            self.source["source_id"],
             {"namespace": {}},
         )
         self.assertEqual(qualified, "analytics.watch_events")
@@ -333,7 +385,8 @@ class QueryRouterTests(unittest.TestCase):
     def test_qualify_table_name_with_catalog(self) -> None:
         """Namespace with catalog → catalog.schema.table."""
         qualified = self.router.qualify_table_name(
-            "watch_events", self.source["source_id"],
+            "watch_events",
+            self.source["source_id"],
             {"namespace": {"catalog": "hive"}},
         )
         self.assertEqual(qualified, "hive.analytics.watch_events")
@@ -341,17 +394,18 @@ class QueryRouterTests(unittest.TestCase):
     def test_qualify_table_name_with_catalog_and_schema_override(self) -> None:
         """Namespace with catalog and schema override → catalog.override.table."""
         qualified = self.router.qualify_table_name(
-            "watch_events", self.source["source_id"],
+            "watch_events",
+            self.source["source_id"],
             {"namespace": {"catalog": "hive", "schema": "prod"}},
         )
         self.assertEqual(qualified, "hive.prod.watch_events")
 
     def test_qualify_table_name_no_parent_no_namespace(self) -> None:
         """Table with no parent schema and empty namespace → bare name."""
-        from datetime import datetime, timezone
+        from datetime import datetime
         from uuid import uuid4
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         obj_id = f"obj_{uuid4().hex[:12]}"
         self.metadata.execute(
             """
@@ -363,7 +417,8 @@ class QueryRouterTests(unittest.TestCase):
         )
 
         qualified = self.router.qualify_table_name(
-            "orphan_table", self.source["source_id"],
+            "orphan_table",
+            self.source["source_id"],
             {"namespace": {}},
         )
         self.assertEqual(qualified, "orphan_table")
@@ -381,21 +436,27 @@ class QueryRouterTests(unittest.TestCase):
     def test_resolve_tables_with_namespace_binding(self) -> None:
         """resolve_tables() uses the binding's namespace for qualification."""
         # Create a new source+engine+binding with namespace
-        src = self.source_service.register_source("duckdb", "NS Resolve Src", {"path": str(self.local_duckdb_path)})
+        src = self.source_service.register_source(
+            "duckdb", "NS Resolve Src", {"path": str(self.local_duckdb_path)}
+        )
         adapter = self.source_service.get_adapter(src["source_id"])
         self.sync_engine.trigger_sync(src["source_id"], adapter)
 
-        eng = self.engine_service.register_engine("duckdb", "NS Resolve Eng", {"path": "/tmp/ns_resolve.duckdb"})
+        eng = self.engine_service.register_engine(
+            "duckdb", "NS Resolve Eng", {"path": "/tmp/ns_resolve.duckdb"}
+        )
         self.binding_service.create_binding(
-            src["source_id"], eng["engine_id"], priority=100,
+            src["source_id"],
+            eng["engine_id"],
+            priority=100,
             namespace={"catalog": "hive"},
         )
 
         # Insert a unique table for this source so resolution is unambiguous
-        from datetime import datetime, timezone
+        from datetime import datetime
         from uuid import uuid4
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         # Create schema object
         schema_id = f"obj_{uuid4().hex[:12]}"
         self.metadata.execute(
@@ -423,10 +484,12 @@ class QueryRouterTests(unittest.TestCase):
         self.assertEqual(route.qualified_names["ns_resolve_tbl"], "hive.myschema.ns_resolve_tbl")
 
     def test_resolve_tables_uses_capability_tiebreaker_for_equal_priority(self) -> None:
-        from datetime import datetime, timezone
+        from datetime import datetime
         from uuid import uuid4
 
-        src = self.source_service.register_source("duckdb", "Capability Tie Src", {"path": str(self.local_duckdb_path)})
+        src = self.source_service.register_source(
+            "duckdb", "Capability Tie Src", {"path": str(self.local_duckdb_path)}
+        )
         adapter = self.source_service.get_adapter(src["source_id"])
         self.sync_engine.trigger_sync(src["source_id"], adapter)
 
@@ -438,13 +501,19 @@ class QueryRouterTests(unittest.TestCase):
         trino = self.engine_service.register_engine(
             "trino",
             "Capability Tie Trino",
-            {"host": "localhost", "port": 8080, "user": "test", "catalog": "hive", "schema": "default"},
+            {
+                "host": "localhost",
+                "port": 8080,
+                "user": "test",
+                "catalog": "hive",
+                "schema": "default",
+            },
         )
 
         self.binding_service.create_binding(src["source_id"], duck["engine_id"], priority=7)
         self.binding_service.create_binding(src["source_id"], trino["engine_id"], priority=7)
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         schema_id = f"obj_{uuid4().hex[:12]}"
         self.metadata.execute(
             """
@@ -462,7 +531,15 @@ class QueryRouterTests(unittest.TestCase):
                     (object_id, source_id, object_type, parent_id, native_name, fqn, properties_json, created_at, updated_at)
                 VALUES (?, ?, 'table', ?, ?, ?, '{}', ?, ?)
                 """,
-                [table_id, src["source_id"], schema_id, table_name, f"demo.cap_tie_schema.{table_name}", now, now],
+                [
+                    table_id,
+                    src["source_id"],
+                    schema_id,
+                    table_name,
+                    f"demo.cap_tie_schema.{table_name}",
+                    now,
+                    now,
+                ],
             )
 
         route = QueryRouter(self.metadata, self.engine_service).resolve_tables(
@@ -474,7 +551,7 @@ class QueryRouterTests(unittest.TestCase):
         self.assertGreater(route.capability_score, 0)
 
     def test_resolve_tables_uses_semantic_intent_to_override_priority(self) -> None:
-        from datetime import datetime, timezone
+        from datetime import datetime
         from uuid import uuid4
 
         src = self.source_service.register_source("duckdb", "Semantic Route Src", {})
@@ -490,13 +567,19 @@ class QueryRouterTests(unittest.TestCase):
         trino = self.engine_service.register_engine(
             "trino",
             "Semantic Route Trino",
-            {"host": "localhost", "port": 8080, "user": "test", "catalog": "hive", "schema": "default"},
+            {
+                "host": "localhost",
+                "port": 8080,
+                "user": "test",
+                "catalog": "hive",
+                "schema": "default",
+            },
         )
 
         self.binding_service.create_binding(src["source_id"], duck["engine_id"], priority=9)
         self.binding_service.create_binding(src["source_id"], trino["engine_id"], priority=7)
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         schema_id = f"obj_{uuid4().hex[:12]}"
         self.metadata.execute(
             """
@@ -547,7 +630,9 @@ class BindingAPITests(unittest.TestCase):
         cls.temp_dir = tempfile.TemporaryDirectory()
         cls.db_path = Path(cls.temp_dir.name) / "test_binding_api.duckdb"
         get_seeded_duckdb_path(cls.db_path)
-        cls.client = TestClient(create_app(cls.db_path, config_path=Path(cls.temp_dir.name) / "none.yaml"))
+        cls.client = TestClient(
+            create_app(cls.db_path, config_path=Path(cls.temp_dir.name) / "none.yaml")
+        )
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -557,20 +642,27 @@ class BindingAPITests(unittest.TestCase):
     def _register_source_and_engine(self) -> tuple[str, str]:
         """Helper: register a unique source and engine, return their IDs."""
         from uuid import uuid4
+
         suffix = uuid4().hex[:6]
 
-        resp = self.client.post("/sources", json={
-            "source_type": "duckdb",
-            "display_name": f"API Src {suffix}",
-            "connection": {"path": str(self.db_path)},
-        })
+        resp = self.client.post(
+            "/sources",
+            json={
+                "source_type": "duckdb",
+                "display_name": f"API Src {suffix}",
+                "connection": {"path": str(self.db_path)},
+            },
+        )
         source_id = resp.json()["source_id"]
 
-        resp = self.client.post("/engines", json={
-            "engine_type": "duckdb",
-            "display_name": f"API Eng {suffix}",
-            "connection": {"path": f"/tmp/api_{suffix}.duckdb"},
-        })
+        resp = self.client.post(
+            "/engines",
+            json={
+                "engine_type": "duckdb",
+                "display_name": f"API Eng {suffix}",
+                "connection": {"path": f"/tmp/api_{suffix}.duckdb"},
+            },
+        )
         engine_id = resp.json()["engine_id"]
 
         return source_id, engine_id
@@ -578,11 +670,14 @@ class BindingAPITests(unittest.TestCase):
     def test_post_and_get_binding(self) -> None:
         source_id, engine_id = self._register_source_and_engine()
 
-        resp = self.client.post("/bindings", json={
-            "source_id": source_id,
-            "engine_id": engine_id,
-            "priority": 5,
-        })
+        resp = self.client.post(
+            "/bindings",
+            json={
+                "source_id": source_id,
+                "engine_id": engine_id,
+                "priority": 5,
+            },
+        )
         self.assertEqual(resp.status_code, 200)
         binding = resp.json()
         self.assertTrue(binding["binding_id"].startswith("bind_"))
@@ -595,10 +690,13 @@ class BindingAPITests(unittest.TestCase):
 
     def test_list_bindings_filter(self) -> None:
         source_id, engine_id = self._register_source_and_engine()
-        self.client.post("/bindings", json={
-            "source_id": source_id,
-            "engine_id": engine_id,
-        })
+        self.client.post(
+            "/bindings",
+            json={
+                "source_id": source_id,
+                "engine_id": engine_id,
+            },
+        )
 
         resp = self.client.get(f"/bindings?source_id={source_id}")
         self.assertEqual(resp.status_code, 200)
@@ -608,10 +706,13 @@ class BindingAPITests(unittest.TestCase):
 
     def test_delete_binding(self) -> None:
         source_id, engine_id = self._register_source_and_engine()
-        resp = self.client.post("/bindings", json={
-            "source_id": source_id,
-            "engine_id": engine_id,
-        })
+        resp = self.client.post(
+            "/bindings",
+            json={
+                "source_id": source_id,
+                "engine_id": engine_id,
+            },
+        )
         binding_id = resp.json()["binding_id"]
 
         resp = self.client.delete(f"/bindings/{binding_id}")
@@ -624,11 +725,14 @@ class BindingAPITests(unittest.TestCase):
 
     def test_source_engines_endpoint(self) -> None:
         source_id, engine_id = self._register_source_and_engine()
-        self.client.post("/bindings", json={
-            "source_id": source_id,
-            "engine_id": engine_id,
-            "priority": 10,
-        })
+        self.client.post(
+            "/bindings",
+            json={
+                "source_id": source_id,
+                "engine_id": engine_id,
+                "priority": 10,
+            },
+        )
 
         resp = self.client.get(f"/sources/{source_id}/engines")
         self.assertEqual(resp.status_code, 200)
@@ -639,32 +743,44 @@ class BindingAPITests(unittest.TestCase):
 
     def test_routing_resolve(self) -> None:
         # Register source, sync it, register engine, bind, then resolve
-        resp = self.client.post("/sources", json={
-            "source_type": "duckdb",
-            "display_name": "Routing Src",
-            "connection": {"path": str(self.db_path)},
-        })
+        resp = self.client.post(
+            "/sources",
+            json={
+                "source_type": "duckdb",
+                "display_name": "Routing Src",
+                "connection": {"path": str(self.db_path)},
+            },
+        )
         source_id = resp.json()["source_id"]
 
         # Sync to populate source_objects
         self.client.post(f"/sources/{source_id}/sync")
 
-        resp = self.client.post("/engines", json={
-            "engine_type": "duckdb",
-            "display_name": "Routing Eng",
-            "connection": {"path": "/tmp/routing.duckdb"},
-        })
+        resp = self.client.post(
+            "/engines",
+            json={
+                "engine_type": "duckdb",
+                "display_name": "Routing Eng",
+                "connection": {"path": "/tmp/routing.duckdb"},
+            },
+        )
         engine_id = resp.json()["engine_id"]
 
-        self.client.post("/bindings", json={
-            "source_id": source_id,
-            "engine_id": engine_id,
-            "priority": 5,
-        })
+        self.client.post(
+            "/bindings",
+            json={
+                "source_id": source_id,
+                "engine_id": engine_id,
+                "priority": 5,
+            },
+        )
 
-        resp = self.client.post("/routing/resolve", json={
-            "table_names": ["watch_events", "player_qoe"],
-        })
+        resp = self.client.post(
+            "/routing/resolve",
+            json={
+                "table_names": ["watch_events", "player_qoe"],
+            },
+        )
         self.assertEqual(resp.status_code, 200)
         result = resp.json()
         self.assertTrue(result["resolved"])
@@ -672,16 +788,22 @@ class BindingAPITests(unittest.TestCase):
         self.assertEqual(result["engine"]["engine_id"], engine_id)
 
     def test_routing_resolve_unknown_table(self) -> None:
-        resp = self.client.post("/routing/resolve", json={
-            "table_names": ["completely_unknown_table_xyz"],
-        })
+        resp = self.client.post(
+            "/routing/resolve",
+            json={
+                "table_names": ["completely_unknown_table_xyz"],
+            },
+        )
         self.assertEqual(resp.status_code, 404)
 
     def test_binding_create_invalid_source(self) -> None:
-        resp = self.client.post("/bindings", json={
-            "source_id": "src_nonexistent",
-            "engine_id": "eng_nonexistent",
-        })
+        resp = self.client.post(
+            "/bindings",
+            json={
+                "source_id": "src_nonexistent",
+                "engine_id": "eng_nonexistent",
+            },
+        )
         self.assertEqual(resp.status_code, 404)
 
     # ── Namespace API tests ───────────────────────────────────────
@@ -689,12 +811,15 @@ class BindingAPITests(unittest.TestCase):
     def test_post_binding_with_namespace(self) -> None:
         source_id, engine_id = self._register_source_and_engine()
 
-        resp = self.client.post("/bindings", json={
-            "source_id": source_id,
-            "engine_id": engine_id,
-            "priority": 5,
-            "namespace": {"catalog": "hive"},
-        })
+        resp = self.client.post(
+            "/bindings",
+            json={
+                "source_id": source_id,
+                "engine_id": engine_id,
+                "priority": 5,
+                "namespace": {"catalog": "hive"},
+            },
+        )
         self.assertEqual(resp.status_code, 200)
         binding = resp.json()
         self.assertEqual(binding["namespace"], {"catalog": "hive"})
@@ -705,33 +830,42 @@ class BindingAPITests(unittest.TestCase):
 
     def test_routing_resolve_qualified_names(self) -> None:
         """POST /routing/resolve returns qualified_names map."""
-        from datetime import datetime, timezone
+        from datetime import datetime
         from uuid import uuid4
 
-        resp = self.client.post("/sources", json={
-            "source_type": "duckdb",
-            "display_name": "QN Routing Src",
-            "connection": {"path": str(self.db_path)},
-        })
+        resp = self.client.post(
+            "/sources",
+            json={
+                "source_type": "duckdb",
+                "display_name": "QN Routing Src",
+                "connection": {"path": str(self.db_path)},
+            },
+        )
         source_id = resp.json()["source_id"]
 
-        resp = self.client.post("/engines", json={
-            "engine_type": "duckdb",
-            "display_name": "QN Routing Eng",
-            "connection": {"path": "/tmp/qn_routing.duckdb"},
-        })
+        resp = self.client.post(
+            "/engines",
+            json={
+                "engine_type": "duckdb",
+                "display_name": "QN Routing Eng",
+                "connection": {"path": "/tmp/qn_routing.duckdb"},
+            },
+        )
         engine_id = resp.json()["engine_id"]
 
-        self.client.post("/bindings", json={
-            "source_id": source_id,
-            "engine_id": engine_id,
-            "priority": 5,
-            "namespace": {"catalog": "hive"},
-        })
+        self.client.post(
+            "/bindings",
+            json={
+                "source_id": source_id,
+                "engine_id": engine_id,
+                "priority": 5,
+                "namespace": {"catalog": "hive"},
+            },
+        )
 
         # Insert a unique table (with parent schema) so resolution is unambiguous
         metadata_store = self.client.app.state.metadata_store
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         schema_id = f"obj_{uuid4().hex[:12]}"
         metadata_store.execute(
             """INSERT INTO source_objects
@@ -747,57 +881,83 @@ class BindingAPITests(unittest.TestCase):
             [table_id, source_id, schema_id, now, now],
         )
 
-        resp = self.client.post("/routing/resolve", json={
-            "table_names": ["qn_unique_table"],
-        })
+        resp = self.client.post(
+            "/routing/resolve",
+            json={
+                "table_names": ["qn_unique_table"],
+            },
+        )
         self.assertEqual(resp.status_code, 200)
         result = resp.json()
         self.assertIn("qualified_names", result)
         self.assertIn("qn_unique_table", result["qualified_names"])
-        self.assertEqual(result["qualified_names"]["qn_unique_table"], "hive.qn_schema.qn_unique_table")
+        self.assertEqual(
+            result["qualified_names"]["qn_unique_table"], "hive.qn_schema.qn_unique_table"
+        )
 
     def test_routing_resolve_accepts_semantic_intent(self) -> None:
-        from datetime import datetime, timezone
+        from datetime import datetime
         from uuid import uuid4
 
-        resp = self.client.post("/sources", json={
-            "source_type": "duckdb",
-            "display_name": "Semantic API Routing Src",
-            "connection": {"path": str(self.db_path)},
-        })
+        resp = self.client.post(
+            "/sources",
+            json={
+                "source_type": "duckdb",
+                "display_name": "Semantic API Routing Src",
+                "connection": {"path": str(self.db_path)},
+            },
+        )
         source_id = resp.json()["source_id"]
 
-        resp = self.client.post("/engines", json={
-            "engine_type": "duckdb",
-            "display_name": "Semantic API Duck",
-            "connection": {"path": "/tmp/semantic_api_duck.duckdb"},
-            "capabilities": {
-                "supported_step_types": ["sample_rows", "profile_table"],
-                "policy_support": [],
+        resp = self.client.post(
+            "/engines",
+            json={
+                "engine_type": "duckdb",
+                "display_name": "Semantic API Duck",
+                "connection": {"path": "/tmp/semantic_api_duck.duckdb"},
+                "capabilities": {
+                    "supported_step_types": ["sample_rows", "profile_table"],
+                    "policy_support": [],
+                },
             },
-        })
+        )
         duck_engine_id = resp.json()["engine_id"]
 
-        resp = self.client.post("/engines", json={
-            "engine_type": "trino",
-            "display_name": "Semantic API Trino",
-            "connection": {"host": "localhost", "port": 8080, "user": "test", "catalog": "hive", "schema": "default"},
-        })
+        resp = self.client.post(
+            "/engines",
+            json={
+                "engine_type": "trino",
+                "display_name": "Semantic API Trino",
+                "connection": {
+                    "host": "localhost",
+                    "port": 8080,
+                    "user": "test",
+                    "catalog": "hive",
+                    "schema": "default",
+                },
+            },
+        )
         trino_engine_id = resp.json()["engine_id"]
 
-        self.client.post("/bindings", json={
-            "source_id": source_id,
-            "engine_id": duck_engine_id,
-            "priority": 9,
-        })
-        self.client.post("/bindings", json={
-            "source_id": source_id,
-            "engine_id": trino_engine_id,
-            "priority": 7,
-        })
+        self.client.post(
+            "/bindings",
+            json={
+                "source_id": source_id,
+                "engine_id": duck_engine_id,
+                "priority": 9,
+            },
+        )
+        self.client.post(
+            "/bindings",
+            json={
+                "source_id": source_id,
+                "engine_id": trino_engine_id,
+                "priority": 7,
+            },
+        )
 
         metadata_store = self.client.app.state.metadata_store
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         schema_id = f"obj_{uuid4().hex[:12]}"
         metadata_store.execute(
             """INSERT INTO source_objects
@@ -813,16 +973,19 @@ class BindingAPITests(unittest.TestCase):
             [table_id, source_id, schema_id, now, now],
         )
 
-        resp = self.client.post("/routing/resolve", json={
-            "table_names": ["semantic_api_table"],
-            "routing_intent": {
-                "step_type": "metric_query",
-                "metric_names": ["watch_time"],
-                "requested_dimensions": ["platform", "app_version", "network_type"],
-                "compatible_dimensions": ["platform", "app_version", "network_type"],
-                "policy_hints": ["aggregate_only"],
+        resp = self.client.post(
+            "/routing/resolve",
+            json={
+                "table_names": ["semantic_api_table"],
+                "routing_intent": {
+                    "step_type": "metric_query",
+                    "metric_names": ["watch_time"],
+                    "requested_dimensions": ["platform", "app_version", "network_type"],
+                    "compatible_dimensions": ["platform", "app_version", "network_type"],
+                    "policy_hints": ["aggregate_only"],
+                },
             },
-        })
+        )
         self.assertEqual(resp.status_code, 200)
         result = resp.json()
         self.assertEqual(result["engine"]["engine_id"], trino_engine_id)
@@ -850,11 +1013,28 @@ class BindingConfigTests(unittest.TestCase):
         from app.config import load_config
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            yaml.dump({
-                "sources": [{"name": "Cfg Src", "type": "duckdb", "connection": {"path": str(Path(self.class_tmp.name) / "shared.duckdb")}}],
-                "engines": [{"name": "Cfg Eng", "type": "duckdb", "connection": {"path": "/tmp/cfg.duckdb"}}],
-                "bindings": [{"source": "Cfg Src", "engine": "Cfg Eng", "priority": 15}],
-            }, f)
+            yaml.dump(
+                {
+                    "sources": [
+                        {
+                            "name": "Cfg Src",
+                            "type": "duckdb",
+                            "connection": {
+                                "path": str(Path(self.class_tmp.name) / "shared.duckdb")
+                            },
+                        }
+                    ],
+                    "engines": [
+                        {
+                            "name": "Cfg Eng",
+                            "type": "duckdb",
+                            "connection": {"path": "/tmp/cfg.duckdb"},
+                        }
+                    ],
+                    "bindings": [{"source": "Cfg Src", "engine": "Cfg Eng", "priority": 15}],
+                },
+                f,
+            )
             f.flush()
             cfg = load_config(Path(f.name))
 
@@ -866,19 +1046,41 @@ class BindingConfigTests(unittest.TestCase):
     def test_startup_registers_bindings(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "test_config.yaml"
-            config_path.write_text(yaml.dump({
-                "sources": [{"name": "Startup Src", "type": "duckdb", "connection": {"path": str(Path(self.class_tmp.name) / "shared.duckdb")}}],
-                "engines": [{"name": "Startup Eng", "type": "duckdb", "connection": {"path": str(Path(tmpdir) / "startup.duckdb")}}],
-                "bindings": [{"source": "Startup Src", "engine": "Startup Eng", "priority": 20}],
-            }))
+            config_path.write_text(
+                yaml.dump(
+                    {
+                        "sources": [
+                            {
+                                "name": "Startup Src",
+                                "type": "duckdb",
+                                "connection": {
+                                    "path": str(Path(self.class_tmp.name) / "shared.duckdb")
+                                },
+                            }
+                        ],
+                        "engines": [
+                            {
+                                "name": "Startup Eng",
+                                "type": "duckdb",
+                                "connection": {"path": str(Path(tmpdir) / "startup.duckdb")},
+                            }
+                        ],
+                        "bindings": [
+                            {"source": "Startup Src", "engine": "Startup Eng", "priority": 20}
+                        ],
+                    }
+                )
+            )
 
             meta_path = Path(tmpdir) / "test.meta.sqlite"
             metadata = SQLiteMetadataStore(meta_path)
-            client = TestClient(create_app(
-                metadata_store=metadata,
-                analytics_engine=self.shared_analytics,
-                config_path=str(config_path),
-            ))
+            client = TestClient(
+                create_app(
+                    metadata_store=metadata,
+                    analytics_engine=self.shared_analytics,
+                    config_path=str(config_path),
+                )
+            )
 
             try:
                 resp = client.get("/bindings")
@@ -886,10 +1088,7 @@ class BindingConfigTests(unittest.TestCase):
                 bindings = resp.json()
                 self.assertGreaterEqual(len(bindings), 1)
                 # Find the binding for our source/engine
-                matching = [
-                    b for b in bindings
-                    if b["priority"] == 20
-                ]
+                matching = [b for b in bindings if b["priority"] == 20]
                 self.assertEqual(len(matching), 1)
             finally:
                 client.close()
@@ -898,16 +1097,35 @@ class BindingConfigTests(unittest.TestCase):
         from app.config import load_config
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            yaml.dump({
-                "sources": [{"name": "NS Cfg Src", "type": "duckdb", "connection": {"path": str(Path(self.class_tmp.name) / "shared.duckdb")}}],
-                "engines": [{"name": "NS Cfg Eng", "type": "duckdb", "connection": {"path": "/tmp/ns_cfg.duckdb"}}],
-                "bindings": [{
-                    "source": "NS Cfg Src",
-                    "engine": "NS Cfg Eng",
-                    "priority": 10,
-                    "namespace": {"catalog": "hive"},
-                }],
-            }, f)
+            yaml.dump(
+                {
+                    "sources": [
+                        {
+                            "name": "NS Cfg Src",
+                            "type": "duckdb",
+                            "connection": {
+                                "path": str(Path(self.class_tmp.name) / "shared.duckdb")
+                            },
+                        }
+                    ],
+                    "engines": [
+                        {
+                            "name": "NS Cfg Eng",
+                            "type": "duckdb",
+                            "connection": {"path": "/tmp/ns_cfg.duckdb"},
+                        }
+                    ],
+                    "bindings": [
+                        {
+                            "source": "NS Cfg Src",
+                            "engine": "NS Cfg Eng",
+                            "priority": 10,
+                            "namespace": {"catalog": "hive"},
+                        }
+                    ],
+                },
+                f,
+            )
             f.flush()
             cfg = load_config(Path(f.name))
 

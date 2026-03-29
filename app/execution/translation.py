@@ -41,16 +41,13 @@ class TranslationResult:
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["federation_plan"] = (
-            self.federation_plan.to_dict()
-            if self.federation_plan is not None
-            else None
+            self.federation_plan.to_dict() if self.federation_plan is not None else None
         )
         return payload
 
 
 class QueryTranslator(Protocol):
-    def translate(self, request: TranslationRequest) -> TranslationResult:
-        ...
+    def translate(self, request: TranslationRequest) -> TranslationResult: ...
 
 
 def request_from_compiled_query(compiled_query: CompiledQuery) -> TranslationRequest:
@@ -79,11 +76,7 @@ class DefaultQueryTranslator:
             target_engine_type=request.target_engine_type,
             metadata=request.metadata,
         )
-        strategy = (
-            "federated_handoff"
-            if federation_plan.mode != "single_engine"
-            else "direct_sql"
-        )
+        strategy = "federated_handoff" if federation_plan.mode != "single_engine" else "direct_sql"
         detail = {
             "target_engine_type": request.target_engine_type,
             "source_dialect": request.source_dialect,

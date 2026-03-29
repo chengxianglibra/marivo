@@ -1,8 +1,8 @@
 """Tests for no_action_required recommendation type (roadmap 1.3)."""
+
 from __future__ import annotations
 
 import unittest
-from uuid import uuid4
 
 from app.evidence_engine.recommendation_policy import (
     DefaultRecommendationPolicy,
@@ -148,18 +148,20 @@ class NoActionRecommendationTests(unittest.TestCase):
 
     def test_no_action_excluded_from_existing_recommendations(self) -> None:
         """Existing recommendations are no longer passed through by the policy layer."""
-        existing = [{
-            "rec_id": "rec_existing",
-            "type": REC_TYPE_ACTION,
-            "claim_id": "c1",
-            "action_text": "existing",
-            "priority": "P1",
-            "expected_impact": "",
-            "risk": "P1",
-            "validation_metric": {},
-            "causal_basis": None,
-            "supporting_claims": None,
-        }]
+        existing = [
+            {
+                "rec_id": "rec_existing",
+                "type": REC_TYPE_ACTION,
+                "claim_id": "c1",
+                "action_text": "existing",
+                "priority": "P1",
+                "expected_impact": "",
+                "risk": "P1",
+                "validation_metric": {},
+                "causal_basis": None,
+                "supporting_claims": None,
+            }
+        ]
         policy = DefaultRecommendationPolicy()
         recs = policy.derive([], [], existing)
         self.assertEqual(recs, [])

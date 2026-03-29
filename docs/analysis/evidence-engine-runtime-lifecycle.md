@@ -279,6 +279,8 @@ assessment recompute 在以下事件后可被触发：
 
 - 新 proposition 注册
 - proposition 所依赖的相关 findings 新增、缺失或被 replay 重建
+- 当前 open gap 可能被新事实、质量修复或 comparability 修复闭合
+- 先前 latest assessment 被 supersede 后，transition-sensitive 规则需要重算
 - 上游 assessment family 需要重算其 status、confidence、gaps 或 rules
 
 assessment recompute 的调度策略不在本文固定，但 canonical 写入规则固定。
@@ -311,6 +313,17 @@ canonical assessment 输出至少包括：
 - 不产生新的 `snapshot_seq`
 - 继续复用上一条 snapshot 作为 `latest_assessment`
 
+#### 首个 snapshot 的创建时机
+
+v1 不要求 proposition 一注册就立即生成占位 assessment snapshot。
+
+规则：
+
+- proposition 注册后，可以先停留在 `latest_assessment = null`
+- 只有当该 proposition 实际进入一次 assessment recompute，且形成 canonical assessment 输出时，才创建首个 snapshot
+- 首个 snapshot 可以直接是 `insufficient`、`supported`、`contradicted` 或 `mixed`
+- 不要求强制经过 `null -> insufficient -> ...` 的统一路径
+
 #### 创建
 
 一旦生成新的 assessment snapshot：
@@ -330,14 +343,19 @@ assessment snapshot 一旦写入即不可原地修改。
 - 同一 proposition 任意时刻最多只有一个 latest assessment
 - state/context surface 只围绕 latest assessment 组织 live support/oppose/gap/inference membership
 - superseded snapshots 不得把其成员继续混入 latest state 读取
+- latest 必须由线性 `supersedes_assessment_id` 链与单调 `snapshot_seq` 共同确定
+- 若链断裂、跳链、分叉，或与 `snapshot_seq` 次序冲突，应视为 canonical integrity error
+- 出现 integrity error 时，不允许用最大 `snapshot_seq` 或最新 `created_at` 作为兜底 latest
 
 #### 降级与升级
 
 assessment 允许因新证据、缺失证据或规则重算而：
 
+- 从 `null` 首次进入 `insufficient` / `supported` / `contradicted` / `mixed`
 - 从 `insufficient` 升级为 `supported` / `contradicted` / `mixed`
 - 从较强结论降级为 `insufficient`
 - 在 `supported`、`contradicted`、`mixed` 之间迁移
+- 在状态不变时，仅因 evidence membership、gap membership、confidence 或 subtype canonical 字段变化而形成新的 superseding snapshot
 
 runtime 不要求状态单调增强；真正单调的是 snapshot 序号，不是结论强度。
 
@@ -375,6 +393,7 @@ gap 是判断层独立 canonical support object。
 - gap identity 绑定 proposition 与 requirement semantics
 - gap 可跨多个 assessment snapshots 持续存在
 - `status = open | resolved` 由后续 inference record 显式推进
+- 单个 gap object 的生命周期只允许 `open -> resolved`
 
 #### 解决
 
@@ -383,6 +402,15 @@ gap 被解决时：
 - 原 gap object 不必删除
 - 解决事件通过新的 inference record 与后续 assessment snapshot 体现
 - latest assessment 不再把已解决 gap 纳入当前 blocking/non-blocking membership
+
+#### Reopen
+
+当已解决的 requirement 后续再次缺失时：
+
+- 不复用已 resolved 的 `gap_id`
+- 创建新的 gap object 表达新的缺失事件
+- 新 gap 的打开必须由新的 inference record 驱动
+- 旧 resolved gap 保留为历史对象，供审计 requirement-level 演化
 
 ### InferenceRecord Lifecycle
 
@@ -558,11 +586,15 @@ action proposal 仍属于 shortcut：
 5. assessment recompute 输出完全相同，不产生新的 snapshot。
 6. assessment recompute 仅 gap 集合变化，会产生新的 snapshot。
 7. assessment recompute 仅 confidence grade 或 rationale 变化，会产生新的 snapshot。
-8. latest assessment 更新后，context surface 只反映新的 live support / oppose / gap / inference membership。
-9. seed finding 当前不可解引用时，proposition 仍可读取，且对应 `seed_entries.finding = null`。
-10. 上游对象失效后，历史 assessment 仍可审计，但 latest assessment 可因 gaps 或 membership 变化而降级。
-11. action proposal 只由 latest assessment 刷新，不从历史 assessment 混合拼装。
-12. `agent_authored` proposition 与 `system_seeded` proposition 进入同一 assessment lifecycle。
+8. proposition 注册后允许暂时保持 `latest_assessment = null`，直到首次实际重算形成 canonical 输出。
+9. proposition 的首个 snapshot 可以直接是 `supported`、`contradicted` 或 `mixed`。
+10. latest assessment 更新后，context surface 只反映新的 live support / oppose / gap / inference membership。
+11. seed finding 当前不可解引用时，proposition 仍可读取，且对应 `seed_entries.finding = null`。
+12. 上游对象失效后，历史 assessment 仍可审计，但 latest assessment 可因 gaps 或 membership 变化而降级。
+13. 已 resolved 的 gap 若再次出现，会创建新的 gap object，而不是把旧 gap 改回 `open`。
+14. assessment 链损坏时，读取层显式暴露 canonical integrity error，不执行 latest 兜底选主。
+15. action proposal 只由 latest assessment 刷新，不从历史 assessment 混合拼装。
+16. `agent_authored` proposition 与 `system_seeded` proposition 进入同一 assessment lifecycle。
 
 ## 与其他文档的关系
 

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import Any, Mapping
+from typing import Any
 
 from app.analysis_core.ir import AnalysisStepIR
 
@@ -152,9 +153,16 @@ def _normalize_metric_query_order(order: str, *, mode: str) -> tuple[str, str]:
         if normalized in {"DELTA_PCT ASC", "DELTA_PCT DESC"}:
             field, direction = normalized.split()
             return (field.lower(), direction)
-        raise ValueError(f"Invalid metric_query compare order '{order}'; must be delta_pct ASC or DESC")
+        raise ValueError(
+            f"Invalid metric_query compare order '{order}'; must be delta_pct ASC or DESC"
+        )
     if normalized_mode == "single_window":
-        if normalized in {"CURRENT_VALUE ASC", "CURRENT_VALUE DESC", "CURRENT_SESSIONS ASC", "CURRENT_SESSIONS DESC"}:
+        if normalized in {
+            "CURRENT_VALUE ASC",
+            "CURRENT_VALUE DESC",
+            "CURRENT_SESSIONS ASC",
+            "CURRENT_SESSIONS DESC",
+        }:
             field, direction = normalized.split()
             return (field.lower(), direction)
         raise ValueError(
@@ -250,7 +258,9 @@ def build_metric_query(
             LIMIT {limit}
         """
 
-    legacy_order_field, legacy_order_direction = _normalize_metric_query_order(order, mode="compare")
+    legacy_order_field, legacy_order_direction = _normalize_metric_query_order(
+        order, mode="compare"
+    )
     filter_clause = f" AND {filter_expr}" if filter_expr else ""
 
     return f"""
@@ -373,8 +383,7 @@ def build_windowed_aggregate_query(
     select_prefix = f"{group_by_sql}, " if group_by_sql else ""
 
     compare_mode = (
-        scoped_query is not None
-        and str(scoped_query.get("mode") or "").strip() == "compare"
+        scoped_query is not None and str(scoped_query.get("mode") or "").strip() == "compare"
     )
     if compare_mode:
         first_alias = agg_exprs[0][1]
@@ -398,7 +407,9 @@ def build_windowed_aggregate_query(
                 f"AS {alias}_delta_pct"
             )
 
-        by_period_group_by = f"GROUP BY _period, {group_by_sql}" if group_by_sql else "GROUP BY _period"
+        by_period_group_by = (
+            f"GROUP BY _period, {group_by_sql}" if group_by_sql else "GROUP BY _period"
+        )
         pivot_group_by = f"GROUP BY {group_by_sql}" if group_by_sql else ""
         pivot_select_prefix = f"{group_by_sql},\n            " if group_by_sql else ""
         final_select_prefix = f"{group_by_sql},\n            " if group_by_sql else ""
@@ -504,7 +515,11 @@ def build_aggregate_comparison_query(
         filter_clause = f" AND {filter_expr}" if filter_expr else ""
         with_prefix = ""
 
-    by_period_group_by = f"GROUP BY _period, {group_by_cols_expanded}" if group_by_cols_expanded else "GROUP BY _period"
+    by_period_group_by = (
+        f"GROUP BY _period, {group_by_cols_expanded}"
+        if group_by_cols_expanded
+        else "GROUP BY _period"
+    )
     pivot_group_by = f"GROUP BY {group_by_cols}" if group_by_cols else ""
     by_period_select_prefix = f"_period, {group_by_cols}, " if group_by_cols else "_period, "
     pivot_select_prefix = f"{group_by_cols},\n            " if group_by_cols else ""
@@ -530,7 +545,11 @@ def build_aggregate_comparison_query(
         """
 
     filter_clause = f" AND {filter_expr}" if filter_expr else ""
-    by_period_group_by = f"GROUP BY _period, {group_by_cols_expanded}" if group_by_cols_expanded else "GROUP BY _period"
+    by_period_group_by = (
+        f"GROUP BY _period, {group_by_cols_expanded}"
+        if group_by_cols_expanded
+        else "GROUP BY _period"
+    )
     pivot_group_by = f"GROUP BY {group_by_cols}" if group_by_cols else ""
     by_period_select_prefix = f"_period, {group_by_cols}, " if group_by_cols else "_period, "
     pivot_select_prefix = f"{group_by_cols},\n            " if group_by_cols else ""
@@ -653,7 +672,9 @@ def compile_step(
         metric_sql = semantic_context.get("metric_sql")
         dimensions = semantic_context.get("dimensions")
         if metric_sql is None or dimensions is None:
-            raise ValueError("metric_query compilation requires semantic_context with 'metric_sql' and 'dimensions'")
+            raise ValueError(
+                "metric_query compilation requires semantic_context with 'metric_sql' and 'dimensions'"
+            )
         limit = int(params.get("limit", 10))
         order_param = params.get("order")
         scoped_query = params.get("scoped_query")
@@ -736,7 +757,9 @@ def compile_step(
             raise ValueError("aggregate_query requires 'select' param (list of expressions)")
         where = params.get("where")
 
-        if params.get("compare_period") or (has_scoped_query and str(scoped_query.get("mode") or "") == "compare"):
+        if params.get("compare_period") or (
+            has_scoped_query and str(scoped_query.get("mode") or "") == "compare"
+        ):
             date_column = str(params.get("date_column", "event_date"))
             sql = build_aggregate_comparison_query(
                 table_name=table_name,

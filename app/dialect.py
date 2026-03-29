@@ -31,6 +31,7 @@ def translate(sql: str, target: str) -> str:
 # Internal rewriters
 # ---------------------------------------------------------------------------
 
+
 def _rewrite_cast(sql: str) -> str:
     r"""Replace DuckDB shorthand casts ``expr::TYPE`` with ``CAST(expr AS TYPE)``.
 
@@ -39,6 +40,7 @@ def _rewrite_cast(sql: str) -> str:
 
     The regex works right-to-left so nested casts are handled naturally.
     """
+
     def _replace(m: re.Match) -> str:
         return f"CAST({m.group(1)} AS {m.group(2)})"
 
@@ -49,7 +51,7 @@ def _rewrite_cast(sql: str) -> str:
         sql = _rewrite_cast_paren(sql)
         # Case 2: simple token before ::TYPE
         sql = re.sub(
-            r'(\b[A-Za-z_][A-Za-z0-9_]*)::([A-Za-z_][A-Za-z0-9_]*)',
+            r"(\b[A-Za-z_][A-Za-z0-9_]*)::([A-Za-z_][A-Za-z0-9_]*)",
             _replace,
             sql,
         )
@@ -58,7 +60,7 @@ def _rewrite_cast(sql: str) -> str:
 
 def _rewrite_cast_paren(sql: str) -> str:
     """Handle ``…)::TYPE`` by finding the matching open paren."""
-    pattern = re.compile(r'\)(\s*)::(\s*)([A-Za-z_][A-Za-z0-9_]*)')
+    pattern = re.compile(r"\)(\s*)::(\s*)([A-Za-z_][A-Za-z0-9_]*)")
     m = pattern.search(sql)
     if m is None:
         return sql
@@ -70,9 +72,9 @@ def _rewrite_cast_paren(sql: str) -> str:
     depth = 1
     i = close_pos - 1
     while i >= 0 and depth > 0:
-        if sql[i] == ')':
+        if sql[i] == ")":
             depth += 1
-        elif sql[i] == '(':
+        elif sql[i] == "(":
             depth -= 1
         i -= 1
     open_pos = i + 1  # position of matching '('
@@ -81,15 +83,15 @@ def _rewrite_cast_paren(sql: str) -> str:
     func_start = open_pos
     j = open_pos - 1
     # skip whitespace
-    while j >= 0 and sql[j] in (' ', '\t', '\n', '\r'):
+    while j >= 0 and sql[j] in (" ", "\t", "\n", "\r"):
         j -= 1
     # If previous char is alphanumeric/underscore, it's a function name or keyword
-    if j >= 0 and (sql[j].isalnum() or sql[j] == '_'):
-        while j >= 0 and (sql[j].isalnum() or sql[j] == '_'):
+    if j >= 0 and (sql[j].isalnum() or sql[j] == "_"):
+        while j >= 0 and (sql[j].isalnum() or sql[j] == "_"):
             j -= 1
         func_start = j + 1
 
-    expr = sql[func_start:m.start() + 1]  # includes the closing ')'
+    expr = sql[func_start : m.start() + 1]  # includes the closing ')'
     replacement = f"CAST({expr} AS {type_name})"
-    sql = sql[:func_start] + replacement + sql[m.end():]
+    sql = sql[:func_start] + replacement + sql[m.end() :]
     return sql

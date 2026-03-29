@@ -102,6 +102,7 @@ class DuckDBCatalogAdapterTests(unittest.TestCase):
     def test_source_type_registered_in_factory(self) -> None:
         """Verify 'duckdb' source type is handled by the adapter factory."""
         from app.sources import _build_adapter
+
         adapter = _build_adapter("duckdb", {"path": str(self.db_path)})
         self.assertIsInstance(adapter, DuckDBCatalogAdapter)
 
@@ -112,6 +113,7 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         from app.adapters.trino_adapter import TrinoCatalogAdapter
+
         cls.adapter = TrinoCatalogAdapter(
             host="mock-trino.example.com",
             port=8080,
@@ -192,8 +194,18 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
             [{"table_name": "events", "table_type": "TABLE"}],
             # columns
             [
-                {"column_name": "id", "data_type": "integer", "ordinal_position": 1, "is_nullable": "NO"},
-                {"column_name": "name", "data_type": "varchar", "ordinal_position": 2, "is_nullable": "YES"},
+                {
+                    "column_name": "id",
+                    "data_type": "integer",
+                    "ordinal_position": 1,
+                    "is_nullable": "NO",
+                },
+                {
+                    "column_name": "name",
+                    "data_type": "varchar",
+                    "ordinal_position": 2,
+                    "is_nullable": "YES",
+                },
             ],
             # SHOW COLUMNS for comments
             [
@@ -229,8 +241,18 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
         mock_query.side_effect = [
             # columns query
             [
-                {"column_name": "id", "data_type": "integer", "ordinal_position": 1, "is_nullable": "NO"},
-                {"column_name": "ts", "data_type": "timestamp", "ordinal_position": 2, "is_nullable": "YES"},
+                {
+                    "column_name": "id",
+                    "data_type": "integer",
+                    "ordinal_position": 1,
+                    "is_nullable": "NO",
+                },
+                {
+                    "column_name": "ts",
+                    "data_type": "timestamp",
+                    "ordinal_position": 2,
+                    "is_nullable": "YES",
+                },
             ],
             # SHOW COLUMNS for comments
             [
@@ -249,12 +271,33 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
     @patch("app.adapters.trino_adapter.TrinoCatalogAdapter._query")
     def test_get_table_stats(self, mock_query) -> None:
         mock_query.return_value = [
-            {"column_name": "id", "data_size": 100, "distinct_values_count": 50,
-             "nulls_fraction": 0.0, "row_count": None, "low_value": "1", "high_value": "50"},
-            {"column_name": "name", "data_size": 500, "distinct_values_count": 30,
-             "nulls_fraction": 0.1, "row_count": None, "low_value": None, "high_value": None},
-            {"column_name": None, "data_size": None, "distinct_values_count": None,
-             "nulls_fraction": None, "row_count": 1000, "low_value": None, "high_value": None},
+            {
+                "column_name": "id",
+                "data_size": 100,
+                "distinct_values_count": 50,
+                "nulls_fraction": 0.0,
+                "row_count": None,
+                "low_value": "1",
+                "high_value": "50",
+            },
+            {
+                "column_name": "name",
+                "data_size": 500,
+                "distinct_values_count": 30,
+                "nulls_fraction": 0.1,
+                "row_count": None,
+                "low_value": None,
+                "high_value": None,
+            },
+            {
+                "column_name": None,
+                "data_size": None,
+                "distinct_values_count": None,
+                "nulls_fraction": None,
+                "row_count": 1000,
+                "low_value": None,
+                "high_value": None,
+            },
         ]
         stats = self.adapter.get_table_stats("analytics", "events")
         self.assertEqual(stats["row_count"], 1000)
@@ -264,13 +307,17 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
 
     def test_source_type_registered_in_factory(self) -> None:
         """Verify 'trino' source type is handled by the adapter factory."""
-        from app.sources import _build_adapter
         from app.adapters.trino_adapter import TrinoCatalogAdapter
-        adapter = _build_adapter("trino", {
-            "host": "localhost",
-            "port": 8080,
-            "catalog": "hive",
-        })
+        from app.sources import _build_adapter
+
+        adapter = _build_adapter(
+            "trino",
+            {
+                "host": "localhost",
+                "port": 8080,
+                "catalog": "hive",
+            },
+        )
         self.assertIsInstance(adapter, TrinoCatalogAdapter)
 
     @patch("app.adapters.trino_adapter.TrinoCatalogAdapter._query")
@@ -279,7 +326,12 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
         mock_query.side_effect = [
             # columns query
             [
-                {"column_name": "id", "data_type": "integer", "ordinal_position": 1, "is_nullable": "NO"},
+                {
+                    "column_name": "id",
+                    "data_type": "integer",
+                    "ordinal_position": 1,
+                    "is_nullable": "NO",
+                },
             ],
             # SHOW COLUMNS fails
             Exception("Permission denied"),
@@ -296,7 +348,12 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
             [{"table_name": "events", "table_type": "TABLE"}],
             # columns
             [
-                {"column_name": "id", "data_type": "integer", "ordinal_position": 1, "is_nullable": "NO"},
+                {
+                    "column_name": "id",
+                    "data_type": "integer",
+                    "ordinal_position": 1,
+                    "is_nullable": "NO",
+                },
             ],
             # SHOW COLUMNS fails
             Exception("Permission denied"),

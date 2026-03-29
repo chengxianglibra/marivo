@@ -91,14 +91,10 @@ class IncrementalSynthesizer:
     @staticmethod
     def _effective_scope_from_subject(subject: dict[str, Any]) -> dict[str, Any]:
         slice_dict = dict(subject.get("slice", {}) or {})
-        temporal_dims = {
-            str(col) for col in subject.get("temporal_group_by_columns", []) or []
-        }
+        temporal_dims = {str(col) for col in subject.get("temporal_group_by_columns", []) or []}
         if temporal_dims:
             slice_dict = {
-                key: value
-                for key, value in slice_dict.items()
-                if key not in temporal_dims
+                key: value for key, value in slice_dict.items() if key not in temporal_dims
             }
         return {
             "metric": subject.get("metric"),
@@ -108,10 +104,9 @@ class IncrementalSynthesizer:
     @staticmethod
     def _scope_matches(obs_subject: dict[str, Any], claim_scope: dict[str, Any]) -> bool:
         obs_scope = IncrementalSynthesizer._effective_scope_from_subject(obs_subject)
-        return (
-            obs_scope.get("metric") == claim_scope.get("metric")
-            and obs_scope.get("slice", {}) == claim_scope.get("slice", {})
-        )
+        return obs_scope.get("metric") == claim_scope.get("metric") and obs_scope.get(
+            "slice", {}
+        ) == claim_scope.get("slice", {})
 
     def _find_matching_claim(
         self, obs: dict[str, Any], tentative_claims: list[dict[str, Any]]
@@ -170,9 +165,7 @@ class IncrementalSynthesizer:
         metric = scope.get("metric", "unknown")
         slice_dict = scope.get("slice", {})
         slice_str = (
-            ", ".join(f"{k}={v}" for k, v in slice_dict.items())
-            if slice_dict
-            else "overall"
+            ", ".join(f"{k}={v}" for k, v in slice_dict.items()) if slice_dict else "overall"
         )
 
         delta_pct = payload.get("delta_pct")
@@ -217,7 +210,9 @@ class IncrementalSynthesizer:
             ][:3]  # cap at 3 for readability
             if numeric_parts:
                 values_str = ", ".join(
-                    f"{k}={v:,.2f}".rstrip("0").rstrip(".") if isinstance(v, float) else f"{k}={v:,}"
+                    f"{k}={v:,.2f}".rstrip("0").rstrip(".")
+                    if isinstance(v, float)
+                    else f"{k}={v:,}"
                     for k, v in numeric_parts
                 )
                 text = f"{slice_str}: {values_str} (tentative)"
@@ -280,8 +275,10 @@ class IncrementalSynthesizer:
             "contradiction_penalty": contradiction_penalty,
             "primary_delta_pct": round(float(delta_pct), 3) if delta_pct is not None else None,
             "primary_direction": (
-                "up" if delta_pct is not None and float(delta_pct) > 0
-                else "down" if delta_pct is not None and float(delta_pct) < 0
+                "up"
+                if delta_pct is not None and float(delta_pct) > 0
+                else "down"
+                if delta_pct is not None and float(delta_pct) < 0
                 else None
             ),
             "current_value": payload.get("current_value"),
@@ -306,7 +303,11 @@ class IncrementalSynthesizer:
         n_supporting = len(claim["supporting_observations"])
         n_contradictions = len(claim["contradicting_observations"])
 
-        primary_obs = obs_map.get(claim["supporting_observations"][0]) if claim["supporting_observations"] else None
+        primary_obs = (
+            obs_map.get(claim["supporting_observations"][0])
+            if claim["supporting_observations"]
+            else None
+        )
         if primary_obs:
             breakdown = self._compute_breakdown(
                 primary_obs.get("payload", {}),
@@ -386,18 +387,21 @@ class IncrementalSynthesizer:
 
             current_level = claim.get("inference_level", "L0")
             # Only upgrade, never downgrade
-            if (INFERENCE_LEVEL_ORDER.index(upgrade.new_level) >
-                    INFERENCE_LEVEL_ORDER.index(current_level)):
+            if INFERENCE_LEVEL_ORDER.index(upgrade.new_level) > INFERENCE_LEVEL_ORDER.index(
+                current_level
+            ):
                 new_level = upgrade.new_level
             else:
                 new_level = current_level
 
             # Union tokens (preserve order, no duplicates)
             existing_tokens: list[str] = claim.get("inference_justification", [])
-            new_tokens = list(dict.fromkeys(
-                existing_tokens + [t for t in upgrade.justification_tokens
-                                   if t not in existing_tokens]
-            ))
+            new_tokens = list(
+                dict.fromkeys(
+                    existing_tokens
+                    + [t for t in upgrade.justification_tokens if t not in existing_tokens]
+                )
+            )
             new_confidence = min(0.99, claim.get("confidence", 0.0) + upgrade.confidence_boost)
 
             self._store.execute(
@@ -472,9 +476,7 @@ class IncrementalSynthesizer:
                 claim.pop("contradicting_observation_ids_json")
             )
             claim["confidence_breakdown"] = json.loads(claim.pop("confidence_breakdown_json"))
-            claim["inference_justification"] = json.loads(
-                claim.pop("inference_justification_json")
-            )
+            claim["inference_justification"] = json.loads(claim.pop("inference_justification_json"))
             result.append(claim)
         return result
 

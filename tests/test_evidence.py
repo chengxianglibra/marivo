@@ -2,16 +2,16 @@ from __future__ import annotations
 
 import unittest
 
-from tests.shared_fixtures import get_seeded_duckdb_path
 from app.evidence import (
-    make_observation,
-    make_funnel_observation,
-    make_contribution_observation,
     make_anomaly_observation,
+    make_contribution_observation,
+    make_funnel_observation,
+    make_observation,
     score_confidence,
     synthesize_claims,
 )
 from app.evidence_engine import EvidencePipeline
+from tests.shared_fixtures import get_seeded_duckdb_path
 
 
 def _metric_query_payload(metric: str) -> dict[str, object]:
@@ -31,10 +31,23 @@ class ObservationFactoryTests(unittest.TestCase):
     """Tests for observation factory functions."""
 
     def test_make_observation_metric_observation(self) -> None:
-        row = {"platform": "android", "app_version": "8.3.1", "network_type": "4g", "content_type": "short"}
+        row = {
+            "platform": "android",
+            "app_version": "8.3.1",
+            "network_type": "4g",
+            "content_type": "short",
+        }
         obs = make_observation(
-            "metric_observation", "watch_time", row,
-            {"current_value": 82, "baseline_value": 96, "delta_pct": -14.2, "current_sessions": 280, "baseline_sessions": 285},
+            "metric_observation",
+            "watch_time",
+            row,
+            {
+                "current_value": 82,
+                "baseline_value": 96,
+                "delta_pct": -14.2,
+                "current_sessions": 280,
+                "baseline_sessions": 285,
+            },
             {"freshness_ok": True, "sample_size_ok": True},
         )
         self.assertTrue(obs["observation_id"].startswith("obs_"))
@@ -66,11 +79,31 @@ class ObservationFactoryTests(unittest.TestCase):
 
     def test_make_contribution_observation(self) -> None:
         contributions = [
-            {"segment_value": "android", "current_share": 0.60, "baseline_share": 0.50, "delta_share": 0.10, "current_count": 600},
-            {"segment_value": "ios", "current_share": 0.30, "baseline_share": 0.35, "delta_share": -0.05, "current_count": 300},
-            {"segment_value": "web", "current_share": 0.10, "baseline_share": 0.15, "delta_share": -0.05, "current_count": 100},
+            {
+                "segment_value": "android",
+                "current_share": 0.60,
+                "baseline_share": 0.50,
+                "delta_share": 0.10,
+                "current_count": 600,
+            },
+            {
+                "segment_value": "ios",
+                "current_share": 0.30,
+                "baseline_share": 0.35,
+                "delta_share": -0.05,
+                "current_count": 300,
+            },
+            {
+                "segment_value": "web",
+                "current_share": 0.10,
+                "baseline_share": 0.15,
+                "delta_share": -0.05,
+                "current_count": 100,
+            },
         ]
-        obs = make_contribution_observation("watch_time", "platform", contributions, {"freshness_ok": True})
+        obs = make_contribution_observation(
+            "watch_time", "platform", contributions, {"freshness_ok": True}
+        )
         self.assertTrue(obs["observation_id"].startswith("obs_"))
         self.assertEqual(obs["type"], "contribution_shift")
         self.assertEqual(obs["payload"]["biggest_shift_segment"], "android")
@@ -81,7 +114,14 @@ class ObservationFactoryTests(unittest.TestCase):
         obs = make_anomaly_observation(
             "watch_time",
             {"platform": "android", "app_version": "8.3.1"},
-            {"value": 60, "mean": 90, "stddev": 10, "z_score": -3.0, "is_anomaly": True, "sample_size": 500},
+            {
+                "value": 60,
+                "mean": 90,
+                "stddev": 10,
+                "z_score": -3.0,
+                "is_anomaly": True,
+                "sample_size": 500,
+            },
             {"freshness_ok": True},
         )
         self.assertTrue(obs["observation_id"].startswith("obs_"))
@@ -93,7 +133,14 @@ class ObservationFactoryTests(unittest.TestCase):
         obs = make_anomaly_observation(
             "watch_time",
             {"platform": "ios"},
-            {"value": 88, "mean": 90, "stddev": 10, "z_score": -0.2, "is_anomaly": False, "sample_size": 500},
+            {
+                "value": 88,
+                "mean": 90,
+                "stddev": 10,
+                "z_score": -0.2,
+                "is_anomaly": False,
+                "sample_size": 500,
+            },
             {"freshness_ok": True},
         )
         self.assertFalse(obs["significance"]["practical_significance"])
@@ -108,7 +155,15 @@ class SynthesizeClaimsWithNewTypesTests(unittest.TestCase):
             {
                 "observation_id": "obs_watch_1",
                 "type": "metric_observation",
-                "subject": {"metric": "watch_time", "slice": {"platform": "android", "app_version": "8.3.1", "network_type": "4g", "content_type": "short"}},
+                "subject": {
+                    "metric": "watch_time",
+                    "slice": {
+                        "platform": "android",
+                        "app_version": "8.3.1",
+                        "network_type": "4g",
+                        "content_type": "short",
+                    },
+                },
                 "payload": {"delta_pct": -14.0, "current_sessions": 280, "baseline_sessions": 285},
                 "significance": {"sample_size": 280, "practical_significance": True},
                 "quality": {"freshness_ok": True, "sample_size_ok": True},
@@ -116,7 +171,15 @@ class SynthesizeClaimsWithNewTypesTests(unittest.TestCase):
             {
                 "observation_id": "obs_qoe_1",
                 "type": "qoe_regression",
-                "subject": {"metric": "first_frame_time", "slice": {"platform": "android", "app_version": "8.3.1", "network_type": "4g", "content_type": "short"}},
+                "subject": {
+                    "metric": "first_frame_time",
+                    "slice": {
+                        "platform": "android",
+                        "app_version": "8.3.1",
+                        "network_type": "4g",
+                        "content_type": "short",
+                    },
+                },
                 "payload": {"delta_pct": 18.0, "current_sessions": 280, "baseline_sessions": 285},
                 "significance": {"sample_size": 280, "practical_significance": True},
                 "quality": {"freshness_ok": True, "sample_size_ok": True},
@@ -125,54 +188,73 @@ class SynthesizeClaimsWithNewTypesTests(unittest.TestCase):
 
     def test_funnel_observation_added_to_supports(self) -> None:
         obs = self._base_observations()
-        obs.append({
-            "observation_id": "obs_funnel_1",
-            "type": "funnel_drop",
-            "subject": {"metric": "engagement_funnel", "slice": {"funnel": "engagement_funnel", "worst_stage": "click"}},
-            "payload": {"worst_stage": "click", "worst_delta_drop_rate": 0.08, "stages": []},
-            "significance": {"sample_size": 500, "practical_significance": True},
-            "quality": {"freshness_ok": True},
-        })
+        obs.append(
+            {
+                "observation_id": "obs_funnel_1",
+                "type": "funnel_drop",
+                "subject": {
+                    "metric": "engagement_funnel",
+                    "slice": {"funnel": "engagement_funnel", "worst_stage": "click"},
+                },
+                "payload": {"worst_stage": "click", "worst_delta_drop_rate": 0.08, "stages": []},
+                "significance": {"sample_size": 500, "practical_significance": True},
+                "quality": {"freshness_ok": True},
+            }
+        )
         claims, _, _ = synthesize_claims(obs)
         self.assertGreaterEqual(len(claims), 1)
         self.assertIn("obs_funnel_1", claims[0]["supporting_observations"])
 
     def test_contribution_observation_added_to_supports(self) -> None:
         obs = self._base_observations()
-        obs.append({
-            "observation_id": "obs_contrib_1",
-            "type": "contribution_shift",
-            "subject": {"metric": "watch_time", "slice": {"segment": "platform", "biggest_shift": "android"}},
-            "payload": {"biggest_shift_segment": "android", "biggest_delta_share": 0.10, "segment_name": "platform", "contributions": []},
-            "significance": {"sample_size": 1000, "practical_significance": True},
-            "quality": {"freshness_ok": True},
-        })
+        obs.append(
+            {
+                "observation_id": "obs_contrib_1",
+                "type": "contribution_shift",
+                "subject": {
+                    "metric": "watch_time",
+                    "slice": {"segment": "platform", "biggest_shift": "android"},
+                },
+                "payload": {
+                    "biggest_shift_segment": "android",
+                    "biggest_delta_share": 0.10,
+                    "segment_name": "platform",
+                    "contributions": [],
+                },
+                "significance": {"sample_size": 1000, "practical_significance": True},
+                "quality": {"freshness_ok": True},
+            }
+        )
         claims, _, _ = synthesize_claims(obs)
         self.assertIn("obs_contrib_1", claims[0]["supporting_observations"])
 
     def test_anomaly_observation_added_to_supports(self) -> None:
         obs = self._base_observations()
-        obs.append({
-            "observation_id": "obs_anomaly_1",
-            "type": "anomaly_detection",
-            "subject": {"metric": "watch_time", "slice": {"platform": "android"}},
-            "payload": {"z_score": -3.0, "is_anomaly": True, "sample_size": 500},
-            "significance": {"sample_size": 500, "practical_significance": True},
-            "quality": {"freshness_ok": True},
-        })
+        obs.append(
+            {
+                "observation_id": "obs_anomaly_1",
+                "type": "anomaly_detection",
+                "subject": {"metric": "watch_time", "slice": {"platform": "android"}},
+                "payload": {"z_score": -3.0, "is_anomaly": True, "sample_size": 500},
+                "significance": {"sample_size": 500, "practical_significance": True},
+                "quality": {"freshness_ok": True},
+            }
+        )
         claims, _, _ = synthesize_claims(obs)
         self.assertIn("obs_anomaly_1", claims[0]["supporting_observations"])
 
     def test_insignificant_new_types_not_added(self) -> None:
         obs = self._base_observations()
-        obs.append({
-            "observation_id": "obs_funnel_weak",
-            "type": "funnel_drop",
-            "subject": {"metric": "f", "slice": {"funnel": "f", "worst_stage": "s"}},
-            "payload": {"worst_stage": "s", "worst_delta_drop_rate": 0.01, "stages": []},
-            "significance": {"sample_size": 500, "practical_significance": False},
-            "quality": {"freshness_ok": True},
-        })
+        obs.append(
+            {
+                "observation_id": "obs_funnel_weak",
+                "type": "funnel_drop",
+                "subject": {"metric": "f", "slice": {"funnel": "f", "worst_stage": "s"}},
+                "payload": {"worst_stage": "s", "worst_delta_drop_rate": 0.01, "stages": []},
+                "significance": {"sample_size": 500, "practical_significance": False},
+                "quality": {"freshness_ok": True},
+            }
+        )
         claims, _, _ = synthesize_claims(obs)
         self.assertNotIn("obs_funnel_weak", claims[0]["supporting_observations"])
 
@@ -196,7 +278,11 @@ class WeightedPrimarySelectionTests(unittest.TestCase):
                 "observation_id": "obs_large",
                 "type": "metric_observation",
                 "subject": {"metric": "watch_time", "slice": {"platform": "android"}},
-                "payload": {"delta_pct": -10.0, "current_sessions": 5000, "baseline_sessions": 5200},
+                "payload": {
+                    "delta_pct": -10.0,
+                    "current_sessions": 5000,
+                    "baseline_sessions": 5200,
+                },
                 "significance": {"sample_size": 5000, "practical_significance": True},
                 "quality": {"freshness_ok": True, "sample_size_ok": True},
             },
@@ -233,14 +319,16 @@ class WeightedPrimarySelectionTests(unittest.TestCase):
         self.assertIn("2 metrics", trend_claims[0]["text"])
 
     def test_synthesize_claims_current_window_metric_observation_produces_finding(self) -> None:
-        obs = [{
-            "observation_id": "obs_wt",
-            "type": "metric_observation",
-            "subject": {"metric": "watch_time", "slice": {"platform": "android"}},
-            "payload": {"current_value": 82.0, "current_sessions": 300},
-            "significance": {"sample_size": 300, "practical_significance": True},
-            "quality": {"freshness_ok": True, "sample_size_ok": True},
-        }]
+        obs = [
+            {
+                "observation_id": "obs_wt",
+                "type": "metric_observation",
+                "subject": {"metric": "watch_time", "slice": {"platform": "android"}},
+                "payload": {"current_value": 82.0, "current_sessions": 300},
+                "significance": {"sample_size": 300, "practical_significance": True},
+                "quality": {"freshness_ok": True, "sample_size_ok": True},
+            }
+        ]
         claims, _, _ = synthesize_claims(obs)
         self.assertEqual(len(claims), 1)
         self.assertEqual(claims[0]["type"], "finding")
@@ -251,14 +339,19 @@ class SynthesizeClaimsNonMetricTests(unittest.TestCase):
     """Tests for synthesize_claims when only non-metric_observation observations exist."""
 
     def test_synthesize_claims_funnel_only(self) -> None:
-        observations = [{
-            "observation_id": "obs_funnel_1",
-            "type": "funnel_drop",
-            "subject": {"metric": "engagement_funnel", "slice": {"funnel": "engagement_funnel", "worst_stage": "click"}},
-            "payload": {"worst_stage": "click", "worst_delta_drop_rate": 0.08, "stages": []},
-            "significance": {"sample_size": 500, "practical_significance": True},
-            "quality": {"freshness_ok": True, "sample_size_ok": True},
-        }]
+        observations = [
+            {
+                "observation_id": "obs_funnel_1",
+                "type": "funnel_drop",
+                "subject": {
+                    "metric": "engagement_funnel",
+                    "slice": {"funnel": "engagement_funnel", "worst_stage": "click"},
+                },
+                "payload": {"worst_stage": "click", "worst_delta_drop_rate": 0.08, "stages": []},
+                "significance": {"sample_size": 500, "practical_significance": True},
+                "quality": {"freshness_ok": True, "sample_size_ok": True},
+            }
+        ]
         claims, _, _ = synthesize_claims(observations)
         self.assertEqual(len(claims), 1)
         self.assertEqual(claims[0]["type"], "finding")
@@ -266,14 +359,16 @@ class SynthesizeClaimsNonMetricTests(unittest.TestCase):
         self.assertIn("obs_funnel_1", claims[0]["supporting_observations"])
 
     def test_synthesize_claims_anomaly_only(self) -> None:
-        observations = [{
-            "observation_id": "obs_anomaly_1",
-            "type": "anomaly_detection",
-            "subject": {"metric": "latency", "slice": {"host": "h1"}},
-            "payload": {"z_score": -3.5, "is_anomaly": True, "sample_size": 200},
-            "significance": {"sample_size": 200, "practical_significance": True},
-            "quality": {"freshness_ok": True, "sample_size_ok": True},
-        }]
+        observations = [
+            {
+                "observation_id": "obs_anomaly_1",
+                "type": "anomaly_detection",
+                "subject": {"metric": "latency", "slice": {"host": "h1"}},
+                "payload": {"z_score": -3.5, "is_anomaly": True, "sample_size": 200},
+                "significance": {"sample_size": 200, "practical_significance": True},
+                "quality": {"freshness_ok": True, "sample_size_ok": True},
+            }
+        ]
         claims, _, _ = synthesize_claims(observations)
         self.assertEqual(len(claims), 1)
         self.assertEqual(claims[0]["type"], "finding")
@@ -286,14 +381,24 @@ class SynthesizeClaimsNonMetricTests(unittest.TestCase):
         self.assertEqual(edges, [])
 
     def test_synthesize_claims_contribution_only(self) -> None:
-        observations = [{
-            "observation_id": "obs_contrib_1",
-            "type": "contribution_shift",
-            "subject": {"metric": "watch_time", "slice": {"segment": "platform", "biggest_shift": "android"}},
-            "payload": {"biggest_shift_segment": "android", "biggest_delta_share": 0.10, "segment_name": "platform", "contributions": []},
-            "significance": {"sample_size": 1000, "practical_significance": True},
-            "quality": {"freshness_ok": True, "sample_size_ok": True},
-        }]
+        observations = [
+            {
+                "observation_id": "obs_contrib_1",
+                "type": "contribution_shift",
+                "subject": {
+                    "metric": "watch_time",
+                    "slice": {"segment": "platform", "biggest_shift": "android"},
+                },
+                "payload": {
+                    "biggest_shift_segment": "android",
+                    "biggest_delta_share": 0.10,
+                    "segment_name": "platform",
+                    "contributions": [],
+                },
+                "significance": {"sample_size": 1000, "practical_significance": True},
+                "quality": {"freshness_ok": True, "sample_size_ok": True},
+            }
+        ]
         claims, _, _ = synthesize_claims(observations)
         self.assertEqual(len(claims), 1)
         self.assertEqual(claims[0]["type"], "finding")
@@ -332,7 +437,15 @@ class EvidencePipelineTests(unittest.TestCase):
             {
                 "observation_id": "obs_watch_1",
                 "type": "metric_observation",
-                "subject": {"metric": "watch_time", "slice": {"platform": "android", "app_version": "8.3.1", "network_type": "4g", "content_type": "short"}},
+                "subject": {
+                    "metric": "watch_time",
+                    "slice": {
+                        "platform": "android",
+                        "app_version": "8.3.1",
+                        "network_type": "4g",
+                        "content_type": "short",
+                    },
+                },
                 "payload": {"delta_pct": -14.0, "current_sessions": 280, "baseline_sessions": 285},
                 "significance": {"sample_size": 280, "practical_significance": True},
                 "quality": {"freshness_ok": True, "sample_size_ok": True},
@@ -340,7 +453,15 @@ class EvidencePipelineTests(unittest.TestCase):
             {
                 "observation_id": "obs_qoe_1",
                 "type": "qoe_regression",
-                "subject": {"metric": "first_frame_time", "slice": {"platform": "android", "app_version": "8.3.1", "network_type": "4g", "content_type": "short"}},
+                "subject": {
+                    "metric": "first_frame_time",
+                    "slice": {
+                        "platform": "android",
+                        "app_version": "8.3.1",
+                        "network_type": "4g",
+                        "content_type": "short",
+                    },
+                },
                 "payload": {"delta_pct": 18.0, "current_sessions": 280, "baseline_sessions": 285},
                 "significance": {"sample_size": 280, "practical_significance": True},
                 "quality": {"freshness_ok": True, "sample_size_ok": True},
@@ -361,6 +482,7 @@ class EvidencePipelineServiceIntegrationTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         import tempfile
         from pathlib import Path
+
         from app.service import SemanticLayerService
         from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
         from app.storage.sqlite_metadata import SQLiteMetadataStore
@@ -382,17 +504,21 @@ class EvidencePipelineServiceIntegrationTests(unittest.TestCase):
         session_id = self.service.create_session("Pipeline test", {}, {}, {})["session_id"]
         # Seed a published metric so metric_query works
         from app.semantic import SemanticService
+
         semantic = SemanticService(self.service.metadata)
         entity = semantic.create_entity("session_pipeline", "Session", ["session_id"])
         semantic.publish_entity(entity["entity_id"])
         metric = semantic.create_metric(
-            "watch_time_pipeline", "Watch Time", "avg(play_duration_seconds)",
+            "watch_time_pipeline",
+            "Watch Time",
+            "avg(play_duration_seconds)",
             ["platform", "app_version", "network_type", "content_type"],
             entity_id=entity["entity_id"],
         )
         semantic.publish_metric(metric["metric_id"])
         self.service.run_step(
-            session_id, "metric_query",
+            session_id,
+            "metric_query",
             _metric_query_payload("watch_time_pipeline"),
         )
         captured: dict[str, int] = {}
@@ -487,6 +613,7 @@ class ProvenanceTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         import tempfile
         from pathlib import Path
+
         from app.service import SemanticLayerService
         from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
         from app.storage.sqlite_metadata import SQLiteMetadataStore
@@ -517,7 +644,8 @@ class ProvenanceTests(unittest.TestCase):
     def test_provenance_persisted_in_step(self) -> None:
         session_id = self.session["session_id"]
         self.service.run_step(
-            session_id, "profile_table",
+            session_id,
+            "profile_table",
             {"table_name": "analytics.watch_events"},
         )
 
@@ -527,6 +655,7 @@ class ProvenanceTests(unittest.TestCase):
         )
         self.assertGreaterEqual(len(steps), 1)
         import json
+
         prov = json.loads(steps[0]["provenance_json"])
         self.assertIn("query_hash", prov)
         self.assertIn("engine", prov)
@@ -534,11 +663,13 @@ class ProvenanceTests(unittest.TestCase):
     def test_provenance_in_evidence_graph(self) -> None:
         session_id = self.session["session_id"]
         self.service.run_step(
-            session_id, "profile_table",
+            session_id,
+            "profile_table",
             {"table_name": "analytics.watch_events"},
         )
         self.service.run_step(
-            session_id, "sample_rows",
+            session_id,
+            "sample_rows",
             {"table_name": "analytics.watch_events", "limit": 5},
         )
         graph = self.service.get_evidence_graph(session_id)
@@ -669,6 +800,7 @@ class InferenceLevelIntegrationTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         import tempfile
         from pathlib import Path
+
         from app.service import SemanticLayerService
         from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
         from app.storage.sqlite_metadata import SQLiteMetadataStore
@@ -684,11 +816,14 @@ class InferenceLevelIntegrationTests(unittest.TestCase):
 
         # Seed metric
         from app.semantic import SemanticService
+
         semantic = SemanticService(cls.service.metadata)
         entity = semantic.create_entity("il_entity", "IL Entity", ["session_id"])
         semantic.publish_entity(entity["entity_id"])
         metric = semantic.create_metric(
-            "il_watch_time", "Watch Time IL", "avg(play_duration_seconds)",
+            "il_watch_time",
+            "Watch Time IL",
+            "avg(play_duration_seconds)",
             ["platform", "app_version", "network_type", "content_type"],
             entity_id=entity["entity_id"],
         )
@@ -696,7 +831,8 @@ class InferenceLevelIntegrationTests(unittest.TestCase):
 
         cls.session_id = cls.service.create_session("IL test", {}, {}, {})["session_id"]
         cls.service.run_step(
-            cls.session_id, "metric_query",
+            cls.session_id,
+            "metric_query",
             _metric_query_payload("il_watch_time"),
         )
         cls.service.run_step(cls.session_id, "synthesize_findings")
@@ -729,6 +865,7 @@ class IncrementalSynthesizerTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         import tempfile
         from pathlib import Path
+
         from app.evidence_engine.incremental_synthesizer import IncrementalSynthesizer
         from app.storage.sqlite_metadata import SQLiteMetadataStore
 
@@ -745,8 +882,17 @@ class IncrementalSynthesizerTests(unittest.TestCase):
     def _make_synth(self):
         return self.IncrementalSynthesizer(self.meta)
 
-    def _insert_obs(self, session_id: str, obs_id: str, metric: str, slice_dict: dict, delta_pct: float, sample_size: int = 300) -> None:
+    def _insert_obs(
+        self,
+        session_id: str,
+        obs_id: str,
+        metric: str,
+        slice_dict: dict,
+        delta_pct: float,
+        sample_size: int = 300,
+    ) -> None:
         import json
+
         self.meta.execute(
             """
             INSERT INTO observations (
@@ -755,7 +901,10 @@ class IncrementalSynthesizerTests(unittest.TestCase):
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
-                obs_id, session_id, "step_test", "metric_observation",
+                obs_id,
+                session_id,
+                "step_test",
+                "metric_observation",
                 json.dumps({"metric": metric, "slice": slice_dict}),
                 json.dumps({"delta_pct": delta_pct}),
                 json.dumps({"sample_size": sample_size, "practical_significance": True}),
@@ -784,7 +933,10 @@ class IncrementalSynthesizerTests(unittest.TestCase):
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
-                obs_id, session_id, "step_test", "metric_observation",
+                obs_id,
+                session_id,
+                "step_test",
+                "metric_observation",
                 json.dumps({"metric": metric, "slice": slice_dict}),
                 json.dumps(
                     {
@@ -824,7 +976,10 @@ class IncrementalSynthesizerTests(unittest.TestCase):
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
-                obs_id, session_id, "step_test", "metric_observation",
+                obs_id,
+                session_id,
+                "step_test",
+                "metric_observation",
                 json.dumps(subject),
                 json.dumps({"delta_pct": delta_pct}),
                 json.dumps({"sample_size": sample_size, "practical_significance": True}),
@@ -834,8 +989,8 @@ class IncrementalSynthesizerTests(unittest.TestCase):
         )
 
     def _make_session(self) -> str:
-        import json
         from uuid import uuid4
+
         session_id = f"sess_{uuid4().hex[:12]}"
         self.meta.execute(
             "INSERT INTO sessions (session_id, goal, constraints_json, budget_json, policy_json, status) VALUES (?, ?, ?, ?, ?, ?)",
@@ -890,6 +1045,7 @@ class IncrementalSynthesizerTests(unittest.TestCase):
         self.assertEqual(result["claims_created"], 0)
         self.assertEqual(result["claims_updated"], 1)
         import json
+
         rows = self.meta.query_rows(
             "SELECT supporting_observation_ids_json FROM claims WHERE session_id = ?", [session_id]
         )
@@ -908,8 +1064,10 @@ class IncrementalSynthesizerTests(unittest.TestCase):
         result = synth.process(session_id)
         self.assertEqual(result["contradictions_found"], 1)
         import json
+
         rows = self.meta.query_rows(
-            "SELECT contradicting_observation_ids_json FROM claims WHERE session_id = ?", [session_id]
+            "SELECT contradicting_observation_ids_json FROM claims WHERE session_id = ?",
+            [session_id],
         )
         contradicting = json.loads(rows[0]["contradicting_observation_ids_json"])
         self.assertIn("obs_c2", contradicting)
@@ -953,6 +1111,7 @@ class IncrementalSynthesizerTests(unittest.TestCase):
         self.assertEqual(result["claims_updated"], 1)
 
         import json
+
         row = self.meta.query_one(
             "SELECT scope_json, supporting_observation_ids_json FROM claims WHERE session_id = ?",
             [session_id],
@@ -963,7 +1122,9 @@ class IncrementalSynthesizerTests(unittest.TestCase):
         self.assertEqual(scope, {"metric": "queued_time", "slice": {"resource_group": "rg_a"}})
         self.assertEqual(set(supporting), {"obs_fold_1", "obs_fold_2"})
 
-    def test_without_temporal_group_by_columns_time_series_rows_remain_separate_claims(self) -> None:
+    def test_without_temporal_group_by_columns_time_series_rows_remain_separate_claims(
+        self,
+    ) -> None:
         session_id = self._make_session()
         self._insert_temporal_folded_obs(
             session_id,
@@ -1019,6 +1180,7 @@ class IncrementalSynthesizerTests(unittest.TestCase):
             [session_id],
         )
         import json
+
         self.assertEqual(len(rows), 2)
         scopes = [json.loads(row["scope_json"]) for row in rows]
         self.assertEqual(scopes[0]["slice"]["log_date"], "2026-03-16")
@@ -1037,8 +1199,11 @@ class IncrementalSynthesizerTests(unittest.TestCase):
         )
         self.assertEqual(len(rows), 1)  # No duplicate claims
 
-    def _insert_agg_obs(self, session_id: str, obs_id: str, metric: str, slice_dict: dict, payload: dict) -> None:
+    def _insert_agg_obs(
+        self, session_id: str, obs_id: str, metric: str, slice_dict: dict, payload: dict
+    ) -> None:
         import json
+
         self.meta.execute(
             """
             INSERT INTO observations (
@@ -1047,7 +1212,10 @@ class IncrementalSynthesizerTests(unittest.TestCase):
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
-                obs_id, session_id, "step_test", "aggregate_snapshot",
+                obs_id,
+                session_id,
+                "step_test",
+                "aggregate_snapshot",
                 json.dumps({"metric": metric, "slice": slice_dict}),
                 json.dumps(payload),
                 json.dumps({"sample_size": 1000, "practical_significance": True}),
@@ -1067,6 +1235,7 @@ class IncrementalSynthesizerTests(unittest.TestCase):
         sample_size: int = 10,
     ) -> None:
         import json
+
         payload = {
             "value": 1000.0 if z_score >= 0 else 10.0,
             "mean": 100.0,
@@ -1085,7 +1254,10 @@ class IncrementalSynthesizerTests(unittest.TestCase):
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
-                obs_id, session_id, "step_test", "anomaly_detection",
+                obs_id,
+                session_id,
+                "step_test",
+                "anomaly_detection",
                 json.dumps({"metric": metric, "slice": slice_dict}),
                 json.dumps(payload),
                 json.dumps({"sample_size": sample_size, "practical_significance": True}),
@@ -1096,15 +1268,15 @@ class IncrementalSynthesizerTests(unittest.TestCase):
     def test_aggregate_observation_generates_payload_based_claim_text(self) -> None:
         session_id = self._make_session()
         self._insert_agg_obs(
-            session_id, "obs_f1", "aggregate", {"user": "ai_bi"},
+            session_id,
+            "obs_f1",
+            "aggregate",
+            {"user": "ai_bi"},
             {"query_count": 1234, "total_scan_gb": 567.89},
         )
         synth = self._make_synth()
         synth.process(session_id)
-        import json
-        rows = self.meta.query_rows(
-            "SELECT text FROM claims WHERE session_id = ?", [session_id]
-        )
+        rows = self.meta.query_rows("SELECT text FROM claims WHERE session_id = ?", [session_id])
         self.assertEqual(len(rows), 1)
         text = rows[0]["text"]
         self.assertNotIn("Signal detected", text)
@@ -1114,14 +1286,15 @@ class IncrementalSynthesizerTests(unittest.TestCase):
     def test_aggregate_observation_fallback_when_no_numeric_payload(self) -> None:
         session_id = self._make_session()
         self._insert_agg_obs(
-            session_id, "obs_g1", "aggregate", {"region": "us"},
+            session_id,
+            "obs_g1",
+            "aggregate",
+            {"region": "us"},
             {"label": "foo", "category": "bar"},  # only strings
         )
         synth = self._make_synth()
         synth.process(session_id)
-        rows = self.meta.query_rows(
-            "SELECT text FROM claims WHERE session_id = ?", [session_id]
-        )
+        rows = self.meta.query_rows("SELECT text FROM claims WHERE session_id = ?", [session_id])
         self.assertEqual(len(rows), 1)
         text = rows[0]["text"]
         self.assertIn("aggregate snapshot", text)
@@ -1176,6 +1349,7 @@ class IncrementalSynthesizerTests(unittest.TestCase):
             [session_id],
         )
         import json
+
         self.assertEqual(json.loads(row["contradicting_observation_ids_json"]), [])
         self.assertEqual(len(json.loads(row["supporting_observation_ids_json"])), 2)
 
@@ -1196,6 +1370,7 @@ class IncrementalSynthesizerTests(unittest.TestCase):
             [session_id],
         )
         import json
+
         self.assertIn("z=4.0", row["text"])
         breakdown = json.loads(row["confidence_breakdown_json"])
         self.assertGreater(breakdown["effect_strength"], 0.0)
@@ -1206,6 +1381,7 @@ class DefaultRecommendationPolicyTests(unittest.TestCase):
 
     def setUp(self) -> None:
         from app.evidence_engine.recommendation_policy import DefaultRecommendationPolicy
+
         self.policy = DefaultRecommendationPolicy()
 
     def _make_obs(self, obs_id: str, payload: dict, slice_dict: dict | None = None) -> dict:
@@ -1218,7 +1394,9 @@ class DefaultRecommendationPolicyTests(unittest.TestCase):
             "quality": {"freshness_ok": True, "sample_size_ok": True},
         }
 
-    def _make_claim(self, claim_id: str, obs_id: str, status: str, slice_dict: dict | None = None) -> dict:
+    def _make_claim(
+        self, claim_id: str, obs_id: str, status: str, slice_dict: dict | None = None
+    ) -> dict:
         return {
             "claim_id": claim_id,
             "type": "root_cause_candidate",
@@ -1264,11 +1442,11 @@ class PromotionIntegrationTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         import tempfile
         from pathlib import Path
-        from app.evidence_engine.incremental_synthesizer import IncrementalSynthesizer
+
+        from app.semantic import SemanticService
         from app.service import SemanticLayerService
         from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
         from app.storage.sqlite_metadata import SQLiteMetadataStore
-        from app.semantic import SemanticService
 
         cls.temp_dir = tempfile.TemporaryDirectory()
         meta = SQLiteMetadataStore(Path(cls.temp_dir.name) / "prom.meta.sqlite")
@@ -1283,7 +1461,9 @@ class PromotionIntegrationTests(unittest.TestCase):
         entity = semantic.create_entity("prom_entity", "Prom Entity", ["session_id"])
         semantic.publish_entity(entity["entity_id"])
         metric = semantic.create_metric(
-            "prom_watch_time", "Watch Time Prom", "avg(play_duration_seconds)",
+            "prom_watch_time",
+            "Watch Time Prom",
+            "avg(play_duration_seconds)",
             ["platform", "app_version", "network_type", "content_type"],
             entity_id=entity["entity_id"],
         )
@@ -1299,7 +1479,8 @@ class PromotionIntegrationTests(unittest.TestCase):
     def test_tentative_promoted_to_confirmed_after_synthesize_findings(self) -> None:
         session_id = self._new_session()
         self.service.run_step(
-            session_id, "metric_query",
+            session_id,
+            "metric_query",
             _metric_query_payload("prom_watch_time"),
         )
         # After primitive step, tentative claims should exist
@@ -1330,7 +1511,8 @@ class PromotionIntegrationTests(unittest.TestCase):
         """Full flow: primitive step → tentative claim → synthesize → confirmed visible in evidence graph."""
         session_id = self._new_session()
         self.service.run_step(
-            session_id, "metric_query",
+            session_id,
+            "metric_query",
             _metric_query_payload("prom_watch_time"),
         )
         self.service.run_step(session_id, "synthesize_findings")
@@ -1347,7 +1529,8 @@ class PromotionIntegrationTests(unittest.TestCase):
         """Confirmed claims should still produce recommendations in promotion mode."""
         session_id = self._new_session()
         self.service.run_step(
-            session_id, "metric_query",
+            session_id,
+            "metric_query",
             _metric_query_payload("prom_watch_time"),
         )
         result = self.service.run_step(session_id, "synthesize_findings")
@@ -1359,7 +1542,9 @@ class PromotionIntegrationTests(unittest.TestCase):
             self.assertIn("action", rec)
             self.assertEqual(rec["action"], rec["action_text"])
 
-    def test_single_window_metric_observation_promotes_as_finding_without_recommendations(self) -> None:
+    def test_single_window_metric_observation_promotes_as_finding_without_recommendations(
+        self,
+    ) -> None:
         session_id = self._new_session()
         self.service.run_step(
             session_id,
@@ -1422,15 +1607,17 @@ class CausalEvidenceEdgeTypesTests(unittest.TestCase):
             "supporting_observations": [obs_id],
             "contradicting_observations": [],
             "confidence_breakdown": {
-                "effect_strength": 0.7, "consistency": 0.8,
-                "sample_score": 0.6, "data_quality_score": 0.9,
+                "effect_strength": 0.7,
+                "consistency": 0.8,
+                "sample_score": 0.6,
+                "data_quality_score": 0.9,
                 "contradiction_penalty": 0.0,
             },
             "inference_level": "L0",
             "inference_justification": [],
         }
 
-    def _pipeline_with_causal_edge(self, edge_type: str, obs_id: str = "obs_1") -> "EvidencePipeline":
+    def _pipeline_with_causal_edge(self, edge_type: str, obs_id: str = "obs_1") -> EvidencePipeline:
         """Build a pipeline whose synthesizer injects one causal edge."""
         claim = self._make_claim(obs_id=obs_id)
         causal_edge = {
@@ -1476,79 +1663,136 @@ class CausalEvidenceEdgeTypesTests(unittest.TestCase):
     def test_basic_edges_do_not_change_inference_level(self) -> None:
         result = EvidencePipeline(synthesize_claims).build_synthesis([self._make_obs()])
         for claim in result["claims"]:
-            self.assertEqual(claim["inference_level"], "L0",
-                             f"Claim {claim['claim_id']} should remain L0 with only basic edges")
+            self.assertEqual(
+                claim["inference_level"],
+                "L0",
+                f"Claim {claim['claim_id']} should remain L0 with only basic edges",
+            )
             self.assertEqual(claim["inference_justification"], [])
 
     # ── M-07.3b: New causal edge types accepted ──────────────────────────────
 
     def test_correlates_with_edge_accepted(self) -> None:
         from app.evidence_engine.schemas import EDGE_TYPE_CORRELATES_WITH
-        result = self._pipeline_with_causal_edge(EDGE_TYPE_CORRELATES_WITH).build_synthesis([self._make_obs()])
+
+        result = self._pipeline_with_causal_edge(EDGE_TYPE_CORRELATES_WITH).build_synthesis(
+            [self._make_obs()]
+        )
         self.assertTrue(any(e["edge_type"] == EDGE_TYPE_CORRELATES_WITH for e in result["edges"]))
 
     def test_temporally_precedes_edge_accepted(self) -> None:
         from app.evidence_engine.schemas import EDGE_TYPE_TEMPORALLY_PRECEDES
-        result = self._pipeline_with_causal_edge(EDGE_TYPE_TEMPORALLY_PRECEDES).build_synthesis([self._make_obs()])
-        self.assertTrue(any(e["edge_type"] == EDGE_TYPE_TEMPORALLY_PRECEDES for e in result["edges"]))
+
+        result = self._pipeline_with_causal_edge(EDGE_TYPE_TEMPORALLY_PRECEDES).build_synthesis(
+            [self._make_obs()]
+        )
+        self.assertTrue(
+            any(e["edge_type"] == EDGE_TYPE_TEMPORALLY_PRECEDES for e in result["edges"])
+        )
 
     def test_mechanistically_explains_edge_accepted(self) -> None:
         from app.evidence_engine.schemas import EDGE_TYPE_MECHANISTICALLY_EXPLAINS
-        result = self._pipeline_with_causal_edge(EDGE_TYPE_MECHANISTICALLY_EXPLAINS).build_synthesis([self._make_obs()])
-        self.assertTrue(any(e["edge_type"] == EDGE_TYPE_MECHANISTICALLY_EXPLAINS for e in result["edges"]))
+
+        result = self._pipeline_with_causal_edge(
+            EDGE_TYPE_MECHANISTICALLY_EXPLAINS
+        ).build_synthesis([self._make_obs()])
+        self.assertTrue(
+            any(e["edge_type"] == EDGE_TYPE_MECHANISTICALLY_EXPLAINS for e in result["edges"])
+        )
 
     def test_eliminates_alternative_edge_accepted(self) -> None:
         from app.evidence_engine.schemas import EDGE_TYPE_ELIMINATES_ALTERNATIVE
-        result = self._pipeline_with_causal_edge(EDGE_TYPE_ELIMINATES_ALTERNATIVE).build_synthesis([self._make_obs()])
-        self.assertTrue(any(e["edge_type"] == EDGE_TYPE_ELIMINATES_ALTERNATIVE for e in result["edges"]))
+
+        result = self._pipeline_with_causal_edge(EDGE_TYPE_ELIMINATES_ALTERNATIVE).build_synthesis(
+            [self._make_obs()]
+        )
+        self.assertTrue(
+            any(e["edge_type"] == EDGE_TYPE_ELIMINATES_ALTERNATIVE for e in result["edges"])
+        )
 
     def test_experimentally_confirms_edge_accepted(self) -> None:
         from app.evidence_engine.schemas import EDGE_TYPE_EXPERIMENTALLY_CONFIRMS
-        result = self._pipeline_with_causal_edge(EDGE_TYPE_EXPERIMENTALLY_CONFIRMS).build_synthesis([self._make_obs()])
-        self.assertTrue(any(e["edge_type"] == EDGE_TYPE_EXPERIMENTALLY_CONFIRMS for e in result["edges"]))
+
+        result = self._pipeline_with_causal_edge(EDGE_TYPE_EXPERIMENTALLY_CONFIRMS).build_synthesis(
+            [self._make_obs()]
+        )
+        self.assertTrue(
+            any(e["edge_type"] == EDGE_TYPE_EXPERIMENTALLY_CONFIRMS for e in result["edges"])
+        )
 
     # ── M-07.3c: inference_level auto-update ─────────────────────────────────
 
     def test_correlates_with_upgrades_claim_to_L1(self) -> None:
         from app.evidence_engine.schemas import EDGE_TYPE_CORRELATES_WITH
-        result = self._pipeline_with_causal_edge(EDGE_TYPE_CORRELATES_WITH).build_synthesis([self._make_obs()])
+
+        result = self._pipeline_with_causal_edge(EDGE_TYPE_CORRELATES_WITH).build_synthesis(
+            [self._make_obs()]
+        )
         claim = result["claims"][0]
         self.assertEqual(claim["inference_level"], "L1")
         self.assertIn(f"{EDGE_TYPE_CORRELATES_WITH}→L1", claim["inference_justification"])
 
     def test_temporally_precedes_upgrades_claim_to_L2(self) -> None:
         from app.evidence_engine.schemas import EDGE_TYPE_TEMPORALLY_PRECEDES
-        result = self._pipeline_with_causal_edge(EDGE_TYPE_TEMPORALLY_PRECEDES).build_synthesis([self._make_obs()])
+
+        result = self._pipeline_with_causal_edge(EDGE_TYPE_TEMPORALLY_PRECEDES).build_synthesis(
+            [self._make_obs()]
+        )
         self.assertEqual(result["claims"][0]["inference_level"], "L2")
 
     def test_mechanistically_explains_upgrades_claim_to_L3(self) -> None:
         from app.evidence_engine.schemas import EDGE_TYPE_MECHANISTICALLY_EXPLAINS
-        result = self._pipeline_with_causal_edge(EDGE_TYPE_MECHANISTICALLY_EXPLAINS).build_synthesis([self._make_obs()])
+
+        result = self._pipeline_with_causal_edge(
+            EDGE_TYPE_MECHANISTICALLY_EXPLAINS
+        ).build_synthesis([self._make_obs()])
         self.assertEqual(result["claims"][0]["inference_level"], "L3")
 
     def test_eliminates_alternative_upgrades_claim_to_L4(self) -> None:
         from app.evidence_engine.schemas import EDGE_TYPE_ELIMINATES_ALTERNATIVE
-        result = self._pipeline_with_causal_edge(EDGE_TYPE_ELIMINATES_ALTERNATIVE).build_synthesis([self._make_obs()])
+
+        result = self._pipeline_with_causal_edge(EDGE_TYPE_ELIMINATES_ALTERNATIVE).build_synthesis(
+            [self._make_obs()]
+        )
         self.assertEqual(result["claims"][0]["inference_level"], "L4")
 
     def test_experimentally_confirms_upgrades_claim_to_L5(self) -> None:
         from app.evidence_engine.schemas import EDGE_TYPE_EXPERIMENTALLY_CONFIRMS
-        result = self._pipeline_with_causal_edge(EDGE_TYPE_EXPERIMENTALLY_CONFIRMS).build_synthesis([self._make_obs()])
+
+        result = self._pipeline_with_causal_edge(EDGE_TYPE_EXPERIMENTALLY_CONFIRMS).build_synthesis(
+            [self._make_obs()]
+        )
         self.assertEqual(result["claims"][0]["inference_level"], "L5")
 
     def test_highest_level_wins_with_multiple_causal_edges(self) -> None:
-        from app.evidence_engine.schemas import EDGE_TYPE_CORRELATES_WITH, EDGE_TYPE_TEMPORALLY_PRECEDES
+        from app.evidence_engine.schemas import (
+            EDGE_TYPE_CORRELATES_WITH,
+            EDGE_TYPE_TEMPORALLY_PRECEDES,
+        )
+
         obs_id = "obs_multi"
         claim = self._make_claim(claim_id="claim_multi", obs_id=obs_id)
 
         def _synth(observations):
             edges = [
-                {"from_node_id": obs_id, "from_node_type": "observation",
-                 "to_node_id": "claim_multi", "to_node_type": "claim",
-                 "edge_type": EDGE_TYPE_CORRELATES_WITH, "weight": 0.7, "explanation": "correlation"},
-                {"from_node_id": obs_id, "from_node_type": "observation",
-                 "to_node_id": "claim_multi", "to_node_type": "claim",
-                 "edge_type": EDGE_TYPE_TEMPORALLY_PRECEDES, "weight": 0.8, "explanation": "temporal"},
+                {
+                    "from_node_id": obs_id,
+                    "from_node_type": "observation",
+                    "to_node_id": "claim_multi",
+                    "to_node_type": "claim",
+                    "edge_type": EDGE_TYPE_CORRELATES_WITH,
+                    "weight": 0.7,
+                    "explanation": "correlation",
+                },
+                {
+                    "from_node_id": obs_id,
+                    "from_node_type": "observation",
+                    "to_node_id": "claim_multi",
+                    "to_node_type": "claim",
+                    "edge_type": EDGE_TYPE_TEMPORALLY_PRECEDES,
+                    "weight": 0.8,
+                    "explanation": "temporal",
+                },
             ]
             return [claim], [], edges
 
@@ -1559,23 +1803,41 @@ class CausalEvidenceEdgeTypesTests(unittest.TestCase):
         self.assertIn(f"{EDGE_TYPE_CORRELATES_WITH}→L1", updated["inference_justification"])
 
     def test_multiple_causal_edge_types_boost_confidence(self) -> None:
-        from app.evidence_engine.schemas import EDGE_TYPE_CORRELATES_WITH, EDGE_TYPE_TEMPORALLY_PRECEDES
+        from app.evidence_engine.schemas import (
+            EDGE_TYPE_CORRELATES_WITH,
+            EDGE_TYPE_TEMPORALLY_PRECEDES,
+        )
+
         obs_id = "obs_boost"
 
         # Single causal edge → baseline confidence
-        single_result = self._pipeline_with_causal_edge(EDGE_TYPE_CORRELATES_WITH, obs_id).build_synthesis([self._make_obs(obs_id)])
+        single_result = self._pipeline_with_causal_edge(
+            EDGE_TYPE_CORRELATES_WITH, obs_id
+        ).build_synthesis([self._make_obs(obs_id)])
         single_confidence = single_result["claims"][0]["confidence"]
 
         claim = self._make_claim(claim_id="claim_boost", obs_id=obs_id)
 
         def _synth_two(observations):
             edges = [
-                {"from_node_id": obs_id, "from_node_type": "observation",
-                 "to_node_id": "claim_boost", "to_node_type": "claim",
-                 "edge_type": EDGE_TYPE_CORRELATES_WITH, "weight": 0.7, "explanation": "corr"},
-                {"from_node_id": obs_id, "from_node_type": "observation",
-                 "to_node_id": "claim_boost", "to_node_type": "claim",
-                 "edge_type": EDGE_TYPE_TEMPORALLY_PRECEDES, "weight": 0.8, "explanation": "temp"},
+                {
+                    "from_node_id": obs_id,
+                    "from_node_type": "observation",
+                    "to_node_id": "claim_boost",
+                    "to_node_type": "claim",
+                    "edge_type": EDGE_TYPE_CORRELATES_WITH,
+                    "weight": 0.7,
+                    "explanation": "corr",
+                },
+                {
+                    "from_node_id": obs_id,
+                    "from_node_type": "observation",
+                    "to_node_id": "claim_boost",
+                    "to_node_type": "claim",
+                    "edge_type": EDGE_TYPE_TEMPORALLY_PRECEDES,
+                    "weight": 0.8,
+                    "explanation": "temp",
+                },
             ]
             return [claim], [], edges
 
@@ -1586,18 +1848,26 @@ class CausalEvidenceEdgeTypesTests(unittest.TestCase):
 
     def test_all_edge_types_is_union_of_basic_and_causal(self) -> None:
         from app.evidence_engine.schemas import ALL_EDGE_TYPES, BASIC_EDGE_TYPES, CAUSAL_EDGE_TYPES
+
         self.assertEqual(ALL_EDGE_TYPES, BASIC_EDGE_TYPES | CAUSAL_EDGE_TYPES)
 
     def test_causal_edge_to_inference_level_mapping_complete(self) -> None:
         from app.evidence_engine.schemas import (
-            CAUSAL_EDGE_TYPES, CAUSAL_EDGE_TO_INFERENCE_LEVEL, INFERENCE_LEVEL_ORDER,
+            CAUSAL_EDGE_TO_INFERENCE_LEVEL,
+            CAUSAL_EDGE_TYPES,
+            INFERENCE_LEVEL_ORDER,
         )
+
         for et in CAUSAL_EDGE_TYPES:
-            self.assertIn(et, CAUSAL_EDGE_TO_INFERENCE_LEVEL,
-                          f"Missing mapping for causal edge type: {et}")
+            self.assertIn(
+                et, CAUSAL_EDGE_TO_INFERENCE_LEVEL, f"Missing mapping for causal edge type: {et}"
+            )
             level = CAUSAL_EDGE_TO_INFERENCE_LEVEL[et]
-            self.assertIn(level, INFERENCE_LEVEL_ORDER,
-                          f"Level {level} for edge type {et} not in INFERENCE_LEVEL_ORDER")
+            self.assertIn(
+                level,
+                INFERENCE_LEVEL_ORDER,
+                f"Level {level} for edge type {et} not in INFERENCE_LEVEL_ORDER",
+            )
 
 
 class CausalBasisTests(unittest.TestCase):
@@ -1605,7 +1875,9 @@ class CausalBasisTests(unittest.TestCase):
 
     # ── helpers ──────────────────────────────────────────────────────────────
 
-    def _make_claim(self, level: str = "L0", text: str = "metric dropped", confidence: float = 0.7) -> dict:
+    def _make_claim(
+        self, level: str = "L0", text: str = "metric dropped", confidence: float = 0.7
+    ) -> dict:
         return {
             "claim_id": "claim_cb",
             "type": "root_cause_candidate",
@@ -1616,8 +1888,10 @@ class CausalBasisTests(unittest.TestCase):
             "supporting_observations": ["obs_cb"],
             "contradicting_observations": [],
             "confidence_breakdown": {
-                "effect_strength": 0.7, "consistency": 0.8,
-                "sample_score": 0.6, "data_quality_score": 0.9,
+                "effect_strength": 0.7,
+                "consistency": 0.8,
+                "sample_score": 0.6,
+                "data_quality_score": 0.9,
                 "contradiction_penalty": 0.0,
             },
             "inference_level": level,
@@ -1657,6 +1931,7 @@ class CausalBasisTests(unittest.TestCase):
     def test_pipeline_causal_basis_uses_upgraded_level(self) -> None:
         """causal_basis.inference_level must reflect post-M-07 upgrade, not pre-upgrade L0."""
         from app.evidence_engine.schemas import EDGE_TYPE_TEMPORALLY_PRECEDES
+
         obs_id = "obs_cb_upgrade"
         claim = self._make_claim()
         causal_edge = {
@@ -1684,10 +1959,11 @@ class CausalBasisTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         import tempfile
         from pathlib import Path
+
+        from app.semantic import SemanticService
         from app.service import SemanticLayerService
         from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
         from app.storage.sqlite_metadata import SQLiteMetadataStore
-        from app.semantic import SemanticService
 
         cls.temp_dir = tempfile.TemporaryDirectory()
         meta = SQLiteMetadataStore(Path(cls.temp_dir.name) / "cb.meta.sqlite")
@@ -1702,7 +1978,9 @@ class CausalBasisTests(unittest.TestCase):
         entity = semantic.create_entity("cb_entity", "CB Entity", ["session_id"])
         semantic.publish_entity(entity["entity_id"])
         metric = semantic.create_metric(
-            "cb_watch_time", "Watch Time CB", "avg(play_duration_seconds)",
+            "cb_watch_time",
+            "Watch Time CB",
+            "avg(play_duration_seconds)",
             ["platform", "app_version", "network_type", "content_type"],
             entity_id=entity["entity_id"],
         )
@@ -1710,7 +1988,8 @@ class CausalBasisTests(unittest.TestCase):
 
         cls.session_id = cls.service.create_session("CB test", {}, {}, {})["session_id"]
         cls.service.run_step(
-            cls.session_id, "metric_query",
+            cls.session_id,
+            "metric_query",
             _metric_query_payload("cb_watch_time"),
         )
         cls.service.run_step(cls.session_id, "synthesize_findings")
@@ -1741,6 +2020,7 @@ class CausalBasisTests(unittest.TestCase):
         """Rows inserted without causal_basis_json must return causal_basis=None without error."""
         import json
         from uuid import uuid4
+
         rec_id = f"rec_{uuid4().hex[:12]}"
         self.service.metadata.execute(
             """
@@ -1748,8 +2028,16 @@ class CausalBasisTests(unittest.TestCase):
                 (rec_id, session_id, claim_id, action_text, priority, expected_impact, risk, validation_metric_json)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            [rec_id, self.session_id, "claim_old", "do something", "P1",
-             "some impact", "low", json.dumps({"primary_metric": "x"})],
+            [
+                rec_id,
+                self.session_id,
+                "claim_old",
+                "do something",
+                "P1",
+                "some impact",
+                "low",
+                json.dumps({"primary_metric": "x"}),
+            ],
         )
         graph = self.service.get_evidence_graph(self.session_id)
         old_recs = [r for r in graph["recommendations"] if r["rec_id"] == rec_id]

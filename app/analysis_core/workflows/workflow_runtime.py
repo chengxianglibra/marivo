@@ -89,7 +89,12 @@ def _render_mapping(values: Mapping[str, Any], context: Mapping[str, Any]) -> di
 
 def _render_value(value: Any, context: Mapping[str, Any]) -> Any:
     if isinstance(value, str):
-        if value.startswith("{") and value.endswith("}") and value.count("{") == 1 and value.count("}") == 1:
+        if (
+            value.startswith("{")
+            and value.endswith("}")
+            and value.count("{") == 1
+            and value.count("}") == 1
+        ):
             key = value[1:-1]
             if key in context:
                 return context[key]

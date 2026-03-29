@@ -29,7 +29,11 @@ class SourceRegistryTests(unittest.TestCase):
     def test_register_and_list_sources(self) -> None:
         resp = self.client.post(
             "/sources",
-            json={"source_type": "duckdb", "display_name": "Demo Local", "connection": self._local_connection()},
+            json={
+                "source_type": "duckdb",
+                "display_name": "Demo Local",
+                "connection": self._local_connection(),
+            },
         )
         self.assertEqual(resp.status_code, 200)
         source = resp.json()
@@ -44,7 +48,11 @@ class SourceRegistryTests(unittest.TestCase):
     def test_get_source(self) -> None:
         resp = self.client.post(
             "/sources",
-            json={"source_type": "duckdb", "display_name": "Detail Test", "connection": self._local_connection()},
+            json={
+                "source_type": "duckdb",
+                "display_name": "Detail Test",
+                "connection": self._local_connection(),
+            },
         )
         source_id = resp.json()["source_id"]
         resp = self.client.get(f"/sources/{source_id}")
@@ -58,7 +66,11 @@ class SourceRegistryTests(unittest.TestCase):
     def test_sync_local_source_and_browse_objects(self) -> None:
         resp = self.client.post(
             "/sources",
-            json={"source_type": "duckdb", "display_name": "Sync Test", "connection": self._local_connection()},
+            json={
+                "source_type": "duckdb",
+                "display_name": "Sync Test",
+                "connection": self._local_connection(),
+            },
         )
         source_id = resp.json()["source_id"]
 
@@ -83,14 +95,20 @@ class SourceRegistryTests(unittest.TestCase):
         resp = self.client.get(f"/sources/{source_id}/objects?type=table")
         self.assertEqual(resp.status_code, 200)
         tables = resp.json()
-        self.assertEqual(len(tables), 4)  # watch_events, player_qoe, ad_events, recommendation_events
+        self.assertEqual(
+            len(tables), 4
+        )  # watch_events, player_qoe, ad_events, recommendation_events
         table_names = {t["native_name"] for t in tables}
         self.assertIn("watch_events", table_names)
 
     def test_sync_idempotent(self) -> None:
         resp = self.client.post(
             "/sources",
-            json={"source_type": "duckdb", "display_name": "Idempotent Test", "connection": self._local_connection()},
+            json={
+                "source_type": "duckdb",
+                "display_name": "Idempotent Test",
+                "connection": self._local_connection(),
+            },
         )
         source_id = resp.json()["source_id"]
 
@@ -102,16 +120,23 @@ class SourceRegistryTests(unittest.TestCase):
         tables = resp.json()
         self.assertEqual(len(tables), 4)
 
-
     def test_update_source_api(self) -> None:
         resp = self.client.post(
             "/sources",
-            json={"source_type": "duckdb", "display_name": "Update Test", "connection": self._local_connection()},
+            json={
+                "source_type": "duckdb",
+                "display_name": "Update Test",
+                "connection": self._local_connection(),
+            },
         )
         source_id = resp.json()["source_id"]
         resp = self.client.put(
             f"/sources/{source_id}",
-            json={"display_name": "Updated Name", "sync_mode": "by_select", "connection": {"path": "/tmp/new.duckdb"}},
+            json={
+                "display_name": "Updated Name",
+                "sync_mode": "by_select",
+                "connection": {"path": "/tmp/new.duckdb"},
+            },
         )
         self.assertEqual(resp.status_code, 200)
         updated = resp.json()
@@ -122,7 +147,11 @@ class SourceRegistryTests(unittest.TestCase):
     def test_update_source_partial(self) -> None:
         resp = self.client.post(
             "/sources",
-            json={"source_type": "duckdb", "display_name": "Partial Update", "connection": self._local_connection()},
+            json={
+                "source_type": "duckdb",
+                "display_name": "Partial Update",
+                "connection": self._local_connection(),
+            },
         )
         source_id = resp.json()["source_id"]
         original_conn = resp.json()["connection"]
@@ -139,7 +168,11 @@ class SourceRegistryTests(unittest.TestCase):
     def test_delete_source_api(self) -> None:
         resp = self.client.post(
             "/sources",
-            json={"source_type": "duckdb", "display_name": "Delete Test", "connection": self._local_connection()},
+            json={
+                "source_type": "duckdb",
+                "display_name": "Delete Test",
+                "connection": self._local_connection(),
+            },
         )
         source_id = resp.json()["source_id"]
         # Sync to create source_objects
@@ -165,11 +198,22 @@ class SourceRegistryTests(unittest.TestCase):
         """DELETE returns 409 when bindings reference the source."""
         resp = self.client.post(
             "/sources",
-            json={"source_type": "duckdb", "display_name": "Bound Source", "connection": self._local_connection()},
+            json={
+                "source_type": "duckdb",
+                "display_name": "Bound Source",
+                "connection": self._local_connection(),
+            },
         )
         source_id = resp.json()["source_id"]
         # Register an engine and create a binding
-        eng_resp = self.client.post("/engines", json={"engine_type": "duckdb", "display_name": "Tmp Engine", "connection": self._local_connection()})
+        eng_resp = self.client.post(
+            "/engines",
+            json={
+                "engine_type": "duckdb",
+                "display_name": "Tmp Engine",
+                "connection": self._local_connection(),
+            },
+        )
         engine_id = eng_resp.json()["engine_id"]
         self.client.post("/bindings", json={"source_id": source_id, "engine_id": engine_id})
 
@@ -183,7 +227,11 @@ class SourceRegistryTests(unittest.TestCase):
         """DELETE returns 409 when semantic mappings reference source objects."""
         resp = self.client.post(
             "/sources",
-            json={"source_type": "duckdb", "display_name": "Mapped Source", "connection": self._local_connection()},
+            json={
+                "source_type": "duckdb",
+                "display_name": "Mapped Source",
+                "connection": self._local_connection(),
+            },
         )
         source_id = resp.json()["source_id"]
         # Sync to get source_objects
@@ -191,12 +239,19 @@ class SourceRegistryTests(unittest.TestCase):
         objects = self.client.get(f"/sources/{source_id}/objects?type=table").json()
         object_id = objects[0]["object_id"]
         # Create an entity + mapping
-        ent_resp = self.client.post("/semantic/entities", json={"name": "tmp_ent", "display_name": "Tmp", "keys": ["id"]})
+        ent_resp = self.client.post(
+            "/semantic/entities", json={"name": "tmp_ent", "display_name": "Tmp", "keys": ["id"]}
+        )
         entity_id = ent_resp.json()["entity_id"]
-        self.client.post("/semantic/mappings", json={
-            "semantic_type": "entity", "semantic_id": entity_id,
-            "object_id": object_id, "mapping_type": "primary",
-        })
+        self.client.post(
+            "/semantic/mappings",
+            json={
+                "semantic_type": "entity",
+                "semantic_id": entity_id,
+                "object_id": object_id,
+                "mapping_type": "primary",
+            },
+        )
 
         resp = self.client.delete(f"/sources/{source_id}")
         self.assertEqual(resp.status_code, 409)
@@ -221,7 +276,11 @@ class SyncModeTests(unittest.TestCase):
     def _create_source(self, name: str) -> dict:
         resp = self.client.post(
             "/sources",
-            json={"source_type": "duckdb", "display_name": name, "connection": {"path": str(self.db_path)}},
+            json={
+                "source_type": "duckdb",
+                "display_name": name,
+                "connection": {"path": str(self.db_path)},
+            },
         )
         self.assertEqual(resp.status_code, 200)
         return resp.json()
@@ -231,7 +290,6 @@ class SyncModeTests(unittest.TestCase):
         source = self._create_source("None Mode Source")
         source_id = source["source_id"]
         # Update sync_mode to none directly via metadata
-        from app.storage.sqlite_metadata import SQLiteMetadataStore
         store = self.client.app.state.metadata_store
         store.execute("UPDATE sources SET sync_mode = 'none' WHERE source_id = ?", [source_id])
 
@@ -263,10 +321,12 @@ class SyncModeTests(unittest.TestCase):
         # Add selections
         resp = self.client.post(
             f"/sources/{source_id}/sync/selections",
-            json={"selections": [
-                {"schema_name": "analytics", "table_name": "watch_events"},
-                {"schema_name": "analytics", "table_name": "ad_events"},
-            ]},
+            json={
+                "selections": [
+                    {"schema_name": "analytics", "table_name": "watch_events"},
+                    {"schema_name": "analytics", "table_name": "ad_events"},
+                ]
+            },
         )
         self.assertEqual(resp.status_code, 200)
         sels = resp.json()
@@ -360,6 +420,7 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
     def _make_cursor(self, rows: list[tuple], columns: list[str]):
         """Build a mock cursor that returns the given rows."""
         from unittest.mock import MagicMock
+
         cur = MagicMock()
         cur.description = [(col,) for col in columns]
         cur.fetchall.return_value = rows
@@ -367,12 +428,14 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
 
     def _make_conn(self, cursor):
         from unittest.mock import MagicMock
+
         conn = MagicMock()
         conn.cursor.return_value = cursor
         return conn
 
     def test_source_type_and_capabilities(self) -> None:
         from app.adapters.trino_adapter import TrinoCatalogAdapter
+
         adapter = TrinoCatalogAdapter(host="localhost")
         self.assertEqual(adapter.source_type(), "trino")
         caps = adapter.capabilities()
@@ -381,8 +444,10 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
         self.assertFalse(caps.supports_partitions)
 
     def test_connection_success(self) -> None:
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
+
         from app.adapters.trino_adapter import TrinoCatalogAdapter
+
         adapter = TrinoCatalogAdapter(host="localhost")
         with patch.object(adapter, "_connect") as mock_connect:
             conn = MagicMock()
@@ -394,14 +459,18 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
 
     def test_connection_failure(self) -> None:
         from unittest.mock import patch
+
         from app.adapters.trino_adapter import TrinoCatalogAdapter
+
         adapter = TrinoCatalogAdapter(host="localhost")
         with patch.object(adapter, "_connect", side_effect=Exception("refused")):
             self.assertFalse(adapter.test_connection())
 
     def test_list_catalogs(self) -> None:
         from unittest.mock import patch
+
         from app.adapters.trino_adapter import TrinoCatalogAdapter
+
         adapter = TrinoCatalogAdapter(host="localhost")
         cursor = self._make_cursor([("hive",), ("tpch",)], ["Catalog"])
         with patch.object(adapter, "_connect", return_value=self._make_conn(cursor)):
@@ -413,7 +482,9 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
 
     def test_list_schemas_with_catalog(self) -> None:
         from unittest.mock import patch
+
         from app.adapters.trino_adapter import TrinoCatalogAdapter
+
         adapter = TrinoCatalogAdapter(host="localhost", catalog="hive")
         cursor = self._make_cursor(
             [("default",), ("sales",), ("information_schema",)],
@@ -430,8 +501,10 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
 
     def test_list_schemas_all_catalogs(self) -> None:
         """When catalog_name=None, list_schemas aggregates across all catalogs."""
-        from unittest.mock import patch, call
+        from unittest.mock import patch
+
         from app.adapters.trino_adapter import TrinoCatalogAdapter
+
         adapter = TrinoCatalogAdapter(host="localhost")
 
         catalog_cursor = self._make_cursor([("hive",), ("tpch",)], ["Catalog"])
@@ -456,13 +529,17 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
     def test_list_tables_uses_single_query(self) -> None:
         """list_tables() uses a single JOIN query; column_count comes from grouped result."""
         from unittest.mock import patch
+
         from app.adapters.trino_adapter import TrinoCatalogAdapter
+
         adapter = TrinoCatalogAdapter(host="localhost", catalog="hive")
         cursor = self._make_cursor(
             [("orders", "BASE TABLE", 5), ("lineitem", "BASE TABLE", 16)],
             ["table_name", "table_type", "column_count"],
         )
-        with patch.object(adapter, "_connect", return_value=self._make_conn(cursor)) as mock_connect:
+        with patch.object(
+            adapter, "_connect", return_value=self._make_conn(cursor)
+        ) as mock_connect:
             tables = adapter.list_tables("sales")
         # Only one _connect() call — no per-table sub-queries
         self.assertEqual(mock_connect.call_count, 1)
@@ -473,13 +550,13 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
         self.assertEqual(tables[1].properties["column_count"], 16)
 
     def test_get_table_detail(self) -> None:
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import patch
+
         from app.adapters.trino_adapter import TrinoCatalogAdapter
+
         adapter = TrinoCatalogAdapter(host="localhost", catalog="hive")
 
-        table_cursor = self._make_cursor(
-            [("orders", "BASE TABLE")], ["table_name", "table_type"]
-        )
+        table_cursor = self._make_cursor([("orders", "BASE TABLE")], ["table_name", "table_type"])
         col_cursor = self._make_cursor(
             [("id", "integer", 1, "NO"), ("name", "varchar", 2, "YES")],
             ["column_name", "data_type", "ordinal_position", "is_nullable"],
@@ -504,7 +581,9 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
 
     def test_list_columns(self) -> None:
         from unittest.mock import patch
+
         from app.adapters.trino_adapter import TrinoCatalogAdapter
+
         adapter = TrinoCatalogAdapter(host="localhost", catalog="hive")
         cursor = self._make_cursor(
             [("id", "integer", 1, "NO"), ("ts", "timestamp", 2, "YES")],
@@ -519,15 +598,24 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
 
     def test_get_table_stats(self) -> None:
         from unittest.mock import patch
+
         from app.adapters.trino_adapter import TrinoCatalogAdapter
+
         adapter = TrinoCatalogAdapter(host="localhost", catalog="hive")
         cursor = self._make_cursor(
             [
                 ("id", 1000.0, None, 0.0, None, None, None),
                 (None, None, None, None, 5000.0, None, None),
             ],
-            ["column_name", "distinct_values_count", "data_size",
-             "nulls_fraction", "row_count", "low_value", "high_value"],
+            [
+                "column_name",
+                "distinct_values_count",
+                "data_size",
+                "nulls_fraction",
+                "row_count",
+                "low_value",
+                "high_value",
+            ],
         )
         with patch.object(adapter, "_connect", return_value=self._make_conn(cursor)):
             stats = adapter.get_table_stats("sales", "orders")
@@ -538,8 +626,10 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
     def test_build_adapter_trino(self) -> None:
         """_build_adapter() creates TrinoCatalogAdapter for trino source type."""
         from app.sources import _build_adapter
+
         adapter = _build_adapter("trino", {"host": "trino.example.com", "port": 9090})
         from app.adapters.trino_adapter import TrinoCatalogAdapter
+
         self.assertIsInstance(adapter, TrinoCatalogAdapter)
         self.assertEqual(adapter._host, "trino.example.com")
         self.assertEqual(adapter._port, 9090)
@@ -549,12 +639,17 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
     def test_build_adapter_trino_with_auth(self) -> None:
         """_build_adapter() passes password and http_scheme when provided."""
         from app.sources import _build_adapter
-        adapter = _build_adapter("trino", {
-            "host": "trino.example.com",
-            "password": "secret",
-            "http_scheme": "https",
-        })
+
+        adapter = _build_adapter(
+            "trino",
+            {
+                "host": "trino.example.com",
+                "password": "secret",
+                "http_scheme": "https",
+            },
+        )
         from app.adapters.trino_adapter import TrinoCatalogAdapter
+
         self.assertIsInstance(adapter, TrinoCatalogAdapter)
         self.assertEqual(adapter._password, "secret")
         self.assertEqual(adapter._http_scheme, "https")
@@ -571,7 +666,11 @@ class ColumnPropertiesTests(unittest.TestCase):
         # Register and sync a DuckDB source
         resp = cls.client.post(
             "/sources",
-            json={"source_type": "duckdb", "display_name": "ColProps Test", "connection": {"path": str(cls.db_path)}},
+            json={
+                "source_type": "duckdb",
+                "display_name": "ColProps Test",
+                "connection": {"path": str(cls.db_path)},
+            },
         )
         cls.source_id = resp.json()["source_id"]
         cls.client.post(f"/sources/{cls.source_id}/sync")

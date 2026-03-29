@@ -12,7 +12,7 @@ def _normalize_params(params: dict[str, object] | None) -> dict[str, object]:
     return dict(params or {})
 
 
-def register(registry: StepRunnerRegistry, service: "SemanticLayerService") -> None:
+def register(registry: StepRunnerRegistry, service: SemanticLayerService) -> None:
     registry.register(
         "attribute_change",
         lambda session_id, params=None: service._run_attribute_change(

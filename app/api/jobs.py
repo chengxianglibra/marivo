@@ -5,7 +5,6 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from app.api.deps import get_services, http_error
 from app.api.models import JobSubmitRequest
 
-
 router = APIRouter()
 
 

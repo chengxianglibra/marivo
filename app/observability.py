@@ -5,14 +5,14 @@ from __future__ import annotations
 import json
 import logging
 import time
+from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Any, Iterator
+from typing import Any
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
-
 
 # ── Correlation context ─────────────────────────────────────────────
 
@@ -23,7 +23,9 @@ correlation_planner_id: ContextVar[str] = ContextVar("correlation_planner_id", d
 correlation_compiler_id: ContextVar[str] = ContextVar("correlation_compiler_id", default="")
 correlation_execution_stage: ContextVar[str] = ContextVar("correlation_execution_stage", default="")
 correlation_engine_id: ContextVar[str] = ContextVar("correlation_engine_id", default="")
-correlation_governance_scope: ContextVar[str] = ContextVar("correlation_governance_scope", default="")
+correlation_governance_scope: ContextVar[str] = ContextVar(
+    "correlation_governance_scope", default=""
+)
 
 
 @contextmanager
@@ -59,6 +61,7 @@ def observability_context(
 
 
 # ── Structured JSON formatter ───────────────────────────────────────
+
 
 class JSONFormatter(logging.Formatter):
     """Emit log records as single-line JSON with correlation IDs."""
@@ -106,6 +109,7 @@ def setup_logging(level: str = "INFO") -> None:
     Set LOG_LEVEL=WARNING to suppress INFO output during test runs.
     """
     import os
+
     effective_level = os.environ.get("LOG_LEVEL", level).upper()
     root = logging.getLogger()
     # Remove existing handlers to avoid duplicates during tests
@@ -117,6 +121,7 @@ def setup_logging(level: str = "INFO") -> None:
 
 
 # ── Metrics collector ───────────────────────────────────────────────
+
 
 class MetricsCollector:
     """In-process metrics collector (no external dependencies)."""
@@ -165,8 +170,12 @@ class MetricsCollector:
             stage=stage,
             governance_policy=governance_policy,
         )
-        self.step_dimension_count[dimension_key] = self.step_dimension_count.get(dimension_key, 0) + 1
-        self.step_dimension_duration_sum[dimension_key] = self.step_dimension_duration_sum.get(dimension_key, 0.0) + duration_ms
+        self.step_dimension_count[dimension_key] = (
+            self.step_dimension_count.get(dimension_key, 0) + 1
+        )
+        self.step_dimension_duration_sum[dimension_key] = (
+            self.step_dimension_duration_sum.get(dimension_key, 0.0) + duration_ms
+        )
 
     def record_execution_stage(
         self,
@@ -185,8 +194,12 @@ class MetricsCollector:
             engine=engine,
             governance_policy=governance_policy,
         )
-        self.execution_stage_count[dimension_key] = self.execution_stage_count.get(dimension_key, 0) + 1
-        self.execution_stage_duration_sum[dimension_key] = self.execution_stage_duration_sum.get(dimension_key, 0.0) + duration_ms
+        self.execution_stage_count[dimension_key] = (
+            self.execution_stage_count.get(dimension_key, 0) + 1
+        )
+        self.execution_stage_duration_sum[dimension_key] = (
+            self.execution_stage_duration_sum.get(dimension_key, 0.0) + duration_ms
+        )
 
     def snapshot(self) -> dict[str, Any]:
         return {
@@ -212,36 +225,50 @@ class MetricsCollector:
         for key, count in sorted(self.request_count.items()):
             method, path = key.split(":", 1)
             lines.append(f'factum_requests_total{{method="{method}",path="{path}"}} {count}')
-        lines.extend([
-            "# HELP factum_request_duration_seconds_sum Sum of request durations",
-            "# TYPE factum_request_duration_seconds_sum counter",
-        ])
+        lines.extend(
+            [
+                "# HELP factum_request_duration_seconds_sum Sum of request durations",
+                "# TYPE factum_request_duration_seconds_sum counter",
+            ]
+        )
         for key, total in sorted(self.request_duration_sum.items()):
             method, path = key.split(":", 1)
-            lines.append(f'factum_request_duration_seconds_sum{{method="{method}",path="{path}"}} {total / 1000:.4f}')
-        lines.extend([
-            "# HELP factum_errors_total Total HTTP errors by status code",
-            "# TYPE factum_errors_total counter",
-        ])
+            lines.append(
+                f'factum_request_duration_seconds_sum{{method="{method}",path="{path}"}} {total / 1000:.4f}'
+            )
+        lines.extend(
+            [
+                "# HELP factum_errors_total Total HTTP errors by status code",
+                "# TYPE factum_errors_total counter",
+            ]
+        )
         for code, count in sorted(self.error_count.items()):
             lines.append(f'factum_errors_total{{status_code="{code}"}} {count}')
-        lines.extend([
-            "# HELP factum_step_executions_total Total step executions",
-            "# TYPE factum_step_executions_total counter",
-        ])
+        lines.extend(
+            [
+                "# HELP factum_step_executions_total Total step executions",
+                "# TYPE factum_step_executions_total counter",
+            ]
+        )
         for step_type, count in sorted(self.step_count.items()):
             lines.append(f'factum_step_executions_total{{step_type="{step_type}"}} {count}')
-        lines.extend([
-            "# HELP factum_step_duration_seconds_sum Sum of step durations",
-            "# TYPE factum_step_duration_seconds_sum counter",
-        ])
+        lines.extend(
+            [
+                "# HELP factum_step_duration_seconds_sum Sum of step durations",
+                "# TYPE factum_step_duration_seconds_sum counter",
+            ]
+        )
         for step_type, durations in sorted(self.step_duration.items()):
             total_sec = sum(durations) / 1000
-            lines.append(f'factum_step_duration_seconds_sum{{step_type="{step_type}"}} {total_sec:.4f}')
-        lines.extend([
-            "# HELP factum_step_executions_by_dimension_total Total step executions by planner/compiler/engine/stage labels",
-            "# TYPE factum_step_executions_by_dimension_total counter",
-        ])
+            lines.append(
+                f'factum_step_duration_seconds_sum{{step_type="{step_type}"}} {total_sec:.4f}'
+            )
+        lines.extend(
+            [
+                "# HELP factum_step_executions_by_dimension_total Total step executions by planner/compiler/engine/stage labels",
+                "# TYPE factum_step_executions_by_dimension_total counter",
+            ]
+        )
         for key, count in sorted(self.step_dimension_count.items()):
             labels = dict(item.split("=", 1) for item in key.split("|"))
             lines.append(
@@ -249,10 +276,12 @@ class MetricsCollector:
                 + ",".join(f'{label}="{value}"' for label, value in labels.items())
                 + f"}} {count}"
             )
-        lines.extend([
-            "# HELP factum_execution_stage_seconds_sum Sum of execution stage durations",
-            "# TYPE factum_execution_stage_seconds_sum counter",
-        ])
+        lines.extend(
+            [
+                "# HELP factum_execution_stage_seconds_sum Sum of execution stage durations",
+                "# TYPE factum_execution_stage_seconds_sum counter",
+            ]
+        )
         for key, total in sorted(self.execution_stage_duration_sum.items()):
             labels = dict(item.split("=", 1) for item in key.split("|"))
             lines.append(
@@ -260,18 +289,21 @@ class MetricsCollector:
                 + ",".join(f'{label}="{value}"' for label, value in labels.items())
                 + f"}} {total / 1000:.4f}"
             )
-        lines.extend([
-            "# HELP factum_active_sessions Current active sessions",
-            "# TYPE factum_active_sessions gauge",
-            f"factum_active_sessions {self.active_sessions}",
-            "# HELP factum_active_jobs Current active jobs",
-            "# TYPE factum_active_jobs gauge",
-            f"factum_active_jobs {self.active_jobs}",
-        ])
+        lines.extend(
+            [
+                "# HELP factum_active_sessions Current active sessions",
+                "# TYPE factum_active_sessions gauge",
+                f"factum_active_sessions {self.active_sessions}",
+                "# HELP factum_active_jobs Current active jobs",
+                "# TYPE factum_active_jobs gauge",
+                f"factum_active_jobs {self.active_jobs}",
+            ]
+        )
         return "\n".join(lines) + "\n"
 
 
 # ── Timing middleware ───────────────────────────────────────────────
+
 
 class TimingMiddleware(BaseHTTPMiddleware):
     """Measures request duration and records it in MetricsCollector."""

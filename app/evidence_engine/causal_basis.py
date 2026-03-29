@@ -19,7 +19,6 @@ from __future__ import annotations
 
 from typing import Any, NamedTuple
 
-
 # ── Gap key constants ─────────────────────────────────────────────────────────
 
 GAP_MISSING_OBSERVED_WINDOW = "missing_observed_window"
@@ -37,18 +36,42 @@ GAP_EXPERIMENTAL_CONFIRMATION = "experimental_confirmation_pending"
 
 # ── Keyword sets for metric name heuristics ───────────────────────────────────
 
-_TIME_METRIC_KEYWORDS: frozenset[str] = frozenset({
-    "elapsed_time", "latency", "duration", "delay", "response_time", "query_time",
-    "exec_time", "wall_time",
-})
-_FAILURE_METRIC_KEYWORDS: frozenset[str] = frozenset({
-    "failure_rate", "error_rate", "fail_rate", "failed_pct", "error_pct",
-    "failure_count", "error_count",
-})
-_RESOURCE_SLICE_KEYS: frozenset[str] = frozenset({
-    "cluster", "resource_group", "user", "user_name", "username",
-    "queue", "pool", "service", "tenant",
-})
+_TIME_METRIC_KEYWORDS: frozenset[str] = frozenset(
+    {
+        "elapsed_time",
+        "latency",
+        "duration",
+        "delay",
+        "response_time",
+        "query_time",
+        "exec_time",
+        "wall_time",
+    }
+)
+_FAILURE_METRIC_KEYWORDS: frozenset[str] = frozenset(
+    {
+        "failure_rate",
+        "error_rate",
+        "fail_rate",
+        "failed_pct",
+        "error_pct",
+        "failure_count",
+        "error_count",
+    }
+)
+_RESOURCE_SLICE_KEYS: frozenset[str] = frozenset(
+    {
+        "cluster",
+        "resource_group",
+        "user",
+        "user_name",
+        "username",
+        "queue",
+        "pool",
+        "service",
+        "tenant",
+    }
+)
 
 
 # ── Per-level fallback gaps (fired when no specific rules produce output) ─────
@@ -91,20 +114,24 @@ _FALLBACK_VALIDATION: dict[str, str] = {
 
 # ── Public types ──────────────────────────────────────────────────────────────
 
+
 class EvidenceGap(NamedTuple):
     """A single evidence gap with a stable key and rendered user-facing text."""
+
     key: str
     text: str
 
 
 class SessionSummary(NamedTuple):
     """Small summary of session-level evidence available to confounder rules."""
-    has_comparable_slices: bool      # other slices with same metric exist beyond this claim's slice
+
+    has_comparable_slices: bool  # other slices with same metric exist beyond this claim's slice
     has_windowed_observations: bool  # any session observation has observed_window != None
-    metric_names: frozenset[str]     # all metric names referenced in session observations
+    metric_names: frozenset[str]  # all metric names referenced in session observations
 
 
 # ── Session summary derivation ────────────────────────────────────────────────
+
 
 def derive_session_summary(
     claim_scope: dict[str, Any],
@@ -144,6 +171,7 @@ def derive_session_summary(
 
 # ── Metric and slice key helpers ──────────────────────────────────────────────
 
+
 def _metric_is_time_based(metric: str) -> bool:
     lower = metric.lower()
     return any(kw in lower for kw in _TIME_METRIC_KEYWORDS)
@@ -167,6 +195,7 @@ def _slice_has_resource_keys(slice_dict: dict[str, Any]) -> bool:
 
 
 # ── Rule engine ───────────────────────────────────────────────────────────────
+
 
 def _build_scope_aware_gaps(
     claim: dict[str, Any],
@@ -195,42 +224,49 @@ def _build_scope_aware_gaps(
     # Fires only when the claim HAS supporting observations but none have a window.
     # (If there are no observations yet, the fallback is more appropriate.)
     if supporting_observations and not _supporting_have_windows(supporting_observations):
-        _add(EvidenceGap(
-            key=GAP_MISSING_OBSERVED_WINDOW,
-            text=(
-                "populate `observed_window` by running `aggregate_query` with a typed "
-                "`time_scope` to enable temporal precedence checking"
-            ),
-        ))
+        _add(
+            EvidenceGap(
+                key=GAP_MISSING_OBSERVED_WINDOW,
+                text=(
+                    "populate `observed_window` by running `aggregate_query` with a typed "
+                    "`time_scope` to enable temporal precedence checking"
+                ),
+            )
+        )
 
     # Rule 2 — time/failure metric with no temporal ordering in supporting observations.
     # Only fires when we know the metric is time/failure-sensitive AND we have
     # observations that lack both temporal order and observed_window.
-    if supporting_observations and (_metric_is_time_based(metric) or _metric_is_failure_rate(metric)):
-        if (
-            not _supporting_have_temporal_order(supporting_observations)
-            and not _supporting_have_windows(supporting_observations)
-        ):
-            _add(EvidenceGap(
-                key=GAP_MISSING_TEMPORAL_ORDERING,
-                text=(
-                    f"run `aggregate_query` with a typed `time_scope`, grouped by a time column, "
-                    f"to establish temporal ordering for `{metric}`; "
-                    "optionally run `correlate_metrics` to test cross-series association"
-                ),
-            ))
+    if supporting_observations and (
+        _metric_is_time_based(metric) or _metric_is_failure_rate(metric)
+    ):
+        if not _supporting_have_temporal_order(
+            supporting_observations
+        ) and not _supporting_have_windows(supporting_observations):
+            _add(
+                EvidenceGap(
+                    key=GAP_MISSING_TEMPORAL_ORDERING,
+                    text=(
+                        f"run `aggregate_query` with a typed `time_scope`, grouped by a time column, "
+                        f"to establish temporal ordering for `{metric}`; "
+                        "optionally run `correlate_metrics` to test cross-series association"
+                    ),
+                )
+            )
 
     # Rule 3 — resource/group slice with comparable slices elsewhere in the session.
     # Fires when the claim slice uses a resource-like dimension (cluster, user, etc.)
     # and there are other slices for the same metric in the session.
     if _slice_has_resource_keys(slice_dict) and session_summary.has_comparable_slices:
-        _add(EvidenceGap(
-            key=GAP_NORMALISE_WORKLOAD_VOLUME,
-            text=(
-                "check whether overall workload volume accounts for the difference "
-                "(normalise by total query count across the same slice dimension)"
-            ),
-        ))
+        _add(
+            EvidenceGap(
+                key=GAP_NORMALISE_WORKLOAD_VOLUME,
+                text=(
+                    "check whether overall workload volume accounts for the difference "
+                    "(normalise by total query count across the same slice dimension)"
+                ),
+            )
+        )
 
     # Fallback — use level-based gaps when no specific rules fired.
     if not gaps:
@@ -252,9 +288,7 @@ def _build_suggested_validation(
     parts: list[str] = []
 
     if GAP_MISSING_OBSERVED_WINDOW in gap_keys:
-        parts.append(
-            "Run `aggregate_query` with a typed `time_scope` to enable temporal ordering."
-        )
+        parts.append("Run `aggregate_query` with a typed `time_scope` to enable temporal ordering.")
     if GAP_MISSING_TEMPORAL_ORDERING in gap_keys:
         if metric:
             parts.append(
@@ -280,6 +314,7 @@ def _build_suggested_validation(
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
+
 
 def build_causal_basis(
     claim: dict[str, Any],

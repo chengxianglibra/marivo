@@ -26,10 +26,9 @@ from typing import Any
 from app.evidence_engine.schemas import (
     EDGE_TYPE_CORRELATES_WITH,
     EDGE_TYPE_MECHANISTICALLY_EXPLAINS,
-    ClaimRelation,
     INFERENCE_LEVEL_ORDER,
+    ClaimRelation,
 )
-
 
 # ── CausalEdge ───────────────────────────────────────────────────────────────
 
@@ -55,7 +54,7 @@ class LevelUpgrade:
     """A proposed upgrade to a claim's inference_level from a single checker."""
 
     claim_id: str
-    new_level: str                         # "L1", "L2", etc.
+    new_level: str  # "L1", "L2", etc.
     justification_tokens: list[str] = field(default_factory=list)
     confidence_boost: float = 0.0
     causal_edges: list[CausalEdge] = field(default_factory=list)
@@ -132,8 +131,9 @@ class CausalCheckerRegistry:
                 else:
                     existing = merged[cid]
                     # Keep highest level
-                    if (INFERENCE_LEVEL_ORDER.index(upgrade.new_level) >
-                            INFERENCE_LEVEL_ORDER.index(existing.new_level)):
+                    if INFERENCE_LEVEL_ORDER.index(upgrade.new_level) > INFERENCE_LEVEL_ORDER.index(
+                        existing.new_level
+                    ):
                         existing.new_level = upgrade.new_level
                     # Union tokens (preserve order, deduplicate)
                     for token in upgrade.justification_tokens:
@@ -145,8 +145,7 @@ class CausalCheckerRegistry:
                     )
                     # Merge causal edges (deduplicate by from+to+type)
                     existing_edge_keys = {
-                        (e.from_node_id, e.to_node_id, e.edge_type)
-                        for e in existing.causal_edges
+                        (e.from_node_id, e.to_node_id, e.edge_type) for e in existing.causal_edges
                     }
                     for edge in upgrade.causal_edges:
                         key = (edge.from_node_id, edge.to_node_id, edge.edge_type)
@@ -217,16 +216,15 @@ class CrossSliceConsistencyChecker(CausalChecker):
 
             if consistency_rate > self.CONSISTENCY_THRESHOLD:
                 direction = "positive" if positive >= negative else "negative"
-                token = (
-                    f"cross_slice_consistency:{majority}/{len(deltas)}"
-                    f"_slices_{direction}→L1"
+                token = f"cross_slice_consistency:{majority}/{len(deltas)}_slices_{direction}→L1"
+                upgrades.append(
+                    LevelUpgrade(
+                        claim_id=claim["claim_id"],
+                        new_level="L1",
+                        justification_tokens=[token],
+                        confidence_boost=0.02,
+                    )
                 )
-                upgrades.append(LevelUpgrade(
-                    claim_id=claim["claim_id"],
-                    new_level="L1",
-                    justification_tokens=[token],
-                    confidence_boost=0.02,
-                ))
 
         return upgrades
 
@@ -271,9 +269,7 @@ class TemporalPrecedenceChecker(CausalChecker):
             if observation.get("observation_id")
         }
         claim_by_id = {
-            str(claim.get("claim_id")): claim
-            for claim in claims
-            if claim.get("claim_id")
+            str(claim.get("claim_id")): claim for claim in claims if claim.get("claim_id")
         }
         upgrades: list[LevelUpgrade] = []
         emitted_pairs: set[tuple[str, str]] = set()
@@ -295,7 +291,9 @@ class TemporalPrecedenceChecker(CausalChecker):
             right_window = self._claim_window(right_claim, obs_by_id)
             precedence = None
             if left_window is not None and right_window is not None:
-                precedence = self._resolve_precedence(left_claim, left_window, right_claim, right_window)
+                precedence = self._resolve_precedence(
+                    left_claim, left_window, right_claim, right_window
+                )
                 if precedence is not None:
                     precedence_kind = "window"
             if precedence is None:
@@ -364,13 +362,15 @@ class TemporalPrecedenceChecker(CausalChecker):
                         f"{lag_hours} hours later."
                     ),
                 )
-            upgrades.append(LevelUpgrade(
-                claim_id=later_claim["claim_id"],
-                new_level="L2",
-                justification_tokens=[token],
-                confidence_boost=0.03,
-                causal_edges=[edge],
-            ))
+            upgrades.append(
+                LevelUpgrade(
+                    claim_id=later_claim["claim_id"],
+                    new_level="L2",
+                    justification_tokens=[token],
+                    confidence_boost=0.03,
+                    causal_edges=[edge],
+                )
+            )
 
         return upgrades
 
@@ -445,7 +445,8 @@ class TemporalPrecedenceChecker(CausalChecker):
                     continue
 
                 lag_hours = int(
-                    (later_pattern["peak_start"] - earlier_pattern["peak_start"]).total_seconds() / 3600
+                    (later_pattern["peak_start"] - earlier_pattern["peak_start"]).total_seconds()
+                    / 3600
                 )
                 if not (self.MIN_HOURLY_LAG_HOURS <= lag_hours <= self.MAX_HOURLY_LAG_HOURS):
                     continue
@@ -595,12 +596,14 @@ class DoseResponseChecker(CausalChecker):
                 if claim_metric not in (left_metric, right_metric):
                     continue
                 token = f"dose_response_precomputed:ρ={rho:.3f}"
-                upgrades.append(LevelUpgrade(
-                    claim_id=claim["claim_id"],
-                    new_level=current_level,
-                    justification_tokens=[token],
-                    confidence_boost=0.02,
-                ))
+                upgrades.append(
+                    LevelUpgrade(
+                        claim_id=claim["claim_id"],
+                        new_level=current_level,
+                        justification_tokens=[token],
+                        confidence_boost=0.02,
+                    )
+                )
                 break  # One match is enough per claim
 
             if any(u.claim_id == claim["claim_id"] for u in upgrades):
@@ -637,9 +640,7 @@ class DoseResponseChecker(CausalChecker):
                 deltas = [o["payload"].get("delta_pct") for o in supporting_obs]
 
                 pairs = [
-                    (v, d)
-                    for v, d in zip(dim_values, deltas)
-                    if v is not None and d is not None
+                    (v, d) for v, d in zip(dim_values, deltas) if v is not None and d is not None
                 ]
 
                 if len(pairs) < self.MIN_OBSERVATIONS:
@@ -654,12 +655,14 @@ class DoseResponseChecker(CausalChecker):
                 rho = _spearman_correlation(numeric_values, delta_values)
                 if abs(rho) >= self.SPEARMAN_THRESHOLD:
                     token = f"dose_response:{dim_key}:ρ={rho:.2f}→L1_bonus"
-                    upgrades.append(LevelUpgrade(
-                        claim_id=claim["claim_id"],
-                        new_level=current_level,  # Level unchanged
-                        justification_tokens=[token],
-                        confidence_boost=0.02,
-                    ))
+                    upgrades.append(
+                        LevelUpgrade(
+                            claim_id=claim["claim_id"],
+                            new_level=current_level,  # Level unchanged
+                            justification_tokens=[token],
+                            confidence_boost=0.02,
+                        )
+                    )
                     found_bonus = True
 
         return upgrades
@@ -722,13 +725,15 @@ class MechanisticExplanationChecker(CausalChecker):
                         f"as the strongest contributor for the claim's slice."
                     ),
                 )
-                upgrades.append(LevelUpgrade(
-                    claim_id=claim["claim_id"],
-                    new_level="L3",
-                    justification_tokens=[token],
-                    confidence_boost=0.05,
-                    causal_edges=[edge],
-                ))
+                upgrades.append(
+                    LevelUpgrade(
+                        claim_id=claim["claim_id"],
+                        new_level="L3",
+                        justification_tokens=[token],
+                        confidence_boost=0.05,
+                        causal_edges=[edge],
+                    )
+                )
                 break
 
         return upgrades
@@ -788,12 +793,14 @@ class ReversalChecker(CausalChecker):
             reversal_count = _detect_reversal(deltas, self.MIN_REVERSAL_PERIODS)
             if reversal_count >= self.MIN_REVERSAL_PERIODS:
                 token = f"reversal:sustained_{reversal_count}_periods→L2_bonus"
-                upgrades.append(LevelUpgrade(
-                    claim_id=claim["claim_id"],
-                    new_level=current_level,  # Level unchanged
-                    justification_tokens=[token],
-                    confidence_boost=0.02,
-                ))
+                upgrades.append(
+                    LevelUpgrade(
+                        claim_id=claim["claim_id"],
+                        new_level=current_level,  # Level unchanged
+                        justification_tokens=[token],
+                        confidence_boost=0.02,
+                    )
+                )
 
         return upgrades
 
@@ -854,21 +861,20 @@ class CrossScopeCorrelationChecker(CausalChecker):
                 weight=0.7,
                 explanation=f"Explicit causal_candidate link from observation {cause_short}",
             )
-            upgrades.append(LevelUpgrade(
-                claim_id=claim["claim_id"],
-                new_level="L1",
-                justification_tokens=[token],
-                confidence_boost=0.03,
-                causal_edges=[edge],
-            ))
+            upgrades.append(
+                LevelUpgrade(
+                    claim_id=claim["claim_id"],
+                    new_level="L1",
+                    justification_tokens=[token],
+                    confidence_boost=0.03,
+                    causal_edges=[edge],
+                )
+            )
             upgraded_claim_ids.add(claim["claim_id"])
 
         # 2. Automatic temporal predecessor detection
         # Build list of windowed observations
-        windowed_obs = [
-            o for o in observations
-            if o.get("observed_window") is not None
-        ]
+        windowed_obs = [o for o in observations if o.get("observed_window") is not None]
         if len(windowed_obs) < 2:
             return upgrades
 
@@ -877,10 +883,7 @@ class CrossScopeCorrelationChecker(CausalChecker):
             if claim["claim_id"] in upgraded_claim_ids:
                 continue
             supporting_ids = set(claim.get("supporting_observations", []))
-            claim_windowed = [
-                o for o in windowed_obs
-                if o["observation_id"] in supporting_ids
-            ]
+            claim_windowed = [o for o in windowed_obs if o["observation_id"] in supporting_ids]
             if not claim_windowed:
                 continue
 
@@ -903,19 +906,23 @@ class CrossScopeCorrelationChecker(CausalChecker):
                         weight=0.5,
                         explanation=f"Temporal predecessor detected: {pred_end} precedes {claim_start} by {lag_days} days",
                     )
-                    upgrades.append(LevelUpgrade(
-                        claim_id=claim["claim_id"],
-                        new_level="L1",
-                        justification_tokens=[token],
-                        confidence_boost=0.02,
-                        causal_edges=[edge],
-                    ))
+                    upgrades.append(
+                        LevelUpgrade(
+                            claim_id=claim["claim_id"],
+                            new_level="L1",
+                            justification_tokens=[token],
+                            confidence_boost=0.02,
+                            causal_edges=[edge],
+                        )
+                    )
                     upgraded_claim_ids.add(claim["claim_id"])
                     break  # One predecessor is enough per claim
 
         return upgrades
 
-    def _find_claim_for_obs(self, obs_id: str, claims: list[dict[str, Any]]) -> dict[str, Any] | None:
+    def _find_claim_for_obs(
+        self, obs_id: str, claims: list[dict[str, Any]]
+    ) -> dict[str, Any] | None:
         for claim in claims:
             if obs_id in claim.get("supporting_observations", []):
                 return claim
@@ -949,14 +956,10 @@ class CrossMetricCorrelationChecker(CausalChecker):
             return []
 
         claim_by_id = {
-            str(claim.get("claim_id")): claim
-            for claim in claims
-            if claim.get("claim_id")
+            str(claim.get("claim_id")): claim for claim in claims if claim.get("claim_id")
         }
         observation_by_id = {
-            str(obs.get("observation_id")): obs
-            for obs in observations
-            if obs.get("observation_id")
+            str(obs.get("observation_id")): obs for obs in observations if obs.get("observation_id")
         }
         adjacency = self._build_eligible_adjacency(
             relations,
@@ -969,13 +972,10 @@ class CrossMetricCorrelationChecker(CausalChecker):
         upgrades: list[LevelUpgrade] = []
         for component in _connected_components(adjacency):
             component_claims = [
-                claim_by_id[claim_id]
-                for claim_id in component
-                if claim_id in claim_by_id
+                claim_by_id[claim_id] for claim_id in component if claim_id in claim_by_id
             ]
             component_claims = [
-                claim for claim in component_claims
-                if claim.get("inference_level", "L0") == "L0"
+                claim for claim in component_claims if claim.get("inference_level", "L0") == "L0"
             ]
             if len(component_claims) < self.MIN_DISTINCT_METRICS:
                 continue
@@ -1060,6 +1060,7 @@ class CrossMetricCorrelationChecker(CausalChecker):
             adjacency[from_claim_id].add(to_claim_id)
             adjacency[to_claim_id].add(from_claim_id)
         return adjacency
+
 
 # ── Registry factory ──────────────────────────────────────────────────────────
 
@@ -1221,6 +1222,7 @@ def _render_component_scope_label(claims: list[dict[str, Any]]) -> str:
 def _date_diff_days(start_iso: str, end_iso: str) -> int:
     """Return number of days from start_iso to end_iso (both YYYY-MM-DD)."""
     from datetime import date
+
     start = date.fromisoformat(start_iso[:10])
     end = date.fromisoformat(end_iso[:10])
     return (end - start).days

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -13,7 +13,7 @@ from app.storage.metadata import MetadataStore
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 class SemanticService:
@@ -69,7 +69,9 @@ class SemanticService:
         return self.get_entity(entity_id)
 
     def get_entity(self, entity_id: str) -> dict[str, Any]:
-        row = self.metadata.query_one("SELECT * FROM semantic_entities WHERE entity_id = ?", [entity_id])
+        row = self.metadata.query_one(
+            "SELECT * FROM semantic_entities WHERE entity_id = ?", [entity_id]
+        )
         if row is None:
             raise KeyError(f"Unknown entity: {entity_id}")
         return self._row_to_entity(row)
@@ -244,7 +246,9 @@ class SemanticService:
         return self.get_metric(metric_id)
 
     def get_metric(self, metric_id: str) -> dict[str, Any]:
-        row = self.metadata.query_one("SELECT * FROM semantic_metrics WHERE metric_id = ?", [metric_id])
+        row = self.metadata.query_one(
+            "SELECT * FROM semantic_metrics WHERE metric_id = ?", [metric_id]
+        )
         if row is None:
             raise KeyError(f"Unknown metric: {metric_id}")
         return self._row_to_metric(row)
@@ -334,7 +338,16 @@ class SemanticService:
                 (mapping_id, semantic_type, semantic_id, object_id, mapping_type, mapping_json, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            [mapping_id, semantic_type, semantic_id, object_id, mapping_type, json.dumps(mapping_json or {}), now, now],
+            [
+                mapping_id,
+                semantic_type,
+                semantic_id,
+                object_id,
+                mapping_type,
+                json.dumps(mapping_json or {}),
+                now,
+                now,
+            ],
         )
         return self._get_mapping(mapping_id)
 
@@ -362,7 +375,9 @@ class SemanticService:
         return [self._row_to_mapping(r) for r in rows]
 
     def _get_mapping(self, mapping_id: str) -> dict[str, Any] | None:
-        row = self.metadata.query_one("SELECT * FROM semantic_mappings WHERE mapping_id = ?", [mapping_id])
+        row = self.metadata.query_one(
+            "SELECT * FROM semantic_mappings WHERE mapping_id = ?", [mapping_id]
+        )
         if row is None:
             return None
         return self._row_to_mapping(row)

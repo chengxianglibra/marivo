@@ -8,7 +8,7 @@ from typing import Any
 class ScopeCluster:
     """Stage 1 output: a group of observations sharing the same metric+slice scope."""
 
-    scope_key: str                          # "<metric>/<k=v,...>" canonical key
+    scope_key: str  # "<metric>/<k=v,...>" canonical key
     metric: str
     slice_dict: dict[str, Any]
     metric_observation_obs: list[dict[str, Any]]
@@ -18,7 +18,7 @@ class ScopeCluster:
     other_obs: list[dict[str, Any]]
     # Audit fields
     total_observation_count: int = 0
-    cluster_reason: str = ""                # "exact_scope_match"
+    cluster_reason: str = ""  # "exact_scope_match"
 
 
 @dataclass
@@ -27,7 +27,7 @@ class AlignedSignal:
 
     scope_cluster: ScopeCluster
     primary_obs: dict[str, Any]
-    primary_selection_reason: str           # "max |delta_pct| * log1p(sample_size)"
+    primary_selection_reason: str  # "max |delta_pct| * log1p(sample_size)"
     supporting_obs_ids: list[str]
     contradicting_obs_ids: list[str]
     # Inputs to score_confidence()
@@ -46,7 +46,7 @@ class AlignedSignal:
 class ClaimFormulation:
     """Stage 3 output: a fully formed claim dict plus formulation audit data."""
 
-    claim: dict[str, Any]                   # complete Claim dict, ready for DB insertion
+    claim: dict[str, Any]  # complete Claim dict, ready for DB insertion
     # Audit fields
     claim_type_decision: str
     claim_type_reason: str

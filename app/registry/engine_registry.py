@@ -35,7 +35,15 @@ class EngineRegistry:
             INSERT INTO engines (engine_id, engine_type, display_name, connection_json, capabilities_json, status, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
             """,
-            [engine_id, engine_type, display_name, json.dumps(connection), json.dumps(caps), now, now],
+            [
+                engine_id,
+                engine_type,
+                display_name,
+                json.dumps(connection),
+                json.dumps(caps),
+                now,
+                now,
+            ],
         )
         return {
             "engine_id": engine_id,
@@ -71,7 +79,9 @@ class EngineRegistry:
         )
         if existing is not None:
             return self._row_to_engine(existing)
-        return self.register_engine(engine_type, display_name, connection, capabilities=capabilities)
+        return self.register_engine(
+            engine_type, display_name, connection, capabilities=capabilities
+        )
 
     def build_analytics_engine(self, engine_id: str) -> AnalyticsEngine:
         engine = self.get_engine(engine_id)

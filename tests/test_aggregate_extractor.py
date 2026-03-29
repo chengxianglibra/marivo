@@ -23,18 +23,24 @@ class AggregateRowExtractorTests(unittest.TestCase):
 
     def test_custom_observation_type(self) -> None:
         rows = [{"cluster": "web", "error_rate": 0.15}]
-        observations = self.extractor.extract(rows, context={
-            "group_by": ["cluster"],
-            "observation_type": "anomaly_detection",
-        })
+        observations = self.extractor.extract(
+            rows,
+            context={
+                "group_by": ["cluster"],
+                "observation_type": "anomaly_detection",
+            },
+        )
         self.assertEqual(observations[0]["type"], "anomaly_detection")
 
     def test_custom_value_column(self) -> None:
         rows = [{"cluster": "web", "cnt": 100, "error_rate": 0.15}]
-        observations = self.extractor.extract(rows, context={
-            "group_by": ["cluster"],
-            "value_column": "error_rate",
-        })
+        observations = self.extractor.extract(
+            rows,
+            context={
+                "group_by": ["cluster"],
+                "value_column": "error_rate",
+            },
+        )
         self.assertEqual(observations[0]["payload"]["current_value"], 0.15)
 
     def test_auto_detect_value_column(self) -> None:
@@ -48,9 +54,12 @@ class AggregateRowExtractorTests(unittest.TestCase):
 
     def test_multiple_group_by(self) -> None:
         rows = [{"cluster": "web", "host": "h1", "cnt": 42}]
-        observations = self.extractor.extract(rows, context={
-            "group_by": ["cluster", "host"],
-        })
+        observations = self.extractor.extract(
+            rows,
+            context={
+                "group_by": ["cluster", "host"],
+            },
+        )
         self.assertEqual(observations[0]["subject"]["slice"], {"cluster": "web", "host": "h1"})
 
     def test_no_context(self) -> None:
@@ -68,10 +77,9 @@ class AggregateRowExtractorTests(unittest.TestCase):
         self.assertEqual(self.extractor.name, "aggregate_rows")
 
     def test_outlier_row_emits_additional_anomaly_observation(self) -> None:
-        rows = [
-            {"cluster": f"c{i}", "cnt": 10.0}
-            for i in range(9)
-        ] + [{"cluster": "outlier", "cnt": 1000.0}]
+        rows = [{"cluster": f"c{i}", "cnt": 10.0} for i in range(9)] + [
+            {"cluster": "outlier", "cnt": 1000.0}
+        ]
         observations = self.extractor.extract(rows, context={"group_by": ["cluster"]})
         metric_observations = [obs for obs in observations if obs["type"] == "metric_observation"]
         anomalies = [obs for obs in observations if obs["type"] == "anomaly_detection"]
@@ -87,7 +95,9 @@ class AggregateRowExtractorTests(unittest.TestCase):
         self.assertEqual(anomalies, [])
 
     def test_small_population_skips_anomaly_pass(self) -> None:
-        rows = [{"cluster": f"c{i}", "cnt": 10.0} for i in range(3)] + [{"cluster": "x", "cnt": 1000.0}]
+        rows = [{"cluster": f"c{i}", "cnt": 10.0} for i in range(3)] + [
+            {"cluster": "x", "cnt": 1000.0}
+        ]
         observations = self.extractor.extract(rows, context={"group_by": ["cluster"]})
         self.assertEqual(len(observations), 4)
         self.assertTrue(all(obs["type"] == "metric_observation" for obs in observations))
@@ -101,10 +111,13 @@ class AggregateRowExtractorTests(unittest.TestCase):
             {"cluster": "e", "cnt": 30.0},
         ]
         strict = self.extractor.extract(rows, context={"group_by": ["cluster"]})
-        loose = self.extractor.extract(rows, context={
-            "group_by": ["cluster"],
-            "anomaly_z_threshold": 1.5,
-        })
+        loose = self.extractor.extract(
+            rows,
+            context={
+                "group_by": ["cluster"],
+                "anomaly_z_threshold": 1.5,
+            },
+        )
         self.assertEqual([obs for obs in strict if obs["type"] == "anomaly_detection"], [])
         self.assertEqual(len([obs for obs in loose if obs["type"] == "anomaly_detection"]), 1)
 
@@ -117,10 +130,13 @@ class AggregateRowExtractorTests(unittest.TestCase):
             {"log_hour": "2024-01-15 04:00:00", "cnt": 10.0},
             {"log_hour": "2024-01-15 05:00:00", "cnt": 10000.0},
         ]
-        observations = self.extractor.extract(rows, context={
-            "group_by": ["log_hour"],
-            "anomaly_z_threshold": 1.5,
-        })
+        observations = self.extractor.extract(
+            rows,
+            context={
+                "group_by": ["log_hour"],
+                "anomaly_z_threshold": 1.5,
+            },
+        )
         anomalies = [obs for obs in observations if obs["type"] == "anomaly_detection"]
         self.assertEqual(len(anomalies), 1)
         self.assertEqual(
@@ -147,10 +163,13 @@ class AggregateRowExtractorTests(unittest.TestCase):
             {"log_date": "20240323", "resource_group": "rg_b", "user": "v5", "cnt": 500.0},
             {"log_date": "20240323", "resource_group": "rg_b", "user": "v6", "cnt": 500.0},
         ]
-        observations = self.extractor.extract(rows, context={
-            "group_by": ["log_date", "resource_group", "user"],
-            "anomaly_z_threshold": 1.5,
-        })
+        observations = self.extractor.extract(
+            rows,
+            context={
+                "group_by": ["log_date", "resource_group", "user"],
+                "anomaly_z_threshold": 1.5,
+            },
+        )
         anomalies = [obs for obs in observations if obs["type"] == "anomaly_detection"]
         self.assertEqual(len(anomalies), 1)
         self.assertEqual(
@@ -176,10 +195,13 @@ class AggregateRowExtractorTests(unittest.TestCase):
 
     def test_temporal_group_by_columns_are_persisted_on_subject(self) -> None:
         rows = [{"log_date": "2024-01-15", "resource_group": "rg_a", "cnt": 42}]
-        observations = self.extractor.extract(rows, context={
-            "group_by": ["log_date", "resource_group"],
-            "temporal_group_by_columns": ["log_date"],
-        })
+        observations = self.extractor.extract(
+            rows,
+            context={
+                "group_by": ["log_date", "resource_group"],
+                "temporal_group_by_columns": ["log_date"],
+            },
+        )
         self.assertEqual(
             observations[0]["subject"]["temporal_group_by_columns"],
             ["log_date"],
@@ -251,10 +273,13 @@ class UnitInferenceTests(unittest.TestCase):
     def test_column_metadata_context_respected(self) -> None:
         """column_metadata passed in context overrides heuristic."""
         rows = [{"cluster": "web", "elapsed_time": 5000}]
-        obs = AggregateRowExtractor().extract(rows, context={
-            "group_by": ["cluster"],
-            "column_metadata": {"elapsed_time": {"unit": "microseconds"}},
-        })
+        obs = AggregateRowExtractor().extract(
+            rows,
+            context={
+                "group_by": ["cluster"],
+                "column_metadata": {"elapsed_time": {"unit": "microseconds"}},
+            },
+        )
         hint = obs[0]["payload"]["column_unit_hint"]
         self.assertEqual(hint["source"], "metadata")
         self.assertEqual(hint["unit"], "microseconds")
@@ -268,9 +293,7 @@ class StaticUnitInferenceTests(unittest.TestCase):
         self.assertIsNone(hint)
 
     def test_infer_bytes_magnitude_band(self) -> None:
-        hint = AggregateRowExtractor.infer_column_unit(
-            "file_size", [500_000.0, 1_000_000.0]
-        )
+        hint = AggregateRowExtractor.infer_column_unit("file_size", [500_000.0, 1_000_000.0])
         self.assertIsNotNone(hint)
         self.assertEqual(hint["family"], "bytes")
         self.assertIn(hint["unit"], ("kilobytes", "megabytes"))

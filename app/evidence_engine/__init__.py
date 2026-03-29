@@ -10,8 +10,8 @@ __all__ = [
     "ClaimSynthesizer",
     "ConfidenceScorer",
     "ContributionShiftExtractor",
-    "DefaultConfidenceScorer",
     "DefaultClaimSynthesizer",
+    "DefaultConfidenceScorer",
     "DefaultRecommendationPolicy",
     "EvidencePipeline",
     "ExtractorContract",
@@ -40,8 +40,14 @@ def __getattr__(name: str) -> Any:
             "ConfidenceScorer": ConfidenceScorer,
             "DefaultConfidenceScorer": DefaultConfidenceScorer,
         }[name]
-    if name in {"ObservationExtractor", "MetricObservationExtractor", "AggregateRowExtractor",
-                 "AnomalyExtractor", "FunnelExtractor", "ContributionShiftExtractor"}:
+    if name in {
+        "ObservationExtractor",
+        "MetricObservationExtractor",
+        "AggregateRowExtractor",
+        "AnomalyExtractor",
+        "FunnelExtractor",
+        "ContributionShiftExtractor",
+    }:
         from app.evidence_engine.extractors import (
             AggregateRowExtractor,
             AnomalyExtractor,
@@ -63,7 +69,9 @@ def __getattr__(name: str) -> Any:
         from app.evidence_engine.contract import ExtractorContract
         from app.evidence_engine.registry import ExtractorRegistry
 
-        return {"ExtractorContract": ExtractorContract, "ExtractorRegistry": ExtractorRegistry}[name]
+        return {"ExtractorContract": ExtractorContract, "ExtractorRegistry": ExtractorRegistry}[
+            name
+        ]
     if name in {"RecommendationPolicy", "DefaultRecommendationPolicy"}:
         from app.evidence_engine.recommendation_policy import (
             DefaultRecommendationPolicy,

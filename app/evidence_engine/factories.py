@@ -3,13 +3,19 @@ from __future__ import annotations
 from typing import Any
 from uuid import uuid4
 
-
-_AGGREGATE_FIELDS = frozenset({
-    "current_value", "baseline_value", "delta_pct",
-    "current_sessions", "baseline_sessions",
-    "metric_value", "session_count", "row_count",
-    "period",
-})
+_AGGREGATE_FIELDS = frozenset(
+    {
+        "current_value",
+        "baseline_value",
+        "delta_pct",
+        "current_sessions",
+        "baseline_sessions",
+        "metric_value",
+        "session_count",
+        "row_count",
+        "period",
+    }
+)
 
 
 def build_slice(row: dict[str, Any], dimensions: list[str] | None = None) -> dict[str, str]:
@@ -43,8 +49,13 @@ def make_observation(
         },
         "payload": payload,
         "significance": {
-            "sample_size": min(int(payload.get("current_sessions", 0)), int(payload.get("baseline_sessions", 0))),
-            "practical_significance": abs(float(payload.get("delta_pct", payload.get("delta_rate", 0.0)))) >= 5.0,
+            "sample_size": min(
+                int(payload.get("current_sessions", 0)), int(payload.get("baseline_sessions", 0))
+            ),
+            "practical_significance": abs(
+                float(payload.get("delta_pct", payload.get("delta_rate", 0.0)))
+            )
+            >= 5.0,
         },
         "quality": quality,
     }

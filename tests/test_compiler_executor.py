@@ -26,7 +26,11 @@ class FakeEngine:
 class CompilerTests(unittest.TestCase):
     def test_compile_sample_rows(self) -> None:
         compiled = compile_step(
-            AnalysisStepIR(index=0, step_type="sample_rows", params={"table_name": "analytics.watch_events", "limit": 5}),
+            AnalysisStepIR(
+                index=0,
+                step_type="sample_rows",
+                params={"table_name": "analytics.watch_events", "limit": 5},
+            ),
             engine_type="duckdb",
         )
 
@@ -166,7 +170,10 @@ class CompilerTests(unittest.TestCase):
                         "table": "analytics.watch_events",
                         "scoped_query": {
                             "analysis_time_expr": "event_time",
-                            "current": {"start": "2026-03-25T10:00:00", "end": "2026-03-25T14:00:00"},
+                            "current": {
+                                "start": "2026-03-25T10:00:00",
+                                "end": "2026-03-25T14:00:00",
+                            },
                         },
                     },
                 ),
@@ -271,8 +278,8 @@ class CompilerTests(unittest.TestCase):
                 "metric_sql": "avg(play_duration_seconds)",
                 "dimensions": ["platform"],
                 "period_params": ["c1", "c2", "b1", "b2", "b1", "c2"],
-                },
-            )
+            },
+        )
         self.assertIn("ORDER BY delta_pct DESC", compiled.sql)
 
     def test_compile_metric_query_single_window_current_sessions_order(self) -> None:
@@ -368,7 +375,9 @@ class CompilerTests(unittest.TestCase):
                 "2026-03-25T10:00:00",
             ],
         )
-        window_idx = compiled.sql.index("((event_time >= ? AND event_time < ?) OR (event_time >= ? AND event_time < ?))")
+        window_idx = compiled.sql.index(
+            "((event_time >= ? AND event_time < ?) OR (event_time >= ? AND event_time < ?))"
+        )
         pruning_idx = compiled.sql.index("(log_date >= '20260325')")
         session_idx = compiled.sql.index("(platform = 'android')")
         raw_filter_idx = compiled.sql.index("(country = 'US')")
@@ -463,9 +472,9 @@ class CompilerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             compile_step(
                 AnalysisStepIR(
-                index=0,
-                step_type="metric_query",
-                params={
+                    index=0,
+                    step_type="metric_query",
+                    params={
                         "metric": "watch_time",
                         "table": "analytics.watch_events",
                         "order": "DROP TABLE",
@@ -492,7 +501,10 @@ class CompilerTests(unittest.TestCase):
                         "scoped_query": {
                             "mode": "single_window",
                             "analysis_time_expr": "event_time",
-                            "current": {"start": "2026-03-25T10:00:00", "end": "2026-03-25T14:00:00"},
+                            "current": {
+                                "start": "2026-03-25T10:00:00",
+                                "end": "2026-03-25T14:00:00",
+                            },
                         },
                     },
                 ),
@@ -560,7 +572,9 @@ class AggregateGroupByAliasTests(unittest.TestCase):
             "count(*) AS query_count",
         ]
         result = _expand_group_by_aliases(select_exprs, ["cluster_group"])
-        self.assertEqual(result, ["CASE WHEN cluster IN ('k8sbi-bi1','k8sbi-bi2') THEN 'BI' ELSE 'other' END"])
+        self.assertEqual(
+            result, ["CASE WHEN cluster IN ('k8sbi-bi1','k8sbi-bi2') THEN 'BI' ELSE 'other' END"]
+        )
 
     def test_expand_aliases_leaves_plain_columns_unchanged(self) -> None:
         select_exprs = ["platform", "count(*) AS query_count"]
@@ -707,7 +721,9 @@ class AggregateGroupByAliasTests(unittest.TestCase):
             ],
         )
 
-    def test_compile_typed_aggregate_query_mixed_layout_uses_timestamp_correctness_and_partition_pruning(self) -> None:
+    def test_compile_typed_aggregate_query_mixed_layout_uses_timestamp_correctness_and_partition_pruning(
+        self,
+    ) -> None:
         compiled = compile_step(
             AnalysisStepIR(
                 index=0,
@@ -730,7 +746,9 @@ class AggregateGroupByAliasTests(unittest.TestCase):
         )
 
         self.assertIn("event_time >= ? AND event_time < ?", compiled.sql)
-        self.assertIn("(log_date = '20260325' AND log_hour >= '06' AND log_hour < '14')", compiled.sql)
+        self.assertIn(
+            "(log_date = '20260325' AND log_hour >= '06' AND log_hour < '14')", compiled.sql
+        )
         self.assertIn("FROM scoped", compiled.sql)
         self.assertIn("query_count_current", compiled.sql)
         self.assertIn("query_count_baseline", compiled.sql)
@@ -753,7 +771,11 @@ class ExecutorTests(unittest.TestCase):
     def test_execute_compiled_translates_sql(self) -> None:
         engine = FakeEngine()
         compiled = compile_step(
-            AnalysisStepIR(index=0, step_type="sample_rows", params={"table_name": "analytics.watch_events", "limit": 1}),
+            AnalysisStepIR(
+                index=0,
+                step_type="sample_rows",
+                params={"table_name": "analytics.watch_events", "limit": 1},
+            ),
             engine_type="trino",
         )
         compiled.sql = "SELECT play_duration_seconds::DOUBLE FROM analytics.watch_events LIMIT 1"

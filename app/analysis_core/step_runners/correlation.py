@@ -12,7 +12,7 @@ def _normalize_params(params: dict[str, object] | None) -> dict[str, object]:
     return dict(params or {})
 
 
-def register(registry: StepRunnerRegistry, service: "SemanticLayerService") -> None:
+def register(registry: StepRunnerRegistry, service: SemanticLayerService) -> None:
     registry.register(
         "correlate_metrics",
         lambda session_id, params=None: service._run_correlate_metrics(

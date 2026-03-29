@@ -58,7 +58,11 @@ class SemanticRuntimeTests(unittest.TestCase):
 
         source = cls.client.post(
             "/sources",
-            json={"source_type": "duckdb", "display_name": "Semantic Runtime Source", "connection": {"path": str(db_path)}},
+            json={
+                "source_type": "duckdb",
+                "display_name": "Semantic Runtime Source",
+                "connection": {"path": str(db_path)},
+            },
         ).json()
         cls.source_id = source["source_id"]
         cls.client.post(f"/sources/{cls.source_id}/sync")
@@ -137,7 +141,9 @@ class SemanticRuntimeTests(unittest.TestCase):
 
     def test_semantic_repository_builds_planner_context(self) -> None:
         repository = self.client.app.state.service.semantic_repository
-        session = self.client.app.state.service.create_session("Repository planner context", {}, {}, {})
+        session = self.client.app.state.service.create_session(
+            "Repository planner context", {}, {}, {}
+        )
 
         context = repository.build_planner_context(session["session_id"])
 
@@ -182,7 +188,9 @@ class SemanticRuntimeTests(unittest.TestCase):
             self.binding_service,
             semantic_repository=self.client.app.state.service.semantic_repository,
         )
-        session = self.client.app.state.service.create_session("Catalog runtime planner context", {}, {}, {})
+        session = self.client.app.state.service.create_session(
+            "Catalog runtime planner context", {}, {}, {}
+        )
 
         context = runtime.planner_context(session["session_id"])
 

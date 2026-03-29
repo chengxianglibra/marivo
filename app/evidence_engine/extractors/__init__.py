@@ -17,20 +17,26 @@ __all__ = [
 def __getattr__(name: str) -> Any:
     if name == "ObservationExtractor":
         from app.evidence_engine.extractors.base import ObservationExtractor
+
         return ObservationExtractor
     if name == "MetricObservationExtractor":
         from app.evidence_engine.extractors.metric_observation import MetricObservationExtractor
+
         return MetricObservationExtractor
     if name == "AggregateRowExtractor":
         from app.evidence_engine.extractors.aggregate import AggregateRowExtractor
+
         return AggregateRowExtractor
     if name == "AnomalyExtractor":
         from app.evidence_engine.extractors.anomaly import AnomalyExtractor
+
         return AnomalyExtractor
     if name == "FunnelExtractor":
         from app.evidence_engine.extractors.funnel import FunnelExtractor
+
         return FunnelExtractor
     if name == "ContributionShiftExtractor":
         from app.evidence_engine.extractors.contribution_shift import ContributionShiftExtractor
+
         return ContributionShiftExtractor
     raise AttributeError(name)

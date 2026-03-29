@@ -6,7 +6,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from app.config import FactumConfig, SyncConfig, UIConfig, load_config
+from app.config import FactumConfig, UIConfig, load_config
 from app.main import create_app
 from app.sources import SourceService
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
@@ -17,11 +17,7 @@ from tests.shared_fixtures import get_seeded_duckdb_path
 class LoadConfigTests(unittest.TestCase):
     def test_load_valid_yaml(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
-            f.write(
-                "sources:\n"
-                '  - name: "Demo"\n'
-                "    type: duckdb\n"
-            )
+            f.write('sources:\n  - name: "Demo"\n    type: duckdb\n')
             f.flush()
             cfg = load_config(Path(f.name))
 
@@ -89,11 +85,7 @@ class LoadConfigTests(unittest.TestCase):
 
     def test_sync_mode_defaults_to_all(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
-            f.write(
-                "sources:\n"
-                '  - name: "Demo"\n'
-                "    type: duckdb\n"
-            )
+            f.write('sources:\n  - name: "Demo"\n    type: duckdb\n')
             f.flush()
             cfg = load_config(Path(f.name))
 
@@ -127,7 +119,9 @@ class EnsureSourceTests(unittest.TestCase):
         self.assertEqual(len(matching), 1)
 
     def test_ensure_source_updates_existing_source_type(self) -> None:
-        existing = self.source_service.register_source("local", "Local Demo", {"path": "/tmp/old.duckdb"})
+        existing = self.source_service.register_source(
+            "local", "Local Demo", {"path": "/tmp/old.duckdb"}
+        )
 
         updated = self.source_service.ensure_source(
             "duckdb",
@@ -267,7 +261,14 @@ class StartupWithConfigTests(unittest.TestCase):
                     source_id, source_type, display_name, connection_json, capabilities_json, sync_mode, status, created_at, updated_at
                 ) VALUES (?, ?, ?, ?, ?, ?, 'active', datetime('now'), datetime('now'))
                 """,
-                ["src_existingdemo", "local", "Local Demo", '{"path": "/tmp/old.duckdb"}', "{}", "all"],
+                [
+                    "src_existingdemo",
+                    "local",
+                    "Local Demo",
+                    '{"path": "/tmp/old.duckdb"}',
+                    "{}",
+                    "all",
+                ],
             )
 
             app = create_app(
@@ -283,7 +284,9 @@ class StartupWithConfigTests(unittest.TestCase):
             self.assertEqual(len(sources), 1)
             self.assertEqual(sources[0]["source_id"], "src_existingdemo")
             self.assertEqual(sources[0]["source_type"], "duckdb")
-            self.assertEqual(sources[0]["connection"]["path"], str(Path(self.class_tmp.name) / "shared.duckdb"))
+            self.assertEqual(
+                sources[0]["connection"]["path"], str(Path(self.class_tmp.name) / "shared.duckdb")
+            )
 
             resp = client.get("/sources/src_existingdemo/objects?type=table")
             self.assertEqual(resp.status_code, 200)

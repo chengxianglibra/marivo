@@ -85,9 +85,7 @@ class IncrementalSynthesisE2ETests(unittest.TestCase):
         self.assertIn(r3["readiness"]["suggested_action"], _VALID_SUGGESTED_ACTIONS)
 
         # synthesize_findings must NOT return readiness or live_claims
-        r_synth = self.client.post(
-            f"/sessions/{session_id}/steps/synthesize_findings"
-        )
+        r_synth = self.client.post(f"/sessions/{session_id}/steps/synthesize_findings")
         self.assertEqual(r_synth.status_code, 200)
         synth_body = r_synth.json()
         self.assertNotIn("readiness", synth_body)
