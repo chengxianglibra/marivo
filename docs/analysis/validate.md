@@ -1,12 +1,12 @@
-# Validate Derived Intent Schema
+# validate 派生意图 Schema
 
-本文档定义 `validate` 派生分析意图的拟议类型契约。
+本文档定义 `validate` 派生意图的拟议类型契约。
 
 状态：draft design。本文是规划中的 `validate` 派生意图 Schema 提案，不表示对应 HTTP endpoint 已经实现。
 
 ## 目的
 
-`validate` 用于把“定义两个待比较总体”“准备可检验观测”“执行假设检验”固化成一次稳定分析动作。
+`validate` 用于把”定义两个待比较总体””准备可检验观测””执行假设检验”固化成一次稳定分析动作。
 
 它回答一个固定问题：
 
@@ -20,25 +20,25 @@
 
 设计目标：
 
-- 让调用方直接请求“验证这个怀疑”，而不是手工拼装 `observe -> observe -> test`
-- 把样本准备与检验从 ad hoc workflow 中抽离成稳定 typed contract
-- 复用 `observe` 与 `test` 既有语义，不重定义 inferential summary 或检验语义
-- 让结果在 bounded output（有界输出）下仍保留主要 inferential semantics
+- 让调用方直接请求”验证这个怀疑”，而不是手工拼装 `observe -> observe -> test`
+- 把样本准备与检验从 ad hoc workflow 中抽离成稳定类型契约（typed contract）
+- 复用 `observe` 与 `test` 既有语义，不重定义推断摘要（inferential summary）或检验语义
+- 让结果在有界输出（bounded output）下仍保留主要推断语义（inferential semantics）
 
 ## 核心设计决策
 
-`validate` 是 derived intent，不是开放式 inferential workflow。
+`validate` 是派生意图（derived intent），不是开放式推断工作流（inferential workflow）。
 
 v1 明确约束：
 
 - 只围绕单个 metric 的两个显式给定总体展开
-- `left` 与 `right` 都必须由调用方显式提供，不自动推导 baseline
-- 只支持 `difference` hypothesis family
-- 内部只创建两个 inferential-ready `observe` 和一个 `test`
-- `sample_kind = "auto"` 只能在系统能唯一确定 inferential summary mode 时合法
+- `left` 与 `right` 都必须由调用方显式提供，不自动推导基线（baseline）
+- 只支持差异假设族（`difference` hypothesis family）
+- 内部只创建两个推断就绪（inferential-ready）`observe` 和一个 `test`
+- `sample_kind = “auto”` 只能在系统能唯一确定推断摘要模式（inferential summary mode）时合法
 - 不输出因果结论、业务建议或自由文本解释作为证据主体
 
-## Request Shape
+## 请求形状（Request Shape）
 
 ```json
 {

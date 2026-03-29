@@ -1,12 +1,12 @@
-# Attribute Derived Intent Schema
+# attribute 派生意图 Schema
 
-本文档定义 `attribute` 派生分析意图的拟议类型契约。
+本文档定义 `attribute` 派生意图的拟议类型契约。
 
 状态：draft design。本文是规划中的 `attribute` 派生意图 Schema 提案，不表示对应 HTTP endpoint 已经实现。
 
 ## 目的
 
-`attribute` 用于把“已知变化的量化”和“变化由什么驱动”固化成一次稳定分析动作。
+`attribute` 用于把”已知变化的量化”和”变化由什么驱动”固化成一次稳定分析动作。
 
 它回答两个固定问题：
 
@@ -21,25 +21,25 @@
 
 设计目标：
 
-- 让调用方直接请求“解释这次变化”，而不是手工拼装 `observe -> observe -> compare -> decompose`
-- 把变化解释从 ad hoc SQL 中抽离成稳定 typed contract
-- 复用 `observe`、`compare` 与 `decompose` 既有语义，不重定义 scalar observation、delta 或 contribution
-- 让结果在 bounded output（有界输出）下仍保留主要归因语义
+- 让调用方直接请求”解释这次变化”，而不是手工拼装 `observe -> observe -> compare -> decompose`
+- 把变化解释从 ad hoc SQL 中抽离成稳定类型契约（typed contract）
+- 复用 `observe`、`compare` 与 `decompose` 既有语义，不重定义标量观测（scalar observation）、差值（delta）或贡献（contribution）
+- 让结果在有界输出（bounded output）下仍保留主要归因语义
 
 ## 核心设计决策
 
-`attribute` 是 derived intent，不是开放式 explain workflow。
+`attribute` 是派生意图（derived intent），不是开放式解释工作流（explain workflow）。
 
 v1 明确约束：
 
-- 只围绕单个 metric 的单个 delta 展开
-- 左右两侧 scope 必须由调用方显式给定，不自动推导 baseline
+- 只围绕单个 metric 的单个差值（delta）展开
+- 左右两侧 scope 必须由调用方显式给定，不自动推导基线（baseline）
 - 归因维度必须由调用方显式提供，不自动挑选
-- 内部 compare 固定为 `scalar`
+- 内部 compare 固定为标量（`scalar`）
 - 每个归因维度都独立展开一个 `decompose`
 - 不输出因果结论、建议或自由文本解释作为证据主体
 
-## Request Shape
+## 请求形状（Request Shape）
 
 ```json
 {

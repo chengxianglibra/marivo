@@ -6,21 +6,21 @@
 
 ## 目的
 
-`action proposal` 是 Factum 证据引擎面向 agent 的 typed action-support object（类型化动作支持对象），用于把当前 `assessment` 暴露出的判断状态、证据缺口和策略上下文，转化为结构化、可排序、可执行的下一步动作候选。
+`action proposal` 是 Factum 证据引擎面向 agent 的类型化动作支持对象（typed action-support object），用于把当前评估状态（`assessment`）暴露出的判断状态、证据缺口（evidence gap）和策略上下文（policy context），转化为结构化、可排序、可执行的下一步动作候选。
 
 设计目标：
 
-- 明确分离 `assessment` 与 `action proposal`
-- 让 agent 直接读取“下一步做什么最有价值”，而不是从 explanation 文本中反推动作
-- 保持 proposal 为投影层规范对象，而不是核心证据状态
+- 明确分离评估状态（`assessment`）与动作候选（`action proposal`）
+- 让 agent 直接读取”下一步做什么最有价值”，而不是从解释（explanation）文本中反推动作
+- 保持 proposal 为投影层规范对象（projection-layer canonical object），而不是核心证据状态
 - 保持 proposal typed、可引用、可排序、可局部读取
-- 让分析型 proposal 直接落到 typed analysis intent contract，不暴露 raw SQL
+- 让分析型 proposal 直接落到类型化分析意图契约（typed analysis intent contract），不暴露 raw SQL
 
 ## 核心设计决策
 
-### 1. `action proposal` 是投影层规范对象
+### 1. `action proposal` 是投影层规范对象（projection-layer canonical object）
 
-`action proposal` 位于规范抽象链路的最外层：
+`action proposal` 位于规范抽象链路（canonical abstraction chain）的最外层：
 
 `artifact -> finding -> proposition -> assessment -> action proposal`
 
@@ -28,24 +28,24 @@
 
 - 当前哪一个 assessment 最值得被继续推进
 - 建议采取哪类结构化动作
-- 该动作预计带来多大信息增益、成本、影响与紧急性
+- 该动作预计带来多大信息增益（information gain）、成本（cost）、影响（impact）与紧急性（urgency）
 
 它不负责表达：
 
 - 新事实本体
-- proposition judgment semantics
+- proposition 判断语义（judgment semantics）
 - assessment 当前状态本身
 
 因此：
 
 - `action proposal` 不进入核心规范分析状态
-- 但它也不是无 identity 的临时 DTO
-- 它应被视为基于规范状态和显式 policy context 生成的稳定投影对象
+- 但它也不是无标识（identity）的临时 DTO
+- 它应被视为基于规范状态和显式策略上下文（policy context）生成的稳定投影对象
 
 附加边界：
 
-- `action proposal` 属于 proposition-centered state surface 的 planning shortcut，不属于主判断骨架
-- agent 不读取 proposal 时，仍必须能够仅依赖 `proposition + latest assessment + gaps + findings` 完成下一步决策
+- `action proposal` 属于命题中心状态面（proposition-centered state surface）的规划快捷方式（planning shortcut），不属于主判断骨架（judgment spine）
+- agent 不读取 proposal 时，仍必须能够仅依赖命题（`proposition`）+ 最新评估（latest assessment）+ 证据缺口（gaps）+ 事实单元（findings）完成下一步决策
 
 ### 2. `action proposal` 绑定单个主 assessment
 

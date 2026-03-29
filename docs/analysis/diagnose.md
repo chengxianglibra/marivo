@@ -1,6 +1,6 @@
-# Diagnose Derived Intent Schema
+# diagnose 派生意图 Schema
 
-本文档定义 `diagnose` 派生分析意图的拟议类型契约。
+本文档定义 `diagnose` 派生意图的拟议类型契约。
 
 状态：draft design。本文是规划中的 `diagnose` 派生意图 Schema 提案，不表示对应 HTTP endpoint 已经实现。
 
@@ -16,24 +16,24 @@
 
 设计目标：
 
-- 让业务方直接请求“诊断”而不是手工拼装 `detect -> compare -> decompose`
+- 让业务方直接请求”诊断”而不是手工拼装 `detect -> compare -> decompose`
 - 保持内部展开完全确定，不在执行时依赖外部决策
-- 复用原子意图既有语义，不重定义 anomaly、delta 或 contribution
-- 让最终输出在 bounded output（有界输出）下仍保留主要诊断语义
+- 复用原子意图既有语义，不重定义异常（anomaly）、差值（delta）或贡献（contribution）
+- 让最终输出在有界输出（bounded output）下仍保留主要诊断语义
 
 ## 核心设计决策
 
-`diagnose` 是 derived intent，不是开放式 explain workflow。
+`diagnose` 是派生意图（derived intent），不是开放式解释工作流（explain workflow）。
 
 v1 明确约束：
 
 - 归因维度必须由调用方显式提供，不自动挑选
 - 只跟进 `detect` 稳定排序后的前 `K` 个候选
-- baseline window 使用固定推导策略，不允许自定义
-- 每个候选 follow-up 只生成 `scalar` compare，以满足 `decompose` 的输入契约
+- 基线窗口（baseline window）使用固定推导策略，不允许自定义
+- 每个候选跟进（follow-up）只生成标量（`scalar`）compare，以满足 `decompose` 的输入契约
 - 不输出因果结论、建议或自由文本诊断作为证据主体
 
-## Request Shape
+## 请求形状（Request Shape）
 
 ```json
 {

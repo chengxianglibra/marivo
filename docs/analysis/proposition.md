@@ -6,15 +6,15 @@
 
 ## 目的
 
-`proposition` 是 Factum 证据引擎中的规范判断对象（canonical judgment object），用于把 `finding` 层已经确定知道的事实，组织成可被后续 inference 和 assessment 稳定评估的命题。
+`proposition` 是 Factum 证据引擎中的规范判断对象（canonical judgment object），用于把 `finding` 层已经确定知道的事实，组织成可被后续推断（inference）和评估（assessment）稳定评估的命题。
 
 设计目标：
 
-- 让 agent 直接读取“要判断什么”，而不是从自由文本 claim 中反推判断对象
-- 明确分离 `finding`、`proposition`、`assessment` 与 `action proposal`
+- 让 agent 直接读取”要判断什么”，而不是从自由文本 claim 中反推判断对象
+- 明确分离事实单元（`finding`）、命题（`proposition`）、评估状态（`assessment`）与动作候选（`action proposal`）
 - 保持 proposition 为会话内局部、typed、可引用、可局部读取的规范对象
-- 支持 system-seeded 与 agent-authored 两种来源，但共享统一 assessment 轨道
-- 为后续 inference / assessment / action proposal 提供稳定判断锚点
+- 支持系统种子（system-seeded）与 agent 创作（agent-authored）两种来源，但共享统一评估轨道
+- 为后续推断（inference）/ 评估（assessment）/ 动作候选（action proposal）提供稳定判断锚点
 
 ## 核心设计决策
 
@@ -37,7 +37,7 @@
 - 当前支持 / 反驳集合
 - 下一步动作建议
 
-### 2. `proposition` 是会话内局部判断对象
+### 2. `proposition` 是会话内局部（session-local）判断对象
 
 v1 中 `proposition` 的标识边界绑定单个 session。
 
@@ -64,7 +64,7 @@ v1 采用 `proposition_type` 判别联合。
 - base schema 只保留跨 subtype 稳定存在的 judgment 轴
 - 各 subtype 用 payload 表达其专属判断语义
 
-### 4. `proposition` 的最小粒度是原子可评估单元
+### 4. `proposition` 的最小粒度是原子可评估单元（atomic evaluable unit）
 
 一个 proposition 只表达一个可被单独支持、反驳、阻塞或升级的判断。
 
@@ -82,35 +82,35 @@ v1 采用 `proposition_type` 判别联合。
 - evidence gaps 才能精确绑定
 - agent 才能围绕 proposition 做局部最小闭包读取
 
-### 5. `proposition` 同时支持 system-seeded 与 agent-authored
+### 5. `proposition` 同时支持系统种子（system-seeded）与 agent 创作（agent-authored）
 
 v1 支持两类来源：
 
-- `system_seeded`：由确定性 seed template 根据 findings 创建
-- `agent_authored`：由 agent 显式提出 hypothesis，再进入统一 assessment 流程
+- `system_seeded`：由确定性种子模板（seed template）根据 findings 创建
+- `agent_authored`：由 agent 显式提出假设（hypothesis），再进入统一评估流程
 
-两者共用同一套规范 Schema，但谱系要显式区分来源与创建方式。
+两者共用同一套规范 Schema，但谱系（lineage）要显式区分来源与创建方式。
 
-### 6. `proposition` 只保留 creation-time seed refs
+### 6. `proposition` 只保留创建时种子引用（creation-time seed refs）
 
-`proposition` 可以记录创建时用于建模的种子事实引用，但不得持有当前实时证据集合。
+`proposition` 可以记录创建时用于建模的种子事实引用（seed finding ref），但不得持有当前实时证据集合。
 
 原因：
 
-- proposition 回答的是“要判断什么”
-- assessment 回答的是“当前判断到什么程度”
+- proposition 回答的是”要判断什么”
+- assessment 回答的是”当前判断到什么程度”
 
 因此：
 
-- `seed_finding_refs` 只用于 provenance、初始建模与局部闭包读取
-- `supporting_finding_ids`、`opposing_finding_ids`、`missing_requirements` 必须留在 assessment 或 inference record
+- `seed_finding_refs` 只用于溯源信息（provenance）、初始建模与局部闭包读取
+- `supporting_finding_ids`、`opposing_finding_ids`、`missing_requirements` 必须留在 assessment 或推断记录（inference record）
 
 这些字段对应的 canonical relation 语义由 [`evidence-graph-edge-semantics.md`](evidence-graph-edge-semantics.md) 统一定义：
 
 - `seed_finding_refs` 承载 `proposition -> finding` 的 `seeded_by`
 - `lineage.derived_from_proposition_ref` 承载 `proposition -> proposition` 的 `derived_from`
 
-二者都属于 lineage / provenance edge，不得被读取层或实现层误解释为 live support / oppose membership。
+二者都属于谱系（lineage）/ 溯源信息（provenance）edge，不得被读取层或实现层误解释为实时证据归属（live evidence membership）。
 
 ## Schema Position
 
@@ -387,18 +387,18 @@ v1 规则：
 
 ### assessment_anchor
 
-`assessment_anchor` 是 proposition 对 assessment family 的静态挂接点。
+`assessment_anchor` 是 proposition 对评估家族（assessment family）的静态挂接点（anchor）。
 
 它的作用是帮助：
 
-- inference 选择适用规则族
+- inference 选择适用规则族（rule family）
 - agent 在不读完整 payload 时快速理解后续评估对象
 
 该字段不包含 assessment 实例状态。
 
-该字段只决定当前 proposition 进入哪个 `assessment_type`，不授予 inference engine 直接读取其他 proposition 或其他 proposition assessment 的权限。
+该字段只决定当前 proposition 进入哪个 `assessment_type`，不授予推断引擎（inference engine）直接读取其他 proposition 或其他 proposition assessment 的权限。
 
-### 谱系
+### 谱系（lineage）
 
 `lineage` 用于说明 proposition 的创建路径。
 
@@ -411,38 +411,38 @@ v1 规则：
 
 v1 不做跨谱系的隐式标识复用。
 
-template / derivation 版本演化规则：
+模板（template）/ 派生（derivation）版本演化规则：
 
 - `template_version` 或 `derivation_version` 的 breaking change 不触发旧 proposition 原地迁移
 - 旧 proposition 保留原谱系与原 schema/version 边界
-- 新版本 template 重新 seed 时，应生成新 proposition
+- 新版本 template 重新种子（seed）时，应生成新 proposition
 - 若 breaking change 改变了判断标识边界，新的规范化结果必须产生新的 `proposition_id`
-- proposition 层不承担跨版本自动兼容；兼容或映射应由 projection 或 migration 层显式处理
+- proposition 层不承担跨版本自动兼容；兼容或映射应由投影（projection）或迁移（migration）层显式处理
 
 ### seed_finding_refs
 
-`seed_finding_refs` 只记录创建时的种子事实。
+`seed_finding_refs` 只记录创建时的种子事实（seed finding）。
 
 规则：
 
 - 可为空数组，表示该 proposition 由 agent authored 且无直接种子事实
-- 空数组不表示“当前没有证据”，只表示“创建时没有种子事实”
-- 不允许将实时 support / oppose 集合写回本字段
+- 空数组不表示”当前没有证据”，只表示”创建时没有种子事实”
+- 不允许将实时支持（support）/ 反驳（oppose）集合写回本字段
 
 ### Reference Rules
 
-`proposition` 及其 payload 中的 canonical 引用必须使用结构化 typed ref。
+`proposition` 及其 payload 中的规范引用（canonical ref）必须使用结构化 typed ref。
 
 规则：
 
-- 不允许使用裸字符串作为 canonical source ref
+- 不允许使用裸字符串作为规范来源引用（canonical source ref）
 - v1 proposition canonical ref 固定为 `PropositionRef = { session_id, proposition_id }`
 - `seed_finding_refs[*].finding_ref` 必须是同一 session 内可解引用的 `FindingRef`
 - `derived_from_proposition_ref` 仅允许指向同一 session 内更早创建的 proposition
-- payload 中指向 artifact / finding 的 ref 不得改写成 projection ref
+- payload 中指向 artifact / finding 的 ref 不得改写成投影引用（projection ref）
 - 默认不允许跨 session canonical ref；若未来引入跨 session 读取，必须在独立 schema 版本中显式放开
-- 允许跨 artifact、跨 subject、跨 lineage 引用，但 ref 必须显式、可审计，且不能绕过 session-local 边界
-- 整体引用图必须保持 DAG
+- 允许跨 artifact、跨 subject、跨谱系（lineage）引用，但 ref 必须显式、可审计，且不能绕过会话内局部（session-local）边界
+- 整体引用图必须保持有向无环图（DAG）
 
 v1 subtype ref 约束：
 
@@ -711,16 +711,16 @@ type ForecastProposition = PropositionBase & {
 
 ## Seed Rules
 
-`finding -> proposition` 的 seed 规则必须是确定性的 template selection，而不是自由文本总结。
+`finding -> proposition` 的种子规则（seed rule）必须是确定性的模板选择（template selection），而不是自由文本总结。
 
 v1 原则：
 
-- 一个 finding 可 seed `0..N` 个 propositions
+- 一个 finding 可种子（seed）`0..N` 个 propositions
 - 一个 proposition 可由 `1..N` 个种子事实创建
-- `seed_finding_refs` 只表示创建输入，不表示当前 assessment evidence membership
-- proposition identity 不由 seed ref 的数量或顺序决定
+- `seed_finding_refs` 只表示创建输入，不表示当前评估证据归属（assessment evidence membership）
+- proposition identity 不由种子引用（seed ref）的数量或顺序决定
 
-推荐 seed family 映射：
+推荐种子家族（seed family）映射：
 
 | finding_type | 默认 proposition family |
 | --- | --- |
@@ -731,7 +731,7 @@ v1 原则：
 | `test_result` | `test_hypothesis` |
 | `forecast_point` | `forecast` |
 
-`observation` finding 默认不直接 seed proposition，除非未来单独定义 observation-to-proposition 模板。
+`observation` finding 默认不直接种子 proposition，除非未来单独定义 observation-to-proposition 模板。
 
 ## Immutability 与 Evolution
 
@@ -739,7 +739,7 @@ v1 中 proposition 视为不可变规范判断对象。
 
 要求：
 
-- proposition 创建后不应原地修改其 judgment semantics
+- proposition 创建后不应原地修改其判断语义（judgment semantics）
 - 若判断对象发生变化，应创建新的 proposition，而不是复用旧 ID
 - 新 findings 到来时，优先更新 assessment，而不是修改 proposition
 - 若 proposition 被判定需要更具体或更细粒度的版本，可创建新 proposition，并通过 `derived_from_proposition_ref` 建立谱系
@@ -804,27 +804,34 @@ v1 中 proposition 视为不可变规范判断对象。
 围绕 proposition 的最小闭包应至少包含：
 
 ```ts
+type PropositionSeedEntry = {
+  seed_ref: PropositionSeedRef;
+  finding: Finding | null;
+};
+
 type PropositionFocusView = {
   proposition: Proposition;
-  seed_findings: Finding[];
+  seed_entries: PropositionSeedEntry[];
   relevant_findings: Finding[];
-  missing_seed_finding_refs: FindingRef[];
   latest_assessment: Assessment | null;
   blocking_gaps: EvidenceGap[] | null;
   applied_inference_records: InferenceRecord[] | null;
+  assessment_dependencies: Assessment[] | null;
 };
 ```
 
 约束：
 
-- `seed_findings` 只由 `seed_finding_refs` 解引用得到
-- `relevant_findings` 来自 `latest_assessment` 或其引用的 inference records，是 agent 读取实时证据的主入口
-- `latest_assessment = null` 表示该 proposition 尚未进入 assessment 流程，不表示 assessment 失败
-- 若 `latest_assessment = null`，则 `blocking_gaps` 与 `applied_inference_records` 必须同时为 `null`
-- `blocking_gaps = []` 表示已评估且当前无阻塞缺口
-- 若 assessment 存在但暂无 inference record，`applied_inference_records` 应返回 `[]`
-- `missing_seed_finding_refs` 表示种子引用已失效或其来源谱系已不可读；这不等价于 proposition 无效，但必须向 agent 显式暴露
-- `blocking_gaps`、`applied_inference_records` 与 `relevant_findings` 必须从 canonical assessment / inference record 解引用；projection 只能压缩展示，不得重定义成员集合
+- `seed_entries` 必须按 `seed_finding_refs` 的 canonical 顺序返回，并保留每个 `PropositionSeedRef.role`
+- `seed_entries.finding = null` 表示该种子（seed）当前不可解引用；读取层不得静默丢弃该 seed entry
+- `relevant_findings` 来自 `latest_assessment` 或其引用的推断记录（inference records），是 agent 读取实时证据的主入口
+- `latest_assessment = null` 表示该 proposition 尚未进入评估流程，不表示 assessment 失败
+- 若 `latest_assessment = null`，则 `blocking_gaps`、`applied_inference_records` 与 `assessment_dependencies` 必须同时为 `null`
+- `blocking_gaps = []` 表示已评估且当前无阻塞缺口（blocking gap）
+- 若 assessment 存在但暂无推断记录（inference record），`applied_inference_records` 应返回 `[]`
+- `assessment_dependencies` 只覆盖 `applied_inference_records.input_assessment_ids` 的直接 assessment 输入
+- 种子当前不可解引用不等价于 proposition 无效，但必须通过 `seed_entries` 向 agent 显式暴露
+- `blocking_gaps`、`applied_inference_records` 与 `relevant_findings` 必须从规范评估（canonical assessment）/ 推断记录（inference record）解引用；投影（projection）只能压缩展示，不得重定义成员集合
 
 ### 稳定引用格式
 
@@ -845,7 +852,7 @@ projection 可以对 proposition 做排序、聚合与截断，但不得：
 
 异常场景读取规则：
 
-- 若 `seed_finding_refs` 中部分 finding 不可解引用，focus view 仍返回 proposition，但必须填充 `missing_seed_finding_refs`
+- 若 `seed_finding_refs` 中部分 finding 不可解引用，focus view 仍返回 proposition，但对应 `seed_entries.finding` 必须为 `null`
 - 若 `latest_assessment` 不存在，不得伪造空 assessment；返回 `null`
 - 若 assessment 存在但没有 live findings，`relevant_findings` 返回 `[]`
 - 若 assessment 存在但没有 inference records，`applied_inference_records` 返回 `[]`

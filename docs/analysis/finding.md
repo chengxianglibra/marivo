@@ -6,15 +6,15 @@
 
 ## 目的
 
-`finding` 是 Factum 证据引擎中的规范事实单元（canonical fact unit），用于承接 typed analysis intent 产出的 artifact，并把其中可确定性抽取、可单独引用、可被 agent 消费的事实以稳定类型表达出来。
+`finding` 是 Factum 证据引擎中的规范事实单元（canonical fact unit），用于承接类型化分析意图（typed analysis intent）产出的工件（artifact），并把其中可确定性抽取、可单独引用、可被 agent 消费的事实以稳定类型表达出来。
 
 设计目标：
 
-- 用统一上位抽象承接不同 typed intent 的原生结果
+- 用统一上位抽象承接不同类型化意图（typed intent）的原生结果
 - 保持 `artifact -> finding` 抽取完全确定性
 - 让 agent 可以直接围绕 `finding` 读取分析状态，而不是回读完整 artifact
 - 明确区分事实单元、命题、评估状态和动作候选
-- 为后续 `proposition / assessment / action proposal` 提供稳定输入
+- 为后续命题（`proposition`）/ 评估状态（`assessment`）/ 动作候选（`action proposal`）提供稳定输入
 
 ## 核心设计决策
 
@@ -34,13 +34,13 @@
 
 因此：
 
-- 一个 scalar 结果通常对应一个 finding
-- 一个 segmented row 对应一个 finding
-- 一个 decomposition row 对应一个 finding
-- 一个 anomaly candidate 对应一个 finding
-- 一个 forecast bucket 对应一个 finding
+- 一个标量（scalar）结果通常对应一个 finding
+- 一个分段行（segmented row）对应一个 finding
+- 一个分解行（decomposition row）对应一个 finding
+- 一个异常候选（anomaly candidate）对应一个 finding
+- 一个预测桶（forecast bucket）对应一个 finding
 
-聚合摘要、主题概览、UI 文案不应直接成为规范 `finding`；它们应属于投影层。
+聚合摘要、主题概览、UI 文案不应直接成为规范 `finding`；它们应属于投影层（projection layer）。
 
 ### 3. `finding_id` 只要求在 artifact 内稳定
 
