@@ -77,5 +77,5 @@ After changes: update this guide + affected API models, UI docs, entrypoint agen
 
 Docs layout:
 - `docs/api/`: external HTTP API docs only
-- `docs/analysis/`: analysis-intent drafts, canonical evidence schemas (`session.md`, `finding.md`, `proposition.md`, `assessment.md`, `state-surface-schema.md`, `context-surface-schema.md`) and cross-cutting contracts such as `artifact-finding-extraction-contract.md`
+- `docs/analysis/`: analysis-intent drafts, canonical evidence schemas (`session.md`, `finding.md`, `proposition.md`, `assessment.md`, `state-surface-schema.md`, `context-surface-schema.md`) and cross-cutting contracts such as `artifact-finding-extraction-contract.md`, `proposition-seeding-contract.md`
 - Rule contracts: `precondition-gate-contract.md`, `quality-gate-contract.md`, `comparability-gate-contract.md` (align with `inference-rule-engine-contract.md`, `assessment.md`)

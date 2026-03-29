@@ -16,18 +16,18 @@ def _trino_connect_kwargs(connection: dict[str, Any]) -> dict[str, Any]:
         import json
 
         raw_headers = json.loads(raw_headers)
-    kwargs: dict[str, Any] = dict(
-        host=connection["host"],
-        port=connection.get("port", 8080),
-        user=connection.get("user", "factum"),
-        password=connection.get("password"),
-        http_scheme=connection.get("http_scheme") or connection.get("http-scheme", "http"),
-        catalog=connection.get("catalog", "hive"),
-        schema=connection.get("schema", "default"),
-        client_tags=raw_tags,
-        source=connection.get("source"),
-        http_headers=raw_headers,
-    )
+    kwargs: dict[str, Any] = {
+        "host": connection["host"],
+        "port": connection.get("port", 8080),
+        "user": connection.get("user", "factum"),
+        "password": connection.get("password"),
+        "http_scheme": connection.get("http_scheme") or connection.get("http-scheme", "http"),
+        "catalog": connection.get("catalog", "hive"),
+        "schema": connection.get("schema", "default"),
+        "client_tags": raw_tags,
+        "source": connection.get("source"),
+        "http_headers": raw_headers,
+    }
     if "request_timeout" in connection:
         kwargs["request_timeout"] = float(connection["request_timeout"])
     legacy_ps = connection.get("legacy_prepared_statements")

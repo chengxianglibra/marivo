@@ -5,7 +5,7 @@ from typing import Any
 __all__ = [
     "CostModel",
     "DefaultQueryTranslator",
-    "ExecutionFailure",
+    "ExecutionError",
     "FederationPlanner",
     "FederationRuntime",
     "RoutingRuntime",
@@ -18,10 +18,10 @@ def __getattr__(name: str) -> Any:
         from app.execution.costing import CostModel
 
         return CostModel
-    if name == "ExecutionFailure":
-        from app.execution.errors import ExecutionFailure
+    if name == "ExecutionError":
+        from app.execution.errors import ExecutionError
 
-        return ExecutionFailure
+        return ExecutionError
     if name == "DefaultQueryTranslator":
         from app.execution.translation import DefaultQueryTranslator
 

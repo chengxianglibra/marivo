@@ -640,7 +640,7 @@ class DoseResponseChecker(CausalChecker):
                 deltas = [o["payload"].get("delta_pct") for o in supporting_obs]
 
                 pairs = [
-                    (v, d) for v, d in zip(dim_values, deltas) if v is not None and d is not None
+                    (v, d) for v, d in zip(dim_values, deltas, strict=False) if v is not None and d is not None
                 ]
 
                 if len(pairs) < self.MIN_OBSERVATIONS:
@@ -1127,7 +1127,7 @@ def _pearson_correlation(x: list[float], y: list[float]) -> float:
         return 0.0
     mean_x = sum(x) / n
     mean_y = sum(y) / n
-    cov = sum((xi - mean_x) * (yi - mean_y) for xi, yi in zip(x, y))
+    cov = sum((xi - mean_x) * (yi - mean_y) for xi, yi in zip(x, y, strict=False))
     var_x = sum((xi - mean_x) ** 2 for xi in x)
     var_y = sum((yi - mean_y) ** 2 for yi in y)
     if var_x == 0.0 or var_y == 0.0:

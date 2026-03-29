@@ -19,13 +19,14 @@ class SQLiteMetadataStore(MetadataStore):
     def initialize(self) -> None:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as con:
+            from contextlib import suppress
+
             for ddl in METADATA_DDL:
                 con.execute(ddl)
             for migration in METADATA_MIGRATIONS:
-                try:
+                with suppress(Exception):
+                    # column already exists
                     con.execute(migration)
-                except Exception:
-                    pass  # column already exists
             con.commit()
 
     @contextmanager
@@ -53,7 +54,7 @@ class SQLiteMetadataStore(MetadataStore):
         with self.connect() as con:
             cursor = con.execute(sql, params or [])
             columns = [desc[0] for desc in cursor.description]
-            return [dict(zip(columns, row)) for row in cursor.fetchall()]
+            return [dict(zip(columns, row, strict=False)) for row in cursor.fetchall()]
 
     def query_one(self, sql: str, params: list[Any] | None = None) -> dict[str, Any] | None:
         rows = self.query_rows(sql, params)

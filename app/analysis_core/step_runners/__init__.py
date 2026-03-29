@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from app.analysis_core.primitives import SUPPORTED_STEP_TYPES
 from app.analysis_core.step_registry import StepRunnerRegistry
 from app.analysis_core.step_runners import attribution, correlation, generic, synthesis
 

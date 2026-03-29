@@ -176,7 +176,7 @@ class SemanticService:
         return self.get_entity(entity_id)
 
     def publish_entity(self, entity_id: str) -> dict[str, Any]:
-        entity = self.get_entity(entity_id)
+        _ = self.get_entity(entity_id)  # Validate entity exists
         now = _now_iso()
         self.metadata.execute(
             "UPDATE semantic_entities SET status = 'published', revision = revision + 1, updated_at = ? WHERE entity_id = ?",

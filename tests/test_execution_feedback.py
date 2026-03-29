@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from app.analysis_core.compiler import CompiledQuery
 from app.analysis_core.executor import execute_compiled
-from app.execution.errors import ExecutionFailure
+from app.execution.errors import ExecutionError
 from app.execution.federation import FederationPlanner
 from app.execution.feedback import federation_failure_from_plan
 from app.execution.routing_runtime import RoutingRuntime
@@ -41,7 +41,7 @@ class ExecutionFeedbackTests(unittest.TestCase):
         engine = FailingEngine()
         query = CompiledQuery("SELECT 1", metadata={"engine_type": "unknown"})
 
-        with self.assertRaises(ExecutionFailure) as error:
+        with self.assertRaises(ExecutionError) as error:
             execute_compiled(engine, query)
 
         self.assertEqual(error.exception.code, "translation_error")
@@ -53,7 +53,7 @@ class ExecutionFeedbackTests(unittest.TestCase):
             "SELECT 1", metadata={"engine_type": "duckdb", "step_type": "sample_rows"}
         )
 
-        with self.assertRaises(ExecutionFailure) as error:
+        with self.assertRaises(ExecutionError) as error:
             execute_compiled(engine, query)
 
         self.assertEqual(error.exception.code, "engine_query_failed")

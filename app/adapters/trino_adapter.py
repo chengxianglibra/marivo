@@ -41,24 +41,24 @@ class TrinoCatalogAdapter(CatalogAdapter):
 
         # Filter out Trino reserved headers to avoid conflicts with
         # parameters (client_tags, source) that the client sets internally.
-        _RESERVED_PREFIXES = ("x-trino-",)
+        _reserved_prefixes = ("x-trino-",)
         safe_headers: dict[str, str] | None = None
         if self._http_headers:
             safe_headers = {
                 k: v
                 for k, v in self._http_headers.items()
-                if not k.lower().startswith(_RESERVED_PREFIXES)
+                if not k.lower().startswith(_reserved_prefixes)
             } or None
 
-        kwargs: dict[str, Any] = dict(
-            host=self._host,
-            port=self._port,
-            user=self._user,
-            http_scheme=self._http_scheme,
-            catalog=self._catalog,
-            schema=self._schema,
-            request_timeout=self._request_timeout,
-        )
+        kwargs: dict[str, Any] = {
+            "host": self._host,
+            "port": self._port,
+            "user": self._user,
+            "http_scheme": self._http_scheme,
+            "catalog": self._catalog,
+            "schema": self._schema,
+            "request_timeout": self._request_timeout,
+        }
         if self._password is not None:
             from trino.auth import BasicAuthentication
 
@@ -77,7 +77,7 @@ class TrinoCatalogAdapter(CatalogAdapter):
             cur = conn.cursor()
             cur.execute(sql, params)
             columns = [col[0] for col in cur.description]
-            return [dict(zip(columns, row)) for row in cur.fetchall()]
+            return [dict(zip(columns, row, strict=False)) for row in cur.fetchall()]
         finally:
             conn.close()
 
@@ -114,7 +114,7 @@ class TrinoCatalogAdapter(CatalogAdapter):
         rows = self._query("SHOW CATALOGS")
         return [
             PhysicalObject(
-                native_name=list(r.values())[0],
+                native_name=next(iter(r.values())),
                 native_id=None,
                 object_type="catalog",
                 parent_path=None,
@@ -125,13 +125,13 @@ class TrinoCatalogAdapter(CatalogAdapter):
     def list_schemas(self, catalog_name: str | None = None) -> list[PhysicalObject]:
         if catalog_name is None:
             # Aggregate schemas from all visible catalogs
+            from contextlib import suppress
+
             schemas: list[PhysicalObject] = []
             for cat_obj in self.list_catalogs():
-                try:
-                    schemas.extend(self.list_schemas(cat_obj.native_name))
-                except Exception:
+                with suppress(Exception):
                     # Some catalogs (e.g., jmx, system) may not support SHOW SCHEMAS
-                    pass
+                    schemas.extend(self.list_schemas(cat_obj.native_name))
             return schemas
         # Use SHOW SCHEMAS FROM <catalog> instead of information_schema
         # because presto-gateway may not properly populate information_schema.schemata

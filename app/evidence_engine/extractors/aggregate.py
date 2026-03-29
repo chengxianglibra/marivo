@@ -332,7 +332,7 @@ class AggregateRowExtractor(ExtractorContract):
             except statistics.StatisticsError:
                 std = 0.0
 
-            stratum = {col: value for col, value in zip(stratum_columns, stratum_key, strict=False)}
+            stratum = dict(zip(stratum_columns, stratum_key, strict=False))
             iqr_bounds = self._compute_iqr_bounds(values) if use_iqr else None
             for idx in outlier_indices:
                 row_dict, value = members[idx]

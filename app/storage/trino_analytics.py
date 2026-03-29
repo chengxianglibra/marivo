@@ -39,24 +39,24 @@ class TrinoAnalyticsEngine(AnalyticsEngine):
     def _connect(self):
         from trino.dbapi import connect
 
-        _RESERVED_PREFIXES = ("x-trino-",)
+        _reserved_prefixes = ("x-trino-",)
         safe_headers: dict[str, str] | None = None
         if self.http_headers:
             safe_headers = {
                 k: v
                 for k, v in self.http_headers.items()
-                if not k.lower().startswith(_RESERVED_PREFIXES)
+                if not k.lower().startswith(_reserved_prefixes)
             } or None
 
-        kwargs: dict[str, Any] = dict(
-            host=self.host,
-            port=self.port,
-            user=self.user,
-            http_scheme=self.http_scheme,
-            catalog=self.catalog,
-            schema=self.schema,
-            request_timeout=self.request_timeout,
-        )
+        kwargs: dict[str, Any] = {
+            "host": self.host,
+            "port": self.port,
+            "user": self.user,
+            "http_scheme": self.http_scheme,
+            "catalog": self.catalog,
+            "schema": self.schema,
+            "request_timeout": self.request_timeout,
+        }
         if self.password is not None:
             from trino.auth import BasicAuthentication
 
@@ -86,7 +86,7 @@ class TrinoAnalyticsEngine(AnalyticsEngine):
             cur = conn.cursor()
             cur.execute(sql, params)
             columns = [col[0] for col in cur.description]
-            return [dict(zip(columns, row)) for row in cur.fetchall()]
+            return [dict(zip(columns, row, strict=False)) for row in cur.fetchall()]
         finally:
             conn.close()
 

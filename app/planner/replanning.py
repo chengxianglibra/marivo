@@ -4,7 +4,7 @@ from typing import Any
 
 from app.analysis_core.ir import AnalysisStepIR
 from app.execution.costing import CostModel
-from app.execution.errors import ExecutionFailure
+from app.execution.errors import ExecutionError
 from app.runtime_contracts import (
     CostEstimate,
     ExecutionFeedback,
@@ -228,7 +228,7 @@ class ReplanningService:
         error: Exception,
         estimate: CostEstimate | None = None,
     ) -> ReplanDecision:
-        if isinstance(error, ExecutionFailure):
+        if isinstance(error, ExecutionError):
             trigger = ReplanTrigger(
                 code=error.code,
                 source=error.category,

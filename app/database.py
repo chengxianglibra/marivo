@@ -323,7 +323,7 @@ class DuckDBStore:
                                 ):
                                     base_ctr += 0.008
                                 ctr = max(0.02, min(0.45, base_ctr + rng.uniform(-0.015, 0.015)))
-                                clicks = max(1, int(round(impressions * ctr)))
+                                clicks = max(1, round(impressions * ctr))
                                 recommendation_rows.append(
                                     (
                                         current_day,

@@ -7,7 +7,7 @@ from app.runtime_contracts import ExecutionFeedback
 
 
 @dataclass
-class ExecutionFailure(ValueError):
+class ExecutionError(ValueError):
     code: str
     category: str
     message: str

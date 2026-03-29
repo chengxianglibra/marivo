@@ -6,7 +6,7 @@ import math
 import time
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 from uuid import uuid4
 
 from app.analysis_core import CompositeWorkflowRuntime, build_service_step_registry
@@ -54,7 +54,7 @@ _AUTO_INCREMENTAL_SYNTHESIZER = object()
 
 
 class SemanticLayerService:
-    _METRIC_QUERY_MODE_CONTRACTS = {
+    _METRIC_QUERY_MODE_CONTRACTS: ClassVar[dict[str, Any]] = {
         "compare": {
             "payload_fields": {
                 "current_value": "current_value",
@@ -484,9 +484,7 @@ class SemanticLayerService:
         to_id = edge.get("to_node_id")
         if from_type == "claim" and from_id not in kept_claim_ids:
             return False
-        if to_type == "claim" and to_id not in kept_claim_ids:
-            return False
-        return True
+        return not (to_type == "claim" and to_id not in kept_claim_ids)
 
     def _build_session_debug_payload(
         self,
@@ -1294,7 +1292,7 @@ class SemanticLayerService:
         {"metric_query", "sample_rows", "aggregate_query", "attribute_change"}
     )
 
-    _CONSTRAINT_SKIP_REASONS: dict[str, str] = {
+    _CONSTRAINT_SKIP_REASONS: ClassVar[dict[str, str]] = {
         "profile_table": "profile_table scans the full table; session filters are not applied",
         "synthesize_findings": "synthesize_findings operates on existing evidence, not raw data",
     }
@@ -1607,7 +1605,7 @@ class SemanticLayerService:
         profile_date_value: str | None = None
         _date_candidates = ("log_date", "event_date", "dt", "date", "day")
         for dc in _date_candidates:
-            if dc in [c for c in columns]:
+            if dc in columns:
                 try:
                     max_row = engine.query_rows(
                         f"SELECT MAX({dc}) AS max_date FROM {qualified_table}"
@@ -2604,10 +2602,11 @@ class SemanticLayerService:
                 hint = obs.get("payload", {}).get("column_unit_hint")
                 if hint and isinstance(hint, dict):
                     confidence = hint.get("confidence", 0.0)
-                    if confidence >= 0.6:
-                        if best_hint is None or confidence > best_hint.get("confidence", 0.0):
-                            best_hint = hint
-                            best_obs_id = obs_id
+                    if confidence >= 0.6 and (
+                        best_hint is None or confidence > best_hint.get("confidence", 0.0)
+                    ):
+                        best_hint = hint
+                        best_obs_id = obs_id
 
             if best_hint is None:
                 continue
@@ -2779,7 +2778,7 @@ class SemanticLayerService:
         - confidence >= 0.5 AND no contradicting observations → ``confirmed``
         - otherwise → ``insufficient``
         """
-        obs_map = {o["observation_id"]: o for o in observations}
+        _ = {o["observation_id"]: o for o in observations}  # Keep for potential future use
         promoted: list[dict[str, Any]] = []
         for claim in tentative_claims:
             has_contradictions = bool(claim["contradicting_observations"])
@@ -3240,7 +3239,7 @@ def _norm_cdf(z: float) -> float:
     # Abramowitz & Stegun 26.2.17 approximation; max error < 7.5e-8
     a = abs(z) / math.sqrt(2.0)
     t = 1.0 / (1.0 + 0.3275911 * a)
-    poly = t * (
+    _ = t * (  # Polynomial approximation (unused, using erf instead)
         0.254829592 + t * (-0.284496736 + t * (1.421413741 + t * (-1.453152027 + t * 1.061405429)))
     )
     cdf = 0.5 * (1.0 + math.erf(a))  # use erf from math (stdlib, no deps)

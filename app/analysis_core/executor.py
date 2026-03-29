@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.analysis_core.compiler import CompiledQuery
-from app.execution.errors import ExecutionFailure
+from app.execution.errors import ExecutionError
 from app.execution.federation import FederationRuntime
 from app.execution.feedback import engine_failure_from_error, translation_failure_from_error
 from app.execution.translation import DefaultQueryTranslator, request_from_compiled_query
@@ -39,7 +39,7 @@ def execute_compiled(
             params=translation_result.params,
             plan=translation_result.federation_plan,
         )
-    except ExecutionFailure:
+    except ExecutionError:
         raise
     except Exception as error:
         raise engine_failure_from_error(compiled_query, error) from error

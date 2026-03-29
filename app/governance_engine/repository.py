@@ -178,7 +178,7 @@ class GovernanceRepository:
         reviewer: str,
         reason: str,
     ) -> dict[str, Any]:
-        request = self.get_approval_request(request_id)
+        _ = self.get_approval_request(request_id)  # Validate request exists
         now = now_iso()
         self.metadata.execute(
             "UPDATE approval_requests SET status = ?, reviewer = ?, reason = ?, decided_at = ? WHERE request_id = ?",

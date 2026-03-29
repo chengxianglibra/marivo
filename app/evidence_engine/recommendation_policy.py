@@ -319,11 +319,9 @@ class DefaultRecommendationPolicy(RecommendationPolicy):
         direction = self._resolve_direction(metric)
         if direction is None or direction == "neutral":
             return False
-        if direction == "down" and delta_pct < 0:
-            return True
-        if direction == "up" and delta_pct > 0:
-            return True
-        return False
+        return (direction == "down" and delta_pct < 0) or (
+            direction == "up" and delta_pct > 0
+        )
 
     def _derive_from_confirmed(
         self,

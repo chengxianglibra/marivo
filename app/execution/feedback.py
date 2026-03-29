@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any
 
 from app.analysis_core.compiler import CompiledQuery
 from app.analysis_core.ir import AnalysisStepIR
-from app.execution.errors import ExecutionFailure
+from app.execution.errors import ExecutionError
 from app.runtime_contracts import ExecutionFeedback
 
 if TYPE_CHECKING:
@@ -46,7 +46,7 @@ def compile_failure_from_error(
     error: Exception,
     *,
     semantic_context: dict[str, Any] | None = None,
-) -> ExecutionFailure:
+) -> ExecutionError:
     message = str(error)
     normalized = message.lower()
     if "requires" in normalized:
@@ -56,7 +56,7 @@ def compile_failure_from_error(
     else:
         code = "compile_failure"
 
-    return ExecutionFailure(
+    return ExecutionError(
         code=code,
         category="compiler",
         message=message,
@@ -73,8 +73,8 @@ def compile_failure_from_error(
 def translation_failure_from_error(
     compiled_query: CompiledQuery,
     error: Exception,
-) -> ExecutionFailure:
-    return ExecutionFailure(
+) -> ExecutionError:
+    return ExecutionError(
         code="translation_error",
         category="translator",
         message=str(error),
@@ -91,8 +91,8 @@ def federation_failure_from_plan(
     plan: FederationPlan,
     *,
     message: str | None = None,
-) -> ExecutionFailure:
-    return ExecutionFailure(
+) -> ExecutionError:
+    return ExecutionError(
         code="federation_not_implemented",
         category="federation",
         message=message
@@ -113,7 +113,7 @@ def federation_failure_from_plan(
 def engine_failure_from_error(
     compiled_query: CompiledQuery,
     error: Exception,
-) -> ExecutionFailure:
+) -> ExecutionError:
     message = str(error)
     normalized = message.lower()
     if "timeout" in normalized:
@@ -126,7 +126,7 @@ def engine_failure_from_error(
         code = "engine_query_failed"
         retryable = False
 
-    return ExecutionFailure(
+    return ExecutionError(
         code=code,
         category="executor",
         message=message,

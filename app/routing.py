@@ -127,7 +127,7 @@ class QueryRouter:
 
         # Step 3: intersect engine sets across all sources
         common_engines = engine_sets[next(iter(engine_sets))]
-        for source_id, engines in engine_sets.items():
+        for _, engines in engine_sets.items():
             common_engines = common_engines & engines
 
         if not common_engines:

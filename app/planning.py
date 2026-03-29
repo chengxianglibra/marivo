@@ -36,7 +36,7 @@ from app.analysis_core.ir import (
     from_legacy_step,
     request_from_legacy_session,
 )
-from app.analysis_core.step_runners import SUPPORTED_STEP_TYPES
+from app.analysis_core.primitives import SUPPORTED_STEP_TYPES
 from app.execution.costing import CostModel
 from app.observability import MetricsCollector, observability_context
 from app.runtime_contracts import (
@@ -438,10 +438,7 @@ class PlanningService:
 
         def _is_blocked_by_failure(step_def: dict[str, Any]) -> bool:
             """Check if any transitive dependency has failed."""
-            for dep_idx in step_def.get("dependencies", []):
-                if dep_idx in failed_indices:
-                    return True
-            return False
+            return any(dep_idx in failed_indices for dep_idx in step_def.get("dependencies", []))
 
         try:
             for idx in execution_order:
@@ -567,7 +564,7 @@ class PlanningService:
             semantic_resolutions=semantic_resolutions,
             execution_targets=[
                 self._resolve_execution_target(step, semantic_resolution, request)
-                for step, semantic_resolution in zip(step_irs, semantic_resolutions)
+                for step, semantic_resolution in zip(step_irs, semantic_resolutions, strict=False)
             ],
             policy_transforms=self._request_policy_transforms(request),
         )
@@ -848,9 +845,9 @@ class PlanningService:
             policy_hints=self._routing_policy_hints(request),
         )
         table_name = step.table_name()
-        _ARTIFACT_ONLY_STEPS = frozenset({"synthesize_findings", "correlate_metrics"})
+        _artifact_only_steps = frozenset({"synthesize_findings", "correlate_metrics"})
         if table_name is None:
-            is_artifact_only = step.step_type in _ARTIFACT_ONLY_STEPS
+            is_artifact_only = step.step_type in _artifact_only_steps
             return ExecutionTargetIR(
                 step_index=step.index,
                 engine_type="heuristic" if is_artifact_only else None,
