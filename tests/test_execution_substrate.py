@@ -4,7 +4,7 @@ import unittest
 
 from app.analysis_core.compiler import CompiledQuery
 from app.analysis_core.executor import execute_compiled
-from app.execution.errors import ExecutionFailure
+from app.execution.errors import ExecutionError
 from app.execution.federation import FederationPlanner, FederationRuntime
 from app.execution.translation import DefaultQueryTranslator, request_from_compiled_query
 
@@ -116,7 +116,7 @@ class FederationRuntimeTests(unittest.TestCase):
             },
         )
 
-        with self.assertRaises(ExecutionFailure) as error:
+        with self.assertRaises(ExecutionError) as error:
             runtime.execute(FakeEngine(), translated_sql="SELECT 1", plan=plan)
 
         self.assertEqual(error.exception.code, "federation_not_implemented")

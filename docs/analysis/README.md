@@ -13,6 +13,7 @@
 - [Session Schema](session.md) — 分析容器根对象 `session` 的类型契约草案；定义 session-level typed 非时间约束、治理/生命周期边界，以及进入规范读取面的最小入口
 - [Finding Schema](finding.md) — 事实层（Fact Layer）中规范 `finding` 的类型契约草案
 - [Proposition Schema](proposition.md) — 判断层（Judgment Layer）中规范 `proposition` 的类型契约草案
+- [Proposition Seeding Contract](proposition-seeding-contract.md) — 规范 `finding -> proposition` 的种子模板（seed template）注册表、creation condition、automatic registration、同源去重与 `agent_authored proposition` 的 typed family 校验边界
 - [Assessment Schema](assessment.md) — 判断层（Judgment Layer）中规范 `assessment` 及 `evidence_gap` / `inference_record` 的类型契约草案
 - [Evidence Graph Edge Semantics](evidence-graph-edge-semantics.md) — 规范证据对象（canonical evidence objects）之间允许的 edge type、方向、创建 authority 与 lifecycle 语义
 - [Inference Rule Engine Contract](inference-rule-engine-contract.md) — 推断规则引擎（inference rule engine）的规范契约；定义规则族（rule family）、固定 evaluation order、升级/降级、冲突处理与 `InferenceRecord` 写入规则
@@ -41,6 +42,7 @@
 - [Session Schema](session.md) — 说明分析容器根对象 `session` 的 typed 非时间约束、治理与生命周期边界、写入协调、`Session lifecycle transition details`，以及进入 state surface 的最小入口
 - [Finding Schema](finding.md) — 事实层规范 `finding` 契约
 - [Proposition Schema](proposition.md) — 判断对象 `proposition` 契约
+- [Proposition Seeding Contract](proposition-seeding-contract.md) — 说明 `finding -> proposition` 的 seed template registry、creation condition、automatic registration、同源去重，以及 `agent_authored proposition` 的 typed family validation 边界
 - [Assessment Schema](assessment.md) — 判断状态 `assessment`，以及 `evidence_gap` / `inference_record` 契约
 - [Evidence Graph Edge Semantics](evidence-graph-edge-semantics.md) — 说明规范证据对象（canonical evidence objects）之间允许哪些 relation / edge family，以及这些 edges 的方向、创建 authority 与 runtime 语义
 - [Inference Rule Engine Contract](inference-rule-engine-contract.md) — 说明推断规则引擎（inference rule engine）如何围绕单个 proposition 运行、如何组织规则族（rule family）、以及如何把 rule 结果写入 assessment / gap / inference record
@@ -61,7 +63,6 @@
 
 #### 1. 适合从已有文档中拆分为独立 contract 的主题
 
-- Proposition seeding contract：当前规则分散在 [`proposition.md`](proposition.md) 与 [`evidence-engine-runtime-lifecycle.md`](evidence-engine-runtime-lifecycle.md)；后续宜拆为独立文档，统一定义 seed template registry、creation condition、system-seeded proposition 自动注册规则，以及 agent-authored proposition 的 typed family 校验边界
 - Gap management contract：当前规则分散在 [`assessment.md`](assessment.md)、[`inference-rule-engine-contract.md`](inference-rule-engine-contract.md)、[`precondition-gate-contract.md`](precondition-gate-contract.md)、[`quality-gate-contract.md`](quality-gate-contract.md) 与 [`comparability-gate-contract.md`](comparability-gate-contract.md)；后续宜拆为独立文档，统一定义 gap open / keep / resolve / reopen、blocking 与 non-blocking membership 收敛、以及 family-level 候选结果如何汇总为 canonical gap state
 - Reference integrity contract：当前规则分散在 [`finding.md`](finding.md)、[`proposition.md`](proposition.md)、[`assessment.md`](assessment.md)、[`state-surface-schema.md`](state-surface-schema.md) 与 [`context-surface-schema.md`](context-surface-schema.md)；后续宜拆为独立文档，统一定义 hard refs / soft refs、悬空 ref 的读取语义、写入时的 ref 校验，以及跨 session canonical ref 的禁止边界
 
@@ -73,6 +74,8 @@
 当前 [`evidence-graph-edge-semantics.md`](evidence-graph-edge-semantics.md) 已收敛 v1 的对象内 relation / edge 语义，但仍明确不纳入跨命题推断（cross-proposition inference）。若后续需要引入跨 proposition relation，应在其基础上继续扩展规范模型（canonical model），而不是在 engine contract 中隐式开放跨 proposition 读取。
 
 若后续为上述主题新增正式文档，应优先在本节补充链接，并把对应条目从“缺失主题”移动到“已存在的设计文档”。
+
+补充说明：[`proposition-seeding-contract.md`](proposition-seeding-contract.md) 已从 [`proposition.md`](proposition.md) 与 [`evidence-engine-runtime-lifecycle.md`](evidence-engine-runtime-lifecycle.md) 中拆出 `finding -> proposition` 注册契约；当前已固定 committed finding 才可参与 seeding、允许单 finding / 多 finding 组合模板、同源去重但 `system_seeded` 与 `agent_authored` 不跨来源去重、以及 `agent_authored proposition` 仅允许六个既有 family。
 
 补充说明：`Assessment snapshot transition details` 已由 [`assessment.md`](assessment.md)、[`evidence-engine-runtime-lifecycle.md`](evidence-engine-runtime-lifecycle.md) 与 [`inference-rule-engine-contract.md`](inference-rule-engine-contract.md) 共同覆盖；当前已固定首个 snapshot 采用按需创建、`latest_assessment` 采用严格链路选主、以及 resolved gap 再次出现时创建新 gap 实例。
 

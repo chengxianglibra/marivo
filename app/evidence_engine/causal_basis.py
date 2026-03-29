@@ -239,20 +239,19 @@ def _build_scope_aware_gaps(
     # observations that lack both temporal order and observed_window.
     if supporting_observations and (
         _metric_is_time_based(metric) or _metric_is_failure_rate(metric)
-    ):
-        if not _supporting_have_temporal_order(
-            supporting_observations
-        ) and not _supporting_have_windows(supporting_observations):
-            _add(
-                EvidenceGap(
-                    key=GAP_MISSING_TEMPORAL_ORDERING,
-                    text=(
-                        f"run `aggregate_query` with a typed `time_scope`, grouped by a time column, "
-                        f"to establish temporal ordering for `{metric}`; "
-                        "optionally run `correlate_metrics` to test cross-series association"
-                    ),
-                )
+    ) and not _supporting_have_temporal_order(
+        supporting_observations
+    ) and not _supporting_have_windows(supporting_observations):
+        _add(
+            EvidenceGap(
+                key=GAP_MISSING_TEMPORAL_ORDERING,
+                text=(
+                    f"run `aggregate_query` with a typed `time_scope`, grouped by a time column, "
+                    f"to establish temporal ordering for `{metric}`; "
+                    "optionally run `correlate_metrics` to test cross-series association"
+                ),
             )
+        )
 
     # Rule 3 — resource/group slice with comparable slices elsewhere in the session.
     # Fires when the claim slice uses a resource-like dimension (cluster, user, etc.)

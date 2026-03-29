@@ -58,20 +58,22 @@ ignore = [
     "TC001",  # Move application import into TYPE_CHECKING (breaks FastAPI dependency injection)
     "TC002",  # Move third-party import into TYPE_CHECKING (breaks FastAPI)
     "TC003",  # Move standard library import into TYPE_CHECKING (breaks runtime)
-    "RUF001", # Ambiguous unicode character (intentional use of Greek letters)
+    "RUF001", # Ambiguous unicode character (intentional use of Greek letters like ρ)
     "RUF002", # Ambiguous unicode character in docstring (intentional)
-    "N802",   # Function name should be lowercase (some test helpers use camelCase)
-    "N806",   # Variable in function should be lowercase (some constants use UPPER_CASE)
-    "F841",   # Local variable assigned but never used (common in test setup)
-    "E731",   # Do not assign lambda (sometimes clearer than def)
-    "B007",   # Loop variable not used (common in test fixtures)
-    "B017",   # assertRaises(Exception) is too broad (acceptable in tests)
-    "RUF003", # Ambiguous unicode comment character
-    "RUF059", # Consider dict.get for default values
+    "RUF003", # Ambiguous unicode comment character (intentional)
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**/*.py" = ["S101", "RUF012"]  # allow assert and mutable class attributes in tests
+"tests/**/*.py" = [
+    "S101",    # allow assert in tests
+    "RUF012",  # allow mutable class attributes in tests
+    "N802",    # allow non-lowercase function names (test helpers)
+    "F841",    # allow unused variables (test setup)
+    "E731",    # allow lambda assignments (test fixtures)
+    "B007",    # allow unused loop variables
+    "B017",    # allow assertRaises(Exception)
+    "RUF059",  # allow unused unpacked variables
+]
 "app/api/**/*.py" = ["B008"]  # allow function calls in FastAPI defaults
 
 [tool.ruff.lint.isort]

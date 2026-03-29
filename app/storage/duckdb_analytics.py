@@ -86,7 +86,7 @@ class DuckDBAnalyticsEngine(AnalyticsEngine):
         with self._connect() as con:
             cursor = con.execute(sql, params or [])
             columns = [col[0] for col in cursor.description]
-            return [dict(zip(columns, row)) for row in cursor.fetchall()]
+            return [dict(zip(columns, row, strict=False)) for row in cursor.fetchall()]
 
     def table_exists(self, table_name: str) -> bool:
         with self._connect() as con:
@@ -265,7 +265,7 @@ def _seed_demo_data(con: duckdb.DuckDBPyConnection) -> None:
                             ):
                                 base_ctr += 0.008
                             ctr = max(0.02, min(0.45, base_ctr + rng.uniform(-0.015, 0.015)))
-                            clicks = max(1, int(round(impressions * ctr)))
+                            clicks = max(1, round(impressions * ctr))
                             recommendation_rows.append(
                                 (
                                     current_day,

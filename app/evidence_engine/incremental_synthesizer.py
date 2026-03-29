@@ -202,11 +202,11 @@ class IncrementalSynthesizer:
             text = f"{metric} is a candidate effect of observation {cause_short} for {slice_str} (tentative)"
         else:
             # Aggregate observation: build text from payload numeric values
-            SKIP_KEYS = {"current_value", "delta_pct"}
+            skip_keys = {"current_value", "delta_pct"}
             numeric_parts = [
                 (k, v)
                 for k, v in payload.items()
-                if k not in SKIP_KEYS and isinstance(v, (int, float))
+                if k not in skip_keys and isinstance(v, (int, float))
             ][:3]  # cap at 3 for readability
             if numeric_parts:
                 values_str = ", ".join(
