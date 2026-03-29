@@ -26,18 +26,26 @@ class TemporalWindowInferenceTests(unittest.TestCase):
         cls.client = TestClient(create_app(db_path))
 
         # Register a metric used by test_l1_to_l2_upgrade_via_temporal_precedence.
-        r = cls.client.post("/semantic/entities", json={
-            "name": "g2_watch_session", "display_name": "G2 Watch Session",
-            "keys": ["session_id"],
-        })
+        r = cls.client.post(
+            "/semantic/entities",
+            json={
+                "name": "g2_watch_session",
+                "display_name": "G2 Watch Session",
+                "keys": ["session_id"],
+            },
+        )
         ent_id = r.json()["entity_id"]
         cls.client.post(f"/semantic/entities/{ent_id}/publish")
-        r = cls.client.post("/semantic/metrics", json={
-            "name": "g2_event_count", "display_name": "G2 Event Count",
-            "definition_sql": "COUNT(*)",
-            "dimensions": ["platform"],
-            "entity_id": ent_id,
-        })
+        r = cls.client.post(
+            "/semantic/metrics",
+            json={
+                "name": "g2_event_count",
+                "display_name": "G2 Event Count",
+                "definition_sql": "COUNT(*)",
+                "dimensions": ["platform"],
+                "entity_id": ent_id,
+            },
+        )
         met_id = r.json()["metric_id"]
         cls.client.post(f"/semantic/metrics/{met_id}/publish")
         cls.g2_metric_name = "g2_event_count"
@@ -50,7 +58,8 @@ class TemporalWindowInferenceTests(unittest.TestCase):
     def test_aggregate_query_infers_observed_window_from_event_date(self) -> None:
         """aggregate_query with event_date in group_by should infer observed_window."""
         session_id = self.client.post(
-            "/sessions", json={"goal": "G-2 temporal window inference test."},
+            "/sessions",
+            json={"goal": "G-2 temporal window inference test."},
         ).json()["session_id"]
 
         # Run aggregate grouped by a temporal column (event_date)
@@ -79,7 +88,9 @@ class TemporalWindowInferenceTests(unittest.TestCase):
 
         # G-2: Verify observed_window is populated on each observation
         for obs in observations:
-            self.assertIn("observed_window", obs, "G-2: observed_window should be inferred from event_date")
+            self.assertIn(
+                "observed_window", obs, "G-2: observed_window should be inferred from event_date"
+            )
             window = obs["observed_window"]
             self.assertIn("start", window)
             self.assertIn("end", window)
@@ -94,7 +105,8 @@ class TemporalWindowInferenceTests(unittest.TestCase):
     def test_aggregate_query_uses_request_window_without_temporal_group_by(self) -> None:
         """aggregate_query without temporal group_by should fall back to request window."""
         session_id = self.client.post(
-            "/sessions", json={"goal": "G-2 request window test."},
+            "/sessions",
+            json={"goal": "G-2 request window test."},
         ).json()["session_id"]
 
         resp = self.client.post(
@@ -128,12 +140,14 @@ class TemporalWindowInferenceTests(unittest.TestCase):
     def test_aggregate_query_yyyymmdd_format(self) -> None:
         """aggregate_query should parse YYYYMMDD format temporal values."""
         session_id = self.client.post(
-            "/sessions", json={"goal": "G-2 YYYYMMDD format test."},
+            "/sessions",
+            json={"goal": "G-2 YYYYMMDD format test."},
         ).json()["session_id"]
 
         # Unit test the parser directly
-        from app.evidence_engine.extractors.aggregate import _parse_temporal_value
         from datetime import date
+
+        from app.evidence_engine.extractors.aggregate import _parse_temporal_value
 
         parsed_date, granularity = _parse_temporal_value("20240115")
         self.assertEqual(parsed_date, date(2024, 1, 15))
@@ -232,11 +246,13 @@ class TemporalWindowInferenceTests(unittest.TestCase):
             [cause_claim, overlap_effect],
             [obs_a, obs_overlap],
             [],
-            relations=[{
-                **relation,
-                "to_claim_id": "claim_g2c_overlap",
-                "supporting_observation_ids": ["obs_g2c_a", "obs_g2c_overlap"],
-            }],
+            relations=[
+                {
+                    **relation,
+                    "to_claim_id": "claim_g2c_overlap",
+                    "supporting_observation_ids": ["obs_g2c_a", "obs_g2c_overlap"],
+                }
+            ],
         )
         self.assertEqual(len(no_upgrades), 0, "Overlapping windows must NOT trigger L2 upgrade")
 
@@ -244,7 +260,8 @@ class TemporalWindowInferenceTests(unittest.TestCase):
         from app.evidence_engine.causal_checkers import TemporalPrecedenceChecker
 
         session_id = self.client.post(
-            "/sessions", json={"goal": "P1 temporal scope folding test."},
+            "/sessions",
+            json={"goal": "P1 temporal scope folding test."},
         ).json()["session_id"]
 
         resp = self.client.post(
@@ -279,7 +296,9 @@ class TemporalWindowInferenceTests(unittest.TestCase):
             ],
             key=lambda observation: observation["observed_window"]["start"],
         )
-        self.assertGreaterEqual(len(ios_observations), 2, f"Need at least two ios observations, got: {observations}")
+        self.assertGreaterEqual(
+            len(ios_observations), 2, f"Need at least two ios observations, got: {observations}"
+        )
         first_obs, second_obs = ios_observations[0], ios_observations[-1]
         first_claim = {
             "claim_id": "claim_fold_a",
@@ -301,20 +320,25 @@ class TemporalWindowInferenceTests(unittest.TestCase):
             [first_claim, second_claim],
             observations,
             [],
-            relations=[{
-                "from_claim_id": first_claim["claim_id"],
-                "to_claim_id": second_claim["claim_id"],
-                "relation_type": "correlates_with",
-                "weight": 0.92,
-                "match_basis": {"category": "exact_match", "direction": "up"},
-                "score_components": {},
-                "supporting_observation_ids": (
-                    first_claim["supporting_observations"] + second_claim["supporting_observations"]
-                ),
-                "explanation": "test relation",
-            }],
+            relations=[
+                {
+                    "from_claim_id": first_claim["claim_id"],
+                    "to_claim_id": second_claim["claim_id"],
+                    "relation_type": "correlates_with",
+                    "weight": 0.92,
+                    "match_basis": {"category": "exact_match", "direction": "up"},
+                    "score_components": {},
+                    "supporting_observation_ids": (
+                        first_claim["supporting_observations"]
+                        + second_claim["supporting_observations"]
+                    ),
+                    "explanation": "test relation",
+                }
+            ],
         )
-        self.assertEqual(len(upgrades), 1, f"Expected L2 upgrade from related temporal claims, got: {upgrades}")
+        self.assertEqual(
+            len(upgrades), 1, f"Expected L2 upgrade from related temporal claims, got: {upgrades}"
+        )
         self.assertEqual(upgrades[0].new_level, "L2")
         self.assertEqual(upgrades[0].claim_id, second_claim["claim_id"])
         self.assertTrue(
@@ -326,7 +350,8 @@ class TemporalWindowInferenceTests(unittest.TestCase):
         from app.evidence_engine.causal_checkers import TemporalPrecedenceChecker
 
         session_id = self.client.post(
-            "/sessions", json={"goal": "metric_query day temporal precedence test."},
+            "/sessions",
+            json={"goal": "metric_query day temporal precedence test."},
         ).json()["session_id"]
 
         resp = self.client.post(
@@ -382,16 +407,21 @@ class TemporalWindowInferenceTests(unittest.TestCase):
             [cause_claim, effect_claim],
             [earlier, later],
             [],
-            relations=[{
-                "from_claim_id": cause_claim["claim_id"],
-                "to_claim_id": effect_claim["claim_id"],
-                "relation_type": "correlates_with",
-                "weight": 0.92,
-                "match_basis": {"category": "exact_match", "direction": "up"},
-                "score_components": {},
-                "supporting_observation_ids": [earlier["observation_id"], later["observation_id"]],
-                "explanation": "compare day relation",
-            }],
+            relations=[
+                {
+                    "from_claim_id": cause_claim["claim_id"],
+                    "to_claim_id": effect_claim["claim_id"],
+                    "relation_type": "correlates_with",
+                    "weight": 0.92,
+                    "match_basis": {"category": "exact_match", "direction": "up"},
+                    "score_components": {},
+                    "supporting_observation_ids": [
+                        earlier["observation_id"],
+                        later["observation_id"],
+                    ],
+                    "explanation": "compare day relation",
+                }
+            ],
         )
         self.assertEqual(len(upgrades), 1)
         self.assertEqual(upgrades[0].claim_id, effect_claim["claim_id"])
@@ -407,42 +437,66 @@ class TemporalWindowInferenceTests(unittest.TestCase):
                 "type": "metric_observation",
                 "subject": {"metric": "query_count", "slice": {"platform": "ios"}},
                 "payload": {"delta_pct": 5.0, "current_value": 100.0},
-                "observed_window": {"start": "2026-03-01T01:00", "end": "2026-03-01T02:00", "granularity": "hour"},
+                "observed_window": {
+                    "start": "2026-03-01T01:00",
+                    "end": "2026-03-01T02:00",
+                    "granularity": "hour",
+                },
             },
             {
                 "observation_id": "obs_cmp_hour_02",
                 "type": "metric_observation",
                 "subject": {"metric": "query_count", "slice": {"platform": "ios"}},
                 "payload": {"delta_pct": 14.0, "current_value": 180.0},
-                "observed_window": {"start": "2026-03-01T02:00", "end": "2026-03-01T03:00", "granularity": "hour"},
+                "observed_window": {
+                    "start": "2026-03-01T02:00",
+                    "end": "2026-03-01T03:00",
+                    "granularity": "hour",
+                },
             },
             {
                 "observation_id": "obs_cmp_hour_03",
                 "type": "metric_observation",
                 "subject": {"metric": "query_count", "slice": {"platform": "ios"}},
                 "payload": {"delta_pct": 7.0, "current_value": 120.0},
-                "observed_window": {"start": "2026-03-01T03:00", "end": "2026-03-01T04:00", "granularity": "hour"},
+                "observed_window": {
+                    "start": "2026-03-01T03:00",
+                    "end": "2026-03-01T04:00",
+                    "granularity": "hour",
+                },
             },
             {
                 "observation_id": "obs_cmp_hour_04",
                 "type": "metric_observation",
                 "subject": {"metric": "queued_time", "slice": {"platform": "ios"}},
                 "payload": {"delta_pct": 2.0, "current_value": 4.0},
-                "observed_window": {"start": "2026-03-01T02:00", "end": "2026-03-01T03:00", "granularity": "hour"},
+                "observed_window": {
+                    "start": "2026-03-01T02:00",
+                    "end": "2026-03-01T03:00",
+                    "granularity": "hour",
+                },
             },
             {
                 "observation_id": "obs_cmp_hour_05",
                 "type": "metric_observation",
                 "subject": {"metric": "queued_time", "slice": {"platform": "ios"}},
                 "payload": {"delta_pct": 9.0, "current_value": 10.0},
-                "observed_window": {"start": "2026-03-01T03:00", "end": "2026-03-01T04:00", "granularity": "hour"},
+                "observed_window": {
+                    "start": "2026-03-01T03:00",
+                    "end": "2026-03-01T04:00",
+                    "granularity": "hour",
+                },
             },
             {
                 "observation_id": "obs_cmp_hour_06",
                 "type": "metric_observation",
                 "subject": {"metric": "queued_time", "slice": {"platform": "ios"}},
                 "payload": {"delta_pct": 3.0, "current_value": 6.0},
-                "observed_window": {"start": "2026-03-01T04:00", "end": "2026-03-01T05:00", "granularity": "hour"},
+                "observed_window": {
+                    "start": "2026-03-01T04:00",
+                    "end": "2026-03-01T05:00",
+                    "granularity": "hour",
+                },
             },
         ]
         cause_claim = {
@@ -465,16 +519,18 @@ class TemporalWindowInferenceTests(unittest.TestCase):
             [cause_claim, effect_claim],
             observations,
             [],
-            relations=[{
-                "from_claim_id": cause_claim["claim_id"],
-                "to_claim_id": effect_claim["claim_id"],
-                "relation_type": "correlates_with",
-                "weight": 0.92,
-                "match_basis": {"category": "exact_match", "direction": "up"},
-                "score_components": {},
-                "supporting_observation_ids": [obs["observation_id"] for obs in observations],
-                "explanation": "compare hour relation",
-            }],
+            relations=[
+                {
+                    "from_claim_id": cause_claim["claim_id"],
+                    "to_claim_id": effect_claim["claim_id"],
+                    "relation_type": "correlates_with",
+                    "weight": 0.92,
+                    "match_basis": {"category": "exact_match", "direction": "up"},
+                    "score_components": {},
+                    "supporting_observation_ids": [obs["observation_id"] for obs in observations],
+                    "explanation": "compare hour relation",
+                }
+            ],
         )
         self.assertEqual(len(upgrades), 1)
         self.assertEqual(upgrades[0].claim_id, effect_claim["claim_id"])
@@ -491,42 +547,66 @@ class TemporalWindowInferenceTests(unittest.TestCase):
                 "type": "metric_observation",
                 "subject": {"metric": "query_count", "slice": {"platform": "ios"}},
                 "payload": {"current_value": 100.0},
-                "observed_window": {"start": "2026-03-01T01:00", "end": "2026-03-01T02:00", "granularity": "hour"},
+                "observed_window": {
+                    "start": "2026-03-01T01:00",
+                    "end": "2026-03-01T02:00",
+                    "granularity": "hour",
+                },
             },
             {
                 "observation_id": "obs_hp_02",
                 "type": "metric_observation",
                 "subject": {"metric": "query_count", "slice": {"platform": "ios"}},
                 "payload": {"current_value": 180.0},
-                "observed_window": {"start": "2026-03-01T02:00", "end": "2026-03-01T03:00", "granularity": "hour"},
+                "observed_window": {
+                    "start": "2026-03-01T02:00",
+                    "end": "2026-03-01T03:00",
+                    "granularity": "hour",
+                },
             },
             {
                 "observation_id": "obs_hp_03",
                 "type": "metric_observation",
                 "subject": {"metric": "query_count", "slice": {"platform": "ios"}},
                 "payload": {"current_value": 120.0},
-                "observed_window": {"start": "2026-03-01T03:00", "end": "2026-03-01T04:00", "granularity": "hour"},
+                "observed_window": {
+                    "start": "2026-03-01T03:00",
+                    "end": "2026-03-01T04:00",
+                    "granularity": "hour",
+                },
             },
             {
                 "observation_id": "obs_hp_04",
                 "type": "metric_observation",
                 "subject": {"metric": "queued_time", "slice": {"platform": "ios"}},
                 "payload": {"current_value": 4.0},
-                "observed_window": {"start": "2026-03-01T02:00", "end": "2026-03-01T03:00", "granularity": "hour"},
+                "observed_window": {
+                    "start": "2026-03-01T02:00",
+                    "end": "2026-03-01T03:00",
+                    "granularity": "hour",
+                },
             },
             {
                 "observation_id": "obs_hp_05",
                 "type": "metric_observation",
                 "subject": {"metric": "queued_time", "slice": {"platform": "ios"}},
                 "payload": {"current_value": 10.0},
-                "observed_window": {"start": "2026-03-01T03:00", "end": "2026-03-01T04:00", "granularity": "hour"},
+                "observed_window": {
+                    "start": "2026-03-01T03:00",
+                    "end": "2026-03-01T04:00",
+                    "granularity": "hour",
+                },
             },
             {
                 "observation_id": "obs_hp_06",
                 "type": "metric_observation",
                 "subject": {"metric": "queued_time", "slice": {"platform": "ios"}},
                 "payload": {"current_value": 6.0},
-                "observed_window": {"start": "2026-03-01T04:00", "end": "2026-03-01T05:00", "granularity": "hour"},
+                "observed_window": {
+                    "start": "2026-03-01T04:00",
+                    "end": "2026-03-01T05:00",
+                    "granularity": "hour",
+                },
             },
         ]
         cause_claim = {
@@ -581,42 +661,66 @@ class TemporalWindowInferenceTests(unittest.TestCase):
                 "type": "metric_observation",
                 "subject": {"metric": "query_count", "slice": {"platform": "ios"}},
                 "payload": {"current_value": 100.0},
-                "observed_window": {"start": "2026-03-01T22:00", "end": "2026-03-01T23:00", "granularity": "hour"},
+                "observed_window": {
+                    "start": "2026-03-01T22:00",
+                    "end": "2026-03-01T23:00",
+                    "granularity": "hour",
+                },
             },
             {
                 "observation_id": "obs_mid_02",
                 "type": "metric_observation",
                 "subject": {"metric": "query_count", "slice": {"platform": "ios"}},
                 "payload": {"current_value": 180.0},
-                "observed_window": {"start": "2026-03-01T23:00", "end": "2026-03-02T00:00", "granularity": "hour"},
+                "observed_window": {
+                    "start": "2026-03-01T23:00",
+                    "end": "2026-03-02T00:00",
+                    "granularity": "hour",
+                },
             },
             {
                 "observation_id": "obs_mid_03",
                 "type": "metric_observation",
                 "subject": {"metric": "query_count", "slice": {"platform": "ios"}},
                 "payload": {"current_value": 110.0},
-                "observed_window": {"start": "2026-03-02T00:00", "end": "2026-03-02T01:00", "granularity": "hour"},
+                "observed_window": {
+                    "start": "2026-03-02T00:00",
+                    "end": "2026-03-02T01:00",
+                    "granularity": "hour",
+                },
             },
             {
                 "observation_id": "obs_mid_04",
                 "type": "metric_observation",
                 "subject": {"metric": "queued_time", "slice": {"platform": "ios"}},
                 "payload": {"current_value": 4.0},
-                "observed_window": {"start": "2026-03-02T00:00", "end": "2026-03-02T01:00", "granularity": "hour"},
+                "observed_window": {
+                    "start": "2026-03-02T00:00",
+                    "end": "2026-03-02T01:00",
+                    "granularity": "hour",
+                },
             },
             {
                 "observation_id": "obs_mid_05",
                 "type": "metric_observation",
                 "subject": {"metric": "queued_time", "slice": {"platform": "ios"}},
                 "payload": {"current_value": 10.0},
-                "observed_window": {"start": "2026-03-02T01:00", "end": "2026-03-02T02:00", "granularity": "hour"},
+                "observed_window": {
+                    "start": "2026-03-02T01:00",
+                    "end": "2026-03-02T02:00",
+                    "granularity": "hour",
+                },
             },
             {
                 "observation_id": "obs_mid_06",
                 "type": "metric_observation",
                 "subject": {"metric": "queued_time", "slice": {"platform": "ios"}},
                 "payload": {"current_value": 6.0},
-                "observed_window": {"start": "2026-03-02T02:00", "end": "2026-03-02T03:00", "granularity": "hour"},
+                "observed_window": {
+                    "start": "2026-03-02T02:00",
+                    "end": "2026-03-02T03:00",
+                    "granularity": "hour",
+                },
             },
         ]
         cause_claim = {
@@ -652,7 +756,9 @@ class TemporalWindowInferenceTests(unittest.TestCase):
             [],
             relations=[relation],
         )
-        self.assertEqual(len(upgrades), 1, f"Expected one cross-midnight L2 upgrade, got: {upgrades}")
+        self.assertEqual(
+            len(upgrades), 1, f"Expected one cross-midnight L2 upgrade, got: {upgrades}"
+        )
         self.assertEqual(upgrades[0].claim_id, effect_claim["claim_id"])
 
 
@@ -667,7 +773,6 @@ class TemporallyPrecedesEdgePromotionTests(unittest.TestCase):
 
     def _make_service_with_synth(self, tmpdir: str):
         """Return (service, synth) wired together with real SQLite + DuckDB stores."""
-        import json
         from pathlib import Path
 
         from app.evidence_engine.incremental_synthesizer import IncrementalSynthesizer
@@ -716,7 +821,10 @@ class TemporallyPrecedesEdgePromotionTests(unittest.TestCase):
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     [
-                        oid, sess_id, step_id, "metric_observation",
+                        oid,
+                        sess_id,
+                        step_id,
+                        "metric_observation",
                         json.dumps({"metric": metric, "slice": {"user": "sys_titan"}}),
                         json.dumps({"delta_pct": delta_pct}),
                         json.dumps({"sample_size": 200, "practical_significance": True}),
@@ -732,7 +840,9 @@ class TemporallyPrecedesEdgePromotionTests(unittest.TestCase):
                 "SELECT edge_type FROM evidence_edges WHERE session_id = ? AND edge_type = 'temporally_precedes'",
                 [sess_id],
             )
-            self.assertEqual(len(edges_before), 0, "Incremental synthesis must not materialize causal edges")
+            self.assertEqual(
+                len(edges_before), 0, "Incremental synthesis must not materialize causal edges"
+            )
 
             # Step 2: synthesize_findings → promotion + final edge materialization
             svc._run_synthesis(sess_id)
@@ -747,15 +857,15 @@ class TemporallyPrecedesEdgePromotionTests(unittest.TestCase):
                 [sess_id],
             )
             self.assertEqual(
-                len(edges_after), 1,
+                len(edges_after),
+                1,
                 "temporally_precedes edge must be materialized during synthesize_findings",
             )
             edge = dict(edges_after[0])
             self.assertEqual(edge["from_node_type"], "claim")
             self.assertEqual(edge["to_node_type"], "claim")
             self.assertGreater(edge["weight"], 0, "Edge weight must be positive")
-            self.assertIn("3 days", edge["explanation"],
-                          "Explanation must state the lag in days")
+            self.assertIn("3 days", edge["explanation"], "Explanation must state the lag in days")
             self.assertNotEqual(edge["from_node_id"], edge["to_node_id"])
             claims_after = meta.query_rows(
                 "SELECT claim_id, scope_json, inference_level, status FROM claims WHERE session_id = ?",
@@ -764,8 +874,7 @@ class TemporallyPrecedesEdgePromotionTests(unittest.TestCase):
             claim_by_id = {row["claim_id"]: row for row in claims_after}
             self.assertIn(edge["from_node_id"], claim_by_id)
             self.assertIn(edge["to_node_id"], claim_by_id)
-            self.assertIn("3 days", edge["explanation"],
-                          "Explanation must state the lag in days")
+            self.assertIn("3 days", edge["explanation"], "Explanation must state the lag in days")
 
             # Verify the effect claim is promoted to L2 and no longer tentative
             l2_claims = [r for r in claims_after if r["inference_level"] == "L2"]
@@ -804,7 +913,10 @@ class TemporallyPrecedesEdgePromotionTests(unittest.TestCase):
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     [
-                        oid, sess_id, "step_idem_01", "metric_observation",
+                        oid,
+                        sess_id,
+                        "step_idem_01",
+                        "metric_observation",
                         json.dumps({"metric": metric, "slice": {"user": "sys_titan"}}),
                         json.dumps({"delta_pct": delta_pct}),
                         json.dumps({"sample_size": 150, "practical_significance": True}),
@@ -817,17 +929,22 @@ class TemporallyPrecedesEdgePromotionTests(unittest.TestCase):
             synth.process(sess_id)
 
             def _count_tp_edges():
-                return len(meta.query_rows(
-                    "SELECT 1 FROM evidence_edges WHERE session_id = ? AND edge_type = 'temporally_precedes'",
-                    [sess_id],
-                ))
+                return len(
+                    meta.query_rows(
+                        "SELECT 1 FROM evidence_edges WHERE session_id = ? AND edge_type = 'temporally_precedes'",
+                        [sess_id],
+                    )
+                )
 
-            self.assertEqual(_count_tp_edges(), 0, "No causal edge should exist before final synthesis")
+            self.assertEqual(
+                _count_tp_edges(), 0, "No causal edge should exist before final synthesis"
+            )
 
             # First synthesize_findings
             svc._run_synthesis(sess_id)
-            self.assertEqual(_count_tp_edges(), 1,
-                             "Edge count must be exactly 1 after first synthesize_findings")
+            self.assertEqual(
+                _count_tp_edges(), 1, "Edge count must be exactly 1 after first synthesize_findings"
+            )
 
             # Simulate a second promotion-path run by resetting the claim to tentative.
             meta.execute(
@@ -838,7 +955,8 @@ class TemporallyPrecedesEdgePromotionTests(unittest.TestCase):
             # Second synthesize_findings on the same claim
             svc._run_synthesis(sess_id)
             self.assertEqual(
-                _count_tp_edges(), 1,
+                _count_tp_edges(),
+                1,
                 "Repeated synthesize_findings must not multiply causal edges (expected exactly 1)",
             )
 
@@ -976,7 +1094,9 @@ class TemporallyPrecedesEdgePromotionTests(unittest.TestCase):
                 "SELECT claim_id, scope_json, inference_level FROM claims WHERE session_id = ? ORDER BY claim_id",
                 [sess_id],
             )
-            self.assertEqual(len(claims_before), 2, f"Expected 2 folded hourly claims, got: {claims_before}")
+            self.assertEqual(
+                len(claims_before), 2, f"Expected 2 folded hourly claims, got: {claims_before}"
+            )
             self.assertTrue(
                 all(row["inference_level"] in {"L0", "L1"} for row in claims_before),
                 f"Expected pre-synthesis hourly claims to remain below L2, got: {claims_before}",
@@ -986,7 +1106,11 @@ class TemporallyPrecedesEdgePromotionTests(unittest.TestCase):
                 "SELECT edge_type FROM evidence_edges WHERE session_id = ? AND edge_type = 'temporally_precedes'",
                 [sess_id],
             )
-            self.assertEqual(len(edges_before), 0, "Incremental synthesis must not materialize hourly temporal edges")
+            self.assertEqual(
+                len(edges_before),
+                0,
+                "Incremental synthesis must not materialize hourly temporal edges",
+            )
 
             svc._run_synthesis(sess_id)
 
@@ -998,7 +1122,9 @@ class TemporallyPrecedesEdgePromotionTests(unittest.TestCase):
                 """,
                 [sess_id],
             )
-            self.assertEqual(len(edges_after), 1, "Expected one hourly temporally_precedes edge after synthesis")
+            self.assertEqual(
+                len(edges_after), 1, "Expected one hourly temporally_precedes edge after synthesis"
+            )
             edge = dict(edges_after[0])
             self.assertGreater(edge["weight"], 0)
             self.assertIn("peaks at 2024-01-01 02:00", edge["explanation"])
@@ -1009,7 +1135,11 @@ class TemporallyPrecedesEdgePromotionTests(unittest.TestCase):
                 [sess_id],
             )
             l2_claims = [row for row in claims_after if row["inference_level"] == "L2"]
-            self.assertEqual(len(l2_claims), 1, f"Expected exactly one L2 hourly effect claim, got: {claims_after}")
+            self.assertEqual(
+                len(l2_claims),
+                1,
+                f"Expected exactly one L2 hourly effect claim, got: {claims_after}",
+            )
             self.assertIn(l2_claims[0]["status"], {"confirmed", "insufficient"})
 
 

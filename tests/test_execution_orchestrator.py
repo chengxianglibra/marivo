@@ -52,9 +52,15 @@ class WorkflowOrchestratorTests(unittest.TestCase):
 
         self.assertEqual(result["workflow"], "test_workflow")
         self.assertEqual(result["final_summary"], "workflow summary")
-        self.assertEqual(result["replanning"]["final_plan"], ["metric_query", "synthesize_findings"])
-        self.assertEqual(result["replanning"]["executed_step_types"], ["metric_query", "synthesize_findings"])
-        self.assertEqual([step["step_type"] for step in result["steps"]], ["metric_query", "synthesize_findings"])
+        self.assertEqual(
+            result["replanning"]["final_plan"], ["metric_query", "synthesize_findings"]
+        )
+        self.assertEqual(
+            result["replanning"]["executed_step_types"], ["metric_query", "synthesize_findings"]
+        )
+        self.assertEqual(
+            [step["step_type"] for step in result["steps"]], ["metric_query", "synthesize_findings"]
+        )
         self.assertEqual(approvals.calls, [("sess_demo", "P0")])
 
     def test_execute_workflow_inserts_supplementary_steps(self) -> None:
@@ -100,7 +106,10 @@ class WorkflowOrchestratorTests(unittest.TestCase):
                         reason="Need profiling",
                         detail={
                             "insert_steps": [
-                                {"step_type": "profile_table", "params": {"table_name": "analytics.watch_events"}}
+                                {
+                                    "step_type": "profile_table",
+                                    "params": {"table_name": "analytics.watch_events"},
+                                }
                             ]
                         },
                     )
@@ -244,11 +253,13 @@ class FakeReplanner:
         self.after = after or {}
         self.on_error = on_error or {}
 
-    def estimate_step(self, step, analytics_engine=None, query_router=None):  # noqa: ANN001
+    def estimate_step(self, step, analytics_engine=None, query_router=None):
         del analytics_engine, query_router
-        return CostEstimate(subject=f"step:{step.index}", confidence="medium", engine_locality="bound_engine")
+        return CostEstimate(
+            subject=f"step:{step.index}", confidence="medium", engine_locality="bound_engine"
+        )
 
-    def build_feedback(self, step, result, duration_ms, estimate=None):  # noqa: ANN001
+    def build_feedback(self, step, result, duration_ms, estimate=None):
         del step, result, duration_ms, estimate
         return ExecutionFeedback(
             code="step_completed",
@@ -257,15 +268,15 @@ class FakeReplanner:
             detail={},
         )
 
-    def decide_before_step(self, step, estimate):  # noqa: ANN001
+    def decide_before_step(self, step, estimate):
         del estimate
         return self.before.get(step.step_type, ReplanDecision(action="continue", reason="No-op"))
 
-    def decide_after_step(self, step, result, estimate, feedback):  # noqa: ANN001
+    def decide_after_step(self, step, result, estimate, feedback):
         del result, estimate, feedback
         return self.after.get(step.step_type, ReplanDecision(action="continue", reason="No-op"))
 
-    def decide_on_error(self, step, error, estimate=None):  # noqa: ANN001
+    def decide_on_error(self, step, error, estimate=None):
         del error, estimate
         return self.on_error.get(step.step_type, ReplanDecision(action="raise", reason="Unhandled"))
 
@@ -282,7 +293,7 @@ class FakeStepExecutor:
         self.calls: list[tuple[str, dict | None]] = []
         self.provenance_updates: list[tuple[str, str, list[dict]]] = []
 
-    def execute_step(self, session_id: str, step_ir) -> dict:  # noqa: ANN001
+    def execute_step(self, session_id: str, step_ir) -> dict:
         self.calls.append((step_ir.step_type, step_ir.params))
         if step_ir.step_type in self.errors:
             raise self.errors[step_ir.step_type]

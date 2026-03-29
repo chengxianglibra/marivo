@@ -40,21 +40,27 @@ class MetricResolutionTests(unittest.TestCase):
         cls.client = TestClient(create_app(db_path))
 
         # Seed a published metric via the semantic API
-        entity_resp = cls.client.post("/semantic/entities", json={
-            "name": "session",
-            "display_name": "Session",
-            "keys": ["session_id"],
-        })
+        entity_resp = cls.client.post(
+            "/semantic/entities",
+            json={
+                "name": "session",
+                "display_name": "Session",
+                "keys": ["session_id"],
+            },
+        )
         entity_id = entity_resp.json()["entity_id"]
         cls.client.post(f"/semantic/entities/{entity_id}/publish")
 
-        metric_resp = cls.client.post("/semantic/metrics", json={
-            "name": "watch_time",
-            "display_name": "Watch Time",
-            "definition_sql": "avg(play_duration_seconds)",
-            "dimensions": ["platform", "app_version", "network_type", "content_type"],
-            "entity_id": entity_id,
-        })
+        metric_resp = cls.client.post(
+            "/semantic/metrics",
+            json={
+                "name": "watch_time",
+                "display_name": "Watch Time",
+                "definition_sql": "avg(play_duration_seconds)",
+                "dimensions": ["platform", "app_version", "network_type", "content_type"],
+                "entity_id": entity_id,
+            },
+        )
         cls.metric_id = metric_resp.json()["metric_id"]
         cls.client.post(f"/semantic/metrics/{cls.metric_id}/publish")
 
@@ -80,7 +86,8 @@ class MetricResolutionTests(unittest.TestCase):
 
     def test_metric_query_step(self) -> None:
         session = self.client.post(
-            "/sessions", json={"goal": "Test metric_query step."},
+            "/sessions",
+            json={"goal": "Test metric_query step."},
         ).json()
         session_id = session["session_id"]
 
@@ -97,7 +104,8 @@ class MetricResolutionTests(unittest.TestCase):
 
     def test_metric_query_missing_params(self) -> None:
         session_id = self.client.post(
-            "/sessions", json={"goal": "Test missing params."},
+            "/sessions",
+            json={"goal": "Test missing params."},
         ).json()["session_id"]
 
         resp = self.client.post(
@@ -108,29 +116,38 @@ class MetricResolutionTests(unittest.TestCase):
 
     def test_metric_query_rejects_step_level_filter(self) -> None:
         session_id = self.client.post(
-            "/sessions", json={"goal": "Test filter rejection."},
+            "/sessions",
+            json={"goal": "Test filter rejection."},
         ).json()["session_id"]
         service = self.client.app.state.service
         with self.assertRaisesRegex(ValueError, "legacy fields: filter"):
-            service._run_metric_query(session_id, {
-                **_typed_compare_payload("watch_time"),
-                "filter": "platform = 'android'",
-            })
+            service._run_metric_query(
+                session_id,
+                {
+                    **_typed_compare_payload("watch_time"),
+                    "filter": "platform = 'android'",
+                },
+            )
 
     def test_metric_query_rejects_step_level_where(self) -> None:
         session_id = self.client.post(
-            "/sessions", json={"goal": "Test where rejection."},
+            "/sessions",
+            json={"goal": "Test where rejection."},
         ).json()["session_id"]
         service = self.client.app.state.service
         with self.assertRaisesRegex(ValueError, "legacy fields: where"):
-            service._run_metric_query(session_id, {
-                **_typed_compare_payload("watch_time"),
-                "where": "platform = 'android'",
-            })
+            service._run_metric_query(
+                session_id,
+                {
+                    **_typed_compare_payload("watch_time"),
+                    "where": "platform = 'android'",
+                },
+            )
 
     def test_metric_query_unpublished_metric(self) -> None:
         session_id = self.client.post(
-            "/sessions", json={"goal": "Test unpublished metric."},
+            "/sessions",
+            json={"goal": "Test unpublished metric."},
         ).json()["session_id"]
 
         resp = self.client.post(
@@ -138,6 +155,7 @@ class MetricResolutionTests(unittest.TestCase):
             json=_typed_compare_payload("nonexistent"),
         )
         self.assertEqual(resp.status_code, 422)
+
 
 class TimeScopeCompareTests(unittest.TestCase):
     """metric_query accepts explicit typed compare windows."""
@@ -149,21 +167,27 @@ class TimeScopeCompareTests(unittest.TestCase):
         get_seeded_duckdb_path(db_path)
         cls.client = TestClient(create_app(db_path))
 
-        entity_resp = cls.client.post("/semantic/entities", json={
-            "name": "session_period",
-            "display_name": "Session",
-            "keys": ["session_id"],
-        })
+        entity_resp = cls.client.post(
+            "/semantic/entities",
+            json={
+                "name": "session_period",
+                "display_name": "Session",
+                "keys": ["session_id"],
+            },
+        )
         entity_id = entity_resp.json()["entity_id"]
         cls.client.post(f"/semantic/entities/{entity_id}/publish")
 
-        metric_resp = cls.client.post("/semantic/metrics", json={
-            "name": "watch_time_period",
-            "display_name": "Watch Time",
-            "definition_sql": "avg(play_duration_seconds)",
-            "dimensions": ["platform", "app_version", "network_type", "content_type"],
-            "entity_id": entity_id,
-        })
+        metric_resp = cls.client.post(
+            "/semantic/metrics",
+            json={
+                "name": "watch_time_period",
+                "display_name": "Watch Time",
+                "definition_sql": "avg(play_duration_seconds)",
+                "dimensions": ["platform", "app_version", "network_type", "content_type"],
+                "entity_id": entity_id,
+            },
+        )
         metric_id = metric_resp.json()["metric_id"]
         cls.client.post(f"/semantic/metrics/{metric_id}/publish")
 
@@ -175,7 +199,8 @@ class TimeScopeCompareTests(unittest.TestCase):
     def test_custom_time_scope_bounds(self) -> None:
         """metric_query with explicit current/baseline windows should succeed."""
         session_id = self.client.post(
-            "/sessions", json={"goal": "Test custom period."},
+            "/sessions",
+            json={"goal": "Test custom period."},
         ).json()["session_id"]
 
         resp = self.client.post(
@@ -201,6 +226,7 @@ class ComparisonDimensionsTests(unittest.TestCase):
 
     def test_excludes_date_column(self) -> None:
         from app.service import SemanticLayerService
+
         dims = SemanticLayerService._comparison_dimensions(
             ["platform", "log_date", "app_version"],
             date_column="log_date",
@@ -210,6 +236,7 @@ class ComparisonDimensionsTests(unittest.TestCase):
 
     def test_excludes_temporal_dimensions_when_no_requested(self) -> None:
         from app.service import SemanticLayerService
+
         dims = SemanticLayerService._comparison_dimensions(
             ["platform", "log_date", "log_hour", "app_version", "network_type"],
             date_column="log_date",
@@ -222,15 +249,18 @@ class ComparisonDimensionsTests(unittest.TestCase):
 
     def test_caps_at_max_default_dimensions(self) -> None:
         from app.service import SemanticLayerService
+
         all_dims = [f"dim_{i}" for i in range(10)]
         dims = SemanticLayerService._comparison_dimensions(
-            all_dims, date_column="event_date",
+            all_dims,
+            date_column="event_date",
         )
         self.assertEqual(len(dims), SemanticLayerService._MAX_DEFAULT_DIMENSIONS)
 
     def test_explicit_requested_only_excludes_date_column(self) -> None:
         """When caller specifies dimensions, only the date_column is stripped."""
         from app.service import SemanticLayerService
+
         dims = SemanticLayerService._comparison_dimensions(
             ["platform", "log_date", "log_hour"],
             date_column="log_date",
@@ -244,6 +274,7 @@ class ComparisonDimensionsTests(unittest.TestCase):
     def test_empty_after_temporal_exclusion(self) -> None:
         """All dimensions are temporal → returns empty list."""
         from app.service import SemanticLayerService
+
         dims = SemanticLayerService._comparison_dimensions(
             ["log_date", "log_hour"],
             date_column="log_date",
@@ -262,21 +293,27 @@ class MultipleStepRunTests(unittest.TestCase):
         cls.client = TestClient(create_app(db_path))
 
         # Seed a metric with multiple dimensions
-        entity_resp = cls.client.post("/semantic/entities", json={
-            "name": "session_multi",
-            "display_name": "Session",
-            "keys": ["session_id"],
-        })
+        entity_resp = cls.client.post(
+            "/semantic/entities",
+            json={
+                "name": "session_multi",
+                "display_name": "Session",
+                "keys": ["session_id"],
+            },
+        )
         entity_id = entity_resp.json()["entity_id"]
         cls.client.post(f"/semantic/entities/{entity_id}/publish")
 
-        metric_resp = cls.client.post("/semantic/metrics", json={
-            "name": "watch_time_multi",
-            "display_name": "Watch Time",
-            "definition_sql": "avg(play_duration_seconds)",
-            "dimensions": ["platform", "app_version", "network_type", "content_type"],
-            "entity_id": entity_id,
-        })
+        metric_resp = cls.client.post(
+            "/semantic/metrics",
+            json={
+                "name": "watch_time_multi",
+                "display_name": "Watch Time",
+                "definition_sql": "avg(play_duration_seconds)",
+                "dimensions": ["platform", "app_version", "network_type", "content_type"],
+                "entity_id": entity_id,
+            },
+        )
         metric_id = metric_resp.json()["metric_id"]
         cls.client.post(f"/semantic/metrics/{metric_id}/publish")
 
@@ -288,7 +325,8 @@ class MultipleStepRunTests(unittest.TestCase):
     def test_multiple_metric_query_preserves_all_observations(self) -> None:
         """Running metric_query twice in the same session should keep both sets of observations."""
         session_id = self.client.post(
-            "/sessions", json={"goal": "Test multiple metric_query runs."},
+            "/sessions",
+            json={"goal": "Test multiple metric_query runs."},
         ).json()["session_id"]
 
         # First run: group by platform
@@ -329,21 +367,27 @@ class DimensionDateColumnErrorTests(unittest.TestCase):
         get_seeded_duckdb_path(db_path)
         cls.client = TestClient(create_app(db_path))
 
-        entity_resp = cls.client.post("/semantic/entities", json={
-            "name": "session_dim_err",
-            "display_name": "Session",
-            "keys": ["session_id"],
-        })
+        entity_resp = cls.client.post(
+            "/semantic/entities",
+            json={
+                "name": "session_dim_err",
+                "display_name": "Session",
+                "keys": ["session_id"],
+            },
+        )
         entity_id = entity_resp.json()["entity_id"]
         cls.client.post(f"/semantic/entities/{entity_id}/publish")
 
-        metric_resp = cls.client.post("/semantic/metrics", json={
-            "name": "watch_time_dim_err",
-            "display_name": "Watch Time",
-            "definition_sql": "avg(play_duration_seconds)",
-            "dimensions": ["event_date", "platform", "app_version"],
-            "entity_id": entity_id,
-        })
+        metric_resp = cls.client.post(
+            "/semantic/metrics",
+            json={
+                "name": "watch_time_dim_err",
+                "display_name": "Watch Time",
+                "definition_sql": "avg(play_duration_seconds)",
+                "dimensions": ["event_date", "platform", "app_version"],
+                "entity_id": entity_id,
+            },
+        )
         metric_id = metric_resp.json()["metric_id"]
         cls.client.post(f"/semantic/metrics/{metric_id}/publish")
 
@@ -355,7 +399,8 @@ class DimensionDateColumnErrorTests(unittest.TestCase):
     def test_dimension_equals_date_column_returns_error(self) -> None:
         """Requesting dimensions=['event_date'] when event_date is the date column should fail clearly."""
         session_id = self.client.post(
-            "/sessions", json={"goal": "Test dim=date_column error."},
+            "/sessions",
+            json={"goal": "Test dim=date_column error."},
         ).json()["session_id"]
 
         resp = self.client.post(
@@ -379,21 +424,27 @@ class TemporalDimensionIntegrationTests(unittest.TestCase):
         cls.client = TestClient(create_app(db_path))
 
         # Seed a metric whose dimensions include the date column
-        entity_resp = cls.client.post("/semantic/entities", json={
-            "name": "session_temporal",
-            "display_name": "Session",
-            "keys": ["session_id"],
-        })
+        entity_resp = cls.client.post(
+            "/semantic/entities",
+            json={
+                "name": "session_temporal",
+                "display_name": "Session",
+                "keys": ["session_id"],
+            },
+        )
         entity_id = entity_resp.json()["entity_id"]
         cls.client.post(f"/semantic/entities/{entity_id}/publish")
 
-        metric_resp = cls.client.post("/semantic/metrics", json={
-            "name": "watch_time_temporal",
-            "display_name": "Watch Time (temporal dims)",
-            "definition_sql": "avg(play_duration_seconds)",
-            "dimensions": ["event_date", "platform", "app_version"],
-            "entity_id": entity_id,
-        })
+        metric_resp = cls.client.post(
+            "/semantic/metrics",
+            json={
+                "name": "watch_time_temporal",
+                "display_name": "Watch Time (temporal dims)",
+                "definition_sql": "avg(play_duration_seconds)",
+                "dimensions": ["event_date", "platform", "app_version"],
+                "entity_id": entity_id,
+            },
+        )
         metric_id = metric_resp.json()["metric_id"]
         cls.client.post(f"/semantic/metrics/{metric_id}/publish")
 
@@ -405,7 +456,8 @@ class TemporalDimensionIntegrationTests(unittest.TestCase):
     def test_metric_query_with_temporal_dims_returns_results(self) -> None:
         """metric_query should auto-exclude temporal dims and return rows."""
         session_id = self.client.post(
-            "/sessions", json={"goal": "Test temporal dim exclusion."},
+            "/sessions",
+            json={"goal": "Test temporal dim exclusion."},
         ).json()["session_id"]
 
         resp = self.client.post(
@@ -430,21 +482,27 @@ class CompareMetricTypedContractTests(unittest.TestCase):
         get_seeded_duckdb_path(db_path)
         cls.client = TestClient(create_app(db_path))
 
-        entity_resp = cls.client.post("/semantic/entities", json={
-            "name": "session_ctype",
-            "display_name": "Session",
-            "keys": ["session_id"],
-        })
+        entity_resp = cls.client.post(
+            "/semantic/entities",
+            json={
+                "name": "session_ctype",
+                "display_name": "Session",
+                "keys": ["session_id"],
+            },
+        )
         entity_id = entity_resp.json()["entity_id"]
         cls.client.post(f"/semantic/entities/{entity_id}/publish")
 
-        metric_resp = cls.client.post("/semantic/metrics", json={
-            "name": "watch_time_ctype",
-            "display_name": "Watch Time",
-            "definition_sql": "avg(play_duration_seconds)",
-            "dimensions": ["platform", "app_version"],
-            "entity_id": entity_id,
-        })
+        metric_resp = cls.client.post(
+            "/semantic/metrics",
+            json={
+                "name": "watch_time_ctype",
+                "display_name": "Watch Time",
+                "definition_sql": "avg(play_duration_seconds)",
+                "dimensions": ["platform", "app_version"],
+                "entity_id": entity_id,
+            },
+        )
         cls.metric_id = metric_resp.json()["metric_id"]
         cls.client.post(f"/semantic/metrics/{cls.metric_id}/publish")
 
@@ -455,7 +513,8 @@ class CompareMetricTypedContractTests(unittest.TestCase):
 
     def _new_session(self) -> str:
         return self.client.post(
-            "/sessions", json={"goal": "typed metric_query test"},
+            "/sessions",
+            json={"goal": "typed metric_query test"},
         ).json()["session_id"]
 
     def test_typed_compare_windows_succeed(self) -> None:
@@ -582,20 +641,26 @@ class CompareMetricTypedContractTests(unittest.TestCase):
         session_id = self._new_session()
         service = self.client.app.state.service
         with self.assertRaisesRegex(ValueError, "legacy fields: comparison_type"):
-            service._run_metric_query(session_id, {
-                **_typed_compare_payload("watch_time_ctype"),
-                "comparison_type": "qoq",
-            })
+            service._run_metric_query(
+                session_id,
+                {
+                    **_typed_compare_payload("watch_time_ctype"),
+                    "comparison_type": "qoq",
+                },
+            )
 
     def test_service_rejects_legacy_period_fields(self) -> None:
         session_id = self._new_session()
         service = self.client.app.state.service
         with self.assertRaisesRegex(ValueError, "legacy fields: baseline_start, period_end"):
-            service._run_metric_query(session_id, {
-                **_typed_compare_payload("watch_time_ctype"),
-                "period_end": "2025-01-14",
-                "baseline_start": "2025-01-01",
-            })
+            service._run_metric_query(
+                session_id,
+                {
+                    **_typed_compare_payload("watch_time_ctype"),
+                    "period_end": "2025-01-14",
+                    "baseline_start": "2025-01-01",
+                },
+            )
 
     def test_debug_field_on_null_delta(self) -> None:
         """When all delta values are null, debug field is attached."""

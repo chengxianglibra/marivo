@@ -56,7 +56,9 @@ class GovernanceServiceTests(unittest.TestCase):
         self.assertEqual(fetched["definition"]["fields"], ["email"])
 
     def test_update_policy(self) -> None:
-        pol = self.gov.create_policy("upd_test_pol", "max_rows", definition={"max_rows_scanned": 1000})
+        pol = self.gov.create_policy(
+            "upd_test_pol", "max_rows", definition={"max_rows_scanned": 1000}
+        )
         updated = self.gov.update_policy(pol["policy_id"], enabled=False)
         self.assertFalse(updated["enabled"])
 
@@ -69,8 +71,11 @@ class GovernanceServiceTests(unittest.TestCase):
 
     def test_create_quality_rule(self) -> None:
         rule = self.gov.create_quality_rule(
-            "freshness_rule", "freshness", "analytics.watch_events",
-            {"max_age_hours": 48}, severity="warn",
+            "freshness_rule",
+            "freshness",
+            "analytics.watch_events",
+            {"max_age_hours": 48},
+            severity="warn",
         )
         self.assertTrue(rule["rule_id"].startswith("qr_"))
         self.assertEqual(rule["rule_type"], "freshness")
@@ -92,12 +97,17 @@ class GovernanceServiceTests(unittest.TestCase):
     def test_check_policies_allows_compare(self) -> None:
         result = self.gov.check_policies("sess_fake", "metric_query")
         self.assertTrue(result["passed"])
-        self.assertTrue(any(decision["code"] == "aggregate_only_enabled" for decision in result["decisions"]))
+        self.assertTrue(
+            any(decision["code"] == "aggregate_only_enabled" for decision in result["decisions"])
+        )
 
     def test_check_quality_row_count_min(self) -> None:
         self.gov.create_quality_rule(
-            "row_count_check", "row_count_min", "analytics.watch_events",
-            {"min_rows": 1}, severity="block",
+            "row_count_check",
+            "row_count_min",
+            "analytics.watch_events",
+            {"min_rows": 1},
+            severity="block",
         )
         result = self.gov.check_quality("analytics.watch_events")
         self.assertTrue(result["passed"])
@@ -133,10 +143,13 @@ class GovernanceAPITests(unittest.TestCase):
         cls.temp_dir.cleanup()
 
     def test_policy_crud_via_api(self) -> None:
-        resp = self.client.post("/policies", json={
-            "name": "api_test_pol",
-            "policy_type": "aggregate_only",
-        })
+        resp = self.client.post(
+            "/policies",
+            json={
+                "name": "api_test_pol",
+                "policy_type": "aggregate_only",
+            },
+        )
         self.assertEqual(resp.status_code, 200)
         policy_id = resp.json()["policy_id"]
 
@@ -155,12 +168,15 @@ class GovernanceAPITests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
 
     def test_quality_rules_via_api(self) -> None:
-        resp = self.client.post("/quality-rules", json={
-            "name": "api_qr_test",
-            "rule_type": "freshness",
-            "table_name": "analytics.watch_events",
-            "threshold": {"max_age_hours": 24},
-        })
+        resp = self.client.post(
+            "/quality-rules",
+            json={
+                "name": "api_qr_test",
+                "rule_type": "freshness",
+                "table_name": "analytics.watch_events",
+                "threshold": {"max_age_hours": 24},
+            },
+        )
         self.assertEqual(resp.status_code, 200)
         rule_id = resp.json()["rule_id"]
 
@@ -171,10 +187,13 @@ class GovernanceAPITests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
 
     def test_governance_check_endpoint(self) -> None:
-        resp = self.client.post("/governance/check", json={
-            "session_id": "sess_fake123456",
-            "step_type": "metric_query",
-        })
+        resp = self.client.post(
+            "/governance/check",
+            json={
+                "session_id": "sess_fake123456",
+                "step_type": "metric_query",
+            },
+        )
         self.assertEqual(resp.status_code, 200)
         self.assertIn("passed", resp.json())
 

@@ -35,7 +35,13 @@ class EngineServiceTests(unittest.TestCase):
         engine = self.service.register_engine(
             engine_type="trino",
             display_name="Test Trino",
-            connection={"host": "localhost", "port": 8080, "user": "test", "catalog": "hive", "schema": "default"},
+            connection={
+                "host": "localhost",
+                "port": 8080,
+                "user": "test",
+                "catalog": "hive",
+                "schema": "default",
+            },
         )
         self.assertTrue(engine["engine_id"].startswith("eng_"))
         self.assertEqual(engine["engine_type"], "trino")
@@ -97,6 +103,7 @@ class EngineServiceTests(unittest.TestCase):
         )
         analytics = self.service.build_analytics_engine(engine["engine_id"])
         from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
+
         self.assertIsInstance(analytics, DuckDBAnalyticsEngine)
 
 
@@ -121,7 +128,13 @@ class EngineAPITests(unittest.TestCase):
             json={
                 "engine_type": "trino",
                 "display_name": "API Trino",
-                "connection": {"host": "localhost", "port": 8080, "user": "test", "catalog": "hive", "schema": "default"},
+                "connection": {
+                    "host": "localhost",
+                    "port": 8080,
+                    "user": "test",
+                    "catalog": "hive",
+                    "schema": "default",
+                },
             },
         )
         self.assertEqual(resp.status_code, 200)
@@ -158,7 +171,10 @@ class TrinoAnalyticsEngineTests(unittest.TestCase):
 
     def test_init_stores_config(self) -> None:
         from app.storage.trino_analytics import TrinoAnalyticsEngine
-        engine = TrinoAnalyticsEngine(host="trino.example.com", port=8443, user="alice", catalog="iceberg", schema="prod")
+
+        engine = TrinoAnalyticsEngine(
+            host="trino.example.com", port=8443, user="alice", catalog="iceberg", schema="prod"
+        )
         self.assertEqual(engine.host, "trino.example.com")
         self.assertEqual(engine.port, 8443)
         self.assertEqual(engine.user, "alice")
@@ -168,6 +184,7 @@ class TrinoAnalyticsEngineTests(unittest.TestCase):
     @patch("app.storage.trino_analytics.TrinoAnalyticsEngine._connect")
     def test_initialize_validates_connectivity(self, mock_connect: MagicMock) -> None:
         from app.storage.trino_analytics import TrinoAnalyticsEngine
+
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
         mock_cursor.fetchone.return_value = (1,)
@@ -183,6 +200,7 @@ class TrinoAnalyticsEngineTests(unittest.TestCase):
     @patch("app.storage.trino_analytics.TrinoAnalyticsEngine._connect")
     def test_query_rows(self, mock_connect: MagicMock) -> None:
         from app.storage.trino_analytics import TrinoAnalyticsEngine
+
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
         mock_cursor.description = [("id",), ("name",)]
@@ -201,6 +219,7 @@ class TrinoAnalyticsEngineTests(unittest.TestCase):
     @patch("app.storage.trino_analytics.TrinoAnalyticsEngine._connect")
     def test_table_exists(self, mock_connect: MagicMock) -> None:
         from app.storage.trino_analytics import TrinoAnalyticsEngine
+
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
         mock_cursor.fetchone.return_value = (1,)
@@ -217,6 +236,7 @@ class TrinoAnalyticsEngineTests(unittest.TestCase):
     @patch("app.storage.trino_analytics.TrinoAnalyticsEngine._connect")
     def test_table_row_count(self, mock_connect: MagicMock) -> None:
         from app.storage.trino_analytics import TrinoAnalyticsEngine
+
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
         mock_cursor.fetchone.return_value = (42,)
@@ -235,18 +255,23 @@ class BuildAnalyticsEngineTests(unittest.TestCase):
 
     def test_build_duckdb(self) -> None:
         from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
+
         engine = _build_analytics_engine("duckdb", {"path": "/tmp/test.duckdb"})
         self.assertIsInstance(engine, DuckDBAnalyticsEngine)
 
     def test_build_trino(self) -> None:
         from app.storage.trino_analytics import TrinoAnalyticsEngine
-        engine = _build_analytics_engine("trino", {
-            "host": "localhost",
-            "port": 8080,
-            "user": "test",
-            "catalog": "hive",
-            "schema": "default",
-        })
+
+        engine = _build_analytics_engine(
+            "trino",
+            {
+                "host": "localhost",
+                "port": 8080,
+                "user": "test",
+                "catalog": "hive",
+                "schema": "default",
+            },
+        )
         self.assertIsInstance(engine, TrinoAnalyticsEngine)
 
     def test_build_unsupported(self) -> None:
@@ -278,8 +303,10 @@ class EngineConfigTests(unittest.TestCase):
 
     def test_load_config_with_engines(self) -> None:
         from app.config import load_config
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            f.write(textwrap.dedent("""\
+            f.write(
+                textwrap.dedent("""\
                 sources:
                   - name: "Demo"
                     type: duckdb
@@ -294,7 +321,8 @@ class EngineConfigTests(unittest.TestCase):
                     connection:
                       host: trino.local
                       port: 8080
-            """))
+            """)
+            )
             f.flush()
             config = load_config(Path(f.name))
 
@@ -308,20 +336,24 @@ class EngineConfigTests(unittest.TestCase):
     def test_startup_registers_engines(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "factum.yaml"
-            config_path.write_text(textwrap.dedent("""\
+            config_path.write_text(
+                textwrap.dedent("""\
                 engines:
                   - name: "Startup DuckDB"
                     type: duckdb
                     connection:
                       path: data/startup.duckdb
-            """))
+            """)
+            )
             meta_path = Path(tmp) / "test.meta.sqlite"
             metadata = SQLiteMetadataStore(meta_path)
-            client = TestClient(create_app(
-                metadata_store=metadata,
-                analytics_engine=self.shared_analytics,
-                config_path=str(config_path),
-            ))
+            client = TestClient(
+                create_app(
+                    metadata_store=metadata,
+                    analytics_engine=self.shared_analytics,
+                    config_path=str(config_path),
+                )
+            )
 
             resp = client.get("/engines")
             self.assertEqual(resp.status_code, 200)

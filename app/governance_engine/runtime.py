@@ -7,8 +7,8 @@ import time
 from datetime import date
 from typing import Any
 
-from app.observability import MetricsCollector, observability_context
 from app.governance_engine.repository import GovernanceRepository
+from app.observability import MetricsCollector, observability_context
 from app.runtime_contracts import PolicyApplicationResult, PolicyDecision
 from app.storage.analytics import AnalyticsEngine
 
@@ -36,7 +36,9 @@ class GovernanceRuntime:
         scope: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if policy_type not in VALID_POLICY_TYPES:
-            raise ValueError(f"Invalid policy_type: {policy_type}. Must be one of {VALID_POLICY_TYPES}")
+            raise ValueError(
+                f"Invalid policy_type: {policy_type}. Must be one of {VALID_POLICY_TYPES}"
+            )
         return self.repository.create_policy(
             name=name,
             policy_type=policy_type,
@@ -70,7 +72,9 @@ class GovernanceRuntime:
         severity: str = "warn",
     ) -> dict[str, Any]:
         if rule_type not in VALID_QUALITY_RULE_TYPES:
-            raise ValueError(f"Invalid rule_type: {rule_type}. Must be one of {VALID_QUALITY_RULE_TYPES}")
+            raise ValueError(
+                f"Invalid rule_type: {rule_type}. Must be one of {VALID_QUALITY_RULE_TYPES}"
+            )
         if severity not in VALID_QUALITY_SEVERITIES:
             raise ValueError(f"Invalid severity: {severity}. Must be 'warn' or 'block'")
         return self.repository.create_quality_rule(
@@ -265,7 +269,9 @@ class GovernanceRuntime:
             try:
                 if rule_type == "freshness":
                     max_age_hours = threshold.get("max_age_hours", 24)
-                    rows = self.analytics.query_rows(f"SELECT MAX(event_date) AS max_date FROM {table_name}")
+                    rows = self.analytics.query_rows(
+                        f"SELECT MAX(event_date) AS max_date FROM {table_name}"
+                    )
                     if rows:
                         max_date = rows[0].get("max_date")
                         if max_date is not None:

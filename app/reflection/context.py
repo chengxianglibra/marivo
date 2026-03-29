@@ -15,11 +15,11 @@ import json
 from typing import Any
 
 from app.analysis_core.primitives import STEP_TAXONOMY
-from app.evidence_engine.confounder_resolution import filter_resolved_gap_keys
 from app.evidence_engine.causal_basis import (
     _build_scope_aware_gaps,
     derive_session_summary,
 )
+from app.evidence_engine.confounder_resolution import filter_resolved_gap_keys
 from app.evidence_engine.readiness import compute_readiness, load_live_claims
 from app.storage.metadata import MetadataStore
 
@@ -86,7 +86,9 @@ def build_reflection_context(
             "scope": c["scope"],
             "confidence": c["confidence"],
             "inference_level": c.get("inference_level", "L0"),
-            "unresolved_confounders": _confounders_for(c, obs_map, all_observations, _confirmed_claims),
+            "unresolved_confounders": _confounders_for(
+                c, obs_map, all_observations, _confirmed_claims
+            ),
         }
         for c in all_live
         if c.get("status") == "tentative" or c.get("inference_level", "L0") in ("L0", "L1")
@@ -124,9 +126,7 @@ def _confounders_for(
     Returns a plain list[str] so that the tentative_claims API shape is unchanged.
     """
     supporting_obs = [
-        obs_map[oid]
-        for oid in claim.get("supporting_observations", [])
-        if oid in obs_map
+        obs_map[oid] for oid in claim.get("supporting_observations", []) if oid in obs_map
     ]
     session_summary = derive_session_summary(claim.get("scope", {}), all_observations)
     gaps = _build_scope_aware_gaps(claim, supporting_obs, session_summary)
@@ -200,18 +200,20 @@ def _load_entity_update_suggestions(
         if dedup_key in seen:
             continue
         seen.add(dedup_key)
-        suggestions.append({
-            "entity_id": patch.get("entity_id"),
-            "entity_name": patch.get("entity_name"),
-            "column_name": patch.get("column_name"),
-            "field": patch.get("field"),
-            "current_value": patch.get("current_value"),
-            "suggested_value": patch.get("suggested_value"),
-            "confidence": patch.get("confidence"),
-            "source": patch.get("source"),
-            "metric_name": patch.get("metric_name"),
-            "rec_id": row["rec_id"],
-        })
+        suggestions.append(
+            {
+                "entity_id": patch.get("entity_id"),
+                "entity_name": patch.get("entity_name"),
+                "column_name": patch.get("column_name"),
+                "field": patch.get("field"),
+                "current_value": patch.get("current_value"),
+                "suggested_value": patch.get("suggested_value"),
+                "confidence": patch.get("confidence"),
+                "source": patch.get("source"),
+                "metric_name": patch.get("metric_name"),
+                "rec_id": row["rec_id"],
+            }
+        )
 
     return suggestions
 

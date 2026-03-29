@@ -4,12 +4,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app.analysis_core.ir import from_legacy_step
-from app.analysis_core.ir import ExecutionTargetIR
+from fastapi.testclient import TestClient
+
+from app.analysis_core.ir import ExecutionTargetIR, from_legacy_step
 from app.execution.costing import CostModel
 from app.main import create_app
 from app.runtime_contracts import CostEstimate
-from fastapi.testclient import TestClient
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 

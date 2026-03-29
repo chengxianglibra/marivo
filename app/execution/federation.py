@@ -98,9 +98,12 @@ class FederationPlanner:
             )
             for source in sources
         }
-        requires_federation = bool(federation.get("required")) or bool(federation.get("merge_sql")) or (
-            federation.get("merge_strategy") is not None
-        ) or len(distinct_sources) > 1
+        requires_federation = (
+            bool(federation.get("required"))
+            or bool(federation.get("merge_sql"))
+            or (federation.get("merge_strategy") is not None)
+            or len(distinct_sources) > 1
+        )
 
         if not requires_federation:
             return FederationPlan(
@@ -179,7 +182,8 @@ class FederationPlanner:
             provenance={
                 "step_type": step_type,
                 "target_engine_type": target_engine_type,
-                "federation_reason": _optional_str(federation.get("reason")) or "staged_handoff_requested",
+                "federation_reason": _optional_str(federation.get("reason"))
+                or "staged_handoff_requested",
             },
         )
 
@@ -206,7 +210,8 @@ class FederationPlanner:
                     normalized_sources.append(
                         {
                             "engine_id": _optional_str(source.get("engine_id")),
-                            "engine_type": _optional_str(source.get("engine_type")) or target_engine_type,
+                            "engine_type": _optional_str(source.get("engine_type"))
+                            or target_engine_type,
                             "table_names": list(source.get("table_names", source_tables)),
                             "label": _optional_str(source.get("label")),
                         }

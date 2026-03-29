@@ -22,10 +22,14 @@ class BindingRegistry:
         namespace: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         namespace = namespace or {}
-        source = self.metadata.query_one("SELECT source_id FROM sources WHERE source_id = ?", [source_id])
+        source = self.metadata.query_one(
+            "SELECT source_id FROM sources WHERE source_id = ?", [source_id]
+        )
         if source is None:
             raise KeyError(f"Unknown source: {source_id}")
-        engine = self.metadata.query_one("SELECT engine_id FROM engines WHERE engine_id = ?", [engine_id])
+        engine = self.metadata.query_one(
+            "SELECT engine_id FROM engines WHERE engine_id = ?", [engine_id]
+        )
         if engine is None:
             raise KeyError(f"Unknown engine: {engine_id}")
 
@@ -98,7 +102,9 @@ class BindingRegistry:
         )
         if existing is None:
             raise KeyError(f"Unknown binding: {binding_id}")
-        self.metadata.execute("DELETE FROM source_engine_bindings WHERE binding_id = ?", [binding_id])
+        self.metadata.execute(
+            "DELETE FROM source_engine_bindings WHERE binding_id = ?", [binding_id]
+        )
 
     def get_engines_for_source(self, source_id: str) -> list[dict[str, Any]]:
         rows = self.metadata.query_rows(

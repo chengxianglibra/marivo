@@ -2,7 +2,20 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
-from app.api import approvals, catalog, engines, governance, health, jobs, metrics, planning, routing, semantic, sessions, sources
+from app.api import (
+    approvals,
+    catalog,
+    engines,
+    governance,
+    health,
+    jobs,
+    metrics,
+    planning,
+    routing,
+    semantic,
+    sessions,
+    sources,
+)
 
 
 def include_api_routers(app: FastAPI) -> None:

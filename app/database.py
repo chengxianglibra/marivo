@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import random
+from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Iterator
 
 import duckdb
 
@@ -162,7 +162,10 @@ class DuckDBStore:
     def table_counts(self) -> dict[str, int]:
         with self.connect() as con:
             tables = ["watch_events", "player_qoe", "ad_events", "recommendation_events"]
-            return {table: con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] for table in tables}
+            return {
+                table: con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                for table in tables
+            }
 
     def _seed_demo_data(self, con: duckdb.DuckDBPyConnection) -> None:
         rng = random.Random(7)
@@ -207,7 +210,12 @@ class DuckDBStore:
                                     base_watch -= 22.0
                                 if network_type == "4g":
                                     base_watch -= 10.0
-                                if period_name == "current" and platform == "android" and app_version == "8.3.1" and network_type == "4g":
+                                if (
+                                    period_name == "current"
+                                    and platform == "android"
+                                    and app_version == "8.3.1"
+                                    and network_type == "4g"
+                                ):
                                     base_watch -= 8.0
                                 if (
                                     period_name == "current"
@@ -217,7 +225,9 @@ class DuckDBStore:
                                     and content_type == "short"
                                 ):
                                     base_watch -= 26.0
-                                play_duration_seconds = round(max(12.0, base_watch + rng.uniform(-6.0, 6.0)), 2)
+                                play_duration_seconds = round(
+                                    max(12.0, base_watch + rng.uniform(-6.0, 6.0)), 2
+                                )
                                 watch_rows.append(
                                     (
                                         current_day,
@@ -234,7 +244,12 @@ class DuckDBStore:
                                 base_qoe = 860.0 if network_type == "wifi" else 1100.0
                                 if platform == "web":
                                     base_qoe -= 110.0
-                                if period_name == "current" and platform == "android" and app_version == "8.3.1" and network_type == "4g":
+                                if (
+                                    period_name == "current"
+                                    and platform == "android"
+                                    and app_version == "8.3.1"
+                                    and network_type == "4g"
+                                ):
                                     base_qoe += 180.0
                                 if (
                                     period_name == "current"
@@ -258,7 +273,12 @@ class DuckDBStore:
                                 )
 
                                 timeout_probability = 0.03 if network_type == "wifi" else 0.06
-                                if period_name == "current" and platform == "android" and app_version == "8.3.1" and network_type == "4g":
+                                if (
+                                    period_name == "current"
+                                    and platform == "android"
+                                    and app_version == "8.3.1"
+                                    and network_type == "4g"
+                                ):
                                     timeout_probability += 0.06
                                 if (
                                     period_name == "current"
@@ -287,7 +307,12 @@ class DuckDBStore:
                                 base_ctr = 0.19 if content_type == "short" else 0.13
                                 if network_type == "4g":
                                     base_ctr -= 0.01
-                                if period_name == "current" and platform == "android" and app_version == "8.3.1" and network_type == "4g":
+                                if (
+                                    period_name == "current"
+                                    and platform == "android"
+                                    and app_version == "8.3.1"
+                                    and network_type == "4g"
+                                ):
                                     base_ctr += 0.006
                                 if (
                                     period_name == "current"

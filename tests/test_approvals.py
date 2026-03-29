@@ -46,11 +46,14 @@ class ApprovalServiceTests(unittest.TestCase):
         cls.approval = ApprovalService(cls.metadata)
         # Seed a published metric for metric_query
         from app.semantic import SemanticService
+
         semantic = SemanticService(cls.metadata)
         entity = semantic.create_entity("session_approval", "Session", ["session_id"])
         semantic.publish_entity(entity["entity_id"])
         metric = semantic.create_metric(
-            "watch_time_approval", "Watch Time", "avg(play_duration_seconds)",
+            "watch_time_approval",
+            "Watch Time",
+            "avg(play_duration_seconds)",
             ["platform", "app_version", "network_type", "content_type"],
             entity_id=entity["entity_id"],
         )
@@ -59,7 +62,8 @@ class ApprovalServiceTests(unittest.TestCase):
         session = cls.service.create_session("Approval test", {}, {}, {})
         cls.session_id = session["session_id"]
         cls.service.run_step(
-            cls.session_id, "metric_query",
+            cls.session_id,
+            "metric_query",
             _metric_query_payload("watch_time_approval"),
         )
         cls.service.run_step(cls.session_id, "synthesize_findings")
@@ -125,11 +129,14 @@ class ApprovalServiceTests(unittest.TestCase):
         # Create a fresh session with steps that produce recommendations
         session = self.service.create_session("Auto-flag test", {}, {}, {})
         self.service.run_step(
-            session["session_id"], "metric_query",
+            session["session_id"],
+            "metric_query",
             _metric_query_payload("watch_time_approval"),
         )
         self.service.run_step(session["session_id"], "synthesize_findings")
-        flagged = self.approval.auto_flag_recommendations(session["session_id"], risk_threshold="P1")
+        flagged = self.approval.auto_flag_recommendations(
+            session["session_id"], risk_threshold="P1"
+        )
         self.assertIsInstance(flagged, list)
         # All flagged should be pending
         for f in flagged:
@@ -161,7 +168,9 @@ class ApprovalServiceTests(unittest.TestCase):
             self.skipTest("Request already decided")
         decided = self.approval.approve(request["request_id"], reviewer="auditor", reason="ok")
         trail = self.approval.get_request_audit_trail(decided["request_id"])
-        self.assertEqual([event["event_type"] for event in trail], ["approval_requested", "approval_approved"])
+        self.assertEqual(
+            [event["event_type"] for event in trail], ["approval_requested", "approval_approved"]
+        )
         self.assertEqual(trail[-1]["actor"], "auditor")
 
 
@@ -175,20 +184,26 @@ class ApprovalAPITests(unittest.TestCase):
         get_seeded_duckdb_path(db_path)
         cls.client = TestClient(create_app(db_path))
         # Seed a published metric for metric_query
-        entity_resp = cls.client.post("/semantic/entities", json={
-            "name": "session_approval_api",
-            "display_name": "Session",
-            "keys": ["session_id"],
-        })
+        entity_resp = cls.client.post(
+            "/semantic/entities",
+            json={
+                "name": "session_approval_api",
+                "display_name": "Session",
+                "keys": ["session_id"],
+            },
+        )
         entity_id = entity_resp.json()["entity_id"]
         cls.client.post(f"/semantic/entities/{entity_id}/publish")
-        metric_resp = cls.client.post("/semantic/metrics", json={
-            "name": "watch_time_approval_api",
-            "display_name": "Watch Time",
-            "definition_sql": "avg(play_duration_seconds)",
-            "dimensions": ["platform", "app_version", "network_type", "content_type"],
-            "entity_id": entity_id,
-        })
+        metric_resp = cls.client.post(
+            "/semantic/metrics",
+            json={
+                "name": "watch_time_approval_api",
+                "display_name": "Watch Time",
+                "definition_sql": "avg(play_duration_seconds)",
+                "dimensions": ["platform", "app_version", "network_type", "content_type"],
+                "entity_id": entity_id,
+            },
+        )
         metric_id = metric_resp.json()["metric_id"]
         cls.client.post(f"/semantic/metrics/{metric_id}/publish")
         # Create a session and run steps to get recommendations
@@ -223,17 +238,23 @@ class ApprovalAPITests(unittest.TestCase):
         rec_ids = self._get_rec_ids()
         if not rec_ids:
             self.skipTest("No recommendations")
-        resp = self.client.post("/approvals", json={
-            "session_id": self.session_id,
-            "rec_id": rec_ids[0],
-        })
+        resp = self.client.post(
+            "/approvals",
+            json={
+                "session_id": self.session_id,
+                "rec_id": rec_ids[0],
+            },
+        )
         self.assertEqual(resp.status_code, 200)
         request_id = resp.json()["request_id"]
 
-        resp = self.client.post(f"/approvals/{request_id}/approve", json={
-            "reviewer": "test_admin",
-            "reason": "LGTM",
-        })
+        resp = self.client.post(
+            f"/approvals/{request_id}/approve",
+            json={
+                "reviewer": "test_admin",
+                "reason": "LGTM",
+            },
+        )
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["status"], "approved")
 
@@ -254,17 +275,23 @@ class ApprovalAPITests(unittest.TestCase):
         rec_ids = self._get_rec_ids()
         if len(rec_ids) < 2:
             self.skipTest("Not enough recommendations")
-        resp = self.client.post("/approvals", json={
-            "session_id": self.session_id,
-            "rec_id": rec_ids[-1],
-        })
+        resp = self.client.post(
+            "/approvals",
+            json={
+                "session_id": self.session_id,
+                "rec_id": rec_ids[-1],
+            },
+        )
         request_id = resp.json()["request_id"]
         # Only reject if still pending
         if resp.json()["status"] == "pending":
-            resp = self.client.post(f"/approvals/{request_id}/reject", json={
-                "reviewer": "test_admin",
-                "reason": "Not now",
-            })
+            resp = self.client.post(
+                f"/approvals/{request_id}/reject",
+                json={
+                    "reviewer": "test_admin",
+                    "reason": "Not now",
+                },
+            )
             self.assertEqual(resp.status_code, 200)
             self.assertEqual(resp.json()["status"], "rejected")
 

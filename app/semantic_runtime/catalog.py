@@ -234,13 +234,19 @@ class CatalogRuntimeService:
             [node_id, node_id],
         )
         for evidence in evidence_rows:
-            other_id = evidence["to_node_id"] if evidence["from_node_id"] == node_id else evidence["from_node_id"]
-            edges.append({
-                "from": evidence["from_node_id"],
-                "to": evidence["to_node_id"],
-                "edge_type": evidence["edge_type"],
-                "weight": evidence["weight"],
-            })
+            other_id = (
+                evidence["to_node_id"]
+                if evidence["from_node_id"] == node_id
+                else evidence["from_node_id"]
+            )
+            edges.append(
+                {
+                    "from": evidence["from_node_id"],
+                    "to": evidence["to_node_id"],
+                    "edge_type": evidence["edge_type"],
+                    "weight": evidence["weight"],
+                }
+            )
             self._traverse(other_id, remaining_depth - 1, nodes, edges, visited)
 
     def _resolve_mappings(self, mappings: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -279,17 +285,36 @@ class CatalogRuntimeService:
         return assets
 
     def _identify_node(self, node_id: str) -> dict[str, Any] | None:
-        row = self.metadata.query_one("SELECT * FROM semantic_entities WHERE entity_id = ?", [node_id])
+        row = self.metadata.query_one(
+            "SELECT * FROM semantic_entities WHERE entity_id = ?", [node_id]
+        )
         if row is not None:
-            return {"id": node_id, "type": "entity", "name": row["name"], "display_name": row["display_name"]}
+            return {
+                "id": node_id,
+                "type": "entity",
+                "name": row["name"],
+                "display_name": row["display_name"],
+            }
 
-        row = self.metadata.query_one("SELECT * FROM semantic_metrics WHERE metric_id = ?", [node_id])
+        row = self.metadata.query_one(
+            "SELECT * FROM semantic_metrics WHERE metric_id = ?", [node_id]
+        )
         if row is not None:
-            return {"id": node_id, "type": "metric", "name": row["name"], "display_name": row["display_name"]}
+            return {
+                "id": node_id,
+                "type": "metric",
+                "name": row["name"],
+                "display_name": row["display_name"],
+            }
 
         row = self.metadata.query_one("SELECT * FROM source_objects WHERE object_id = ?", [node_id])
         if row is not None:
-            return {"id": node_id, "type": row["object_type"], "name": row["native_name"], "fqn": row["fqn"]}
+            return {
+                "id": node_id,
+                "type": row["object_type"],
+                "name": row["native_name"],
+                "fqn": row["fqn"],
+            }
 
         return None
 

@@ -20,24 +20,34 @@ class ReplanningServiceTests(unittest.TestCase):
 
     def test_build_feedback_marks_insufficient_evidence(self) -> None:
         feedback = self.replanner.build_feedback(
-            from_legacy_step(0, {
-                "step_type": "metric_query",
-                "params": {"metric_name": "ad_fill_rate", "table_name": "analytics.ad_events"},
-            }),
+            from_legacy_step(
+                0,
+                {
+                    "step_type": "metric_query",
+                    "params": {"metric_name": "ad_fill_rate", "table_name": "analytics.ad_events"},
+                },
+            ),
             {"summary": "No issue found", "observations": [], "claims": [], "recommendations": []},
             12.0,
-            estimate=CostEstimate(subject="step:0", confidence="medium", engine_locality="bound_engine"),
+            estimate=CostEstimate(
+                subject="step:0", confidence="medium", engine_locality="bound_engine"
+            ),
         )
 
         self.assertEqual(feedback.code, "insufficient_evidence")
         self.assertTrue(feedback.replan_candidate)
 
     def test_decide_after_step_inserts_profile_step(self) -> None:
-        step = from_legacy_step(0, {
-            "step_type": "metric_query",
-            "params": {"metric_name": "ad_fill_rate", "table_name": "analytics.ad_events"},
-        })
-        estimate = CostEstimate(subject="step:0", confidence="medium", engine_locality="bound_engine")
+        step = from_legacy_step(
+            0,
+            {
+                "step_type": "metric_query",
+                "params": {"metric_name": "ad_fill_rate", "table_name": "analytics.ad_events"},
+            },
+        )
+        estimate = CostEstimate(
+            subject="step:0", confidence="medium", engine_locality="bound_engine"
+        )
         feedback = self.replanner.build_feedback(
             step,
             {"summary": "No issue found", "observations": [], "claims": [], "recommendations": []},
@@ -77,10 +87,13 @@ class ReplanningServiceTests(unittest.TestCase):
 
     def test_decide_before_step_continues_for_non_optional_step(self) -> None:
         """Non-optional steps under low confidence continue (no skip)."""
-        step = from_legacy_step(0, {
-            "step_type": "metric_query",
-            "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"},
-        })
+        step = from_legacy_step(
+            0,
+            {
+                "step_type": "metric_query",
+                "params": {"metric_name": "watch_time", "table_name": "analytics.watch_events"},
+            },
+        )
         estimate = CostEstimate(
             subject="step:0",
             confidence="low",
@@ -92,10 +105,13 @@ class ReplanningServiceTests(unittest.TestCase):
         self.assertEqual(decision.action, "continue")
 
     def test_decide_on_error_replaces_with_profile_step(self) -> None:
-        step = from_legacy_step(0, {
-            "step_type": "metric_query",
-            "params": {"metric_name": "qoe_metric", "table_name": "analytics.player_qoe"},
-        })
+        step = from_legacy_step(
+            0,
+            {
+                "step_type": "metric_query",
+                "params": {"metric_name": "qoe_metric", "table_name": "analytics.player_qoe"},
+            },
+        )
         decision = self.replanner.decide_on_error(
             step,
             ValueError("compile failed for step"),
@@ -140,7 +156,11 @@ class ApplyPatchTests(unittest.TestCase):
         _, plan_id = self._make_session_and_plan()
         result = self.replanner.apply_patch(
             plan_id,
-            {"add_steps": [{"step_type": "profile_table", "params": {"table_name": "analytics.ad_events"}}]},
+            {
+                "add_steps": [
+                    {"step_type": "profile_table", "params": {"table_name": "analytics.ad_events"}}
+                ]
+            },
             self.planning,
         )
         self.assertIn("steps", result)

@@ -50,13 +50,15 @@ class ContributionShiftExtractor(ExtractorContract):
             share_delta = current_share - baseline_share
 
             if abs(share_delta) >= share_threshold:
-                contributions.append({
-                    "segment_value": row_dict.get(dim_col),
-                    "baseline_share": baseline_share,
-                    "current_share": current_share,
-                    "delta_share": share_delta,
-                    "current_count": int(current_val),
-                })
+                contributions.append(
+                    {
+                        "segment_value": row_dict.get(dim_col),
+                        "baseline_share": baseline_share,
+                        "current_share": current_share,
+                        "delta_share": share_delta,
+                        "current_count": int(current_val),
+                    }
+                )
 
         if not contributions:
             return []

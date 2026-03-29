@@ -12,11 +12,13 @@ def register_ui(app: FastAPI, *, static_dir: Path, admin_enabled: bool, user_ena
         return
 
     if admin_enabled:
+
         @app.get("/admin")
         def admin_index() -> FileResponse:
             return FileResponse(static_dir / "admin.html")
 
     if user_enabled:
+
         @app.get("/ui")
         def ui_index() -> FileResponse:
             return FileResponse(static_dir / "user.html")

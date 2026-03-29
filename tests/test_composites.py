@@ -43,7 +43,10 @@ class CompositeWorkflowRuntimeTests(unittest.TestCase):
                     steps=[
                         CompositeStepTemplate(
                             "metric_query",
-                            params={"metric_name": "watch_time", "table_name": "analytics.watch_events"},
+                            params={
+                                "metric_name": "watch_time",
+                                "table_name": "analytics.watch_events",
+                            },
                         ),
                         CompositeStepTemplate("synthesize_findings", dependencies=[0]),
                     ],

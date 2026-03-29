@@ -86,7 +86,9 @@ class AdvancedPlanValidationTests(unittest.TestCase):
         client.post(f"/semantic/metrics/{metric['metric_id']}/publish")
 
     def test_validate_plan_rejects_unpublished_metric(self) -> None:
-        session_id = self.client.post("/sessions", json={"goal": "semantic validation"}).json()["session_id"]
+        session_id = self.client.post("/sessions", json={"goal": "semantic validation"}).json()[
+            "session_id"
+        ]
         plan_id = self.client.post(
             f"/sessions/{session_id}/plans",
             json={
@@ -109,10 +111,16 @@ class AdvancedPlanValidationTests(unittest.TestCase):
         assert governance is not None
         policy = governance.create_policy("aggregate_only_validation", "aggregate_only")
 
-        session_id = self.client.post("/sessions", json={"goal": "governance validation"}).json()["session_id"]
+        session_id = self.client.post("/sessions", json={"goal": "governance validation"}).json()[
+            "session_id"
+        ]
         plan_id = self.client.post(
             f"/sessions/{session_id}/plans",
-            json={"steps": [{"step_type": "sample_rows", "params": {"table_name": "analytics.watch_events"}}]},
+            json={
+                "steps": [
+                    {"step_type": "sample_rows", "params": {"table_name": "analytics.watch_events"}}
+                ]
+            },
         ).json()["plan_id"]
 
         result = self.client.post(f"/sessions/{session_id}/plans/{plan_id}/validate").json()
@@ -126,7 +134,9 @@ class AdvancedPlanValidationTests(unittest.TestCase):
         )
 
     def test_validate_plan_rejects_unsupported_metric_dimension(self) -> None:
-        session_id = self.client.post("/sessions", json={"goal": "dimension validation"}).json()["session_id"]
+        session_id = self.client.post("/sessions", json={"goal": "dimension validation"}).json()[
+            "session_id"
+        ]
         plan_id = self.client.post(
             f"/sessions/{session_id}/plans",
             json={
@@ -142,7 +152,9 @@ class AdvancedPlanValidationTests(unittest.TestCase):
         result = self.client.post(f"/sessions/{session_id}/plans/{plan_id}/validate").json()
 
         self.assertFalse(result["valid"])
-        self.assertIn("semantic_dimension_not_supported", [issue["code"] for issue in result["issues"]])
+        self.assertIn(
+            "semantic_dimension_not_supported", [issue["code"] for issue in result["issues"]]
+        )
 
     def test_validate_plan_rejects_budget_exceeded(self) -> None:
         session_id = self.client.post(
@@ -161,7 +173,9 @@ class AdvancedPlanValidationTests(unittest.TestCase):
         self.assertGreater(result["cost_estimates"][0]["estimated_rows"], 0)
 
     def test_validate_plan_rejects_legacy_metric_query_params(self) -> None:
-        session_id = self.client.post("/sessions", json={"goal": "legacy contract"}).json()["session_id"]
+        session_id = self.client.post("/sessions", json={"goal": "legacy contract"}).json()[
+            "session_id"
+        ]
         plan_id = self.client.post(
             f"/sessions/{session_id}/plans",
             json={
@@ -181,14 +195,18 @@ class AdvancedPlanValidationTests(unittest.TestCase):
         self.assertTrue(any("legacy fields" in issue["message"] for issue in result["issues"]))
 
     def test_validate_plan_rejects_legacy_aggregate_query_params(self) -> None:
-        session_id = self.client.post("/sessions", json={"goal": "legacy aggregate contract"}).json()["session_id"]
+        session_id = self.client.post(
+            "/sessions", json={"goal": "legacy aggregate contract"}
+        ).json()["session_id"]
         plan_id = self.client.post(
             f"/sessions/{session_id}/plans",
             json={
                 "steps": [
                     {
                         "step_type": "aggregate_query",
-                        "params": _typed_aggregate_query_params(select=["platform", "COUNT(*) AS cnt"]),
+                        "params": _typed_aggregate_query_params(
+                            select=["platform", "COUNT(*) AS cnt"]
+                        ),
                     }
                 ]
             },
@@ -201,7 +219,9 @@ class AdvancedPlanValidationTests(unittest.TestCase):
         self.assertTrue(any("legacy fields" in issue["message"] for issue in result["issues"]))
 
     def test_validate_plan_rejects_time_predicate_in_scope(self) -> None:
-        session_id = self.client.post("/sessions", json={"goal": "time predicate contract"}).json()["session_id"]
+        session_id = self.client.post("/sessions", json={"goal": "time predicate contract"}).json()[
+            "session_id"
+        ]
         plan_id = self.client.post(
             f"/sessions/{session_id}/plans",
             json={
@@ -219,10 +239,14 @@ class AdvancedPlanValidationTests(unittest.TestCase):
         result = self.client.post(f"/sessions/{session_id}/plans/{plan_id}/validate").json()
 
         self.assertFalse(result["valid"])
-        self.assertIn("time_predicate_not_allowed_in_scope", [issue["code"] for issue in result["issues"]])
+        self.assertIn(
+            "time_predicate_not_allowed_in_scope", [issue["code"] for issue in result["issues"]]
+        )
 
     def test_validate_aggregate_plan_rejects_time_predicate_in_scope(self) -> None:
-        session_id = self.client.post("/sessions", json={"goal": "aggregate time predicate contract"}).json()["session_id"]
+        session_id = self.client.post(
+            "/sessions", json={"goal": "aggregate time predicate contract"}
+        ).json()["session_id"]
         plan_id = self.client.post(
             f"/sessions/{session_id}/plans",
             json={
@@ -240,17 +264,23 @@ class AdvancedPlanValidationTests(unittest.TestCase):
         result = self.client.post(f"/sessions/{session_id}/plans/{plan_id}/validate").json()
 
         self.assertFalse(result["valid"])
-        self.assertIn("time_predicate_not_allowed_in_scope", [issue["code"] for issue in result["issues"]])
+        self.assertIn(
+            "time_predicate_not_allowed_in_scope", [issue["code"] for issue in result["issues"]]
+        )
 
     def test_validate_plan_allows_non_time_scope_predicate(self) -> None:
-        session_id = self.client.post("/sessions", json={"goal": "non time scope predicate"}).json()["session_id"]
+        session_id = self.client.post(
+            "/sessions", json={"goal": "non time scope predicate"}
+        ).json()["session_id"]
         plan_id = self.client.post(
             f"/sessions/{session_id}/plans",
             json={
                 "steps": [
                     {
                         "step_type": "metric_query",
-                        "params": _typed_metric_query_params(scope={"predicate": "platform = 'android'"}),
+                        "params": _typed_metric_query_params(
+                            scope={"predicate": "platform = 'android'"}
+                        ),
                     }
                 ]
             },
@@ -261,14 +291,18 @@ class AdvancedPlanValidationTests(unittest.TestCase):
         self.assertTrue(result["valid"])
 
     def test_validate_aggregate_plan_allows_non_time_scope_predicate(self) -> None:
-        session_id = self.client.post("/sessions", json={"goal": "aggregate non time scope predicate"}).json()["session_id"]
+        session_id = self.client.post(
+            "/sessions", json={"goal": "aggregate non time scope predicate"}
+        ).json()["session_id"]
         plan_id = self.client.post(
             f"/sessions/{session_id}/plans",
             json={
                 "steps": [
                     {
                         "step_type": "aggregate_query",
-                        "params": _typed_aggregate_query_params(scope={"predicate": "platform = 'android'"}),
+                        "params": _typed_aggregate_query_params(
+                            scope={"predicate": "platform = 'android'"}
+                        ),
                     }
                 ]
             },
@@ -279,14 +313,18 @@ class AdvancedPlanValidationTests(unittest.TestCase):
         self.assertTrue(result["valid"])
 
     def test_validate_plan_allows_non_axis_suffix_columns_in_scope_predicate(self) -> None:
-        session_id = self.client.post("/sessions", json={"goal": "suffix predicate"}).json()["session_id"]
+        session_id = self.client.post("/sessions", json={"goal": "suffix predicate"}).json()[
+            "session_id"
+        ]
         plan_id = self.client.post(
             f"/sessions/{session_id}/plans",
             json={
                 "steps": [
                     {
                         "step_type": "metric_query",
-                        "params": _typed_metric_query_params(scope={"predicate": "business_hour = 9 AND state_date = '2026-03-01'"}),
+                        "params": _typed_metric_query_params(
+                            scope={"predicate": "business_hour = 9 AND state_date = '2026-03-01'"}
+                        ),
                     }
                 ]
             },
@@ -306,11 +344,14 @@ class AdvancedPlanValidationTests(unittest.TestCase):
         analytics.initialize()
         # Seed a published metric so semantic validation passes
         from app.semantic import SemanticService
+
         semantic = SemanticService(metadata)
         entity = semantic.create_entity("session", "Session", ["session_id"])
         semantic.publish_entity(entity["entity_id"])
         metric = semantic.create_metric(
-            "watch_time", "Watch Time", "avg(play_duration_seconds)",
+            "watch_time",
+            "Watch Time",
+            "avg(play_duration_seconds)",
             ["platform", "app_version", "network_type", "content_type"],
             entity_id=entity["entity_id"],
         )
@@ -324,7 +365,10 @@ class AdvancedPlanValidationTests(unittest.TestCase):
         )
 
         session = service.create_session("routing fallback validation", {}, {}, {})
-        plan = planning.draft_plan(session["session_id"], [{"step_type": "metric_query", "params": _typed_metric_query_params()}])
+        plan = planning.draft_plan(
+            session["session_id"],
+            [{"step_type": "metric_query", "params": _typed_metric_query_params()}],
+        )
         result = planning.validate_plan(plan["plan_id"])
 
         self.assertTrue(result["valid"])

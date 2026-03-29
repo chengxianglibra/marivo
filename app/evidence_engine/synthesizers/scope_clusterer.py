@@ -46,19 +46,25 @@ class ScopeClusterer:
             return []
 
         metric_observation_obs = [
-            o for o in observations
-            if o["type"] == "metric_observation" and o.get("payload", {}).get("delta_pct") is not None
+            o
+            for o in observations
+            if o["type"] == "metric_observation"
+            and o.get("payload", {}).get("delta_pct") is not None
         ]
         metric_window_only_obs = [
-            o for o in observations
+            o
+            for o in observations
             if o["type"] == "metric_observation" and o.get("payload", {}).get("delta_pct") is None
         ]
         funnel_drop_obs = [o for o in observations if o["type"] == "funnel_drop"]
         contribution_shift_obs = [o for o in observations if o["type"] == "contribution_shift"]
         anomaly_detection_obs = [o for o in observations if o["type"] == "anomaly_detection"]
-        other_obs = [o for o in observations
-                     if o["type"] not in {"metric_observation", "funnel_drop",
-                                          "contribution_shift", "anomaly_detection"}]
+        other_obs = [
+            o
+            for o in observations
+            if o["type"]
+            not in {"metric_observation", "funnel_drop", "contribution_shift", "anomaly_detection"}
+        ]
 
         cluster_map: dict[str, ScopeCluster] = {}
 

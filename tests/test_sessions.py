@@ -62,20 +62,26 @@ class SessionAPITests(unittest.TestCase):
         ).json()["session_id"]
 
         # Seed a published metric for metric_query
-        entity_resp = self.client.post("/semantic/entities", json={
-            "name": "session_mvp",
-            "display_name": "Session",
-            "keys": ["session_id"],
-        })
+        entity_resp = self.client.post(
+            "/semantic/entities",
+            json={
+                "name": "session_mvp",
+                "display_name": "Session",
+                "keys": ["session_id"],
+            },
+        )
         entity_id = entity_resp.json()["entity_id"]
         self.client.post(f"/semantic/entities/{entity_id}/publish")
-        metric_resp = self.client.post("/semantic/metrics", json={
-            "name": "watch_time_mvp",
-            "display_name": "Watch Time",
-            "definition_sql": "avg(play_duration_seconds)",
-            "dimensions": ["platform", "app_version", "network_type", "content_type"],
-            "entity_id": entity_id,
-        })
+        metric_resp = self.client.post(
+            "/semantic/metrics",
+            json={
+                "name": "watch_time_mvp",
+                "display_name": "Watch Time",
+                "definition_sql": "avg(play_duration_seconds)",
+                "dimensions": ["platform", "app_version", "network_type", "content_type"],
+                "entity_id": entity_id,
+            },
+        )
         metric_id = metric_resp.json()["metric_id"]
         self.client.post(f"/semantic/metrics/{metric_id}/publish")
 
@@ -139,19 +145,25 @@ class SessionAPITests(unittest.TestCase):
             json={"goal": "Investigate watch time drop and explain evidence upgrades."},
         ).json()["session_id"]
 
-        entity_id = self.client.post("/semantic/entities", json={
-            "name": "session_debug_entity",
-            "display_name": "Session Debug Entity",
-            "keys": ["session_id"],
-        }).json()["entity_id"]
+        entity_id = self.client.post(
+            "/semantic/entities",
+            json={
+                "name": "session_debug_entity",
+                "display_name": "Session Debug Entity",
+                "keys": ["session_id"],
+            },
+        ).json()["entity_id"]
         self.client.post(f"/semantic/entities/{entity_id}/publish")
-        metric_id = self.client.post("/semantic/metrics", json={
-            "name": "watch_time_debug_metric",
-            "display_name": "Watch Time Debug",
-            "definition_sql": "avg(play_duration_seconds)",
-            "dimensions": ["platform", "app_version", "network_type", "content_type"],
-            "entity_id": entity_id,
-        }).json()["metric_id"]
+        metric_id = self.client.post(
+            "/semantic/metrics",
+            json={
+                "name": "watch_time_debug_metric",
+                "display_name": "Watch Time Debug",
+                "definition_sql": "avg(play_duration_seconds)",
+                "dimensions": ["platform", "app_version", "network_type", "content_type"],
+                "entity_id": entity_id,
+            },
+        ).json()["metric_id"]
         self.client.post(f"/semantic/metrics/{metric_id}/publish")
 
         self.client.post(
@@ -179,19 +191,25 @@ class SessionAPITests(unittest.TestCase):
             json={"goal": "Investigate watch time drop before synthesis."},
         ).json()["session_id"]
 
-        entity_id = self.client.post("/semantic/entities", json={
-            "name": "session_tentative_entity",
-            "display_name": "Session Tentative Entity",
-            "keys": ["session_id"],
-        }).json()["entity_id"]
+        entity_id = self.client.post(
+            "/semantic/entities",
+            json={
+                "name": "session_tentative_entity",
+                "display_name": "Session Tentative Entity",
+                "keys": ["session_id"],
+            },
+        ).json()["entity_id"]
         self.client.post(f"/semantic/entities/{entity_id}/publish")
-        metric_id = self.client.post("/semantic/metrics", json={
-            "name": "watch_time_tentative_metric",
-            "display_name": "Watch Time Tentative",
-            "definition_sql": "avg(play_duration_seconds)",
-            "dimensions": ["platform", "app_version", "network_type", "content_type"],
-            "entity_id": entity_id,
-        }).json()["metric_id"]
+        metric_id = self.client.post(
+            "/semantic/metrics",
+            json={
+                "name": "watch_time_tentative_metric",
+                "display_name": "Watch Time Tentative",
+                "definition_sql": "avg(play_duration_seconds)",
+                "dimensions": ["platform", "app_version", "network_type", "content_type"],
+                "entity_id": entity_id,
+            },
+        ).json()["metric_id"]
         self.client.post(f"/semantic/metrics/{metric_id}/publish")
 
         self.client.post(
@@ -213,19 +231,25 @@ class SessionAPITests(unittest.TestCase):
             json={"goal": "Investigate watch time drop and filter graph edges."},
         ).json()["session_id"]
 
-        entity_id = self.client.post("/semantic/entities", json={
-            "name": "session_edge_filter_entity",
-            "display_name": "Session Edge Filter Entity",
-            "keys": ["session_id"],
-        }).json()["entity_id"]
+        entity_id = self.client.post(
+            "/semantic/entities",
+            json={
+                "name": "session_edge_filter_entity",
+                "display_name": "Session Edge Filter Entity",
+                "keys": ["session_id"],
+            },
+        ).json()["entity_id"]
         self.client.post(f"/semantic/entities/{entity_id}/publish")
-        metric_id = self.client.post("/semantic/metrics", json={
-            "name": "watch_time_edge_filter_metric",
-            "display_name": "Watch Time Edge Filter",
-            "definition_sql": "avg(play_duration_seconds)",
-            "dimensions": ["platform", "app_version", "network_type", "content_type"],
-            "entity_id": entity_id,
-        }).json()["metric_id"]
+        metric_id = self.client.post(
+            "/semantic/metrics",
+            json={
+                "name": "watch_time_edge_filter_metric",
+                "display_name": "Watch Time Edge Filter",
+                "definition_sql": "avg(play_duration_seconds)",
+                "dimensions": ["platform", "app_version", "network_type", "content_type"],
+                "entity_id": entity_id,
+            },
+        ).json()["metric_id"]
         self.client.post(f"/semantic/metrics/{metric_id}/publish")
 
         self.client.post(
@@ -246,19 +270,25 @@ class SessionAPITests(unittest.TestCase):
             json={"goal": "Investigate watch time drop with debug payload."},
         ).json()["session_id"]
 
-        entity_id = self.client.post("/semantic/entities", json={
-            "name": "session_include_debug_entity",
-            "display_name": "Session Include Debug Entity",
-            "keys": ["session_id"],
-        }).json()["entity_id"]
+        entity_id = self.client.post(
+            "/semantic/entities",
+            json={
+                "name": "session_include_debug_entity",
+                "display_name": "Session Include Debug Entity",
+                "keys": ["session_id"],
+            },
+        ).json()["entity_id"]
         self.client.post(f"/semantic/entities/{entity_id}/publish")
-        metric_id = self.client.post("/semantic/metrics", json={
-            "name": "watch_time_include_debug_metric",
-            "display_name": "Watch Time Include Debug",
-            "definition_sql": "avg(play_duration_seconds)",
-            "dimensions": ["platform", "app_version", "network_type", "content_type"],
-            "entity_id": entity_id,
-        }).json()["metric_id"]
+        metric_id = self.client.post(
+            "/semantic/metrics",
+            json={
+                "name": "watch_time_include_debug_metric",
+                "display_name": "Watch Time Include Debug",
+                "definition_sql": "avg(play_duration_seconds)",
+                "dimensions": ["platform", "app_version", "network_type", "content_type"],
+                "entity_id": entity_id,
+            },
+        ).json()["metric_id"]
         self.client.post(f"/semantic/metrics/{metric_id}/publish")
 
         self.client.post(
@@ -280,19 +310,25 @@ class SessionAPITests(unittest.TestCase):
             json={"goal": "Investigate watch time drop with filtered debug payload."},
         ).json()["session_id"]
 
-        entity_id = self.client.post("/semantic/entities", json={
-            "name": "session_filtered_debug_entity",
-            "display_name": "Session Filtered Debug Entity",
-            "keys": ["session_id"],
-        }).json()["entity_id"]
+        entity_id = self.client.post(
+            "/semantic/entities",
+            json={
+                "name": "session_filtered_debug_entity",
+                "display_name": "Session Filtered Debug Entity",
+                "keys": ["session_id"],
+            },
+        ).json()["entity_id"]
         self.client.post(f"/semantic/entities/{entity_id}/publish")
-        metric_id = self.client.post("/semantic/metrics", json={
-            "name": "watch_time_filtered_debug_metric",
-            "display_name": "Watch Time Filtered Debug",
-            "definition_sql": "avg(play_duration_seconds)",
-            "dimensions": ["platform", "app_version", "network_type", "content_type"],
-            "entity_id": entity_id,
-        }).json()["metric_id"]
+        metric_id = self.client.post(
+            "/semantic/metrics",
+            json={
+                "name": "watch_time_filtered_debug_metric",
+                "display_name": "Watch Time Filtered Debug",
+                "definition_sql": "avg(play_duration_seconds)",
+                "dimensions": ["platform", "app_version", "network_type", "content_type"],
+                "entity_id": entity_id,
+            },
+        ).json()["metric_id"]
         self.client.post(f"/semantic/metrics/{metric_id}/publish")
 
         self.client.post(
@@ -301,7 +337,9 @@ class SessionAPITests(unittest.TestCase):
         )
         self.client.post(f"/sessions/{session_id}/steps/synthesize_findings")
 
-        resp = self.client.get(f"/sessions/{session_id}/evidence?edge_types=supports&include_debug=true")
+        resp = self.client.get(
+            f"/sessions/{session_id}/evidence?edge_types=supports&include_debug=true"
+        )
         self.assertEqual(resp.status_code, 200)
         graph = resp.json()
         self.assertTrue(all(edge["edge_type"] == "supports" for edge in graph["edges"]))

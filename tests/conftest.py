@@ -11,6 +11,7 @@ Two optimizations applied here (no test logic changes):
    is created on first use and reused across processes/workers via shared_fixtures.
    The patch is skipped for the template path itself to avoid infinite recursion.
 """
+
 from __future__ import annotations
 
 import os
@@ -34,6 +35,7 @@ def _fast_initialize(self: DuckDBAnalyticsEngine) -> None:
         _original_initialize(self)
         return
     from tests.shared_fixtures import get_seeded_duckdb_path
+
     get_seeded_duckdb_path(self.db_path)
 
 

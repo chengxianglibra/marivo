@@ -16,7 +16,6 @@ from app.observability import (
     correlation_execution_stage,
     correlation_planner_id,
     correlation_session_id,
-    setup_logging,
 )
 from tests.shared_fixtures import get_seeded_duckdb_path
 
@@ -74,8 +73,13 @@ class JSONFormatterTests(unittest.TestCase):
     def test_format_includes_fields(self) -> None:
         formatter = JSONFormatter()
         record = logging.LogRecord(
-            name="test", level=logging.INFO, pathname="test.py",
-            lineno=1, msg="Hello %s", args=("world",), exc_info=None,
+            name="test",
+            level=logging.INFO,
+            pathname="test.py",
+            lineno=1,
+            msg="Hello %s",
+            args=("world",),
+            exc_info=None,
         )
         output = formatter.format(record)
         self.assertIn('"message": "Hello world"', output)
@@ -86,8 +90,13 @@ class JSONFormatterTests(unittest.TestCase):
         token = correlation_session_id.set("sess_test123")
         try:
             record = logging.LogRecord(
-                name="test", level=logging.INFO, pathname="test.py",
-                lineno=1, msg="test msg", args=(), exc_info=None,
+                name="test",
+                level=logging.INFO,
+                pathname="test.py",
+                lineno=1,
+                msg="test msg",
+                args=(),
+                exc_info=None,
             )
             output = formatter.format(record)
             self.assertIn("sess_test123", output)
@@ -100,8 +109,13 @@ class JSONFormatterTests(unittest.TestCase):
         stage_token = correlation_execution_stage.set("planner")
         try:
             record = logging.LogRecord(
-                name="test", level=logging.INFO, pathname="test.py",
-                lineno=1, msg="planner msg", args=(), exc_info=None,
+                name="test",
+                level=logging.INFO,
+                pathname="test.py",
+                lineno=1,
+                msg="planner msg",
+                args=(),
+                exc_info=None,
             )
             output = formatter.format(record)
             self.assertIn("draft_plan", output)

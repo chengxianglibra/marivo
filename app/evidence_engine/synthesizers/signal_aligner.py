@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import math
-from typing import Any
 
 from app.evidence_engine.synthesizers.stages import AlignedSignal, ScopeCluster
 
@@ -43,8 +42,9 @@ class SignalAligner:
         # Select primary observation
         primary = max(
             metric_obs,
-            key=lambda o: abs(float(o["payload"]["delta_pct"]))
-            * math.log1p(o["significance"]["sample_size"]),
+            key=lambda o: (
+                abs(float(o["payload"]["delta_pct"])) * math.log1p(o["significance"]["sample_size"])
+            ),
         )
 
         primary_delta = float(primary["payload"]["delta_pct"])

@@ -36,14 +36,15 @@ class TrinoAnalyticsEngine(AnalyticsEngine):
         self.request_timeout = request_timeout
         self.legacy_prepared_statements = legacy_prepared_statements
 
-    def _connect(self):  # noqa: ANN202
+    def _connect(self):
         from trino.dbapi import connect
 
         _RESERVED_PREFIXES = ("x-trino-",)
         safe_headers: dict[str, str] | None = None
         if self.http_headers:
             safe_headers = {
-                k: v for k, v in self.http_headers.items()
+                k: v
+                for k, v in self.http_headers.items()
                 if not k.lower().startswith(_RESERVED_PREFIXES)
             } or None
 
@@ -58,6 +59,7 @@ class TrinoAnalyticsEngine(AnalyticsEngine):
         )
         if self.password is not None:
             from trino.auth import BasicAuthentication
+
             kwargs["auth"] = BasicAuthentication(self.user, self.password)
         if self.client_tags is not None:
             kwargs["client_tags"] = self.client_tags

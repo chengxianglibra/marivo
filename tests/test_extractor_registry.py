@@ -5,10 +5,10 @@ from __future__ import annotations
 import unittest
 
 from app.evidence_engine.contract import ExtractorContract
+from app.evidence_engine.extractors import MetricObservationExtractor
 from app.evidence_engine.extractors.aggregate import AggregateRowExtractor
 from app.evidence_engine.extractors.anomaly import AnomalyExtractor
 from app.evidence_engine.extractors.base import ObservationExtractor
-from app.evidence_engine.extractors import MetricObservationExtractor
 from app.evidence_engine.extractors.contribution_shift import ContributionShiftExtractor
 from app.evidence_engine.extractors.funnel import FunnelExtractor
 from app.evidence_engine.registry import ExtractorRegistry, _default_registry
@@ -108,12 +108,15 @@ class FunnelExtractorTests(unittest.TestCase):
             {"step": "A", "users": 500},
             {"step": "B", "users": 100},  # 80% drop
         ]
-        obs = self.extractor.extract(rows, context={
-            "stage_col": "step",
-            "count_col": "users",
-            "threshold": 0.30,
-            "funnel_name": "custom",
-        })
+        obs = self.extractor.extract(
+            rows,
+            context={
+                "stage_col": "step",
+                "count_col": "users",
+                "threshold": 0.30,
+                "funnel_name": "custom",
+            },
+        )
         self.assertEqual(len(obs), 1)
 
     def test_payload_has_stages_and_worst_stage(self) -> None:
@@ -186,12 +189,22 @@ class AnomalyExtractorTests(unittest.TestCase):
             {"dim": "D", "val": 10},
             {"dim": "E", "val": 30},  # mild outlier (~z=2)
         ]
-        obs_strict = self.extractor.extract(rows, context={
-            "value_col": "val", "dim_col": "dim", "z_threshold": 1.0,
-        })
-        obs_loose = self.extractor.extract(rows, context={
-            "value_col": "val", "dim_col": "dim", "z_threshold": 5.0,
-        })
+        obs_strict = self.extractor.extract(
+            rows,
+            context={
+                "value_col": "val",
+                "dim_col": "dim",
+                "z_threshold": 1.0,
+            },
+        )
+        obs_loose = self.extractor.extract(
+            rows,
+            context={
+                "value_col": "val",
+                "dim_col": "dim",
+                "z_threshold": 5.0,
+            },
+        )
         # strict threshold should detect; loose should not
         self.assertGreaterEqual(len(obs_strict), 1)
         self.assertEqual(obs_loose, [])
@@ -210,11 +223,14 @@ class ContributionShiftExtractorTests(unittest.TestCase):
             {"region": "US", "baseline": 500, "current": 100},  # dropped share
             {"region": "EU", "baseline": 500, "current": 900},  # gained share
         ]
-        obs = self.extractor.extract(rows, context={
-            "dim_col": "region",
-            "baseline_col": "baseline",
-            "current_col": "current",
-        })
+        obs = self.extractor.extract(
+            rows,
+            context={
+                "dim_col": "region",
+                "baseline_col": "baseline",
+                "current_col": "current",
+            },
+        )
         self.assertEqual(len(obs), 1)
         self.assertEqual(obs[0]["type"], "contribution_shift")
 
@@ -223,22 +239,28 @@ class ContributionShiftExtractorTests(unittest.TestCase):
             {"region": "US", "baseline": 500, "current": 510},
             {"region": "EU", "baseline": 500, "current": 490},
         ]
-        obs = self.extractor.extract(rows, context={
-            "dim_col": "region",
-            "baseline_col": "baseline",
-            "current_col": "current",
-        })
+        obs = self.extractor.extract(
+            rows,
+            context={
+                "dim_col": "region",
+                "baseline_col": "baseline",
+                "current_col": "current",
+            },
+        )
         self.assertEqual(obs, [])
 
     def test_total_zero_returns_empty(self) -> None:
         rows = [
             {"region": "US", "baseline": 0, "current": 0},
         ]
-        obs = self.extractor.extract(rows, context={
-            "dim_col": "region",
-            "baseline_col": "baseline",
-            "current_col": "current",
-        })
+        obs = self.extractor.extract(
+            rows,
+            context={
+                "dim_col": "region",
+                "baseline_col": "baseline",
+                "current_col": "current",
+            },
+        )
         self.assertEqual(obs, [])
 
     def test_payload_structure(self) -> None:
@@ -246,11 +268,14 @@ class ContributionShiftExtractorTests(unittest.TestCase):
             {"region": "US", "baseline": 100, "current": 10},
             {"region": "EU", "baseline": 100, "current": 190},
         ]
-        obs = self.extractor.extract(rows, context={
-            "dim_col": "region",
-            "baseline_col": "baseline",
-            "current_col": "current",
-        })
+        obs = self.extractor.extract(
+            rows,
+            context={
+                "dim_col": "region",
+                "baseline_col": "baseline",
+                "current_col": "current",
+            },
+        )
         self.assertIn("contributions", obs[0]["payload"])
         self.assertIn("biggest_shift_segment", obs[0]["payload"])
 
@@ -264,18 +289,24 @@ class ContributionShiftExtractorTests(unittest.TestCase):
             {"region": "US", "baseline": 1000, "current": 850},
             {"region": "EU", "baseline": 1000, "current": 1150},
         ]
-        obs_strict = self.extractor.extract(rows, context={
-            "dim_col": "region",
-            "baseline_col": "baseline",
-            "current_col": "current",
-            "share_threshold": 0.05,
-        })
-        obs_loose = self.extractor.extract(rows, context={
-            "dim_col": "region",
-            "baseline_col": "baseline",
-            "current_col": "current",
-            "share_threshold": 0.20,
-        })
+        obs_strict = self.extractor.extract(
+            rows,
+            context={
+                "dim_col": "region",
+                "baseline_col": "baseline",
+                "current_col": "current",
+                "share_threshold": 0.05,
+            },
+        )
+        obs_loose = self.extractor.extract(
+            rows,
+            context={
+                "dim_col": "region",
+                "baseline_col": "baseline",
+                "current_col": "current",
+                "share_threshold": 0.20,
+            },
+        )
         self.assertGreaterEqual(len(obs_strict), 1)
         self.assertEqual(obs_loose, [])
 
@@ -291,13 +322,18 @@ class ExtractorContractInheritanceTests(unittest.TestCase):
             self.assertTrue(issubclass(cls, ExtractorContract))
 
     def test_pipeline_uses_default_registry(self) -> None:
-        from app.evidence_engine.synthesizers import DefaultClaimSynthesizer
         from app.evidence_engine.pipeline import EvidencePipeline
+        from app.evidence_engine.synthesizers import DefaultClaimSynthesizer
 
         pipeline = EvidencePipeline(DefaultClaimSynthesizer())
         # All 5 extractors from default registry should be available
-        for name in ("metric_rows", "aggregate_rows", "funnel_rows", "anomaly_rows",
-                     "contribution_shift_rows"):
+        for name in (
+            "metric_rows",
+            "aggregate_rows",
+            "funnel_rows",
+            "anomaly_rows",
+            "contribution_shift_rows",
+        ):
             self.assertIn(name, pipeline._extractors)
 
 

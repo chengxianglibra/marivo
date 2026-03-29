@@ -30,7 +30,6 @@ from __future__ import annotations
 
 from typing import Any, TypedDict
 
-
 # ── Edge type constants ──────────────────────────────────────────────────────
 # Basic layer (existing, semantics unchanged)
 EDGE_TYPE_SUPPORTS = "supports"
@@ -38,20 +37,28 @@ EDGE_TYPE_CONTRADICTS = "contradicts"
 EDGE_TYPE_JUSTIFIES = "justifies"
 
 # Causal enhancement layer (M-07)
-EDGE_TYPE_CORRELATES_WITH = "correlates_with"                    # L1 — statistical correlation across slices
-EDGE_TYPE_TEMPORALLY_PRECEDES = "temporally_precedes"            # L2 — temporal order established
+EDGE_TYPE_CORRELATES_WITH = "correlates_with"  # L1 — statistical correlation across slices
+EDGE_TYPE_TEMPORALLY_PRECEDES = "temporally_precedes"  # L2 — temporal order established
 EDGE_TYPE_MECHANISTICALLY_EXPLAINS = "mechanistically_explains"  # L3 — causal pathway identified
-EDGE_TYPE_ELIMINATES_ALTERNATIVE = "eliminates_alternative"      # L4 — confounders ruled out
-EDGE_TYPE_EXPERIMENTALLY_CONFIRMS = "experimentally_confirms"    # L5 — A/B or natural experiment
+EDGE_TYPE_ELIMINATES_ALTERNATIVE = "eliminates_alternative"  # L4 — confounders ruled out
+EDGE_TYPE_EXPERIMENTALLY_CONFIRMS = "experimentally_confirms"  # L5 — A/B or natural experiment
 
-BASIC_EDGE_TYPES: frozenset[str] = frozenset({
-    EDGE_TYPE_SUPPORTS, EDGE_TYPE_CONTRADICTS, EDGE_TYPE_JUSTIFIES,
-})
-CAUSAL_EDGE_TYPES: frozenset[str] = frozenset({
-    EDGE_TYPE_CORRELATES_WITH, EDGE_TYPE_TEMPORALLY_PRECEDES,
-    EDGE_TYPE_MECHANISTICALLY_EXPLAINS, EDGE_TYPE_ELIMINATES_ALTERNATIVE,
-    EDGE_TYPE_EXPERIMENTALLY_CONFIRMS,
-})
+BASIC_EDGE_TYPES: frozenset[str] = frozenset(
+    {
+        EDGE_TYPE_SUPPORTS,
+        EDGE_TYPE_CONTRADICTS,
+        EDGE_TYPE_JUSTIFIES,
+    }
+)
+CAUSAL_EDGE_TYPES: frozenset[str] = frozenset(
+    {
+        EDGE_TYPE_CORRELATES_WITH,
+        EDGE_TYPE_TEMPORALLY_PRECEDES,
+        EDGE_TYPE_MECHANISTICALLY_EXPLAINS,
+        EDGE_TYPE_ELIMINATES_ALTERNATIVE,
+        EDGE_TYPE_EXPERIMENTALLY_CONFIRMS,
+    }
+)
 ALL_EDGE_TYPES: frozenset[str] = BASIC_EDGE_TYPES | CAUSAL_EDGE_TYPES
 
 # Maps each causal edge type → the inference level it implies on the connected claim.
@@ -74,26 +81,26 @@ class ObservationSubject(TypedDict):
 
 
 class Observation(TypedDict):
-    observation_id: str          # Signal: unique fact identifier
-    type: str                    # Signal: observation category (metric_observation, funnel_drop, …)
+    observation_id: str  # Signal: unique fact identifier
+    type: str  # Signal: observation category (metric_observation, funnel_drop, …)
     subject: ObservationSubject  # Signal: what entity/metric was observed
-    payload: dict[str, Any]      # Signal: raw extracted values
-    significance: dict[str, Any] # Signal: statistical and practical significance flags
-    quality: dict[str, Any]      # Signal: data quality metadata
+    payload: dict[str, Any]  # Signal: raw extracted values
+    significance: dict[str, Any]  # Signal: statistical and practical significance flags
+    quality: dict[str, Any]  # Signal: data quality metadata
 
 
 class Claim(TypedDict):
-    claim_id: str                        # Signal: unique claim identifier
-    type: str                            # Signal: claim category
-    text: str                            # Signal: human-readable summary (code-generated)
-    scope: dict[str, Any]                # Signal: dimensional scope of the claim
-    confidence: float                    # Signal: deterministically scored confidence
-    status: str                          # Signal: supported / contradicted / uncertain
-    supporting_observations: list[str]   # Signal: observation_ids that support this claim
-    contradicting_observations: list[str] # Signal: observation_ids that contradict
-    confidence_breakdown: dict[str, Any] # Signal: per-factor confidence components
-    inference_level: str                 # Signal: L0=correlation; L1-L3=causal (Phase 2)
-    inference_justification: list[str]   # Signal: provenance tokens justifying the level
+    claim_id: str  # Signal: unique claim identifier
+    type: str  # Signal: claim category
+    text: str  # Signal: human-readable summary (code-generated)
+    scope: dict[str, Any]  # Signal: dimensional scope of the claim
+    confidence: float  # Signal: deterministically scored confidence
+    status: str  # Signal: supported / contradicted / uncertain
+    supporting_observations: list[str]  # Signal: observation_ids that support this claim
+    contradicting_observations: list[str]  # Signal: observation_ids that contradict
+    confidence_breakdown: dict[str, Any]  # Signal: per-factor confidence components
+    inference_level: str  # Signal: L0=correlation; L1-L3=causal (Phase 2)
+    inference_justification: list[str]  # Signal: provenance tokens justifying the level
 
 
 class ClaimRelation(TypedDict):
@@ -114,14 +121,16 @@ REC_TYPE_NO_ACTION = "no_action_required"
 
 
 class Recommendation(TypedDict):
-    rec_id: str                        # Signal: unique recommendation identifier
-    type: str                          # Signal: "action_required" or "no_action_required"
-    claim_id: str                      # Signal: primary backing claim (highest confidence)
-    action_text: str                   # Signal: proposed action (agent decides whether to take it)
-    template_id: str | None            # Signal: stable template identifier for debugging / UX
-    priority: str                      # Signal: P0/P1/P2/P3 — agent uses to triage, not a command
-    expected_impact: str               # Signal: estimated outcome if action is taken
-    risk: str                          # Signal: risk level of the action
+    rec_id: str  # Signal: unique recommendation identifier
+    type: str  # Signal: "action_required" or "no_action_required"
+    claim_id: str  # Signal: primary backing claim (highest confidence)
+    action_text: str  # Signal: proposed action (agent decides whether to take it)
+    template_id: str | None  # Signal: stable template identifier for debugging / UX
+    priority: str  # Signal: P0/P1/P2/P3 — agent uses to triage, not a command
+    expected_impact: str  # Signal: estimated outcome if action is taken
+    risk: str  # Signal: risk level of the action
     validation_metric: dict[str, Any]  # Signal: how to verify the action worked
     causal_basis: dict[str, Any] | None  # Signal: M-10 causal evidence summary; None for old rows
-    supporting_claims: list[str] | None  # Signal: all claim_ids backing this rec (multi-claim aggregation)
+    supporting_claims: (
+        list[str] | None
+    )  # Signal: all claim_ids backing this rec (multi-claim aggregation)

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import random
+from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import duckdb
 
@@ -151,7 +152,12 @@ def _seed_demo_data(con: duckdb.DuckDBPyConnection) -> None:
                                 base_watch -= 22.0
                             if network_type == "4g":
                                 base_watch -= 10.0
-                            if period_name == "current" and platform == "android" and app_version == "8.3.1" and network_type == "4g":
+                            if (
+                                period_name == "current"
+                                and platform == "android"
+                                and app_version == "8.3.1"
+                                and network_type == "4g"
+                            ):
                                 base_watch -= 8.0
                             if (
                                 period_name == "current"
@@ -161,13 +167,31 @@ def _seed_demo_data(con: duckdb.DuckDBPyConnection) -> None:
                                 and content_type == "short"
                             ):
                                 base_watch -= 26.0
-                            play_duration_seconds = round(max(12.0, base_watch + rng.uniform(-6.0, 6.0)), 2)
-                            watch_rows.append((current_day, user_id, session_id, platform, app_version, network_type, content_type, play_duration_seconds))
+                            play_duration_seconds = round(
+                                max(12.0, base_watch + rng.uniform(-6.0, 6.0)), 2
+                            )
+                            watch_rows.append(
+                                (
+                                    current_day,
+                                    user_id,
+                                    session_id,
+                                    platform,
+                                    app_version,
+                                    network_type,
+                                    content_type,
+                                    play_duration_seconds,
+                                )
+                            )
 
                             base_qoe = 860.0 if network_type == "wifi" else 1100.0
                             if platform == "web":
                                 base_qoe -= 110.0
-                            if period_name == "current" and platform == "android" and app_version == "8.3.1" and network_type == "4g":
+                            if (
+                                period_name == "current"
+                                and platform == "android"
+                                and app_version == "8.3.1"
+                                and network_type == "4g"
+                            ):
                                 base_qoe += 180.0
                             if (
                                 period_name == "current"
@@ -178,10 +202,25 @@ def _seed_demo_data(con: duckdb.DuckDBPyConnection) -> None:
                             ):
                                 base_qoe += 260.0
                             first_frame_time_ms = round(base_qoe + rng.uniform(-70.0, 70.0), 2)
-                            qoe_rows.append((current_day, session_id, platform, app_version, network_type, content_type, first_frame_time_ms))
+                            qoe_rows.append(
+                                (
+                                    current_day,
+                                    session_id,
+                                    platform,
+                                    app_version,
+                                    network_type,
+                                    content_type,
+                                    first_frame_time_ms,
+                                )
+                            )
 
                             timeout_probability = 0.03 if network_type == "wifi" else 0.06
-                            if period_name == "current" and platform == "android" and app_version == "8.3.1" and network_type == "4g":
+                            if (
+                                period_name == "current"
+                                and platform == "android"
+                                and app_version == "8.3.1"
+                                and network_type == "4g"
+                            ):
                                 timeout_probability += 0.06
                             if (
                                 period_name == "current"
@@ -193,13 +232,29 @@ def _seed_demo_data(con: duckdb.DuckDBPyConnection) -> None:
                                 timeout_probability += 0.09
                             preroll_timeout = 1 if rng.random() < timeout_probability else 0
                             preroll_duration_seconds = 7.0 if content_type == "short" else 11.0
-                            ad_rows.append((current_day, session_id, platform, app_version, network_type, content_type, preroll_timeout, preroll_duration_seconds))
+                            ad_rows.append(
+                                (
+                                    current_day,
+                                    session_id,
+                                    platform,
+                                    app_version,
+                                    network_type,
+                                    content_type,
+                                    preroll_timeout,
+                                    preroll_duration_seconds,
+                                )
+                            )
 
                             impressions = rng.randint(8, 15)
                             base_ctr = 0.19 if content_type == "short" else 0.13
                             if network_type == "4g":
                                 base_ctr -= 0.01
-                            if period_name == "current" and platform == "android" and app_version == "8.3.1" and network_type == "4g":
+                            if (
+                                period_name == "current"
+                                and platform == "android"
+                                and app_version == "8.3.1"
+                                and network_type == "4g"
+                            ):
                                 base_ctr += 0.006
                             if (
                                 period_name == "current"
@@ -211,7 +266,18 @@ def _seed_demo_data(con: duckdb.DuckDBPyConnection) -> None:
                                 base_ctr += 0.008
                             ctr = max(0.02, min(0.45, base_ctr + rng.uniform(-0.015, 0.015)))
                             clicks = max(1, int(round(impressions * ctr)))
-                            recommendation_rows.append((current_day, session_id, platform, app_version, network_type, content_type, impressions, clicks))
+                            recommendation_rows.append(
+                                (
+                                    current_day,
+                                    session_id,
+                                    platform,
+                                    app_version,
+                                    network_type,
+                                    content_type,
+                                    impressions,
+                                    clicks,
+                                )
+                            )
 
     con.executemany(
         "INSERT INTO analytics.watch_events (event_date, user_id, session_id, platform, app_version, network_type, content_type, play_duration_seconds) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",

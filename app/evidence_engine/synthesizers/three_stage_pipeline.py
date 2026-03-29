@@ -85,8 +85,13 @@ class ThreeStagePipeline:
 def _cluster_audit(c: Any) -> dict[str, Any]:
     d = dataclasses.asdict(c)
     # Replace full observation dicts with just their IDs to keep audit compact
-    for bucket in ("metric_observation_obs", "funnel_drop_obs",
-                   "contribution_shift_obs", "anomaly_detection_obs", "other_obs"):
+    for bucket in (
+        "metric_observation_obs",
+        "funnel_drop_obs",
+        "contribution_shift_obs",
+        "anomaly_detection_obs",
+        "other_obs",
+    ):
         d[bucket] = [o.get("observation_id", "<no-id>") for o in d[bucket]]
     return d
 

@@ -7,7 +7,6 @@ from fastapi import APIRouter, HTTPException, Request
 from app.api.deps import get_services, http_error
 from app.api.models import PlanPatchRequest
 
-
 router = APIRouter()
 
 
@@ -35,7 +34,9 @@ def get_plan(session_id: str, plan_id: str, request: Request) -> dict[str, objec
 
 
 @router.patch("/sessions/{session_id}/plans/{plan_id}")
-def patch_plan(session_id: str, plan_id: str, body: dict[str, Any], request: Request) -> dict[str, object]:
+def patch_plan(
+    session_id: str, plan_id: str, body: dict[str, Any], request: Request
+) -> dict[str, object]:
     try:
         return get_services(request).planning_service.patch_plan(plan_id, steps=body.get("steps"))
     except (KeyError, ValueError) as error:

@@ -56,7 +56,14 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
         self.assertEqual(len(rows), 2)
 
     def test_new_tables_exist(self) -> None:
-        for table in ["sources", "source_objects", "semantic_entities", "semantic_metrics", "semantic_mappings", "sync_jobs"]:
+        for table in [
+            "sources",
+            "source_objects",
+            "semantic_entities",
+            "semantic_metrics",
+            "semantic_mappings",
+            "sync_jobs",
+        ]:
             row = self.store.query_one(f"SELECT COUNT(*) AS cnt FROM {table}")
             self.assertIsNotNone(row, f"Table {table} should exist")
 
@@ -83,7 +90,9 @@ class DuckDBAnalyticsEngineTests(unittest.TestCase):
         self.assertFalse(self.engine.table_exists("nonexistent_table"))
 
     def test_query_rows(self) -> None:
-        rows = self.engine.query_rows("SELECT DISTINCT platform FROM analytics.watch_events ORDER BY platform")
+        rows = self.engine.query_rows(
+            "SELECT DISTINCT platform FROM analytics.watch_events ORDER BY platform"
+        )
         platforms = {row["platform"] for row in rows}
         self.assertIn("android", platforms)
         self.assertIn("ios", platforms)

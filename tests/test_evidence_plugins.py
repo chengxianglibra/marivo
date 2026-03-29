@@ -157,7 +157,9 @@ class EvidencePluginTests(unittest.TestCase):
     def test_comparison_row_extractor_single_window_rejects_missing_mapping(self) -> None:
         extractor = MetricObservationExtractor()
 
-        with self.assertRaisesRegex(ValueError, "requires payload_fields mappings for required keys"):
+        with self.assertRaisesRegex(
+            ValueError, "requires payload_fields mappings for required keys"
+        ):
             extractor.extract(
                 [
                     {
@@ -239,7 +241,8 @@ class EvidencePluginTests(unittest.TestCase):
                     },
                     "quality_builder": lambda row: {
                         "freshness_ok": True,
-                        "sample_size_ok": min(row["current_sessions"], row["baseline_sessions"]) >= 150,
+                        "sample_size_ok": min(row["current_sessions"], row["baseline_sessions"])
+                        >= 150,
                     },
                 },
             )

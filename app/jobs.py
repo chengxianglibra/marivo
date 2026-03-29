@@ -33,7 +33,9 @@ class JobService:
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._cancel_events: dict[str, asyncio.Event] = {}
 
-    def submit_job(self, session_id: str, job_type: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    def submit_job(
+        self, session_id: str, job_type: str, payload: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         valid_types = ("step", "plan")
         if job_type not in valid_types:
             raise ValueError(f"Invalid job_type: {job_type}. Must be one of {valid_types}")
@@ -94,7 +96,9 @@ class JobService:
             self.metrics.active_jobs += 1
         try:
             start = time.perf_counter()
-            with observability_context(session_id=session_id, execution_stage=self._job_stage(job_type)):
+            with observability_context(
+                session_id=session_id, execution_stage=self._job_stage(job_type)
+            ):
                 result = self._run_payload(session_id, job_type, payload)
             duration_ms = (time.perf_counter() - start) * 1000
             self.repository.mark_completed(job_id, result)
@@ -120,7 +124,9 @@ class JobService:
             self.metrics.active_jobs += 1
         try:
             start = time.perf_counter()
-            with observability_context(session_id=session_id, execution_stage=self._job_stage(job_type)):
+            with observability_context(
+                session_id=session_id, execution_stage=self._job_stage(job_type)
+            ):
                 result = self._run_payload(session_id, job_type, payload)
             duration_ms = (time.perf_counter() - start) * 1000
             self.repository.mark_completed(job_id, result)

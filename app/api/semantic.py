@@ -12,7 +12,6 @@ from app.api.models import (
     MetricUpdateRequest,
 )
 
-
 router = APIRouter()
 
 
@@ -33,7 +32,9 @@ def create_entity(payload: EntityCreateRequest, request: Request) -> dict[str, o
 
 
 @router.get("/semantic/entities")
-def list_entities(request: Request, status: str | None = Query(default=None)) -> list[dict[str, object]]:
+def list_entities(
+    request: Request, status: str | None = Query(default=None)
+) -> list[dict[str, object]]:
     return get_services(request).semantic_service.list_entities(status=status)
 
 
@@ -46,9 +47,13 @@ def get_entity(entity_id: str, request: Request) -> dict[str, object]:
 
 
 @router.put("/semantic/entities/{entity_id}")
-def update_entity(entity_id: str, payload: EntityUpdateRequest, request: Request) -> dict[str, object]:
+def update_entity(
+    entity_id: str, payload: EntityUpdateRequest, request: Request
+) -> dict[str, object]:
     try:
-        return get_services(request).semantic_service.update_entity(entity_id, **payload.model_dump(exclude_none=True))
+        return get_services(request).semantic_service.update_entity(
+            entity_id, **payload.model_dump(exclude_none=True)
+        )
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
 
@@ -96,7 +101,9 @@ def create_metric(payload: MetricCreateRequest, request: Request) -> dict[str, o
 
 
 @router.get("/semantic/metrics")
-def list_metrics(request: Request, status: str | None = Query(default=None)) -> list[dict[str, object]]:
+def list_metrics(
+    request: Request, status: str | None = Query(default=None)
+) -> list[dict[str, object]]:
     return get_services(request).semantic_service.list_metrics(status=status)
 
 
@@ -109,9 +116,13 @@ def get_metric(metric_id: str, request: Request) -> dict[str, object]:
 
 
 @router.put("/semantic/metrics/{metric_id}")
-def update_metric(metric_id: str, payload: MetricUpdateRequest, request: Request) -> dict[str, object]:
+def update_metric(
+    metric_id: str, payload: MetricUpdateRequest, request: Request
+) -> dict[str, object]:
     try:
-        return get_services(request).semantic_service.update_metric(metric_id, **payload.model_dump(exclude_unset=True))
+        return get_services(request).semantic_service.update_metric(
+            metric_id, **payload.model_dump(exclude_unset=True)
+        )
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
 

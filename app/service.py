@@ -4,7 +4,7 @@ import hashlib
 import json
 import math
 import time
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
@@ -15,6 +15,7 @@ from app.analysis_core.compiler import compile_step
 from app.analysis_core.executor import execute_compiled
 from app.analysis_core.ir import AnalysisStepIR, from_legacy_step
 from app.evidence_engine import EvidencePipeline
+from app.evidence_engine.causal_checkers import _pearson_correlation, _spearman_correlation
 from app.evidence_engine.claim_relations import (
     _claim_direction,
     _complementary_dimension,
@@ -22,10 +23,9 @@ from app.evidence_engine.claim_relations import (
     _shared_values,
     _slice_dict,
 )
-from app.evidence_engine.causal_checkers import _pearson_correlation, _rank, _spearman_correlation
-from app.evidence_engine.synthesizers.default import DefaultClaimSynthesizer
 from app.evidence_engine.readiness import compute_readiness, load_live_claims
 from app.evidence_engine.schemas import ALL_EDGE_TYPES, EDGE_TYPE_JUSTIFIES
+from app.evidence_engine.synthesizers.default import DefaultClaimSynthesizer
 from app.execution.feedback import compile_failure_from_error
 from app.execution.orchestrator import WorkflowOrchestrator
 from app.execution.routing_runtime import RoutingRuntime
@@ -35,11 +35,13 @@ from app.session import SessionManager
 from app.storage.analytics import AnalyticsEngine
 from app.storage.metadata import MetadataStore
 from app.time_axis_metadata import TimeAxisMetadataProvider
-from app.time_scope import ResolvedWindowedQueryRequest
-from app.time_scope import SemanticMetricValueSpec
-from app.time_scope import TimeAxisResolver
-from app.time_scope import normalize_aggregate_query_request
-from app.time_scope import normalize_metric_query_request
+from app.time_scope import (
+    ResolvedWindowedQueryRequest,
+    SemanticMetricValueSpec,
+    TimeAxisResolver,
+    normalize_aggregate_query_request,
+    normalize_metric_query_request,
+)
 
 if TYPE_CHECKING:
     from app.approvals import ApprovalService
@@ -150,7 +152,9 @@ class SemanticLayerService:
         policy: dict[str, Any],
         raw_filter: str | None = None,
     ) -> dict[str, Any]:
-        return self.session_manager.create_session(goal, constraints, budget, policy, raw_filter=raw_filter)
+        return self.session_manager.create_session(
+            goal, constraints, budget, policy, raw_filter=raw_filter
+        )
 
     def list_sessions(self, status: str | None = None) -> list[dict[str, Any]]:
         return self.session_manager.list_sessions(status=status)
@@ -164,8 +168,7 @@ class SemanticLayerService:
             "SELECT name, keys_json FROM semantic_entities WHERE status = 'published' ORDER BY name"
         )
         entities = [
-            {"id": row["name"], "keys": json.loads(row["keys_json"])}
-            for row in entity_rows
+            {"id": row["name"], "keys": json.loads(row["keys_json"])} for row in entity_rows
         ]
 
         # Metrics — all published semantic metrics
@@ -226,7 +229,9 @@ class SemanticLayerService:
             "policies": policies,
         }
 
-    def run_step(self, session_id: str, step_type: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    def run_step(
+        self, session_id: str, step_type: str, params: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         self._assert_session_exists(session_id)
         normalized = step_type.strip().lower()
         governance_result: dict[str, Any] | None = None
@@ -253,7 +258,9 @@ class SemanticLayerService:
             result = self.step_registry.run(session_id, normalized, params)
         except KeyError as error:
             available = self.step_registry.keys()
-            raise ValueError(f"Unsupported step type: {step_type}. Available: {available}") from error
+            raise ValueError(
+                f"Unsupported step type: {step_type}. Available: {available}"
+            ) from error
         finally:
             self._governance_context = None
             self._routing_feedback_context = None
@@ -304,11 +311,11 @@ class SemanticLayerService:
         if claims_only not in {None, "confirmed"}:
             raise ValueError("claims_only currently supports only 'confirmed'")
         if edge_types:
-            invalid_edge_types = sorted({edge_type for edge_type in edge_types if edge_type not in ALL_EDGE_TYPES})
+            invalid_edge_types = sorted(
+                {edge_type for edge_type in edge_types if edge_type not in ALL_EDGE_TYPES}
+            )
             if invalid_edge_types:
-                raise ValueError(
-                    "Unknown edge_types: " + ", ".join(invalid_edge_types)
-                )
+                raise ValueError("Unknown edge_types: " + ", ".join(invalid_edge_types))
 
         graph = self._load_evidence_graph_components(session_id)
         filtered = self._filter_evidence_graph(
@@ -383,19 +390,27 @@ class SemanticLayerService:
 
         for claim in claims:
             claim["scope"] = json.loads(claim.pop("scope_json"))
-            claim["supporting_observations"] = json.loads(claim.pop("supporting_observation_ids_json"))
-            claim["contradicting_observations"] = json.loads(claim.pop("contradicting_observation_ids_json"))
+            claim["supporting_observations"] = json.loads(
+                claim.pop("supporting_observation_ids_json")
+            )
+            claim["contradicting_observations"] = json.loads(
+                claim.pop("contradicting_observation_ids_json")
+            )
             claim["confidence_breakdown"] = json.loads(claim.pop("confidence_breakdown_json"))
             claim["inference_justification"] = json.loads(claim.pop("inference_justification_json"))
         for recommendation in recommendations:
-            recommendation["validation_metric"] = json.loads(recommendation.pop("validation_metric_json"))
+            recommendation["validation_metric"] = json.loads(
+                recommendation.pop("validation_metric_json")
+            )
             raw_cb = recommendation.pop("causal_basis_json")
             recommendation["causal_basis"] = json.loads(raw_cb) if raw_cb is not None else None
             raw_ep = recommendation.pop("entity_patch_json", None)
             recommendation["entity_patch"] = json.loads(raw_ep) if raw_ep is not None else None
             raw_sc = recommendation.pop("supporting_claims_json", None)
             recommendation["supporting_claims"] = json.loads(raw_sc) if raw_sc is not None else None
-            recommendation["action"] = recommendation["action_text"]  # alias for agent compatibility
+            recommendation["action"] = recommendation[
+                "action_text"
+            ]  # alias for agent compatibility
         for edge in edges:
             edge["match_basis"] = json.loads(edge.pop("match_basis_json") or "{}")
             edge["score_components"] = json.loads(edge.pop("score_components_json") or "{}")
@@ -432,9 +447,7 @@ class SemanticLayerService:
 
         if enforce_claim_subgraph:
             edges = [
-                edge
-                for edge in edges
-                if self._edge_survives_claim_filter(edge, kept_claim_ids)
+                edge for edge in edges if self._edge_survives_claim_filter(edge, kept_claim_ids)
             ]
 
         recommendations: list[dict[str, Any]] = []
@@ -446,7 +459,9 @@ class SemanticLayerService:
             supporting_claims = recommendation.get("supporting_claims")
             updated = dict(recommendation)
             if enforce_claim_subgraph and supporting_claims is not None:
-                trimmed_support = [claim_id for claim_id in supporting_claims if claim_id in kept_claim_ids]
+                trimmed_support = [
+                    claim_id for claim_id in supporting_claims if claim_id in kept_claim_ids
+                ]
                 if not trimmed_support:
                     continue
                 updated["supporting_claims"] = trimmed_support
@@ -538,14 +553,14 @@ class SemanticLayerService:
                 claim_a = confirmed_claims[left_index]
                 claim_b = confirmed_claims[right_index]
                 candidate_pairs_checked += 1
-                reason_code, sample = self._explain_claim_pair(claim_a, claim_b, observation_by_id, relation_keys)
+                reason_code, sample = self._explain_claim_pair(
+                    claim_a, claim_b, observation_by_id, relation_keys
+                )
                 reasons[reason_code] = reasons.get(reason_code, 0) + 1
                 if len(pair_samples) < 8:
                     pair_samples.append(sample)
 
-        if not confirmed_claims:
-            reasons = {"not_enough_confirmed_claims": 1}
-        elif candidate_pairs_checked == 0:
+        if not confirmed_claims or candidate_pairs_checked == 0:
             reasons = {"not_enough_confirmed_claims": 1}
 
         return {
@@ -666,7 +681,9 @@ class SemanticLayerService:
                     "checker": checker_class_name,
                     "checker_name": checker_name,
                     "claims_checked": self._claims_checked_for_checker(checker_name, claims),
-                    "result": "upgrade" if persisted["claims"] or persisted["edges"] else "no_upgrade",
+                    "result": "upgrade"
+                    if persisted["claims"] or persisted["edges"]
+                    else "no_upgrade",
                     "reason_code": reason_code,
                     "reason": reason,
                     "claims_upgraded": len(persisted["claims"]),
@@ -743,9 +760,13 @@ class SemanticLayerService:
         if persisted["claims"] or persisted["edges"]:
             parts: list[str] = []
             if persisted["claims"]:
-                parts.append(f"{len(persisted['claims'])} claims carry this checker's justification tokens")
+                parts.append(
+                    f"{len(persisted['claims'])} claims carry this checker's justification tokens"
+                )
             if persisted["edges"]:
-                parts.append(f"{len(persisted['edges'])} causal edges from this checker are present")
+                parts.append(
+                    f"{len(persisted['edges'])} causal edges from this checker are present"
+                )
             return "already_materialized", "; ".join(parts) + "."
 
         if checker_name == "cross_slice_consistency":
@@ -766,7 +787,9 @@ class SemanticLayerService:
             )
 
         if checker_name == "cross_scope_correlation":
-            causal_candidates = [obs for obs in observations if obs.get("type") == "causal_candidate"]
+            causal_candidates = [
+                obs for obs in observations if obs.get("type") == "causal_candidate"
+            ]
             windowed_obs = [obs for obs in observations if obs.get("observed_window") is not None]
             if not causal_candidates and len(windowed_obs) < 2:
                 return (
@@ -795,7 +818,9 @@ class SemanticLayerService:
                     "no_matching_relations",
                     "Temporal precedence only evaluates relation-backed claim pairs; none are present in this graph.",
                 )
-            if not any(observation.get("observed_window") is not None for observation in observations):
+            if not any(
+                observation.get("observed_window") is not None for observation in observations
+            ):
                 return (
                     "missing_observed_window",
                     "No supporting observations carried real observed_window values.",
@@ -872,7 +897,9 @@ class SemanticLayerService:
 
     # ── Engine resolution ─────────────────────────────────────────────
 
-    def _resolve_engine(self, table_names: list[str]) -> tuple[AnalyticsEngine, str, dict[str, str]]:
+    def _resolve_engine(
+        self, table_names: list[str]
+    ) -> tuple[AnalyticsEngine, str, dict[str, str]]:
         """Resolve the analytics engine, its type, and qualified table names.
 
         Uses QueryRouter when available, falls back to self.analytics.
@@ -883,11 +910,7 @@ class SemanticLayerService:
         self._routing_feedback_context = (
             resolution.feedback.to_dict() if resolution.feedback is not None else None
         )
-        qualified = (
-            resolution.route.qualified_names
-            if resolution.route is not None
-            else {}
-        )
+        qualified = resolution.route.qualified_names if resolution.route is not None else {}
         return resolution.engine, resolution.engine_type, qualified
 
     def _compile_step_with_feedback(
@@ -1049,7 +1072,8 @@ class SemanticLayerService:
         if normalized == "compare":
             return lambda row: {
                 "freshness_ok": True,
-                "sample_size_ok": min(row["current_sessions"] or 0, row["baseline_sessions"] or 0) >= 150,
+                "sample_size_ok": min(row["current_sessions"] or 0, row["baseline_sessions"] or 0)
+                >= 150,
             }
         return lambda row: {
             "freshness_ok": True,
@@ -1067,16 +1091,11 @@ class SemanticLayerService:
         normalized: list[dict[str, Any]] = []
         for index, row in enumerate(rows):
             row_dict = dict(row)
-            missing = [
-                field
-                for field in contract["required_row_fields"]
-                if field not in row_dict
-            ]
+            missing = [field for field in contract["required_row_fields"] if field not in row_dict]
             if missing:
                 missing_str = ", ".join(missing)
                 raise ValueError(
-                    "metric_query rows missing required columns "
-                    f"at row {index}: {missing_str}"
+                    f"metric_query rows missing required columns at row {index}: {missing_str}"
                 )
             normalized.append(row_dict)
         return normalized
@@ -1108,11 +1127,16 @@ class SemanticLayerService:
             return debug
         if request.time_scope.baseline is None:
             raise ValueError("metric_query debug payload requires baseline window")
-        debug.update({
-            "baseline_window": [request.time_scope.baseline.start, request.time_scope.baseline.end],
-            "baseline_has_data": any(row.get("baseline_sessions") for row in all_rows),
-            "window_length_match": bool(window_length_match),
-        })
+        debug.update(
+            {
+                "baseline_window": [
+                    request.time_scope.baseline.start,
+                    request.time_scope.baseline.end,
+                ],
+                "baseline_has_data": any(row.get("baseline_sessions") for row in all_rows),
+                "window_length_match": bool(window_length_match),
+            }
+        )
         return debug
 
     @classmethod
@@ -1255,13 +1279,20 @@ class SemanticLayerService:
             if normalized in {"DELTA_PCT ASC", "DELTA_PCT DESC"}:
                 return normalized
             raise ValueError("metric_query compare mode supports only delta_pct ASC/DESC")
-        if normalized in {"CURRENT_VALUE ASC", "CURRENT_VALUE DESC", "CURRENT_SESSIONS ASC", "CURRENT_SESSIONS DESC"}:
+        if normalized in {
+            "CURRENT_VALUE ASC",
+            "CURRENT_VALUE DESC",
+            "CURRENT_SESSIONS ASC",
+            "CURRENT_SESSIONS DESC",
+        }:
             return normalized
         raise ValueError(
             "metric_query single_window mode supports only current_value ASC/DESC or current_sessions ASC/DESC"
         )
 
-    _CONSTRAINT_APPLYING_STEPS = frozenset({"metric_query", "sample_rows", "aggregate_query", "attribute_change"})
+    _CONSTRAINT_APPLYING_STEPS = frozenset(
+        {"metric_query", "sample_rows", "aggregate_query", "attribute_change"}
+    )
 
     _CONSTRAINT_SKIP_REASONS: dict[str, str] = {
         "profile_table": "profile_table scans the full table; session filters are not applied",
@@ -1308,7 +1339,9 @@ class SemanticLayerService:
         metric_sql = self.resolve_metric_sql(metric_name)
         all_dimensions = self.resolve_metric_dimensions(metric_name)
         if metric_sql is None or all_dimensions is None:
-            raise ValueError(f"Metric '{metric_name}' not found or not published in semantic_metrics")
+            raise ValueError(
+                f"Metric '{metric_name}' not found or not published in semantic_metrics"
+            )
 
         short_name = resolved.table.split(".")[-1]
         engine, engine_type, qualified = self._resolve_engine([short_name])
@@ -1329,7 +1362,9 @@ class SemanticLayerService:
                 raise ValueError(f"Invalid dimensions {invalid}; valid: {all_dimensions}")
 
         dimensions = self._comparison_dimensions(
-            all_dimensions, comparison_time_column, requested=requested_dims,
+            all_dimensions,
+            comparison_time_column,
+            requested=requested_dims,
         )
         if requested_dims and not dimensions:
             filtered_out = [d for d in requested_dims if d == comparison_time_column]
@@ -1395,7 +1430,9 @@ class SemanticLayerService:
         for observation in observations:
             self._insert_observation(session_id, step_id, observation)
 
-        artifact_id = self._insert_artifact(session_id, step_id, "table", f"{metric_name}_metric_query", rows)
+        artifact_id = self._insert_artifact(
+            session_id, step_id, "table", f"{metric_name}_metric_query", rows
+        )
 
         _debug = self._metric_query_debug_payload(
             resolved,
@@ -1413,7 +1450,9 @@ class SemanticLayerService:
             baseline_len=baseline_len,
         )
 
-        provenance = self._make_provenance(compiled_query.sql, compiled_query.params, engine_type=engine_type)
+        provenance = self._make_provenance(
+            compiled_query.sql, compiled_query.params, engine_type=engine_type
+        )
 
         # G-5e: resolve unit for the metric from confirmed hints or entity properties
         unit_note = self._resolve_metric_unit_note(metric_name, session_id)
@@ -1430,7 +1469,9 @@ class SemanticLayerService:
         if not rows:
             result["debug"] = _debug
         elif mode == "compare" and window_size_mismatch:
-            result["debug"] = {k: _debug[k] for k in ("current_window", "baseline_window", "window_length_match")}
+            result["debug"] = {
+                k: _debug[k] for k in ("current_window", "baseline_window", "window_length_match")
+            }
         self._insert_step(step_id, session_id, step_type, summary, result, provenance=provenance)
         return result
 
@@ -1479,7 +1520,9 @@ class SemanticLayerService:
             pass
         return None
 
-    def _fetch_column_metadata(self, short_name: str, columns: list[str]) -> dict[str, dict[str, str]]:
+    def _fetch_column_metadata(
+        self, short_name: str, columns: list[str]
+    ) -> dict[str, dict[str, str]]:
         """Look up synced column source_objects to get data_type and unit.
 
         Uses the table short_name (last FQN segment) for a LIKE lookup.
@@ -1523,7 +1566,9 @@ class SemanticLayerService:
         qualified_table = qualified.get(short_name, table_name)
 
         row_count_query = self._compile_step_with_feedback(
-            AnalysisStepIR(index=0, step_type="profile_table_row_count", params={"table_name": qualified_table}),
+            AnalysisStepIR(
+                index=0, step_type="profile_table_row_count", params={"table_name": qualified_table}
+            ),
             engine_type=engine_type,
         )
         row_count: int | None = None
@@ -1612,7 +1657,9 @@ class SemanticLayerService:
             profile_scope = {
                 "date_column": profile_date_column,
                 "date_value": profile_date_value,
-                "scoped_row_count": col_profiles[0]["total"] if col_profiles and "total" in col_profiles[0] else None,
+                "scoped_row_count": col_profiles[0]["total"]
+                if col_profiles and "total" in col_profiles[0]
+                else None,
             }
         # If the row-count query failed and no columns were found, the table
         # does not exist (or is otherwise completely inaccessible).  Raise so
@@ -1622,34 +1669,52 @@ class SemanticLayerService:
         # `columns` will be non-empty and we fall through to the partial
         # profile path.
         if row_count_error is not None and not columns:
-            raise ValueError(
-                f"Table '{table_name}' is inaccessible: {row_count_error}"
-            )
+            raise ValueError(f"Table '{table_name}' is inaccessible: {row_count_error}")
 
         profile_errors: dict[str, str] = {}
         if row_count_error is not None:
             profile_errors["row_count"] = row_count_error
         if not columns_available and columns_error is not None:
             profile_errors["columns"] = columns_error
-        artifact: dict[str, Any] = {"table_name": table_name, "row_count": row_count, "profile_scope": profile_scope, "columns": col_profiles}
+        artifact: dict[str, Any] = {
+            "table_name": table_name,
+            "row_count": row_count,
+            "profile_scope": profile_scope,
+            "columns": col_profiles,
+        }
         if profile_errors:
             artifact["errors"] = profile_errors
-        artifact_id = self._insert_artifact(session_id, step_id, "profile", f"{short_name}_profile", artifact)
+        artifact_id = self._insert_artifact(
+            session_id, step_id, "profile", f"{short_name}_profile", artifact
+        )
 
-        scope_note = f" (column stats scoped to {profile_date_column}={profile_date_value})" if profile_date_column else ""
+        scope_note = (
+            f" (column stats scoped to {profile_date_column}={profile_date_value})"
+            if profile_date_column
+            else ""
+        )
         failure_notes: list[str] = []
         if row_count_error is not None:
             failure_notes.append(f"row_count unavailable: {row_count_error}")
         if not columns_available:
             col_detail = f": {columns_error}" if columns_error else ""
-            failure_notes.append(f"columns unavailable (schema query failed{col_detail}; use sample_rows limit=1 to inspect columns)")
+            failure_notes.append(
+                f"columns unavailable (schema query failed{col_detail}; use sample_rows limit=1 to inspect columns)"
+            )
         if failure_notes:
             failure_str = "; ".join(failure_notes)
             summary = f"Table '{table_name}' profile incomplete — {failure_str}."
         else:
-            summary = f"Table '{table_name}' has {row_count} rows and {len(columns)} columns{scope_note}."
+            summary = (
+                f"Table '{table_name}' has {row_count} rows and {len(columns)} columns{scope_note}."
+            )
         provenance = self._make_provenance(f"profile:{table_name}", engine_type=engine_type)
-        result = {"step_type": step_type, "summary": summary, "artifact_id": artifact_id, "profile": artifact}
+        result = {
+            "step_type": step_type,
+            "summary": summary,
+            "artifact_id": artifact_id,
+            "profile": artifact,
+        }
         self._insert_step(step_id, session_id, step_type, summary, result, provenance=provenance)
         return result
 
@@ -1737,10 +1802,20 @@ class SemanticLayerService:
         actual_columns = list(rows[0].keys()) if rows else list(params.get("columns") or [])
         col_metadata = self._fetch_column_metadata(short_name, actual_columns)
 
-        artifact_id = self._insert_artifact(session_id, step_id, "sample", f"{short_name}_sample", rows)
+        artifact_id = self._insert_artifact(
+            session_id, step_id, "sample", f"{short_name}_sample", rows
+        )
         summary = f"Sampled {len(rows)} rows from '{table_name}'."
-        provenance = self._make_provenance(compiled_query.sql, compiled_query.params, engine_type=engine_type)
-        result = {"step_type": step_type, "summary": summary, "artifact_id": artifact_id, "rows": rows, "columns_metadata": col_metadata}
+        provenance = self._make_provenance(
+            compiled_query.sql, compiled_query.params, engine_type=engine_type
+        )
+        result = {
+            "step_type": step_type,
+            "summary": summary,
+            "artifact_id": artifact_id,
+            "rows": rows,
+            "columns_metadata": col_metadata,
+        }
         self._insert_step(step_id, session_id, step_type, summary, result, provenance=provenance)
         return result
 
@@ -1802,9 +1877,7 @@ class SemanticLayerService:
             # For compare_period, auto-select the first delta_pct column as value_column
             value_column = params.get("value_column")
             if compare_period and not value_column and rows:
-                first_key = next(
-                    (k for k in rows[0] if k.endswith("_delta_pct")), None
-                )
+                first_key = next((k for k in rows[0] if k.endswith("_delta_pct")), None)
                 value_column = first_key
             # G-5a: fetch synced column metadata so AggregateRowExtractor can use
             # authoritative unit information instead of falling back to heuristics.
@@ -1813,12 +1886,16 @@ class SemanticLayerService:
             observation_context = {
                 "group_by": group_by_cols,
                 "observation_type": params.get("observation_type", "metric_observation"),
-                "metric": resolved.value_spec.measures[0].alias if resolved.value_spec.measures else "aggregate",
+                "metric": resolved.value_spec.measures[0].alias
+                if resolved.value_spec.measures
+                else "aggregate",
                 "value_column": value_column,
                 "column_metadata": col_metadata,  # G-5a: authoritative unit source
             }
             if params.get("temporal_group_by_columns") is not None:
-                observation_context["temporal_group_by_columns"] = params["temporal_group_by_columns"]
+                observation_context["temporal_group_by_columns"] = params[
+                    "temporal_group_by_columns"
+                ]
 
             observations = self.evidence_pipeline.extract_observations(
                 "aggregate_rows",
@@ -1835,7 +1912,9 @@ class SemanticLayerService:
         else:
             observations = []
 
-        artifact_id = self._insert_artifact(session_id, step_id, "aggregate", f"{short_name}_aggregate", rows)
+        artifact_id = self._insert_artifact(
+            session_id, step_id, "aggregate", f"{short_name}_aggregate", rows
+        )
         if not rows:
             _partition_cols = {"log_date", "event_date", "dt", "date", "day"}
             where_lower = str(scoped_query.get("partition_pruning_predicate") or "").lower()
@@ -1857,8 +1936,15 @@ class SemanticLayerService:
             )
         else:
             summary = f"Aggregate query on '{table_name}' returned {len(rows)} rows."
-        provenance = self._make_provenance(compiled_query.sql, compiled_query.params, engine_type=engine_type)
-        result = {"step_type": step_type, "summary": summary, "artifact_id": artifact_id, "rows": rows}
+        provenance = self._make_provenance(
+            compiled_query.sql, compiled_query.params, engine_type=engine_type
+        )
+        result = {
+            "step_type": step_type,
+            "summary": summary,
+            "artifact_id": artifact_id,
+            "rows": rows,
+        }
         if observations:
             result["observations"] = observations
         self._insert_step(step_id, session_id, step_type, summary, result, provenance=provenance)
@@ -1890,14 +1976,18 @@ class SemanticLayerService:
         candidate_dimensions_raw = params.get("candidate_dimensions")
         if not isinstance(candidate_dimensions_raw, list):
             raise ValueError("candidate_dimensions must not be empty")
-        candidate_dimensions = [str(dim).strip() for dim in candidate_dimensions_raw if str(dim).strip()]
+        candidate_dimensions = [
+            str(dim).strip() for dim in candidate_dimensions_raw if str(dim).strip()
+        ]
         candidate_dimensions = list(dict.fromkeys(candidate_dimensions))
         if not candidate_dimensions:
             raise ValueError("candidate_dimensions must not be empty")
 
         metric_sql = self.resolve_metric_sql(str(metric_name))
         if metric_sql is None:
-            raise ValueError(f"Metric '{metric_name}' not found or not published in semantic_metrics")
+            raise ValueError(
+                f"Metric '{metric_name}' not found or not published in semantic_metrics"
+            )
 
         period_end_p = params.get("period_end")
         baseline_start_p = params.get("baseline_start")
@@ -1930,7 +2020,9 @@ class SemanticLayerService:
         qualified_table = qualified.get(short_name, str(table_name))
 
         try:
-            row = engine.query_rows(f"SELECT MAX({date_column}) AS max_date FROM {qualified_table}")[0]
+            row = engine.query_rows(
+                f"SELECT MAX({date_column}) AS max_date FROM {qualified_table}"
+            )[0]
             date_fmt = self._detect_date_format(row["max_date"])
         except Exception:
             date_fmt = self._detect_date_format(str(period_end_p))
@@ -2009,7 +2101,9 @@ class SemanticLayerService:
                 current_value = float(current_value_raw or 0.0)
                 baseline_value = float(baseline_value_raw or 0.0)
                 delta_value = current_value - baseline_value
-                delta_pct = None if baseline_value == 0.0 else (delta_value / baseline_value) * 100.0
+                delta_pct = (
+                    None if baseline_value == 0.0 else (delta_value / baseline_value) * 100.0
+                )
                 dim_value = row.get(dimension)
                 if current_value_raw is not None:
                     current_has_data = True
@@ -2030,13 +2124,17 @@ class SemanticLayerService:
             total_abs_delta = sum(abs(entry["delta_value"]) for entry in dim_contributors)
             for entry in dim_contributors:
                 entry["contribution_pct"] = (
-                    (abs(entry["delta_value"]) / total_abs_delta) * 100.0 if total_abs_delta > 0 else 0.0
+                    (abs(entry["delta_value"]) / total_abs_delta) * 100.0
+                    if total_abs_delta > 0
+                    else 0.0
                 )
 
             sorted_contributors = sorted(
                 dim_contributors,
                 key=lambda entry: (
-                    abs(entry["delta_pct"]) if entry["delta_pct"] is not None else abs(entry["delta_value"]),
+                    abs(entry["delta_pct"])
+                    if entry["delta_pct"] is not None
+                    else abs(entry["delta_value"]),
                     abs(entry["delta_value"]),
                 ),
                 reverse=True,
@@ -2145,7 +2243,9 @@ class SemanticLayerService:
             "debug": debug,
         }
 
-        self._insert_step(step_id, session_id, "attribute_change", summary, result, provenance=provenance)
+        self._insert_step(
+            step_id, session_id, "attribute_change", summary, result, provenance=provenance
+        )
         return result
 
     # ── Artifact-to-artifact helpers ──────────────────────────────────────────
@@ -2166,7 +2266,9 @@ class SemanticLayerService:
                 [session_id, step_id],
             )
             if row is None:
-                raise ValueError(f"No artifact found for step_id={step_id!r} in session {session_id!r}")
+                raise ValueError(
+                    f"No artifact found for step_id={step_id!r} in session {session_id!r}"
+                )
             artifact_id = str(row["artifact_id"])
         row = self.metadata.query_one(
             "SELECT content_json FROM artifacts WHERE artifact_id = ? AND session_id = ?",
@@ -2285,8 +2387,13 @@ class SemanticLayerService:
             )
 
         # Compute statistics
-        results: dict[str, Any] = {"n": n, "method": method, "join_on": join_on,
-                                    "left_metric": left_metric, "right_metric": right_metric}
+        results: dict[str, Any] = {
+            "n": n,
+            "method": method,
+            "join_on": join_on,
+            "left_metric": left_metric,
+            "right_metric": right_metric,
+        }
         if method in ("spearman", "both"):
             rho_s = _spearman_correlation(xs, ys)
             p_s = _correlation_p_value(rho_s, n)
@@ -2322,7 +2429,9 @@ class SemanticLayerService:
         step_type = "correlate_metrics"
         step_id = self._new_step_id()
         artifact_id = self._insert_artifact(
-            session_id, step_id, "correlation",
+            session_id,
+            step_id,
+            "correlation",
             f"{left_metric}_vs_{right_metric}_correlation",
             [results],
         )
@@ -2388,7 +2497,9 @@ class SemanticLayerService:
             "confirmed_count": sum(1 for c in promoted if c["status"] == "confirmed"),
             "insufficient_count": sum(1 for c in promoted if c["status"] == "insufficient"),
         }
-        self._insert_artifact(session_id, step_id, "synthesis_audit", "promotion_audit", promotion_audit)
+        self._insert_artifact(
+            session_id, step_id, "synthesis_audit", "promotion_audit", promotion_audit
+        )
         synthesis = self.evidence_pipeline.build_synthesis(
             observations,
             existing_claims=promoted,
@@ -2517,10 +2628,7 @@ class SemanticLayerService:
 
             # Read existing field-level unit (properties.fields.<col>.unit) not entity-level
             current_unit = (
-                entity.get("properties", {})
-                .get("fields", {})
-                .get(column_name, {})
-                .get("unit")
+                entity.get("properties", {}).get("fields", {}).get(column_name, {}).get("unit")
             )
             suggested_unit = best_hint["unit"]
 
@@ -2580,7 +2688,14 @@ class SemanticLayerService:
     # ── Metadata helpers ──────────────────────────────────────────────
 
     def _reset_session_outputs(self, session_id: str) -> None:
-        for table in ["recommendations", "evidence_edges", "claims", "observations", "artifacts", "steps"]:
+        for table in [
+            "recommendations",
+            "evidence_edges",
+            "claims",
+            "observations",
+            "artifacts",
+            "steps",
+        ]:
             self.metadata.execute(f"DELETE FROM {table} WHERE session_id = ?", [session_id])
 
     def _delete_step_outputs(self, session_id: str, step_type: str) -> None:
@@ -2626,9 +2741,7 @@ class SemanticLayerService:
                 claim.pop("contradicting_observation_ids_json")
             )
             claim["confidence_breakdown"] = json.loads(claim.pop("confidence_breakdown_json"))
-            claim["inference_justification"] = json.loads(
-                claim.pop("inference_justification_json")
-            )
+            claim["inference_justification"] = json.loads(claim.pop("inference_justification_json"))
             result.append(claim)
         return result
 
@@ -2687,11 +2800,22 @@ class SemanticLayerService:
     def _assert_session_exists(self, session_id: str) -> None:
         self.session_manager.assert_session_exists(session_id)
 
-    _TEMPORAL_DIMENSIONS: frozenset[str] = frozenset({
-        "log_date", "event_date", "dt", "date", "day",
-        "log_hour", "event_hour", "hour", "minute",
-        "event_time", "timestamp", "ts",
-    })
+    _TEMPORAL_DIMENSIONS: frozenset[str] = frozenset(
+        {
+            "log_date",
+            "event_date",
+            "dt",
+            "date",
+            "day",
+            "log_hour",
+            "event_hour",
+            "hour",
+            "minute",
+            "event_time",
+            "timestamp",
+            "ts",
+        }
+    )
 
     _MAX_DEFAULT_DIMENSIONS: int = 2
 
@@ -2730,7 +2854,7 @@ class SemanticLayerService:
 
         excluded = SemanticLayerService._TEMPORAL_DIMENSIONS | {date_column}
         dims = [d for d in all_dimensions if d not in excluded]
-        return dims[:SemanticLayerService._MAX_DEFAULT_DIMENSIONS]
+        return dims[: SemanticLayerService._MAX_DEFAULT_DIMENSIONS]
 
     @staticmethod
     def _comparison_time_dimension_column(
@@ -2760,6 +2884,7 @@ class SemanticLayerService:
     def _shift_calendar_date(d: date, *, months: int = 0, years: int = 0) -> date:
         """Calendar shift with end-of-month clamp (e.g. 2026-03-31 → 2026-02-28)."""
         from calendar import monthrange
+
         target_month = d.month + months
         target_year = d.year + years + (target_month - 1) // 12
         target_month = (target_month - 1) % 12 + 1
@@ -2790,8 +2915,7 @@ class SemanticLayerService:
             bs = SemanticLayerService._shift_calendar_date(current_start, years=-1)
             return bs, bs + (current_end - current_start)
         raise ValueError(
-            f"Unknown comparison_type '{comparison_type}'. "
-            "Supported values: dod, wow, mom, yoy."
+            f"Unknown comparison_type '{comparison_type}'. Supported values: dod, wow, mom, yoy."
         )
 
     def _period_bounds(
@@ -2810,9 +2934,7 @@ class SemanticLayerService:
         """
         engine = engine or self.analytics
         try:
-            row = engine.query_rows(
-                f"SELECT MAX({date_column}) AS max_date FROM {table_name}"
-            )[0]
+            row = engine.query_rows(f"SELECT MAX({date_column}) AS max_date FROM {table_name}")[0]
         except Exception:
             # Trino clusters may require a partition filter on date columns.
             # Fall back to a bounded query covering the last 90 days using
@@ -2863,13 +2985,15 @@ class SemanticLayerService:
             observations.append(obs)
         return observations
 
-    def _make_provenance(self, sql: str = "", params: list[Any] | None = None, engine_type: str = "duckdb") -> dict[str, Any]:
+    def _make_provenance(
+        self, sql: str = "", params: list[Any] | None = None, engine_type: str = "duckdb"
+    ) -> dict[str, Any]:
         """Build a provenance token for a step execution."""
         query_hash = hashlib.sha256(sql.encode()).hexdigest()[:16] if sql else ""
         provenance = {
             "query_hash": query_hash,
             "engine": engine_type,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "param_count": len(params) if params else 0,
         }
         if self._governance_context:
@@ -2933,10 +3057,19 @@ class SemanticLayerService:
             INSERT INTO steps (step_id, session_id, step_type, status, summary, result_json, provenance_json)
             VALUES (?, ?, ?, 'succeeded', ?, ?, ?)
             """,
-            [step_id, session_id, step_type, summary, self._dump(result), self._dump(provenance or {})],
+            [
+                step_id,
+                session_id,
+                step_type,
+                summary,
+                self._dump(result),
+                self._dump(provenance or {}),
+            ],
         )
 
-    def _insert_artifact(self, session_id: str, step_id: str, artifact_type: str, name: str, content: Any) -> str:
+    def _insert_artifact(
+        self, session_id: str, step_id: str, artifact_type: str, name: str, content: Any
+    ) -> str:
         artifact_id = f"art_{uuid4().hex[:12]}"
         self.metadata.execute(
             """
@@ -2972,7 +3105,9 @@ class SemanticLayerService:
                 obs["observed_window"] = observed_window
             obs["temporal_order"] = base + i
 
-    def _insert_observation(self, session_id: str, step_id: str, observation: dict[str, Any]) -> None:
+    def _insert_observation(
+        self, session_id: str, step_id: str, observation: dict[str, Any]
+    ) -> None:
         self.metadata.execute(
             """
             INSERT INTO observations (
@@ -2990,7 +3125,9 @@ class SemanticLayerService:
                 self._dump(observation["payload"]),
                 self._dump(observation["significance"]),
                 self._dump(observation["quality"]),
-                self._dump(observation["observed_window"]) if observation.get("observed_window") is not None else None,
+                self._dump(observation["observed_window"])
+                if observation.get("observed_window") is not None
+                else None,
                 observation.get("temporal_order", 0),
             ],
         )
@@ -3103,7 +3240,9 @@ def _norm_cdf(z: float) -> float:
     # Abramowitz & Stegun 26.2.17 approximation; max error < 7.5e-8
     a = abs(z) / math.sqrt(2.0)
     t = 1.0 / (1.0 + 0.3275911 * a)
-    poly = t * (0.254829592 + t * (-0.284496736 + t * (1.421413741 + t * (-1.453152027 + t * 1.061405429))))
+    poly = t * (
+        0.254829592 + t * (-0.284496736 + t * (1.421413741 + t * (-1.453152027 + t * 1.061405429)))
+    )
     cdf = 0.5 * (1.0 + math.erf(a))  # use erf from math (stdlib, no deps)
     return cdf if z >= 0 else 1.0 - cdf
 
@@ -3120,9 +3259,10 @@ def _correlation_p_value(rho: float, n: int) -> float:
     return 2.0 * (1.0 - _norm_cdf(abs(t_stat)))
 
 
-def _try_parse_date(value: str) -> "date | None":
+def _try_parse_date(value: str) -> date | None:
     """Try to parse a string as a date (YYYYMMDD or ISO 8601); return None on failure."""
     import re
+
     value = value.strip()
     if re.fullmatch(r"\d{8}", value):
         try:

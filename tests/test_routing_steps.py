@@ -124,7 +124,8 @@ class GenericStepTypeTests(unittest.TestCase):
 
     def test_profile_table(self) -> None:
         session_id = self.client.post(
-            "/sessions", json={"goal": "Test profile_table."},
+            "/sessions",
+            json={"goal": "Test profile_table."},
         ).json()["session_id"]
 
         resp = self.client.post(
@@ -140,7 +141,8 @@ class GenericStepTypeTests(unittest.TestCase):
 
     def test_profile_table_missing_param(self) -> None:
         session_id = self.client.post(
-            "/sessions", json={"goal": "Test missing param."},
+            "/sessions",
+            json={"goal": "Test missing param."},
         ).json()["session_id"]
 
         resp = self.client.post(
@@ -151,7 +153,8 @@ class GenericStepTypeTests(unittest.TestCase):
 
     def test_sample_rows(self) -> None:
         session_id = self.client.post(
-            "/sessions", json={"goal": "Test sample_rows."},
+            "/sessions",
+            json={"goal": "Test sample_rows."},
         ).json()["session_id"]
 
         resp = self.client.post(
@@ -165,7 +168,8 @@ class GenericStepTypeTests(unittest.TestCase):
 
     def test_sample_rows_default_limit(self) -> None:
         session_id = self.client.post(
-            "/sessions", json={"goal": "Test default limit."},
+            "/sessions",
+            json={"goal": "Test default limit."},
         ).json()["session_id"]
 
         resp = self.client.post(
@@ -178,7 +182,8 @@ class GenericStepTypeTests(unittest.TestCase):
 
     def test_sample_rows_missing_param(self) -> None:
         session_id = self.client.post(
-            "/sessions", json={"goal": "Test missing param."},
+            "/sessions",
+            json={"goal": "Test missing param."},
         ).json()["session_id"]
 
         resp = self.client.post(

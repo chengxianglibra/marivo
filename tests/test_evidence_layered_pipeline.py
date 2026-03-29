@@ -46,7 +46,9 @@ class _TrackingRelationDiscovery(ClaimRelationDiscovery):
     def __init__(self, calls: list[str]) -> None:
         self.calls = calls
 
-    def discover(self, claims: list[dict], observations: list[dict], existing_edges: list[dict]) -> list[dict]:
+    def discover(
+        self, claims: list[dict], observations: list[dict], existing_edges: list[dict]
+    ) -> list[dict]:
         self.calls.append("relations")
         if len(claims) < 2:
             return []
@@ -68,7 +70,9 @@ class _TrackingRegistry:
         self.calls = calls
         self.last_relations = None
 
-    def run_all(self, claims: list[dict], observations: list[dict], edges: list[dict], relations=None):
+    def run_all(
+        self, claims: list[dict], observations: list[dict], edges: list[dict], relations=None
+    ):
         self.calls.append("causal")
         self.last_relations = relations
         return []
@@ -81,7 +85,13 @@ class _TrackingPolicy(RecommendationPolicy):
         self.calls = calls
         self.last_relations = None
 
-    def derive(self, observations: list[dict], claims: list[dict], recommendations: list[dict], relations=None) -> list[dict]:
+    def derive(
+        self,
+        observations: list[dict],
+        claims: list[dict],
+        recommendations: list[dict],
+        relations=None,
+    ) -> list[dict]:
         self.calls.append("recommendations")
         self.last_relations = relations
         if not claims:
@@ -138,7 +148,9 @@ class LayeredEvidencePipelineTests(unittest.TestCase):
 
         def synth(observations: list[dict]):
             calls.append("synthesize")
-            raise AssertionError("claim synthesis should be skipped when existing_claims is provided")
+            raise AssertionError(
+                "claim synthesis should be skipped when existing_claims is provided"
+            )
 
         registry = _TrackingRegistry(calls)
         policy = _TrackingPolicy(calls)
@@ -165,7 +177,9 @@ class LayeredEvidencePipelineTests(unittest.TestCase):
 
         def synth(observations: list[dict]):
             calls.append("synthesize")
-            raise AssertionError("claim synthesis should be skipped when existing_claims is explicit")
+            raise AssertionError(
+                "claim synthesis should be skipped when existing_claims is explicit"
+            )
 
         registry = _TrackingRegistry(calls)
         policy = _TrackingPolicy(calls)
@@ -234,7 +248,8 @@ class DefaultClaimRelationDiscoveryTests(unittest.TestCase):
         result = pipeline.build_synthesis(observations, existing_claims=claims)
 
         correlates = [
-            edge for edge in result["edges"]
+            edge
+            for edge in result["edges"]
             if edge["edge_type"] == "correlates_with"
             and edge["from_node_type"] == "claim"
             and edge["to_node_type"] == "claim"
@@ -264,7 +279,9 @@ class DefaultClaimRelationDiscoveryTests(unittest.TestCase):
         correlates = [edge for edge in result["edges"] if edge["edge_type"] == "correlates_with"]
         self.assertEqual(correlates, [])
 
-    def test_pipeline_promotes_cross_metric_claim_group_to_l1_without_new_causal_edges(self) -> None:
+    def test_pipeline_promotes_cross_metric_claim_group_to_l1_without_new_causal_edges(
+        self,
+    ) -> None:
         observations = [
             self._obs("obs_q", "query_count", 30.0, {"user": "sys_titan"}),
             self._obs("obs_c", "cpu_time", 8.6, {"user": "sys_titan"}),
@@ -285,18 +302,22 @@ class DefaultClaimRelationDiscoveryTests(unittest.TestCase):
         self.assertEqual(levels["claim_t"], "L1")
 
         justifications = {
-            claim["claim_id"]: claim["inference_justification"]
-            for claim in result["claims"]
+            claim["claim_id"]: claim["inference_justification"] for claim in result["claims"]
         }
-        self.assertTrue(any("cross_metric_consistency" in token for token in justifications["claim_q"]))
+        self.assertTrue(
+            any("cross_metric_consistency" in token for token in justifications["claim_q"])
+        )
 
         causal_edges = [
-            edge for edge in result["edges"]
+            edge
+            for edge in result["edges"]
             if edge["edge_type"] in {"temporally_precedes", "mechanistically_explains"}
         ]
         self.assertEqual(causal_edges, [])
 
-    def test_pipeline_emits_cross_metric_correlation_derived_observation_for_component(self) -> None:
+    def test_pipeline_emits_cross_metric_correlation_derived_observation_for_component(
+        self,
+    ) -> None:
         observations = [
             self._obs("obs_q", "query_count", 30.0, {"user": "sys_titan"}),
             self._obs("obs_c", "cpu_time", 8.6, {"user": "sys_titan"}),
@@ -312,7 +333,8 @@ class DefaultClaimRelationDiscoveryTests(unittest.TestCase):
         result = pipeline.build_synthesis(observations, existing_claims=claims)
 
         derived = [
-            obs for obs in result["derived_observations"]
+            obs
+            for obs in result["derived_observations"]
             if obs["type"] == "cross_metric_correlation"
         ]
         self.assertEqual(len(derived), 1)
@@ -349,9 +371,21 @@ class DefaultClaimRelationDiscoveryTests(unittest.TestCase):
         observations[0]["payload"]["current_value"] = 100.0
         observations[1]["payload"]["current_value"] = 180.0
         observations[2]["payload"]["current_value"] = 120.0
-        observations[0]["observed_window"] = {"start": "2024-01-01T01:00", "end": "2024-01-01T02:00", "granularity": "hour"}
-        observations[1]["observed_window"] = {"start": "2024-01-01T02:00", "end": "2024-01-01T03:00", "granularity": "hour"}
-        observations[2]["observed_window"] = {"start": "2024-01-01T03:00", "end": "2024-01-01T04:00", "granularity": "hour"}
+        observations[0]["observed_window"] = {
+            "start": "2024-01-01T01:00",
+            "end": "2024-01-01T02:00",
+            "granularity": "hour",
+        }
+        observations[1]["observed_window"] = {
+            "start": "2024-01-01T02:00",
+            "end": "2024-01-01T03:00",
+            "granularity": "hour",
+        }
+        observations[2]["observed_window"] = {
+            "start": "2024-01-01T03:00",
+            "end": "2024-01-01T04:00",
+            "granularity": "hour",
+        }
         observations[0]["subject"]["temporal_group_by_columns"] = ["log_hour"]
         observations[1]["subject"]["temporal_group_by_columns"] = ["log_hour"]
         observations[2]["subject"]["temporal_group_by_columns"] = ["log_hour"]
@@ -365,8 +399,7 @@ class DefaultClaimRelationDiscoveryTests(unittest.TestCase):
         result = pipeline.build_synthesis(observations, existing_claims=claims)
 
         derived = [
-            obs for obs in result["derived_observations"]
-            if obs["type"] == "temporal_pattern"
+            obs for obs in result["derived_observations"] if obs["type"] == "temporal_pattern"
         ]
         self.assertEqual(len(derived), 1)
         payload = derived[0]["payload"]
@@ -384,9 +417,21 @@ class DefaultClaimRelationDiscoveryTests(unittest.TestCase):
         observations[0]["payload"]["current_value"] = 100.0
         observations[1]["payload"]["current_value"] = 180.0
         observations[2]["payload"]["current_value"] = 120.0
-        observations[0]["observed_window"] = {"start": "2024-01-01T01:00", "end": "2024-01-01T02:00", "granularity": "hour"}
-        observations[1]["observed_window"] = {"start": "2024-01-01T02:00", "end": "2024-01-01T03:00", "granularity": "hour"}
-        observations[2]["observed_window"] = {"start": "2024-01-01T03:00", "end": "2024-01-01T04:00", "granularity": "hour"}
+        observations[0]["observed_window"] = {
+            "start": "2024-01-01T01:00",
+            "end": "2024-01-01T02:00",
+            "granularity": "hour",
+        }
+        observations[1]["observed_window"] = {
+            "start": "2024-01-01T02:00",
+            "end": "2024-01-01T03:00",
+            "granularity": "hour",
+        }
+        observations[2]["observed_window"] = {
+            "start": "2024-01-01T03:00",
+            "end": "2024-01-01T04:00",
+            "granularity": "hour",
+        }
 
         claims = [self._claim("claim_q", "query_count", "obs_h1", {"user": "sys_titan"})]
         claims[0]["supporting_observations"] = ["obs_h1", "obs_h2", "obs_h3"]
@@ -395,8 +440,7 @@ class DefaultClaimRelationDiscoveryTests(unittest.TestCase):
         result = pipeline.build_synthesis(observations, existing_claims=claims)
 
         derived = [
-            obs for obs in result["derived_observations"]
-            if obs["type"] == "temporal_pattern"
+            obs for obs in result["derived_observations"] if obs["type"] == "temporal_pattern"
         ]
         self.assertEqual(derived, [])
 
@@ -438,10 +482,10 @@ class DefaultClaimRelationDiscoveryTests(unittest.TestCase):
         result = pipeline.build_synthesis(observations, existing_claims=claims)
 
         derived = [
-            obs for obs in result["derived_observations"]
-            if obs["type"] == "temporal_pattern"
+            obs for obs in result["derived_observations"] if obs["type"] == "temporal_pattern"
         ]
         self.assertEqual(derived, [])
+
 
 if __name__ == "__main__":
     unittest.main()

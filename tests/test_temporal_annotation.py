@@ -116,18 +116,32 @@ class CompareMetricTemporalTests(unittest.TestCase):
         cls.client = TestClient(create_app(db_path))
 
         # Register a metric for testing
-        r = cls.client.post("/semantic/entities", json={
-            "name": "session_m08", "display_name": "Session M08",
-            "keys": ["session_id"],
-        })
+        r = cls.client.post(
+            "/semantic/entities",
+            json={
+                "name": "session_m08",
+                "display_name": "Session M08",
+                "keys": ["session_id"],
+            },
+        )
         ent_id = r.json()["entity_id"]
         cls.client.post(f"/semantic/entities/{ent_id}/publish")
-        r = cls.client.post("/semantic/metrics", json={
-            "name": "avg_duration_m08", "display_name": "Avg Duration M08",
-            "definition_sql": "AVG(play_duration_seconds)",
-            "dimensions": ["platform", "app_version", "network_type", "content_type", "event_date"],
-            "entity_id": ent_id,
-        })
+        r = cls.client.post(
+            "/semantic/metrics",
+            json={
+                "name": "avg_duration_m08",
+                "display_name": "Avg Duration M08",
+                "definition_sql": "AVG(play_duration_seconds)",
+                "dimensions": [
+                    "platform",
+                    "app_version",
+                    "network_type",
+                    "content_type",
+                    "event_date",
+                ],
+                "entity_id": ent_id,
+            },
+        )
         met_id = r.json()["metric_id"]
         cls.client.post(f"/semantic/metrics/{met_id}/publish")
 
@@ -198,8 +212,11 @@ class CompareMetricTemporalTests(unittest.TestCase):
             self.skipTest("No observations generated")
         max_order_1 = max(o["temporal_order"] for o in obs1)
         min_order_2 = min(o["temporal_order"] for o in obs2)
-        self.assertGreater(min_order_2, max_order_1,
-                           "Second step observations must start after first step's temporal_order")
+        self.assertGreater(
+            min_order_2,
+            max_order_1,
+            "Second step observations must start after first step's temporal_order",
+        )
 
     def test_evidence_graph_includes_temporal_order(self) -> None:
         sess = self._new_session()
@@ -262,9 +279,7 @@ class AggregateQueryTemporalTests(unittest.TestCase):
             },
             **kwargs,
         }
-        resp = self.client.post(
-            f"/sessions/{session_id}/steps/aggregate_query", json=body
-        )
+        resp = self.client.post(f"/sessions/{session_id}/steps/aggregate_query", json=body)
         self.assertEqual(resp.status_code, 200, resp.text)
         return resp.json().get("observations", [])
 
@@ -315,8 +330,7 @@ class AggregateQueryTemporalTests(unittest.TestCase):
             self.skipTest("No observations generated")
         orders = sorted(o["temporal_order"] for o in obs)
         self.assertEqual(orders[0], 0, "First step temporal_order must start at 0")
-        self.assertEqual(orders, list(range(len(orders))),
-                         "temporal_order must be consecutive")
+        self.assertEqual(orders, list(range(len(orders))), "temporal_order must be consecutive")
 
     def test_temporal_order_persists_in_evidence_graph(self) -> None:
         sess = self._new_session()

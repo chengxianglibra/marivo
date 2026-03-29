@@ -29,7 +29,6 @@ from app.storage.sqlite_metadata import SQLiteMetadataStore
 from app.sync import SyncEngine
 from app.ui import register_ui
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -38,7 +37,11 @@ def _resolve_storage(
     metadata_store: MetadataStore | None,
     analytics_engine: AnalyticsEngine | None,
 ) -> tuple[Path, MetadataStore, AnalyticsEngine]:
-    resolved_path = Path(db_path) if db_path is not None else Path(os.getenv("DUCKDB_MVP_DB", default_db_path()))
+    resolved_path = (
+        Path(db_path)
+        if db_path is not None
+        else Path(os.getenv("DUCKDB_MVP_DB", default_db_path()))
+    )
     if metadata_store is None:
         metadata_store = SQLiteMetadataStore(resolved_path.with_suffix(".meta.sqlite"))
     if analytics_engine is None:
@@ -48,7 +51,9 @@ def _resolve_storage(
     return resolved_path, metadata_store, analytics_engine
 
 
-def _register_configured_sources(config: FactumConfig, source_service: SourceService, sync_engine: SyncEngine) -> None:
+def _register_configured_sources(
+    config: FactumConfig, source_service: SourceService, sync_engine: SyncEngine
+) -> None:
     for source_config in config.sources:
         try:
             source = source_service.ensure_source(
@@ -63,12 +68,22 @@ def _register_configured_sources(config: FactumConfig, source_service: SourceSer
             elif sync_mode == "by_select":
                 selections = source_service.list_sync_selections(source["source_id"])
                 if selections:
-                    selection_dicts = [{"schema_name": row["schema_name"], "table_name": row["table_name"]} for row in selections]
+                    selection_dicts = [
+                        {"schema_name": row["schema_name"], "table_name": row["table_name"]}
+                        for row in selections
+                    ]
                     adapter = source_service.get_adapter(source["source_id"])
-                    sync_engine.trigger_sync(source["source_id"], adapter, selections=selection_dicts)
-                    logger.info("Config source '%s' registered and selectively synced", source_config.name)
+                    sync_engine.trigger_sync(
+                        source["source_id"], adapter, selections=selection_dicts
+                    )
+                    logger.info(
+                        "Config source '%s' registered and selectively synced", source_config.name
+                    )
                 else:
-                    logger.info("Config source '%s' registered (by_select, no selections yet)", source_config.name)
+                    logger.info(
+                        "Config source '%s' registered (by_select, no selections yet)",
+                        source_config.name,
+                    )
             else:
                 adapter = source_service.get_adapter(source["source_id"])
                 sync_engine.trigger_sync(source["source_id"], adapter)
@@ -112,14 +127,22 @@ def _register_configured_bindings(
                     binding_config.priority,
                     namespace=binding_config.namespace,
                 )
-                logger.info("Config binding '%s' -> '%s' registered", binding_config.source, binding_config.engine)
+                logger.info(
+                    "Config binding '%s' -> '%s' registered",
+                    binding_config.source,
+                    binding_config.engine,
+                )
             else:
                 if not source_row:
                     logger.warning("Config binding: source '%s' not found", binding_config.source)
                 if not engine_row:
                     logger.warning("Config binding: engine '%s' not found", binding_config.engine)
         except Exception:
-            logger.exception("Failed to register config binding '%s' -> '%s'", binding_config.source, binding_config.engine)
+            logger.exception(
+                "Failed to register config binding '%s' -> '%s'",
+                binding_config.source,
+                binding_config.engine,
+            )
 
 
 def _register_configured_governance(
@@ -161,7 +184,9 @@ def _register_configured_governance(
                 )
                 logger.info("Config quality rule '%s' registered", quality_rule_config.name)
         except Exception:
-            logger.exception("Failed to register config quality rule '%s'", quality_rule_config.name)
+            logger.exception(
+                "Failed to register config quality rule '%s'", quality_rule_config.name
+            )
 
 
 def _build_services(
@@ -214,8 +239,12 @@ def _build_services(
         job_repository=job_repository,
         metrics=metrics_collector,
     )
-    admin_enabled = config.ui.admin_enabled if config.ui.admin_enabled is not None else config.ui.enabled
-    user_enabled = config.ui.user_enabled if config.ui.user_enabled is not None else config.ui.enabled
+    admin_enabled = (
+        config.ui.admin_enabled if config.ui.admin_enabled is not None else config.ui.enabled
+    )
+    user_enabled = (
+        config.ui.user_enabled if config.ui.user_enabled is not None else config.ui.enabled
+    )
     reflection_enabled = config.reflection.enabled
     static_dir = Path(__file__).resolve().parent.parent / "static"
     return AppServices(
@@ -271,7 +300,9 @@ def create_app(
     analytics_engine: AnalyticsEngine | None = None,
     config_path: str | Path | None = None,
 ) -> FastAPI:
-    resolved_path, metadata_store, analytics_engine = _resolve_storage(db_path, metadata_store, analytics_engine)
+    resolved_path, metadata_store, analytics_engine = _resolve_storage(
+        db_path, metadata_store, analytics_engine
+    )
     config = load_config(Path(config_path) if config_path is not None else None)
     services = _build_services(
         resolved_path=resolved_path,

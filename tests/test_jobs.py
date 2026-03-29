@@ -45,7 +45,8 @@ class JobServiceTests(unittest.TestCase):
     def test_submit_step_job(self) -> None:
         session_id = self._create_session()
         job = self.job_service.submit_job(
-            session_id, "step",
+            session_id,
+            "step",
             {"step_type": "profile_table", "params": {"table_name": "analytics.watch_events"}},
         )
         self.assertTrue(job["job_id"].startswith("job_"))
@@ -60,7 +61,8 @@ class JobServiceTests(unittest.TestCase):
     def test_get_job(self) -> None:
         session_id = self._create_session()
         submitted = self.job_service.submit_job(
-            session_id, "step",
+            session_id,
+            "step",
             {"step_type": "profile_table", "params": {"table_name": "analytics.watch_events"}},
         )
         fetched = self.job_service.get_job(submitted["job_id"])
@@ -77,7 +79,8 @@ class JobServiceTests(unittest.TestCase):
     def test_list_jobs_by_session(self) -> None:
         session_id = self._create_session()
         self.job_service.submit_job(
-            session_id, "step",
+            session_id,
+            "step",
             {"step_type": "profile_table", "params": {"table_name": "analytics.watch_events"}},
         )
         jobs = self.job_service.list_jobs(session_id=session_id)
@@ -86,7 +89,8 @@ class JobServiceTests(unittest.TestCase):
     def test_cancel_completed_job_fails(self) -> None:
         session_id = self._create_session()
         job = self.job_service.submit_job(
-            session_id, "step",
+            session_id,
+            "step",
             {"step_type": "profile_table", "params": {"table_name": "analytics.watch_events"}},
         )
         with self.assertRaises(ValueError):
@@ -95,7 +99,8 @@ class JobServiceTests(unittest.TestCase):
     def test_failed_job_records_error(self) -> None:
         session_id = self._create_session()
         job = self.job_service.submit_job(
-            session_id, "step",
+            session_id,
+            "step",
             {"step_type": "nonexistent_step"},
         )
         self.assertEqual(job["status"], "failed")
@@ -103,13 +108,17 @@ class JobServiceTests(unittest.TestCase):
 
     def test_plan_job(self) -> None:
         session_id = self._create_session()
-        plan = self.planning.draft_plan(session_id, [
-            {"step_type": "profile_table", "params": {"table_name": "analytics.watch_events"}},
-        ])
+        plan = self.planning.draft_plan(
+            session_id,
+            [
+                {"step_type": "profile_table", "params": {"table_name": "analytics.watch_events"}},
+            ],
+        )
         self.planning.validate_plan(plan["plan_id"])
         self.planning.approve_plan(plan["plan_id"])
         job = self.job_service.submit_job(
-            session_id, "plan",
+            session_id,
+            "plan",
             {"plan_id": plan["plan_id"]},
         )
         self.assertEqual(job["status"], "completed")
@@ -136,11 +145,17 @@ class JobAPITests(unittest.TestCase):
 
     def test_submit_and_get_job_via_api(self) -> None:
         session_id = self._create_session()
-        resp = self.client.post("/jobs", json={
-            "session_id": session_id,
-            "job_type": "step",
-            "payload": {"step_type": "profile_table", "params": {"table_name": "analytics.watch_events"}},
-        })
+        resp = self.client.post(
+            "/jobs",
+            json={
+                "session_id": session_id,
+                "job_type": "step",
+                "payload": {
+                    "step_type": "profile_table",
+                    "params": {"table_name": "analytics.watch_events"},
+                },
+            },
+        )
         self.assertEqual(resp.status_code, 200)
         job_id = resp.json()["job_id"]
 

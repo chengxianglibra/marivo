@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from app.analysis_core.compiler import CompiledQuery
 from app.analysis_core.ir import AnalysisStepIR
@@ -96,7 +95,8 @@ def federation_failure_from_plan(
     return ExecutionFailure(
         code="federation_not_implemented",
         category="federation",
-        message=message or (
+        message=message
+        or (
             "Federated execution requires staged handoff, but only the skeleton contract is implemented"
         ),
         replan_candidate=True,

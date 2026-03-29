@@ -27,7 +27,14 @@ class SessionManager:
             INSERT INTO sessions (session_id, goal, constraints_json, budget_json, policy_json, status, raw_filter)
             VALUES (?, ?, ?, ?, ?, 'open', ?)
             """,
-            [session_id, goal, self._dump(constraints), self._dump(budget), self._dump(policy), raw_filter],
+            [
+                session_id,
+                goal,
+                self._dump(constraints),
+                self._dump(budget),
+                self._dump(policy),
+                raw_filter,
+            ],
         )
         return {
             "session_id": session_id,

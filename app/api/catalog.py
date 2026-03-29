@@ -4,7 +4,6 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.api.deps import get_services
 
-
 router = APIRouter()
 
 

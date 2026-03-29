@@ -10,6 +10,6 @@ __all__ = [
     "PlannerContextProvider",
     "ResolvedEntity",
     "ResolvedMetric",
-    "SemanticRuntimeRepository",
     "SemanticResolver",
+    "SemanticRuntimeRepository",
 ]

@@ -40,7 +40,16 @@ class SourceRegistry:
             INSERT INTO sources (source_id, source_type, display_name, connection_json, capabilities_json, sync_mode, status, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)
             """,
-            [source_id, source_type, display_name, json.dumps(connection), json.dumps(caps), sync_mode, now, now],
+            [
+                source_id,
+                source_type,
+                display_name,
+                json.dumps(connection),
+                json.dumps(caps),
+                sync_mode,
+                now,
+                now,
+            ],
         )
         return {
             "source_id": source_id,
@@ -177,7 +186,9 @@ class SourceRegistry:
         rows = self.metadata.query_rows(sql, params)
         return [self._row_to_object(r) for r in rows]
 
-    def patch_object_properties(self, source_id: str, object_id: str, user_props: dict[str, Any]) -> dict[str, Any]:
+    def patch_object_properties(
+        self, source_id: str, object_id: str, user_props: dict[str, Any]
+    ) -> dict[str, Any]:
         """Merge user_props into an existing column source_object's properties_json."""
         row = self.metadata.query_one(
             "SELECT * FROM source_objects WHERE object_id = ? AND source_id = ?",
@@ -194,7 +205,9 @@ class SourceRegistry:
             "UPDATE source_objects SET properties_json = ?, updated_at = ? WHERE object_id = ?",
             [json.dumps(merged), now, object_id],
         )
-        updated = self.metadata.query_one("SELECT * FROM source_objects WHERE object_id = ?", [object_id])
+        updated = self.metadata.query_one(
+            "SELECT * FROM source_objects WHERE object_id = ?", [object_id]
+        )
         return self._row_to_object(updated)
 
     def get_sync_mode(self, source_id: str) -> str:
@@ -206,7 +219,9 @@ class SourceRegistry:
             raise KeyError(f"Unknown source: {source_id}")
         return row.get("sync_mode", "all")
 
-    def add_sync_selection(self, source_id: str, schema_name: str, table_name: str) -> dict[str, Any]:
+    def add_sync_selection(
+        self, source_id: str, schema_name: str, table_name: str
+    ) -> dict[str, Any]:
         self.get_source(source_id)
         existing = self.metadata.query_one(
             "SELECT * FROM sync_selections WHERE source_id = ? AND schema_name = ? AND table_name = ?",
@@ -244,7 +259,9 @@ class SourceRegistry:
         )
         return [dict(r) for r in rows]
 
-    def set_sync_selections(self, source_id: str, selections: list[dict[str, str]]) -> list[dict[str, Any]]:
+    def set_sync_selections(
+        self, source_id: str, selections: list[dict[str, str]]
+    ) -> list[dict[str, Any]]:
         self.get_source(source_id)
         self.metadata.execute("DELETE FROM sync_selections WHERE source_id = ?", [source_id])
         return [
@@ -264,7 +281,10 @@ class SourceRegistry:
     def browse_catalog_tables(self, source_id: str, schema_name: str) -> list[dict[str, Any]]:
         adapter = self.get_adapter(source_id)
         tables = adapter.list_tables(schema_name)
-        return [{"name": table.native_name, "schema": schema_name, "properties": table.properties} for table in tables]
+        return [
+            {"name": table.native_name, "schema": schema_name, "properties": table.properties}
+            for table in tables
+        ]
 
     def _row_to_source(self, row: dict[str, Any]) -> dict[str, Any]:
         return {

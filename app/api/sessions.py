@@ -15,7 +15,6 @@ from app.api.models import (
 )
 from app.reflection.context import build_reflection_context
 
-
 router = APIRouter()
 
 
@@ -31,7 +30,9 @@ def create_session(payload: SessionCreateRequest, request: Request) -> dict[str,
 
 
 @router.get("/sessions")
-def list_sessions(request: Request, status: str | None = Query(default=None)) -> list[dict[str, object]]:
+def list_sessions(
+    request: Request, status: str | None = Query(default=None)
+) -> list[dict[str, object]]:
     return get_services(request).service.list_sessions(status=status)
 
 

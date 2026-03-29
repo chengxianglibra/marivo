@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict
 from typing import Any
 from uuid import uuid4
 
@@ -100,7 +99,9 @@ class RegistrySyncEngine:
                     count += 1
 
                 if adapter.capabilities().supports_partitions:
-                    partitions = adapter.list_partitions(schema_obj.native_name, table_obj.native_name)
+                    partitions = adapter.list_partitions(
+                        schema_obj.native_name, table_obj.native_name
+                    )
                     for partition_obj in partitions:
                         self._upsert_object(
                             source_id=source_id,

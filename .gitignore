@@ -15,6 +15,13 @@ build/
 .pytest_cache/
 .coverage
 htmlcov/
+coverage.xml
+
+# Ruff cache
+.ruff_cache/
+
+# Mypy cache
+.mypy_cache/
 
 # Data files (generated at runtime)
 data/*.duckdb

@@ -46,9 +46,15 @@ class SessionManagerTests(unittest.TestCase):
         open_sessions = self.manager.list_sessions(status="open")
         closed_sessions = self.manager.list_sessions(status="closed")
 
-        self.assertIn(open_session["session_id"], [session["session_id"] for session in open_sessions])
-        self.assertNotIn(closed_session["session_id"], [session["session_id"] for session in open_sessions])
-        self.assertEqual([session["session_id"] for session in closed_sessions], [closed_session["session_id"]])
+        self.assertIn(
+            open_session["session_id"], [session["session_id"] for session in open_sessions]
+        )
+        self.assertNotIn(
+            closed_session["session_id"], [session["session_id"] for session in open_sessions]
+        )
+        self.assertEqual(
+            [session["session_id"] for session in closed_sessions], [closed_session["session_id"]]
+        )
 
     def test_assert_session_exists_raises_for_unknown_session(self) -> None:
         with self.assertRaises(KeyError):

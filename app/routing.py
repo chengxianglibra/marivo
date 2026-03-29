@@ -113,14 +113,13 @@ class QueryRouter:
                 [source_id],
             )
             if not bindings:
-                raise ValueError(
-                    f"Source '{source_id}' has no active engine bindings"
-                )
+                raise ValueError(f"Source '{source_id}' has no active engine bindings")
             engine_ids = set()
             for b in bindings:
                 engine_ids.add(b["engine_id"])
                 engine_priorities.setdefault(b["engine_id"], {})[source_id] = b["priority"]
                 import json
+
                 binding_details[(source_id, b["engine_id"])] = {
                     "namespace": json.loads(b["namespace_json"]),
                 }
@@ -136,8 +135,7 @@ class QueryRouter:
             for source_id, engines in engine_sets.items():
                 detail_parts.append(f"source '{source_id}' → engines {engines}")
             raise ValueError(
-                f"No common engine for tables {table_names}. "
-                f"Bindings: {'; '.join(detail_parts)}"
+                f"No common engine for tables {table_names}. Bindings: {'; '.join(detail_parts)}"
             )
 
         capability_profiles = {
@@ -224,7 +222,9 @@ class QueryRouter:
             source_id = source_ids_per_table[table_name]
             binding = binding_details.get((source_id, best_engine_id), {})
             qualified_names[table_name] = self.qualify_table_name(
-                table_name, source_id, binding,
+                table_name,
+                source_id,
+                binding,
             )
 
         # Step 6: build the analytics engine
@@ -282,7 +282,10 @@ class QueryRouter:
         }
 
     def qualify_table_name(
-        self, table_native_name: str, source_id: str, binding: dict[str, Any],
+        self,
+        table_native_name: str,
+        source_id: str,
+        binding: dict[str, Any],
     ) -> str:
         """Build an engine-qualified table reference using binding namespace."""
         ns = binding.get("namespace", {})

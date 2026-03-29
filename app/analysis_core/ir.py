@@ -1,13 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 from app.analysis_core.primitives import (
-    COMPOSITE_STEP_TYPES,
     step_category_for,
 )
-
 
 DEFAULT_SLICE_DIMENSIONS = ("platform", "app_version", "network_type", "content_type")
 PERIOD_CONTEXT_STEP_TYPES = frozenset(
@@ -243,14 +242,10 @@ def request_from_legacy_session(
         policy=dict(session.get("policy", {})),
         requested_step_types=[step.step_type for step in step_irs],
         requested_metrics=_dedupe_preserve_order(
-            metric_name
-            for step in step_irs
-            for metric_name in step.metric_names()
+            metric_name for step in step_irs for metric_name in step.metric_names()
         ),
         requested_tables=_dedupe_preserve_order(
-            table_name
-            for step in step_irs
-            if (table_name := step.table_name()) is not None
+            table_name for step in step_irs if (table_name := step.table_name()) is not None
         ),
     )
 
@@ -339,7 +334,9 @@ def _infer_semantic_intent(step_type: str, params: Mapping[str, Any]) -> Semanti
     )
 
 
-def _infer_artifact_expectation(step_type: str, params: Mapping[str, Any]) -> ArtifactExpectation | None:
+def _infer_artifact_expectation(
+    step_type: str, params: Mapping[str, Any]
+) -> ArtifactExpectation | None:
     artifact_kind = STEP_ARTIFACT_KINDS.get(step_type)
     if artifact_kind is None:
         return None
@@ -360,7 +357,11 @@ def _infer_execution_hints(step_type: str, params: Mapping[str, Any]) -> dict[st
         "requires_period_context": step_type in PERIOD_CONTEXT_STEP_TYPES,
         "optional": False,
     }
-    explicit_table_name = params.get("table") if step_type in {"metric_query", "aggregate_query"} else params.get("table_name")
+    explicit_table_name = (
+        params.get("table")
+        if step_type in {"metric_query", "aggregate_query"}
+        else params.get("table_name")
+    )
     if explicit_table_name:
         hints["explicit_table_name"] = str(explicit_table_name)
         hints["routing_table_name"] = str(explicit_table_name).split(".")[-1]

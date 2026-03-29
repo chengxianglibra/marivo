@@ -19,10 +19,9 @@ from __future__ import annotations
 
 import json
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from math import inf
-from typing import TYPE_CHECKING
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from app.analysis_core.ir import (
@@ -49,9 +48,11 @@ from app.runtime_contracts import (
 from app.semantic_runtime import SemanticResolver, SemanticRuntimeRepository
 from app.storage.analytics import AnalyticsEngine
 from app.storage.metadata import MetadataStore
-from app.time_scope import normalize_aggregate_query_request
-from app.time_scope import normalize_metric_query_request
-from app.time_scope import scope_predicate_contains_time_condition
+from app.time_scope import (
+    normalize_aggregate_query_request,
+    normalize_metric_query_request,
+    scope_predicate_contains_time_condition,
+)
 
 if TYPE_CHECKING:
     from app.governance import GovernanceService
@@ -75,7 +76,7 @@ PLAN_STATUS_TRANSITIONS = {
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 class PlanningService:
@@ -115,7 +116,9 @@ class PlanningService:
         Each step is: {step_type, params?, dependencies?}
         """
         start = time.perf_counter()
-        with observability_context(session_id=session_id, execution_stage="planner", planner_id="draft_plan"):
+        with observability_context(
+            session_id=session_id, execution_stage="planner", planner_id="draft_plan"
+        ):
             plan_id = f"plan_{uuid4().hex[:12]}"
             now = _now_iso()
 
@@ -217,12 +220,16 @@ class PlanningService:
         # Pre-validate before any mutation
         for idx in skip_steps:
             if idx < 0 or idx >= len(steps):
-                raise ValueError(f"skip_steps index {idx} is out of bounds (plan has {len(steps)} steps)")
+                raise ValueError(
+                    f"skip_steps index {idx} is out of bounds (plan has {len(steps)} steps)"
+                )
 
         for op in modify_steps:
             idx = op["index"]
             if idx < 0 or idx >= len(steps):
-                raise ValueError(f"modify_steps index {idx} is out of bounds (plan has {len(steps)} steps)")
+                raise ValueError(
+                    f"modify_steps index {idx} is out of bounds (plan has {len(steps)} steps)"
+                )
             if steps[idx].get("status") == "skipped":
                 raise ValueError(f"Cannot modify step at index {idx}: step is already skipped")
 
@@ -250,14 +257,16 @@ class PlanningService:
         # Apply add_steps
         start = len(steps)
         for i, new_step in enumerate(add_steps):
-            steps.append({
-                "index": start + i,
-                "step_type": new_step["step_type"],
-                "params": dict(new_step.get("params") or {}),
-                "dependencies": list(new_step.get("dependencies") or []),
-                "status": "pending",
-                "estimated_cost": None,
-            })
+            steps.append(
+                {
+                    "index": start + i,
+                    "step_type": new_step["step_type"],
+                    "params": dict(new_step.get("params") or {}),
+                    "dependencies": list(new_step.get("dependencies") or []),
+                    "status": "pending",
+                    "estimated_cost": None,
+                }
+            )
 
         self._update_steps(plan_id, steps)
 
@@ -284,10 +293,14 @@ class PlanningService:
         ``approve_plan()`` call.
         """
         start = time.perf_counter()
-        with observability_context(plan_id=plan_id, execution_stage="planner", planner_id="validate_plan"):
+        with observability_context(
+            plan_id=plan_id, execution_stage="planner", planner_id="validate_plan"
+        ):
             plan = self.get_plan(plan_id)
             if plan["status"] != "draft":
-                raise ValueError(f"Can only validate plans in 'draft' status, got '{plan['status']}'")
+                raise ValueError(
+                    f"Can only validate plans in 'draft' status, got '{plan['status']}'"
+                )
 
             validation = self._validate_steps(plan)
             if validation.valid:
@@ -326,12 +339,14 @@ class PlanningService:
         return result
 
     # Issue codes that require explicit human approval before execution.
-    _APPROVAL_GATE_CODES: frozenset[str] = frozenset({
-        # Budget hard-block
-        "budget_rows_exceeded",
-        # Governance
-        "quality_blocker",
-    })
+    _APPROVAL_GATE_CODES: frozenset[str] = frozenset(
+        {
+            # Budget hard-block
+            "budget_rows_exceeded",
+            # Governance
+            "quality_blocker",
+        }
+    )
 
     @staticmethod
     def _needs_explicit_approval(validation: PlanValidationResult) -> bool:
@@ -366,7 +381,9 @@ class PlanningService:
         if plan["status"] == "approved":
             return plan
         if plan["status"] != "validated":
-            raise ValueError(f"Can only approve plans in 'validated' status, got '{plan['status']}'")
+            raise ValueError(
+                f"Can only approve plans in 'validated' status, got '{plan['status']}'"
+            )
         self._transition(plan_id, "approved")
         return self.get_plan(plan_id)
 
@@ -390,15 +407,21 @@ class PlanningService:
                 when some (but not all) steps succeeded.
         """
         total_start = time.perf_counter()
-        with observability_context(plan_id=plan_id, execution_stage="planner", planner_id="execute_plan"):
+        with observability_context(
+            plan_id=plan_id, execution_stage="planner", planner_id="execute_plan"
+        ):
             plan = self.get_plan(plan_id)
             if plan["status"] != "approved":
-                raise ValueError(f"Can only execute plans in 'approved' status, got '{plan['status']}'")
+                raise ValueError(
+                    f"Can only execute plans in 'approved' status, got '{plan['status']}'"
+                )
 
             self._transition(plan_id, "executing")
             steps = plan["steps"]
             compile_start = time.perf_counter()
-            with observability_context(plan_id=plan_id, execution_stage="compiler", compiler_id="execution_plan_ir_v1"):
+            with observability_context(
+                plan_id=plan_id, execution_stage="compiler", compiler_id="execution_plan_ir_v1"
+            ):
                 plan_ir = self._build_execution_plan_ir(plan)
             if self.metrics is not None:
                 self.metrics.record_execution_stage(
@@ -456,9 +479,11 @@ class PlanningService:
 
                 try:
                     params = step_ir.params
-                    started = datetime.now(timezone.utc)
-                    result = service.run_step(session_id, step_ir.step_type, params=params if params else None)
-                    duration_ms = (datetime.now(timezone.utc) - started).total_seconds() * 1000
+                    started = datetime.now(UTC)
+                    result = service.run_step(
+                        session_id, step_ir.step_type, params=params if params else None
+                    )
+                    duration_ms = (datetime.now(UTC) - started).total_seconds() * 1000
 
                     step["status"] = "completed"
                     step["result_summary"] = result.get("summary", "")
@@ -651,14 +676,16 @@ class PlanningService:
         for i, step in enumerate(steps):
             raw = dict(step)
             step_ir = from_legacy_step(i, raw)
-            normalized.append({
-                "index": step_ir.index,
-                "step_type": step_ir.step_type,
-                "params": dict(step_ir.params),
-                "dependencies": list(step_ir.dependencies),
-                "estimated_cost": raw.get("estimated_cost"),
-                "status": raw.get("status", "pending"),
-            })
+            normalized.append(
+                {
+                    "index": step_ir.index,
+                    "step_type": step_ir.step_type,
+                    "params": dict(step_ir.params),
+                    "dependencies": list(step_ir.dependencies),
+                    "estimated_cost": raw.get("estimated_cost"),
+                    "status": raw.get("status", "pending"),
+                }
+            )
         return normalized
 
     @staticmethod
@@ -730,9 +757,7 @@ class PlanningService:
 
     def _resolve_step_semantics(self, step: AnalysisStepIR) -> SemanticResolutionIR:
         requested_dimensions = (
-            list(step.semantic_intent.dimensions)
-            if step.semantic_intent is not None
-            else []
+            list(step.semantic_intent.dimensions) if step.semantic_intent is not None else []
         )
         resolved_metrics: list[ResolvedMetricIR] = []
         for metric_name in step.metric_names():
@@ -775,7 +800,9 @@ class PlanningService:
         quality_expectations: dict[str, Any] = {}
         if resolved_metrics:
             primary_metric = resolved_metrics[0]
-            supported_dimensions = list(primary_metric.allowed_dimensions or primary_metric.dimensions)
+            supported_dimensions = list(
+                primary_metric.allowed_dimensions or primary_metric.dimensions
+            )
             if primary_metric.grain:
                 legal_grains.append(primary_metric.grain)
             quality_expectations.update(primary_metric.quality_expectations)
@@ -796,7 +823,9 @@ class PlanningService:
             compatible_dimensions=compatible_dimensions,
             legal_grains=legal_grains,
             source_table=step.table_name(),
-            date_column=step.semantic_intent.date_column if step.semantic_intent is not None else None,
+            date_column=step.semantic_intent.date_column
+            if step.semantic_intent is not None
+            else None,
             metrics=resolved_metrics,
             entities=resolved_entities,
             quality_expectations=quality_expectations,
@@ -860,7 +889,9 @@ class PlanningService:
             return target
 
         target.engine_id = route.engine_id
-        target.engine_type = self._engine_type_for_id(route.engine_id) or self._analytics_engine_type(route.engine)
+        target.engine_type = self._engine_type_for_id(
+            route.engine_id
+        ) or self._analytics_engine_type(route.engine)
         target.engine_locality = "bound_engine"
         target.routing_strategy = (
             "semantic_bound_route"
@@ -871,9 +902,7 @@ class PlanningService:
         target.routing_reason = route.selection_reason
         target.routing_detail = dict(route.routing_detail)
         target.capability_profile = (
-            route.capability_profile.to_dict()
-            if route.capability_profile is not None
-            else {}
+            route.capability_profile.to_dict() if route.capability_profile is not None else {}
         )
         return target
 
@@ -984,9 +1013,7 @@ class PlanningService:
 
         for step in step_irs:
             if step.step_type == "metric_query":
-                missing = [
-                    key for key in METRIC_QUERY_REQUIRED_PARAMS if not step.params.get(key)
-                ]
+                missing = [key for key in METRIC_QUERY_REQUIRED_PARAMS if not step.params.get(key)]
                 if missing:
                     issues.append(
                         PlanValidationIssue(
@@ -1030,7 +1057,13 @@ class PlanningService:
             elif step.step_type == "attribute_change":
                 missing = [
                     key
-                    for key in ("metric_name", "table_name", "period_end", "baseline_start", "baseline_end")
+                    for key in (
+                        "metric_name",
+                        "table_name",
+                        "period_end",
+                        "baseline_start",
+                        "baseline_end",
+                    )
                     if not step.params.get(key)
                 ]
                 if missing:
@@ -1078,7 +1111,10 @@ class PlanningService:
                             category="params",
                             step_index=step.index,
                             message=f"Step {step.index}: profile_table requires 'table_name' param",
-                            detail={"required_params": ["table_name"], "missing_params": ["table_name"]},
+                            detail={
+                                "required_params": ["table_name"],
+                                "missing_params": ["table_name"],
+                            },
                         )
                     )
             elif step.step_type == "sample_rows":
@@ -1089,7 +1125,10 @@ class PlanningService:
                             category="params",
                             step_index=step.index,
                             message=f"Step {step.index}: sample_rows requires 'table_name' param",
-                            detail={"required_params": ["table_name"], "missing_params": ["table_name"]},
+                            detail={
+                                "required_params": ["table_name"],
+                                "missing_params": ["table_name"],
+                            },
                         )
                     )
 
@@ -1169,36 +1208,48 @@ class PlanningService:
         has_left = bool(params.get("left_artifact_id") or params.get("left_step_id"))
         has_right = bool(params.get("right_artifact_id") or params.get("right_step_id"))
         if not has_left:
-            issues.append(PlanValidationIssue(
-                code="correlate_metrics_missing_left",
-                category="semantic",
-                step_index=step.index,
-                message=(
-                    f"Step {step.index}: correlate_metrics requires 'left_artifact_id' "
-                    "or 'left_step_id'"
-                ),
-                detail={"step_type": "correlate_metrics"},
-            ))
-        if not has_right:
-            issues.append(PlanValidationIssue(
-                code="correlate_metrics_missing_right",
-                category="semantic",
-                step_index=step.index,
-                message=(
-                    f"Step {step.index}: correlate_metrics requires 'right_artifact_id' "
-                    "or 'right_step_id'"
-                ),
-                detail={"step_type": "correlate_metrics"},
-            ))
-        for required in ("left_value_column", "right_value_column", "join_on", "left_metric", "right_metric"):
-            if not params.get(required):
-                issues.append(PlanValidationIssue(
-                    code=f"correlate_metrics_missing_{required}",
+            issues.append(
+                PlanValidationIssue(
+                    code="correlate_metrics_missing_left",
                     category="semantic",
                     step_index=step.index,
-                    message=f"Step {step.index}: correlate_metrics requires '{required}'",
-                    detail={"step_type": "correlate_metrics", "missing_param": required},
-                ))
+                    message=(
+                        f"Step {step.index}: correlate_metrics requires 'left_artifact_id' "
+                        "or 'left_step_id'"
+                    ),
+                    detail={"step_type": "correlate_metrics"},
+                )
+            )
+        if not has_right:
+            issues.append(
+                PlanValidationIssue(
+                    code="correlate_metrics_missing_right",
+                    category="semantic",
+                    step_index=step.index,
+                    message=(
+                        f"Step {step.index}: correlate_metrics requires 'right_artifact_id' "
+                        "or 'right_step_id'"
+                    ),
+                    detail={"step_type": "correlate_metrics"},
+                )
+            )
+        for required in (
+            "left_value_column",
+            "right_value_column",
+            "join_on",
+            "left_metric",
+            "right_metric",
+        ):
+            if not params.get(required):
+                issues.append(
+                    PlanValidationIssue(
+                        code=f"correlate_metrics_missing_{required}",
+                        category="semantic",
+                        step_index=step.index,
+                        message=f"Step {step.index}: correlate_metrics requires '{required}'",
+                        detail={"step_type": "correlate_metrics", "missing_param": required},
+                    )
+                )
         return issues
 
     def _validate_step_semantics(
@@ -1216,7 +1267,9 @@ class PlanningService:
         if semantic_resolution is not None and semantic_resolution.requested_metrics:
             metric_name = str(semantic_resolution.requested_metrics[0]).strip()
         if not metric_name:
-            metric_name = str(step.primary_metric_name() or step.params.get("metric_name", "")).strip()
+            metric_name = str(
+                step.primary_metric_name() or step.params.get("metric_name", "")
+            ).strip()
         if not metric_name:
             return issues
 
@@ -1268,7 +1321,11 @@ class PlanningService:
                 )
 
         requested_grain = str(step.params.get("grain", "")).strip()
-        if requested_grain and semantic_resolution.legal_grains and requested_grain not in semantic_resolution.legal_grains:
+        if (
+            requested_grain
+            and semantic_resolution.legal_grains
+            and requested_grain not in semantic_resolution.legal_grains
+        ):
             issues.append(
                 PlanValidationIssue(
                     code="semantic_grain_not_supported",
@@ -1413,7 +1470,10 @@ class PlanningService:
         return []
 
     def _validate_budget(
-        self, plan_id: str, request: AnalysisRequest, cost_estimates: list[CostEstimate],
+        self,
+        plan_id: str,
+        request: AnalysisRequest,
+        cost_estimates: list[CostEstimate],
     ) -> BudgetCheckResult:
         max_rows = request.budget.get("max_rows_scanned", inf)
         return self.cost_model.check_budget(plan_id, max_rows, cost_estimates)

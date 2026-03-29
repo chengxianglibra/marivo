@@ -31,7 +31,6 @@ from app.main import create_app
 from app.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.shared_fixtures import get_seeded_duckdb_path
 
-
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 
@@ -70,7 +69,10 @@ def _insert_obs(
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
-            obs_id, sess_id, step_id, "metric_observation",
+            obs_id,
+            sess_id,
+            step_id,
+            "metric_observation",
             json.dumps({"metric": metric, "slice": slice_val}),
             json.dumps({"delta_pct": delta_pct}),
             json.dumps({"sample_size": 100, "practical_significance": True}),
@@ -102,7 +104,10 @@ def _insert_causal_candidate_obs(
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
-            obs_id, sess_id, step_id, "causal_candidate",
+            obs_id,
+            sess_id,
+            step_id,
+            "causal_candidate",
             json.dumps({"metric": metric, "slice": slice_val}),
             json.dumps({"candidate_cause_observation_id": candidate_cause_observation_id}),
             json.dumps({"sample_size": 100, "practical_significance": True}),
@@ -165,9 +170,7 @@ class CausalUpgradeChainTests(unittest.TestCase):
         levels = [r["inference_level"] for r in rows]
         self.assertIn("L1", levels, "Expected at least one claim upgraded to L1")
 
-        justifications = " ".join(
-            r["inference_justification_json"] or "[]" for r in rows
-        )
+        justifications = " ".join(r["inference_justification_json"] or "[]" for r in rows)
         self.assertIn("cross_slice_consistency", justifications)
 
     # -- test_l0_to_l1_to_l2_full_chain ---------------------------------------
@@ -226,9 +229,7 @@ class CausalUpgradeChainTests(unittest.TestCase):
         levels_after_l2 = [r["inference_level"] for r in rows_after_l2]
         self.assertIn("L2", levels_after_l2, "Expected at least one claim upgraded to L2")
 
-        justifications = " ".join(
-            r["inference_justification_json"] or "[]" for r in rows_after_l2
-        )
+        justifications = " ".join(r["inference_justification_json"] or "[]" for r in rows_after_l2)
         self.assertIn("cross_slice_consistency", justifications)
         self.assertIn("temporal_precedence", justifications)
 
@@ -374,11 +375,13 @@ class CausalUpgradeChainTests(unittest.TestCase):
         if late_claim and edges:
             late_claim_id = late_claim["claim_id"]
             matching_edges = [
-                e for e in edges
+                e
+                for e in edges
                 if e["from_node_id"] == "obs_early_001" and e["to_node_id"] == late_claim_id
             ]
             self.assertGreaterEqual(
-                len(matching_edges), 1,
+                len(matching_edges),
+                1,
                 "Expected correlates_with edge from early obs to late claim",
             )
 
@@ -528,7 +531,8 @@ class CausalUpgradeChainTests(unittest.TestCase):
         )
         # lag=0 (same day) and lag>7 should both be excluded
         self.assertEqual(
-            len(edges), 0,
+            len(edges),
+            0,
             "Expected no correlates_with edges for lag=0 or lag>7",
         )
 
@@ -593,21 +597,27 @@ class EvidenceGraphAPIFieldsTests(unittest.TestCase):
         cls.client = TestClient(create_app(db_path))
 
         # Seed a published entity + metric shared across tests
-        entity_resp = cls.client.post("/semantic/entities", json={
-            "name": "p2_int_entity",
-            "display_name": "P2 Integration Entity",
-            "keys": ["session_id"],
-        })
+        entity_resp = cls.client.post(
+            "/semantic/entities",
+            json={
+                "name": "p2_int_entity",
+                "display_name": "P2 Integration Entity",
+                "keys": ["session_id"],
+            },
+        )
         entity_id = entity_resp.json()["entity_id"]
         cls.client.post(f"/semantic/entities/{entity_id}/publish")
 
-        metric_resp = cls.client.post("/semantic/metrics", json={
-            "name": "p2_avg_duration",
-            "display_name": "P2 Avg Duration",
-            "definition_sql": "avg(play_duration_seconds)",
-            "dimensions": ["platform", "app_version", "network_type", "content_type"],
-            "entity_id": entity_id,
-        })
+        metric_resp = cls.client.post(
+            "/semantic/metrics",
+            json={
+                "name": "p2_avg_duration",
+                "display_name": "P2 Avg Duration",
+                "definition_sql": "avg(play_duration_seconds)",
+                "dimensions": ["platform", "app_version", "network_type", "content_type"],
+                "entity_id": entity_id,
+            },
+        )
         cls.metric_id = metric_resp.json()["metric_id"]
         cls.client.post(f"/semantic/metrics/{cls.metric_id}/publish")
         cls.metric_name = "p2_avg_duration"
@@ -661,7 +671,8 @@ class EvidenceGraphAPIFieldsTests(unittest.TestCase):
         for claim in graph["claims"]:
             self.assertIn("inference_level", claim, f"claim missing inference_level: {claim}")
             self.assertIn(
-                claim["inference_level"], valid_levels,
+                claim["inference_level"],
+                valid_levels,
                 f"unexpected inference_level value: {claim['inference_level']}",
             )
             self.assertIn("inference_justification", claim)
@@ -691,7 +702,9 @@ class EvidenceGraphAPIFieldsTests(unittest.TestCase):
             self.skipTest("No metric_observation observations — check demo data date range")
 
         for obs in metric_obs:
-            self.assertIn("temporal_order", obs, f"obs missing temporal_order: {obs.get('observation_id')}")
+            self.assertIn(
+                "temporal_order", obs, f"obs missing temporal_order: {obs.get('observation_id')}"
+            )
             self.assertIsInstance(obs["temporal_order"], int)
             self.assertGreaterEqual(obs["temporal_order"], 0)
 
@@ -736,7 +749,12 @@ class EvidenceGraphAPIFieldsTests(unittest.TestCase):
         audit = json.loads(rows[0]["content_json"])
         self.assertIn("stage", audit, f"audit log missing 'stage' key: {audit.keys()}")
         # At least one of the three-stage or promotion audit fields must be present
-        phase2_keys = {"scope_clusters", "formulation_decisions", "claims_produced", "confirmed_count"}
+        phase2_keys = {
+            "scope_clusters",
+            "formulation_decisions",
+            "claims_produced",
+            "confirmed_count",
+        }
         self.assertTrue(
             bool(phase2_keys & set(audit.keys())),
             f"Audit log lacks any Phase 2 key. Keys found: {list(audit.keys())}",
@@ -781,7 +799,8 @@ class EvidenceGraphAPIFieldsTests(unittest.TestCase):
 
         unique_starts = {w["start"] for w in windows}
         self.assertGreater(
-            len(unique_starts), 1,
+            len(unique_starts),
+            1,
             "Expected observations from at least 2 distinct time windows",
         )
 
@@ -828,7 +847,9 @@ class EvidenceGraphAPIFieldsTests(unittest.TestCase):
         resp = self.client.get(f"/sessions/{sess_id}/debug")
         self.assertEqual(resp.status_code, 200)
         payload = resp.json()
-        checker_log = next(log for log in payload["checker_logs"] if log["checker_name"] == "temporal_precedence")
+        checker_log = next(
+            log for log in payload["checker_logs"] if log["checker_name"] == "temporal_precedence"
+        )
         self.assertEqual(checker_log["result"], "upgrade")
         self.assertEqual(checker_log["reason_code"], "already_materialized")
         self.assertGreaterEqual(checker_log["claims_upgraded"], 1)
@@ -843,9 +864,14 @@ class EvidenceEdgeSchemaTests(unittest.TestCase):
     def test_all_causal_edge_types_defined(self) -> None:
         """ALL_EDGE_TYPES must include all 3 basic + 5 causal types."""
         expected = {
-            "supports", "contradicts", "justifies",
-            "correlates_with", "temporally_precedes", "mechanistically_explains",
-            "eliminates_alternative", "experimentally_confirms",
+            "supports",
+            "contradicts",
+            "justifies",
+            "correlates_with",
+            "temporally_precedes",
+            "mechanistically_explains",
+            "eliminates_alternative",
+            "experimentally_confirms",
         }
         self.assertEqual(set(ALL_EDGE_TYPES), expected)
 

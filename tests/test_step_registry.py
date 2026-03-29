@@ -4,10 +4,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from fastapi.testclient import TestClient
+
 from app.analysis_core import COMPOSITE_STEP_TYPES, PRIMITIVE_STEP_TYPES
 from app.main import create_app
 from app.planning import VALID_STEP_TYPES
-from fastapi.testclient import TestClient
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 
@@ -35,7 +36,9 @@ class StepRegistryWiringTests(unittest.TestCase):
         self.assertTrue(set(COMPOSITE_STEP_TYPES).issubset(set(supported)))
 
     def test_run_step_rejects_unknown_step_type(self) -> None:
-        session_id = self.client.post("/sessions", json={"goal": "Unknown step guard"}).json()["session_id"]
+        session_id = self.client.post("/sessions", json={"goal": "Unknown step guard"}).json()[
+            "session_id"
+        ]
 
         response = self.client.post(f"/sessions/{session_id}/steps/not_a_real_step")
 

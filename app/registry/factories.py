@@ -14,6 +14,7 @@ def _trino_connect_kwargs(connection: dict[str, Any]) -> dict[str, Any]:
     raw_headers = connection.get("http_headers") or connection.get("http-headers")
     if isinstance(raw_headers, str):
         import json
+
         raw_headers = json.loads(raw_headers)
     kwargs: dict[str, Any] = dict(
         host=connection["host"],

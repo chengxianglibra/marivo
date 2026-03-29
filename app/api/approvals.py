@@ -5,7 +5,6 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from app.api.deps import get_services, http_error
 from app.api.models import ApprovalCreateRequest, ApprovalDecisionRequest, AutoFlagRequest
 
-
 router = APIRouter()
 
 
@@ -26,7 +25,9 @@ def list_approvals(
     session_id: str | None = Query(default=None),
     status: str | None = Query(default=None),
 ) -> list[dict[str, object]]:
-    return get_services(request).approval_service.list_requests(session_id=session_id, status=status)
+    return get_services(request).approval_service.list_requests(
+        session_id=session_id, status=status
+    )
 
 
 @router.get("/approvals/{request_id}")
@@ -38,7 +39,9 @@ def get_approval(request_id: str, request: Request) -> dict[str, object]:
 
 
 @router.post("/approvals/{request_id}/approve")
-def approve_request(request_id: str, payload: ApprovalDecisionRequest, request: Request) -> dict[str, object]:
+def approve_request(
+    request_id: str, payload: ApprovalDecisionRequest, request: Request
+) -> dict[str, object]:
     try:
         return get_services(request).approval_service.approve(
             request_id,
@@ -50,7 +53,9 @@ def approve_request(request_id: str, payload: ApprovalDecisionRequest, request: 
 
 
 @router.post("/approvals/{request_id}/reject")
-def reject_request(request_id: str, payload: ApprovalDecisionRequest, request: Request) -> dict[str, object]:
+def reject_request(
+    request_id: str, payload: ApprovalDecisionRequest, request: Request
+) -> dict[str, object]:
     try:
         return get_services(request).approval_service.reject(
             request_id,
@@ -71,6 +76,8 @@ def auto_flag_approvals(
     try:
         services.service._assert_session_exists(session_id)
         threshold = payload.risk_threshold if payload else "P0"
-        return services.approval_service.auto_flag_recommendations(session_id, risk_threshold=threshold)
+        return services.approval_service.auto_flag_recommendations(
+            session_id, risk_threshold=threshold
+        )
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error

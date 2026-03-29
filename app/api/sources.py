@@ -3,9 +3,13 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.api.deps import get_services
-from app.api.models import ColumnPropertiesUpdateRequest, SourceRegisterRequest, SourceUpdateRequest, SyncSelectionRequest
+from app.api.models import (
+    ColumnPropertiesUpdateRequest,
+    SourceRegisterRequest,
+    SourceUpdateRequest,
+    SyncSelectionRequest,
+)
 from app.registry.source_registry import DependencyError
-
 
 router = APIRouter()
 
@@ -35,7 +39,9 @@ def get_source(source_id: str, request: Request) -> dict[str, object]:
 
 
 @router.put("/sources/{source_id}")
-def update_source(source_id: str, payload: SourceUpdateRequest, request: Request) -> dict[str, object]:
+def update_source(
+    source_id: str, payload: SourceUpdateRequest, request: Request
+) -> dict[str, object]:
     try:
         return get_services(request).source_service.update_source(
             source_id,
@@ -53,7 +59,9 @@ def delete_source(source_id: str, request: Request) -> dict[str, object]:
         get_services(request).source_service.delete_source(source_id)
         return {"status": "deleted", "source_id": source_id}
     except DependencyError as error:
-        raise HTTPException(status_code=409, detail={"message": str(error), "dependencies": error.dependencies}) from error
+        raise HTTPException(
+            status_code=409, detail={"message": str(error), "dependencies": error.dependencies}
+        ) from error
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
 
@@ -69,9 +77,17 @@ def trigger_sync(source_id: str, request: Request) -> dict[str, object]:
         if sync_mode == "by_select":
             selections = services.source_service.list_sync_selections(source_id)
             if not selections:
-                raise HTTPException(status_code=400, detail="No sync selections configured for this source (mode=by_select)")
-            selection_dicts = [{"schema_name": row["schema_name"], "table_name": row["table_name"]} for row in selections]
-            job_id = services.sync_engine.trigger_sync(source_id, adapter, selections=selection_dicts)
+                raise HTTPException(
+                    status_code=400,
+                    detail="No sync selections configured for this source (mode=by_select)",
+                )
+            selection_dicts = [
+                {"schema_name": row["schema_name"], "table_name": row["table_name"]}
+                for row in selections
+            ]
+            job_id = services.sync_engine.trigger_sync(
+                source_id, adapter, selections=selection_dicts
+            )
         else:
             job_id = services.sync_engine.trigger_sync(source_id, adapter)
         return {"job_id": job_id, "source_id": source_id, "status": "succeeded"}
@@ -92,11 +108,16 @@ def list_sync_selections(source_id: str, request: Request) -> list[dict[str, obj
 
 
 @router.post("/sources/{source_id}/sync/selections")
-def add_sync_selections(source_id: str, payload: SyncSelectionRequest, request: Request) -> list[dict[str, object]]:
+def add_sync_selections(
+    source_id: str, payload: SyncSelectionRequest, request: Request
+) -> list[dict[str, object]]:
     try:
         return get_services(request).source_service.set_sync_selections(
             source_id,
-            [{"schema_name": selection.schema_name, "table_name": selection.table_name} for selection in payload.selections],
+            [
+                {"schema_name": selection.schema_name, "table_name": selection.table_name}
+                for selection in payload.selections
+            ],
         )
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
@@ -139,7 +160,9 @@ def browse_catalog_schemas(source_id: str, request: Request) -> list[dict[str, o
 
 
 @router.get("/sources/{source_id}/catalog/tables")
-def browse_catalog_tables(source_id: str, request: Request, schema: str = Query(...)) -> list[dict[str, object]]:
+def browse_catalog_tables(
+    source_id: str, request: Request, schema: str = Query(...)
+) -> list[dict[str, object]]:
     try:
         return get_services(request).source_service.browse_catalog_tables(source_id, schema)
     except KeyError as error:
@@ -147,7 +170,9 @@ def browse_catalog_tables(source_id: str, request: Request, schema: str = Query(
 
 
 @router.patch("/sources/{source_id}/objects/{object_id}/properties")
-def patch_column_properties(source_id: str, object_id: str, payload: ColumnPropertiesUpdateRequest, request: Request) -> dict[str, object]:
+def patch_column_properties(
+    source_id: str, object_id: str, payload: ColumnPropertiesUpdateRequest, request: Request
+) -> dict[str, object]:
     services = get_services(request)
     user_props = {k: v for k, v in payload.model_dump().items() if v is not None}
     try:

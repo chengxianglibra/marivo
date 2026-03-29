@@ -7,7 +7,6 @@ from starlette.responses import PlainTextResponse
 
 from app.api.deps import get_services
 
-
 router = APIRouter()
 
 

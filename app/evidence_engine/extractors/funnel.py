@@ -40,11 +40,13 @@ class FunnelExtractor(ExtractorContract):
                 prev_count = float(row_list[i - 1].get(count_col, 0))
                 if prev_count > 0:
                     drop_rate = (prev_count - count) / prev_count
-            stages.append({
-                "stage_name": stage_name,
-                "delta_drop_rate": drop_rate,
-                "users": int(count),
-            })
+            stages.append(
+                {
+                    "stage_name": stage_name,
+                    "delta_drop_rate": drop_rate,
+                    "users": int(count),
+                }
+            )
 
         # Produce observation only if any drop exceeds threshold
         if not any(abs(s["delta_drop_rate"]) > threshold for s in stages):

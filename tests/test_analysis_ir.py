@@ -136,7 +136,13 @@ class AnalysisIRTests(unittest.TestCase):
         ]
 
         request = request_from_legacy_session(
-            {"session_id": "sess_123", "goal": "Aggregate", "constraints": {}, "budget": {}, "policy": {}},
+            {
+                "session_id": "sess_123",
+                "goal": "Aggregate",
+                "constraints": {},
+                "budget": {},
+                "policy": {},
+            },
             plan_id="plan_123",
             steps=steps,
         )

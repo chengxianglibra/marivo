@@ -3,6 +3,10 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, TypedDict
 
+from app.evidence_engine.causal_basis import (
+    build_causal_basis,
+    derive_session_summary,
+)
 from app.evidence_engine.causal_checkers import (
     CausalCheckerRegistry,
     LevelUpgrade,
@@ -13,6 +17,7 @@ from app.evidence_engine.claim_relations import (
     DefaultClaimRelationDiscovery,
     materialize_relations_as_edges,
 )
+from app.evidence_engine.confounder_resolution import resolve_confounders
 from app.evidence_engine.derived_observations import DefaultDerivedObservationBuilder
 from app.evidence_engine.extractors.base import ObservationExtractor
 from app.evidence_engine.recommendation_policy import (
@@ -20,12 +25,6 @@ from app.evidence_engine.recommendation_policy import (
     RecommendationPolicy,
     attach_causal_chain_metadata,
 )
-from app.evidence_engine.causal_basis import (
-    SessionSummary,
-    build_causal_basis,
-    derive_session_summary,
-)
-from app.evidence_engine.confounder_resolution import resolve_confounders
 from app.evidence_engine.schemas import (
     CAUSAL_EDGE_TO_INFERENCE_LEVEL,
     INFERENCE_LEVEL_ORDER,
@@ -37,8 +36,9 @@ from app.evidence_engine.schemas import (
 from app.evidence_engine.scoring import ConfidenceScorer, DefaultConfidenceScorer
 from app.evidence_engine.synthesizers import ClaimSynthesizer, DefaultClaimSynthesizer
 
-
-Synthesizer = Callable[[list[Observation]], tuple[list[Claim], list[Recommendation], list[dict[str, Any]]]]
+Synthesizer = Callable[
+    [list[Observation]], tuple[list[Claim], list[Recommendation], list[dict[str, Any]]]
+]
 
 
 class SynthesisResult(TypedDict):
@@ -285,7 +285,9 @@ class EvidencePipeline:
                         _claim_idx[rec["claim_id"]],
                         [
                             _obs_map[oid]
-                            for oid in _claim_idx[rec["claim_id"]].get("supporting_observations", [])
+                            for oid in _claim_idx[rec["claim_id"]].get(
+                                "supporting_observations", []
+                            )
                             if oid in _obs_map
                         ],
                         derive_session_summary(
@@ -373,15 +375,11 @@ class EvidencePipeline:
                         "score_components": {},
                         "supporting_observation_ids": [],
                     }
-        )
+                )
 
         combined_edges = edges + promoted_edges
         level_updates = _derive_inference_level_from_edges(combined_edges, claims)
-        direct_updates = {
-            upgrade.claim_id: upgrade
-            for upgrade in upgrades
-            if upgrade.claim_id
-        }
+        direct_updates = {upgrade.claim_id: upgrade for upgrade in upgrades if upgrade.claim_id}
         if not level_updates and not direct_updates:
             return {"claims": claims, "edges": promoted_edges}
         promoted_claims = [
@@ -451,7 +449,9 @@ class EvidencePipeline:
     ) -> list[dict[str, Any]]:
         edges: list[dict[str, Any]] = []
         for recommendation in recommendations:
-            backing_claim_ids = recommendation.get("supporting_claims") or [recommendation["claim_id"]]
+            backing_claim_ids = recommendation.get("supporting_claims") or [
+                recommendation["claim_id"]
+            ]
             for backing_id in backing_claim_ids:
                 edges.append(
                     {
