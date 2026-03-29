@@ -9,7 +9,8 @@
 - [Agent-First Intent Architecture](agent-first-intent-architecture.md) — 当 Agent 是唯一用户时，原子意图、派生意图与模板层应如何分工
 - [证据引擎设计准则](evidence-engine-design.md) — 证据引擎（Evidence Engine）的分层抽象、实体边界与 agent-first 设计原则
 - [Evidence Engine Runtime Lifecycle](evidence-engine-runtime-lifecycle.md) — 规范 `artifact -> finding -> proposition -> assessment -> action proposal` 的创建、增量更新、重放、失效与幂等规则
-- [Session Schema](session.md) — 分析容器根对象 `session` 的类型契约草案；定义 session-level typed 非时间约束、planning hint、治理/生命周期边界，以及进入规范读取面的最小入口
+- [Artifact → Finding Extraction Contract](artifact-finding-extraction-contract.md) — 规范哪些 artifact family 必须进入 canonical finding layer、successful extraction 的提交边界，以及 successful empty result 的禁止规则
+- [Session Schema](session.md) — 分析容器根对象 `session` 的类型契约草案；定义 session-level typed 非时间约束、治理/生命周期边界，以及进入规范读取面的最小入口
 - [Finding Schema](finding.md) — 事实层（Fact Layer）中规范 `finding` 的类型契约草案
 - [Proposition Schema](proposition.md) — 判断层（Judgment Layer）中规范 `proposition` 的类型契约草案
 - [Assessment Schema](assessment.md) — 判断层（Judgment Layer）中规范 `assessment` 及 `evidence_gap` / `inference_record` 的类型契约草案
@@ -36,7 +37,8 @@
 - [Agent 交互分析接口设计准则](agent-interaction-contract-principles.md) — 统一说明面向 agent 的分析动作面（analysis action surface）、分析状态面（analysis state surface）与消费者投影面（consumer projection surface）应如何分层；这是 `docs/analysis/` 内 intent / evidence / projection 文档共享的交互设计基线，不等价于 `docs/api/` 下的 HTTP 契约
 - [证据引擎设计准则](evidence-engine-design.md) — 说明为什么要从 `observation -> claim -> recommendation` 迁移到 `artifact -> finding -> proposition -> assessment -> action proposal`
 - [Evidence Engine Runtime Lifecycle](evidence-engine-runtime-lifecycle.md) — 说明规范证据对象（canonical evidence objects）在目标态中的创建、增量更新、replay、soft invalidation 与 idempotency 规则
-- [Session Schema](session.md) — 说明分析容器根对象 `session` 的 typed 非时间约束 / focus 分离、治理与生命周期边界、写入协调，以及进入 state surface 的最小入口
+- [Artifact → Finding Extraction Contract](artifact-finding-extraction-contract.md) — 说明哪些 artifact family 属于 mandatory extraction、artifact 与 finding 的 committed 边界如何绑定、以及为什么 successful empty result 在 v1 非法
+- [Session Schema](session.md) — 说明分析容器根对象 `session` 的 typed 非时间约束、治理与生命周期边界、写入协调，以及进入 state surface 的最小入口
 - [Finding Schema](finding.md) — 事实层规范 `finding` 契约
 - [Proposition Schema](proposition.md) — 判断对象 `proposition` 契约
 - [Assessment Schema](assessment.md) — 判断状态 `assessment`，以及 `evidence_gap` / `inference_record` 契约
@@ -55,12 +57,23 @@
 
 ### 仍缺正式设计文档的主题
 
-以下主题已在现有原则文档、schema 草案或 roadmap 中被提到，但尚未形成独立、decision-complete 的正式设计文档：
+以下主题已在现有原则文档、schema 草案或 runtime 设计中被提到，但尚未形成 decision-complete 的正式设计文档。为避免把不同性质的缺口混在一起，暂按“补充到已有文档”“从已有文档拆分”“新增文档”三类整理。
 
-- Session-state HTTP contract：如何把 [`state-surface-schema.md`](state-surface-schema.md) 与 [`context-surface-schema.md`](context-surface-schema.md) 中已定型的 canonical view 绑定到具体 HTTP path、query 参数、分页与兼容策略
+#### 1. 可补充至已有文档的主题
+
+- Assessment snapshot transition details：可继续补入 [`assessment.md`](assessment.md)、[`evidence-engine-runtime-lifecycle.md`](evidence-engine-runtime-lifecycle.md) 与 [`inference-rule-engine-contract.md`](inference-rule-engine-contract.md)，明确 `latest_assessment` 的稳定选择规则、`status` 转换矩阵、以及何时必须形成 superseding snapshot
+- Session lifecycle transition details：可继续补入 [`session.md`](session.md)，明确 budget / timeout / 执行失败等事件如何自动推进到 `closed` / `aborted`，以及各 `terminal_reason` 的触发来源
+
+#### 2. 适合从已有文档中拆分为独立 contract 的主题
+
+- Proposition seeding contract：当前规则分散在 [`proposition.md`](proposition.md) 与 [`evidence-engine-runtime-lifecycle.md`](evidence-engine-runtime-lifecycle.md)；后续宜拆为独立文档，统一定义 seed template registry、creation condition、system-seeded proposition 自动注册规则，以及 agent-authored proposition 的 typed family 校验边界
+- Gap management contract：当前规则分散在 [`assessment.md`](assessment.md)、[`inference-rule-engine-contract.md`](inference-rule-engine-contract.md)、[`precondition-gate-contract.md`](precondition-gate-contract.md)、[`quality-gate-contract.md`](quality-gate-contract.md) 与 [`comparability-gate-contract.md`](comparability-gate-contract.md)；后续宜拆为独立文档，统一定义 gap open / keep / resolve / reopen、blocking 与 non-blocking membership 收敛、以及 family-level 候选结果如何汇总为 canonical gap state
+- Reference integrity contract：当前规则分散在 [`finding.md`](finding.md)、[`proposition.md`](proposition.md)、[`assessment.md`](assessment.md)、[`state-surface-schema.md`](state-surface-schema.md) 与 [`context-surface-schema.md`](context-surface-schema.md)；后续宜拆为独立文档，统一定义 hard refs / soft refs、悬空 ref 的读取语义、写入时的 ref 校验，以及跨 session canonical ref 的禁止边界
+
+#### 3. 需要新增文档的主题
+
+- Session-state HTTP contract：如何把 [`state-surface-schema.md`](state-surface-schema.md) 与 [`context-surface-schema.md`](context-surface-schema.md) 中已定型的 canonical view 绑定到具体 HTTP path、query 参数、分页与兼容策略；该主题属于外部 wire contract，正式文档应写入 `docs/api/`
 - Migration / compatibility design：现有 `claim` / `recommendation` 持久化和 API 如何迁移到新的 canonical model
-- Readiness / reflection / plan-patching integration：assessment、evidence_gap、reflection-context、推荐动作与 planning 闭环如何统一
-- Attribution design consolidation：cross-row anomaly、temporal scope folding、dimension attribution、cross-claim chaining、confounder resolution 等能力如何并入 canonical evidence design
 
 当前 [`evidence-graph-edge-semantics.md`](evidence-graph-edge-semantics.md) 已收敛 v1 的对象内 relation / edge 语义，但仍明确不纳入跨命题推断（cross-proposition inference）。若后续需要引入跨 proposition relation，应在其基础上继续扩展规范模型（canonical model），而不是在 engine contract 中隐式开放跨 proposition 读取。
 

@@ -16,6 +16,8 @@
 - 明确区分事实单元、命题、评估状态和动作候选
 - 为后续命题（`proposition`）/ 评估状态（`assessment`）/ 动作候选（`action proposal`）提供稳定输入
 
+`artifact -> finding` 的提交边界、artifact class 与 successful empty result 规则以 [`Artifact → Finding Extraction Contract`](artifact-finding-extraction-contract.md) 为准；本文只定义 `finding` 本体的 schema、subtype 与 schema-level 约束。
+
 ## 核心设计决策
 
 ### 1. `finding` 是事实层的规范对象
@@ -250,13 +252,18 @@ type ResolvedTimeScope =
 - finding 可被单独消费，但必须可回溯到其 artifact
 - projection 不是 artifact 的替代品
 
-一个 artifact 可以产生 `0..N` 个 findings。
+并非所有 artifact 都直接进入 canonical finding layer。
+
+artifact class 由 [`Artifact → Finding Extraction Contract`](artifact-finding-extraction-contract.md) 固定：
+
+- `mandatory extraction artifact`：成功 committed 时必须产生 `1..N` 个 findings
+- `non-fact artifact`：不直接进入 finding layer，因此 canonical finding count 为 `0`
 
 典型情况：
 
 - scalar artifact：通常产出 1 个 finding
-- segmented / decomposition / detect / forecast artifact：通常产出多个 finding
-- 纯审计或纯摘要 artifact：可能产出 0 个 finding
+- segmented / decomposition / detect / forecast artifact：通常产出多个 findings
+- 纯审计或纯摘要 artifact：不作为 finding source
 
 规范事实层不在 Schema 层限制单个 artifact 的 finding 数量上限；面向 agent 的有界消费通过 projection 和 focus view 控制。
 
@@ -622,12 +629,15 @@ v1 推荐固定如下映射：
 
 `artifact -> finding` 抽取必须由确定性 extractor 完成。
 
+artifact family 的适用范围、staged/commit 边界与 failure semantics 以 [`Artifact → Finding Extraction Contract`](artifact-finding-extraction-contract.md) 为主；本文只补充 `finding` schema 侧必须满足的规则。
+
 ### 通用规则
 
 - 不使用模型
 - 不依赖自由文本解释
 - 不根据 session 其他状态改变 finding 内容
 - 同一 artifact 的相同 item 必须得到相同 finding
+- `mandatory extraction artifact` 成功提交时必须抽出至少一个 finding；不得把 successful empty result 视为合法 committed state
 - extractor 必须声明自己所兼容的 artifact schema version
 - 当 artifact contract 发生 breaking change 时，应通过新的 `artifact_schema_version` 或新的 extractor version 显式区分
 
@@ -655,6 +665,7 @@ v1 固定如下：
 - row-based artifact item：1 row -> 1 finding
 - bucket-based artifact item：1 bucket -> 1 finding
 - candidate-based artifact item：1 candidate -> 1 finding
+- 若 `rows` / `buckets` / `candidates` / `points` 为空且该 artifact 属于 `mandatory extraction artifact`，则请求应失败，而不是成功提交空 finding set
 
 ### 非法抽取
 
@@ -665,6 +676,7 @@ v1 固定如下：
 - recommendation text
 - artifact 级 narration
 - 无法稳定定位来源项的临时派生文本
+- 仅因 projection 截断而保留下来的 top-k 局部结果
 
 ## 生命周期与去重
 
@@ -810,6 +822,7 @@ action proposal 是面向 agent 的动作候选，不是事实。
 以下状态在 canonical `finding` 中非法：
 
 - 同一 `artifact_id + finding_type + artifact_item_ref` 映射到多个 `finding_id`
+- `mandatory extraction artifact` 进入 committed state，但找不到任何对应 findings
 - `subject.slice = null`
 - `quality_warnings = null`
 - 使用裸字符串作为 canonical payload ref

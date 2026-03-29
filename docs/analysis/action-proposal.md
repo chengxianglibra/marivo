@@ -107,7 +107,6 @@ v1 在 base schema 中标准化以下 planning axes：
 proposal 可以依赖：
 
 - session goal
-- focus scope
 - operator risk budget
 - action policy profile
 
@@ -193,7 +192,6 @@ type FindingRef = {
 
 type ProposalContext = {
   session_goal: SessionGoal | null;
-  focus_scope: ProposalFocusScope | null;
   risk_budget: RiskBudget | null;
   policy_profile: string;
 };
@@ -205,13 +203,6 @@ type SessionGoal =
   | "monitor_risk"
   | "prepare_escalation"
   | "other";
-
-type ProposalFocusScope = {
-  metric: string | null;
-  entity: string | null;
-  slice: Record<string, string | number | boolean | null>;
-  grain: "hour" | "day" | "week" | "month" | null;
-};
 
 type RiskBudget = "minimal" | "low" | "medium" | "high";
 
@@ -389,19 +380,9 @@ type ProposalContextRef =
 规则：
 
 - `session_goal = null` 表示当前 proposal 未绑定显式 session goal，不表示 unknown
-- `focus_scope = null` 表示当前 proposal 不需要额外 focus subject 约束；若存在 focus scope，`slice = {}` 表示 unsliced / 无额外 slice 限定
 - `risk_budget = null` 表示当前 proposal 不适用 risk budget 约束，不表示系统尚未计算
 - `policy_profile` 必填；即使使用默认策略也必须显式写出
 - 任何会改变 proposal 生成或排序结果的上下文都必须进入该字段，而不是作为隐式运行时参数
-
-`ProposalFocusScope` 是 proposal generation context，不是新的 canonical subject type。
-
-约束：
-
-- `metric = null` 表示该 focus scope 不按 metric 收窄
-- `entity = null` 表示该 focus scope 不按 entity 收窄
-- `grain = null` 表示该 focus scope 不声明额外 grain 约束
-- 不允许用 `null` 同时表达 unknown 与 not_applicable
 
 ### priority_axes
 

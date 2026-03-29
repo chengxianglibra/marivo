@@ -22,16 +22,17 @@
 
 - `AnalysisSession`
 - `SessionStateSummary`
-- session 级目标、scope、focus、governance、lifecycle、coordination
+- session 级目标、governance、lifecycle
 
 它回答的问题是:
 
 - 这次分析任务的容器边界是什么
 - 当前 session 是否仍可继续写入
+- 当前 session 是正常结束还是提前终止
 - 当前有哪些权威读取面可进入
 
 其中 `SessionStateSummary` 只承载进入 `SessionStateView` 的最小入口,不承载 blockers、readiness 或 focus 排名。
-其中 `scope` 只承载 session-level typed 非时间约束,`focus` 是 mutable planning hint；二者不得在执行契约中混用。
+其中 session root 不承载执行约束；分析过滤条件属于 typed steps 的 `scope` / `time_scope`。agent 私有 planning state 也不进入 session root contract。v1 session lifecycle 只区分 `open`、`closed`、`aborted`，不承载 `closing` 一类异步协调中间态。
 
 ### State Surface
 
