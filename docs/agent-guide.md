@@ -60,7 +60,12 @@ Defined in `app/analysis_core/primitives.py`: `metric_query`, `profile_table`, `
 - `metric_query(single_window)`: current-window observations only (no `baseline_*`/`delta_pct`)
 - `aggregate_query` observations: inherit request window; temporal `group_by` refines to per-row windows
 - Design drafts must not introduce session-level enforced scope inheritance
+- Assessment snapshots (v1): on-demand creation; proposition registration may leave `latest_assessment = null` until first committed assessment output
+- Assessment latest selection (v1): strict linear supersede chain only; do not fallback to max seq or latest timestamp on chain corruption
+- Gap reopen (v1): resolved gap stays resolved; later recurrence opens a new gap instance
 - Session lifecycle (v1): `open | closed | aborted` (no `closing`/async state)
+- Session terminal reasons (v1): `answered`, `abandoned`, `rolled_over`, `governance_terminated`, `budget_exhausted`, `timed_out`
+- Session termination model (v1): explicit-first; system-derived governance / budget / timeout signals do not auto-close the session, and ordinary step failure is non-terminal
 - Write access: `open` only; `closed`/`aborted` = read-only
 - Session mutability: `governance.policy_refs` immutable (require rollover); `goal.question`, `governance.budget`, `governance.warnings` mutable
 - Rollover trigger: binary check (immutable field value changed)

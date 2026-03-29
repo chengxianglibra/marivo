@@ -38,7 +38,7 @@
 - [证据引擎设计准则](evidence-engine-design.md) — 说明为什么要从 `observation -> claim -> recommendation` 迁移到 `artifact -> finding -> proposition -> assessment -> action proposal`
 - [Evidence Engine Runtime Lifecycle](evidence-engine-runtime-lifecycle.md) — 说明规范证据对象（canonical evidence objects）在目标态中的创建、增量更新、replay、soft invalidation 与 idempotency 规则
 - [Artifact → Finding Extraction Contract](artifact-finding-extraction-contract.md) — 说明哪些 artifact family 属于 mandatory extraction、artifact 与 finding 的 committed 边界如何绑定、以及为什么 successful empty result 在 v1 非法
-- [Session Schema](session.md) — 说明分析容器根对象 `session` 的 typed 非时间约束、治理与生命周期边界、写入协调，以及进入 state surface 的最小入口
+- [Session Schema](session.md) — 说明分析容器根对象 `session` 的 typed 非时间约束、治理与生命周期边界、写入协调、`Session lifecycle transition details`，以及进入 state surface 的最小入口
 - [Finding Schema](finding.md) — 事实层规范 `finding` 契约
 - [Proposition Schema](proposition.md) — 判断对象 `proposition` 契约
 - [Assessment Schema](assessment.md) — 判断状态 `assessment`，以及 `evidence_gap` / `inference_record` 契约
@@ -57,20 +57,15 @@
 
 ### 仍缺正式设计文档的主题
 
-以下主题已在现有原则文档、schema 草案或 runtime 设计中被提到，但尚未形成 decision-complete 的正式设计文档。为避免把不同性质的缺口混在一起，暂按“补充到已有文档”“从已有文档拆分”“新增文档”三类整理。
+以下主题已在现有原则文档、schema 草案或 runtime 设计中被提到，但尚未形成 decision-complete 的正式设计文档。当前剩余缺口按“从已有文档拆分”“新增文档”两类整理。
 
-#### 1. 可补充至已有文档的主题
-
-- Assessment snapshot transition details：可继续补入 [`assessment.md`](assessment.md)、[`evidence-engine-runtime-lifecycle.md`](evidence-engine-runtime-lifecycle.md) 与 [`inference-rule-engine-contract.md`](inference-rule-engine-contract.md)，明确 `latest_assessment` 的稳定选择规则、`status` 转换矩阵、以及何时必须形成 superseding snapshot
-- Session lifecycle transition details：可继续补入 [`session.md`](session.md)，明确 budget / timeout / 执行失败等事件如何自动推进到 `closed` / `aborted`，以及各 `terminal_reason` 的触发来源
-
-#### 2. 适合从已有文档中拆分为独立 contract 的主题
+#### 1. 适合从已有文档中拆分为独立 contract 的主题
 
 - Proposition seeding contract：当前规则分散在 [`proposition.md`](proposition.md) 与 [`evidence-engine-runtime-lifecycle.md`](evidence-engine-runtime-lifecycle.md)；后续宜拆为独立文档，统一定义 seed template registry、creation condition、system-seeded proposition 自动注册规则，以及 agent-authored proposition 的 typed family 校验边界
 - Gap management contract：当前规则分散在 [`assessment.md`](assessment.md)、[`inference-rule-engine-contract.md`](inference-rule-engine-contract.md)、[`precondition-gate-contract.md`](precondition-gate-contract.md)、[`quality-gate-contract.md`](quality-gate-contract.md) 与 [`comparability-gate-contract.md`](comparability-gate-contract.md)；后续宜拆为独立文档，统一定义 gap open / keep / resolve / reopen、blocking 与 non-blocking membership 收敛、以及 family-level 候选结果如何汇总为 canonical gap state
 - Reference integrity contract：当前规则分散在 [`finding.md`](finding.md)、[`proposition.md`](proposition.md)、[`assessment.md`](assessment.md)、[`state-surface-schema.md`](state-surface-schema.md) 与 [`context-surface-schema.md`](context-surface-schema.md)；后续宜拆为独立文档，统一定义 hard refs / soft refs、悬空 ref 的读取语义、写入时的 ref 校验，以及跨 session canonical ref 的禁止边界
 
-#### 3. 需要新增文档的主题
+#### 2. 需要新增文档的主题
 
 - Session-state HTTP contract：如何把 [`state-surface-schema.md`](state-surface-schema.md) 与 [`context-surface-schema.md`](context-surface-schema.md) 中已定型的 canonical view 绑定到具体 HTTP path、query 参数、分页与兼容策略；该主题属于外部 wire contract，正式文档应写入 `docs/api/`
 - Migration / compatibility design：现有 `claim` / `recommendation` 持久化和 API 如何迁移到新的 canonical model
@@ -78,6 +73,10 @@
 当前 [`evidence-graph-edge-semantics.md`](evidence-graph-edge-semantics.md) 已收敛 v1 的对象内 relation / edge 语义，但仍明确不纳入跨命题推断（cross-proposition inference）。若后续需要引入跨 proposition relation，应在其基础上继续扩展规范模型（canonical model），而不是在 engine contract 中隐式开放跨 proposition 读取。
 
 若后续为上述主题新增正式文档，应优先在本节补充链接，并把对应条目从“缺失主题”移动到“已存在的设计文档”。
+
+补充说明：`Assessment snapshot transition details` 已由 [`assessment.md`](assessment.md)、[`evidence-engine-runtime-lifecycle.md`](evidence-engine-runtime-lifecycle.md) 与 [`inference-rule-engine-contract.md`](inference-rule-engine-contract.md) 共同覆盖；当前已固定首个 snapshot 采用按需创建、`latest_assessment` 采用严格链路选主、以及 resolved gap 再次出现时创建新 gap 实例。
+
+补充说明：`Session lifecycle transition details` 已由 [`session.md`](session.md) 覆盖；当前已固定显式优先的 terminal transition 模型、`answered` / `rolled_over` 与 `closed` 的绑定、`abandoned` / `governance_terminated` / `budget_exhausted` / `timed_out` 与 `aborted` 的绑定，以及 budget / timeout / 普通执行失败不自动终止 session 的规则。
 
 ## 规范命名基线
 
