@@ -2,7 +2,7 @@
 
 本文档整理规则族设计时必须满足的通用约束，供设计评审、规则注册表扩展与新增评估类型时复用。
 
-状态：working checklist。本文不引入新的规范契约；若与其他文档表述冲突，以 [`evidence-engine/inference-and-gap-engine.md`](../inference-and-gap-engine.md) 为主线基线，并以 [`rule-registry-contract.md`](rule-registry-contract.md) 的 registry metadata、[`assessment-judgment-policy.md`](assessment-judgment-policy.md) 的 family-specific thresholds 为补充。
+状态：working checklist。本文不引入新的规范契约；若与其他文档表述冲突，以 [`evidence-engine/inference-and-gap-engine.md`](../inference-and-gap-engine.md) 为主线基线，并以 [`rule-registry-contract.md`](rule-registry-contract.md) 的 registry metadata、[`assessment-judgment-policy.md`](assessment-judgment-policy.md) 的 family-specific thresholds、[`support-oppose-and-status-resolution.md`](../support-oppose-and-status-resolution.md) 的 executable resolution contract 为补充。
 
 ## 目的
 

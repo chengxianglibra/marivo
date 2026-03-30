@@ -121,12 +121,10 @@ class DefaultDerivedObservationBuilder:
             )
             sample_sizes = {
                 claim["claim_id"]: sum(
-                    int(
-                        (observation_by_id.get(str(obs_id), {}) or {})
-                        .get("significance", {})
-                        .get("sample_size", 0)
-                    )
+                    int(observation_by_id[key]["significance"].get("sample_size", 0))
                     for obs_id in claim.get("supporting_observations", [])
+                    for key in [str(obs_id)]
+                    if key in observation_by_id
                 )
                 for claim in component_claims
             }
@@ -184,16 +182,12 @@ class DefaultDerivedObservationBuilder:
             buckets = []
             for obs in supporting:
                 temporal_group_by_columns = [
-                    str(column)
-                    for column in (obs.get("subject", {}) or {}).get(
-                        "temporal_group_by_columns", []
-                    )
-                    or []
+                    str(column) for column in obs["subject"].get("temporal_group_by_columns") or []
                 ]
                 if not temporal_group_by_columns:
                     continue
-                window = obs.get("observed_window") or {}
-                if window.get("granularity") != "hour" or not window.get("start"):
+                window = obs.get("observed_window")
+                if not window or window.get("granularity") != "hour" or not window.get("start"):
                     continue
                 value = _temporal_signal_value(obs)
                 if value is None:

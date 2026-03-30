@@ -3,7 +3,7 @@ from __future__ import annotations
 import dataclasses
 from typing import Any
 
-from app.evidence_engine.schemas import Claim, Recommendation
+from app.evidence_engine.schemas import Claim, Observation, Recommendation
 from app.evidence_engine.synthesizers.claim_formulator import ClaimFormulator
 from app.evidence_engine.synthesizers.scope_clusterer import ScopeClusterer
 from app.evidence_engine.synthesizers.signal_aligner import SignalAligner
@@ -31,7 +31,7 @@ class ThreeStagePipeline:
 
     def run(
         self,
-        observations: list[dict[str, Any]],
+        observations: list[Observation],
     ) -> tuple[list[Claim], list[Recommendation], list[dict[str, Any]], PipelineAuditLog]:
         """Run the 3-stage pipeline and return (claims, [], [], audit_log)."""
         audit = PipelineAuditLog(observation_count=len(observations))
@@ -61,7 +61,7 @@ class ThreeStagePipeline:
             claims: list[Claim] = [f.claim for f in formulations]
 
             # Check for overall_trend across all metric_observation rows with deltas
-            all_metric_obs: list[dict[str, Any]] = []
+            all_metric_obs: list[Observation] = []
             for cluster in clusters:
                 all_metric_obs.extend(cluster.metric_observation_obs)
 

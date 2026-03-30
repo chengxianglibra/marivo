@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.api.deps import get_services, http_error
@@ -87,7 +89,9 @@ def _assert_same_session(session_id: str, *refs: ObservationRef | ArtifactRef) -
             )
 
 
-def _run_intent(session_id: str, intent_type: str, params: dict, request: Request) -> dict:
+def _run_intent(
+    session_id: str, intent_type: str, params: dict[str, Any], request: Request
+) -> dict[str, Any]:
     """Dispatch an intent to SemanticLayerService.run_intent with uniform error handling."""
     try:
         return get_services(request).service.run_intent(session_id, intent_type, params)

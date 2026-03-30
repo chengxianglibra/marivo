@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from app.semantic_runtime.planner_context import PlannerContextProvider
 from app.semantic_runtime.resolution import (
     ResolvedEntity,
@@ -37,5 +39,5 @@ class SemanticRuntimeRepository:
         resolved = self.resolve_metric(metric_name)
         return list(resolved.dimensions) if resolved else None
 
-    def build_planner_context(self, session_id: str | None = None) -> dict[str, object]:
+    def build_planner_context(self, session_id: str | None = None) -> dict[str, Any]:
         return self.planner_context_provider.build_planner_context(session_id)

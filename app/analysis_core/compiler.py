@@ -386,6 +386,7 @@ def build_windowed_aggregate_query(
         scoped_query is not None and str(scoped_query.get("mode") or "").strip() == "compare"
     )
     if compare_mode:
+        assert scoped_query is not None
         first_alias = agg_exprs[0][1]
         effective_order_by = order_by or f"{first_alias}_delta_pct DESC"
         scoped = _build_scoped_query_parts(table_name, scoped_query, include_period=True)
@@ -594,6 +595,8 @@ def compile_step(
     semantic_context = semantic_context or {}
     params = dict(step.params)
     metadata = {"engine_type": engine_type, "step_type": step.step_type}
+    table_name: str | None = None
+    compiled_params: list[Any] = []
 
     if step.step_type == "sample_rows":
         table_name = _require_param(step, "table_name")
@@ -721,6 +724,7 @@ def compile_step(
         limit = int(params.get("limit", 100))
         scoped_query = params.get("scoped_query")
         has_scoped_query = isinstance(scoped_query, Mapping)
+        scoped_query_m: Mapping[str, Any] | None = scoped_query if has_scoped_query else None
         order_by = params.get("order_by") or params.get("order")
         typed_measures = params.get("measures")
 
@@ -733,12 +737,14 @@ def compile_step(
                 limit=limit,
                 scoped_query=scoped_query if has_scoped_query else None,
             )
-            compiled_params: list[Any] = []
-            compare_period = has_scoped_query and str(scoped_query.get("mode") or "") == "compare"
-            if has_scoped_query:
+            compiled_params = []
+            compare_period = (
+                scoped_query_m is not None and str(scoped_query_m.get("mode") or "") == "compare"
+            )
+            if scoped_query_m is not None:
                 compiled_params = _build_scoped_query_parts(
                     table_name,
-                    scoped_query,
+                    scoped_query_m,
                     include_period=compare_period,
                 ).params
             return CompiledQuery(
@@ -758,7 +764,7 @@ def compile_step(
         where = params.get("where")
 
         if params.get("compare_period") or (
-            has_scoped_query and str(scoped_query.get("mode") or "") == "compare"
+            scoped_query_m is not None and str(scoped_query_m.get("mode") or "") == "compare"
         ):
             date_column = str(params.get("date_column", "event_date"))
             sql = build_aggregate_comparison_query(
@@ -769,13 +775,13 @@ def compile_step(
                 order_by=order_by,
                 limit=limit,
                 filter_expr=str(where) if where else None,
-                scoped_query=scoped_query if has_scoped_query else None,
+                scoped_query=scoped_query_m,
             )
             compiled_params = list(semantic_context.get("period_params", []))
-            if has_scoped_query:
+            if scoped_query_m is not None:
                 compiled_params = _build_scoped_query_parts(
                     table_name,
-                    scoped_query,
+                    scoped_query_m,
                     include_period=True,
                 ).params
             return CompiledQuery(
@@ -793,12 +799,12 @@ def compile_step(
         expanded_group_by = _expand_group_by_aliases(list(select_exprs), list(group_by))
         group_clause = f" GROUP BY {', '.join(expanded_group_by)}" if expanded_group_by else ""
         order_clause = f" ORDER BY {order_by}" if order_by else ""
-        compiled_params: list[Any] = []
+        compiled_params = []
 
-        if has_scoped_query:
+        if scoped_query_m is not None:
             scoped = _build_scoped_query_parts(
                 table_name,
-                scoped_query,
+                scoped_query_m,
                 include_period=False,
             )
             sql = f"WITH {scoped.cte_sql} SELECT {select_clause} FROM scoped{group_clause}{order_clause} LIMIT {limit}"

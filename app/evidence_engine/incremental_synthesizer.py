@@ -21,10 +21,11 @@ from __future__ import annotations
 
 import json
 import math
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 from app.evidence_engine.claim_relations import DefaultClaimRelationDiscovery
+from app.evidence_engine.schemas import Claim
 from app.evidence_engine.scoring import score_confidence
 from app.storage.metadata import MetadataStore
 
@@ -363,7 +364,7 @@ class IncrementalSynthesizer:
         from app.evidence_engine.schemas import INFERENCE_LEVEL_ORDER
 
         relations = self._relation_discovery.discover(
-            tentative_claims,
+            cast("list[Claim]", tentative_claims),
             all_observations,
             existing_edges=[],
         )

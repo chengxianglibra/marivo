@@ -5,14 +5,9 @@ from typing import Any
 from uuid import uuid4
 
 from app.evidence_engine.factories import (
-    make_anomaly_observation,
-    make_contribution_observation,
-    make_funnel_observation,
-    make_observation,
     slice_matches,
 )
 from app.evidence_engine.schemas import Claim, Recommendation
-from app.evidence_engine.scoring import score_confidence
 
 
 def synthesize_claims(
@@ -106,7 +101,7 @@ def synthesize_claims(
         slice_label = "overall"
     reason_label = " and ".join(support_reasons) if support_reasons else "localized traffic changes"
 
-    primary_claim = {
+    primary_claim: Claim = {
         "claim_id": f"claim_{uuid4().hex[:12]}",
         "type": "root_cause_candidate",
         "text": f"Metric decline is concentrated in {slice_label} traffic, with {reason_label} acting as the leading driver.",
@@ -126,7 +121,7 @@ def synthesize_claims(
         "inference_justification": [],
     }
 
-    claims = [primary_claim]
+    claims: list[Claim] = [primary_claim]
 
     # Generate overall_trend claim when multiple distinct metrics are observed
     distinct_metrics = {obs.get("subject", {}).get("metric") for obs in metric_observations}
@@ -139,7 +134,7 @@ def synthesize_claims(
         if improving:
             trend_parts.append(f"{len(improving)} improving")
         trend_text = f"Across {len(distinct_metrics)} metrics ({', '.join(trend_parts)}), the overall pattern suggests a broad {'decline' if len(declining) >= len(improving) else 'shift'}."
-        overall_claim = {
+        overall_claim: Claim = {
             "claim_id": f"claim_{uuid4().hex[:12]}",
             "type": "overall_trend",
             "text": trend_text,
@@ -227,7 +222,7 @@ def _synthesize_non_metric_claims(
     if support_reasons:
         text += f" Corroborated by {' and '.join(support_reasons)} in {slice_label}."
 
-    claim = {
+    claim: Claim = {
         "claim_id": f"claim_{uuid4().hex[:12]}",
         "type": "finding",
         "text": text,

@@ -349,7 +349,9 @@ class SemanticService:
                 now,
             ],
         )
-        return self._get_mapping(mapping_id)
+        result = self._get_mapping(mapping_id)
+        assert result is not None
+        return result
 
     def delete_mapping(self, mapping_id: str) -> None:
         existing = self._get_mapping(mapping_id)

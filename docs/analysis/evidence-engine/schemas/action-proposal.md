@@ -138,6 +138,8 @@ action proposal 中承载 relation semantics 的字段解释，以 [`evidence-en
 
 这些 edge 都属于 proposal projection 语义，不回写 judgment layer，也不把 proposal 提升为核心 evidence node。
 
+proposal 的生成、排序、identity、refresh trigger 与 no-op contract，以 [`proposal-policy-engine.md`](../proposal-policy-engine.md) 为准；本文只固定 proposal object 自身的 schema 与边界。
+
 ## Typed Schema
 
 ```ts

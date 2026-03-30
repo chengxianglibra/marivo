@@ -75,18 +75,28 @@ CAUSAL_EDGE_TO_INFERENCE_LEVEL: dict[str, str] = {
 INFERENCE_LEVEL_ORDER: list[str] = ["L0", "L1", "L2", "L3", "L4", "L5"]
 
 
-class ObservationSubject(TypedDict):
+class _ObservationSubjectRequired(TypedDict):
     metric: str
     slice: dict[str, Any]
 
 
-class Observation(TypedDict):
+class ObservationSubject(_ObservationSubjectRequired, total=False):
+    temporal_group_by_columns: list[str]
+    related_metric: str
+    left_slice: dict[str, Any]
+
+
+class _ObservationRequired(TypedDict):
     observation_id: str  # Signal: unique fact identifier
     type: str  # Signal: observation category (metric_observation, funnel_drop, …)
     subject: ObservationSubject  # Signal: what entity/metric was observed
     payload: dict[str, Any]  # Signal: raw extracted values
     significance: dict[str, Any]  # Signal: statistical and practical significance flags
     quality: dict[str, Any]  # Signal: data quality metadata
+
+
+class Observation(_ObservationRequired, total=False):
+    observed_window: dict[str, Any] | None
 
 
 class Claim(TypedDict):

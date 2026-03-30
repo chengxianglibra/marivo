@@ -36,7 +36,7 @@ class TrinoAnalyticsEngine(AnalyticsEngine):
         self.request_timeout = request_timeout
         self.legacy_prepared_statements = legacy_prepared_statements
 
-    def _connect(self):
+    def _connect(self) -> Any:
         from trino.dbapi import connect
 
         _reserved_prefixes = ("x-trino-",)
@@ -100,7 +100,7 @@ class TrinoAnalyticsEngine(AnalyticsEngine):
                 [self.catalog, self.schema, table_name],
             )
             row = cur.fetchone()
-            return row[0] > 0
+            return bool(row) and row[0] > 0
         finally:
             conn.close()
 
@@ -109,6 +109,7 @@ class TrinoAnalyticsEngine(AnalyticsEngine):
         try:
             cur = conn.cursor()
             cur.execute(f"SELECT COUNT(*) FROM {table_name}")
-            return cur.fetchone()[0]
+            _row = cur.fetchone()
+            return int(_row[0]) if _row else 0
         finally:
             conn.close()

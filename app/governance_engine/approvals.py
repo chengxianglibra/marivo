@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from app.governance_engine.repository import GovernanceRepository
 
 
@@ -9,7 +11,7 @@ class ApprovalRuntime:
     def __init__(self, repository: GovernanceRepository) -> None:
         self.repository = repository
 
-    def request_approval(self, session_id: str, rec_id: str) -> dict[str, object]:
+    def request_approval(self, session_id: str, rec_id: str) -> dict[str, Any]:
         self.repository.get_recommendation(rec_id)
         existing = self.repository.find_pending_approval_request(rec_id)
         if existing is not None:
@@ -29,13 +31,13 @@ class ApprovalRuntime:
         self,
         session_id: str | None = None,
         status: str | None = None,
-    ) -> list[dict[str, object]]:
+    ) -> list[dict[str, Any]]:
         return self.repository.list_approval_requests(session_id=session_id, status=status)
 
-    def get_request(self, request_id: str) -> dict[str, object]:
+    def get_request(self, request_id: str) -> dict[str, Any]:
         return self.repository.get_approval_request(request_id)
 
-    def approve(self, request_id: str, reviewer: str, reason: str = "") -> dict[str, object]:
+    def approve(self, request_id: str, reviewer: str, reason: str = "") -> dict[str, Any]:
         request = self.get_request(request_id)
         if request["status"] != "pending":
             raise ValueError(f"Cannot approve request in '{request['status']}' status")
@@ -50,7 +52,7 @@ class ApprovalRuntime:
         )
         return decided
 
-    def reject(self, request_id: str, reviewer: str, reason: str = "") -> dict[str, object]:
+    def reject(self, request_id: str, reviewer: str, reason: str = "") -> dict[str, Any]:
         request = self.get_request(request_id)
         if request["status"] != "pending":
             raise ValueError(f"Cannot reject request in '{request['status']}' status")
@@ -69,7 +71,7 @@ class ApprovalRuntime:
         self,
         session_id: str,
         risk_threshold: str = "P0",
-    ) -> list[dict[str, object]]:
+    ) -> list[dict[str, Any]]:
         risk_levels = ["P0", "P1", "P2", "P3"]
         try:
             threshold_idx = risk_levels.index(risk_threshold)
@@ -77,7 +79,7 @@ class ApprovalRuntime:
             threshold_idx = 0
         flaggable = set(risk_levels[: threshold_idx + 1])
 
-        created: list[dict[str, object]] = []
+        created: list[dict[str, Any]] = []
         for recommendation in self.repository.list_session_recommendations(session_id):
             if recommendation.get("type", "action_required") == "no_action_required":
                 continue
@@ -85,6 +87,6 @@ class ApprovalRuntime:
                 created.append(self.request_approval(session_id, recommendation["rec_id"]))
         return created
 
-    def get_request_audit_trail(self, request_id: str) -> list[dict[str, object]]:
+    def get_request_audit_trail(self, request_id: str) -> list[dict[str, Any]]:
         self.get_request(request_id)
         return self.repository.list_events(subject_type="approval_request", subject_id=request_id)

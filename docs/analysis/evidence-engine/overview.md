@@ -26,12 +26,16 @@ Evidence Engine 的目标态规范链路为：
 4. [`artifact-finding-generation-rules.md`](artifact-finding-generation-rules.md)
 5. [`finding-proposition-seeding.md`](finding-proposition-seeding.md)
 6. [`inference-and-gap-engine.md`](inference-and-gap-engine.md)
-7. [`graph-and-reference-semantics.md`](graph-and-reference-semantics.md)
-8. [`read-surfaces.md`](read-surfaces.md)
-9. [`../finding.md`](schemas/finding.md)
-10. [`../proposition.md`](schemas/proposition.md)
-11. [`../assessment.md`](schemas/assessment.md)
-12. [`../action-proposal.md`](schemas/action-proposal.md)
+7. [`assessment-evaluation-context.md`](assessment-evaluation-context.md)
+8. [`support-oppose-and-status-resolution.md`](support-oppose-and-status-resolution.md)
+9. [`gap-confidence-and-transition-materialization.md`](gap-confidence-and-transition-materialization.md)
+10. [`proposal-policy-engine.md`](proposal-policy-engine.md)
+11. [`graph-and-reference-semantics.md`](graph-and-reference-semantics.md)
+12. [`read-surfaces.md`](read-surfaces.md)
+13. [`../finding.md`](schemas/finding.md)
+14. [`../proposition.md`](schemas/proposition.md)
+15. [`../assessment.md`](schemas/assessment.md)
+16. [`../action-proposal.md`](schemas/action-proposal.md)
 
 ## 主题边界
 
@@ -84,6 +88,10 @@ Evidence Engine 主题不覆盖：
 - [`artifact-finding-generation-rules.md`](artifact-finding-generation-rules.md)：artifact -> finding 的统一生成协议、identity 规则与 family-level 抽取提案
 - [`finding-proposition-seeding.md`](finding-proposition-seeding.md)：finding -> system-seeded proposition 的模板、registration、identity 与 replay contract
 - [`inference-and-gap-engine.md`](inference-and-gap-engine.md)：assessment recompute、rule families、gap management、judgment policy、rule registry
+- [`assessment-evaluation-context.md`](assessment-evaluation-context.md)：assessment recompute 的 evaluation context、candidate finding set 与触发映射
+- [`support-oppose-and-status-resolution.md`](support-oppose-and-status-resolution.md)：support / oppose aggregation 与最终 status 决议
+- [`gap-confidence-and-transition-materialization.md`](gap-confidence-and-transition-materialization.md)：gap、confidence、transition 与 candidate output materialization
+- [`proposal-policy-engine.md`](proposal-policy-engine.md)：`latest_assessment -> action proposal[]` 的输入边界、候选生成、排序、identity 与 refresh/no-op 规则
 - [`graph-and-reference-semantics.md`](graph-and-reference-semantics.md)：edge taxonomy、typed refs、hard/soft refs、closure integrity
 - [`read-surfaces.md`](read-surfaces.md)：session root、state surface、context surface 的主题级关系
 

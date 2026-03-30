@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Any
 from uuid import uuid4
 
+from app.evidence_engine.schemas import Claim, Observation
 from app.evidence_engine.scoring import score_confidence
 from app.evidence_engine.synthesizers.stages import AlignedSignal, ClaimFormulation
 
@@ -39,7 +39,7 @@ class ClaimFormulator:
     def formulate_overall_trend(
         self,
         signals: list[AlignedSignal],
-        metric_observation_obs: list[dict[str, Any]],
+        metric_observation_obs: list[Observation],
     ) -> ClaimFormulation | None:
         """Optionally generate an overall_trend claim across multiple signals.
 
@@ -73,7 +73,7 @@ class ClaimFormulator:
             f"the overall pattern suggests a broad {broad_direction}."
         )
 
-        claim = {
+        claim: Claim = {
             "claim_id": f"claim_{uuid4().hex[:12]}",
             "type": "overall_trend",
             "text": trend_text,
@@ -135,7 +135,7 @@ class ClaimFormulator:
         }
         final_confidence = score_confidence(**confidence_inputs)
 
-        claim = {
+        claim: Claim = {
             "claim_id": f"claim_{uuid4().hex[:12]}",
             "type": "root_cause_candidate",
             "text": text,
@@ -216,7 +216,7 @@ class ClaimFormulator:
         }
         final_confidence = score_confidence(**confidence_inputs)
 
-        claim = {
+        claim: Claim = {
             "claim_id": f"claim_{uuid4().hex[:12]}",
             "type": "finding",
             "text": text,

@@ -82,6 +82,11 @@ context surface 回答：
 - 当前为什么是这个 assessment 状态
 - 若要继续推进，还缺什么
 
+补充边界：
+
+- `relevant_findings` 是 committed latest assessment closure，不是 assessment recompute 的 candidate finding set
+- recompute 输入组装以 [`assessment-evaluation-context.md`](assessment-evaluation-context.md) 为准；读取面不得把两者合并
+
 ## Shared Invariants
 
 三个读取对象共享以下基线：
@@ -94,6 +99,7 @@ context surface 回答：
 ## Related Documents
 
 - [`overview.md`](overview.md)
+- [`assessment-evaluation-context.md`](assessment-evaluation-context.md)
 - [`graph-and-reference-semantics.md`](graph-and-reference-semantics.md)
 - [`../session.md`](schemas/session.md)
 - [`../state-surface-schema.md`](schemas/state-surface-schema.md)

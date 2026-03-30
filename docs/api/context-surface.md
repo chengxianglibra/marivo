@@ -99,6 +99,7 @@ The payload must not mix in:
 - `seed_entries[*].finding = null` is allowed and exposes an unresolved seed ref without invalidating the proposition
 - `relevant_findings` is the live finding set needed to explain `latest_assessment` and the direct finding inputs of `applied_inference_records`
 - overlap between `seed_entries[*].finding` and `relevant_findings` is allowed and does not collapse the two fields
+- `relevant_findings` is the committed latest-assessment closure, not the recompute candidate finding set used by the inference engine
 - if `latest_assessment = null`, `relevant_findings` must be `[]`
 
 ### `latest_assessment` Closure

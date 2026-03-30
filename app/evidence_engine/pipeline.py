@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from typing import Any, TypedDict
+from typing import Any, TypedDict, cast
 
 from app.evidence_engine.causal_basis import (
     build_causal_basis,
@@ -181,13 +181,15 @@ class EvidencePipeline:
         self._synthesizers = default_synthesizers
         self._default_synthesizer_name = default_synthesizer.name
 
-        default_confidence_scorers = {default_confidence_scorer.name: default_confidence_scorer}
+        default_confidence_scorers: dict[str, ConfidenceScorer] = {
+            default_confidence_scorer.name: default_confidence_scorer
+        }
         if confidence_scorers:
             default_confidence_scorers.update(confidence_scorers)
         self._confidence_scorers = default_confidence_scorers
         self._default_confidence_scorer_name = default_confidence_scorer.name
 
-        default_recommendation_policies = {
+        default_recommendation_policies: dict[str, RecommendationPolicy] = {
             default_recommendation_policy.name: default_recommendation_policy
         }
         if recommendation_policies:
@@ -196,7 +198,9 @@ class EvidencePipeline:
         self._default_recommendation_policy_name = default_recommendation_policy.name
 
         default_relation_discovery = DefaultClaimRelationDiscovery()
-        default_relation_discoveries = {default_relation_discovery.name: default_relation_discovery}
+        default_relation_discoveries: dict[str, ClaimRelationDiscovery] = {
+            default_relation_discovery.name: default_relation_discovery
+        }
         if relation_discoveries:
             default_relation_discoveries.update(relation_discoveries)
         self._relation_discoveries = default_relation_discoveries
@@ -292,7 +296,7 @@ class EvidencePipeline:
                         ],
                         derive_session_summary(
                             _claim_idx[rec["claim_id"]].get("scope", {}),
-                            observations,
+                            cast("list[dict[str, Any]]", observations),
                         ),
                     )
                     if rec["claim_id"] in _claim_idx
@@ -310,7 +314,13 @@ class EvidencePipeline:
         # 1.1: auto-resolve confounders against confirmed claims in the session.
         if recommendations:
             _confirmed = [c for c in claims if c.get("status") == "confirmed"]
-            recommendations = resolve_confounders(recommendations, _confirmed)
+            recommendations = cast(
+                "list[Recommendation]",
+                resolve_confounders(
+                    cast("list[dict[str, Any]]", recommendations),
+                    cast("list[dict[str, Any]]", _confirmed),
+                ),
+            )
 
         return {
             "claims": claims,
@@ -344,7 +354,9 @@ class EvidencePipeline:
         resolved_name = relation_discovery_name or self._default_relation_discovery_name
         if resolved_name not in self._relation_discoveries:
             raise KeyError(f"Unknown claim relation discovery: {resolved_name}")
-        return self._relation_discoveries[resolved_name].discover(claims, observations, edges)
+        return self._relation_discoveries[resolved_name].discover(
+            claims, cast("list[dict[str, Any]]", observations), edges
+        )
 
     def promote_causality(
         self,
@@ -354,8 +366,8 @@ class EvidencePipeline:
         relations: list[ClaimRelation],
     ) -> CausalPromotionResult:
         upgrades = self._causal_checker_registry.run_all(
-            claims,
-            observations,
+            cast("list[dict[str, Any]]", claims),
+            cast("list[dict[str, Any]]", observations),
             edges,
             relations=relations,
         )
@@ -403,7 +415,7 @@ class EvidencePipeline:
             }
             for claim in claims
         ]
-        return {"claims": promoted_claims, "edges": promoted_edges}
+        return {"claims": cast("list[Claim]", promoted_claims), "edges": promoted_edges}
 
     def materialize_support_edges(self, claims: list[Claim]) -> list[dict[str, Any]]:
         edges: list[dict[str, Any]] = []

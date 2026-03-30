@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Any
 
 from app.evidence_engine.schemas import Claim, Observation, Recommendation
 
@@ -15,5 +16,5 @@ class ClaimSynthesizer(ABC):
     def synthesize(
         self,
         observations: list[Observation],
-    ) -> tuple[list[Claim], list[Recommendation], list[dict]]:
+    ) -> tuple[list[Claim], list[Recommendation], list[dict[str, Any]]]:
         raise NotImplementedError

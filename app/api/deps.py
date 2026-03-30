@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 from fastapi import HTTPException, Request
 
@@ -49,7 +50,7 @@ class AppServices:
 
 
 def get_services(request: Request) -> AppServices:
-    return request.app.state.services
+    return cast("AppServices", request.app.state.services)
 
 
 def require_governance(services: AppServices) -> GovernanceService:

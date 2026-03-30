@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Any
 from uuid import uuid4
 
+from app.evidence_engine.schemas import Observation
+
 _AGGREGATE_FIELDS = frozenset(
     {
         "current_value",
@@ -39,7 +41,7 @@ def make_observation(
     payload: dict[str, Any],
     quality: dict[str, Any],
     dimensions: list[str] | None = None,
-) -> dict[str, Any]:
+) -> Observation:
     return {
         "observation_id": f"obs_{uuid4().hex[:12]}",
         "type": observation_type,
@@ -65,7 +67,7 @@ def make_funnel_observation(
     funnel_name: str,
     stages: list[dict[str, Any]],
     quality: dict[str, Any],
-) -> dict[str, Any]:
+) -> Observation:
     worst_stage = max(stages, key=lambda s: abs(float(s.get("delta_drop_rate", 0))))
     return {
         "observation_id": f"obs_{uuid4().hex[:12]}",
@@ -92,7 +94,7 @@ def make_contribution_observation(
     segment_name: str,
     contributions: list[dict[str, Any]],
     quality: dict[str, Any],
-) -> dict[str, Any]:
+) -> Observation:
     biggest_shift = max(contributions, key=lambda c: abs(float(c.get("delta_share", 0))))
     return {
         "observation_id": f"obs_{uuid4().hex[:12]}",
@@ -120,7 +122,7 @@ def make_anomaly_observation(
     slice_info: dict[str, Any],
     payload: dict[str, Any],
     quality: dict[str, Any],
-) -> dict[str, Any]:
+) -> Observation:
     return {
         "observation_id": f"obs_{uuid4().hex[:12]}",
         "type": "anomaly_detection",
@@ -144,7 +146,7 @@ def make_causal_candidate_observation(
     payload: dict[str, Any],
     quality: dict[str, Any],
     observed_window: dict[str, str] | None = None,
-) -> dict[str, Any]:
+) -> Observation:
     """Create a causal_candidate observation linking to a potential cause.
 
     This observation type enables cross-step causal chain linking. The
@@ -162,7 +164,7 @@ def make_causal_candidate_observation(
     Returns:
         A causal_candidate observation dict.
     """
-    obs: dict[str, Any] = {
+    obs: Observation = {
         "observation_id": f"obs_{uuid4().hex[:12]}",
         "type": "causal_candidate",
         "subject": {

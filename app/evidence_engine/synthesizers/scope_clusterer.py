@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from app.evidence_engine.schemas import Observation
 from app.evidence_engine.synthesizers.stages import ScopeCluster
 
 logger = logging.getLogger(__name__)
@@ -30,7 +31,7 @@ class ScopeClusterer:
             slice_part = ""
         return f"{metric}/{slice_part}"
 
-    def cluster(self, observations: list[dict[str, Any]]) -> list[ScopeCluster]:
+    def cluster(self, observations: list[Observation]) -> list[ScopeCluster]:
         """Group observations into ScopeClusters.
 
         Returns one cluster per unique (metric, slice) scope found across
@@ -68,8 +69,8 @@ class ScopeClusterer:
 
         cluster_map: dict[str, ScopeCluster] = {}
 
-        def _get_or_create_cluster(obs: dict[str, Any]) -> ScopeCluster | None:
-            subject = obs.get("subject", {})
+        def _get_or_create_cluster(obs: Observation) -> ScopeCluster | None:
+            subject = obs["subject"]
             metric = subject.get("metric")
             slice_dict = subject.get("slice")
             if not metric or not isinstance(slice_dict, dict):

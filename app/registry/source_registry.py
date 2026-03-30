@@ -208,6 +208,7 @@ class SourceRegistry:
         updated = self.metadata.query_one(
             "SELECT * FROM source_objects WHERE object_id = ?", [object_id]
         )
+        assert updated is not None
         return self._row_to_object(updated)
 
     def get_sync_mode(self, source_id: str) -> str:
@@ -217,7 +218,7 @@ class SourceRegistry:
         )
         if row is None:
             raise KeyError(f"Unknown source: {source_id}")
-        return row.get("sync_mode", "all")
+        return str(row.get("sync_mode", "all"))
 
     def add_sync_selection(
         self, source_id: str, schema_name: str, table_name: str

@@ -10,5 +10,6 @@ if TYPE_CHECKING:
 
 def register(registry: StepRunnerRegistry, service: SemanticLayerService) -> None:
     registry.register(
-        "synthesize_findings", lambda session_id, _params=None: service._run_synthesis(session_id)
+        "synthesize_findings",
+        lambda session_id, _params=None: service._run_synthesis(session_id),  # type: ignore[misc]
     )

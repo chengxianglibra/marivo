@@ -1,3 +1,5 @@
 from __future__ import annotations
 
-WORKFLOW_SPECS = {}
+from app.analysis_core.composites import CompositeWorkflowSpec
+
+WORKFLOW_SPECS: dict[str, CompositeWorkflowSpec] = {}

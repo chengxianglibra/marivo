@@ -7,7 +7,7 @@ import logging
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
-from contextvars import ContextVar
+from contextvars import ContextVar, Token
 from typing import Any
 
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -40,7 +40,7 @@ def observability_context(
     engine_id: str | None = None,
     governance_scope: str | None = None,
 ) -> Iterator[None]:
-    tokens: list[tuple[ContextVar[str], object]] = []
+    tokens: list[tuple[ContextVar[str], Token[str]]] = []
     for variable, value in (
         (correlation_session_id, session_id),
         (correlation_step_id, step_id),
@@ -310,7 +310,7 @@ class TimingMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next: Any) -> Response:
         start = time.perf_counter()
-        response = await call_next(request)
+        response: Response = await call_next(request)
         duration_ms = (time.perf_counter() - start) * 1000
         metrics: MetricsCollector | None = getattr(request.app.state, "metrics", None)
         if metrics is not None:

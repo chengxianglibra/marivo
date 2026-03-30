@@ -173,9 +173,12 @@ type StateArtifactRef = {
 - `seed_entries` 是 creation-time seed hydration 的唯一权威载荷；consumer 不应再从平行缺失字段反推 seed role
 - `relevant_findings` 必须足以覆盖 `latest_assessment.supporting_finding_ids`、`latest_assessment.opposing_finding_ids` 以及当前 `applied_inference_records` 的直接 finding 输入
 - `relevant_findings` 不得因为某条 finding 同时属于 seed 而被省略
+- `relevant_findings` 是读取面围绕 committed latest assessment 暴露的 live closure，不等价于 assessment recompute 的 candidate finding set
 - 若 `latest_assessment = null`，`relevant_findings` 只能为 `[]`，不得伪造 assessment-derived finding membership
 - `seed_entries` 必须遵循 `proposition.seed_finding_refs` 的 canonical 顺序；同一 seed ref 的 hydration 不得重排
 - `relevant_findings` 的默认排序应复用 `finding.md` 中的 canonical 稳定排序
+
+assessment recompute 的 candidate finding assembly 以 [`../assessment-evaluation-context.md`](../assessment-evaluation-context.md) 为准；上下文面不得把该输入候选集直接暴露成 live evidence。
 
 #### seed 缺失语义
 
