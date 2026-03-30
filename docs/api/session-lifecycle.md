@@ -551,7 +551,6 @@ It does not replace the canonical read surfaces defined in [`session-state.md`](
 This contract does not define:
 
 - typed step execution endpoints
-- plan lifecycle endpoints
 - signal resource schemas or signal read APIs
 - evidence graph read surfaces
 - compact summary projections

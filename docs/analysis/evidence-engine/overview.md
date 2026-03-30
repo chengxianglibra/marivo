@@ -23,13 +23,15 @@ Evidence Engine 的目标态规范链路为：
 1. [`../agent-interaction-contract-principles.md`](../foundations/agent-interaction-contract-principles.md)
 2. 本文
 3. [`runtime-pipeline.md`](runtime-pipeline.md)
-4. [`inference-and-gap-engine.md`](inference-and-gap-engine.md)
-5. [`graph-and-reference-semantics.md`](graph-and-reference-semantics.md)
-6. [`read-surfaces.md`](read-surfaces.md)
-7. [`../finding.md`](schemas/finding.md)
-8. [`../proposition.md`](schemas/proposition.md)
-9. [`../assessment.md`](schemas/assessment.md)
-10. [`../action-proposal.md`](schemas/action-proposal.md)
+4. [`artifact-finding-generation-rules.md`](artifact-finding-generation-rules.md)
+5. [`finding-proposition-seeding.md`](finding-proposition-seeding.md)
+6. [`inference-and-gap-engine.md`](inference-and-gap-engine.md)
+7. [`graph-and-reference-semantics.md`](graph-and-reference-semantics.md)
+8. [`read-surfaces.md`](read-surfaces.md)
+9. [`../finding.md`](schemas/finding.md)
+10. [`../proposition.md`](schemas/proposition.md)
+11. [`../assessment.md`](schemas/assessment.md)
+12. [`../action-proposal.md`](schemas/action-proposal.md)
 
 ## 主题边界
 
@@ -79,6 +81,8 @@ Evidence Engine 主题不覆盖：
 ### 主题主线
 
 - [`runtime-pipeline.md`](runtime-pipeline.md)：运行时流水线、commit boundary、replay、seeding
+- [`artifact-finding-generation-rules.md`](artifact-finding-generation-rules.md)：artifact -> finding 的统一生成协议、identity 规则与 family-level 抽取提案
+- [`finding-proposition-seeding.md`](finding-proposition-seeding.md)：finding -> system-seeded proposition 的模板、registration、identity 与 replay contract
 - [`inference-and-gap-engine.md`](inference-and-gap-engine.md)：assessment recompute、rule families、gap management、judgment policy、rule registry
 - [`graph-and-reference-semantics.md`](graph-and-reference-semantics.md)：edge taxonomy、typed refs、hard/soft refs、closure integrity
 - [`read-surfaces.md`](read-surfaces.md)：session root、state surface、context surface 的主题级关系

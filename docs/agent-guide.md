@@ -9,6 +9,7 @@ Shared guidance for agents. `AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructi
 - Facts extracted deterministically by code. Models explain, not define evidence.
 - Prefer typed steps over raw SQL.
 - Target-state external step submission contract lives in `docs/api/intent-steps.md`; `docs/analysis/intents/` remains the design source, not the wire spec.
+- analysis refactor design docs is located at 'docs/analysis'
 
 ## Run
 
@@ -21,7 +22,7 @@ Tests: `.venv/bin/pytest`. Requires Python 3.12+, `DUCKDB_MVP_DB`. SQLite metada
 
 ## Architecture
 
-Client → FastAPI → `app/api/` → service/planning → semantic/routing/execution → SQLite + engines.
+Client → FastAPI → `app/api/` → service → semantic/routing/execution → SQLite + engines.
 Metadata reads use synced `source_objects`, not live catalogs.
 
 ## Model
@@ -58,6 +59,6 @@ Docs layout:
 - `docs/api/`: external HTTP API docs only; target-state step submission is in `intent-steps.md`, and canonical read surfaces are split into `session-state.md` and `context-surface.md`
 - `docs/analysis/foundations/`: shared terminology, agent-first interaction principles, and canonical schema design baselines
 - `docs/analysis/intents/`: intent-system design docs; atomic schemas live in `docs/analysis/intents/atomic/`, derived schemas live in `docs/analysis/intents/derived/`
-- `docs/analysis/evidence-engine/`: Evidence Engine theme docs for overview, runtime pipeline, inference/gap engine, graph/ref semantics, and read surfaces
+- `docs/analysis/evidence-engine/`: Evidence Engine theme docs for overview, runtime pipeline, finding/proposition seeding, inference/gap engine, graph/ref semantics, and read surfaces
 - `docs/analysis/evidence-engine/schemas/`: canonical evidence schemas (`session.md`, `finding.md`, `proposition.md`, `assessment.md`, `action-proposal.md`, `state-surface-schema.md`, `context-surface-schema.md`)
 - `docs/analysis/evidence-engine/rules/`: rule contracts and supplements (`precondition-gate-contract.md`, `quality-gate-contract.md`, `comparability-gate-contract.md`, `rule-family-design-checklist.md`, `assessment-judgment-policy.md`, `rule-registry-contract.md`); align them with `docs/analysis/evidence-engine/inference-and-gap-engine.md` plus `docs/analysis/evidence-engine/schemas/assessment.md`
