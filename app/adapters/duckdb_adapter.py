@@ -64,11 +64,12 @@ class DuckDBCatalogAdapter(CatalogAdapter):
             ).fetchall()
             results = []
             for row in rows:
-                col_count = con.execute(
+                _cr = con.execute(
                     "SELECT COUNT(*) FROM information_schema.columns "
                     "WHERE table_schema = ? AND table_name = ?",
                     [schema_name, row[0]],
-                ).fetchone()[0]
+                ).fetchone()
+                col_count = _cr[0] if _cr else 0
                 results.append(
                     PhysicalObject(
                         native_name=row[0],
@@ -85,11 +86,12 @@ class DuckDBCatalogAdapter(CatalogAdapter):
     def get_table_detail(self, schema_name: str, table_name: str) -> PhysicalObject:
         con = duckdb.connect(str(self._path), read_only=True)
         try:
-            exists = con.execute(
+            _er = con.execute(
                 "SELECT COUNT(*) FROM information_schema.tables "
                 "WHERE table_schema = ? AND table_name = ?",
                 [schema_name, table_name],
-            ).fetchone()[0]
+            ).fetchone()
+            exists = _er[0] if _er else 0
             if not exists:
                 raise KeyError(f"Table {schema_name}.{table_name} not found")
             cols = con.execute(

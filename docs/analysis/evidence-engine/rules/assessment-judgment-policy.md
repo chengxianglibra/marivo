@@ -2,7 +2,7 @@
 
 本文档定义 Factum 各 `assessment_type` 的最小判断门槛补充。
 
-状态：draft design。本文只保留各 `assessment_type` 的 family-specific judgment threshold；评估单元、固定顺序、gap 规则、共享 judgment baseline 与 registry 角色，统一以 [`evidence-engine/inference-and-gap-engine.md`](../inference-and-gap-engine.md) 为准。
+状态：draft design。本文只保留各 `assessment_type` 的 family-specific judgment threshold；评估单元、固定顺序、gap 规则、共享 judgment baseline 与 registry 角色，统一以 [`evidence-engine/inference-and-gap-engine.md`](../inference-and-gap-engine.md) 为准。directional evidence aggregation 与最终 status 决议，则以 [`support-oppose-and-status-resolution.md`](../support-oppose-and-status-resolution.md) 的可执行 contract 为准。
 
 ## 目的
 
@@ -32,10 +32,14 @@ type AssessmentJudgmentThreshold = {
     | "correlation_assessment"
     | "test_hypothesis_assessment"
     | "forecast_assessment";
-  support_threshold: string;
-  oppose_threshold: string;
-  mixed_resolution_policy: string;
-  insufficient_fallback_policy: string;
+  support_requirement_tokens: string[];
+  oppose_requirement_tokens: string[];
+  mixed_resolution_policy:
+    | "prefer_mixed_on_structured_conflict"
+    | "prefer_insufficient_when_conflict_not_substantive";
+  insufficient_fallback_policy:
+    | "fallback_when_no_direction_meets_threshold"
+    | "fallback_when_gate_blocks_and_threshold_not_met";
 };
 ```
 
@@ -88,3 +92,4 @@ type AssessmentJudgmentThreshold = {
 - 不定义 rule family 的固定执行顺序
 - 不定义 gap lifecycle、snapshot policy 或 registry contract
 - 不定义状态/上下文的读取契约
+- 不替代 [`support-oppose-and-status-resolution.md`](../support-oppose-and-status-resolution.md) 中的 executable resolution contract

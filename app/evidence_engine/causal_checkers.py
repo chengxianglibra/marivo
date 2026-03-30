@@ -382,12 +382,14 @@ class TemporalPrecedenceChecker(CausalChecker):
         # Use a conservative envelope across all supporting windows. This can
         # yield false negatives for disjoint support, but it avoids claiming
         # precedence when a claim has overlapping evidence in another window.
-        windows = [
-            observation.get("observed_window")
-            for observation_id in claim.get("supporting_observations", [])
-            for observation in [observation_by_id.get(str(observation_id))]
-            if observation is not None and observation.get("observed_window") is not None
-        ]
+        windows: list[dict[str, Any]] = []
+        for observation_id in claim.get("supporting_observations", []):
+            observation = observation_by_id.get(str(observation_id))
+            if observation is None:
+                continue
+            window = observation.get("observed_window")
+            if window is not None:
+                windows.append(window)
         if not windows:
             return None
         starts = [str(window["start"]) for window in windows if window.get("start")]
@@ -640,7 +642,9 @@ class DoseResponseChecker(CausalChecker):
                 deltas = [o["payload"].get("delta_pct") for o in supporting_obs]
 
                 pairs = [
-                    (v, d) for v, d in zip(dim_values, deltas, strict=False) if v is not None and d is not None
+                    (v, d)
+                    for v, d in zip(dim_values, deltas, strict=False)
+                    if v is not None and d is not None
                 ]
 
                 if len(pairs) < self.MIN_OBSERVATIONS:

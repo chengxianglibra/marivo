@@ -22,7 +22,7 @@ class PhysicalObject:
     native_name: str
     native_id: str | None
     object_type: str  # 'catalog', 'schema', 'table', 'column', 'partition'
-    parent_path: str  # dot-separated parent path
+    parent_path: str | None  # dot-separated parent path
     properties: dict[str, Any] = field(default_factory=dict)
 
 

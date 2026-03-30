@@ -45,7 +45,7 @@ class SQLiteMetadataStore(MetadataStore):
             con.execute(sql, params or [])
             con.commit()
 
-    def execute_many(self, sql: str, rows: list[tuple]) -> None:
+    def execute_many(self, sql: str, rows: list[tuple[Any, ...]]) -> None:
         with self.connect() as con:
             con.executemany(sql, rows)
             con.commit()

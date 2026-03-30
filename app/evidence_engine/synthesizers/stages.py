@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.evidence_engine.schemas import Claim, Observation
+
 
 @dataclass
 class ScopeCluster:
@@ -11,11 +13,11 @@ class ScopeCluster:
     scope_key: str  # "<metric>/<k=v,...>" canonical key
     metric: str
     slice_dict: dict[str, Any]
-    metric_observation_obs: list[dict[str, Any]]
-    funnel_drop_obs: list[dict[str, Any]]
-    contribution_shift_obs: list[dict[str, Any]]
-    anomaly_detection_obs: list[dict[str, Any]]
-    other_obs: list[dict[str, Any]]
+    metric_observation_obs: list[Observation]
+    funnel_drop_obs: list[Observation]
+    contribution_shift_obs: list[Observation]
+    anomaly_detection_obs: list[Observation]
+    other_obs: list[Observation]
     # Audit fields
     total_observation_count: int = 0
     cluster_reason: str = ""  # "exact_scope_match"
@@ -26,7 +28,7 @@ class AlignedSignal:
     """Stage 2 output: observations within a ScopeCluster with direction+strength alignment."""
 
     scope_cluster: ScopeCluster
-    primary_obs: dict[str, Any]
+    primary_obs: Observation
     primary_selection_reason: str  # "max |delta_pct| * log1p(sample_size)"
     supporting_obs_ids: list[str]
     contradicting_obs_ids: list[str]
@@ -46,7 +48,7 @@ class AlignedSignal:
 class ClaimFormulation:
     """Stage 3 output: a fully formed claim dict plus formulation audit data."""
 
-    claim: dict[str, Any]  # complete Claim dict, ready for DB insertion
+    claim: Claim  # complete Claim dict, ready for DB insertion
     # Audit fields
     claim_type_decision: str
     claim_type_reason: str

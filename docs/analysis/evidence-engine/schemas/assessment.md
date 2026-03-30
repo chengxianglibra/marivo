@@ -549,6 +549,8 @@ v1 的全局 guardrails：
 
 `gap_memberships` 的 lifecycle、identity convergence 与 reopen 规则统一由 [`evidence-engine/inference-and-gap-engine.md`](../inference-and-gap-engine.md) 定义；本节只定义 assessment snapshot 上该字段自身的 schema 语义。
 
+gap candidate 的来源、`open / keep / resolve` 收敛以及 `blocking / severity` 的 materialization ownership，以 [`../gap-confidence-and-transition-materialization.md`](../gap-confidence-and-transition-materialization.md) 为准。
+
 ### applied_inference_record_ids
 
 `applied_inference_record_ids` 是当前 snapshot 的直接推理依据。
@@ -562,6 +564,8 @@ rule family 的组织、固定 evaluation order、以及哪些规则结果必须
 - 至少覆盖对当前 status / confidence / gap state 有贡献的 inference records
 - 不要求把历史上所有无关 records 全量回挂到当前 snapshot
 - 默认排序建议为 `created_at ASC`，再按 `inference_record_id ASC`
+
+candidate `InferenceRecord` 的预分配 assessment identity、must-materialize family outputs 与 no-op discard 规则，以 [`../gap-confidence-and-transition-materialization.md`](../gap-confidence-and-transition-materialization.md) 为准。
 
 ### supersedes_assessment_id
 
@@ -822,7 +826,7 @@ type PropositionFocusView = {
 
 ## Assessment Snapshot Transition Details
 
-本节补足 `assessment` 从 `latest_assessment = null` 进入首个 snapshot、以及后续 snapshot 如何 supersede 的规范 transition 语义。
+本节补足 `assessment` 从 `latest_assessment = null` 进入首个 snapshot、以及后续 snapshot 如何 supersede 的规范 transition 语义。evaluation context、directional evidence、gap/confidence/transition 的 family ownership，分别以 [`../assessment-evaluation-context.md`](../assessment-evaluation-context.md)、[`../support-oppose-and-status-resolution.md`](../support-oppose-and-status-resolution.md)、[`../gap-confidence-and-transition-materialization.md`](../gap-confidence-and-transition-materialization.md) 为准。
 
 ### `latest_assessment = null` 与首个 snapshot 的边界
 
@@ -839,6 +843,7 @@ v1 采用按需创建（on-demand creation）：
 
 - “尚未评估” 与“已评估但证据不足”必须严格区分
 - 读取层不得把 `latest_assessment = null` 自动投影成 `status = insufficient`
+- candidate assessment identity 仍可在本轮 family 执行前预分配；若本轮最终 no-op discard，则该 candidate identity 不进入 canonical state
 
 ### 首个 snapshot 的合法转换
 
@@ -889,6 +894,8 @@ v1 采用按需创建（on-demand creation）：
 - 仅 projection 排序、截断或展示文案变化
 - 与当前 latest snapshot 无关的历史 inference record 补录
 - 仅补充非规范性说明文字，且不改变任何 canonical 字段
+
+canonical diff 的字段集合与 candidate output discard 规则，以 [`../gap-confidence-and-transition-materialization.md`](../gap-confidence-and-transition-materialization.md) 为准；本节与其保持一致。
 
 ### supersede 链规则
 
@@ -1027,6 +1034,14 @@ assessment 可以为动作规划提供输入，但不应包含：
 8. 不允许 `schema_version` 变化导致旧 snapshot 的 `assessment_id` 或 `inference_record_id` 被重新解释。
 9. 不允许在 canonical ref 位置继续使用字符串 locator。
 10. 不允许把核心 gap 语义只写在 `title` / `description` 等自由文本里。
+
+## Related Documents
+
+- [`../assessment-evaluation-context.md`](../assessment-evaluation-context.md)
+- [`../support-oppose-and-status-resolution.md`](../support-oppose-and-status-resolution.md)
+- [`../gap-confidence-and-transition-materialization.md`](../gap-confidence-and-transition-materialization.md)
+- [`../inference-and-gap-engine.md`](../inference-and-gap-engine.md)
+- [`../graph-and-reference-semantics.md`](../graph-and-reference-semantics.md)
 
 ## 非目标
 

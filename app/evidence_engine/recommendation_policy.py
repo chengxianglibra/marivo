@@ -319,9 +319,7 @@ class DefaultRecommendationPolicy(RecommendationPolicy):
         direction = self._resolve_direction(metric)
         if direction is None or direction == "neutral":
             return False
-        return (direction == "down" and delta_pct < 0) or (
-            direction == "up" and delta_pct > 0
-        )
+        return (direction == "down" and delta_pct < 0) or (direction == "up" and delta_pct > 0)
 
     def _derive_from_confirmed(
         self,
@@ -415,6 +413,7 @@ class DefaultRecommendationPolicy(RecommendationPolicy):
                 "primary_metric": all_metrics[0] if all_metrics else "metric_under_investigation",
                 "correlated_metrics": all_metrics[1:],
             },
+            "causal_basis": None,
         }
 
     def _single_claim_recommendation(self, claim: Claim) -> Recommendation:
@@ -472,4 +471,5 @@ class DefaultRecommendationPolicy(RecommendationPolicy):
             "validation_metric": {
                 "primary_metric": metric or "metric_under_investigation",
             },
+            "causal_basis": None,
         }

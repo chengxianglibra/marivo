@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from app.evidence_engine.schemas import Claim, Observation, Recommendation
 from app.evidence_engine.synthesizers.base import ClaimSynthesizer
 from app.evidence_engine.synthesizers.stages import PipelineAuditLog
@@ -16,7 +18,7 @@ class DefaultClaimSynthesizer(ClaimSynthesizer):
     def synthesize(
         self,
         observations: list[Observation],
-    ) -> tuple[list[Claim], list[Recommendation], list[dict]]:
+    ) -> tuple[list[Claim], list[Recommendation], list[dict[str, Any]]]:
         claims, recs, edges, audit_log = self._pipeline.run(observations)
         self.last_audit_log = audit_log
         return claims, recs, edges

@@ -4,7 +4,7 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from app.time_axis_metadata import normalize_time_capabilities
 
@@ -194,14 +194,18 @@ class TimeScopeResolver:
             raise ValueError("time_scope.mode must be 'single_window' or 'compare'")
         if grain not in {"day", "hour"}:
             raise ValueError("time_scope.grain must be 'day' or 'hour'")
+        mode_typed = cast("TimeScopeMode", mode)
+        grain_typed = cast("TimeScopeGrain", grain)
 
-        current = self._normalize_time_window(payload.get("current"), "time_scope.current", grain)
+        current = self._normalize_time_window(
+            payload.get("current"), "time_scope.current", grain_typed
+        )
         baseline_payload = payload.get("baseline")
         if mode == "compare":
             if not isinstance(baseline_payload, Mapping):
                 raise ValueError("time_scope.baseline is required when mode='compare'")
             baseline = self._normalize_time_window(
-                payload.get("baseline"), "time_scope.baseline", grain
+                payload.get("baseline"), "time_scope.baseline", grain_typed
             )
         else:
             if baseline_payload is not None:
@@ -210,8 +214,8 @@ class TimeScopeResolver:
 
         warnings: list[dict[str, Any]] = []
         if baseline is not None:
-            current_duration = self._window_duration(current, grain)
-            baseline_duration = self._window_duration(baseline, grain)
+            current_duration = self._window_duration(current, grain_typed)
+            baseline_duration = self._window_duration(baseline, grain_typed)
             if current_duration != baseline_duration:
                 warnings.append(
                     {
@@ -223,8 +227,8 @@ class TimeScopeResolver:
                     }
                 )
         return ResolvedTimeScope(
-            mode=mode,
-            grain=grain,
+            mode=mode_typed,
+            grain=grain_typed,
             current=current,
             baseline=baseline,
             warnings=warnings,
@@ -314,7 +318,10 @@ class _TimeCapabilities:
             partition_date_format=_normalize_date_format(partition_time.get("date_format")),
             partition_hour_column=_optional_str(partition_time.get("hour_column")),
             partition_hour_format=_normalize_hour_format(partition_time.get("hour_format")),
-            default_compare_grain=_optional_str(normalized_payload.get("default_compare_grain")),
+            default_compare_grain=cast(
+                "TimeScopeGrain | None",
+                _optional_str(normalized_payload.get("default_compare_grain")),
+            ),
         )
 
 

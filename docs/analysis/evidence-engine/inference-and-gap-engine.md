@@ -28,6 +28,11 @@
 
 v1 不允许 rule engine 直接跨 proposition 读取其他命题的 assessment 或 gap 状态。
 
+其中：
+
+- evaluation context 的 authority boundary、candidate finding assembly 与 related finding change 映射，以 [`assessment-evaluation-context.md`](assessment-evaluation-context.md) 为准
+- 读取面暴露的 `relevant_findings` 仍是 committed latest assessment closure，而不是 recompute candidate set
+
 ## Fixed Evaluation Order
 
 对外可观察顺序固定为：
@@ -124,6 +129,14 @@ family-specific 门槛与例子，保留在独立 judgment policy 文档中。
 
 registry 是规范元数据契约，不是执行日志，也不承载 judgment policy。
 
+## Implementation-Level Supplements
+
+以下文档把本主题补成可直接实施的 contract：
+
+- [`assessment-evaluation-context.md`](assessment-evaluation-context.md)：evaluation context assembly、candidate finding set、related finding changes
+- [`support-oppose-and-status-resolution.md`](support-oppose-and-status-resolution.md)：directional evidence aggregation 与最终 status resolution
+- [`gap-confidence-and-transition-materialization.md`](gap-confidence-and-transition-materialization.md)：gap / confidence / transition materialization 与 candidate output discard 规则
+
 ## Family-Level Extensions
 
 以下文档是本主题的 family-level extensions：
@@ -137,6 +150,9 @@ registry 是规范元数据契约，不是执行日志，也不承载 judgment p
 
 ## Related Documents
 
+- [`assessment-evaluation-context.md`](assessment-evaluation-context.md)：assessment recompute 的输入组装
+- [`support-oppose-and-status-resolution.md`](support-oppose-and-status-resolution.md)：directional evidence 与 status 决议
+- [`gap-confidence-and-transition-materialization.md`](gap-confidence-and-transition-materialization.md)：gap / confidence / transition materialization
 - [`runtime-pipeline.md`](runtime-pipeline.md)：assessment recompute 在主流水线中的位置
 - [`graph-and-reference-semantics.md`](graph-and-reference-semantics.md)：assessment/gap/record 的 edge 与 ref 语义
 - [`../assessment.md`](schemas/assessment.md)：assessment、gap、record 的字段 schema

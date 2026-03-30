@@ -6,12 +6,12 @@ import math
 import time
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 from uuid import uuid4
 
 from app.analysis_core import CompositeWorkflowRuntime, build_service_step_registry
+from app.analysis_core.compiler import CompiledQuery, compile_step
 from app.analysis_core.compiler import build_metric_query as compile_metric_query
-from app.analysis_core.compiler import compile_step
 from app.analysis_core.executor import execute_compiled
 from app.analysis_core.ir import AnalysisStepIR, from_legacy_step
 from app.evidence_engine import EvidencePipeline
@@ -24,7 +24,7 @@ from app.evidence_engine.claim_relations import (
     _slice_dict,
 )
 from app.evidence_engine.readiness import compute_readiness, load_live_claims
-from app.evidence_engine.schemas import ALL_EDGE_TYPES, EDGE_TYPE_JUSTIFIES
+from app.evidence_engine.schemas import ALL_EDGE_TYPES, EDGE_TYPE_JUSTIFIES, Claim
 from app.evidence_engine.synthesizers.default import DefaultClaimSynthesizer
 from app.execution.feedback import compile_failure_from_error
 from app.execution.orchestrator import WorkflowOrchestrator
@@ -35,6 +35,7 @@ from app.storage.analytics import AnalyticsEngine
 from app.storage.metadata import MetadataStore
 from app.time_axis_metadata import TimeAxisMetadataProvider
 from app.time_scope import (
+    AdHocAggregateValueSpec,
     ResolvedWindowedQueryRequest,
     SemanticMetricValueSpec,
     TimeAxisResolver,
@@ -696,8 +697,8 @@ class SemanticLayerService:
         metric_b = str(scope_b.get("metric", "") or "")
         slice_a = _slice_dict(scope_a)
         slice_b = _slice_dict(scope_b)
-        direction_a = _claim_direction(claim_a, observation_by_id)
-        direction_b = _claim_direction(claim_b, observation_by_id)
+        direction_a = _claim_direction(cast("Claim", claim_a), observation_by_id)
+        direction_b = _claim_direction(cast("Claim", claim_b), observation_by_id)
 
         shared_keys = sorted(set(slice_a).intersection(slice_b))
         exact = slice_a == slice_b
@@ -1030,7 +1031,7 @@ class SemanticLayerService:
         *,
         engine_type: str,
         semantic_context: dict[str, Any] | None = None,
-    ):
+    ) -> CompiledQuery:
         try:
             return compile_step(
                 step,
@@ -1962,12 +1963,14 @@ class SemanticLayerService:
         scoped_query = self._build_scoped_query(session_id, resolved)
         qualified_table = qualified.get(short_name, table_name)
 
+        measures = (
+            resolved.value_spec.measures
+            if isinstance(resolved.value_spec, AdHocAggregateValueSpec)
+            else []
+        )
         compiler_params: dict[str, Any] = {
             "table": qualified_table,
-            "measures": [
-                {"expr": measure.expr, "as": measure.alias}
-                for measure in resolved.value_spec.measures
-            ],
+            "measures": [{"expr": measure.expr, "as": measure.alias} for measure in measures],
             "group_by": list(resolved.grouping),
             "limit": resolved.limit or 100,
             "scoped_query": scoped_query,
@@ -1997,9 +2000,7 @@ class SemanticLayerService:
             observation_context = {
                 "group_by": group_by_cols,
                 "observation_type": params.get("observation_type", "metric_observation"),
-                "metric": resolved.value_spec.measures[0].alias
-                if resolved.value_spec.measures
-                else "aggregate",
+                "metric": measures[0].alias if measures else "aggregate",
                 "value_column": value_column,
                 "column_metadata": col_metadata,  # G-5a: authoritative unit source
             }
@@ -2039,11 +2040,12 @@ class SemanticLayerService:
             else:
                 summary = f"Aggregate query on '{table_name}' returned 0 rows."
         elif compare_period:
+            _baseline = resolved.time_scope.baseline
             summary = (
                 f"Period-over-period aggregate on '{table_name}': "
                 f"{len(rows)} dimension slice(s) compared "
                 f"(current {resolved.time_scope.current.start}–{resolved.time_scope.current.end} vs "
-                f"baseline {resolved.time_scope.baseline.start}–{resolved.time_scope.baseline.end})."
+                f"baseline {_baseline.start if _baseline else '?'}–{_baseline.end if _baseline else '?'})."
             )
         else:
             summary = f"Aggregate query on '{table_name}' returned {len(rows)} rows."
@@ -3168,7 +3170,7 @@ class SemanticLayerService:
             "SELECT COUNT(*) AS cnt FROM observations WHERE session_id = ?",
             [session_id],
         )
-        return row["cnt"] if row else 0
+        return int(row["cnt"]) if row else 0
 
     def _annotate_temporal(
         self,

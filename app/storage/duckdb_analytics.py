@@ -78,7 +78,8 @@ class DuckDBAnalyticsEngine(AnalyticsEngine):
     def initialize(self) -> None:
         with self._connect() as con:
             con.execute(_ANALYTICS_DDL)
-            row_count = con.execute("SELECT COUNT(*) FROM analytics.watch_events").fetchone()[0]
+            _row = con.execute("SELECT COUNT(*) FROM analytics.watch_events").fetchone()
+            row_count = _row[0] if _row else 0
             if row_count == 0:
                 _seed_demo_data(con)
 
@@ -101,11 +102,12 @@ class DuckDBAnalyticsEngine(AnalyticsEngine):
                     "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?",
                     [table_name],
                 ).fetchone()
-            return row[0] > 0
+            return row is not None and row[0] > 0
 
     def table_row_count(self, table_name: str) -> int:
         with self._connect() as con:
-            return con.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
+            _row = con.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()
+            return int(_row[0]) if _row else 0
 
 
 def _seed_demo_data(con: duckdb.DuckDBPyConnection) -> None:
@@ -127,10 +129,10 @@ def _seed_demo_data(con: duckdb.DuckDBPyConnection) -> None:
     network_types = ["wifi", "4g"]
     content_types = ["short", "long"]
 
-    watch_rows: list[tuple] = []
-    qoe_rows: list[tuple] = []
-    ad_rows: list[tuple] = []
-    recommendation_rows: list[tuple] = []
+    watch_rows: list[tuple[Any, ...]] = []
+    qoe_rows: list[tuple[Any, ...]] = []
+    ad_rows: list[tuple[Any, ...]] = []
+    recommendation_rows: list[tuple[Any, ...]] = []
     session_index = 0
 
     for period_name, start_day, num_days in periods:

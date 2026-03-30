@@ -13,6 +13,7 @@
 - committed canonical state 的最小可见单元是什么
 - extractor 应如何选择、item boundary 应如何稳定化
 - proposition seeding 何时运行、如何匹配、如何去重
+- latest assessment 后 proposal refresh 如何触发与抑制
 - replay、idempotency、soft invalidation 如何解释
 
 ## Canonical Pipeline
@@ -106,12 +107,31 @@ v1 支持：
 
 assessment recompute 只在 proposition registration 或相关 finding 变化后运行。
 
+其中：
+
+- evaluation context assembly 与 `related finding changes` 的命中规则，以 [`assessment-evaluation-context.md`](assessment-evaluation-context.md) 为准
+- `judgment output changed` 的 canonical diff set 与 candidate discard 规则，以 [`schemas/assessment.md`](schemas/assessment.md) 和 [`gap-confidence-and-transition-materialization.md`](gap-confidence-and-transition-materialization.md) 为准
+
 下游 suppression 规则：
 
 - extraction 成功前不得注册 proposition
 - proposition 注册成功前不得触发 assessment recompute
 - assessment 未形成 committed latest state 前，不得刷新 action proposals
 - 读取面不得暴露 artifact-only 中间态作为 canonical state
+
+## Latest Assessment -> Action Proposal Refresh
+
+proposal refresh 的 authority input 固定为 committed `latest_assessment` 及其 proposition-local canonical closure。
+
+固定要求：
+
+- proposal refresh 只能发生在 latest assessment 可解引用之后
+- proposal refresh 只读取当前 proposition 的 canonical objects、显式 `proposal_context` 与显式 policy context
+- proposal refresh 不得回写 assessment judgment semantics
+- proposal refresh 允许输出空 proposal 集；空集仍是合法 canonical result
+- refresh 若未改变 canonical proposal 集，可记为 no-op，而不是提交新的 proposal snapshots
+
+更细的 candidate generation、payload materialization、ranking、identity 与 no-op 规则，以 [`proposal-policy-engine.md`](proposal-policy-engine.md) 为准。
 
 ## Replay And Idempotency
 
@@ -152,7 +172,11 @@ replay 不允许：
 - [`overview.md`](overview.md)：主题总览与阅读顺序
 - [`artifact-finding-generation-rules.md`](artifact-finding-generation-rules.md)：artifact -> finding 的统一生成协议与 family-level 规则提案
 - [`finding-proposition-seeding.md`](finding-proposition-seeding.md)：finding -> system-seeded proposition 的完整实现级 contract
+- [`assessment-evaluation-context.md`](assessment-evaluation-context.md)：assessment recompute 的输入组装与触发映射
 - [`inference-and-gap-engine.md`](inference-and-gap-engine.md)：assessment recompute 的规则过程
+- [`support-oppose-and-status-resolution.md`](support-oppose-and-status-resolution.md)：directional evidence 与 status 决议
+- [`gap-confidence-and-transition-materialization.md`](gap-confidence-and-transition-materialization.md)：gap / confidence / transition materialization
+- [`proposal-policy-engine.md`](proposal-policy-engine.md)：latest assessment 之后的 proposal refresh、排序与 identity 规则
 - [`graph-and-reference-semantics.md`](graph-and-reference-semantics.md)：refs、edges 与 closure integrity
 - [`../finding.md`](schemas/finding.md)：finding schema
 - [`../proposition.md`](schemas/proposition.md)：proposition schema

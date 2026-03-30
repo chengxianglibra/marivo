@@ -1,3 +1,5 @@
+from typing import Any
+
 from app.api.app_factory import create_app
 
 # Lazy ASGI app: deferred until first access so that importing this module
@@ -6,7 +8,7 @@ from app.api.app_factory import create_app
 _app = None
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> Any:
     global _app
     if name == "app":
         if _app is None:

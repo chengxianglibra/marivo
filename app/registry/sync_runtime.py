@@ -215,7 +215,7 @@ class RegistrySyncEngine:
             [source_id, fqn],
         )
         if existing:
-            object_id = existing["object_id"]
+            object_id: str = str(existing["object_id"])
             # Preserve user-owned keys (anything not supplied by the adapter)
             existing_props = json.loads(existing["properties_json"] or "{}")
             adapter_keys = set(obj.properties.keys())

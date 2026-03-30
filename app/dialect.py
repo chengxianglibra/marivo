@@ -41,7 +41,7 @@ def _rewrite_cast(sql: str) -> str:
     The regex works right-to-left so nested casts are handled naturally.
     """
 
-    def _replace(m: re.Match) -> str:
+    def _replace(m: re.Match[str]) -> str:
         return f"CAST({m.group(1)} AS {m.group(2)})"
 
     prev = None

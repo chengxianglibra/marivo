@@ -155,7 +155,8 @@ class DuckDBStore:
                 """
             )
 
-            watch_row_count = con.execute("SELECT COUNT(*) FROM watch_events").fetchone()[0]
+            _watch_row = con.execute("SELECT COUNT(*) FROM watch_events").fetchone()
+            watch_row_count = _watch_row[0] if _watch_row else 0
             if watch_row_count == 0:
                 self._seed_demo_data(con)
 
@@ -163,7 +164,9 @@ class DuckDBStore:
         with self.connect() as con:
             tables = ["watch_events", "player_qoe", "ad_events", "recommendation_events"]
             return {
-                table: con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                table: (lambda r: int(r[0]) if r else 0)(
+                    con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
+                )
                 for table in tables
             }
 

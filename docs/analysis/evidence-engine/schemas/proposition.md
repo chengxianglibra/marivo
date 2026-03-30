@@ -833,6 +833,7 @@ type PropositionFocusView = {
 - `seed_entries` 必须按 `seed_finding_refs` 的 canonical 顺序返回，并保留每个 `PropositionSeedRef.role`
 - `seed_entries.finding = null` 表示该种子（seed）当前不可解引用；读取层不得静默丢弃该 seed entry
 - `relevant_findings` 来自 `latest_assessment` 或其引用的推断记录（inference records），是 agent 读取实时证据的主入口
+- `relevant_findings` 是读取面围绕 committed latest assessment 暴露的 live closure，不等价于 assessment recompute 的 candidate finding set
 - `latest_assessment = null` 表示该 proposition 尚未进入评估流程，不表示 assessment 失败
 - 若 `latest_assessment = null`，则 `blocking_gaps`、`applied_inference_records` 与 `assessment_dependencies` 必须同时为 `null`
 - `blocking_gaps = []` 表示已评估且当前无阻塞缺口（blocking gap）
@@ -840,6 +841,8 @@ type PropositionFocusView = {
 - `assessment_dependencies` 只覆盖 `applied_inference_records.input_assessment_ids` 的直接 assessment 输入
 - 种子当前不可解引用不等价于 proposition 无效，但必须通过 `seed_entries` 向 agent 显式暴露
 - `blocking_gaps`、`applied_inference_records` 与 `relevant_findings` 必须从规范评估（canonical assessment）/ 推断记录（inference record）解引用；投影（projection）只能压缩展示，不得重定义成员集合
+
+assessment recompute 的 candidate finding assembly 以 [`../assessment-evaluation-context.md`](../assessment-evaluation-context.md) 为准；`PropositionFocusView` 不直接暴露该候选集。
 
 ### 稳定引用格式
 

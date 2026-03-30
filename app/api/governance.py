@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.api.deps import get_services, require_governance
@@ -14,7 +16,7 @@ router = APIRouter()
 
 
 @router.post("/policies")
-def create_policy(payload: PolicyCreateRequest, request: Request) -> dict[str, object]:
+def create_policy(payload: PolicyCreateRequest, request: Request) -> dict[str, Any]:
     governance = require_governance(get_services(request))
     try:
         return governance.create_policy(
@@ -28,7 +30,7 @@ def create_policy(payload: PolicyCreateRequest, request: Request) -> dict[str, o
 
 
 @router.get("/policies")
-def list_policies(request: Request) -> list[dict[str, object]]:
+def list_policies(request: Request) -> list[dict[str, Any]]:
     services = get_services(request)
     if services.governance_service is None:
         return []
@@ -36,7 +38,7 @@ def list_policies(request: Request) -> list[dict[str, object]]:
 
 
 @router.get("/policies/{policy_id}")
-def get_policy(policy_id: str, request: Request) -> dict[str, object]:
+def get_policy(policy_id: str, request: Request) -> dict[str, Any]:
     governance = require_governance(get_services(request))
     try:
         return governance.get_policy(policy_id)
@@ -45,9 +47,7 @@ def get_policy(policy_id: str, request: Request) -> dict[str, object]:
 
 
 @router.put("/policies/{policy_id}")
-def update_policy(
-    policy_id: str, payload: PolicyUpdateRequest, request: Request
-) -> dict[str, object]:
+def update_policy(policy_id: str, payload: PolicyUpdateRequest, request: Request) -> dict[str, Any]:
     governance = require_governance(get_services(request))
     try:
         return governance.update_policy(
@@ -60,7 +60,7 @@ def update_policy(
 
 
 @router.delete("/policies/{policy_id}")
-def delete_policy(policy_id: str, request: Request) -> dict[str, object]:
+def delete_policy(policy_id: str, request: Request) -> dict[str, Any]:
     governance = require_governance(get_services(request))
     try:
         return governance.delete_policy(policy_id)
@@ -69,7 +69,7 @@ def delete_policy(policy_id: str, request: Request) -> dict[str, object]:
 
 
 @router.post("/quality-rules")
-def create_quality_rule(payload: QualityRuleCreateRequest, request: Request) -> dict[str, object]:
+def create_quality_rule(payload: QualityRuleCreateRequest, request: Request) -> dict[str, Any]:
     governance = require_governance(get_services(request))
     try:
         return governance.create_quality_rule(
@@ -86,7 +86,7 @@ def create_quality_rule(payload: QualityRuleCreateRequest, request: Request) -> 
 @router.get("/quality-rules")
 def list_quality_rules(
     request: Request, table: str | None = Query(default=None)
-) -> list[dict[str, object]]:
+) -> list[dict[str, Any]]:
     services = get_services(request)
     if services.governance_service is None:
         return []
@@ -94,7 +94,7 @@ def list_quality_rules(
 
 
 @router.delete("/quality-rules/{rule_id}")
-def delete_quality_rule(rule_id: str, request: Request) -> dict[str, object]:
+def delete_quality_rule(rule_id: str, request: Request) -> dict[str, Any]:
     governance = require_governance(get_services(request))
     try:
         return governance.delete_quality_rule(rule_id)
@@ -103,7 +103,7 @@ def delete_quality_rule(rule_id: str, request: Request) -> dict[str, object]:
 
 
 @router.post("/governance/check")
-def governance_check(payload: GovernanceCheckRequest, request: Request) -> dict[str, object]:
+def governance_check(payload: GovernanceCheckRequest, request: Request) -> dict[str, Any]:
     services = get_services(request)
     if services.governance_service is None:
         return {"passed": True, "violations": [], "warnings": []}
