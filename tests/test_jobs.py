@@ -10,7 +10,6 @@ from fastapi.testclient import TestClient
 
 from app.jobs import JobService
 from app.main import create_app
-from app.planning import PlanningService
 from app.service import SemanticLayerService
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 from app.storage.sqlite_metadata import SQLiteMetadataStore
@@ -31,8 +30,7 @@ class JobServiceTests(unittest.TestCase):
         cls.analytics = DuckDBAnalyticsEngine(db_path)
         cls.analytics.initialize()
         cls.service = SemanticLayerService(cls.metadata, cls.analytics)
-        cls.planning = PlanningService(cls.metadata)
-        cls.job_service = JobService(cls.metadata, cls.service, planning_service=cls.planning)
+        cls.job_service = JobService(cls.metadata, cls.service)
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -105,23 +103,6 @@ class JobServiceTests(unittest.TestCase):
         )
         self.assertEqual(job["status"], "failed")
         self.assertIn("error_message", job)
-
-    def test_plan_job(self) -> None:
-        session_id = self._create_session()
-        plan = self.planning.draft_plan(
-            session_id,
-            [
-                {"step_type": "profile_table", "params": {"table_name": "analytics.watch_events"}},
-            ],
-        )
-        self.planning.validate_plan(plan["plan_id"])
-        self.planning.approve_plan(plan["plan_id"])
-        job = self.job_service.submit_job(
-            session_id,
-            "plan",
-            {"plan_id": plan["plan_id"]},
-        )
-        self.assertEqual(job["status"], "completed")
 
 
 class JobAPITests(unittest.TestCase):

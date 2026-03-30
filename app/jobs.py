@@ -9,7 +9,7 @@ from typing import Any
 from uuid import uuid4
 
 from app.observability import MetricsCollector, observability_context
-from app.runtime_contracts import JobExecutor, PlanExecutor
+from app.runtime_contracts import JobExecutor
 from app.storage.metadata import MetadataStore
 from app.storage.repositories import JobRepository
 
@@ -21,13 +21,11 @@ class JobService:
         self,
         metadata: MetadataStore,
         service: JobExecutor,
-        planning_service: PlanExecutor | None = None,
         job_repository: JobRepository | None = None,
         metrics: MetricsCollector | None = None,
     ) -> None:
         self.metadata = metadata
         self.service = service
-        self.planning_service = planning_service
         self.repository = job_repository or JobRepository(metadata)
         self.metrics = metrics
         self._tasks: dict[str, asyncio.Task[None]] = {}
@@ -36,7 +34,7 @@ class JobService:
     def submit_job(
         self, session_id: str, job_type: str, payload: dict[str, Any] | None = None
     ) -> dict[str, Any]:
-        valid_types = ("step", "plan")
+        valid_types = ("step",)
         if job_type not in valid_types:
             raise ValueError(f"Invalid job_type: {job_type}. Must be one of {valid_types}")
 
@@ -146,14 +144,7 @@ class JobService:
                 raise ValueError("Job payload for 'step' must include 'step_type'")
             params = payload.get("params")
             return self.service.run_step(session_id, step_type, params=params)
-        if job_type == "plan":
-            plan_id = payload.get("plan_id")
-            if not plan_id:
-                raise ValueError("Job payload for 'plan' must include 'plan_id'")
-            if self.planning_service is None:
-                raise ValueError("PlanningService not configured for job execution")
-            return self.planning_service.execute_plan(plan_id, self.service)
         raise ValueError(f"Unknown job_type: {job_type}")
 
     def _job_stage(self, job_type: str) -> str:
-        return "planner" if job_type == "plan" else "executor"
+        return "executor"

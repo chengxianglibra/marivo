@@ -15,7 +15,6 @@ from app.engines import EngineService
 from app.governance import GovernanceService
 from app.jobs import JobService
 from app.observability import MetricsCollector, TimingMiddleware, setup_logging
-from app.planning import PlanningService
 from app.routing import QueryRouter
 from app.semantic import SemanticService
 from app.semantic_runtime import CatalogRuntimeService
@@ -221,21 +220,12 @@ def _build_services(
     query_router = QueryRouter(metadata_store, engine_service)
     service.query_router = query_router
     _register_configured_governance(config, metadata_store, governance_service)
-    planning_service = PlanningService(
-        metadata_store,
-        analytics_engine=analytics_engine,
-        query_router=query_router,
-        governance=governance_service,
-        semantic_repository=service.semantic_repository,
-        metrics=metrics_collector,
-    )
     semantic_service = SemanticService(metadata_store)
     catalog_runtime = CatalogRuntimeService(metadata_store, binding_service)
     job_repository = JobRepository(metadata_store)
     job_service = JobService(
         metadata_store,
         service,
-        planning_service=planning_service,
         job_repository=job_repository,
         metrics=metrics_collector,
     )
@@ -258,7 +248,6 @@ def _build_services(
         query_router=query_router,
         metadata_store=metadata_store,
         analytics_engine=analytics_engine,
-        planning_service=planning_service,
         governance_service=governance_service,
         approval_service=approval_service,
         metrics=metrics_collector,
@@ -284,7 +273,6 @@ def _attach_state(app: FastAPI, services: AppServices) -> None:
     app.state.query_router = services.query_router
     app.state.metadata_store = services.metadata_store
     app.state.analytics_engine = services.analytics_engine
-    app.state.planning_service = services.planning_service
     app.state.governance_service = services.governance_service
     app.state.approval_service = services.approval_service
     app.state.metrics = services.metrics
