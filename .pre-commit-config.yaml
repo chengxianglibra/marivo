@@ -1,6 +1,6 @@
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.3.4
+    rev: v0.15.8
     hooks:
       - id: ruff
         args: [--fix]
@@ -10,7 +10,7 @@ repos:
     rev: v1.9.0
     hooks:
       - id: mypy
-        additional_dependencies: [types-PyYAML]
+        additional_dependencies: [types-PyYAML, pydantic]
         args: [--strict, --ignore-missing-imports]
         files: ^app/
 
