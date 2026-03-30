@@ -16,9 +16,13 @@ from app.analysis_core.ir import (
     request_from_legacy_session,
 )
 from app.analysis_core.primitives import (
+    ATOMIC_INTENT_TYPES,
     COMPOSITE_STEP_TYPES,
+    DERIVED_INTENT_TYPES,
+    INTENT_TAXONOMY,
     PRIMITIVE_STEP_TYPES,
     STEP_TAXONOMY,
+    SUPPORTED_INTENT_TYPES,
     SUPPORTED_STEP_TYPES,
     step_category_for,
 )
@@ -33,9 +37,13 @@ from app.analysis_core.workflows import (
 )
 
 __all__ = [
+    "ATOMIC_INTENT_TYPES",
     "COMPOSITE_STEP_TYPES",
+    "DERIVED_INTENT_TYPES",
+    "INTENT_TAXONOMY",
     "PRIMITIVE_STEP_TYPES",
     "STEP_TAXONOMY",
+    "SUPPORTED_INTENT_TYPES",
     "SUPPORTED_STEP_TYPES",
     "WORKFLOW_SPECS",
     "AnalysisRequest",

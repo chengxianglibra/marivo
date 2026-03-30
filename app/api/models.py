@@ -19,7 +19,7 @@ Session constraints summary:
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -621,6 +621,278 @@ class PlanPatchRequest(BaseModel):
         default_factory=list,
         description="Indices of steps to mark as 'skipped'.",
     )
+
+
+# ── Intent API models ────────────────────────────────────────────────────────
+# Typed request models for the new intent-based write surface.
+# Path (/intents/<intent_type>) acts as the discriminator; no step_type field.
+
+
+class ObservationRef(BaseModel):
+    """Typed reference to an upstream `observe` step artifact."""
+
+    session_id: str
+    step_id: str
+    step_type: Literal["observe"]
+
+
+class ArtifactRef(BaseModel):
+    """Typed reference to any upstream intent step artifact."""
+
+    session_id: str
+    step_id: str
+    step_type: str
+
+
+# ObserveTimeScope — discriminated union keyed on `kind`
+
+
+class ObserveTimeScopeRange(BaseModel):
+    kind: Literal["range"]
+    start: str = Field(description="Inclusive start of the range (ISO-8601 date or datetime).")
+    end: str = Field(description="Exclusive end of the range (ISO-8601 date or datetime).")
+
+
+class ObserveTimeScopeSnapshotNow(BaseModel):
+    kind: Literal["snapshot_now"]
+
+
+class ObserveTimeScopeLatestAvailable(BaseModel):
+    kind: Literal["latest_available"]
+
+
+class ObserveTimeScopeAsOf(BaseModel):
+    kind: Literal["as_of"]
+    at: str = Field(description="Point-in-time snapshot (ISO-8601 datetime).")
+
+
+ObserveTimeScope = Annotated[
+    ObserveTimeScopeRange
+    | ObserveTimeScopeSnapshotNow
+    | ObserveTimeScopeLatestAvailable
+    | ObserveTimeScopeAsOf,
+    Field(discriminator="kind"),
+]
+
+
+class ObserveScope(BaseModel):
+    """Non-time population scope for an observe intent.
+
+    `constraints` holds scalar equality filters; `predicate` holds a
+    structured predicate AST (dict).  Time conditions must not appear here.
+    """
+
+    constraints: dict[str, Any] | None = Field(
+        default=None,
+        description="Scalar equality constraints on semantic dimensions.",
+    )
+    predicate: dict[str, Any] | None = Field(
+        default=None,
+        description="Structured non-time predicate AST.  Must not contain time conditions.",
+    )
+
+
+class ObserveRequest(BaseModel):
+    """Atomic intent: read a typed observation for a semantic metric."""
+
+    metric: str = Field(description="Published semantic metric name.")
+    result_mode: Literal["standard", "numeric_sample_summary", "rate_sample_summary"] = Field(
+        default="standard",
+        description=(
+            "Observation contract type.  'standard' returns scalar/time-series/segmented output "
+            "depending on granularity and dimensions.  'numeric_sample_summary' and "
+            "'rate_sample_summary' return inferential-ready summaries for downstream `test`."
+        ),
+    )
+    time_scope: ObserveTimeScope
+    scope: ObserveScope | None = Field(default=None)
+    granularity: Literal["hour", "day", "week", "month"] | None = Field(
+        default=None,
+        description="Time-series bucket size.  Only valid when result_mode='standard'.",
+    )
+    dimensions: list[str] | None = Field(
+        default=None,
+        description="Semantic dimensions for segmented output.  Only valid when result_mode='standard'.",
+    )
+
+    @model_validator(mode="after")
+    def _validate_mode_combinations(self) -> ObserveRequest:
+        if self.granularity is not None and self.dimensions is not None:
+            raise ValueError("granularity and dimensions are mutually exclusive")
+        if self.result_mode != "standard":
+            if self.granularity is not None:
+                raise ValueError("granularity is only valid when result_mode='standard'")
+            if self.dimensions is not None:
+                raise ValueError("dimensions is only valid when result_mode='standard'")
+        kind = self.time_scope.kind if hasattr(self.time_scope, "kind") else None
+        if kind in {"snapshot_now", "latest_available", "as_of"} and self.granularity is not None:
+            raise ValueError(f"granularity is not valid when time_scope.kind='{kind}'")
+        if self.dimensions == []:
+            self.dimensions = None
+        return self
+
+
+class CompareRequest(BaseModel):
+    """Atomic intent: compute a typed delta between two observations."""
+
+    left_ref: ObservationRef = Field(description="Reference to the 'current' observe artifact.")
+    right_ref: ObservationRef = Field(description="Reference to the 'baseline' observe artifact.")
+    mode: Literal["auto", "scalar", "segmented"] = Field(
+        default="auto",
+        description=(
+            "'auto' selects scalar or segmented based on the input observation types. "
+            "'scalar' and 'segmented' enforce a specific delta type."
+        ),
+    )
+
+
+class DecomposeRequest(BaseModel):
+    """Atomic intent: attribute a delta across candidate dimensions."""
+
+    compare_ref: ArtifactRef = Field(
+        description="Reference to an upstream `compare` step artifact (step_type='compare')."
+    )
+    dimensions: list[str] = Field(
+        min_length=1,
+        description="Candidate dimensions to decompose the delta across.",
+    )
+    top_k: int = Field(default=5, ge=1, description="Number of top contributors to return.")
+    min_contribution_pct: float = Field(
+        default=5.0,
+        ge=0.0,
+        description="Minimum absolute contribution percentage to include a contributor.",
+    )
+
+    @field_validator("compare_ref")
+    @classmethod
+    def _validate_compare_ref_type(cls, ref: ArtifactRef) -> ArtifactRef:
+        if ref.step_type != "compare":
+            raise ValueError(f"compare_ref.step_type must be 'compare', got '{ref.step_type}'")
+        return ref
+
+
+class CorrelateRequest(BaseModel):
+    """Atomic intent: estimate statistical association between two time-series."""
+
+    left_ref: ObservationRef = Field(
+        description="Reference to a time-series observe artifact (left series)."
+    )
+    right_ref: ObservationRef = Field(
+        description="Reference to a time-series observe artifact (right series)."
+    )
+    method: Literal["spearman", "pearson", "both"] = Field(
+        default="spearman",
+        description="Correlation method.  'both' computes Spearman and Pearson.",
+    )
+
+
+class DetectRequest(BaseModel):
+    """Atomic intent: scan a metric time range for anomaly candidates."""
+
+    metric: str = Field(description="Published semantic metric name to scan.")
+    time_scope: ObserveTimeScope
+    scope: ObserveScope | None = Field(default=None)
+    sensitivity: Literal["low", "balanced", "high"] = Field(
+        default="balanced",
+        description="Detection sensitivity preset.",
+    )
+    max_series: int = Field(
+        default=20,
+        ge=1,
+        description="Maximum number of series to scan (execution boundary, not a display limit).",
+    )
+
+
+class IntentTestRequest(BaseModel):
+    """Atomic intent: evaluate a typed statistical hypothesis.
+
+    Named IntentTestRequest to avoid collision with Python's built-in `test` usage.
+    Exposed via the /intents/test endpoint.
+    """
+
+    hypothesis: Literal["welch_t", "proportions_z", "chi_square"] = Field(
+        description="Statistical test type."
+    )
+    left_ref: ObservationRef = Field(
+        description=(
+            "Reference to an inferential-ready observe artifact "
+            "(numeric_sample_summary or rate_sample_summary)."
+        )
+    )
+    right_ref: ObservationRef = Field(
+        description="Reference to a second inferential-ready observe artifact."
+    )
+    alternative: Literal["two_sided", "greater", "less"] = Field(
+        default="two_sided",
+        description="Direction of the alternative hypothesis.",
+    )
+    alpha: float = Field(
+        default=0.05,
+        gt=0.0,
+        lt=1.0,
+        description="Significance level.",
+    )
+
+
+class ForecastRequest(BaseModel):
+    """Atomic intent: project a time-series into future buckets."""
+
+    series_ref: ObservationRef = Field(
+        description="Reference to a time-series observe artifact (observation_type='time_series')."
+    )
+    horizon: int = Field(ge=1, le=90, description="Number of future buckets to forecast.")
+    granularity: Literal["hour", "day", "week", "month"] = Field(
+        description="Forecast bucket size.  Must match the granularity of the source series."
+    )
+    profile: Literal["naive", "seasonal_residual"] = Field(
+        default="seasonal_residual",
+        description="Forecasting profile.  'naive' uses last-value carry-forward.",
+    )
+
+
+class AttributeRequest(BaseModel):
+    """Derived intent: attribute a metric change (expands to observe+observe+compare+decompose)."""
+
+    metric: str = Field(description="Published semantic metric to attribute.")
+    current_time_scope: ObserveTimeScope = Field(
+        description="Time scope for the current observation window."
+    )
+    baseline_time_scope: ObserveTimeScope = Field(
+        description="Time scope for the baseline observation window."
+    )
+    scope: ObserveScope | None = Field(default=None)
+    candidate_dimensions: list[str] = Field(
+        min_length=1,
+        description="Candidate attribution dimensions.",
+    )
+    top_k: int = Field(default=5, ge=1)
+    min_contribution_pct: float = Field(default=5.0, ge=0.0)
+
+
+class DiagnoseRequest(BaseModel):
+    """Derived intent: diagnose anomalies (expands to detect+compare+decompose on top-K)."""
+
+    metric: str = Field(description="Published semantic metric to diagnose.")
+    time_scope: ObserveTimeScope
+    scope: ObserveScope | None = Field(default=None)
+    sensitivity: Literal["low", "balanced", "high"] = Field(default="balanced")
+    top_k_candidates: int = Field(
+        default=3,
+        ge=1,
+        description="Number of top anomaly candidates to follow up on.",
+    )
+
+
+class ValidateRequest(BaseModel):
+    """Derived intent: validate a hypothesis (expands to observe+test)."""
+
+    hypothesis: Literal["welch_t", "proportions_z", "chi_square"]
+    metric: str = Field(description="Published semantic metric to validate.")
+    current_time_scope: ObserveTimeScope = Field(description="Time scope for the current group.")
+    baseline_time_scope: ObserveTimeScope = Field(description="Time scope for the baseline group.")
+    scope: ObserveScope | None = Field(default=None)
+    alternative: Literal["two_sided", "greater", "less"] = Field(default="two_sided")
+    alpha: float = Field(default=0.05, gt=0.0, lt=1.0)
 
 
 _DATE_ONLY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")

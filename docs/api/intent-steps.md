@@ -1,8 +1,10 @@
-# Intent Step Submission
+# Intent Action Surface
 
-This document defines the target-state external HTTP contract for submitting typed intent steps in Factum.
+This document defines the external HTTP contract for submitting typed analysis intents in Factum.
 
-It translates the analysis-intent designs in [`docs/analysis/intents/primitive-intent-design.md`](../analysis/intents/primitive-intent-design.md), [`docs/analysis/intents/derived-intent-design.md`](../analysis/intents/derived-intent-design.md), and the atomic / derived intent schemas under `docs/analysis/intents/` into stable HTTP write resources. This is a target-state wire specification and does not describe or depend on the current implementation.
+The path acts as the intent discriminator — request bodies do not contain a `step_type` or `intent` field. The `/intents/` prefix distinguishes this surface from legacy step endpoints (removed in Phase 2).
+
+**Phase 2 status**: `observe` is fully implemented. All other intents return `501 Not Implemented` and will be wired in Phase 3.
 
 ## Purpose
 
@@ -23,18 +25,18 @@ Step submission is a write surface. Session state and proposition context remain
 
 ## Canonical Resources
 
-| Intent family | Endpoint | Canonical success payload |
-|---------------|----------|---------------------------|
-| `observe` | `POST /sessions/{session_id}/steps/observe` | `ObserveResponse` |
-| `compare` | `POST /sessions/{session_id}/steps/compare` | `CompareResponse` |
-| `decompose` | `POST /sessions/{session_id}/steps/decompose` | `DecomposeResponse` |
-| `correlate` | `POST /sessions/{session_id}/steps/correlate` | `CorrelateResponse` |
-| `detect` | `POST /sessions/{session_id}/steps/detect` | `DetectResponse` |
-| `test` | `POST /sessions/{session_id}/steps/test` | `TestResponse` |
-| `forecast` | `POST /sessions/{session_id}/steps/forecast` | `ForecastResponse` |
-| `attribute` | `POST /sessions/{session_id}/steps/attribute` | `AttributeResponse` |
-| `diagnose` | `POST /sessions/{session_id}/steps/diagnose` | `DiagnoseArtifact` |
-| `validate` | `POST /sessions/{session_id}/steps/validate` | `ValidateResponse` |
+| Intent family | Endpoint | Phase 2 status | Canonical success payload |
+|---------------|----------|----------------|---------------------------|
+| `observe` | `POST /sessions/{session_id}/intents/observe` | Implemented | `ObserveResponse` |
+| `compare` | `POST /sessions/{session_id}/intents/compare` | 501 stub | `CompareResponse` |
+| `decompose` | `POST /sessions/{session_id}/intents/decompose` | 501 stub | `DecomposeResponse` |
+| `correlate` | `POST /sessions/{session_id}/intents/correlate` | 501 stub | `CorrelateResponse` |
+| `detect` | `POST /sessions/{session_id}/intents/detect` | 501 stub | `DetectResponse` |
+| `test` | `POST /sessions/{session_id}/intents/test` | 501 stub | `TestResponse` |
+| `forecast` | `POST /sessions/{session_id}/intents/forecast` | 501 stub | `ForecastResponse` |
+| `attribute` | `POST /sessions/{session_id}/intents/attribute` | 501 stub | `AttributeResponse` |
+| `diagnose` | `POST /sessions/{session_id}/intents/diagnose` | 501 stub | `DiagnoseArtifact` |
+| `validate` | `POST /sessions/{session_id}/intents/validate` | 501 stub | `ValidateResponse` |
 
 This target-state contract intentionally does not define:
 
@@ -161,7 +163,7 @@ Step submission errors may include additional structured fields such as:
 
 ## Atomic Intents
 
-### `POST /sessions/{session_id}/steps/observe`
+### `POST /sessions/{session_id}/intents/observe`
 
 Submits the `observe` atomic intent.
 
@@ -197,7 +199,7 @@ Recommended semantic error codes:
 - `INVALID_FILTER`
 - `UNSUPPORTED_OPERATION`
 
-### `POST /sessions/{session_id}/steps/compare`
+### `POST /sessions/{session_id}/intents/compare`
 
 Submits the `compare` atomic intent.
 
@@ -229,7 +231,7 @@ Recommended semantic error codes:
 - `UNSUPPORTED_COMPARISON`
 - `NOT_COMPARABLE`
 
-### `POST /sessions/{session_id}/steps/decompose`
+### `POST /sessions/{session_id}/intents/decompose`
 
 Submits the `decompose` atomic intent.
 
@@ -261,7 +263,7 @@ Recommended semantic error codes:
 - `STEP_NOT_FOUND`
 - `NOT_ATTRIBUTABLE`
 
-### `POST /sessions/{session_id}/steps/correlate`
+### `POST /sessions/{session_id}/intents/correlate`
 
 Submits the `correlate` atomic intent.
 
@@ -295,7 +297,7 @@ Recommended semantic error codes:
 - `NOT_ALIGNED`
 - `INSUFFICIENT_DATA`
 
-### `POST /sessions/{session_id}/steps/detect`
+### `POST /sessions/{session_id}/intents/detect`
 
 Submits the `detect` atomic intent.
 
@@ -325,7 +327,7 @@ Recommended semantic error codes:
 - `INVALID_FILTER`
 - `UNSUPPORTED_OPERATION`
 
-### `POST /sessions/{session_id}/steps/test`
+### `POST /sessions/{session_id}/intents/test`
 
 Submits the `test` atomic intent.
 
@@ -365,7 +367,7 @@ Recommended semantic error codes:
 - `NOT_COMPARABLE`
 - `INSUFFICIENT_DATA`
 
-### `POST /sessions/{session_id}/steps/forecast`
+### `POST /sessions/{session_id}/intents/forecast`
 
 Submits the `forecast` atomic intent.
 
@@ -401,7 +403,7 @@ Recommended semantic error codes:
 
 ## Derived Intents
 
-### `POST /sessions/{session_id}/steps/attribute`
+### `POST /sessions/{session_id}/intents/attribute`
 
 Submits the `attribute` derived intent.
 
@@ -437,7 +439,7 @@ Recommended semantic error codes:
 - `NOT_COMPARABLE`
 - `NOT_ATTRIBUTABLE`
 
-### `POST /sessions/{session_id}/steps/diagnose`
+### `POST /sessions/{session_id}/intents/diagnose`
 
 Submits the `diagnose` derived intent.
 
@@ -481,7 +483,7 @@ Recommended semantic error codes:
 - `NOT_COMPARABLE`
 - `NOT_ATTRIBUTABLE`
 
-### `POST /sessions/{session_id}/steps/validate`
+### `POST /sessions/{session_id}/intents/validate`
 
 Submits the `validate` derived intent.
 

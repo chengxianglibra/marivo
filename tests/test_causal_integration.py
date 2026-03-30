@@ -730,36 +730,6 @@ class EvidenceGraphAPIFieldsTests(unittest.TestCase):
                 f"Unknown edge_type: {edge['edge_type']}",
             )
 
-    # -- test_synthesize_findings_produces_synthesis_audit_artifact -----------
-
-    def test_synthesize_findings_produces_synthesis_audit_artifact(self) -> None:
-        """synthesize_findings must persist a synthesis_audit artifact."""
-        sess_id = self._new_session()
-        self._run_metric_query(sess_id)
-        self._run_synthesize(sess_id)
-        self._get_graph(sess_id)  # ensure evidence route is exercised
-
-        store = self.client.app.state.metadata_store
-        rows = store.query_rows(
-            "SELECT content_json FROM artifacts WHERE session_id = ? AND artifact_type = 'synthesis_audit'",
-            [sess_id],
-        )
-        self.assertGreater(len(rows), 0, "No synthesis_audit artifact found")
-
-        audit = json.loads(rows[0]["content_json"])
-        self.assertIn("stage", audit, f"audit log missing 'stage' key: {audit.keys()}")
-        # At least one of the three-stage or promotion audit fields must be present
-        phase2_keys = {
-            "scope_clusters",
-            "formulation_decisions",
-            "claims_produced",
-            "confirmed_count",
-        }
-        self.assertTrue(
-            bool(phase2_keys & set(audit.keys())),
-            f"Audit log lacks any Phase 2 key. Keys found: {list(audit.keys())}",
-        )
-
     # -- test_two_period_compare_produces_distinct_windows --------------------
     # Removed: test was consistently skipped due to insufficient windowed observations
 
