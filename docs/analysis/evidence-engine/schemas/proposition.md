@@ -287,7 +287,9 @@ type CorrelationJoinBasis =
 推荐生成输入：
 
 - `session_id`
+- `origin.kind`
 - `proposition_type`
+- `lineage.derivation_version`
 - subtype payload 中决定 judgment identity 的字段
 - base / payload 中显式声明为 judgment semantics 的稳定 typed refs
 
@@ -382,6 +384,7 @@ v1 规则：
 
 - `system_seeded` 必须带 `template_id` 与 `template_version`
 - `agent_authored` 必须带 author 谱系；若没有人类可读标签，可令 `authored_label = null`
+- `origin.kind` 参与 proposition identity 分区；`template_id` / `template_version` 只表达 lineage，不单独决定 identity
 
 该字段只描述来源，不表达当前判断结果。
 
@@ -408,6 +411,7 @@ v1 规则：
 - 显式记录 source artifact / step 谱系
 - 若 proposition 由旧 proposition 派生，则填 `derived_from_proposition_ref`
 - `derivation_version` 用于标识命题构建逻辑版本
+- 对 `system_seeded proposition`，`derivation_version` 还承担 identity boundary version 的职责；breaking seeding upgrade 必须 bump 它
 
 v1 不做跨谱系的隐式标识复用。
 
@@ -714,6 +718,8 @@ type ForecastProposition = PropositionBase & {
 ## Seed Rules
 
 `finding -> proposition` 的种子规则（seed rule）必须是确定性的模板选择（template selection），而不是自由文本总结。
+
+完整的 template registry、slot matching、registration 与 replay contract 见 [`../finding-proposition-seeding.md`](../finding-proposition-seeding.md)。
 
 v1 原则：
 

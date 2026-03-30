@@ -76,7 +76,6 @@ curl -s http://127.0.0.1:8000/sessions/<id>/evidence | python3 -m json.tool
 | Domain | Endpoints |
 |--------|-----------|
 | Sessions | `POST/GET /sessions`, `POST /sessions/{id}/steps/{type}`, `GET .../evidence|debug|reflection-context` |
-| Planning | `POST/GET/PATCH /sessions/{id}/plans`, `POST .../validate|approve|execute|patch` |
 | Sources | `POST/GET/PUT/DELETE /sources`, `POST .../sync`, `GET .../catalog/schemas|tables` |
 | Engines | `POST/GET /engines` |
 | Bindings | `POST/GET/DELETE /bindings`, `POST /routing/resolve` |
@@ -96,7 +95,7 @@ curl -s http://127.0.0.1:8000/sessions/<id>/evidence | python3 -m json.tool
 HTTP → FastAPI → Services → Analysis Core + Evidence Engine + Storage
 ```
 
-- **Services**: SemanticLayerService, PlanningService, SourceService, EngineService, BindingService, QueryRouter, SemanticService, GovernanceService, JobService
+- **Services**: SemanticLayerService, SourceService, EngineService, BindingService, QueryRouter, SemanticService, GovernanceService, JobService
 - **Analysis core**: IR, compiler, executor, primitives, composites
 - **Evidence engine**: extractors, synthesizers, causal checkers, readiness
 - **Storage**: SQLite metadata + DuckDB/Trino analytics

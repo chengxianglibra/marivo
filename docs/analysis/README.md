@@ -31,14 +31,17 @@ Evidence Engine 的目标态规范链路为：
 
 1. [Evidence Engine 主题总览](evidence-engine/overview.md)
 2. [Evidence Engine Runtime Pipeline](evidence-engine/runtime-pipeline.md)
-3. [Inference And Gap Engine](evidence-engine/inference-and-gap-engine.md)
-4. [Graph And Reference Semantics](evidence-engine/graph-and-reference-semantics.md)
-5. [Evidence Engine Read Surfaces](evidence-engine/read-surfaces.md)
+3. [Artifact -> Finding 生成规则](evidence-engine/artifact-finding-generation-rules.md)
+4. [Finding -> Proposition Seeding](evidence-engine/finding-proposition-seeding.md)
+5. [Inference And Gap Engine](evidence-engine/inference-and-gap-engine.md)
+6. [Graph And Reference Semantics](evidence-engine/graph-and-reference-semantics.md)
+7. [Evidence Engine Read Surfaces](evidence-engine/read-surfaces.md)
 
 这些主线文档负责解释：
 
 - 整体对象分层与主题边界
 - runtime lifecycle、commit boundary、replay、seeding
+- seeding template、registration、identity normalization
 - assessment recompute、gap management、judgment policy、rule registry
 - edge taxonomy、typed refs、closure integrity
 - session/state/context 读取面的主题关系
@@ -100,7 +103,7 @@ Evidence Engine 的目标态规范链路为：
 - `evidence-engine-design.md` -> `evidence-engine/overview.md`
 - `evidence-engine-runtime-lifecycle.md` -> `evidence-engine/runtime-pipeline.md`
 - `artifact-finding-extraction-contract.md` -> `evidence-engine/runtime-pipeline.md`
-- `proposition-seeding-contract.md` -> `evidence-engine/runtime-pipeline.md`
+- `proposition-seeding-contract.md` -> `evidence-engine/finding-proposition-seeding.md`
 - `inference-rule-engine-contract.md` -> `evidence-engine/inference-and-gap-engine.md`
 - `gap-management-contract.md` -> `evidence-engine/inference-and-gap-engine.md`
 - `evidence-graph-edge-semantics.md` -> `evidence-engine/graph-and-reference-semantics.md`

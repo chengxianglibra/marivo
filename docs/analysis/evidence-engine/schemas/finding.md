@@ -63,6 +63,16 @@
 
 这样可以避免在事实层过早引入跨 artifact 语义去重逻辑。
 
+推荐生成公式：
+
+- `stable_hash(artifact_id, finding_type, canonical_item_key)`
+
+其中：
+
+- `canonical_item_key` 优先使用 artifact contract 显式提供的稳定 item key
+- 只有在 artifact contract 显式固定 canonical order 时，才允许退回 `collection + index`
+- `rank`、projection order、summary text 不得进入 fact identity
+
 ### 4. `finding` 只表达事实，不表达判断
 
 `finding` 不得承载以下语义：
@@ -210,7 +220,7 @@ type ResolvedTimeScope =
 
 - `artifact_id`
 - `finding_type`
-- artifact 内的稳定 item path 或 row key
+- artifact 内的稳定 item key；仅当 contract 显式固定 canonical order 时，才退回 item path 或 row index
 
 不应进入 `finding_id` 生成输入：
 
@@ -256,7 +266,7 @@ type ResolvedTimeScope =
 
 artifact class 由 [`evidence-engine/runtime-pipeline.md`](../runtime-pipeline.md) 固定：
 
-- `mandatory extraction artifact`：成功 committed 时必须产生 `1..N` 个 findings
+- `mandatory extraction artifact`：成功 committed 时必须完成 finding extraction，并形成 committed finding set；是否允许 empty finding set 由对应 artifact family contract 决定
 - `non-fact artifact`：不直接进入 finding layer，因此 canonical finding count 为 `0`
 
 典型情况：
@@ -366,6 +376,12 @@ v1 中各字段的 `null` 语义固定如下：
 - `extractor_version` 回答“由哪个确定性 extractor 版本抽取出来”
 - 二者都用于可解释性与审计，不参与 canonical `finding_id`
 - 若 artifact contract 发生 breaking change，应通过新的 artifact lineage 或新的 contract version 显式区分，而不是隐式覆盖旧 finding 语义
+
+`artifact_item_ref` 的稳定性规则：
+
+- 有稳定 key 时，`key` 必须非空
+- 只有在 contract 不提供稳定 key 且 canonical order 已固定时，才允许 `index`
+- `index` 不能来自 projection 截断后的局部顺序
 
 这里的 projection 指规范状态之上的有界消费视图，例如：
 
@@ -497,6 +513,7 @@ type DecompositionItemFinding = FindingBase & {
 
 - `direction` 与 `decompose.rows[].direction` 保持同一枚举，不再单独映射为 `positive/negative/neutral`
 - `scope_delta_ref` 必须指向同一 compare lineage 下抽取得到的 canonical delta finding；不得通过自由文本或运行时模糊匹配补出
+- `attribute` 不定义独立 canonical finding family；其 canonical fact 仍复用 `decomposition_item`
 
 ### Anomaly Candidate Finding
 
@@ -551,6 +568,10 @@ type CorrelationResultFinding = FindingBase & {
 };
 ```
 
+抽取规则：
+
+- v1 中每个 `correlate` artifact 只生成 1 个 `correlation_result` finding
+
 ### Test Result Finding
 
 用于表达单次统计检验的结果事实。
@@ -575,6 +596,10 @@ type TestResultFinding = FindingBase & {
   };
 };
 ```
+
+抽取规则：
+
+- v1 中每个 `test` artifact 只生成 1 个 `test_result` finding
 
 ### Forecast Point Finding
 
@@ -624,6 +649,7 @@ v1 推荐固定如下映射：
 - mapping 必须由 typed artifact contract 决定
 - 不允许 extractor 自行发明新的 claim-like finding
 - 不允许把一个主题摘要直接映射为 canonical finding
+- `attribute` 不引入独立 finding subtype；只复用 `delta` 与 `decomposition_item`
 
 ## Extraction 规则
 
@@ -637,7 +663,8 @@ artifact family 的适用范围、staged/commit 边界与 failure semantics 以 
 - 不依赖自由文本解释
 - 不根据 session 其他状态改变 finding 内容
 - 同一 artifact 的相同 item 必须得到相同 finding
-- `mandatory extraction artifact` 成功提交时必须抽出至少一个 finding；不得把 successful empty result 视为合法 committed state
+- extractor 应由 `artifact_type + artifact_schema_version` 选择
+- `mandatory extraction artifact` 成功提交时必须完成 finding extraction；empty finding set 是否允许由对应 artifact family contract 决定
 - extractor 必须声明自己所兼容的 artifact schema version
 - 当 artifact contract 发生 breaking change 时，应通过新的 `artifact_schema_version` 或新的 extractor version 显式区分
 
@@ -667,7 +694,7 @@ v1 固定如下：
 - row-based artifact item：1 row -> 1 finding
 - bucket-based artifact item：1 bucket -> 1 finding
 - candidate-based artifact item：1 candidate -> 1 finding
-- 若 `rows` / `buckets` / `candidates` / `points` 为空且该 artifact 属于 `mandatory extraction artifact`，则请求应失败，而不是成功提交空 finding set
+- 若 `rows` / `buckets` / `candidates` / `points` 为空，是否允许成功提交空 finding set 由对应 artifact family contract 决定；schema 层不再统一规定必须失败
 
 ### 非法抽取
 
@@ -824,7 +851,7 @@ action proposal 是面向 agent 的动作候选，不是事实。
 以下状态在 canonical `finding` 中非法：
 
 - 同一 `artifact_id + finding_type + artifact_item_ref` 映射到多个 `finding_id`
-- `mandatory extraction artifact` 进入 committed state，但找不到任何对应 findings
+- `mandatory extraction artifact` 在其 family contract 要求非空 finding set 时进入 committed state，但找不到任何对应 findings
 - `subject.slice = null`
 - `quality_warnings = null`
 - 使用裸字符串作为 canonical payload ref
