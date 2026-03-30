@@ -12,7 +12,6 @@ from app.engines import EngineService
 from app.governance import GovernanceService
 from app.jobs import JobService
 from app.observability import MetricsCollector
-from app.planning import PlanningService
 from app.routing import QueryRouter
 from app.semantic import SemanticService
 from app.semantic_runtime.catalog import CatalogRuntimeService
@@ -36,7 +35,6 @@ class AppServices:
     query_router: QueryRouter
     metadata_store: MetadataStore
     analytics_engine: AnalyticsEngine
-    planning_service: PlanningService
     governance_service: GovernanceService | None
     approval_service: ApprovalService
     metrics: MetricsCollector | None

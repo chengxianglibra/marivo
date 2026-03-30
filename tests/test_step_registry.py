@@ -6,9 +6,8 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from app.analysis_core import COMPOSITE_STEP_TYPES, PRIMITIVE_STEP_TYPES
+from app.analysis_core import COMPOSITE_STEP_TYPES, PRIMITIVE_STEP_TYPES, SUPPORTED_STEP_TYPES
 from app.main import create_app
-from app.planning import VALID_STEP_TYPES
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 
@@ -29,7 +28,7 @@ class StepRegistryWiringTests(unittest.TestCase):
         service = self.client.app.state.service
         supported = service.step_registry.supported_step_types()
 
-        self.assertEqual(set(supported), VALID_STEP_TYPES)
+        self.assertEqual(set(supported), set(SUPPORTED_STEP_TYPES))
         self.assertIn("metric_query", supported)
         self.assertIn("sample_rows", supported)
         self.assertTrue(set(PRIMITIVE_STEP_TYPES).issubset(set(supported)))

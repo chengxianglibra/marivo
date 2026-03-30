@@ -80,10 +80,10 @@ mypy app
 pytest
 
 # 运行特定测试文件
-pytest tests/test_planning.py
+pytest tests/test_sessions.py
 
 # 运行特定测试方法
-pytest tests/test_planning.py::PlanningServiceTests::test_create_draft_plan
+pytest tests/test_sessions.py::SessionAPITests::test_get_session_after_create
 
 # 显示详细输出
 pytest -v

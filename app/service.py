@@ -29,7 +29,6 @@ from app.evidence_engine.synthesizers.default import DefaultClaimSynthesizer
 from app.execution.feedback import compile_failure_from_error
 from app.execution.orchestrator import WorkflowOrchestrator
 from app.execution.routing_runtime import RoutingRuntime
-from app.planner import ReplanningService
 from app.semantic_runtime import SemanticRuntimeRepository
 from app.session import SessionManager
 from app.storage.analytics import AnalyticsEngine
@@ -91,7 +90,6 @@ class SemanticLayerService:
         governance: GovernanceService | None = None,
         metrics: MetricsCollector | None = None,
         approvals: ApprovalService | None = None,
-        replanner: ReplanningService | None = None,
         incremental_synthesizer: Any | None = _AUTO_INCREMENTAL_SYNTHESIZER,
     ) -> None:
         self.metadata = metadata_store
@@ -112,10 +110,6 @@ class SemanticLayerService:
         )
         self.planner_context_provider = self.semantic_repository.planner_context_provider
         self.workflow_runtime = CompositeWorkflowRuntime()
-        self.replanner = replanner or ReplanningService(
-            analytics_engine=analytics_engine,
-            query_router=query_router,
-        )
         if incremental_synthesizer is _AUTO_INCREMENTAL_SYNTHESIZER:
             from app.evidence_engine.incremental_synthesizer import IncrementalSynthesizer
 
@@ -126,9 +120,6 @@ class SemanticLayerService:
         self.routing_runtime = RoutingRuntime(query_router, analytics_engine)
         self.workflow_orchestrator = WorkflowOrchestrator(
             workflow_runtime=self.workflow_runtime,
-            replanner=self.replanner,
-            analytics_engine=self.analytics,
-            query_router=self.query_router,
             step_executor=_ServiceWorkflowStepExecutor(self),
             approval_service=self.approvals,
         )
@@ -141,8 +132,6 @@ class SemanticLayerService:
     def query_router(self, router: QueryRouter | None) -> None:
         self._query_router = router
         self.routing_runtime.query_router = router
-        self.replanner.cost_model.query_router = router
-        self.workflow_orchestrator.query_router = router
 
     def create_session(
         self,
@@ -3006,36 +2995,6 @@ class SemanticLayerService:
             provenance["routing"] = dict(self._routing_feedback_context)
         return provenance
 
-    def _attach_replanning_provenance(
-        self,
-        session_id: str,
-        step_type: str,
-        decisions: list[dict[str, Any]],
-    ) -> None:
-        row = self.metadata.query_one(
-            """
-            SELECT step_id, provenance_json
-            FROM steps
-            WHERE session_id = ? AND step_type = ?
-            ORDER BY created_at DESC
-            LIMIT 1
-            """,
-            [session_id, step_type],
-        )
-        if row is None:
-            return
-
-        provenance = json.loads(row["provenance_json"])
-        history = provenance.get("replanning", [])
-        if not isinstance(history, list):
-            history = [history]
-        history.extend(decisions)
-        provenance["replanning"] = history
-        self.metadata.execute(
-            "UPDATE steps SET provenance_json = ? WHERE step_id = ?",
-            [self._dump(provenance), row["step_id"]],
-        )
-
     def _governance_tables(self, step_type: str, params: dict[str, Any]) -> list[str]:
         table_name = params.get("table_name") or params.get("table")
         if table_name:
@@ -3286,11 +3245,3 @@ class _ServiceWorkflowStepExecutor:
             step_ir.step_type,
             params=step_ir.params if step_ir.params else None,
         )
-
-    def attach_replanning_provenance(
-        self,
-        session_id: str,
-        step_type: str,
-        decisions: list[dict[str, Any]],
-    ) -> None:
-        self._service._attach_replanning_provenance(session_id, step_type, decisions)

@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import Any
 
 __all__ = [
-    "CostModel",
     "DefaultQueryTranslator",
     "ExecutionError",
     "FederationPlanner",
@@ -14,10 +13,6 @@ __all__ = [
 
 
 def __getattr__(name: str) -> Any:
-    if name == "CostModel":
-        from app.execution.costing import CostModel
-
-        return CostModel
     if name == "ExecutionError":
         from app.execution.errors import ExecutionError
 

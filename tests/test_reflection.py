@@ -3,9 +3,6 @@
 Tests cover:
   - build_reflection_context() function (unit)
   - GET /sessions/{id}/reflection-context endpoint (HTTP)
-  - PlanningService.patch_plan_incremental() (unit)
-  - POST /sessions/{id}/plans/{id}/patch endpoint (HTTP)
-  - ReplanningService.apply_patch() (unit, delegates to planning)
   - reflection.enabled config gate
 """
 
@@ -20,7 +17,6 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 
 from app.main import create_app
-from app.planning import PlanningService
 from app.reflection.context import build_reflection_context
 from app.service import SemanticLayerService
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
@@ -166,7 +162,6 @@ class ReflectionContextUnitTests(unittest.TestCase):
         cls.store.initialize()
         cls.analytics.initialize()
         cls.service = SemanticLayerService(cls.store, cls.analytics)
-        cls.planning = PlanningService(cls.store)
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -222,17 +217,6 @@ class ReflectionContextUnitTests(unittest.TestCase):
         self.assertIn("affected_claims", gap)
         self.assertIsInstance(gap["affected_claims"], list)
         self.assertIn(claim_id, gap["affected_claims"])
-
-    # ── Test 4: plan_id query param passed through ─────────────────────────
-
-    def test_plan_id_appears_in_context(self) -> None:
-        session_id = self._new_session()
-        plan = self.planning.draft_plan(
-            session_id,
-            [{"step_type": "profile_table", "params": {"table_name": "analytics.watch_events"}}],
-        )
-        ctx = build_reflection_context(self.store, session_id, plan_id=plan["plan_id"])
-        self.assertEqual(ctx["plan_id"], plan["plan_id"])
 
     # ── Test 5: readiness_score is a float in [0,1] ────────────────────────
 
@@ -535,98 +519,6 @@ class ReflectionContextUnitTests(unittest.TestCase):
         self.assertIn(claim_id_b, all_affected)
 
 
-# ── patch_plan_incremental unit tests ─────────────────────────────────────────
-
-
-class PlanPatchIncrementalTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.temp_dir = tempfile.TemporaryDirectory()
-        meta_path = Path(cls.temp_dir.name) / "patch.meta.sqlite"
-        duck_path = Path(cls.temp_dir.name) / "patch.duckdb"
-        cls.store = SQLiteMetadataStore(meta_path)
-        get_seeded_duckdb_path(duck_path)
-        cls.analytics = DuckDBAnalyticsEngine(duck_path)
-        cls.store.initialize()
-        cls.analytics.initialize()
-        cls.service = SemanticLayerService(cls.store, cls.analytics)
-        cls.planning = PlanningService(cls.store)
-
-    @classmethod
-    def tearDownClass(cls) -> None:
-        cls.temp_dir.cleanup()
-
-    def _make_plan(self) -> tuple[str, str]:
-        session = self.service.create_session("patch test", {}, {}, {})
-        plan = self.planning.draft_plan(
-            session["session_id"],
-            [{"step_type": "profile_table", "params": {"table_name": "analytics.watch_events"}}],
-        )
-        return session["session_id"], plan["plan_id"]
-
-    # ── Test 7: add_steps appends step ────────────────────────────────────
-
-    def test_add_steps_appends_step(self) -> None:
-        _, plan_id = self._make_plan()
-        result = self.planning.patch_plan_incremental(
-            plan_id,
-            add_steps=[
-                {"step_type": "profile_table", "params": {"table_name": "analytics.ad_events"}}
-            ],
-        )
-        self.assertEqual(len(result["steps"]), 2)
-        self.assertEqual(result["steps"][1]["step_type"], "profile_table")
-        self.assertEqual(result["steps"][1]["params"]["table_name"], "analytics.ad_events")
-        self.assertIn("validation", result)
-
-    # ── Test 8: modify_steps updates params ───────────────────────────────
-
-    def test_modify_steps_updates_params(self) -> None:
-        _, plan_id = self._make_plan()
-        result = self.planning.patch_plan_incremental(
-            plan_id,
-            modify_steps=[{"index": 0, "params": {"limit": 100}}],
-        )
-        self.assertEqual(result["steps"][0]["params"]["limit"], 100)
-        # Original param still present
-        self.assertEqual(result["steps"][0]["params"]["table_name"], "analytics.watch_events")
-
-    # ── Test 9: skip_steps marks step skipped ─────────────────────────────
-
-    def test_skip_steps_marks_step_skipped(self) -> None:
-        _, plan_id = self._make_plan()
-        result = self.planning.patch_plan_incremental(
-            plan_id,
-            skip_steps=[0],
-        )
-        self.assertEqual(result["steps"][0]["status"], "skipped")
-
-    # ── Test 10: invalid step_type raises ValueError ───────────────────────
-
-    def test_invalid_step_type_raises_value_error(self) -> None:
-        _, plan_id = self._make_plan()
-        with self.assertRaises(ValueError):
-            self.planning.patch_plan_incremental(
-                plan_id,
-                add_steps=[{"step_type": "nonexistent_step"}],
-            )
-
-    # ── Test 11: executing plan raises ValueError ──────────────────────────
-
-    def test_executing_plan_raises_value_error(self) -> None:
-        _, plan_id = self._make_plan()
-        # Directly set status to executing (bypassing state machine)
-        self.store.execute(
-            "UPDATE plans SET status = 'executing' WHERE plan_id = ?",
-            [plan_id],
-        )
-        with self.assertRaises(ValueError):
-            self.planning.patch_plan_incremental(
-                plan_id,
-                add_steps=[{"step_type": "profile_table"}],
-            )
-
-
 # ── HTTP endpoint tests ───────────────────────────────────────────────────────
 
 
@@ -663,61 +555,11 @@ class ReflectionContextHTTPTests(unittest.TestCase):
         ):
             self.assertIn(key, data)
 
-    # ── Test 13: plan_id query param round-trips ───────────────────────────
-
-    def test_reflection_context_with_plan_id_query(self) -> None:
-        plan_resp = self.client.post(
-            f"/sessions/{self.session_id}/plans",
-            json={
-                "steps": [
-                    {
-                        "step_type": "profile_table",
-                        "params": {"table_name": "analytics.watch_events"},
-                    }
-                ]
-            },
-        )
-        plan_id = plan_resp.json()["plan_id"]
-        resp = self.client.get(
-            f"/sessions/{self.session_id}/reflection-context",
-            params={"plan_id": plan_id},
-        )
-        self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.json()["plan_id"], plan_id)
-
     # ── Test 14: unknown session returns 404 ──────────────────────────────
 
     def test_unknown_session_returns_404(self) -> None:
         resp = self.client.get("/sessions/sess_doesnotexist/reflection-context")
         self.assertEqual(resp.status_code, 404)
-
-    # ── Test 15: POST /plans/{id}/patch via HTTP ───────────────────────────
-
-    def test_plan_patch_http_add_step(self) -> None:
-        plan_resp = self.client.post(
-            f"/sessions/{self.session_id}/plans",
-            json={
-                "steps": [
-                    {
-                        "step_type": "profile_table",
-                        "params": {"table_name": "analytics.watch_events"},
-                    }
-                ]
-            },
-        )
-        plan_id = plan_resp.json()["plan_id"]
-        patch_resp = self.client.post(
-            f"/sessions/{self.session_id}/plans/{plan_id}/patch",
-            json={
-                "add_steps": [
-                    {"step_type": "profile_table", "params": {"table_name": "analytics.ad_events"}}
-                ]
-            },
-        )
-        self.assertEqual(patch_resp.status_code, 200)
-        data = patch_resp.json()
-        self.assertEqual(len(data["steps"]), 2)
-        self.assertIn("validation", data)
 
     # ── Test 16: reflection disabled returns 404 ───────────────────────────
 
