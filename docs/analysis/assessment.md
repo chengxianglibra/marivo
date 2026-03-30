@@ -154,7 +154,7 @@ assessment 中承载 relation semantics 的字段解释，以 [`evidence-graph-e
 
 - `proposition_id` 承载 `assessment -> proposition` 的 `assesses`
 - `supporting_finding_ids` / `opposing_finding_ids` 承载 `assessment -> finding` 的 directional membership edges
-- `blocking_gap_ids` / `non_blocking_gap_ids` 承载 `assessment -> evidence_gap` 的 gap membership edges
+- `gap_memberships` 承载 `assessment -> evidence_gap` 的 gap membership edges，并为当前 snapshot 提供 `blocking` / `severity` classification
 - `applied_inference_record_ids` 承载 `assessment -> inference_record` 的 `applies_record`
 - `supersedes_assessment_id` 承载 `assessment -> assessment` 的 `supersedes`
 
@@ -188,8 +188,7 @@ type AssessmentBase = {
   confidence_rationale: ConfidenceRationale;
   supporting_finding_ids: string[];
   opposing_finding_ids: string[];
-  blocking_gap_ids: string[];
-  non_blocking_gap_ids: string[];
+  gap_memberships: GapMembershipEntry[];
   applied_inference_record_ids: string[];
   supersedes_assessment_id: string | null;
   created_at: string;
@@ -263,8 +262,6 @@ type EvidenceGap = {
     | "resolution_conflict";
   title: string;
   description: string;
-  blocking: boolean;
-  severity: "low" | "medium" | "high" | "critical";
   status: "open" | "resolved";
   missing_requirement: GapRequirement;
   satisfiable_by: GapSatisfiableBy[];
@@ -274,6 +271,12 @@ type EvidenceGap = {
   created_at: string;
   resolved_at: string | null;
   schema_version: string;
+};
+
+type GapMembershipEntry = {
+  gap_ref: EvidenceGapRef;
+  blocking: boolean;
+  severity: "low" | "medium" | "high" | "critical";
 };
 
 type GapRequirement =
@@ -526,19 +529,25 @@ v1 的全局 guardrails：
 
 若某个 finding 只提供背景、范围、质量或 comparability 上下文，而不直接构成支持或反驳，应挂到相应的 `EvidenceGap` 或 `InferenceRecord`，而不是塞入 assessment base 的兜底字段。
 
-### blocking_gap_ids / non_blocking_gap_ids
+### gap_memberships
 
-这两个字段引用 `EvidenceGap`。
+`gap_memberships` 是 assessment snapshot 对当前 live gaps 的 canonical membership 载荷。
 
-语义区别：
+每个 member 必须引用一个 `EvidenceGapRef`，并携带当前 snapshot-owned 的：
 
-- `blocking_gap_ids`：当前阻止 proposition 升级或收敛的 gaps
-- `non_blocking_gap_ids`：已知限制，但暂不阻塞当前结论形成的 gaps
+- `blocking`
+- `severity`
 
 规则：
 
+- 同一个 `gap_ref` 在单个 snapshot 中最多出现一次
+- `blocking = true` 表示该 gap 当前阻止 proposition 升级或稳定收敛
+- `blocking = false` 表示该 gap 当前只是 caveat，不阻塞当前可用判断
+- `severity` 表示当前 snapshot 对该 gap pressure 的分类，不参与 gap identity
 - 已评估但无 gap 时返回 `[]`
 - 尚未评估时，不返回 assessment object；由上层 view 返回 `latest_assessment = null`
+
+`gap_memberships` 的 lifecycle、identity convergence 与 reopen 规则统一由 [`gap-management-contract.md`](gap-management-contract.md) 定义；本节只定义 assessment snapshot 上该字段自身的 schema 语义。
 
 ### applied_inference_record_ids
 
@@ -586,16 +595,17 @@ rule family 的组织、固定 evaluation order、以及哪些规则结果必须
 - 不得替代 `gap_kind`、`missing_requirement` 或 `satisfiable_by`
 - 不得承载唯一的 canonical planning 语义
 
-### blocking
+### GapMembershipEntry.blocking / severity
 
-`blocking` 表示该缺口是否阻止当前 proposition 进入更强 assessment 状态。
+`blocking` 与 `severity` 属于 snapshot-owned classification，而不是 `EvidenceGap` 本体字段。
 
-它不是 severity 的同义词。
+因此：
 
-例如：
+- 同一个 open gap 可以在不同 snapshots 中改变 `blocking` 或 `severity`
+- classification 变化会 supersede assessment snapshot，但不会改变 gap identity
+- gap object 只负责 requirement semantics 与 lifecycle
 
-- 某个高严重度数据质量风险可能是 blocking
-- 某个中严重度 comparability risk 也可能只是 non-blocking caveat
+具体收敛规则以 [`gap-management-contract.md`](gap-management-contract.md) 为准。
 
 ### missing_requirement
 
@@ -736,10 +746,14 @@ gap 至少应支持按以下轴查询：
 
 - `session_id`
 - `proposition_id`
-- `blocking`
 - `status`
-- `severity`
 - `gap_kind`
+
+gap membership 至少应支持按以下轴查询：
+
+- `assessment_id`
+- `blocking`
+- `severity`
 
 inference record 至少应支持按以下轴查询：
 
@@ -754,7 +768,8 @@ inference record 至少应支持按以下轴查询：
 建议默认排序：
 
 - assessment list：`snapshot_seq DESC`, `created_at DESC`, `assessment_id ASC`
-- gap list：`blocking DESC`, `severity DESC`, `created_at ASC`, `gap_id ASC`
+- gap list：`created_at ASC`, `gap_id ASC`
+- gap membership list：`blocking DESC`, `severity DESC`, `gap_ref.gap_id ASC`
 - inference record list：`created_at ASC`, `inference_record_id ASC`
 
 ### 稳定引用格式
@@ -854,8 +869,7 @@ v1 采用按需创建（on-demand creation）：
 - `confidence_rationale` 变化
 - `supporting_finding_ids` 变化
 - `opposing_finding_ids` 变化
-- `blocking_gap_ids` 变化
-- `non_blocking_gap_ids` 变化
+- `gap_memberships` 变化
 - `applied_inference_record_ids` 变化
 - subtype payload 中任何影响 judgment semantics 或 agent 决策的 canonical 字段变化
 
@@ -920,7 +934,7 @@ v1 的 assessment 历史必须形成单条线性 supersede 链。
 - `status` 变化
 - `confidence_grade` 变化
 - `supporting_finding_ids` 或 `opposing_finding_ids` 变化
-- `blocking_gap_ids` 或 `non_blocking_gap_ids` 变化
+- `gap_memberships` 变化
 - `applied_inference_record_ids` 变化
 - subtype payload 中任何会改变 agent 决策的 canonical 字段变化
 
@@ -983,7 +997,7 @@ assessment 可以为动作规划提供输入，但不应包含：
 4. `latest_assessment = null` 与 `status = insufficient` 可明确区分。
 5. proposition 注册后允许继续保持 `latest_assessment = null`，直到首次实际重算形成 canonical 输出。
 6. proposition 的首个 snapshot 可以直接是 `supported`、`contradicted` 或 `mixed`，不要求先经过 `insufficient`。
-7. `supported` assessment 仍可带 blocking gap。
+7. `supported` assessment 仍可通过 `gap_memberships` 携带 blocking gap。
 8. `mixed` assessment 可同时存在 `supporting_finding_ids` 与 `opposing_finding_ids`。
 9. `confidence_grade` 或 `confidence_rationale` 变化会产生新 assessment snapshot，但不改变 proposition identity。
 10. 同一 open gap 跨多个 assessment snapshots 持续存在时复用 `gap_id`。

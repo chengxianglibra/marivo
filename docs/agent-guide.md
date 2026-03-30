@@ -63,6 +63,7 @@ Defined in `app/analysis_core/primitives.py`: `metric_query`, `profile_table`, `
 - Assessment snapshots (v1): on-demand creation; proposition registration may leave `latest_assessment = null` until first committed assessment output
 - Assessment latest selection (v1): strict linear supersede chain only; do not fallback to max seq or latest timestamp on chain corruption
 - Gap reopen (v1): resolved gap stays resolved; later recurrence opens a new gap instance
+- Gap classification (v1): identity follows `gap_kind + missing_requirement`; `blocking` / `severity` are snapshot-owned via assessment gap memberships
 - Session lifecycle (v1): `open | closed | aborted` (no `closing`/async state)
 - Session terminal reasons (v1): `answered`, `abandoned`, `rolled_over`, `governance_terminated`, `budget_exhausted`, `timed_out`
 - Session termination model (v1): explicit-first; system-derived governance / budget / timeout signals do not auto-close the session, and ordinary step failure is non-terminal
@@ -77,5 +78,5 @@ After changes: update this guide + affected API models, UI docs, entrypoint agen
 
 Docs layout:
 - `docs/api/`: external HTTP API docs only
-- `docs/analysis/`: analysis-intent drafts, canonical evidence schemas (`session.md`, `finding.md`, `proposition.md`, `assessment.md`, `state-surface-schema.md`, `context-surface-schema.md`) and cross-cutting contracts such as `artifact-finding-extraction-contract.md`, `proposition-seeding-contract.md`
-- Rule contracts: `precondition-gate-contract.md`, `quality-gate-contract.md`, `comparability-gate-contract.md` (align with `inference-rule-engine-contract.md`, `assessment.md`)
+- `docs/analysis/`: analysis-intent drafts, canonical evidence schemas (`session.md`, `finding.md`, `proposition.md`, `assessment.md`, `state-surface-schema.md`, `context-surface-schema.md`) and cross-cutting contracts such as `artifact-finding-extraction-contract.md`, `proposition-seeding-contract.md`, `gap-management-contract.md`
+- Rule contracts: `precondition-gate-contract.md`, `quality-gate-contract.md`, `comparability-gate-contract.md`, `gap-management-contract.md` (align with `inference-rule-engine-contract.md`, `assessment.md`)

@@ -15,6 +15,7 @@
 - [Proposition Schema](proposition.md) — 判断层（Judgment Layer）中规范 `proposition` 的类型契约草案
 - [Proposition Seeding Contract](proposition-seeding-contract.md) — 规范 `finding -> proposition` 的种子模板（seed template）注册表、creation condition、automatic registration、同源去重与 `agent_authored proposition` 的 typed family 校验边界
 - [Assessment Schema](assessment.md) — 判断层（Judgment Layer）中规范 `assessment` 及 `evidence_gap` / `inference_record` 的类型契约草案
+- [Gap Management Contract](gap-management-contract.md) — 规范 `gap_management` 阶段、`EvidenceGap` 生命周期、candidate convergence，以及 snapshot-owned gap classification（`blocking` / `severity`）的总契约
 - [Evidence Graph Edge Semantics](evidence-graph-edge-semantics.md) — 规范证据对象（canonical evidence objects）之间允许的 edge type、方向、创建 authority 与 lifecycle 语义
 - [Inference Rule Engine Contract](inference-rule-engine-contract.md) — 推断规则引擎（inference rule engine）的规范契约；定义规则族（rule family）、固定 evaluation order、升级/降级、冲突处理与 `InferenceRecord` 写入规则
 - [Precondition Gate Contract](precondition-gate-contract.md) — `precondition_gate` 规则族的规范契约；定义最低输入前提、gap 映射、condition token 与 record 写法
@@ -44,6 +45,7 @@
 - [Proposition Schema](proposition.md) — 判断对象 `proposition` 契约
 - [Proposition Seeding Contract](proposition-seeding-contract.md) — 说明 `finding -> proposition` 的 seed template registry、creation condition、automatic registration、同源去重，以及 `agent_authored proposition` 的 typed family validation 边界
 - [Assessment Schema](assessment.md) — 判断状态 `assessment`，以及 `evidence_gap` / `inference_record` 契约
+- [Gap Management Contract](gap-management-contract.md) — 说明 `gap_management` 如何统一收敛 gate families 的 requirement-level gap candidates，并把 gap lifecycle 与 snapshot classification 绑定到 canonical model
 - [Evidence Graph Edge Semantics](evidence-graph-edge-semantics.md) — 说明规范证据对象（canonical evidence objects）之间允许哪些 relation / edge family，以及这些 edges 的方向、创建 authority 与 runtime 语义
 - [Inference Rule Engine Contract](inference-rule-engine-contract.md) — 说明推断规则引擎（inference rule engine）如何围绕单个 proposition 运行、如何组织规则族（rule family）、以及如何把 rule 结果写入 assessment / gap / inference record
 - [Precondition Gate Contract](precondition-gate-contract.md) — 说明 `precondition_gate` 如何判断最低输入前提，并稳定映射到 gap、condition token 与 `InferenceRecord`
@@ -63,7 +65,6 @@
 
 #### 1. 适合从已有文档中拆分为独立 contract 的主题
 
-- Gap management contract：当前规则分散在 [`assessment.md`](assessment.md)、[`inference-rule-engine-contract.md`](inference-rule-engine-contract.md)、[`precondition-gate-contract.md`](precondition-gate-contract.md)、[`quality-gate-contract.md`](quality-gate-contract.md) 与 [`comparability-gate-contract.md`](comparability-gate-contract.md)；后续宜拆为独立文档，统一定义 gap open / keep / resolve / reopen、blocking 与 non-blocking membership 收敛、以及 family-level 候选结果如何汇总为 canonical gap state
 - Reference integrity contract：当前规则分散在 [`finding.md`](finding.md)、[`proposition.md`](proposition.md)、[`assessment.md`](assessment.md)、[`state-surface-schema.md`](state-surface-schema.md) 与 [`context-surface-schema.md`](context-surface-schema.md)；后续宜拆为独立文档，统一定义 hard refs / soft refs、悬空 ref 的读取语义、写入时的 ref 校验，以及跨 session canonical ref 的禁止边界
 
 #### 2. 需要新增文档的主题

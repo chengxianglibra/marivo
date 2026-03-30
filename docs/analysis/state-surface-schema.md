@@ -237,7 +237,7 @@ agent 若需要审计当前判断，应基于这些 refs 进入 proposition cont
 
 要求：
 
-- 仅包含 `blocking = true` 且属于当前 latest assessments 的 gaps
+- 仅包含来自当前 latest assessments 的 `gap_memberships` 且 `blocking = true` 的 gaps
 - 不包含 non-blocking gaps
 - 成员集合必须可完全由 `blocking_gap_refs` 解引用得到
 - 当顶层截断作用于 `active_propositions` 时，只允许覆盖 returned propositions 的 阻塞性缺口 closure
@@ -267,7 +267,7 @@ agent 若需要审计当前判断，应基于这些 refs 进入 proposition cont
 
 `active_propositions` 推荐默认排序：
 
-1. 存在 blocking gaps 的已评估 proposition 优先，按 阻塞性缺口 severity descending
+1. 存在 blocking gaps 的已评估 proposition 优先，按 latest assessment `gap_memberships` 中阻塞性缺口 severity descending
 2. 其余已评估 proposition 按 阻塞性缺口 count descending
 3. `latest_assessment.created_at` descending，nulls last
 4. `proposition.proposition_type` lexical order

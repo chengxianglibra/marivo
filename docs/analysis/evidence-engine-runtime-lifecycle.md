@@ -303,8 +303,7 @@ canonical assessment 输出至少包括：
 - `confidence_rationale`
 - `supporting_finding_ids`
 - `opposing_finding_ids`
-- `blocking_gap_ids`
-- `non_blocking_gap_ids`
+- `gap_memberships`
 - `applied_inference_record_ids`
 - subtype payload 中影响 judgment semantics 的字段
 

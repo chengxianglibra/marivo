@@ -441,7 +441,7 @@ v1 解释：
 
 `driver_tokens` 至少应能覆盖以下任一类可审计驱动：
 
-- gap severity / blocking pressure
+- primary assessment gap memberships 中的 severity / blocking pressure
 - policy overrides
 - expected information gain
 - execution dependency or human approval cost
@@ -557,6 +557,7 @@ type ActionProposalFocusView = {
 - `primary_assessment` 必须可解引用；否则 proposal 应被视为不可读取
 - `related_assessments` 可为 `[]`
 - `served_gaps` 来自 `rationale.served_gap_refs` 的 typed 解引用；若 `served_gap_refs = []`，consumer 可回退到 `primary_assessment` 当前 gap 集作为背景，但不得把该回退结果回写 proposal
+- 若 consumer 需要当前 gap 的 `blocking` / `severity`，必须从 `primary_assessment.gap_memberships` 读取，而不是假定这些字段属于 `EvidenceGap`
 - `relevant_findings` 仍来自 assessment / inference record 的 live evidence closure，而不是由 proposal 发明
 - `target_proposition`、`primary_assessment` 与 `served_gaps` 的 ref membership 必须彼此一致；若出现 cross-session 或 proposition mismatch，应视为非法 canonical read
 
