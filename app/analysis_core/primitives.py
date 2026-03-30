@@ -1,5 +1,90 @@
 from __future__ import annotations
 
+INTENT_TAXONOMY: dict[str, dict[str, str]] = {
+    "observe": {
+        "category": "atomic",
+        "description": (
+            "Read a typed observation for a semantic metric. "
+            "Params: metric, time_scope (required), result_mode, scope, granularity, dimensions."
+        ),
+    },
+    "compare": {
+        "category": "atomic",
+        "description": (
+            "Compute a typed delta between two observations. "
+            "Params: left_ref (ObservationRef), right_ref (ObservationRef), mode."
+        ),
+    },
+    "decompose": {
+        "category": "atomic",
+        "description": (
+            "Attribute a delta across candidate dimensions. "
+            "Params: compare_ref (ArtifactRef, step_type='compare'), dimensions, top_k, min_contribution_pct."
+        ),
+    },
+    "correlate": {
+        "category": "atomic",
+        "description": (
+            "Estimate statistical association between two time-series. "
+            "Params: left_ref (ObservationRef), right_ref (ObservationRef), method."
+        ),
+    },
+    "detect": {
+        "category": "atomic",
+        "description": (
+            "Scan a metric time range for ranked anomaly candidates. "
+            "Params: metric, time_scope (required), scope, sensitivity, max_series."
+        ),
+    },
+    "test": {
+        "category": "atomic",
+        "description": (
+            "Evaluate a typed statistical hypothesis. "
+            "Params: hypothesis, left_ref (ObservationRef), right_ref (ObservationRef), alternative, alpha."
+        ),
+    },
+    "forecast": {
+        "category": "atomic",
+        "description": (
+            "Project a time-series into future buckets. "
+            "Params: series_ref (ObservationRef), horizon, granularity, profile."
+        ),
+    },
+    "attribute": {
+        "category": "derived",
+        "description": (
+            "Derived intent: attribute a metric change. "
+            "Expands to observe + observe + compare + decompose. "
+            "Params: metric, current_time_scope, baseline_time_scope, candidate_dimensions, top_k, min_contribution_pct."
+        ),
+    },
+    "diagnose": {
+        "category": "derived",
+        "description": (
+            "Derived intent: diagnose anomalies in a metric. "
+            "Expands to detect + compare + decompose on top-K candidates. "
+            "Params: metric, time_scope, scope, sensitivity, top_k_candidates."
+        ),
+    },
+    "validate": {
+        "category": "derived",
+        "description": (
+            "Derived intent: validate a statistical hypothesis about a metric. "
+            "Expands to observe + test. "
+            "Params: hypothesis, metric, current_time_scope, baseline_time_scope, scope, alternative, alpha."
+        ),
+    },
+}
+
+ATOMIC_INTENT_TYPES: tuple[str, ...] = tuple(
+    k for k, v in INTENT_TAXONOMY.items() if v["category"] == "atomic"
+)
+DERIVED_INTENT_TYPES: tuple[str, ...] = tuple(
+    k for k, v in INTENT_TAXONOMY.items() if v["category"] == "derived"
+)
+SUPPORTED_INTENT_TYPES: tuple[str, ...] = ATOMIC_INTENT_TYPES + DERIVED_INTENT_TYPES
+
+
 STEP_TAXONOMY = {
     "metric_query": {
         "category": "primitive",

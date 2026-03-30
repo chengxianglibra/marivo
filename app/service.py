@@ -288,6 +288,130 @@ class SemanticLayerService:
 
         return result
 
+    def run_intent(
+        self, session_id: str, intent_type: str, params: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """Execute a typed intent step within a session.
+
+        Phase 2 supports `observe` via metric_query translation.
+        All other intents accept and validate requests but raise NotImplementedError
+        until Phase 3 implements the intent registry and derived expansion.
+        """
+        self._assert_session_exists(session_id)
+
+        if intent_type == "observe":
+            translated = self._translate_observe_to_metric_query_params(params or {})
+            result = self.run_step(session_id, "metric_query", translated)
+            result["intent_type"] = "observe"
+            return result
+
+        _stub_intents = frozenset(
+            {
+                "compare",
+                "decompose",
+                "correlate",
+                "detect",
+                "test",
+                "forecast",
+                "attribute",
+                "diagnose",
+                "validate",
+            }
+        )
+        if intent_type in _stub_intents:
+            raise NotImplementedError(
+                f"Intent '{intent_type}' execution is not yet implemented. "
+                "This endpoint validates requests but execution requires the intent registry "
+                "and derived expansion built in Phase 3."
+            )
+
+        raise ValueError(f"Unknown intent type: '{intent_type}'")
+
+    def _resolve_metric_table(self, metric_name: str) -> str | None:
+        """Resolve the physical table FQN for a published semantic metric.
+
+        Looks up semantic_mappings (metric_id → object_id) then source_objects (fqn).
+        Returns None if the metric is not found or has no table mapping.
+        """
+        metric_row = self.metadata.query_one(
+            "SELECT metric_id FROM semantic_metrics WHERE name = ? AND status = 'published'",
+            [metric_name],
+        )
+        if metric_row is None:
+            return None
+        mapping = self.metadata.query_one(
+            "SELECT object_id FROM semantic_mappings WHERE semantic_type = 'metric' AND semantic_id = ?",
+            [metric_row["metric_id"]],
+        )
+        if mapping is None:
+            return None
+        source_obj = self.metadata.query_one(
+            "SELECT fqn, native_name FROM source_objects WHERE object_id = ?",
+            [mapping["object_id"]],
+        )
+        if source_obj is None:
+            return None
+        return str(source_obj["fqn"] or source_obj["native_name"])
+
+    def _translate_observe_to_metric_query_params(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Translate an `observe` intent params dict to `metric_query` params.
+
+        Only `time_scope.kind='range'` is supported in Phase 2.
+        `granularity` (time-series mode) is deferred to Phase 3.
+        """
+        metric_name = params.get("metric")
+        if not metric_name:
+            raise ValueError("observe intent requires 'metric'")
+
+        time_scope = params.get("time_scope")
+        if not isinstance(time_scope, dict):
+            raise ValueError("observe intent requires 'time_scope'")
+
+        kind = time_scope.get("kind")
+        if kind != "range":
+            raise NotImplementedError(
+                f"observe time_scope.kind='{kind}' is not yet supported. "
+                "Use kind='range'. Other time scope kinds will be supported in Phase 3."
+            )
+
+        if params.get("granularity") is not None:
+            raise NotImplementedError(
+                "observe with granularity (time-series mode) is not yet supported. "
+                "Time-series observe execution will be added in Phase 3."
+            )
+
+        start: str = time_scope["start"]
+        grain = (
+            "hour" if ("T" in start or (" " in start and ":" in start.split(" ", 1)[-1])) else "day"
+        )
+
+        table = self._resolve_metric_table(str(metric_name))
+        if table is None:
+            raise ValueError(
+                f"Metric '{metric_name}' is not published or has no source table mapping. "
+                "Ensure the metric exists in the semantic layer and is mapped to a source object."
+            )
+
+        mq_params: dict[str, Any] = {
+            "table": table,
+            "metric": metric_name,
+            "time_scope": {
+                "mode": "single_window",
+                "grain": grain,
+                "current": {"start": time_scope["start"], "end": time_scope["end"]},
+            },
+        }
+
+        scope = params.get("scope")
+        if scope:
+            mq_params["scope"] = scope
+
+        dims = params.get("dimensions")
+        if dims:
+            mq_params["dimensions"] = dims
+
+        return mq_params
+
     def get_evidence_graph(
         self,
         session_id: str,

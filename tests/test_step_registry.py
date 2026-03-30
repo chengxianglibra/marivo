@@ -6,7 +6,14 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from app.analysis_core import COMPOSITE_STEP_TYPES, PRIMITIVE_STEP_TYPES, SUPPORTED_STEP_TYPES
+from app.analysis_core import (
+    ATOMIC_INTENT_TYPES,
+    COMPOSITE_STEP_TYPES,
+    DERIVED_INTENT_TYPES,
+    PRIMITIVE_STEP_TYPES,
+    SUPPORTED_INTENT_TYPES,
+    SUPPORTED_STEP_TYPES,
+)
 from app.main import create_app
 from tests.shared_fixtures import get_seeded_duckdb_path
 
@@ -34,15 +41,45 @@ class StepRegistryWiringTests(unittest.TestCase):
         self.assertTrue(set(PRIMITIVE_STEP_TYPES).issubset(set(supported)))
         self.assertTrue(set(COMPOSITE_STEP_TYPES).issubset(set(supported)))
 
+    def test_intent_taxonomy_contains_expected_types(self) -> None:
+        self.assertEqual(
+            set(ATOMIC_INTENT_TYPES),
+            {"observe", "compare", "decompose", "correlate", "detect", "test", "forecast"},
+        )
+        self.assertEqual(
+            set(DERIVED_INTENT_TYPES),
+            {"attribute", "diagnose", "validate"},
+        )
+        self.assertEqual(len(SUPPORTED_INTENT_TYPES), 10)
+
     def test_run_step_rejects_unknown_step_type(self) -> None:
+        service = self.client.app.state.service
         session_id = self.client.post("/sessions", json={"goal": "Unknown step guard"}).json()[
             "session_id"
         ]
 
-        response = self.client.post(f"/sessions/{session_id}/steps/not_a_real_step")
+        with self.assertRaises(ValueError) as ctx:
+            service.run_step(session_id, "not_a_real_step")
+        self.assertIn("Unsupported step type", str(ctx.exception))
 
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("Unsupported step type", response.json()["detail"])
+    def test_legacy_step_http_endpoints_removed(self) -> None:
+        """Legacy /steps/* HTTP endpoints must no longer be reachable."""
+        session_id = self.client.post("/sessions", json={"goal": "Legacy endpoint guard"}).json()[
+            "session_id"
+        ]
+
+        for path in (
+            f"/sessions/{session_id}/steps/metric_query",
+            f"/sessions/{session_id}/steps/aggregate_query",
+            f"/sessions/{session_id}/steps/attribute_change",
+            f"/sessions/{session_id}/steps/synthesize_findings",
+        ):
+            response = self.client.post(path)
+            self.assertEqual(
+                response.status_code,
+                404,
+                f"Expected 404 for removed endpoint {path}, got {response.status_code}",
+            )
 
 
 if __name__ == "__main__":

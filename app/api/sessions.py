@@ -1,21 +1,31 @@
 from __future__ import annotations
 
-from typing import Any
-
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.api.deps import get_services, http_error
 from app.api.models import (
-    AggregateQueryStep,
-    AttributeChangeStep,
+    ArtifactRef,
+    AttributeRequest,
+    CompareRequest,
+    CorrelateRequest,
+    DecomposeRequest,
+    DetectRequest,
+    DiagnoseRequest,
     EvidenceGraphResponse,
-    MetricQueryStep,
+    ForecastRequest,
+    IntentTestRequest,
+    ObservationRef,
+    ObserveRequest,
     SessionCreateRequest,
     SessionDebugResponse,
+    ValidateRequest,
 )
 from app.reflection.context import build_reflection_context
 
 router = APIRouter()
+
+
+# ── Session lifecycle ─────────────────────────────────────────────────────────
 
 
 @router.post("/sessions")
@@ -59,79 +69,134 @@ def get_reflection_context(
         raise HTTPException(status_code=404, detail=str(error)) from error
 
 
-@router.post("/sessions/{session_id}/steps/attribute_change")
-def run_attribute_change(
-    session_id: str,
-    payload: AttributeChangeStep,
-    request: Request,
-) -> dict[str, object]:
+# ── Intent API ────────────────────────────────────────────────────────────────
+# Path acts as the intent discriminator. No step_type field in request bodies.
+# Literal path routes must be registered before parameterised routes.
+
+
+def _assert_same_session(session_id: str, *refs: ObservationRef | ArtifactRef) -> None:
+    """Reject any ref whose session_id does not match the current session."""
+    for ref in refs:
+        if ref.session_id != session_id:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Cross-session reference not allowed: "
+                    f"ref.session_id={ref.session_id!r} != session_id={session_id!r}"
+                ),
+            )
+
+
+def _run_intent(session_id: str, intent_type: str, params: dict, request: Request) -> dict:
+    """Dispatch an intent to SemanticLayerService.run_intent with uniform error handling."""
     try:
-        return get_services(request).service.run_step(
-            session_id,
-            "attribute_change",
-            params=payload.model_dump(exclude_none=True),
-        )
+        return get_services(request).service.run_intent(session_id, intent_type, params)
     except KeyError as error:
         raise http_error(error) from error
+    except NotImplementedError as error:
+        raise HTTPException(status_code=501, detail=str(error)) from error
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     except Exception as error:
-        raise HTTPException(status_code=502, detail=f"Engine execution error: {error}") from error
+        raise HTTPException(status_code=502, detail=f"Intent execution error: {error}") from error
 
 
-@router.post("/sessions/{session_id}/steps/metric_query")
-def run_metric_query(
+@router.post("/sessions/{session_id}/intents/observe")
+def intent_observe(
     session_id: str,
-    payload: MetricQueryStep,
+    payload: ObserveRequest,
     request: Request,
 ) -> dict[str, object]:
-    try:
-        return get_services(request).service.run_step(
-            session_id,
-            "metric_query",
-            params=payload.model_dump(by_alias=True, exclude_defaults=True, exclude_none=True),
-        )
-    except KeyError as error:
-        raise http_error(error) from error
-    except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
-    except Exception as error:
-        raise HTTPException(status_code=502, detail=f"Engine execution error: {error}") from error
+    return _run_intent(session_id, "observe", payload.model_dump(exclude_none=True), request)
 
 
-@router.post("/sessions/{session_id}/steps/aggregate_query")
-def run_aggregate_query(
+@router.post("/sessions/{session_id}/intents/compare")
+def intent_compare(
     session_id: str,
-    payload: AggregateQueryStep,
+    payload: CompareRequest,
     request: Request,
 ) -> dict[str, object]:
-    try:
-        return get_services(request).service.run_step(
-            session_id,
-            "aggregate_query",
-            params=payload.model_dump(by_alias=True, exclude_defaults=True, exclude_none=True),
-        )
-    except KeyError as error:
-        raise http_error(error) from error
-    except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
-    except Exception as error:
-        raise HTTPException(status_code=502, detail=f"Engine execution error: {error}") from error
+    _assert_same_session(session_id, payload.left_ref, payload.right_ref)
+    return _run_intent(session_id, "compare", payload.model_dump(exclude_none=True), request)
 
 
-@router.post("/sessions/{session_id}/steps/{step_type}")
-def run_step(
+@router.post("/sessions/{session_id}/intents/decompose")
+def intent_decompose(
     session_id: str,
-    step_type: str,
+    payload: DecomposeRequest,
     request: Request,
-    body: dict[str, Any] | None = None,
 ) -> dict[str, object]:
-    try:
-        return get_services(request).service.run_step(session_id, step_type, params=body)
-    except (KeyError, ValueError) as error:
-        raise http_error(error) from error
-    except Exception as error:
-        raise HTTPException(status_code=502, detail=f"Engine execution error: {error}") from error
+    _assert_same_session(session_id, payload.compare_ref)
+    return _run_intent(session_id, "decompose", payload.model_dump(exclude_none=True), request)
+
+
+@router.post("/sessions/{session_id}/intents/correlate")
+def intent_correlate(
+    session_id: str,
+    payload: CorrelateRequest,
+    request: Request,
+) -> dict[str, object]:
+    _assert_same_session(session_id, payload.left_ref, payload.right_ref)
+    return _run_intent(session_id, "correlate", payload.model_dump(exclude_none=True), request)
+
+
+@router.post("/sessions/{session_id}/intents/detect")
+def intent_detect(
+    session_id: str,
+    payload: DetectRequest,
+    request: Request,
+) -> dict[str, object]:
+    return _run_intent(session_id, "detect", payload.model_dump(exclude_none=True), request)
+
+
+@router.post("/sessions/{session_id}/intents/test")
+def intent_test(
+    session_id: str,
+    payload: IntentTestRequest,
+    request: Request,
+) -> dict[str, object]:
+    _assert_same_session(session_id, payload.left_ref, payload.right_ref)
+    return _run_intent(session_id, "test", payload.model_dump(exclude_none=True), request)
+
+
+@router.post("/sessions/{session_id}/intents/forecast")
+def intent_forecast(
+    session_id: str,
+    payload: ForecastRequest,
+    request: Request,
+) -> dict[str, object]:
+    _assert_same_session(session_id, payload.series_ref)
+    return _run_intent(session_id, "forecast", payload.model_dump(exclude_none=True), request)
+
+
+@router.post("/sessions/{session_id}/intents/attribute")
+def intent_attribute(
+    session_id: str,
+    payload: AttributeRequest,
+    request: Request,
+) -> dict[str, object]:
+    return _run_intent(session_id, "attribute", payload.model_dump(exclude_none=True), request)
+
+
+@router.post("/sessions/{session_id}/intents/diagnose")
+def intent_diagnose(
+    session_id: str,
+    payload: DiagnoseRequest,
+    request: Request,
+) -> dict[str, object]:
+    return _run_intent(session_id, "diagnose", payload.model_dump(exclude_none=True), request)
+
+
+@router.post("/sessions/{session_id}/intents/validate")
+def intent_validate(
+    session_id: str,
+    payload: ValidateRequest,
+    request: Request,
+) -> dict[str, object]:
+    return _run_intent(session_id, "validate", payload.model_dump(exclude_none=True), request)
+
+
+# ── Evidence / debug read surfaces ───────────────────────────────────────────
 
 
 @router.get("/sessions/{session_id}/evidence", response_model=EvidenceGraphResponse)

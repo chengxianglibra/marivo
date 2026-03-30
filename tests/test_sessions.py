@@ -55,50 +55,6 @@ class SessionAPITests(unittest.TestCase):
         self.assertIsInstance(payload["assets"], list)
         self.assertIsInstance(payload["policies"], list)
 
-    def test_evidence_graph_contains_support_edges(self) -> None:
-        session_id = self.client.post(
-            "/sessions",
-            json={"goal": "Investigate watch time drop and recommend fixes."},
-        ).json()["session_id"]
-
-        # Seed a published metric for metric_query
-        entity_resp = self.client.post(
-            "/semantic/entities",
-            json={
-                "name": "session_mvp",
-                "display_name": "Session",
-                "keys": ["session_id"],
-            },
-        )
-        entity_id = entity_resp.json()["entity_id"]
-        self.client.post(f"/semantic/entities/{entity_id}/publish")
-        metric_resp = self.client.post(
-            "/semantic/metrics",
-            json={
-                "name": "watch_time_mvp",
-                "display_name": "Watch Time",
-                "definition_sql": "avg(play_duration_seconds)",
-                "dimensions": ["platform", "app_version", "network_type", "content_type"],
-                "entity_id": entity_id,
-            },
-        )
-        metric_id = metric_resp.json()["metric_id"]
-        self.client.post(f"/semantic/metrics/{metric_id}/publish")
-
-        self.client.post(
-            f"/sessions/{session_id}/steps/metric_query",
-            json=_metric_query_payload("watch_time_mvp"),
-        )
-        self.client.post(f"/sessions/{session_id}/steps/synthesize_findings")
-
-        graph_response = self.client.get(f"/sessions/{session_id}/evidence")
-        self.assertEqual(graph_response.status_code, 200)
-        graph = graph_response.json()
-        self.assertGreaterEqual(len(graph["observations"]), 1)
-        self.assertGreaterEqual(len(graph["claims"]), 1)
-        self.assertTrue(any(edge["edge_type"] == "supports" for edge in graph["edges"]))
-        self.assertGreaterEqual(len(graph["recommendations"]), 1)
-
     def test_list_sessions_empty(self) -> None:
         """GET /sessions should return a list."""
         resp = self.client.get("/sessions")
@@ -184,85 +140,6 @@ class SessionAPITests(unittest.TestCase):
     def test_session_debug_endpoint_returns_404_for_missing_session(self) -> None:
         resp = self.client.get("/sessions/sess_missing_debug/debug")
         self.assertEqual(resp.status_code, 404)
-
-    def test_evidence_graph_claims_only_confirmed_filters_tentative_subgraph(self) -> None:
-        session_id = self.client.post(
-            "/sessions",
-            json={"goal": "Investigate watch time drop before synthesis."},
-        ).json()["session_id"]
-
-        entity_id = self.client.post(
-            "/semantic/entities",
-            json={
-                "name": "session_tentative_entity",
-                "display_name": "Session Tentative Entity",
-                "keys": ["session_id"],
-            },
-        ).json()["entity_id"]
-        self.client.post(f"/semantic/entities/{entity_id}/publish")
-        metric_id = self.client.post(
-            "/semantic/metrics",
-            json={
-                "name": "watch_time_tentative_metric",
-                "display_name": "Watch Time Tentative",
-                "definition_sql": "avg(play_duration_seconds)",
-                "dimensions": ["platform", "app_version", "network_type", "content_type"],
-                "entity_id": entity_id,
-            },
-        ).json()["metric_id"]
-        self.client.post(f"/semantic/metrics/{metric_id}/publish")
-
-        self.client.post(
-            f"/sessions/{session_id}/steps/metric_query",
-            json=_metric_query_payload("watch_time_tentative_metric"),
-        )
-
-        resp = self.client.get(f"/sessions/{session_id}/evidence?claims_only=confirmed")
-        self.assertEqual(resp.status_code, 200)
-        graph = resp.json()
-        self.assertEqual(graph["claims"], [])
-        self.assertEqual(graph["edges"], [])
-        self.assertEqual(graph["recommendations"], [])
-        self.assertGreaterEqual(len(graph["observations"]), 1)
-
-    def test_evidence_graph_edge_types_filter_is_applied(self) -> None:
-        session_id = self.client.post(
-            "/sessions",
-            json={"goal": "Investigate watch time drop and filter graph edges."},
-        ).json()["session_id"]
-
-        entity_id = self.client.post(
-            "/semantic/entities",
-            json={
-                "name": "session_edge_filter_entity",
-                "display_name": "Session Edge Filter Entity",
-                "keys": ["session_id"],
-            },
-        ).json()["entity_id"]
-        self.client.post(f"/semantic/entities/{entity_id}/publish")
-        metric_id = self.client.post(
-            "/semantic/metrics",
-            json={
-                "name": "watch_time_edge_filter_metric",
-                "display_name": "Watch Time Edge Filter",
-                "definition_sql": "avg(play_duration_seconds)",
-                "dimensions": ["platform", "app_version", "network_type", "content_type"],
-                "entity_id": entity_id,
-            },
-        ).json()["metric_id"]
-        self.client.post(f"/semantic/metrics/{metric_id}/publish")
-
-        self.client.post(
-            f"/sessions/{session_id}/steps/metric_query",
-            json=_metric_query_payload("watch_time_edge_filter_metric"),
-        )
-        self.client.post(f"/sessions/{session_id}/steps/synthesize_findings")
-
-        resp = self.client.get(f"/sessions/{session_id}/evidence?edge_types=supports")
-        self.assertEqual(resp.status_code, 200)
-        graph = resp.json()
-        self.assertGreater(len(graph["edges"]), 0)
-        self.assertTrue(all(edge["edge_type"] == "supports" for edge in graph["edges"]))
 
     def test_evidence_graph_include_debug_attaches_debug_payload(self) -> None:
         session_id = self.client.post(
