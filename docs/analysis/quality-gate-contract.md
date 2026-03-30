@@ -16,6 +16,8 @@
 - 哪些条件 token 必须结构化写入 `matched_conditions` / `unmatched_conditions`
 - 它如何与 `status_resolution`、`confidence_shaping`、注册表、缺口生命周期与仅变化快照策略对齐
 
+其中 gap identity convergence、`open / keep / resolve / reopen` 生命周期，以及 snapshot-owned `blocking` / `severity` classification 的总规则，以 [`gap-management-contract.md`](gap-management-contract.md) 为准；本文只定义 `quality_gate` 如何贡献 requirement-level candidates、gap ids 与结构化质量影响。
+
 本文不负责：
 
 - 新增或改写规则族

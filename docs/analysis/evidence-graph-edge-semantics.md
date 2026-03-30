@@ -198,7 +198,7 @@ v1 固定两类语义：
 通用定义：
 
 - Source/target: `assessment` 指向 `evidence_gap`
-- Canonical carrier: `Assessment.blocking_gap_ids`、`Assessment.non_blocking_gap_ids`
+- Canonical carrier: `Assessment.gap_memberships`
 - Authority: inference engine / gap management logic
 - Semantics: 当前 assessment snapshot 的 gap membership
 - Lifecycle: runtime membership edge；由 snapshot 绑定

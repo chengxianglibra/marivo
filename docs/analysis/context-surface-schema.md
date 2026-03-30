@@ -219,7 +219,7 @@ agent 应将其解释为 seed provenance 不完整信号，而不是 proposition
 - `blocking_gaps`、`non_blocking_gaps`、`applied_inference_records` 只允许来自 `latest_assessment`
 - `assessment_dependencies` 只允许覆盖 `applied_inference_records.input_assessment_ids` 的直接 assessment 输入，不递归展开更早历史链
 - 不得混入 superseded assessment 的 gap 或 推断记录
-- `blocking_gaps` 与 `non_blocking_gaps` 的并集必须可完全由 `latest_assessment.blocking_gap_ids` 与 `latest_assessment.non_blocking_gap_ids` 解引用得到
+- `blocking_gaps` 与 `non_blocking_gaps` 的并集必须可完全由 `latest_assessment.gap_memberships` 解引用得到
 - `applied_inference_records` 必须可完全由 `latest_assessment.applied_inference_record_ids` 解引用得到
 - `assessment_dependencies` 必须可完全由 `applied_inference_records.input_assessment_ids` 稳定去重并解引用得到
 - `blocking_gaps`、`non_blocking_gaps`、`applied_inference_records` 与 `assessment_dependencies` 的默认排序应分别复用 `assessment.md` 中相邻 规范对象 的稳定排序
