@@ -8,6 +8,7 @@ Shared guidance for agents. `AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructi
 - Contract: sessions, semantic entities/metrics, typed steps.
 - Facts extracted deterministically by code. Models explain, not define evidence.
 - Prefer typed steps over raw SQL.
+- Target-state external step submission contract lives in `docs/api/intent-steps.md`; `docs/analysis/intents/` remains the design source, not the wire spec.
 
 ## Run
 
@@ -46,37 +47,17 @@ Defined in `app/analysis_core/primitives.py`: `metric_query`, `profile_table`, `
 ### Rules
 
 - Design drafts (`docs/analysis/`): use `time_scope`/`scope` split; keep artifact/projection separated
-- Mandatory canonical result artifacts must not commit with zero findings; successful empty result is illegal in target-state docs
-- Step refs: prefer structured typed refs over bare string ids
-- Numeric summaries (v1): `welch_t` compatible; rates → `two_proportion_z`
-- `metric_query` modes: `compare` and `single_window`
-- `metric_query` order: `compare` → `delta_pct ASC|DESC`; `single_window` → `current_value ASC|DESC`, `current_sessions ASC|DESC`
-- `time_axis` priority: request override > metadata > heuristics
-- `time_axis` resolution: `semantic_entities.properties.time_capabilities` > `source_objects.properties.time_capabilities` > heuristics
-- Timezone (phase-1): session-consistent naive timestamps; no offsets in hour-grain windows
-- Windows: half-open `[start, end)`
-- Mixed layouts: timestamp fields (correctness) + partition fields (pruning); hour-grain pruning bounds edge days by hour
-- `metric_query` observations: inherit `time_scope.current` as `observed_window`
-- `metric_query(single_window)`: current-window observations only (no `baseline_*`/`delta_pct`)
-- `aggregate_query` observations: inherit request window; temporal `group_by` refines to per-row windows
-- Design drafts must not introduce session-level enforced scope inheritance
-- Assessment snapshots (v1): on-demand creation; proposition registration may leave `latest_assessment = null` until first committed assessment output
-- Assessment latest selection (v1): strict linear supersede chain only; do not fallback to max seq or latest timestamp on chain corruption
-- Gap reopen (v1): resolved gap stays resolved; later recurrence opens a new gap instance
-- Gap classification (v1): identity follows `gap_kind + missing_requirement`; `blocking` / `severity` are snapshot-owned via assessment gap memberships
-- Session lifecycle (v1): `open | closed | aborted` (no `closing`/async state)
-- Session terminal reasons (v1): `answered`, `abandoned`, `rolled_over`, `governance_terminated`, `budget_exhausted`, `timed_out`
-- Session termination model (v1): explicit-first; system-derived governance / budget / timeout signals do not auto-close the session, and ordinary step failure is non-terminal
-- Write access: `open` only; `closed`/`aborted` = read-only
-- Session mutability: `governance.policy_refs` immutable (require rollover); `goal.question`, `governance.budget`, `governance.warnings` mutable
-- Rollover trigger: binary check (immutable field value changed)
-- Rollover API: `POST /sessions/{id}/rollover` with new values
+- External wire docs (`docs/api/intent-steps.md`): define the target-state per-intent submission surface for `observe`, `compare`, `decompose`, `correlate`, `detect`, `test`, `forecast`, `attribute`, `diagnose`, and `validate`
+- Current implementation still exposes legacy step types in code; do not assume the target-state wire contract is already implemented
 
 ## Sync
 
 After changes: update this guide + affected API models, UI docs, entrypoint agent docs.
 
 Docs layout:
-- `docs/api/`: external HTTP API docs only
-- `docs/analysis/`: analysis-intent drafts, canonical evidence schemas (`session.md`, `finding.md`, `proposition.md`, `assessment.md`, `state-surface-schema.md`, `context-surface-schema.md`) and cross-cutting contracts such as `artifact-finding-extraction-contract.md`, `proposition-seeding-contract.md`, `gap-management-contract.md`
-- Rule contracts: `precondition-gate-contract.md`, `quality-gate-contract.md`, `comparability-gate-contract.md`, `gap-management-contract.md` (align with `inference-rule-engine-contract.md`, `assessment.md`)
+- `docs/api/`: external HTTP API docs only; target-state step submission is in `intent-steps.md`, and canonical read surfaces are split into `session-state.md` and `context-surface.md`
+- `docs/analysis/foundations/`: shared terminology, agent-first interaction principles, and canonical schema design baselines
+- `docs/analysis/intents/`: intent-system design docs; atomic schemas live in `docs/analysis/intents/atomic/`, derived schemas live in `docs/analysis/intents/derived/`
+- `docs/analysis/evidence-engine/`: Evidence Engine theme docs for overview, runtime pipeline, inference/gap engine, graph/ref semantics, and read surfaces
+- `docs/analysis/evidence-engine/schemas/`: canonical evidence schemas (`session.md`, `finding.md`, `proposition.md`, `assessment.md`, `action-proposal.md`, `state-surface-schema.md`, `context-surface-schema.md`)
+- `docs/analysis/evidence-engine/rules/`: rule contracts and supplements (`precondition-gate-contract.md`, `quality-gate-contract.md`, `comparability-gate-contract.md`, `rule-family-design-checklist.md`, `assessment-judgment-policy.md`, `rule-registry-contract.md`); align them with `docs/analysis/evidence-engine/inference-and-gap-engine.md` plus `docs/analysis/evidence-engine/schemas/assessment.md`
