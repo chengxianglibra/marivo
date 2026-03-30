@@ -59,7 +59,7 @@ Fields that store structured data are represented as JSON objects in responses. 
 
 | Resource | Status values |
 |----------|---------------|
-| Session | `active`, `completed`, `abandoned` |
+| Session | `open`, `closed`, `aborted` |
 | Plan | `draft` → `validated` → `approved` → `executing` → `completed` / `failed` |
 | Claim | `tentative` → `confirmed` / `insufficient` (promoted by `synthesize_findings`) |
 | Semantic entity / metric | `draft` → `published` → `deprecated` |
@@ -71,7 +71,10 @@ Fields that store structured data are represented as JSON objects in responses. 
 
 | Domain | Path prefix | Description |
 |--------|-------------|-------------|
-| [Sessions & Steps](sessions.md) | `/sessions` | Stateful analysis sessions and typed step execution |
+| [Session Lifecycle](session-lifecycle.md) | `/sessions` | Session root lifecycle: create, read, list, patch, terminate, and rollover |
+| [Intent Step Submission](intent-steps.md) | `/sessions/{id}/steps/*` | Target-state per-intent step submission for atomic and derived analysis intents |
+| [Session State Surface](session-state.md) | `/sessions/{id}/state` | Canonical session-level decision surface |
+| [Context Surface](context-surface.md) | `/sessions/{id}/propositions/{pid}/context` | Canonical proposition-level minimal closure |
 | [Planning](planning.md) | `/sessions/{id}/plans` | Multi-step analysis plans with validation and execution |
 | [Sources](sources.md) | `/sources` | Data source registration and catalog sync |
 | [Engines & Bindings](engines.md) | `/engines`, `/bindings` | Analytics engine registration and source-engine routing |
@@ -83,41 +86,67 @@ Fields that store structured data are represented as JSON objects in responses. 
 
 ## Additional Guides
 
+- [Session Lifecycle](session-lifecycle.md) — canonical session root lifecycle HTTP contract
+- [Intent Step Submission](intent-steps.md) — target-state per-intent write contract for atomic and derived analysis intents
+- [Session State Surface](session-state.md) — canonical session-level decision surface HTTP contract
+- [Context Surface](context-surface.md) — canonical proposition-level minimal closure HTTP contract
 - [Quickstart](quickstart.md) — end-to-end walkthrough with `curl` examples
 - [Error Reference](errors.md) — HTTP status codes, error formats, and common error scenarios
 
-Non-HTTP analysis-intent design drafts now live under `docs/analysis/`.
+Target-state step submission wire contracts live under `docs/api/`. Non-HTTP analysis-intent design drafts live under `docs/analysis/`.
 
 ## Core Concepts
 
 ### Sessions
 
-A **session** is a stateful analysis context with a goal, constraints, budget, and policy. All analysis work — steps, evidence, plans — belongs to a session.
+A **session** is the root analysis container. It carries descriptive task context, governance boundaries, lifecycle state, and the entry to the canonical session state surface. All analysis work — steps, evidence, plans — belongs to a session.
 
 ```json
 {
-  "session_id": "sess_abc123...",
-  "goal": "Investigate watch time drop in Q1",
-  "constraints": {"region": "US"},
-  "budget": {"max_scan_bytes": 500000000000, "max_latency_sec": 120},
-  "policy": {"aggregate_only": true, "min_group_size": 100}
+  "session_id": "sess_abc123",
+  "goal": {
+    "question": "Investigate watch time drop in Q1"
+  },
+  "governance": {
+    "policy_refs": [
+      {
+        "policy_id": "pol_aggregate_only",
+        "policy_version": "7"
+      }
+    ],
+    "budget": {
+      "max_scan_bytes": 500000000000,
+      "max_latency_sec": 120
+    },
+    "warnings": null
+  },
+  "lifecycle": {
+    "status": "open",
+    "terminal_reason": null,
+    "ended_at": null,
+    "rollover_from_session_id": null
+  }
 }
 ```
 
 ### Steps
 
-A **step** is a typed analysis operation executed within a session. Step types:
+A **step** is a typed analysis operation executed within a session. The target-state submission surface is defined in [Intent Step Submission](intent-steps.md). Target-state step families are:
 
 | Step type | Category | Description |
 |-----------|----------|-------------|
-| `metric_query` | Primitive | Evaluate a semantic metric in `compare` or `single_window` time-window mode |
-| `profile_table` | Primitive | Profile row count and column-level completeness/cardinality |
-| `sample_rows` | Primitive | Return a bounded sample of rows |
-| `aggregate_query` | Primitive | Ad-hoc GROUP BY aggregation |
-| `correlate_metrics` | Primitive | Compute correlation between two artifact series |
-| `synthesize_findings` | Composite | Synthesize observations into claims and recommendations |
+| `observe` | Atomic | Read a semantic metric as a scalar, time series, segmented observation, or inferential-ready sample summary |
+| `compare` | Atomic | Compute a typed delta between two compatible observations |
+| `decompose` | Atomic | Allocate a scalar delta across a semantic dimension using a typed attribution method |
+| `correlate` | Atomic | Estimate association between two aligned time-series observations |
+| `detect` | Atomic | Scan a bounded time range and return ranked anomaly candidates |
+| `test` | Atomic | Execute a typed statistical hypothesis test on inferential-ready observations |
+| `forecast` | Atomic | Project a bounded time-series observation into future buckets |
+| `attribute` | Derived | Expand `observe -> compare -> decompose` into a deterministic attribution bundle |
+| `diagnose` | Derived | Expand `detect -> compare -> decompose` into a deterministic diagnosis bundle |
+| `validate` | Derived | Expand `observe -> observe -> test` into a deterministic validation bundle |
 
-Session constraints are automatically injected into `metric_query`, `sample_rows`, and `aggregate_query` WHERE clauses. `correlate_metrics` operates on artifacts and does not apply session constraints.
+Step-level analysis constraints belong in typed step requests such as `scope`, `time_scope`, and typed refs; the session root does not carry canonical execution scope.
 
 ### Evidence Graph
 

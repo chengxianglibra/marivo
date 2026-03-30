@@ -37,6 +37,32 @@ For Pydantic validation errors (422):
 }
 ```
 
+## Step Submission Semantic Context
+
+Some step submission endpoints may include extra structured context beyond `detail` when the intent contract exposes a stable semantic failure class.
+
+Example:
+
+```json
+{
+  "detail": "Compare inputs are not comparable",
+  "code": "NOT_COMPARABLE",
+  "issues": [
+    {
+      "code": "metric_mismatch",
+      "severity": "error",
+      "message": "Left and right observations resolve to different metrics"
+    }
+  ]
+}
+```
+
+Optional fields that may appear on step-submission errors:
+
+- `code` — stable semantic failure class such as `INVALID_ARGUMENT`, `INVALID_FILTER`, `STEP_NOT_FOUND`, `NOT_COMPARABLE`, or `INSUFFICIENT_HISTORY`
+- `issues` — typed validation issues when the step contract defines them
+- `ref` — the typed ref associated with the failing lookup or validation
+
 ## Common Error Scenarios
 
 ### Resource Not Found (404)

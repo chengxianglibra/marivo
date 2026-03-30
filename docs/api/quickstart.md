@@ -113,15 +113,26 @@ curl -s -X POST http://localhost:8000/semantic/metrics/met_.../publish | jq .
 curl -s -X POST http://localhost:8000/sessions \
   -H "Content-Type: application/json" \
   -d '{
-    "goal": "Investigate watch time drop in January 2024",
-    "constraints": {"platform": "mobile"},
-    "budget": {"max_scan_bytes": 100000000000, "max_latency_sec": 60}
+    "goal": {
+      "question": "Investigate watch time drop in January 2024"
+    },
+    "governance": {
+      "budget": {
+        "max_scan_bytes": 100000000000,
+        "max_latency_sec": 60
+      },
+      "warnings": [
+        "Initial quickstart session"
+      ]
+    }
   }' | jq .
 ```
 
 Save the returned `session_id`.
 
 ## Step 9 - Run Analysis Steps
+
+The examples in this section use currently implemented step endpoints. For the target-state per-intent write contract, see [Intent Step Submission](intent-steps.md).
 
 **Compare the metric:**
 
@@ -251,7 +262,10 @@ curl -s -X POST http://localhost:8000/sessions/sess_.../plans/$PLAN_ID/execute \
 
 ## Next Steps
 
-- [Sessions & Steps](sessions.md) - full step type reference
+- [Intent Step Submission](intent-steps.md) - target-state per-intent step write contract
+- [Session Lifecycle](session-lifecycle.md) - session root lifecycle contract
+- [Session State Surface](session-state.md) - canonical session-level decision surface
+- [Context Surface](context-surface.md) - canonical proposition-level minimal closure
 - [Semantic Layer](semantic.md) - entities, metrics, mappings, and catalog search
 - [Governance](governance.md) - policies and quality rules
 - [Planning](planning.md) - multi-step plans with validation and cost estimation
