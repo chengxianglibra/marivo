@@ -747,20 +747,18 @@ class CompareRequest(BaseModel):
 
 
 class DecomposeRequest(BaseModel):
-    """Atomic intent: attribute a delta across candidate dimensions."""
+    """Atomic intent: attribute a scalar delta across a single semantic dimension."""
 
     compare_ref: ArtifactRef = Field(
         description="Reference to an upstream `compare` step artifact (step_type='compare')."
     )
-    dimensions: list[str] = Field(
+    dimension: str = Field(
         min_length=1,
-        description="Candidate dimensions to decompose the delta across.",
+        description="Single semantic dimension to decompose the delta across.",
     )
-    top_k: int = Field(default=5, ge=1, description="Number of top contributors to return.")
-    min_contribution_pct: float = Field(
-        default=5.0,
-        ge=0.0,
-        description="Minimum absolute contribution percentage to include a contributor.",
+    method: str = Field(
+        default="delta_share",
+        description="Attribution method. Only 'delta_share' is supported in v1.",
     )
 
     @field_validator("compare_ref")

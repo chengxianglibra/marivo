@@ -110,18 +110,18 @@ class CompareRequestModelTests(unittest.TestCase):
 class DecomposeRequestModelTests(unittest.TestCase):
     def test_valid_request(self) -> None:
         ref = ArtifactRef(session_id="sess_a", step_id="step_cmp", step_type="compare")
-        r = DecomposeRequest(compare_ref=ref, dimensions=["region"])
-        self.assertEqual(r.top_k, 5)
+        r = DecomposeRequest(compare_ref=ref, dimension="region")
+        self.assertEqual(r.method, "delta_share")
 
     def test_compare_ref_must_be_compare_step_type(self) -> None:
         ref = ArtifactRef(session_id="sess_a", step_id="step_obs", step_type="observe")
         with self.assertRaises(Exception):
-            DecomposeRequest(compare_ref=ref, dimensions=["region"])
+            DecomposeRequest(compare_ref=ref, dimension="region")
 
-    def test_dimensions_min_length(self) -> None:
+    def test_dimension_required(self) -> None:
         ref = ArtifactRef(session_id="sess_a", step_id="step_cmp", step_type="compare")
         with self.assertRaises(Exception):
-            DecomposeRequest(compare_ref=ref, dimensions=[])
+            DecomposeRequest(compare_ref=ref, dimension="")
 
 
 # ── HTTP endpoint tests ───────────────────────────────────────────────────────
@@ -1346,6 +1346,349 @@ class CompareIntentTests(unittest.TestCase):
                     "step_type": "observe",
                 },
                 "mode": "segmented",
+            },
+        )
+        self.assertEqual(r.status_code, 422)
+        self.assertIn("INVALID_ARGUMENT", r.json()["detail"])
+
+
+class DecomposeIntentTests(unittest.TestCase):
+    """Phase 3b-2: verify that decompose produces a typed delta_decomposition artifact.
+
+    setUpClass wires a semantic layer, creates a session, runs two scalar observe
+    steps with dates inside the seeded data range, and then runs compare to produce
+    an upstream scalar_delta compare artifact.
+
+    A second compare artifact (segmented_delta) is also produced so that the
+    "rejects segmented_delta compare" test can run.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        from app.main import create_app
+        from tests.shared_fixtures import get_seeded_duckdb_path
+
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        db_path = Path(cls.temp_dir.name) / "decompose_intent.duckdb"
+        get_seeded_duckdb_path(db_path)
+        cls.app = create_app(db_path)
+        cls.client = TestClient(cls.app)
+        cls.service = cls.app.state.service
+        cls.skipped = False
+        cls.compare_step_id: str | None = None
+        cls.segmented_compare_step_id: str | None = None
+
+        now = "2026-01-01T00:00:00"
+
+        r = cls.client.post(
+            "/sources",
+            json={
+                "source_type": "duckdb",
+                "display_name": "Decompose Test Source",
+                "connection": {"path": str(db_path)},
+            },
+        )
+        source_id = r.json()["source_id"]
+
+        r = cls.client.post(
+            "/engines",
+            json={
+                "engine_type": "duckdb",
+                "display_name": "Decompose Test Engine",
+                "connection": {"database": str(db_path)},
+            },
+        )
+        engine_id = r.json()["engine_id"]
+        cls.client.post(
+            "/bindings",
+            json={"source_id": source_id, "engine_id": engine_id, "priority": 0},
+        )
+
+        obj_id = f"obj_{__import__('uuid').uuid4().hex[:12]}"
+        cls.service.metadata.execute(
+            """
+            INSERT INTO source_objects
+                (object_id, source_id, object_type, native_name, fqn,
+                 properties_json, created_at, updated_at)
+            VALUES (?, ?, 'table', 'watch_events', 'analytics.watch_events',
+                    '{}', ?, ?)
+            """,
+            [obj_id, source_id, now, now],
+        )
+
+        r = cls.client.post(
+            "/semantic/metrics",
+            json={
+                "name": "decompose_test_dau",
+                "display_name": "DAU (decompose test)",
+                "definition_sql": "COUNT(DISTINCT user_id)",
+                "dimensions": ["event_date", "platform"],
+                "grain": "day",
+            },
+        )
+        if r.status_code != 200:
+            cls.skipped = True
+            return
+        metric_id = r.json()["metric_id"]
+        cls.client.post(f"/semantic/metrics/{metric_id}/publish")
+        cls.client.post(
+            "/semantic/mappings",
+            json={
+                "semantic_type": "metric",
+                "semantic_id": metric_id,
+                "object_id": obj_id,
+                "mapping_type": "primary",
+            },
+        )
+
+        r = cls.client.post("/sessions", json={"goal": "decompose intent test"})
+        cls.session_id = r.json()["session_id"]
+
+        # Scalar observations in seeded data range
+        def _scalar_observe(start: str, end: str) -> str | None:
+            resp = cls.client.post(
+                f"/sessions/{cls.session_id}/intents/observe",
+                json={
+                    "metric": "decompose_test_dau",
+                    "time_scope": {"kind": "range", "start": start, "end": end},
+                },
+            )
+            return resp.json()["step_ref"]["step_id"] if resp.status_code == 200 else None
+
+        def _seg_observe(start: str, end: str) -> str | None:
+            resp = cls.client.post(
+                f"/sessions/{cls.session_id}/intents/observe",
+                json={
+                    "metric": "decompose_test_dau",
+                    "time_scope": {"kind": "range", "start": start, "end": end},
+                    "dimensions": ["platform"],
+                },
+            )
+            return resp.json()["step_ref"]["step_id"] if resp.status_code == 200 else None
+
+        # Use dates inside seeded range so decompose queries return real data
+        left_scalar = _scalar_observe("2026-02-21", "2026-03-07")
+        right_scalar = _scalar_observe("2026-02-07", "2026-02-21")
+
+        if left_scalar is None or right_scalar is None:
+            cls.skipped = True
+            return
+
+        # Run compare (scalar_delta)
+        r = cls.client.post(
+            f"/sessions/{cls.session_id}/intents/compare",
+            json={
+                "left_ref": {
+                    "session_id": cls.session_id,
+                    "step_id": left_scalar,
+                    "step_type": "observe",
+                },
+                "right_ref": {
+                    "session_id": cls.session_id,
+                    "step_id": right_scalar,
+                    "step_type": "observe",
+                },
+            },
+        )
+        if r.status_code != 200:
+            cls.skipped = True
+            return
+        cls.compare_step_id = r.json()["step_ref"]["step_id"]
+
+        # Produce a segmented_delta compare for rejection test
+        left_seg = _seg_observe("2026-02-21", "2026-03-07")
+        right_seg = _seg_observe("2026-02-07", "2026-02-21")
+        if left_seg and right_seg:
+            r2 = cls.client.post(
+                f"/sessions/{cls.session_id}/intents/compare",
+                json={
+                    "left_ref": {
+                        "session_id": cls.session_id,
+                        "step_id": left_seg,
+                        "step_type": "observe",
+                    },
+                    "right_ref": {
+                        "session_id": cls.session_id,
+                        "step_id": right_seg,
+                        "step_type": "observe",
+                    },
+                },
+            )
+            if r2.status_code == 200:
+                cls.segmented_compare_step_id = r2.json()["step_ref"]["step_id"]
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.client.close()
+        cls.temp_dir.cleanup()
+
+    def _skip_if_not_wired(self) -> None:
+        if self.skipped or self.compare_step_id is None:
+            self.skipTest("Semantic layer not fully wired or upstream steps failed")
+
+    # ── Happy path ────────────────────────────────────────────────────────────
+
+    def test_decompose_success(self) -> None:
+        """decompose returns 200 with decomposition_type='delta_decomposition' and rows."""
+        self._skip_if_not_wired()
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/decompose",
+            json={
+                "compare_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.compare_step_id,
+                    "step_type": "compare",
+                },
+                "dimension": "platform",
+            },
+        )
+        self.assertEqual(r.status_code, 200, r.text)
+        data = r.json()
+        self.assertEqual(data["decomposition_type"], "delta_decomposition")
+        self.assertIn("rows", data)
+        self.assertGreater(len(data["rows"]), 0)
+
+    def test_decompose_artifact_persisted(self) -> None:
+        """decompose artifact is written to DB with lifecycle='committed'."""
+        self._skip_if_not_wired()
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/decompose",
+            json={
+                "compare_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.compare_step_id,
+                    "step_type": "compare",
+                },
+                "dimension": "platform",
+            },
+        )
+        self.assertEqual(r.status_code, 200)
+        artifact_id = r.json()["artifact_id"]
+        row = self.service.metadata.query_one(
+            "SELECT lifecycle, artifact_type FROM artifacts WHERE artifact_id = ?",
+            [artifact_id],
+        )
+        self.assertIsNotNone(row)
+        self.assertEqual(row["lifecycle"], "committed")
+        self.assertEqual(row["artifact_type"], "delta_decomposition")
+
+    def test_decompose_artifact_shape(self) -> None:
+        """decompose artifact contains required fields per decompose.md spec."""
+        self._skip_if_not_wired()
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/decompose",
+            json={
+                "compare_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.compare_step_id,
+                    "step_type": "compare",
+                },
+                "dimension": "platform",
+            },
+        )
+        self.assertEqual(r.status_code, 200)
+        data = r.json()
+        # Top-level artifact fields
+        self.assertIn("attribution", data)
+        self.assertIn("status", data["attribution"])
+        self.assertIn("dimension", data)
+        self.assertEqual(data["dimension"], "platform")
+        self.assertEqual(data["method"], "delta_share")
+        # Row shape
+        for row in data["rows"]:
+            self.assertIn("key", row)
+            self.assertIn("presence", row)
+            self.assertIn(row["presence"], ("both", "left_only", "right_only"))
+            self.assertIn("direction", row)
+            self.assertIn(row["direction"], ("increase", "decrease", "flat", "undefined"))
+            self.assertIn("absolute_contribution", row)
+        # Lineage
+        self.assertEqual(data["compare_ref"]["step_id"], self.compare_step_id)
+        self.assertEqual(data["step_ref"]["step_type"], "decompose")
+
+    # ── Error cases ───────────────────────────────────────────────────────────
+
+    def test_decompose_rejects_nonexistent_compare_ref(self) -> None:
+        """decompose with a non-existent compare step ref returns 422 STEP_NOT_FOUND."""
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/decompose",
+            json={
+                "compare_ref": {
+                    "session_id": self.session_id,
+                    "step_id": "step_nonexistent_abc",
+                    "step_type": "compare",
+                },
+                "dimension": "platform",
+            },
+        )
+        self.assertEqual(r.status_code, 422)
+        self.assertIn("STEP_NOT_FOUND", r.json()["detail"])
+
+    def test_decompose_rejects_cross_session_ref(self) -> None:
+        """decompose with a compare_ref from a different session returns 422."""
+        self._skip_if_not_wired()
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/decompose",
+            json={
+                "compare_ref": {
+                    "session_id": "sess_other_session_xyz",
+                    "step_id": self.compare_step_id,
+                    "step_type": "compare",
+                },
+                "dimension": "platform",
+            },
+        )
+        self.assertEqual(r.status_code, 422)
+        self.assertIn("Cross-session", r.json()["detail"])
+
+    def test_decompose_rejects_unsupported_method(self) -> None:
+        """decompose with an unsupported method returns 422 UNSUPPORTED_METHOD."""
+        self._skip_if_not_wired()
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/decompose",
+            json={
+                "compare_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.compare_step_id,
+                    "step_type": "compare",
+                },
+                "dimension": "platform",
+                "method": "shapley",
+            },
+        )
+        self.assertEqual(r.status_code, 422)
+        self.assertIn("UNSUPPORTED_METHOD", r.json()["detail"])
+
+    def test_decompose_rejects_unknown_dimension(self) -> None:
+        """decompose with a dimension not declared for the metric returns 422 UNSUPPORTED_DIMENSION."""
+        self._skip_if_not_wired()
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/decompose",
+            json={
+                "compare_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.compare_step_id,
+                    "step_type": "compare",
+                },
+                "dimension": "nonexistent_dimension_xyz",
+            },
+        )
+        self.assertEqual(r.status_code, 422)
+        self.assertIn("UNSUPPORTED_DIMENSION", r.json()["detail"])
+
+    def test_decompose_rejects_segmented_delta_compare(self) -> None:
+        """decompose rejects a segmented_delta compare artifact (v1 only supports scalar_delta)."""
+        if self.skipped or self.segmented_compare_step_id is None:
+            self.skipTest("Segmented compare not available")
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/decompose",
+            json={
+                "compare_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.segmented_compare_step_id,
+                    "step_type": "compare",
+                },
+                "dimension": "platform",
             },
         )
         self.assertEqual(r.status_code, 422)
