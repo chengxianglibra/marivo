@@ -2,15 +2,15 @@ from __future__ import annotations
 
 import unittest
 
-from app.evidence import (
+from app.evidence import synthesize_claims
+from app.evidence_engine import EvidencePipeline
+from app.evidence_engine.factories import (
     make_anomaly_observation,
     make_contribution_observation,
     make_funnel_observation,
     make_observation,
-    score_confidence,
-    synthesize_claims,
 )
-from app.evidence_engine import EvidencePipeline
+from app.evidence_engine.scoring import score_confidence
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 

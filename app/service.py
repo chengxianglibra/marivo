@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import math
@@ -9,7 +10,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 from uuid import uuid4
 
-from app.analysis_core import CompositeWorkflowRuntime, build_service_step_registry
+from app.analysis_core import (
+    CompositeWorkflowRuntime,
+    IntentRunnerRegistry,
+    build_service_step_registry,
+)
 from app.analysis_core.compiler import CompiledQuery, compile_step
 from app.analysis_core.compiler import build_metric_query as compile_metric_query
 from app.analysis_core.executor import execute_compiled
@@ -51,6 +56,33 @@ if TYPE_CHECKING:
 
 
 _AUTO_INCREMENTAL_SYNTHESIZER = object()
+
+_STUB_INTENT_TYPES: frozenset[str] = frozenset(
+    {
+        "compare",
+        "decompose",
+        "correlate",
+        "detect",
+        "test",
+        "forecast",
+        "attribute",
+        "diagnose",
+        "validate",
+    }
+)
+
+
+def _make_stub_runner(intent_type: str) -> Any:
+    """Return a runner that raises NotImplementedError for unimplemented intents."""
+
+    def runner(session_id: str, params: dict[str, Any] | None) -> dict[str, Any]:
+        raise NotImplementedError(
+            f"Intent '{intent_type}' execution is not yet implemented. "
+            "This endpoint validates requests but execution requires the intent registry "
+            "and derived expansion built in Phase 3."
+        )
+
+    return runner
 
 
 class SemanticLayerService:
@@ -101,6 +133,10 @@ class SemanticLayerService:
         self.approvals = approvals
         self.session_manager = SessionManager(metadata_store)
         self.step_registry = build_service_step_registry(self)
+        self.intent_registry = IntentRunnerRegistry()
+        self.intent_registry.register("observe", self._run_observe_intent)
+        for _stub_type in _STUB_INTENT_TYPES:
+            self.intent_registry.register(_stub_type, _make_stub_runner(_stub_type))
         self._default_synthesizer = DefaultClaimSynthesizer()
         self.semantic_repository = SemanticRuntimeRepository(metadata_store)
         self.semantic_resolver = self.semantic_repository.resolver
@@ -292,41 +328,12 @@ class SemanticLayerService:
     def run_intent(
         self, session_id: str, intent_type: str, params: dict[str, Any] | None = None
     ) -> dict[str, Any]:
-        """Execute a typed intent step within a session.
-
-        Phase 2 supports `observe` via metric_query translation.
-        All other intents accept and validate requests but raise NotImplementedError
-        until Phase 3 implements the intent registry and derived expansion.
-        """
+        """Execute a typed intent step within a session via the IntentRunnerRegistry."""
         self._assert_session_exists(session_id)
-
-        if intent_type == "observe":
-            translated = self._translate_observe_to_metric_query_params(params or {})
-            result = self.run_step(session_id, "metric_query", translated)
-            result["intent_type"] = "observe"
-            return result
-
-        _stub_intents = frozenset(
-            {
-                "compare",
-                "decompose",
-                "correlate",
-                "detect",
-                "test",
-                "forecast",
-                "attribute",
-                "diagnose",
-                "validate",
-            }
-        )
-        if intent_type in _stub_intents:
-            raise NotImplementedError(
-                f"Intent '{intent_type}' execution is not yet implemented. "
-                "This endpoint validates requests but execution requires the intent registry "
-                "and derived expansion built in Phase 3."
-            )
-
-        raise ValueError(f"Unknown intent type: '{intent_type}'")
+        try:
+            return self.intent_registry.run(session_id, intent_type, params)
+        except KeyError:
+            raise ValueError(f"Unknown intent type: '{intent_type}'") from None
 
     def _resolve_metric_table(self, metric_name: str) -> str | None:
         """Resolve the physical table FQN for a published semantic metric.
@@ -354,39 +361,56 @@ class SemanticLayerService:
             return None
         return str(source_obj["fqn"] or source_obj["native_name"])
 
-    def _translate_observe_to_metric_query_params(self, params: dict[str, Any]) -> dict[str, Any]:
-        """Translate an `observe` intent params dict to `metric_query` params.
+    def _run_observe_intent(self, session_id: str, params: dict[str, Any] | None) -> dict[str, Any]:
+        """Execute an `observe` intent, producing a typed scalar observation artifact.
 
-        Only `time_scope.kind='range'` is supported in Phase 2.
-        `granularity` (time-series mode) is deferred to Phase 3.
+        Phase 3a supports scalar output with time_scope.kind='range' and
+        result_mode='standard'.  Granularity (time-series), dimensions (segmented),
+        and inferential summary modes are deferred to later iterations.
         """
-        metric_name = params.get("metric")
+        p = params or {}
+
+        metric_name: str = p.get("metric") or ""
         if not metric_name:
             raise ValueError("observe intent requires 'metric'")
 
-        time_scope = params.get("time_scope")
-        if not isinstance(time_scope, dict):
+        time_scope_raw = p.get("time_scope")
+        if not isinstance(time_scope_raw, dict):
             raise ValueError("observe intent requires 'time_scope'")
 
-        kind = time_scope.get("kind")
+        kind = time_scope_raw.get("kind")
         if kind != "range":
             raise NotImplementedError(
-                f"observe time_scope.kind='{kind}' is not yet supported. "
-                "Use kind='range'. Other time scope kinds will be supported in Phase 3."
+                f"observe time_scope.kind='{kind}' is not yet implemented. "
+                "Only 'range' is supported in v1."
             )
 
-        if params.get("granularity") is not None:
+        result_mode: str = p.get("result_mode") or "standard"
+        if result_mode != "standard":
             raise NotImplementedError(
-                "observe with granularity (time-series mode) is not yet supported. "
-                "Time-series observe execution will be added in Phase 3."
+                f"observe result_mode='{result_mode}' is not yet implemented. "
+                "Only 'standard' is supported in v1."
             )
 
-        start: str = time_scope["start"]
+        if p.get("granularity") is not None:
+            raise NotImplementedError(
+                "observe with granularity (time-series mode) is not yet implemented."
+            )
+
+        if p.get("dimensions"):
+            raise NotImplementedError(
+                "observe with dimensions (segmented mode) is not yet implemented."
+            )
+
+        start_str: str = time_scope_raw["start"]
+        end_str: str = time_scope_raw["end"]
         grain = (
-            "hour" if ("T" in start or (" " in start and ":" in start.split(" ", 1)[-1])) else "day"
+            "hour"
+            if ("T" in start_str or (" " in start_str and ":" in start_str.split(" ", 1)[-1]))
+            else "day"
         )
 
-        table = self._resolve_metric_table(str(metric_name))
+        table = self._resolve_metric_table(metric_name)
         if table is None:
             raise ValueError(
                 f"Metric '{metric_name}' is not published or has no source table mapping. "
@@ -399,19 +423,115 @@ class SemanticLayerService:
             "time_scope": {
                 "mode": "single_window",
                 "grain": grain,
-                "current": {"start": time_scope["start"], "end": time_scope["end"]},
+                "current": {"start": start_str, "end": end_str},
             },
         }
+        scope_raw = p.get("scope")
+        if scope_raw:
+            mq_params["scope"] = scope_raw
 
-        scope = params.get("scope")
-        if scope:
-            mq_params["scope"] = scope
+        resolved = normalize_metric_query_request(mq_params)
+        metric_sql = self.resolve_metric_sql(metric_name)
+        all_dimensions = self.resolve_metric_dimensions(metric_name)
+        if metric_sql is None or all_dimensions is None:
+            raise ValueError(f"Metric '{metric_name}' not found or not published")
 
-        dims = params.get("dimensions")
-        if dims:
-            mq_params["dimensions"] = dims
+        short_name = resolved.table.split(".")[-1]
+        engine, engine_type, qualified = self._resolve_engine([short_name])
+        self._resolve_windowed_query_time_axis(
+            resolved,
+            engine_type=engine_type,
+            metric_name=metric_name,
+            fallback_columns=all_dimensions,
+        )
+        scoped_query = self._build_scoped_query(session_id, resolved)
+        qualified_table = qualified.get(short_name, resolved.table)
 
-        return mq_params
+        step_id = self._new_step_id()
+        compiled_query = self._compile_step_with_feedback(
+            AnalysisStepIR(
+                index=0,
+                step_type="metric_query",
+                params={
+                    "table": qualified_table,
+                    "metric": metric_name,
+                    "scoped_query": scoped_query,
+                },
+            ),
+            engine_type=engine_type,
+            semantic_context={"metric_sql": metric_sql, "dimensions": []},
+        )
+        rows = list(execute_compiled(engine, compiled_query).rows)
+        provenance = self._make_provenance(
+            compiled_query.sql, compiled_query.params, engine_type=engine_type
+        )
+
+        # Extract scalar value and sample size from the single aggregate row
+        value: float | None = None
+        sample_size: int | None = None
+        if rows:
+            row = rows[0]
+            raw_value = row.get("current_value")
+            if raw_value is not None:
+                with contextlib.suppress(TypeError, ValueError):
+                    value = float(raw_value)
+            raw_sessions = row.get("current_sessions")
+            if raw_sessions is not None:
+                with contextlib.suppress(TypeError, ValueError):
+                    sample_size = int(raw_sessions)
+
+        quality_status = "ready" if rows else "not_ready"
+
+        now = datetime.now(UTC).isoformat()
+        observation: dict[str, Any] = {
+            "schema_version": "1.0",
+            "metric_contract_version": None,
+            "derivation_version": "1.0",
+            "observation_type": "scalar",
+            "metric": metric_name,
+            "time_scope": {"kind": "range", "start": start_str, "end": end_str},
+            "scope": scope_raw or {},
+            "unit": None,
+            "analytical_metadata": {
+                "metric_additivity": "additive",
+                "aggregation_semantics": "sum",
+                "timezone": None,
+                "data_complete": None,
+                "quality_status": quality_status,
+                "row_count": sample_size,
+                "sample_size": sample_size,
+                "null_rate": None,
+            },
+            "execution_metadata": {
+                "query_hash": provenance.get("query_hash", ""),
+                "engine": engine_type,
+                "executed_at": now,
+            },
+            "value": value,
+        }
+
+        artifact_id = self._insert_artifact(
+            session_id, step_id, "observation", f"{metric_name}_observe_scalar", observation
+        )
+
+        result: dict[str, Any] = {
+            "intent_type": "observe",
+            "step_type": "observe",
+            "step_ref": {
+                "session_id": session_id,
+                "step_id": step_id,
+                "step_type": "observe",
+            },
+            "artifact_id": artifact_id,
+            **observation,
+        }
+
+        summary = (
+            f"observe {metric_name} [{start_str} → {end_str}]: "
+            f"{value if value is not None else 'no data'}"
+        )
+        self._insert_step(step_id, session_id, "observe", summary, result, provenance=provenance)
+        return result
 
     def get_evidence_graph(
         self,

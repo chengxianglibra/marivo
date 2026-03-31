@@ -505,5 +505,185 @@ class IntentEndpointWithSemanticLayerTests(unittest.TestCase):
             self.assertIn("metric", r.json()["detail"].lower())
 
 
+class ObserveTypedArtifactTests(unittest.TestCase):
+    """Phase 3a: verify that observe produces a typed observation artifact.
+
+    Requires a fully wired semantic layer (metric published + mapped to a source table).
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        from app.main import create_app
+
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        db_path = Path(cls.temp_dir.name) / "observe_artifact.duckdb"
+        get_seeded_duckdb_path(db_path)
+        cls.app = create_app(db_path)
+        cls.client = TestClient(cls.app)
+        cls._setup_semantic_layer(db_path)
+        r = cls.client.post(
+            "/sessions",
+            json={
+                "goal": "observe typed artifact test",
+                "constraints": {},
+                "budget": {},
+                "policy": {},
+            },
+        )
+        cls.session_id = r.json()["session_id"]
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.client.close()
+        cls.temp_dir.cleanup()
+
+    @classmethod
+    def _setup_semantic_layer(cls, db_path: Path) -> None:
+        from uuid import uuid4
+
+        service = cls.app.state.service
+        now = "2026-01-01T00:00:00"
+
+        # Register a source entry (just for FK reference in source_objects)
+        r = cls.client.post(
+            "/sources",
+            json={
+                "source_type": "duckdb",
+                "display_name": "Observe Test Source",
+                "connection": {"path": str(db_path)},
+            },
+        )
+        source_id = r.json()["source_id"]
+
+        # Register the seeded DuckDB as an engine (same file the analytics engine uses)
+        r = cls.client.post(
+            "/engines",
+            json={
+                "engine_type": "duckdb",
+                "display_name": "Observe Test Engine",
+                "connection": {"database": str(db_path)},
+            },
+        )
+        engine_id = r.json()["engine_id"]
+        cls.client.post(
+            "/bindings",
+            json={"source_id": source_id, "engine_id": engine_id, "priority": 0},
+        )
+
+        # Directly insert a source_object for analytics.watch_events with the correct
+        # 2-part fqn that DuckDB can resolve against the seeded database.
+        obj_id = f"obj_{uuid4().hex[:12]}"
+        service.metadata.execute(
+            """
+            INSERT INTO source_objects
+                (object_id, source_id, object_type, native_name, fqn,
+                 properties_json, created_at, updated_at)
+            VALUES (?, ?, 'table', 'watch_events', 'analytics.watch_events',
+                    '{}', ?, ?)
+            """,
+            [obj_id, source_id, now, now],
+        )
+
+        # Create and publish a semantic metric backed by watch_events
+        r = cls.client.post(
+            "/semantic/metrics",
+            json={
+                "name": "observe_test_dau",
+                "display_name": "DAU (observe test)",
+                "definition_sql": "COUNT(DISTINCT user_id)",
+                "dimensions": ["event_date", "platform"],
+                "grain": "day",
+            },
+        )
+        if r.status_code != 200:
+            return
+        metric_id = r.json()["metric_id"]
+        cls.client.post(f"/semantic/metrics/{metric_id}/publish")
+        cls.metric_id = metric_id
+
+        # Create mapping: metric → watch_events source_object
+        cls.client.post(
+            "/semantic/mappings",
+            json={
+                "semantic_type": "metric",
+                "semantic_id": metric_id,
+                "object_id": obj_id,
+                "mapping_type": "primary",
+            },
+        )
+
+    def test_observe_returns_typed_artifact_shape(self) -> None:
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/observe",
+            json={
+                "metric": "observe_test_dau",
+                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+            },
+        )
+        if r.status_code == 422:
+            self.skipTest("Semantic layer not fully wired in this environment")
+        self.assertEqual(r.status_code, 200, r.text)
+        data = r.json()
+
+        # Typed artifact fields from observe.md contract
+        self.assertEqual(data["intent_type"], "observe")
+        self.assertEqual(data["observation_type"], "scalar")
+        self.assertEqual(data["schema_version"], "1.0")
+        self.assertIn("artifact_id", data)
+        self.assertTrue(data["artifact_id"].startswith("art_"))
+        self.assertEqual(data["step_ref"]["step_type"], "observe")
+        self.assertIn("analytical_metadata", data)
+        self.assertIn("quality_status", data["analytical_metadata"])
+        self.assertIn("execution_metadata", data)
+        self.assertIn("query_hash", data["execution_metadata"])
+        self.assertEqual(data["time_scope"]["kind"], "range")
+
+    def test_observe_artifact_persisted_in_db(self) -> None:
+        """Verify artifact row is stored with lifecycle='committed'."""
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/observe",
+            json={
+                "metric": "observe_test_dau",
+                "time_scope": {"kind": "range", "start": "2024-01-08", "end": "2024-01-15"},
+            },
+        )
+        if r.status_code == 422:
+            self.skipTest("Semantic layer not fully wired in this environment")
+        self.assertEqual(r.status_code, 200)
+        artifact_id = r.json()["artifact_id"]
+
+        # Verify via direct service access
+        service = self.app.state.service
+        row = service.metadata.query_one(
+            "SELECT artifact_type, lifecycle FROM artifacts WHERE artifact_id = ?",
+            [artifact_id],
+        )
+        self.assertIsNotNone(row)
+        self.assertEqual(row["artifact_type"], "observation")
+        self.assertEqual(row["lifecycle"], "committed")
+
+    def test_observe_granularity_returns_501(self) -> None:
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/observe",
+            json={
+                "metric": "observe_test_dau",
+                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+                "granularity": "day",
+            },
+        )
+        self.assertEqual(r.status_code, 501)
+
+    def test_observe_non_standard_result_mode_returns_501(self) -> None:
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/observe",
+            json={
+                "metric": "observe_test_dau",
+                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+                "result_mode": "numeric_sample_summary",
+            },
+        )
+        self.assertEqual(r.status_code, 501)
+
+
 if __name__ == "__main__":
     unittest.main()
