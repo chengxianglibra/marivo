@@ -268,15 +268,20 @@ class IntentEndpointTests(unittest.TestCase):
 
     # ── detect ────────────────────────────────────────────────────────────────
 
-    def test_detect_returns_501_for_stub_execution(self) -> None:
+    def test_detect_unregistered_metric_returns_422(self) -> None:
+        """detect is now implemented; an unregistered metric returns 422, not 501."""
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/detect",
             json={
                 "metric": "dau",
-                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+                "time_scope": {
+                    "mode": "single_window",
+                    "grain": "day",
+                    "current": {"start": "2024-01-01", "end": "2024-01-08"},
+                },
             },
         )
-        self.assertEqual(r.status_code, 501)
+        self.assertEqual(r.status_code, 422)
 
     # ── test ─────────────────────────────────────────────────────────────────
 
