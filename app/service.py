@@ -56,6 +56,7 @@ if TYPE_CHECKING:
 
 
 _AUTO_INCREMENTAL_SYNTHESIZER = object()
+_VALID_GRANULARITIES: frozenset[str] = frozenset({"hour", "day", "week", "month"})
 
 _STUB_INTENT_TYPES: frozenset[str] = frozenset(
     {
@@ -362,11 +363,21 @@ class SemanticLayerService:
         return str(source_obj["fqn"] or source_obj["native_name"])
 
     def _run_observe_intent(self, session_id: str, params: dict[str, Any] | None) -> dict[str, Any]:
-        """Execute an `observe` intent, producing a typed scalar observation artifact.
+        """Execute an `observe` intent, producing a typed observation artifact.
 
-        Phase 3a supports scalar output with time_scope.kind='range' and
-        result_mode='standard'.  Granularity (time-series), dimensions (segmented),
-        and inferential summary modes are deferred to later iterations.
+        Supported modes (result_mode='standard'):
+          - scalar: no granularity, no dimensions
+          - time_series: granularity set (hour/day/week/month)
+          - segmented: dimensions list set
+
+        Supported time_scope kinds:
+          - range: explicit [start, end) bounds
+          - snapshot_now: resolved to today's UTC date range
+          - latest_available: resolved to today's UTC date range (v1 approximation)
+          - as_of: resolved to a single-day range around the given timestamp
+
+        Inferential summary modes (numeric_sample_summary, rate_sample_summary) are
+        not yet implemented.
         """
         p = params or {}
 
@@ -378,13 +389,6 @@ class SemanticLayerService:
         if not isinstance(time_scope_raw, dict):
             raise ValueError("observe intent requires 'time_scope'")
 
-        kind = time_scope_raw.get("kind")
-        if kind != "range":
-            raise NotImplementedError(
-                f"observe time_scope.kind='{kind}' is not yet implemented. "
-                "Only 'range' is supported in v1."
-            )
-
         result_mode: str = p.get("result_mode") or "standard"
         if result_mode != "standard":
             raise NotImplementedError(
@@ -392,18 +396,55 @@ class SemanticLayerService:
                 "Only 'standard' is supported in v1."
             )
 
-        if p.get("granularity") is not None:
-            raise NotImplementedError(
-                "observe with granularity (time-series mode) is not yet implemented."
+        granularity: str | None = p.get("granularity") or None
+        dimensions: list[str] | None = p.get("dimensions") or None
+
+        if granularity is not None and granularity not in _VALID_GRANULARITIES:
+            raise ValueError(
+                f"observe granularity='{granularity}' is not valid. "
+                f"Must be one of: {sorted(_VALID_GRANULARITIES)}"
+            )
+        if granularity is not None and dimensions is not None:
+            raise ValueError(
+                "observe: granularity and dimensions cannot both be set. "
+                "Use granularity for time_series mode or dimensions for segmented mode, not both."
             )
 
-        if p.get("dimensions"):
-            raise NotImplementedError(
-                "observe with dimensions (segmented mode) is not yet implemented."
+        # --- Resolve time scope kind → (start_str, end_str, resolved response shape) ---
+        kind = time_scope_raw.get("kind")
+        resolved_time_scope: dict[str, Any]
+        if kind == "range":
+            start_str: str = time_scope_raw["start"]
+            end_str: str = time_scope_raw["end"]
+            resolved_time_scope = {"kind": "range", "start": start_str, "end": end_str}
+        elif kind == "snapshot_now":
+            today = datetime.now(UTC).date()
+            start_str = today.isoformat()
+            end_str = (today + timedelta(days=1)).isoformat()
+            resolved_time_scope = {"kind": "snapshot_now", "observed_at": start_str}
+        elif kind == "latest_available":
+            today = datetime.now(UTC).date()
+            start_str = today.isoformat()
+            end_str = (today + timedelta(days=1)).isoformat()
+            resolved_time_scope = {"kind": "latest_available", "data_as_of": start_str}
+        elif kind == "as_of":
+            at_raw: str = time_scope_raw.get("at") or ""
+            try:
+                at_date = datetime.fromisoformat(at_raw).date()
+            except ValueError:
+                at_date = date.fromisoformat(at_raw[:10])
+            start_str = at_date.isoformat()
+            end_str = (at_date + timedelta(days=1)).isoformat()
+            resolved_time_scope = {"kind": "as_of", "at": start_str}
+        else:
+            raise NotImplementedError(f"observe time_scope.kind='{kind}' is not yet implemented.")
+
+        if granularity is not None and kind != "range":
+            raise ValueError(
+                f"observe: granularity is not allowed with time_scope.kind='{kind}'. "
+                "granularity is only valid with kind='range'."
             )
 
-        start_str: str = time_scope_raw["start"]
-        end_str: str = time_scope_raw["end"]
         grain = (
             "hour"
             if ("T" in start_str or (" " in start_str and ":" in start_str.split(" ", 1)[-1]))
@@ -417,6 +458,7 @@ class SemanticLayerService:
                 "Ensure the metric exists in the semantic layer and is mapped to a source object."
             )
 
+        scope_raw = p.get("scope")
         mq_params: dict[str, Any] = {
             "table": table,
             "metric": metric_name,
@@ -426,9 +468,10 @@ class SemanticLayerService:
                 "current": {"start": start_str, "end": end_str},
             },
         }
-        scope_raw = p.get("scope")
         if scope_raw:
             mq_params["scope"] = scope_raw
+        if dimensions:
+            mq_params["dimensions"] = dimensions
 
         resolved = normalize_metric_query_request(mq_params)
         metric_sql = self.resolve_metric_sql(metric_name)
@@ -446,72 +489,249 @@ class SemanticLayerService:
         )
         scoped_query = self._build_scoped_query(session_id, resolved)
         qualified_table = qualified.get(short_name, resolved.table)
-
         step_id = self._new_step_id()
-        compiled_query = self._compile_step_with_feedback(
-            AnalysisStepIR(
-                index=0,
-                step_type="metric_query",
-                params={
-                    "table": qualified_table,
-                    "metric": metric_name,
-                    "scoped_query": scoped_query,
-                },
-            ),
-            engine_type=engine_type,
-            semantic_context={"metric_sql": metric_sql, "dimensions": []},
-        )
-        rows = list(execute_compiled(engine, compiled_query).rows)
-        provenance = self._make_provenance(
-            compiled_query.sql, compiled_query.params, engine_type=engine_type
-        )
-
-        # Extract scalar value and sample size from the single aggregate row
-        value: float | None = None
-        sample_size: int | None = None
-        if rows:
-            row = rows[0]
-            raw_value = row.get("current_value")
-            if raw_value is not None:
-                with contextlib.suppress(TypeError, ValueError):
-                    value = float(raw_value)
-            raw_sessions = row.get("current_sessions")
-            if raw_sessions is not None:
-                with contextlib.suppress(TypeError, ValueError):
-                    sample_size = int(raw_sessions)
-
-        quality_status = "ready" if rows else "not_ready"
-
         now = datetime.now(UTC).isoformat()
-        observation: dict[str, Any] = {
-            "schema_version": "1.0",
-            "metric_contract_version": None,
-            "derivation_version": "1.0",
-            "observation_type": "scalar",
-            "metric": metric_name,
-            "time_scope": {"kind": "range", "start": start_str, "end": end_str},
-            "scope": scope_raw or {},
-            "unit": None,
-            "analytical_metadata": {
-                "metric_additivity": "additive",
-                "aggregation_semantics": "sum",
-                "timezone": None,
-                "data_complete": None,
-                "quality_status": quality_status,
-                "row_count": sample_size,
-                "sample_size": sample_size,
-                "null_rate": None,
-            },
-            "execution_metadata": {
-                "query_hash": provenance.get("query_hash", ""),
-                "engine": engine_type,
-                "executed_at": now,
-            },
-            "value": value,
-        }
+
+        if granularity is not None:
+            # --- Time-series mode ---
+            # Use aggregate_query select path: bucket alias is reliable across engines.
+            time_col = resolved.resolved_time_axis.analysis_time_expr
+            bucket_expr = f"DATE_TRUNC('{granularity}', {time_col})"
+            compiled_query = self._compile_step_with_feedback(
+                AnalysisStepIR(
+                    index=0,
+                    step_type="aggregate_query",
+                    params={
+                        "table": qualified_table,
+                        "select": [
+                            f"{bucket_expr} AS bucket_start",
+                            f"{metric_sql} AS value",
+                        ],
+                        "group_by": ["bucket_start"],  # alias-expanded by compiler for Trino
+                        "order_by": "bucket_start",
+                        "scoped_query": scoped_query,
+                        "limit": 1000,
+                    },
+                ),
+                engine_type=engine_type,
+                semantic_context={},
+            )
+            rows = list(execute_compiled(engine, compiled_query).rows)
+            provenance = self._make_provenance(
+                compiled_query.sql, compiled_query.params, engine_type=engine_type
+            )
+
+            series: list[dict[str, Any]] = []
+            for row in rows:
+                bucket_raw = row.get("bucket_start")
+                raw_value = row.get("value")
+                series_value: float | None = None
+                with contextlib.suppress(TypeError, ValueError):
+                    if raw_value is not None:
+                        series_value = float(raw_value)
+                if bucket_raw is not None:
+                    bucket_str = str(bucket_raw)[:10]  # truncate to date
+                    try:
+                        bucket_date = date.fromisoformat(bucket_str)
+                        if granularity == "hour":
+                            bucket_end = (
+                                datetime.fromisoformat(str(bucket_raw)) + timedelta(hours=1)
+                            ).isoformat()
+                        elif granularity == "day":
+                            bucket_end = (bucket_date + timedelta(days=1)).isoformat()
+                        elif granularity == "week":
+                            bucket_end = (bucket_date + timedelta(weeks=1)).isoformat()
+                        elif granularity == "month":
+                            if bucket_date.month == 12:
+                                bucket_end = bucket_date.replace(
+                                    year=bucket_date.year + 1, month=1, day=1
+                                ).isoformat()
+                            else:
+                                bucket_end = bucket_date.replace(
+                                    month=bucket_date.month + 1, day=1
+                                ).isoformat()
+                        else:
+                            bucket_end = (bucket_date + timedelta(days=1)).isoformat()
+                    except (ValueError, TypeError):
+                        bucket_end = bucket_str
+                    series.append(
+                        {"window": {"start": bucket_str, "end": bucket_end}, "value": series_value}
+                    )
+
+            quality_status = "ready" if rows else "not_ready"
+            observation: dict[str, Any] = {
+                "schema_version": "1.0",
+                "metric_contract_version": None,
+                "derivation_version": "1.0",
+                "observation_type": "time_series",
+                "metric": metric_name,
+                "time_scope": resolved_time_scope,
+                "scope": scope_raw or {},
+                "unit": None,
+                "granularity": granularity,
+                "series": series,
+                "analytical_metadata": {
+                    "metric_additivity": "additive",
+                    "aggregation_semantics": "sum",
+                    "timezone": None,
+                    "data_complete": None,
+                    "quality_status": quality_status,
+                    "row_count": len(rows),
+                    "sample_size": len(rows),
+                    "null_rate": None,
+                },
+                "execution_metadata": {
+                    "query_hash": provenance.get("query_hash", ""),
+                    "engine": engine_type,
+                    "executed_at": now,
+                },
+            }
+            artifact_name = f"{metric_name}_observe_time_series"
+            summary = (
+                f"observe {metric_name} time_series/{granularity} "
+                f"[{start_str} → {end_str}]: {len(series)} buckets"
+            )
+
+        elif dimensions:
+            # --- Segmented mode ---
+            # metric_query single_window with dimensions generates GROUP BY on dimension cols
+            compiled_query = self._compile_step_with_feedback(
+                AnalysisStepIR(
+                    index=0,
+                    step_type="metric_query",
+                    params={
+                        "table": qualified_table,
+                        "metric": metric_name,
+                        "scoped_query": scoped_query,
+                    },
+                ),
+                engine_type=engine_type,
+                semantic_context={"metric_sql": metric_sql, "dimensions": dimensions},
+            )
+            rows = list(execute_compiled(engine, compiled_query).rows)
+            provenance = self._make_provenance(
+                compiled_query.sql, compiled_query.params, engine_type=engine_type
+            )
+
+            segments: list[dict[str, Any]] = []
+            for row in rows:
+                raw_value = row.get("current_value")
+                seg_value: float | None = None
+                with contextlib.suppress(TypeError, ValueError):
+                    if raw_value is not None:
+                        seg_value = float(raw_value)
+                keys = {dim: row.get(dim) for dim in dimensions if dim in row}
+                segments.append({"keys": keys, "value": seg_value, "share": None})
+
+            segments.sort(
+                key=lambda s: (
+                    -(s["value"] if s["value"] is not None else float("-inf")),
+                    *[str(s["keys"].get(d, "")) for d in dimensions],
+                )
+            )
+            quality_status = "ready" if rows else "not_ready"
+            observation = {
+                "schema_version": "1.0",
+                "metric_contract_version": None,
+                "derivation_version": "1.0",
+                "observation_type": "segmented",
+                "metric": metric_name,
+                "time_scope": resolved_time_scope,
+                "scope": scope_raw or {},
+                "unit": None,
+                "dimensions": dimensions,
+                "segments": segments,
+                "scope_value": None,
+                "analytical_metadata": {
+                    "metric_additivity": "additive",
+                    "aggregation_semantics": "sum",
+                    "timezone": None,
+                    "data_complete": None,
+                    "quality_status": quality_status,
+                    "row_count": len(rows),
+                    "sample_size": len(rows),
+                    "null_rate": None,
+                },
+                "execution_metadata": {
+                    "query_hash": provenance.get("query_hash", ""),
+                    "engine": engine_type,
+                    "executed_at": now,
+                },
+            }
+            artifact_name = f"{metric_name}_observe_segmented"
+            summary = (
+                f"observe {metric_name} segmented [{start_str} → {end_str}]: "
+                f"{len(segments)} segments"
+            )
+
+        else:
+            # --- Scalar mode ---
+            compiled_query = self._compile_step_with_feedback(
+                AnalysisStepIR(
+                    index=0,
+                    step_type="metric_query",
+                    params={
+                        "table": qualified_table,
+                        "metric": metric_name,
+                        "scoped_query": scoped_query,
+                    },
+                ),
+                engine_type=engine_type,
+                semantic_context={"metric_sql": metric_sql, "dimensions": []},
+            )
+            rows = list(execute_compiled(engine, compiled_query).rows)
+            provenance = self._make_provenance(
+                compiled_query.sql, compiled_query.params, engine_type=engine_type
+            )
+
+            value: float | None = None
+            sample_size: int | None = None
+            if rows:
+                row = rows[0]
+                raw_value = row.get("current_value")
+                if raw_value is not None:
+                    with contextlib.suppress(TypeError, ValueError):
+                        value = float(raw_value)
+                raw_sessions = row.get("current_sessions")
+                if raw_sessions is not None:
+                    with contextlib.suppress(TypeError, ValueError):
+                        sample_size = int(raw_sessions)
+
+            quality_status = "ready" if rows else "not_ready"
+            observation = {
+                "schema_version": "1.0",
+                "metric_contract_version": None,
+                "derivation_version": "1.0",
+                "observation_type": "scalar",
+                "metric": metric_name,
+                "time_scope": resolved_time_scope,
+                "scope": scope_raw or {},
+                "unit": None,
+                "analytical_metadata": {
+                    "metric_additivity": "additive",
+                    "aggregation_semantics": "sum",
+                    "timezone": None,
+                    "data_complete": None,
+                    "quality_status": quality_status,
+                    "row_count": sample_size,
+                    "sample_size": sample_size,
+                    "null_rate": None,
+                },
+                "execution_metadata": {
+                    "query_hash": provenance.get("query_hash", ""),
+                    "engine": engine_type,
+                    "executed_at": now,
+                },
+                "value": value,
+            }
+            artifact_name = f"{metric_name}_observe_scalar"
+            summary = (
+                f"observe {metric_name} [{start_str} → {end_str}]: "
+                f"{value if value is not None else 'no data'}"
+            )
 
         artifact_id = self._insert_artifact(
-            session_id, step_id, "observation", f"{metric_name}_observe_scalar", observation
+            session_id, step_id, "observation", artifact_name, observation
         )
 
         result: dict[str, Any] = {
@@ -526,10 +746,6 @@ class SemanticLayerService:
             **observation,
         }
 
-        summary = (
-            f"observe {metric_name} [{start_str} → {end_str}]: "
-            f"{value if value is not None else 'no data'}"
-        )
         self._insert_step(step_id, session_id, "observe", summary, result, provenance=provenance)
         return result
 
@@ -3272,17 +3488,48 @@ class SemanticLayerService:
         )
 
     def _insert_artifact(
-        self, session_id: str, step_id: str, artifact_type: str, name: str, content: Any
+        self,
+        session_id: str,
+        step_id: str,
+        artifact_type: str,
+        name: str,
+        content: Any,
+        *,
+        lifecycle: str = "committed",
     ) -> str:
         artifact_id = f"art_{uuid4().hex[:12]}"
         self.metadata.execute(
             """
-            INSERT INTO artifacts (artifact_id, session_id, step_id, artifact_type, name, content_json)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO artifacts (artifact_id, session_id, step_id, artifact_type, name, content_json, lifecycle)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            [artifact_id, session_id, step_id, artifact_type, name, self._dump(content)],
+            [artifact_id, session_id, step_id, artifact_type, name, self._dump(content), lifecycle],
         )
         return artifact_id
+
+    def _commit_artifact(self, artifact_id: str) -> None:
+        """Transition a staged artifact to committed state."""
+        self.metadata.execute(
+            "UPDATE artifacts SET lifecycle = 'committed' WHERE artifact_id = ?",
+            [artifact_id],
+        )
+
+    def _resolve_artifact_for_ref(self, session_id: str, step_id: str) -> dict[str, Any] | None:
+        """Return the content of the most recent committed artifact for a step ref.
+
+        Used by 3b runners to look up upstream observe/compare artifact data.
+        Returns None if no committed artifact exists for the given step.
+        """
+        row = self.metadata.query_one(
+            """
+            SELECT content_json FROM artifacts
+            WHERE step_id = ? AND session_id = ? AND lifecycle = 'committed'
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            [step_id, session_id],
+        )
+        return json.loads(row["content_json"]) if row else None
 
     def _observation_count(self, session_id: str) -> int:
         """Return the number of observations already recorded for a session."""

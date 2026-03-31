@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "analysis/evidence-engine/overview.md",
+                "file": "analysis/evidence-engine/schemas/proposition.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "overview"
+              "title": "proposition"
             }
           }
         ]
@@ -185,11 +185,11 @@
   },
   "active": "2de2a1acac14247e",
   "lastOpenFiles": [
+    "analysis/evidence-engine/overview.md",
     "analysis/evidence-engine/support-oppose-and-status-resolution.md",
     "analysis/evidence-engine/proposal-policy-engine.md",
     "analysis/evidence-engine/gap-confidence-and-transition-materialization.md",
     "analysis/evidence-engine/assessment-evaluation-context.md",
-    "analysis/evidence-engine/overview.md",
     "analysis/evidence-engine/runtime-pipeline.md",
     "analysis/evidence-engine/inference-and-gap-engine.md",
     "analysis/evidence-engine/graph-and-reference-semantics.md",
