@@ -36,6 +36,7 @@ from app.execution.routing_runtime import RoutingRuntime
 from app.intents.compare import run_compare_intent
 from app.intents.correlate import run_correlate_intent
 from app.intents.decompose import run_decompose_intent
+from app.intents.detect import run_detect_intent
 from app.intents.observe import run_observe_intent
 from app.semantic_runtime import SemanticRuntimeRepository
 from app.session import SessionManager
@@ -62,7 +63,6 @@ _AUTO_INCREMENTAL_SYNTHESIZER = object()
 
 _STUB_INTENT_TYPES: frozenset[str] = frozenset(
     {
-        "detect",
         "test",
         "forecast",
         "attribute",
@@ -142,6 +142,7 @@ class SemanticLayerService:
         self.intent_registry.register(
             "decompose", lambda sid, p: run_decompose_intent(self, sid, p)
         )
+        self.intent_registry.register("detect", lambda sid, p: run_detect_intent(self, sid, p))
         for _stub_type in _STUB_INTENT_TYPES:
             self.intent_registry.register(_stub_type, _make_stub_runner(_stub_type))
         self._default_synthesizer = DefaultClaimSynthesizer()

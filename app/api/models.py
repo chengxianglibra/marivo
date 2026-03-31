@@ -803,20 +803,46 @@ class CorrelateRequest(BaseModel):
     )
 
 
+class DetectTimeScopeCurrentWindow(BaseModel):
+    start: str = Field(description="Inclusive start of the window (ISO-8601 date or datetime).")
+    end: str = Field(description="Exclusive end of the window (ISO-8601 date or datetime).")
+
+
+class DetectTimeScope(BaseModel):
+    """time_scope for detect: single_window mode with explicit grain and current window."""
+
+    mode: Literal["single_window"]
+    grain: Literal["day", "hour"]
+    current: DetectTimeScopeCurrentWindow
+
+
 class DetectRequest(BaseModel):
     """Atomic intent: scan a metric time range for anomaly candidates."""
 
     metric: str = Field(description="Published semantic metric name to scan.")
-    time_scope: ObserveTimeScope
+    time_scope: DetectTimeScope
     scope: ObserveScope | None = Field(default=None)
-    sensitivity: Literal["low", "balanced", "high"] = Field(
+    split_by: str | None = Field(
+        default=None,
+        description="Optional semantic dimension to split the metric into independent series.",
+    )
+    profile: Literal["auto", "spike_dip", "level_shift", "seasonal_residual"] = Field(
+        default="auto",
+        description="Detection profile preset.",
+    )
+    sensitivity: Literal["conservative", "balanced", "aggressive"] = Field(
         default="balanced",
         description="Detection sensitivity preset.",
     )
-    max_series: int = Field(
-        default=20,
+    limit: int | None = Field(
+        default=None,
         ge=1,
-        description="Maximum number of series to scan (execution boundary, not a display limit).",
+        description="Maximum number of candidates to return.",
+    )
+    max_series: int | None = Field(
+        default=None,
+        ge=1,
+        description="Maximum number of series to scan when split_by is set.",
     )
 
 

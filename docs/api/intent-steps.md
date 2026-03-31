@@ -31,7 +31,7 @@ Step submission is a write surface. Session state and proposition context remain
 | `compare` | `POST /sessions/{session_id}/intents/compare` | Implemented | `CompareResponse` |
 | `decompose` | `POST /sessions/{session_id}/intents/decompose` | Implemented | `DecomposeResponse` |
 | `correlate` | `POST /sessions/{session_id}/intents/correlate` | Implemented | `CorrelateResponse` |
-| `detect` | `POST /sessions/{session_id}/intents/detect` | 501 stub | `DetectResponse` |
+| `detect` | `POST /sessions/{session_id}/intents/detect` | Implemented | `DetectResponse` |
 | `test` | `POST /sessions/{session_id}/intents/test` | 501 stub | `TestResponse` |
 | `forecast` | `POST /sessions/{session_id}/intents/forecast` | 501 stub | `ForecastResponse` |
 | `attribute` | `POST /sessions/{session_id}/intents/attribute` | 501 stub | `AttributeResponse` |

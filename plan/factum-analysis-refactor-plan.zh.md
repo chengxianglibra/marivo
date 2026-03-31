@@ -338,7 +338,7 @@
 
 ---
 
-### 阶段 3b-4：`detect` Runner
+### 阶段 3b-4：`detect` Runner ✅ 已完成
 
 #### 目标
 
