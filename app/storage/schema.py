@@ -36,6 +36,7 @@ METADATA_DDL: list[str] = [
         artifact_type   TEXT NOT NULL,
         name            TEXT NOT NULL,
         content_json    TEXT NOT NULL,
+        lifecycle       TEXT NOT NULL DEFAULT 'committed',
         created_at      TEXT NOT NULL DEFAULT (datetime('now'))
     )
     """,
@@ -351,4 +352,5 @@ METADATA_MIGRATIONS: list[str] = [
     "ALTER TABLE evidence_edges ADD COLUMN match_basis_json TEXT NOT NULL DEFAULT '{}'",
     "ALTER TABLE evidence_edges ADD COLUMN score_components_json TEXT NOT NULL DEFAULT '{}'",
     "ALTER TABLE evidence_edges ADD COLUMN supporting_observation_ids_json TEXT NOT NULL DEFAULT '[]'",
+    "ALTER TABLE artifacts ADD COLUMN lifecycle TEXT NOT NULL DEFAULT 'committed'",
 ]

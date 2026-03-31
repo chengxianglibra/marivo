@@ -1,6 +1,7 @@
 """Analysis-core primitives for the incremental refactor."""
 
 from app.analysis_core.composites import CompositeStepTemplate, CompositeWorkflowSpec
+from app.analysis_core.intent_registry import IntentRunnerRegistry
 from app.analysis_core.ir import (
     AnalysisRequest,
     AnalysisStepIR,
@@ -54,6 +55,7 @@ __all__ = [
     "CompositeWorkflowSpec",
     "ExecutionPlanIR",
     "ExecutionTargetIR",
+    "IntentRunnerRegistry",
     "PolicyTransformIR",
     "ResolvedEntityIR",
     "ResolvedMetricIR",

@@ -195,41 +195,105 @@
 
 ## 阶段 3：重构执行模型为 Intent Registry + Derived Expansion
 
-### 目标
+> **实施说明**：本阶段拆分为三个顺序子任务（3a → 3b → 3c），后两个子任务均依赖 3a 确定的 artifact 持久化模型和 registry 接口。
 
-把执行组织方式从旧 step registry 切换到新的 intent registry，同时最大化复用现有执行底座。
+---
 
-### 任务
+### 阶段 3a：Registry 基础 + Artifact 模型 + `observe` 全量 Runner
 
-- 替换 `app/analysis_core/primitives.py` 中的旧 taxonomy
-- 建立新的 intent runner registry：
-  - atomic intents
-  - derived intents
-- 对 derived intents 实现 deterministic expansion：
-  - `attribute`
-  - `diagnose`
-  - `validate`
+#### 目标
+
+建立 intent 执行的架构基础：`IntentRunnerRegistry`、artifact 持久化 schema、以及第一个完整的 atomic runner（`observe`）。`observe` 是其他所有 runner 的上游依赖，须优先落地。
+
+#### 任务
+
+- 在 `app/analysis_core/` 中新建 `IntentRunnerRegistry`，平行于现有 `StepRunnerRegistry`
+- 在 metadata schema 中建立 artifact 持久化结构（staged / committed lifecycle，关联 `step_id`）
+- 将 `observe` 从当前的 translate stub 升级为完整 runner：
+  - 产出 typed observation artifact（非 metric_query 代理结果）
+  - 正确处理 time/scope 规范化
+- 更新 `service.run_intent` 通过 `IntentRunnerRegistry` 分发，替代现有 if/else 分支
+- 同步更新文档与测试
+
+#### 交付物
+
+- `IntentRunnerRegistry` 实现
+- artifact 持久化 schema（staged/committed lifecycle）
+- `observe` 全量 runner
+- `run_intent` 走 registry 的分发逻辑
+- 对应单元测试
+
+#### 验收标准
+
+- `observe` intent 可执行并持久化 committed artifact
+- artifact schema 足以支撑后续 runner 的 ref 输入（ObservationRef 可解析）
+- `run_intent` 不再包含硬编码的 intent if/else 分支
+
+---
+
+### 阶段 3b：剩余 Atomic Runners（compare / decompose / correlate / test / detect / forecast）
+
+#### 目标
+
+在 3a 确定的 artifact 模型基础上，补全全部 6 个 atomic intent runners，最大化复用现有执行内核。
+
+#### 任务
+
+- `compare`：读取两个 `ObservationRef` artifact，计算 typed delta，产出 compare artifact
+- `decompose`：读取 `compare` ArtifactRef，复用 `_run_attribute_change` 内核，切换输入契约
+- `correlate`：读取两个 `ObservationRef`，复用 `_run_correlate_metrics` 内核，切换输入契约
+- `test`：新 runner；实现有合法 artifact schema 和 finding 格式的最小统计假设检验
+- `detect`：新 runner；实现有合法 artifact schema 和 finding 格式的最小异常扫描
+- `forecast`：新 runner；实现有合法 artifact schema 和 finding 格式的最小时序预测
+- 对所有 runner 统一 lineage / provenance 约束
+- 同步更新文档与测试
+
+#### 说明
+
+- `compare`、`decompose`、`correlate` 有现有内核可复用，工作量相对较小
+- `test`、`detect`、`forecast` 无现有内核，需从头实现；v1 以满足 canonical artifact schema 和 finding contract 为目标，算法实现可以为最小可用形式
+
+#### 交付物
+
+- 6 个 atomic intent runners（compare / decompose / correlate / test / detect / forecast）
+- 统一的 lineage / provenance 约束实现
+- 对应单元测试
+
+#### 验收标准
+
+- 全部 7 个 atomic intents（含 3a 的 observe）可独立执行
+- 每个 runner 产出符合 artifact schema 的 committed artifact
+- `ObservationRef` / `ArtifactRef` 跨 runner 的 ref 解析路径均正确
+
+---
+
+### 阶段 3c：Derived Intent Expansion（attribute / diagnose / validate）
+
+#### 目标
+
+在全部 atomic runners 就绪后，实现 3 个 derived intent 的 deterministic expansion 逻辑。
+
+#### 任务
+
+- `attribute`：展开为 `observe + observe + compare + decompose`
+- `diagnose`：展开为 `detect + compare + decompose`（对 top-K candidates 执行）
+- `validate`：展开为 `observe + test`
 - 确保 expansion 规则满足：
   - 只依赖请求和系统状态
   - 不要求执行中外部补充决策
   - 不生成独立 plan 资源
-- 复用现有执行底座：
-  - `observe` 尽量复用 metric 查询和 time/scope 规范化能力
-  - `compare` 消费 `observe` artifact/ref 结果
-  - `decompose` 复用 attribution 计算内核，但切换输入契约
-  - `correlate/test/forecast/detect` 优先复用已有语义和执行组件
+- 同步更新文档与测试
 
-### 交付物
+#### 交付物
 
-- 新的 intent registry
-- derived intent expansion 实现
-- 统一的 lineage / provenance 约束
+- `attribute`、`diagnose`、`validate` 的 expansion 实现
+- 端到端 expansion 测试
 
-### 验收标准
+#### 验收标准
 
-- atomic intents 可单独执行
 - derived intents 可在单次请求中展开并执行完成
 - expansion 不依赖 planner 或中间人工决策
+- 展开后的 sub-step artifact ref 链路正确
 
 ---
 
@@ -400,13 +464,15 @@
 5. state/context 读面
 6. legacy 清理与文档统一
 
-如需拆分 PR，建议最少拆为以下五组：
+如需拆分 PR，建议最少拆为以下七组：
 
 1. `remove-plan-path`
 2. `intent-api-surface`
-3. `intent-runtime-expansion`
-4. `canonical-evidence-pipeline`
-5. `state-context-surface-and-cleanup`
+3. `intent-registry-artifact-model` （阶段 3a）
+4. `intent-atomic-runners` （阶段 3b）
+5. `intent-derived-expansion` （阶段 3c）
+6. `canonical-evidence-pipeline`
+7. `state-context-surface-and-cleanup`
 
 ## 8. 测试计划
 
