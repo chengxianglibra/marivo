@@ -636,6 +636,20 @@ class ObservationRef(BaseModel):
     step_type: Literal["observe"]
 
 
+class CorrelateObservationRef(ObservationRef):
+    """Full typed artifact reference for `correlate` — adds artifact identity fields
+    required by the correlate.md Reference Contract."""
+
+    artifact_id: str | None = Field(
+        default=None,
+        description="Artifact ID of the upstream observe artifact (optional; resolved from step_id if omitted).",
+    )
+    observation_type: Literal["time_series"] = Field(
+        default="time_series",
+        description="Must be 'time_series'.  v1 does not support scalar or segmented correlations.",
+    )
+
+
 class ArtifactRef(BaseModel):
     """Typed reference to any upstream intent step artifact."""
 
@@ -772,15 +786,20 @@ class DecomposeRequest(BaseModel):
 class CorrelateRequest(BaseModel):
     """Atomic intent: estimate statistical association between two time-series."""
 
-    left_ref: ObservationRef = Field(
+    left_ref: CorrelateObservationRef = Field(
         description="Reference to a time-series observe artifact (left series)."
     )
-    right_ref: ObservationRef = Field(
+    right_ref: CorrelateObservationRef = Field(
         description="Reference to a time-series observe artifact (right series)."
     )
-    method: Literal["spearman", "pearson", "both"] = Field(
+    method: Literal["spearman", "pearson"] = Field(
         default="spearman",
-        description="Correlation method.  'both' computes Spearman and Pearson.",
+        description="Correlation method ('spearman' or 'pearson').  v1 supports one method per request.",
+    )
+    min_pairs: int = Field(
+        default=5,
+        ge=1,
+        description="Minimum number of aligned time-bucket pairs required.  Requests with fewer aligned pairs are rejected.",
     )
 
 

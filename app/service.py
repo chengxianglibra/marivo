@@ -34,6 +34,7 @@ from app.execution.feedback import compile_failure_from_error
 from app.execution.orchestrator import WorkflowOrchestrator
 from app.execution.routing_runtime import RoutingRuntime
 from app.intents.compare import run_compare_intent
+from app.intents.correlate import run_correlate_intent
 from app.intents.decompose import run_decompose_intent
 from app.intents.observe import run_observe_intent
 from app.semantic_runtime import SemanticRuntimeRepository
@@ -61,7 +62,6 @@ _AUTO_INCREMENTAL_SYNTHESIZER = object()
 
 _STUB_INTENT_TYPES: frozenset[str] = frozenset(
     {
-        "correlate",
         "detect",
         "test",
         "forecast",
@@ -136,6 +136,9 @@ class SemanticLayerService:
         self.intent_registry = IntentRunnerRegistry()
         self.intent_registry.register("observe", lambda sid, p: run_observe_intent(self, sid, p))
         self.intent_registry.register("compare", lambda sid, p: run_compare_intent(self, sid, p))
+        self.intent_registry.register(
+            "correlate", lambda sid, p: run_correlate_intent(self, sid, p)
+        )
         self.intent_registry.register(
             "decompose", lambda sid, p: run_decompose_intent(self, sid, p)
         )

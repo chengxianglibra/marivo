@@ -268,7 +268,7 @@
 
 ---
 
-### 阶段 3b-2：`decompose` Runner
+### 阶段 3b-2：`decompose` Runner ✅ 已完成
 
 #### 目标
 
@@ -303,7 +303,7 @@
 
 ---
 
-### 阶段 3b-3：`correlate` Runner
+### 阶段 3b-3：`correlate` Runner ✅ 已完成
 
 #### 目标
 

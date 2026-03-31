@@ -246,23 +246,25 @@ class IntentEndpointTests(unittest.TestCase):
         )
         self.assertEqual(r.status_code, 422)
 
-    def test_correlate_returns_501_for_stub_execution(self) -> None:
+    def test_correlate_nonexistent_steps_returns_422(self) -> None:
+        """correlate with non-existent step refs returns 422 (STEP_NOT_FOUND)."""
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/correlate",
             json={
                 "left_ref": {
                     "session_id": self.session_id,
-                    "step_id": "step_a",
+                    "step_id": "step_nonexistent_a",
                     "step_type": "observe",
                 },
                 "right_ref": {
                     "session_id": self.session_id,
-                    "step_id": "step_b",
+                    "step_id": "step_nonexistent_b",
                     "step_type": "observe",
                 },
             },
         )
-        self.assertEqual(r.status_code, 501)
+        self.assertEqual(r.status_code, 422)
+        self.assertIn("STEP_NOT_FOUND", r.json()["detail"])
 
     # ── detect ────────────────────────────────────────────────────────────────
 
@@ -1693,6 +1695,431 @@ class DecomposeIntentTests(unittest.TestCase):
         )
         self.assertEqual(r.status_code, 422)
         self.assertIn("INVALID_ARGUMENT", r.json()["detail"])
+
+
+class CorrelateIntentTests(unittest.TestCase):
+    """Phase 3b-3: verify that correlate produces a pairwise_time_series_association artifact.
+
+    Uses pre-seeded time_series observe artifacts (inserted directly) so tests
+    do not depend on a full semantic layer + real query engine.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        import json
+
+        from app.main import create_app
+
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        # Use a per-class temp DB to avoid cross-worker SQLite conflicts.
+        db_path = Path(cls.temp_dir.name) / "correlate_intent.duckdb"
+        cls.app = create_app(db_path)
+        cls.client = TestClient(cls.app)
+        cls.service = cls.app.state.service
+
+        r = cls.client.post("/sessions", json={"goal": "correlate intent test"})
+        cls.session_id = r.json()["session_id"]
+
+        # Build two time_series observe artifact payloads
+        def _ts_artifact(metric: str, granularity: str, buckets: list) -> dict:
+            return {
+                "schema_version": "1.0",
+                "observation_type": "time_series",
+                "metric": metric,
+                "time_scope": {
+                    "kind": "range",
+                    "start": buckets[0]["window"]["start"],
+                    "end": buckets[-1]["window"]["end"],
+                },
+                "scope": {},
+                "granularity": granularity,
+                "series": buckets,
+                "analytical_metadata": {
+                    "quality_status": "ready",
+                    "row_count": len(buckets),
+                    "sample_size": len(buckets),
+                },
+                "execution_metadata": {
+                    "query_hash": "test",
+                    "engine": "duckdb",
+                    "executed_at": "2026-01-01T00:00:00",
+                },
+            }
+
+        day_buckets_left = [
+            {"window": {"start": "2026-01-01", "end": "2026-01-02"}, "value": 100.0},
+            {"window": {"start": "2026-01-02", "end": "2026-01-03"}, "value": 200.0},
+            {"window": {"start": "2026-01-03", "end": "2026-01-04"}, "value": 300.0},
+            {"window": {"start": "2026-01-04", "end": "2026-01-05"}, "value": 400.0},
+            {"window": {"start": "2026-01-05", "end": "2026-01-06"}, "value": 500.0},
+            {"window": {"start": "2026-01-06", "end": "2026-01-07"}, "value": 600.0},
+        ]
+        day_buckets_right = [
+            {"window": {"start": "2026-01-01", "end": "2026-01-02"}, "value": 10.0},
+            {"window": {"start": "2026-01-02", "end": "2026-01-03"}, "value": 20.0},
+            {"window": {"start": "2026-01-03", "end": "2026-01-04"}, "value": 30.0},
+            {"window": {"start": "2026-01-04", "end": "2026-01-05"}, "value": 40.0},
+            {"window": {"start": "2026-01-05", "end": "2026-01-06"}, "value": 50.0},
+            {"window": {"start": "2026-01-06", "end": "2026-01-07"}, "value": 60.0},
+        ]
+        constant_buckets = [
+            {"window": {"start": "2026-01-01", "end": "2026-01-02"}, "value": 5.0},
+            {"window": {"start": "2026-01-02", "end": "2026-01-03"}, "value": 5.0},
+            {"window": {"start": "2026-01-03", "end": "2026-01-04"}, "value": 5.0},
+            {"window": {"start": "2026-01-04", "end": "2026-01-05"}, "value": 5.0},
+            {"window": {"start": "2026-01-05", "end": "2026-01-06"}, "value": 5.0},
+            {"window": {"start": "2026-01-06", "end": "2026-01-07"}, "value": 5.0},
+        ]
+        week_buckets = [
+            {"window": {"start": "2026-01-01", "end": "2026-01-08"}, "value": 100.0},
+            {"window": {"start": "2026-01-08", "end": "2026-01-15"}, "value": 200.0},
+            {"window": {"start": "2026-01-15", "end": "2026-01-22"}, "value": 300.0},
+            {"window": {"start": "2026-01-22", "end": "2026-01-29"}, "value": 400.0},
+            {"window": {"start": "2026-01-29", "end": "2026-02-05"}, "value": 500.0},
+        ]
+        scalar_artifact = {
+            "schema_version": "1.0",
+            "observation_type": "scalar",
+            "metric": "gmv",
+            "time_scope": {"kind": "range", "start": "2026-01-01", "end": "2026-01-07"},
+            "scope": {},
+            "analytical_metadata": {"quality_status": "ready"},
+            "execution_metadata": {
+                "query_hash": "x",
+                "engine": "duckdb",
+                "executed_at": "2026-01-01T00:00:00",
+            },
+            "value": 1000.0,
+        }
+
+        svc = cls.service
+        now = "2026-01-01T00:00:00"
+
+        def _seed_artifact(step_id: str, content: dict) -> None:
+            artifact_id = f"art_{step_id[5:]}"
+            svc.metadata.execute(
+                "INSERT INTO steps (step_id, session_id, step_type, status, summary, result_json, provenance_json, created_at) "
+                "VALUES (?, ?, 'observe', 'succeeded', 'seeded', '{}', '{}', ?)",
+                [step_id, cls.session_id, now],
+            )
+            svc.metadata.execute(
+                "INSERT INTO artifacts (artifact_id, session_id, step_id, artifact_type, name, content_json, lifecycle, created_at) "
+                "VALUES (?, ?, ?, 'observation', 'seeded', ?, 'committed', ?)",
+                [artifact_id, cls.session_id, step_id, json.dumps(content), now],
+            )
+
+        cls.left_step_id = "step_corr_left"
+        cls.right_step_id = "step_corr_right"
+        cls.constant_step_id = "step_corr_const"
+        cls.week_step_id = "step_corr_week"
+        cls.scalar_step_id = "step_corr_scalar"
+
+        _seed_artifact(cls.left_step_id, _ts_artifact("gmv", "day", day_buckets_left))
+        _seed_artifact(cls.right_step_id, _ts_artifact("ad_spend", "day", day_buckets_right))
+        _seed_artifact(
+            cls.constant_step_id, _ts_artifact("constant_metric", "day", constant_buckets)
+        )
+        _seed_artifact(cls.week_step_id, _ts_artifact("gmv", "week", week_buckets))
+        _seed_artifact(cls.scalar_step_id, scalar_artifact)
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.client.close()
+        cls.temp_dir.cleanup()
+
+    # ── Happy path ────────────────────────────────────────────────────────────
+
+    def test_correlate_happy_path_produces_committed_artifact(self) -> None:
+        """Two aligned time-series → committed pairwise_time_series_association artifact."""
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/correlate",
+            json={
+                "left_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.left_step_id,
+                    "step_type": "observe",
+                },
+                "right_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.right_step_id,
+                    "step_type": "observe",
+                },
+            },
+        )
+        self.assertEqual(r.status_code, 200, r.text)
+        data = r.json()
+        self.assertEqual(data["intent_type"], "correlate")
+        self.assertEqual(data["step_type"], "correlate")
+        self.assertEqual(data["association_type"], "pairwise_time_series_association")
+        self.assertEqual(data["step_ref"]["step_type"], "correlate")
+        self.assertIn("artifact_id", data)
+
+    def test_correlate_artifact_shape(self) -> None:
+        """Correlate artifact contains all required fields per correlate.md."""
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/correlate",
+            json={
+                "left_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.left_step_id,
+                    "step_type": "observe",
+                },
+                "right_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.right_step_id,
+                    "step_type": "observe",
+                },
+            },
+        )
+        self.assertEqual(r.status_code, 200)
+        data = r.json()
+        # alignment
+        self.assertIn("alignment", data)
+        self.assertEqual(data["alignment"]["status"], "aligned")
+        self.assertEqual(data["alignment"]["issues"], [])
+        # statistic
+        self.assertIn("statistic", data)
+        self.assertEqual(data["statistic"]["method"], "spearman")
+        self.assertIsNotNone(data["statistic"]["coefficient"])
+        self.assertEqual(data["statistic"]["n_pairs"], 6)
+        # sign + significance
+        self.assertIn(data["sign"], ("positive", "negative", "zero"))
+        self.assertIn(data["significance"], ("significant", "not_significant"))
+        # analytical_metadata
+        am = data["analytical_metadata"]
+        self.assertEqual(am["pairing_rule"], "intersection_by_time_bucket")
+        self.assertEqual(am["matched_pair_count"], 6)
+        self.assertEqual(am["dropped_left_points"], 0)
+        self.assertEqual(am["dropped_right_points"], 0)
+        self.assertEqual(am["significance_level"], 0.05)
+        # version_metadata
+        vm = data["version_metadata"]
+        self.assertEqual(vm["artifact_schema_version"], "1.0")
+        # source_lineage
+        self.assertIn("source_lineage", data)
+        self.assertEqual(data["source_lineage"]["left_artifact"]["step_id"], self.left_step_id)
+        self.assertEqual(data["source_lineage"]["right_artifact"]["step_id"], self.right_step_id)
+
+    def test_correlate_artifact_persisted_committed(self) -> None:
+        """Correlate artifact is written to DB with lifecycle='committed'."""
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/correlate",
+            json={
+                "left_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.left_step_id,
+                    "step_type": "observe",
+                },
+                "right_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.right_step_id,
+                    "step_type": "observe",
+                },
+            },
+        )
+        self.assertEqual(r.status_code, 200)
+        artifact_id = r.json()["artifact_id"]
+        row = self.service.metadata.query_one(
+            "SELECT lifecycle, artifact_type FROM artifacts WHERE artifact_id = ?",
+            [artifact_id],
+        )
+        self.assertIsNotNone(row)
+        self.assertEqual(row["lifecycle"], "committed")
+        self.assertEqual(row["artifact_type"], "pairwise_time_series_association")
+
+    def test_correlate_pearson_method(self) -> None:
+        """method='pearson' produces artifact with pearson in statistic.method."""
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/correlate",
+            json={
+                "left_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.left_step_id,
+                    "step_type": "observe",
+                },
+                "right_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.right_step_id,
+                    "step_type": "observe",
+                },
+                "method": "pearson",
+            },
+        )
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["statistic"]["method"], "pearson")
+
+    def test_correlate_perfectly_correlated_series(self) -> None:
+        """Perfectly correlated series should produce coefficient close to 1.0."""
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/correlate",
+            json={
+                "left_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.left_step_id,
+                    "step_type": "observe",
+                },
+                "right_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.right_step_id,
+                    "step_type": "observe",
+                },
+            },
+        )
+        self.assertEqual(r.status_code, 200)
+        coef = r.json()["statistic"]["coefficient"]
+        self.assertAlmostEqual(coef, 1.0, places=4)
+        self.assertEqual(r.json()["sign"], "positive")
+        self.assertEqual(r.json()["significance"], "significant")
+
+    # ── Constant-series edge case ─────────────────────────────────────────────
+
+    def test_correlate_constant_series_coefficient_is_null(self) -> None:
+        """Constant right series → coefficient=null, alignment.status='needs_attention'."""
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/correlate",
+            json={
+                "left_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.left_step_id,
+                    "step_type": "observe",
+                },
+                "right_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.constant_step_id,
+                    "step_type": "observe",
+                },
+            },
+        )
+        self.assertEqual(r.status_code, 200)
+        data = r.json()
+        self.assertIsNone(data["statistic"]["coefficient"])
+        self.assertIsNone(data["statistic"]["p_value"])
+        self.assertEqual(data["sign"], "undefined")
+        self.assertEqual(data["significance"], "undefined")
+        self.assertEqual(data["alignment"]["status"], "needs_attention")
+        issues = data["alignment"]["issues"]
+        self.assertTrue(any(i["code"] == "constant_series" for i in issues))
+
+    # ── Error cases ───────────────────────────────────────────────────────────
+
+    def test_correlate_nonexistent_step_returns_422(self) -> None:
+        """correlate with non-existent step ref returns 422 STEP_NOT_FOUND."""
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/correlate",
+            json={
+                "left_ref": {
+                    "session_id": self.session_id,
+                    "step_id": "step_does_not_exist",
+                    "step_type": "observe",
+                },
+                "right_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.right_step_id,
+                    "step_type": "observe",
+                },
+            },
+        )
+        self.assertEqual(r.status_code, 422)
+        self.assertIn("STEP_NOT_FOUND", r.json()["detail"])
+
+    def test_correlate_rejects_scalar_observation_type(self) -> None:
+        """correlate rejects an observe artifact with observation_type='scalar'."""
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/correlate",
+            json={
+                "left_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.left_step_id,
+                    "step_type": "observe",
+                },
+                "right_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.scalar_step_id,
+                    "step_type": "observe",
+                },
+            },
+        )
+        self.assertEqual(r.status_code, 422)
+        self.assertIn("INVALID_ARGUMENT", r.json()["detail"])
+
+    def test_correlate_granularity_mismatch_fails(self) -> None:
+        """correlate with day vs week granularity fails with ALIGNMENT_FAILED."""
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/correlate",
+            json={
+                "left_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.left_step_id,
+                    "step_type": "observe",
+                },
+                "right_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.week_step_id,
+                    "step_type": "observe",
+                },
+            },
+        )
+        self.assertEqual(r.status_code, 422)
+        self.assertIn("ALIGNMENT_FAILED", r.json()["detail"])
+
+    def test_correlate_insufficient_pairs_fails(self) -> None:
+        """correlate fails when aligned pairs < min_pairs."""
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/correlate",
+            json={
+                "left_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.left_step_id,
+                    "step_type": "observe",
+                },
+                "right_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.right_step_id,
+                    "step_type": "observe",
+                },
+                "min_pairs": 100,
+            },
+        )
+        self.assertEqual(r.status_code, 422)
+        self.assertIn("INSUFFICIENT_DATA", r.json()["detail"])
+
+    def test_correlate_rejects_cross_session_ref_left(self) -> None:
+        """correlate rejects left_ref from a different session (already tested in stub tests)."""
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/correlate",
+            json={
+                "left_ref": {
+                    "session_id": "sess_foreign",
+                    "step_id": self.left_step_id,
+                    "step_type": "observe",
+                },
+                "right_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.right_step_id,
+                    "step_type": "observe",
+                },
+            },
+        )
+        self.assertEqual(r.status_code, 422)
+
+    def test_correlate_rejects_wrong_step_type_in_ref(self) -> None:
+        """correlate rejects refs with step_type != 'observe'."""
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/correlate",
+            json={
+                "left_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.left_step_id,
+                    "step_type": "compare",
+                },
+                "right_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.right_step_id,
+                    "step_type": "observe",
+                },
+            },
+        )
+        self.assertEqual(r.status_code, 422)
 
 
 if __name__ == "__main__":
