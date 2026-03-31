@@ -188,7 +188,8 @@ class IntentEndpointTests(unittest.TestCase):
 
     # ── compare ───────────────────────────────────────────────────────────────
 
-    def test_compare_returns_501_for_stub_execution(self) -> None:
+    def test_compare_nonexistent_ref_returns_422(self) -> None:
+        """compare with non-existent step refs returns 422 (STEP_NOT_FOUND)."""
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/compare",
             json={
@@ -204,7 +205,7 @@ class IntentEndpointTests(unittest.TestCase):
                 },
             },
         )
-        self.assertEqual(r.status_code, 501)
+        self.assertEqual(r.status_code, 422)
 
     def test_compare_rejects_cross_session_ref(self) -> None:
         r = self.client.post(
@@ -886,6 +887,469 @@ class ArtifactLifecycleTests(unittest.TestCase):
     def test_resolve_artifact_for_ref_not_found_returns_none(self) -> None:
         result = self.service._resolve_artifact_for_ref("sess_nonexistent", "step_none")
         self.assertIsNone(result)
+
+
+class CompareIntentTests(unittest.TestCase):
+    """Phase 3b-1: verify that compare produces a typed compare_artifact.
+
+    setUpClass runs two scalar observe steps and two segmented observe steps
+    so subsequent compare calls have real upstream artifact refs to resolve.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+
+        from app.main import create_app
+        from tests.shared_fixtures import get_seeded_duckdb_path
+
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        db_path = Path(cls.temp_dir.name) / "compare_intent.duckdb"
+        get_seeded_duckdb_path(db_path)
+        cls.app = create_app(db_path)
+        cls.client = TestClient(cls.app)
+        cls.service = cls.app.state.service
+        cls.skipped = False
+
+        # -- Wire semantic layer (same pattern as ObserveTypedArtifactTests) --
+        now = "2026-01-01T00:00:00"
+
+        r = cls.client.post(
+            "/sources",
+            json={
+                "source_type": "duckdb",
+                "display_name": "Compare Test Source",
+                "connection": {"path": str(db_path)},
+            },
+        )
+        source_id = r.json()["source_id"]
+
+        r = cls.client.post(
+            "/engines",
+            json={
+                "engine_type": "duckdb",
+                "display_name": "Compare Test Engine",
+                "connection": {"database": str(db_path)},
+            },
+        )
+        engine_id = r.json()["engine_id"]
+        cls.client.post(
+            "/bindings",
+            json={"source_id": source_id, "engine_id": engine_id, "priority": 0},
+        )
+
+        obj_id = f"obj_{__import__('uuid').uuid4().hex[:12]}"
+        cls.service.metadata.execute(
+            """
+            INSERT INTO source_objects
+                (object_id, source_id, object_type, native_name, fqn,
+                 properties_json, created_at, updated_at)
+            VALUES (?, ?, 'table', 'watch_events', 'analytics.watch_events',
+                    '{}', ?, ?)
+            """,
+            [obj_id, source_id, now, now],
+        )
+
+        r = cls.client.post(
+            "/semantic/metrics",
+            json={
+                "name": "compare_test_dau",
+                "display_name": "DAU (compare test)",
+                "definition_sql": "COUNT(DISTINCT user_id)",
+                "dimensions": ["event_date", "platform"],
+                "grain": "day",
+            },
+        )
+        if r.status_code != 200:
+            cls.skipped = True
+            return
+        metric_id = r.json()["metric_id"]
+        cls.client.post(f"/semantic/metrics/{metric_id}/publish")
+        cls.client.post(
+            "/semantic/mappings",
+            json={
+                "semantic_type": "metric",
+                "semantic_id": metric_id,
+                "object_id": obj_id,
+                "mapping_type": "primary",
+            },
+        )
+
+        # Create a second metric for mismatch tests
+        r2 = cls.client.post(
+            "/semantic/metrics",
+            json={
+                "name": "compare_test_other",
+                "display_name": "Other metric",
+                "definition_sql": "COUNT(*)",
+                "dimensions": ["event_date"],
+                "grain": "day",
+            },
+        )
+        cls.other_metric_id = r2.json().get("metric_id") if r2.status_code == 200 else None
+        if cls.other_metric_id:
+            cls.client.post(f"/semantic/metrics/{cls.other_metric_id}/publish")
+            cls.client.post(
+                "/semantic/mappings",
+                json={
+                    "semantic_type": "metric",
+                    "semantic_id": cls.other_metric_id,
+                    "object_id": obj_id,
+                    "mapping_type": "primary",
+                },
+            )
+
+        # Create session
+        r = cls.client.post("/sessions", json={"goal": "compare intent test"})
+        cls.session_id = r.json()["session_id"]
+
+        # Run two scalar observe steps (different time windows)
+        def _scalar_observe(session_id: str, start: str, end: str) -> str | None:
+            resp = cls.client.post(
+                f"/sessions/{session_id}/intents/observe",
+                json={
+                    "metric": "compare_test_dau",
+                    "time_scope": {"kind": "range", "start": start, "end": end},
+                },
+            )
+            if resp.status_code != 200:
+                return None
+            return resp.json()["step_ref"]["step_id"]
+
+        def _seg_observe(session_id: str, start: str, end: str) -> str | None:
+            resp = cls.client.post(
+                f"/sessions/{session_id}/intents/observe",
+                json={
+                    "metric": "compare_test_dau",
+                    "time_scope": {"kind": "range", "start": start, "end": end},
+                    "dimensions": ["platform"],
+                },
+            )
+            if resp.status_code != 200:
+                return None
+            return resp.json()["step_ref"]["step_id"]
+
+        cls.left_step_id = _scalar_observe(cls.session_id, "2024-01-08", "2024-01-15")
+        cls.right_step_id = _scalar_observe(cls.session_id, "2024-01-01", "2024-01-08")
+        # Use dates within the seeded data range (2026-02-07 to 2026-03-06) for segmented
+        # so segments are non-empty and the compare can succeed.
+        cls.left_seg_step_id = _seg_observe(cls.session_id, "2026-02-14", "2026-02-21")
+        cls.right_seg_step_id = _seg_observe(cls.session_id, "2026-02-07", "2026-02-14")
+
+        # Also prepare an observe for the "other" metric (for mismatch test)
+        if cls.other_metric_id:
+            resp = cls.client.post(
+                f"/sessions/{cls.session_id}/intents/observe",
+                json={
+                    "metric": "compare_test_other",
+                    "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+                },
+            )
+            cls.other_step_id = (
+                resp.json().get("step_ref", {}).get("step_id") if resp.status_code == 200 else None
+            )
+        else:
+            cls.other_step_id = None
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.client.close()
+        cls.temp_dir.cleanup()
+
+    def _skip_if_not_wired(self) -> None:
+        if self.skipped or self.left_step_id is None or self.right_step_id is None:
+            self.skipTest("Semantic layer not fully wired or observe steps failed")
+
+    def test_scalar_compare_success(self) -> None:
+        """compare two scalar observe artifacts returns 200 with correct shape."""
+        self._skip_if_not_wired()
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/compare",
+            json={
+                "left_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.left_step_id,
+                    "step_type": "observe",
+                },
+                "right_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.right_step_id,
+                    "step_type": "observe",
+                },
+            },
+        )
+        self.assertEqual(r.status_code, 200, r.text)
+        data = r.json()
+        self.assertEqual(data["intent_type"], "compare")
+        self.assertEqual(data["artifact_type"], "compare_artifact")
+        self.assertEqual(data["comparison_type"], "scalar_delta")
+        self.assertEqual(data["schema_version"], "1.0")
+        self.assertIn("artifact_id", data)
+        self.assertTrue(data["artifact_id"].startswith("art_"))
+        self.assertIn("direction", data)
+        self.assertIn(data["direction"], {"increase", "decrease", "flat", "undefined"})
+        self.assertIn("comparability", data)
+        self.assertIn(data["comparability"]["status"], {"comparable", "needs_attention"})
+        self.assertIn("lineage", data)
+        self.assertEqual(data["lineage"]["left_source_ref"]["step_id"], self.left_step_id)
+        self.assertEqual(data["lineage"]["right_source_ref"]["step_id"], self.right_step_id)
+
+    def test_scalar_compare_artifact_persisted(self) -> None:
+        """compare artifact is written to DB with lifecycle='committed'."""
+        self._skip_if_not_wired()
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/compare",
+            json={
+                "left_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.left_step_id,
+                    "step_type": "observe",
+                },
+                "right_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.right_step_id,
+                    "step_type": "observe",
+                },
+            },
+        )
+        self.assertEqual(r.status_code, 200, r.text)
+        artifact_id = r.json()["artifact_id"]
+        row = self.service.metadata.query_one(
+            "SELECT artifact_type, lifecycle FROM artifacts WHERE artifact_id = ?",
+            [artifact_id],
+        )
+        self.assertIsNotNone(row)
+        self.assertEqual(row["artifact_type"], "compare_artifact")
+        self.assertEqual(row["lifecycle"], "committed")
+
+    def test_scalar_compare_lineage(self) -> None:
+        """compare artifact lineage correctly references both upstream step IDs."""
+        self._skip_if_not_wired()
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/compare",
+            json={
+                "left_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.left_step_id,
+                    "step_type": "observe",
+                },
+                "right_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.right_step_id,
+                    "step_type": "observe",
+                },
+            },
+        )
+        self.assertEqual(r.status_code, 200, r.text)
+        lineage = r.json()["lineage"]
+        self.assertEqual(lineage["left_source_ref"]["step_id"], self.left_step_id)
+        self.assertEqual(lineage["right_source_ref"]["step_id"], self.right_step_id)
+        self.assertEqual(lineage["derivation_version"], "1.0")
+
+    def test_segmented_compare_success(self) -> None:
+        """compare two segmented observe artifacts returns segmented_delta with rows."""
+        if self.skipped or self.left_seg_step_id is None or self.right_seg_step_id is None:
+            self.skipTest("Segmented observe steps not available")
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/compare",
+            json={
+                "left_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.left_seg_step_id,
+                    "step_type": "observe",
+                },
+                "right_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.right_seg_step_id,
+                    "step_type": "observe",
+                },
+            },
+        )
+        self.assertEqual(r.status_code, 200, r.text)
+        data = r.json()
+        self.assertEqual(data["comparison_type"], "segmented_delta")
+        self.assertIn("rows", data)
+        self.assertIsInstance(data["rows"], list)
+        for row in data["rows"]:
+            self.assertIn("keys", row)
+            self.assertIn("direction", row)
+            self.assertIn("presence", row)
+            self.assertIn(row["presence"], {"both", "left_only", "right_only"})
+            self.assertIn(row["direction"], {"increase", "decrease", "flat", "undefined"})
+        self.assertIn("dimensions", data)
+
+    def test_compare_nonexistent_ref_returns_422(self) -> None:
+        """compare with a non-existent step ref returns 422 (STEP_NOT_FOUND)."""
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/compare",
+            json={
+                "left_ref": {
+                    "session_id": self.session_id,
+                    "step_id": "step_does_not_exist_xyz",
+                    "step_type": "observe",
+                },
+                "right_ref": {
+                    "session_id": self.session_id,
+                    "step_id": "step_does_not_exist_abc",
+                    "step_type": "observe",
+                },
+            },
+        )
+        self.assertEqual(r.status_code, 422)
+        self.assertIn("STEP_NOT_FOUND", r.json()["detail"])
+
+    def test_compare_rejects_metric_mismatch(self) -> None:
+        """compare rejects two observations with different metrics (NOT_COMPARABLE)."""
+        self._skip_if_not_wired()
+        if self.other_step_id is None:
+            self.skipTest("Other metric observe step not available")
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/compare",
+            json={
+                "left_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.left_step_id,
+                    "step_type": "observe",
+                },
+                "right_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.other_step_id,
+                    "step_type": "observe",
+                },
+            },
+        )
+        self.assertEqual(r.status_code, 422)
+        self.assertIn("NOT_COMPARABLE", r.json()["detail"])
+
+    def test_compare_rejects_type_mismatch(self) -> None:
+        """compare rejects scalar vs segmented observation_type (NOT_COMPARABLE)."""
+        self._skip_if_not_wired()
+        if self.left_seg_step_id is None:
+            self.skipTest("Segmented observe step not available")
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/compare",
+            json={
+                "left_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.left_step_id,
+                    "step_type": "observe",
+                },
+                "right_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.left_seg_step_id,
+                    "step_type": "observe",
+                },
+            },
+        )
+        self.assertEqual(r.status_code, 422)
+        self.assertIn("NOT_COMPARABLE", r.json()["detail"])
+
+    def test_compare_rejects_cross_session_ref(self) -> None:
+        """compare with left_ref pointing to a different session returns 422."""
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/compare",
+            json={
+                "left_ref": {
+                    "session_id": "sess_other_session",
+                    "step_id": "step_x",
+                    "step_type": "observe",
+                },
+                "right_ref": {
+                    "session_id": self.session_id,
+                    "step_id": "step_y",
+                    "step_type": "observe",
+                },
+            },
+        )
+        self.assertEqual(r.status_code, 422)
+        self.assertIn("Cross-session", r.json()["detail"])
+
+    def test_compare_rejects_unit_mismatch(self) -> None:
+        """compare rejects two observations with mismatched units (NOT_COMPARABLE)."""
+        import json as _json
+
+        self._skip_if_not_wired()
+        row = self.service.metadata.query_one(
+            "SELECT artifact_id, content_json FROM artifacts WHERE step_id = ? AND lifecycle = 'committed'",
+            [self.right_step_id],
+        )
+        if row is None:
+            self.skipTest("right step artifact not found in DB")
+        content = _json.loads(row["content_json"])
+        original_unit = content.get("unit")
+        content["unit"] = "bogus_unit_xyz"
+        self.service.metadata.execute(
+            "UPDATE artifacts SET content_json = ? WHERE artifact_id = ?",
+            [_json.dumps(content), row["artifact_id"]],
+        )
+        try:
+            r = self.client.post(
+                f"/sessions/{self.session_id}/intents/compare",
+                json={
+                    "left_ref": {
+                        "session_id": self.session_id,
+                        "step_id": self.left_step_id,
+                        "step_type": "observe",
+                    },
+                    "right_ref": {
+                        "session_id": self.session_id,
+                        "step_id": self.right_step_id,
+                        "step_type": "observe",
+                    },
+                },
+            )
+            self.assertEqual(r.status_code, 422)
+            self.assertIn("NOT_COMPARABLE", r.json()["detail"])
+        finally:
+            content["unit"] = original_unit
+            self.service.metadata.execute(
+                "UPDATE artifacts SET content_json = ? WHERE artifact_id = ?",
+                [_json.dumps(content), row["artifact_id"]],
+            )
+
+    def test_compare_mode_scalar_guard(self) -> None:
+        """compare with mode='scalar' against segmented observations returns 422 INVALID_ARGUMENT."""
+        if self.skipped or self.left_seg_step_id is None or self.right_seg_step_id is None:
+            self.skipTest("Segmented observe steps not available")
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/compare",
+            json={
+                "left_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.left_seg_step_id,
+                    "step_type": "observe",
+                },
+                "right_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.right_seg_step_id,
+                    "step_type": "observe",
+                },
+                "mode": "scalar",
+            },
+        )
+        self.assertEqual(r.status_code, 422)
+        self.assertIn("INVALID_ARGUMENT", r.json()["detail"])
+
+    def test_compare_mode_segmented_guard(self) -> None:
+        """compare with mode='segmented' against scalar observations returns 422 INVALID_ARGUMENT."""
+        self._skip_if_not_wired()
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/compare",
+            json={
+                "left_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.left_step_id,
+                    "step_type": "observe",
+                },
+                "right_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.right_step_id,
+                    "step_type": "observe",
+                },
+                "mode": "segmented",
+            },
+        )
+        self.assertEqual(r.status_code, 422)
+        self.assertIn("INVALID_ARGUMENT", r.json()["detail"])
 
 
 if __name__ == "__main__":
