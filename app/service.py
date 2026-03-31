@@ -34,6 +34,7 @@ from app.execution.feedback import compile_failure_from_error
 from app.execution.orchestrator import WorkflowOrchestrator
 from app.execution.routing_runtime import RoutingRuntime
 from app.intents.compare import run_compare_intent
+from app.intents.decompose import run_decompose_intent
 from app.intents.observe import run_observe_intent
 from app.semantic_runtime import SemanticRuntimeRepository
 from app.session import SessionManager
@@ -60,7 +61,6 @@ _AUTO_INCREMENTAL_SYNTHESIZER = object()
 
 _STUB_INTENT_TYPES: frozenset[str] = frozenset(
     {
-        "decompose",
         "correlate",
         "detect",
         "test",
@@ -136,6 +136,9 @@ class SemanticLayerService:
         self.intent_registry = IntentRunnerRegistry()
         self.intent_registry.register("observe", lambda sid, p: run_observe_intent(self, sid, p))
         self.intent_registry.register("compare", lambda sid, p: run_compare_intent(self, sid, p))
+        self.intent_registry.register(
+            "decompose", lambda sid, p: run_decompose_intent(self, sid, p)
+        )
         for _stub_type in _STUB_INTENT_TYPES:
             self.intent_registry.register(_stub_type, _make_stub_runner(_stub_type))
         self._default_synthesizer = DefaultClaimSynthesizer()
@@ -3143,6 +3146,16 @@ class SemanticLayerService:
             [step_id, session_id],
         )
         return json.loads(row["content_json"]) if row else None
+
+    def _resolve_artifact_id_for_step(self, session_id: str, step_id: str) -> str | None:
+        """Return the artifact_id of the most recent committed artifact for a step."""
+        row = self.metadata.query_one(
+            "SELECT artifact_id FROM artifacts "
+            "WHERE step_id = ? AND session_id = ? AND lifecycle = 'committed' "
+            "ORDER BY created_at DESC LIMIT 1",
+            [step_id, session_id],
+        )
+        return str(row["artifact_id"]) if row else None
 
     def _observation_count(self, session_id: str) -> int:
         """Return the number of observations already recorded for a session."""
