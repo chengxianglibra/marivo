@@ -195,7 +195,7 @@
 
 ## 阶段 3：重构执行模型为 Intent Registry + Derived Expansion
 
-> **实施说明**：本阶段拆分为三个顺序子任务（3a → 3b → 3c），后两个子任务均依赖 3a 确定的 artifact 持久化模型和 registry 接口。
+> **实施说明**：本阶段拆分为顺序子任务（3a → 3b-1 → 3b-2 → 3b-3 → 3b-4 → 3b-5 → 3b-6 → 3c）。3b-1 ～ 3b-6 各对应一个 atomic runner，均依赖 3a 确定的 artifact 持久化模型和 registry 接口；3c 依赖全部 atomic runners 就绪。
 
 ---
 
@@ -231,39 +231,224 @@
 
 ---
 
-### 阶段 3b：剩余 Atomic Runners（compare / decompose / correlate / test / detect / forecast）
+### 阶段 3b-1：`compare` Runner ✅ 已完成
 
 #### 目标
 
-在 3a 确定的 artifact 模型基础上，补全全部 6 个 atomic intent runners，最大化复用现有执行内核。
+实现第一个依赖 ObservationRef 的推断型 runner：从两个已有观测值计算 typed delta，产出 compare artifact。
+
+#### 依赖
+
+3a（ObservationRef artifact schema 已定义）
 
 #### 任务
 
-- `compare`：读取两个 `ObservationRef` artifact，计算 typed delta，产出 compare artifact
-- `decompose`：读取 `compare` ArtifactRef，复用 `_run_attribute_change` 内核，切换输入契约
-- `correlate`：读取两个 `ObservationRef`，复用 `_run_correlate_metrics` 内核，切换输入契约
-- `test`：新 runner；实现有合法 artifact schema 和 finding 格式的最小统计假设检验
-- `detect`：新 runner；实现有合法 artifact schema 和 finding 格式的最小异常扫描
-- `forecast`：新 runner；实现有合法 artifact schema 和 finding 格式的最小时序预测
-- 对所有 runner 统一 lineage / provenance 约束
+- 在 `service.py` 中实现 `_run_compare_intent`
+- 输入：`ObservationRef` × 2（同 session）
+- 计算 typed delta items（绝对差、相对差）
+- 产出 committed compare artifact
+- 注册到 `IntentRunnerRegistry`
 - 同步更新文档与测试
 
 #### 说明
 
-- `compare`、`decompose`、`correlate` 有现有内核可复用，工作量相对较小
-- `test`、`detect`、`forecast` 无现有内核，需从头实现；v1 以满足 canonical artifact schema 和 finding contract 为目标，算法实现可以为最小可用形式
+无现有内核可复用；需新实现 delta 计算逻辑。Empty semantics：success 必须 non-empty（无法形成 delta 则以明确错误失败，不 commit success artifact）。
 
 #### 交付物
 
-- 6 个 atomic intent runners（compare / decompose / correlate / test / detect / forecast）
-- 统一的 lineage / provenance 约束实现
+- `_run_compare_intent` 实现
+- compare artifact schema（delta items）
 - 对应单元测试
 
 #### 验收标准
 
-- 全部 7 个 atomic intents（含 3a 的 observe）可独立执行
-- 每个 runner 产出符合 artifact schema 的 committed artifact
-- `ObservationRef` / `ArtifactRef` 跨 runner 的 ref 解析路径均正确
+- `compare` 可执行，产出 committed artifact
+- 无法形成 delta 时返回明确错误，不 commit success artifact
+- `ObservationRef` 跨 session 时被拒绝
+
+---
+
+### 阶段 3b-2：`decompose` Runner
+
+#### 目标
+
+在 compare artifact 基础上，复用 `_run_attribute_change` 内核实现维度分解。
+
+#### 依赖
+
+3b-1（compare ArtifactRef 作为输入前提）
+
+#### 任务
+
+- 在 `service.py` 中实现 `_run_decompose_intent`
+- 输入：compare `ArtifactRef`（同 session）
+- 从 compare artifact 提取维度分解参数，调用 `_run_attribute_change`（`service.py:2402`）内核
+- 产出 committed decompose artifact（含 contribution items）
+- 注册到 `IntentRunnerRegistry`
+- 同步更新文档与测试
+
+#### 说明
+
+有现有内核 `_run_attribute_change` 可复用，主要工作是切换输入契约（ArtifactRef → 内核参数）。Empty semantics：同 compare，无 contribution rows 时失败。
+
+#### 交付物
+
+- `_run_decompose_intent` 实现
+- 对应单元测试
+
+#### 验收标准
+
+- `decompose` 接受 compare ArtifactRef，产出 committed artifact
+- 无 contribution rows 时失败，不 commit success artifact
+
+---
+
+### 阶段 3b-3：`correlate` Runner
+
+#### 目标
+
+复用 `_run_correlate_metrics` 内核，将输入契约切换为 ObservationRef × 2。
+
+#### 依赖
+
+3a（ObservationRef artifact schema）
+
+#### 任务
+
+- 在 `service.py` 中实现 `_run_correlate_intent`
+- 输入：`ObservationRef` × 2（同 session）
+- 从两个 artifact 提取时间序列数据，调用 `_run_correlate_metrics`（`service.py:2733`）内核
+- 产出 committed correlate artifact（`1 artifact → 1 finding`）
+- 注册到 `IntentRunnerRegistry`
+- 同步更新文档与测试
+
+#### 说明
+
+有现有内核 `_run_correlate_metrics` 可复用，主要工作是适配输入契约。Empty semantics：alignment 或 pairs 不足时失败；有效结果恰好产出 1 个 finding。
+
+#### 交付物
+
+- `_run_correlate_intent` 实现
+- 对应单元测试
+
+#### 验收标准
+
+- `correlate` 接受两个 ObservationRef，产出 committed artifact
+- pairs 不足时失败；有效结果仅提交 1 个 finding
+
+---
+
+### 阶段 3b-4：`detect` Runner
+
+#### 目标
+
+实现最小可用的异常扫描 runner；这是唯一另一个允许 success-empty 的 atomic intent。
+
+#### 依赖
+
+3a（artifact schema）
+
+#### 任务
+
+- 在 `service.py` 中实现 `_run_detect_intent`
+- 输入：metric + time_scope + 检测参数（阈值或统计规则）
+- v1 实现：基于简单阈值或 z-score 扫描候选异常
+- 产出 committed detect artifact（`total_candidate_count` 字段必须存在）
+- 无候选时产出 empty artifact（`finding_count = 0`），仍算 success
+- 注册到 `IntentRunnerRegistry`
+- 同步更新文档与测试
+
+#### 说明
+
+无现有内核；需新实现。Empty semantics：**允许 success-empty**（与 `observe` 同类型，`total_candidate_count = 0` 时合法 commit）。
+
+#### 交付物
+
+- `_run_detect_intent` 实现
+- 对应单元测试（含 empty 场景）
+
+#### 验收标准
+
+- 无候选时提交 empty success artifact（`finding_count = 0`）
+- 有候选时产出对应 finding
+
+---
+
+### 阶段 3b-5：`test` Runner
+
+#### 目标
+
+实现最小可用的统计假设检验 runner。
+
+#### 依赖
+
+3a（artifact schema）
+
+#### 任务
+
+- 在 `service.py` 中实现 `_run_test_intent`
+- 输入：hypothesis 定义 + 数据源（metric 或 ObservationRef）
+- v1 实现：支持均值检验或比例检验（`scipy.stats` 或手写；不引入 ML 依赖）
+- 产出 committed test artifact（`1 artifact → 1 finding`，结果为 `valid` 或 `needs-attention`）
+- 注册到 `IntentRunnerRegistry`
+- 同步更新文档与测试
+
+#### 说明
+
+无现有内核；需新实现。Empty semantics：success 必须 non-empty，输入无效时以明确错误失败。
+
+#### 交付物
+
+- `_run_test_intent` 实现
+- 对应单元测试
+
+#### 验收标准
+
+- 输入无效时以明确错误失败
+- 有效结果产出恰好 1 个 finding
+
+---
+
+### 阶段 3b-6：`forecast` Runner
+
+#### 目标
+
+实现最小可用的时序预测 runner。
+
+#### 依赖
+
+3a（artifact schema）；依赖 `observe` runner 产出的时序 artifact 作为历史输入
+
+#### 任务
+
+- 在 `service.py` 中实现 `_run_forecast_intent`
+- 输入：metric + 历史时间窗（ObservationRef 或 time_scope）+ 预测 horizon
+- v1 实现：线性外推或移动平均（不引入 ML 依赖）
+- 产出 committed forecast artifact（含 forecast buckets；按 bucket 产出 finding）
+- 注册到 `IntentRunnerRegistry`
+- 同步更新文档与测试
+
+#### 说明
+
+无现有内核；需新实现。Empty semantics：success 必须 non-empty，历史不足或无法产生可辩护 point forecast 时失败。
+
+#### 交付物
+
+- `_run_forecast_intent` 实现
+- 对应单元测试
+
+#### 验收标准
+
+- 历史不足时失败，不 commit success artifact
+- 有效结果产出 committed artifact 和对应 finding
+
+---
+
+> **阶段 3b 整体验收**（3b-1 ～ 3b-6 全部完成后）：
+> - 全部 7 个 atomic intents（含 3a 的 observe）可独立执行
+> - 每个 runner 产出符合 artifact schema 的 committed artifact
+> - `ObservationRef` / `ArtifactRef` 跨 runner 的 ref 解析路径均正确
+> - lineage / provenance 约束统一覆盖
 
 ---
 
@@ -464,15 +649,20 @@
 5. state/context 读面
 6. legacy 清理与文档统一
 
-如需拆分 PR，建议最少拆为以下七组：
+如需拆分 PR，建议最少拆为以下十二组：
 
 1. `remove-plan-path`
 2. `intent-api-surface`
 3. `intent-registry-artifact-model` （阶段 3a）
-4. `intent-atomic-runners` （阶段 3b）
-5. `intent-derived-expansion` （阶段 3c）
-6. `canonical-evidence-pipeline`
-7. `state-context-surface-and-cleanup`
+4. `intent-runner-compare` （阶段 3b-1）
+5. `intent-runner-decompose` （阶段 3b-2）
+6. `intent-runner-correlate` （阶段 3b-3）
+7. `intent-runner-detect` （阶段 3b-4）
+8. `intent-runner-test` （阶段 3b-5）
+9. `intent-runner-forecast` （阶段 3b-6）
+10. `intent-derived-expansion` （阶段 3c）
+11. `canonical-evidence-pipeline`
+12. `state-context-surface-and-cleanup`
 
 ## 8. 测试计划
 

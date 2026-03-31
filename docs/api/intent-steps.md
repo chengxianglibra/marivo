@@ -28,7 +28,7 @@ Step submission is a write surface. Session state and proposition context remain
 | Intent family | Endpoint | Phase 2 status | Canonical success payload |
 |---------------|----------|----------------|---------------------------|
 | `observe` | `POST /sessions/{session_id}/intents/observe` | Implemented | `ObserveResponse` |
-| `compare` | `POST /sessions/{session_id}/intents/compare` | 501 stub | `CompareResponse` |
+| `compare` | `POST /sessions/{session_id}/intents/compare` | Implemented | `CompareResponse` |
 | `decompose` | `POST /sessions/{session_id}/intents/decompose` | 501 stub | `DecomposeResponse` |
 | `correlate` | `POST /sessions/{session_id}/intents/correlate` | 501 stub | `CorrelateResponse` |
 | `detect` | `POST /sessions/{session_id}/intents/detect` | 501 stub | `DetectResponse` |
