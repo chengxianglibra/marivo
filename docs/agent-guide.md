@@ -83,7 +83,11 @@ Defined in `app/analysis_core/primitives.py`: `metric_query`, `profile_table`, `
 
 - Design drafts (`docs/analysis/`): use `time_scope`/`scope` split; keep artifact/projection separated
 - External wire docs (`docs/api/intent-steps.md`): define the target-state per-intent submission surface for `observe`, `compare`, `decompose`, `correlate`, `detect`, `test`, `forecast`, `attribute`, `diagnose`, and `validate`
-- Current implementation still exposes legacy step types in code; do not assume the target-state wire contract is already implemented
+- **Implemented intents** (all registered in `IntentRunnerRegistry` via `app/intents/`):
+  - Atomic: `observe`, `compare`, `decompose`, `correlate`, `detect`, `test`, `forecast`
+  - Derived: `attribute` (→ `observe×2 + compare + decompose×D`), `diagnose` (→ `detect + (observe×2 + compare + decompose×D)×K`)
+  - Stub (raises `NotImplementedError`): `validate`
+- `diagnose` expansion contract: `detect` scans for anomaly candidates; top-`followup_limit` candidates each get `observe(current) + observe(baseline) + compare(scalar) + decompose×len(candidate_dimensions)`; baseline policy is `previous_adjacent_equal_length` (fixed, non-configurable); design doc: `docs/analysis/intents/derived/diagnose.md`
 
 ## Sync
 

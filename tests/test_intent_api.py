@@ -388,7 +388,8 @@ class IntentEndpointTests(unittest.TestCase):
         )
         self.assertEqual(r.status_code, 422)
 
-    def test_diagnose_returns_501_for_stub(self) -> None:
+    def test_diagnose_invalid_request_returns_422(self) -> None:
+        # diagnose is now implemented; missing required candidate_dimensions → 422
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/diagnose",
             json={
@@ -396,7 +397,7 @@ class IntentEndpointTests(unittest.TestCase):
                 "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
             },
         )
-        self.assertEqual(r.status_code, 501)
+        self.assertEqual(r.status_code, 422)
 
     def test_validate_returns_501_for_stub(self) -> None:
         r = self.client.post(

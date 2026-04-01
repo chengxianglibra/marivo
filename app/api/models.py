@@ -835,7 +835,7 @@ class DetectTimeScope(BaseModel):
     """time_scope for detect: single_window mode with explicit grain and current window."""
 
     mode: Literal["single_window"]
-    grain: Literal["day", "hour"]
+    grain: Literal["hour", "day", "week", "month"]
     current: DetectTimeScopeCurrentWindow
 
 
@@ -972,13 +972,38 @@ class DiagnoseRequest(BaseModel):
     """Derived intent: diagnose anomalies (expands to detect+compare+decompose on top-K)."""
 
     metric: str = Field(description="Published semantic metric to diagnose.")
-    time_scope: ObserveTimeScope
+    time_scope: DetectTimeScope
     scope: ObserveScope | None = Field(default=None)
-    sensitivity: Literal["low", "balanced", "high"] = Field(default="balanced")
-    top_k_candidates: int = Field(
+    detect_split_by: str | None = Field(
+        default=None,
+        description="Optional semantic dimension to split detect into independent series.",
+    )
+    candidate_dimensions: list[str] = Field(
+        min_length=1,
+        description="Attribution dimensions to decompose each followed candidate over.",
+    )
+    profile: Literal["auto", "spike_dip", "level_shift", "seasonal_residual"] = Field(
+        default="auto",
+        description="Detection profile preset.",
+    )
+    sensitivity: Literal["conservative", "balanced", "aggressive"] = Field(
+        default="balanced",
+        description="Detection sensitivity preset.",
+    )
+    candidate_limit: int | None = Field(
+        default=None,
+        ge=1,
+        description="Maximum number of candidates returned by the internal detect step.",
+    )
+    followup_limit: int | None = Field(
         default=3,
         ge=1,
-        description="Number of top anomaly candidates to follow up on.",
+        description="Number of top-ranked candidates to follow up with compare+decompose.",
+    )
+    decomposition_limit: int | None = Field(
+        default=5,
+        ge=1,
+        description="Maximum driver rows per dimension per candidate.",
     )
 
 

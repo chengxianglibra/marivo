@@ -55,9 +55,10 @@ def run_detect_intent(
         )
 
     grain: str = str(time_scope_raw.get("grain") or "").lower()
-    if grain not in {"day", "hour"}:
+    if grain not in {"hour", "day", "week", "month"}:
         raise ValueError(
-            f"detect: INVALID_ARGUMENT - time_scope.grain must be 'day' or 'hour', got '{grain}'"
+            f"detect: INVALID_ARGUMENT - time_scope.grain must be one of "
+            f"'hour', 'day', 'week', 'month', got '{grain}'"
         )
 
     current = time_scope_raw.get("current")
