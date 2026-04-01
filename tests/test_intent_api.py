@@ -337,30 +337,29 @@ class IntentEndpointTests(unittest.TestCase):
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/forecast",
             json={
-                "series_ref": {
+                "source_ref": {
                     "session_id": self.session_id,
                     "step_id": "step_1",
                     "step_type": "observe",
                 },
-                "granularity": "day",
             },
         )
         self.assertEqual(r.status_code, 422)
 
-    def test_forecast_returns_501_for_stub(self) -> None:
+    def test_forecast_nonexistent_step_returns_422(self) -> None:
+        # forecast is now a real runner; a nonexistent step_id yields STEP_NOT_FOUND → 422
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/forecast",
             json={
-                "series_ref": {
+                "source_ref": {
                     "session_id": self.session_id,
                     "step_id": "step_1",
                     "step_type": "observe",
                 },
                 "horizon": 7,
-                "granularity": "day",
             },
         )
-        self.assertEqual(r.status_code, 501)
+        self.assertEqual(r.status_code, 422)
 
     # ── derived intents ───────────────────────────────────────────────────────
 

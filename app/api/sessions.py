@@ -169,7 +169,7 @@ def intent_forecast(
     payload: ForecastRequest,
     request: Request,
 ) -> dict[str, object]:
-    _assert_same_session(session_id, payload.series_ref)
+    _assert_same_session(session_id, payload.source_ref)
     return _run_intent(session_id, "forecast", payload.model_dump(exclude_none=True), request)
 
 
