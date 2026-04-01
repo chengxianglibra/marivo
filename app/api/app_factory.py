@@ -41,12 +41,14 @@ def _resolve_storage(
         if db_path is not None
         else Path(os.getenv("DUCKDB_MVP_DB", default_db_path()))
     )
+    created_analytics_engine = analytics_engine is None
     if metadata_store is None:
         metadata_store = SQLiteMetadataStore(resolved_path.with_suffix(".meta.sqlite"))
     if analytics_engine is None:
         analytics_engine = DuckDBAnalyticsEngine(resolved_path)
     metadata_store.initialize()
-    analytics_engine.initialize()
+    if created_analytics_engine:
+        analytics_engine.initialize()
     return resolved_path, metadata_store, analytics_engine
 
 

@@ -38,6 +38,7 @@ from app.intents.correlate import run_correlate_intent
 from app.intents.decompose import run_decompose_intent
 from app.intents.detect import run_detect_intent
 from app.intents.observe import run_observe_intent
+from app.intents.test import run_test_intent
 from app.semantic_runtime import SemanticRuntimeRepository
 from app.session import SessionManager
 from app.storage.analytics import AnalyticsEngine
@@ -63,7 +64,6 @@ _AUTO_INCREMENTAL_SYNTHESIZER = object()
 
 _STUB_INTENT_TYPES: frozenset[str] = frozenset(
     {
-        "test",
         "forecast",
         "attribute",
         "diagnose",
@@ -143,6 +143,7 @@ class SemanticLayerService:
             "decompose", lambda sid, p: run_decompose_intent(self, sid, p)
         )
         self.intent_registry.register("detect", lambda sid, p: run_detect_intent(self, sid, p))
+        self.intent_registry.register("test", lambda sid, p: run_test_intent(self, sid, p))
         for _stub_type in _STUB_INTENT_TYPES:
             self.intent_registry.register(_stub_type, _make_stub_runner(_stub_type))
         self._default_synthesizer = DefaultClaimSynthesizer()
@@ -3160,6 +3161,24 @@ class SemanticLayerService:
             [step_id, session_id],
         )
         return str(row["artifact_id"]) if row else None
+
+    def _resolve_artifact_with_id(
+        self, session_id: str, step_id: str
+    ) -> tuple[str, dict[str, Any]] | None:
+        """Return (artifact_id, content) for the most recent committed artifact for a step.
+
+        Single query replacing separate _resolve_artifact_for_ref + _resolve_artifact_id_for_step
+        calls for callers that need both.
+        """
+        row = self.metadata.query_one(
+            "SELECT artifact_id, content_json FROM artifacts "
+            "WHERE step_id = ? AND session_id = ? AND lifecycle = 'committed' "
+            "ORDER BY created_at DESC LIMIT 1",
+            [step_id, session_id],
+        )
+        if row is None:
+            return None
+        return str(row["artifact_id"]), json.loads(row["content_json"])
 
     def _observation_count(self, session_id: str) -> int:
         """Return the number of observations already recorded for a session."""

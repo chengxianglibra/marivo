@@ -32,7 +32,7 @@ Step submission is a write surface. Session state and proposition context remain
 | `decompose` | `POST /sessions/{session_id}/intents/decompose` | Implemented | `DecomposeResponse` |
 | `correlate` | `POST /sessions/{session_id}/intents/correlate` | Implemented | `CorrelateResponse` |
 | `detect` | `POST /sessions/{session_id}/intents/detect` | Implemented | `DetectResponse` |
-| `test` | `POST /sessions/{session_id}/intents/test` | 501 stub | `TestResponse` |
+| `test` | `POST /sessions/{session_id}/intents/test` | Implemented | `TestResponse` |
 | `forecast` | `POST /sessions/{session_id}/intents/forecast` | 501 stub | `ForecastResponse` |
 | `attribute` | `POST /sessions/{session_id}/intents/attribute` | 501 stub | `AttributeResponse` |
 | `diagnose` | `POST /sessions/{session_id}/intents/diagnose` | 501 stub | `DiagnoseArtifact` |
@@ -337,6 +337,12 @@ Request body fields:
 - `right_ref`: required inferential-ready `observe` ref
 - `hypothesis`: required difference-hypothesis contract
 - `method`: `auto`, `welch_t`, or `two_proportion_z`; defaults to `auto`
+
+The `test` typed refs are strict in v1:
+
+- `artifact_id` is required on both refs and must match the committed upstream `observe` artifact
+- `observation_type` is required on both refs and must be `numeric_sample_summary` or `rate_sample_summary`
+- the request ref metadata must agree with the resolved committed artifact lineage
 
 Normalization rules:
 
