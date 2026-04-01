@@ -31,6 +31,8 @@ The canonical target identity is fixed by path only:
 
 Together they materialize the wire form of `PropositionContextQuery.proposition_ref`. The endpoint defines no request body, no projection profile, no paging controls, and no structured query variant.
 
+This resource exposes externally visible canonical context only. It is not a runtime attempt or operator backlog endpoint.
+
 ## Endpoint
 
 ### `GET /sessions/{session_id}/propositions/{proposition_id}/context`
@@ -70,6 +72,7 @@ Wire invariants fixed by this contract:
 - authored and system-seeded propositions use the same endpoint and the same payload shape
 - `schema_version` identifies the canonical context surface contract, not transport behavior
 - the response contains no paging metadata, truncation metadata, or projection metadata
+- the response must not expose a half-refreshed closure; `latest_assessment` and its proposal/explanation basis must come from the same externally visible proposition-local bundle
 
 ## Field Semantics
 
@@ -114,6 +117,7 @@ Fixed rules:
 - if `latest_assessment` exists and there are no non-blocking gaps, `non_blocking_gaps` is `[]`
 - if `latest_assessment` exists and there are no applied inference records, `applied_inference_records` is `[]`
 - if `latest_assessment` exists and current inference does not depend on prior assessments, `assessment_dependencies` is `[]`
+- `latest_assessment = null` is a canonical read result only; it does not by itself distinguish between untriggered, failed, or migration-blocked runtime states
 
 Inclusion boundaries are fixed:
 
@@ -183,6 +187,8 @@ For the session-level decision surface, use [`session-state.md`](session-state.m
 
 `GET /sessions/{session_id}/reflection-context` remains a legacy compact summary endpoint only. It is not equivalent to `PropositionContextView`, and new canonical context fields must not be added there instead of this endpoint.
 
+If a caller needs runtime progress or failure detail for the proposition publish path, that belongs to a separate operator-facing runtime status surface rather than this endpoint.
+
 ## Non-goals
 
 This contract does not define:
@@ -190,4 +196,5 @@ This contract does not define:
 - assessment history browsing
 - compact or audit context projections
 - paging, truncation, or continuation tokens
+- runtime attempt or queue status
 - cache headers or conditional request semantics

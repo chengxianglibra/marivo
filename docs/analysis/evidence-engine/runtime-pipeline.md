@@ -2,7 +2,7 @@
 
 本文档定义 Evidence Engine 主线中的运行时流水线与提交边界。
 
-状态：draft design。本文是主题级总线文档，吸收原 `evidence-engine-runtime-lifecycle` 与 `artifact-finding-extraction-contract` 的主线职责；`finding -> proposition` 的实现级 seeding contract 由 [`finding-proposition-seeding.md`](finding-proposition-seeding.md) 补充。
+状态：draft design。本文是主题级总线文档，负责固定 canonical pipeline 的阶段顺序、对象提交边界与主线 suppression 规则；更细的运行时 ownership、串行化点、发布边界、恢复与 backpressure 基线由 [`runtime-lifecycle.md`](runtime-lifecycle.md) 补充，`finding -> proposition` 的实现级 seeding contract 由 [`finding-proposition-seeding.md`](finding-proposition-seeding.md) 补充。
 
 ## 目的
 
@@ -11,6 +11,7 @@
 - canonical pipeline 的阶段顺序是什么
 - 哪些 artifact family 必须进入 finding layer
 - committed canonical state 的最小可见单元是什么
+- internal staging 与 external canonical visibility 如何分离
 - extractor 应如何选择、item boundary 应如何稳定化
 - proposition seeding 何时运行、如何匹配、如何去重
 - latest assessment 后 proposal refresh 如何触发与抑制
@@ -27,6 +28,12 @@ Evidence Engine 的目标态运行时流水线固定为：
 5. 仅在 judgment output 发生变化时提交新的 assessment snapshot
 6. 基于 latest assessment 刷新 action proposals
 7. state/context 读取层暴露 latest/live canonical state
+
+更细的 runtime lifecycle 基线：
+
+- internal staging、claim / retry / recovery 由 [`runtime-lifecycle.md`](runtime-lifecycle.md) 定义
+- proposition 是 assessment / proposal publish path 的最小串行化单元
+- 对外读取面采用严格原子可见，不暴露“新 assessment + 旧 proposal”的半更新组合
 
 ## Artifact -> Finding
 
@@ -54,6 +61,7 @@ Evidence Engine 的目标态运行时流水线固定为：
 - empty finding set 只有在该 artifact family contract 显式允许时才合法
 
 因此，proposition seeding、assessment recompute 与 action proposal refresh 都只能消费 committed findings。
+更细的 stage ownership、claim 与 extraction crash recovery 规则，以 [`runtime-lifecycle.md`](runtime-lifecycle.md) 为准。
 
 ### Extraction rules
 
@@ -118,6 +126,7 @@ assessment recompute 只在 proposition registration 或相关 finding 变化后
 - proposition 注册成功前不得触发 assessment recompute
 - assessment 未形成 committed latest state 前，不得刷新 action proposals
 - 读取面不得暴露 artifact-only 中间态作为 canonical state
+- 同一 proposition 的 assessment snapshot commit 不得绕过 proposal refresh 直接切换 externally visible latest bundle
 
 ## Latest Assessment -> Action Proposal Refresh
 
@@ -130,6 +139,7 @@ proposal refresh 的 authority input 固定为 committed `latest_assessment` 及
 - proposal refresh 不得回写 assessment judgment semantics
 - proposal refresh 允许输出空 proposal 集；空集仍是合法 canonical result
 - refresh 若未改变 canonical proposal 集，可记为 no-op，而不是提交新的 proposal snapshots
+- 对外暴露时，latest assessment 与其匹配的 proposal set 必须作为 proposition-local bundle 原子切换
 
 更细的 candidate generation、payload materialization、ranking、identity 与 no-op 规则，以 [`proposal-policy-engine.md`](proposal-policy-engine.md) 为准。
 
@@ -152,6 +162,8 @@ replay 不允许：
 - 在 source item boundary 未变化时漂移 finding identity
 - 违反对应 artifact family contract 定义的 empty/non-empty 合法性边界
 
+更细的 stage checkpoint、publish-ready 恢复与 duplicate delivery 基线，以 [`runtime-lifecycle.md`](runtime-lifecycle.md) 为准。
+
 ### Snapshot behavior
 
 - proposition 是 registry object，不因 assessment 推进而重建
@@ -167,9 +179,12 @@ replay 不允许：
 - 通过 missing refs、gap reopen、membership 收缩与 latest selection 变化暴露影响
 - 不通过硬删除伪装成“从未发生”
 
+v1 默认采用 tombstone-first 基线；invalidated upstream object 的更细 lifecycle、受控物理删除边界与 mixed-version 规则留待后续专项文档补齐。
+
 ## Related Documents
 
 - [`overview.md`](overview.md)：主题总览与阅读顺序
+- [`runtime-lifecycle.md`](runtime-lifecycle.md)：运行时 ownership、发布边界、恢复与 backpressure 基线
 - [`artifact-finding-generation-rules.md`](artifact-finding-generation-rules.md)：artifact -> finding 的统一生成协议与 family-level 规则提案
 - [`finding-proposition-seeding.md`](finding-proposition-seeding.md)：finding -> system-seeded proposition 的完整实现级 contract
 - [`assessment-evaluation-context.md`](assessment-evaluation-context.md)：assessment recompute 的输入组装与触发映射

@@ -42,6 +42,7 @@
 - 完整 step 执行日志
 - narrative report 或自由文本答案
 - 内部 lease、锁或 job 调度细节
+- runtime attempt、claim、retry、backpressure 或 publish checkpoint 细节
 
 ### 2. `session` 是会话内局部规范标识的根边界
 
@@ -129,6 +130,8 @@ v1 中规范对象的标识边界都绑定单个 session。
 - “足够回答用户”属于 agent 基于 state/context 的消费结论，而不是 `session` 本体字段
 - `latest` / `live` 属于读取层语义，不是 `session` 本体上的 mutable flag family
 
+更细的 runtime stage ownership、publish boundary、retry / recovery、claim / backlog 语义由 [`../runtime-lifecycle.md`](../runtime-lifecycle.md) 定义，而不是由 `session` 根对象承载。
+
 ### 8. `SessionStateSummary` 只承载读取入口
 
 `SessionStateSummary` 是 `session` 根对象上的最小状态入口对象。
@@ -157,6 +160,7 @@ v1 中规范对象的标识边界都绑定单个 session。
 - state surface 负责暴露 proposition-centered 主状态
 - context surface 负责暴露单 proposition 局部最小闭包
 - projection surface 负责有界排序、截断与 focus view
+- runtime lifecycle / status surface 负责承载 claim、attempt、failure visibility 与 backlog 等运行时状态
 
 因此读取链路应理解为：
 

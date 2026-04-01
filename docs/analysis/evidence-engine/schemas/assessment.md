@@ -15,6 +15,7 @@
 - 把实时证据归属（live evidence membership）、证据缺口（evidence gap）、规则命中/未命中（rule hits/misses）放入判断状态，而不是回写 proposition
 - 保持 assessment 可审计、可回溯、可版本化
 - 为动作候选（action proposal）提供稳定输入，但不把动作建议混入 assessment 本体
+- 让 assessment schema 与 version migration、tombstone-first invalidation 保持一致
 
 ## 核心设计决策
 
@@ -130,6 +131,16 @@ v1 中 assessment 不区分 proposition 来源。
 - authored proposition 不得拥有独立的“弱评估”旁路
 - 若 authored proposition 尚无足够证据，应通过 `insufficient + gaps` 表达，而不是跳过 assessment 轨道
 
+### 7. `assessment` schema 不承载 migration/runtime blockage truth
+
+`assessment` 只表达 canonical judgment snapshot，不负责表达：
+
+- 当前 session 是否需要 migration
+- 当前 publish path 是否卡在 retry / backlog / claim
+- `latest_assessment = null` 究竟是未触发、执行失败还是 migration-blocked
+
+这些状态必须进入独立 runtime status surface，而不是扩张 assessment status lattice。
+
 ## Schema Position
 
 规范抽象链路：
@@ -159,6 +170,8 @@ assessment 中承载 relation semantics 的字段解释，以 [`evidence-engine/
 - `supersedes_assessment_id` 承载 `assessment -> assessment` 的 `supersedes`
 
 这些关系都绑定 assessment snapshot；其中 support / oppose / gap / inference record membership 是 runtime snapshot membership，不是 proposition-level 常驻关系。
+
+assessment 的 version upgrade、mixed-version 边界与 invalidation 治理由 [`migration-and-invalidation.md`](../migration-and-invalidation.md) 统一约束。
 
 ## Typed Schema
 

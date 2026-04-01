@@ -21,6 +21,8 @@ Do not use these endpoints as generic projection containers. They expose the can
 
 `SessionStateView` remains the session-level default read baseline. For the proposition-level minimal closure, use [`context-surface.md`](context-surface.md).
 
+This surface exposes externally visible canonical state only. It is not a runtime orchestration or backlog view.
+
 ## Session State Endpoints
 
 ### `GET /sessions/{session_id}/state`
@@ -72,7 +74,7 @@ Request body:
   "proposition_types": ["metric_status"],
   "origin_kinds": ["system_seeded"],
   "assessment_presence": "assessed",
-  "assessment_statuses": ["blocked"],
+  "assessment_statuses": ["insufficient"],
   "has_blocking_gaps": true,
   "limit": 25,
   "page_token": null
@@ -92,8 +94,8 @@ The HTTP layer fixes the following behavior:
 - `assessment_presence = "assessed"` matches only entries where `latest_assessment != null`
 - `assessment_statuses` match only `latest_assessment.status`
 - `assessment_presence = "unassessed"` combined with any `assessment_statuses` is valid but returns an empty result set
-- `has_blocking_gaps = true` matches only assessed entries with non-empty `blocking_gap_refs`
-- `has_blocking_gaps = false` matches only assessed entries with `blocking_gap_refs = []`; it does not include unassessed propositions
+- `has_blocking_gaps = true` matches only assessed entries with non-empty `blocking_gaps`
+- `has_blocking_gaps = false` matches only assessed entries with `blocking_gaps = []`; it does not include unassessed propositions
 
 ## Session State Response Shape
 
@@ -130,6 +132,8 @@ Canonical payload invariants still follow the analysis contracts:
 - `truncation` describes truncation of `active_propositions`
 - `focus_subjects`, `backing_findings`, `blocking_gaps`, and `artifact_refs` must shrink to the returned proposition closure when truncation is active
 - `backing_findings`, `blocking_gaps`, and `artifact_refs` must never contain members belonging only to propositions excluded by paging
+- the response must reflect only externally visible proposition-local bundles; it must not expose a partially refreshed combination such as a new `latest_assessment` with an old proposal closure
+- runtime attempt, claim, retry, backlog, or migration-blocked status does not belong to this payload
 
 ## Session State Pagination
 
@@ -174,6 +178,8 @@ This document defines the session-level canonical read surface:
 
 - `GET /sessions/{session_id}/state` for the session-level decision surface
 
+If a caller needs to know whether recompute, proposal refresh, publish, or migration is still in progress, that must come from a separate operator-facing runtime status surface rather than from `SessionStateView`.
+
 For the proposition-level minimal closure, use [`context-surface.md`](context-surface.md):
 
 - `GET /sessions/{session_id}/propositions/{proposition_id}/context`
@@ -188,4 +194,5 @@ This contract does not define:
 - step execution APIs
 - assessment history browsing
 - compact or audit projection profiles
+- runtime attempt or queue status
 - cache headers or conditional request semantics
