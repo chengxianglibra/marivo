@@ -27,6 +27,8 @@ Evidence Engine 主线链路仍然是：
 - context surface 负责单 proposition 深挖
 - projection surface 负责排序、截断和 token-budget 压缩
 
+读取面与运行时 lifecycle 的边界以 [`runtime-lifecycle.md`](runtime-lifecycle.md) 为准：state/context 只暴露 externally visible canonical state，不暴露 refresh 中间态、claim/lease 或 retry attempt。
+
 ## Session Root
 
 [`../session.md`](schemas/session.md) 定义分析容器根对象。
@@ -61,6 +63,12 @@ state surface 回答：
 - 当前有哪些命题处于 judgment track
 - 当前哪些 blocking gaps 阻塞推进
 
+它不回答：
+
+- 当前 proposition refresh 是否仍在后台进行
+- 某次 recompute attempt 是否失败、重试或被 backpressure 延后
+- 当前队列、claim、lease 或 backlog 细节
+
 ## Context Surface
 
 [`../context-surface-schema.md`](schemas/context-surface-schema.md) 定义 `PropositionContextView`。
@@ -86,6 +94,7 @@ context surface 回答：
 
 - `relevant_findings` 是 committed latest assessment closure，不是 assessment recompute 的 candidate finding set
 - recompute 输入组装以 [`assessment-evaluation-context.md`](assessment-evaluation-context.md) 为准；读取面不得把两者合并
+- `latest_assessment` 与匹配的 proposal set 必须来自同一个 externally visible proposition-local bundle，不允许暴露半更新组合
 
 ## Shared Invariants
 
@@ -95,10 +104,15 @@ context surface 回答：
 - `latest/live` 是读取层解释，不是对象本体 flag
 - assessment-derived closure integrity 受 graph/reference 主题文档约束
 - projection 可以压缩，不得重定义 evidence semantics
+- 对外读取面采用严格原子可见：只能看到旧整套状态或新整套状态
+- runtime refresh / retry / backlog 状态应进入独立 operator-facing runtime status surface，而不是混入 canonical read surface
+- operator-facing runtime status surface 的 shape 与责任边界由 [`runtime-status-surface.md`](runtime-status-surface.md) 定义
 
 ## Related Documents
 
 - [`overview.md`](overview.md)
+- [`runtime-lifecycle.md`](runtime-lifecycle.md)
+- [`runtime-status-surface.md`](runtime-status-surface.md)
 - [`assessment-evaluation-context.md`](assessment-evaluation-context.md)
 - [`graph-and-reference-semantics.md`](graph-and-reference-semantics.md)
 - [`../session.md`](schemas/session.md)

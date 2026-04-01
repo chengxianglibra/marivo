@@ -12,6 +12,7 @@
 - seed template registry 的 shape、版本与 authority boundary 是什么
 - single-finding / multi-finding template 如何稳定匹配
 - proposition payload、identity、lineage、seed refs 如何确定性生成
+- seeding run 的 dedupe key、recovery 与 assessment handoff 如何稳定定义
 - seeding 如何做 registration、去重、replay 与 soft invalidation 协调
 - 哪些 finding family 会 seed proposition，哪些不会
 
@@ -141,6 +142,21 @@ seeding 不在以下场景触发：
 - 一个稳定的 `affected_proposition_ids` 集合，供 assessment recompute 消费
 
 seeding run 必须可重放，且相同输入不得制造不同 proposition 集合。
+
+### Run dedupe key and recovery
+
+推荐 seeding run dedupe key：
+
+- `session_id`
+- committed finding snapshot identity
+- `registry_version`
+
+固定要求：
+
+- 相同 dedupe key replay 时，`created_proposition_ids`、`existing_proposition_ids` 与 `affected_proposition_ids` 必须稳定
+- 若 seeding crash 发生在 registration commit 之前，则整轮 seeding 允许按相同输入整体重跑
+- 若 proposition registration 已 committed，但 assessment handoff 尚未完成，则必须能够从 committed seeding 结果重新派发 `affected_proposition_ids`
+- runtime 不得依赖“本轮 worker 内存里还记得哪些 proposition 被影响”来驱动下游
 
 ### Input / Output Types
 
@@ -414,6 +430,12 @@ registration 是 proposition registry 的唯一写入 owner。
 
 - `(session_id, proposition_id)`
 
+运行时补充要求：
+
+- registration commit 是 proposition registry truth 的唯一落点
+- seeding stage 的下游 handoff truth 是稳定的 `affected_proposition_ids`，而不是“本轮新建了多少 proposition”
+- create 与 hit 都必须进入 `affected_proposition_ids`，避免已有 proposition 因 registration hit 而跳过 recompute
+
 ### created_at semantics
 
 - create：使用当前 proposition registration commit time
@@ -435,6 +457,7 @@ assessment 是否产生新 snapshot，由 inference/gap engine 决定；seeding 
 - creation condition 结果保持稳定
 - proposition_id 保持稳定
 - create / hit 结果保持稳定
+- `affected_proposition_ids` 保持稳定
 
 ### Template upgrade
 

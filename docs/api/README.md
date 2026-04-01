@@ -75,6 +75,7 @@ Fields that store structured data are represented as JSON objects in responses. 
 | [Intent Step Submission](intent-steps.md) | `/sessions/{id}/steps/*` | Target-state per-intent step submission for atomic and derived analysis intents |
 | [Session State Surface](session-state.md) | `/sessions/{id}/state` | Canonical session-level decision surface |
 | [Context Surface](context-surface.md) | `/sessions/{id}/propositions/{pid}/context` | Canonical proposition-level minimal closure |
+| [Runtime Status Surface](runtime-status.md) | `/sessions/{id}/**/runtime-status` | Operator-facing runtime stage, attempt, failure, and backlog status |
 | [Planning](planning.md) | `/sessions/{id}/plans` | Multi-step analysis plans with validation and execution |
 | [Sources](sources.md) | `/sources` | Data source registration and catalog sync |
 | [Engines & Bindings](engines.md) | `/engines`, `/bindings` | Analytics engine registration and source-engine routing |
@@ -90,6 +91,7 @@ Fields that store structured data are represented as JSON objects in responses. 
 - [Intent Step Submission](intent-steps.md) — target-state per-intent write contract for atomic and derived analysis intents
 - [Session State Surface](session-state.md) — canonical session-level decision surface HTTP contract
 - [Context Surface](context-surface.md) — canonical proposition-level minimal closure HTTP contract
+- [Runtime Status Surface](runtime-status.md) — operator-facing runtime stage and failure HTTP contract
 - [Quickstart](quickstart.md) — end-to-end walkthrough with `curl` examples
 - [Error Reference](errors.md) — HTTP status codes, error formats, and common error scenarios
 

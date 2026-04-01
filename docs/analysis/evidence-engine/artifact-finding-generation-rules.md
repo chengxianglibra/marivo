@@ -2,7 +2,7 @@
 
 本文档定义 `artifact -> finding` 的目标态生成协议与分意图抽取规则提案。
 
-状态：draft proposal。本文是对 [`runtime-pipeline.md`](runtime-pipeline.md) 与 [`schemas/finding.md`](schemas/finding.md) 的补充设计稿，目的是先收敛生成规则与审批点，不直接改写现有 canonical 主文档。
+状态：draft proposal。本文是对 [`runtime-pipeline.md`](runtime-pipeline.md)、[`runtime-lifecycle.md`](runtime-lifecycle.md) 与 [`schemas/finding.md`](schemas/finding.md) 的补充设计稿，目的是先收敛生成规则、stage boundary 与审批点，不直接改写现有 canonical 主文档。
 
 当前审批结果：
 
@@ -18,6 +18,7 @@
 
 - finding 在运行时何时生成
 - extractor 的 authority boundary 是什么
+- extraction run 的稳定输入边界、dedupe key 与 recovery 基线是什么
 - 什么是 canonical item boundary
 - `finding_id` 与 `artifact_item_ref` 应如何稳定生成
 - 不同 typed intent family 应如何从 artifact 映射到 finding
@@ -93,7 +94,26 @@ extractor 不允许读取：
 - summary / explanation / narrative text
 - 模型输出
 
-### 3. Extractor registry
+### 3. Extraction run boundary
+
+单次 extraction run 固定针对：
+
+- 单个 `session_id`
+- 单个 committed artifact candidate
+- 一个稳定的 `(artifact_type, artifact_schema_version)` extractor 选择结果
+- 一个稳定的 `extractor_version`
+
+推荐 run dedupe key：
+
+- `(artifact_id, artifact_schema_version, extractor_version)`
+
+固定要求：
+
+- 相同 artifact payload、相同 contract、相同 extractor version replay 时，`findings` 集、`finding_id` 与 `finding_count` 必须稳定
+- extractor upgrade 若不改变 finding identity boundary，可重跑并命中同一 finding identity
+- extractor upgrade 若改变 finding identity boundary，不得通过隐式运行时分支偷改；必须由显式 version / migration policy 驱动
+
+### 4. Extractor registry
 
 提案：extractor 的选择键固定为：
 
@@ -106,7 +126,7 @@ extractor 不允许读取：
 
 不建议直接仅按 `step_type` 路由，因为同一 step family 后续可能演化出多个 artifact contract。
 
-### 4. 输出 contract
+### 5. 输出 contract
 
 每次 extraction 必须返回：
 
@@ -120,6 +140,21 @@ extractor 不允许读取：
 
 - `finding_count` 的最小值由对应 artifact family contract 决定
 - 同一 `artifact_id + canonical_item_key + finding_type` 至多生成一个 finding
+
+### 6. Commit / recovery / handoff
+
+对 mandatory extraction artifact，extraction stage 的固定提交与恢复规则为：
+
+- 若 `artifact + findings` 尚未共同 committed，则整个 extraction run 视为未完成，可整体重跑
+- 若 committed finding set 已存在，则该 finding set 是下游 seeding 的唯一 authority input
+- extraction crash 不得留下 externally visible 的 artifact-only 中间态
+- extraction result 一旦 committed，下游只消费 committed finding set，而不消费本次 attempt 的临时内存产物
+
+下游 handoff 固定为：
+
+- seeding 只能消费 committed `finding_ids`
+- handoff payload 至少要能稳定恢复 `artifact_id`、committed finding snapshot 与 `finding_ids`
+- handoff 重试只允许重发同一 committed finding snapshot，不允许夹带未提交的新 finding candidate
 
 ## Canonical Item Boundary
 
@@ -347,6 +382,15 @@ empty semantics：
 - `detect` 允许 success-empty
 - empty artifact 表示 scan 已完成，且 `total_candidate_count = 0`
 - success-empty 的 `detect` artifact 不会 seed proposition，也不得被回放为 synthetic finding
+
+`FindingSubject.analysis_axis` 规则：
+
+- `anomaly_candidate` finding 的 `analysis_axis` 必须与被检测维度的观测类型对应，而不是使用 judgment 层的 `"anomaly"` 标签：
+  - 点位异常 → `"scalar"`
+  - 时序异常 → `"time"`
+  - 分段异常 → `"segment"`
+- `"anomaly"` 轴只出现在 `AssessmentSubject`（judgment 层），不出现在 finding 层的 `FindingSubject`。
+- 4d-* `detect` extractor 必须根据 artifact contract 中的被检测维度类型选择正确的 `analysis_axis`，不得统一硬编码为某个固定值。
 
 ### correlate
 
@@ -577,6 +621,13 @@ D1～D5 均已批准，以下基础合同已落地：
 ## 实现状态（Phase 4b-2）
 
 - **D1 (extractor registry)**：`app/evidence_engine/finding_extractor_registry.py` 实现 `FindingExtractor` ABC 和 `FindingExtractorRegistry`，以 `(artifact_type, artifact_schema_version)` 为 dispatch key。`default_finding_registry` 模块级单例在 import 时为空；4d-* extractor 模块调用 `default_finding_registry.register(...)` 填充。`find(artifact_type, None)` 将 NULL 归一化为 `'v1'`（lenient lookup）；`get(artifact_type, version)` 严格匹配，不做归一化。`snapshot()` 返回按 `(artifact_type, artifact_schema_version)` 排序的可审计快照，包含 `extractor_name`、`extractor_version`、`finding_schema_version`，支持 replay / 版本变更审计。
+
+## 实现状态（Phase 4b-4）
+
+- **D4 (commit gate)**：`app/evidence_engine/finding_extractor_registry.py` 新增 `validate_for_commit(family, result)` 统一提交前验证入口，将 `validate_extraction_result`（内部一致性：`finding_count == len(findings)`）与 `family_contract.check_finding_count`（D4 family empty contract）按固定顺序链式调用，供 4c-1 commit boundary 直接 import。commit path 不再需要分别调用两个独立函数。
+  - `validate_for_commit` 通过时，extraction result 满足内部一致性与 family empty contract 双重约束，可提交 committed artifact + finding set。
+  - `validate_for_commit` 抛出时，artifact 保持 `staged`，本次 attempt 记为 `failed`，与 `runtime-lifecycle.md` 中的 extraction crash recovery 基线一致。
+  - 14 个回归测试在 `tests/test_finding_extractor_registry.py::TestValidateForCommit` 中覆盖：allow-empty 通过、mandatory-non-empty 失败、count/len 不一致先于 family 校验抛出、未知 family fail-safe。
 
 ## 实现状态（Phase 4b-3）
 

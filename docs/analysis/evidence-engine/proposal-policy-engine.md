@@ -13,6 +13,7 @@
 - assessment 特征如何确定性映射到 proposal family 与 typed payload
 - `priority_axes` 与 `priority_rank` 如何由显式 policy 规则计算
 - proposal identity、去重、排序、no-op 与 supersession 如何解释
+- refresh run 的 dedupe key、publish-ready 边界与 recovery 如何稳定定义
 - proposal engine 如何保持为纯 projection，而不回写 judgment semantics
 
 ## 主题位置
@@ -272,6 +273,26 @@ proposal refresh 只允许由以下事件触发：
 - 仅 explanation 文案、排序实现细节或 UI projection 改动，不构成 canonical refresh trigger
 - assessment recompute 若最终 no-op，且 latest selection 未变化，则 proposal refresh 默认不触发
 
+## Refresh Run Boundary
+
+单次 proposal refresh 固定针对：
+
+- 单个 `session_id`
+- 单个 `proposition_id`
+- 一个 committed `latest_assessment`
+- 一个稳定的 `proposal_context`
+- 一个稳定的 `policy_profile / policy_version` 组合
+
+推荐 refresh dedupe key：
+
+- `(proposition_id, latest_assessment_id, proposal_context_identity, policy_version)`
+
+固定要求：
+
+- 相同 dedupe key replay 时，candidate set、proposal identity、排序与 no-op 判定必须稳定
+- refresh crash 若发生在 proposal snapshot commit 前，可按相同输入整体重跑
+- proposal snapshot 若已 committed 但 proposition-local bundle 尚未 externally visible，则 publish path 必须从 committed proposal set 继续，而不是回退到旧 assessment 重新生成语义
+
 ## Input Closure Assembly
 
 proposal engine 在单个 proposition 上运行时，必须按以下顺序组装输入：
@@ -497,6 +518,12 @@ proposal identity 推荐由以下输入生成：
 - 不改写既有 proposal objects
 - 读取面继续暴露当前 committed proposal 集
 
+若 refresh 结果为合法空集，则：
+
+- 空集本身也是 committed canonical result
+- 对外暴露时必须与对应 latest assessment 一起作为 proposition-local bundle 原子切换
+- 不得因为“没有 proposal”而延迟 assessment 的 externally visible 切换
+
 ## Output Guarantees
 
 - 同一 latest assessment、相同 context、相同 policy 重放时，proposal 集、identity 与排序稳定
@@ -504,6 +531,7 @@ proposal identity 推荐由以下输入生成：
 - consumer 可以完全绕过 proposal，仅依赖 proposition + latest assessment + gaps 做决策
 - proposal engine 不得创造新的 facts、propositions 或 assessments
 - proposal focus view 中的 relevant findings 必须继续来自 assessment closure
+- externally visible read surface 只暴露与当前 latest assessment 匹配的 committed proposal set
 
 ## Test Cases
 
@@ -518,10 +546,12 @@ proposal identity 推荐由以下输入生成：
 7. top-k canonical proposal view 必须先建立稳定全序，再做前缀截断。
 8. proposal refresh 不得回写 assessment status、confidence、gap state 或 evidence membership。
 9. proposal engine 输出空集时，读取面仍应保持 canonical 可读，而不是报错。
+10. proposal snapshot 已 committed 但 externally visible 切换被中断时，重试不得暴露“新 assessment + 旧 proposal”的半更新组合。
 
 ## Related Documents
 
 - [`overview.md`](overview.md)
+- [`runtime-lifecycle.md`](runtime-lifecycle.md)
 - [`runtime-pipeline.md`](runtime-pipeline.md)
 - [`inference-and-gap-engine.md`](inference-and-gap-engine.md)
 - [`read-surfaces.md`](read-surfaces.md)
