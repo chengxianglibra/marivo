@@ -177,6 +177,7 @@ type FindingProvenance = {
   extractor_name: string;
   extractor_version: string;
   artifact_schema_version: string | null;
+  canonical_item_key: string;   // stable key used as input to finding_id; also stored as dedicated column
   artifact_item_ref: ArtifactItemRef;
   projection_ref: string | null;
 };
@@ -898,10 +899,11 @@ action proposal 是面向 agent 的动作候选，不是事实。
     "extractor_name": "compare_delta_extractor",
     "extractor_version": "v1",
     "artifact_schema_version": "v1",
+    "canonical_item_key": "rows:iOS",
     "artifact_item_ref": {
       "collection": "rows",
-      "index": 0,
-      "key": null
+      "index": null,
+      "key": "iOS"
     },
     "projection_ref": null
   },
@@ -911,16 +913,16 @@ action proposal 是面向 agent 的动作候选，不是事实。
       "artifact_id": "art_obs_current",
       "item_ref": {
         "collection": "rows",
-        "index": 0,
-        "key": null
+        "index": null,
+        "key": "iOS"
       }
     },
     "right_ref": {
       "artifact_id": "art_obs_baseline",
       "item_ref": {
         "collection": "rows",
-        "index": 0,
-        "key": null
+        "index": null,
+        "key": "iOS"
       }
     },
     "left_value": 12.4,

@@ -68,6 +68,8 @@ Metadata reads use synced `source_objects`, not live catalogs.
 
 Canonical pipeline: `artifact → finding → proposition → assessment → action proposal`. Artifacts are committed step outputs. Findings are deterministically extracted atomic fact units (`findings` table). Propositions are judgment-layer objects seeded from findings (`propositions` table). Assessments are immutable evaluation snapshots with evidence membership and gap tracking (`assessments`, `evidence_gaps`, `inference_records` tables). Action proposals are planning-shortcut projections derived from latest assessments (`action_proposals` table). DDL: `app/storage/schema.py`.
 
+**Finding identity (Phase 4a-2):** `finding_id = make_finding_id(artifact_id, finding_type, canonical_item_key)` — SHA-256-based stable hash; `canonical_item_key = make_canonical_item_key(collection, key, index)` with stable key taking priority over index. Python type contract and helpers: `app/evidence_engine/canonical_finding.py` (`FindingBase`, `FindingProvenance`, `ArtifactItemRef`, `StepRef`, `FindingSubject`, `FindingQuality`, all payload subtypes). `canonical_item_key` is stored as a dedicated `findings` column (plus in `provenance_json`) to enable `UNIQUE(artifact_id, finding_type, canonical_item_key)` for idempotent replay. Fields that must NOT enter identity: `extractor_version`, `artifact_schema_version`, `projection_ref`, `rank`, summary text.
+
 ## Steps
 
 Defined in `app/analysis_core/primitives.py`: `metric_query`, `profile_table`, `sample_rows`, `aggregate_query`, `attribute_change`, `synthesize_findings`.

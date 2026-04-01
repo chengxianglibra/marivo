@@ -335,6 +335,7 @@ METADATA_DDL: list[str] = [
         artifact_id         TEXT NOT NULL REFERENCES artifacts(artifact_id),
         step_ref_json       TEXT NOT NULL,
         finding_type        TEXT NOT NULL,
+        canonical_item_key  TEXT NOT NULL DEFAULT '',  -- stable key for replay/idempotency; part of finding_id inputs
         subject_json        TEXT NOT NULL,
         observed_window_json TEXT,
         quality_json        TEXT NOT NULL,
@@ -347,6 +348,7 @@ METADATA_DDL: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_findings_session ON findings(session_id)",
     "CREATE INDEX IF NOT EXISTS idx_findings_artifact ON findings(artifact_id)",
     "CREATE INDEX IF NOT EXISTS idx_findings_session_type ON findings(session_id, finding_type)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_findings_artifact_type_key ON findings(artifact_id, finding_type, canonical_item_key)",
     # -- propositions: judgment-layer canonical objects --
     """
     CREATE TABLE IF NOT EXISTS propositions (
@@ -489,4 +491,9 @@ METADATA_MIGRATIONS: list[str] = [
     "ALTER TABLE evidence_edges ADD COLUMN score_components_json TEXT NOT NULL DEFAULT '{}'",
     "ALTER TABLE evidence_edges ADD COLUMN supporting_observation_ids_json TEXT NOT NULL DEFAULT '[]'",
     "ALTER TABLE artifacts ADD COLUMN lifecycle TEXT NOT NULL DEFAULT 'committed'",
+    # Safe precondition: findings is a Phase 4a-1 new table; no pre-existing rows have
+    # been written in production, so the DEFAULT '' cannot violate the UNIQUE index
+    # added in the DDL block above. Do not apply this migration against a findings
+    # table that already contains rows with the same (artifact_id, finding_type).
+    "ALTER TABLE findings ADD COLUMN canonical_item_key TEXT NOT NULL DEFAULT ''",
 ]
