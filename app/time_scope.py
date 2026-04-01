@@ -10,7 +10,7 @@ from app.time_axis_metadata import normalize_time_capabilities
 
 CompareKind = Literal["semantic_metric", "ad_hoc_aggregate"]
 TimeScopeMode = Literal["single_window", "compare"]
-TimeScopeGrain = Literal["day", "hour"]
+TimeScopeGrain = Literal["hour", "day", "week", "month"]
 
 
 @dataclass(slots=True)
@@ -192,8 +192,8 @@ class TimeScopeResolver:
         grain = _required_str(payload, "grain", self.step_type)
         if mode not in {"single_window", "compare"}:
             raise ValueError("time_scope.mode must be 'single_window' or 'compare'")
-        if grain not in {"day", "hour"}:
-            raise ValueError("time_scope.grain must be 'day' or 'hour'")
+        if grain not in {"hour", "day", "week", "month"}:
+            raise ValueError("time_scope.grain must be one of 'hour', 'day', 'week', 'month'")
         mode_typed = cast("TimeScopeMode", mode)
         grain_typed = cast("TimeScopeGrain", grain)
 
@@ -246,7 +246,7 @@ class TimeScopeResolver:
             _required_str(payload, "start", label), f"{label}.start", grain
         )
         end = self._normalize_boundary(_required_str(payload, "end", label), f"{label}.end", grain)
-        if grain == "day":
+        if grain in {"day", "week", "month"}:
             if date.fromisoformat(start) >= date.fromisoformat(end):
                 raise ValueError(f"{label} requires start < end")
         else:
@@ -257,7 +257,7 @@ class TimeScopeResolver:
     @staticmethod
     def _normalize_boundary(value: str, label: str, grain: TimeScopeGrain) -> str:
         normalized = value.strip()
-        if grain == "day":
+        if grain in {"day", "week", "month"}:
             try:
                 return date.fromisoformat(normalized).isoformat()
             except ValueError:
@@ -279,7 +279,7 @@ class TimeScopeResolver:
 
     @staticmethod
     def _window_duration(window: ResolvedTimeWindow, grain: TimeScopeGrain) -> int:
-        if grain == "day":
+        if grain in {"day", "week", "month"}:
             return (date.fromisoformat(window.end) - date.fromisoformat(window.start)).days
         return int(
             (
