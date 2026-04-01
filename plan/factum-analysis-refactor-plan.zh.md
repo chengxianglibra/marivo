@@ -195,7 +195,7 @@
 
 ## 阶段 3：重构执行模型为 Intent Registry + Derived Expansion
 
-> **实施说明**：本阶段拆分为顺序子任务（3a → 3b-1 → 3b-2 → 3b-3 → 3b-4 → 3b-5 → 3b-6 → 3c-1 → 3c-2 → 3c-3）。3b-1 ～ 3b-6 各对应一个 atomic runner，均依赖 3a 确定的 artifact 持久化模型和 registry 接口；3c-1 ～ 3c-3 各对应一个 derived intent，统一依赖全部 atomic runners 就绪。
+> **实施说明**：本阶段拆分为顺序子任务（3a → 3b-1 → 3b-2 → 3b-3 → 3b-4 → 3b-5 → 3b-6 → 3c-1 → 3c-2 → 3c-3）。3b-1 ～ 3b-6 各对应一个 atomic runner，均依赖 3a 确定的 artifact 持久化模型和 registry 接口；3c-1 ～ 3c-3 各对应一个 derived intent，统一依赖全部 atomic runners 就绪。3c-1 已完成。
 
 ---
 
@@ -374,7 +374,7 @@
 
 ---
 
-### 阶段 3b-5：`test` Runner
+### 阶段 3b-5：`test` Runner ✅ 已完成
 
 #### 目标
 
@@ -452,7 +452,7 @@
 
 ---
 
-### 阶段 3c-1：`attribute` Derived Expansion
+### 阶段 3c-1：`attribute` Derived Expansion ✅ 已完成
 
 #### 目标
 

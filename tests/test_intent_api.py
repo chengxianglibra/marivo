@@ -363,25 +363,30 @@ class IntentEndpointTests(unittest.TestCase):
 
     # ── derived intents ───────────────────────────────────────────────────────
 
-    def test_attribute_returns_501_for_stub(self) -> None:
+    def test_attribute_unknown_metric_returns_422(self) -> None:
+        # attribute is now a real runner; an unresolvable metric yields OBSERVE_FAILED → 422
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/attribute",
             json={
                 "metric": "dau",
-                "current_time_scope": {
-                    "kind": "range",
-                    "start": "2024-01-08",
-                    "end": "2024-01-15",
+                "left": {
+                    "time_scope": {
+                        "kind": "range",
+                        "start": "2024-01-08",
+                        "end": "2024-01-15",
+                    }
                 },
-                "baseline_time_scope": {
-                    "kind": "range",
-                    "start": "2024-01-01",
-                    "end": "2024-01-08",
+                "right": {
+                    "time_scope": {
+                        "kind": "range",
+                        "start": "2024-01-01",
+                        "end": "2024-01-08",
+                    }
                 },
-                "candidate_dimensions": ["region"],
+                "dimensions": ["region"],
             },
         )
-        self.assertEqual(r.status_code, 501)
+        self.assertEqual(r.status_code, 422)
 
     def test_diagnose_returns_501_for_stub(self) -> None:
         r = self.client.post(
