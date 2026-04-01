@@ -26,6 +26,7 @@ from abc import ABC, abstractmethod
 from typing import Any, ClassVar
 
 from app.evidence_engine.canonical_finding import FindingExtractionResult, StepRef
+from app.evidence_engine.family_contract import check_finding_count as _check_finding_count
 
 # Canonical fallback version for artifacts that pre-date schema versioning.
 _NULL_VERSION_FALLBACK = "v1"
@@ -271,6 +272,55 @@ def validate_extraction_result(result: FindingExtractionResult) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Unified commit-path validation gate (Phase 4b-4)
+# ---------------------------------------------------------------------------
+
+
+def validate_for_commit(family: str, result: FindingExtractionResult) -> None:
+    """Unified pre-commit validation gate: internal consistency + family empty contract.
+
+    The commit path (4c-1) calls this once per extraction result before writing
+    any committed state to the canonical store.  Two sequential checks are run
+    in order:
+
+    1. ``validate_extraction_result(result)`` — ``finding_count == len(findings)``
+       so the family-level check operates on an accurate count.
+    2. ``family_contract.check_finding_count(family, result["finding_count"])``
+       — enforces D4: ``"observe"`` / ``"detect"`` allow success-empty; all
+       other canonical families require at least one finding.
+
+    When this function returns without raising, the extraction result satisfies
+    both the internal-consistency invariant and the family-level empty-semantics
+    contract and may be written as a committed artifact + finding set.
+
+    When this function raises, the artifact must remain in ``staged`` state and
+    the extraction attempt must be recorded as ``failed`` per the runtime
+    lifecycle contract (``runtime-lifecycle.md``).
+
+    Parameters
+    ----------
+    family:
+        Artifact family string (e.g. ``"compare"``).  Unknown families are
+        treated as non-empty-required (fail-safe, same as
+        ``check_finding_count``).
+    result:
+        The ``FindingExtractionResult`` returned by a ``FindingExtractor``.
+
+    Raises
+    ------
+    ValueError
+        If ``result["finding_count"] != len(result["findings"])`` (internal
+        consistency check raised by ``validate_extraction_result``).
+    FamilyEmptyError
+        If ``finding_count == 0`` and the artifact family does not allow a
+        success-empty committed finding set (raised by
+        ``family_contract.check_finding_count``).
+    """
+    validate_extraction_result(result)
+    _check_finding_count(family, result["finding_count"])
+
+
+# ---------------------------------------------------------------------------
 # Module-level default registry
 #
 # Starts empty at import time.  4d-* extractor modules populate it by calling:
@@ -286,4 +336,5 @@ __all__ = [
     "FindingExtractorRegistry",
     "default_finding_registry",
     "validate_extraction_result",
+    "validate_for_commit",
 ]

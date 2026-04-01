@@ -20,11 +20,13 @@ from app.evidence_engine.canonical_finding import (
     FindingExtractionResult,
     StepRef,
 )
+from app.evidence_engine.family_contract import FamilyEmptyError
 from app.evidence_engine.finding_extractor_registry import (
     FindingExtractor,
     FindingExtractorRegistry,
     default_finding_registry,
     validate_extraction_result,
+    validate_for_commit,
 )
 
 # ---------------------------------------------------------------------------
@@ -603,3 +605,160 @@ class TestValidateExtractionResult(unittest.TestCase):
             self.assertIn("bad_extractor", str(exc))
         else:
             self.fail("Expected ValueError was not raised")
+
+
+# ---------------------------------------------------------------------------
+# TestValidateForCommit (Phase 4b-4)
+# ---------------------------------------------------------------------------
+
+
+class TestValidateForCommit(unittest.TestCase):
+    """Tests for the unified commit-path validation gate validate_for_commit().
+
+    Covers:
+    - allow-empty families (observe, detect) pass with empty result
+    - non-empty families raise FamilyEmptyError with empty result
+    - any family passes with a non-empty result
+    - count/len mismatch raises ValueError before family check
+    - unknown family with empty result raises FamilyEmptyError (fail-safe)
+    - ordering guarantee: ValueError raised before FamilyEmptyError
+    """
+
+    def _make_result(
+        self,
+        findings: list[Any],
+        finding_count: int,
+        extractor_name: str = "gate_test_extractor",
+    ) -> FindingExtractionResult:
+        return {
+            "findings": findings,
+            "extractor_name": extractor_name,
+            "extractor_version": "1.0.0",
+            "artifact_schema_version": "v1",
+            "finding_count": finding_count,
+        }
+
+    def _stub_finding(self) -> Any:
+        return {"finding_id": "fnd_abc", "finding_type": "observation"}
+
+    # ------------------------------------------------------------------
+    # Allow-empty families: count=0 must pass
+    # ------------------------------------------------------------------
+
+    def test_observe_empty_passes(self) -> None:
+        result = self._make_result(findings=[], finding_count=0)
+        validate_for_commit("observe", result)  # must not raise
+
+    def test_detect_empty_passes(self) -> None:
+        result = self._make_result(findings=[], finding_count=0)
+        validate_for_commit("detect", result)  # must not raise
+
+    # ------------------------------------------------------------------
+    # Non-empty families: count=0 must raise FamilyEmptyError
+    # ------------------------------------------------------------------
+
+    def test_compare_empty_raises_family_empty_error(self) -> None:
+        result = self._make_result(findings=[], finding_count=0)
+        with self.assertRaises(FamilyEmptyError) as ctx:
+            validate_for_commit("compare", result)
+        self.assertEqual(ctx.exception.family, "compare")
+
+    def test_decompose_empty_raises_family_empty_error(self) -> None:
+        result = self._make_result(findings=[], finding_count=0)
+        with self.assertRaises(FamilyEmptyError) as ctx:
+            validate_for_commit("decompose", result)
+        self.assertEqual(ctx.exception.family, "decompose")
+
+    def test_correlate_empty_raises_family_empty_error(self) -> None:
+        result = self._make_result(findings=[], finding_count=0)
+        with self.assertRaises(FamilyEmptyError):
+            validate_for_commit("correlate", result)
+
+    def test_test_empty_raises_family_empty_error(self) -> None:
+        result = self._make_result(findings=[], finding_count=0)
+        with self.assertRaises(FamilyEmptyError):
+            validate_for_commit("test", result)
+
+    def test_forecast_empty_raises_family_empty_error(self) -> None:
+        result = self._make_result(findings=[], finding_count=0)
+        with self.assertRaises(FamilyEmptyError):
+            validate_for_commit("forecast", result)
+
+    # ------------------------------------------------------------------
+    # Non-empty result: all families must pass
+    # ------------------------------------------------------------------
+
+    def test_nonempty_result_passes_for_all_families(self) -> None:
+        finding = self._stub_finding()
+        result: FindingExtractionResult = {
+            "findings": [finding],
+            "extractor_name": "gate_test_extractor",
+            "extractor_version": "1.0.0",
+            "artifact_schema_version": "v1",
+            "finding_count": 1,
+        }
+        for family in (
+            "observe",
+            "detect",
+            "compare",
+            "decompose",
+            "correlate",
+            "test",
+            "forecast",
+        ):
+            with self.subTest(family=family):
+                validate_for_commit(family, result)  # must not raise
+
+    # ------------------------------------------------------------------
+    # Count/len mismatch: ValueError raised BEFORE family check
+    # ------------------------------------------------------------------
+
+    def test_count_greater_than_len_raises_value_error_for_allow_empty_family(self) -> None:
+        # finding_count=1 but findings=[] — consistency error even for observe
+        result = self._make_result(findings=[], finding_count=1)
+        with self.assertRaises(ValueError) as ctx:
+            validate_for_commit("observe", result)
+        self.assertNotIsInstance(ctx.exception, FamilyEmptyError)
+
+    def test_count_less_than_len_raises_value_error_for_non_empty_family(self) -> None:
+        # finding_count=0 but findings=[...] — consistency error for compare too
+        finding = self._stub_finding()
+        result: FindingExtractionResult = {
+            "findings": [finding],
+            "extractor_name": "gate_test_extractor",
+            "extractor_version": "1.0.0",
+            "artifact_schema_version": "v1",
+            "finding_count": 0,  # wrong: should be 1
+        }
+        with self.assertRaises(ValueError) as ctx:
+            validate_for_commit("compare", result)
+        self.assertNotIsInstance(ctx.exception, FamilyEmptyError)
+
+    def test_ordering_value_error_before_family_empty_error(self) -> None:
+        # finding_count=1 but findings=[] for a non-empty family:
+        # internal consistency fires first (ValueError), not FamilyEmptyError
+        result = self._make_result(findings=[], finding_count=1)
+        with self.assertRaises(ValueError) as ctx:
+            validate_for_commit("compare", result)
+        self.assertNotIsInstance(ctx.exception, FamilyEmptyError)
+
+    # ------------------------------------------------------------------
+    # Unknown family fail-safe
+    # ------------------------------------------------------------------
+
+    def test_unknown_family_empty_raises_family_empty_error(self) -> None:
+        result = self._make_result(findings=[], finding_count=0)
+        with self.assertRaises(FamilyEmptyError) as ctx:
+            validate_for_commit("unknown_future_family", result)
+        self.assertEqual(ctx.exception.family, "unknown_future_family")
+
+    def test_unknown_family_nonempty_passes(self) -> None:
+        finding = self._stub_finding()
+        result: FindingExtractionResult = {
+            "findings": [finding],
+            "extractor_name": "gate_test_extractor",
+            "extractor_version": "1.0.0",
+            "artifact_schema_version": "v1",
+            "finding_count": 1,
+        }
+        validate_for_commit("unknown_future_family", result)  # must not raise

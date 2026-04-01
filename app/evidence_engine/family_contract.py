@@ -99,13 +99,15 @@ def check_finding_count(family: str, count: int) -> None:
     Raises
     ------
     FamilyEmptyError
-        If *count* is 0 and the family does **not** allow success-empty.
+        If *count* is 0 or negative and the family does **not** allow
+        success-empty.
 
     Notes
     -----
     This function is a no-op when *count* > 0 regardless of family.
     It is also a no-op when *family* is ``"observe"`` or ``"detect"`` and
-    *count* is 0 — those families explicitly allow success-empty outcomes.
+    *count* is 0 or negative — those families explicitly allow success-empty
+    outcomes.
     """
     if count <= 0 and not FAMILY_ALLOWS_EMPTY.get(family, False):  # type: ignore[call-overload]
         raise FamilyEmptyError(family)
