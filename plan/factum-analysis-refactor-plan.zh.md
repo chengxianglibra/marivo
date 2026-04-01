@@ -559,7 +559,7 @@
 
 ---
 
-### 阶段 4a-1：Canonical Evidence DDL 骨架
+### 阶段 4a-1：Canonical Evidence DDL 骨架 ✅ 已完成
 
 #### 目标
 
@@ -593,7 +593,7 @@
 
 ---
 
-### 阶段 4a-2：Finding 公共字段与 Provenance 持久化
+### 阶段 4a-2：Finding 公共字段与 Provenance 持久化 ✅ 已完成
 
 #### 目标
 
