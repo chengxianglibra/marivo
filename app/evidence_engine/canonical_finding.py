@@ -368,7 +368,7 @@ _FINDING_ID_HASH_LEN = 24  # hex chars from SHA-256 digest
 
 
 def make_canonical_item_key(
-    collection: str,
+    collection: ArtifactItemRefCollection,
     key: str | None = None,
     index: int | None = None,
 ) -> str:
@@ -413,6 +413,61 @@ def make_finding_id(
     raw = f"{artifact_id}|{finding_type}|{canonical_item_key}"
     digest = hashlib.sha256(raw.encode()).hexdigest()
     return f"{_FINDING_ID_PREFIX}{digest[:_FINDING_ID_HASH_LEN]}"
+
+
+def make_artifact_item_ref(
+    collection: ArtifactItemRefCollection,
+    key: str | None = None,
+    index: int | None = None,
+) -> ArtifactItemRef:
+    """Build an ArtifactItemRef applying the same D2 priority rules as make_canonical_item_key.
+
+    Priority (from artifact-finding-generation-rules.md D2):
+    1. If ``key`` is not None → ``ArtifactItemRef(collection, index=None, key=key)``
+    2. If ``key`` is None and ``index`` is not None → ``ArtifactItemRef(collection, index=index, key=None)``
+    3. Both None → ``ArtifactItemRef(collection, index=None, key=None)``
+
+    The schema rule *"有稳定 key 时，index 必须为 None"* is enforced here:
+    ``index`` is always set to ``None`` in the returned ref when a stable ``key``
+    is provided, matching the string produced by ``make_canonical_item_key``.
+
+    Use ``make_item_identity`` to generate both this ref and the canonical_item_key
+    string in a single call.
+    """
+    if key is not None:
+        return ArtifactItemRef(collection=collection, index=None, key=key)
+    if index is not None:
+        return ArtifactItemRef(collection=collection, index=index, key=None)
+    return ArtifactItemRef(collection=collection, index=None, key=None)
+
+
+def make_item_identity(
+    collection: ArtifactItemRefCollection,
+    key: str | None = None,
+    index: int | None = None,
+) -> tuple[str, ArtifactItemRef]:
+    """Co-generate canonical_item_key and ArtifactItemRef atomically.
+
+    Both outputs are derived from the same (collection, key, index) inputs
+    using the identical D2 priority rule, guaranteeing they always agree:
+
+        canonical_item_key, artifact_item_ref = make_item_identity(collection, key=k)
+
+    Extractors should call this instead of calling ``make_canonical_item_key``
+    and ``make_artifact_item_ref`` separately, which would risk divergence if
+    different priority branches were accidentally chosen for each.
+
+    Returns
+    -------
+    canonical_item_key : str
+        The string key used as input to ``make_finding_id``.
+    artifact_item_ref : ArtifactItemRef
+        The structured ref stored in ``FindingProvenance.artifact_item_ref``.
+    """
+    return (
+        make_canonical_item_key(collection, key=key, index=index),
+        make_artifact_item_ref(collection, key=key, index=index),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -569,6 +624,8 @@ __all__ = [
     "TestResultPayload",
     "TimeBucketObservationPayload",
     # Identity helpers
+    "make_artifact_item_ref",
     "make_canonical_item_key",
     "make_finding_id",
+    "make_item_identity",
 ]

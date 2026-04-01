@@ -753,7 +753,7 @@
 
 ---
 
-### 阶段 4b-3：Canonical Item Key / Finding Identity Helper
+### 阶段 4b-3：Canonical Item Key / Finding Identity Helper ✅ 已完成
 
 #### 目标
 
