@@ -15,6 +15,7 @@
   - session root
   - session state surface
   - proposition context surface
+  - operator-facing runtime status surface
 
 当前仓库处于预研阶段，尚未正式上线，因此本次升级按破坏式迭代执行，不以兼容历史对外契约为目标。
 
@@ -29,6 +30,7 @@
 - 新 intent API 替代旧 public step API
 - canonical evidence pipeline 成为唯一正式证据主链
 - `/sessions/{id}`、`/state`、`/context` 成为正式读取面
+- operator 通过独立的 runtime status surface 排障，不把 runtime truth 混入 canonical read surface
 
 ## 3. 范围
 
@@ -39,6 +41,7 @@
 - derived intent 的 deterministic expansion
 - canonical evidence persistence 与 runtime pipeline
 - session/state/context 读面
+- runtime-status-surface operator 读面
 - 相关文档、测试与调试接口收敛
 
 ### 3.2 明确移除
@@ -73,18 +76,22 @@
 
 1. 创建 session
 2. Agent 在 session 内直接提交 atomic 或 derived intent step
-3. 系统执行 step 并 materialize canonical artifact
-4. 系统同步完成 finding extraction
-5. 系统完成 proposition seeding / registration
-6. 系统 recompute latest assessment
-7. 系统刷新 action proposals
+3. 系统执行 step 并 materialize internal staged artifact candidate
+4. artifact commit owner 以 `artifact + findings` 为最小 committed 单元完成提交
+5. seeding owner 以 committed finding snapshot + template registry snapshot 形成稳定 `affected_proposition_ids`
+6. assessment owner 以 proposition 为最小串行化单元提交 immutable assessment snapshot，或判定为 no-op
+7. publish owner 在 proposal refresh 完成后形成 proposition-local publish bundle，并原子切换 externally visible state
 8. Agent 通过 `/sessions/{id}/state` 和 `/sessions/{id}/propositions/{pid}/context` 消费 canonical state
+9. Operator 通过 `/runtime-status` 系列接口判断 backlog、claim、retry、publish progression、migration gate 与失败原因
 
 关键约束：
 
 - `latest/live` 是读取层语义，不是对象本体 mutable flag
 - mandatory extraction artifact 不允许进入 “artifact committed but finding missing” 的非法中间态
 - derived intent expansion 只依赖请求和系统状态，不允许中间外部决策
+- proposition 是 assessment / proposal / publish path 的最小串行化单元
+- `publish_ready` 不等于 `externally_visible`；对外读取面只能看到旧整套 bundle 或新整套 bundle
+- runtime truth（claim / lease / retry / backlog / migration）只进入 runtime status surface，不混入 canonical read surface
 
 ## 6. 分阶段执行计划
 
@@ -1084,22 +1091,32 @@
 
 #### 任务
 
+- 固定 seeding run 的 authority input 为：
+  - committed finding snapshot
+  - template registry snapshot
 - 形成稳定的 seeding run output：
   - `created_proposition_ids`
   - `existing_proposition_ids`
   - `affected_proposition_ids`
-- 固定 seeding run 的 transaction boundary 与 replay 语义
-- 为 assessment runtime 暴露稳定输入
+- 固定 `affected_proposition_ids` 的排序、分批 enqueue 与 replay 语义
+- 对 proposition fan-out 建立 bounded backpressure 基线：
+  - 允许 request 在线程返回前只完成 `artifact + findings` committed
+  - 下游 assessment work item 按稳定顺序分批派发
+  - backlog 必须进入可观测 runtime truth
+- 固定 seeding run 的 transaction boundary 与 crash recovery 语义
+- 为 assessment runtime 暴露稳定输入与 handoff 边界
 
 #### 交付物
 
 - seeding run result contract
+- affected proposition batching / handoff contract
 - seeding transaction tests
 
 #### 验收标准
 
-- 相同 finding snapshot + registry snapshot 不会制造不同 proposition 集合
+- 相同 finding snapshot + registry snapshot 不会制造不同 proposition 集合或不同 enqueue 顺序
 - assessment recompute 可只依赖 `affected_proposition_ids`
+- proposition fan-out 很大时可分批推进，而不会阻塞已提交的 canonical state
 
 ---
 
@@ -1144,9 +1161,11 @@
 
 #### 任务
 
-- 实现 assessment recompute runtime
+- 实现 assessment recompute runtime，并以 proposition 为最小串行化单元
+- 固定同一 proposition 任一时刻最多只有一个 active assessment / publish path
 - 仅在 judgment output 发生变化时提交新的 assessment snapshot
 - 通过 supersede 链或读取语义解释 latest，而不是 mutable flag
+- assessment snapshot commit 后仅进入 proposition-local publish path，不得直接切换 externally visible bundle
 - 对齐 gap / confidence / transition materialization 设计
 
 #### 交付物
@@ -1159,14 +1178,15 @@
 - assessment 是 immutable snapshot
 - judgment output 未变化时允许 no-op
 - latest/live 不回写对象本体
+- assessment commit 不会制造 “新 assessment + 旧 proposal” 的对外可见半更新状态
 
 ---
 
-### 阶段 4g-1：Action Proposal Refresh
+### 阶段 4g-1：Action Proposal Refresh 与 Publish-Ready Bundle
 
 #### 目标
 
-基于 latest assessment 刷新 canonical action proposals。
+基于 latest assessment 刷新 canonical action proposals，并形成 proposition-local publish-ready bundle。
 
 #### 依赖
 
@@ -1180,10 +1200,17 @@
   - proposition-local canonical closure
   - 显式 policy context
 - 支持空 proposal 集与 no-op refresh
+- 组装 proposition-local publish-ready bundle，至少包含：
+  - target proposition
+  - committed latest assessment
+  - 与该 assessment 匹配的 live closure
+  - canonical action proposal set（允许为空）
+- 明确 `publish_ready` 只表示 bundle 已完整生成，不等于已 external visible
 
 #### 交付物
 
 - action proposal refresh 实现
+- publish-ready bundle assembler
 - proposal refresh tests
 
 #### 验收标准
@@ -1191,10 +1218,44 @@
 - proposal refresh 只在 latest assessment 可解引用后触发
 - canonical proposal 集未变化时可 no-op
 - proposal 不回写 judgment semantics
+- publish-ready bundle 在切换前已具备完整、可审计的 proposition-local 内容
 
 ---
 
-### 阶段 4g-2：切断 Legacy Claims / Recommendations 的 Canonical Authority
+### 阶段 4g-2：Publish Switch 与 Atomic Visibility
+
+#### 目标
+
+实现 proposition-local publish owner，使 publish-ready bundle 以原子方式切换为 externally visible state。
+
+#### 依赖
+
+4g-1
+
+#### 任务
+
+- 实现 `publish_ready -> externally_visible` 的 proposition-local 原子切换
+- 固定 publish switch 的最小可见单元为 proposition-local bundle，而不是单个 assessment snapshot
+- 保证 `SessionStateView` / `PropositionContextView` 只暴露旧整套 bundle 或新整套 bundle：
+  - 不暴露 `new assessment + old proposal`
+  - 不暴露尚未 publish 的 candidate closure
+- 让 publish switch 保持幂等，并覆盖 crash / duplicate delivery / retry after bundle-ready 场景
+- 明确 internal staging、queue、claim、lease、retry 只进入 runtime status surface，不进入 canonical read surface
+
+#### 交付物
+
+- proposition-local publish switch runtime
+- atomic visibility tests
+
+#### 验收标准
+
+- publish 中断或重试不会破坏 latest selection，也不会暴露半更新 canonical state
+- state/context 读取面只能看到旧 bundle 或新 bundle
+- publish 不要求 session 级全局串行化，只要求 proposition 粒度唯一提交权
+
+---
+
+### 阶段 4g-3：切断 Legacy Claims / Recommendations 的 Canonical Authority
 
 #### 目标
 
@@ -1202,7 +1263,7 @@
 
 #### 依赖
 
-4g-1
+4g-2
 
 #### 任务
 
@@ -1222,32 +1283,49 @@
 
 ---
 
-### 阶段 4h-1：Replay / Idempotency / Soft Invalidation
+### 阶段 4h-1：Replay / Recovery / Idempotency / Migration / Soft Invalidation
 
 #### 目标
 
-补齐 canonical evidence pipeline 的 replay、幂等与 soft invalidation 规则。
+补齐 canonical evidence pipeline 的 replay、恢复、幂等、migration 与 soft invalidation 规则。
 
 #### 依赖
 
-4g-2
+4g-3
 
 #### 任务
 
-- 为 extraction、seeding、assessment、proposal 实现 replay 规则
+- 固定 replay authority baseline：
+  - replay 只以 committed upstream output 为 authority
+  - staged candidate 可丢弃并重建
+- 为 extraction、seeding、assessment、proposal、publish 实现 replay / recovery 规则
+- 覆盖 stage recovery baseline：
+  - extraction crash
+  - seeding crash
+  - assessment crash
+  - publish crash
 - 保证 source item boundary 不变时 finding identity 不漂移
+- 建立 version bump 分类与 mixed-version 边界：
+  - forward-compatible bump
+  - replay-required bump
+  - identity-breaking bump
+- 明确 `migration_required` / `migration_in_progress` / `migration_blocked` 属于 runtime truth，不进入 `session` / `state` / `context`
 - 实现 soft invalidation：
   - 历史 canonical objects 保留
   - 通过 missing refs、membership 收缩、gap reopen、latest 选择变化暴露影响
+  - 必要时通过 proposal suppression、空 proposal set 或 bundle 回退暴露影响
+- 采用 tombstone-first 基线处理 invalidation / redaction / controlled deletion
 
 #### 交付物
 
-- replay / idempotency / invalidation 实现
+- replay / recovery / migration / invalidation 实现
 - 对应测试
 
 #### 验收标准
 
 - replay 不改写既有 artifact identity
+- publish crash 后可重试切换，而不暴露半更新 externally visible state
+- mixed-version 状态可存在于历史层，但不进入同一 externally visible bundle
 - 不通过硬删除伪装成“从未发生”
 
 ---
@@ -1270,8 +1348,9 @@
   - finding extraction
   - proposition seeding
   - assessment recompute
-  - action proposal refresh
-  - replay / idempotency
+  - action proposal refresh / publish switch
+  - replay / recovery / idempotency
+  - migration / invalidation
 - 更新相关文档：
   - `docs/analysis/evidence-engine/*`
   - `docs/agent-guide.md`
@@ -1286,96 +1365,205 @@
 - 阶段 4 的 canonical pipeline 具备完整回归覆盖
 - 文档与实现不再脱节
 
-### Artifact -> Finding Empty Semantics 与迁移细化
-
-#### 摘要
-
-目标态 fact pipeline 固定为以下两条规则：
-
-- `observe` 和 `detect` 可以提交 successful artifact，且其 `finding_count = 0`
-- `compare`、`decompose`、`correlate`、`test`、`forecast` 仅在成功产出 canonical finding 时才允许 success；若无法产出任何 canonical item，则应在 validation 或 execution 阶段失败，且不得提交 successful canonical artifact
-
-该约束的设计目的，是让偏采集 / 扫描型 intent 可以表达“已完成执行，但没有发现 canonical 事实”的有效负结果，同时让偏派生 / 判断型 intent 只在真正形成 canonical fact 时才进入成功态。
-
-#### 关键变更
-
-- 在 Evidence Engine 文档中锁定 family-level empty semantics：
-  - `observe`：允许 success-empty
-  - `detect`：允许 success-empty
-  - `compare` / `decompose` / `correlate` / `test` / `forecast`：success 必须 non-empty
-- 保留已确认的 finding generation 规则：
-  - extractor dispatch 以 `(artifact_type, artifact_schema_version)` 路由
-  - `finding_id` 由稳定的 `canonical_item_key` 驱动；有稳定 key 时优先于 index
-  - `attribute` 不引入新的 finding family，而是复用 `delta` 与 `decomposition_item`
-  - `correlate` 和 `test` 在 v1 保持 `1 artifact -> 1 finding`
-- 更新下游语义：
-  - 已提交但为空的 finding set 不得 seed proposition
-  - `observe` 的 success-empty artifact 属于合法上游结果，但下游 typed intents 不得将其视为“已有可用数据”
-  - `compare` / `decompose` / `correlate` / `test` / `forecast` 遇到 empty upstream prerequisite 时，应在 validation 或 execution 阶段拒绝，而不是提交 empty artifact
-- 收紧 family contract：
-  - `observe`：empty artifact 表示“scope 已解析、执行已完成，但没有 canonical value / bucket / segment / summary item”
-  - `detect`：empty artifact 表示“scan 已完成，且 `total_candidate_count = 0`”
-  - `compare`：若无法形成任何 `delta` item，则以 `not_comparable` 或等价错误失败，不提交 empty artifact
-  - `decompose`：沿用当前规则，无 contribution rows 时失败 / `not_attributable`
-  - `correlate`：沿用当前规则，alignment 或 pairs 不足时失败；仅 `aligned` / `needs-attention` 结果提交 1 个 finding
-  - `test`：沿用当前规则，无效 test 请求直接失败；`valid` / `needs-attention` 结果提交 1 个 finding
-  - `forecast`：沿用当前规则，若无法生成可辩护的 point forecast，则请求失败
-- 明确 eventual code path：
-  - 在 staged artifact 创建后、commit finalization 前引入 finding extraction seam
-  - extractor dispatch 以 `artifact_type` 和 `artifact_schema_version` 为 key
-  - 将 family-specific empty / non-empty validation 放入 commit path，而不是使用单一全局规则
-  - empty finding set 仅对 `observe` 和 `detect` 合法
-  - 不引入 synthetic `no results found` finding
-
-### 交付物
-
-- 新的 evidence schema
-- 新的 runtime pipeline
-- replay / idempotency 规则对应的实现与测试
-- 阶段 4 子任务拆分后的实施计划文档
-
-### 验收标准
-
-- `observe` / `detect` 成功后允许出现 `finding_count = 0` 的 committed artifact
-- `compare` / `decompose` / `correlate` / `test` / `forecast` 只有在成功产出至少 1 个 finding 时才允许 commit success artifact
-- empty committed finding set 不会 seed proposition；proposition / assessment / action proposal 仍由 finding 驱动
-- 新 state/context 读取面不依赖旧 `claims/recommendations` 作为 canonical source
-
 ---
 
 ## 阶段 5：切换读取面到 Session / State / Context
 
 ### 目标
 
-将新的读取面切换为 canonical baseline，替代旧 reflection/evidence summary 的主消费角色。
+将新的读取面切换为 canonical baseline，替代旧 reflection/evidence summary 的主消费角色；同时补齐独立的 operator-facing runtime status surface，用于解释“为什么 canonical 结果尚未出现或尚未切换”。
 
-### 任务
+> **实施说明**：本阶段按读取面拆分为 3 个独立子任务（5a Session → 5b State → 5c Context）。每个子任务都同时落地对应的 canonical read surface 与最贴近该 surface 的 runtime status 能力，但 runtime truth 始终保持独立 contract，不回流到 canonical 读取结果中；`publish_ready`、claim / lease、retry、backpressure、migration gate 一律通过 runtime status 解释，而不是通过 state/context 猜测。
+
+---
+
+### 阶段 5a：Session Root Surface
+
+#### 目标
+
+先收敛 session 顶层读取面，让 `GET /sessions/{session_id}` 成为稳定、轻量、可缓存的 canonical 入口；同时提供 session 级 operator runtime status，用于解释整个 session 当前是否在排队、执行、阻塞或等待 publish。
+
+#### 依赖
+
+4h-2
+
+#### 任务
 
 - 重构 `GET /sessions/{session_id}`，仅返回轻量 session root：
   - `goal`
   - `governance`
   - `lifecycle`
   - `state_summary`
-- 新增读取面：
+- 明确 session root 只暴露 externally visible canonical summary，不回传 step/runtime 明细
+- 新增 session 级 operator-facing runtime status：
+  - `GET /sessions/{session_id}/runtime-status`
+- 为 session runtime status 建立独立 response model，并与 `runtime-status-surface.md` 对齐，至少覆盖：
+  - `overall_status`
+  - `last_successful_stage`
+  - `blocked_reason`
+  - `backlog_summary`
+  - `updated_at`
+  - `schema_version`
+- 与 runtime pipeline 对齐 session 级 stage 语义，至少覆盖：
+  - artifact commit
+  - finding extraction
+  - proposition seeding
+  - assessment recompute
+  - proposal refresh
+  - publish
+- 让 session runtime status 能表达 migration / policy / dependency gate，但不把这些 gate 混入 session root
+- 更新相关文档：
+  - `docs/api/README.md`
+  - `docs/api/session-state.md`
+  - `docs/api/runtime-status.md`
+  - `docs/agent-guide.md`
+
+#### 交付物
+
+- 轻量 `session root` 读取接口
+- session 级 runtime status endpoint 与 response model
+- 对应 view materialization 逻辑
+- 对应 contract / integration tests
+
+#### 验收标准
+
+- 新 client 可以把 `GET /sessions/{session_id}` 作为唯一 session 入口，并从中拿到稳定的 canonical summary
+- operator 可以区分 session 当前是“尚未触发 / 排队中 / 执行中 / 执行失败 / publish 未完成 / policy 或 migration gate 阻塞”
+- session root 不混入 claim owner、lease、attempt failure、backlog、publish retry 等 runtime 调度字段
+- session runtime status 的字段命名与 stage 语义与 `docs/analysis/evidence-engine/runtime-status-surface.md` 一致
+
+---
+
+### 阶段 5b：State Surface
+
+#### 目标
+
+建立 session 级 canonical state 读取面，使 agent / client 可以不依赖旧 reflection summary，直接消费当前 session 的最新 canonical findings / propositions / assessments / action proposals 汇总；同时提供 artifact 级 runtime status，用于解释 state 尚未更新到预期形态的原因。
+
+#### 依赖
+
+5a
+
+#### 任务
+
+- 新增 state 读取接口：
   - `GET /sessions/{session_id}/state`
   - `POST /sessions/{session_id}/state/query`
+- 定义并固化 state surface 的 projection / query contract，使其与 canonical evidence schema 对齐
+- 明确 `/state` 只返回 externally visible canonical state，不混入 runtime claim / backlog / retry / lease 语义
+- 固定 `/state` 中每个 proposition 的 `latest_assessment` 与 proposal set 来自同一个 externally visible proposition-local bundle
+- 新增 artifact 级 operator-facing runtime status：
+  - `GET /sessions/{session_id}/artifacts/{artifact_id}/runtime-status`
+- 为 artifact runtime status 建立独立 response model，并与 `runtime-status-surface.md` 对齐，至少覆盖：
+  - `artifact_stage`
+  - `extractor_key`
+  - `correlation_id`
+  - `attempt_id`
+  - `last_failure_reason` / `last_failure_at`
+  - `schema_version`
+- 明确 artifact runtime status 只解释 artifact staging、extraction 与 seeding handoff，不直接回写 canonical judgment
+- 更新相关文档：
+  - `docs/api/session-state.md`
+  - `docs/api/runtime-status.md`
+  - `docs/analysis/evidence-engine/*`
+  - `docs/agent-guide.md`
+
+#### 交付物
+
+- `state` / `state query` 读取接口
+- artifact 级 runtime status endpoint 与 response model
+- state materialization 与 query 实现
+- 对应 contract / integration tests
+
+#### 验收标准
+
+- 新 client 可以仅依赖 `/sessions/{id}/state` 消费 session 级 canonical 分析状态
+- `/state` 返回结构与 `docs/analysis/evidence-engine/schemas/*` 一致
+- `/state` 不会暴露 “新 assessment + 旧 proposal” 或其他半更新 bundle
+- 当 canonical state 尚未刷新时，operator 可通过 artifact runtime status 判断是 staged、extracting、findings committed、seeding handoff pending 还是 failure
+- `/state` 不混入 runtime 调度字段
+
+---
+
+### 阶段 5c：Context Surface
+
+#### 目标
+
+建立 proposition 级 canonical context 读取面，让 agent / client 可以围绕单个 proposition 消费完整上下文；同时提供 proposition 级 runtime status，并把 `reflection-context` 明确降级为 legacy compact summary。
+
+#### 依赖
+
+5b
+
+#### 任务
+
+- 新增 proposition context 读取接口：
   - `GET /sessions/{session_id}/propositions/{proposition_id}/context`
-- 将 `reflection-context` 降级为 legacy compact summary
+- 明确 context surface 的边界：围绕 proposition 暴露 canonical evidence closure，不回传 runtime scheduling truth
+- 明确 `relevant_findings` / gaps / inference records 均来自 committed latest assessment closure，而不是 recompute candidate 输入
+- 固定 `/context` 中的 `latest_assessment` 与 proposal set 来自同一个 externally visible proposition-local bundle
+- 新增 proposition 级 operator-facing runtime status：
+  - `GET /sessions/{session_id}/propositions/{proposition_id}/runtime-status`
+- 为 proposition runtime status 建立独立 response model，并与 `runtime-status-surface.md` 对齐，至少覆盖：
+  - `current_stage`
+  - `last_successful_stage`
+  - `current_assessment_id`
+  - `current_attempt`
+  - `backlog_state`
+  - `last_failure_reason` / `last_failure_at`
+  - `schema_version`
+- proposition runtime status 至少要能区分：
+  - `queued`
+  - `assessment_recompute`
+  - `assessment_committed`
+  - `proposal_refresh`
+  - `publish_ready`
+  - `externally_visible`
+  - `failed`
+- 将 `reflection-context` 降级为 legacy compact summary，不再承载新 canonical 字段
 - 将 `/evidence`、`/debug` 明确为调试接口，不承担 canonical 读面职责
+- 更新相关文档：
+  - `docs/api/context-surface.md`
+  - `docs/api/runtime-status.md`
+  - `docs/api/README.md`
+  - `docs/agent-guide.md`
+  - `docs/analysis/evidence-engine/runtime-status-surface.md`
+
+#### 交付物
+
+- proposition context 读取接口
+- proposition 级 runtime status endpoint 与 response model
+- context materialization 逻辑
+- `reflection-context` / `/evidence` / `/debug` 的角色收敛
+- 对应 contract / integration tests
+
+#### 验收标准
+
+- 新 client 可以仅依赖 `/sessions/{id}/propositions/{pid}/context` 消费 proposition 级 canonical context
+- `latest_assessment = null` 的 proposition 可通过 runtime status 判断是未触发、失败、backpressure、migration gate 还是 publish 尚未完成，而不是只能看到空 canonical 结果
+- `reflection-context` 不再承载新 canonical 字段
+- runtime status 的 failure / blocked reason 保持 machine-readable，不退化为自由文本
+- `/context` 返回结构与 `docs/analysis/evidence-engine/schemas/*` 一致
+- runtime status 返回结构与 `docs/analysis/evidence-engine/runtime-status-surface.md` 一致
+- `/context` 不会暴露 candidate closure 或 “新 assessment + 旧 proposal” 的半更新组合
 
 ### 交付物
 
-- session/state/context 读取接口
+- 按 `Session / State / Context` 拆分后的 3 组读取接口
+- session / artifact / proposition 三层 runtime status 读取接口
 - 对应 view materialization 逻辑
 - 更新后的：
   - `docs/api/session-state.md`
   - `docs/api/context-surface.md`
+  - `docs/api/runtime-status.md`
 
 ### 验收标准
 
-- 新 client 可以仅依赖 session root + state surface + context surface 消费分析状态
-- `reflection-context` 不再承载新 canonical 字段
+- 新 client 可以仅依赖 session root + state surface + context surface 消费 canonical 分析状态
+- operator 可以依赖 runtime status surface 做运行时排障，而无需从 canonical 读面猜测 queue / retry / publish 状态
+- session / artifact / proposition 三层状态面的字段命名与 stage 语义保持一致
 - state/context 返回结构与 `docs/analysis/evidence-engine/schemas/*` 一致
+- runtime status 返回结构与 `docs/analysis/evidence-engine/runtime-status-surface.md` 一致
 
 ---
 
@@ -1415,7 +1603,7 @@
 2. 新 intent API model 与 endpoint
 3. intent registry 与 derived expansion
 4. canonical evidence schema 与 runtime pipeline
-5. state/context 读面
+5. state/context/runtime-status 读面
 6. legacy 清理与文档统一
 
 如需拆分 PR，建议最少拆为以下十二组：
@@ -1433,7 +1621,8 @@
 11. `intent-derived-diagnose` （阶段 3c-2）
 12. `intent-derived-validate` （阶段 3c-3）
 13. `canonical-evidence-pipeline`
-14. `state-context-surface-and-cleanup`
+14. `state-context-runtime-status-surface`
+15. `legacy-cleanup-and-doc-sync`
 
 ## 8. 测试计划
 
@@ -1476,8 +1665,15 @@
   - 在存在稳定 item key 时，优先使用 stable key，而非 index-based identity
   - success-empty 的 `observe` / `detect` artifact replay 后仍应为空，不得生成 synthetic finding
 - proposition seeding 的稳定性
+- `affected_proposition_ids` 的稳定排序、分批 enqueue 与 backpressure 语义
 - assessment snapshot 的 supersede 逻辑
-- action proposal 基于 latest assessment 刷新
+- proposition-local 串行化：同一 proposition 任一时刻最多一个 active publish path
+- action proposal 基于 latest assessment 刷新，并形成 publish-ready bundle
+- publish switch 只在 proposition-local bundle 完整后原子切换 externally visible state
+- recovery / migration / invalidation：
+  - publish crash 可重试且不暴露半更新 bundle
+  - mixed-version 不进入同一 externally visible bundle
+  - tombstone-first invalidation 通过 missing refs / gap reopen / proposal suppression / bundle 回退显式暴露影响
 
 ### 8.4 Read Surface Tests
 
@@ -1485,7 +1681,14 @@
 
 - `GET /sessions/{id}` 返回轻量 session root
 - `/state` 的过滤、分页与 closure 收缩
+- `/state` / `/context` 不暴露 “新 assessment + 旧 proposal” 的半更新组合
 - `/context` 的 proposition 最小闭包
+- session runtime status 与 canonical session root 严格分离
+- artifact runtime status 能区分 `staged` / `extracting` / `findings_committed` / `seeding_handoff_pending` / `failed`
+- proposition runtime status 能区分 queued / assessment_recompute / assessment_committed / proposal_refresh / publish_ready / externally_visible / failed
+- proposition runtime status 能解释 `latest_assessment = null` 的运行时原因
+- migration_required / backpressure / claim/lease 只出现在 runtime status surface
+- runtime status 与 state/context 的边界保持稳定，不把 runtime 字段泄漏到 canonical surfaces
 - `reflection-context` 仅保留 compact summary 语义
 
 ### 8.5 Regression Tests
@@ -1565,6 +1768,7 @@
 - 新 intent API 已替代 legacy public step API
 - canonical evidence pipeline 已按 `artifact -> finding -> proposition -> assessment -> action proposal` 运行
 - `/sessions/{id}`、`/state`、`/context` 成为新的正式读面
+- operator-facing runtime status surface 已落地，并与 canonical read surfaces 解耦
 - 旧 public step 和旧 evidence 主链不再是正式路径
 - 文档、实现、测试三者一致
 
@@ -1574,8 +1778,10 @@
 - `docs/api/intent-steps.md`
 - `docs/api/session-state.md`
 - `docs/api/context-surface.md`
+- `docs/api/runtime-status.md`
 - `docs/analysis/README.md`
 - `docs/analysis/intents/primitive-intent-design.md`
 - `docs/analysis/intents/derived-intent-design.md`
 - `docs/analysis/evidence-engine/runtime-pipeline.md`
+- `docs/analysis/evidence-engine/runtime-status-surface.md`
 - `docs/analysis/evidence-engine/read-surfaces.md`

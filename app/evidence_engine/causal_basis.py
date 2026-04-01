@@ -237,11 +237,12 @@ def _build_scope_aware_gaps(
     # Rule 2 — time/failure metric with no temporal ordering in supporting observations.
     # Only fires when we know the metric is time/failure-sensitive AND we have
     # observations that lack both temporal order and observed_window.
-    if supporting_observations and (
-        _metric_is_time_based(metric) or _metric_is_failure_rate(metric)
-    ) and not _supporting_have_temporal_order(
+    if (
         supporting_observations
-    ) and not _supporting_have_windows(supporting_observations):
+        and (_metric_is_time_based(metric) or _metric_is_failure_rate(metric))
+        and not _supporting_have_temporal_order(supporting_observations)
+        and not _supporting_have_windows(supporting_observations)
+    ):
         _add(
             EvidenceGap(
                 key=GAP_MISSING_TEMPORAL_ORDERING,

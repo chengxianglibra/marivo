@@ -37,6 +37,7 @@ from app.evidence_engine.finding_extractor_registry import (
 class _ObsV1Extractor(FindingExtractor):
     artifact_type = "observation_artifact"
     artifact_schema_version = "v1"
+    family = "observe"
     extractor_name = "obs_v1"
     extractor_version = "1.0.0"
     finding_schema_version = "v1"
@@ -61,6 +62,7 @@ class _ObsV1Extractor(FindingExtractor):
 class _ObsV2Extractor(FindingExtractor):
     artifact_type = "observation_artifact"
     artifact_schema_version = "v2"
+    family = "observe"
     extractor_name = "obs_v2"
     extractor_version = "2.0.0"
     finding_schema_version = "v2"
@@ -85,6 +87,7 @@ class _ObsV2Extractor(FindingExtractor):
 class _CompareV1Extractor(FindingExtractor):
     artifact_type = "compare_artifact"
     artifact_schema_version = "v1"
+    family = "compare"
     extractor_name = "compare_v1"
     extractor_version = "1.0.0"
     # finding_schema_version intentionally not set — inherits None from ABC
@@ -120,6 +123,7 @@ class TestFindingExtractorABC(unittest.TestCase):
         class _Partial(FindingExtractor):
             artifact_type = "x"
             artifact_schema_version = "v1"
+            family = "observe"
             extractor_name = "x"
             extractor_version = "0.0.1"
             # extract() not implemented
@@ -202,6 +206,7 @@ class TestFindingExtractorABC(unittest.TestCase):
         class _Complete(FindingExtractor):
             artifact_type = "observation_artifact"
             artifact_schema_version = "v1"
+            family = "observe"
             extractor_name = "complete"
             extractor_version = "1.0.0"
 
@@ -318,6 +323,7 @@ class TestFindingExtractorRegistryNullVersion(unittest.TestCase):
         class _EmptyVersionExtractor(FindingExtractor):
             artifact_type = "observation_artifact"
             artifact_schema_version = ""
+            family = "observe"
             extractor_name = "obs_empty"
             extractor_version = "0.0.1"
 
@@ -371,6 +377,7 @@ class TestFindingExtractorRegistryVersionRouting(unittest.TestCase):
             # distinguishes them by schema version alone.
             artifact_type = "observation_artifact"
             artifact_schema_version = "v3"
+            family = "observe"
             extractor_name = "obs_alt_step"
             extractor_version = "1.0.0"
 
@@ -461,6 +468,7 @@ class TestFindingExtractorRegistrySnapshot(unittest.TestCase):
         entry = entries[0]
         self.assertIn("artifact_type", entry)
         self.assertIn("artifact_schema_version", entry)
+        self.assertIn("family", entry)
         self.assertIn("extractor_name", entry)
         self.assertIn("extractor_version", entry)
         self.assertIn("finding_schema_version", entry)
@@ -470,6 +478,7 @@ class TestFindingExtractorRegistrySnapshot(unittest.TestCase):
         entry = self.registry.snapshot()[0]
         self.assertEqual(entry["artifact_type"], "observation_artifact")
         self.assertEqual(entry["artifact_schema_version"], "v1")
+        self.assertEqual(entry["family"], "observe")
         self.assertEqual(entry["extractor_name"], "obs_v1")
         self.assertEqual(entry["extractor_version"], "1.0.0")
         self.assertEqual(entry["finding_schema_version"], "v1")

@@ -64,6 +64,7 @@ class FindingExtractor(ABC):
     artifact_schema_version: ClassVar[str]
     extractor_name: ClassVar[str]
     extractor_version: ClassVar[str]
+    family: ClassVar[str]
     finding_schema_version: ClassVar[str | None] = None
 
     # Required ClassVar names validated by __init_subclass__.
@@ -72,6 +73,7 @@ class FindingExtractor(ABC):
         "artifact_schema_version",
         "extractor_name",
         "extractor_version",
+        "family",
     )
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
@@ -234,6 +236,7 @@ class FindingExtractorRegistry:
             {
                 "artifact_type": e.artifact_type,
                 "artifact_schema_version": e.artifact_schema_version,
+                "family": e.family,
                 "extractor_name": e.extractor_name,
                 "extractor_version": e.extractor_version,
                 "finding_schema_version": e.finding_schema_version,
