@@ -323,6 +323,142 @@ METADATA_DDL: list[str] = [
         created_at      TEXT NOT NULL
     )
     """,
+    # -------------------------------------------------------------------------
+    # Canonical Evidence Pipeline (Phase 4)
+    # artifact -> finding -> proposition -> assessment -> action proposal
+    # -------------------------------------------------------------------------
+    # -- findings: canonical fact units extracted from artifacts --
+    """
+    CREATE TABLE IF NOT EXISTS findings (
+        finding_id          TEXT PRIMARY KEY,
+        session_id          TEXT NOT NULL REFERENCES sessions(session_id),  -- denorm: session_id also lives in step_ref_json; kept for efficient indexed queries
+        artifact_id         TEXT NOT NULL REFERENCES artifacts(artifact_id),
+        step_ref_json       TEXT NOT NULL,
+        finding_type        TEXT NOT NULL,
+        subject_json        TEXT NOT NULL,
+        observed_window_json TEXT,
+        quality_json        TEXT NOT NULL,
+        provenance_json     TEXT NOT NULL,
+        payload_json        TEXT NOT NULL,
+        schema_version      TEXT NOT NULL DEFAULT 'v1',
+        created_at          TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_findings_session ON findings(session_id)",
+    "CREATE INDEX IF NOT EXISTS idx_findings_artifact ON findings(artifact_id)",
+    "CREATE INDEX IF NOT EXISTS idx_findings_session_type ON findings(session_id, finding_type)",
+    # -- propositions: judgment-layer canonical objects --
+    """
+    CREATE TABLE IF NOT EXISTS propositions (
+        proposition_id          TEXT PRIMARY KEY,
+        session_id              TEXT NOT NULL REFERENCES sessions(session_id),
+        proposition_type        TEXT NOT NULL,
+        subject_json            TEXT NOT NULL,
+        origin_json             TEXT NOT NULL,
+        assessment_anchor_json  TEXT NOT NULL,
+        lineage_json            TEXT NOT NULL,
+        seed_finding_refs_json  TEXT NOT NULL DEFAULT '[]',
+        payload_json            TEXT NOT NULL DEFAULT '{}',  -- subtype payload extension; not in PropositionBase contract
+        schema_version          TEXT NOT NULL DEFAULT 'v1',
+        created_at              TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_propositions_session ON propositions(session_id)",
+    "CREATE INDEX IF NOT EXISTS idx_propositions_session_type ON propositions(session_id, proposition_type)",
+    # -- assessments: immutable evaluation snapshots --
+    """
+    CREATE TABLE IF NOT EXISTS assessments (
+        assessment_id                   TEXT PRIMARY KEY,
+        session_id                      TEXT NOT NULL REFERENCES sessions(session_id),
+        proposition_id                  TEXT NOT NULL REFERENCES propositions(proposition_id),
+        assessment_type                 TEXT NOT NULL,
+        snapshot_seq                    INTEGER NOT NULL,
+        status                          TEXT NOT NULL,
+        confidence_grade                TEXT NOT NULL,
+        confidence_rationale_json       TEXT NOT NULL,
+        supporting_finding_ids_json     TEXT NOT NULL DEFAULT '[]',
+        opposing_finding_ids_json       TEXT NOT NULL DEFAULT '[]',
+        gap_memberships_json            TEXT NOT NULL DEFAULT '[]',
+        applied_inference_record_ids_json TEXT NOT NULL DEFAULT '[]',
+        supersedes_assessment_id        TEXT REFERENCES assessments(assessment_id),  -- nullable self-ref: previous snapshot this supersedes
+        payload_json                    TEXT NOT NULL DEFAULT '{}',  -- subtype payload extension; not in AssessmentBase contract
+        schema_version                  TEXT NOT NULL DEFAULT 'v1',
+        created_at                      TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(proposition_id, snapshot_seq)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_assessments_session ON assessments(session_id)",
+    "CREATE INDEX IF NOT EXISTS idx_assessments_proposition ON assessments(proposition_id)",
+    "CREATE INDEX IF NOT EXISTS idx_assessments_proposition_seq ON assessments(proposition_id, snapshot_seq)",
+    # -- evidence_gaps: missing-evidence tracking per proposition --
+    """
+    CREATE TABLE IF NOT EXISTS evidence_gaps (
+        gap_id                          TEXT PRIMARY KEY,
+        session_id                      TEXT NOT NULL REFERENCES sessions(session_id),
+        proposition_id                  TEXT NOT NULL REFERENCES propositions(proposition_id),
+        gap_kind                        TEXT NOT NULL,
+        title                           TEXT NOT NULL DEFAULT '',
+        description                     TEXT NOT NULL DEFAULT '',
+        status                          TEXT NOT NULL DEFAULT 'open',
+        missing_requirement_json        TEXT NOT NULL,
+        satisfiable_by_json             TEXT NOT NULL DEFAULT '[]',
+        related_finding_ids_json        TEXT NOT NULL DEFAULT '[]',
+        opened_by_inference_record_id   TEXT NOT NULL REFERENCES inference_records(inference_record_id),
+        resolved_by_inference_record_id TEXT         REFERENCES inference_records(inference_record_id),
+        schema_version                  TEXT NOT NULL DEFAULT 'v1',
+        created_at                      TEXT NOT NULL DEFAULT (datetime('now')),
+        resolved_at                     TEXT
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_evidence_gaps_session ON evidence_gaps(session_id)",
+    "CREATE INDEX IF NOT EXISTS idx_evidence_gaps_proposition ON evidence_gaps(proposition_id)",
+    "CREATE INDEX IF NOT EXISTS idx_evidence_gaps_proposition_status ON evidence_gaps(proposition_id, status)",
+    # -- inference_records: rule-process records per assessment snapshot --
+    """
+    CREATE TABLE IF NOT EXISTS inference_records (
+        inference_record_id             TEXT PRIMARY KEY,
+        session_id                      TEXT NOT NULL REFERENCES sessions(session_id),
+        proposition_id                  TEXT NOT NULL REFERENCES propositions(proposition_id),
+        assessment_id                   TEXT NOT NULL REFERENCES assessments(assessment_id),
+        rule_id                         TEXT NOT NULL,
+        rule_version                    TEXT NOT NULL DEFAULT 'v1',
+        result                          TEXT NOT NULL,
+        input_finding_ids_json          TEXT NOT NULL DEFAULT '[]',
+        input_assessment_ids_json       TEXT NOT NULL DEFAULT '[]',
+        opened_gap_ids_json             TEXT NOT NULL DEFAULT '[]',
+        resolved_gap_ids_json           TEXT NOT NULL DEFAULT '[]',
+        produced_status_transition_json TEXT,
+        confidence_contribution_json    TEXT NOT NULL DEFAULT '{}',
+        justification_json              TEXT NOT NULL DEFAULT '{}',
+        schema_version                  TEXT NOT NULL DEFAULT 'v1',
+        created_at                      TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_inference_records_session ON inference_records(session_id)",
+    "CREATE INDEX IF NOT EXISTS idx_inference_records_proposition ON inference_records(proposition_id)",
+    "CREATE INDEX IF NOT EXISTS idx_inference_records_assessment ON inference_records(assessment_id)",
+    # -- action_proposals: planning shortcut snapshots --
+    """
+    CREATE TABLE IF NOT EXISTS action_proposals (
+        action_proposal_id              TEXT PRIMARY KEY,
+        session_id                      TEXT NOT NULL REFERENCES sessions(session_id),
+        action_kind                     TEXT NOT NULL,
+        primary_assessment_ref_json     TEXT NOT NULL,
+        related_assessment_refs_json    TEXT NOT NULL DEFAULT '[]',
+        target_proposition_ref_json     TEXT NOT NULL,
+        proposal_context_json           TEXT NOT NULL,
+        priority_axes_json              TEXT NOT NULL,
+        priority_rank                   REAL NOT NULL,
+        rationale_json                  TEXT NOT NULL,
+        payload_json                    TEXT NOT NULL,
+        policy_version                  TEXT NOT NULL DEFAULT 'v1',
+        schema_version                  TEXT NOT NULL DEFAULT 'v1',
+        created_at                      TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_action_proposals_session ON action_proposals(session_id)",
+    "CREATE INDEX IF NOT EXISTS idx_action_proposals_session_kind ON action_proposals(session_id, action_kind)",
+    "CREATE INDEX IF NOT EXISTS idx_action_proposals_session_rank ON action_proposals(session_id, priority_rank)",
 ]
 
 # Migrations that add columns to existing tables.  Each is tried
