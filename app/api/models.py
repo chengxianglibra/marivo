@@ -943,23 +943,29 @@ class ForecastRequest(BaseModel):
     )
 
 
+class AttributeObservationInput(BaseModel):
+    """One side of an attribute request — canonical observe scalar profile."""
+
+    time_scope: ObserveTimeScope
+    scope: ObserveScope | None = Field(default=None)
+
+
 class AttributeRequest(BaseModel):
     """Derived intent: attribute a metric change (expands to observe+observe+compare+decompose)."""
 
     metric: str = Field(description="Published semantic metric to attribute.")
-    current_time_scope: ObserveTimeScope = Field(
-        description="Time scope for the current observation window."
+    left: AttributeObservationInput = Field(
+        description="Current / treatment side observation scope."
     )
-    baseline_time_scope: ObserveTimeScope = Field(
-        description="Time scope for the baseline observation window."
+    right: AttributeObservationInput = Field(
+        description="Baseline / control side observation scope."
     )
-    scope: ObserveScope | None = Field(default=None)
-    candidate_dimensions: list[str] = Field(
+    dimensions: list[str] = Field(
         min_length=1,
-        description="Candidate attribution dimensions.",
+        description="Attribution dimensions (deduped in order).",
     )
-    top_k: int = Field(default=5, ge=1)
-    min_contribution_pct: float = Field(default=5.0, ge=0.0)
+    decomposition_method: Literal["delta_share"] = Field(default="delta_share")
+    decomposition_limit: int = Field(default=5, ge=1)
 
 
 class DiagnoseRequest(BaseModel):
