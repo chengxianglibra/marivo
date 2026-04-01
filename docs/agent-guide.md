@@ -63,9 +63,10 @@ Metadata reads use synced `source_objects`, not live catalogs.
 
 - Physical: synced source objects
 - Semantic: entities, metrics, mappings
-- Evidence: sessions, steps, artifacts, observations, claims, edges, recommendations
+- Evidence (canonical pipeline): sessions, steps, artifacts, findings, propositions, assessments, evidence_gaps, inference_records, action_proposals
+- Evidence (legacy, to be removed in phase 6): observations, claims, evidence_edges, recommendations
 
-Artifacts = raw outputs. Observations = deterministic facts. Claims = synthesized conclusions with inference levels. Recommendations = derived from confirmed claims. `synthesize_findings` materializes final evidence.
+Canonical pipeline: `artifact → finding → proposition → assessment → action proposal`. Artifacts are committed step outputs. Findings are deterministically extracted atomic fact units (`findings` table). Propositions are judgment-layer objects seeded from findings (`propositions` table). Assessments are immutable evaluation snapshots with evidence membership and gap tracking (`assessments`, `evidence_gaps`, `inference_records` tables). Action proposals are planning-shortcut projections derived from latest assessments (`action_proposals` table). DDL: `app/storage/schema.py`.
 
 ## Steps
 
