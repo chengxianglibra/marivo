@@ -19,6 +19,7 @@ from app.analysis_core.compiler import build_metric_query as compile_metric_quer
 from app.analysis_core.executor import execute_compiled
 from app.analysis_core.ir import AnalysisStepIR, from_legacy_step
 from app.evidence_engine import EvidencePipeline
+from app.evidence_engine.canonical_finding import StepRef
 from app.evidence_engine.causal_checkers import _pearson_correlation, _spearman_correlation
 from app.evidence_engine.claim_relations import (
     _claim_direction,
@@ -26,6 +27,11 @@ from app.evidence_engine.claim_relations import (
     _is_subset,
     _shared_values,
     _slice_dict,
+)
+from app.evidence_engine.finding_extractor_registry import (
+    FindingExtractorRegistry,
+    default_finding_registry,
+    validate_for_commit,
 )
 from app.evidence_engine.readiness import compute_readiness, load_live_claims
 from app.evidence_engine.schemas import ALL_EDGE_TYPES, EDGE_TYPE_JUSTIFIES, Claim
@@ -3120,14 +3126,26 @@ class SemanticLayerService:
         content: Any,
         *,
         lifecycle: str = "committed",
+        artifact_schema_version: str | None = None,
     ) -> str:
         artifact_id = f"art_{uuid4().hex[:12]}"
         self.metadata.execute(
             """
-            INSERT INTO artifacts (artifact_id, session_id, step_id, artifact_type, name, content_json, lifecycle)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO artifacts
+                (artifact_id, session_id, step_id, artifact_type, name,
+                 content_json, lifecycle, artifact_schema_version)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            [artifact_id, session_id, step_id, artifact_type, name, self._dump(content), lifecycle],
+            [
+                artifact_id,
+                session_id,
+                step_id,
+                artifact_type,
+                name,
+                self._dump(content),
+                lifecycle,
+                artifact_schema_version,
+            ],
         )
         return artifact_id
 
@@ -3137,6 +3155,126 @@ class SemanticLayerService:
             "UPDATE artifacts SET lifecycle = 'committed' WHERE artifact_id = ?",
             [artifact_id],
         )
+
+    def _commit_artifact_with_extraction(
+        self,
+        session_id: str,
+        step_id: str,
+        artifact_type: str,
+        name: str,
+        content: Any,
+        *,
+        artifact_schema_version: str | None = None,
+        step_ref: StepRef | None = None,
+        step_type: str | None = None,
+        _registry: FindingExtractorRegistry | None = None,
+    ) -> str:
+        """Canonical commit boundary for mandatory-extraction artifacts (Phase 4c-1).
+
+        Algorithm:
+        1. Look up extractor via registry.find(artifact_type, artifact_schema_version).
+        2. If no extractor (non-mandatory family): insert artifact as committed directly.
+        3. If extractor found:
+           a. Build effective_step_ref from the supplied step_ref, or construct one from
+              (session_id, step_id, step_type or artifact_type).
+              NOTE(4c-2): callers should always pass step_ref (or step_type) so that
+              StepRef.step_type reflects the actual step type rather than artifact_type.
+           b. Run extractor.extract(artifact_id, content, effective_step_ref, session_id).
+              Raises on extraction crash — no DB write happens.
+           c. Call validate_for_commit(family, result).
+              Raises ValueError (count mismatch) or FamilyEmptyError (empty not allowed)
+              — no DB write happens.
+           d. In a single DB transaction: INSERT artifact (staged) + INSERT OR IGNORE
+              each finding + UPDATE artifact lifecycle to 'committed'.  Either all three
+              succeed together or none do.
+        4. Return artifact_id.
+
+        Atomicity guarantee: extraction and validation run outside the transaction.
+        Only after both succeed are any rows written.  An extraction crash or validation
+        failure leaves no artifact row and no finding rows in the DB.
+        """
+        registry = _registry if _registry is not None else default_finding_registry
+        extractor = registry.find(artifact_type, artifact_schema_version)
+
+        if extractor is None:
+            # Non-mandatory family: insert as committed directly (backward compatible).
+            return self._insert_artifact(
+                session_id,
+                step_id,
+                artifact_type,
+                name,
+                content,
+                lifecycle="committed",
+                artifact_schema_version=artifact_schema_version,
+            )
+
+        # Mandatory extraction family — run extraction and validation BEFORE any DB write.
+        artifact_id = f"art_{uuid4().hex[:12]}"
+        effective_step_ref: StepRef = step_ref or StepRef(
+            session_id=session_id,
+            step_id=step_id,
+            # TODO(4c-2): callers should always pass step_ref or step_type so this
+            # reflects the actual step type, not the artifact type.
+            step_type=step_type or artifact_type,
+        )
+        result = extractor.extract(artifact_id, content, effective_step_ref, session_id)
+        # Raises ValueError (count mismatch) or FamilyEmptyError (empty not allowed).
+        # Either exception aborts before any DB write.
+        validate_for_commit(extractor.family, result)
+
+        # All writes in a single transaction: artifact row + findings + lifecycle flip.
+        with self.metadata.connect() as con:
+            con.execute(
+                """
+                INSERT INTO artifacts
+                    (artifact_id, session_id, step_id, artifact_type, name,
+                     content_json, lifecycle, artifact_schema_version)
+                VALUES (?, ?, ?, ?, ?, ?, 'staged', ?)
+                """,
+                [
+                    artifact_id,
+                    session_id,
+                    step_id,
+                    artifact_type,
+                    name,
+                    self._dump(content),
+                    artifact_schema_version,
+                ],
+            )
+            for f in result["findings"]:
+                con.execute(
+                    """
+                    INSERT OR IGNORE INTO findings (
+                        finding_id, session_id, artifact_id, step_ref_json,
+                        finding_type, canonical_item_key, subject_json,
+                        observed_window_json, quality_json, provenance_json,
+                        payload_json, schema_version
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        f["finding_id"],
+                        session_id,
+                        artifact_id,
+                        json.dumps(f["step_ref"]),
+                        f["finding_type"],
+                        f["provenance"]["canonical_item_key"],
+                        json.dumps(f["subject"]),
+                        json.dumps(f["observed_window"])
+                        if f.get("observed_window") is not None
+                        else None,
+                        json.dumps(f["quality"]),
+                        json.dumps(f["provenance"]),
+                        json.dumps(f["payload"]),
+                        "v1",
+                    ],
+                )
+            con.execute(
+                "UPDATE artifacts SET lifecycle = 'committed' WHERE artifact_id = ?",
+                [artifact_id],
+            )
+            con.commit()
+
+        return artifact_id
 
     def _resolve_artifact_for_ref(self, session_id: str, step_id: str) -> dict[str, Any] | None:
         """Return the content of the most recent committed artifact for a step ref.

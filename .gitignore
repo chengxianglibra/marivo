@@ -10,6 +10,7 @@ build/
 
 # obsidian
 docs/.obsidian
+docs/.obsidian/workspace.json
 
 # Virtual environment
 .venv/
