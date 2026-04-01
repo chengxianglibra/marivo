@@ -631,7 +631,10 @@ class PlanPatchRequest(BaseModel):
 class ObservationRef(BaseModel):
     """Typed reference to an upstream `observe` step artifact."""
 
-    session_id: str
+    session_id: str | None = Field(
+        default=None,
+        description="Session containing the upstream observe step. Defaults to the path session when omitted.",
+    )
     step_id: str
     step_type: Literal["observe"]
 
@@ -650,10 +653,30 @@ class CorrelateObservationRef(ObservationRef):
     )
 
 
+class TestObservationRef(ObservationRef):
+    """Full typed artifact reference for `test`.
+
+    Matches the typed reference contract from docs/analysis/intents/atomic/test.md.
+    """
+
+    artifact_id: str = Field(
+        description="Artifact ID of the upstream committed observe artifact.",
+    )
+    observation_type: Literal["numeric_sample_summary", "rate_sample_summary"] = Field(
+        description=(
+            "Inferential-ready observation artifact type. "
+            "Must be 'numeric_sample_summary' or 'rate_sample_summary'."
+        ),
+    )
+
+
 class ArtifactRef(BaseModel):
     """Typed reference to any upstream intent step artifact."""
 
-    session_id: str
+    session_id: str | None = Field(
+        default=None,
+        description="Session containing the upstream step. Defaults to the path session when omitted.",
+    )
     step_id: str
     step_type: str
 
@@ -846,24 +869,12 @@ class DetectRequest(BaseModel):
     )
 
 
-class IntentTestRequest(BaseModel):
-    """Atomic intent: evaluate a typed statistical hypothesis.
+class HypothesisContract(BaseModel):
+    """Hypothesis definition for the `test` atomic intent."""
 
-    Named IntentTestRequest to avoid collision with Python's built-in `test` usage.
-    Exposed via the /intents/test endpoint.
-    """
-
-    hypothesis: Literal["welch_t", "proportions_z", "chi_square"] = Field(
-        description="Statistical test type."
-    )
-    left_ref: ObservationRef = Field(
-        description=(
-            "Reference to an inferential-ready observe artifact "
-            "(numeric_sample_summary or rate_sample_summary)."
-        )
-    )
-    right_ref: ObservationRef = Field(
-        description="Reference to a second inferential-ready observe artifact."
+    family: Literal["difference"] = Field(
+        default="difference",
+        description="Hypothesis family.  v1 only supports 'difference'.",
     )
     alternative: Literal["two_sided", "greater", "less"] = Field(
         default="two_sided",
@@ -873,7 +884,39 @@ class IntentTestRequest(BaseModel):
         default=0.05,
         gt=0.0,
         lt=1.0,
-        description="Significance level.",
+        description="Significance level α ∈ (0, 1).",
+    )
+    label: str | None = Field(
+        default=None,
+        description="Human-readable label.  Does not affect artifact identity.",
+    )
+
+
+class IntentTestRequest(BaseModel):
+    """Atomic intent: evaluate a typed statistical hypothesis.
+
+    Named IntentTestRequest to avoid collision with Python's built-in `test` usage.
+    Exposed via the /intents/test endpoint.
+    """
+
+    left_ref: TestObservationRef = Field(
+        description=(
+            "Reference to an inferential-ready observe artifact "
+            "(numeric_sample_summary or rate_sample_summary)."
+        )
+    )
+    right_ref: TestObservationRef = Field(
+        description="Reference to a second inferential-ready observe artifact."
+    )
+    hypothesis: HypothesisContract = Field(
+        description="Hypothesis contract defining the statistical test to run.",
+    )
+    method: Literal["auto", "welch_t", "two_proportion_z"] = Field(
+        default="auto",
+        description=(
+            "'auto' selects welch_t for numeric_sample_summary and "
+            "two_proportion_z for rate_sample_summary."
+        ),
     )
 
 

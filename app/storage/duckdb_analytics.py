@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import random
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
@@ -72,6 +72,11 @@ class DuckDBAnalyticsEngine(AnalyticsEngine):
         con = duckdb.connect(str(self.db_path))
         try:
             yield con
+            con.commit()
+        except Exception:
+            with suppress(Exception):
+                con.rollback()
+            raise
         finally:
             con.close()
 

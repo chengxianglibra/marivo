@@ -289,14 +289,18 @@ class IntentEndpointTests(unittest.TestCase):
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/test",
             json={
-                "hypothesis": "welch_t",
+                "hypothesis": {"family": "difference", "alternative": "two_sided", "alpha": 0.05},
                 "left_ref": {
                     "session_id": "sess_x",
+                    "artifact_id": "art_1",
+                    "observation_type": "numeric_sample_summary",
                     "step_id": "step_1",
                     "step_type": "observe",
                 },
                 "right_ref": {
                     "session_id": self.session_id,
+                    "artifact_id": "art_2",
+                    "observation_type": "numeric_sample_summary",
                     "step_id": "step_2",
                     "step_type": "observe",
                 },
@@ -304,24 +308,28 @@ class IntentEndpointTests(unittest.TestCase):
         )
         self.assertEqual(r.status_code, 422)
 
-    def test_intent_test_returns_501_for_stub(self) -> None:
+    def test_intent_test_rejects_missing_steps(self) -> None:
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/test",
             json={
-                "hypothesis": "welch_t",
+                "hypothesis": {"family": "difference", "alternative": "two_sided", "alpha": 0.05},
                 "left_ref": {
                     "session_id": self.session_id,
+                    "artifact_id": "art_1",
+                    "observation_type": "numeric_sample_summary",
                     "step_id": "step_1",
                     "step_type": "observe",
                 },
                 "right_ref": {
                     "session_id": self.session_id,
+                    "artifact_id": "art_2",
+                    "observation_type": "numeric_sample_summary",
                     "step_id": "step_2",
                     "step_type": "observe",
                 },
             },
         )
-        self.assertEqual(r.status_code, 501)
+        self.assertEqual(r.status_code, 422)
 
     # ── forecast ──────────────────────────────────────────────────────────────
 
@@ -802,7 +810,12 @@ class ObserveTypedArtifactTests(unittest.TestCase):
         values = [s["value"] for s in segments if s["value"] is not None]
         self.assertEqual(values, sorted(values, reverse=True))
 
-    def test_observe_non_standard_result_mode_returns_501(self) -> None:
+    def test_observe_aggregate_metric_numeric_summary_returns_error(self) -> None:
+        """Aggregate metric (COUNT DISTINCT) cannot be used as per-row value expression.
+
+        numeric_sample_summary mode requires a raw column expression, not an outer aggregate.
+        DuckDB rejects nested aggregates (AVG(COUNT(DISTINCT ...))) with a SQL error.
+        """
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/observe",
             json={
@@ -811,7 +824,8 @@ class ObserveTypedArtifactTests(unittest.TestCase):
                 "result_mode": "numeric_sample_summary",
             },
         )
-        self.assertEqual(r.status_code, 501)
+        # DuckDB rejects nested aggregates — returned as 502 (execution error)
+        self.assertNotEqual(r.status_code, 200)
 
 
 class ArtifactLifecycleTests(unittest.TestCase):

@@ -195,7 +195,7 @@
 
 ## 阶段 3：重构执行模型为 Intent Registry + Derived Expansion
 
-> **实施说明**：本阶段拆分为顺序子任务（3a → 3b-1 → 3b-2 → 3b-3 → 3b-4 → 3b-5 → 3b-6 → 3c）。3b-1 ～ 3b-6 各对应一个 atomic runner，均依赖 3a 确定的 artifact 持久化模型和 registry 接口；3c 依赖全部 atomic runners 就绪。
+> **实施说明**：本阶段拆分为顺序子任务（3a → 3b-1 → 3b-2 → 3b-3 → 3b-4 → 3b-5 → 3b-6 → 3c-1 → 3c-2 → 3c-3）。3b-1 ～ 3b-6 各对应一个 atomic runner，均依赖 3a 确定的 artifact 持久化模型和 registry 接口；3c-1 ～ 3c-3 各对应一个 derived intent，统一依赖全部 atomic runners 就绪。
 
 ---
 
@@ -452,33 +452,100 @@
 
 ---
 
-### 阶段 3c：Derived Intent Expansion（attribute / diagnose / validate）
+### 阶段 3c-1：`attribute` Derived Expansion
 
 #### 目标
 
-在全部 atomic runners 就绪后，实现 3 个 derived intent 的 deterministic expansion 逻辑。
+在全部 atomic runners 就绪后，先单独落地 `attribute` 的 deterministic expansion，使“变化量化 + 变化归因”形成一条可独立实现、测试和验收的 derived intent 路径。
+
+#### 依赖
+
+3a + 3b 全部完成（尤其 `observe`、`compare`、`decompose`）
 
 #### 任务
 
-- `attribute`：展开为 `observe + observe + compare + decompose`
-- `diagnose`：展开为 `detect + compare + decompose`（对 top-K candidates 执行）
-- `validate`：展开为 `observe + test`
-- 确保 expansion 规则满足：
-  - 只依赖请求和系统状态
-  - 不要求执行中外部补充决策
-  - 不生成独立 plan 资源
+- 将 `attribute` 固定展开为 `observe + observe + compare + decompose`
+- 约束展开规则只依赖请求和系统状态，不要求执行中外部补充决策
+- 为左右两侧 observation 建立稳定的 sub-step / artifact ref 链路
+- 固定内部 `compare` 为 scalar compare，并按请求维度逐个执行 `decompose`
+- 聚合 derived 层结果为 `attribute` bundle / projection，并暴露完整 lineage
 - 同步更新文档与测试
 
 #### 交付物
 
-- `attribute`、`diagnose`、`validate` 的 expansion 实现
-- 端到端 expansion 测试
+- `attribute` expansion 实现
+- `attribute` 端到端 expansion 测试
 
 #### 验收标准
 
-- derived intents 可在单次请求中展开并执行完成
-- expansion 不依赖 planner 或中间人工决策
-- 展开后的 sub-step artifact ref 链路正确
+- `attribute` 可在单次请求中展开并执行完成
+- 同一请求生成稳定的子步骤集合，不依赖 planner 或中间人工决策
+- 展开后的 `observe` / `compare` / `decompose` artifact ref 链路正确
+
+---
+
+### 阶段 3c-2：`diagnose` Derived Expansion
+
+#### 目标
+
+在 atomic runners 基础上，单独落地 `diagnose` 的候选跟进型 deterministic expansion，使异常发现、异常量化和归因拆解形成一条受控的 derived intent 路径。
+
+#### 依赖
+
+3a + 3b 全部完成（尤其 `detect`、`compare`、`decompose`）
+
+#### 任务
+
+- 将 `diagnose` 固定展开为 `detect + compare + decompose`
+- 基于 `detect` artifact 中的稳定排序结果，只跟进 top-K candidates
+- 对每个被跟进 candidate 使用固定策略推导 current / baseline，再执行后续 compare
+- 对每个 candidate × dimension 执行 `decompose`
+- 明确 candidate selection 属于 contract 内固定逻辑，不退化成开放式 planner
+- 聚合 derived 层结果为 `diagnosis` bundle / projection，并披露未跟进候选
+- 同步更新文档与测试
+
+#### 交付物
+
+- `diagnose` expansion 实现
+- `diagnose` 端到端 expansion 测试
+
+#### 验收标准
+
+- `diagnose` 可在单次请求中展开并执行完成
+- expansion 不依赖中间人工决策，top-K candidate follow-up 规则可重复验证
+- 展开后的 `detect` / `compare` / `decompose` artifact ref 链路正确
+
+---
+
+### 阶段 3c-3：`validate` Derived Expansion
+
+#### 目标
+
+在 atomic runners 基础上，单独落地 `validate` 的 inferential-ready deterministic expansion，使样本准备与假设检验形成一条可独立验收的 derived intent 路径。
+
+#### 依赖
+
+3a + 3b 全部完成（尤其 `observe`、`test`）
+
+#### 任务
+
+- 将 `validate` 固定展开为 `observe + test`
+- 以左右两侧 inferential-ready observation 作为唯一上游输入
+- 对 `sample_kind`、`method` 和 hypothesis 默认值执行确定性推导或显式校验
+- 构造内部 `test` 请求并聚合 derived 层结果为 `validation` bundle / projection
+- 确保 expansion 规则只依赖请求和系统状态，不生成独立 plan 资源
+- 同步更新文档与测试
+
+#### 交付物
+
+- `validate` expansion 实现
+- `validate` 端到端 expansion 测试
+
+#### 验收标准
+
+- `validate` 可在单次请求中展开并执行完成
+- `auto` 模式下的 inferential summary mode / method 选择具备确定性，无法唯一确定时明确失败
+- 展开后的 `observe` / `test` artifact ref 链路正确
 
 ---
 
@@ -660,9 +727,11 @@
 7. `intent-runner-detect` （阶段 3b-4）
 8. `intent-runner-test` （阶段 3b-5）
 9. `intent-runner-forecast` （阶段 3b-6）
-10. `intent-derived-expansion` （阶段 3c）
-11. `canonical-evidence-pipeline`
-12. `state-context-surface-and-cleanup`
+10. `intent-derived-attribute` （阶段 3c-1）
+11. `intent-derived-diagnose` （阶段 3c-2）
+12. `intent-derived-validate` （阶段 3c-3）
+13. `canonical-evidence-pipeline`
+14. `state-context-surface-and-cleanup`
 
 ## 8. 测试计划
 

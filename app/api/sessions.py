@@ -79,7 +79,7 @@ def get_reflection_context(
 def _assert_same_session(session_id: str, *refs: ObservationRef | ArtifactRef) -> None:
     """Reject any ref whose session_id does not match the current session."""
     for ref in refs:
-        if ref.session_id != session_id:
+        if ref.session_id is not None and ref.session_id != session_id:
             raise HTTPException(
                 status_code=422,
                 detail=(

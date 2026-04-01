@@ -44,10 +44,10 @@ def run_observe_intent(
         raise ValueError("observe intent requires 'time_scope'")
 
     result_mode: str = p.get("result_mode") or "standard"
-    if result_mode != "standard":
-        raise NotImplementedError(
-            f"observe result_mode='{result_mode}' is not yet implemented. "
-            "Only 'standard' is supported in v1."
+    if result_mode not in {"standard", "numeric_sample_summary", "rate_sample_summary"}:
+        raise ValueError(
+            f"observe result_mode='{result_mode}' is not valid. "
+            "Must be one of: 'standard', 'numeric_sample_summary', 'rate_sample_summary'."
         )
 
     granularity: str | None = p.get("granularity") or None
@@ -62,6 +62,16 @@ def run_observe_intent(
         raise ValueError(
             "observe: granularity and dimensions cannot both be set. "
             "Use granularity for time_series mode or dimensions for segmented mode, not both."
+        )
+    if result_mode != "standard" and granularity is not None:
+        raise ValueError(
+            f"observe: granularity is not allowed with result_mode='{result_mode}'. "
+            "Inferential summary modes do not support granularity."
+        )
+    if result_mode != "standard" and dimensions is not None:
+        raise ValueError(
+            f"observe: dimensions is not allowed with result_mode='{result_mode}'. "
+            "Inferential summary modes do not support dimensions."
         )
 
     # --- Resolve time scope kind → (start_str, end_str, resolved response shape) ---
@@ -145,6 +155,214 @@ def run_observe_intent(
     qualified_table = qualified.get(short_name, resolved.table)
     step_id = svc._new_step_id()
     now = datetime.now(UTC).isoformat()
+
+    if result_mode == "numeric_sample_summary":
+        # --- Numeric Sample Summary mode ---
+        # metric_sql is used as a per-row value expression (not an outer aggregate).
+        # Requires metric definition_sql to be a raw column reference or simple expression.
+        compiled_query = svc._compile_step_with_feedback(
+            AnalysisStepIR(
+                index=0,
+                step_type="aggregate_query",
+                params={
+                    "table": qualified_table,
+                    "select": [
+                        "COUNT(*) AS n",
+                        f"AVG({metric_sql}) AS mean",
+                        f"VARIANCE({metric_sql}) AS variance",
+                        f"STDDEV_SAMP({metric_sql}) AS std",
+                        f"MIN({metric_sql}) AS min_val",
+                        f"MAX({metric_sql}) AS max_val",
+                    ],
+                    "group_by": [],
+                    "scoped_query": scoped_query,
+                    "limit": 1,
+                },
+            ),
+            engine_type=engine_type,
+            semantic_context={},
+        )
+        rows = list(execute_compiled(engine, compiled_query).rows)
+        provenance = svc._make_provenance(
+            compiled_query.sql, compiled_query.params, engine_type=engine_type
+        )
+
+        n_numeric: int = 0
+        mean_val: float | None = None
+        variance_val: float | None = None
+        std_val: float | None = None
+        min_val: float | None = None
+        max_val: float | None = None
+        if rows:
+            _row = rows[0]
+            with contextlib.suppress(TypeError, ValueError):
+                if _row.get("n") is not None:
+                    n_numeric = int(_row["n"])
+            with contextlib.suppress(TypeError, ValueError):
+                if _row.get("mean") is not None:
+                    mean_val = float(_row["mean"])
+            with contextlib.suppress(TypeError, ValueError):
+                if _row.get("variance") is not None:
+                    variance_val = float(_row["variance"])
+            with contextlib.suppress(TypeError, ValueError):
+                if _row.get("std") is not None:
+                    std_val = float(_row["std"])
+            with contextlib.suppress(TypeError, ValueError):
+                if _row.get("min_val") is not None:
+                    min_val = float(_row["min_val"])
+            with contextlib.suppress(TypeError, ValueError):
+                if _row.get("max_val") is not None:
+                    max_val = float(_row["max_val"])
+
+        quality_status_ns = "ready" if n_numeric > 0 else "not_ready"
+        observation_ns: dict[str, Any] = {
+            "schema_version": "1.0",
+            "metric_contract_version": None,
+            "derivation_version": "1.0",
+            "observation_type": "numeric_sample_summary",
+            "metric": metric_name,
+            "time_scope": resolved_time_scope,
+            "scope": scope_raw or {},
+            "unit": None,
+            "sample_summary": {
+                "n": n_numeric,
+                "mean": mean_val,
+                "variance": variance_val,
+                "standard_deviation": std_val,
+                "min": min_val,
+                "max": max_val,
+            },
+            "analytical_metadata": {
+                "metric_additivity": None,
+                "aggregation_semantics": None,
+                "timezone": None,
+                "data_complete": None,
+                "quality_status": quality_status_ns,
+                "row_count": n_numeric,
+                "sample_size": n_numeric,
+                "null_rate": None,
+            },
+            "execution_metadata": {
+                "query_hash": provenance.get("query_hash", ""),
+                "engine": engine_type,
+                "executed_at": now,
+            },
+        }
+        artifact_name_ns = f"{metric_name}_observe_numeric_summary"
+        summary_ns = (
+            f"observe {metric_name} numeric_sample_summary [{start_str} → {end_str}]: n={n_numeric}"
+        )
+        artifact_id_ns = svc._insert_artifact(
+            session_id, step_id, "observation", artifact_name_ns, observation_ns
+        )
+        result_ns: dict[str, Any] = {
+            "intent_type": "observe",
+            "step_type": "observe",
+            "step_ref": {
+                "session_id": session_id,
+                "step_id": step_id,
+                "step_type": "observe",
+            },
+            "artifact_id": artifact_id_ns,
+            **observation_ns,
+        }
+        svc._insert_step(
+            step_id, session_id, "observe", summary_ns, result_ns, provenance=provenance
+        )
+        return result_ns
+
+    if result_mode == "rate_sample_summary":
+        # --- Rate Sample Summary mode ---
+        # metric_sql is treated as a per-row 0/1 binary expression (rate numerator).
+        compiled_query = svc._compile_step_with_feedback(
+            AnalysisStepIR(
+                index=0,
+                step_type="aggregate_query",
+                params={
+                    "table": qualified_table,
+                    "select": [
+                        "COUNT(*) AS n",
+                        f"SUM(CAST(({metric_sql}) AS DOUBLE)) AS k",
+                    ],
+                    "group_by": [],
+                    "scoped_query": scoped_query,
+                    "limit": 1,
+                },
+            ),
+            engine_type=engine_type,
+            semantic_context={},
+        )
+        rows = list(execute_compiled(engine, compiled_query).rows)
+        provenance = svc._make_provenance(
+            compiled_query.sql, compiled_query.params, engine_type=engine_type
+        )
+
+        n_rate: int = 0
+        k_rate: float = 0.0
+        if rows:
+            _row = rows[0]
+            with contextlib.suppress(TypeError, ValueError):
+                if _row.get("n") is not None:
+                    n_rate = int(_row["n"])
+            with contextlib.suppress(TypeError, ValueError):
+                if _row.get("k") is not None:
+                    k_rate = float(_row["k"])
+
+        rate_val: float | None = k_rate / n_rate if n_rate > 0 else None
+        quality_status_rs = "ready" if n_rate > 0 else "not_ready"
+        observation_rs: dict[str, Any] = {
+            "schema_version": "1.0",
+            "metric_contract_version": None,
+            "derivation_version": "1.0",
+            "observation_type": "rate_sample_summary",
+            "metric": metric_name,
+            "time_scope": resolved_time_scope,
+            "scope": scope_raw or {},
+            "unit": None,
+            "sample_summary": {
+                "successes": round(k_rate),
+                "trials": n_rate,
+                "rate": rate_val,
+            },
+            "analytical_metadata": {
+                "metric_additivity": None,
+                "aggregation_semantics": None,
+                "timezone": None,
+                "data_complete": None,
+                "quality_status": quality_status_rs,
+                "row_count": n_rate,
+                "sample_size": n_rate,
+                "null_rate": None,
+            },
+            "execution_metadata": {
+                "query_hash": provenance.get("query_hash", ""),
+                "engine": engine_type,
+                "executed_at": now,
+            },
+        }
+        artifact_name_rs = f"{metric_name}_observe_rate_summary"
+        summary_rs = (
+            f"observe {metric_name} rate_sample_summary "
+            f"[{start_str} → {end_str}]: k={round(k_rate)} / n={n_rate}"
+        )
+        artifact_id_rs = svc._insert_artifact(
+            session_id, step_id, "observation", artifact_name_rs, observation_rs
+        )
+        result_rs: dict[str, Any] = {
+            "intent_type": "observe",
+            "step_type": "observe",
+            "step_ref": {
+                "session_id": session_id,
+                "step_id": step_id,
+                "step_type": "observe",
+            },
+            "artifact_id": artifact_id_rs,
+            **observation_rs,
+        }
+        svc._insert_step(
+            step_id, session_id, "observe", summary_rs, result_rs, provenance=provenance
+        )
+        return result_rs
 
     if granularity is not None:
         # --- Time-series mode ---
