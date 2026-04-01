@@ -18,7 +18,7 @@ Identity rules (from artifact-finding-generation-rules.md):
 from __future__ import annotations
 
 import hashlib
-from typing import Any, Literal, Required, TypedDict
+from typing import Any, Literal, Required, TypedDict, Union
 
 # ---------------------------------------------------------------------------
 # ArtifactItemRef
@@ -413,3 +413,162 @@ def make_finding_id(
     raw = f"{artifact_id}|{finding_type}|{canonical_item_key}"
     digest = hashlib.sha256(raw.encode()).hexdigest()
     return f"{_FINDING_ID_PREFIX}{digest[:_FINDING_ID_HASH_LEN]}"
+
+
+# ---------------------------------------------------------------------------
+# Concrete finding subtypes (Phase 4a-4)
+#
+# Each subtype narrows FindingBase.finding_type and FindingBase.payload to the
+# specific Literal / payload TypedDict for that family.  The # type: ignore
+# comments suppress mypy's TypedDict field-override warning; the narrowing is
+# intentional and safe at runtime.
+# ---------------------------------------------------------------------------
+
+
+class ObservationFinding(FindingBase):
+    finding_type: Literal["observation"]  # type: ignore[misc]
+    payload: ObservationPayload  # type: ignore[misc]
+
+
+class DeltaFinding(FindingBase):
+    finding_type: Literal["delta"]  # type: ignore[misc]
+    payload: DeltaPayload  # type: ignore[misc]
+
+
+class DecompositionItemFinding(FindingBase):
+    finding_type: Literal["decomposition_item"]  # type: ignore[misc]
+    payload: DecompositionItemPayload  # type: ignore[misc]
+
+
+class AnomalyCandidateFinding(FindingBase):
+    finding_type: Literal["anomaly_candidate"]  # type: ignore[misc]
+    payload: AnomalyCandidatePayload  # type: ignore[misc]
+
+
+class CorrelationResultFinding(FindingBase):
+    finding_type: Literal["correlation_result"]  # type: ignore[misc]
+    payload: CorrelationResultPayload  # type: ignore[misc]
+
+
+class TestResultFinding(FindingBase):
+    finding_type: Literal["test_result"]  # type: ignore[misc]
+    payload: TestResultPayload  # type: ignore[misc]
+
+
+class ForecastPointFinding(FindingBase):
+    finding_type: Literal["forecast_point"]  # type: ignore[misc]
+    payload: ForecastPointPayload  # type: ignore[misc]
+
+
+# Union of all concrete finding subtypes — use when a function can return any
+# finding family (e.g. extractor output lists).
+# typing.Union is used (not X | Y syntax) so that typing.get_args() works
+# correctly on Python 3.9 where X | Y produces types.UnionType, not
+# typing.Union, and get_args() returns an empty tuple on that form.
+AnyFinding = Union[  # noqa: UP007
+    ObservationFinding,
+    DeltaFinding,
+    DecompositionItemFinding,
+    AnomalyCandidateFinding,
+    CorrelationResultFinding,
+    TestResultFinding,
+    ForecastPointFinding,
+]
+
+
+# ---------------------------------------------------------------------------
+# Extractor output contract (Phase 4a-4)
+#
+# Every finding extractor must return a FindingExtractionResult.  The
+# ``finding_count`` field is intentionally redundant with ``len(findings)``
+# so that the commit path can do a cheap empty-semantics check without an
+# extra len() call.
+# ---------------------------------------------------------------------------
+
+
+class FindingExtractionResult(TypedDict):
+    """Unified output contract for all finding extractors.
+
+    Rules (from artifact-finding-generation-rules.md, D4):
+    - ``findings`` must contain exactly ``finding_count`` items.
+    - Whether ``finding_count == 0`` is a legal success outcome depends on the
+      artifact family; use ``family_contract.check_finding_count`` to validate.
+    - ``artifact_schema_version`` mirrors the artifact contract version the
+      extractor was applied against; NULL means the artifact predates versioning
+      (treat as 'v1' by convention).
+    """
+
+    findings: list[AnyFinding]
+    extractor_name: str
+    extractor_version: str
+    artifact_schema_version: str | None
+    finding_count: int  # must equal len(findings)
+
+
+# ---------------------------------------------------------------------------
+# Public exports
+# ---------------------------------------------------------------------------
+
+__all__ = [
+    "AnomalyCandidateFinding",
+    "AnomalyCandidatePayload",
+    "AnyFinding",
+    "ArtifactItemRef",
+    # Ref types
+    "ArtifactItemRefCollection",
+    "ArtifactItemRefRef",
+    # Correlation payload
+    "CorrelationMethod",
+    "CorrelationResultFinding",
+    "CorrelationResultPayload",
+    "DecompositionItemFinding",
+    # Decomposition payload
+    "DecompositionItemPayload",
+    "DeltaDirection",
+    "DeltaFinding",
+    # Delta payloads
+    "DeltaKind",
+    "DeltaPayload",
+    "DeltaPresence",
+    # Subject
+    "FindingAnalysisAxis",
+    "FindingBase",
+    # Extractor output contract (Phase 4a-4)
+    "FindingExtractionResult",
+    # Provenance
+    "FindingProvenance",
+    "FindingQuality",
+    # Quality
+    "FindingQualityStatus",
+    # Finding ref
+    "FindingRef",
+    "FindingSubject",
+    # Base
+    "FindingType",
+    # Anomaly payload
+    "FlagLevel",
+    "ForecastPointFinding",
+    "ForecastPointPayload",
+    # Concrete finding subtypes (Phase 4a-4)
+    "ObservationFinding",
+    "ObservationPayload",
+    # Forecast payload
+    "PredictionInterval",
+    # Time scope
+    "ResolvedTimeScope",
+    "SampleSummaryObservationPayload",
+    # Observation payloads
+    "ScalarObservationPayload",
+    "SegmentObservationPayload",
+    "StatisticName",
+    # Step ref
+    "StepRef",
+    # Test payload
+    "TestMethod",
+    "TestResultFinding",
+    "TestResultPayload",
+    "TimeBucketObservationPayload",
+    # Identity helpers
+    "make_canonical_item_key",
+    "make_finding_id",
+]

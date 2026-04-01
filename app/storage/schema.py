@@ -461,6 +461,28 @@ METADATA_DDL: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_action_proposals_session ON action_proposals(session_id)",
     "CREATE INDEX IF NOT EXISTS idx_action_proposals_session_kind ON action_proposals(session_id, action_kind)",
     "CREATE INDEX IF NOT EXISTS idx_action_proposals_session_rank ON action_proposals(session_id, priority_rank)",
+    # -- proposition_seed_finding_refs: junction table for finding → proposition seed lookups --
+    # Invariant (Phase 4a-3): seed refs are creation-time only; runtime evidence membership
+    # (supporting / opposing findings) lives exclusively in assessment snapshots, never here.
+    # Design split (two authoritative surfaces):
+    #   propositions.seed_finding_refs_json — written at creation time (PropositionRepository.create);
+    #     authoritative for single-object reads of the proposition's original seed set.
+    #   proposition_seed_finding_refs (this table) — the live index; use for reverse lookups
+    #     ("which propositions were seeded by finding X?") and for seeding-run tracking (Phase 4e).
+    # These two are NOT kept in sync after creation.  Call PropositionRepository.add_seed_finding_refs
+    # separately to populate this table; it does NOT modify seed_finding_refs_json.
+    """
+    CREATE TABLE IF NOT EXISTS proposition_seed_finding_refs (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        proposition_id  TEXT NOT NULL REFERENCES propositions(proposition_id),
+        finding_id      TEXT NOT NULL REFERENCES findings(finding_id),
+        role            TEXT NOT NULL DEFAULT 'primary',
+        created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(proposition_id, finding_id)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_prop_seed_refs_proposition ON proposition_seed_finding_refs(proposition_id)",
+    "CREATE INDEX IF NOT EXISTS idx_prop_seed_refs_finding ON proposition_seed_finding_refs(finding_id)",
 ]
 
 # Migrations that add columns to existing tables.  Each is tried
@@ -496,4 +518,20 @@ METADATA_MIGRATIONS: list[str] = [
     # added in the DDL block above. Do not apply this migration against a findings
     # table that already contains rows with the same (artifact_id, finding_type).
     "ALTER TABLE findings ADD COLUMN canonical_item_key TEXT NOT NULL DEFAULT ''",
+    # Phase 4a-4: artifact_schema_version is the second half of the extractor dispatch
+    # key (artifact_type, artifact_schema_version) per D1 of
+    # artifact-finding-generation-rules.md.  NULL for artifacts written before this
+    # migration; extractors treat NULL as 'v1' by convention.
+    "ALTER TABLE artifacts ADD COLUMN artifact_schema_version TEXT",
+    # Phase 4b-1: identity_key enables efficient deduplication of system-seeded
+    # propositions within a session (Phase 4e-2).  Empty string for propositions
+    # created before this migration; callers supply the normalized key on create().
+    "ALTER TABLE propositions ADD COLUMN identity_key TEXT NOT NULL DEFAULT ''",
+    # Phase 4b-1 (v2): upgrade identity_key index from non-unique to UNIQUE partial.
+    # The partial predicate (WHERE identity_key != '') excludes legacy rows and rows with
+    # no identity key from the uniqueness constraint, preserving backward compatibility.
+    # DROP first so that the subsequent CREATE UNIQUE INDEX takes effect even on databases
+    # where the non-unique index was already created by the v1 migration above.
+    "DROP INDEX IF EXISTS idx_propositions_session_type_identity",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_propositions_session_type_identity ON propositions(session_id, proposition_type, identity_key) WHERE identity_key != ''",
 ]

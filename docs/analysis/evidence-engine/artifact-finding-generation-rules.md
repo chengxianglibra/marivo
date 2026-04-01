@@ -564,3 +564,16 @@ replay 时：
 
 1. 把本文吸收到 `runtime-pipeline.md` 与 `schemas/finding.md`
 2. 基于批准结果补实现级迁移方案，明确当前 observation seam 如何过渡到 finding seam
+
+## 实现状态（Phase 4a-4）
+
+D1～D5 均已批准，以下基础合同已落地：
+
+- **D1 (extractor dispatch key)**：`artifacts.artifact_schema_version TEXT` 列已通过 migration 补入 `app/storage/schema.py`；NULL 值按 `'v1'` 约定处理。extractor dispatch 路由键固定为 `(artifact_type, artifact_schema_version)`。
+- **D4 (family empty semantics)**：`app/evidence_engine/family_contract.py` 将 D4 规则编码为 `FAMILY_ALLOWS_EMPTY` dict（`observe`/`detect` = True；其余 5 个 family = False）。commit path 应调用 `check_finding_count(family, count)` 代替散落的 if/else；未知 family 默认按 non-empty-required 处理（fail-safe）。
+- **Extractor output contract**：`app/evidence_engine/canonical_finding.py` 新增 `FindingExtractionResult` TypedDict（`findings`, `extractor_name`, `extractor_version`, `artifact_schema_version`, `finding_count`）作为所有 extractor 的统一返回结构。
+- **具名 finding subtypes**：`canonical_finding.py` 新增 7 个具名 TypedDict（`ObservationFinding`, `DeltaFinding`, `DecompositionItemFinding`, `AnomalyCandidateFinding`, `CorrelationResultFinding`, `TestResultFinding`, `ForecastPointFinding`）和 `AnyFinding` union，供 extractor 实现做静态类型标注。
+
+## 实现状态（Phase 4b-2）
+
+- **D1 (extractor registry)**：`app/evidence_engine/finding_extractor_registry.py` 实现 `FindingExtractor` ABC 和 `FindingExtractorRegistry`，以 `(artifact_type, artifact_schema_version)` 为 dispatch key。`default_finding_registry` 模块级单例在 import 时为空；4d-* extractor 模块调用 `default_finding_registry.register(...)` 填充。`find(artifact_type, None)` 将 NULL 归一化为 `'v1'`（lenient lookup）；`get(artifact_type, version)` 严格匹配，不做归一化。`snapshot()` 返回按 `(artifact_type, artifact_schema_version)` 排序的可审计快照，包含 `extractor_name`、`extractor_version`、`finding_schema_version`，支持 replay / 版本变更审计。

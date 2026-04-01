@@ -631,7 +631,7 @@
 
 ---
 
-### 阶段 4a-3：Membership / Ref 表设计
+### 阶段 4a-3：Membership / Ref 表设计 ✅ 已完成
 
 #### 目标
 
@@ -661,9 +661,36 @@
 - proposition / assessment / action proposal 的 lineage 与 membership 可独立表达
 - proposition 本体不承担实时 evidence membership 职责
 
+> **注意**：`proposition_seed_finding_refs` 的 DDL（`app/storage/schema.py`）与对应索引因疏漏未随 4a-3 提交，已在 Phase 4a-4 中补入。类型定义（`app/evidence_engine/canonical_refs.py`）和测试（`tests/test_canonical_refs.py`）均按原计划在 4a-3 完成。
+
 ---
 
-### 阶段 4b-1：Canonical Evidence Repository 边界
+### 阶段 4a-4：Extractor Output Contract + Family Empty Semantics + Artifact Schema Version ✅ 已完成
+
+#### 目标
+
+补齐 canonical evidence 基础层最后三项缺口，确保进入 4b 系列（repository + registry）之前 schema/type 基础层完整闭合：
+1. `artifacts.artifact_schema_version` DDL 缺口（extractor dispatch key D1 的第二半）
+2. extractor 统一输出 contract（`FindingExtractionResult`）
+3. family-level empty semantics 机器可读合同（D4）
+
+#### 交付物
+
+- `app/storage/schema.py`：追加 `ALTER TABLE artifacts ADD COLUMN artifact_schema_version TEXT` migration
+- `app/evidence_engine/canonical_finding.py`：新增 7 个具名 finding subtypes（`ObservationFinding` 等）+ `AnyFinding` union + `FindingExtractionResult` TypedDict
+- `app/evidence_engine/family_contract.py`（新文件）：`FAMILY_ALLOWS_EMPTY`, `check_finding_count`, `FamilyEmptyError`, `ArtifactFamily`
+- `tests/test_family_contract.py`（新文件）：28 个测试
+
+#### 验收标准
+
+- `tests/test_family_contract.py` 28 个测试全部通过
+- `check_finding_count` 对 `observe`/`detect` 的 count=0 不抛异常；对其余 5 个 family 抛 `FamilyEmptyError`
+- 未知 family 按 non-empty-required 处理（fail-safe）
+- `FindingExtractionResult` 已列入 `canonical_finding.py` 的 `__all__`
+
+---
+
+### 阶段 4b-1：Canonical Evidence Repository 边界 ✅ 已完成
 
 #### 目标
 
@@ -695,7 +722,7 @@
 
 ---
 
-### 阶段 4b-2：Finding Extractor Registry
+### 阶段 4b-2：Finding Extractor Registry ✅ 已完成
 
 #### 目标
 
