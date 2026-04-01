@@ -923,16 +923,23 @@ class IntentTestRequest(BaseModel):
 class ForecastRequest(BaseModel):
     """Atomic intent: project a time-series into future buckets."""
 
-    series_ref: ObservationRef = Field(
-        description="Reference to a time-series observe artifact (observation_type='time_series')."
+    source_ref: ObservationRef = Field(
+        description="Reference to a completed time-series observe artifact."
     )
     horizon: int = Field(ge=1, le=90, description="Number of future buckets to forecast.")
-    granularity: Literal["hour", "day", "week", "month"] = Field(
-        description="Forecast bucket size.  Must match the granularity of the source series."
+    profile: Literal["auto", "level", "trend", "seasonal", "seasonal_trend"] = Field(
+        default="auto",
+        description=(
+            "Forecast profile.  'auto' selects the best available v1 algorithm. "
+            "'level' uses last-value carry-forward; 'trend' uses OLS linear extrapolation. "
+            "'seasonal' and 'seasonal_trend' are accepted but unsupported in v1."
+        ),
     )
-    profile: Literal["naive", "seasonal_residual"] = Field(
-        default="seasonal_residual",
-        description="Forecasting profile.  'naive' uses last-value carry-forward.",
+    interval_level: float | None = Field(
+        default=None,
+        gt=0.0,
+        lt=1.0,
+        description="Prediction interval confidence level in (0, 1).  Defaults to 0.95.",
     )
 
 
