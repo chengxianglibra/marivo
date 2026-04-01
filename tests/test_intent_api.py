@@ -399,25 +399,16 @@ class IntentEndpointTests(unittest.TestCase):
         )
         self.assertEqual(r.status_code, 422)
 
-    def test_validate_returns_501_for_stub(self) -> None:
+    def test_validate_invalid_request_returns_422(self) -> None:
+        # validate is now implemented; missing required left/right → 422
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/validate",
             json={
-                "hypothesis": "welch_t",
                 "metric": "dau",
-                "current_time_scope": {
-                    "kind": "range",
-                    "start": "2024-01-08",
-                    "end": "2024-01-15",
-                },
-                "baseline_time_scope": {
-                    "kind": "range",
-                    "start": "2024-01-01",
-                    "end": "2024-01-08",
-                },
+                # no left, no right — required fields missing
             },
         )
-        self.assertEqual(r.status_code, 501)
+        self.assertEqual(r.status_code, 422)
 
     # ── non-existent session ──────────────────────────────────────────────────
 

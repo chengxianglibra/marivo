@@ -1007,16 +1007,36 @@ class DiagnoseRequest(BaseModel):
     )
 
 
-class ValidateRequest(BaseModel):
-    """Derived intent: validate a hypothesis (expands to observe+test)."""
+class ValidateObservationInput(BaseModel):
+    """One side (left/right) of a validate intent: time scope + optional non-time scope."""
 
-    hypothesis: Literal["welch_t", "proportions_z", "chi_square"]
-    metric: str = Field(description="Published semantic metric to validate.")
-    current_time_scope: ObserveTimeScope = Field(description="Time scope for the current group.")
-    baseline_time_scope: ObserveTimeScope = Field(description="Time scope for the baseline group.")
-    scope: ObserveScope | None = Field(default=None)
-    alternative: Literal["two_sided", "greater", "less"] = Field(default="two_sided")
+    time_scope: ObserveTimeScope
+    scope: ObserveScope | None = None
+
+
+class ValidateHypothesis(BaseModel):
+    """Hypothesis specification for a validate intent (difference family only in v1)."""
+
+    family: Literal["difference"] = "difference"
+    alternative: Literal["two_sided", "greater", "less"] = "two_sided"
     alpha: float = Field(default=0.05, gt=0.0, lt=1.0)
+    label: str | None = None
+
+
+class ValidateRequest(BaseModel):
+    """Derived intent: validate a hypothesis (expands to observe×2 + test)."""
+
+    metric: str = Field(description="Published semantic metric to validate.")
+    left: ValidateObservationInput = Field(description="Primary / treatment population.")
+    right: ValidateObservationInput = Field(description="Comparison / control population.")
+    sample_kind: Literal["auto", "numeric", "rate"] | None = Field(
+        default=None,
+        description=(
+            "Inferential summary mode. 'auto' fails in v1; use 'numeric' or 'rate' explicitly."
+        ),
+    )
+    hypothesis: ValidateHypothesis | None = Field(default=None)
+    method: Literal["auto", "welch_t", "two_proportion_z"] | None = Field(default=None)
 
 
 _DATE_ONLY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")

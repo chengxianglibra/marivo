@@ -42,6 +42,7 @@ from app.intents.diagnose import run_diagnose_intent
 from app.intents.forecast import run_forecast_intent
 from app.intents.observe import run_observe_intent
 from app.intents.test import run_test_intent
+from app.intents.validate import run_validate_intent
 from app.semantic_runtime import SemanticRuntimeRepository
 from app.session import SessionManager
 from app.storage.analytics import AnalyticsEngine
@@ -65,11 +66,7 @@ if TYPE_CHECKING:
 
 _AUTO_INCREMENTAL_SYNTHESIZER = object()
 
-_STUB_INTENT_TYPES: frozenset[str] = frozenset(
-    {
-        "validate",
-    }
-)
+_STUB_INTENT_TYPES: frozenset[str] = frozenset()
 
 
 def _make_stub_runner(intent_type: str) -> Any:
@@ -149,6 +146,7 @@ class SemanticLayerService:
             "attribute", lambda sid, p: run_attribute_intent(self, sid, p)
         )
         self.intent_registry.register("diagnose", lambda sid, p: run_diagnose_intent(self, sid, p))
+        self.intent_registry.register("validate", lambda sid, p: run_validate_intent(self, sid, p))
         for _stub_type in _STUB_INTENT_TYPES:
             self.intent_registry.register(_stub_type, _make_stub_runner(_stub_type))
         self._default_synthesizer = DefaultClaimSynthesizer()

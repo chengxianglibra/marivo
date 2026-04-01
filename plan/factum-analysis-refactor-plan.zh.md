@@ -517,7 +517,7 @@
 
 ---
 
-### 阶段 3c-3：`validate` Derived Expansion
+### 阶段 3c-3：`validate` Derived Expansion ✅ 已完成
 
 #### 目标
 
