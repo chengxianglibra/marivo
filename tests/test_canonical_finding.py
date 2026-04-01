@@ -10,15 +10,25 @@ Covers Phase 4a-2 acceptance criteria:
 from __future__ import annotations
 
 import json
+import typing
 import unittest
 
 from app.evidence_engine.canonical_finding import (
+    AnomalyCandidateFinding,
+    AnyFinding,
     ArtifactItemRef,
+    CorrelationResultFinding,
+    DecompositionItemFinding,
+    DeltaFinding,
     FindingBase,
+    FindingExtractionResult,
     FindingProvenance,
     FindingQuality,
     FindingSubject,
+    ForecastPointFinding,
+    ObservationFinding,
     StepRef,
+    TestResultFinding,
     make_canonical_item_key,
     make_finding_id,
 )
@@ -315,6 +325,67 @@ class TestFindingBase(unittest.TestCase):
         self.assertIn("collection", ref)
         self.assertIn("index", ref)
         self.assertIn("key", ref)
+
+
+# ---------------------------------------------------------------------------
+# Concrete finding subtypes and AnyFinding union (Phase 4a-4)
+# ---------------------------------------------------------------------------
+
+
+class TestConcreteSubtypesAndAnyFinding(unittest.TestCase):
+    """Phase 4a-4: concrete finding subtypes narrow finding_type/payload correctly."""
+
+    def test_observation_finding_type_annotation(self) -> None:
+        hints = typing.get_type_hints(ObservationFinding)
+        self.assertIn("observation", typing.get_args(hints["finding_type"]))
+
+    def test_delta_finding_type_annotation(self) -> None:
+        hints = typing.get_type_hints(DeltaFinding)
+        self.assertIn("delta", typing.get_args(hints["finding_type"]))
+
+    def test_decomposition_item_finding_type_annotation(self) -> None:
+        hints = typing.get_type_hints(DecompositionItemFinding)
+        self.assertIn("decomposition_item", typing.get_args(hints["finding_type"]))
+
+    def test_anomaly_candidate_finding_type_annotation(self) -> None:
+        hints = typing.get_type_hints(AnomalyCandidateFinding)
+        self.assertIn("anomaly_candidate", typing.get_args(hints["finding_type"]))
+
+    def test_correlation_result_finding_type_annotation(self) -> None:
+        hints = typing.get_type_hints(CorrelationResultFinding)
+        self.assertIn("correlation_result", typing.get_args(hints["finding_type"]))
+
+    def test_test_result_finding_type_annotation(self) -> None:
+        hints = typing.get_type_hints(TestResultFinding)
+        self.assertIn("test_result", typing.get_args(hints["finding_type"]))
+
+    def test_forecast_point_finding_type_annotation(self) -> None:
+        hints = typing.get_type_hints(ForecastPointFinding)
+        self.assertIn("forecast_point", typing.get_args(hints["finding_type"]))
+
+    def test_any_finding_covers_all_seven_subtypes(self) -> None:
+        expected = {
+            ObservationFinding,
+            DeltaFinding,
+            DecompositionItemFinding,
+            AnomalyCandidateFinding,
+            CorrelationResultFinding,
+            TestResultFinding,
+            ForecastPointFinding,
+        }
+        self.assertEqual(set(typing.get_args(AnyFinding)), expected)
+
+    def test_observation_finding_payload_is_union_not_dict(self) -> None:
+        """payload must be typed as ObservationPayload (a union of 4 subtypes)."""
+        hints = typing.get_type_hints(ObservationFinding)
+        self.assertGreater(len(typing.get_args(hints["payload"])), 1)
+
+    def test_extraction_result_findings_typed_as_any_finding_list(self) -> None:
+        """FindingExtractionResult.findings must be list[AnyFinding], not list[FindingBase]."""
+        hints = typing.get_type_hints(FindingExtractionResult)
+        list_args = typing.get_args(hints["findings"])
+        elem_type = list_args[0]
+        self.assertEqual(set(typing.get_args(elem_type)), set(typing.get_args(AnyFinding)))
 
 
 if __name__ == "__main__":
