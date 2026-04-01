@@ -577,3 +577,11 @@ D1～D5 均已批准，以下基础合同已落地：
 ## 实现状态（Phase 4b-2）
 
 - **D1 (extractor registry)**：`app/evidence_engine/finding_extractor_registry.py` 实现 `FindingExtractor` ABC 和 `FindingExtractorRegistry`，以 `(artifact_type, artifact_schema_version)` 为 dispatch key。`default_finding_registry` 模块级单例在 import 时为空；4d-* extractor 模块调用 `default_finding_registry.register(...)` 填充。`find(artifact_type, None)` 将 NULL 归一化为 `'v1'`（lenient lookup）；`get(artifact_type, version)` 严格匹配，不做归一化。`snapshot()` 返回按 `(artifact_type, artifact_schema_version)` 排序的可审计快照，包含 `extractor_name`、`extractor_version`、`finding_schema_version`，支持 replay / 版本变更审计。
+
+## 实现状态（Phase 4b-3）
+
+- **D2 (identity helper consolidation)**：`app/evidence_engine/canonical_finding.py` 新增两个 helper：
+  - `make_artifact_item_ref(collection, key, index)` → `ArtifactItemRef`：与 `make_canonical_item_key` 采用相同的 D2 优先级规则（stable key > index > bare collection），确保两者始终对齐；当 key 非 None 时，`index` 字段强制置 None。
+  - `make_item_identity(collection, key, index)` → `tuple[str, ArtifactItemRef]`：单次调用原子性地产出 `canonical_item_key` 与 `artifact_item_ref`，消除各 family extractor 分别调用时可能选择不同优先级分支的风险。4d-* extractor 应调用此函数而非分别调用两个底层 helper。
+- **公共断言工具**：`tests/finding_identity_testutil.py` 提供三个无状态断言函数：`assert_finding_id_stable`、`assert_stable_key_beats_index`、`assert_projection_order_excluded`，供 4d-* extractor 测试套件直接 import。
+- **测试**：`tests/test_finding_identity_helper.py` 30 个测试，全部通过。
