@@ -418,8 +418,13 @@ def run_forecast_intent(
         f"horizon={horizon}: {len(forecast_buckets)} future bucket(s)"
     )
 
-    artifact_id = svc._insert_artifact(
-        session_id, step_id, "forecast_series", artifact_name, artifact
+    artifact_id = svc._commit_artifact_with_extraction(
+        session_id,
+        step_id,
+        "forecast_series",
+        artifact_name,
+        artifact,
+        step_type="forecast",
     )
 
     result: dict[str, Any] = {

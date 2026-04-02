@@ -524,8 +524,13 @@ def run_test_intent(
     else:
         summary = f"test {metrics_label} [{resolved_method}]: validation={validation_status}"
 
-    artifact_id = svc._insert_artifact(
-        session_id, step_id, "hypothesis_test", artifact_name, artifact
+    artifact_id = svc._commit_artifact_with_extraction(
+        session_id,
+        step_id,
+        "hypothesis_test",
+        artifact_name,
+        artifact,
+        step_type="test",
     )
 
     result: dict[str, Any] = {

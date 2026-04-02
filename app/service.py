@@ -3177,7 +3177,7 @@ class SemanticLayerService:
         3. If extractor found:
            a. Build effective_step_ref from the supplied step_ref, or construct one from
               (session_id, step_id, step_type or artifact_type).
-              NOTE(4c-2): callers should always pass step_ref (or step_type) so that
+              Mandatory-extraction runners (4c-2) always pass step_type so that
               StepRef.step_type reflects the actual step type rather than artifact_type.
            b. Run extractor.extract(artifact_id, content, effective_step_ref, session_id).
               Raises on extraction crash — no DB write happens.
@@ -3213,8 +3213,6 @@ class SemanticLayerService:
         effective_step_ref: StepRef = step_ref or StepRef(
             session_id=session_id,
             step_id=step_id,
-            # TODO(4c-2): callers should always pass step_ref or step_type so this
-            # reflects the actual step type, not the artifact type.
             step_type=step_type or artifact_type,
         )
         result = extractor.extract(artifact_id, content, effective_step_ref, session_id)
