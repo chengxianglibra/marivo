@@ -323,13 +323,16 @@ type ProposalContextRef =
 
 `action_proposal_id` 是单个 proposal snapshot 的 canonical identifier。
 
-推荐生成输入：
+必须使用以下输入生成：
 
 - `session_id`
 - `action_kind`
 - `primary_assessment_ref`
+- `target_proposition_ref`
 - `proposal_context`
 - payload 中决定动作语义的字段
+
+注：`target_proposition_ref` 与 `primary_assessment_ref.proposition_id` 语义冗余，但两者均须显式纳入，以保证 identity 自描述。
 
 禁止把以下字段作为 identity 输入：
 

@@ -231,6 +231,8 @@ comparability impacts 不发明新的 base dimension；它们必须通过：
 
 只要上述任一字段变化，就必须认为 `canonical_diff_detected = true`。
 
+**实现注：** 运行时 canonical diff 实现中，`applied_inference_record_ids` 不参与比较。原因：inference record ID 与 `candidate_assessment_id` 绑定，在每次重算中必然不同（即使判断语义完全一致），若纳入比较将导致 no-op 机制完全失效。实际 runtime diff 仅比较判断语义字段：`status`、`confidence_grade`、`confidence_rationale`、`supporting_finding_ids`、`opposing_finding_ids`、`gap_memberships`。`applied_inference_record_ids` 的变化是新 snapshot 提交的**伴随结果**，而非驱动条件——只要其他判断语义字段之一变化触发提交，新 snapshot 天然携带新的 inference record ID 集合。
+
 ## InferenceRecord Materialization
 
 ### must-materialize outputs
@@ -253,6 +255,8 @@ comparability impacts 不发明新的 base dimension；它们必须通过：
 - 本轮 candidate inference records 不进入 canonical state
 - 本轮 candidate gap lifecycle 不进入 canonical state
 - 读取层不得暴露这些 candidate-only objects
+
+**gap discard 的安全性：** gap lifecycle（open / resolve）与 `gap_memberships` 同步变化。当 precondition 满足、现有 open gap 需要 resolve 时，`gap_memberships` 从非空变为空，canonical diff 必然检测到变化，不会触发 no-op discard。因此 no-op 路径安全丢弃 gap lifecycle——no-op 只发生在 `gap_memberships` 等所有判断语义字段均未变化的情况下，此时不存在需要 resolve 的 open gap（否则 membership 已不同）。
 
 ## Related Documents
 

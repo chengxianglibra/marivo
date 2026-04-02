@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "analysis/evidence-engine/rules/rule-registry-contract.md",
+                "file": "semantic/process-object-schema.zh.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "rule-registry-contract"
+              "title": "process-object-schema.zh"
             }
           }
         ]
@@ -185,9 +185,12 @@
   },
   "active": "2de2a1acac14247e",
   "lastOpenFiles": [
+    "semantic/metric-v2-schema.zh.md",
+    "semantic/metric-process-contract.zh.md",
+    "semantic/process-object-schema.zh.md",
+    "analysis/evidence-engine/rules/rule-registry-contract.md",
     "analysis/evidence-engine/rules/rule-family-design-checklist.md",
     "analysis/evidence-engine/rules/quality-gate-contract.md",
-    "analysis/evidence-engine/rules/rule-registry-contract.md",
     "analysis/evidence-engine/runtime-lifecycle.md",
     "api/runtime-status.md",
     "analysis/evidence-engine/migration-and-invalidation.md",
@@ -208,9 +211,6 @@
     "agent-guide.md",
     "api/session-state.md",
     "api/intent-steps.md",
-    "api/context-surface.md",
-    "api/session-lifecycle.md",
-    "api/sources.md",
     "未命名.base"
   ]
 }
