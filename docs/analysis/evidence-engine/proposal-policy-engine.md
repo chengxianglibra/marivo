@@ -481,7 +481,7 @@ v1 中固定约束：
 
 ### action_proposal_id generation boundary
 
-proposal identity 推荐由以下输入生成：
+proposal identity 必须由以下输入生成：
 
 - `session_id`
 - `action_kind`
@@ -489,6 +489,8 @@ proposal identity 推荐由以下输入生成：
 - `target_proposition_ref`
 - `proposal_context`
 - payload 中决定动作语义的字段
+
+注：`primary_assessment_ref` 中已包含 `proposition_id`，`target_proposition_ref` 在语义上冗余但显式保留，以使 identity 自描述、对 consumer 可读，并满足本规范的完整性要求。
 
 默认不进入 identity 的字段包括：
 
@@ -517,6 +519,18 @@ proposal identity 推荐由以下输入生成：
 - 不提交新的 proposal snapshots
 - 不改写既有 proposal objects
 - 读取面继续暴露当前 committed proposal 集
+
+**v1 实现说明（no-op identity check 简化）：**
+
+v1 runtime 中，no-op 判定仅比较 canonical 候选集与 committed 集的 `action_proposal_id` 排序列表，不单独对比 `priority_rank` 排序。
+
+这是合法的 v1 简化，原因如下：
+
+- `action_proposal_id` 由 `session_id`、`action_kind`、`primary_assessment_ref`、`target_proposition_ref`、`proposal_context` 与 payload 语义字段确定性生成
+- `priority_rank` 则由相同的 canonical 输入（`assessment_type`、`status`、gap blocking 状态）确定性推导
+- 因此，ID 集合不变 ↔ 语义输入不变 ↔ `priority_rank` 不变
+
+若 `policy_version` 升级只改变排序实现（不改变 payload 语义），将触发新的 `action_proposal_id`，仍能形成新 snapshot。v2 实现可在此之上加入排序向量的显式对比。
 
 若 refresh 结果为合法空集，则：
 

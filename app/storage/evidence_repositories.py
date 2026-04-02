@@ -513,8 +513,44 @@ class ActionProposalRepository:
         if action_kind is not None:
             query += " AND action_kind = ?"
             params.append(action_kind)
-        query += " ORDER BY priority_rank ASC"
+        query += " ORDER BY priority_rank ASC, created_at ASC, action_proposal_id ASC"
         rows = self.metadata.query_rows(query, params)
+        return [_deserialize(r, _JSON_FIELDS_ACTION_PROPOSAL) for r in rows]
+
+    def list_by_assessment(self, session_id: str, assessment_id: str) -> list[dict[str, Any]]:
+        """Return proposals whose primary_assessment_ref matches *assessment_id*.
+
+        Uses SQLite ``json_extract`` to query the JSON column without requiring
+        a separate indexed column.  Results are ordered by the canonical default:
+        ``priority_rank ASC, created_at ASC, action_proposal_id ASC``.
+        """
+        rows = self.metadata.query_rows(
+            """
+            SELECT * FROM action_proposals
+            WHERE session_id = ?
+              AND json_extract(primary_assessment_ref_json, '$.assessment_id') = ?
+            ORDER BY priority_rank ASC, created_at ASC, action_proposal_id ASC
+            """,
+            [session_id, assessment_id],
+        )
+        return [_deserialize(r, _JSON_FIELDS_ACTION_PROPOSAL) for r in rows]
+
+    def list_by_proposition(self, session_id: str, proposition_id: str) -> list[dict[str, Any]]:
+        """Return proposals whose target_proposition_ref matches *proposition_id*.
+
+        Uses SQLite ``json_extract`` to query the JSON column.  Results are
+        ordered by the canonical default:
+        ``priority_rank ASC, created_at ASC, action_proposal_id ASC``.
+        """
+        rows = self.metadata.query_rows(
+            """
+            SELECT * FROM action_proposals
+            WHERE session_id = ?
+              AND json_extract(target_proposition_ref_json, '$.proposition_id') = ?
+            ORDER BY priority_rank ASC, created_at ASC, action_proposal_id ASC
+            """,
+            [session_id, proposition_id],
+        )
         return [_deserialize(r, _JSON_FIELDS_ACTION_PROPOSAL) for r in rows]
 
 
@@ -606,6 +642,37 @@ class EvidenceGapRepository:
         query += " ORDER BY created_at ASC"
         rows = self.metadata.query_rows(query, params)
         return [_deserialize(r, _JSON_FIELDS_EVIDENCE_GAP) for r in rows]
+
+    def resolve(
+        self,
+        gap_id: str,
+        *,
+        resolved_by_inference_record_id: str,
+        resolved_at: str,
+    ) -> None:
+        """Mark an open gap as resolved.
+
+        Sets ``status = 'resolved'``, ``resolved_by_inference_record_id`` and
+        ``resolved_at`` on the gap row.  The gap object is retained (not deleted)
+        per the immutable-history contract.
+
+        Raises :exc:`ValueError` if the gap does not exist or is already resolved.
+        """
+        existing = self.get(gap_id)
+        if existing is None:
+            raise ValueError(f"evidence_gap {gap_id!r} not found; cannot resolve.")
+        if existing.get("status") == "resolved":
+            raise ValueError(f"evidence_gap {gap_id!r} is already resolved.")
+        self.metadata.execute(
+            """
+            UPDATE evidence_gaps
+            SET status = 'resolved',
+                resolved_by_inference_record_id = ?,
+                resolved_at = ?
+            WHERE gap_id = ?
+            """,
+            [resolved_by_inference_record_id, resolved_at, gap_id],
+        )
 
 
 # ---------------------------------------------------------------------------
