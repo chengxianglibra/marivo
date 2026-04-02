@@ -354,11 +354,15 @@ __all__ = [
 
 def _bootstrap_finding_extractors() -> None:
     """Import and register all 4d-* finding extractors into default_finding_registry."""
+    from app.evidence_engine.compare_extractor import CompareArtifactExtractor
+    from app.evidence_engine.decompose_extractor import DecomposeArtifactExtractor
     from app.evidence_engine.detect_extractor import DetectArtifactExtractor
     from app.evidence_engine.observe_extractor import ObserveArtifactExtractor
 
     default_finding_registry.register(ObserveArtifactExtractor())
     default_finding_registry.register(DetectArtifactExtractor())
+    default_finding_registry.register(CompareArtifactExtractor())
+    default_finding_registry.register(DecomposeArtifactExtractor())
 
 
 _bootstrap_finding_extractors()
