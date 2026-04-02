@@ -518,18 +518,13 @@ class TestDefaultFindingRegistry(unittest.TestCase):
     def test_default_finding_registry_is_correct_type(self) -> None:
         self.assertIsInstance(default_finding_registry, FindingExtractorRegistry)
 
-    def test_default_finding_registry_starts_empty(self) -> None:
-        # Phase 4b-2 only ships the registry infrastructure;
-        # 4d-* extractors populate it.  The default registry must not
-        # pre-load any extractors at import time.
-        #
-        # Import-order constraint: this assertion is only valid while no
-        # 4d-* extractor module has been imported in this process.  4d-*
-        # modules call `default_finding_registry.register(...)` at module
-        # load time.  Once those modules land, this test must be updated:
-        # either guard against their imports in conftest.py, or replace this
-        # assertion with a per-extractor registration test in each 4d-* module.
-        self.assertEqual(default_finding_registry.registered_keys(), [])
+    def test_default_finding_registry_contains_observe_extractor(self) -> None:
+        # Phase 4d-1: observe extractor registered under ("observation", "v1").
+        self.assertIn(("observation", "v1"), default_finding_registry.registered_keys())
+
+    def test_default_finding_registry_contains_detect_extractor(self) -> None:
+        # Phase 4d-2: detect extractor registered under ("anomaly_candidates", "v1").
+        self.assertIn(("anomaly_candidates", "v1"), default_finding_registry.registered_keys())
 
     def test_default_finding_registry_is_module_level_singleton(self) -> None:
         from app.evidence_engine.finding_extractor_registry import (

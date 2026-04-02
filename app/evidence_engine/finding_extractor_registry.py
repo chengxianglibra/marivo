@@ -341,3 +341,24 @@ __all__ = [
     "validate_extraction_result",
     "validate_for_commit",
 ]
+
+
+# ---------------------------------------------------------------------------
+# 4d-* extractor bootstrap (same pattern as registry.py:_bootstrap)
+#
+# Import is deferred inside a function to avoid circular imports:
+# observe_extractor imports FindingExtractor from this module, but by the time
+# _bootstrap_finding_extractors() is called, FindingExtractor is already defined.
+# ---------------------------------------------------------------------------
+
+
+def _bootstrap_finding_extractors() -> None:
+    """Import and register all 4d-* finding extractors into default_finding_registry."""
+    from app.evidence_engine.detect_extractor import DetectArtifactExtractor
+    from app.evidence_engine.observe_extractor import ObserveArtifactExtractor
+
+    default_finding_registry.register(ObserveArtifactExtractor())
+    default_finding_registry.register(DetectArtifactExtractor())
+
+
+_bootstrap_finding_extractors()
