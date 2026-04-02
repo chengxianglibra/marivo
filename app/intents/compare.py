@@ -322,8 +322,13 @@ def run_compare_intent(
         artifact_name = f"{metric_name}_compare_segmented"
         summary = f"compare {metric_name} segmented: {len(rows)} delta rows"
 
-    artifact_id = svc._insert_artifact(
-        session_id, step_id, "compare_artifact", artifact_name, artifact
+    artifact_id = svc._commit_artifact_with_extraction(
+        session_id,
+        step_id,
+        "compare_artifact",
+        artifact_name,
+        artifact,
+        step_type="compare",
     )
     result: dict[str, Any] = {
         "intent_type": "compare",

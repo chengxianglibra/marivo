@@ -252,8 +252,13 @@ def run_observe_intent(
         summary_ns = (
             f"observe {metric_name} numeric_sample_summary [{start_str} → {end_str}]: n={n_numeric}"
         )
-        artifact_id_ns = svc._insert_artifact(
-            session_id, step_id, "observation", artifact_name_ns, observation_ns
+        artifact_id_ns = svc._commit_artifact_with_extraction(
+            session_id,
+            step_id,
+            "observation",
+            artifact_name_ns,
+            observation_ns,
+            step_type="observe",
         )
         result_ns: dict[str, Any] = {
             "intent_type": "observe",
@@ -345,8 +350,13 @@ def run_observe_intent(
             f"observe {metric_name} rate_sample_summary "
             f"[{start_str} → {end_str}]: k={round(k_rate)} / n={n_rate}"
         )
-        artifact_id_rs = svc._insert_artifact(
-            session_id, step_id, "observation", artifact_name_rs, observation_rs
+        artifact_id_rs = svc._commit_artifact_with_extraction(
+            session_id,
+            step_id,
+            "observation",
+            artifact_name_rs,
+            observation_rs,
+            step_type="observe",
         )
         result_rs: dict[str, Any] = {
             "intent_type": "observe",
@@ -601,8 +611,13 @@ def run_observe_intent(
             f"{value if value is not None else 'no data'}"
         )
 
-    artifact_id = svc._insert_artifact(
-        session_id, step_id, "observation", artifact_name, observation
+    artifact_id = svc._commit_artifact_with_extraction(
+        session_id,
+        step_id,
+        "observation",
+        artifact_name,
+        observation,
+        step_type="observe",
     )
 
     result: dict[str, Any] = {

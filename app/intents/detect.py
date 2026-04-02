@@ -383,8 +383,13 @@ def run_detect_intent(
         f"sensitivity={sensitivity}: {total_candidate_count} {candidate_noun}"
     )
 
-    artifact_id = svc._insert_artifact(
-        session_id, step_id, "anomaly_candidates", artifact_name, artifact
+    artifact_id = svc._commit_artifact_with_extraction(
+        session_id,
+        step_id,
+        "anomaly_candidates",
+        artifact_name,
+        artifact,
+        step_type="detect",
     )
 
     # Patch artifact_id now that it is known

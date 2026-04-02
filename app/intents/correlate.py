@@ -301,8 +301,13 @@ def run_correlate_intent(
     # TODO(v1-dedup): per correlate.md §Artifact Identity, re-executing with the same
     # left/right lineage + method + schema versions should not produce a new canonical
     # artifact. v1 always creates a fresh artifact per call.
-    artifact_id = svc._insert_artifact(
-        session_id, step_id, "pairwise_time_series_association", artifact_name, artifact
+    artifact_id = svc._commit_artifact_with_extraction(
+        session_id,
+        step_id,
+        "pairwise_time_series_association",
+        artifact_name,
+        artifact,
+        step_type="correlate",
     )
 
     result: dict[str, Any] = {

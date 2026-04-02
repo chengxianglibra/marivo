@@ -384,8 +384,13 @@ def run_decompose_intent(
         f"(scope Δ {scope_absolute_delta if scope_absolute_delta is not None else 'n/a'})"
     )
 
-    artifact_id = svc._insert_artifact(
-        session_id, step_id, "delta_decomposition", artifact_name, artifact
+    artifact_id = svc._commit_artifact_with_extraction(
+        session_id,
+        step_id,
+        "delta_decomposition",
+        artifact_name,
+        artifact,
+        step_type="decompose",
     )
     result: dict[str, Any] = {
         "intent_type": "decompose",
