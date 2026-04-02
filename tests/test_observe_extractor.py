@@ -1,0 +1,641 @@
+"""Tests for the observe artifact → observation finding extractor (Phase 4d-1).
+
+Covers acceptance criteria:
+- All 5 observation_type modes (scalar, time_series, segmented,
+  numeric_sample_summary, rate_sample_summary) produce correct ObservationFindings.
+- time_series / segmented success-empty (empty collection → 0 findings) is legal.
+- finding_id is stable across replay for every mode.
+- Segment canonical_item_key is derived from sorted key-value pairs (projection order
+  does not affect identity).
+- ObserveArtifactExtractor is registered in default_finding_registry under
+  ("observation", "v1"), including NULL version normalisation.
+- validate_for_commit("observe", result) passes for all modes, including empty.
+"""
+
+from __future__ import annotations
+
+import unittest
+from typing import Any
+
+from app.evidence_engine.canonical_finding import StepRef, make_finding_id, make_item_identity
+from app.evidence_engine.finding_extractor_registry import (
+    default_finding_registry,
+    validate_for_commit,
+)
+from app.evidence_engine.observe_extractor import ObserveArtifactExtractor
+from tests.finding_identity_testutil import (
+    assert_finding_id_stable,
+    assert_projection_order_excluded,
+)
+
+# ---------------------------------------------------------------------------
+# Shared fixtures
+# ---------------------------------------------------------------------------
+
+_ART_ID = "art_observe_test001"
+_SESSION = "sess_obs_test"
+_STEP_ID = "step_obs_001"
+_STEP_REF: StepRef = StepRef(session_id=_SESSION, step_id=_STEP_ID, step_type="observe")
+
+_EXTRACTOR = ObserveArtifactExtractor()
+
+
+def _scalar_payload(
+    metric: str = "daily_users",
+    value: float | None = 1234.0,
+    scope: dict[str, Any] | None = None,
+    quality_status: str | None = "ready",
+) -> dict[str, Any]:
+    return {
+        "schema_version": "1.0",
+        "observation_type": "scalar",
+        "metric": metric,
+        "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+        "scope": scope or {},
+        "unit": None,
+        "value": value,
+        "analytical_metadata": {
+            "data_complete": None,
+            "quality_status": quality_status,
+            "row_count": 1 if value is not None else 0,
+            "sample_size": 1 if value is not None else 0,
+            "null_rate": None,
+        },
+    }
+
+
+def _time_series_payload(
+    series: list[dict[str, Any]] | None = None,
+    granularity: str = "day",
+) -> dict[str, Any]:
+    if series is None:
+        series = [
+            {"window": {"start": "2024-01-01", "end": "2024-01-02"}, "value": 100.0},
+            {"window": {"start": "2024-01-02", "end": "2024-01-03"}, "value": 200.0},
+        ]
+    return {
+        "schema_version": "1.0",
+        "observation_type": "time_series",
+        "metric": "daily_users",
+        "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+        "scope": {},
+        "unit": None,
+        "granularity": granularity,
+        "series": series,
+        "analytical_metadata": {
+            "data_complete": None,
+            "quality_status": "ready" if series else "not_ready",
+            "row_count": len(series),
+            "sample_size": len(series),
+            "null_rate": None,
+        },
+    }
+
+
+def _segmented_payload(
+    segments: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    if segments is None:
+        segments = [
+            {"keys": {"region": "US"}, "value": 500.0, "share": None},
+            {"keys": {"region": "EU"}, "value": 300.0, "share": None},
+        ]
+    return {
+        "schema_version": "1.0",
+        "observation_type": "segmented",
+        "metric": "daily_users",
+        "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+        "scope": {},
+        "unit": None,
+        "dimensions": ["region"],
+        "segments": segments,
+        "analytical_metadata": {
+            "data_complete": None,
+            "quality_status": "ready" if segments else "not_ready",
+            "row_count": len(segments),
+            "sample_size": len(segments),
+            "null_rate": None,
+        },
+    }
+
+
+def _numeric_summary_payload() -> dict[str, Any]:
+    return {
+        "schema_version": "1.0",
+        "observation_type": "numeric_sample_summary",
+        "metric": "session_duration",
+        "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+        "scope": {},
+        "unit": None,
+        "sample_summary": {
+            "n": 1000,
+            "mean": 45.2,
+            "variance": 100.0,
+            "standard_deviation": 10.0,
+            "min": 1.0,
+            "max": 300.0,
+        },
+        "analytical_metadata": {
+            "data_complete": None,
+            "quality_status": "ready",
+            "row_count": 1000,
+            "sample_size": 1000,
+            "null_rate": None,
+        },
+    }
+
+
+def _rate_summary_payload(rate: float | None = 0.25) -> dict[str, Any]:
+    return {
+        "schema_version": "1.0",
+        "observation_type": "rate_sample_summary",
+        "metric": "conversion_rate",
+        "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+        "scope": {},
+        "unit": None,
+        "sample_summary": {
+            "successes": 250,
+            "trials": 1000,
+            "rate": rate,
+        },
+        "analytical_metadata": {
+            "data_complete": None,
+            "quality_status": "ready",
+            "row_count": 1000,
+            "sample_size": 1000,
+            "null_rate": None,
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# TestObserveExtractorScalar
+# ---------------------------------------------------------------------------
+
+
+class TestObserveExtractorScalar(unittest.TestCase):
+    def setUp(self) -> None:
+        self.result = _EXTRACTOR.extract(_ART_ID, _scalar_payload(), _STEP_REF, _SESSION)
+
+    def test_produces_one_finding(self) -> None:
+        self.assertEqual(len(self.result["findings"]), 1)
+
+    def test_finding_count_matches_findings(self) -> None:
+        self.assertEqual(self.result["finding_count"], len(self.result["findings"]))
+
+    def test_observation_kind_is_scalar(self) -> None:
+        f = self.result["findings"][0]
+        self.assertEqual(f["payload"]["observation_kind"], "scalar")
+
+    def test_canonical_item_key_is_value(self) -> None:
+        f = self.result["findings"][0]
+        self.assertEqual(f["provenance"]["canonical_item_key"], "value")
+
+    def test_finding_id_starts_with_fnd(self) -> None:
+        f = self.result["findings"][0]
+        self.assertTrue(f["finding_id"].startswith("fnd_"))
+
+    def test_finding_id_stable_on_replay(self) -> None:
+        result2 = _EXTRACTOR.extract(_ART_ID, _scalar_payload(), _STEP_REF, _SESSION)
+        self.assertEqual(
+            self.result["findings"][0]["finding_id"],
+            result2["findings"][0]["finding_id"],
+        )
+
+    def test_null_value_still_produces_one_finding(self) -> None:
+        result = _EXTRACTOR.extract(_ART_ID, _scalar_payload(value=None), _STEP_REF, _SESSION)
+        self.assertEqual(len(result["findings"]), 1)
+        self.assertIsNone(result["findings"][0]["payload"]["value"])
+
+    def test_quality_status_propagated_from_am(self) -> None:
+        f = self.result["findings"][0]
+        self.assertEqual(f["quality"]["quality_status"], "ready")
+
+    def test_subject_metric_and_analysis_axis(self) -> None:
+        f = self.result["findings"][0]
+        self.assertEqual(f["subject"]["metric"], "daily_users")
+        self.assertEqual(f["subject"]["analysis_axis"], "scalar")
+
+    def test_subject_grain_is_none(self) -> None:
+        f = self.result["findings"][0]
+        self.assertIsNone(f["subject"]["grain"])
+
+    def test_projection_ref_is_none(self) -> None:
+        f = self.result["findings"][0]
+        self.assertIsNone(f["provenance"]["projection_ref"])
+
+    def test_extractor_name_in_provenance(self) -> None:
+        f = self.result["findings"][0]
+        self.assertEqual(f["provenance"]["extractor_name"], "observe_artifact_v1")
+
+    def test_finding_type_is_observation(self) -> None:
+        f = self.result["findings"][0]
+        self.assertEqual(f["finding_type"], "observation")
+
+    def test_artifact_id_in_finding(self) -> None:
+        f = self.result["findings"][0]
+        self.assertEqual(f["artifact_id"], _ART_ID)
+
+
+# ---------------------------------------------------------------------------
+# TestObserveExtractorTimeSeries
+# ---------------------------------------------------------------------------
+
+
+class TestObserveExtractorTimeSeries(unittest.TestCase):
+    def test_findings_per_bucket(self) -> None:
+        result = _EXTRACTOR.extract(_ART_ID, _time_series_payload(), _STEP_REF, _SESSION)
+        self.assertEqual(len(result["findings"]), 2)
+
+    def test_finding_count_matches_findings(self) -> None:
+        result = _EXTRACTOR.extract(_ART_ID, _time_series_payload(), _STEP_REF, _SESSION)
+        self.assertEqual(result["finding_count"], 2)
+
+    def test_observation_kind_is_time_bucket(self) -> None:
+        result = _EXTRACTOR.extract(_ART_ID, _time_series_payload(), _STEP_REF, _SESSION)
+        for f in result["findings"]:
+            self.assertEqual(f["payload"]["observation_kind"], "time_bucket")
+
+    def test_empty_series_is_success_empty(self) -> None:
+        result = _EXTRACTOR.extract(_ART_ID, _time_series_payload(series=[]), _STEP_REF, _SESSION)
+        self.assertEqual(len(result["findings"]), 0)
+        self.assertEqual(result["finding_count"], 0)
+
+    def test_observed_window_per_finding(self) -> None:
+        result = _EXTRACTOR.extract(_ART_ID, _time_series_payload(), _STEP_REF, _SESSION)
+        f0 = result["findings"][0]
+        self.assertEqual(f0["observed_window"]["kind"], "range")
+        self.assertEqual(f0["observed_window"]["start"], "2024-01-01")
+        self.assertEqual(f0["observed_window"]["end"], "2024-01-02")
+
+    def test_grain_propagated_to_subject(self) -> None:
+        result = _EXTRACTOR.extract(
+            _ART_ID, _time_series_payload(granularity="week"), _STEP_REF, _SESSION
+        )
+        for f in result["findings"]:
+            self.assertEqual(f["subject"]["grain"], "week")
+
+    def test_analysis_axis_is_time(self) -> None:
+        result = _EXTRACTOR.extract(_ART_ID, _time_series_payload(), _STEP_REF, _SESSION)
+        for f in result["findings"]:
+            self.assertEqual(f["subject"]["analysis_axis"], "time")
+
+    def test_bucket_canonical_key_embeds_window(self) -> None:
+        result = _EXTRACTOR.extract(_ART_ID, _time_series_payload(), _STEP_REF, _SESSION)
+        f0 = result["findings"][0]
+        self.assertEqual(f0["provenance"]["canonical_item_key"], "buckets:2024-01-01/2024-01-02")
+
+    def test_different_buckets_get_different_finding_ids(self) -> None:
+        result = _EXTRACTOR.extract(_ART_ID, _time_series_payload(), _STEP_REF, _SESSION)
+        ids = [f["finding_id"] for f in result["findings"]]
+        self.assertEqual(len(ids), len(set(ids)))
+
+    def test_bucket_finding_id_stable_on_replay(self) -> None:
+        result1 = _EXTRACTOR.extract(_ART_ID, _time_series_payload(), _STEP_REF, _SESSION)
+        result2 = _EXTRACTOR.extract(_ART_ID, _time_series_payload(), _STEP_REF, _SESSION)
+        ids1 = [f["finding_id"] for f in result1["findings"]]
+        ids2 = [f["finding_id"] for f in result2["findings"]]
+        self.assertEqual(ids1, ids2)
+
+
+# ---------------------------------------------------------------------------
+# TestObserveExtractorSegmented
+# ---------------------------------------------------------------------------
+
+
+class TestObserveExtractorSegmented(unittest.TestCase):
+    def test_findings_per_segment(self) -> None:
+        result = _EXTRACTOR.extract(_ART_ID, _segmented_payload(), _STEP_REF, _SESSION)
+        self.assertEqual(len(result["findings"]), 2)
+
+    def test_finding_count_matches_findings(self) -> None:
+        result = _EXTRACTOR.extract(_ART_ID, _segmented_payload(), _STEP_REF, _SESSION)
+        self.assertEqual(result["finding_count"], 2)
+
+    def test_observation_kind_is_segment(self) -> None:
+        result = _EXTRACTOR.extract(_ART_ID, _segmented_payload(), _STEP_REF, _SESSION)
+        for f in result["findings"]:
+            self.assertEqual(f["payload"]["observation_kind"], "segment")
+
+    def test_empty_segments_is_success_empty(self) -> None:
+        result = _EXTRACTOR.extract(_ART_ID, _segmented_payload(segments=[]), _STEP_REF, _SESSION)
+        self.assertEqual(len(result["findings"]), 0)
+        self.assertEqual(result["finding_count"], 0)
+
+    def test_slice_per_finding_matches_segment_keys(self) -> None:
+        result = _EXTRACTOR.extract(_ART_ID, _segmented_payload(), _STEP_REF, _SESSION)
+        slices = [f["subject"]["slice"] for f in result["findings"]]
+        self.assertIn({"region": "US"}, slices)
+        self.assertIn({"region": "EU"}, slices)
+
+    def test_analysis_axis_is_segment(self) -> None:
+        result = _EXTRACTOR.extract(_ART_ID, _segmented_payload(), _STEP_REF, _SESSION)
+        for f in result["findings"]:
+            self.assertEqual(f["subject"]["analysis_axis"], "segment")
+
+    def test_segment_canonical_key_is_sorted_kv(self) -> None:
+        segs = [{"keys": {"device": "mobile", "region": "US"}, "value": 100.0, "share": None}]
+        result = _EXTRACTOR.extract(_ART_ID, _segmented_payload(segments=segs), _STEP_REF, _SESSION)
+        f = result["findings"][0]
+        # sorted({"device": "mobile", "region": "US"}.items()) → device, region
+        self.assertEqual(f["provenance"]["canonical_item_key"], "rows:device=mobile|region=US")
+
+    def test_segment_key_order_does_not_affect_finding_id(self) -> None:
+        """Key insertion order must not affect canonical_item_key."""
+        segs_ab = [{"keys": {"a": "1", "b": "2"}, "value": 10.0, "share": None}]
+        segs_ba = [{"keys": {"b": "2", "a": "1"}, "value": 10.0, "share": None}]
+        res_ab = _EXTRACTOR.extract(
+            _ART_ID, _segmented_payload(segments=segs_ab), _STEP_REF, _SESSION
+        )
+        res_ba = _EXTRACTOR.extract(
+            _ART_ID, _segmented_payload(segments=segs_ba), _STEP_REF, _SESSION
+        )
+        self.assertEqual(
+            res_ab["findings"][0]["finding_id"],
+            res_ba["findings"][0]["finding_id"],
+        )
+
+    def test_segment_rank_is_none(self) -> None:
+        result = _EXTRACTOR.extract(_ART_ID, _segmented_payload(), _STEP_REF, _SESSION)
+        for f in result["findings"]:
+            self.assertIsNone(f["payload"]["rank"])
+
+    def test_different_segments_get_different_finding_ids(self) -> None:
+        result = _EXTRACTOR.extract(_ART_ID, _segmented_payload(), _STEP_REF, _SESSION)
+        ids = [f["finding_id"] for f in result["findings"]]
+        self.assertEqual(len(ids), len(set(ids)))
+
+
+# ---------------------------------------------------------------------------
+# TestObserveExtractorNumericSampleSummary
+# ---------------------------------------------------------------------------
+
+
+class TestObserveExtractorNumericSampleSummary(unittest.TestCase):
+    def setUp(self) -> None:
+        self.result = _EXTRACTOR.extract(_ART_ID, _numeric_summary_payload(), _STEP_REF, _SESSION)
+
+    def test_produces_one_finding(self) -> None:
+        self.assertEqual(len(self.result["findings"]), 1)
+
+    def test_finding_count_matches_findings(self) -> None:
+        self.assertEqual(self.result["finding_count"], 1)
+
+    def test_sample_kind_is_numeric(self) -> None:
+        f = self.result["findings"][0]
+        self.assertEqual(f["payload"]["sample_kind"], "numeric")
+
+    def test_observation_kind_is_sample_summary(self) -> None:
+        f = self.result["findings"][0]
+        self.assertEqual(f["payload"]["observation_kind"], "sample_summary")
+
+    def test_canonical_item_key_is_result(self) -> None:
+        f = self.result["findings"][0]
+        self.assertEqual(f["provenance"]["canonical_item_key"], "result")
+
+    def test_int_n_coerced_to_float(self) -> None:
+        f = self.result["findings"][0]
+        n = f["payload"]["summary"]["n"]
+        self.assertIsInstance(n, float)
+        self.assertEqual(n, 1000.0)
+
+    def test_float_fields_preserved(self) -> None:
+        f = self.result["findings"][0]
+        self.assertEqual(f["payload"]["summary"]["mean"], 45.2)
+
+    def test_quality_propagated(self) -> None:
+        f = self.result["findings"][0]
+        self.assertEqual(f["quality"]["quality_status"], "ready")
+        self.assertEqual(f["quality"]["sample_size"], 1000)
+
+
+# ---------------------------------------------------------------------------
+# TestObserveExtractorRateSampleSummary
+# ---------------------------------------------------------------------------
+
+
+class TestObserveExtractorRateSampleSummary(unittest.TestCase):
+    def test_produces_one_finding(self) -> None:
+        result = _EXTRACTOR.extract(_ART_ID, _rate_summary_payload(), _STEP_REF, _SESSION)
+        self.assertEqual(len(result["findings"]), 1)
+
+    def test_sample_kind_is_rate(self) -> None:
+        result = _EXTRACTOR.extract(_ART_ID, _rate_summary_payload(), _STEP_REF, _SESSION)
+        self.assertEqual(result["findings"][0]["payload"]["sample_kind"], "rate")
+
+    def test_canonical_item_key_is_result(self) -> None:
+        result = _EXTRACTOR.extract(_ART_ID, _rate_summary_payload(), _STEP_REF, _SESSION)
+        self.assertEqual(result["findings"][0]["provenance"]["canonical_item_key"], "result")
+
+    def test_null_rate_allowed(self) -> None:
+        result = _EXTRACTOR.extract(_ART_ID, _rate_summary_payload(rate=None), _STEP_REF, _SESSION)
+        self.assertEqual(len(result["findings"]), 1)
+        self.assertIsNone(result["findings"][0]["payload"]["summary"]["rate"])
+
+    def test_int_trials_coerced_to_float(self) -> None:
+        result = _EXTRACTOR.extract(_ART_ID, _rate_summary_payload(), _STEP_REF, _SESSION)
+        trials = result["findings"][0]["payload"]["summary"]["trials"]
+        self.assertIsInstance(trials, float)
+        self.assertEqual(trials, 1000.0)
+
+
+# ---------------------------------------------------------------------------
+# TestObserveExtractorUnknownType
+# ---------------------------------------------------------------------------
+
+
+class TestObserveExtractorUnknownType(unittest.TestCase):
+    def test_unknown_observation_type_raises_value_error(self) -> None:
+        payload = {**_scalar_payload(), "observation_type": "unexpected_mode"}
+        with self.assertRaises(ValueError):
+            _EXTRACTOR.extract(_ART_ID, payload, _STEP_REF, _SESSION)
+
+    def test_missing_observation_type_raises_value_error(self) -> None:
+        payload = dict(_scalar_payload())
+        del payload["observation_type"]
+        with self.assertRaises(ValueError):
+            _EXTRACTOR.extract(_ART_ID, payload, _STEP_REF, _SESSION)
+
+
+# ---------------------------------------------------------------------------
+# TestObserveExtractorRegistration
+# ---------------------------------------------------------------------------
+
+
+class TestObserveExtractorRegistration(unittest.TestCase):
+    def test_default_registry_has_observe_extractor(self) -> None:
+        extractor = default_finding_registry.find("observation", "v1")
+        self.assertIsNotNone(extractor)
+        self.assertIsInstance(extractor, ObserveArtifactExtractor)
+
+    def test_find_with_null_version_resolves(self) -> None:
+        # NULL artifact_schema_version in DB is normalised to "v1" by find().
+        extractor = default_finding_registry.find("observation", None)
+        self.assertIsNotNone(extractor)
+        self.assertIsInstance(extractor, ObserveArtifactExtractor)
+
+    def test_extractor_name_in_snapshot(self) -> None:
+        names = [e["extractor_name"] for e in default_finding_registry.snapshot()]
+        self.assertIn("observe_artifact_v1", names)
+
+    def test_snapshot_family_is_observe(self) -> None:
+        entry = next(
+            e
+            for e in default_finding_registry.snapshot()
+            if e["extractor_name"] == "observe_artifact_v1"
+        )
+        self.assertEqual(entry["family"], "observe")
+        self.assertEqual(entry["artifact_type"], "observation")
+        self.assertEqual(entry["artifact_schema_version"], "v1")
+
+
+# ---------------------------------------------------------------------------
+# TestObserveExtractorIdentityStability
+# ---------------------------------------------------------------------------
+
+
+class TestObserveExtractorIdentityStability(unittest.TestCase):
+    """Replay / idempotency checks using shared testutil helpers."""
+
+    def test_scalar_item_identity_stable(self) -> None:
+        assert_finding_id_stable(self, _ART_ID, "observation", "value")
+
+    def test_time_bucket_item_identity_stable(self) -> None:
+        bucket_key = "2024-01-01/2024-01-02"
+        assert_finding_id_stable(self, _ART_ID, "observation", "buckets", key=bucket_key)
+
+    def test_segment_item_identity_stable(self) -> None:
+        seg_key = "region=US"
+        assert_finding_id_stable(self, _ART_ID, "observation", "rows", key=seg_key)
+
+    def test_sample_summary_item_identity_stable(self) -> None:
+        assert_finding_id_stable(self, _ART_ID, "observation", "result")
+
+    def test_segment_projection_order_excluded(self) -> None:
+        # A segment with a stable key must produce the same finding_id regardless
+        # of what rank it had in a projection order.
+        assert_projection_order_excluded(self, _ART_ID, "observation", "rows", "region=US")
+
+    def test_scalar_finding_id_matches_manual_computation(self) -> None:
+        result = _EXTRACTOR.extract(_ART_ID, _scalar_payload(), _STEP_REF, _SESSION)
+        cik, _ = make_item_identity("value")
+        expected_id = make_finding_id(_ART_ID, "observation", cik)
+        self.assertEqual(result["findings"][0]["finding_id"], expected_id)
+
+    def test_bucket_finding_id_matches_manual_computation(self) -> None:
+        result = _EXTRACTOR.extract(_ART_ID, _time_series_payload(), _STEP_REF, _SESSION)
+        cik, _ = make_item_identity("buckets", key="2024-01-01/2024-01-02")
+        expected_id = make_finding_id(_ART_ID, "observation", cik)
+        self.assertEqual(result["findings"][0]["finding_id"], expected_id)
+
+
+# ---------------------------------------------------------------------------
+# TestObserveExtractorValidateForCommit
+# ---------------------------------------------------------------------------
+
+
+class TestObserveExtractorValidateForCommit(unittest.TestCase):
+    """validate_for_commit passes for all modes, including success-empty."""
+
+    def _validate(self, payload: dict[str, Any]) -> None:
+        result = _EXTRACTOR.extract(_ART_ID, payload, _STEP_REF, _SESSION)
+        validate_for_commit("observe", result)  # must not raise
+
+    def test_validate_scalar_passes(self) -> None:
+        self._validate(_scalar_payload())
+
+    def test_validate_scalar_null_value_passes(self) -> None:
+        self._validate(_scalar_payload(value=None))
+
+    def test_validate_time_series_non_empty_passes(self) -> None:
+        self._validate(_time_series_payload())
+
+    def test_validate_time_series_empty_passes(self) -> None:
+        # D4: observe allows success-empty → 0 findings is legal.
+        self._validate(_time_series_payload(series=[]))
+
+    def test_validate_segmented_non_empty_passes(self) -> None:
+        self._validate(_segmented_payload())
+
+    def test_validate_segmented_empty_passes(self) -> None:
+        # D4: observe allows success-empty.
+        self._validate(_segmented_payload(segments=[]))
+
+    def test_validate_numeric_summary_passes(self) -> None:
+        self._validate(_numeric_summary_payload())
+
+    def test_validate_rate_summary_passes(self) -> None:
+        self._validate(_rate_summary_payload())
+
+
+# ---------------------------------------------------------------------------
+# TestSampleSummaryCoercion
+# ---------------------------------------------------------------------------
+
+
+class TestSampleSummaryCoercion(unittest.TestCase):
+    """summary dict must produce dict[str, float | None] for all value types."""
+
+    def test_string_value_coerced_to_none(self) -> None:
+        # A malformed artifact with a string "n/a" must not leak a str into the
+        # typed summary dict; _to_float_or_none must map it to None.
+        payload = {
+            **_numeric_summary_payload(),
+            "sample_summary": {"n": 100, "mean": "n/a"},
+        }
+        result = _EXTRACTOR.extract(_ART_ID, payload, _STEP_REF, _SESSION)
+        summary = result["findings"][0]["payload"]["summary"]
+        self.assertIsNone(summary["mean"])
+        self.assertIsInstance(summary["n"], float)
+
+    def test_all_values_are_float_or_none(self) -> None:
+        payload = {
+            **_numeric_summary_payload(),
+            "sample_summary": {"n": 1000, "mean": 45.2, "missing": None, "bad": "oops"},
+        }
+        result = _EXTRACTOR.extract(_ART_ID, payload, _STEP_REF, _SESSION)
+        summary = result["findings"][0]["payload"]["summary"]
+        for k, v in summary.items():
+            self.assertIn(
+                type(v), (float, type(None)), msg=f"key {k!r} has unexpected type {type(v)}"
+            )
+
+
+# ---------------------------------------------------------------------------
+# TestSegmentKeyEscaping
+# ---------------------------------------------------------------------------
+
+
+class TestSegmentKeyEscaping(unittest.TestCase):
+    """Segment canonical_item_key must not collide when values contain separators."""
+
+    def _finding_id_for_seg(self, keys: dict[str, Any]) -> str:
+        segs = [{"keys": keys, "value": 1.0, "share": None}]
+        result = _EXTRACTOR.extract(_ART_ID, _segmented_payload(segments=segs), _STEP_REF, _SESSION)
+        return result["findings"][0]["finding_id"]
+
+    def test_pipe_in_value_does_not_collide(self) -> None:
+        # {"a": "x|b=y"} must NOT produce the same finding_id as {"a": "x", "b": "y"}
+        id_single = self._finding_id_for_seg({"a": "x|b=y"})
+        id_two = self._finding_id_for_seg({"a": "x", "b": "y"})
+        self.assertNotEqual(id_single, id_two)
+
+    def test_equals_in_value_does_not_collide(self) -> None:
+        # {"k": "a=b"} must NOT produce the same finding_id as {"k": "a", "extra": "b"}
+        id_eq_in_val = self._finding_id_for_seg({"k": "a=b"})
+        id_two_keys = self._finding_id_for_seg({"k": "a", "extra": "b"})
+        self.assertNotEqual(id_eq_in_val, id_two_keys)
+
+    def test_clean_keys_unaffected(self) -> None:
+        # Keys with no special characters must produce the same key as before.
+        segs = [{"keys": {"region": "US"}, "value": 500.0, "share": None}]
+        result = _EXTRACTOR.extract(_ART_ID, _segmented_payload(segments=segs), _STEP_REF, _SESSION)
+        cik = result["findings"][0]["provenance"]["canonical_item_key"]
+        self.assertEqual(cik, "rows:region=US")
+
+    def test_percent_in_value_escaped(self) -> None:
+        # A raw "%" in a value must itself be escaped so it cannot masquerade as
+        # a percent-encoded sequence inserted by the escaping logic.
+        id_pct = self._finding_id_for_seg({"k": "50%"})
+        id_digits = self._finding_id_for_seg({"k": "50%25"})
+        self.assertNotEqual(id_pct, id_digits)
