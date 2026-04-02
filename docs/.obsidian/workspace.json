@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "analysis/evidence-engine/schemas/proposition.md",
+                "file": "analysis/evidence-engine/rules/rule-registry-contract.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "proposition"
+              "title": "rule-registry-contract"
             }
           }
         ]
@@ -185,6 +185,14 @@
   },
   "active": "2de2a1acac14247e",
   "lastOpenFiles": [
+    "analysis/evidence-engine/rules/rule-family-design-checklist.md",
+    "analysis/evidence-engine/rules/quality-gate-contract.md",
+    "analysis/evidence-engine/rules/rule-registry-contract.md",
+    "analysis/evidence-engine/runtime-lifecycle.md",
+    "api/runtime-status.md",
+    "analysis/evidence-engine/migration-and-invalidation.md",
+    "analysis/evidence-engine/runtime-status-surface.md",
+    "analysis/evidence-engine/schemas/proposition.md",
     "analysis/evidence-engine/overview.md",
     "analysis/evidence-engine/support-oppose-and-status-resolution.md",
     "analysis/evidence-engine/proposal-policy-engine.md",
@@ -195,7 +203,6 @@
     "analysis/evidence-engine/graph-and-reference-semantics.md",
     "analysis/evidence-engine/finding-proposition-seeding.md",
     "analysis/evidence-engine/artifact-finding-generation-rules.md",
-    "analysis/evidence-engine/schemas/proposition.md",
     "analysis/evidence-engine/schemas/finding.md",
     "analysis/evidence-engine/read-surfaces.md",
     "agent-guide.md",
@@ -204,10 +211,6 @@
     "api/context-surface.md",
     "api/session-lifecycle.md",
     "api/sources.md",
-    "analysis/evidence-engine/schemas/context-surface-schema.md",
-    "未命名.base",
-    "analysis/intents/atomic/observe.md",
-    "analysis/README.md",
-    "analysis/intents/primitive-intent-design.md"
+    "未命名.base"
   ]
 }
