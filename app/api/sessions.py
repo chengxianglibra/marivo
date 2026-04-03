@@ -13,14 +13,13 @@ from app.api.models import (
     DecomposeRequest,
     DetectRequest,
     DiagnoseRequest,
-    EvidenceGraphResponse,
     ForecastRequest,
     IntentTestRequest,
     ObservationRef,
     ObserveRequest,
     SessionCreateRequest,
-    SessionDebugResponse,
     SessionStateQueryRequest,
+    SessionTerminateRequest,
     ValidateRequest,
 )
 from app.reflection.context import build_reflection_context
@@ -63,6 +62,23 @@ def get_session_runtime_status(session_id: str, request: Request) -> dict[str, o
         return get_services(request).service.get_session_runtime_status(session_id)
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@router.post("/sessions/{session_id}/terminate")
+def terminate_session(
+    session_id: str,
+    payload: SessionTerminateRequest,
+    request: Request,
+) -> dict[str, object]:
+    """Terminate a session, preventing further intent write operations."""
+    try:
+        return get_services(request).service.terminate_session(
+            session_id, terminal_reason=payload.terminal_reason
+        )
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
 
 
 # ── Canonical state surface (Phase 5b) ───────────────────────────────────────
@@ -346,35 +362,3 @@ def intent_validate(
     request: Request,
 ) -> dict[str, object]:
     return _run_intent(session_id, "validate", payload.model_dump(exclude_none=True), request)
-
-
-# ── Evidence / debug read surfaces ───────────────────────────────────────────
-
-
-@router.get("/sessions/{session_id}/evidence", response_model=EvidenceGraphResponse)
-def evidence_graph(
-    session_id: str,
-    request: Request,
-    claims_only: str | None = Query(default=None),
-    edge_types: list[str] | None = Query(default=None),
-    include_debug: bool = Query(default=False),
-) -> dict[str, object]:
-    try:
-        return get_services(request).service.get_evidence_graph(
-            session_id,
-            claims_only=claims_only,
-            edge_types=edge_types,
-            include_debug=include_debug,
-        )
-    except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
-    except KeyError as error:
-        raise HTTPException(status_code=404, detail=str(error)) from error
-
-
-@router.get("/sessions/{session_id}/debug", response_model=SessionDebugResponse)
-def session_debug(session_id: str, request: Request) -> dict[str, object]:
-    try:
-        return get_services(request).service.get_session_debug(session_id)
-    except KeyError as error:
-        raise HTTPException(status_code=404, detail=str(error)) from error

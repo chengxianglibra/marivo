@@ -8,13 +8,18 @@ METADATA_DDL: list[str] = [
     # -- Existing control-plane tables --
     """
     CREATE TABLE IF NOT EXISTS sessions (
-        session_id      TEXT PRIMARY KEY,
-        goal            TEXT NOT NULL,
-        constraints_json TEXT NOT NULL,
-        budget_json     TEXT NOT NULL,
-        policy_json     TEXT NOT NULL,
-        status          TEXT NOT NULL,
-        created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+        session_id               TEXT PRIMARY KEY,
+        goal                     TEXT NOT NULL,
+        constraints_json         TEXT NOT NULL,
+        budget_json              TEXT NOT NULL,
+        policy_json              TEXT NOT NULL,
+        status                   TEXT NOT NULL,
+        raw_filter               TEXT,
+        terminal_reason          TEXT,
+        ended_at                 TEXT,
+        rollover_from_session_id TEXT,
+        created_at               TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at               TEXT NOT NULL DEFAULT (datetime('now'))
     )
     """,
     """
@@ -25,89 +30,21 @@ METADATA_DDL: list[str] = [
         status          TEXT NOT NULL,
         summary         TEXT NOT NULL,
         result_json     TEXT NOT NULL,
+        provenance_json TEXT NOT NULL DEFAULT '{}',
         created_at      TEXT NOT NULL DEFAULT (datetime('now'))
     )
     """,
     """
     CREATE TABLE IF NOT EXISTS artifacts (
-        artifact_id     TEXT PRIMARY KEY,
-        session_id      TEXT NOT NULL,
-        step_id         TEXT NOT NULL,
-        artifact_type   TEXT NOT NULL,
-        name            TEXT NOT NULL,
-        content_json    TEXT NOT NULL,
-        lifecycle       TEXT NOT NULL DEFAULT 'committed',
-        created_at      TEXT NOT NULL DEFAULT (datetime('now'))
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS observations (
-        observation_id  TEXT PRIMARY KEY,
-        session_id      TEXT NOT NULL,
-        step_id         TEXT NOT NULL,
-        observation_type TEXT NOT NULL,
-        subject_json    TEXT NOT NULL,
-        payload_json    TEXT NOT NULL,
-        significance_json TEXT NOT NULL,
-        quality_json    TEXT NOT NULL,
-        observed_window_json TEXT,
-        temporal_order  INTEGER NOT NULL DEFAULT 0,
-        created_at      TEXT NOT NULL DEFAULT (datetime('now'))
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS claims (
-        claim_id        TEXT PRIMARY KEY,
-        session_id      TEXT NOT NULL,
-        claim_type      TEXT NOT NULL,
-        text            TEXT NOT NULL,
-        scope_json      TEXT NOT NULL,
-        confidence      REAL NOT NULL,
-        status          TEXT NOT NULL,
-        supporting_observation_ids_json TEXT NOT NULL,
-        contradicting_observation_ids_json TEXT NOT NULL,
-        confidence_breakdown_json TEXT NOT NULL,
-        inference_level TEXT NOT NULL DEFAULT 'L0',
-        inference_justification_json TEXT NOT NULL DEFAULT '[]',
-        created_at      TEXT NOT NULL DEFAULT (datetime('now'))
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS evidence_edges (
-        edge_id         TEXT PRIMARY KEY,
-        session_id      TEXT NOT NULL,
-        from_node_id    TEXT NOT NULL,
-        from_node_type  TEXT NOT NULL,
-        to_node_id      TEXT NOT NULL,
-        to_node_type    TEXT NOT NULL,
-        -- edge_type: basic layer: supports, contradicts, justifies
-        --            causal layer (M-07): correlates_with, temporally_precedes,
-        --            mechanistically_explains, eliminates_alternative, experimentally_confirms
-        edge_type       TEXT NOT NULL,
-        weight          REAL NOT NULL,
-        explanation     TEXT NOT NULL,
-        match_basis_json TEXT NOT NULL DEFAULT '{}',
-        score_components_json TEXT NOT NULL DEFAULT '{}',
-        supporting_observation_ids_json TEXT NOT NULL DEFAULT '[]',
-        created_at      TEXT NOT NULL DEFAULT (datetime('now'))
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS recommendations (
-        rec_id          TEXT PRIMARY KEY,
-        session_id      TEXT NOT NULL,
-        claim_id        TEXT NOT NULL,
-        action_text     TEXT NOT NULL,
-        template_id     TEXT,
-        priority        TEXT NOT NULL,
-        expected_impact TEXT NOT NULL,
-        risk            TEXT NOT NULL,
-        validation_metric_json TEXT NOT NULL,
-        causal_basis_json TEXT,
-        entity_patch_json TEXT,
-        supporting_claims_json TEXT,
-        type            TEXT NOT NULL DEFAULT 'action_required',
-        created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+        artifact_id             TEXT PRIMARY KEY,
+        session_id              TEXT NOT NULL,
+        step_id                 TEXT NOT NULL,
+        artifact_type           TEXT NOT NULL,
+        name                    TEXT NOT NULL,
+        content_json            TEXT NOT NULL,
+        lifecycle               TEXT NOT NULL DEFAULT 'committed',
+        artifact_schema_version TEXT,
+        created_at              TEXT NOT NULL DEFAULT (datetime('now'))
     )
     """,
     # -- New semantic layer tables --
@@ -342,6 +279,8 @@ METADATA_DDL: list[str] = [
         provenance_json     TEXT NOT NULL,
         payload_json        TEXT NOT NULL,
         schema_version      TEXT NOT NULL DEFAULT 'v1',
+        invalidated_at      TEXT,
+        invalidation_reason TEXT,
         created_at          TEXT NOT NULL DEFAULT (datetime('now'))
     )
     """,
@@ -359,14 +298,19 @@ METADATA_DDL: list[str] = [
         origin_json             TEXT NOT NULL,
         assessment_anchor_json  TEXT NOT NULL,
         lineage_json            TEXT NOT NULL,
-        seed_finding_refs_json  TEXT NOT NULL DEFAULT '[]',
-        payload_json            TEXT NOT NULL DEFAULT '{}',  -- subtype payload extension; not in PropositionBase contract
-        schema_version          TEXT NOT NULL DEFAULT 'v1',
-        created_at              TEXT NOT NULL DEFAULT (datetime('now'))
+        seed_finding_refs_json           TEXT NOT NULL DEFAULT '[]',
+        payload_json                     TEXT NOT NULL DEFAULT '{}',  -- subtype payload extension; not in PropositionBase contract
+        schema_version                   TEXT NOT NULL DEFAULT 'v1',
+        identity_key                     TEXT NOT NULL DEFAULT '',
+        externally_visible_assessment_id TEXT,
+        invalidated_at                   TEXT,
+        invalidation_reason              TEXT,
+        created_at                       TEXT NOT NULL DEFAULT (datetime('now'))
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_propositions_session ON propositions(session_id)",
     "CREATE INDEX IF NOT EXISTS idx_propositions_session_type ON propositions(session_id, proposition_type)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_propositions_session_type_identity ON propositions(session_id, proposition_type, identity_key) WHERE identity_key != ''",
     # -- assessments: immutable evaluation snapshots --
     """
     CREATE TABLE IF NOT EXISTS assessments (
@@ -483,76 +427,4 @@ METADATA_DDL: list[str] = [
     """,
     "CREATE INDEX IF NOT EXISTS idx_prop_seed_refs_proposition ON proposition_seed_finding_refs(proposition_id)",
     "CREATE INDEX IF NOT EXISTS idx_prop_seed_refs_finding ON proposition_seed_finding_refs(finding_id)",
-]
-
-# Migrations that add columns to existing tables.  Each is tried
-# individually — if the column already exists the ALTER will raise
-# an error that is silently ignored by the caller.
-METADATA_MIGRATIONS: list[str] = [
-    "ALTER TABLE sources ADD COLUMN sync_mode TEXT NOT NULL DEFAULT 'all'",
-    "ALTER TABLE source_engine_bindings ADD COLUMN namespace_json TEXT NOT NULL DEFAULT '{}'",
-    "ALTER TABLE steps ADD COLUMN provenance_json TEXT NOT NULL DEFAULT '{}'",
-    "ALTER TABLE semantic_entities ADD COLUMN level TEXT",
-    "ALTER TABLE semantic_entities ADD COLUMN join_constraints_json TEXT NOT NULL DEFAULT '{}'",
-    "ALTER TABLE semantic_entities ADD COLUMN upstream_dependencies_json TEXT NOT NULL DEFAULT '[]'",
-    "ALTER TABLE semantic_entities ADD COLUMN lineage_json TEXT NOT NULL DEFAULT '[]'",
-    "ALTER TABLE semantic_entities ADD COLUMN quality_expectations_json TEXT NOT NULL DEFAULT '{}'",
-    "ALTER TABLE semantic_metrics ADD COLUMN grain TEXT",
-    "ALTER TABLE semantic_metrics ADD COLUMN measure_type TEXT",
-    "ALTER TABLE semantic_metrics ADD COLUMN allowed_dimensions_json TEXT NOT NULL DEFAULT '[]'",
-    "ALTER TABLE semantic_metrics ADD COLUMN lineage_json TEXT NOT NULL DEFAULT '[]'",
-    "ALTER TABLE semantic_metrics ADD COLUMN quality_expectations_json TEXT NOT NULL DEFAULT '{}'",
-    "ALTER TABLE claims ADD COLUMN inference_level TEXT NOT NULL DEFAULT 'L0'",
-    "ALTER TABLE claims ADD COLUMN inference_justification_json TEXT NOT NULL DEFAULT '[]'",
-    "ALTER TABLE sessions ADD COLUMN raw_filter TEXT",
-    "ALTER TABLE observations ADD COLUMN observed_window_json TEXT",
-    "ALTER TABLE observations ADD COLUMN temporal_order INTEGER NOT NULL DEFAULT 0",
-    "ALTER TABLE recommendations ADD COLUMN causal_basis_json TEXT",
-    "ALTER TABLE recommendations ADD COLUMN template_id TEXT",
-    "ALTER TABLE evidence_edges ADD COLUMN match_basis_json TEXT NOT NULL DEFAULT '{}'",
-    "ALTER TABLE evidence_edges ADD COLUMN score_components_json TEXT NOT NULL DEFAULT '{}'",
-    "ALTER TABLE evidence_edges ADD COLUMN supporting_observation_ids_json TEXT NOT NULL DEFAULT '[]'",
-    "ALTER TABLE artifacts ADD COLUMN lifecycle TEXT NOT NULL DEFAULT 'committed'",
-    # Safe precondition: findings is a Phase 4a-1 new table; no pre-existing rows have
-    # been written in production, so the DEFAULT '' cannot violate the UNIQUE index
-    # added in the DDL block above. Do not apply this migration against a findings
-    # table that already contains rows with the same (artifact_id, finding_type).
-    "ALTER TABLE findings ADD COLUMN canonical_item_key TEXT NOT NULL DEFAULT ''",
-    # Phase 4a-4: artifact_schema_version is the second half of the extractor dispatch
-    # key (artifact_type, artifact_schema_version) per D1 of
-    # artifact-finding-generation-rules.md.  NULL for artifacts written before this
-    # migration; extractors treat NULL as 'v1' by convention.
-    "ALTER TABLE artifacts ADD COLUMN artifact_schema_version TEXT",
-    # Phase 4b-1: identity_key enables efficient deduplication of system-seeded
-    # propositions within a session (Phase 4e-2).  Empty string for propositions
-    # created before this migration; callers supply the normalized key on create().
-    "ALTER TABLE propositions ADD COLUMN identity_key TEXT NOT NULL DEFAULT ''",
-    # Phase 4b-1 (v2): upgrade identity_key index from non-unique to UNIQUE partial.
-    # The partial predicate (WHERE identity_key != '') excludes legacy rows and rows with
-    # no identity key from the uniqueness constraint, preserving backward compatibility.
-    # DROP first so that the subsequent CREATE UNIQUE INDEX takes effect even on databases
-    # where the non-unique index was already created by the v1 migration above.
-    "DROP INDEX IF EXISTS idx_propositions_session_type_identity",
-    "CREATE UNIQUE INDEX IF NOT EXISTS idx_propositions_session_type_identity ON propositions(session_id, proposition_type, identity_key) WHERE identity_key != ''",
-    # Phase 4g-2: externally_visible_assessment_id is the proposition-local atomic
-    # publish pointer.  NULL = not yet published (proposition registered but no
-    # externally visible bundle).  Non-NULL = assessment_id of the currently
-    # published canonical bundle.  Updated by a single-statement UPDATE in
-    # execute_publish_switch() — inherently crash-safe in SQLite.
-    "ALTER TABLE propositions ADD COLUMN externally_visible_assessment_id TEXT",
-    # Phase 4h-1: tombstone-first baseline for soft invalidation.  NULL = object
-    # is valid.  Non-NULL = object has been soft-invalidated; its history is
-    # preserved (no hard delete), but downstream reads should treat it as stale.
-    # invalidation_reason is a free-text or machine-readable code explaining why
-    # the object was invalidated (e.g. "upstream_artifact_retracted").
-    "ALTER TABLE findings ADD COLUMN invalidated_at TEXT",
-    "ALTER TABLE findings ADD COLUMN invalidation_reason TEXT",
-    "ALTER TABLE propositions ADD COLUMN invalidated_at TEXT",
-    "ALTER TABLE propositions ADD COLUMN invalidation_reason TEXT",
-    # Phase 5a: canonical session root lifecycle fields.  NULL defaults preserve
-    # backward compatibility with sessions created before this migration.
-    "ALTER TABLE sessions ADD COLUMN terminal_reason TEXT",
-    "ALTER TABLE sessions ADD COLUMN ended_at TEXT",
-    "ALTER TABLE sessions ADD COLUMN rollover_from_session_id TEXT",
-    "ALTER TABLE sessions ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now'))",
 ]

@@ -5,14 +5,55 @@ import math
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from app.evidence_engine.causal_checkers import _pearson_correlation, _spearman_correlation
-
 if TYPE_CHECKING:
     from app.service import SemanticLayerService
 
 _SIGNIFICANCE_LEVEL = 0.05
 _DEFAULT_MIN_PAIRS = 5
 _BLOCKING_ISSUE_CODES = frozenset({"granularity_mismatch", "bucket_mismatch", "insufficient_pairs"})
+
+
+# ── Pure correlation helpers ──────────────────────────────────────────────────
+
+
+def _pearson_correlation(x: list[float], y: list[float]) -> float:
+    """Compute Pearson correlation coefficient."""
+    n = len(x)
+    if n < 2:
+        return 0.0
+    mean_x = sum(x) / n
+    mean_y = sum(y) / n
+    cov = sum((xi - mean_x) * (yi - mean_y) for xi, yi in zip(x, y, strict=False))
+    var_x = sum((xi - mean_x) ** 2 for xi in x)
+    var_y = sum((yi - mean_y) ** 2 for yi in y)
+    if var_x == 0.0 or var_y == 0.0:
+        return 0.0
+    return cov / math.sqrt(var_x * var_y)
+
+
+def _rank(values: list[float]) -> list[float]:
+    """Convert values to ranks with average-rank tie handling."""
+    n = len(values)
+    sorted_pairs = sorted(enumerate(values), key=lambda p: p[1])
+    ranks = [0.0] * n
+    i = 0
+    while i < n:
+        j = i
+        while j + 1 < n and sorted_pairs[j + 1][1] == sorted_pairs[i][1]:
+            j += 1
+        avg_rank = (i + j) / 2.0 + 1.0
+        for k in range(i, j + 1):
+            ranks[sorted_pairs[k][0]] = avg_rank
+        i = j + 1
+    return ranks
+
+
+def _spearman_correlation(x: list[float], y: list[float]) -> float:
+    """Compute Spearman rank correlation coefficient without scipy."""
+    n = len(x)
+    if n < 2:
+        return 0.0
+    return _pearson_correlation(_rank(x), _rank(y))
 
 
 def run_correlate_intent(

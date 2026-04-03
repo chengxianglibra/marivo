@@ -21,7 +21,7 @@ class StepTaxonomyTests(unittest.TestCase):
 
     def test_step_category_flags_are_explicit(self) -> None:
         self.assertEqual(step_category_for("metric_query"), "primitive")
-        self.assertEqual(step_category_for("synthesize_findings"), "composite")
+        self.assertEqual(step_category_for("attribute_change"), "primitive")
 
     def test_taxonomy_entries_include_descriptions(self) -> None:
         for step_type in SUPPORTED_STEP_TYPES:

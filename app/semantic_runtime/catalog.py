@@ -225,30 +225,6 @@ class CatalogRuntimeService:
             edges.append({"from": node_id, "to": child["object_id"], "edge_type": "contains"})
             self._traverse(child["object_id"], remaining_depth - 1, nodes, edges, visited)
 
-        evidence_rows = self.metadata.query_rows(
-            """
-            SELECT edge_id, from_node_id, from_node_type, to_node_id, to_node_type, edge_type, weight
-            FROM evidence_edges
-            WHERE from_node_id = ? OR to_node_id = ?
-            """,
-            [node_id, node_id],
-        )
-        for evidence in evidence_rows:
-            other_id = (
-                evidence["to_node_id"]
-                if evidence["from_node_id"] == node_id
-                else evidence["from_node_id"]
-            )
-            edges.append(
-                {
-                    "from": evidence["from_node_id"],
-                    "to": evidence["to_node_id"],
-                    "edge_type": evidence["edge_type"],
-                    "weight": evidence["weight"],
-                }
-            )
-            self._traverse(other_id, remaining_depth - 1, nodes, edges, visited)
-
     def _resolve_mappings(self, mappings: list[dict[str, Any]]) -> list[dict[str, Any]]:
         assets = []
         for mapping in mappings:

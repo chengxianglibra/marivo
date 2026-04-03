@@ -3,11 +3,10 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import math
 import time
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, cast
+from typing import TYPE_CHECKING, Any, ClassVar
 from uuid import uuid4
 
 from app.analysis_core import (
@@ -19,26 +18,14 @@ from app.analysis_core.compiler import CompiledQuery, compile_step
 from app.analysis_core.compiler import build_metric_query as compile_metric_query
 from app.analysis_core.executor import execute_compiled
 from app.analysis_core.ir import AnalysisStepIR, from_legacy_step
-from app.evidence_engine import EvidencePipeline
 from app.evidence_engine.canonical_finding import StepRef
 from app.evidence_engine.canonical_pipeline_runtime import run_canonical_downstream
-from app.evidence_engine.causal_checkers import _pearson_correlation, _spearman_correlation
-from app.evidence_engine.claim_relations import (
-    _claim_direction,
-    _complementary_dimension,
-    _is_subset,
-    _shared_values,
-    _slice_dict,
-)
 from app.evidence_engine.finding_extractor_registry import (
     FindingExtractorRegistry,
     default_finding_registry,
     validate_for_commit,
 )
-from app.evidence_engine.readiness import compute_readiness, load_live_claims
-from app.evidence_engine.schemas import ALL_EDGE_TYPES, EDGE_TYPE_JUSTIFIES, Claim
 from app.evidence_engine.state_view import materialize_session_state_view
-from app.evidence_engine.synthesizers.default import DefaultClaimSynthesizer
 from app.execution.feedback import compile_failure_from_error
 from app.execution.orchestrator import WorkflowOrchestrator
 from app.execution.routing_runtime import RoutingRuntime
@@ -80,8 +67,6 @@ if TYPE_CHECKING:
     from app.observability import MetricsCollector
     from app.routing import QueryRouter
 
-
-_AUTO_INCREMENTAL_SYNTHESIZER = object()
 
 _STUB_INTENT_TYPES: frozenset[str] = frozenset()
 
@@ -140,7 +125,6 @@ class SemanticLayerService:
         governance: GovernanceService | None = None,
         metrics: MetricsCollector | None = None,
         approvals: ApprovalService | None = None,
-        incremental_synthesizer: Any | None = _AUTO_INCREMENTAL_SYNTHESIZER,
     ) -> None:
         self.metadata = metadata_store
         self.analytics = analytics_engine
@@ -169,21 +153,11 @@ class SemanticLayerService:
         self.intent_registry.register("validate", lambda sid, p: run_validate_intent(self, sid, p))
         for _stub_type in _STUB_INTENT_TYPES:
             self.intent_registry.register(_stub_type, _make_stub_runner(_stub_type))
-        self._default_synthesizer = DefaultClaimSynthesizer()
         self.semantic_repository = SemanticRuntimeRepository(metadata_store)
         self.semantic_resolver = self.semantic_repository.resolver
         self.time_axis_metadata_provider = TimeAxisMetadataProvider(metadata_store)
-        self.evidence_pipeline = EvidencePipeline(
-            self._default_synthesizer,
-            metric_direction_resolver=self._resolve_metric_direction,
-        )
         self.planner_context_provider = self.semantic_repository.planner_context_provider
         self.workflow_runtime = CompositeWorkflowRuntime()
-        if incremental_synthesizer is _AUTO_INCREMENTAL_SYNTHESIZER:
-            from app.evidence_engine.incremental_synthesizer import IncrementalSynthesizer
-
-            incremental_synthesizer = IncrementalSynthesizer(metadata_store)
-        self._incremental_synthesizer: Any | None = incremental_synthesizer
         # Canonical evidence repositories (Phase 4g-3)
         self._finding_repo = FindingRepository(metadata_store)
         self._proposition_repo = PropositionRepository(metadata_store)
@@ -229,6 +203,11 @@ class SemanticLayerService:
 
     def get_session_runtime_status(self, session_id: str) -> dict[str, Any]:
         return self.session_manager.get_session_runtime_status(session_id)
+
+    def terminate_session(
+        self, session_id: str, terminal_reason: str = "user_closed"
+    ) -> dict[str, Any]:
+        return self.session_manager.terminate_session(session_id, terminal_reason=terminal_reason)
 
     def get_session_state(self, session_id: str, query: dict[str, Any]) -> dict[str, Any]:
         """Return the canonical SessionStateView for *session_id* (Phase 5b)."""
@@ -401,19 +380,6 @@ class SemanticLayerService:
                 "soft_signals": governance_result.get("soft_signals", []),
             }
 
-        # M-03: incremental synthesis after each primitive step.
-        # synthesize_findings itself is excluded — it handles promotion.
-        if self._incremental_synthesizer is not None and normalized != "synthesize_findings":
-            self._incremental_synthesizer.process(session_id)
-
-        # M-04: readiness signal after each primitive step.
-        if normalized != "synthesize_findings":
-            session = self.get_session(session_id)
-            result["readiness"] = compute_readiness(
-                self.metadata, session_id, session.get("budget", {}) or {}
-            )
-            result["live_claims"] = load_live_claims(self.metadata, session_id)
-
         result["constraints_applied"] = self._build_constraints_applied(session_id, normalized)
 
         return result
@@ -422,7 +388,7 @@ class SemanticLayerService:
         self, session_id: str, intent_type: str, params: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         """Execute a typed intent step within a session via the IntentRunnerRegistry."""
-        self._assert_session_exists(session_id)
+        self.session_manager.assert_session_is_open(session_id)
         try:
             return self.intent_registry.run(session_id, intent_type, params)
         except KeyError:
@@ -453,560 +419,6 @@ class SemanticLayerService:
         if source_obj is None:
             return None
         return str(source_obj["fqn"] or source_obj["native_name"])
-
-    def get_evidence_graph(
-        self,
-        session_id: str,
-        *,
-        claims_only: str | None = None,
-        edge_types: list[str] | None = None,
-        include_debug: bool = False,
-    ) -> dict[str, Any]:
-        self._assert_session_exists(session_id)
-        if claims_only not in {None, "confirmed"}:
-            raise ValueError("claims_only currently supports only 'confirmed'")
-        if edge_types:
-            invalid_edge_types = sorted(
-                {edge_type for edge_type in edge_types if edge_type not in ALL_EDGE_TYPES}
-            )
-            if invalid_edge_types:
-                raise ValueError("Unknown edge_types: " + ", ".join(invalid_edge_types))
-
-        graph = self._load_evidence_graph_components(session_id)
-        filtered = self._filter_evidence_graph(
-            graph,
-            claims_only=claims_only,
-            edge_types=edge_types,
-        )
-        if include_debug:
-            filtered["debug"] = self._build_session_debug_payload(
-                session_id,
-                filtered["observations"],
-                filtered["claims"],
-                filtered["edges"],
-            )
-        return filtered
-
-    def get_session_debug(self, session_id: str) -> dict[str, Any]:
-        self._assert_session_exists(session_id)
-        graph = self._load_evidence_graph_components(session_id)
-        return self._build_session_debug_payload(
-            session_id,
-            graph["observations"],
-            graph["claims"],
-            graph["edges"],
-        )
-
-    def _load_evidence_graph_components(self, session_id: str) -> dict[str, Any]:
-        observations = self._load_observations(session_id)
-        steps = self.metadata.query_rows(
-            """
-            SELECT step_id, step_type, status, summary, provenance_json
-            FROM steps
-            WHERE session_id = ?
-            ORDER BY created_at
-            """,
-            [session_id],
-        )
-        for step in steps:
-            step["provenance"] = json.loads(step.pop("provenance_json"))
-        claims = self.metadata.query_rows(
-            """
-            SELECT claim_id, claim_type, text, scope_json, confidence, status,
-                   supporting_observation_ids_json, contradicting_observation_ids_json, confidence_breakdown_json,
-                   inference_level, inference_justification_json
-            FROM claims
-            WHERE session_id = ?
-            ORDER BY created_at
-            """,
-            [session_id],
-        )
-        edges = self.metadata.query_rows(
-            """
-            SELECT edge_id, from_node_id, from_node_type, to_node_id, to_node_type, edge_type, weight, explanation,
-                   match_basis_json, score_components_json, supporting_observation_ids_json
-            FROM evidence_edges
-            WHERE session_id = ?
-            ORDER BY created_at
-            """,
-            [session_id],
-        )
-        recommendations = self.metadata.query_rows(
-            """
-            SELECT rec_id, type, claim_id, action_text, priority, expected_impact, risk,
-                   template_id, validation_metric_json, causal_basis_json, entity_patch_json,
-                   supporting_claims_json
-            FROM recommendations
-            WHERE session_id = ?
-            ORDER BY created_at
-            """,
-            [session_id],
-        )
-
-        for claim in claims:
-            claim["scope"] = json.loads(claim.pop("scope_json"))
-            claim["supporting_observations"] = json.loads(
-                claim.pop("supporting_observation_ids_json")
-            )
-            claim["contradicting_observations"] = json.loads(
-                claim.pop("contradicting_observation_ids_json")
-            )
-            claim["confidence_breakdown"] = json.loads(claim.pop("confidence_breakdown_json"))
-            claim["inference_justification"] = json.loads(claim.pop("inference_justification_json"))
-        for recommendation in recommendations:
-            recommendation["validation_metric"] = json.loads(
-                recommendation.pop("validation_metric_json")
-            )
-            raw_cb = recommendation.pop("causal_basis_json")
-            recommendation["causal_basis"] = json.loads(raw_cb) if raw_cb is not None else None
-            raw_ep = recommendation.pop("entity_patch_json", None)
-            recommendation["entity_patch"] = json.loads(raw_ep) if raw_ep is not None else None
-            raw_sc = recommendation.pop("supporting_claims_json", None)
-            recommendation["supporting_claims"] = json.loads(raw_sc) if raw_sc is not None else None
-            recommendation["action"] = recommendation[
-                "action_text"
-            ]  # alias for agent compatibility
-        for edge in edges:
-            edge["match_basis"] = json.loads(edge.pop("match_basis_json") or "{}")
-            edge["score_components"] = json.loads(edge.pop("score_components_json") or "{}")
-            edge["supporting_observation_ids"] = json.loads(
-                edge.pop("supporting_observation_ids_json") or "[]"
-            )
-
-        return {
-            "session_id": session_id,
-            "steps": steps,
-            "observations": observations,
-            "claims": claims,
-            "edges": edges,
-            "recommendations": recommendations,
-        }
-
-    def _filter_evidence_graph(
-        self,
-        graph: dict[str, Any],
-        *,
-        claims_only: str | None,
-        edge_types: list[str] | None,
-    ) -> dict[str, Any]:
-        claims = list(graph["claims"])
-        if claims_only == "confirmed":
-            claims = [claim for claim in claims if claim.get("status") == "confirmed"]
-        kept_claim_ids = {claim["claim_id"] for claim in claims}
-        enforce_claim_subgraph = claims_only is not None
-
-        edges = list(graph["edges"])
-        if edge_types:
-            allowed_edge_types = set(edge_types)
-            edges = [edge for edge in edges if edge.get("edge_type") in allowed_edge_types]
-
-        if enforce_claim_subgraph:
-            edges = [
-                edge for edge in edges if self._edge_survives_claim_filter(edge, kept_claim_ids)
-            ]
-
-        recommendations: list[dict[str, Any]] = []
-        for recommendation in graph["recommendations"]:
-            primary_claim_id = recommendation.get("claim_id")
-            if enforce_claim_subgraph and primary_claim_id not in kept_claim_ids:
-                continue
-
-            supporting_claims = recommendation.get("supporting_claims")
-            updated = dict(recommendation)
-            if enforce_claim_subgraph and supporting_claims is not None:
-                trimmed_support = [
-                    claim_id for claim_id in supporting_claims if claim_id in kept_claim_ids
-                ]
-                if not trimmed_support:
-                    continue
-                updated["supporting_claims"] = trimmed_support
-            recommendations.append(updated)
-
-        return {
-            "session_id": graph["session_id"],
-            "steps": list(graph["steps"]),
-            "observations": list(graph["observations"]),
-            "claims": claims,
-            "edges": edges,
-            "recommendations": recommendations,
-        }
-
-    @staticmethod
-    def _edge_survives_claim_filter(edge: dict[str, Any], kept_claim_ids: set[str]) -> bool:
-        from_type = edge.get("from_node_type")
-        to_type = edge.get("to_node_type")
-        from_id = edge.get("from_node_id")
-        to_id = edge.get("to_node_id")
-        if from_type == "claim" and from_id not in kept_claim_ids:
-            return False
-        return not (to_type == "claim" and to_id not in kept_claim_ids)
-
-    def _build_session_debug_payload(
-        self,
-        session_id: str,
-        observations: list[dict[str, Any]],
-        claims: list[dict[str, Any]],
-        edges: list[dict[str, Any]],
-    ) -> dict[str, Any]:
-        relations = self._extract_persisted_relations(edges)
-        relation_debug = self._summarize_relation_discovery(claims, observations, relations)
-        checker_logs = self._summarize_checker_runs(claims, observations, edges, relations)
-        return {
-            "session_id": session_id,
-            "relation_discovery": relation_debug,
-            "checker_logs": checker_logs,
-        }
-
-    @staticmethod
-    def _extract_persisted_relations(edges: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        return [
-            {
-                "from_claim_id": edge.get("from_node_id"),
-                "to_claim_id": edge.get("to_node_id"),
-                "relation_type": edge.get("edge_type"),
-                "weight": edge.get("weight", 0.0),
-                "match_basis": edge.get("match_basis", {}),
-                "score_components": edge.get("score_components", {}),
-                "supporting_observation_ids": edge.get("supporting_observation_ids", []),
-                "explanation": edge.get("explanation", ""),
-            }
-            for edge in edges
-            if edge.get("from_node_type") == "claim"
-            and edge.get("to_node_type") == "claim"
-            and edge.get("edge_type") == "correlates_with"
-        ]
-
-    def _summarize_relation_discovery(
-        self,
-        claims: list[dict[str, Any]],
-        observations: list[dict[str, Any]],
-        relations: list[dict[str, Any]],
-    ) -> dict[str, Any]:
-        confirmed_claims = [claim for claim in claims if claim.get("status") == "confirmed"]
-        observation_by_id = {
-            str(observation.get("observation_id")): observation
-            for observation in observations
-            if observation.get("observation_id")
-        }
-
-        reasons: dict[str, int] = {}
-        pair_samples: list[dict[str, Any]] = []
-        candidate_pairs_checked = 0
-        relation_keys = {
-            (
-                relation.get("from_claim_id"),
-                relation.get("to_claim_id"),
-                relation.get("relation_type"),
-            )
-            for relation in relations
-        }
-
-        for left_index in range(len(confirmed_claims)):
-            for right_index in range(left_index + 1, len(confirmed_claims)):
-                claim_a = confirmed_claims[left_index]
-                claim_b = confirmed_claims[right_index]
-                candidate_pairs_checked += 1
-                reason_code, sample = self._explain_claim_pair(
-                    claim_a, claim_b, observation_by_id, relation_keys
-                )
-                reasons[reason_code] = reasons.get(reason_code, 0) + 1
-                if len(pair_samples) < 8:
-                    pair_samples.append(sample)
-
-        if not confirmed_claims or candidate_pairs_checked == 0:
-            reasons = {"not_enough_confirmed_claims": 1}
-
-        return {
-            "claims_considered": len(claims),
-            "confirmed_claims_considered": len(confirmed_claims),
-            "candidate_pairs_checked": candidate_pairs_checked,
-            "relations_emitted": len(relations),
-            "reasons": reasons,
-            "pair_samples": pair_samples,
-        }
-
-    def _explain_claim_pair(
-        self,
-        claim_a: dict[str, Any],
-        claim_b: dict[str, Any],
-        observation_by_id: dict[str, dict[str, Any]],
-        relation_keys: set[tuple[str | None, str | None, str | None]],
-    ) -> tuple[str, dict[str, Any]]:
-        scope_a = claim_a.get("scope", {}) or {}
-        scope_b = claim_b.get("scope", {}) or {}
-        metric_a = str(scope_a.get("metric", "") or "")
-        metric_b = str(scope_b.get("metric", "") or "")
-        slice_a = _slice_dict(scope_a)
-        slice_b = _slice_dict(scope_b)
-        direction_a = _claim_direction(cast("Claim", claim_a), observation_by_id)
-        direction_b = _claim_direction(cast("Claim", claim_b), observation_by_id)
-
-        shared_keys = sorted(set(slice_a).intersection(slice_b))
-        exact = slice_a == slice_b
-        subset = _is_subset(slice_a, slice_b) or _is_subset(slice_b, slice_a)
-        overlap_values = _shared_values(slice_a, slice_b)
-        overlap = bool(shared_keys) and bool(overlap_values)
-        complementary = _complementary_dimension(slice_a, slice_b)
-
-        emitted = False
-        category: str | None = None
-        if direction_a is not None and direction_a == direction_b:
-            if metric_a and metric_b and metric_a != metric_b and exact:
-                emitted = True
-                category = "exact_match"
-            elif metric_a and metric_b and metric_a != metric_b and (subset or overlap):
-                emitted = True
-                category = "subset_or_overlap"
-            elif metric_a and metric_a == metric_b and complementary:
-                emitted = True
-                category = "complementary_dimension"
-
-        ordered_claims = sorted(
-            [claim_a, claim_b],
-            key=lambda claim: (
-                str(claim.get("scope", {}).get("metric", "")),
-                sorted((claim.get("scope", {}).get("slice", {}) or {}).items()),
-                str(claim.get("claim_id", "")),
-            ),
-        )
-        relation_key = (
-            ordered_claims[0].get("claim_id"),
-            ordered_claims[1].get("claim_id"),
-            "correlates_with",
-        )
-        if emitted and relation_key in relation_keys:
-            reason_code = "relation_emitted"
-        elif direction_a is None or direction_b is None or direction_a != direction_b:
-            reason_code = "no_directional_consistency"
-        elif not overlap and not exact and not subset and not complementary:
-            reason_code = "no_scope_overlap"
-        else:
-            reason_code = "unsupported_relation_category"
-
-        return reason_code, {
-            "from_claim_id": claim_a.get("claim_id"),
-            "to_claim_id": claim_b.get("claim_id"),
-            "reason_code": reason_code,
-            "match_basis": {
-                "category": category,
-                "shared_scope_keys": shared_keys,
-                "shared_scope_values": overlap_values,
-                "left_metric": metric_a,
-                "right_metric": metric_b,
-                "direction_left": direction_a,
-                "direction_right": direction_b,
-            },
-        }
-
-    def _summarize_checker_runs(
-        self,
-        claims: list[dict[str, Any]],
-        observations: list[dict[str, Any]],
-        edges: list[dict[str, Any]],
-        relations: list[dict[str, Any]],
-    ) -> list[dict[str, Any]]:
-        checker_specs = [
-            ("CrossSliceConsistencyChecker", "cross_slice_consistency"),
-            ("CrossScopeCorrelationChecker", "cross_scope_correlation"),
-            ("CrossMetricCorrelationChecker", "cross_metric_correlation"),
-            ("MechanisticExplanationChecker", "mechanistic_explanation"),
-            ("TemporalPrecedenceChecker", "temporal_precedence"),
-            ("DoseResponseChecker", "dose_response"),
-            ("ReversalChecker", "reversal"),
-        ]
-        checker_logs: list[dict[str, Any]] = []
-        for checker_class_name, checker_name in checker_specs:
-            persisted = self._persisted_checker_contributions(
-                checker_name,
-                claims,
-                edges,
-            )
-            reason_code, reason = self._checker_reason_summary(
-                checker_name,
-                claims,
-                observations,
-                edges,
-                relations,
-                persisted,
-            )
-            checker_logs.append(
-                {
-                    "checker": checker_class_name,
-                    "checker_name": checker_name,
-                    "claims_checked": self._claims_checked_for_checker(checker_name, claims),
-                    "result": "upgrade"
-                    if persisted["claims"] or persisted["edges"]
-                    else "no_upgrade",
-                    "reason_code": reason_code,
-                    "reason": reason,
-                    "claims_upgraded": len(persisted["claims"]),
-                    "causal_edges_emitted": len(persisted["edges"]),
-                    "claim_ids": persisted["claims"],
-                    "edge_types": persisted["edge_types"],
-                }
-            )
-        return checker_logs
-
-    def _persisted_checker_contributions(
-        self,
-        checker_name: str,
-        claims: list[dict[str, Any]],
-        edges: list[dict[str, Any]],
-    ) -> dict[str, Any]:
-        token_prefixes: dict[str, tuple[str, ...]] = {
-            "cross_slice_consistency": ("cross_slice_consistency:",),
-            "cross_scope_correlation": ("cross_scope_explicit:", "cross_scope_temporal:"),
-            "cross_metric_correlation": ("cross_metric_consistency:",),
-            "mechanistic_explanation": ("mechanistic_explanation:",),
-            "temporal_precedence": ("temporal_precedence:",),
-            "dose_response": ("dose_response:", "dose_response_precomputed:"),
-            "reversal": ("reversal:",),
-        }
-        checker_edge_types: dict[str, tuple[str, ...]] = {
-            "cross_scope_correlation": ("correlates_with",),
-            "temporal_precedence": ("temporally_precedes",),
-            "mechanistic_explanation": ("mechanistically_explains",),
-            "dose_response": (),
-            "reversal": (),
-            "cross_slice_consistency": (),
-            "cross_metric_correlation": (),
-        }
-
-        prefixes = token_prefixes.get(checker_name, ())
-        claim_ids = [
-            claim["claim_id"]
-            for claim in claims
-            if any(
-                any(str(token).startswith(prefix) for prefix in prefixes)
-                for token in claim.get("inference_justification", [])
-            )
-        ]
-        edge_types = checker_edge_types.get(checker_name, ())
-        checker_edges = [
-            edge
-            for edge in edges
-            if edge.get("from_node_type") in {"claim", "observation"}
-            and edge.get("to_node_type") == "claim"
-            and edge.get("edge_type") in edge_types
-        ]
-        return {
-            "claims": claim_ids,
-            "edges": checker_edges,
-            "edge_types": sorted({str(edge.get("edge_type")) for edge in checker_edges}),
-        }
-
-    @staticmethod
-    def _claims_checked_for_checker(checker_name: str, claims: list[dict[str, Any]]) -> int:
-        if checker_name in {"cross_metric_correlation", "temporal_precedence"}:
-            return len([claim for claim in claims if claim.get("status") == "confirmed"])
-        return len(claims)
-
-    def _checker_reason_summary(
-        self,
-        checker_name: str,
-        claims: list[dict[str, Any]],
-        observations: list[dict[str, Any]],
-        edges: list[dict[str, Any]],
-        relations: list[dict[str, Any]],
-        persisted: dict[str, Any],
-    ) -> tuple[str, str]:
-        if persisted["claims"] or persisted["edges"]:
-            parts: list[str] = []
-            if persisted["claims"]:
-                parts.append(
-                    f"{len(persisted['claims'])} claims carry this checker's justification tokens"
-                )
-            if persisted["edges"]:
-                parts.append(
-                    f"{len(persisted['edges'])} causal edges from this checker are present"
-                )
-            return "already_materialized", "; ".join(parts) + "."
-
-        if checker_name == "cross_slice_consistency":
-            metrics_with_deltas: dict[str, int] = {}
-            for observation in observations:
-                metric = observation.get("subject", {}).get("metric")
-                if not metric or observation.get("payload", {}).get("delta_pct") is None:
-                    continue
-                metrics_with_deltas[str(metric)] = metrics_with_deltas.get(str(metric), 0) + 1
-            if not any(count >= 2 for count in metrics_with_deltas.values()):
-                return (
-                    "insufficient_cross_slice_observations",
-                    "No metric has at least two delta-bearing observations across slices.",
-                )
-            return (
-                "no_directional_consistency",
-                "Observed slice deltas do not meet the consistency threshold for promotion.",
-            )
-
-        if checker_name == "cross_scope_correlation":
-            causal_candidates = [
-                obs for obs in observations if obs.get("type") == "causal_candidate"
-            ]
-            windowed_obs = [obs for obs in observations if obs.get("observed_window") is not None]
-            if not causal_candidates and len(windowed_obs) < 2:
-                return (
-                    "missing_observed_window",
-                    "Cross-scope correlation needs explicit causal candidates or at least two real observed windows.",
-                )
-            return (
-                "no_matching_relations",
-                "No explicit causal candidate or temporal predecessor matched a claim strongly enough.",
-            )
-
-        if checker_name == "cross_metric_correlation":
-            if not relations:
-                return (
-                    "no_cross_metric_relation",
-                    "No persisted claim-to-claim correlates_with edges were available for cross-metric grouping.",
-                )
-            return (
-                "unsupported_relation_category",
-                "Available relations did not form an eligible same-direction multi-metric component.",
-            )
-
-        if checker_name == "temporal_precedence":
-            if not relations:
-                return (
-                    "no_matching_relations",
-                    "Temporal precedence only evaluates relation-backed claim pairs; none are present in this graph.",
-                )
-            if not any(
-                observation.get("observed_window") is not None for observation in observations
-            ):
-                return (
-                    "missing_observed_window",
-                    "No supporting observations carried real observed_window values.",
-                )
-            return (
-                "no_non_overlapping_windows",
-                "Related claims did not establish a strict non-overlapping time precedence.",
-            )
-
-        if checker_name == "mechanistic_explanation":
-            if not any(edge.get("edge_type") == "correlates_with" for edge in edges):
-                return (
-                    "no_matching_relations",
-                    "No correlates_with edge is present to support a mechanistic promotion.",
-                )
-            return (
-                "no_mechanistic_signal",
-                "No mechanistic explanation signal linked claim relations to an identified causal pathway.",
-            )
-
-        if checker_name == "dose_response":
-            return (
-                "no_numeric_gradient",
-                "No eligible numeric dimension showed a strong monotonic dose-response pattern.",
-            )
-
-        if checker_name == "reversal":
-            return (
-                "no_temporal_reversal",
-                "No sustained multi-period reversal pattern was detected.",
-            )
-
-        return ("no_upgrade", "Checker ran without producing an inference upgrade.")
 
     # ── Metric resolution ────────────────────────────────────────────
 
@@ -1463,7 +875,6 @@ class SemanticLayerService:
 
     _CONSTRAINT_SKIP_REASONS: ClassVar[dict[str, str]] = {
         "profile_table": "profile_table scans the full table; session filters are not applied",
-        "synthesize_findings": "synthesize_findings operates on existing evidence, not raw data",
     }
 
     def _build_constraints_applied(self, session_id: str, step_type: str) -> dict[str, Any]:
@@ -1538,7 +949,6 @@ class SemanticLayerService:
                 f"it is the period-splitting column (date_column='{comparison_time_column}'). "
                 f"Use a different dimension or omit dimensions for overall aggregate comparison."
             )
-        obs_type = "metric_observation"
         limit = resolved.limit or 10
 
         qualified_table = qualified.get(short_name, resolved.table)
@@ -1578,23 +988,6 @@ class SemanticLayerService:
             rows = [row for row in all_rows if row.get("delta_pct") is not None]
         else:
             rows = list(all_rows)
-        extractor_context = self._build_metric_query_extractor_context(
-            mode=mode,
-            metric_name=metric_name,
-            observation_type=obs_type,
-            dimensions=dimensions,
-            quality_builder=self._metric_query_quality_builder(mode),
-        )
-        observations = self.evidence_pipeline.extract_observations(
-            "metric_rows",
-            rows,
-            context=extractor_context,
-        )
-        window = self._observation_window_for_request(resolved)
-        self._annotate_temporal(observations, session_id, window)
-        for observation in observations:
-            self._insert_observation(session_id, step_id, observation)
-
         artifact_id = self._insert_artifact(
             session_id, step_id, "table", f"{metric_name}_metric_query", rows
         )
@@ -1620,14 +1013,13 @@ class SemanticLayerService:
         )
 
         # G-5e: resolve unit for the metric from confirmed hints or entity properties
-        unit_note = self._resolve_metric_unit_note(metric_name, session_id)
+        unit_note = self._resolve_metric_unit_note(metric_name)
 
-        result = {
+        result: dict[str, Any] = {
             "step_type": step_type,
             "metric_name": metric_name,
             "summary": summary,
             "artifact_id": artifact_id,
-            "observations": observations,
         }
         if unit_note:
             result["unit_note"] = unit_note
@@ -1640,14 +1032,10 @@ class SemanticLayerService:
         self._insert_step(step_id, session_id, step_type, summary, result, provenance=provenance)
         return result
 
-    def _resolve_metric_unit_note(self, metric_name: str, session_id: str) -> str | None:
+    def _resolve_metric_unit_note(self, metric_name: str) -> str | None:
         """G-5e: Return a concise unit note for a metric if one is available.
 
-        Priority:
-        1. Applied entity properties.unit (authoritative)
-        2. Confirmed hint in session recommendations' entity_patch
-
-        Returns None if no unit is known.
+        Returns field-level units from the published entity properties, or None.
         """
         try:
             # Priority 1: published entity field-level units (properties.fields.<col>.unit)
@@ -1663,24 +1051,6 @@ class SemanticLayerService:
                     parts = ", ".join(f"{col}: {u}" for col, u in field_units.items())
                     return f"Unit (from entity): {parts}"
 
-            # Priority 2: confirmed hint from session recommendations
-            rows = self.metadata.query_rows(
-                """
-                SELECT r.entity_patch_json
-                FROM recommendations r
-                WHERE r.session_id = ? AND r.entity_patch_json IS NOT NULL
-                ORDER BY r.created_at DESC
-                LIMIT 10
-                """,
-                [session_id],
-            )
-            for row in rows:
-                patch = json.loads(row["entity_patch_json"])
-                if patch.get("metric_name") == metric_name and patch.get("suggested_value"):
-                    confidence = patch.get("confidence", 0.0)
-                    source = patch.get("source", "heuristic")
-                    unit = patch["suggested_value"]
-                    return f"Unit (inferred, {source}, confidence={confidence:.2f}): {unit}"
         except Exception:
             pass
         return None
@@ -1998,8 +1368,6 @@ class SemanticLayerService:
             order: output ordering expression
             limit: max rows (default: 100)
 
-        Execution-only extras such as extract_observations remain supported for
-        the evidence pipeline but are not part of the typed API model.
         """
         resolved = normalize_aggregate_query_request(params)
         table_name = resolved.table
@@ -2038,45 +1406,6 @@ class SemanticLayerService:
         rows = execute_compiled(engine, compiled_query).rows
         compare_period = resolved.time_scope.mode == "compare"
 
-        # Extract observations from aggregate rows (opt-out via extract_observations=false)
-        if params.get("extract_observations", True):
-            group_by_cols = list(resolved.grouping)
-            # For compare_period, auto-select the first delta_pct column as value_column
-            value_column = params.get("value_column")
-            if compare_period and not value_column and rows:
-                first_key = next((k for k in rows[0] if k.endswith("_delta_pct")), None)
-                value_column = first_key
-            # G-5a: fetch synced column metadata so AggregateRowExtractor can use
-            # authoritative unit information instead of falling back to heuristics.
-            all_cols = list(rows[0].keys()) if rows else []
-            col_metadata = self._fetch_column_metadata(short_name, all_cols)
-            observation_context = {
-                "group_by": group_by_cols,
-                "observation_type": params.get("observation_type", "metric_observation"),
-                "metric": measures[0].alias if measures else "aggregate",
-                "value_column": value_column,
-                "column_metadata": col_metadata,  # G-5a: authoritative unit source
-            }
-            if params.get("temporal_group_by_columns") is not None:
-                observation_context["temporal_group_by_columns"] = params[
-                    "temporal_group_by_columns"
-                ]
-
-            observations = self.evidence_pipeline.extract_observations(
-                "aggregate_rows",
-                rows,
-                context=observation_context,
-            )
-            # Annotate all aggregate observations with the request-level window.
-            # Row-level temporal groupings still win because _annotate_temporal()
-            # preserves windows already inferred by the extractor.
-            agg_window = self._observation_window_for_request(resolved)
-            self._annotate_temporal(observations, session_id, agg_window)
-            for observation in observations:
-                self._insert_observation(session_id, step_id, observation)
-        else:
-            observations = []
-
         artifact_id = self._insert_artifact(
             session_id, step_id, "aggregate", f"{short_name}_aggregate", rows
         )
@@ -2111,8 +1440,6 @@ class SemanticLayerService:
             "artifact_id": artifact_id,
             "rows": rows,
         }
-        if observations:
-            result["observations"] = observations
         self._insert_step(step_id, session_id, step_type, summary, result, provenance=provenance)
         return result
 
@@ -2127,7 +1454,6 @@ class SemanticLayerService:
             candidate_dimensions: list of dimensions to attribute across
         Optional params:
             period_start: current window start date (defaults to period_end)
-            anomaly_observation_id: upstream anomaly observation to link with a justifies edge
             top_k: number of top contributors to return per dimension
             min_contribution_pct: minimum contribution share to keep a contributor
             date_column: explicit date column override
@@ -2205,20 +1531,6 @@ class SemanticLayerService:
             _fmt(period_end),
         ]
 
-        anomaly_observation_id = params.get("anomaly_observation_id")
-        if anomaly_observation_id:
-            anomaly_row = self.metadata.query_one(
-                """
-                SELECT observation_id
-                FROM observations
-                WHERE observation_id = ? AND session_id = ?
-                """,
-                [anomaly_observation_id, session_id],
-            )
-            if anomaly_row is None:
-                raise ValueError(f"anomaly_observation_id not found: {anomaly_observation_id}")
-
-        observations: list[dict[str, Any]] = []
         contributions: list[dict[str, Any]] = []
         query_sql_parts: list[str] = []
         query_params: list[Any] = []
@@ -2326,49 +1638,6 @@ class SemanticLayerService:
                 }
             )
 
-            extractor_rows = [
-                {
-                    dimension: entry["value"],
-                    "baseline_value": entry["baseline_value"],
-                    "current_value": entry["current_value"],
-                }
-                for entry in dim_contributors
-            ]
-            extracted = self.evidence_pipeline.extract_observations(
-                "contribution_shift_rows",
-                extractor_rows,
-                context={
-                    "dim_col": dimension,
-                    "baseline_col": "baseline_value",
-                    "current_col": "current_value",
-                    "metric": str(metric_name),
-                    "share_threshold": min_contribution_fraction,
-                },
-            )
-            self._annotate_temporal(
-                extracted,
-                session_id,
-                {
-                    "start": str(period_start),
-                    "end": str(period_end),
-                    "granularity": "day",
-                },
-            )
-            for observation in extracted:
-                self._insert_observation(session_id, step_id, observation)
-                observations.append(observation)
-                if anomaly_observation_id:
-                    self._insert_edge(
-                        session_id,
-                        observation["observation_id"],
-                        "observation",
-                        str(anomaly_observation_id),
-                        "observation",
-                        EDGE_TYPE_JUSTIFIES,
-                        0.7,
-                        "Attributed contribution is justified by the upstream anomaly.",
-                    )
-
         artifact_id = self._insert_artifact(
             session_id,
             step_id,
@@ -2405,7 +1674,6 @@ class SemanticLayerService:
             "summary": summary,
             "artifact_id": artifact_id,
             "contributions": contributions,
-            "observations": observations,
             "debug": debug,
         }
 
@@ -2448,382 +1716,17 @@ class SemanticLayerService:
         return [dict(content)]
 
     def _run_correlate_metrics(self, session_id: str, params: dict[str, Any]) -> dict[str, Any]:
-        """Compute Spearman/Pearson correlation between two artifact series.
-
-        Required params:
-            left_artifact_id or left_step_id: source of series A
-            right_artifact_id or right_step_id: source of series B
-            left_value_column: numeric column in series A
-            right_value_column: numeric column in series B
-            join_on: shared key column to align both series
-        Optional params:
-            method: "spearman" (default) | "pearson" | "both"
-            min_pairs: minimum matched rows required (default: 3)
-            left_metric: label for series A metric (default: left_value_column)
-            right_metric: label for series B metric (default: right_value_column)
-        """
-        left_artifact_id = params.get("left_artifact_id")
-        left_step_id = params.get("left_step_id")
-        right_artifact_id = params.get("right_artifact_id")
-        right_step_id = params.get("right_step_id")
-        if not left_artifact_id and not left_step_id:
-            raise ValueError("correlate_metrics requires 'left_artifact_id' or 'left_step_id'")
-        if not right_artifact_id and not right_step_id:
-            raise ValueError("correlate_metrics requires 'right_artifact_id' or 'right_step_id'")
-
-        left_value_column = params.get("left_value_column")
-        right_value_column = params.get("right_value_column")
-        join_on = params.get("join_on")
-        if not left_value_column:
-            raise ValueError("correlate_metrics requires 'left_value_column'")
-        if not right_value_column:
-            raise ValueError("correlate_metrics requires 'right_value_column'")
-        if not join_on:
-            raise ValueError("correlate_metrics requires 'join_on'")
-
-        method = str(params.get("method", "spearman")).lower()
-        min_pairs = int(params.get("min_pairs", 3))
-        left_metric = params.get("left_metric")
-        right_metric = params.get("right_metric")
-        if not left_metric:
-            raise ValueError(
-                "correlate_metrics requires 'left_metric' param. "
-                "Set it to match the metric name used in the source aggregate_query step "
-                "(e.g., the 'metric' param passed to aggregate_query, or 'aggregate' if omitted)."
-            )
-        if not right_metric:
-            raise ValueError(
-                "correlate_metrics requires 'right_metric' param. "
-                "Set it to match the metric name used in the source aggregate_query step."
-            )
-        left_scope_slice = params.get("left_scope_slice", {})
-        right_scope_slice = params.get("right_scope_slice", {})
-
-        left_rows = self._load_artifact_rows(
-            session_id, artifact_id=left_artifact_id, step_id=left_step_id
+        """Removed in Phase 6. Use POST /intents/correlate instead."""
+        raise NotImplementedError(
+            "correlate_metrics step removed in Phase 6. Use POST /sessions/{id}/intents/correlate."
         )
-        right_rows = self._load_artifact_rows(
-            session_id, artifact_id=right_artifact_id, step_id=right_step_id
-        )
-
-        # Extract dates from both series for observed_window (union, not intersection)
-        left_dates: list[date] = []
-        right_dates: list[date] = []
-        for r in left_rows:
-            key = str(r.get(join_on, ""))
-            d = _try_parse_date(key)
-            if d is not None:
-                left_dates.append(d)
-        for r in right_rows:
-            key = str(r.get(join_on, ""))
-            d = _try_parse_date(key)
-            if d is not None:
-                right_dates.append(d)
-        all_dates = left_dates + right_dates
-
-        # Inner-join on join_on key
-        right_index: dict[str, dict[str, Any]] = {}
-        for r in right_rows:
-            key = str(r.get(join_on, ""))
-            if key:
-                right_index[key] = r
-
-        xs: list[float] = []
-        ys: list[float] = []
-        join_keys: list[str] = []
-        for lr in left_rows:
-            key = str(lr.get(join_on, ""))
-            if key and key in right_index:
-                rr = right_index[key]
-                try:
-                    xv = float(lr[left_value_column])
-                    yv = float(rr[right_value_column])
-                except (KeyError, TypeError, ValueError):
-                    continue
-                xs.append(xv)
-                ys.append(yv)
-                join_keys.append(key)
-
-        n = len(xs)
-        if n < min_pairs:
-            raise ValueError(
-                f"correlate_metrics: only {n} matched pairs on '{join_on}' "
-                f"(minimum {min_pairs}). Check that both artifacts share values in '{join_on}' "
-                f"and that '{left_value_column}' / '{right_value_column}' are numeric."
-            )
-
-        # Compute statistics
-        results: dict[str, Any] = {
-            "n": n,
-            "method": method,
-            "join_on": join_on,
-            "left_metric": left_metric,
-            "right_metric": right_metric,
-        }
-        if method in ("spearman", "both"):
-            rho_s = _spearman_correlation(xs, ys)
-            p_s = _correlation_p_value(rho_s, n)
-            results["rho"] = rho_s
-            results["p_value"] = p_s
-            if method == "both":
-                results["spearman_rho"] = rho_s
-                results["spearman_p_value"] = p_s
-        if method in ("pearson", "both"):
-            rho_p = _pearson_correlation(xs, ys)
-            p_p = _correlation_p_value(rho_p, n)
-            if method == "pearson":
-                results["rho"] = rho_p
-                results["p_value"] = p_p
-            else:
-                results["pearson_rho"] = rho_p
-                results["pearson_p_value"] = p_p
-
-        # Derive observed_window from union of dates from both series
-        observed_window: dict[str, Any] | None = None
-        if all_dates:
-            observed_window = {
-                "start": str(min(all_dates)),
-                "end": str(max(all_dates)),
-                "granularity": "day",
-            }
-            results["observed_window"] = observed_window
-            results["left_series_size"] = len(left_rows)
-            results["right_series_size"] = len(right_rows)
-            results["matched_pairs"] = n
-
-        # Insert artifact
-        step_type = "correlate_metrics"
-        step_id = self._new_step_id()
-        artifact_id = self._insert_artifact(
-            session_id,
-            step_id,
-            "correlation",
-            f"{left_metric}_vs_{right_metric}_correlation",
-            [results],
-        )
-
-        # Extract observations
-        context: dict[str, Any] = {
-            "left_metric": left_metric,
-            "right_metric": right_metric,
-            "join_on": join_on,
-            "left_scope_slice": left_scope_slice,
-            "right_scope_slice": right_scope_slice,
-        }
-        observations = self.evidence_pipeline.extract_observations(
-            "correlation_observations", [results], context=context
-        )
-        self._annotate_temporal(observations, session_id, observed_window)
-        for observation in observations:
-            self._insert_observation(session_id, step_id, observation)
-
-        rho = results.get("rho", 0.0)
-        p_value = results.get("p_value", 1.0)
-        summary = (
-            f"Correlation between '{left_metric}' and '{right_metric}' over {n} paired "
-            f"observations on '{join_on}': ρ={rho:.3f}, p={p_value:.4f} ({method})."
-        )
-        if observed_window:
-            summary += f" Window: {observed_window['start']} – {observed_window['end']}."
-
-        provenance = self._make_provenance(engine_type="artifact_only")
-        result: dict[str, Any] = {
-            "step_type": step_type,
-            "summary": summary,
-            "artifact_id": artifact_id,
-            "correlation": results,
-        }
-        if observations:
-            result["observations"] = observations
-        self._insert_step(step_id, session_id, step_type, summary, result, provenance=provenance)
-        return result
 
     def _run_synthesis(self, session_id: str) -> dict[str, Any]:
-        # LEGACY (Phase 4g-3): This step generates old-style claims and recommendations.
-        # These are preserved for backward compatibility with the evidence graph endpoint
-        # and existing tests.  The canonical authority is now:
-        #   artifact -> finding -> proposition -> assessment -> action proposal
-        # Claims and recommendations no longer gate or bootstrap canonical outputs.
-        step_type = "synthesize_findings"
-        step_id = self._new_step_id()
-        self._delete_non_tentative_synthesis_outputs(session_id)
-        observations = self._load_observations(session_id)
-        tentative_claims = self._load_tentative_claims(session_id)
-        promoted = self._promote_claims(session_id, tentative_claims, observations)
-        promotion_audit = {
-            "stage": "promotion",
-            "claims_promoted": [
-                {
-                    "claim_id": c["claim_id"],
-                    "new_status": c["status"],
-                    "confidence": c["confidence"],
-                    "promotion_reason": (
-                        "confidence >= 0.5 and no contradictions"
-                        if c["status"] == "confirmed"
-                        else "confidence < 0.5 or has contradictions"
-                    ),
-                }
-                for c in promoted
-            ],
-            "confirmed_count": sum(1 for c in promoted if c["status"] == "confirmed"),
-            "insufficient_count": sum(1 for c in promoted if c["status"] == "insufficient"),
-        }
-        self._insert_artifact(
-            session_id, step_id, "synthesis_audit", "promotion_audit", promotion_audit
+        """Removed in Phase 6. synthesize_findings is a legacy step type."""
+        raise NotImplementedError(
+            "synthesize_findings step removed in Phase 6. "
+            "The canonical pipeline (artifact→finding→proposition→assessment) replaces it."
         )
-        synthesis = self.evidence_pipeline.build_synthesis(
-            observations,
-            existing_claims=promoted,
-        )
-        self._persist_synthesized_claim_updates(synthesis["claims"])
-        claim_map = {c["claim_id"]: c for c in promoted}
-        self._attach_entity_patches(synthesis["recommendations"], observations, claim_map)
-        derived_observations = synthesis.get("derived_observations", [])
-        if derived_observations:
-            self._annotate_temporal(derived_observations, session_id, None)
-            for observation in derived_observations:
-                self._insert_observation(session_id, step_id, observation)
-        for recommendation in synthesis["recommendations"]:
-            self._insert_recommendation(session_id, recommendation)
-        for edge in synthesis["edges"]:
-            self._insert_edge(session_id, **edge)
-
-        summary = synthesis["summary"]
-        provenance = self._make_provenance("synthesize_findings", engine_type="heuristic")
-        result = {
-            "step_type": step_type,
-            "summary": summary,
-            "claims": synthesis["claims"],
-            "recommendations": synthesis["recommendations"],
-            "derived_observations": derived_observations,
-        }
-        self._insert_step(step_id, session_id, step_type, summary, result, provenance=provenance)
-        return result
-
-    def _persist_synthesized_claim_updates(self, claims: list[dict[str, Any]]) -> None:
-        """Persist post-promotion inference and confidence updates from the evidence pipeline."""
-        for claim in claims:
-            self.metadata.execute(
-                """
-                UPDATE claims
-                SET confidence = ?,
-                    inference_level = ?,
-                    inference_justification_json = ?
-                WHERE claim_id = ?
-                """,
-                [
-                    claim.get("confidence"),
-                    claim.get("inference_level", "L0"),
-                    self._dump(claim.get("inference_justification", [])),
-                    claim.get("claim_id"),
-                ],
-            )
-
-    # ── Entity patch helpers (G-5b) ───────────────────────────────────────────
-
-    def _attach_entity_patches(
-        self,
-        recommendations: list[dict[str, Any]],
-        observations: list[dict[str, Any]],
-        claim_map: dict[str, dict[str, Any]],
-    ) -> None:
-        """Attach entity_patch proposals to recommendations backed by confirmed claims.
-
-        For each recommendation whose claim is confirmed (or better), inspect
-        its supporting observations for `column_unit_hint` payloads.  When a
-        strong hint is found (confidence >= 0.6) and the claim's metric maps to
-        a published entity, build a machine-readable patch proposal and attach it
-        as `entity_patch` on the recommendation dict.
-
-        The patch proposal shape:
-            {
-                "entity_id": str,
-                "entity_name": str,
-                "field": "unit",
-                "current_value": str | None,   # existing entity properties.unit
-                "suggested_value": str,         # unit from the hint
-                "confidence": float,
-                "source": str,                 # from column_unit_hint.source
-                "evidence_step_id": str | None, # step that produced the hint obs
-                "metric_name": str,
-            }
-
-        This does not write to the DB — the caller persists via _insert_recommendation.
-        """
-        obs_map = {o["observation_id"]: o for o in observations}
-
-        for rec in recommendations:
-            if rec.get("entity_patch") is not None:
-                continue  # already set
-            claim = claim_map.get(rec.get("claim_id", ""))
-            if claim is None:
-                continue
-            if claim.get("status") not in ("confirmed", "supported"):
-                continue
-
-            metric_name = claim.get("scope", {}).get("metric")
-            if not metric_name:
-                continue
-
-            # Find the strongest unit hint among supporting observations
-            best_hint: dict[str, Any] | None = None
-            best_obs_id: str | None = None
-            for obs_id in claim.get("supporting_observations", []):
-                obs = obs_map.get(obs_id)
-                if obs is None:
-                    continue
-                hint = obs.get("payload", {}).get("column_unit_hint")
-                if hint and isinstance(hint, dict):
-                    confidence = hint.get("confidence", 0.0)
-                    if confidence >= 0.6 and (
-                        best_hint is None or confidence > best_hint.get("confidence", 0.0)
-                    ):
-                        best_hint = hint
-                        best_obs_id = obs_id
-
-            if best_hint is None:
-                continue
-
-            # Don't generate patch if metadata was the source (metadata already authoritative)
-            if best_hint.get("source") == "metadata":
-                continue
-
-            # Require column name so we can generate a field-level (not entity-level) patch.
-            column_name = best_hint.get("column")
-            if not column_name:
-                continue
-
-            # Resolve metric → entity
-            entity = self._resolve_entity_for_metric(metric_name)
-            if entity is None or entity.get("status") != "published":
-                continue
-
-            # Read existing field-level unit (properties.fields.<col>.unit) not entity-level
-            current_unit = (
-                entity.get("properties", {}).get("fields", {}).get(column_name, {}).get("unit")
-            )
-            suggested_unit = best_hint["unit"]
-
-            # If metadata conflicts with heuristic, confidence should already be low;
-            # here we also skip if current field unit differs from hint (conflict)
-            if current_unit and current_unit != suggested_unit:
-                continue
-
-            # Look up the step_id for the best observation
-            step_id = self._obs_step_id(best_obs_id) if best_obs_id else None
-
-            rec["entity_patch"] = {
-                "entity_id": entity["entity_id"],
-                "entity_name": entity["name"],
-                "column_name": column_name,
-                "field": f"fields.{column_name}.unit",
-                "current_value": current_unit,
-                "suggested_value": suggested_unit,
-                "confidence": best_hint["confidence"],
-                "source": best_hint.get("source", "heuristic"),
-                "evidence_step_id": step_id,
-                "metric_name": metric_name,
-            }
 
     def _resolve_entity_for_metric(self, metric_name: str) -> dict[str, Any] | None:
         """Return the published entity linked to the given metric name, or None."""
@@ -2846,28 +1749,10 @@ class SemanticLayerService:
         except Exception:
             return None
 
-    def _obs_step_id(self, observation_id: str) -> str | None:
-        """Return the step_id that produced the given observation_id, or None."""
-        try:
-            row = self.metadata.query_one(
-                "SELECT step_id FROM observations WHERE observation_id = ?",
-                [observation_id],
-            )
-            return row["step_id"] if row else None
-        except Exception:
-            return None
-
     # ── Metadata helpers ──────────────────────────────────────────────
 
     def _reset_session_outputs(self, session_id: str) -> None:
-        for table in [
-            "recommendations",
-            "evidence_edges",
-            "claims",
-            "observations",
-            "artifacts",
-            "steps",
-        ]:
+        for table in ["artifacts", "steps"]:
             self.metadata.execute(f"DELETE FROM {table} WHERE session_id = ?", [session_id])
 
     def _delete_step_outputs(self, session_id: str, step_type: str) -> None:
@@ -2878,96 +1763,10 @@ class SemanticLayerService:
         step_ids = [row["step_id"] for row in rows]
         for sid in step_ids:
             self.metadata.execute("DELETE FROM artifacts WHERE step_id = ?", [sid])
-            self.metadata.execute("DELETE FROM observations WHERE step_id = ?", [sid])
-        if step_type == "synthesize_findings":
-            self.metadata.execute("DELETE FROM recommendations WHERE session_id = ?", [session_id])
-            self.metadata.execute("DELETE FROM evidence_edges WHERE session_id = ?", [session_id])
-            self.metadata.execute("DELETE FROM claims WHERE session_id = ?", [session_id])
         self.metadata.execute(
             "DELETE FROM steps WHERE session_id = ? AND step_type = ?",
             [session_id, step_type],
         )
-
-    def _load_tentative_claims(self, session_id: str) -> list[dict[str, Any]]:
-        """Return all tentative claims for a session (created by IncrementalSynthesizer)."""
-        rows = self.metadata.query_rows(
-            """
-            SELECT claim_id, claim_type, text, scope_json, confidence, status,
-                   supporting_observation_ids_json, contradicting_observation_ids_json,
-                   confidence_breakdown_json, inference_level, inference_justification_json
-            FROM claims
-            WHERE session_id = ? AND status = 'tentative'
-            ORDER BY created_at
-            """,
-            [session_id],
-        )
-        result = []
-        for row in rows:
-            claim = dict(row)
-            claim["type"] = claim.pop("claim_type")
-            claim["scope"] = json.loads(claim.pop("scope_json"))
-            claim["supporting_observations"] = json.loads(
-                claim.pop("supporting_observation_ids_json")
-            )
-            claim["contradicting_observations"] = json.loads(
-                claim.pop("contradicting_observation_ids_json")
-            )
-            claim["confidence_breakdown"] = json.loads(claim.pop("confidence_breakdown_json"))
-            claim["inference_justification"] = json.loads(claim.pop("inference_justification_json"))
-            result.append(claim)
-        return result
-
-    def _delete_non_tentative_synthesis_outputs(self, session_id: str) -> None:
-        """Delete confirmed/insufficient claims + recommendations + edges from a previous
-        synthesize_findings run, but preserve tentative claims created by IncrementalSynthesizer."""
-        synth_step_rows = self.metadata.query_rows(
-            "SELECT step_id FROM steps WHERE session_id = ? AND step_type = 'synthesize_findings'",
-            [session_id],
-        )
-        for row in synth_step_rows:
-            step_id = row["step_id"]
-            self.metadata.execute("DELETE FROM artifacts WHERE step_id = ?", [step_id])
-            self.metadata.execute("DELETE FROM observations WHERE step_id = ?", [step_id])
-        self.metadata.execute(
-            "DELETE FROM steps WHERE session_id = ? AND step_type = 'synthesize_findings'",
-            [session_id],
-        )
-        self.metadata.execute(
-            "DELETE FROM claims WHERE session_id = ? AND status != 'tentative'",
-            [session_id],
-        )
-        self.metadata.execute("DELETE FROM recommendations WHERE session_id = ?", [session_id])
-        self.metadata.execute("DELETE FROM evidence_edges WHERE session_id = ?", [session_id])
-
-    def _promote_claims(
-        self,
-        session_id: str,
-        tentative_claims: list[dict[str, Any]],
-        observations: list[dict[str, Any]],
-    ) -> list[dict[str, Any]]:
-        """Promote tentative claims to confirmed or insufficient and return promoted list.
-
-        Promotion criteria:
-        - confidence >= 0.5 AND no contradicting observations → ``confirmed``
-        - otherwise → ``insufficient``
-        """
-        _ = {o["observation_id"]: o for o in observations}  # Keep for potential future use
-        promoted: list[dict[str, Any]] = []
-        for claim in tentative_claims:
-            has_contradictions = bool(claim["contradicting_observations"])
-            new_status = (
-                "confirmed"
-                if claim["confidence"] >= 0.5 and not has_contradictions
-                else "insufficient"
-            )
-            # Strip "(tentative)" suffix from claim text on promotion
-            new_text = claim["text"].replace(" (tentative)", "")
-            self.metadata.execute(
-                "UPDATE claims SET status = ?, text = ? WHERE claim_id = ?",
-                [new_status, new_text, claim["claim_id"]],
-            )
-            promoted.append({**claim, "status": new_status, "text": new_text})
-        return promoted
 
     def _assert_session_exists(self, session_id: str) -> None:
         self.session_manager.assert_session_exists(session_id)
@@ -3129,33 +1928,6 @@ class SemanticLayerService:
         baseline_end = current_start - timedelta(days=1)
         baseline_start = baseline_end - timedelta(days=13)
         return current_start, current_end, baseline_start, baseline_end, date_fmt
-
-    def _load_observations(self, session_id: str) -> list[dict[str, Any]]:
-        rows = self.metadata.query_rows(
-            """
-            SELECT observation_id, observation_type, subject_json, payload_json,
-                   significance_json, quality_json, observed_window_json, temporal_order
-            FROM observations
-            WHERE session_id = ?
-            ORDER BY temporal_order, created_at
-            """,
-            [session_id],
-        )
-        observations = []
-        for row in rows:
-            obs = {
-                "observation_id": row["observation_id"],
-                "type": row["observation_type"],
-                "subject": json.loads(row["subject_json"]),
-                "payload": json.loads(row["payload_json"]),
-                "significance": json.loads(row["significance_json"]),
-                "quality": json.loads(row["quality_json"]),
-                "temporal_order": row["temporal_order"],
-            }
-            if row["observed_window_json"] is not None:
-                obs["observed_window"] = json.loads(row["observed_window_json"])
-            observations.append(obs)
-        return observations
 
     def _make_provenance(
         self, sql: str = "", params: list[Any] | None = None, engine_type: str = "duckdb"
@@ -3435,150 +2207,6 @@ class SemanticLayerService:
             return None
         return str(row["artifact_id"]), json.loads(row["content_json"])
 
-    def _observation_count(self, session_id: str) -> int:
-        """Return the number of observations already recorded for a session."""
-        row = self.metadata.query_one(
-            "SELECT COUNT(*) AS cnt FROM observations WHERE session_id = ?",
-            [session_id],
-        )
-        return int(row["cnt"]) if row else 0
-
-    def _annotate_temporal(
-        self,
-        observations: list[dict[str, Any]],
-        session_id: str,
-        observed_window: dict[str, Any] | None,
-    ) -> None:
-        """In-place: assign observed_window (when available) and temporal_order to each observation.
-
-        G-2: Only sets observed_window if not already present (preserves extractor-inferred windows).
-        """
-        base = self._observation_count(session_id)
-        for i, obs in enumerate(observations):
-            # G-2: Only set window if not already inferred by extractor
-            if observed_window is not None and "observed_window" not in obs:
-                obs["observed_window"] = observed_window
-            obs["temporal_order"] = base + i
-
-    def _insert_observation(
-        self, session_id: str, step_id: str, observation: dict[str, Any]
-    ) -> None:
-        self.metadata.execute(
-            """
-            INSERT INTO observations (
-                observation_id, session_id, step_id, observation_type,
-                subject_json, payload_json, significance_json, quality_json,
-                observed_window_json, temporal_order
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            [
-                observation["observation_id"],
-                session_id,
-                step_id,
-                observation["type"],
-                self._dump(observation["subject"]),
-                self._dump(observation["payload"]),
-                self._dump(observation["significance"]),
-                self._dump(observation["quality"]),
-                self._dump(observation["observed_window"])
-                if observation.get("observed_window") is not None
-                else None,
-                observation.get("temporal_order", 0),
-            ],
-        )
-
-    def _insert_claim(self, session_id: str, claim: dict[str, Any]) -> None:
-        self.metadata.execute(
-            """
-            INSERT INTO claims (
-                claim_id, session_id, claim_type, text, scope_json, confidence, status,
-                supporting_observation_ids_json, contradicting_observation_ids_json, confidence_breakdown_json,
-                inference_level, inference_justification_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            [
-                claim["claim_id"],
-                session_id,
-                claim["type"],
-                claim["text"],
-                self._dump(claim["scope"]),
-                claim["confidence"],
-                claim["status"],
-                self._dump(claim["supporting_observations"]),
-                self._dump(claim["contradicting_observations"]),
-                self._dump(claim["confidence_breakdown"]),
-                claim.get("inference_level", "L0"),
-                self._dump(claim.get("inference_justification", [])),
-            ],
-        )
-
-    def _insert_edge(
-        self,
-        session_id: str,
-        from_node_id: str,
-        from_node_type: str,
-        to_node_id: str,
-        to_node_type: str,
-        edge_type: str,
-        weight: float,
-        explanation: str,
-        match_basis: dict[str, Any] | None = None,
-        score_components: dict[str, Any] | None = None,
-        supporting_observation_ids: list[str] | None = None,
-    ) -> None:
-        self.metadata.execute(
-            """
-            INSERT INTO evidence_edges (
-                edge_id, session_id, from_node_id, from_node_type, to_node_id, to_node_type, edge_type, weight, explanation,
-                match_basis_json, score_components_json, supporting_observation_ids_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            [
-                f"edge_{uuid4().hex[:12]}",
-                session_id,
-                from_node_id,
-                from_node_type,
-                to_node_id,
-                to_node_type,
-                edge_type,
-                weight,
-                explanation,
-                self._dump(match_basis or {}),
-                self._dump(score_components or {}),
-                self._dump(supporting_observation_ids or []),
-            ],
-        )
-
-    def _insert_recommendation(self, session_id: str, recommendation: dict[str, Any]) -> None:
-        causal_basis = recommendation.get("causal_basis")
-        entity_patch = recommendation.get("entity_patch")
-        supporting_claims = recommendation.get("supporting_claims")
-        rec_type = recommendation.get("type", "action_required")
-        self.metadata.execute(
-            """
-            INSERT INTO recommendations (
-                rec_id, session_id, claim_id, action_text, template_id, priority, expected_impact, risk,
-                validation_metric_json, causal_basis_json, entity_patch_json, supporting_claims_json,
-                type
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            [
-                recommendation["rec_id"],
-                session_id,
-                recommendation["claim_id"],
-                recommendation["action_text"],
-                recommendation.get("template_id"),
-                recommendation["priority"],
-                recommendation["expected_impact"],
-                recommendation["risk"],
-                self._dump(recommendation["validation_metric"]),
-                self._dump(causal_basis) if causal_basis is not None else None,
-                self._dump(entity_patch) if entity_patch is not None else None,
-                self._dump(supporting_claims) if supporting_claims is not None else None,
-                rec_type,
-            ],
-        )
-
     def _dump(self, value: Any) -> str:
         return json.dumps(value, default=str, sort_keys=True)
 
@@ -3588,48 +2216,6 @@ class SemanticLayerService:
 
 def default_db_path() -> Path:
     return Path(__file__).resolve().parents[1] / "data" / "mvp.duckdb"
-
-
-def _norm_cdf(z: float) -> float:
-    """Dependency-free approximation of the standard normal CDF (Hart, 1968)."""
-    # Abramowitz & Stegun 26.2.17 approximation; max error < 7.5e-8
-    a = abs(z) / math.sqrt(2.0)
-    t = 1.0 / (1.0 + 0.3275911 * a)
-    _ = t * (  # Polynomial approximation (unused, using erf instead)
-        0.254829592 + t * (-0.284496736 + t * (1.421413741 + t * (-1.453152027 + t * 1.061405429)))
-    )
-    cdf = 0.5 * (1.0 + math.erf(a))  # use erf from math (stdlib, no deps)
-    return cdf if z >= 0 else 1.0 - cdf
-
-
-def _correlation_p_value(rho: float, n: int) -> float:
-    """Two-tailed p-value for a Pearson/Spearman correlation via t-distribution approximation."""
-    if n <= 2:
-        return 1.0
-    denom = 1.0 - rho * rho
-    if denom <= 0.0:
-        return 0.0
-    t_stat = rho * math.sqrt((n - 2) / denom)
-    # Two-tailed p-value using normal approximation (adequate for n >= 3)
-    return 2.0 * (1.0 - _norm_cdf(abs(t_stat)))
-
-
-def _try_parse_date(value: str) -> date | None:
-    """Try to parse a string as a date (YYYYMMDD or ISO 8601); return None on failure."""
-    import re
-
-    value = value.strip()
-    if re.fullmatch(r"\d{8}", value):
-        try:
-            return date(int(value[:4]), int(value[4:6]), int(value[6:8]))
-        except ValueError:
-            return None
-    for fmt in ("%Y-%m-%d", "%Y/%m/%d"):
-        try:
-            return datetime.strptime(value, fmt).date()
-        except ValueError:
-            continue
-    return None
 
 
 class _ServiceWorkflowStepExecutor:

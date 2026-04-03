@@ -120,18 +120,6 @@ STEP_TAXONOMY = {
             "and baseline windows; produces contribution_shift observations."
         ),
     },
-    "correlate_metrics": {
-        "category": "primitive",
-        "description": (
-            "Compute Spearman (and optionally Pearson) correlation between two "
-            "numeric series produced by prior steps; emits a correlation_result "
-            "observation carrying rho, p_value, n, method, and observed_window."
-        ),
-    },
-    "synthesize_findings": {
-        "category": "composite",
-        "description": "Workflow synthesis step that turns observations into claims and recommendations.",
-    },
 }
 
 PRIMITIVE_STEP_TYPES = tuple(

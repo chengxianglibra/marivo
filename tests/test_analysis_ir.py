@@ -48,16 +48,6 @@ class AnalysisIRTests(unittest.TestCase):
         self.assertEqual(step.execution_hints["limit"], 5)
         self.assertTrue(step.execution_hints["requires_period_context"])
 
-    def test_from_legacy_step_without_table_returns_none_table_and_not_optional(self) -> None:
-        step = from_legacy_step(0, {"step_type": "synthesize_findings"})
-
-        self.assertEqual(step.step_category, "composite")
-        self.assertIsNone(step.table_name())
-        self.assertIsNone(step.routing_table_name())
-        self.assertIsNone(step.primary_metric_name())
-        self.assertFalse(step.is_optional())
-        self.assertFalse(step.execution_hints["requires_period_context"])
-
     def test_manual_step_keeps_helper_behavior_without_inferred_contracts(self) -> None:
         step = AnalysisStepIR(
             index=0,
