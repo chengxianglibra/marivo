@@ -26,7 +26,10 @@ from pathlib import Path
 from typing import Any
 
 from app.evidence_engine.assessment_evaluation_context import build_assessment_evaluation_context
-from app.evidence_engine.assessment_recompute import recompute_proposition_assessment
+from app.evidence_engine.assessment_recompute import (
+    make_assessment_id,
+    recompute_proposition_assessment,
+)
 from app.evidence_engine.proposal_refresh_run import (
     assemble_publish_ready_bundle,
     run_action_proposal_refresh,
@@ -198,7 +201,6 @@ def _commit_assessment(
     store: SQLiteMetadataStore,
     proposition_id: str = "prop_001",
     session_id: str = "sess_001",
-    candidate_id: str = "cand_001",
     trigger_finding_ids: list[str] | None = None,
 ) -> str:
     """Run assessment recompute and return the committed assessment_id."""
@@ -211,6 +213,9 @@ def _commit_assessment(
     prop = proposition_repo.get(proposition_id)
     assert prop is not None, f"proposition {proposition_id!r} not found"
 
+    candidate_id = make_assessment_id(
+        session_id, proposition_id, assessment_repo.next_snapshot_seq(proposition_id)
+    )
     ctx = build_assessment_evaluation_context(
         session_id=session_id,
         proposition_id=proposition_id,
@@ -278,14 +283,12 @@ class _SwitchBase(unittest.TestCase):
     def _commit_assessment(
         self,
         proposition_id: str | None = None,
-        candidate_id: str = "cand_001",
         trigger_finding_ids: list[str] | None = None,
     ) -> str:
         return _commit_assessment(
             self.store,
             proposition_id=proposition_id or self.PROP_ID,
             session_id=self.SESSION_ID,
-            candidate_id=candidate_id,
             trigger_finding_ids=trigger_finding_ids,
         )
 
@@ -408,7 +411,6 @@ class TestPublishSwitchWrongProposition(_SwitchBase):
             self.store,
             proposition_id=self.OTHER_PROP,
             session_id=self.SESSION_ID,
-            candidate_id="cand_other",
         )
         with self.assertRaises(ValueError):
             execute_publish_switch(
@@ -445,7 +447,6 @@ class TestPublishSwitchWrongSession(_SwitchBase):
             self.store,
             proposition_id=self.OTHER_PROP,
             session_id=self.OTHER_SESSION,
-            candidate_id="cand_s2",
         )
         with self.assertRaises(ValueError):
             execute_publish_switch(
@@ -464,10 +465,10 @@ class TestPublishSwitchWrongSession(_SwitchBase):
 
 class TestPublishSwitchDowngradeRejected(_SwitchBase):
     def test_lower_seq_raises(self) -> None:
-        aid1 = self._commit_assessment(candidate_id="cand_001")
+        aid1 = self._commit_assessment()
         # Add a finding so the second recompute produces different content
         self._add_finding("fnd_001")
-        aid2 = self._commit_assessment(candidate_id="cand_002", trigger_finding_ids=["fnd_001"])
+        aid2 = self._commit_assessment(trigger_finding_ids=["fnd_001"])
         self._run_refresh(aid2)
 
         # Publish the second (higher snapshot_seq) first
@@ -504,13 +505,13 @@ class TestExternallyVisibleBundleNone(_SwitchBase):
 class TestExternallyVisibleBundleUsesPublished(_SwitchBase):
     def test_bundle_uses_published_not_latest(self) -> None:
         # Commit and publish seq=1 (no findings → insufficient + gap → has proposals)
-        aid1 = self._commit_assessment(candidate_id="cand_001")
+        aid1 = self._commit_assessment()
         self._run_refresh(aid1)
         self._switch(aid1)
 
         # Add a finding so seq=2 is genuinely different; do NOT publish
         self._add_finding("fnd_001")
-        aid2 = self._commit_assessment(candidate_id="cand_002", trigger_finding_ids=["fnd_001"])
+        aid2 = self._commit_assessment(trigger_finding_ids=["fnd_001"])
         self._run_refresh(aid2)
 
         bundle = self._visible_bundle()
@@ -546,13 +547,13 @@ class TestExternallyVisibleBundleUsesPublished(_SwitchBase):
 
 class TestPublishSwitchAdvance(_SwitchBase):
     def test_bundle_switches_after_second_publish(self) -> None:
-        aid1 = self._commit_assessment(candidate_id="cand_001")
+        aid1 = self._commit_assessment()
         self._run_refresh(aid1)
         self._switch(aid1)
 
         # Add a finding so seq=2 is genuinely different, then publish it
         self._add_finding("fnd_001")
-        aid2 = self._commit_assessment(candidate_id="cand_002", trigger_finding_ids=["fnd_001"])
+        aid2 = self._commit_assessment(trigger_finding_ids=["fnd_001"])
         self._run_refresh(aid2)
         result = self._switch(aid2)
 
@@ -573,13 +574,13 @@ class TestPublishSwitchAdvance(_SwitchBase):
 
 class TestBundleAtomicNoleak(_SwitchBase):
     def test_proposals_reference_published_assessment(self) -> None:
-        aid1 = self._commit_assessment(candidate_id="cand_001")
+        aid1 = self._commit_assessment()
         self._run_refresh(aid1)
         self._switch(aid1)
 
         # Add a finding so seq=2 is genuinely different; commit and refresh but do NOT publish
         self._add_finding("fnd_001")
-        aid2 = self._commit_assessment(candidate_id="cand_002", trigger_finding_ids=["fnd_001"])
+        aid2 = self._commit_assessment(trigger_finding_ids=["fnd_001"])
         self._run_refresh(aid2)
 
         bundle = self._visible_bundle()
@@ -606,13 +607,13 @@ class TestBundleAtomicNoleak(_SwitchBase):
 
 class TestAssemblePublishReadyUnaffected(_SwitchBase):
     def test_publish_ready_always_uses_latest(self) -> None:
-        aid1 = self._commit_assessment(candidate_id="cand_001")
+        aid1 = self._commit_assessment()
         self._run_refresh(aid1)
         self._switch(aid1)
 
         # Add a finding so seq=2 is genuinely different
         self._add_finding("fnd_001")
-        aid2 = self._commit_assessment(candidate_id="cand_002", trigger_finding_ids=["fnd_001"])
+        aid2 = self._commit_assessment(trigger_finding_ids=["fnd_001"])
         self._run_refresh(aid2)
 
         # Publish pointer still on aid1 — publish_ready still uses latest (aid2)
@@ -651,7 +652,6 @@ class TestMultiPropositionIsolation(_SwitchBase):
             self.store,
             proposition_id=self.PROP_ID,
             session_id=self.SESSION_ID,
-            candidate_id="cand_a",
         )
         _run_refresh(self.store, aid_a, proposition_id=self.PROP_ID)
         execute_publish_switch(
@@ -697,7 +697,7 @@ class TestExternallyVisibleBundleGapAnchoring(_SwitchBase):
 
     def test_gap_outside_published_membership_does_not_leak(self) -> None:
         # Commit seq=1 with no findings → recompute opens G1 (missing precondition)
-        aid1 = self._commit_assessment(candidate_id="cand_001")
+        aid1 = self._commit_assessment()
         self._run_refresh(aid1)
         self._switch(aid1)
 

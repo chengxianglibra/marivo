@@ -24,7 +24,10 @@ from pathlib import Path
 from typing import Any
 
 from app.evidence_engine.assessment_evaluation_context import build_assessment_evaluation_context
-from app.evidence_engine.assessment_recompute import recompute_proposition_assessment
+from app.evidence_engine.assessment_recompute import (
+    make_assessment_id,
+    recompute_proposition_assessment,
+)
 from app.evidence_engine.proposal_refresh_run import (
     BUNDLE_SCHEMA_VERSION,
     REFRESH_SCHEMA_VERSION,
@@ -188,7 +191,6 @@ def _run_recompute(
     store: SQLiteMetadataStore,
     proposition_id: str = "prop_001",
     session_id: str = "sess_001",
-    candidate_id: str = "cand_001",
     trigger_finding_ids: list[str] | None = None,
 ) -> str:
     """Run assessment recompute and return the committed assessment_id.
@@ -204,6 +206,9 @@ def _run_recompute(
     prop = proposition_repo.get(proposition_id)
     assert prop is not None, f"proposition {proposition_id!r} not found"
 
+    candidate_id = make_assessment_id(
+        session_id, proposition_id, assessment_repo.next_snapshot_seq(proposition_id)
+    )
     ctx = build_assessment_evaluation_context(
         session_id=session_id,
         proposition_id=proposition_id,
@@ -264,7 +269,6 @@ class _RefreshBase(unittest.TestCase):
     def _commit_assessment(
         self,
         proposition_id: str | None = None,
-        candidate_id: str = "cand_001",
         trigger_finding_ids: list[str] | None = None,
     ) -> str:
         """Run recompute and return the committed assessment_id."""
@@ -272,7 +276,6 @@ class _RefreshBase(unittest.TestCase):
             self.store,
             proposition_id=proposition_id or self.PROP_ID,
             session_id=self.SESSION_ID,
-            candidate_id=candidate_id,
             trigger_finding_ids=trigger_finding_ids,
         )
 
@@ -381,11 +384,10 @@ class TestProposalRefreshNewAssessment(_RefreshBase):
     def setUp(self) -> None:
         super().setUp()
         # First assessment: no findings → insufficient + blocking gap
-        self.assessment_id_1 = self._commit_assessment(candidate_id="cand_001")
+        self.assessment_id_1 = self._commit_assessment()
         # Add a delta finding, then second recompute → supported + no gap
         self.finding_repo.create(_make_finding_row("fnd_001", finding_type="delta", metric="dau"))
         self.assessment_id_2 = self._commit_assessment(
-            candidate_id="cand_002",
             trigger_finding_ids=["fnd_001"],
         )
 
@@ -442,7 +444,6 @@ class TestProposalRefreshEmptySet(_RefreshBase):
         # Add a delta finding → supported assessment
         self.finding_repo.create(_make_finding_row("fnd_001", finding_type="delta", metric="dau"))
         self.assessment_id = self._commit_assessment(
-            candidate_id="cand_001",
             trigger_finding_ids=["fnd_001"],
         )
 
@@ -697,10 +698,10 @@ class TestMultiplePropositionIsolation(_RefreshBase):
             identity_key="ik_002",
         )
         self.assessment_id_a = self._commit_assessment(
-            proposition_id=self.PROP_ID, candidate_id="cand_a"
+            proposition_id=self.PROP_ID,
         )
         self.assessment_id_b = self._commit_assessment(
-            proposition_id=self.PROP_B_ID, candidate_id="cand_b"
+            proposition_id=self.PROP_B_ID,
         )
 
     def test_refresh_a_does_not_write_b_proposals(self) -> None:
@@ -764,7 +765,6 @@ class TestProposalRefreshSessionOwnership(_RefreshBase):
             self.store,
             proposition_id="prop_other",
             session_id=self.OTHER_SESSION,
-            candidate_id="cand_other",
         )
 
     def test_raises_when_assessment_belongs_to_different_session(self) -> None:
@@ -784,7 +784,7 @@ class TestProposalRefreshSessionOwnership(_RefreshBase):
         """Passing an assessment_id for a different proposition must raise ValueError."""
         # Commit an assessment in the default session under PROP_ID
         assessment_id_a = self._commit_assessment(
-            proposition_id=self.PROP_ID, candidate_id="cand_a"
+            proposition_id=self.PROP_ID,
         )
         # Use assessment_id_a but claim it belongs to prop_other (mismatch)
         with self.assertRaises(ValueError):
