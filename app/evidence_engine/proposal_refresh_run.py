@@ -100,7 +100,10 @@ class LiveClosure(TypedDict):
 
     * ``supporting_findings`` — findings in ``supporting_finding_ids``
     * ``opposing_findings``   — findings in ``opposing_finding_ids``
-    * ``open_gaps``           — currently open EvidenceGap rows for the proposition
+    * ``open_gaps``           — EvidenceGap rows from the assessment's
+      ``gap_memberships_json``, hydrated and filtered to ``status='open'``.
+      Anchored to this specific assessment snapshot; does NOT include gaps
+      opened by later (unpublished) assessments.
     * ``applied_inference_records`` — InferenceRecord rows for the assessment
     """
 
@@ -699,6 +702,73 @@ def run_action_proposal_refresh(
 
 
 # ---------------------------------------------------------------------------
+# Internal helper — bundle assembly from a known assessment row
+# ---------------------------------------------------------------------------
+
+
+def assemble_bundle_from_assessment(
+    *,
+    session_id: str,
+    proposition_id: str,
+    proposition: dict[str, Any],
+    assessment: dict[str, Any],
+    gap_repo: EvidenceGapRepository,
+    finding_repo: FindingRepository,
+    proposal_repo: ActionProposalRepository,
+    inference_record_repo: InferenceRecordRepository,
+) -> PublishReadyBundle:
+    """Assemble a :class:`PublishReadyBundle` from a pre-loaded *assessment* row.
+
+    Shared by :func:`assemble_publish_ready_bundle` (uses latest assessment)
+    and :func:`assemble_externally_visible_bundle` (uses the publish pointer).
+
+    ``open_gaps`` is derived from ``assessment["gap_memberships_json"]``, not
+    from a proposition-wide live query.  This anchors the gap set to the
+    specific assessment snapshot and prevents gaps opened by later (unpublished)
+    assessments from leaking into the externally visible bundle.
+    """
+    assessment_id: str = assessment["assessment_id"]
+
+    supporting_ids: list[str] = assessment.get("supporting_finding_ids_json") or []
+    opposing_ids: list[str] = assessment.get("opposing_finding_ids_json") or []
+
+    supporting_findings = [f for fid in supporting_ids if (f := finding_repo.get(fid)) is not None]
+    opposing_findings = [f for fid in opposing_ids if (f := finding_repo.get(fid)) is not None]
+
+    # Anchor open_gaps to this assessment's gap_memberships snapshot.
+    # Per proposal-policy-engine.md §Input Closure Assembly:
+    #   "open_gap_memberships 取自主 assessment 当前 gap memberships 中 status = open 的条目"
+    gap_memberships: list[dict[str, Any]] = assessment.get("gap_memberships_json") or []
+    open_gaps: list[dict[str, Any]] = [
+        gap
+        for entry in gap_memberships
+        if (gap := gap_repo.get(entry["gap_ref"]["gap_id"])) is not None
+        and gap.get("status") == "open"
+    ]
+
+    applied_inference_records = inference_record_repo.list_by_assessment(assessment_id)
+
+    live_closure = LiveClosure(
+        supporting_findings=supporting_findings,
+        opposing_findings=opposing_findings,
+        open_gaps=open_gaps,
+        applied_inference_records=applied_inference_records,
+    )
+
+    action_proposals = proposal_repo.list_by_assessment(session_id, assessment_id)
+
+    return PublishReadyBundle(
+        session_id=session_id,
+        proposition_id=proposition_id,
+        proposition=proposition,
+        latest_assessment=assessment,
+        live_closure=live_closure,
+        action_proposals=action_proposals,
+        schema_version=BUNDLE_SCHEMA_VERSION,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Public API — publish-ready bundle assembler
 # ---------------------------------------------------------------------------
 
@@ -758,39 +828,15 @@ def assemble_publish_ready_bundle(
             "publish-ready bundle requires a committed assessment."
         )
 
-    assessment_id = latest_assessment["assessment_id"]
-
-    # ------------------------------------------------------------------
-    # Assemble live closure
-    # ------------------------------------------------------------------
-    supporting_ids: list[str] = latest_assessment.get("supporting_finding_ids_json") or []
-    opposing_ids: list[str] = latest_assessment.get("opposing_finding_ids_json") or []
-
-    supporting_findings = [f for fid in supporting_ids if (f := finding_repo.get(fid)) is not None]
-    opposing_findings = [f for fid in opposing_ids if (f := finding_repo.get(fid)) is not None]
-    open_gaps = gap_repo.list_by_proposition(proposition_id, status="open")
-    applied_inference_records = inference_record_repo.list_by_assessment(assessment_id)
-
-    live_closure = LiveClosure(
-        supporting_findings=supporting_findings,
-        opposing_findings=opposing_findings,
-        open_gaps=open_gaps,
-        applied_inference_records=applied_inference_records,
-    )
-
-    # ------------------------------------------------------------------
-    # Load action proposals for this assessment
-    # ------------------------------------------------------------------
-    action_proposals = proposal_repo.list_by_assessment(session_id, assessment_id)
-
-    return PublishReadyBundle(
+    return assemble_bundle_from_assessment(
         session_id=session_id,
         proposition_id=proposition_id,
         proposition=proposition,
-        latest_assessment=latest_assessment,
-        live_closure=live_closure,
-        action_proposals=action_proposals,
-        schema_version=BUNDLE_SCHEMA_VERSION,
+        assessment=latest_assessment,
+        gap_repo=gap_repo,
+        finding_repo=finding_repo,
+        proposal_repo=proposal_repo,
+        inference_record_repo=inference_record_repo,
     )
 
 
@@ -800,6 +846,7 @@ __all__ = [
     "LiveClosure",
     "ProposalRefreshResult",
     "PublishReadyBundle",
+    "assemble_bundle_from_assessment",
     "assemble_publish_ready_bundle",
     "run_action_proposal_refresh",
 ]

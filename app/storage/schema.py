@@ -534,4 +534,10 @@ METADATA_MIGRATIONS: list[str] = [
     # where the non-unique index was already created by the v1 migration above.
     "DROP INDEX IF EXISTS idx_propositions_session_type_identity",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_propositions_session_type_identity ON propositions(session_id, proposition_type, identity_key) WHERE identity_key != ''",
+    # Phase 4g-2: externally_visible_assessment_id is the proposition-local atomic
+    # publish pointer.  NULL = not yet published (proposition registered but no
+    # externally visible bundle).  Non-NULL = assessment_id of the currently
+    # published canonical bundle.  Updated by a single-statement UPDATE in
+    # execute_publish_switch() — inherently crash-safe in SQLite.
+    "ALTER TABLE propositions ADD COLUMN externally_visible_assessment_id TEXT",
 ]
