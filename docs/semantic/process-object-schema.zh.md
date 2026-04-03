@@ -12,6 +12,7 @@
 
 - `docs/semantic/metric-process-contract.zh.md`
 - `docs/semantic/metric-v2-schema.zh.md`
+- `docs/semantic/ir-schema-contract.zh.md`
 
 ## Purpose
 

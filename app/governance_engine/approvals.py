@@ -72,6 +72,8 @@ class ApprovalRuntime:
         session_id: str,
         risk_threshold: str = "P0",
     ) -> list[dict[str, Any]]:
+        # LEGACY (Phase 4g-3): Flags legacy recommendations for approval.
+        # Phase 5 will add a parallel path that flags action_proposals instead.
         risk_levels = ["P0", "P1", "P2", "P3"]
         try:
             threshold_idx = risk_levels.index(risk_threshold)

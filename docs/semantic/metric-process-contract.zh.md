@@ -2,7 +2,11 @@
 
 本文整理 Factum semantic layer 中 `metric` 与 `process object` 的目标分工、组合方式与设计边界。
 
-本文是语义设计文档，不是当前实现说明，也不是 HTTP wire spec。外部 API 仍以 `docs/api/` 下文档为准；intent 设计以 `docs/analysis/intents/` 为准。
+本文是语义设计文档，不是当前实现说明，也不是 HTTP wire spec。外部 API 仍以 `docs/api/` 下文档为准；intent 设计以 `docs/analysis/intents/` 为准。配套 schema 细化见：
+
+- `docs/semantic/metric-v2-schema.zh.md`
+- `docs/semantic/process-object-schema.zh.md`
+- `docs/semantic/ir-schema-contract.zh.md`
 
 ## Purpose
 

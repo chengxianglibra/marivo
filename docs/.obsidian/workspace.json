@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "semantic/process-object-schema.zh.md",
+                "file": "semantic/metric-v2-schema.zh.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "process-object-schema.zh"
+              "title": "metric-v2-schema.zh"
             }
           }
         ]
@@ -185,9 +185,10 @@
   },
   "active": "2de2a1acac14247e",
   "lastOpenFiles": [
-    "semantic/metric-v2-schema.zh.md",
+    "semantic/ir-schema-contract.zh.md",
     "semantic/metric-process-contract.zh.md",
     "semantic/process-object-schema.zh.md",
+    "semantic/metric-v2-schema.zh.md",
     "analysis/evidence-engine/rules/rule-registry-contract.md",
     "analysis/evidence-engine/rules/rule-family-design-checklist.md",
     "analysis/evidence-engine/rules/quality-gate-contract.md",
@@ -210,7 +211,6 @@
     "analysis/evidence-engine/read-surfaces.md",
     "agent-guide.md",
     "api/session-state.md",
-    "api/intent-steps.md",
     "未命名.base"
   ]
 }
