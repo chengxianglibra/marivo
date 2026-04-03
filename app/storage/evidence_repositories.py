@@ -299,11 +299,23 @@ class PropositionRepository:
             return None
         return _deserialize(row, _JSON_FIELDS_PROPOSITION)
 
-    def list_by_session(self, session_id: str) -> list[dict[str, Any]]:
-        rows = self.metadata.query_rows(
-            "SELECT * FROM propositions WHERE session_id = ? ORDER BY created_at ASC",
-            [session_id],
-        )
+    def list_by_session(
+        self, session_id: str, *, active_only: bool = False
+    ) -> list[dict[str, Any]]:
+        """Return propositions for *session_id* ordered by created_at ascending.
+
+        Parameters
+        ----------
+        active_only:
+            When ``True``, only returns propositions where ``invalidated_at IS NULL``
+            (i.e. non-tombstoned).  Pushed to the SQL predicate to avoid loading
+            invalidated rows when the caller only needs live propositions.
+        """
+        sql = "SELECT * FROM propositions WHERE session_id = ?"
+        if active_only:
+            sql += " AND invalidated_at IS NULL"
+        sql += " ORDER BY created_at ASC"
+        rows = self.metadata.query_rows(sql, [session_id])
         return [_deserialize(r, _JSON_FIELDS_PROPOSITION) for r in rows]
 
     def get_by_identity_key(

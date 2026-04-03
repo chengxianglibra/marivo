@@ -54,6 +54,19 @@ FAMILY_ALLOWS_EMPTY: dict[ArtifactFamily, bool] = {
     "forecast": False,  # must produce ≥1 forecast_point finding
 }
 
+# Artifact types whose extractor family allows committed success-empty finding sets.
+# Derived from FAMILY_ALLOWS_EMPTY; the artifact_type → family mapping is defined
+# by each FindingExtractor subclass (observe_extractor → "observe",
+# detect_extractor → "detect").  All code that needs to derive allows-empty
+# status from an artifact_type must import this constant rather than duplicating
+# the set inline.
+ALLOWS_EMPTY_ARTIFACT_TYPES: frozenset[str] = frozenset(
+    {
+        "observation",  # family="observe"
+        "anomaly_candidates",  # family="detect"
+    }
+)
+
 
 # ---------------------------------------------------------------------------
 # FamilyEmptyError
@@ -118,6 +131,7 @@ def check_finding_count(family: str, count: int) -> None:
 # ---------------------------------------------------------------------------
 
 __all__ = [
+    "ALLOWS_EMPTY_ARTIFACT_TYPES",
     "FAMILY_ALLOWS_EMPTY",
     "ArtifactFamily",
     "FamilyEmptyError",

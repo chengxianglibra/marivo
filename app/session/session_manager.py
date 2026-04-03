@@ -4,6 +4,8 @@ import json
 from typing import Any
 from uuid import uuid4
 
+from app.evidence_engine.family_contract import ALLOWS_EMPTY_ARTIFACT_TYPES
+from app.evidence_engine.finding_extractor_registry import default_finding_registry
 from app.storage.metadata import MetadataStore
 
 # Columns selected for canonical session root reads (Phase 5a).
@@ -183,6 +185,84 @@ class SessionManager:
             },
             "updated_at": updated_at,
             "schema_version": "session_runtime_status.v1",
+        }
+
+    def get_artifact_runtime_status(
+        self,
+        session_id: str,
+        artifact_id: str,
+        finding_registry: Any = None,
+    ) -> dict[str, Any]:
+        """Return artifact-level operator runtime status (Phase 5b).
+
+        Derives status from canonical DB state.  v1 does not maintain a real
+        queue / attempt / retry system, so:
+
+        - ``artifact_stage`` is one of ``"staged"`` or ``"findings_committed"``
+          only.  ``"extracting"``, ``"seeding_handoff_pending"``, and
+          ``"failed"`` are reserved for future versions with state tracking.
+        - ``correlation_id`` is set to ``artifact_id`` (stable v1 handle).
+        - ``attempt_id``, ``last_failure_reason``, and ``last_failure_at``
+          are always ``null`` in v1.
+
+        D4-allows-empty artifact types (``observation``, ``anomaly_candidates``)
+        always return ``"findings_committed"`` because zero findings is a valid
+        committed outcome and is indistinguishable from a pending extraction
+        without an extraction-status column.
+
+        Raises
+        ------
+        KeyError
+            When *artifact_id* is not found in *session_id*.
+        """
+        row = self.metadata.query_one(
+            """
+            SELECT artifact_id, session_id, artifact_type, artifact_schema_version
+            FROM artifacts
+            WHERE artifact_id = ? AND session_id = ?
+            """,
+            [artifact_id, session_id],
+        )
+        if row is None:
+            raise KeyError(f"artifact {artifact_id!r} not found in session {session_id!r}")
+
+        artifact_type: str = row["artifact_type"]
+        artifact_schema_version: str | None = row.get("artifact_schema_version")
+
+        # Count findings for this artifact in the session.
+        finding_row = self.metadata.query_one(
+            "SELECT COUNT(*) AS cnt FROM findings WHERE artifact_id = ? AND session_id = ?",
+            [artifact_id, session_id],
+        )
+        finding_count: int = int(finding_row["cnt"]) if finding_row else 0
+
+        # Derive artifact_stage.
+        if artifact_type in ALLOWS_EMPTY_ARTIFACT_TYPES or finding_count > 0:
+            artifact_stage = "findings_committed"
+        else:
+            artifact_stage = "staged"
+
+        # Extractor lookup.
+        registry = finding_registry if finding_registry is not None else default_finding_registry
+        extractor = registry.find(artifact_type, artifact_schema_version)
+        extractor_version: str | None = (
+            extractor.extractor_version if extractor is not None else None
+        )
+
+        return {
+            "session_id": session_id,
+            "artifact_id": artifact_id,
+            "artifact_stage": artifact_stage,
+            "extractor_key": {
+                "artifact_type": artifact_type,
+                "artifact_schema_version": artifact_schema_version,
+                "extractor_version": extractor_version,
+            },
+            "correlation_id": artifact_id,
+            "attempt_id": None,
+            "last_failure_reason": None,
+            "last_failure_at": None,
+            "schema_version": "artifact_runtime_status.v1",
         }
 
     # ------------------------------------------------------------------
