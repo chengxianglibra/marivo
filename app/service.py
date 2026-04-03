@@ -37,6 +37,7 @@ from app.evidence_engine.finding_extractor_registry import (
 )
 from app.evidence_engine.readiness import compute_readiness, load_live_claims
 from app.evidence_engine.schemas import ALL_EDGE_TYPES, EDGE_TYPE_JUSTIFIES, Claim
+from app.evidence_engine.state_view import materialize_session_state_view
 from app.evidence_engine.synthesizers.default import DefaultClaimSynthesizer
 from app.execution.feedback import compile_failure_from_error
 from app.execution.orchestrator import WorkflowOrchestrator
@@ -228,6 +229,32 @@ class SemanticLayerService:
 
     def get_session_runtime_status(self, session_id: str) -> dict[str, Any]:
         return self.session_manager.get_session_runtime_status(session_id)
+
+    def get_session_state(self, session_id: str, query: dict[str, Any]) -> dict[str, Any]:
+        """Return the canonical SessionStateView for *session_id* (Phase 5b)."""
+        self.session_manager.assert_session_exists(session_id)
+        return materialize_session_state_view(
+            session_id=session_id,
+            query=query,
+            proposition_repo=self._proposition_repo,
+            assessment_repo=self._assessment_repo,
+            finding_repo=self._finding_repo,
+            gap_repo=self._gap_repo,
+            inference_record_repo=self._inference_record_repo,
+            proposal_repo=self._proposal_repo,
+        )
+
+    def query_session_state(self, session_id: str, query: dict[str, Any]) -> dict[str, Any]:
+        """Return the canonical SessionStateView with a structured query body (Phase 5b).
+
+        Identical to :meth:`get_session_state`; the HTTP layer separates GET
+        and POST but the service does not distinguish.
+        """
+        return self.get_session_state(session_id, query)
+
+    def get_artifact_runtime_status(self, session_id: str, artifact_id: str) -> dict[str, Any]:
+        """Return artifact-level operator runtime status (Phase 5b)."""
+        return self.session_manager.get_artifact_runtime_status(session_id, artifact_id)
 
     def discover_catalog(self) -> dict[str, Any]:
         # Entities — all published semantic entities

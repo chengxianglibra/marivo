@@ -76,18 +76,20 @@ Request body:
   "assessment_presence": "assessed",
   "assessment_statuses": ["insufficient"],
   "has_blocking_gaps": true,
-  "limit": 25,
-  "page_token": null
+  "limit": 25
 }
 ```
 
-`POST /state/query` reuses the canonical query fields from `SessionStateQuery` and adds one transport field, `page_token`, for cursor continuation. It does not introduce a parallel search DSL.
+`POST /state/query` accepts exactly the canonical `SessionStateQuery` fields in the request body. It does not introduce a parallel search DSL.
+
+`page_token` is a transport concern and is **not** part of the request body. When cursor pagination is implemented it will be passed as a URL query parameter on both `GET /state` and `POST /state/query`.
 
 ### Session State Query Rules
 
 The HTTP layer fixes the following behavior:
 
-- `metric`, `entity`, `assessment_presence`, `has_blocking_gaps`, `limit`, and `page_token` have the same meaning on `GET /state` and `POST /state/query`
+- `metric`, `entity`, `assessment_presence`, `has_blocking_gaps`, and `limit` have the same meaning on `GET /state` and `POST /state/query`
+- `page_token` is a URL query parameter on both endpoints; it is not part of the `POST /state/query` request body
 - repeated query parameters on `GET /state` normalize to the array fields used by `POST /state/query`
 - `slice` is a proposition subject slice subset exact match
 - `assessment_presence = "unassessed"` matches only entries where `latest_assessment = null`

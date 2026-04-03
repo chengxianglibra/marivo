@@ -20,6 +20,7 @@ from app.api.models import (
     ObserveRequest,
     SessionCreateRequest,
     SessionDebugResponse,
+    SessionStateQueryRequest,
     ValidateRequest,
 )
 from app.reflection.context import build_reflection_context
@@ -60,6 +61,104 @@ def get_session(session_id: str, request: Request) -> dict[str, object]:
 def get_session_runtime_status(session_id: str, request: Request) -> dict[str, object]:
     try:
         return get_services(request).service.get_session_runtime_status(session_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+# ── Canonical state surface (Phase 5b) ───────────────────────────────────────
+# These endpoints expose externally visible canonical state only.
+# Runtime scheduling truth must not be read from these endpoints.
+# Registered before parameterised intent routes to avoid routing ambiguity.
+
+
+@router.get("/sessions/{session_id}/state")
+def get_session_state(
+    session_id: str,
+    request: Request,
+    metric: str | None = Query(default=None),
+    entity: str | None = Query(default=None),
+    proposition_type: list[str] | None = Query(default=None),
+    origin_kind: list[str] | None = Query(default=None),
+    assessment_presence: str | None = Query(default=None),
+    assessment_status: list[str] | None = Query(default=None),
+    has_blocking_gaps: bool | None = Query(default=None),
+    limit: int | None = Query(default=None),
+    page_token: str | None = Query(default=None),
+) -> dict[str, object]:
+    """Return the canonical SessionStateView for a session.
+
+    ``slice`` is intentionally not supported on this endpoint.
+    Use ``POST /sessions/{session_id}/state/query`` when ``slice`` filtering
+    is required.
+    """
+    if "slice" in request.query_params:
+        raise HTTPException(
+            status_code=400,
+            detail="'slice' is not supported on GET /state. Use POST /state/query instead.",
+        )
+    try:
+        query: dict[str, Any] = {}
+        if metric is not None:
+            query["metric"] = metric
+        if entity is not None:
+            query["entity"] = entity
+        if proposition_type:
+            query["proposition_types"] = proposition_type
+        if origin_kind:
+            query["origin_kinds"] = origin_kind
+        if assessment_presence is not None:
+            if assessment_presence not in ("assessed", "unassessed"):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid assessment_presence value: {assessment_presence!r}. "
+                    "Must be 'assessed' or 'unassessed'.",
+                )
+            query["assessment_presence"] = assessment_presence
+        if assessment_status:
+            query["assessment_statuses"] = assessment_status
+        if has_blocking_gaps is not None:
+            query["has_blocking_gaps"] = has_blocking_gaps
+        if limit is not None:
+            query["limit"] = limit
+        if page_token is not None:
+            query["page_token"] = page_token
+        return get_services(request).service.get_session_state(session_id, query)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@router.post("/sessions/{session_id}/state/query")
+def query_session_state(
+    session_id: str,
+    payload: SessionStateQueryRequest,
+    request: Request,
+) -> dict[str, object]:
+    """Return the canonical SessionStateView with a structured query body.
+
+    Use this endpoint when ``slice`` filtering or multi-axis query composition
+    is required.  Supports all ``SessionStateQuery`` fields.
+    """
+    try:
+        query = {k: v for k, v in payload.model_dump().items() if v is not None}
+        return get_services(request).service.query_session_state(session_id, query)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@router.get("/sessions/{session_id}/artifacts/{artifact_id}/runtime-status")
+def get_artifact_runtime_status(
+    session_id: str,
+    artifact_id: str,
+    request: Request,
+) -> dict[str, object]:
+    """Return the operator-facing runtime status for a single artifact.
+
+    Explains whether the artifact has been extracted and handed off to
+    proposition seeding.  This is runtime truth only; do not use it as a
+    canonical evidence read surface.
+    """
+    try:
+        return get_services(request).service.get_artifact_runtime_status(session_id, artifact_id)
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
 
