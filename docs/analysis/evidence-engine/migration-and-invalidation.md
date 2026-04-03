@@ -21,7 +21,7 @@ Evidence Engine v1 至少存在以下 version 轴：
 - `extractor_version`
 - `template_version`
 - `derivation_version`
-- `assessment_registry_version` / `rule_version`
+- `rule_version`
 - `policy_version`
 
 这些 version 轴的责任不同：

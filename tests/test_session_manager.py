@@ -30,10 +30,14 @@ class SessionManagerTests(unittest.TestCase):
         loaded = self.manager.get_session(created["session_id"])
 
         self.assertEqual(loaded["session_id"], created["session_id"])
-        self.assertEqual(loaded["goal"], "Investigate watch time regression")
-        self.assertEqual(loaded["constraints"], {"region": "all"})
-        self.assertEqual(loaded["budget"], {"max_latency_sec": 120})
-        self.assertEqual(loaded["policy"], {"aggregate_only": True})
+        # goal is structured in canonical AnalysisSession shape (Phase 5a)
+        self.assertEqual(loaded["goal"]["question"], "Investigate watch time regression")
+        # governance carries budget
+        self.assertEqual(loaded["governance"]["budget"], {"max_latency_sec": 120})
+        # lifecycle carries status
+        self.assertEqual(loaded["lifecycle"]["status"], "open")
+        # schema_version
+        self.assertEqual(loaded["schema_version"], "analysis_session.v1")
 
     def test_list_sessions_with_status_filter(self) -> None:
         open_session = self.manager.create_session("Open session", {}, {}, {})
@@ -59,6 +63,119 @@ class SessionManagerTests(unittest.TestCase):
     def test_assert_session_exists_raises_for_unknown_session(self) -> None:
         with self.assertRaises(KeyError):
             self.manager.assert_session_exists("sess_missing")
+
+    def test_runtime_status_idle_empty_session(self) -> None:
+        """New session with no artifacts reports idle with null last_stage."""
+        session = self.manager.create_session("Check idle", {}, {}, {})
+        status = self.manager.get_session_runtime_status(session["session_id"])
+
+        self.assertEqual(status["session_id"], session["session_id"])
+        self.assertEqual(status["overall_status"], "idle")
+        self.assertIsNone(status["last_successful_stage"])
+        self.assertEqual(status["blocked_reason"], "none")
+        self.assertEqual(status["schema_version"], "session_runtime_status.v1")
+        summary = status["backlog_summary"]
+        self.assertEqual(summary["queued_artifacts"], 0)
+        self.assertEqual(summary["queued_propositions"], 0)
+        # updated_at must be a non-empty string (DB timestamp, not call time)
+        self.assertIsInstance(status["updated_at"], str)
+        self.assertGreater(len(status["updated_at"]), 0)
+
+    def test_runtime_status_running_after_artifact_commit(self) -> None:
+        """Session with a non-empty-family artifact and no findings is running."""
+        session = self.manager.create_session("Check running", {}, {}, {})
+        sid = session["session_id"]
+        # Insert a compare_artifact (non-empty-required family) with no findings.
+        self.metadata.execute(
+            "INSERT INTO artifacts (artifact_id, session_id, step_id, artifact_type, name, content_json)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            ["art_test_001", sid, "step_test_001", "compare_artifact", "cmp", "{}"],
+        )
+
+        status = self.manager.get_session_runtime_status(sid)
+        self.assertEqual(status["overall_status"], "running")
+        self.assertEqual(status["last_successful_stage"], "artifact_commit")
+        self.assertEqual(status["backlog_summary"]["queued_artifacts"], 1)
+
+    def test_runtime_status_idle_for_observation_artifact_with_no_findings(self) -> None:
+        """Observation artifact (D4 allows-empty) with no findings is NOT queued."""
+        session = self.manager.create_session("Check D4", {}, {}, {})
+        sid = session["session_id"]
+        self.metadata.execute(
+            "INSERT INTO artifacts (artifact_id, session_id, step_id, artifact_type, name, content_json)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            ["art_obs_001", sid, "step_obs_001", "observation", "obs", "{}"],
+        )
+
+        status = self.manager.get_session_runtime_status(sid)
+        # artifact_commit stage is reached but observation is excluded from queue
+        self.assertEqual(status["last_successful_stage"], "artifact_commit")
+        self.assertEqual(status["backlog_summary"]["queued_artifacts"], 0)
+        # No non-empty-family artifacts pending, no findings, no propositions → idle
+        self.assertEqual(status["overall_status"], "idle")
+
+    def test_runtime_status_running_when_findings_but_no_propositions(self) -> None:
+        """Session with findings but no propositions yet is running (seeding pending)."""
+        session = self.manager.create_session("Check seeding", {}, {}, {})
+        sid = session["session_id"]
+        self.metadata.execute(
+            "INSERT INTO artifacts (artifact_id, session_id, step_id, artifact_type, name, content_json)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            ["art_cmp_002", sid, "step_cmp_002", "compare_artifact", "cmp2", "{}"],
+        )
+        self.metadata.execute(
+            """INSERT INTO findings
+               (finding_id, session_id, artifact_id, step_ref_json, finding_type,
+                canonical_item_key, subject_json, quality_json, provenance_json, payload_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                "find_001",
+                sid,
+                "art_cmp_002",
+                '{"step_id":"step_cmp_002","session_id":"' + sid + '"}',
+                "delta",
+                "result",
+                '{"metric":"m"}',
+                "{}",
+                "{}",
+                "{}",
+            ],
+        )
+
+        status = self.manager.get_session_runtime_status(sid)
+        self.assertEqual(status["overall_status"], "running")
+        self.assertEqual(status["last_successful_stage"], "finding_extraction")
+        self.assertEqual(status["backlog_summary"]["queued_artifacts"], 0)
+        self.assertEqual(status["backlog_summary"]["queued_propositions"], 0)
+
+    def test_runtime_status_raises_for_unknown_session(self) -> None:
+        with self.assertRaises(KeyError):
+            self.manager.get_session_runtime_status("sess_missing")
+
+    def test_policy_refs_normalization_dict_policy(self) -> None:
+        """Dict-typed policy is not surfaced as policy_refs (pre-v1 format)."""
+        session = self.manager.create_session("Policy test", {}, {}, {"aggregate_only": True})
+        self.assertIsNone(session["governance"]["policy_refs"])
+
+    def test_policy_refs_list_policy(self) -> None:
+        """List-typed policy with policy_id/policy_version entries is surfaced as-is."""
+        policy = [{"policy_id": "pol_agg", "policy_version": "1"}]
+        session = self.manager.create_session("Policy list test", {}, {}, policy)
+        self.assertEqual(session["governance"]["policy_refs"], policy)
+
+    def test_list_sessions_canonical_shape(self) -> None:
+        """list_sessions returns AnalysisSession-shaped dicts."""
+        s = self.manager.create_session("Shape check", {}, {}, {})
+        items = self.manager.list_sessions()
+        match = next(x for x in items if x["session_id"] == s["session_id"])
+        self.assertIn("goal", match)
+        self.assertIn("question", match["goal"])
+        self.assertIn("governance", match)
+        self.assertIn("lifecycle", match)
+        self.assertIn("state_summary", match)
+        self.assertEqual(match["schema_version"], "analysis_session.v1")
+        self.assertNotIn("status", match)
+        self.assertNotIn("constraints", match)
 
 
 if __name__ == "__main__":

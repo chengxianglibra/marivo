@@ -56,6 +56,14 @@ def get_session(session_id: str, request: Request) -> dict[str, object]:
         raise HTTPException(status_code=404, detail=str(error)) from error
 
 
+@router.get("/sessions/{session_id}/runtime-status")
+def get_session_runtime_status(session_id: str, request: Request) -> dict[str, object]:
+    try:
+        return get_services(request).service.get_session_runtime_status(session_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+
 @router.get("/sessions/{session_id}/reflection-context")
 def get_reflection_context(
     session_id: str,
