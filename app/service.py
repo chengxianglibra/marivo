@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import math
 import time
 from datetime import UTC, date, datetime, timedelta
@@ -20,6 +21,7 @@ from app.analysis_core.executor import execute_compiled
 from app.analysis_core.ir import AnalysisStepIR, from_legacy_step
 from app.evidence_engine import EvidencePipeline
 from app.evidence_engine.canonical_finding import StepRef
+from app.evidence_engine.canonical_pipeline_runtime import run_canonical_downstream
 from app.evidence_engine.causal_checkers import _pearson_correlation, _spearman_correlation
 from app.evidence_engine.claim_relations import (
     _claim_direction,
@@ -52,6 +54,14 @@ from app.intents.validate import run_validate_intent
 from app.semantic_runtime import SemanticRuntimeRepository
 from app.session import SessionManager
 from app.storage.analytics import AnalyticsEngine
+from app.storage.evidence_repositories import (
+    ActionProposalRepository,
+    AssessmentRepository,
+    EvidenceGapRepository,
+    FindingRepository,
+    InferenceRecordRepository,
+    PropositionRepository,
+)
 from app.storage.metadata import MetadataStore
 from app.time_axis_metadata import TimeAxisMetadataProvider
 from app.time_scope import (
@@ -73,6 +83,9 @@ if TYPE_CHECKING:
 _AUTO_INCREMENTAL_SYNTHESIZER = object()
 
 _STUB_INTENT_TYPES: frozenset[str] = frozenset()
+
+
+logger = logging.getLogger(__name__)
 
 
 def _make_stub_runner(intent_type: str) -> Any:
@@ -170,6 +183,13 @@ class SemanticLayerService:
 
             incremental_synthesizer = IncrementalSynthesizer(metadata_store)
         self._incremental_synthesizer: Any | None = incremental_synthesizer
+        # Canonical evidence repositories (Phase 4g-3)
+        self._finding_repo = FindingRepository(metadata_store)
+        self._proposition_repo = PropositionRepository(metadata_store)
+        self._assessment_repo = AssessmentRepository(metadata_store)
+        self._gap_repo = EvidenceGapRepository(metadata_store)
+        self._inference_record_repo = InferenceRecordRepository(metadata_store)
+        self._proposal_repo = ActionProposalRepository(metadata_store)
         self._governance_context: dict[str, Any] | None = None
         self._routing_feedback_context: dict[str, Any] | None = None
         self.routing_runtime = RoutingRuntime(query_router, analytics_engine)
@@ -2552,6 +2572,11 @@ class SemanticLayerService:
         return result
 
     def _run_synthesis(self, session_id: str) -> dict[str, Any]:
+        # LEGACY (Phase 4g-3): This step generates old-style claims and recommendations.
+        # These are preserved for backward compatibility with the evidence graph endpoint
+        # and existing tests.  The canonical authority is now:
+        #   artifact -> finding -> proposition -> assessment -> action proposal
+        # Claims and recommendations no longer gate or bootstrap canonical outputs.
         step_type = "synthesize_findings"
         step_id = self._new_step_id()
         self._delete_non_tentative_synthesis_outputs(session_id)
@@ -3271,6 +3296,30 @@ class SemanticLayerService:
                 [artifact_id],
             )
             con.commit()
+
+        # Phase 4g-3: trigger the canonical downstream pipeline for the
+        # committed findings (seeding → recompute → proposal refresh → publish).
+        if result["findings"]:
+            committed_finding_ids = [f["finding_id"] for f in result["findings"]]
+            downstream_result = run_canonical_downstream(
+                session_id=session_id,
+                trigger_finding_ids=committed_finding_ids,
+                finding_repo=self._finding_repo,
+                proposition_repo=self._proposition_repo,
+                assessment_repo=self._assessment_repo,
+                gap_repo=self._gap_repo,
+                inference_record_repo=self._inference_record_repo,
+                proposal_repo=self._proposal_repo,
+                metadata_store=self.metadata,
+            )
+            for slot in downstream_result["proposition_results"]:
+                if slot["error"]:
+                    logger.warning(
+                        "canonical downstream error for proposition %s (artifact %s): %s",
+                        slot["proposition_id"],
+                        artifact_id,
+                        slot["error"],
+                    )
 
         return artifact_id
 

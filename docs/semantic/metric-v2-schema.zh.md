@@ -6,6 +6,7 @@
 
 - `docs/semantic/metric-process-contract.zh.md`
 - `docs/semantic/process-object-schema.zh.md`
+- `docs/semantic/ir-schema-contract.zh.md`
 
 本文重点回答：
 
