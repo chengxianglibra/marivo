@@ -36,6 +36,7 @@ from app.evidence_engine.assessment_evaluation_context import build_assessment_e
 from app.evidence_engine.assessment_recompute import (
     RECOMPUTE_SCHEMA_VERSION,
     AssessmentRecomputeResult,
+    make_assessment_id,
     recompute_proposition_assessment,
 )
 from app.storage.evidence_repositories import (
@@ -217,12 +218,14 @@ class _RecomputeBase(unittest.TestCase):
         self,
         *,
         proposition_id: str | None = None,
-        candidate_id: str = "cand_001",
         trigger_ids: list[str] | None = None,
     ) -> AssessmentRecomputeResult:
         pid = proposition_id or self.PROP_ID
         prop = self.proposition_repo.get(pid)
         assert prop is not None
+        candidate_id = make_assessment_id(
+            self.SESSION_ID, pid, self.assessment_repo.next_snapshot_seq(pid)
+        )
         ctx = build_assessment_evaluation_context(
             session_id=self.SESSION_ID,
             proposition_id=pid,
@@ -285,32 +288,33 @@ class TestNoOpOnSameInputs(_RecomputeBase):
 
     def test_no_op_created_false(self) -> None:
         # First run commits a snapshot
-        r1 = self._recompute(candidate_id="cand_001")
+        r1 = self._recompute()
         self.assertTrue(r1["created"])
         # Second run with same empty inputs (no findings)
-        r2 = self._recompute(candidate_id="cand_002")
+        r2 = self._recompute()
         self.assertFalse(r2["created"])
 
     def test_no_op_assessment_id_none(self) -> None:
-        self._recompute(candidate_id="cand_001")
-        r2 = self._recompute(candidate_id="cand_002")
+        self._recompute()
+        r2 = self._recompute()
         self.assertIsNone(r2["assessment_id"])
 
     def test_no_op_status_none(self) -> None:
-        self._recompute(candidate_id="cand_001")
-        r2 = self._recompute(candidate_id="cand_002")
+        self._recompute()
+        r2 = self._recompute()
         self.assertIsNone(r2["status"])
 
     def test_no_new_snapshot_in_db(self) -> None:
-        self._recompute(candidate_id="cand_001")
-        self._recompute(candidate_id="cand_002")
+        self._recompute()
+        self._recompute()
         snapshots = self.assessment_repo.list_by_proposition(self.PROP_ID)
         self.assertEqual(len(snapshots), 1)
 
     def test_candidate_assessment_id_always_returned(self) -> None:
-        self._recompute(candidate_id="cand_001")
-        r2 = self._recompute(candidate_id="cand_002")
-        self.assertEqual(r2["candidate_assessment_id"], "cand_002")
+        self._recompute()
+        r2 = self._recompute()
+        expected = make_assessment_id(self.SESSION_ID, self.PROP_ID, 2)
+        self.assertEqual(r2["candidate_assessment_id"], expected)
 
 
 # ---------------------------------------------------------------------------
@@ -327,25 +331,25 @@ class TestSupersedingOnDiff(_RecomputeBase):
 
     def test_second_snapshot_created(self) -> None:
         # First: no findings → insufficient
-        self._recompute(candidate_id="cand_001")
+        self._recompute()
         # Second: with delta finding → supported
-        r2 = self._recompute(candidate_id="cand_002", trigger_ids=["fnd_delta_001"])
+        r2 = self._recompute(trigger_ids=["fnd_delta_001"])
         self.assertTrue(r2["created"])
 
     def test_snapshot_seq_increments(self) -> None:
-        self._recompute(candidate_id="cand_001")
-        r2 = self._recompute(candidate_id="cand_002", trigger_ids=["fnd_delta_001"])
+        self._recompute()
+        r2 = self._recompute(trigger_ids=["fnd_delta_001"])
         self.assertEqual(r2["snapshot_seq"], 2)
 
     def test_supersedes_id_set(self) -> None:
-        r1 = self._recompute(candidate_id="cand_001")
-        r2 = self._recompute(candidate_id="cand_002", trigger_ids=["fnd_delta_001"])
+        r1 = self._recompute()
+        r2 = self._recompute(trigger_ids=["fnd_delta_001"])
         row2 = self.assessment_repo.get(r2["assessment_id"])
         self.assertEqual(row2["supersedes_assessment_id"], r1["assessment_id"])
 
     def test_second_status_supported(self) -> None:
-        self._recompute(candidate_id="cand_001")
-        r2 = self._recompute(candidate_id="cand_002", trigger_ids=["fnd_delta_001"])
+        self._recompute()
+        r2 = self._recompute(trigger_ids=["fnd_delta_001"])
         self.assertEqual(r2["status"], "supported")
 
 
@@ -362,20 +366,20 @@ class TestImmutableSnapshots(_RecomputeBase):
         self._insert_delta_finding()
 
     def test_original_status_preserved(self) -> None:
-        r1 = self._recompute(candidate_id="cand_001")
-        self._recompute(candidate_id="cand_002", trigger_ids=["fnd_delta_001"])
+        r1 = self._recompute()
+        self._recompute(trigger_ids=["fnd_delta_001"])
         row1 = self.assessment_repo.get(r1["assessment_id"])
         self.assertEqual(row1["status"], "insufficient")
 
     def test_original_snapshot_seq_preserved(self) -> None:
-        r1 = self._recompute(candidate_id="cand_001")
-        self._recompute(candidate_id="cand_002", trigger_ids=["fnd_delta_001"])
+        r1 = self._recompute()
+        self._recompute(trigger_ids=["fnd_delta_001"])
         row1 = self.assessment_repo.get(r1["assessment_id"])
         self.assertEqual(row1["snapshot_seq"], 1)
 
     def test_two_snapshots_in_db(self) -> None:
-        self._recompute(candidate_id="cand_001")
-        self._recompute(candidate_id="cand_002", trigger_ids=["fnd_delta_001"])
+        self._recompute()
+        self._recompute(trigger_ids=["fnd_delta_001"])
         snapshots = self.assessment_repo.list_by_proposition(self.PROP_ID)
         self.assertEqual(len(snapshots), 2)
 
@@ -398,13 +402,11 @@ class TestSnapshotSeqMonotonic(_RecomputeBase):
 
     def test_three_snapshots_monotonic(self) -> None:
         # 1: no triggers → insufficient (no findings in candidate set yet)
-        r1 = self._recompute(candidate_id="cand_001")
+        r1 = self._recompute()
         # 2: first delta finding → supported with {fnd_delta_001}
-        r2 = self._recompute(candidate_id="cand_002", trigger_ids=["fnd_delta_001"])
+        r2 = self._recompute(trigger_ids=["fnd_delta_001"])
         # 3: add second delta finding → supported with {fnd_delta_001, fnd_delta_002} → diff
-        r3 = self._recompute(
-            candidate_id="cand_003", trigger_ids=["fnd_delta_001", "fnd_delta_002"]
-        )
+        r3 = self._recompute(trigger_ids=["fnd_delta_001", "fnd_delta_002"])
         seqs = [r1["snapshot_seq"], r2["snapshot_seq"], r3["snapshot_seq"]]
         self.assertEqual(seqs, [1, 2, 3])
 
@@ -424,15 +426,15 @@ class TestNoIsLatestFlag(_RecomputeBase):
 
     def test_get_latest_reflects_highest_seq(self) -> None:
         self._insert_delta_finding()
-        r1 = self._recompute(candidate_id="cand_001")
-        r2 = self._recompute(candidate_id="cand_002", trigger_ids=["fnd_delta_001"])
+        r1 = self._recompute()
+        r2 = self._recompute(trigger_ids=["fnd_delta_001"])
         latest = self.assessment_repo.get_latest(self.PROP_ID)
         self.assertEqual(latest["assessment_id"], r2["assessment_id"])
 
     def test_older_snapshot_not_modified(self) -> None:
         self._insert_delta_finding()
-        r1 = self._recompute(candidate_id="cand_001")
-        self._recompute(candidate_id="cand_002", trigger_ids=["fnd_delta_001"])
+        r1 = self._recompute()
+        self._recompute(trigger_ids=["fnd_delta_001"])
         # Re-read r1 and verify it is still unchanged
         row1_after = self.assessment_repo.get(r1["assessment_id"])
         self.assertEqual(row1_after["snapshot_seq"], 1)
@@ -455,23 +457,21 @@ class TestSupersededChain(_RecomputeBase):
         )
 
     def test_first_snapshot_supersedes_null(self) -> None:
-        r1 = self._recompute(candidate_id="cand_001")
+        r1 = self._recompute()
         row1 = self.assessment_repo.get(r1["assessment_id"])
         self.assertIsNone(row1["supersedes_assessment_id"])
 
     def test_second_supersedes_first(self) -> None:
-        r1 = self._recompute(candidate_id="cand_001")
-        r2 = self._recompute(candidate_id="cand_002", trigger_ids=["fnd_delta_001"])
+        r1 = self._recompute()
+        r2 = self._recompute(trigger_ids=["fnd_delta_001"])
         row2 = self.assessment_repo.get(r2["assessment_id"])
         self.assertEqual(row2["supersedes_assessment_id"], r1["assessment_id"])
 
     def test_third_supersedes_second(self) -> None:
-        self._recompute(candidate_id="cand_001")
-        r2 = self._recompute(candidate_id="cand_002", trigger_ids=["fnd_delta_001"])
+        self._recompute()
+        r2 = self._recompute(trigger_ids=["fnd_delta_001"])
         # Add second finding → diff from snapshot 2 (different supporting_finding_ids)
-        r3 = self._recompute(
-            candidate_id="cand_003", trigger_ids=["fnd_delta_001", "fnd_delta_002"]
-        )
+        r3 = self._recompute(trigger_ids=["fnd_delta_001", "fnd_delta_002"])
         row3 = self.assessment_repo.get(r3["assessment_id"])
         self.assertEqual(row3["supersedes_assessment_id"], r2["assessment_id"])
 
@@ -527,28 +527,28 @@ class TestGapResolveOnPreconditionHit(_RecomputeBase):
 
     def test_gap_resolved_after_findings_added(self) -> None:
         # First recompute: no findings → gap opened
-        r1 = self._recompute(candidate_id="cand_001")
+        r1 = self._recompute()
         row1 = self.assessment_repo.get(r1["assessment_id"])
         gap_id = row1["gap_memberships_json"][0]["gap_ref"]["gap_id"]
         gap_before = self.gap_repo.get(gap_id)
         self.assertEqual(gap_before["status"], "open")
         # Second recompute: with finding → gap should resolve
-        r2 = self._recompute(candidate_id="cand_002", trigger_ids=["fnd_delta_001"])
+        r2 = self._recompute(trigger_ids=["fnd_delta_001"])
         self.assertTrue(r2["created"])
         gap_after = self.gap_repo.get(gap_id)
         self.assertEqual(gap_after["status"], "resolved")
 
     def test_gap_resolved_by_set(self) -> None:
-        r1 = self._recompute(candidate_id="cand_001")
+        r1 = self._recompute()
         row1 = self.assessment_repo.get(r1["assessment_id"])
         gap_id = row1["gap_memberships_json"][0]["gap_ref"]["gap_id"]
-        self._recompute(candidate_id="cand_002", trigger_ids=["fnd_delta_001"])
+        self._recompute(trigger_ids=["fnd_delta_001"])
         gap_after = self.gap_repo.get(gap_id)
         self.assertIsNotNone(gap_after["resolved_by_inference_record_id"])
 
     def test_gap_not_in_new_snapshot_memberships(self) -> None:
-        r1 = self._recompute(candidate_id="cand_001")
-        r2 = self._recompute(candidate_id="cand_002", trigger_ids=["fnd_delta_001"])
+        r1 = self._recompute()
+        r2 = self._recompute(trigger_ids=["fnd_delta_001"])
         row2 = self.assessment_repo.get(r2["assessment_id"])
         # Resolved gap should not appear in gap_memberships of new snapshot
         self.assertEqual(len(row2["gap_memberships_json"]), 0)
@@ -563,19 +563,19 @@ class TestGapKeepAcrossSnapshots(_RecomputeBase):
     """Persistent precondition miss with same inputs → no-op; gap stays open."""
 
     def test_gap_open_after_no_op(self) -> None:
-        r1 = self._recompute(candidate_id="cand_001")
+        r1 = self._recompute()
         row1 = self.assessment_repo.get(r1["assessment_id"])
         gap_id = row1["gap_memberships_json"][0]["gap_ref"]["gap_id"]
         # Second run (same inputs, no findings) → no-op
-        r2 = self._recompute(candidate_id="cand_002")
+        r2 = self._recompute()
         self.assertFalse(r2["created"])
         # Gap must still be open
         gap = self.gap_repo.get(gap_id)
         self.assertEqual(gap["status"], "open")
 
     def test_only_one_snapshot_exists(self) -> None:
-        self._recompute(candidate_id="cand_001")
-        self._recompute(candidate_id="cand_002")
+        self._recompute()
+        self._recompute()
         snapshots = self.assessment_repo.list_by_proposition(self.PROP_ID)
         self.assertEqual(len(snapshots), 1)
 
@@ -600,7 +600,6 @@ class TestGapReopenCreatesNewGapId(_RecomputeBase):
 
     def _recompute_with_explicit_ctx(
         self,
-        candidate_id: str,
         candidate_finding_ids: list[str],
         open_gap_ids: list[str],
         current_latest_assessment_id: str | None,
@@ -613,6 +612,9 @@ class TestGapReopenCreatesNewGapId(_RecomputeBase):
         )
 
         prop = self.proposition_repo.get(self.PROP_ID)
+        candidate_id = make_assessment_id(
+            self.SESSION_ID, self.PROP_ID, self.assessment_repo.next_snapshot_seq(self.PROP_ID)
+        )
         ctx: AssessmentEvaluationContext = {
             "session_id": self.SESSION_ID,
             "proposition": prop,
@@ -637,7 +639,6 @@ class TestGapReopenCreatesNewGapId(_RecomputeBase):
     def test_reopen_creates_new_gap_id(self) -> None:
         # Run 1: no findings → gap_A opened (snapshot_seq=1)
         r1 = self._recompute_with_explicit_ctx(
-            candidate_id="cand_001",
             candidate_finding_ids=[],
             open_gap_ids=[],
             current_latest_assessment_id=None,
@@ -663,9 +664,8 @@ class TestGapReopenCreatesNewGapId(_RecomputeBase):
         self.assertEqual(gap_a_after["status"], "resolved")
 
         # Run 2: same proposition, no findings, no open gaps (gap_A was resolved)
-        # gap_B is opened with a different gap_id (because cand_002 ≠ cand_001)
+        # gap_B is opened with a different gap_id because candidate_id for seq=2 differs from seq=1
         r2 = self._recompute_with_explicit_ctx(
-            candidate_id="cand_002",
             candidate_finding_ids=[],
             open_gap_ids=[],  # gap_A resolved → not in open_gap_ids
             current_latest_assessment_id=r1["assessment_id"],
@@ -682,7 +682,7 @@ class TestGapReopenCreatesNewGapId(_RecomputeBase):
         """Resolved gap_A must remain resolved even after a new gap_B is opened."""
         from datetime import datetime
 
-        r1 = self._recompute_with_explicit_ctx("cand_001", [], [], None, [])
+        r1 = self._recompute_with_explicit_ctx([], [], None, [])
         row1 = self.assessment_repo.get(r1["assessment_id"])
         gap_id_a = row1["gap_memberships_json"][0]["gap_ref"]["gap_id"]
 
@@ -693,9 +693,7 @@ class TestGapReopenCreatesNewGapId(_RecomputeBase):
             resolved_at=datetime.now(tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         )
 
-        self._recompute_with_explicit_ctx(
-            "cand_002", [], [], r1["assessment_id"], [r1["assessment_id"]]
-        )
+        self._recompute_with_explicit_ctx([], [], r1["assessment_id"], [r1["assessment_id"]])
 
         gap_a_final = self.gap_repo.get(gap_id_a)
         self.assertEqual(gap_a_final["status"], "resolved")
@@ -777,21 +775,22 @@ class TestCandidateDiscardNoRecords(_RecomputeBase):
 
     def test_no_irecs_for_no_op_candidate(self) -> None:
         # First run: commit
-        self._recompute(candidate_id="cand_001")
+        self._recompute()
         # Second run: no-op
-        r2 = self._recompute(candidate_id="cand_002")
+        r2 = self._recompute()
         self.assertFalse(r2["created"])
         # No inference records should reference the no-op candidate_id
         rows = self.store.query_rows(
-            "SELECT * FROM inference_records WHERE assessment_id = ?", ["cand_002"]
+            "SELECT * FROM inference_records WHERE assessment_id = ?",
+            [r2["candidate_assessment_id"]],
         )
         self.assertEqual(len(rows), 0)
 
     def test_total_irec_count_unchanged_after_no_op(self) -> None:
-        r1 = self._recompute(candidate_id="cand_001")
+        r1 = self._recompute()
         row1 = self.assessment_repo.get(r1["assessment_id"])
         count_before = len(row1["applied_inference_record_ids_json"])
-        self._recompute(candidate_id="cand_002")
+        self._recompute()
         total_irecs = len(self.store.query_rows("SELECT * FROM inference_records", []))
         self.assertEqual(total_irecs, count_before)
 
@@ -822,8 +821,8 @@ class TestRecomputeResultTypedDict(_RecomputeBase):
             self.assertIn(key, result)
 
     def test_no_op_result_shape(self) -> None:
-        self._recompute(candidate_id="cand_001")
-        r2 = self._recompute(candidate_id="cand_002")
+        self._recompute()
+        r2 = self._recompute()
         self.assertFalse(r2["created"])
         self.assertIsNone(r2["assessment_id"])
         self.assertIsNone(r2["snapshot_seq"])
@@ -846,8 +845,8 @@ class TestConfidenceGrade(_RecomputeBase):
 
     def test_supported_at_least_low_grade(self) -> None:
         self._insert_delta_finding()
-        self._recompute(candidate_id="cand_001")  # first: insufficient
-        r2 = self._recompute(candidate_id="cand_002", trigger_ids=["fnd_delta_001"])
+        self._recompute()  # first: insufficient
+        r2 = self._recompute(trigger_ids=["fnd_delta_001"])
         row2 = self.assessment_repo.get(r2["assessment_id"])
         grade_order = ["very_low", "low", "medium", "high", "very_high"]
         self.assertGreaterEqual(
@@ -932,25 +931,25 @@ class TestStatusResolutionDirectional(_RecomputeBase):
         self._insert_delta_finding()
 
     def test_supported_with_delta_finding(self) -> None:
-        self._recompute(candidate_id="cand_001")  # first: insufficient (no triggers yet)
-        r2 = self._recompute(candidate_id="cand_002", trigger_ids=["fnd_delta_001"])
+        self._recompute()  # first: insufficient (no triggers yet)
+        r2 = self._recompute(trigger_ids=["fnd_delta_001"])
         self.assertEqual(r2["status"], "supported")
 
     def test_supporting_finding_ids_populated(self) -> None:
-        self._recompute(candidate_id="cand_001")
-        r2 = self._recompute(candidate_id="cand_002", trigger_ids=["fnd_delta_001"])
+        self._recompute()
+        r2 = self._recompute(trigger_ids=["fnd_delta_001"])
         row2 = self.assessment_repo.get(r2["assessment_id"])
         self.assertIn("fnd_delta_001", row2["supporting_finding_ids_json"])
 
     def test_opposing_finding_ids_empty(self) -> None:
-        self._recompute(candidate_id="cand_001")
-        r2 = self._recompute(candidate_id="cand_002", trigger_ids=["fnd_delta_001"])
+        self._recompute()
+        r2 = self._recompute(trigger_ids=["fnd_delta_001"])
         row2 = self.assessment_repo.get(r2["assessment_id"])
         self.assertEqual(row2["opposing_finding_ids_json"], [])
 
     def test_no_gap_when_supported(self) -> None:
-        self._recompute(candidate_id="cand_001")
-        r2 = self._recompute(candidate_id="cand_002", trigger_ids=["fnd_delta_001"])
+        self._recompute()
+        r2 = self._recompute(trigger_ids=["fnd_delta_001"])
         row2 = self.assessment_repo.get(r2["assessment_id"])
         self.assertEqual(row2["gap_memberships_json"], [])
 
@@ -977,29 +976,29 @@ class TestMultiplePropositionsIsolation(_RecomputeBase):
         )
 
     def test_prop_b_has_no_snapshots_after_prop_a_recompute(self) -> None:
-        self._recompute(proposition_id=self.PROP_ID, candidate_id="cand_001")
+        self._recompute(proposition_id=self.PROP_ID)
         snapshots_b = self.assessment_repo.list_by_proposition(self.PROP_B)
         self.assertEqual(len(snapshots_b), 0)
 
     def test_prop_a_has_no_snapshots_after_prop_b_recompute(self) -> None:
-        self._recompute(proposition_id=self.PROP_B, candidate_id="cand_001")
+        self._recompute(proposition_id=self.PROP_B)
         snapshots_a = self.assessment_repo.list_by_proposition(self.PROP_ID)
         self.assertEqual(len(snapshots_a), 0)
 
     def test_independent_snapshot_seqs(self) -> None:
-        ra = self._recompute(proposition_id=self.PROP_ID, candidate_id="cand_a1")
-        rb = self._recompute(proposition_id=self.PROP_B, candidate_id="cand_b1")
+        ra = self._recompute(proposition_id=self.PROP_ID)
+        rb = self._recompute(proposition_id=self.PROP_B)
         self.assertEqual(ra["snapshot_seq"], 1)
         self.assertEqual(rb["snapshot_seq"], 1)
 
     def test_gap_isolation(self) -> None:
         # Prop A gets a gap; prop B should have no gaps
-        ra = self._recompute(proposition_id=self.PROP_ID, candidate_id="cand_a1")
+        ra = self._recompute(proposition_id=self.PROP_ID)
         row_a = self.assessment_repo.get(ra["assessment_id"])
         # prop A has a gap (no findings → precondition miss)
         self.assertEqual(len(row_a["gap_memberships_json"]), 1)
         # Prop B has its own recompute
-        rb = self._recompute(proposition_id=self.PROP_B, candidate_id="cand_b1")
+        rb = self._recompute(proposition_id=self.PROP_B)
         row_b = self.assessment_repo.get(rb["assessment_id"])
         # Prop B also has a gap (no findings), but it's a different gap object
         gap_ids_a = {m["gap_ref"]["gap_id"] for m in row_a["gap_memberships_json"]}
