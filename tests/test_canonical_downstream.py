@@ -364,7 +364,7 @@ class TestDownstreamIdempotent(unittest.TestCase):
 
 
 class TestNoClaimsRequired(unittest.TestCase):
-    """Canonical pipeline produces evidence objects without synthesize_findings."""
+    """Canonical pipeline produces propositions without any legacy claim tables."""
 
     def setUp(self) -> None:
         self.store = _make_store()
@@ -372,30 +372,6 @@ class TestNoClaimsRequired(unittest.TestCase):
         _insert_artifact(self.store)
         _insert_finding(self.store)
         self.repos = _make_repos(self.store)
-
-    def test_claims_table_empty(self) -> None:
-        run_canonical_downstream(
-            session_id=_SESSION,
-            trigger_finding_ids=[_FINDING_ID],
-            metadata_store=self.store,
-            **self.repos,
-        )
-        rows = self.store.query_rows("SELECT claim_id FROM claims WHERE session_id = ?", [_SESSION])
-        self.assertEqual(rows, [], "claims table must be empty — canonical pipeline is independent")
-
-    def test_recommendations_table_empty(self) -> None:
-        run_canonical_downstream(
-            session_id=_SESSION,
-            trigger_finding_ids=[_FINDING_ID],
-            metadata_store=self.store,
-            **self.repos,
-        )
-        rows = self.store.query_rows(
-            "SELECT rec_id FROM recommendations WHERE session_id = ?", [_SESSION]
-        )
-        self.assertEqual(
-            rows, [], "recommendations table must be empty — canonical pipeline is independent"
-        )
 
     def test_propositions_exist_without_claims(self) -> None:
         run_canonical_downstream(
@@ -405,11 +381,7 @@ class TestNoClaimsRequired(unittest.TestCase):
             **self.repos,
         )
         propositions = self.repos["proposition_repo"].list_by_session(_SESSION)
-        claims = self.store.query_rows(
-            "SELECT claim_id FROM claims WHERE session_id = ?", [_SESSION]
-        )
         self.assertGreater(len(propositions), 0, "Propositions should exist")
-        self.assertEqual(len(claims), 0, "Claims must remain empty")
 
 
 # ---------------------------------------------------------------------------

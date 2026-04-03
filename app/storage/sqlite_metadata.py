@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from app.storage.metadata import MetadataStore
-from app.storage.schema import METADATA_DDL, METADATA_MIGRATIONS
+from app.storage.schema import METADATA_DDL
 
 
 class SQLiteMetadataStore(MetadataStore):
@@ -19,14 +19,8 @@ class SQLiteMetadataStore(MetadataStore):
     def initialize(self) -> None:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as con:
-            from contextlib import suppress
-
             for ddl in METADATA_DDL:
                 con.execute(ddl)
-            for migration in METADATA_MIGRATIONS:
-                with suppress(Exception):
-                    # column already exists
-                    con.execute(migration)
             con.commit()
 
     @contextmanager

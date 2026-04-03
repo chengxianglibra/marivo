@@ -639,13 +639,11 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         original_compile = self.service._compile_step_with_feedback
         original_execute = service_module.execute_compiled
         original_resolve_engine = self.service._resolve_engine
-        original_extract = self.service.evidence_pipeline.extract_observations
         self.service._resolve_engine = lambda table_names: (
             _FakeEngine(),
             "duckdb",
             {table_names[0]: f"analytics.{table_names[0]}"},
         )
-        self.service.evidence_pipeline.extract_observations = lambda *args, **kwargs: []
 
         def fake_compile(step, *, engine_type, semantic_context=None):
             captured["params"] = dict(step.params)
@@ -689,7 +687,6 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
             self.service._compile_step_with_feedback = original_compile
             service_module.execute_compiled = original_execute
             self.service._resolve_engine = original_resolve_engine
-            self.service.evidence_pipeline.extract_observations = original_extract
 
         self.assertEqual(result["step_type"], "metric_query")
         self.assertEqual(captured["params"]["metric"], self.metric_name)
@@ -706,85 +703,6 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         self.assertEqual(scoped_query["session_raw_filter"], "country = 'US'")
         self.assertEqual(scoped_query["scope_constraints_filter"], "region = 'us-east'")
         self.assertEqual(scoped_query["scope_predicate_filter"], "device_type = 'phone'")
-
-    def test_metric_query_service_passes_compare_contract_to_extractor(self) -> None:
-        captured: dict[str, object] = {}
-        original_compile = self.service._compile_step_with_feedback
-        original_execute = service_module.execute_compiled
-        original_resolve_engine = self.service._resolve_engine
-        original_extract = self.service.evidence_pipeline.extract_observations
-        self.service._resolve_engine = lambda table_names: (
-            _FakeEngine(),
-            "duckdb",
-            {table_names[0]: f"analytics.{table_names[0]}"},
-        )
-
-        def fake_extract(extractor_name, rows, *, context=None):
-            captured["extractor_name"] = extractor_name
-            captured["rows"] = rows
-            captured["context"] = context
-            return []
-
-        def fake_compile(step, *, engine_type, semantic_context=None):
-            return CompiledQuery(sql="SELECT 1", params=[])
-
-        class _Result:
-            rows = [
-                {
-                    "platform": "android",
-                    "current_value": 10.0,
-                    "baseline_value": 5.0,
-                    "delta_pct": 100.0,
-                    "current_sessions": 10,
-                    "baseline_sessions": 8,
-                }
-            ]
-
-        self.service._compile_step_with_feedback = fake_compile
-        self.service.evidence_pipeline.extract_observations = fake_extract
-        service_module.execute_compiled = lambda engine, compiled: _Result()
-        try:
-            self.service._run_metric_query(
-                self.session_id,
-                {
-                    "table": "analytics.watch_events",
-                    "metric": self.metric_name,
-                    "dimensions": ["platform"],
-                    "time_scope": {
-                        "mode": "compare",
-                        "grain": "day",
-                        "current": {"start": "2026-03-10", "end": "2026-03-17"},
-                        "baseline": {"start": "2026-03-03", "end": "2026-03-10"},
-                    },
-                },
-            )
-        finally:
-            self.service._compile_step_with_feedback = original_compile
-            service_module.execute_compiled = original_execute
-            self.service._resolve_engine = original_resolve_engine
-            self.service.evidence_pipeline.extract_observations = original_extract
-
-        self.assertEqual(captured["extractor_name"], "metric_rows")
-        self.assertEqual(
-            captured["context"]["required_payload_keys"],
-            (
-                "current_value",
-                "baseline_value",
-                "delta_pct",
-                "current_sessions",
-                "baseline_sessions",
-            ),
-        )
-        self.assertEqual(
-            captured["context"]["payload_fields"],
-            {
-                "current_value": "current_value",
-                "baseline_value": "baseline_value",
-                "delta_pct": "delta_pct",
-                "current_sessions": "current_sessions",
-                "baseline_sessions": "baseline_sessions",
-            },
-        )
 
     def test_metric_query_single_window_row_contract_accepts_current_only_fields(self) -> None:
         normalized = self.service._normalize_metric_rows(
@@ -830,18 +748,11 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         original_compile = self.service._compile_step_with_feedback
         original_execute = service_module.execute_compiled
         original_resolve_engine = self.service._resolve_engine
-        original_extract = self.service.evidence_pipeline.extract_observations
         self.service._resolve_engine = lambda table_names: (
             _FakeEngine(),
             "duckdb",
             {table_names[0]: f"analytics.{table_names[0]}"},
         )
-
-        def fake_extract(extractor_name, rows, *, context=None):
-            captured["extractor_name"] = extractor_name
-            captured["rows"] = list(rows)
-            captured["context"] = context
-            return []
 
         def fake_compile(step, *, engine_type, semantic_context=None):
             captured["params"] = dict(step.params)
@@ -851,7 +762,6 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
             rows = [{"platform": "android", "current_value": 10.0, "current_sessions": 10}]
 
         self.service._compile_step_with_feedback = fake_compile
-        self.service.evidence_pipeline.extract_observations = fake_extract
         service_module.execute_compiled = lambda engine, compiled: _Result()
         try:
             result = self.service._run_metric_query(
@@ -871,89 +781,23 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
             self.service._compile_step_with_feedback = original_compile
             service_module.execute_compiled = original_execute
             self.service._resolve_engine = original_resolve_engine
-            self.service.evidence_pipeline.extract_observations = original_extract
 
         self.assertEqual(result["step_type"], "metric_query")
         self.assertNotIn("debug", result)
         self.assertIn("current window observation", result["summary"])
         self.assertNotIn("baseline", result["summary"].lower())
-        self.assertEqual(captured["extractor_name"], "metric_rows")
-        self.assertEqual(
-            captured["rows"],
-            [{"platform": "android", "current_value": 10.0, "current_sessions": 10}],
-        )
         self.assertEqual(captured["params"]["order"], "CURRENT_VALUE DESC")
-
-    def test_metric_query_single_window_observations_inherit_current_window(self) -> None:
-        original_compile = self.service._compile_step_with_feedback
-        original_execute = service_module.execute_compiled
-        original_resolve_engine = self.service._resolve_engine
-        original_extract = self.service.evidence_pipeline.extract_observations
-        self.service._resolve_engine = lambda table_names: (
-            _FakeEngine(),
-            "duckdb",
-            {table_names[0]: f"analytics.{table_names[0]}"},
-        )
-
-        def fake_compile(step, *, engine_type, semantic_context=None):
-            return CompiledQuery(sql="SELECT 1", params=[])
-
-        def fake_extract(extractor_name, rows, *, context=None):
-            return [
-                {
-                    "observation_id": "obs_single_window",
-                    "type": "metric_observation",
-                    "subject": {"metric": self.metric_name, "slice": {"platform": "android"}},
-                    "payload": {"current_value": 10.0, "current_sessions": 10},
-                    "significance": {},
-                    "quality": {"freshness_ok": True, "sample_size_ok": True},
-                }
-            ]
-
-        class _Result:
-            rows = [{"platform": "android", "current_value": 10.0, "current_sessions": 10}]
-
-        self.service._compile_step_with_feedback = fake_compile
-        self.service.evidence_pipeline.extract_observations = fake_extract
-        service_module.execute_compiled = lambda engine, compiled: _Result()
-        try:
-            result = self.service._run_metric_query(
-                self.session_id,
-                {
-                    "table": "analytics.watch_events",
-                    "metric": self.metric_name,
-                    "dimensions": ["platform"],
-                    "time_scope": {
-                        "mode": "single_window",
-                        "grain": "day",
-                        "current": {"start": "2026-03-10", "end": "2026-03-17"},
-                    },
-                },
-            )
-        finally:
-            self.service._compile_step_with_feedback = original_compile
-            service_module.execute_compiled = original_execute
-            self.service._resolve_engine = original_resolve_engine
-            self.service.evidence_pipeline.extract_observations = original_extract
-
-        self.assertEqual(
-            result["observations"][0]["observed_window"],
-            {"start": "2026-03-10", "end": "2026-03-17", "granularity": "day"},
-        )
-        self.assertEqual(result["observations"][0]["temporal_order"], 0)
 
     def test_metric_query_single_window_order_allows_current_sessions(self) -> None:
         captured: dict[str, object] = {}
         original_compile = self.service._compile_step_with_feedback
         original_execute = service_module.execute_compiled
         original_resolve_engine = self.service._resolve_engine
-        original_extract = self.service.evidence_pipeline.extract_observations
         self.service._resolve_engine = lambda table_names: (
             _FakeEngine(),
             "duckdb",
             {table_names[0]: f"analytics.{table_names[0]}"},
         )
-        self.service.evidence_pipeline.extract_observations = lambda *args, **kwargs: []
 
         def fake_compile(step, *, engine_type, semantic_context=None):
             captured["order"] = step.params["order"]
@@ -983,7 +827,6 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
             self.service._compile_step_with_feedback = original_compile
             service_module.execute_compiled = original_execute
             self.service._resolve_engine = original_resolve_engine
-            self.service.evidence_pipeline.extract_observations = original_extract
 
         self.assertEqual(captured["order"], "CURRENT_SESSIONS ASC")
 
@@ -1009,13 +852,11 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         original_compile = self.service._compile_step_with_feedback
         original_execute = service_module.execute_compiled
         original_resolve_engine = self.service._resolve_engine
-        original_extract = self.service.evidence_pipeline.extract_observations
         self.service._resolve_engine = lambda table_names: (
             _FakeEngine(),
             "duckdb",
             {table_names[0]: f"analytics.{table_names[0]}"},
         )
-        self.service.evidence_pipeline.extract_observations = lambda *args, **kwargs: []
 
         def fake_compile(step, *, engine_type, semantic_context=None):
             captured["params"] = dict(step.params)
@@ -1059,7 +900,6 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
             self.service._compile_step_with_feedback = original_compile
             service_module.execute_compiled = original_execute
             self.service._resolve_engine = original_resolve_engine
-            self.service.evidence_pipeline.extract_observations = original_extract
 
         self.assertEqual(result["step_type"], "aggregate_query")
         self.assertEqual(captured["params"]["table"], "analytics.watch_events")
@@ -1086,14 +926,12 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         original_compile = self.service._compile_step_with_feedback
         original_execute = service_module.execute_compiled
         original_resolve_engine = self.service._resolve_engine
-        original_extract = self.service.evidence_pipeline.extract_observations
         original_metadata_load = self.service.time_axis_metadata_provider.load_for_windowed_query
         self.service._resolve_engine = lambda table_names: (
             _FakeEngine(),
             "trino",
             {table_names[0]: f"iceberg.analytics.{table_names[0]}"},
         )
-        self.service.evidence_pipeline.extract_observations = lambda *args, **kwargs: []
         self.service.time_axis_metadata_provider.load_for_windowed_query = lambda **kwargs: (
             TimeAxisMetadataContext(
                 available_columns=["event_time", "log_date", "log_hour"],
@@ -1151,7 +989,6 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
             self.service._compile_step_with_feedback = original_compile
             service_module.execute_compiled = original_execute
             self.service._resolve_engine = original_resolve_engine
-            self.service.evidence_pipeline.extract_observations = original_extract
             self.service.time_axis_metadata_provider.load_for_windowed_query = (
                 original_metadata_load
             )
@@ -1164,150 +1001,6 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
             scoped_query["partition_pruning_predicate"],
             "log_date = '20260325' AND log_hour >= '06' AND log_hour < '14'",
         )
-
-    def test_metric_query_hour_grain_annotations_use_hour_window(self) -> None:
-        original_compile = self.service._compile_step_with_feedback
-        original_execute = service_module.execute_compiled
-        original_resolve_engine = self.service._resolve_engine
-        original_resolve_time_axis = self.service._resolve_windowed_query_time_axis
-        original_extract = self.service.evidence_pipeline.extract_observations
-        self.service._resolve_engine = lambda table_names: (
-            _FakeEngine(),
-            "duckdb",
-            {table_names[0]: f"analytics.{table_names[0]}"},
-        )
-        self.service._resolve_windowed_query_time_axis = lambda request, **kwargs: setattr(
-            request.resolved_time_axis,
-            "analysis_time_expr",
-            "event_time",
-        )
-        self.service.evidence_pipeline.extract_observations = lambda *args, **kwargs: [
-            {
-                "observation_id": f"obs_cmp_hour_{id(self)}",
-                "type": "metric_observation",
-                "subject": {"metric": self.metric_name, "slice": {"platform": "android"}},
-                "payload": {"current_value": 10.0, "baseline_value": 5.0, "delta_pct": 100.0},
-                "significance": {"sample_size": 10, "practical_significance": True},
-                "quality": {"freshness_ok": True, "sample_size_ok": True},
-            }
-        ]
-
-        def fake_compile(step, *, engine_type, semantic_context=None):
-            return CompiledQuery(sql="SELECT 1", params=[])
-
-        class _Result:
-            rows = [
-                {
-                    "platform": "android",
-                    "current_value": 10.0,
-                    "baseline_value": 5.0,
-                    "delta_pct": 100.0,
-                    "current_sessions": 10,
-                    "baseline_sessions": 8,
-                }
-            ]
-
-        self.service._compile_step_with_feedback = fake_compile
-        service_module.execute_compiled = lambda engine, compiled: _Result()
-        try:
-            result = self.service._run_metric_query(
-                self.session_id,
-                {
-                    "table": "analytics.watch_events",
-                    "metric": self.metric_name,
-                    "dimensions": ["platform"],
-                    "time_scope": {
-                        "mode": "compare",
-                        "grain": "hour",
-                        "current": {"start": "2026-03-25T10:00:00", "end": "2026-03-25T14:00:00"},
-                        "baseline": {"start": "2026-03-25T06:00:00", "end": "2026-03-25T10:00:00"},
-                    },
-                    "time_axis": {"analysis_time": {"column": "event_time"}},
-                },
-            )
-        finally:
-            self.service._compile_step_with_feedback = original_compile
-            service_module.execute_compiled = original_execute
-            self.service._resolve_engine = original_resolve_engine
-            self.service._resolve_windowed_query_time_axis = original_resolve_time_axis
-            self.service.evidence_pipeline.extract_observations = original_extract
-
-        self.assertEqual(result["observations"][0]["observed_window"]["granularity"], "hour")
-        self.assertEqual(
-            result["observations"][0]["observed_window"]["start"], "2026-03-25T10:00:00"
-        )
-        self.assertEqual(result["observations"][0]["observed_window"]["end"], "2026-03-25T14:00:00")
-
-    def test_metric_query_day_grain_annotations_use_day_window(self) -> None:
-        original_compile = self.service._compile_step_with_feedback
-        original_execute = service_module.execute_compiled
-        original_resolve_engine = self.service._resolve_engine
-        original_resolve_time_axis = self.service._resolve_windowed_query_time_axis
-        original_extract = self.service.evidence_pipeline.extract_observations
-        self.service._resolve_engine = lambda table_names: (
-            _FakeEngine(),
-            "duckdb",
-            {table_names[0]: f"analytics.{table_names[0]}"},
-        )
-        self.service._resolve_windowed_query_time_axis = lambda request, **kwargs: setattr(
-            request.resolved_time_axis,
-            "analysis_time_expr",
-            "event_date",
-        )
-        self.service.evidence_pipeline.extract_observations = lambda *args, **kwargs: [
-            {
-                "observation_id": f"obs_cmp_day_{id(self)}",
-                "type": "metric_observation",
-                "subject": {"metric": self.metric_name, "slice": {"platform": "android"}},
-                "payload": {"current_value": 10.0, "baseline_value": 5.0, "delta_pct": 100.0},
-                "significance": {"sample_size": 10, "practical_significance": True},
-                "quality": {"freshness_ok": True, "sample_size_ok": True},
-            }
-        ]
-
-        def fake_compile(step, *, engine_type, semantic_context=None):
-            return CompiledQuery(sql="SELECT 1", params=[])
-
-        class _Result:
-            rows = [
-                {
-                    "platform": "android",
-                    "current_value": 10.0,
-                    "baseline_value": 5.0,
-                    "delta_pct": 100.0,
-                    "current_sessions": 10,
-                    "baseline_sessions": 8,
-                }
-            ]
-
-        self.service._compile_step_with_feedback = fake_compile
-        service_module.execute_compiled = lambda engine, compiled: _Result()
-        try:
-            result = self.service._run_metric_query(
-                self.session_id,
-                {
-                    "table": "analytics.watch_events",
-                    "metric": self.metric_name,
-                    "dimensions": ["platform"],
-                    "time_scope": {
-                        "mode": "compare",
-                        "grain": "day",
-                        "current": {"start": "2026-03-10", "end": "2026-03-17"},
-                        "baseline": {"start": "2026-03-03", "end": "2026-03-10"},
-                    },
-                    "time_axis": {"analysis_time": {"column": "event_date"}},
-                },
-            )
-        finally:
-            self.service._compile_step_with_feedback = original_compile
-            service_module.execute_compiled = original_execute
-            self.service._resolve_engine = original_resolve_engine
-            self.service._resolve_windowed_query_time_axis = original_resolve_time_axis
-            self.service.evidence_pipeline.extract_observations = original_extract
-
-        self.assertEqual(result["observations"][0]["observed_window"]["granularity"], "day")
-        self.assertEqual(result["observations"][0]["observed_window"]["start"], "2026-03-10")
-        self.assertEqual(result["observations"][0]["observed_window"]["end"], "2026-03-17")
 
     def test_metric_query_rejects_rows_missing_required_comparison_columns(self) -> None:
         original_compile = self.service._compile_step_with_feedback
@@ -1359,13 +1052,11 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         original_compile = self.service._compile_step_with_feedback
         original_execute = service_module.execute_compiled
         original_resolve_engine = self.service._resolve_engine
-        original_extract = self.service.evidence_pipeline.extract_observations
         self.service._resolve_engine = lambda table_names: (
             _FakeEngine(),
             "duckdb",
             {table_names[0]: f"analytics.{table_names[0]}"},
         )
-        self.service.evidence_pipeline.extract_observations = lambda *args, **kwargs: []
 
         def fake_compile(step, *, engine_type, semantic_context=None):
             return CompiledQuery(sql="SELECT 1", params=[])
@@ -1394,163 +1085,12 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
             self.service._compile_step_with_feedback = original_compile
             service_module.execute_compiled = original_execute
             self.service._resolve_engine = original_resolve_engine
-            self.service.evidence_pipeline.extract_observations = original_extract
 
         self.assertIn("current_window", result["summary"])
         self.assertIn("baseline_window", result["summary"])
         self.assertNotIn("period", result["summary"].lower())
         self.assertIn("current_window", result["debug"])
         self.assertIn("baseline_window", result["debug"])
-
-    def test_aggregate_query_hour_grain_annotations_use_hour_window(self) -> None:
-        original_compile = self.service._compile_step_with_feedback
-        original_execute = service_module.execute_compiled
-        original_resolve_engine = self.service._resolve_engine
-        original_resolve_time_axis = self.service._resolve_windowed_query_time_axis
-        original_extract = self.service.evidence_pipeline.extract_observations
-        self.service._resolve_engine = lambda table_names: (
-            _FakeEngine(),
-            "duckdb",
-            {table_names[0]: f"analytics.{table_names[0]}"},
-        )
-        self.service._resolve_windowed_query_time_axis = lambda request, **kwargs: setattr(
-            request.resolved_time_axis,
-            "analysis_time_expr",
-            "event_time",
-        )
-        self.service.evidence_pipeline.extract_observations = lambda *args, **kwargs: [
-            {
-                "observation_id": f"obs_agg_hour_{id(self)}",
-                "type": "metric_observation",
-                "subject": {"metric": "query_count", "slice": {"platform": "android"}},
-                "payload": {
-                    "query_count_current": 10,
-                    "query_count_baseline": 5,
-                    "query_count_delta_pct": 100.0,
-                },
-                "significance": {"sample_size": 10, "practical_significance": True},
-                "quality": {"freshness_ok": True, "sample_size_ok": True},
-            }
-        ]
-
-        def fake_compile(step, *, engine_type, semantic_context=None):
-            return CompiledQuery(sql="SELECT 1", params=[])
-
-        class _Result:
-            rows = [
-                {
-                    "platform": "android",
-                    "query_count_current": 10,
-                    "query_count_baseline": 5,
-                    "query_count_delta_pct": 100.0,
-                }
-            ]
-
-        self.service._compile_step_with_feedback = fake_compile
-        service_module.execute_compiled = lambda engine, compiled: _Result()
-        try:
-            result = self.service._run_aggregate_query(
-                self.session_id,
-                {
-                    "table": "analytics.watch_events",
-                    "group_by": ["platform"],
-                    "measures": [{"expr": "COUNT(*)", "as": "query_count"}],
-                    "time_scope": {
-                        "mode": "compare",
-                        "grain": "hour",
-                        "current": {"start": "2026-03-25T10:00:00", "end": "2026-03-25T14:00:00"},
-                        "baseline": {"start": "2026-03-25T06:00:00", "end": "2026-03-25T10:00:00"},
-                    },
-                    "time_axis": {"analysis_time": {"column": "event_time"}},
-                },
-            )
-        finally:
-            self.service._compile_step_with_feedback = original_compile
-            service_module.execute_compiled = original_execute
-            self.service._resolve_engine = original_resolve_engine
-            self.service._resolve_windowed_query_time_axis = original_resolve_time_axis
-            self.service.evidence_pipeline.extract_observations = original_extract
-
-        self.assertEqual(result["observations"][0]["observed_window"]["granularity"], "hour")
-        self.assertEqual(
-            result["observations"][0]["observed_window"]["start"], "2026-03-25T10:00:00"
-        )
-        self.assertEqual(result["observations"][0]["observed_window"]["end"], "2026-03-25T14:00:00")
-
-    def test_aggregate_query_preserves_row_level_temporal_windows_from_extractor(self) -> None:
-        original_compile = self.service._compile_step_with_feedback
-        original_execute = service_module.execute_compiled
-        original_resolve_engine = self.service._resolve_engine
-        original_resolve_time_axis = self.service._resolve_windowed_query_time_axis
-        original_extract = self.service.evidence_pipeline.extract_observations
-        self.service._resolve_engine = lambda table_names: (
-            _FakeEngine(),
-            "duckdb",
-            {table_names[0]: f"analytics.{table_names[0]}"},
-        )
-        self.service._resolve_windowed_query_time_axis = lambda request, **kwargs: setattr(
-            request.resolved_time_axis,
-            "analysis_time_expr",
-            "event_time",
-        )
-        self.service.evidence_pipeline.extract_observations = lambda *args, **kwargs: [
-            {
-                "observation_id": f"obs_agg_row_window_{id(self)}",
-                "type": "metric_observation",
-                "subject": {
-                    "metric": "query_count",
-                    "slice": {"event_time": "2026-03-25T11:00:00"},
-                },
-                "payload": {"query_count": 10},
-                "significance": {"sample_size": 10, "practical_significance": True},
-                "quality": {"freshness_ok": True, "sample_size_ok": True},
-                "observed_window": {
-                    "start": "2026-03-25T11:00",
-                    "end": "2026-03-25T12:00",
-                    "granularity": "hour",
-                },
-            }
-        ]
-
-        def fake_compile(step, *, engine_type, semantic_context=None):
-            return CompiledQuery(sql="SELECT 1", params=[])
-
-        class _Result:
-            rows = [{"event_time": "2026-03-25T11:00:00", "query_count": 10}]
-
-        self.service._compile_step_with_feedback = fake_compile
-        service_module.execute_compiled = lambda engine, compiled: _Result()
-        try:
-            result = self.service._run_aggregate_query(
-                self.session_id,
-                {
-                    "table": "analytics.watch_events",
-                    "group_by": ["event_time"],
-                    "measures": [{"expr": "COUNT(*)", "as": "query_count"}],
-                    "time_scope": {
-                        "mode": "single_window",
-                        "grain": "day",
-                        "current": {"start": "2026-03-25", "end": "2026-03-26"},
-                    },
-                    "time_axis": {"analysis_time": {"column": "event_time"}},
-                    "temporal_group_by_columns": ["event_time"],
-                },
-            )
-        finally:
-            self.service._compile_step_with_feedback = original_compile
-            service_module.execute_compiled = original_execute
-            self.service._resolve_engine = original_resolve_engine
-            self.service._resolve_windowed_query_time_axis = original_resolve_time_axis
-            self.service.evidence_pipeline.extract_observations = original_extract
-
-        self.assertEqual(
-            result["observations"][0]["observed_window"],
-            {
-                "start": "2026-03-25T11:00",
-                "end": "2026-03-25T12:00",
-                "granularity": "hour",
-            },
-        )
 
     def test_service_resolver_prefers_entity_time_capabilities_over_source_time_capabilities(
         self,

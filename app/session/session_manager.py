@@ -80,6 +80,55 @@ class SessionManager:
         if row is None or row["cnt"] == 0:
             raise KeyError(f"Unknown session: {session_id}")
 
+    def assert_session_is_open(self, session_id: str) -> None:
+        """Raise KeyError if session is unknown; ValueError if session is not open."""
+        row = self.metadata.query_one(
+            "SELECT status FROM sessions WHERE session_id = ?",
+            [session_id],
+        )
+        if row is None:
+            raise KeyError(f"Unknown session: {session_id}")
+        if row["status"] != "open":
+            raise ValueError(
+                f"Session {session_id!r} is not open (status={row['status']!r}). "
+                "Write operations require an open session."
+            )
+
+    def terminate_session(
+        self, session_id: str, terminal_reason: str = "user_closed"
+    ) -> dict[str, Any]:
+        """Terminate a session, preventing further write operations.
+
+        Raises
+        ------
+        KeyError
+            When *session_id* does not exist.
+        ValueError
+            When the session is already in a terminal state.
+        """
+        row = self.metadata.query_one(
+            "SELECT status FROM sessions WHERE session_id = ?",
+            [session_id],
+        )
+        if row is None:
+            raise KeyError(f"Unknown session: {session_id}")
+        if row["status"] != "open":
+            raise ValueError(
+                f"Session {session_id!r} is already in a terminal state (status={row['status']!r})."
+            )
+        self.metadata.execute(
+            """
+            UPDATE sessions
+            SET status = 'closed',
+                terminal_reason = ?,
+                ended_at = datetime('now'),
+                updated_at = datetime('now')
+            WHERE session_id = ?
+            """,
+            [terminal_reason, session_id],
+        )
+        return self.get_session(session_id)
+
     def get_session_runtime_status(self, session_id: str) -> dict[str, Any]:
         """Return session-level operator runtime status (Phase 5a).
 

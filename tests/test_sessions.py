@@ -151,132 +151,78 @@ class SessionAPITests(unittest.TestCase):
         resp = self.client.get("/sessions/sess_nonexistent/runtime-status")
         self.assertEqual(resp.status_code, 404)
 
-    def test_session_debug_endpoint_returns_summary(self) -> None:
-        session_id = self.client.post(
-            "/sessions",
-            json={"goal": "Investigate watch time drop and explain evidence upgrades."},
-        ).json()["session_id"]
 
-        entity_id = self.client.post(
-            "/semantic/entities",
-            json={
-                "name": "session_debug_entity",
-                "display_name": "Session Debug Entity",
-                "keys": ["session_id"],
-            },
-        ).json()["entity_id"]
-        self.client.post(f"/semantic/entities/{entity_id}/publish")
-        metric_id = self.client.post(
-            "/semantic/metrics",
-            json={
-                "name": "watch_time_debug_metric",
-                "display_name": "Watch Time Debug",
-                "definition_sql": "avg(play_duration_seconds)",
-                "dimensions": ["platform", "app_version", "network_type", "content_type"],
-                "entity_id": entity_id,
-            },
-        ).json()["metric_id"]
-        self.client.post(f"/semantic/metrics/{metric_id}/publish")
+class SessionCloseTests(unittest.TestCase):
+    """Phase 8.1: POST /sessions/{id}/close contract tests."""
 
-        self.client.post(
-            f"/sessions/{session_id}/steps/metric_query",
-            json=_metric_query_payload("watch_time_debug_metric"),
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        db_path = Path(cls.temp_dir.name) / "close_test.duckdb"
+        get_seeded_duckdb_path(db_path)
+        cls.client = TestClient(create_app(db_path))
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.client.close()
+        cls.temp_dir.cleanup()
+
+    def _create_session(self, goal: str = "close test session") -> str:
+        r = self.client.post("/sessions", json={"goal": goal})
+        self.assertEqual(r.status_code, 200)
+        return r.json()["session_id"]
+
+    def test_close_session_success(self) -> None:
+        """POST /sessions/{id}/close transitions status to 'closed'."""
+        session_id = self._create_session()
+        r = self.client.post(
+            f"/sessions/{session_id}/terminate", json={"terminal_reason": "test_done"}
         )
-        self.client.post(f"/sessions/{session_id}/steps/synthesize_findings")
+        self.assertEqual(r.status_code, 200)
+        data = r.json()
+        self.assertEqual(data["session_id"], session_id)
+        self.assertEqual(data["lifecycle"]["status"], "closed")
+        self.assertEqual(data["lifecycle"]["terminal_reason"], "test_done")
+        self.assertIsNotNone(data["lifecycle"]["ended_at"])
 
-        resp = self.client.get(f"/sessions/{session_id}/debug")
-        self.assertEqual(resp.status_code, 200)
-        payload = resp.json()
-        self.assertEqual(payload["session_id"], session_id)
-        self.assertIn("relation_discovery", payload)
-        self.assertIn("checker_logs", payload)
-        self.assertIsInstance(payload["checker_logs"], list)
-        self.assertGreater(len(payload["checker_logs"]), 0)
+    def test_close_session_default_reason(self) -> None:
+        """close without explicit reason uses default 'user_closed'."""
+        session_id = self._create_session()
+        r = self.client.post(f"/sessions/{session_id}/terminate", json={})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["lifecycle"]["terminal_reason"], "user_closed")
 
-    def test_session_debug_endpoint_returns_404_for_missing_session(self) -> None:
-        resp = self.client.get("/sessions/sess_missing_debug/debug")
-        self.assertEqual(resp.status_code, 404)
-
-    def test_evidence_graph_include_debug_attaches_debug_payload(self) -> None:
-        session_id = self.client.post(
-            "/sessions",
-            json={"goal": "Investigate watch time drop with debug payload."},
-        ).json()["session_id"]
-
-        entity_id = self.client.post(
-            "/semantic/entities",
-            json={
-                "name": "session_include_debug_entity",
-                "display_name": "Session Include Debug Entity",
-                "keys": ["session_id"],
-            },
-        ).json()["entity_id"]
-        self.client.post(f"/semantic/entities/{entity_id}/publish")
-        metric_id = self.client.post(
-            "/semantic/metrics",
-            json={
-                "name": "watch_time_include_debug_metric",
-                "display_name": "Watch Time Include Debug",
-                "definition_sql": "avg(play_duration_seconds)",
-                "dimensions": ["platform", "app_version", "network_type", "content_type"],
-                "entity_id": entity_id,
-            },
-        ).json()["metric_id"]
-        self.client.post(f"/semantic/metrics/{metric_id}/publish")
-
-        self.client.post(
-            f"/sessions/{session_id}/steps/metric_query",
-            json=_metric_query_payload("watch_time_include_debug_metric"),
+    def test_close_session_unknown_returns_404(self) -> None:
+        r = self.client.post(
+            "/sessions/sess_nonexistent/terminate", json={"terminal_reason": "gone"}
         )
-        self.client.post(f"/sessions/{session_id}/steps/synthesize_findings")
+        self.assertEqual(r.status_code, 404)
 
-        resp = self.client.get(f"/sessions/{session_id}/evidence?include_debug=true")
-        self.assertEqual(resp.status_code, 200)
-        graph = resp.json()
-        self.assertIn("debug", graph)
-        self.assertIn("checker_logs", graph["debug"])
-        self.assertIn("relation_discovery", graph["debug"])
+    def test_close_session_already_closed_returns_409(self) -> None:
+        """Closing an already-closed session returns 409 Conflict."""
+        session_id = self._create_session()
+        self.client.post(f"/sessions/{session_id}/terminate", json={})
+        r = self.client.post(f"/sessions/{session_id}/terminate", json={})
+        self.assertEqual(r.status_code, 409)
 
-    def test_evidence_graph_include_debug_respects_filtered_edges(self) -> None:
-        session_id = self.client.post(
-            "/sessions",
-            json={"goal": "Investigate watch time drop with filtered debug payload."},
-        ).json()["session_id"]
+    def test_get_session_reflects_closed_status(self) -> None:
+        """GET /sessions/{id} returns closed lifecycle after close."""
+        session_id = self._create_session()
+        self.client.post(f"/sessions/{session_id}/terminate", json={"terminal_reason": "verified"})
+        r = self.client.get(f"/sessions/{session_id}")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["lifecycle"]["status"], "closed")
 
-        entity_id = self.client.post(
-            "/semantic/entities",
-            json={
-                "name": "session_filtered_debug_entity",
-                "display_name": "Session Filtered Debug Entity",
-                "keys": ["session_id"],
-            },
-        ).json()["entity_id"]
-        self.client.post(f"/semantic/entities/{entity_id}/publish")
-        metric_id = self.client.post(
-            "/semantic/metrics",
-            json={
-                "name": "watch_time_filtered_debug_metric",
-                "display_name": "Watch Time Filtered Debug",
-                "definition_sql": "avg(play_duration_seconds)",
-                "dimensions": ["platform", "app_version", "network_type", "content_type"],
-                "entity_id": entity_id,
-            },
-        ).json()["metric_id"]
-        self.client.post(f"/semantic/metrics/{metric_id}/publish")
-
-        self.client.post(
-            f"/sessions/{session_id}/steps/metric_query",
-            json=_metric_query_payload("watch_time_filtered_debug_metric"),
-        )
-        self.client.post(f"/sessions/{session_id}/steps/synthesize_findings")
-
-        resp = self.client.get(
-            f"/sessions/{session_id}/evidence?edge_types=supports&include_debug=true"
-        )
-        self.assertEqual(resp.status_code, 200)
-        graph = resp.json()
-        self.assertTrue(all(edge["edge_type"] == "supports" for edge in graph["edges"]))
-        self.assertEqual(graph["debug"]["relation_discovery"]["relations_emitted"], 0)
+    def test_list_sessions_filter_by_closed(self) -> None:
+        """GET /sessions?status=closed returns only closed sessions."""
+        session_id = self._create_session("to be closed")
+        self.client.post(f"/sessions/{session_id}/terminate", json={})
+        r = self.client.get("/sessions?status=closed")
+        self.assertEqual(r.status_code, 200)
+        ids = [s["session_id"] for s in r.json()]
+        self.assertIn(session_id, ids)
+        for s in r.json():
+            self.assertEqual(s["lifecycle"]["status"], "closed")
 
 
 if __name__ == "__main__":

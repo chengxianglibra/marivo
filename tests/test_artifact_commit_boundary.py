@@ -59,7 +59,7 @@ def _make_store() -> SQLiteMetadataStore:
 
 def _make_svc(store: SQLiteMetadataStore) -> SemanticLayerService:
     mock_analytics = MagicMock(spec=AnalyticsEngine)
-    return SemanticLayerService(store, mock_analytics, incremental_synthesizer=None)
+    return SemanticLayerService(store, mock_analytics)
 
 
 def _build_observation_finding(artifact_id: str) -> dict[str, Any]:

@@ -20,7 +20,6 @@ STEP_OBSERVATION_TYPES = {
     "profile_table": ["table_profile"],
     "sample_rows": ["sample_rows"],
     "attribute_change": ["contribution_shift"],
-    "synthesize_findings": ["root_cause_candidate", "recommendation"],
 }
 STEP_ARTIFACT_KINDS = {
     "metric_query": "table",
@@ -30,8 +29,6 @@ STEP_ARTIFACT_KINDS = {
     "profile_table_columns": "profile",
     "profile_table_column_profile": "profile",
     "sample_rows": "rows",
-    "synthesize_findings": "synthesis",
-    "correlate_metrics": "correlation",
 }
 
 
@@ -404,6 +401,4 @@ def _infer_artifact_key(step_type: str, params: Mapping[str, Any]) -> str | None
         table_name = str(params.get("table_name", "")).strip()
         if table_name:
             return f"{table_name.split('.')[-1]}_sample"
-    if step_type == "synthesize_findings":
-        return "workflow_synthesis"
     return step_type

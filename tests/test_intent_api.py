@@ -423,6 +423,101 @@ class IntentEndpointTests(unittest.TestCase):
         self.assertEqual(r.status_code, 404)
 
 
+class ClosedSessionWriteGuardTests(unittest.TestCase):
+    """Phase 8.1: non-open session rejects all intent write operations (422)."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        db_path = Path(cls.temp_dir.name) / "closed_session.duckdb"
+        get_seeded_duckdb_path(db_path)
+        cls.client = TestClient(create_app(db_path))
+        r = cls.client.post("/sessions", json={"goal": "to be closed"})
+        cls.session_id = r.json()["session_id"]
+        cls.client.post(f"/sessions/{cls.session_id}/terminate", json={"terminal_reason": "test"})
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.client.close()
+        cls.temp_dir.cleanup()
+
+    def test_observe_on_closed_session_returns_422(self) -> None:
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/observe",
+            json={
+                "metric": "dau",
+                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+            },
+        )
+        self.assertEqual(r.status_code, 422)
+        self.assertIn("not open", r.json()["detail"])
+
+    def test_detect_on_closed_session_returns_422(self) -> None:
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/detect",
+            json={
+                "metric": "dau",
+                "time_scope": {
+                    "mode": "single_window",
+                    "grain": "day",
+                    "current": {"start": "2024-01-01", "end": "2024-01-08"},
+                },
+            },
+        )
+        self.assertEqual(r.status_code, 422)
+        self.assertIn("not open", r.json()["detail"])
+
+    def test_attribute_on_closed_session_returns_422(self) -> None:
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/attribute",
+            json={
+                "metric": "dau",
+                "left": {
+                    "time_scope": {"kind": "range", "start": "2024-01-08", "end": "2024-01-15"}
+                },
+                "right": {
+                    "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"}
+                },
+                "dimensions": ["region"],
+            },
+        )
+        self.assertEqual(r.status_code, 422)
+        self.assertIn("not open", r.json()["detail"])
+
+    def test_diagnose_on_closed_session_returns_422(self) -> None:
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/diagnose",
+            json={
+                "metric": "dau",
+                "time_scope": {
+                    "mode": "single_window",
+                    "grain": "day",
+                    "current": {"start": "2024-01-01", "end": "2024-01-08"},
+                },
+                "candidate_dimensions": ["region"],
+            },
+        )
+        self.assertEqual(r.status_code, 422)
+        self.assertIn("not open", r.json()["detail"])
+
+    def test_validate_on_closed_session_returns_422(self) -> None:
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/validate",
+            json={
+                "metric": "dau",
+                "sample_kind": "rate",
+                "left": {
+                    "time_scope": {"kind": "range", "start": "2024-01-08", "end": "2024-01-15"}
+                },
+                "right": {
+                    "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"}
+                },
+            },
+        )
+        self.assertEqual(r.status_code, 422)
+        self.assertIn("not open", r.json()["detail"])
+
+
 class IntentEndpointWithSemanticLayerTests(unittest.TestCase):
     """Tests that require a semantic metric wired to a source table."""
 
