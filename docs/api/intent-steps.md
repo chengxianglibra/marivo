@@ -4,8 +4,6 @@ This document defines the external HTTP contract for submitting typed analysis i
 
 The path acts as the intent discriminator — request bodies do not contain a `step_type` or `intent` field. The `/intents/` prefix distinguishes this surface from legacy step endpoints (removed in Phase 2).
 
-**Phase 2 status**: `observe` is fully implemented. All other intents return `501 Not Implemented` and will be wired in Phase 3.
-
 ## Purpose
 
 Use these endpoints when a client needs to:
@@ -18,25 +16,24 @@ Do not use these endpoints as a substitute for:
 
 - session root lifecycle management
 - session state or proposition context retrieval
-- plan validation or plan execution
 - generic projection retrieval
 
 Step submission is a write surface. Session state and proposition context remain separate canonical read surfaces.
 
 ## Canonical Resources
 
-| Intent family | Endpoint | Phase 2 status | Canonical success payload |
-|---------------|----------|----------------|---------------------------|
-| `observe` | `POST /sessions/{session_id}/intents/observe` | Implemented | `ObserveResponse` |
-| `compare` | `POST /sessions/{session_id}/intents/compare` | Implemented | `CompareResponse` |
-| `decompose` | `POST /sessions/{session_id}/intents/decompose` | Implemented | `DecomposeResponse` |
-| `correlate` | `POST /sessions/{session_id}/intents/correlate` | Implemented | `CorrelateResponse` |
-| `detect` | `POST /sessions/{session_id}/intents/detect` | Implemented | `DetectResponse` |
-| `test` | `POST /sessions/{session_id}/intents/test` | Implemented | `TestResponse` |
-| `forecast` | `POST /sessions/{session_id}/intents/forecast` | 501 stub | `ForecastResponse` |
-| `attribute` | `POST /sessions/{session_id}/intents/attribute` | 501 stub | `AttributeResponse` |
-| `diagnose` | `POST /sessions/{session_id}/intents/diagnose` | 501 stub | `DiagnoseArtifact` |
-| `validate` | `POST /sessions/{session_id}/intents/validate` | 501 stub | `ValidateResponse` |
+| Intent family | Endpoint | Canonical success payload |
+|---------------|----------|---------------------------|
+| `observe` | `POST /sessions/{session_id}/intents/observe` | `ObserveResponse` |
+| `compare` | `POST /sessions/{session_id}/intents/compare` | `CompareResponse` |
+| `decompose` | `POST /sessions/{session_id}/intents/decompose` | `DecomposeResponse` |
+| `correlate` | `POST /sessions/{session_id}/intents/correlate` | `CorrelateResponse` |
+| `detect` | `POST /sessions/{session_id}/intents/detect` | `DetectResponse` |
+| `test` | `POST /sessions/{session_id}/intents/test` | `TestResponse` |
+| `forecast` | `POST /sessions/{session_id}/intents/forecast` | `ForecastResponse` |
+| `attribute` | `POST /sessions/{session_id}/intents/attribute` | `AttributeResponse` |
+| `diagnose` | `POST /sessions/{session_id}/intents/diagnose` | `DiagnoseArtifact` |
+| `validate` | `POST /sessions/{session_id}/intents/validate` | `ValidateResponse` |
 
 This target-state contract intentionally does not define:
 

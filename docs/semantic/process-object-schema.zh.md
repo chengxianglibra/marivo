@@ -48,7 +48,7 @@
 `process object` 的公共 schema 应分为两层：
 
 - **对象头部（header）**：对象身份、生命周期、治理信息
-- **输出契约（output_contract）**：该对象稳定向下游暴露什么类型的分析输出
+- **接口契约（interface_contract）**：该对象稳定向下游暴露什么类型的分析接口
 
 各 subtype 再在其下表达自己的**过程语义 payload**。
 
@@ -61,23 +61,33 @@
 
 一句话总结：
 
-> process object 应声明“它稳定产出什么分析对象”，而不是直接暴露“底层如何拼 SQL”。
+> process object 应声明“它稳定提供什么分析接口”，而不是直接暴露“底层如何拼 SQL”。
 
 ## 统一建模原则
 
-### 1. 区分总体主体与输出实体
+### 1. 区分总体主体、上下文接口与实体接口
 
-许多过程对象都围绕某个主体定义，但不一定输出同一粒度的观测实体。
+许多过程对象都围绕某个主体定义，但并不都稳定产出同一类“观测实体”。
 
 例如：
 
 - `session_contract` 可能以 `user` 为总体主体
 - 但它产出的观测实体是 `session`
+- `experiment_context` 也围绕 `user` 定义
+- 但它稳定提供的是 experiment split context，而不是一个应被当作独立观测实体消费的 synthetic membership row
 
-因此 schema 中不应只有一个含混的 `subject_key_semantics`，而应明确区分：
+因此 schema 中不应只有一个含混的 `subject_key_semantics`，也不应把所有 subtype 都硬塞进同一个 `emitted_entity` 模型，而应明确区分：
 
-- `population_subject`：过程围绕谁定义
-- `emitted_entity`：过程最终输出的观测实体是什么
+- `population_subject_ref`：过程围绕谁定义
+- `context_kind`：若它提供的是总体 / 分流上下文
+- `entity_ref`：若它产出的是稳定实体流
+- `emitted_grain_ref`：若它产出实体流，该实体流对下游暴露的稳定样本粒度
+
+其中命名空间应保持统一：
+
+- `population_subject_ref` 使用 `subject.*`
+- `entity_ref` 使用 `entity.*`
+- `emitted_grain_ref` 使用 `grain.*`
 
 ### 2. 公共 contract 只表达稳定语义，不表达执行策略
 
@@ -177,7 +187,7 @@ class ProcessObjectHeader(TypedDict):
 - `required_metric_tags`
 - `forbidden_metric_tags`
 
-这些信息要么进入更精确的 `output_contract`，要么由更高层 catalog 元数据承载。
+这些信息要么进入更精确的 `interface_contract`，要么由更高层 catalog 元数据承载。
 
 ## 公共子结构
 
@@ -262,7 +272,7 @@ class StateSpec(TypedDict):
     priority: NotRequired[int | float | None]
 ```
 
-## 统一输出契约
+## 统一接口契约
 
 这是 process object 最关键的公共部分。metric / intent / validator 应优先消费它，而不是直接依赖 subtype 私有字段。
 
@@ -289,10 +299,10 @@ ProcessCapability: TypeAlias = Literal[
 ]
 ```
 
-### ProcessOutputContract
+### ProcessInterfaceContract
 
 ```python
-from typing import Literal, NotRequired, TypedDict
+from typing import Literal, NotRequired, TypedDict, TypeAlias
 
 
 class ComparisonContract(TypedDict):
@@ -314,41 +324,45 @@ class InferenceSupport(TypedDict):
     supports_sample_summary_prep: NotRequired[bool | None]
 
 
-class ProcessOutputContract(TypedDict):
-    population_subject: Literal["user", "device", "account", "order", "session"]
-    emitted_entity: Literal[
-        "subject_membership",
-        "variant_membership",
-        "session",
-        "funnel_progress",
-        "path_match",
-        "state_assignment",
-    ]
-    entity_grain: Literal[
-        "user",
-        "device",
-        "account",
-        "order",
-        "session",
-        "step_occurrence",
-        "path_match",
-        "state_assignment",
-    ]
-    cardinality_per_subject: Literal["one", "many"]
+class ContextProcessContract(TypedDict):
+    contract_mode: Literal["context_provider"]
+    context_kind: Literal["cohort_membership", "experiment_split"]
+    population_subject_ref: str
+    membership_cardinality: Literal["exclusive_one", "repeatable_many"]
     anchor_time_ref: NotRequired[str | None]
     exported_dimension_refs: NotRequired[list[str] | None]
     provided_capabilities: list[ProcessCapability]
     comparison_contract: NotRequired[ComparisonContract | None]
     time_projection_support: NotRequired[TimeProjectionSupport | None]
     inference_support: NotRequired[InferenceSupport | None]
+
+
+class EntityProcessContract(TypedDict):
+    contract_mode: Literal["entity_stream"]
+    entity_ref: str
+    emitted_grain_ref: str
+    population_subject_ref: str
+    subject_cardinality: Literal["one", "many"]
+    anchor_time_ref: NotRequired[str | None]
+    exported_dimension_refs: NotRequired[list[str] | None]
+    provided_capabilities: list[ProcessCapability]
+    comparison_contract: NotRequired[ComparisonContract | None]
+    time_projection_support: NotRequired[TimeProjectionSupport | None]
+    inference_support: NotRequired[InferenceSupport | None]
+
+
+ProcessInterfaceContract: TypeAlias = ContextProcessContract | EntityProcessContract
 ```
 
 ### 字段含义
 
-- `population_subject`：过程围绕谁定义，例如 user/session/account
-- `emitted_entity`：下游真正消费的观测实体类型
-- `entity_grain`：输出实体粒度
-- `cardinality_per_subject`：每个主体最多对应一个还是多个输出实体
+- `contract_mode`：该对象对下游暴露的是上下文接口还是实体接口
+- `population_subject_ref`：过程围绕谁定义，使用稳定 semantic ref
+- `context_kind`：适用于 cohort / experiment 这类上下文提供者
+- `membership_cardinality`：上下文提供者对同一主体提供的是排他 membership 还是可重复 membership
+- `entity_ref`：适用于 session / funnel / path / lifecycle 这类实体流过程；必须使用 `entity.*`
+- `emitted_grain_ref`：实体流接口的稳定粒度；必须使用 `grain.*`
+- `subject_cardinality`：每个主体最多对应一个还是多个实体
 - `anchor_time_ref`：输出实体的主时间锚点语义
 - `exported_dimension_refs`：该过程稳定导出的下游可用维度，例如 `variant`、`step`、`state`
 - `provided_capabilities`：主兼容接口
@@ -358,11 +372,12 @@ class ProcessOutputContract(TypedDict):
 
 ### 设计说明
 
-`output_contract` 的作用，是把各 subtype 的“结果接口”统一起来。
+`interface_contract` 的作用，是把各 subtype 的“下游接口”统一起来，但不要求所有对象都伪装成“实体发射器”。
 
 例如：
 
-- cohort 主要提供 `population_membership + anchor_time`
+- cohort 主要提供 `cohort_membership + anchor_time`
+- experiment 主要提供 `experiment_split + anchor_time`
 - funnel 主要提供 `ordered_steps + completion_state`
 - session 主要提供 `session_partition`
 - lifecycle 主要提供 `state_assignment`，有时再提供 `state_transition`
@@ -376,7 +391,7 @@ from typing import TypeAlias
 
 
 class ProcessObjectBase(ProcessObjectHeader):
-    output_contract: ProcessOutputContract
+    interface_contract: ProcessInterfaceContract
 
 
 ProcessObject: TypeAlias = (
@@ -407,13 +422,12 @@ class ExperimentVariant(TypedDict):
 class ExperimentSplitBasis(TypedDict):
     kind: Literal["assignment", "exposure"]
     basis_ref: str
-    resolution: Literal["first", "last", "all"]
+    resolution: Literal["first", "last"]
 
 
 class ExperimentContext(ProcessObjectBase):
     process_type: Literal["experiment_context"]
     experiment_key: str
-    subject_ref: str
     variants: list[ExperimentVariant]
     split_basis: ExperimentSplitBasis
     analysis_window: NotRequired[WindowSpec | None]
@@ -428,6 +442,8 @@ class ExperimentContext(ProcessObjectBase):
 - 不再暴露 `variant_dimension`
 - 不再把 treatment/control 写成底层字段过滤表达式
 - 不再内嵌 `default_metric_roles`
+- 不再把 experiment split 伪装成 `variant_membership` 这类独立观测实体
+- `split_basis.resolution = "all"` 不再属于 `experiment_context`；多次 exposure timeline 应由其他 process subtype 或 lower 层表达
 
 `default_metric_roles` 属于更高层的 analysis package / orchestration 配置，而不属于实验过程对象的本体语义。
 
@@ -439,11 +455,11 @@ class ExperimentContext(ProcessObjectBase):
   "process_type": "experiment_context",
   "process_contract_version": "v2",
   "quality_gate_refs": ["gate.srm", "gate.experiment_contamination"],
-  "output_contract": {
-    "population_subject": "user",
-    "emitted_entity": "variant_membership",
-    "entity_grain": "user",
-    "cardinality_per_subject": "one",
+  "interface_contract": {
+    "contract_mode": "context_provider",
+    "context_kind": "experiment_split",
+    "population_subject_ref": "subject.user",
+    "membership_cardinality": "exclusive_one",
     "anchor_time_ref": "time.exposure_time",
     "exported_dimension_refs": ["dimension.variant"],
     "provided_capabilities": [
@@ -469,7 +485,6 @@ class ExperimentContext(ProcessObjectBase):
     }
   },
   "experiment_key": "exp_123",
-  "subject_ref": "subject.user",
   "variants": [
     { "variant_key": "treatment", "population_ref": "population.exp_123_treatment" },
     { "variant_key": "control", "population_ref": "population.exp_123_control" }
@@ -505,7 +520,6 @@ from typing import Literal, NotRequired
 class CohortDefinition(ProcessObjectBase):
     process_type: Literal["cohort_definition"]
     cohort_key: str
-    subject_ref: str
     entry_population: PopulationSpec
     cohort_anchor_ref: str
     observation_window: NotRequired[WindowSpec | None]
@@ -516,7 +530,8 @@ class CohortDefinition(ProcessObjectBase):
 ### 设计说明
 
 - 不再使用 `output_mode = retention_ready`
-- “是否可做留存”由 `provided_capabilities` + `return_population_ref` + `observation_window` 共同决定
+- “是否可做留存”由 `interface_contract` + `return_population_ref` + `observation_window` 共同决定
+- cohort 不再通过 `subject_membership` 这种 synthetic entity 暴露自己，而是直接声明自己是 `cohort_membership` context provider
 
 ### 示例
 
@@ -525,11 +540,11 @@ class CohortDefinition(ProcessObjectBase):
   "name": "cohort.signup_week",
   "process_type": "cohort_definition",
   "process_contract_version": "v2",
-  "output_contract": {
-    "population_subject": "user",
-    "emitted_entity": "subject_membership",
-    "entity_grain": "user",
-    "cardinality_per_subject": "one",
+  "interface_contract": {
+    "contract_mode": "context_provider",
+    "context_kind": "cohort_membership",
+    "population_subject_ref": "subject.user",
+    "membership_cardinality": "exclusive_one",
     "anchor_time_ref": "time.signup_time",
     "provided_capabilities": [
       "population_membership",
@@ -553,7 +568,6 @@ class CohortDefinition(ProcessObjectBase):
     }
   },
   "cohort_key": "signup_week",
-  "subject_ref": "subject.user",
   "entry_population": {
     "base_population_ref": "population.signed_up_users",
     "membership_mode": "once"
@@ -587,7 +601,6 @@ class StepGapSpec(TypedDict):
 class FunnelDefinition(ProcessObjectBase):
     process_type: Literal["funnel_definition"]
     funnel_key: str
-    subject_ref: str
     steps: list[StepSpec]
     ordering_rule: NotRequired[Literal["strict", "weak"] | None]
     counting_rule: NotRequired[
@@ -612,11 +625,12 @@ class FunnelDefinition(ProcessObjectBase):
   "name": "funnel.checkout",
   "process_type": "funnel_definition",
   "process_contract_version": "v2",
-  "output_contract": {
-    "population_subject": "user",
-    "emitted_entity": "funnel_progress",
-    "entity_grain": "path_match",
-    "cardinality_per_subject": "many",
+  "interface_contract": {
+    "contract_mode": "entity_stream",
+    "entity_ref": "entity.path_match",
+    "emitted_grain_ref": "grain.path_match",
+    "population_subject_ref": "subject.user",
+    "subject_cardinality": "many",
     "anchor_time_ref": "time.event_time",
     "exported_dimension_refs": ["dimension.step"],
     "provided_capabilities": [
@@ -635,7 +649,6 @@ class FunnelDefinition(ProcessObjectBase):
     }
   },
   "funnel_key": "checkout",
-  "subject_ref": "subject.user",
   "steps": [
     { "step_key": "view_product", "event_ref": "event.product_view" },
     { "step_key": "start_checkout", "event_ref": "event.checkout_start" },
@@ -670,7 +683,6 @@ class IdleGapSpec(TypedDict):
 class SessionContract(ProcessObjectBase):
     process_type: Literal["session_contract"]
     session_key: str
-    subject_ref: str
     event_stream_ref: str
     included_event_refs: NotRequired[list[str] | None]
     excluded_event_refs: NotRequired[list[str] | None]
@@ -694,11 +706,12 @@ class SessionContract(ProcessObjectBase):
   "name": "session.video_session",
   "process_type": "session_contract",
   "process_contract_version": "v2",
-  "output_contract": {
-    "population_subject": "user",
-    "emitted_entity": "session",
-    "entity_grain": "session",
-    "cardinality_per_subject": "many",
+  "interface_contract": {
+    "contract_mode": "entity_stream",
+    "entity_ref": "entity.session",
+    "emitted_grain_ref": "grain.session",
+    "population_subject_ref": "subject.user",
+    "subject_cardinality": "many",
     "anchor_time_ref": "time.session_start_time",
     "provided_capabilities": [
       "session_partition",
@@ -716,7 +729,6 @@ class SessionContract(ProcessObjectBase):
     }
   },
   "session_key": "video_session",
-  "subject_ref": "subject.user",
   "event_stream_ref": "stream.video_events",
   "included_event_refs": ["event.play", "event.pause", "event.seek"],
   "excluded_event_refs": ["event.bot_activity"],
@@ -745,7 +757,6 @@ class PathLagSpec(TypedDict):
 class PathPattern(ProcessObjectBase):
     process_type: Literal["path_pattern"]
     path_key: str
-    subject_ref: str
     nodes: list[StepSpec]
     match_mode: NotRequired[
         Literal["ordered", "unordered", "contains_subsequence"] | None
@@ -763,11 +774,12 @@ class PathPattern(ProcessObjectBase):
   "name": "path.home_to_pay",
   "process_type": "path_pattern",
   "process_contract_version": "v2",
-  "output_contract": {
-    "population_subject": "user",
-    "emitted_entity": "path_match",
-    "entity_grain": "path_match",
-    "cardinality_per_subject": "many",
+  "interface_contract": {
+    "contract_mode": "entity_stream",
+    "entity_ref": "entity.path_match",
+    "emitted_grain_ref": "grain.path_match",
+    "population_subject_ref": "subject.user",
+    "subject_cardinality": "many",
     "anchor_time_ref": "time.event_time",
     "provided_capabilities": [
       "path_match",
@@ -779,7 +791,6 @@ class PathPattern(ProcessObjectBase):
     }
   },
   "path_key": "home_to_pay",
-  "subject_ref": "subject.user",
   "nodes": [
     { "step_key": "home", "event_ref": "event.home_view" },
     { "step_key": "detail", "event_ref": "event.detail_view" },
@@ -809,7 +820,6 @@ from typing import Literal, NotRequired
 class LifecycleStateMachine(ProcessObjectBase):
     process_type: Literal["lifecycle_state_machine"]
     machine_key: str
-    subject_ref: str
     states: list[StateSpec]
     conflict_resolution: NotRequired[
         Literal["highest_priority", "first_match"] | None
@@ -830,11 +840,12 @@ class LifecycleStateMachine(ProcessObjectBase):
   "name": "lifecycle.user_states",
   "process_type": "lifecycle_state_machine",
   "process_contract_version": "v2",
-  "output_contract": {
-    "population_subject": "user",
-    "emitted_entity": "state_assignment",
-    "entity_grain": "state_assignment",
-    "cardinality_per_subject": "many",
+  "interface_contract": {
+    "contract_mode": "entity_stream",
+    "entity_ref": "entity.state_assignment",
+    "emitted_grain_ref": "grain.state_assignment",
+    "population_subject_ref": "subject.user",
+    "subject_cardinality": "many",
     "anchor_time_ref": "time.state_eval_time",
     "exported_dimension_refs": ["dimension.state"],
     "provided_capabilities": [
@@ -853,7 +864,6 @@ class LifecycleStateMachine(ProcessObjectBase):
     }
   },
   "machine_key": "user_states",
-  "subject_ref": "subject.user",
   "states": [
     {
       "state_key": "new",
@@ -883,12 +893,14 @@ class LifecycleStateMachine(ProcessObjectBase):
 
 下游兼容性应优先基于：
 
-- `output_contract.emitted_entity`
-- `output_contract.entity_grain`
-- `output_contract.provided_capabilities`
-- `comparison_contract`
-- `time_projection_support`
-- `inference_support`
+- `interface_contract.contract_mode`
+- `interface_contract.population_subject_ref`
+- `interface_contract.context_kind` 或 `interface_contract.entity_ref`
+- `interface_contract.emitted_grain_ref`（若 `contract_mode = entity_stream`）
+- `interface_contract.provided_capabilities`
+- `interface_contract.comparison_contract`
+- `interface_contract.time_projection_support`
+- `interface_contract.inference_support`
 
 而不是优先基于：
 
@@ -902,6 +914,8 @@ class LifecycleStateMachine(ProcessObjectBase):
 
 要求 process 至少具备：
 
+- `contract_mode = context_provider`
+- `context_kind = cohort_membership`
 - `population_membership`
 - `anchor_time`
 - `windowed_observation`
@@ -910,6 +924,8 @@ class LifecycleStateMachine(ProcessObjectBase):
 
 要求 process 至少具备：
 
+- `contract_mode = context_provider`
+- `context_kind = experiment_split`
 - `variant_split`
 - `population_membership`
 - `sample_summary_prep`
@@ -918,6 +934,9 @@ class LifecycleStateMachine(ProcessObjectBase):
 
 要求 process 至少具备：
 
+- `contract_mode = entity_stream`
+- `entity_ref = session`
+- `emitted_grain_ref = grain.session`
 - `session_partition`
 - `time_projection`
 
@@ -925,6 +944,8 @@ class LifecycleStateMachine(ProcessObjectBase):
 
 要求 process 至少具备：
 
+- `contract_mode = entity_stream`
+- `entity_ref = state_assignment`
 - `state_assignment`
 
 ## Validator 建议
@@ -934,19 +955,24 @@ class LifecycleStateMachine(ProcessObjectBase):
 建议至少校验：
 
 - `process_type` 与 subtype payload 一致
-- `output_contract` 必填字段齐全
+- `interface_contract` 必填字段齐全
+- `interface_contract.contract_mode` 与 subtype 家族一致
+- `interface_contract.population_subject_ref` 不应再被 subtype payload 重复声明
 - `provided_capabilities` 与 subtype 语义一致
-- `anchor_time_ref`、`subject_ref`、`population_ref`、`event_ref` 等引用均可解析
+- `anchor_time_ref`、`population_ref`、`event_ref` 等引用均可解析
 - `steps` / `states` / `variants` 的 key 唯一且非空
 - 所有 window 值为正数
-- `comparison_contract` 与 `time_projection_support` 不自相矛盾
+- `interface_contract.comparison_contract` 与 `interface_contract.time_projection_support` 不自相矛盾
+- `experiment_context.split_basis` 与 `membership_cardinality` 自洽
+- `cohort_definition.entry_population.membership_mode` 与 `membership_cardinality` 自洽
 
 ### 组合期校验
 
 建议优先基于统一 contract 做校验：
 
-- process 是否产出 metric 所需的 observation entity
-- process 的 `entity_grain` 是否与 metric `observation_grain` 相容
+- process 的 `contract_mode`、`context_kind` / `entity_ref` 是否满足 metric `required_process_contract`
+- process 的 `population_subject_ref` 是否与 metric 对齐
+- process 的 `emitted_grain_ref` 是否与 metric `observation_grain_ref` 相容（若该 process 暴露实体流）
 - process 是否具备 intent 所需 capabilities
 - 比较、检测、验证所需的 comparability / time projection / inference support 是否成立
 
@@ -968,8 +994,8 @@ class LifecycleStateMachine(ProcessObjectBase):
 
 建议 compiler 至少做两步转换：
 
-1. subtype payload -> normalized output contract
-2. normalized output contract + metric + intent -> IR
+1. subtype payload -> normalized interface contract
+2. normalized interface contract + metric + intent -> IR
 
 例如：
 
@@ -997,7 +1023,7 @@ class LifecycleStateMachine(ProcessObjectBase):
 换句话说：
 
 - process object 负责“是什么过程语义”
-- normalized contract 负责“向下游暴露什么结果接口”
+- normalized contract 负责“向下游暴露什么接口语义”
 - IR / execution 负责“如何执行”
 
 ## 迁移建议
@@ -1024,9 +1050,16 @@ class LifecycleStateMachine(ProcessObjectBase):
 - `variant_dimension` -> `dimension.variant` 或 split basis ref
 - `event_inclusion` / `event_exclusion` -> `included_event_refs` / `excluded_event_refs`
 
-### 3. 为每个对象补齐统一 `output_contract`
+### 3. 为每个对象补齐统一 `interface_contract`
 
 这是与 metric / intent 优雅适配的关键步骤。
+
+迁移时还应额外处理：
+
+- `subject_ref` -> `interface_contract.population_subject_ref`
+- `emitted_entity` -> `context_kind` 或 `entity_ref`
+- `entity_grain` / 输出粒度字面量 -> `emitted_grain_ref`
+- `cardinality_per_subject` -> `membership_cardinality` 或 `subject_cardinality`
 
 ## 总结
 
@@ -1035,7 +1068,7 @@ class LifecycleStateMachine(ProcessObjectBase):
 它应当是：
 
 - 一个稳定的对象头部
-- 一个统一的输出契约
+- 一个统一的接口契约
 - 一个 subtype-specific 的过程语义 payload
 
 这样做的收益是：
@@ -1047,4 +1080,4 @@ class LifecycleStateMachine(ProcessObjectBase):
 
 一句话总结：
 
-> process object 的公共 contract 应以 `output_contract + capabilities` 为中心，而不是以 tags、output_mode 或执行细节字段为中心。
+> process object 的公共 contract 应以 `interface_contract + capabilities` 为中心，而不是以 tags、output_mode 或执行细节字段为中心。
