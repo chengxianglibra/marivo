@@ -330,6 +330,48 @@ class PropositionRepository:
         )
         return [r["proposition_id"] for r in rows]
 
+    def set_externally_visible_assessment(
+        self, proposition_id: str, assessment_id: str, candidate_snapshot_seq: int
+    ) -> bool:
+        """Atomically advance the externally visible assessment pointer (Phase 4g-2).
+
+        Uses a single conditional UPDATE that enforces the anti-downgrade
+        constraint at the database level.  The WHERE clause only matches when:
+
+        * the pointer is currently NULL (first publish), OR
+        * the currently-pointed-at assessment has a lower ``snapshot_seq``
+          than *candidate_snapshot_seq*.
+
+        This collapses the Python-level TOCTOU check + the UPDATE into one
+        atomic DB operation — safe even if two workers race on the same
+        proposition under SQLite WAL mode.
+
+        Returns ``True`` if the pointer was advanced; ``False`` if the update
+        was a no-op (proposition not found, or downgrade would have occurred).
+
+        Callers must verify that a proposal refresh has already been run
+        against *assessment_id* before calling this method.
+        """
+        with self.metadata.connect() as con:
+            cursor = con.execute(
+                """
+                UPDATE propositions
+                SET externally_visible_assessment_id = ?
+                WHERE proposition_id = ?
+                AND (
+                    externally_visible_assessment_id IS NULL
+                    OR externally_visible_assessment_id IN (
+                        SELECT assessment_id FROM assessments
+                        WHERE proposition_id = ?
+                        AND snapshot_seq < ?
+                    )
+                )
+                """,
+                [assessment_id, proposition_id, proposition_id, candidate_snapshot_seq],
+            )
+            con.commit()
+            return bool(cursor.rowcount > 0)
+
 
 # ---------------------------------------------------------------------------
 # AssessmentRepository
