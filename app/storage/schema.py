@@ -549,4 +549,10 @@ METADATA_MIGRATIONS: list[str] = [
     "ALTER TABLE findings ADD COLUMN invalidation_reason TEXT",
     "ALTER TABLE propositions ADD COLUMN invalidated_at TEXT",
     "ALTER TABLE propositions ADD COLUMN invalidation_reason TEXT",
+    # Phase 5a: canonical session root lifecycle fields.  NULL defaults preserve
+    # backward compatibility with sessions created before this migration.
+    "ALTER TABLE sessions ADD COLUMN terminal_reason TEXT",
+    "ALTER TABLE sessions ADD COLUMN ended_at TEXT",
+    "ALTER TABLE sessions ADD COLUMN rollover_from_session_id TEXT",
+    "ALTER TABLE sessions ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now'))",
 ]

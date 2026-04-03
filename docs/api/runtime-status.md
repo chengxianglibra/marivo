@@ -92,8 +92,10 @@ These endpoints return runtime payloads directly. They do not add paging metadat
 | `last_successful_stage` | string | `artifact_commit`, `finding_extraction`, `proposition_seeding`, `assessment_recompute`, `proposal_refresh`, or `publish` |
 | `blocked_reason` | string | `none`, `backpressure`, `claim_conflict`, `dependency_wait`, `retry_exhausted`, `migration_required`, or `policy_blocked` |
 | `backlog_summary` | object | Aggregated runtime queue summary for the session |
-| `updated_at` | string | ISO 8601 UTC timestamp of the status snapshot |
+| `updated_at` | string | ISO 8601 timestamp; reflects the session row's `updated_at` in v1 |
 | `schema_version` | string | Fixed as `session_runtime_status.v1` |
+
+**v1 constraints:** `overall_status` only emits `idle` or `running`. `blocked` and `degraded` are reserved for a future version with real queue/lease tracking. `blocked_reason` is always `none`. `backpressured_propositions` and `failed_items` in `backlog_summary` are always `0`. `queued_artifacts` excludes D4-allows-empty artifact types (`observation`, `anomaly_candidates`).
 
 ### `ArtifactRuntimeStatus`
 

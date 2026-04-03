@@ -62,16 +62,39 @@ class SessionAPITests(unittest.TestCase):
         self.assertIsInstance(resp.json(), list)
 
     def test_get_session_after_create(self) -> None:
-        """GET /sessions/{id} should return session details."""
+        """GET /sessions/{id} should return canonical AnalysisSession root (Phase 5a)."""
         create_resp = self.client.post("/sessions", json={"goal": "Test session"})
         session_id = create_resp.json()["session_id"]
         resp = self.client.get(f"/sessions/{session_id}")
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertEqual(data["session_id"], session_id)
-        self.assertEqual(data["goal"], "Test session")
-        self.assertEqual(data["status"], "open")
+        # goal is structured in canonical shape
+        self.assertIsInstance(data["goal"], dict)
+        self.assertEqual(data["goal"]["question"], "Test session")
+        # lifecycle carries status
+        self.assertIn("lifecycle", data)
+        self.assertEqual(data["lifecycle"]["status"], "open")
+        self.assertIsNone(data["lifecycle"]["terminal_reason"])
+        self.assertIsNone(data["lifecycle"]["ended_at"])
+        self.assertIsNone(data["lifecycle"]["rollover_from_session_id"])
+        # governance present
+        self.assertIn("governance", data)
+        self.assertIn("budget", data["governance"])
+        self.assertIn("warnings", data["governance"])
+        # state_summary entry handle
+        self.assertIn("state_summary", data)
+        self.assertIn("state_view_ref", data["state_summary"])
+        self.assertEqual(data["state_summary"]["state_view_ref"]["session_id"], session_id)
+        self.assertEqual(data["state_summary"]["state_view_ref"]["view_type"], "session_state_view")
+        # schema_version
+        self.assertEqual(data["schema_version"], "analysis_session.v1")
+        # timestamps
         self.assertIn("created_at", data)
+        self.assertIn("updated_at", data)
+        # legacy flat fields must NOT appear at top level
+        self.assertNotIn("status", data)
+        self.assertNotIn("constraints", data)
 
     def test_get_session_not_found(self) -> None:
         """GET /sessions/{id} with unknown ID should 404."""
@@ -88,12 +111,45 @@ class SessionAPITests(unittest.TestCase):
         self.assertIn(session_id, ids)
 
     def test_list_sessions_filter_by_status(self) -> None:
-        """GET /sessions?status=open should filter."""
+        """GET /sessions?status=open should filter; returned items have canonical shape."""
         self.client.post("/sessions", json={"goal": "Status filter test"})
         resp = self.client.get("/sessions?status=open")
         self.assertEqual(resp.status_code, 200)
         for s in resp.json():
-            self.assertEqual(s["status"], "open")
+            self.assertEqual(s["lifecycle"]["status"], "open")
+            self.assertIn("goal", s)
+            self.assertIn("question", s["goal"])
+            self.assertIn("governance", s)
+            self.assertIn("state_summary", s)
+            self.assertEqual(s["schema_version"], "analysis_session.v1")
+            # legacy flat fields must not appear
+            self.assertNotIn("status", s)
+            self.assertNotIn("constraints", s)
+
+    def test_get_session_runtime_status_idle(self) -> None:
+        """Newly created session with no work should return idle runtime status."""
+        create_resp = self.client.post("/sessions", json={"goal": "Runtime status test"})
+        session_id = create_resp.json()["session_id"]
+        resp = self.client.get(f"/sessions/{session_id}/runtime-status")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["session_id"], session_id)
+        self.assertEqual(data["overall_status"], "idle")
+        self.assertIsNone(data["last_successful_stage"])
+        self.assertEqual(data["blocked_reason"], "none")
+        self.assertEqual(data["schema_version"], "session_runtime_status.v1")
+        self.assertIn("backlog_summary", data)
+        summary = data["backlog_summary"]
+        self.assertEqual(summary["queued_artifacts"], 0)
+        self.assertEqual(summary["queued_propositions"], 0)
+        self.assertEqual(summary["backpressured_propositions"], 0)
+        self.assertEqual(summary["failed_items"], 0)
+        self.assertIn("updated_at", data)
+
+    def test_get_session_runtime_status_not_found(self) -> None:
+        """GET /sessions/{id}/runtime-status with unknown ID should 404."""
+        resp = self.client.get("/sessions/sess_nonexistent/runtime-status")
+        self.assertEqual(resp.status_code, 404)
 
     def test_session_debug_endpoint_returns_summary(self) -> None:
         session_id = self.client.post(

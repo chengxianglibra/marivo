@@ -226,6 +226,9 @@ class SemanticLayerService:
     def get_session(self, session_id: str) -> dict[str, Any]:
         return self.session_manager.get_session(session_id)
 
+    def get_session_runtime_status(self, session_id: str) -> dict[str, Any]:
+        return self.session_manager.get_session_runtime_status(session_id)
+
     def discover_catalog(self) -> dict[str, Any]:
         # Entities — all published semantic entities
         entity_rows = self.metadata.query_rows(
@@ -1038,18 +1041,32 @@ class SemanticLayerService:
         raw_filter is appended as-is (AND-merged) after scalar constraints.
         Returns None when no constraints exist.
         """
-        session = self.get_session(session_id)
-        constraints = session.get("constraints", {})
+        constraints, raw_filter = self._fetch_session_constraints(session_id)
         parts: list[str] = []
         if constraints and isinstance(constraints, dict):
             for key, value in constraints.items():
                 if isinstance(value, (dict, list)):
                     continue
                 parts.append(f"{key} = '{value}'")
-        raw_filter = session.get("raw_filter")
         if raw_filter:
             parts.append(raw_filter)
         return " AND ".join(parts) if parts else None
+
+    def _fetch_session_constraints(self, session_id: str) -> tuple[dict[str, Any], str | None]:
+        """Return (constraints_dict, raw_filter) for the given session.
+
+        Reads directly from the narrow columns to avoid depending on the
+        canonical AnalysisSession shape returned by SessionManager.
+        """
+        row = self.metadata.query_one(
+            "SELECT constraints_json, raw_filter FROM sessions WHERE session_id = ?",
+            [session_id],
+        )
+        constraints: dict[str, Any] = (
+            json.loads(row["constraints_json"]) if row and row.get("constraints_json") else {}
+        )
+        raw_filter: str | None = row.get("raw_filter") if row else None
+        return constraints, raw_filter
 
     @staticmethod
     def _merge_filters(*filters: str | None) -> str | None:
@@ -1069,9 +1086,9 @@ class SemanticLayerService:
         return " AND ".join(parts) if parts else None
 
     def _session_filter_parts(self, session_id: str) -> tuple[str | None, str | None]:
-        session = self.get_session(session_id)
-        constraints_filter = self._constraints_dict_to_filter(session.get("constraints") or {})
-        raw_filter = str(session.get("raw_filter") or "").strip() or None
+        constraints, raw_filter_raw = self._fetch_session_constraints(session_id)
+        constraints_filter = self._constraints_dict_to_filter(constraints)
+        raw_filter = str(raw_filter_raw or "").strip() or None
         return constraints_filter, raw_filter
 
     def _resolved_scope_filter(
@@ -1398,9 +1415,7 @@ class SemanticLayerService:
     }
 
     def _build_constraints_applied(self, session_id: str, step_type: str) -> dict[str, Any]:
-        session = self.get_session(session_id)
-        constraints = session.get("constraints") or {}
-        raw_filter = session.get("raw_filter")
+        constraints, raw_filter = self._fetch_session_constraints(session_id)
 
         descriptors: list[str] = []
         if constraints and isinstance(constraints, dict):

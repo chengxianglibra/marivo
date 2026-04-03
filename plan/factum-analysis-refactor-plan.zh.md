@@ -202,11 +202,11 @@
 
 ## 阶段 3：重构执行模型为 Intent Registry + Derived Expansion
 
-> **实施说明**：本阶段拆分为顺序子任务（3a → 3b-1 → 3b-2 → 3b-3 → 3b-4 → 3b-5 → 3b-6 → 3c-1 → 3c-2 → 3c-3）。3b-1 ～ 3b-6 各对应一个 atomic runner，均依赖 3a 确定的 artifact 持久化模型和 registry 接口；3c-1 ～ 3c-3 各对应一个 derived intent，统一依赖全部 atomic runners 就绪。3c-1 已完成。
+> **实施说明**：本阶段拆分为顺序子任务（3a → 3b-1 → 3b-2 → 3b-3 → 3b-4 → 3b-5 → 3b-6 → 3c-1 → 3c-2 → 3c-3）。3b-1 ～ 3b-6 各对应一个 atomic runner，均依赖 3a 确定的 artifact 持久化模型和 registry 接口；3c-1 ～ 3c-3 各对应一个 derived intent，统一依赖全部 atomic runners 就绪。3c-1、3c-2、3c-3 均已完成。
 
 ---
 
-### 阶段 3a：Registry 基础 + Artifact 模型 + `observe` 全量 Runner
+### 阶段 3a：Registry 基础 + Artifact 模型 + `observe` 全量 Runner ✅ 已完成
 
 #### 目标
 
@@ -416,7 +416,7 @@
 
 ---
 
-### 阶段 3b-6：`forecast` Runner
+### 阶段 3b-6：`forecast` Runner ✅ 已完成
 
 #### 目标
 
@@ -491,7 +491,7 @@
 
 ---
 
-### 阶段 3c-2：`diagnose` Derived Expansion
+### 阶段 3c-2：`diagnose` Derived Expansion ✅ 已完成
 
 #### 目标
 
@@ -791,7 +791,7 @@
 
 ---
 
-### 阶段 4b-4：Family-Level Empty Semantics Contract
+### 阶段 4b-4：Family-Level Empty Semantics Contract ✅ 已完成
 
 #### 目标
 
@@ -826,7 +826,7 @@
 
 ---
 
-### 阶段 4c-1：Artifact Commit Boundary 重构
+### 阶段 4c-1：Artifact Commit Boundary 重构 ✅ 已完成
 
 #### 目标
 
@@ -858,7 +858,7 @@
 
 ---
 
-### 阶段 4c-2：Mandatory Extraction Intent 接入统一 Commit Path
+### 阶段 4c-2：Mandatory Extraction Intent 接入统一 Commit Path ✅ 已完成
 
 #### 目标
 
@@ -893,7 +893,7 @@
 
 ---
 
-### 阶段 4d-1：`observe` Finding Extractor
+### 阶段 4d-1：`observe` Finding Extractor ✅ 已完成
 
 #### 目标
 
@@ -923,7 +923,7 @@
 
 ---
 
-### 阶段 4d-2：`detect` Finding Extractor
+### 阶段 4d-2：`detect` Finding Extractor ✅ 已完成
 
 #### 目标
 
@@ -951,7 +951,7 @@
 
 ---
 
-### 阶段 4d-3：`compare` / `decompose` Finding Extractors
+### 阶段 4d-3：`compare` / `decompose` Finding Extractors ✅ 已完成
 
 #### 目标
 
@@ -980,7 +980,7 @@
 
 ---
 
-### 阶段 4d-4：`correlate` / `test` / `forecast` Finding Extractors
+### 阶段 4d-4：`correlate` / `test` / `forecast` Finding Extractors ✅ 已完成
 
 #### 目标
 
@@ -1010,7 +1010,7 @@
 
 ---
 
-### 阶段 4e-1：Proposition Seeding Registry
+### 阶段 4e-1：Proposition Seeding Registry ✅ 已完成
 
 #### 目标
 
@@ -1050,7 +1050,7 @@
 
 ---
 
-### 阶段 4e-2：Proposition Identity Normalization 与 Registration
+### 阶段 4e-2：Proposition Identity Normalization 与 Registration ✅ 已完成
 
 #### 目标
 
@@ -1079,7 +1079,7 @@
 
 ---
 
-### 阶段 4e-3：Seeding Run 结果与受影响 Proposition 集合
+### 阶段 4e-3：Seeding Run 结果与受影响 Proposition 集合 ✅ 已完成
 
 #### 目标
 
@@ -1120,7 +1120,7 @@
 
 ---
 
-### 阶段 4f-1：Assessment Evaluation Context
+### 阶段 4f-1：Assessment Evaluation Context ✅ 已完成
 
 #### 目标
 
@@ -1149,7 +1149,7 @@
 
 ---
 
-### 阶段 4f-2：Assessment Recompute 与 Snapshot Persistence
+### 阶段 4f-2：Assessment Recompute 与 Snapshot Persistence ✅ 已完成
 
 #### 目标
 
@@ -1182,7 +1182,7 @@
 
 ---
 
-### 阶段 4g-1：Action Proposal Refresh 与 Publish-Ready Bundle
+### 阶段 4g-1：Action Proposal Refresh 与 Publish-Ready Bundle ✅ 已完成
 
 #### 目标
 
@@ -1222,7 +1222,7 @@
 
 ---
 
-### 阶段 4g-2：Publish Switch 与 Atomic Visibility
+### 阶段 4g-2：Publish Switch 与 Atomic Visibility ✅ 已完成
 
 #### 目标
 
@@ -1255,7 +1255,7 @@
 
 ---
 
-### 阶段 4g-3：切断 Legacy Claims / Recommendations 的 Canonical Authority
+### 阶段 4g-3：切断 Legacy Claims / Recommendations 的 Canonical Authority ✅ 已完成
 
 #### 目标
 
@@ -1283,7 +1283,7 @@
 
 ---
 
-### 阶段 4h-1：Replay / Recovery / Idempotency / Migration / Soft Invalidation
+### 阶段 4h-1：Replay / Recovery / Idempotency / Migration / Soft Invalidation ✅ 已完成
 
 #### 目标
 
@@ -1330,7 +1330,7 @@
 
 ---
 
-### 阶段 4h-2：测试与文档收口
+### 阶段 4h-2：测试与文档收口 ✅ 已完成
 
 #### 目标
 
