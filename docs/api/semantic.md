@@ -4,6 +4,15 @@ The semantic layer provides a catalog of named entities, metrics, and mappings t
 
 All semantic objects follow the lifecycle: `draft` → `published` → `deprecated`. Only `published` objects are available for step execution. Publishing increments the object's `revision`.
 
+> **Note**
+> This document describes the current HTTP surface. Several shapes here are implementation-oriented legacy contracts. Target-state semantic design now lives in:
+>
+> - `docs/semantic/entity-schema-contract.zh.md`
+> - `docs/semantic/process-object-schema.zh.md`
+> - `docs/semantic/metric-v2-schema.zh.md`
+>
+> In particular, the current entity payload still uses fields like `keys`, `level`, `join_constraints`, and `properties.time_capabilities`. Those are not the target-state public semantic contract and will eventually be split across entity / binding / process contracts.
+
 ## Endpoints
 
 ### Entities
@@ -47,7 +56,7 @@ All semantic objects follow the lifecycle: `draft` → `published` → `deprecat
 
 ## Entities
 
-An **entity** represents a business object (user, video, content item) with identity keys, join constraints, and optional upstream dependencies. Entities are the subjects that metrics are measured over.
+An **entity** represents a business object in the current HTTP API. The current resource shape is still legacy and mixes identity, join, and implementation-oriented metadata. The target-state design narrows entity to a stable identity contract and moves process / binding concerns out of the entity surface.
 
 ### Create Entity
 

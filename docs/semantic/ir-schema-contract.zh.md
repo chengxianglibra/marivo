@@ -1,4 +1,4 @@
-# Semantic Compiler IR Schema 契约（草案）
+# Semantic Compiler IR Schema 契约（重构草案）
 
 本文定义 Factum semantic compiler 中 IR（intermediate representation）的目标 schema 契约。
 
@@ -15,7 +15,7 @@
 
 - IR 在 compiler 中的职责边界是什么
 - IR 与 `metric` / `process object` / `intent` 的关系是什么
-- IR 与 engine plan / final SQL 的关系是什么
+- IR 与 artifact、compile report、engine plan 的关系是什么
 - IR 的最小公共 schema 应如何设计
 - 如何保证 IR 抽象合理、跨引擎兼容且足以表达 Factum 的语义需求
 
@@ -27,14 +27,15 @@ Factum 已经将外部语义对象分离为：
 - `process object`：process contract
 - `intent`：analysis action contract
 
-接下来 compiler 需要一个稳定的内部目标，把上述三类输入编译为可校验、可降解、可追踪的计划结构。这个目标就是 IR。
+compiler 需要一个稳定的内部目标，把上述三类输入编译为可校验、可追踪、可 lower 的计划结构。这个目标就是 IR。
 
 本文的目标是为 IR 提供一套**typed semantic plan contract**，使其能够：
 
 - 承接 `metric`、`process object`、`intent` 的统一组合
-- 在进入执行层前完成显式 compatibility validation
-- 为不同 engine adapter 提供稳定的 lowering target
-- 在不暴露 SQL AST 的前提下保留语义、lineage 与 materialization boundary
+- 在进入 lowering 之前完成显式 compatibility validation
+- 以 canonical artifact 和 typed bindings 表达组合关系
+- 为不同 engine adapter 提供稳定的 lowering 输入
+- 在不暴露 SQL AST 的前提下保留语义、lineage 与 materialization 边界
 
 ## 非目标
 
@@ -51,21 +52,27 @@ Factum 已经将外部语义对象分离为：
 
 ## 核心设计结论
 
-推荐将 Factum compiler 分为四层：
+推荐将 Factum compiler 分为五层：
 
 1. **public semantic contracts**
    - `metric`
    - `process object`
    - `intent`
 2. **normalized compiler inputs**
-   - resolved metric contract
-   - normalized process contract
-   - normalized intent request
-3. **IR**
-   - typed semantic plan
-   - validation-aware
-   - engine-agnostic
-4. **execution-specific outputs**
+   - typed metric snapshot
+   - typed process snapshot
+   - typed intent request snapshot
+   - typed upstream artifact refs
+3. **semantic IR**
+   - engine-agnostic semantic plan
+   - artifact declarations
+   - input / output bindings
+4. **compile artifacts**
+   - validation trace
+   - semantic error report
+   - lowerability precheck result
+5. **execution-specific outputs**
+   - lowering request / lowering report
    - engine plan
    - final SQL / native query / execution kernel
 
@@ -73,28 +80,43 @@ Factum 已经将外部语义对象分离为：
 
 - public contracts 负责“声明什么”
 - normalized inputs 负责“把外部对象解析成统一输入”
-- IR 负责“表达要做的语义计划”
+- semantic IR 负责“表达要做的语义计划”
+- compile artifacts 负责“记录校验、拒绝和可降解性判断”
 - engine layer 负责“在某个执行引擎上如何完成”
 
-## 为什么需要单独的 IR 契约
+## 三个边界原则
 
-如果没有稳定 IR，系统很容易退化为两种不理想方式：
+### 1. Semantic IR 必须引擎无关
 
-- 方式一：让 `metric` / `process object` 直接携带大量执行细节
-- 方式二：让 compiler 直接把 public schema 临时拼成 SQL
+以下内容**不属于** Semantic IR 主契约：
 
-这两种方式都会导致：
+- `target_engine`
+- `required_engine_capabilities`
+- `fallback_policy`
+- `adapter_lowering`
+- `materialize_or_rewrite` 之类的执行决策
 
-- 语义边界和执行边界混淆
-- 兼容性规则分散在 ad hoc 编译逻辑中
-- engine 切换或优化时难以保证行为一致
-- lineage、materialization、error reporting 难以稳定表达
+这些属于 lowering request / lowering report 或 engine plan。
 
-IR 的价值就在于把这些复杂度收敛到一个**稳定、受类型约束、可解释**的内部层。
+### 2. typed refs 必须有一等 wiring 模型
+
+Factum 的组合边界不是自由 SQL，也不是松散字符串引用，而是：
+
+- canonical artifacts
+- typed upstream refs
+- slot-aware input bindings
+
+因此，IR 不应只保留 `depends_on`；还必须显式表达“哪个节点消费哪个 artifact、消费时扮演什么语义角色”。
+
+### 3. validation 结果与执行计划必须解耦
+
+IR 的职责是表达**成功编译后的可执行语义计划**。因此：
+
+- 非法组合应产出 typed semantic error，而不是失败的 `IrPlan`
+- validation trace 可以与 IR 同时返回，但不应把 `failed` / `skipped` 节点塞进核心 plan
+- engine capability 检查属于 compile / lowering 辅助产物，而不是语义节点族
 
 ## IR 必须满足的契约条件
-
-IR 至少应满足以下条件。
 
 ### 1. 语义完备
 
@@ -108,26 +130,26 @@ IR 必须能同时承接三类核心语义：
 
 - comparability
 - inferential readiness
-- quality / freshness / sample sufficiency gates
-- lineage 与 execution boundary
-
-如果某类信息直接影响“是否可比较、是否可检验、是否可执行”，那它要么在 IR 中有显式位置，要么在 IR 生成前被显式校验并沉淀为判定结果。
+- quality / freshness / sample sufficiency gates 的结果
+- lineage 与 artifact 边界
 
 ### 2. 类型显式
 
 IR 不应依赖自由文本、弱约束标签或运行时猜测。以下约束应是 typed 的：
 
-- `population_subject`
-- `emitted_entity`
-- `observation_grain`
+- `contract_mode`
+- `population_subject_ref`
+- `context_kind` / `entity_ref`
+- `observation_grain_ref`
 - `sample_kind`
 - `value_semantics`
 - `additivity`
 - `provided_capabilities`
-- `required_capabilities`
 - `comparison_contract`
 - `time_projection_support`
 - `inference_support`
+- `artifact_kind`
+- `binding_slot`
 
 ### 3. 执行无关
 
@@ -140,39 +162,35 @@ IR 不应直接固化以下内容：
 - 具体 window frame 语法
 - adapter 特有 hint
 
-这些属于 lowering / engine plan 层，不属于 IR 主契约。
-
 ### 4. 可降解
 
-IR 中每个节点都必须满足以下之一：
+Semantic IR 本身不承诺所有引擎都支持所有计划，但必须做到：
 
-- 可被某类 engine adapter 直接 lower
-- 可通过 materialization / rewrite / kernel selection 间接 lower
-- 若目标引擎不支持，可被**显式拒绝**
-
-IR 不应引入“理论上有语义，但没有任何可落地路径”的悬空节点。
+- 语义需求可被 lowering 明确读取
+- lowerability precheck 可明确给出“存在 / 不存在落地路径”
+- 若无落地路径，可被显式拒绝
 
 ### 5. 可校验
 
-IR 必须支持两类结果：
+编译必须支持两类结果：
 
-- 合法组合被统一编译
-- 非法组合被统一拒绝
+- 合法组合被统一编译为 `IrBundle`
+- 非法组合被统一拒绝为 `SemanticCompileError`
 
 系统不应把“语义不兼容”留到最后变成 SQL 失败。
 
 ### 6. 可追踪
 
-IR 至少应保留以下可追踪性信息：
+IR 与 compile artifacts 至少应保留以下可追踪性信息：
 
 - 来源的 `metric` / `process object` / `intent` 引用
 - normalization 结果
-- validation 决策
-- execution boundary
-- materialization boundary
+- typed upstream refs
+- artifact lineage
+- lowerability precheck 结论
 - 输出 artifact / result mode 对应关系
 
-## IR 与 compiler / engine / SQL 的关系
+## Compiler / IR / Lowering 的关系
 
 推荐的职责边界如下：
 
@@ -182,46 +200,46 @@ compiler 负责：
 
 - 解析 public semantic contracts
 - 执行组合期 validation
-- 生成 IR
-- 根据目标引擎把 IR lower 为 engine plan
+- 生成 Semantic IR
+- 生成 compile report
+- 向 adapter 发起 lowering request
 
-### IR
+### Semantic IR
 
-IR 负责：
+Semantic IR 负责：
 
-- 表达“要计算什么”“要验证什么”“要产出什么”
-- 表达稳定的语义节点和节点关系
-- 表达 lowering 所需的边界与要求
+- 表达“要计算什么”“要产出什么”
+- 表达稳定的语义节点和 artifact 关系
+- 表达 typed ref / slot binding 的消费关系
 
-IR 不负责：
+Semantic IR 不负责：
 
+- 记录失败校验
+- 记录具体目标引擎与 fallback 决策
 - 直接决定最终 SQL 长什么样
-- 决定某引擎的最优 join / CTE / UDF 写法
+
+### Compile Report
+
+Compile Report 负责：
+
+- 记录 validation trace
+- 记录 lowerability precheck
+- 在失败时承载 typed semantic error
 
 ### Engine Plan
 
 engine plan 负责：
 
-- 把 IR 转译成某个执行引擎可接受的计算策略
+- 把 Semantic IR 转译成某个执行引擎可接受的计算策略
+- 做 capability matching
 - 选择 kernel、materialization 和 adapter-specific rewrite
-- 确认某些节点由 SQL、UDF、原生算子还是多阶段执行承接
-
-### Final SQL
-
-final SQL 只是 engine plan 的一种产物。对某些引擎，也可能是：
-
-- 原生 query object
-- pipeline stage graph
-- engine-specific operator tree
-- SQL + temporary materialization steps 的组合
+- 生成 final SQL / native execution
 
 因此，更稳定的关系是：
 
-> public semantic contracts -> normalized inputs -> IR -> engine plan -> final SQL / native execution
+> public semantic contracts -> normalized inputs -> semantic IR + compile report -> lowering request -> engine plan -> final SQL / native execution
 
 ## Compiler phase 建议
-
-建议 compiler 至少显式划分以下阶段。
 
 ### Phase 0：对象发布校验（发布时）
 
@@ -235,61 +253,50 @@ final SQL 只是 engine plan 的一种产物。对某些引擎，也可能是：
 
 ### Phase 1：请求归一化
 
-将一次 intent 请求解析为 normalized inputs，例如：
+将一次 intent 请求解析为 typed normalized inputs，例如：
 
 - intent kind
-- metric ref
-- process ref / left_process / right_process
+- root anchors / typed refs
+- scope / time scope
 - dimensions
 - result mode
-- scope / time scope / comparison side bindings
+- request-time options
 
-这里需要强调：
-
-- `process input` 不应是新的 public semantic object
-- 更合适的做法是：`process_ref + request-time bindings / overrides`
-
-也就是说，request 层可以有 process input，但它只是实例化某个 process object 的输入绑定，不应与 `metric`、`process object`、`intent` 并列为新的语义主对象。
-
-### Phase 2：对象解析与 normalized contract 生成
+### Phase 2：对象解析与 typed snapshot 生成
 
 compiler 将：
 
-- `metric` 解析为 normalized measurement contract
-- `process object` 解析为 normalized process contract
-- `intent request` 解析为 normalized action contract
-
-其中，`process object` 至少建议经历：
-
-1. subtype payload -> normalized output contract
-2. normalized output contract + request bindings -> normalized process contract
+- `metric` 解析为 typed metric snapshot
+- `process object` 解析为 typed process snapshot
+- `intent request` 解析为 typed action snapshot
+- upstream refs 解析为 typed artifact ref snapshot
 
 ### Phase 3：组合期校验链
 
-这是 compiler 中最关键的语义 gate。建议依次校验：
+建议依次校验：
 
 1. 请求输入形状是否合法
 2. intent 是否允许消费当前 slot 组合
 3. metric 是否支持该 intent
-4. process output 是否满足 metric `required_process_contract`
+4. process interface 是否满足 metric `required_process_contract`
 5. grain / subject / entity 是否兼容
 6. additivity 是否满足 `decompose` / `attribute`
 7. inference / comparison / time projection 是否满足 `test` / `validate` / `detect`
 8. quality / freshness / governance gate 是否通过
+9. 是否存在可 lower 的路径
 
 若失败，应返回 typed semantic error，而不是 engine error。
 
 ### Phase 4：IR 构建
 
-在前述校验通过后，compiler 构建 IR plan：
+在前述校验通过后，compiler 构建：
 
-- measurement nodes
-- process nodes
-- intent nodes
-- validation nodes
-- execution boundary nodes
+- semantic nodes
+- artifact declarations
+- node input bindings
+- node output bindings
 
-### Phase 5：Lowering 与 engine capability matching
+### Phase 5：Lowering
 
 engine adapter 读取 IR，并执行：
 
@@ -300,7 +307,7 @@ engine adapter 读取 IR，并执行：
 
 ## IR 的最小公共 Schema
 
-下面给出一个建议性的最小公共结构。
+下面给出建议性的最小公共结构。
 
 ### 1. Plan Header
 
@@ -310,42 +317,150 @@ from typing import Literal, NotRequired, TypedDict
 
 class IrPlanHeader(TypedDict):
     ir_version: str
-    intent_kind: str
+    plan_id: str
+    plan_kind: Literal["atomic", "derived"]
+    root_intent_kind: str
     result_mode: NotRequired[str | None]
-    target_engine: NotRequired[str | None]
-    metric_ref: NotRequired[str | None]
-    process_ref: NotRequired[str | None]
-    left_process_ref: NotRequired[str | None]
-    right_process_ref: NotRequired[str | None]
 ```
 
 说明：
 
-- `metric_ref` / `process_ref` 保留 lineage 入口
-- `target_engine` 不是语义主键，只是 lowering 上下文
-- 双侧比较类 intent 可以使用 `left_process_ref` / `right_process_ref`
+- header 只保留 plan 元信息
+- `metric_ref` / `process_ref` / `left_process_ref` / `right_process_ref` 不再放在 header 中
+- 语义锚点统一进入 typed input snapshots 和 artifact bindings
 
-### 2. Normalized Input Snapshot
+### 2. Typed Input Snapshots
 
 ```python
-from typing import Any, NotRequired, TypedDict
+from typing import Literal, NotRequired, TypedDict
+
+
+class ComparisonContract(TypedDict):
+    contract_kind: Literal["self_comparable", "paired_comparable", "cohort_comparable"]
+    comparability_group: NotRequired[str | None]
+    requires_equal_grain: bool
+
+
+class TimeProjectionSupport(TypedDict):
+    supports_time_series: bool
+    supports_window_shift: bool
+    supports_baseline_projection: bool
+
+
+class InferenceSupport(TypedDict):
+    supports_sample_summary_prep: bool
+    supported_sample_kinds: list[Literal["numeric", "rate", "binary", "survival"]]
+    supported_test_methods: list[str]
+
+
+class MetricSemanticSnapshot(TypedDict):
+    metric_ref: str
+    observed_entity_ref: str
+    observation_grain_ref: str
+    sample_kind: Literal["numeric", "rate", "binary", "survival"]
+    value_semantics: str
+    additivity: Literal["additive", "semi_additive", "non_additive"]
+    supported_intents: list[str]
+    supported_result_modes: NotRequired[list[str] | None]
+
+
+class ProcessSemanticSnapshot(TypedDict):
+    process_ref: str
+    process_type: str
+    contract_mode: Literal["context_provider", "entity_stream"]
+    population_subject_ref: str
+    context_kind: NotRequired[str | None]
+    entity_ref: NotRequired[str | None]
+    emitted_grain_ref: NotRequired[str | None]
+    membership_cardinality: NotRequired[
+        Literal["exclusive_one", "repeatable_many"] | None
+    ]
+    subject_cardinality: NotRequired[Literal["one", "many"] | None]
+    provided_capabilities: list[str]
+    exported_dimension_refs: NotRequired[list[str] | None]
+    comparison_contract: NotRequired[ComparisonContract | None]
+    time_projection_support: NotRequired[TimeProjectionSupport | None]
+    inference_support: NotRequired[InferenceSupport | None]
+
+
+class ArtifactRefSnapshot(TypedDict):
+    ref_name: str
+    artifact_kind: str
+    source_artifact_id: str
+    producer_intent_kind: str
+
+
+class IntentRequestSnapshot(TypedDict):
+    intent_kind: str
+    request_class: Literal["root_metric_process", "typed_ref", "derived_macro"]
+    requested_dimensions: NotRequired[list[str] | None]
+    requested_result_mode: NotRequired[str | None]
+    request_scope_ref: NotRequired[str | None]
+    request_time_scope_ref: NotRequired[str | None]
+    request_options: NotRequired[dict[str, str | int | float | bool | None] | None]
 
 
 class IrInputSnapshot(TypedDict):
-    normalized_metric: NotRequired[dict[str, Any] | None]
-    normalized_process: NotRequired[dict[str, Any] | None]
-    normalized_left_process: NotRequired[dict[str, Any] | None]
-    normalized_right_process: NotRequired[dict[str, Any] | None]
-    normalized_intent: dict[str, Any]
+    metric: NotRequired[MetricSemanticSnapshot | None]
+    processes: NotRequired[list[ProcessSemanticSnapshot] | None]
+    upstream_refs: NotRequired[list[ArtifactRefSnapshot] | None]
+    intent_request: IntentRequestSnapshot
 ```
 
 说明：
 
-- 这里的目标是保留“编译时解释后的统一输入”
-- 它不是 public schema 的简单复制
-- 也不应直接嵌入 engine-specific plan
+- 编译快照必须是 typed 的，而不是 `dict[str, Any]`
+- `comparison_contract`、`time_projection_support`、`inference_support` 在本契约中直接定义
+- `upstream_refs` 明确承接 typed ref 入口，而不是只留字符串列表
 
-### 3. Node Header
+### 3. Artifact 与 Binding 模型
+
+```python
+from typing import Literal, NotRequired, TypedDict
+
+
+class ArtifactLineageEntry(TypedDict):
+    source_artifact_id: str
+    relationship: Literal["consumes", "derives_from", "compares", "tests", "projects"]
+
+
+class IrArtifact(TypedDict):
+    artifact_id: str
+    artifact_kind: str
+    producer_node_id: str
+    output_semantics_ref: NotRequired[str | None]
+    result_mode: NotRequired[str | None]
+    lineage: NotRequired[list[ArtifactLineageEntry] | None]
+
+
+class InputBinding(TypedDict):
+    slot_name: str
+    artifact_kind: str
+    artifact_id: str
+    semantic_role: Literal[
+        "source",
+        "left",
+        "right",
+        "compare_source",
+        "decompose_source",
+        "test_left",
+        "test_right",
+        "forecast_source",
+    ]
+
+
+class OutputBinding(TypedDict):
+    artifact_id: str
+    artifact_kind: str
+```
+
+说明：
+
+- artifact 是 IR 中的一等对象，不再只是 `lineage_refs`
+- binding 必须按 slot 和语义角色建模，不能只靠 `depends_on`
+- typed-ref intent 的组合关系通过 binding 表达，而不是通过重建 root anchors
+
+### 4. Node Header
 
 ```python
 from typing import Literal, NotRequired, TypedDict
@@ -353,18 +468,13 @@ from typing import Literal, NotRequired, TypedDict
 
 class IrNodeHeader(TypedDict):
     node_id: str
-    node_type: Literal[
-        "measurement",
-        "process",
-        "intent",
-        "validation",
-        "execution_boundary",
-    ]
+    node_type: Literal["measurement", "process", "intent"]
     depends_on: NotRequired[list[str] | None]
-    lineage_refs: NotRequired[list[str] | None]
+    input_bindings: NotRequired[list[InputBinding] | None]
+    output_bindings: NotRequired[list[OutputBinding] | None]
 ```
 
-### 4. Measurement Node
+### 5. Measurement Node
 
 ```python
 from typing import Literal, NotRequired, TypedDict
@@ -373,22 +483,15 @@ from typing import Literal, NotRequired, TypedDict
 class MeasurementNode(IrNodeHeader):
     node_type: Literal["measurement"]
     metric_ref: str
-    observed_entity: str
-    observation_grain: str
+    observed_entity_ref: str
+    observation_grain_ref: str
     sample_kind: Literal["numeric", "rate", "binary", "survival"]
     value_semantics: str
     additivity: Literal["additive", "semi_additive", "non_additive"]
-    aggregation_scope: NotRequired[str | None]
-    measurement_components: NotRequired[list[str] | None]
     inferential_summary_mode: NotRequired[str | None]
 ```
 
-说明：
-
-- `measurement_components` 可引用 numerator / denominator / value source 的 normalized component
-- `inferential_summary_mode` 表示本次计划是否要求 sample summary prep
-
-### 5. Process Node
+### 6. Process Node
 
 ```python
 from typing import Literal, NotRequired, TypedDict
@@ -398,53 +501,50 @@ class ProcessNode(IrNodeHeader):
     node_type: Literal["process"]
     process_ref: str
     process_type: str
-    population_subject: str
-    emitted_entity: str
-    entity_grain: str
-    cardinality_per_subject: Literal["one", "many"]
-    anchor_time_ref: NotRequired[str | None]
+    contract_mode: Literal["context_provider", "entity_stream"]
+    population_subject_ref: str
+    context_kind: NotRequired[str | None]
+    entity_ref: NotRequired[str | None]
+    emitted_grain_ref: NotRequired[str | None]
+    membership_cardinality: NotRequired[
+        Literal["exclusive_one", "repeatable_many"] | None
+    ]
+    subject_cardinality: NotRequired[Literal["one", "many"] | None]
     provided_capabilities: list[str]
-    exported_dimension_refs: NotRequired[list[str] | None]
-    comparison_contract_ref: NotRequired[str | None]
-    time_projection_support_ref: NotRequired[str | None]
-    inference_support_ref: NotRequired[str | None]
+    comparison_contract: NotRequired[ComparisonContract | None]
+    time_projection_support: NotRequired[TimeProjectionSupport | None]
+    inference_support: NotRequired[InferenceSupport | None]
 ```
 
-说明：
-
-- 这里表达的是“统一过程结果接口”，而不是 subtype 原始 payload
-- subtype 细节可在 compiler normalization 中解析，但不必全部直接暴露在 IR 公共头部中
-
-### 6. Intent Node
-
-```python
-from typing import NotRequired, TypedDict
-
-
-class IntentNode(IrNodeHeader):
-    node_type: Literal["intent"]
-    intent_kind: str
-    requested_dimensions: NotRequired[list[str] | None]
-    requested_result_mode: NotRequired[str | None]
-    requested_scope_ref: NotRequired[str | None]
-    requested_time_scope_ref: NotRequired[str | None]
-    output_artifact_kind: NotRequired[str | None]
-```
-
-说明：
-
-- `intent` 仍是动作语义主语
-- IR 不替代 typed intent step，而是承接其编译后的内部动作计划
-
-### 7. Validation Node
+### 7. Intent Node
 
 ```python
 from typing import Literal, NotRequired, TypedDict
 
 
-class ValidationNode(IrNodeHeader):
-    node_type: Literal["validation"]
+class IntentNode(IrNodeHeader):
+    node_type: Literal["intent"]
+    intent_kind: str
+    intent_level: Literal["root", "expanded_atomic"]
+    requested_dimensions: NotRequired[list[str] | None]
+    requested_result_mode: NotRequired[str | None]
+```
+
+说明：
+
+- derived intent 可以保留一个顶层 `IntentNode(intent_level="root")`
+- 内部 atomic expansion 使用 `intent_level="expanded_atomic"`
+- 不再通过 `ValidationNode` 或 `ExecutionBoundaryNode` 表达编译结果
+
+### 8. Compile Report
+
+```python
+from typing import Literal, NotRequired, TypedDict
+
+
+class ValidationRecord(TypedDict):
     validation_kind: Literal[
+        "request_shape",
         "intent_support",
         "process_compatibility",
         "comparability_gate",
@@ -452,42 +552,63 @@ class ValidationNode(IrNodeHeader):
         "quality_gate",
         "freshness_gate",
         "sample_sufficiency_gate",
-        "engine_capability_gate",
+        "lowerability_precheck",
     ]
-    status: Literal["passed", "failed", "skipped"]
+    status: Literal["passed"]
     reason_code: NotRequired[str | None]
-    details_ref: NotRequired[str | None]
+
+
+class SemanticCompileError(TypedDict):
+    error_code: str
+    failed_gate: str
+    message: str
+
+
+class LoweringRequirement(TypedDict):
+    requirement_kind: str
+    source_node_id: str
+
+
+class CompileReport(TypedDict):
+    validation_trace: list[ValidationRecord]
+    lowering_requirements: NotRequired[list[LoweringRequirement] | None]
 ```
 
 说明：
 
-- 并非所有 gate 都必须作为独立节点暴露给最终执行层
-- 但它们应当在 IR 或与 IR 同级的编译产物中有稳定位置
+- 成功编译后的 `CompileReport` 只保留通过的 validation trace
+- 失败时返回 `SemanticCompileError`，而不是带 `failed` 节点的 `IrPlan`
+- lowering requirement 描述“需要什么能力”，不提前绑定某个 engine
 
-### 8. Execution Boundary Node
+### 9. Lowering Request / Report
 
 ```python
 from typing import Literal, NotRequired, TypedDict
 
 
-class ExecutionBoundaryNode(IrNodeHeader):
-    node_type: Literal["execution_boundary"]
-    boundary_kind: Literal[
-        "materialization",
-        "adapter_lowering",
-        "engine_handoff",
-        "lineage_checkpoint",
-    ]
-    required_engine_capabilities: NotRequired[list[str] | None]
-    fallback_policy: NotRequired[Literal["rewrite", "materialize", "reject"] | None]
+class LoweringRequest(TypedDict):
+    target_engine: str
+    ir_plan_id: str
+    requirements: list[LoweringRequirement]
+
+
+class LoweringDecision(TypedDict):
+    source_node_id: str
+    decision_kind: Literal["direct_lower", "rewrite", "materialize"]
+    selected_engine_capability: NotRequired[str | None]
+
+
+class LoweringReport(TypedDict):
+    target_engine: str
+    decisions: list[LoweringDecision]
 ```
 
 说明：
 
-- 该节点用于显式表达“何处开始需要 engine-specific 决策”
-- 这能避免把 lowering 逻辑隐式散落在各类语义节点里
+- `target_engine` 与 fallback 决策属于 lowering，而不是 Semantic IR
+- `materialize` / `rewrite` 是 lowering report 的决策，不再作为语义节点出现
 
-### 9. IR Plan
+### 10. IR Bundle
 
 ```python
 from typing import TypedDict
@@ -496,124 +617,56 @@ from typing import TypedDict
 class IrPlan(TypedDict):
     header: IrPlanHeader
     inputs: IrInputSnapshot
-    nodes: list[
-        MeasurementNode
-        | ProcessNode
-        | IntentNode
-        | ValidationNode
-        | ExecutionBoundaryNode
-    ]
+    artifacts: list[IrArtifact]
+    nodes: list[MeasurementNode | ProcessNode | IntentNode]
+
+
+class IrBundle(TypedDict):
+    plan: IrPlan
+    compile_report: CompileReport
 ```
 
-## 为什么这种抽象是合理的
+## 为什么这种抽象更合理
 
-### 1. 以 Factum 的重复语义为抽象中心
+### 1. graph 才是唯一语义事实来源
 
-IR 不应抽象 SQL 技巧，而应抽象 Factum 中反复出现的稳定语义：
+旧设计把 root refs 放在 header，同时又在 nodes 中重复表达，会形成双重真相。重构后：
 
-- measurement
-- process resolution
-- analysis action
-- validation / governance
-- execution boundary
+- header 只保留 plan 元信息
+- roots、refs、上游 artifact 全部进入 typed snapshots 与 bindings
+- graph 和 artifact wiring 成为唯一语义事实来源
 
-这正是 Factum 在 `metric` / `process object` / `intent` 三层分离后，真正稳定存在的内部问题空间。
+### 2. typed ref 组合不再悬空
 
-### 2. 保留“最小充分抽象”
+像 `compare(left_ref, right_ref)`、`decompose(compare_ref, dimension)`、`forecast(source_ref)` 这类组合，都必须知道：
 
-IR 需要避免两个极端：
+- 消费的是哪类 artifact
+- 在当前节点里扮演哪个 slot
+- 输出的新 artifact 是什么
 
-- 过低：退化成 SQL AST 或 adapter DSL
-- 过高：只有一些空泛概念，无法 lower
+artifact + binding 模型正是为了解决这个问题。
 
-更好的原则是：
+### 3. compile 失败与 lowering 决策不再污染 IR
 
-- 对经常复用的语义做一等建模
-- 对容易随引擎变化的执行技巧不做主抽象
-- 对复杂 subtype 的实现细节保留在 normalization / adapter 中
+把失败校验和引擎决策移出 IR 后：
 
-### 3. 把复杂性集中在可解释边界
-
-复杂场景如：
-
-- experiment contamination exclusion
-- funnel matching
-- sessionization
-- path search
-- lifecycle resolution
-
-都应以 `ProcessNode + ExecutionBoundaryNode` 的方式进入 IR，而不是让外部 schema 直接背负这些实现细节。
+- 成功计划的语义更稳定
+- cache key / audit key 更稳定
+- 引擎切换不会改写语义 plan 本身
 
 ## 如何保证跨引擎兼容性
 
-IR 不需要承诺所有引擎都支持所有节点，但必须承诺：
+Semantic IR 不需要承诺所有引擎都支持所有计划，但必须承诺：
 
-- 每个节点的能力需求可描述
-- 每个目标引擎的能力边界可匹配
-- 不支持时可明确 reject
-
-推荐引入 engine capability matrix。
-
-### Engine Capability 示例
-
-```python
-from typing import Literal, TypedDict
-
-
-EngineCapability = Literal[
-    "basic_aggregate",
-    "window_function",
-    "distinct_count",
-    "percentile_exact",
-    "percentile_approx",
-    "session_partition",
-    "sequence_match",
-    "state_resolution",
-    "survival_estimation",
-    "temporary_materialization",
-]
-
-
-class EngineCapabilityMatrix(TypedDict):
-    engine_name: str
-    supported_capabilities: list[EngineCapability]
-```
-
-建议 adapter 在 lowering 时执行：
-
-- `ProcessNode` / `MeasurementNode` 的 capability 匹配
-- `ExecutionBoundaryNode.required_engine_capabilities` 检查
-- 必要时的 rewrite / materialize / reject
+- 每个节点的 lowering requirement 可描述
+- lowering request 可以独立携带目标引擎
+- adapter 可以把 capability matching 与 fallback 决策写入 lowering report
 
 这样，IR 与引擎之间的关系就是：
 
-- IR 表达语义所需能力
-- adapter 判断目标引擎是否满足这些能力
-- engine plan 决定具体如何落地
-
-## 如何保证表达能力覆盖 Factum 需求
-
-判断 IR 是否足够，不应看它能否复制任意 SQL，而应看它能否稳定承接 Factum 的主要组合。
-
-至少应覆盖以下模式：
-
-- `observe(metric + process)`
-- `compare(metric + left_process + right_process)`
-- `validate(metric + experiment_context)`
-- `attribute(metric + funnel_definition + dimensions)`
-- `detect(metric + session_contract)`
-- `observe(metric + lifecycle_state_machine)`
-
-也就是说，IR 至少要能表达：
-
-- 单侧 observation
-- 双侧 comparison
-- inferential preparation
-- decomposition / attribution 前置约束
-- time projection
-- process-derived dimensions
-
-如果一个 semantic 组合能被 public contracts 合法表达，但 IR 无法表示，那说明 IR 抽象不完整。
+- IR 表达语义和 artifact 关系
+- compile report 表达 lowerability 前提
+- lowering report 决定具体如何落地
 
 ## 典型编译样例
 
@@ -621,20 +674,22 @@ class EngineCapabilityMatrix(TypedDict):
 
 IR 至少应包括：
 
-- 一个 `ProcessNode`：提供 `variant_split + population_membership + sample_summary_prep`
+- 一个 `ProcessNode`：提供 experiment split context resolution
 - 一个 `MeasurementNode`：表达 rate measurement
-- 一个 `ValidationNode`：检查 inference gate
-- 一个 `IntentNode`：表达 `validate`
-- 一个 `ExecutionBoundaryNode`：交给实验分析 adapter / engine lowering
+- 一个顶层 `IntentNode(intent_kind="validate")`
+- 两个由内部 expansion 生成的 `observe` / `test` 相关 `IntentNode`
+- 左右 observation artifact 与 test artifact 的显式 bindings
+- `CompileReport.validation_trace` 中的 `inference_gate`
 
 ### 2. `retention_rate + cohort_definition + compare`
 
 IR 至少应包括：
 
-- 左右两个 `ProcessNode`
-- 一个 `MeasurementNode`
-- 一个 comparability `ValidationNode`
+- 左右两个上游 observation artifact ref
 - 一个 `IntentNode(intent_kind="compare")`
+- `left` / `right` 两个 input bindings
+- 一个 compare artifact
+- `CompileReport.validation_trace` 中的 `comparability_gate`
 
 ### 3. `avg_watch_time + session_contract + detect`
 
@@ -642,25 +697,24 @@ IR 至少应包括：
 
 - 一个 session `ProcessNode`
 - 一个 numeric `MeasurementNode`
-- 一个 `ValidationNode(validation_kind="engine_capability_gate")`
 - 一个 `IntentNode(intent_kind="detect")`
+- 输出 time-series artifact 的声明
+- `CompileReport.validation_trace` 中的 `lowerability_precheck`
 
 ## 典型拒绝场景
 
-以下情况应在 compiler / IR 阶段明确拒绝：
+以下情况应在 compiler / compile report 阶段明确拒绝：
 
 - `non_additive` rate metric 请求 additive `decompose`
-- process 无 `time_projection` 能力却请求 `detect`
-- process 无 `sample_summary_prep` 却请求 `validate`
+- process 无 `time_projection_support` 却请求 `detect`
+- process 无 `supports_sample_summary_prep` 却请求 `validate`
 - 左右 process `comparison_contract` 不兼容却请求 `compare`
-- metric `observation_grain` 与 process `entity_grain` 不兼容
-- 目标 engine 不支持所需 capability，且无 `rewrite` / `materialize` 路径
+- metric `observation_grain_ref` 与 process `emitted_grain_ref` 不兼容
+- 不存在可 lower 的路径
 
-这些都应产出 typed semantic error，而不是运行到 SQL 层才失败。
+这些都应产出 `SemanticCompileError`，而不是运行到 SQL 层才失败。
 
 ## Validator / Compiler / Adapter 的边界
-
-推荐按以下方式分责：
 
 ### Validator
 
@@ -677,7 +731,8 @@ IR 至少应包括：
 - resolve refs
 - normalize inputs
 - validate combination
-- build IR
+- build semantic IR
+- produce compile report
 
 ### Adapter
 
@@ -702,7 +757,8 @@ Factum 对外仍应保持 typed analysis step 作为主要交互契约。
 
 - intent step 是外部动作 contract
 - IR 是 compiler 内部 contract
-- artifact / projection 是执行后输出 contract
+- artifact 是执行前后组合边界
+- lowering report 是 engine-specific 执行决策记录
 
 IR 不应替代：
 
@@ -711,7 +767,7 @@ IR 不应替代：
 
 更准确的关系是：
 
-> typed intent step 进入 semantic compiler 后，结合 `metric` 与 `process object` 被编译为 IR；IR 再被 lower 为 engine plan，并最终产生 artifact。
+> typed intent step 进入 semantic compiler 后，结合 `metric` 与 `process object` 被编译为 Semantic IR；IR 再通过 lowering request 进入 adapter，并最终产生 engine plan 与 artifact。
 
 ## 迁移建议
 
@@ -719,21 +775,22 @@ IR 不应替代：
 
 ### 第一阶段：补齐 IR 文档与术语
 
-- 统一 `normalized contract`、`IR node`、`engine plan`、`execution boundary` 的命名
-- 明确 validator / compiler / adapter 的边界
+- 统一 `typed input snapshot`、`artifact binding`、`compile report`、`lowering report` 的命名
+- 删除 IR 中的 engine-specific 字段
 
 ### 第二阶段：将现有 compiler 逻辑按 phase 收敛
 
 - resolve
 - normalize
 - validate
-- build IR
+- build semantic IR
+- emit compile report
 - lower
 
-### 第三阶段：建立 engine capability matrix
+### 第三阶段：建立 lowering requirement matrix
 
-- 明确每个 adapter 支持哪些 capability
-- 明确哪些节点可 rewrite / materialize / reject
+- 明确每类节点会提出哪些 lowering requirements
+- 明确哪些 requirements 可 direct lower / rewrite / materialize
 
 ### 第四阶段：为典型 intent 建立 golden compilation cases
 
@@ -747,9 +804,9 @@ IR 不应替代：
 
 验证目标包括：
 
-- 是否能产出稳定 IR
+- 是否能产出稳定 Semantic IR
 - 是否能产出稳定拒绝错误
-- 是否能在不同 engine 上保持一致语义
+- 是否能在不同 engine 上共享同一语义 plan
 
 ## 总结
 
@@ -757,9 +814,9 @@ IR 不应替代：
 
 - compiler 的稳定内部目标
 - 承接 `metric` / `process object` / `intent` 的 typed semantic plan
-- 兼容 validation、lineage 与 execution boundary 的统一表示
-- 供不同 engine adapter 降解为 execution plan 的中间契约
+- 以 artifact 和 binding 表达 typed-ref 组合
+- 通过 compile report 和 lowering report 与执行层解耦
 
 一句话总结：
 
-> Factum 的 IR 应当以“语义完备、类型显式、执行无关、可降解、可校验、可追踪”为设计原则，把 `metric` / `process object` / `intent` 的受约束组合编译为稳定的 typed semantic plan，再由 adapter 将其 lower 为 engine-specific execution plan 与最终 SQL。
+> Factum 的 IR 应当保持语义 plan 与引擎决策分层：核心 IR 只表达 typed semantic graph 与 artifact wiring，validation 失败进入 compile error，engine capability / fallback / materialization 进入 lowering report，再由 adapter 将其 lower 为 engine-specific execution plan 与最终 SQL。

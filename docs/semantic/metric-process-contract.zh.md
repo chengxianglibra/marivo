@@ -200,7 +200,7 @@
 例如：
 
 - `conversion_rate` 声明自己是 `rate`
-- `experiment_context` 声明自己输出 treatment / control population
+- `experiment_context` 声明自己提供 experiment split context
 - `validate` 再校验该组合是否满足 `two_proportion_z` 的要求
 
 ### 5. 让 compiler 能承担复杂性，而不是把复杂性泄漏给外部契约
@@ -233,8 +233,9 @@
 type MetricContract = {
   name: string;
   description?: string | null;
-  subject_key_semantics: string;
-  observation_unit: "user" | "device" | "session" | "order" | "event";
+  population_subject_ref?: string | null;
+  observed_entity_ref: string;
+  observation_grain_ref: string;
   sample_kind: "numeric" | "rate" | "binary" | "survival";
   value_semantics: "count" | "sum" | "ratio" | "mean" | "percentile" | "score";
   numerator?: MeasurementComponent | null;
@@ -291,13 +292,24 @@ type ProcessObjectHeader = {
     | "path_pattern"
     | "lifecycle_state_machine";
   description?: string | null;
-  subject_key_semantics: string;
-  output_grain: "user" | "device" | "session" | "event";
-  supported_intents?: string[] | null;
-  compatibility_tags?: string[] | null;
   quality_gate_refs?: string[] | null;
   process_contract_version: string;
 };
+
+type ProcessInterfaceContract =
+  | {
+      contract_mode: "context_provider";
+      context_kind: "cohort_membership" | "experiment_split";
+      population_subject_ref: string;
+      membership_cardinality: "exclusive_one" | "repeatable_many";
+    }
+  | {
+      contract_mode: "entity_stream";
+      entity_ref: string;
+      emitted_grain_ref: string;
+      population_subject_ref: string;
+      subject_cardinality: "one" | "many";
+    };
 ```
 
 ### 各类 Process Object 示例
@@ -307,10 +319,10 @@ type ProcessObjectHeader = {
 用于稳定定义实验分析总体的构造语义，例如：
 
 - assignment 还是 exposure 作为归因基础
-- first exposure 还是 any exposure
+- first exposure 还是 last exposure
 - contamination exclusion
 - attribution window
-- variant population resolution
+- variant split context
 
 它不直接表示“转化率”或“崩溃率”，而是表示这些指标要作用在哪个实验语义上下文中。
 
@@ -427,9 +439,7 @@ IR 需要能承接以下三类语义：
 type IrNode =
   | MeasurementNode
   | ProcessNode
-  | IntentNode
-  | ValidationNode
-  | ExecutionBoundaryNode;
+  | IntentNode;
 ```
 
 其中：
@@ -437,8 +447,13 @@ type IrNode =
 - `MeasurementNode`：分子/分母、聚合、sample summary、value semantics
 - `ProcessNode`：cohort build、sessionize、funnelize、path match、state resolve
 - `IntentNode`：observe、compare、test、decompose 等动作
-- `ValidationNode`：comparability gate、quality gate、sample sufficiency gate
-- `ExecutionBoundaryNode`：engine adapter、materialization boundary、lineage boundary
+
+同时，IR 还必须显式表达：
+
+- `IrArtifact`：canonical artifact 声明与 lineage
+- `InputBinding` / `OutputBinding`：typed ref 的 slot-aware wiring
+- `CompileReport`：validation trace 与 lowerability precheck
+- `LoweringReport`：engine capability / rewrite / materialization 决策
 
 ### IR 能否支持三者任意组合
 
@@ -470,8 +485,8 @@ type IrNode =
 
 - `decompose` 一个 `non_additive` 的 rate metric，但要求做 additive delta 对账
 - `validate` 一个无法产出 inferential-ready sample summary 的 path metric
-- `compare` 两个 comparability contract 不兼容的 process outputs
-- `detect` 一个 process output 无法稳定构造成 time series 的指标
+- `compare` 两个 comparability contract 不兼容的 process interfaces
+- `detect` 一个 process interface 无法稳定构造成 time series 的指标
 
 错误应反映**语义不兼容**，而不是暴露底层 SQL 失败。
 
@@ -498,12 +513,12 @@ type IrNode =
 语义分工：
 
 - `metric` 定义转化率是一个 `rate`，并声明默认 inferential contract
-- `process` 定义 treatment / control 总体如何解析，assignment 还是 exposure，窗口多大
+- `process` 定义 experiment split context 如何解析，assignment 还是 exposure，窗口多大
 - `intent` 固化“验证差异是否显著”的分析动作
 
 IR 负责：
 
-- 解析 variant population
+- 解析 experiment split context
 - 构造 left / right population
 - 做 dedup 与 contamination exclusion
 - 生成 rate sample summary
@@ -632,12 +647,12 @@ IR 负责：
 
 推荐至少校验以下维度：
 
-- `subject_key_semantics` 是否一致
+- `population_subject_ref` 是否一致
 - grain 是否兼容
 - `sample_kind` 是否满足 intent 前提
 - `additivity` 是否满足 `decompose` / `attribute` 前提
-- process output 是否支持时间序列化
-- process output 是否满足 comparability gate
+- process interface 是否支持时间序列化
+- process interface 是否满足 comparability gate
 - quality gate / freshness gate 是否通过
 
 这类校验应优先给出 typed、可解释的错误，而不是底层 engine 异常。

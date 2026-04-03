@@ -63,7 +63,7 @@ Metadata reads use synced `source_objects`, not live catalogs.
 
 ## Model
 
-**Layers:** Physical (synced source objects) → Semantic (entities/metrics/mappings) → Evidence canonical (sessions, steps, artifacts, findings, propositions, assessments, evidence_gaps, inference_records, action_proposals) → Evidence legacy/phase-6 removal (observations, claims, evidence_edges, recommendations).
+**Layers:** Physical (synced source objects) → Semantic (entities/metrics/mappings) → Evidence canonical (sessions, steps, artifacts, findings, propositions, assessments, evidence_gaps, inference_records, action_proposals).
 
 **Canonical pipeline:** `artifact → finding → proposition → assessment → action_proposal`. DDL: `app/storage/schema.py`.
 
@@ -93,6 +93,9 @@ Metadata reads use synced `source_objects`, not live catalogs.
 
 **Version policy:** 6 axes. Bump classes: `artifact_schema_version` → forward_compatible; `extractor_version`/`rule_version`/`policy_version` → replay_required; `template_version`/`derivation_version` → identity_breaking. `MIGRATION_STATUS_LABELS` must **never** enter canonical objects. → `version_policy.py`
 
+**Session lifecycle writes:**
+- `POST /sessions/{id}/terminate` — closes an open session (`lifecycle.status="closed"`); body `{"terminal_reason": "..."}` (default `"user_closed"`). Returns `AnalysisSession`. Raises 404 if unknown, 409 if already terminal. Once terminated, all intent write operations on that session return 422. → `session_manager.py::terminate_session`
+
 **Read surfaces:**
 - `GET /sessions/{id}` → `AnalysisSession` (`schema_version="analysis_session.v1"`); sub-objects `goal`, `governance`, `lifecycle`, `state_summary`; no legacy flat fields.
 - `GET /sessions/{id}/runtime-status` → `SessionRuntimeStatus` — operator only; must not derive from canonical `state`/`context`.
@@ -106,7 +109,7 @@ Metadata reads use synced `source_objects`, not live catalogs.
 
 ## Steps
 
-Defined in `app/analysis_core/primitives.py`: `metric_query`, `profile_table`, `sample_rows`, `aggregate_query`, `attribute_change`, `synthesize_findings`.
+Defined in `app/analysis_core/primitives.py`: `metric_query`, `profile_table`, `sample_rows`, `aggregate_query`, `attribute_change`.
 
 ### Contracts
 
