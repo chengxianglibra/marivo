@@ -165,6 +165,8 @@ These endpoints return runtime payloads directly. They do not add paging metadat
 | `last_failure_at` | string or `null` | ISO 8601 UTC timestamp of the most recent proposition-level failure |
 | `schema_version` | string | Fixed as `proposition_runtime_status.v1` |
 
+**v1 constraints (proposition-level):** `current_stage` is derived entirely from committed canonical DB state — no real queue, claim, lease, or retry records are maintained. Derivation rules: no assessment committed → `"queued"`; assessment committed but no proposals → `"assessment_committed"`; assessment and proposals exist but no publish switch → `"publish_ready"`; publish switch executed → `"externally_visible"`. The `"assessment_recompute"`, `"proposal_refresh"`, and `"failed"` stage values are reserved for a future version with in-flight state tracking. Once `"externally_visible"`, the stage remains stable until `execute_publish_switch` fires again for a later assessment; a newer unpublished assessment does not change the reported stage. `current_attempt` is always `null`. `backlog_state` is always `"none"`. `last_failure_reason` is always `"none"` and `last_failure_at` is always `null`.
+
 ### Shared Nested Objects
 
 `RuntimeBacklogSummary`:

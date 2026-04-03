@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from app.evidence_engine.family_contract import ALLOWS_EMPTY_ARTIFACT_TYPES
 from app.evidence_engine.finding_extractor_registry import default_finding_registry
+from app.storage.evidence_repositories import ActionProposalRepository, AssessmentRepository
 from app.storage.metadata import MetadataStore
 
 # Columns selected for canonical session root reads (Phase 5a).
@@ -263,6 +264,93 @@ class SessionManager:
             "last_failure_reason": None,
             "last_failure_at": None,
             "schema_version": "artifact_runtime_status.v1",
+        }
+
+    def get_proposition_runtime_status(
+        self,
+        session_id: str,
+        proposition_id: str,
+        proposal_repo: ActionProposalRepository | None = None,
+    ) -> dict[str, Any]:
+        """Return proposition-level operator runtime status (Phase 5c).
+
+        Derives stage from committed canonical DB state.  v1 does not maintain
+        a real queue / claim / lease / retry system, so:
+
+        - ``current_attempt`` is always ``null``.
+        - ``backlog_state`` is always ``"none"``.
+        - ``last_failure_reason`` is always ``"none"``.
+        - ``last_failure_at`` is always ``null``.
+        - ``current_stage`` is inferred from which DB write stages have
+          completed: queued → assessment_committed → publish_ready →
+          externally_visible.
+
+        Raises
+        ------
+        KeyError
+            When *proposition_id* is not found in *session_id*.
+        """
+        row = self.metadata.query_one(
+            """
+            SELECT proposition_id, session_id, externally_visible_assessment_id
+            FROM propositions
+            WHERE proposition_id = ? AND session_id = ?
+            """,
+            [proposition_id, session_id],
+        )
+        if row is None:
+            raise KeyError(f"proposition {proposition_id!r} not found in session {session_id!r}")
+
+        ev_assessment_id: str | None = row.get("externally_visible_assessment_id")
+
+        assessment_repo = AssessmentRepository(self.metadata)
+        latest = assessment_repo.get_latest(proposition_id)
+
+        # Probe proposals only when there is a committed assessment.
+        proposals: list[dict[str, Any]] = []
+        if latest is not None:
+            _proposal_repo = (
+                proposal_repo
+                if proposal_repo is not None
+                else ActionProposalRepository(self.metadata)
+            )
+            proposals = _proposal_repo.list_by_assessment(session_id, latest["assessment_id"])
+
+        # Derive current_stage and last_successful_stage.
+        #
+        # externally_visible is checked first and is unconditional.
+        # The publish pointer is monotonically advancing: once set it always
+        # refers to a committed assessment.  A later re-triggered assessment
+        # (latest != ev_assessment_id) does not change the externally visible
+        # canonical state until execute_publish_switch fires again — so
+        # reporting "externally_visible" is correct even when a newer
+        # unpublished assessment exists.  Operators can compare
+        # current_assessment_id against the session state surface to detect
+        # pending re-publish work.
+        if ev_assessment_id:
+            current_stage = "externally_visible"
+            last_successful_stage: str | None = "publish"
+        elif latest is not None and proposals:
+            current_stage = "publish_ready"
+            last_successful_stage = "proposal_refresh"
+        elif latest is not None:
+            current_stage = "assessment_committed"
+            last_successful_stage = "assessment_committed"
+        else:
+            current_stage = "queued"
+            last_successful_stage = None
+
+        return {
+            "session_id": session_id,
+            "proposition_id": proposition_id,
+            "current_stage": current_stage,
+            "last_successful_stage": last_successful_stage,
+            "current_assessment_id": latest["assessment_id"] if latest is not None else None,
+            "current_attempt": None,
+            "backlog_state": "none",
+            "last_failure_reason": "none",
+            "last_failure_at": None,
+            "schema_version": "proposition_runtime_status.v1",
         }
 
     # ------------------------------------------------------------------

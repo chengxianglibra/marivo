@@ -256,6 +256,31 @@ class SemanticLayerService:
         """Return artifact-level operator runtime status (Phase 5b)."""
         return self.session_manager.get_artifact_runtime_status(session_id, artifact_id)
 
+    def get_proposition_context(self, session_id: str, proposition_id: str) -> dict[str, Any]:
+        """Return PropositionContextView for *proposition_id* (Phase 5c)."""
+        from app.evidence_engine.context_view import materialize_proposition_context_view
+
+        return materialize_proposition_context_view(
+            session_id=session_id,
+            proposition_id=proposition_id,
+            proposition_repo=self._proposition_repo,
+            assessment_repo=self._assessment_repo,
+            finding_repo=self._finding_repo,
+            gap_repo=self._gap_repo,
+            inference_record_repo=self._inference_record_repo,
+            proposal_repo=self._proposal_repo,
+        )
+
+    def get_proposition_runtime_status(
+        self, session_id: str, proposition_id: str
+    ) -> dict[str, Any]:
+        """Return proposition-level operator runtime status (Phase 5c)."""
+        return self.session_manager.get_proposition_runtime_status(
+            session_id,
+            proposition_id,
+            proposal_repo=self._proposal_repo,
+        )
+
     def discover_catalog(self) -> dict[str, Any]:
         # Entities — all published semantic entities
         entity_rows = self.metadata.query_rows(

@@ -163,6 +163,47 @@ def get_artifact_runtime_status(
         raise HTTPException(status_code=404, detail=str(error)) from error
 
 
+@router.get("/sessions/{session_id}/propositions/{proposition_id}/context")
+def get_proposition_context(
+    session_id: str,
+    proposition_id: str,
+    request: Request,
+) -> dict[str, object]:
+    """Return PropositionContextView — canonical proposition-level minimal closure (Phase 5c).
+
+    Exposes the externally visible canonical context for a single proposition:
+    proposition object, creation-time seed hydration, latest assessment and its
+    live evidence closure (findings, gaps, inference records, artifact handles).
+
+    This is the canonical agent read path for single-proposition context.
+    Runtime scheduling truth must not be read from this endpoint.
+    """
+    try:
+        return get_services(request).service.get_proposition_context(session_id, proposition_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@router.get("/sessions/{session_id}/propositions/{proposition_id}/runtime-status")
+def get_proposition_runtime_status(
+    session_id: str,
+    proposition_id: str,
+    request: Request,
+) -> dict[str, object]:
+    """Return operator-facing runtime status for a single proposition (Phase 5c).
+
+    Explains which pipeline stage the proposition is currently at and, in future
+    versions, why it may be blocked, failed, or waiting for publish.  This is
+    runtime truth only; do not use it as a canonical evidence read surface.
+    """
+    try:
+        return get_services(request).service.get_proposition_runtime_status(
+            session_id, proposition_id
+        )
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+
 @router.get("/sessions/{session_id}/reflection-context")
 def get_reflection_context(
     session_id: str,

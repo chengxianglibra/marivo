@@ -203,6 +203,13 @@ type PropositionRuntimeStatus = {
 };
 ```
 
+**v1 implementation constraints (proposition-level):**
+
+- `current_stage` is derived from committed canonical DB state: no assessment committed → `"queued"`; assessment committed but no proposals → `"assessment_committed"`; assessment and proposals exist but no publish switch → `"publish_ready"`; publish switch executed → `"externally_visible"`. `"externally_visible"` is stable once set — a later re-triggered assessment does not revert the stage until `execute_publish_switch` fires again for the new assessment. Operators can compare `current_assessment_id` with the session state surface to detect pending re-publish work. The `"assessment_recompute"`, `"proposal_refresh"`, and `"failed"` stages are reserved for future versions with real in-flight state tracking.
+- `current_attempt` is always `null` in v1. The synchronous pipeline does not maintain claim/lease/retry records.
+- `backlog_state` is always `"none"` in v1. No backpressure or queue depth tracking is implemented.
+- `last_failure_reason` is always `"none"` and `last_failure_at` is always `null` in v1. Per-item failure tracking is not implemented in the synchronous pipeline.
+
 ### Shared attempt object
 
 ```ts
