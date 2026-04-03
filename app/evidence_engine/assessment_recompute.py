@@ -154,7 +154,7 @@ class _ConfidenceOutput(TypedDict):
 # ---------------------------------------------------------------------------
 
 
-def _make_assessment_id(session_id: str, proposition_id: str, snapshot_seq: int) -> str:
+def make_assessment_id(session_id: str, proposition_id: str, snapshot_seq: int) -> str:
     """Derive a stable ``assessment_id`` from (session, proposition, seq).
 
     Format: ``"assess_"`` + first 24 hex chars of SHA-256.
@@ -1129,6 +1129,20 @@ def recompute_proposition_assessment(
     # Determine snapshot_seq + build assessment row
     # ------------------------------------------------------------------
     next_seq = assessment_repo.next_snapshot_seq(proposition_id)
+
+    # Invariant: the candidate_assessment_id pre-allocated by the caller must be
+    # derived from the same (session, proposition, seq) triple that this call will
+    # commit.  If anything wrote a new assessment snapshot between pre-allocation
+    # and here, the IDs would diverge — fail loudly rather than silently corrupt.
+    expected_id = make_assessment_id(session_id, proposition_id, next_seq)
+    if candidate_id != expected_id:
+        raise RuntimeError(
+            f"candidate_assessment_id {candidate_id!r} does not match the expected "
+            f"deterministic ID {expected_id!r} (next_snapshot_seq={next_seq}).  "
+            f"A concurrent write to assessments occurred between pre-allocation and "
+            f"recompute — this proposition's pipeline must be serialized."
+        )
+
     supersedes_id: str | None = prior_latest_id
 
     assessment_row: dict[str, Any] = {
@@ -1182,3 +1196,15 @@ def recompute_proposition_assessment(
         candidate_assessment_id=candidate_id,
         schema_version=RECOMPUTE_SCHEMA_VERSION,
     )
+
+
+# ---------------------------------------------------------------------------
+# Public exports
+# ---------------------------------------------------------------------------
+
+__all__ = [
+    "RECOMPUTE_SCHEMA_VERSION",
+    "AssessmentRecomputeResult",
+    "make_assessment_id",
+    "recompute_proposition_assessment",
+]
