@@ -7,6 +7,7 @@
 - `docs/semantic/metric-v2-schema.zh.md`
 - `docs/semantic/process-object-schema.zh.md`
 - `docs/semantic/ir-schema-contract.zh.md`
+- `docs/semantic/compiler-spec.zh.md`
 
 ## Purpose
 

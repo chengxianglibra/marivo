@@ -540,4 +540,13 @@ METADATA_MIGRATIONS: list[str] = [
     # published canonical bundle.  Updated by a single-statement UPDATE in
     # execute_publish_switch() — inherently crash-safe in SQLite.
     "ALTER TABLE propositions ADD COLUMN externally_visible_assessment_id TEXT",
+    # Phase 4h-1: tombstone-first baseline for soft invalidation.  NULL = object
+    # is valid.  Non-NULL = object has been soft-invalidated; its history is
+    # preserved (no hard delete), but downstream reads should treat it as stale.
+    # invalidation_reason is a free-text or machine-readable code explaining why
+    # the object was invalidated (e.g. "upstream_artifact_retracted").
+    "ALTER TABLE findings ADD COLUMN invalidated_at TEXT",
+    "ALTER TABLE findings ADD COLUMN invalidation_reason TEXT",
+    "ALTER TABLE propositions ADD COLUMN invalidated_at TEXT",
+    "ALTER TABLE propositions ADD COLUMN invalidation_reason TEXT",
 ]

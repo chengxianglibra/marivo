@@ -2,6 +2,8 @@
 
 本文定义 Factum semantic compiler 中 IR（intermediate representation）的目标 schema 契约。
 
+若需要查看 `intent` / `metric` / `process object` 如何进入 compiler 并被转换为 IR，可配合阅读 `docs/semantic/compiler-spec.zh.md`。
+
 本文是**内部语义契约设计文档**，不是当前实现说明，也不是最终 HTTP wire spec。它与以下文档配套：
 
 - `docs/semantic/metric-process-contract.zh.md`

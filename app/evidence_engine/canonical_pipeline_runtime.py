@@ -27,13 +27,13 @@ from __future__ import annotations
 
 import logging
 from typing import Any, TypedDict
-from uuid import uuid4
 
 from app.evidence_engine.assessment_evaluation_context import (
     build_assessment_evaluation_context,
 )
 from app.evidence_engine.assessment_recompute import (
     AssessmentRecomputeResult,
+    make_assessment_id,
     recompute_proposition_assessment,
 )
 from app.evidence_engine.proposal_refresh_run import (
@@ -265,11 +265,12 @@ def _run_proposition_pipeline(
                 error=f"proposition {proposition_id!r} not found after seeding",
             )
 
-        # Pre-allocate a candidate assessment identity.
-        # TODO(4h-1): replace uuid4 with _make_assessment_id(session_id, proposition_id,
-        # next_snapshot_seq) for fully deterministic replay.  Practical idempotency is
-        # preserved in the meantime via the canonical-diff gate in assessment_recompute.py.
-        candidate_assessment_id = f"assess_{uuid4().hex[:24]}"
+        # Pre-allocate a deterministic candidate assessment identity (Phase 4h-1).
+        # Calling next_snapshot_seq here is safe: nothing has been committed for
+        # this proposition in this pipeline run yet, so the value returned by the
+        # internal call inside recompute_proposition_assessment will be identical.
+        seq = assessment_repo.next_snapshot_seq(proposition_id)
+        candidate_assessment_id = make_assessment_id(session_id, proposition_id, seq)
 
         # Stage 2a — evaluation context
         ctx = build_assessment_evaluation_context(
@@ -353,9 +354,42 @@ def _run_proposition_pipeline(
 # Public exports
 # ---------------------------------------------------------------------------
 
+
+def run_single_proposition_pipeline(
+    *,
+    session_id: str,
+    proposition_id: str,
+    trigger_finding_ids: list[str],
+    proposition_repo: PropositionRepository,
+    assessment_repo: AssessmentRepository,
+    gap_repo: EvidenceGapRepository,
+    inference_record_repo: InferenceRecordRepository,
+    finding_repo: FindingRepository,
+    proposal_repo: ActionProposalRepository,
+) -> PropositionPipelineResult:
+    """Public entry point for single-proposition pipeline execution.
+
+    Delegates to :func:`_run_proposition_pipeline`.  Exposed in ``__all__``
+    so that external modules (e.g. ``replay_recovery``) can import it without
+    coupling to a private symbol.
+    """
+    return _run_proposition_pipeline(
+        session_id=session_id,
+        proposition_id=proposition_id,
+        trigger_finding_ids=trigger_finding_ids,
+        proposition_repo=proposition_repo,
+        assessment_repo=assessment_repo,
+        gap_repo=gap_repo,
+        inference_record_repo=inference_record_repo,
+        finding_repo=finding_repo,
+        proposal_repo=proposal_repo,
+    )
+
+
 __all__ = [
     "CANONICAL_DOWNSTREAM_SCHEMA_VERSION",
     "CanonicalDownstreamResult",
     "PropositionPipelineResult",
     "run_canonical_downstream",
+    "run_single_proposition_pipeline",
 ]

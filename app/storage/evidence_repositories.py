@@ -24,6 +24,7 @@ Phase: 4b-1
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from typing import Any
 
 from app.storage.metadata import MetadataStore
@@ -190,6 +191,56 @@ class FindingRepository:
             [proposition_id],
         )
         return [_deserialize(r, _JSON_FIELDS_FINDING) for r in rows]
+
+    def soft_invalidate(
+        self,
+        finding_id: str,
+        reason: str,
+        invalidated_at: str | None = None,
+    ) -> None:
+        """Mark *finding_id* as soft-invalidated (tombstone-first baseline, Phase 4h-1).
+
+        The finding row is **not** deleted — its history is preserved for
+        audit, replay, and debugging.  Downstream reads should check
+        ``is_invalidated()`` or the ``invalidated_at`` column before treating
+        the finding as a valid upstream authority.
+
+        Parameters
+        ----------
+        finding_id:
+            The finding to invalidate.
+        reason:
+            Machine-readable or free-text explanation (e.g.
+            ``"upstream_artifact_retracted"``).
+        invalidated_at:
+            ISO-8601 UTC timestamp.  Defaults to the current UTC time.
+
+        Raises
+        ------
+        ValueError
+            If no finding with *finding_id* exists.
+        """
+        if self.get(finding_id) is None:
+            raise ValueError(f"finding {finding_id!r} not found")
+        ts = invalidated_at or datetime.now(UTC).isoformat()
+        self.metadata.execute(
+            "UPDATE findings SET invalidated_at = ?, invalidation_reason = ? WHERE finding_id = ?",
+            [ts, reason, finding_id],
+        )
+
+    def is_invalidated(self, finding_id: str) -> bool:
+        """Return ``True`` if *finding_id* has been soft-invalidated.
+
+        Returns ``False`` for unknown finding IDs (finding not found → not
+        invalidated; caller is responsible for existence checks if needed).
+        """
+        row = self.metadata.query_one(
+            "SELECT invalidated_at FROM findings WHERE finding_id = ?",
+            [finding_id],
+        )
+        if row is None:
+            return False
+        return row["invalidated_at"] is not None
 
 
 # ---------------------------------------------------------------------------
@@ -371,6 +422,53 @@ class PropositionRepository:
             )
             con.commit()
             return bool(cursor.rowcount > 0)
+
+    def soft_invalidate(
+        self,
+        proposition_id: str,
+        reason: str,
+        invalidated_at: str | None = None,
+    ) -> None:
+        """Mark *proposition_id* as soft-invalidated (tombstone-first baseline, Phase 4h-1).
+
+        The proposition row is **not** deleted — its history is preserved for
+        audit, replay, and debugging.  Downstream reads should check
+        ``is_invalidated()`` or the ``invalidated_at`` column.
+
+        Parameters
+        ----------
+        proposition_id:
+            The proposition to invalidate.
+        reason:
+            Machine-readable or free-text explanation.
+        invalidated_at:
+            ISO-8601 UTC timestamp.  Defaults to the current UTC time.
+
+        Raises
+        ------
+        ValueError
+            If no proposition with *proposition_id* exists.
+        """
+        if self.get(proposition_id) is None:
+            raise ValueError(f"proposition {proposition_id!r} not found")
+        ts = invalidated_at or datetime.now(UTC).isoformat()
+        self.metadata.execute(
+            "UPDATE propositions SET invalidated_at = ?, invalidation_reason = ? WHERE proposition_id = ?",
+            [ts, reason, proposition_id],
+        )
+
+    def is_invalidated(self, proposition_id: str) -> bool:
+        """Return ``True`` if *proposition_id* has been soft-invalidated.
+
+        Returns ``False`` for unknown proposition IDs.
+        """
+        row = self.metadata.query_one(
+            "SELECT invalidated_at FROM propositions WHERE proposition_id = ?",
+            [proposition_id],
+        )
+        if row is None:
+            return False
+        return row["invalidated_at"] is not None
 
 
 # ---------------------------------------------------------------------------

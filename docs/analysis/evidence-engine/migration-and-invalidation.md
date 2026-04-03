@@ -193,6 +193,14 @@ v1 默认采用 tombstone-first：
 
 1. 若只是 lineage/soft ref 缺失：保留对象，显式暴露 missing ref
 2. 若影响 current assessment closure：收缩 membership，必要时 reopen gap
+
+   **注**：gap reopen 仅针对 `status=resolved` 的 gap。已处于 `open` 状态的 gap
+   无需操作——它们本已表示未解决的 evidence 需求。reopen 的语义依据是：
+   gap 的 `resolved_by_inference_record_id` 所指向的 inference record 使用了
+   当前被 invalidated 的 finding 作为 input evidence。
+   v1 baseline 采用保守策略：对受影响 proposition 的所有 `resolved` gap 安排 reopen，
+   不在 invalidation path 内做精细 inference record input 溯源。
+
 3. 若影响 proposal 输入闭包：抑制 proposal refresh 或生成新空 proposal set
 4. 若影响当前 latest bundle 的完整性：触发 recompute / republish，必要时回退到上一个仍完整的 externally visible bundle
 
