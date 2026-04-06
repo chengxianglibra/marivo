@@ -4,6 +4,7 @@
 
 本文是 compiler-facing design spec，不是 HTTP wire spec，也不是 engine implementation doc。相关背景与上游契约见：
 
+- `docs/semantic/dimension-schema-contract.zh.md`
 - `docs/semantic/metric-process-contract.zh.md`
 - `docs/semantic/metric-v2-schema.zh.md`
 - `docs/semantic/process-object-schema.zh.md`
@@ -116,6 +117,8 @@ compiler 需要先把请求归入以下槽位之一：
 - 其他 canonical typed refs
 
 compiler 必须优先复用 typed refs，而不是在下游请求里重建上游 `metric + scope + time_scope`。
+
+其中 `request_dimensions` 应先被归一化为 `dimension.*`，再结合 dimension contract、metric 约束、process 导出接口与 entity 稳定属性接口做交叉校验。
 
 ## 全局编译规则
 

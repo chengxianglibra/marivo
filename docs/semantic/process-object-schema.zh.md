@@ -10,6 +10,7 @@
 
 相关背景见：
 
+- `docs/semantic/dimension-schema-contract.zh.md`
 - `docs/semantic/metric-process-contract.zh.md`
 - `docs/semantic/metric-v2-schema.zh.md`
 - `docs/semantic/ir-schema-contract.zh.md`
@@ -232,6 +233,8 @@ class WindowSpec(TypedDict):
 
 `WindowSpec` 只表达窗口语义，不表达底层窗口如何实现。
 
+late arrival、open window exclusion、物理消费锚点等实现侧治理，不属于 `WindowSpec` 本体，而属于 typed binding contract 的消费策略。
+
 ### PopulationSpec
 
 ```python
@@ -364,7 +367,7 @@ ProcessInterfaceContract: TypeAlias = ContextProcessContract | EntityProcessCont
 - `emitted_grain_ref`：实体流接口的稳定粒度；必须使用 `grain.*`
 - `subject_cardinality`：每个主体最多对应一个还是多个实体
 - `anchor_time_ref`：输出实体的主时间锚点语义
-- `exported_dimension_refs`：该过程稳定导出的下游可用维度，例如 `variant`、`step`、`state`
+- `exported_dimension_refs`：该过程稳定导出的下游可用维度；必须使用 `dimension.*`，例如 `dimension.variant`、`dimension.step`、`dimension.state`
 - `provided_capabilities`：主兼容接口
 - `comparison_contract`：比较时的基本前提
 - `time_projection_support`：是否支持 detect / trend 等需要稳定时间投影的 intent
@@ -373,6 +376,8 @@ ProcessInterfaceContract: TypeAlias = ContextProcessContract | EntityProcessCont
 ### 设计说明
 
 `interface_contract` 的作用，是把各 subtype 的“下游接口”统一起来，但不要求所有对象都伪装成“实体发射器”。
+
+其中 `exported_dimension_refs` 只声明“这个过程会稳定导出哪些维度轴”，维度值域、层级与取值治理仍由独立的 dimension contract 定义。
 
 例如：
 
@@ -444,6 +449,7 @@ class ExperimentContext(ProcessObjectBase):
 - 不再内嵌 `default_metric_roles`
 - 不再把 experiment split 伪装成 `variant_membership` 这类独立观测实体
 - `split_basis.resolution = "all"` 不再属于 `experiment_context`；多次 exposure timeline 应由其他 process subtype 或 lower 层表达
+- `analysis_window` 继续属于 process 语义本体；binding 只负责声明该窗口在物理层如何被消费
 
 `default_metric_roles` 属于更高层的 analysis package / orchestration 配置，而不属于实验过程对象的本体语义。
 
@@ -532,6 +538,7 @@ class CohortDefinition(ProcessObjectBase):
 - 不再使用 `output_mode = retention_ready`
 - “是否可做留存”由 `interface_contract` + `return_population_ref` + `observation_window` 共同决定
 - cohort 不再通过 `subject_membership` 这种 synthetic entity 暴露自己，而是直接声明自己是 `cohort_membership` context provider
+- `observation_window` 的长度与锚点属于 process 本体；late arrival / incomplete-window 行为应在 binding 层补充
 
 ### 示例
 

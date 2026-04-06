@@ -4,6 +4,7 @@
 
 本文是语义设计文档，不是当前实现说明，也不是 HTTP wire spec。外部 API 仍以 `docs/api/` 下文档为准；intent 设计以 `docs/analysis/intents/` 为准。配套 schema 细化见：
 
+- `docs/semantic/dimension-schema-contract.zh.md`
 - `docs/semantic/metric-v2-schema.zh.md`
 - `docs/semantic/process-object-schema.zh.md`
 - `docs/semantic/ir-schema-contract.zh.md`
@@ -55,9 +56,13 @@
 - 对组合做显式兼容性校验
 - 将下层执行细节降解为 engine-specific plan，而不把 SQL 暴露为外部契约
 
+独立的 `dimension` contract 则负责提供共享分析轴，使 `metric.required_dimensions`、`process.exported_dimension_refs`、`entity.stable_descriptors` 能围绕同一套 `dimension.*` refs 组合。
+
 一句话总结：
 
-> `metric` 负责 measurement semantics，`process object` 负责 process semantics，`intent` 负责 analysis action semantics，IR 负责组合与降解。
+> `metric` 负责 measurement semantics，`process object` 负责 process semantics，`dimension` 负责 analysis axis semantics，`intent` 负责 analysis action semantics，IR 负责组合与降解。
+
+typed binding contract 只负责把这些既有语义对象落到物理层，并补充 late arrival / incomplete-window / imports 等消费侧治理；它不重新定义 process window 本体。
 
 ## 非目标
 
@@ -98,6 +103,8 @@
 - `freshness_tolerance`
 - `metric_contract_version`
 
+其中 `required_dimensions / forbidden_dimensions` 应只引用 `dimension.*`，而不再使用裸字符串。
+
 `metric` 不应直接承载以下内容：
 
 - 某次分析所需的临时总体构造逻辑
@@ -126,6 +133,26 @@
 - `lifecycle_state_machine`
 
 这些对象与 `metric` 同级，而不是 `metric` 的子字段集合。
+
+### Dimension Axis
+
+`dimension` 是共享分析轴对象。它回答的是：
+
+- 分组 / 分解 / split 所使用的维度轴是什么
+- 它的值域、层级与治理语义是什么
+
+它不回答：
+
+- 底层通过什么字段取值
+- 某个 metric 是否已经允许它
+- 某个 process 如何生成它
+
+因此：
+
+- `metric` 通过 `required_dimensions / forbidden_dimensions` 消费 dimension
+- `process object` 通过 `exported_dimension_refs` 导出 dimension
+- `entity` 通过 `stable_descriptors` 暴露稳定 dimension
+- compiler 负责校验请求中的 `dimensions` 是否与上述契约兼容
 
 ### 3. Intent
 
@@ -325,6 +352,8 @@ type ProcessInterfaceContract =
 - variant split context
 
 它不直接表示“转化率”或“崩溃率”，而是表示这些指标要作用在哪个实验语义上下文中。
+
+assignment / exposure 的字段映射、跨 source join、迟到数据处理则属于 typed binding contract，而不是 experiment context 本体字段。
 
 #### 2. Cohort Definition
 
