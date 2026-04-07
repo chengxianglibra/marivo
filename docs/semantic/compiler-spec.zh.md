@@ -6,6 +6,7 @@
 
 - `docs/semantic/asset-schema-contract.zh.md`
 - `docs/semantic/dimension-schema-contract.zh.md`
+- `docs/semantic/enum-set-schema-contract.zh.md`
 - `docs/semantic/metric-process-contract.zh.md`
 - `docs/semantic/metric-v2-schema.zh.md`
 - `docs/semantic/process-object-schema.zh.md`
@@ -298,6 +299,8 @@ type NormalizedRequest = {
 - `domain_kind`
 - `enum_set_ref`
 - `enum_version`
+
+其中 `enum_set_ref` / `enum_version` 所引用的值域本体与版本边界，见 [`enum-set-schema-contract.zh.md`](./enum-set-schema-contract.zh.md)。compiler 只负责抽取与校验，不把值域治理策略重新写回 normalized dimension 主 contract。
 
 更细的枚举兼容、null/tail 处理策略若需要参与编译，应来自 governance context，而不是假定它们属于 dimension 主 contract。
 
