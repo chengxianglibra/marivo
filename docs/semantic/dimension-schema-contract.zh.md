@@ -237,13 +237,21 @@ from typing import Literal, NotRequired, TypedDict
 
 
 class DimensionValueDomainSpec(TypedDict):
-    semantic_kind: Literal[
-        "categorical",
+    structure_kind: Literal[
+        "flat",
         "hierarchical",
+        "ordinal",
         "time_derived",
-        "label",
-        "state",
-        "variant",
+    ]
+    semantic_role: NotRequired[
+        Literal[
+            "category",
+            "label",
+            "state",
+            "variant",
+            "metric",
+        ]
+        | None
     ]
     value_type: Literal["string", "integer", "number", "boolean", "date", "datetime"]
     domain_kind: Literal["open", "enumerated"]
@@ -253,10 +261,31 @@ class DimensionValueDomainSpec(TypedDict):
 
 字段含义：
 
-- `semantic_kind`：该维度轴的主要语义类型
+- `structure_kind`：维度值的**结构组织方式**
+  - `flat`：无层级关系
+  - `hierarchical`：存在父子层级关系
+  - `ordinal`：有序值（如评分等级）
+  - `time_derived`：从时间语义派生
+- `semantic_role`：维度的**行为语义角色**（可选）
+  - `category`：一般分类维度
+  - `label`：用户定义的标签
+  - `state`：实体状态维度
+  - `variant`：实验变体维度
+  - `metric`：由 metric 派生的维度
 - `value_type`：维度值类型
 - `domain_kind`：开放域还是受治理枚举域
 - `enum_set_ref` / `enum_version`：若使用受治理枚举，则引用对应枚举集与发布版本
+
+**为什么要拆分？**
+
+原 `semantic_kind` 混合了两种概念：
+- **结构性**：`categorical`、`hierarchical`、`time_derived` 描述值的组织方式
+- **行为性**：`label`、`state`、`variant` 描述维度的使用语义
+
+拆分后：
+- `structure_kind` 是必选的，描述维度如何组织
+- `semantic_role` 是可选的，描述维度用于什么场景
+- 两者可以独立组合，例如 `hierarchical` + `state`（有层级的状态维度）
 
 `enum_compatibility_policy`、`null_handling`、`tail_handling` 这类消费/请求策略，不再视为 dimension 主 contract 的一部分；如需保留，应进入 compiler policy 或 catalog governance metadata。
 
@@ -343,22 +372,22 @@ class CoreDimensionObject(TypedDict):
 
 都能稳定引用同一个维度概念。
 
-### 2. `semantic_kind` 表达轴语义，不表达来源对象
+### 2. `structure_kind` 表达轴结构，`semantic_role` 表达使用语义
 
 例如：
 
-- `dimension.country` 可以是 `categorical`
-- `dimension.step` 可以是 `state`
-- `dimension.variant` 可以是 `variant`
-- `dimension.signup_month` 可以是 `time_derived`
+- `dimension.country` 可以是 `structure_kind: hierarchical` + `semantic_role: category`
+- `dimension.step` 可以是 `structure_kind: flat` + `semantic_role: state`
+- `dimension.variant` 可以是 `structure_kind: flat` + `semantic_role: variant`
+- `dimension.signup_month` 可以是 `structure_kind: time_derived`
 
 但它不需要在公共 schema 中声明这些维度究竟来自 entity、process 还是 request-time time projection。
 
 ### 3. time-derived dimension 必须显式声明所需时间锚点语义
 
-`dimension.signup_month` 或 `dimension.calendar_week` 这类轴可以声明为 `time_derived`，但**不应**在 dimension contract 中直接写死物理时间列。
+`dimension.signup_month` 或 `dimension.calendar_week` 这类轴可以声明为 `structure_kind = “time_derived”`，但**不应**在 dimension contract 中直接写死物理时间列。
 
-它们必须通过 `interface_contract.time_derived_requirement.required_time_anchor_ref` 声明“消费方需要提供哪个 `time.*` 语义锚点”，例如 `time.user_created_at`。
+它们必须通过 `interface_contract.time_derived_requirement.required_time_anchor_ref` 声明”消费方需要提供哪个 `time.*` 语义锚点”，例如 `time.user_created_at`。
 
 这里的 `time.*` 应引用统一的 `time-schema-contract.zh.md`，而不是由 dimension 自己定义一套局部时间命名。
 
@@ -369,7 +398,7 @@ class CoreDimensionObject(TypedDict):
 - metric 的 `primary_time_ref`
 - binding 的 contract target 映射
 
-若 `semantic_kind = "time_derived"`，则发布态 dimension 应显式提供 `required_time_anchor_ref`，否则 compiler 无法在组合期做稳定校验。
+若 `structure_kind = “time_derived”`，则发布态 dimension 应显式提供 `required_time_anchor_ref`，否则 compiler 无法在组合期做稳定校验。
 
 ### 4. hierarchy 只表达语义 roll up path，不表达 join / lookup path
 
@@ -479,7 +508,8 @@ IR 则只保留：
   },
   "interface_contract": {
     "value_domain": {
-        "semantic_kind": "categorical",
+        "structure_kind": "hierarchical",
+        "semantic_role": "category",
         "value_type": "string",
         "domain_kind": "enumerated",
         "enum_set_ref": "enum.iso_country_code",
@@ -508,7 +538,8 @@ IR 则只保留：
   },
   "interface_contract": {
     "value_domain": {
-        "semantic_kind": "variant",
+        "structure_kind": "flat",
+        "semantic_role": "variant",
         "value_type": "string",
         "domain_kind": "enumerated",
         "enum_set_ref": "enum.experiment_variant",
@@ -533,7 +564,7 @@ IR 则只保留：
   },
   "interface_contract": {
     "value_domain": {
-      "semantic_kind": "time_derived",
+      "structure_kind": "time_derived",
       "value_type": "date",
       "domain_kind": "open"
     },
@@ -546,6 +577,35 @@ IR 则只保留：
     },
     "grouping": {
       "supports_grouping": true
+    }
+  }
+}
+```
+
+### 示例 4：`user_state`（有层级的状态维度）
+
+```json
+{
+  "header": {
+    "display_name": "User State",
+    "description": "用户生命周期状态，具有层级关系",
+    "dimension_ref": "dimension.user_state",
+    "dimension_contract_version": "dimension.v1"
+  },
+  "interface_contract": {
+    "value_domain": {
+      "structure_kind": "hierarchical",
+      "semantic_role": "state",
+      "value_type": "string",
+      "domain_kind": "enumerated",
+      "enum_set_ref": "enum.user_lifecycle_state",
+      "enum_version": "v2"
+    },
+    "grouping": {
+      "supports_grouping": true
+    },
+    "hierarchy": {
+      "hierarchy_type": "parent_child"
     }
   }
 }

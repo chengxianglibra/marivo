@@ -28,44 +28,42 @@ dimension schema --+--\
 metric schema -----+--- > metric/process contract ----> compiler spec ----> IR schema contract
 process schema ----/--/
        \
-        -> asset schema -> typed binding contract
+        -> typed binding contract
 ```
 
-可以把它理解成六层：
+可以把它理解成四层：
 
-1. **Foundation 层**：稳定 ref taxonomy 与基础语义命名空间（如 `time.*`、`entity.*`、`dimension.*`）
-2. **对象层**：`entity`、`dimension`、`metric`、`process object`
-3. **承载层**：`asset` 如何表达真实物理承载体与稳定 surface
-4. **绑定层**：typed binding 如何把对象层语义落到 asset surfaces / relations
-5. **编译层**：compiler 如何做 normalize、compatibility resolution、derived expansion
-6. **计划层**：IR 如何表达 engine-agnostic 的语义计划
+1. **Semantic 层**：`time`、`entity`、`dimension`、`metric`、`process object` 等稳定语义对象
+2. **Binding 层**：typed binding 如何把对象层语义落到物理 carriers / surfaces / relations
+3. **Compilation 层**：compiler 如何做 normalize、compatibility resolution、derived expansion、capability derivation
+4. **Plan 层**：IR 如何表达 engine-agnostic 的语义计划（使用引用而非复制）
 
 ## 本轮收敛原则
 
 本目录中的 public schema 采用以下收敛原则：
 
-- **只保留稳定且必须的 schema**：对象 contract 只回答“这个对象在语义上是什么”。
+- **只保留稳定且必须的 schema**：对象 contract 只回答”这个对象在语义上是什么”。
 - **catalog metadata 单独承载**：`status`、`revision`、`lineage`、`quality gates`、搜索别名等 catalog/治理元数据，不再视为对象主 contract 的一部分。
-- **compatibility profile 不等于对象本体**：`supported_intents`、`result_modes`、`capabilities`、`inference support` 这类组合/编译信息，不应默认塞入 public object schema。
-- **asset 与 binding 分层**：`asset` 只回答“物理承载体是什么”，`binding` 只回答“语义槽位如何绑定到 asset surface”。
-- **binding 不依赖 compiler 内部路径**：binding 只绑定 public contract targets，不绑定 compiler-visible internal target paths。
-- **IR 不重复定义对象语义**：IR 只保留 normalized snapshots 与 plan wiring，不再重新发明 metric/process 的公共字段体系。
+- **compatibility profile 不等于对象本体**：`supported_intents`、`result_modes`、`capabilities`、`inference support` 这类组合/编译信息，不应默认塞入 public object schema；由 compiler 从核心字段推导。
+- **binding 统一承载物理落地**：binding 直接表达 carriers / surfaces / relations，不再引入独立的 asset 层。
+- **binding 使用类型化 target**：binding 用 `BindingTarget` TypedDict 替代 informal 字符串路径，不依赖 compiler 内部路径。
+- **IR 使用引用而非复制**：IR 只保留对象引用和 resolved/derived 字段，不复制 catalog 对象的全部字段。
+- **entity 定义独立于 binding**：entity contract 在没有 binding 的情况下语义完整，binding 提供物理落地。
 - **重要但尚未拍板的技术决策显式标注为待定**：本轮不把尚无共识的兼容矩阵或治理策略硬写进主 schema。
 
 ## 各文档说明
 
 | 文档 | 主要主题 | 解决的核心问题 |
 | --- | --- | --- |
-| [`time-schema-contract.zh.md`](./time-schema-contract.zh.md) | `time.*` 的统一语义 contract | 时间语义引用、窗口本体、请求时间范围、绑定消费策略与 compiler/IR 解析结果如何分层 |
+| [`time-schema-contract.zh.md`](./time-schema-contract.zh.md) | `time.*` 的统一语义 contract | 时间语义引用、窗口本体与消费策略三层模型，角色组合而非排斥 |
 | [`metric-process-contract.zh.md`](./metric-process-contract.zh.md) | `metric` 与 `process object` 的总分工 | 为什么要把过程语义从 metric 中拆出来、三层对象如何分工、compiler/IR 应如何承接 |
-| [`metric-v2-schema.zh.md`](./metric-v2-schema.zh.md) | `metric` 的目标 schema | metric 应承载哪些 measurement semantics，哪些兼容性/治理信息不应回流到主 contract |
-| [`process-object-schema.zh.md`](./process-object-schema.zh.md) | `process object` 的目标 schema | 过程对象如何声明稳定接口、subtype 如何建模、哪些 compiler compatibility 信息不应泄漏到 public schema |
-| [`entity-schema-contract.zh.md`](./entity-schema-contract.zh.md) | `entity` 的目标 schema | entity 应如何收缩为稳定业务身份契约，并为 metric/process/compiler 提供 `entity_ref` |
-| [`dimension-schema-contract.zh.md`](./dimension-schema-contract.zh.md) | `dimension` 的目标 schema | 共享分析维度如何成为独立 contract，以及它与 entity / metric / process 的边界如何划分 |
-| [`asset-schema-contract.zh.md`](./asset-schema-contract.zh.md) | 物理承载体 contract | 真实物理表 / 视图 / stream / snapshot 等 carrier 如何被稳定标识，并向 binding 暴露 field / time / relation surfaces |
-| [`typed-binding-contract.zh.md`](./typed-binding-contract.zh.md) | 语义对象到物理层的绑定契约 | semantic refs 如何映射到 asset surfaces / relations，同时保持执行解耦 |
-| [`compiler-spec.zh.md`](./compiler-spec.zh.md) | semantic compiler 规范 | typed intent、metric、process、typed refs 如何被归一化、校验、展开并编译成 IR |
-| [`ir-schema-contract.zh.md`](./ir-schema-contract.zh.md) | IR 的目标 schema 契约 | IR 的职责边界是什么、它与 compile report / lowering / engine plan 如何分层 |
+| [`metric-v2-schema.zh.md`](./metric-v2-schema.zh.md) | `metric` 的目标 schema | metric 应承载哪些 measurement semantics，哪些 capability 应由 compiler 推导 |
+| [`process-object-schema.zh.md`](./process-object-schema.zh.md) | `process object` 的目标 schema | 过程对象如何声明稳定接口、subtype 如何建模、哪些 capability 应保留 vs 推导 |
+| [`entity-schema-contract.zh.md`](./entity-schema-contract.zh.md) | `entity` 的目标 schema | entity 如何作为独立语义锚点，不依赖 binding，不暴露 process 语义 |
+| [`dimension-schema-contract.zh.md`](./dimension-schema-contract.zh.md) | `dimension` 的目标 schema | 共享分析维度如何成为独立 contract，structure_kind 与 semantic_role 分离 |
+| [`typed-binding-contract.zh.md`](./typed-binding-contract.zh.md) | 语义对象到物理层的绑定契约 | semantic refs 如何映射到 carriers / surfaces / relations，使用类型化 BindingTarget |
+| [`compiler-spec.zh.md`](./compiler-spec.zh.md) | semantic compiler 规范 | typed intent、metric、process、typed refs 如何被归一化、校验、展开并编译成 IR，包含 capability 推导规则 |
+| [`ir-schema-contract.zh.md`](./ir-schema-contract.zh.md) | IR 的目标 schema 契约 | IR 使用引用而非复制，职责边界是什么、它与 compile report / lowering / engine plan 如何分层 |
 
 ## 推荐阅读顺序
 
@@ -110,16 +108,13 @@ process schema ----/--/
 
 ### 3. 再看对象如何落地
 
-接着按顺序读：
+接着读 [`typed-binding-contract.zh.md`](./typed-binding-contract.zh.md)。
 
-1. [`asset-schema-contract.zh.md`](./asset-schema-contract.zh.md)
-2. [`typed-binding-contract.zh.md`](./typed-binding-contract.zh.md)
+前面的对象文档主要回答”语义上是什么”，而这篇回答”如何稳定绑定到底层物理数据”。它强调：
 
-前面的对象文档主要回答“语义上是什么”，而这篇回答“如何稳定绑定到底层物理数据”。它强调：
-
-- `asset` 是“物理承载体本体”的稳定 contract
 - binding 是一等、可引用、可组合对象
-- field binding 的核心是 **public contract target + asset surface**
+- binding 直接承载 carriers / surfaces / relations，不再依赖独立的 asset 层
+- field binding 的核心是 **类型化 BindingTarget**
 - join、late arrival、incomplete-window 等属于 binding 的消费约束
 - binding 不等于 SQL DSL，也不取代 compiler / IR
 
@@ -142,8 +137,8 @@ process schema ----/--/
 | 想理解语义层总体方向的人 | `metric-process-contract` |
 | 设计 metric schema / catalog 的人 | `metric-v2-schema`、`entity-schema-contract`、`dimension-schema-contract` |
 | 设计 funnel / experiment / cohort / session 等过程对象的人 | `process-object-schema` |
-| 设计 dimension catalog / value governance / drill path 的人 | `dimension-schema-contract`、`asset-schema-contract`、`typed-binding-contract` |
-| 设计 semantic mapping / physical grounding 的人 | `asset-schema-contract`、`typed-binding-contract` |
+| 设计 dimension catalog / value governance / drill path 的人 | `dimension-schema-contract`、`typed-binding-contract` |
+| 设计 semantic mapping / physical grounding 的人 | `typed-binding-contract` |
 | 设计 compiler、validation、IR、lowering 边界的人 | `compiler-spec`、`ir-schema-contract` |
 
 ## 这一目录中的几个反复出现的共识
@@ -151,14 +146,15 @@ process schema ----/--/
 虽然每篇文档各自聚焦不同层面，但它们共享几条稳定原则：
 
 - **typed contracts over raw SQL**：外部和中间层都应优先表达类型化语义，而不是 SQL 形状。
-- **semantic / physical 分层**：对象层表达“是什么”，asset 表达“承载在哪里”，binding 表达“如何落地”，compiler/IR 表达“如何组合与编译”。
-- **stable object contract / compiler profile 分层**：对象主 contract 只保留稳定且必须的语义字段；组合兼容、治理与执行前置条件优先进入 compiler profile / governance context。
+- **semantic / physical 分层**：对象层表达”是什么”，binding 层表达”如何落地”，compiler/IR 表达”如何组合与编译”。
+- **stable object contract / compiler profile 分层**：对象主 contract 只保留稳定且必须的语义字段；组合兼容、治理与执行前置条件优先进入 compiler profile / governance context；capability 从核心字段推导。
 - **dimensions are first-class semantic axes**：共享维度应是独立对象，而不是继续退回成 metric 上的字符串数组。
 - **process semantics 从 metric 中拆出**：复杂总体构造、路径、阶段、session、实验上下文不应继续塞进 metric。
-- **time semantics are layered**：时间锚点、窗口本体、请求时间范围、绑定消费策略、编译结果必须分层。
+- **time semantics are layered**：时间语义引用、窗口本体、消费策略三层清晰分离；角色可组合而非排斥。
 - **typed refs 是组合边界**：下游应优先消费 canonical artifact refs，而不是重建上游 scope/time_scope。
 - **validation 是编译职责的一部分**：语义不兼容应在 compiler 阶段显式拒绝，而不是拖到 SQL 执行时报错。
 - **IR 保持引擎无关**：IR 是稳定的内部语义计划，不应退化为 SQL AST 或 engine-specific DSL。
+- **entity 定义独立**：entity contract 在没有 binding 的情况下语义完整，不暴露 process 语义。
 
 ## 与其他目录的边界
 
@@ -176,8 +172,10 @@ process schema ----/--/
 
 如果只记住一个模型，可以记住下面这句：
 
-> `entity` 定义“谁”，`dimension` 定义“按什么轴观察”，`time` 定义“围绕哪种时间语义组织”，`metric` 定义“量什么”，`process object` 定义“总体/过程怎样形成”，`asset` 定义“真实物理承载体是什么”，`binding` 定义“这些语义对象如何落到 asset surface”，而 compiler / IR 定义“它们如何被安全地组合成分析计划”。
+> `entity` 定义”谁”，`dimension` 定义”按什么轴观察”，`time` 定义”围绕哪种时间语义组织”，`metric` 定义”量什么”，`process object` 定义”总体/过程怎样形成”，`binding` 定义”这些语义对象如何落到物理 carriers”，而 compiler / IR 定义”它们如何被安全地组合成分析计划”。
 
-补充一句：
+补充两句：
 
-> 如果某个字段主要服务 catalog 治理、compiler 兼容性判断或执行引擎决策，而不是对象本体语义，它默认不应进入 public object schema。
+> entity 定义独立于 binding：entity contract 在没有 binding 的情况下语义完整，binding 只提供物理落地。
+
+> 如果某个字段主要服务 catalog 治理、compiler 兼容性判断或执行引擎决策，而不是对象本体语义，它默认不应进入 public object schema；capability 从核心字段推导。

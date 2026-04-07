@@ -190,7 +190,27 @@ class MetricHeader(TypedDict):
     metric_contract_version: str
 ```
 
-`MetricHeader` 现在只保留 measurement 主 contract 中稳定且必须的字段。`supported_intents`、`result_modes`、`comparability_group`、`required_process_contract`、`inferential_capabilities`、`freshness_tolerance` 等内容若需要保留，应进入 compiler compatibility profile 或 catalog metadata，而不是 metric 主 schema。
+`MetricHeader` 现在只保留 measurement 主 contract 中稳定且必须的字段。
+
+**以下字段不应进入 public metric schema，由 compiler 从核心字段推导：**
+
+- `supported_intents`：由 `sample_kind` + `additivity` 推导
+- `inferential_capabilities`：由 `sample_kind` 推导
+
+**以下字段属于 compiler compatibility profile，不是 metric 主 schema：**
+
+- `result_modes`、`comparability_group`、`required_process_contract`、`freshness_tolerance`
+
+### Capability 推导规则（compiler 负责）
+
+| 推导能力 | 推导规则 |
+|---------|---------|
+| `supports_observe` | 始终为 true |
+| `supports_compare` | `additivity` != null AND `primary_time_ref` exists |
+| `supports_test` | `sample_kind` in ["numeric", "rate", "binary"] |
+| `supports_decompose` | `additivity` in ["additive", "semi_additive"] |
+| `supports_detect` | `anchor_time_ref` exists in process OR metric |
+| `supports_validate` | `sample_kind` == "rate" AND `anchor_time_ref` exists |
 
 ### Process 兼容 profile（非 public metric schema）
 

@@ -280,9 +280,25 @@ class StateSpec(TypedDict):
 
 这是 process object 最关键的公共部分。metric / intent / validator 应优先消费它，而不是直接依赖 subtype 私有字段。
 
-### Compiler Compatibility Profile（待决策）
+### Capability 归属说明
 
-`provided_capabilities`、`comparison_contract`、`time_projection_support`、`inference_support` 这类字段主要服务 compiler 组合判断。本轮不再把它们视为 process public contract 的默认组成部分；若要长期保留，建议单独定义 compiler compatibility profile，而不是继续混在 `ProcessInterfaceContract` 中。
+**保留在 public contract 中：**
+
+- `provided_capabilities`：显式声明 process 提供的能力
+- `comparison_contract`：显式声明比较语义
+
+**由 compiler 推导（不进入 public contract）：**
+
+- `time_projection_support`：由 `anchor_time_ref` 存在性推导
+- `inference_support`：由 `contract_mode` + `context_kind` 推导
+
+**推导规则（compiler 负责）：**
+
+| 推导能力 | 推导规则 |
+|---------|---------|
+| `supports_time_projection` | `anchor_time_ref` exists |
+| `supports_experiment_inference` | `context_kind` == "experiment_split" |
+| `supports_cohort_inference` | `context_kind` == "cohort_membership" |
 
 ### ProcessInterfaceContract
 
