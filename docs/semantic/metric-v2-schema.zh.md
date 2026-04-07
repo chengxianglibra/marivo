@@ -7,6 +7,7 @@
 - `docs/semantic/dimension-schema-contract.zh.md`
 - `docs/semantic/metric-process-contract.zh.md`
 - `docs/semantic/process-object-schema.zh.md`
+- `docs/semantic/time-schema-contract.zh.md`
 - `docs/semantic/ir-schema-contract.zh.md`
 
 本文重点回答：
@@ -137,6 +138,8 @@ metric 的公共 contract 应优先表达：
 - `observation_grain_ref`
 - `primary_time_ref`
 
+其中 `primary_time_ref` 的统一语义应由 `time-schema-contract.zh.md` 定义；它表达的是 measurement 主时间，而不是 attribution basis、process window 或 late-arrival policy。
+
 ### 4. family-specific 语义必须收敛到 family payload
 
 像 percentile、survival、score 来源、rate 的样本结构等语义，不应一部分放在公共组件里，一部分再放在 family payload 中。
@@ -150,14 +153,13 @@ metric 的公共 contract 应优先表达：
 所有 metric 都应具备一组稳定的公共字段。
 
 ```python
-from typing import Any, Literal, NotRequired, TypedDict
+from typing import Literal, NotRequired, TypedDict
 
 
 class MetricHeader(TypedDict):
-    name: str
+    metric_ref: str
     display_name: NotRequired[str | None]
     description: NotRequired[str | None]
-    status: NotRequired[Literal["draft", "published", "deprecated"]]
     metric_family: Literal[
         "count_metric",
         "sum_metric",
@@ -185,26 +187,12 @@ class MetricHeader(TypedDict):
     ]
     primary_time_ref: NotRequired[str | None]
     additivity: Literal["additive", "semi_additive", "non_additive"]
-    supported_intents: NotRequired[list[str] | None]
-    supported_result_modes: NotRequired[list[str] | None]
-    comparability_group: NotRequired[str | None]
-    comparability_tags: NotRequired[list[str] | None]
-    required_dimensions: NotRequired[list[str] | None]
-    forbidden_dimensions: NotRequired[list[str] | None]
-    quality_gate_refs: NotRequired[list[str] | None]
-    freshness_tolerance: NotRequired[str | None]
-    required_process_contract: NotRequired["RequiredProcessContract" | None]
-    inferential_capabilities: NotRequired["InferentialCapabilities" | None]
-    default_scope_constraints: NotRequired[
-        dict[str, str | int | float | bool | None] | None
-    ]
-    lineage: NotRequired[list[str] | None]
-    properties: NotRequired[dict[str, Any] | None]
-    revision: NotRequired[int]
     metric_contract_version: str
 ```
 
-### Process 兼容契约
+`MetricHeader` 现在只保留 measurement 主 contract 中稳定且必须的字段。`supported_intents`、`result_modes`、`comparability_group`、`required_process_contract`、`inferential_capabilities`、`freshness_tolerance` 等内容若需要保留，应进入 compiler compatibility profile 或 catalog metadata，而不是 metric 主 schema。
+
+### Process 兼容 profile（非 public metric schema）
 
 ```python
 from typing import Literal, NotRequired, TypedDict
@@ -244,7 +232,9 @@ class RequiredProcessContract(TypedDict):
     inference_requirements: NotRequired[InferenceRequirements | None]
 ```
 
-### 统计能力结构
+这组结构在本轮被降级为 **compiler compatibility profile** 示例，而不是 `MetricHeader` 的公共字段。是否长期保留这套 profile 以及如何发布，属于待决策项。
+
+### 统计能力 profile（非 public metric schema）
 
 ```python
 from typing import Literal, NotRequired, TypedDict
@@ -267,10 +257,9 @@ class InferentialCapabilities(TypedDict):
 
 | Field | Type | Required | 说明 |
 | --- | --- | --- | --- |
-| `name` | string | yes | metric 唯一名称 |
+| `metric_ref` | string | yes | metric 的稳定公共引用；必须使用 `metric.*`；也是 public contract 主标识 |
 | `display_name` | string | no | 人类可读显示名 |
 | `description` | string | no | 业务口径说明 |
-| `status` | enum | no | 生命周期状态 |
 | `metric_family` | enum | yes | metric 类型族 |
 | `population_subject_ref` | string | no | 若该 metric 对总体主体有稳定要求，则指向对应语义引用 |
 | `observed_entity_ref` | string | yes | metric 直接消费或观测的实体引用；必须使用 `entity.*` |
@@ -280,20 +269,6 @@ class InferentialCapabilities(TypedDict):
 | `aggregation_scope` | enum | no | 聚合作用的主要层次 |
 | `primary_time_ref` | string | no | metric 主时间语义引用 |
 | `additivity` | enum | yes | 加和性语义 |
-| `supported_intents` | array[string] | no | 支持的 intent |
-| `supported_result_modes` | array[string] | no | 支持的 observation 结果模式 |
-| `comparability_group` | string | no | 用于组织同口径可比 metric |
-| `comparability_tags` | array[string] | no | 更细粒度的可比性标签 |
-| `required_dimensions` | array[string] | no | 请求中必须出现的维度；应使用 `dimension.*` |
-| `forbidden_dimensions` | array[string] | no | 请求中不允许出现的维度；应使用 `dimension.*` |
-| `quality_gate_refs` | array[string] | no | 执行前应检查的 gate |
-| `freshness_tolerance` | string | no | 数据时效容忍度 |
-| `required_process_contract` | object | no | 与 process object 组合时所需的结构化契约 |
-| `inferential_capabilities` | object | no | 检验和样本摘要能力 |
-| `default_scope_constraints` | object | no | 默认附加的非时间 scope |
-| `lineage` | array[string] | no | 上游依赖对象 |
-| `properties` | object | no | 预留元数据扩展 |
-| `revision` | integer | no | 发布版本序号 |
 | `metric_contract_version` | string | yes | 合同版本 |
 
 ### 设计说明
@@ -303,16 +278,13 @@ class InferentialCapabilities(TypedDict):
 - `observed_entity_ref` 与 `observation_grain_ref` 是 metric identity 的一部分
 - `sample_kind` 直接决定可支持的 inferential summary contract
 - `additivity` 直接影响 `compare -> decompose -> attribute` 的合法性
-- `required_dimensions` / `forbidden_dimensions` 只声明 measurement 对维度的使用边界，不重新定义维度本体
-- `required_process_contract` 是 process-aware validation 的主入口
-- `properties` 不能承载核心 measurement semantics
+- 维度兼容、process 兼容、统计能力与 freshness 等规则若需要存在，应由 compiler compatibility profile / governance context 承担，而不是回流到 public metric header
 
 其中命名空间应保持统一：
 
 - `population_subject_ref` 使用 `subject.*`
 - `observed_entity_ref` 使用 `entity.*`
 - `observation_grain_ref` 使用 `grain.*`
-- `required_dimensions` / `forbidden_dimensions` 使用 `dimension.*`
 
 ## 公共子结构
 
@@ -340,10 +312,6 @@ from typing import Literal, NotRequired, TypedDict
 class MeasurementComponent(TypedDict):
     name: str
     semantics: str
-    entity_ref: NotRequired[str | None]
-    grain: NotRequired[
-        Literal["user", "device", "account", "order", "session", "event"] | None
-    ]
     aggregation: Literal[
         "count",
         "count_distinct",
@@ -354,8 +322,9 @@ class MeasurementComponent(TypedDict):
     ]
     measure_ref: NotRequired[str | None]
     qualifier_refs: NotRequired[list[str] | None]
-    time_ref: NotRequired[str | None]
 ```
+
+`MeasurementComponent` 不再重复声明 `entity_ref`、`grain`、`time_ref`。这些 measurement identity 已由顶层 `MetricHeader` 统一给出，family payload 不应制造第二套真相。
 
 ### Distribution Spec
 
@@ -410,6 +379,8 @@ class CountMetric(MetricHeader):
 ```
 
 ### 示例
+
+以下示例为**过渡期合并视图**：除 public `MetricHeader` 与 family payload 外，示例中若出现 `supported_intents`、`required_process_contract`、`inferential_capabilities` 等字段，应理解为可选 compiler compatibility profile，而不是 metric public contract 的必需字段。
 
 ```json
 {
@@ -611,7 +582,7 @@ average metric 与 rate metric 类似，都有 numerator / denominator 结构，
 - `sample_kind` 通常是 `numeric`
 - `value_semantics` 通常是 `mean`
 - inferential summary 多使用 `numeric_sample_summary`
-- 如果它依赖 session 粒度，应通过 `observed_entity_ref` / `observation_grain_ref` 与 `required_process_contract` 显式表达
+- 如果它依赖 session 粒度，应通过 `observed_entity_ref` / `observation_grain_ref` 明确表达；若还需要更细 process 前提，则交给 compiler compatibility profile
 
 ### 示例
 
@@ -873,25 +844,21 @@ metric 与 process object 的兼容性不应只在运行期碰运气。
 
 建议基于以下维度显式校验：
 
-- metric `required_process_contract.contract_modes`
-- metric `required_process_contract.population_subject_refs`
-- metric `required_process_contract.context_kinds` / `entity_refs`
-- metric `required_process_contract.emitted_grain_refs`
-- metric `required_process_contract.required_capabilities`
 - metric 的 `sample_kind`
-- metric 的 `supported_intents`
+- metric 的 `observed_entity_ref` / `observation_grain_ref`
 - process 的 `interface_contract`
+- 若存在 compiler compatibility profile，则其中的 process requirements
 
 ### 例子
 
-- `conversion_rate` 这类实验指标通常要求 process 提供 `variant_split + sample_summary_prep`
-- `avg_watch_time` 这类会话质量指标通常要求 process 暴露 `session` entity stream 且具备 `time_projection`
-- `time_to_churn` 这类 survival metric 通常要求 process 提供 `population_membership + anchor_time + windowed_observation`
+- `conversion_rate` 这类实验指标通常要求 process 提供 `experiment_split` 上下文与稳定 `anchor_time_ref`
+- `avg_watch_time` 这类会话质量指标通常要求 process 暴露 `session` entity stream
+- `time_to_churn` 这类 survival metric 通常要求 process 提供稳定 `population_subject_ref + anchor_time_ref`
 - `gmv` 未必适合直接绑定只输出 `path_match` 的 `funnel_definition`
 
 ## Result Mode Compatibility 建议
 
-metric 还应显式声明自己支持哪些 observation result mode。
+若系统最终要持久化 result mode 兼容矩阵，建议把它放进 compiler compatibility profile，而不是回写到 `MetricHeader`。
 
 例如：
 
@@ -950,18 +917,14 @@ metric 创建或发布前，建议至少校验：
 - `observed_entity_ref`、`observation_grain_ref` 与 family 语义不冲突
 - `rate_metric` / `average_metric` 的 `numerator`、`denominator` 必填
 - `distribution_spec.percentile` 在 `0 < p < 1`
-- `supported_result_modes` 与 `inferential_capabilities` 一致
-- `required_dimensions` 与 `forbidden_dimensions` 不重叠
-- `quality_gate_refs`、`comparability_tags` 不重复
 - 所有 `*_ref` 均可解析
 
 组合期还应额外校验：
 
 - metric 与 process object 是否兼容
-- metric 是否支持请求 intent
-- metric 是否支持请求 result mode
 - metric 的 `additivity` 是否满足下游分析动作
-- inferential capability 是否满足 `test` / `validate`
+- 请求维度若为 `time_derived`，其 `required_time_anchor_ref` 是否被 metric / process 组合满足
+- 若存在 compiler profile，则其 result mode / inference 规则是否满足 `test` / `validate`
 
 ## 与 IR 的关系
 
@@ -971,8 +934,8 @@ metric schema 不是 IR。
 
 - `numerator` / `denominator` 不是最终执行 DAG
 - `additivity` 不是 compare artifact 本身
-- `inferential_capabilities` 不是最终 test 方法调度逻辑
-- `required_process_contract` 不是最终 process join / materialization plan；它只是对 `interface_contract` 的 typed 需求
+- compiler profile 不是最终 test 方法调度逻辑
+- compiler profile 不是最终 process join / materialization plan；它只是对 `interface_contract` 的 typed 需求
 
 这些都只是 compiler 的 typed inputs。IR 负责把它们转成：
 

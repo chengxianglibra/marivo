@@ -56,7 +56,7 @@
 - 对组合做显式兼容性校验
 - 将下层执行细节降解为 engine-specific plan，而不把 SQL 暴露为外部契约
 
-独立的 `dimension` contract 则负责提供共享分析轴，使 `metric.required_dimensions`、`process.exported_dimension_refs`、`entity.stable_descriptors` 能围绕同一套 `dimension.*` refs 组合。
+独立的 `dimension` contract 则负责提供共享分析轴，使 `process.exported_dimension_refs`、`entity.stable_descriptors` 与请求维度解析都能围绕同一套 `dimension.*` refs 组合。
 
 一句话总结：
 
@@ -87,7 +87,7 @@ typed binding contract 只负责把这些既有语义对象落到物理层，并
 
 `metric` 应承载的典型信息包括：
 
-- `name`
+- `metric_ref`
 - `description`
 - `subject_key_semantics`
 - `observation_unit`
@@ -95,15 +95,7 @@ typed binding contract 只负责把这些既有语义对象落到物理层，并
 - `value_semantics`
 - `numerator / denominator contract`（适用于 rate 类指标）
 - `additivity`
-- `comparability_group`
-- `supported_result_modes`
-- `supported_intents`
-- `required_dimensions / forbidden_dimensions`
-- `quality_gate_refs`
-- `freshness_tolerance`
 - `metric_contract_version`
-
-其中 `required_dimensions / forbidden_dimensions` 应只引用 `dimension.*`，而不再使用裸字符串。
 
 `metric` 不应直接承载以下内容：
 
@@ -112,6 +104,9 @@ typed binding contract 只负责把这些既有语义对象落到物理层，并
 - funnel step matching 的完整过程规则
 - sessionization 的具体 idle gap / close policy 实现细节
 - engine-specific SQL 结构本身作为外部主语义
+- 全局 `supported_intents`
+- 全局 `supported_result_modes`
+- compiler 才消费的 capability / inference / freshness profiles
 
 ### 2. Process Object
 
@@ -149,7 +144,7 @@ typed binding contract 只负责把这些既有语义对象落到物理层，并
 
 因此：
 
-- `metric` 通过 `required_dimensions / forbidden_dimensions` 消费 dimension
+- `metric` 在最小 public contract 中不直接枚举维度兼容矩阵；请求维度是否合法由 compiler 结合 dimension contract 与组合上下文判断
 - `process object` 通过 `exported_dimension_refs` 导出 dimension
 - `entity` 通过 `stable_descriptors` 暴露稳定 dimension
 - compiler 负责校验请求中的 `dimensions` 是否与上述契约兼容
@@ -258,7 +253,7 @@ typed binding contract 只负责把这些既有语义对象落到物理层，并
 
 ```ts
 type MetricContract = {
-  name: string;
+  metric_ref: string;
   description?: string | null;
   population_subject_ref?: string | null;
   observed_entity_ref: string;
@@ -268,13 +263,6 @@ type MetricContract = {
   numerator?: MeasurementComponent | null;
   denominator?: MeasurementComponent | null;
   additivity: "additive" | "semi_additive" | "non_additive";
-  comparability_group?: string | null;
-  supported_intents?: string[] | null;
-  supported_result_modes?: string[] | null;
-  required_dimensions?: string[] | null;
-  forbidden_dimensions?: string[] | null;
-  quality_gate_refs?: string[] | null;
-  freshness_tolerance?: string | null;
   metric_contract_version: string;
 };
 ```
@@ -310,7 +298,7 @@ type MetricContract = {
 
 ```ts
 type ProcessObjectHeader = {
-  name: string;
+  process_ref: string;
   process_type:
     | "experiment_context"
     | "cohort_definition"
@@ -319,7 +307,6 @@ type ProcessObjectHeader = {
     | "path_pattern"
     | "lifecycle_state_machine";
   description?: string | null;
-  quality_gate_refs?: string[] | null;
   process_contract_version: string;
 };
 
@@ -329,6 +316,8 @@ type ProcessInterfaceContract =
       context_kind: "cohort_membership" | "experiment_split";
       population_subject_ref: string;
       membership_cardinality: "exclusive_one" | "repeatable_many";
+      anchor_time_ref?: string | null;
+      exported_dimension_refs?: string[] | null;
     }
   | {
       contract_mode: "entity_stream";
@@ -336,8 +325,12 @@ type ProcessInterfaceContract =
       emitted_grain_ref: string;
       population_subject_ref: string;
       subject_cardinality: "one" | "many";
+      anchor_time_ref?: string | null;
+      exported_dimension_refs?: string[] | null;
     };
 ```
+
+若需要 `supported_intents`、`result_modes`、`capabilities`、`inference support` 等更细粒度组合规则，建议作为 compiler compatibility profile 单独维护，而不是继续塞回 public object schema。
 
 ### 各类 Process Object 示例
 

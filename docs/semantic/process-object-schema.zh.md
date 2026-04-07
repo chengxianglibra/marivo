@@ -13,6 +13,7 @@
 - `docs/semantic/dimension-schema-contract.zh.md`
 - `docs/semantic/metric-process-contract.zh.md`
 - `docs/semantic/metric-v2-schema.zh.md`
+- `docs/semantic/time-schema-contract.zh.md`
 - `docs/semantic/ir-schema-contract.zh.md`
 
 ## Purpose
@@ -103,7 +104,7 @@
 
 public schema 应使用语义引用（semantic refs）表达“依赖哪个受治理概念”，而不是直接写“在哪个表、哪个字段上做什么”。
 
-### 3. 兼容性以 typed capabilities 为主，不以 tags 为主
+### 3. 兼容性以结构化接口为主，不以 tags 为主
 
 process object 与 metric 的主兼容关系不应依赖：
 
@@ -113,9 +114,10 @@ process object 与 metric 的主兼容关系不应依赖：
 
 更稳定的做法是：
 
-- process object 声明 `provided_capabilities`
-- metric / intent 声明 `required_capabilities`
-- validator 用结构化规则判断是否兼容
+- process object 先声明稳定 `interface_contract`
+- metric / intent 先声明自己真正依赖的结构化前提
+- validator 先基于结构化接口判断是否兼容
+- 若未来仍需 capability 词表，应独立成 compiler compatibility profile，而不是直接混入 public schema
 
 标签可以保留为 catalog 搜索辅助元数据，但不应是主校验机制。
 
@@ -145,7 +147,7 @@ from typing import Literal, NotRequired, TypedDict
 
 
 class ProcessObjectHeader(TypedDict):
-    name: str
+    process_ref: str
     display_name: NotRequired[str | None]
     description: NotRequired[str | None]
     process_type: Literal[
@@ -156,27 +158,19 @@ class ProcessObjectHeader(TypedDict):
         "path_pattern",
         "lifecycle_state_machine",
     ]
-    status: NotRequired[Literal["draft", "published", "deprecated"]]
-    quality_gate_refs: NotRequired[list[str] | None]
-    lineage: NotRequired[list[str] | None]
-    properties: NotRequired[dict[str, str | int | float | bool | None] | None]
-    revision: NotRequired[int]
     process_contract_version: str
 ```
+
+`ProcessObjectHeader` 只保留 process public contract 必须稳定暴露的字段。`status`、`revision`、`lineage`、`quality gates`、搜索别名等 catalog 元数据，应独立于主 schema 存放。
 
 ### 字段说明
 
 | Field | Type | Required | 说明 |
 | --- | --- | --- | --- |
-| `name` | string | yes | 语义层唯一标识 |
+| `process_ref` | string | yes | process object 的稳定公共引用；必须使用 `process.*`；也是 public contract 主标识 |
 | `display_name` | string | no | 面向人类的显示名称 |
 | `description` | string | no | 对象语义说明 |
 | `process_type` | enum | yes | 过程对象类别 |
-| `status` | enum | no | 生命周期状态 |
-| `quality_gate_refs` | array[string] | no | 发布或执行前需满足的治理 gate |
-| `lineage` | array[string] | no | 上游依赖对象引用 |
-| `properties` | object | no | 辅助元数据；不得承载主语义 |
-| `revision` | integer | no | 发布序号 |
 | `process_contract_version` | string | yes | 契约版本 |
 
 设计上，公共头部不再直接包含：
@@ -226,12 +220,19 @@ class WindowOffset(TypedDict):
 
 
 class WindowSpec(TypedDict):
-    anchor_ref: str
+    anchor_ref: NotRequired[str | None]
     start_offset: NotRequired[WindowOffset | None]
     end_offset: NotRequired[WindowOffset | None]
 ```
 
 `WindowSpec` 只表达窗口语义，不表达底层窗口如何实现。
+
+其中：
+
+- `anchor_ref` 必须引用已受治理的 `time.*`
+- 该 `time.*` 的统一定义见 `time-schema-contract.zh.md`
+- 若窗口未显式给出 `anchor_ref`，则应默认继承 `interface_contract.anchor_time_ref`
+- 若窗口显式给出不同的 `anchor_ref`，则它表示窗口级 override，而不是替换 process 主锚点
 
 late arrival、open window exclusion、物理消费锚点等实现侧治理，不属于 `WindowSpec` 本体，而属于 typed binding contract 的消费策略。
 
@@ -279,52 +280,14 @@ class StateSpec(TypedDict):
 
 这是 process object 最关键的公共部分。metric / intent / validator 应优先消费它，而不是直接依赖 subtype 私有字段。
 
-### ProcessCapability
+### Compiler Compatibility Profile（待决策）
 
-```python
-from typing import Literal, TypeAlias
-
-
-ProcessCapability: TypeAlias = Literal[
-    "population_membership",
-    "anchor_time",
-    "windowed_observation",
-    "variant_split",
-    "ordered_steps",
-    "completion_state",
-    "step_latency",
-    "session_partition",
-    "path_match",
-    "state_assignment",
-    "state_transition",
-    "time_projection",
-    "sample_summary_prep",
-]
-```
+`provided_capabilities`、`comparison_contract`、`time_projection_support`、`inference_support` 这类字段主要服务 compiler 组合判断。本轮不再把它们视为 process public contract 的默认组成部分；若要长期保留，建议单独定义 compiler compatibility profile，而不是继续混在 `ProcessInterfaceContract` 中。
 
 ### ProcessInterfaceContract
 
 ```python
 from typing import Literal, NotRequired, TypedDict, TypeAlias
-
-
-class ComparisonContract(TypedDict):
-    comparable_with_same_contract: bool
-    requires_same_anchor_semantics: NotRequired[bool | None]
-    requires_same_window_semantics: NotRequired[bool | None]
-    requires_same_partition_semantics: NotRequired[bool | None]
-
-
-class TimeProjectionSupport(TypedDict):
-    supported: bool
-    default_time_ref: NotRequired[str | None]
-    bucket_stability: Literal["required", "optional", "not_supported"]
-
-
-class InferenceSupport(TypedDict):
-    supports_population_split: NotRequired[bool | None]
-    supports_pairwise_comparison: NotRequired[bool | None]
-    supports_sample_summary_prep: NotRequired[bool | None]
 
 
 class ContextProcessContract(TypedDict):
@@ -334,10 +297,6 @@ class ContextProcessContract(TypedDict):
     membership_cardinality: Literal["exclusive_one", "repeatable_many"]
     anchor_time_ref: NotRequired[str | None]
     exported_dimension_refs: NotRequired[list[str] | None]
-    provided_capabilities: list[ProcessCapability]
-    comparison_contract: NotRequired[ComparisonContract | None]
-    time_projection_support: NotRequired[TimeProjectionSupport | None]
-    inference_support: NotRequired[InferenceSupport | None]
 
 
 class EntityProcessContract(TypedDict):
@@ -348,10 +307,6 @@ class EntityProcessContract(TypedDict):
     subject_cardinality: Literal["one", "many"]
     anchor_time_ref: NotRequired[str | None]
     exported_dimension_refs: NotRequired[list[str] | None]
-    provided_capabilities: list[ProcessCapability]
-    comparison_contract: NotRequired[ComparisonContract | None]
-    time_projection_support: NotRequired[TimeProjectionSupport | None]
-    inference_support: NotRequired[InferenceSupport | None]
 
 
 ProcessInterfaceContract: TypeAlias = ContextProcessContract | EntityProcessContract
@@ -366,18 +321,14 @@ ProcessInterfaceContract: TypeAlias = ContextProcessContract | EntityProcessCont
 - `entity_ref`：适用于 session / funnel / path / lifecycle 这类实体流过程；必须使用 `entity.*`
 - `emitted_grain_ref`：实体流接口的稳定粒度；必须使用 `grain.*`
 - `subject_cardinality`：每个主体最多对应一个还是多个实体
-- `anchor_time_ref`：输出实体的主时间锚点语义
+- `anchor_time_ref`：process 的主时间锚点语义；也是窗口未显式指定 `anchor_ref` 时的默认继承来源
 - `exported_dimension_refs`：该过程稳定导出的下游可用维度；必须使用 `dimension.*`，例如 `dimension.variant`、`dimension.step`、`dimension.state`
-- `provided_capabilities`：主兼容接口
-- `comparison_contract`：比较时的基本前提
-- `time_projection_support`：是否支持 detect / trend 等需要稳定时间投影的 intent
-- `inference_support`：是否足以为 validate / test 准备样本结构
 
 ### 设计说明
 
 `interface_contract` 的作用，是把各 subtype 的“下游接口”统一起来，但不要求所有对象都伪装成“实体发射器”。
 
-其中 `exported_dimension_refs` 只声明“这个过程会稳定导出哪些维度轴”，维度值域、层级与取值治理仍由独立的 dimension contract 定义。
+其中 `exported_dimension_refs` 只声明“这个过程会稳定导出哪些维度轴”，维度值域、层级与取值治理仍由独立的 dimension contract 定义；若导出维度是 `time_derived`，则 process 的 `anchor_time_ref` 或窗口显式 override 后实际暴露的窗口锚点，还必须满足该 dimension 的 `required_time_anchor_ref`。
 
 例如：
 
@@ -387,7 +338,7 @@ ProcessInterfaceContract: TypeAlias = ContextProcessContract | EntityProcessCont
 - session 主要提供 `session_partition`
 - lifecycle 主要提供 `state_assignment`，有时再提供 `state_transition`
 
-这样，validator 可以先基于统一 contract 做大部分判断，只在必要时读取 subtype payload。
+这样，validator 可以先基于统一 contract 做大部分结构判断，只在必要时读取 subtype payload。若未来仍需要更细粒度 capability / inference / comparison 词表，建议独立成 compiler profile，并由你再决定最终发布形态。
 
 ## 顶层对象类型
 
@@ -450,8 +401,11 @@ class ExperimentContext(ProcessObjectBase):
 - 不再把 experiment split 伪装成 `variant_membership` 这类独立观测实体
 - `split_basis.resolution = "all"` 不再属于 `experiment_context`；多次 exposure timeline 应由其他 process subtype 或 lower 层表达
 - `analysis_window` 继续属于 process 语义本体；binding 只负责声明该窗口在物理层如何被消费
+- attribution basis / attribution window / baseline alignment 这类过程型时间语义，也应优先放在 process object 或 compiler policy，而不是回写进 metric 本体
 
 `default_metric_roles` 属于更高层的 analysis package / orchestration 配置，而不属于实验过程对象的本体语义。
+
+下面的 subtype 示例为**过渡期合并视图**：其中若出现 capability / comparison / inference 一类字段，应理解为可选 compiler compatibility profile，而不是 process public contract 的必需部分。
 
 ### 示例
 
@@ -623,7 +577,7 @@ class FunnelDefinition(ProcessObjectBase):
 ### 设计说明
 
 - `funnel_definition` 输出的是 funnel progress 语义，而不是某个最终指标值
-- completion / latency 等下游能力由 `provided_capabilities` 声明
+- completion / latency 等更细粒度下游能力若需要保留，建议放入 compiler compatibility profile
 
 ### 示例
 
@@ -838,7 +792,7 @@ class LifecycleStateMachine(ProcessObjectBase):
 ### 设计说明
 
 - `current_state` / `state_transition_ready` 不再做成 `output_mode`
-- 是否支持迁移分析由 `provided_capabilities` 是否包含 `state_transition` 决定
+- 是否支持迁移分析，应优先由结构化 interface 与 subtype payload 判断；若仍需能力词表，交给 compiler profile
 
 ### 示例
 
@@ -904,10 +858,8 @@ class LifecycleStateMachine(ProcessObjectBase):
 - `interface_contract.population_subject_ref`
 - `interface_contract.context_kind` 或 `interface_contract.entity_ref`
 - `interface_contract.emitted_grain_ref`（若 `contract_mode = entity_stream`）
-- `interface_contract.provided_capabilities`
-- `interface_contract.comparison_contract`
-- `interface_contract.time_projection_support`
-- `interface_contract.inference_support`
+- `anchor_time_ref`
+- `exported_dimension_refs`
 
 而不是优先基于：
 
@@ -923,9 +875,8 @@ class LifecycleStateMachine(ProcessObjectBase):
 
 - `contract_mode = context_provider`
 - `context_kind = cohort_membership`
-- `population_membership`
-- `anchor_time`
-- `windowed_observation`
+- 稳定 `population_subject_ref`
+- 稳定 `anchor_time_ref`
 
 #### 2. `conversion_rate + experiment_context + validate`
 
@@ -933,9 +884,8 @@ class LifecycleStateMachine(ProcessObjectBase):
 
 - `contract_mode = context_provider`
 - `context_kind = experiment_split`
-- `variant_split`
-- `population_membership`
-- `sample_summary_prep`
+- 稳定 `population_subject_ref`
+- 稳定 `anchor_time_ref`
 
 #### 3. `avg_watch_time + session_contract + detect`
 
@@ -944,8 +894,7 @@ class LifecycleStateMachine(ProcessObjectBase):
 - `contract_mode = entity_stream`
 - `entity_ref = session`
 - `emitted_grain_ref = grain.session`
-- `session_partition`
-- `time_projection`
+- 稳定 `anchor_time_ref`
 
 #### 4. `user_count + lifecycle_state_machine + observe`
 
@@ -953,7 +902,7 @@ class LifecycleStateMachine(ProcessObjectBase):
 
 - `contract_mode = entity_stream`
 - `entity_ref = state_assignment`
-- `state_assignment`
+- 稳定 `exported_dimension_refs = ["dimension.state"]`
 
 ## Validator 建议
 
@@ -965,11 +914,9 @@ class LifecycleStateMachine(ProcessObjectBase):
 - `interface_contract` 必填字段齐全
 - `interface_contract.contract_mode` 与 subtype 家族一致
 - `interface_contract.population_subject_ref` 不应再被 subtype payload 重复声明
-- `provided_capabilities` 与 subtype 语义一致
 - `anchor_time_ref`、`population_ref`、`event_ref` 等引用均可解析
 - `steps` / `states` / `variants` 的 key 唯一且非空
 - 所有 window 值为正数
-- `interface_contract.comparison_contract` 与 `interface_contract.time_projection_support` 不自相矛盾
 - `experiment_context.split_basis` 与 `membership_cardinality` 自洽
 - `cohort_definition.entry_population.membership_mode` 与 `membership_cardinality` 自洽
 
@@ -977,11 +924,11 @@ class LifecycleStateMachine(ProcessObjectBase):
 
 建议优先基于统一 contract 做校验：
 
-- process 的 `contract_mode`、`context_kind` / `entity_ref` 是否满足 metric `required_process_contract`
+- process 的 `contract_mode`、`context_kind` / `entity_ref` 是否满足 metric 所需的结构化前提
 - process 的 `population_subject_ref` 是否与 metric 对齐
 - process 的 `emitted_grain_ref` 是否与 metric `observation_grain_ref` 相容（若该 process 暴露实体流）
-- process 是否具备 intent 所需 capabilities
-- 比较、检测、验证所需的 comparability / time projection / inference support 是否成立
+- 更细粒度 capability / inference / comparison 规则若存在，应由单独的 compiler profile 判定
+- 若请求维度为 `time_derived`，process 的 `anchor_time_ref` 是否满足其 `required_time_anchor_ref`
 
 必要时，再读取 subtype payload 做更细粒度检查，例如：
 

@@ -4,10 +4,13 @@
 
 本文是 compiler-facing design spec，不是 HTTP wire spec，也不是 engine implementation doc。相关背景与上游契约见：
 
+- `docs/semantic/asset-schema-contract.zh.md`
 - `docs/semantic/dimension-schema-contract.zh.md`
 - `docs/semantic/metric-process-contract.zh.md`
 - `docs/semantic/metric-v2-schema.zh.md`
 - `docs/semantic/process-object-schema.zh.md`
+- `docs/semantic/time-schema-contract.zh.md`
+- `docs/semantic/typed-binding-contract.zh.md`
 - `docs/semantic/ir-schema-contract.zh.md`
 - `docs/analysis/intents/primitive-intent-design.md`
 - `docs/analysis/intents/derived-intent-design.md`
@@ -42,6 +45,8 @@ compiler 必须保持以下分工：
 
 - `metric` 提供 measurement contract
 - `process object` 提供 process/interface contract
+- `asset` 提供 physical carrier contract
+- `binding` 提供 semantic grounding contract
 - `intent` 提供 analysis action contract
 - compiler 负责 normalization、validation、expansion、IR assembly
 - engine adapter 负责 lowering、capability matching 与执行
@@ -54,18 +59,21 @@ compiler 必须保持以下分工：
 
 ## 编译输入模型
 
-一次编译的输入由四部分组成：
+一次编译的输入由五部分组成：
 
 1. typed intent request
 2. metric contract
 3. process contract（可为单侧、双侧或空）
-4. catalog / governance context
+4. binding / asset contracts（由 catalog 解析得到）
+5. catalog metadata / governance context / optional compiler profiles
 
 其中：
 
 - typed intent request 是唯一外部动作入口
 - `metric` 与 `process object` 是 catalog 中受治理的语义对象
+- `binding` 与 `asset` 是 compiler 在对象解析阶段补全的 grounding 输入
 - governance context 包括 quality / freshness / engine capability / policy 信息
+- object public contract 与 compiler compatibility profile 应显式分层，不能混作同一份 schema
 
 ### 输入槽位
 
@@ -130,6 +138,8 @@ compiler 必须优先复用 typed refs，而不是在下游请求里重建上游
 - `scope` 只承载非时间总体约束
 - `scope.predicate` 中出现时间条件必须硬失败
 - 编译后的 normalized input 必须保留两者分离
+- `time_scope` 只表达本次请求的观察范围，不重写 catalog 中的 `time.*` taxonomy；合法时间锚点仍由 metric / process / dimension contract 决定
+- compiler 必须把 `time_scope` 解析到单一的 `resolved_filter_time_ref`，但同时保留 metric / process / window 各自的时间引用
 
 ### 2. artifact 与 projection 严格分层
 
@@ -249,20 +259,15 @@ type NormalizedRequest = {
 
 - `metric_ref`
 - `metric_family`
+- `population_subject_ref`
 - `observed_entity_ref`
 - `observation_grain_ref`
+- `primary_time_ref`
 - `sample_kind`
 - `value_semantics`
 - `additivity`
-- `supported_intents`
-- `supported_result_modes`
-- `comparability_group`
-- `required_dimensions`
-- `forbidden_dimensions`
-- `required_process_contract`
-- `inferential_capabilities`
-- `quality_gate_refs`
-- `freshness_tolerance`
+
+更细粒度的 intent/result mode/process compatibility/inference/freshness 规则，若需要参与编译，应从独立的 compiler profile 或 governance context 中读取，而不是假定它们属于 metric public contract。
 
 ### process object -> normalized process contract
 
@@ -277,11 +282,24 @@ type NormalizedRequest = {
 - `membership_cardinality` 或 `subject_cardinality`
 - `anchor_time_ref`
 - `exported_dimension_refs`
-- `provided_capabilities`
-- `comparison_contract`
-- `time_projection_support`
-- `inference_support`
-- request-time bindings 应用后的实例化结果
+
+更细粒度 capability / comparison / inference 规则，若需要参与编译，应来自单独的 compiler profile。
+
+### dimension -> normalized dimension contract
+
+最少应抽取：
+
+- `dimension_ref`
+- `semantic_kind`
+- `supports_grouping`
+- `required_time_anchor_ref`
+- `hierarchy_type`
+- `parent_dimension_ref`
+- `domain_kind`
+- `enum_set_ref`
+- `enum_version`
+
+更细的枚举兼容、null/tail 处理策略若需要参与编译，应来自 governance context，而不是假定它们属于 dimension 主 contract。
 
 ### intent request -> normalized action contract
 
@@ -290,9 +308,33 @@ type NormalizedRequest = {
 - `intent_kind`
 - root / ref / derived 类型
 - 输入槽位绑定
+- `resolved_filter_time_ref`
 - 输出 artifact kind
 - 受控默认值解析策略
 - 该 intent 的硬失败条件与软告警面
+
+### binding -> normalized grounding contract
+
+最少应抽取：
+
+- `binding_ref`
+- `bound_object_ref`
+- `asset_refs`
+- `target_path -> semantic_ref -> asset_surface_ref` 映射
+- `join_relations`
+- `consumption_policies`
+
+### asset -> normalized carrier contract
+
+最少应抽取：
+
+- `asset_ref`
+- `asset_kind`
+- `native_locator`
+- `carrier_capabilities`
+- `field_surfaces`
+- `time_surfaces`
+- `relation_surfaces`
 
 ## Phase 3：组合期校验链
 
@@ -318,17 +360,40 @@ type NormalizedRequest = {
 - process contract 是否足以支撑该 intent
 - ref artifact 类型是否允许被该 intent 消费
 
+如果某些 intent-support 规则不在 object public schema 中，它们应来自 intent catalog 或 compiler compatibility profile。
+
 ### Gate 3：metric-process 兼容校验
 
 重点校验：
 
-- `required_process_contract` 是否被满足
+- 若存在 compiler compatibility profile，则其中的 process requirements 是否被满足
 - `population_subject_ref` 是否兼容
 - `context_kind` / `entity_ref` 是否兼容
 - `observation_grain_ref` / `emitted_grain_ref` 是否兼容（若 process 暴露实体流）
-- comparison / inference / time projection 能力是否匹配
+- `primary_time_ref` / `anchor_time_ref` / window `anchor_ref` 是否可被解析为合法 `time.*`，且 request `time_scope` 是否可稳定作用于该组合并产出单一 `resolved_filter_time_ref`
+- 若存在 compiler compatibility profile，则其中的 comparison / inference / time projection 规则是否匹配
 
-### Gate 4：intent-specific semantic gate
+### Gate 4：asset-binding compatibility gate
+
+重点校验：
+
+- 所需 `binding_ref` 是否存在
+- 所需 `asset_ref` 是否存在
+- `binding` 引用的 `asset_surface_ref` 是否都存在于对应 asset
+- 所需 relation surface / time surface 是否存在
+- asset kind 是否满足 binding 与 intent 的消费前提
+
+### Gate 5：dimension compatibility gate
+
+重点校验：
+
+- `request_dimensions` 是否都已归一化为存在的 `dimension.*`
+- 只有 `supports_grouping = true` 的维度才能进入通用分组位
+- 若 `semantic_kind = time_derived`，则消费方必须暴露满足 `required_time_anchor_ref` 的 `primary_time_ref` 或 `anchor_time_ref`
+- hierarchy 只信任 `parent_dimension_ref` 这一套主真相，不依赖 child/drill-down 镜像字段
+- 若 governance context 定义了额外的枚举/空值/长尾策略，则请求 shape 是否与之兼容
+
+### Gate 6：intent-specific semantic gate
 
 例如：
 
@@ -337,7 +402,7 @@ type NormalizedRequest = {
 - `test` / `validate` 的 inference gate
 - `detect` / `forecast` 的 time projection gate
 
-### Gate 5：governance gate
+### Gate 7：governance gate
 
 包括：
 
@@ -345,7 +410,7 @@ type NormalizedRequest = {
 - freshness gate
 - policy gate
 
-### Gate 6：lowerability precheck
+### Gate 8：lowerability precheck
 
 仅校验“是否存在可 lower 的路径”，不执行真正 lowering，也不把目标引擎决策写回 Semantic IR。
 
@@ -386,7 +451,7 @@ type NormalizedRequest = {
 
 - `left` / `right` 必须能归一化为 scalar observe
 - metric 必须满足 compare + decompose 兼容性
-- dimension 必须可归因
+- dimension 必须可归因，且满足 grouping / time-anchor / governance 约束
 - `decomposition_limit` 必须有界
 
 ### `diagnose`
@@ -423,7 +488,7 @@ type NormalizedRequest = {
 - detect fan-out 必须有界
 - baseline policy 必须固定可推导
 - compare 必须可比
-- decompose 必须可归因
+- decompose 必须可归因，并满足 grouping / time-anchor / governance 约束
 
 ### `validate`
 
@@ -575,6 +640,7 @@ derived intent 需要两层表达：
 - 解析 compare artifact 的 delta semantics
 - 校验 metric `additivity`
 - 校验 dimension 可归因性
+- 不得依赖 dimension 自声明 `supports_decomposition` 一类跨对象标签；合法性必须由 metric / process / entity 与 dimension 主契约联合推导
 - 生成 `IntentNode(intent_kind="decompose")`
 - 在 `CompileReport.validation_trace` 中记录相关 gates
 - 为 `compare_ref` 生成显式 `InputBinding`
@@ -609,6 +675,7 @@ derived intent 需要两层表达：
 - 需要 process/metric 联合判断是否支持稳定时间投影
 - 需要在编译阶段确定 scan surface 是否有界
 - `split_by` 是扫描轴，不是 filter scope
+- `split_by` / follow-up dimension 必须满足 dimension compatibility gate，而不是依赖旧式 capability 标签
 
 ## `test`
 
@@ -682,7 +749,7 @@ type CompilerError = {
 编译结果至少应包含：
 
 - `MeasurementNode(sample_kind="rate", inferential_summary_mode="rate_sample_summary")`
-- `ProcessNode(provided_capabilities` 至少覆盖 `variant_split`、`population_membership`、`sample_summary_prep`)`
+- 一个 `ProcessNode(contract_mode="context_provider", context_kind="experiment_split")`
 - 顶层 `IntentNode(intent_kind="validate")`
 - 两个内部 `IntentNode(intent_kind="observe")`
 - 一个内部 `IntentNode(intent_kind="test")`
@@ -704,7 +771,7 @@ type CompilerError = {
 编译结果至少应包含：
 
 - `MeasurementNode(sample_kind="numeric")`
-- `ProcessNode(provided_capabilities` 至少覆盖 `session_partition`、`time_projection`)`
+- 一个 `ProcessNode(contract_mode="entity_stream", entity_ref="entity.session")`
 - `IntentNode(intent_kind="detect")`
 - 输出 time-series artifact
 - `CompileReport.validation_trace` 中的 `lowerability_precheck`
