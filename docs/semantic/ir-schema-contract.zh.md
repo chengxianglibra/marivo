@@ -6,7 +6,6 @@
 
 本文是**内部语义契约设计文档**，不是当前实现说明，也不是最终 HTTP wire spec。它与以下文档配套：
 
-- `docs/semantic/asset-schema-contract.zh.md`
 - `docs/semantic/typed-binding-contract.zh.md`
 - `docs/semantic/dimension-schema-contract.zh.md`
 - `docs/semantic/metric-process-contract.zh.md`
