@@ -4,7 +4,6 @@
 
 本文是 compiler-facing design spec，不是 HTTP wire spec，也不是 engine implementation doc。相关背景与上游契约见：
 
-- `docs/semantic/asset-schema-contract.zh.md`
 - `docs/semantic/dimension-schema-contract.zh.md`
 - `docs/semantic/enum-set-schema-contract.zh.md`
 - `docs/semantic/metric-process-contract.zh.md`
@@ -46,8 +45,7 @@ compiler 必须保持以下分工：
 
 - `metric` 提供 measurement contract
 - `process object` 提供 process/interface contract
-- `asset` 提供 physical carrier contract
-- `binding` 提供 semantic grounding contract
+- `binding` 同时提供 semantic grounding 与 physical carrier contract
 - `intent` 提供 analysis action contract
 - compiler 负责 normalization、validation、expansion、IR assembly
 - engine adapter 负责 lowering、capability matching 与执行
@@ -65,14 +63,14 @@ compiler 必须保持以下分工：
 1. typed intent request
 2. metric contract
 3. process contract（可为单侧、双侧或空）
-4. binding / asset contracts（由 catalog 解析得到）
+4. binding contracts（由 catalog 解析得到，内部包含 carrier 信息）
 5. catalog metadata / governance context / optional compiler profiles
 
 其中：
 
 - typed intent request 是唯一外部动作入口
 - `metric` 与 `process object` 是 catalog 中受治理的语义对象
-- `binding` 与 `asset` 是 compiler 在对象解析阶段补全的 grounding 输入
+- `binding` 是 compiler 在对象解析阶段补全的 grounding 输入，并携带所需 carrier metadata
 - governance context 包括 quality / freshness / engine capability / policy 信息
 - object public contract 与 compiler compatibility profile 应显式分层，不能混作同一份 schema
 
