@@ -332,67 +332,32 @@ class IrPlanHeader(TypedDict):
 - `metric_ref` / `process_ref` / `left_process_ref` / `right_process_ref` 不再放在 header 中
 - 语义锚点统一进入 typed input snapshots 和 artifact bindings
 
-### 2. Typed Input Snapshots
+### 2. Typed Input References（使用引用而非复制）
+
+**设计原则：IR 引用 catalog 对象，不复制全部字段。**
 
 ```python
 from typing import Literal, NotRequired, TypedDict
 
 
-class MetricSemanticSnapshot(TypedDict):
+class MetricRefSnapshot(TypedDict):
+    """只保留 metric 引用和编译时 resolved 的字段"""
     metric_ref: str
-    population_subject_ref: NotRequired[str | None]
-    observed_entity_ref: str
-    observation_grain_ref: str
-    primary_time_ref: NotRequired[str | None]
-    sample_kind: Literal["numeric", "rate", "binary", "survival"]
-    value_semantics: str
-    additivity: Literal["additive", "semi_additive", "non_additive"]
+    # 只有编译时 resolved/override 的字段才在这里
+    resolved_primary_time_ref: NotRequired[str | None]
+    resolved_observation_grain_ref: NotRequired[str | None]
 
 
-class ProcessSemanticSnapshot(TypedDict):
+class ProcessRefSnapshot(TypedDict):
+    """只保留 process 引用和编译时 resolved 的字段"""
     process_ref: str
-    process_type: str
-    contract_mode: Literal["context_provider", "entity_stream"]
-    population_subject_ref: str
-    context_kind: NotRequired[str | None]
-    entity_ref: NotRequired[str | None]
-    emitted_grain_ref: NotRequired[str | None]
-    membership_cardinality: NotRequired[
-        Literal["exclusive_one", "repeatable_many"] | None
-    ]
-    subject_cardinality: NotRequired[Literal["one", "many"] | None]
-    anchor_time_ref: NotRequired[str | None]
-    exported_dimension_refs: NotRequired[list[str] | None]
+    resolved_anchor_time_ref: NotRequired[str | None]
 
 
-class TimeResolutionSnapshot(TypedDict):
-    resolved_filter_time_ref: NotRequired[str | None]
-    process_anchor_time_ref: NotRequired[str | None]
-    window_anchor_refs: NotRequired[dict[str, str] | None]
-    request_time_scope_ref: NotRequired[str | None]
-    comparison_time_refs: NotRequired[list[str] | None]
-
-
-class ArtifactRefSnapshot(TypedDict):
-    ref_name: str
-    artifact_kind: str
-    source_artifact_id: str
-    producer_intent_kind: str
-
-
-class BindingResolutionSnapshot(TypedDict):
+class BindingRefSnapshot(TypedDict):
+    """只保留 binding 引用"""
     binding_ref: str
     bound_object_ref: str
-    asset_refs: list[str]
-
-
-class AssetCarrierSnapshot(TypedDict):
-    asset_ref: str
-    asset_kind: str
-    native_locator: str
-    field_surface_refs: NotRequired[list[str] | None]
-    time_surface_refs: NotRequired[list[str] | None]
-    relation_surface_refs: NotRequired[list[str] | None]
 
 
 class IntentRequestSnapshot(TypedDict):
@@ -400,13 +365,35 @@ class IntentRequestSnapshot(TypedDict):
     request_class: Literal["root_metric_process", "typed_ref", "derived_macro"]
     requested_dimensions: NotRequired[list[str] | None]
     requested_result_mode: NotRequired[str | None]
-    request_scope_ref: NotRequired[str | None]
     request_time_scope_ref: NotRequired[str | None]
     request_options: NotRequired[dict[str, str | int | float | bool | None] | None]
 
 
 class IrInputSnapshot(TypedDict):
-    metric: NotRequired[MetricSemanticSnapshot | None]
+    """IR 输入只保留引用，不复制 catalog 对象的全部字段"""
+    metric_ref: NotRequired[str | None]  # 只有 ref
+    process_refs: NotRequired[list[str] | None]  # 只有 refs
+    binding_refs: NotRequired[list[str] | None]  # 只有 refs
+    # 编译时 resolved 的字段（可选）
+    resolved_metric: NotRequired[MetricRefSnapshot | None]
+    resolved_processes: NotRequired[list[ProcessRefSnapshot] | None]
+    resolved_bindings: NotRequired[list[BindingRefSnapshot] | None]
+    intent_request: IntentRequestSnapshot
+```
+
+**删除的 Snapshot 类型：**
+
+- `MetricSemanticSnapshot` → 用 `MetricRefSnapshot` 替代
+- `ProcessSemanticSnapshot` → 用 `ProcessRefSnapshot` 替代
+- `TimeResolutionSnapshot` → 删除，IR 直接引用 `time.*` refs
+- `AssetCarrierSnapshot` → carrier 信息在 binding 中，不需要独立 snapshot
+- `ArtifactRefSnapshot` → 用 binding ref 替代
+
+**为什么使用引用而非复制？**
+
+- 避免"双真相"问题（snapshot 与 catalog 对象不一致）
+- IR 更轻量，只包含编译时必要的信息
+- Catalog 对象修改不需要同步更新 IR
     processes: NotRequired[list[ProcessSemanticSnapshot] | None]
     bindings: NotRequired[list[BindingResolutionSnapshot] | None]
     assets: NotRequired[list[AssetCarrierSnapshot] | None]

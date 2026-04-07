@@ -402,6 +402,45 @@ type NormalizedRequest = {
 - `test` / `validate` 的 inference gate
 - `detect` / `forecast` 的 time projection gate
 
+## Capability 推导规则
+
+以下 capability 不进入 public object schema，由 compiler 从核心字段推导：
+
+### Metric Capability 推导
+
+| 推导能力 | 推导规则 |
+|---------|---------|
+| `supports_observe` | 始终为 true（有效 metric 的基本要求） |
+| `supports_compare` | `additivity` != null AND `primary_time_ref` exists |
+| `supports_test` | `sample_kind` in ["numeric", "rate", "binary"] |
+| `supports_decompose` | `additivity` in ["additive", "semi_additive"] |
+| `supports_detect` | `anchor_time_ref` exists（来自 process 或 metric 自身） |
+| `supports_validate` | `sample_kind` == "rate" AND `anchor_time_ref` exists |
+| `supports_forecast` | `sample_kind` in ["numeric", "rate"] AND `primary_time_ref` exists |
+
+### Process Capability 推导
+
+| 推导能力 | 推导规则 |
+|---------|---------|
+| `supports_time_projection` | `anchor_time_ref` exists |
+| `supports_experiment_inference` | `context_kind` == "experiment_split" |
+| `supports_cohort_inference` | `context_kind` == "cohort_membership" |
+| `supports_session_analysis` | `process_type` == "session" |
+| `supports_funnel_analysis` | `process_type` == "funnel" |
+
+### Dimension Capability 推导
+
+| 推导能力 | 推导规则 |
+|---------|---------|
+| `supports_grouping` | 由 `DimensionGroupingContract.supports_grouping` 显式声明 |
+| `supports_time_derived_grouping` | `structure_kind` == "time_derived" AND `required_time_anchor_ref` satisfied |
+
+**推导时机：**
+
+1. Compiler 在 normalization phase 完成后推导
+2. 推导结果用于 Gate 6 的 intent-specific 校验
+3. 推导结果不写入 IR（IR 只保留引用），但在 compile report 中输出
+
 ### Gate 7：governance gate
 
 包括：

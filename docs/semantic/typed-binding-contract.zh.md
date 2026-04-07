@@ -4,7 +4,6 @@
 
 本文是**语义契约设计文档**，不是当前实现说明，也不是最终 HTTP wire spec。它与以下文档配套：
 
-- `docs/semantic/asset-schema-contract.zh.md`
 - `docs/semantic/dimension-schema-contract.zh.md`
 - `docs/semantic/entity-schema-contract.zh.md`
 - `docs/semantic/process-object-schema.zh.md`
@@ -40,26 +39,25 @@
 
 ## 背景
 
-如果没有独立 `asset contract`，binding 很容易被迫同时表达：
+Binding 负责表达 semantic object 与 physical carrier 的关联，包括：
 
-- semantic object 与 physical carrier 的关联
-- carrier 自身的 surface
-- semantic target 到 carrier surface 的映射
-
-但 binding 真正应负责的，是：
-
-- 哪个 semantic target 消费哪个 asset surface
-- 不同 binding 之间通过哪些 relation surface 组合
+- 哪个 semantic target 消费哪个 carrier surface
+- 不同 binding 之间通过哪些 relation 组合
 - 哪些窗口策略、迟到数据策略、行过滤条件属于该对象的受治理绑定约束
 
-这会带来几个问题：
+**不需要独立的 asset 层：**
 
-- carrier truth 与 binding truth 混在一起
-- compiler 无法区分“asset / surface 不存在”和“semantic target 映射错误”
-- IR 很容易被迫回退到裸 physical names 或自由路径
-- experiment / cohort / session 等复杂场景很难保持清晰分层
+原设计引入独立的 `asset` contract 来表达”物理承载体”，但这带来问题：
 
-因此，Factum 需要把 binding 收敛为真正的“typed semantic binding contract”，并让它显式消费独立的 `asset contract`。
+- Asset 和 binding 职责重叠
+- 需要两次查找（asset → binding）
+- 对象无法直接看到其 carrier 信息
+
+新设计将 carrier 信息直接合并到 binding 中：
+
+- `carrier_kind`、`carrier_locator` 直接放在 `AssetBinding` 结构中
+- `field_surfaces`、`time_surfaces`、`relation_surfaces` 作为 binding 的子结构
+- 消除了”什么是 asset”和”什么是 binding”的混淆
 
 ## 设计目标
 
@@ -321,7 +319,17 @@ from typing import Literal, NotRequired, TypedDict
 
 class AssetBinding(TypedDict):
     binding_key: str
-    asset: AssetRef
+    # Carrier 信息（原 asset 层合并到这里）
+    carrier_kind: Literal[
+        "table",
+        "view",
+        "materialized_view",
+        "stream",
+        "snapshot",
+        "external_dataset",
+    ]
+    carrier_locator: str  # 内部定位符，不暴露在 public contract
+    # Binding 角色
     binding_role: Literal[
         "base",
         "event_stream",
@@ -335,18 +343,86 @@ class AssetBinding(TypedDict):
     primary_entity_ref: NotRequired[str | None]
     row_filter_refs: NotRequired[list[str] | None]
     freshness_policy_ref: NotRequired[str | None]
+    # Carrier surfaces（直接暴露，不再通过 asset ref 查找）
+    field_surfaces: NotRequired[list["FieldSurfaceSpec"] | None]
+    time_surfaces: NotRequired[list["TimeSurfaceSpec"] | None]
 ```
 
 字段含义：
 
 - `binding_key`：该 asset binding 在当前 contract 中的局部唯一键
-- `asset`：绑定到哪个 asset
-- `binding_role`：该 asset 在当前对象中扮演的结构角色
+- `carrier_kind`：载体类型（表、视图、流等）
+- `carrier_locator`：内部定位符（如 FQN、stream handle），不暴露在 public contract
+- `binding_role`：该 carrier 在当前对象中扮演的结构角色
 - `semantic_role_ref`：对象专用语义角色引用，如 assignment / exposure / conversion fact
-- `grain_ref`：该 asset 产出或承载的稳定粒度引用；应使用 `grain.*`
-- `primary_entity_ref`：该 asset 主要围绕哪个实体组织；应使用 `entity.*`
+- `grain_ref`：该 carrier 产出或承载的稳定粒度引用；应使用 `grain.*`
+- `primary_entity_ref`：该 carrier 主要围绕哪个实体组织；应使用 `entity.*`
 - `row_filter_refs`：结构化的行级过滤语义引用
 - `freshness_policy_ref`：时效治理规则引用
+- `field_surfaces`：该 carrier 暴露的字段 surfaces
+- `time_surfaces`：该 carrier 暴露的时间 surfaces
+
+**合并 asset 到 binding 的原因：**
+
+- 消除 asset/binding 双层查找
+- Carrier 信息在使用处直接可见
+- 减少对象间的间接依赖
+
+### FieldSurfaceSpec
+
+```python
+from typing import NotRequired, TypedDict
+
+
+class FieldSurfaceSpec(TypedDict):
+    surface_ref: str  # 如 "field.user_id"
+    physical_name: str  # 实际字段名
+    field_type: NotRequired[str | None]  # 字段类型
+```
+
+### TimeSurfaceSpec
+
+```python
+from typing import Literal, NotRequired, TypedDict
+
+
+class TimeSurfaceSpec(TypedDict):
+    surface_ref: str  # 如 "time_surface.event_time"
+    physical_name: str  # 实际字段名
+    time_granularity: NotRequired[Literal["second", "minute", "hour", "day"] | None]
+```
+
+### BindingTarget（类型化目标）
+
+```python
+from typing import Literal, NotRequired, TypedDict
+
+
+class BindingTarget(TypedDict):
+    target_kind: Literal[
+        "identity_key",           # 原: identity.key_refs[...]
+        "primary_time",           # 原: primary_time_ref
+        "stable_descriptor",      # 原: stable_descriptors[...]
+        "population_subject",     # 原: binding_target.population_subject[...]
+        "analysis_window_anchor", # 原: analysis_window.anchor_ref
+        "process_context",        # 原: binding_target.process_context[...]
+        "metric_input",           # 原: numerator.measure_ref 等
+    ]
+    target_key: str  # 语义 ref，如 "key.user_id", "time.exposure_time"
+    context_ref: NotRequired[str | None]  # 多维度目标的上下文
+```
+
+**为什么要类型化？**
+
+原 `target_path` 使用字符串路径如 `"identity.key_refs[key.user_id]"`：
+- 非正式的小语言，难以校验
+- 解析规则隐式，容易出错
+- 无法在 IDE 中提供补全
+
+类型化的 `BindingTarget`：
+- 结构化、可校验
+- 明确每个 target kind 的语义
+- 便于 compiler 做静态检查
 
 ### FieldBinding
 
@@ -356,9 +432,9 @@ from typing import Literal, NotRequired, TypedDict
 
 class FieldBinding(TypedDict):
     asset_binding_key: str
-    target_path: str
+    target: BindingTarget  # 类型化目标，替代 target_path
     semantic_ref: str
-    asset_surface_ref: str
+    surface_ref: str  # 对应 carrier 的 field_surface
     field_type_ref: NotRequired[str | None]
     nullability_policy: NotRequired[Literal["reject", "allow", "impute"] | None]
     repeated_value_policy: NotRequired[
@@ -368,18 +444,17 @@ class FieldBinding(TypedDict):
 
 字段说明：
 
-- `target_path`：字段实际服务的**公开契约目标路径**，例如 `identity.key_refs[key.user_id]`、`population_subject_bridge.subject_ref`、`analysis_window.anchor_ref`
+- `target`：字段实际服务的**类型化契约目标**
 - `semantic_ref`：该字段服务的语义引用，如 `key.user_id`、`time.session_started_at`
-- `asset_surface_ref`：该 target 绑定到哪个 asset surface；必须来自对应 asset contract
+- `surface_ref`：该 target 绑定到哪个 carrier surface
 - `field_type_ref`：受治理类型语义引用
 - `nullability_policy`：空值治理策略
 - `repeated_value_policy`：重复值治理策略
 
 建议约束：
 
-- binding 不直接绑定裸 physical path，而是绑定 `asset_surface_ref`
-- 复合时间承载、partition 解释、surface 组合关系由 asset contract 自己定义
-- binding 不接受任意 SQL、字符串拼接或未声明的推导逻辑
+- binding 不直接绑定裸 physical path，而是绑定 `surface_ref`
+- carrier 的 field_surfaces 提供可用字段列表
 
 ### JoinRelation
 
@@ -487,14 +562,17 @@ class TypedBindingObject(TypedDict):
 - process object 更关注多 source、多 join、多窗口的约束
 - metric 更关注 measure inputs、sample basis、numerator / denominator inputs
 
-### 4. binding 的物理锚点应是 `asset_surface_ref`
+### 4. binding 的物理锚点是 carrier surfaces
 
-binding 的职责不是再发明一层 carrier surface，而是消费 `asset contract` 中已经声明好的 surface。
+binding 直接包含 carrier 信息：
 
-因此更稳定的主锚点是：
+- `carrier_kind`：载体类型
+- `carrier_locator`：内部定位符
+- `field_surfaces` / `time_surfaces`：暴露的字段和时间表面
 
-- `asset_ref`
-- `asset_surface_ref`
+不需要独立的 asset ref 或 asset lookup。更稳定的主锚点是：
+
+- `surface_ref`：carrier 的字段表面
 
 而不是：
 
@@ -628,47 +706,52 @@ binding 不直接等于 IR，也不直接等于 engine plan。
 
 ### 示例 1：`user` entity binding
 
+以下示例使用类型化 `BindingTarget`，carrier 信息直接在 binding 中表达。
+
 ```json
 {
   "header": {
     "binding_ref": "binding.user_identity",
     "binding_scope": "entity",
     "bound_object_ref": "entity.user",
-    "binding_contract_version": "binding.v1"
+    "binding_contract_version": "binding.v2"
   },
   "interface_contract": {
     "imports": [],
     "asset_bindings": [
       {
         "binding_key": "user_base",
-        "asset": {
-          "asset_ref": "asset.user_dim",
-          "asset_kind": "table"
-        },
+        "carrier_kind": "table",
+        "carrier_locator": "warehouse.dim_user",
         "binding_role": "base",
         "grain_ref": "grain.user",
-        "primary_entity_ref": "entity.user"
+        "primary_entity_ref": "entity.user",
+        "field_surfaces": [
+          {"surface_ref": "field.user_id", "physical_name": "user_id"},
+          {"surface_ref": "field.created_at", "physical_name": "created_at"},
+          {"surface_ref": "field.country", "physical_name": "country"}
+        ]
       }
     ],
     "field_bindings": [
       {
         "asset_binding_key": "user_base",
-        "target_path": "identity.key_refs[key.user_id]",
+        "target": {"target_kind": "identity_key", "target_key": "key.user_id"},
         "semantic_ref": "key.user_id",
-        "asset_surface_ref": "asset-surface.user_dim.user_id",
+        "surface_ref": "field.user_id",
         "nullability_policy": "reject"
       },
       {
         "asset_binding_key": "user_base",
-        "target_path": "primary_time_ref",
+        "target": {"target_kind": "primary_time"},
         "semantic_ref": "time.user_created_at",
-        "asset_surface_ref": "asset-surface.user_dim.created_at"
+        "surface_ref": "field.created_at"
       },
       {
         "asset_binding_key": "user_base",
-        "target_path": "stable_descriptors[dimension.country]",
+        "target": {"target_kind": "stable_descriptor", "target_key": "dimension.country"},
         "semantic_ref": "dimension.country",
-        "asset_surface_ref": "asset-surface.user_dim.country"
+        "surface_ref": "field.country"
       }
     ],
     "join_relations": [],
@@ -685,91 +768,77 @@ binding 不直接等于 IR，也不直接等于 engine plan。
     "binding_ref": "binding.process.checkout_redesign",
     "binding_scope": "process_object",
     "bound_object_ref": "process.experiment.checkout_redesign",
-    "binding_contract_version": "binding.v1"
+    "binding_contract_version": "binding.v2"
   },
   "interface_contract": {
     "imports": [
       {
         "import_key": "user_identity",
         "binding_ref": "binding.user_identity",
-        "required_ref_prefixes": [
-          "identity.key_refs[key.user_id]"
-        ]
+        "required_ref_prefixes": ["identity_key"]
       }
     ],
     "asset_bindings": [
       {
         "binding_key": "assignment",
-        "asset": {
-          "asset_ref": "asset.exp_user_assignments",
-          "asset_kind": "table"
-        },
+        "carrier_kind": "table",
+        "carrier_locator": "warehouse.exp_user_assignments",
         "binding_role": "event_stream",
         "semantic_role_ref": "process.assignment_basis",
         "grain_ref": "grain.user",
-        "primary_entity_ref": "entity.user"
+        "primary_entity_ref": "entity.user",
+        "field_surfaces": [
+          {"surface_ref": "field.user_id", "physical_name": "user_id"},
+          {"surface_ref": "field.experiment_id", "physical_name": "experiment_id"},
+          {"surface_ref": "field.variant_id", "physical_name": "variant_id"},
+          {"surface_ref": "field.assigned_at", "physical_name": "assigned_at"}
+        ]
       },
       {
         "binding_key": "exposure",
-        "asset": {
-          "asset_ref": "asset.app_event_log",
-          "asset_kind": "table"
-        },
+        "carrier_kind": "table",
+        "carrier_locator": "warehouse.app_event_log",
         "binding_role": "event_stream",
         "semantic_role_ref": "process.exposure_basis",
         "grain_ref": "grain.event",
-        "primary_entity_ref": "entity.user"
+        "primary_entity_ref": "entity.user",
+        "field_surfaces": [
+          {"surface_ref": "field.user_id", "physical_name": "user_id"},
+          {"surface_ref": "field.event_time", "physical_name": "event_time"}
+        ]
       }
     ],
     "field_bindings": [
       {
         "asset_binding_key": "assignment",
-        "target_path": "binding_target.population_subject[key.user_id]",
+        "target": {"target_kind": "population_subject", "target_key": "key.user_id"},
         "semantic_ref": "key.user_id",
-        "asset_surface_ref": "asset-surface.exp_user_assignments.user_id",
+        "surface_ref": "field.user_id",
         "nullability_policy": "reject"
       },
       {
         "asset_binding_key": "assignment",
-        "target_path": "binding_target.process_context[process.experiment_id]",
+        "target": {"target_kind": "process_context", "target_key": "process.experiment_id"},
         "semantic_ref": "process.experiment_id",
-        "asset_surface_ref": "asset-surface.exp_user_assignments.experiment_id"
+        "surface_ref": "field.experiment_id"
       },
       {
         "asset_binding_key": "assignment",
-        "target_path": "binding_target.process_context[process.variant_id]",
+        "target": {"target_kind": "process_context", "target_key": "process.variant_id"},
         "semantic_ref": "process.variant_id",
-        "asset_surface_ref": "asset-surface.exp_user_assignments.variant_id"
-      },
-      {
-        "asset_binding_key": "assignment",
-        "target_path": "binding_target.assignment_anchor[time.assignment_time]",
-        "semantic_ref": "time.assignment_time",
-        "asset_surface_ref": "asset-surface.exp_user_assignments.assigned_at"
+        "surface_ref": "field.variant_id"
       },
       {
         "asset_binding_key": "exposure",
-        "target_path": "binding_target.population_subject[key.user_id]",
+        "target": {"target_kind": "population_subject", "target_key": "key.user_id"},
         "semantic_ref": "key.user_id",
-        "asset_surface_ref": "asset-surface.app_event_log.user_id"
+        "surface_ref": "field.user_id"
       },
       {
         "asset_binding_key": "exposure",
-        "target_path": "binding_target.process_context[process.experiment_id]",
-        "semantic_ref": "process.experiment_id",
-        "asset_surface_ref": "asset-surface.app_event_log.event_properties.experiment_id"
-      },
-      {
-        "asset_binding_key": "exposure",
-        "target_path": "binding_target.process_context[process.variant_id]",
-        "semantic_ref": "process.variant_id",
-        "asset_surface_ref": "asset-surface.app_event_log.event_properties.variant_id"
-      },
-      {
-        "asset_binding_key": "exposure",
-        "target_path": "analysis_window.anchor_ref",
+        "target": {"target_kind": "analysis_window_anchor"},
         "semantic_ref": "time.exposure_time",
-        "asset_surface_ref": "asset-surface.app_event_log.event_time"
+        "surface_ref": "field.event_time"
       }
     ],
     "join_relations": [
@@ -779,14 +848,10 @@ binding 不直接等于 IR，也不直接等于 engine plan。
         "right_binding_key": "exposure",
         "join_kind": "inner",
         "key_ref_pairs": [
-          ["key.user_id", "key.user_id"],
-          ["process.experiment_id", "process.experiment_id"],
-          ["process.variant_id", "process.variant_id"]
+          ["key.user_id", "key.user_id"]
         ],
         "cardinality": "one_to_many",
-        "temporal_constraint_refs": [
-          "rule.exposure_after_assignment"
-        ]
+        "temporal_constraint_refs": ["rule.exposure_after_assignment"]
       }
     ],
     "consumption_policies": [
@@ -810,50 +875,50 @@ binding 不直接等于 IR，也不直接等于 engine plan。
     "binding_ref": "binding.metric.conversion_rate",
     "binding_scope": "metric",
     "bound_object_ref": "metric.conversion_rate",
-    "binding_contract_version": "binding.v1"
+    "binding_contract_version": "binding.v2"
   },
   "interface_contract": {
     "imports": [
       {
         "import_key": "checkout_experiment",
         "binding_ref": "binding.process.checkout_redesign",
-        "required_ref_prefixes": [
-          "analysis_window",
-          "time.exposure_time"
-        ]
+        "required_ref_prefixes": ["analysis_window_anchor", "time.exposure_time"]
       }
     ],
     "asset_bindings": [
       {
         "binding_key": "conversion_fact",
-        "asset": {
-          "asset_ref": "asset.order_fact",
-          "asset_kind": "table"
-        },
+        "carrier_kind": "table",
+        "carrier_locator": "warehouse.order_fact",
         "binding_role": "fact",
         "semantic_role_ref": "metric.conversion_fact",
         "grain_ref": "grain.order",
-        "primary_entity_ref": "entity.user"
+        "primary_entity_ref": "entity.user",
+        "field_surfaces": [
+          {"surface_ref": "field.user_id", "physical_name": "user_id"},
+          {"surface_ref": "field.paid_at", "physical_name": "paid_at"},
+          {"surface_ref": "field.order_id", "physical_name": "order_id"}
+        ]
       }
     ],
     "field_bindings": [
       {
         "asset_binding_key": "conversion_fact",
-        "target_path": "binding_target.population_subject[key.user_id]",
+        "target": {"target_kind": "population_subject", "target_key": "key.user_id"},
         "semantic_ref": "key.user_id",
-        "asset_surface_ref": "asset-surface.order_fact.user_id"
+        "surface_ref": "field.user_id"
       },
       {
         "asset_binding_key": "conversion_fact",
-        "target_path": "primary_time_ref",
+        "target": {"target_kind": "primary_time"},
         "semantic_ref": "time.conversion_time",
-        "asset_surface_ref": "asset-surface.order_fact.paid_at"
+        "surface_ref": "field.paid_at"
       },
       {
         "asset_binding_key": "conversion_fact",
-        "target_path": "numerator.measure_ref",
+        "target": {"target_kind": "metric_input", "target_key": "numerator"},
         "semantic_ref": "metric_input.converted_order_count",
-        "asset_surface_ref": "asset-surface.order_fact.order_id"
+        "surface_ref": "field.order_id"
       }
     ],
     "join_relations": [],
@@ -869,7 +934,7 @@ binding 不直接等于 IR，也不直接等于 engine plan。
 }
 ```
 
-### 示例 4：消费 asset time surface 的分区时间绑定
+### 示例 4：分区时间绑定
 
 ```json
 {
@@ -877,34 +942,39 @@ binding 不直接等于 IR，也不直接等于 engine plan。
     "binding_ref": "binding.process.app_event_partitioning",
     "binding_scope": "process_object",
     "bound_object_ref": "process.event_ingestion.app_event_log",
-    "binding_contract_version": "binding.v1"
+    "binding_contract_version": "binding.v2"
   },
   "interface_contract": {
     "imports": [],
     "asset_bindings": [
       {
         "binding_key": "event_log",
-        "asset": {
-          "asset_ref": "asset.app_event_log",
-          "asset_kind": "table"
-        },
+        "carrier_kind": "table",
+        "carrier_locator": "warehouse.app_event_log",
         "binding_role": "event_stream",
         "grain_ref": "grain.event",
-        "primary_entity_ref": "entity.user"
+        "primary_entity_ref": "entity.user",
+        "field_surfaces": [
+          {"surface_ref": "field.partition_time", "physical_name": "partition_ts"},
+          {"surface_ref": "field.event_time", "physical_name": "event_time"}
+        ],
+        "time_surfaces": [
+          {"surface_ref": "time_surface.partition", "physical_name": "partition_ts", "time_granularity": "hour"}
+        ]
       }
     ],
     "field_bindings": [
       {
         "asset_binding_key": "event_log",
-        "target_path": "binding_target.partition_time[time.partition_time]",
+        "target": {"target_kind": "primary_time", "target_key": "time.partition_time"},
         "semantic_ref": "time.partition_time",
-        "asset_surface_ref": "asset-surface.app_event_log.partition_time"
+        "surface_ref": "field.partition_time"
       },
       {
         "asset_binding_key": "event_log",
-        "target_path": "analysis_window.anchor_ref",
+        "target": {"target_kind": "analysis_window_anchor"},
         "semantic_ref": "time.exposure_time",
-        "asset_surface_ref": "asset-surface.app_event_log.event_time"
+        "surface_ref": "field.event_time"
       }
     ],
     "join_relations": [],
@@ -912,7 +982,7 @@ binding 不直接等于 IR，也不直接等于 engine plan。
       {
         "policy_key": "partition_freshness",
         "policy_type": "late_arrival_policy",
-        "policy_target_path": "binding_target.partition_time[time.partition_time]",
+        "policy_target_path": "primary_time",
         "anchor_ref": "time.partition_time",
         "grace_period_ref": "window.1h"
       }
@@ -923,10 +993,9 @@ binding 不直接等于 IR，也不直接等于 engine plan。
 
 该示例表达的是：
 
-- `time.partition_time` 绑定到 asset 已经声明好的 partition time surface
-- `hour` 粒度、时区与 backing fields 由 asset contract 自己定义
-- binding 不再重复声明复合分区的物理组合逻辑
-- `event_time` 仍然可以通过另一条 asset surface 单独服务 `analysis_window.anchor_ref`
+- `time.partition_time` 绑定到 carrier 的 partition time surface
+- binding 直接暴露 carrier 的 field/time surfaces
+- 不再需要独立的 asset lookup
 
 ## 设计上的直接收益
 
