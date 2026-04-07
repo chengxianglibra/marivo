@@ -25,6 +25,7 @@
 time schema -------\
 entity schema -----+\
 dimension schema --+--\
+enum-set schema ---+---\
 metric schema -----+--- > metric/process contract ----> compiler spec ----> IR schema contract
 process schema ----/--/
        \
@@ -61,6 +62,7 @@ process schema ----/--/
 | [`process-object-schema.zh.md`](./process-object-schema.zh.md) | `process object` 的目标 schema | 过程对象如何声明稳定接口、subtype 如何建模、哪些 capability 应保留 vs 推导 |
 | [`entity-schema-contract.zh.md`](./entity-schema-contract.zh.md) | `entity` 的目标 schema | entity 如何作为独立语义锚点，不依赖 binding，不暴露 process 语义 |
 | [`dimension-schema-contract.zh.md`](./dimension-schema-contract.zh.md) | `dimension` 的目标 schema | 共享分析维度如何成为独立 contract，structure_kind 与 semantic_role 分离 |
+| [`enum-set-schema-contract.zh.md`](./enum-set-schema-contract.zh.md) | `dimension` 的受治理值域 contract | `enum_set_ref` / `enum_version` 引用的值域本体是什么、版本锚定哪一层、与 governance / binding 如何分层 |
 | [`typed-binding-contract.zh.md`](./typed-binding-contract.zh.md) | 语义对象到物理层的绑定契约 | semantic refs 如何映射到 carriers / surfaces / relations，使用类型化 BindingTarget |
 | [`compiler-spec.zh.md`](./compiler-spec.zh.md) | semantic compiler 规范 | typed intent、metric、process、typed refs 如何被归一化、校验、展开并编译成 IR，包含 capability 推导规则 |
 | [`ir-schema-contract.zh.md`](./ir-schema-contract.zh.md) | IR 的目标 schema 契约 | IR 使用引用而非复制，职责边界是什么、它与 compile report / lowering / engine plan 如何分层 |
@@ -80,7 +82,7 @@ process schema ----/--/
 
 如果不先建立这层分工，后面的 schema 文档会显得像一组孤立字段设计。
 
-### 2. 再看五个核心对象
+### 2. 再看五个核心对象与一个配套值域契约
 
 随后阅读：
 
@@ -89,14 +91,16 @@ process schema ----/--/
 3. [`entity-schema-contract.zh.md`](./entity-schema-contract.zh.md)
 4. [`dimension-schema-contract.zh.md`](./dimension-schema-contract.zh.md)
 5. [`time-schema-contract.zh.md`](./time-schema-contract.zh.md)
+6. [`enum-set-schema-contract.zh.md`](./enum-set-schema-contract.zh.md)
 
-这五篇分别定义 semantic layer 中最核心的五类对象：
+前五篇定义 semantic layer 中最核心的五类对象，第六篇补充 `dimension` 在 enumerated domain 下依赖的值域契约：
 
 - `metric`：measurement contract
 - `process object`：process/interface contract
 - `entity`：稳定业务身份与引用锚点
 - `dimension`：共享分析轴与值治理 contract
 - `time`：共享时间语义与时间锚点 contract
+- `enum set`：被 `dimension.enum_set_ref` 引用的受治理值域 contract（不是新的顶层对象层）
 
 其中：
 
@@ -104,6 +108,7 @@ process schema ----/--/
 - 如果你关心“漏斗 / cohort / experiment / lifecycle 这类对象该放在哪里”，优先看 `process-object-schema`
 - 如果你关心“`entity.*` / `subject.*` / `grain.*` / `key.*` 这些 ref taxonomy 为什么要分开”，优先看 `entity-schema-contract`
 - 如果你关心“`dimension.*` 为什么不能继续只是 metric 上的字符串数组”，优先看 `dimension-schema-contract`
+- 如果你关心“`enum_set_ref` / `enum_version` 到底引用什么，以及为什么它需要独立文档但不是新的顶层对象”，优先看 `enum-set-schema-contract`
 - 如果你关心“`time_scope`、`primary_time_ref`、`anchor_time_ref`、late arrival / freshness 应分别落在哪层”，优先看 `time-schema-contract`
 
 ### 3. 再看对象如何落地
@@ -135,9 +140,9 @@ process schema ----/--/
 | 读者角色 | 建议优先阅读 |
 | --- | --- |
 | 想理解语义层总体方向的人 | `metric-process-contract` |
-| 设计 metric schema / catalog 的人 | `metric-v2-schema`、`entity-schema-contract`、`dimension-schema-contract` |
+| 设计 metric schema / catalog 的人 | `metric-v2-schema`、`entity-schema-contract`、`dimension-schema-contract`、`enum-set-schema-contract` |
 | 设计 funnel / experiment / cohort / session 等过程对象的人 | `process-object-schema` |
-| 设计 dimension catalog / value governance / drill path 的人 | `dimension-schema-contract`、`typed-binding-contract` |
+| 设计 dimension catalog / value governance / drill path 的人 | `dimension-schema-contract`、`enum-set-schema-contract`、`typed-binding-contract` |
 | 设计 semantic mapping / physical grounding 的人 | `typed-binding-contract` |
 | 设计 compiler、validation、IR、lowering 边界的人 | `compiler-spec`、`ir-schema-contract` |
 

@@ -274,7 +274,7 @@ class DimensionValueDomainSpec(TypedDict):
   - `metric`：由 metric 派生的维度
 - `value_type`：维度值类型
 - `domain_kind`：开放域还是受治理枚举域
-- `enum_set_ref` / `enum_version`：若使用受治理枚举，则引用对应枚举集与发布版本
+- `enum_set_ref` / `enum_version`：若使用受治理枚举，则引用对应枚举集与发布版本；值域本体与版本边界见 [`enum-set-schema-contract.zh.md`](./enum-set-schema-contract.zh.md)
 
 **为什么要拆分？**
 
@@ -429,6 +429,8 @@ dimension 主契约不再维护 `supports_decomposition`、`supports_detection_s
 - `enum_version`
 
 更细粒度的枚举兼容、null/tail 行为若需要强约束，应由 governance context 或 compiler policy 承担，而不是默认进入 dimension 主 schema。
+
+`enum_set_ref` / `enum_version` 所引用的对象应视为 `dimension` 的受治理值域配套 contract，而不是把完整值域列表直接内嵌回 dimension 主 schema；具体见 [`enum-set-schema-contract.zh.md`](./enum-set-schema-contract.zh.md)。
 
 ## 与其他对象的关系
 
