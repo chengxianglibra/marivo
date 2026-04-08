@@ -119,11 +119,14 @@ class CatalogQueryTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         result = resp.json()
         self.assertEqual(result["resolved_type"], "metric")
-        self.assertEqual(result["semantic_object"]["name"], "watch_time")
-        self.assertEqual(result["semantic_object"]["grain"], "session")
-        self.assertEqual(result["semantic_object"]["measure_type"], "average")
+        self.assertEqual(result["semantic_object"]["header"]["metric_ref"], "metric.watch_time")
         self.assertEqual(
-            result["semantic_object"]["allowed_dimensions"],
+            result["semantic_object"]["identity"]["observed_entity_ref"], "entity.user"
+        )
+        self.assertEqual(result["semantic_object"]["legacy"]["grain"], "session")
+        self.assertEqual(result["semantic_object"]["legacy"]["measure_type"], "average")
+        self.assertEqual(
+            result["semantic_object"]["legacy"]["allowed_dimensions"],
             ["platform", "network_type", "content_type"],
         )
         # Should have physical assets from mapping
@@ -135,8 +138,9 @@ class CatalogQueryTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         result = resp.json()
         self.assertEqual(result["resolved_type"], "entity")
-        self.assertEqual(result["semantic_object"]["level"], "user")
-        self.assertEqual(result["semantic_object"]["upstream_dependencies"], ["account"])
+        self.assertEqual(result["semantic_object"]["header"]["entity_ref"], "entity.user")
+        self.assertEqual(result["semantic_object"]["legacy"]["level"], "user")
+        self.assertEqual(result["semantic_object"]["legacy"]["upstream_dependencies"], ["account"])
 
     def test_resolve_404(self) -> None:
         resp = self.client.get("/semantic/resolve/nonexistent_thing")
@@ -158,11 +162,18 @@ class CatalogQueryTests(unittest.TestCase):
         self.assertIn("entities", ctx)
         self.assertIn("available_step_types", ctx)
         self.assertIn("metric_query", ctx["available_step_types"])
-        watch_metric = next(metric for metric in ctx["metrics"] if metric["name"] == "watch_time")
-        self.assertEqual(watch_metric["grain"], "session")
-        self.assertEqual(watch_metric["measure_type"], "average")
-        user_entity = next(entity for entity in ctx["entities"] if entity["name"] == "user")
-        self.assertEqual(user_entity["level"], "user")
+        watch_metric = next(
+            metric
+            for metric in ctx["metrics"]
+            if metric["header"]["metric_ref"] == "metric.watch_time"
+        )
+        self.assertEqual(watch_metric["identity"]["metric_family"], "average_metric")
+        self.assertEqual(watch_metric["legacy"]["grain"], "session")
+        self.assertEqual(watch_metric["legacy"]["measure_type"], "average")
+        user_entity = next(
+            entity for entity in ctx["entities"] if entity["header"]["entity_ref"] == "entity.user"
+        )
+        self.assertEqual(user_entity["legacy"]["level"], "user")
 
     def test_graph_traversal(self) -> None:
         # Graph from the metric node

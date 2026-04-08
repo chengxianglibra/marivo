@@ -31,19 +31,20 @@ class CatalogRuntimeService:
         if object_type is None or object_type == "entity":
             rows = self.metadata.query_rows(
                 """
-                SELECT entity_id, name, display_name, description, status
-                FROM semantic_entities
+                SELECT entity_contract_id, entity_ref, display_name, description, status
+                FROM semantic_entity_contracts
                 WHERE status = 'published'
-                  AND (name LIKE ? OR display_name LIKE ? OR description LIKE ?)
-                ORDER BY name
+                  AND (entity_ref LIKE ? OR display_name LIKE ? OR description LIKE ?)
+                ORDER BY entity_ref
                 """,
                 [pattern, pattern, pattern],
             )
             results.extend(
                 {
                     "type": "entity",
-                    "id": row["entity_id"],
-                    "name": row["name"],
+                    "id": row["entity_contract_id"],
+                    "name": row["entity_ref"].split(".", 1)[1],
+                    "entity_ref": row["entity_ref"],
                     "display_name": row["display_name"],
                     "description": row["description"],
                     "status": row["status"],
@@ -54,22 +55,22 @@ class CatalogRuntimeService:
         if object_type is None or object_type == "metric":
             rows = self.metadata.query_rows(
                 """
-                SELECT metric_id, name, display_name, description, definition_sql, status
-                FROM semantic_metrics
+                SELECT metric_contract_id, metric_ref, display_name, description, status
+                FROM semantic_metric_contracts
                 WHERE status = 'published'
-                  AND (name LIKE ? OR display_name LIKE ? OR description LIKE ? OR definition_sql LIKE ?)
-                ORDER BY name
+                  AND (metric_ref LIKE ? OR display_name LIKE ? OR description LIKE ?)
+                ORDER BY metric_ref
                 """,
-                [pattern, pattern, pattern, pattern],
+                [pattern, pattern, pattern],
             )
             results.extend(
                 {
                     "type": "metric",
-                    "id": row["metric_id"],
-                    "name": row["name"],
+                    "id": row["metric_contract_id"],
+                    "name": row["metric_ref"].split(".", 1)[1],
+                    "metric_ref": row["metric_ref"],
                     "display_name": row["display_name"],
                     "description": row["description"],
-                    "definition_sql": row["definition_sql"],
                     "status": row["status"],
                 }
                 for row in rows
@@ -112,20 +113,40 @@ class CatalogRuntimeService:
             return {
                 "resolved_type": "metric",
                 "semantic_object": {
-                    "metric_id": metric_id,
-                    "name": resolved_metric.name,
-                    "display_name": resolved_metric.metadata["display_name"],
-                    "description": resolved_metric.metadata["description"],
-                    "definition_sql": resolved_metric.definition_sql,
-                    "dimensions": list(resolved_metric.dimensions),
-                    "properties": dict(resolved_metric.metadata["properties"]),
-                    "grain": resolved_metric.grain,
-                    "measure_type": resolved_metric.measure_type,
-                    "allowed_dimensions": list(resolved_metric.allowed_dimensions),
-                    "lineage": list(resolved_metric.lineage),
-                    "quality_expectations": dict(resolved_metric.quality_expectations),
-                    "status": resolved_metric.metadata["status"],
-                    "revision": resolved_metric.metadata["revision"],
+                    "header": {
+                        "metric_ref": resolved_metric.metric_ref,
+                        "display_name": resolved_metric.display_name,
+                        "description": resolved_metric.description,
+                        "metric_contract_version": resolved_metric.metric_contract_version,
+                    },
+                    "identity": {
+                        "metric_family": resolved_metric.metric_family,
+                        "population_subject_ref": resolved_metric.population_subject_ref,
+                        "observed_entity_ref": resolved_metric.observed_entity_ref,
+                        "observation_grain_ref": resolved_metric.observation_grain_ref,
+                        "sample_kind": resolved_metric.sample_kind,
+                        "value_semantics": resolved_metric.value_semantics,
+                        "aggregation_scope": resolved_metric.aggregation_scope,
+                        "primary_time_ref": resolved_metric.primary_time_ref,
+                        "additivity": resolved_metric.additivity,
+                    },
+                    "family_payload": resolved_metric.family_payload,
+                    "metadata": {
+                        "metric_id": metric_id,
+                        "status": resolved_metric.metadata["status"],
+                        "revision": resolved_metric.metadata["revision"],
+                        "properties": dict(resolved_metric.metadata["properties"]),
+                    },
+                    "legacy": {
+                        "name": resolved_metric.name,
+                        "definition_sql": resolved_metric.definition_sql,
+                        "dimensions": list(resolved_metric.dimensions),
+                        "grain": resolved_metric.grain,
+                        "measure_type": resolved_metric.measure_type,
+                        "allowed_dimensions": list(resolved_metric.allowed_dimensions),
+                        "lineage": list(resolved_metric.lineage),
+                        "quality_expectations": dict(resolved_metric.quality_expectations),
+                    },
                 },
                 "physical_assets": self._resolve_mappings(mappings),
                 "mappings": [self._mapping_row_to_dict(mapping) for mapping in mappings],
@@ -141,19 +162,40 @@ class CatalogRuntimeService:
             return {
                 "resolved_type": "entity",
                 "semantic_object": {
-                    "entity_id": entity_id,
-                    "name": resolved_entity.name,
-                    "display_name": resolved_entity.metadata["display_name"],
-                    "description": resolved_entity.metadata["description"],
-                    "keys": list(resolved_entity.keys),
-                    "properties": dict(resolved_entity.metadata["properties"]),
-                    "level": resolved_entity.level,
-                    "join_constraints": dict(resolved_entity.join_constraints),
-                    "upstream_dependencies": list(resolved_entity.upstream_dependencies),
-                    "lineage": list(resolved_entity.lineage),
-                    "quality_expectations": dict(resolved_entity.quality_expectations),
-                    "status": resolved_entity.metadata["status"],
-                    "revision": resolved_entity.metadata["revision"],
+                    "header": {
+                        "entity_ref": resolved_entity.entity_ref,
+                        "display_name": resolved_entity.display_name,
+                        "description": resolved_entity.description,
+                        "entity_contract_version": resolved_entity.entity_contract_version,
+                    },
+                    "identity": {
+                        "key_refs": list(resolved_entity.key_refs),
+                        "uniqueness_scope": resolved_entity.uniqueness_scope,
+                        "id_stability": resolved_entity.id_stability,
+                        "nullable_key_policy": resolved_entity.nullable_key_policy,
+                    },
+                    "hierarchy": {
+                        "parent_entity_ref": resolved_entity.parent_entity_ref,
+                        "cardinality_to_parent": resolved_entity.cardinality_to_parent,
+                        "ownership_semantics": resolved_entity.ownership_semantics,
+                    },
+                    "primary_time_ref": resolved_entity.primary_time_ref,
+                    "stable_descriptors": list(resolved_entity.stable_descriptors),
+                    "metadata": {
+                        "entity_id": entity_id,
+                        "status": resolved_entity.metadata["status"],
+                        "revision": resolved_entity.metadata["revision"],
+                        "properties": dict(resolved_entity.metadata["properties"]),
+                    },
+                    "legacy": {
+                        "name": resolved_entity.name,
+                        "keys": list(resolved_entity.keys),
+                        "level": resolved_entity.level,
+                        "join_constraints": dict(resolved_entity.join_constraints),
+                        "upstream_dependencies": list(resolved_entity.upstream_dependencies),
+                        "lineage": list(resolved_entity.lineage),
+                        "quality_expectations": dict(resolved_entity.quality_expectations),
+                    },
                 },
                 "physical_assets": self._resolve_mappings(mappings),
                 "mappings": [self._mapping_row_to_dict(mapping) for mapping in mappings],

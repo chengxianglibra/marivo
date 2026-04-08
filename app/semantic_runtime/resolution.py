@@ -4,13 +4,26 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.semantic_runtime.semantic_metadata import entity_runtime_metadata, metric_runtime_metadata
 from app.storage.metadata import MetadataStore
 
 
 @dataclass(slots=True)
 class ResolvedMetric:
     name: str
+    metric_ref: str = ""
+    display_name: str = ""
+    description: str = ""
+    metric_family: str = ""
+    population_subject_ref: str | None = None
+    observed_entity_ref: str = ""
+    observation_grain_ref: str = ""
+    sample_kind: str = ""
+    value_semantics: str = ""
+    aggregation_scope: str | None = None
+    primary_time_ref: str | None = None
+    additivity: str = ""
+    metric_contract_version: str = ""
+    family_payload: dict[str, Any] = field(default_factory=dict)
     definition_sql: str | None = None
     dimensions: list[str] = field(default_factory=list)
     grain: str | None = None
@@ -25,6 +38,19 @@ class ResolvedMetric:
 @dataclass(slots=True)
 class ResolvedEntity:
     name: str
+    entity_ref: str = ""
+    display_name: str = ""
+    description: str = ""
+    entity_contract_version: str = ""
+    key_refs: list[str] = field(default_factory=list)
+    uniqueness_scope: str = ""
+    id_stability: str = ""
+    nullable_key_policy: str = ""
+    parent_entity_ref: str | None = None
+    cardinality_to_parent: str | None = None
+    ownership_semantics: str | None = None
+    primary_time_ref: str | None = None
+    stable_descriptors: list[dict[str, Any]] = field(default_factory=list)
     keys: list[str] = field(default_factory=list)
     level: str | None = None
     join_constraints: dict[str, Any] = field(default_factory=dict)
@@ -41,89 +67,296 @@ class SemanticResolver:
         self.metadata = metadata
 
     def resolve_metric(self, metric_name: str) -> ResolvedMetric | None:
-        row = self.metadata.query_one(
+        legacy_row = self.metadata.query_one(
             """
             SELECT
                 metric_id, name, display_name, description, definition_sql, dimensions_json,
-                grain, measure_type, allowed_dimensions_json, lineage_json,
-                quality_expectations_json, properties_json, desired_direction, status, revision
+                entity_id, grain, measure_type, allowed_dimensions_json, lineage_json,
+                quality_expectations_json, properties_json, desired_direction, status, revision,
+                created_at, updated_at
             FROM semantic_metrics
             WHERE name = ? AND status = 'published'
             """,
             [metric_name],
         )
-        if row is None:
+        if legacy_row is None:
             return None
 
-        dimensions = json.loads(row["dimensions_json"])
-        properties = json.loads(row["properties_json"])
-        runtime_metadata = metric_runtime_metadata(
-            grain=row["grain"],
-            measure_type=row["measure_type"],
-            allowed_dimensions_json=row["allowed_dimensions_json"],
-            lineage_json=row["lineage_json"],
-            quality_expectations_json=row["quality_expectations_json"],
-            dimensions=dimensions,
+        contract_row = self.metadata.query_one(
+            """
+            SELECT
+                metric_contract_id, metric_ref, display_name, description, metric_family,
+                population_subject_ref, observed_entity_ref, observation_grain_ref,
+                sample_kind, value_semantics, aggregation_scope, primary_time_ref,
+                additivity, metric_contract_version, family_payload_json, status, revision,
+                created_at, updated_at
+            FROM semantic_metric_contracts
+            WHERE metric_contract_id = ? AND status = 'published'
+            """,
+            [legacy_row["metric_id"]],
         )
+        if contract_row is None:
+            contract_row = self._derive_metric_contract_row(legacy_row)
+
+        family_payload = json.loads(contract_row["family_payload_json"] or "{}")
+        dimensions = list(
+            family_payload.get("dimensions") or json.loads(legacy_row["dimensions_json"])
+        )
+        properties = json.loads(legacy_row["properties_json"])
 
         return ResolvedMetric(
-            name=row["name"],
-            definition_sql=row["definition_sql"],
+            name=legacy_row["name"],
+            metric_ref=str(contract_row["metric_ref"]),
+            display_name=str(contract_row["display_name"]),
+            description=str(contract_row["description"]),
+            metric_family=str(contract_row["metric_family"]),
+            population_subject_ref=contract_row["population_subject_ref"],
+            observed_entity_ref=str(contract_row["observed_entity_ref"]),
+            observation_grain_ref=str(contract_row["observation_grain_ref"]),
+            sample_kind=str(contract_row["sample_kind"]),
+            value_semantics=str(contract_row["value_semantics"]),
+            aggregation_scope=contract_row["aggregation_scope"],
+            primary_time_ref=contract_row["primary_time_ref"],
+            additivity=str(contract_row["additivity"]),
+            metric_contract_version=str(contract_row["metric_contract_version"]),
+            family_payload=family_payload,
+            definition_sql=family_payload.get("definition_sql", legacy_row["definition_sql"]),
             dimensions=dimensions,
-            grain=runtime_metadata["grain"],
-            measure_type=runtime_metadata["measure_type"],
-            allowed_dimensions=runtime_metadata["allowed_dimensions"],
-            lineage=runtime_metadata["lineage"],
-            quality_expectations=runtime_metadata["quality_expectations"],
-            desired_direction=row.get("desired_direction"),
+            grain=family_payload.get("grain", legacy_row["grain"]),
+            measure_type=family_payload.get("measure_type", legacy_row["measure_type"]),
+            allowed_dimensions=list(
+                family_payload.get("allowed_dimensions")
+                or json.loads(legacy_row["allowed_dimensions_json"] or "[]")
+            ),
+            lineage=list(json.loads(legacy_row["lineage_json"] or "[]")),
+            quality_expectations=dict(json.loads(legacy_row["quality_expectations_json"] or "{}")),
+            desired_direction=family_payload.get(
+                "desired_direction", legacy_row.get("desired_direction")
+            ),
             metadata={
-                "metric_id": row["metric_id"],
-                "display_name": row["display_name"],
-                "description": row["description"],
+                "metric_id": legacy_row["metric_id"],
+                "display_name": contract_row["display_name"],
+                "description": contract_row["description"],
+                "status": contract_row["status"],
+                "revision": contract_row["revision"],
                 "properties": properties,
-                "status": row["status"],
-                "revision": row["revision"],
+                "created_at": contract_row["created_at"],
+                "updated_at": contract_row["updated_at"],
             },
         )
 
     def resolve_entity(self, entity_name: str) -> ResolvedEntity | None:
-        row = self.metadata.query_one(
+        legacy_row = self.metadata.query_one(
             """
             SELECT
                 entity_id, name, display_name, description, keys_json, level,
                 join_constraints_json, upstream_dependencies_json, lineage_json,
-                quality_expectations_json, properties_json, status, revision
+                quality_expectations_json, properties_json, status, revision,
+                created_at, updated_at
             FROM semantic_entities
             WHERE name = ? AND status = 'published'
             """,
             [entity_name],
         )
-        if row is None:
+        if legacy_row is None:
             return None
 
-        properties = json.loads(row["properties_json"])
-        runtime_metadata = entity_runtime_metadata(
-            level=row["level"],
-            join_constraints_json=row["join_constraints_json"],
-            upstream_dependencies_json=row["upstream_dependencies_json"],
-            lineage_json=row["lineage_json"],
-            quality_expectations_json=row["quality_expectations_json"],
+        contract_row = self.metadata.query_one(
+            """
+            SELECT
+                entity_contract_id, entity_ref, display_name, description,
+                entity_contract_version, uniqueness_scope, id_stability,
+                nullable_key_policy, parent_entity_ref, cardinality_to_parent,
+                ownership_semantics, primary_time_ref, status, revision,
+                created_at, updated_at
+            FROM semantic_entity_contracts
+            WHERE entity_contract_id = ? AND status = 'published'
+            """,
+            [legacy_row["entity_id"]],
         )
+        if contract_row is None:
+            contract_row = self._derive_entity_contract_row(legacy_row)
+
+        key_rows = self.metadata.query_rows(
+            """
+            SELECT key_ref
+            FROM semantic_entity_key_refs
+            WHERE entity_contract_id = ?
+            ORDER BY position
+            """,
+            [legacy_row["entity_id"]],
+        )
+        descriptor_rows = self.metadata.query_rows(
+            """
+            SELECT dimension_ref, cardinality
+            FROM semantic_entity_stable_descriptors
+            WHERE entity_contract_id = ?
+            ORDER BY position
+            """,
+            [legacy_row["entity_id"]],
+        )
+        properties = json.loads(legacy_row["properties_json"])
+        upstream_dependencies = list(json.loads(legacy_row["upstream_dependencies_json"] or "[]"))
+        join_constraints = dict(json.loads(legacy_row["join_constraints_json"] or "{}"))
+        lineage = list(json.loads(legacy_row["lineage_json"] or "[]"))
+        quality_expectations = dict(json.loads(legacy_row["quality_expectations_json"] or "{}"))
 
         return ResolvedEntity(
-            name=row["name"],
-            keys=json.loads(row["keys_json"]),
-            level=runtime_metadata["level"],
-            join_constraints=runtime_metadata["join_constraints"],
-            upstream_dependencies=runtime_metadata["upstream_dependencies"],
-            lineage=runtime_metadata["lineage"],
-            quality_expectations=runtime_metadata["quality_expectations"],
+            name=legacy_row["name"],
+            entity_ref=str(contract_row["entity_ref"]),
+            display_name=str(contract_row["display_name"]),
+            description=str(contract_row["description"]),
+            entity_contract_version=str(contract_row["entity_contract_version"]),
+            key_refs=[str(row["key_ref"]) for row in key_rows],
+            uniqueness_scope=str(contract_row["uniqueness_scope"]),
+            id_stability=str(contract_row["id_stability"]),
+            nullable_key_policy=str(contract_row["nullable_key_policy"]),
+            parent_entity_ref=contract_row["parent_entity_ref"],
+            cardinality_to_parent=contract_row["cardinality_to_parent"],
+            ownership_semantics=contract_row["ownership_semantics"],
+            primary_time_ref=contract_row["primary_time_ref"],
+            stable_descriptors=[
+                {
+                    "dimension_ref": row["dimension_ref"],
+                    "cardinality": row["cardinality"],
+                }
+                for row in descriptor_rows
+            ],
+            keys=list(json.loads(legacy_row["keys_json"])),
+            level=legacy_row["level"],
+            join_constraints=join_constraints,
+            upstream_dependencies=upstream_dependencies,
+            lineage=lineage,
+            quality_expectations=quality_expectations,
             metadata={
-                "entity_id": row["entity_id"],
-                "display_name": row["display_name"],
-                "description": row["description"],
+                "entity_id": legacy_row["entity_id"],
+                "display_name": contract_row["display_name"],
+                "description": contract_row["description"],
                 "properties": properties,
-                "status": row["status"],
-                "revision": row["revision"],
+                "status": contract_row["status"],
+                "revision": contract_row["revision"],
+                "created_at": contract_row["created_at"],
+                "updated_at": contract_row["updated_at"],
             },
         )
+
+    def _derive_metric_contract_row(self, legacy_row: dict[str, Any]) -> dict[str, Any]:
+        metric_name = str(legacy_row["name"])
+        metric_family, sample_kind, value_semantics, additivity = self._infer_metric_contract_axes(
+            legacy_row.get("measure_type")
+        )
+        dimensions = list(json.loads(legacy_row["dimensions_json"] or "[]"))
+        family_payload = {
+            "definition_sql": legacy_row["definition_sql"],
+            "dimensions": dimensions,
+            "allowed_dimensions": list(
+                json.loads(legacy_row["allowed_dimensions_json"] or "[]") or dimensions
+            ),
+            "grain": legacy_row.get("grain"),
+            "measure_type": legacy_row.get("measure_type"),
+            "desired_direction": legacy_row.get("desired_direction"),
+        }
+        now = legacy_row.get("updated_at")
+        return {
+            "metric_contract_id": legacy_row["metric_id"],
+            "metric_ref": f"metric.{metric_name}",
+            "display_name": legacy_row["display_name"],
+            "description": legacy_row["description"],
+            "metric_family": metric_family,
+            "population_subject_ref": None,
+            "observed_entity_ref": self._legacy_entity_ref(legacy_row.get("entity_id")),
+            "observation_grain_ref": self._legacy_grain_ref(legacy_row.get("grain"))
+            or f"grain.{metric_name}",
+            "sample_kind": sample_kind,
+            "value_semantics": value_semantics,
+            "aggregation_scope": self._legacy_aggregation_scope(legacy_row.get("grain")),
+            "primary_time_ref": None,
+            "additivity": additivity,
+            "metric_contract_version": "metric.v1",
+            "family_payload_json": json.dumps(family_payload),
+            "status": legacy_row["status"],
+            "revision": legacy_row["revision"],
+            "created_at": legacy_row.get("created_at") or legacy_row.get("updated_at") or now,
+            "updated_at": legacy_row.get("updated_at") or now,
+        }
+
+    def _derive_entity_contract_row(self, legacy_row: dict[str, Any]) -> dict[str, Any]:
+        entity_name = str(legacy_row["name"])
+        key_refs = [
+            self._legacy_key_ref(key) for key in json.loads(legacy_row["keys_json"] or "[]")
+        ]
+        return {
+            "entity_contract_id": legacy_row["entity_id"],
+            "entity_ref": f"entity.{entity_name}",
+            "display_name": legacy_row["display_name"],
+            "description": legacy_row["description"],
+            "entity_contract_version": "entity.v1",
+            "uniqueness_scope": "global",
+            "id_stability": self._infer_entity_stability(legacy_row.get("level")),
+            "nullable_key_policy": "reject",
+            "parent_entity_ref": None,
+            "cardinality_to_parent": None,
+            "ownership_semantics": None,
+            "primary_time_ref": None,
+            "status": legacy_row["status"],
+            "revision": legacy_row["revision"],
+            "created_at": legacy_row.get("created_at") or legacy_row.get("updated_at") or "",
+            "updated_at": legacy_row.get("updated_at") or legacy_row.get("created_at") or "",
+            "key_refs": key_refs,
+        }
+
+    @staticmethod
+    def _legacy_key_ref(key: str) -> str:
+        key = str(key).strip()
+        if key.startswith("key."):
+            return key
+        return f"key.{key}"
+
+    @staticmethod
+    def _legacy_entity_ref(entity_id: str | None) -> str | None:
+        if entity_id is None or not str(entity_id).strip():
+            return None
+        return f"entity.{entity_id!s}"
+
+    @staticmethod
+    def _legacy_grain_ref(grain: str | None) -> str | None:
+        if grain is None or not str(grain).strip():
+            return None
+        return f"grain.{str(grain).strip()}"
+
+    @staticmethod
+    def _legacy_aggregation_scope(grain: str | None) -> str | None:
+        if grain is None:
+            return None
+        grain_value = str(grain).strip().lower()
+        if grain_value in {"session", "event"}:
+            return grain_value
+        return "window"
+
+    @staticmethod
+    def _infer_metric_contract_axes(
+        measure_type: str | None,
+    ) -> tuple[str, str, str, str]:
+        kind = str(measure_type or "count").strip().lower()
+        if kind in {"ratio", "rate"}:
+            return ("rate_metric", "rate", "ratio", "non_additive")
+        if kind in {"average", "mean"}:
+            return ("average_metric", "numeric", "mean", "non_additive")
+        if kind == "sum":
+            return ("sum_metric", "numeric", "sum", "additive")
+        if kind == "count":
+            return ("count_metric", "numeric", "count", "additive")
+        if kind in {"percentile", "quantile"}:
+            return ("distribution_metric", "numeric", "distribution_statistic", "non_additive")
+        if kind == "survival":
+            return ("survival_metric", "survival", "survival_probability", "non_additive")
+        if kind == "score":
+            return ("score_metric", "numeric", "score", "non_additive")
+        return ("count_metric", "numeric", "count", "additive")
+
+    @staticmethod
+    def _infer_entity_stability(level: str | None) -> str:
+        value = str(level or "").strip().lower()
+        if value in {"session", "event"}:
+            return "ephemeral"
+        return "stable"
