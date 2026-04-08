@@ -1,0 +1,25 @@
+.PHONY: test typecheck lint format check
+
+VENV_PYTHON := .venv/bin/python
+VENV_PYTEST := .venv/bin/pytest
+VENV_MYPY := .venv/bin/mypy
+VENV_RUFF := .venv/bin/ruff
+
+test:
+	@./scripts/require-venv.sh pytest
+	@$(VENV_PYTEST)
+
+typecheck:
+	@./scripts/require-venv.sh mypy
+	@$(VENV_MYPY) app
+
+lint:
+	@./scripts/require-venv.sh ruff
+	@$(VENV_RUFF) check .
+
+format:
+	@./scripts/require-venv.sh ruff
+	@$(VENV_RUFF) format .
+	@$(VENV_RUFF) check --fix .
+
+check: lint typecheck test

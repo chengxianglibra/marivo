@@ -109,6 +109,9 @@ HTTP → FastAPI → Services → Analysis Core + Evidence Engine + Storage
 ## Tests
 
 ```bash
-.venv/bin/pytest              # all tests
+make test                     # all tests
 .venv/bin/pytest tests/test_storage.py -v
+make typecheck                # mypy
+make lint                     # ruff check
+make format                   # ruff format + ruff check --fix
 ```
