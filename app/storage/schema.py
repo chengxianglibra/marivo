@@ -119,18 +119,6 @@ METADATA_DDL: list[str] = [
     )
     """,
     """
-    CREATE TABLE IF NOT EXISTS semantic_mappings (
-        mapping_id      TEXT PRIMARY KEY,
-        semantic_type   TEXT NOT NULL,
-        semantic_id     TEXT NOT NULL,
-        object_id       TEXT NOT NULL REFERENCES source_objects(object_id),
-        mapping_type    TEXT NOT NULL,
-        mapping_json    TEXT NOT NULL DEFAULT '{}',
-        created_at      TEXT NOT NULL,
-        updated_at      TEXT NOT NULL
-    )
-    """,
-    """
     CREATE TABLE IF NOT EXISTS semantic_entity_contracts (
         entity_contract_id      TEXT PRIMARY KEY,
         entity_ref              TEXT NOT NULL UNIQUE,
@@ -493,6 +481,170 @@ METADATA_DDL: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_semantic_process_exported_dimension_refs_process ON semantic_process_exported_dimension_refs(process_contract_id)",
     "CREATE INDEX IF NOT EXISTS idx_semantic_enum_set_versions_enum_set ON semantic_enum_set_versions(enum_set_contract_id)",
     "CREATE INDEX IF NOT EXISTS idx_semantic_enum_set_values_version ON semantic_enum_set_values(enum_set_version_id)",
+    # -------------------------------------------------------------------------
+    # Typed binding contract tables
+    # -------------------------------------------------------------------------
+    """
+    CREATE TABLE IF NOT EXISTS typed_bindings (
+        binding_id        TEXT PRIMARY KEY,
+        binding_ref       TEXT NOT NULL UNIQUE,
+        binding_scope     TEXT NOT NULL CHECK (
+            binding_scope IN ('entity', 'process_object', 'metric')
+        ),
+        bound_object_ref  TEXT NOT NULL,
+        binding_contract_version TEXT NOT NULL CHECK (
+            substr(binding_contract_version, 1, 8) = 'binding.'
+        ),
+        display_name      TEXT,
+        description       TEXT,
+        status            TEXT NOT NULL DEFAULT 'draft' CHECK (
+            status IN ('draft', 'published', 'deprecated')
+        ),
+        revision          INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+        created_at        TEXT NOT NULL,
+        updated_at        TEXT NOT NULL,
+        CHECK (substr(binding_ref, 1, 8) = 'binding.')
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS binding_imports (
+        id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+        binding_id         TEXT NOT NULL REFERENCES typed_bindings(binding_id) ON DELETE CASCADE,
+        import_key         TEXT NOT NULL,
+        imported_binding_ref TEXT NOT NULL CHECK (substr(imported_binding_ref, 1, 8) = 'binding.'),
+        required_ref_prefixes_json TEXT NOT NULL DEFAULT '[]',
+        created_at         TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(binding_id, import_key)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS carrier_bindings (
+        carrier_binding_id TEXT PRIMARY KEY,
+        binding_id         TEXT NOT NULL REFERENCES typed_bindings(binding_id) ON DELETE CASCADE,
+        binding_key        TEXT NOT NULL,
+        source_object_ref  TEXT,
+        carrier_kind       TEXT NOT NULL CHECK (carrier_kind IN ('table', 'view')),
+        carrier_locator    TEXT NOT NULL,
+        binding_role       TEXT NOT NULL CHECK (binding_role IN ('primary', 'auxiliary')),
+        semantic_role_ref  TEXT,
+        grain_ref          TEXT,
+        primary_entity_ref TEXT CHECK (
+            primary_entity_ref IS NULL OR substr(primary_entity_ref, 1, 7) = 'entity.'
+        ),
+        row_filter_refs_json TEXT NOT NULL DEFAULT '[]',
+        freshness_policy_ref TEXT,
+        created_at         TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at         TEXT NOT NULL,
+        UNIQUE(binding_id, binding_key)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS carrier_field_surfaces (
+        carrier_binding_id TEXT NOT NULL REFERENCES carrier_bindings(carrier_binding_id) ON DELETE CASCADE,
+        position           INTEGER NOT NULL,
+        surface_ref        TEXT NOT NULL CHECK (substr(surface_ref, 1, 6) = 'field.'),
+        physical_name      TEXT NOT NULL,
+        field_type         TEXT,
+        PRIMARY KEY (carrier_binding_id, position),
+        UNIQUE(carrier_binding_id, surface_ref),
+        CHECK (position > 0)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS carrier_time_surfaces (
+        carrier_binding_id TEXT NOT NULL REFERENCES carrier_bindings(carrier_binding_id) ON DELETE CASCADE,
+        position           INTEGER NOT NULL,
+        surface_ref        TEXT NOT NULL CHECK (substr(surface_ref, 1, 13) = 'time_surface.'),
+        physical_name      TEXT NOT NULL,
+        time_granularity   TEXT CHECK (
+            time_granularity IS NULL OR time_granularity IN ('second', 'minute', 'hour', 'day')
+        ),
+        PRIMARY KEY (carrier_binding_id, position),
+        UNIQUE(carrier_binding_id, surface_ref),
+        CHECK (position > 0)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS field_bindings (
+        field_binding_id   TEXT PRIMARY KEY,
+        binding_id         TEXT NOT NULL REFERENCES typed_bindings(binding_id) ON DELETE CASCADE,
+        carrier_binding_key TEXT NOT NULL,
+        target_kind        TEXT NOT NULL CHECK (
+            target_kind IN (
+                'identity_key',
+                'primary_time',
+                'stable_descriptor',
+                'population_subject',
+                'analysis_window_anchor',
+                'process_context',
+                'metric_input'
+            )
+        ),
+        target_key         TEXT NOT NULL,
+        context_ref        TEXT,
+        semantic_ref       TEXT NOT NULL,
+        surface_ref        TEXT NOT NULL CHECK (substr(surface_ref, 1, 6) = 'field.'),
+        field_type_ref     TEXT,
+        nullability_policy TEXT CHECK (
+            nullability_policy IS NULL OR nullability_policy IN ('reject', 'allow', 'impute')
+        ),
+        repeated_value_policy TEXT CHECK (
+            repeated_value_policy IS NULL
+            OR repeated_value_policy IN ('take_first', 'take_last', 'aggregate', 'explode')
+        ),
+        created_at         TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(binding_id, carrier_binding_key, target_kind, target_key)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS join_relations (
+        relation_id        TEXT PRIMARY KEY,
+        binding_id         TEXT NOT NULL REFERENCES typed_bindings(binding_id) ON DELETE CASCADE,
+        relation_key       TEXT NOT NULL,
+        left_binding_key   TEXT NOT NULL,
+        right_binding_key  TEXT NOT NULL,
+        join_kind          TEXT CHECK (
+            join_kind IS NULL OR join_kind IN ('inner', 'left', 'semi', 'anti')
+        ),
+        key_ref_pairs_json TEXT NOT NULL DEFAULT '[]',
+        cardinality        TEXT CHECK (
+            cardinality IS NULL
+            OR cardinality IN ('one_to_one', 'many_to_one', 'one_to_many', 'many_to_many')
+        ),
+        temporal_constraint_refs_json TEXT NOT NULL DEFAULT '[]',
+        compatibility_rule_refs_json TEXT NOT NULL DEFAULT '[]',
+        created_at         TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(binding_id, relation_key)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS consumption_policies (
+        policy_id          TEXT PRIMARY KEY,
+        binding_id         TEXT NOT NULL REFERENCES typed_bindings(binding_id) ON DELETE CASCADE,
+        policy_key         TEXT NOT NULL,
+        policy_type        TEXT NOT NULL CHECK (
+            policy_type IN ('late_arrival_policy', 'incomplete_window_policy')
+        ),
+        policy_target_path TEXT NOT NULL,
+        anchor_ref         TEXT,
+        grace_period_ref   TEXT,
+        behavior           TEXT CHECK (
+            behavior IS NULL OR behavior IN ('exclude_open_subjects', 'clip_to_window', 'keep_partial')
+        ),
+        created_at         TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(binding_id, policy_key)
+    )
+    """,
+    # Typed binding indexes
+    "CREATE INDEX IF NOT EXISTS idx_typed_bindings_ref ON typed_bindings(binding_ref)",
+    "CREATE INDEX IF NOT EXISTS idx_binding_imports_binding ON binding_imports(binding_id)",
+    "CREATE INDEX IF NOT EXISTS idx_carrier_bindings_binding ON carrier_bindings(binding_id)",
+    "CREATE INDEX IF NOT EXISTS idx_carrier_bindings_key ON carrier_bindings(binding_id, binding_key)",
+    "CREATE INDEX IF NOT EXISTS idx_carrier_field_surfaces_carrier ON carrier_field_surfaces(carrier_binding_id)",
+    "CREATE INDEX IF NOT EXISTS idx_carrier_time_surfaces_carrier ON carrier_time_surfaces(carrier_binding_id)",
+    "CREATE INDEX IF NOT EXISTS idx_field_bindings_binding ON field_bindings(binding_id)",
+    "CREATE INDEX IF NOT EXISTS idx_join_relations_binding ON join_relations(binding_id)",
+    "CREATE INDEX IF NOT EXISTS idx_consumption_policies_binding ON consumption_policies(binding_id)",
     """
     CREATE TABLE IF NOT EXISTS sync_jobs (
         job_id          TEXT PRIMARY KEY,
