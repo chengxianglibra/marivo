@@ -15,19 +15,23 @@ Shared guidance for agents. `AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructi
 
 ## Python / Typing
 
+- Never use bare `python`, `pytest`, `mypy`, or `ruff` in this repository. Use `make` targets or
+  explicit `.venv/bin/...` paths only.
 - All new or modified Python code must satisfy `mypy` for the touched modules.
 - Add explicit type annotations for public functions, dataclass/model fields, and non-trivial locals when needed for `mypy` clarity.
 - Do not introduce new implicit `Any`, broad `cast(...)`, or `# type: ignore` unless strictly necessary.
 - If `# type: ignore` is unavoidable, keep it narrow and add a short reason.
 - When changing schemas, API models, or service contracts, update type annotations end-to-end in the same change.
-- Before finishing a Python change, run the repository `mypy` check for the touched paths, or explain why it could not be run.
+- Before finishing a Python change, run the repository `mypy` check for the touched paths via
+  `make typecheck` or `.venv/bin/mypy`, or explain why it could not be run.
 
 ## Code Style (Ruff)
 
-`ruff --fix` and `ruff-format` run as pre-commit hooks. All generated code must pass them
-without requiring a fix cycle. Enabled rule families: `E/W` (pycodestyle), `F` (pyflakes),
-`I` (isort), `N` (pep8-naming), `UP` (pyupgrade), `B` (bugbear), `C4` (comprehensions),
-`SIM` (simplify), `TCH` (type-checking imports), `RUF` (ruff-specific).
+Use `make lint` and `make format` or the explicit `.venv/bin/ruff` wrapper paths; never call bare
+`ruff`. `ruff --fix` and `ruff format` run as pre-commit hooks. All generated code must pass them
+without requiring a fix cycle. Enabled rule families: `E/W` (pycodestyle), `F` (pyflakes), `I`
+(isort), `N` (pep8-naming), `UP` (pyupgrade), `B` (bugbear), `C4` (comprehensions), `SIM`
+(simplify), `TCH` (type-checking imports), `RUF` (ruff-specific).
 
 **Non-obvious gotchas to avoid:**
 
@@ -54,7 +58,17 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -e . && uvicorn app.main:app --reload
 ```
 
-Tests: `.venv/bin/pytest`. Requires Python 3.12+, `DUCKDB_MVP_DB`. SQLite metadata, DuckDB/Trino engines.
+Preferred repository entrypoints:
+
+```bash
+make test
+make typecheck
+make lint
+make format
+```
+
+Tests: `make test` or `.venv/bin/pytest`. Requires Python 3.12+, `DUCKDB_MVP_DB`. SQLite metadata,
+DuckDB/Trino engines.
 
 ## Architecture
 
