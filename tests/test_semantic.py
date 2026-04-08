@@ -63,15 +63,27 @@ class SemanticEntityRouteTests(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertEqual(resp.json()["header"]["description"], "Updated description")
+        self.assertEqual(resp.json()["revision"], 2)
 
         resp = self.client.post(f"/semantic/entities/{entity_id}/publish")
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertEqual(resp.json()["status"], "published")
-        self.assertEqual(resp.json()["revision"], 2)
+        self.assertEqual(resp.json()["revision"], 3)
 
         resp = self.client.get("/semantic/entities?status=published")
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertTrue(all(item["status"] == "published" for item in resp.json()["items"]))
+
+        resp = self.client.put(
+            f"/semantic/entities/{entity_id}",
+            json={"description": "Should fail after publish"},
+        )
+        self.assertEqual(resp.status_code, 422, resp.text)
+        self.assertIn("not in draft status", resp.json()["detail"])
+
+        resp = self.client.post(f"/semantic/entities/{entity_id}/publish")
+        self.assertEqual(resp.status_code, 422, resp.text)
+        self.assertIn("not in draft status", resp.json()["detail"])
 
     def test_entity_routes_reject_legacy_contract_and_missing_object(self) -> None:
         resp = self.client.post(
@@ -173,14 +185,36 @@ class SemanticMetricRouteTests(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertEqual(resp.json()["payload"]["count_target"]["name"], "active_users")
+        self.assertEqual(resp.json()["revision"], 2)
 
         resp = self.client.post(f"/semantic/metrics/{metric_id}/publish")
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertEqual(resp.json()["status"], "published")
+        self.assertEqual(resp.json()["revision"], 3)
 
         resp = self.client.get("/semantic/metrics?status=published")
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertTrue(all(item["status"] == "published" for item in resp.json()["items"]))
+
+        resp = self.client.put(
+            f"/semantic/metrics/{metric_id}",
+            json={
+                "payload": {
+                    "metric_family": "count_metric",
+                    "count_target": {
+                        "name": "should_fail",
+                        "semantics": "should fail",
+                        "aggregation": "count_distinct",
+                    },
+                }
+            },
+        )
+        self.assertEqual(resp.status_code, 422, resp.text)
+        self.assertIn("not in draft status", resp.json()["detail"])
+
+        resp = self.client.post(f"/semantic/metrics/{metric_id}/publish")
+        self.assertEqual(resp.status_code, 422, resp.text)
+        self.assertIn("not in draft status", resp.json()["detail"])
 
     def test_metric_routes_reject_legacy_contract_and_missing_object(self) -> None:
         resp = self.client.post(

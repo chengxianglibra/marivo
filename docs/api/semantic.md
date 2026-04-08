@@ -10,6 +10,8 @@ Semantic lifecycle is shared across objects:
 
 Only `published` objects are available to runtime resolution and intent execution.
 
+Entity and metric contract updates are draft-only. After `publish`, the public contract is frozen; a second publish attempt or any later update returns a validation error from the service layer.
+
 Related design docs:
 
 - `docs/semantic/entity-schema-contract.zh.md`
@@ -205,6 +207,8 @@ List responses are always wrapped:
 Query parameters:
 
 - `status`: optional lifecycle filter
+- `PUT /semantic/entities/{entity_id}` is only valid while the object is in `draft`.
+- `POST /semantic/entities/{entity_id}/publish` is only valid from `draft`; publish increments `revision`.
 
 Notes:
 
@@ -280,6 +284,8 @@ Response:
   "updated_at": "2026-04-08T12:00:00+00:00"
 }
 ```
+
+`revision` increments on every persisted contract change, including `PUT` updates and `publish`.
 
 List responses are also wrapped as `{"items": [...], "total": n}`.
 
@@ -496,6 +502,8 @@ Response:
   "updated_at": "2026-04-08T12:00:00+00:00"
 }
 ```
+
+`revision` increments on every persisted contract change, including `PUT` updates and `publish`.
 
 List responses use the shared object envelope:
 

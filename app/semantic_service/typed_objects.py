@@ -19,6 +19,29 @@ from .common import SemanticServiceSupport, now_iso
 
 
 class TypedObjectService(SemanticServiceSupport):
+    def _require_draft_status(self, status: str, object_label: str, object_id: str) -> None:
+        if status != "draft":
+            raise self._state_error(
+                f"{object_label} '{object_id}' is not in draft status (status={status})."
+            )
+
+    def _apply_contract_update(
+        self,
+        *,
+        table_name: str,
+        id_column: str,
+        object_id: str,
+        updates: list[str],
+        params: list[Any],
+    ) -> None:
+        updates.extend(["revision = revision + 1", "updated_at = ?"])
+        params.append(now_iso())
+        params.append(object_id)
+        self.metadata.execute(
+            f"UPDATE {table_name} SET {', '.join(updates)} WHERE {id_column} = ?",
+            params,
+        )
+
     def create_typed_entity(self, payload: TypedEntityCreateRequest) -> dict[str, Any]:
         entity_contract_id = f"entc_{uuid4().hex[:12]}"
         created_at = now_iso()
@@ -88,7 +111,8 @@ class TypedObjectService(SemanticServiceSupport):
     def update_typed_entity(
         self, entity_contract_id: str, payload: TypedEntityUpdateRequest
     ) -> dict[str, Any]:
-        self.get_typed_entity(entity_contract_id)
+        current = self.get_typed_entity(entity_contract_id)
+        self._require_draft_status(current["status"], "Typed entity", entity_contract_id)
         updates: list[str] = []
         params: list[Any] = []
         if payload.display_name is not None:
@@ -133,18 +157,19 @@ class TypedObjectService(SemanticServiceSupport):
                 ],
             )
         if not updates:
-            return self.get_typed_entity(entity_contract_id)
-        updates.append("updated_at = ?")
-        params.append(now_iso())
-        params.append(entity_contract_id)
-        self.metadata.execute(
-            f"UPDATE semantic_entity_contracts SET {', '.join(updates)} WHERE entity_contract_id = ?",
-            params,
+            return current
+        self._apply_contract_update(
+            table_name="semantic_entity_contracts",
+            id_column="entity_contract_id",
+            object_id=entity_contract_id,
+            updates=updates,
+            params=params,
         )
         return self.get_typed_entity(entity_contract_id)
 
     def publish_typed_entity(self, entity_contract_id: str) -> dict[str, Any]:
-        self.get_typed_entity(entity_contract_id)
+        current = self.get_typed_entity(entity_contract_id)
+        self._require_draft_status(current["status"], "Typed entity", entity_contract_id)
         self.metadata.execute(
             """
             UPDATE semantic_entity_contracts
@@ -216,6 +241,7 @@ class TypedObjectService(SemanticServiceSupport):
         self, metric_contract_id: str, payload: TypedMetricUpdateRequest
     ) -> dict[str, Any]:
         current = self.get_typed_metric(metric_contract_id)
+        self._require_draft_status(current["status"], "Typed metric", metric_contract_id)
         updates: list[str] = []
         params: list[Any] = []
         if payload.display_name is not None:
@@ -234,17 +260,18 @@ class TypedObjectService(SemanticServiceSupport):
             params.append(json.dumps(payload.payload.model_dump(mode="json")))
         if not updates:
             return current
-        updates.append("updated_at = ?")
-        params.append(now_iso())
-        params.append(metric_contract_id)
-        self.metadata.execute(
-            f"UPDATE semantic_metric_contracts SET {', '.join(updates)} WHERE metric_contract_id = ?",
-            params,
+        self._apply_contract_update(
+            table_name="semantic_metric_contracts",
+            id_column="metric_contract_id",
+            object_id=metric_contract_id,
+            updates=updates,
+            params=params,
         )
         return self.get_typed_metric(metric_contract_id)
 
     def publish_typed_metric(self, metric_contract_id: str) -> dict[str, Any]:
-        self.get_typed_metric(metric_contract_id)
+        current = self.get_typed_metric(metric_contract_id)
+        self._require_draft_status(current["status"], "Typed metric", metric_contract_id)
         self.metadata.execute(
             """
             UPDATE semantic_metric_contracts
@@ -322,6 +349,7 @@ class TypedObjectService(SemanticServiceSupport):
         self, process_contract_id: str, payload: ProcessObjectUpdateRequest
     ) -> dict[str, Any]:
         current = self.get_process_object(process_contract_id)
+        self._require_draft_status(current["status"], "Process object", process_contract_id)
         updates: list[str] = []
         params: list[Any] = []
         interface_contract = payload.interface_contract
@@ -385,17 +413,18 @@ class TypedObjectService(SemanticServiceSupport):
             params.append(payload.description)
         if not updates:
             return current
-        updates.append("updated_at = ?")
-        params.append(now_iso())
-        params.append(process_contract_id)
-        self.metadata.execute(
-            f"UPDATE semantic_process_objects SET {', '.join(updates)} WHERE process_contract_id = ?",
-            params,
+        self._apply_contract_update(
+            table_name="semantic_process_objects",
+            id_column="process_contract_id",
+            object_id=process_contract_id,
+            updates=updates,
+            params=params,
         )
         return self.get_process_object(process_contract_id)
 
     def publish_process_object(self, process_contract_id: str) -> dict[str, Any]:
-        self.get_process_object(process_contract_id)
+        current = self.get_process_object(process_contract_id)
+        self._require_draft_status(current["status"], "Process object", process_contract_id)
         self.metadata.execute(
             """
             UPDATE semantic_process_objects
@@ -483,6 +512,7 @@ class TypedObjectService(SemanticServiceSupport):
         self, dimension_contract_id: str, payload: DimensionUpdateRequest
     ) -> dict[str, Any]:
         current = self.get_dimension(dimension_contract_id)
+        self._require_draft_status(current["status"], "Dimension", dimension_contract_id)
         updates: list[str] = []
         params: list[Any] = []
         if payload.display_name is not None:
@@ -537,17 +567,18 @@ class TypedObjectService(SemanticServiceSupport):
             )
         if not updates:
             return current
-        updates.append("updated_at = ?")
-        params.append(now_iso())
-        params.append(dimension_contract_id)
-        self.metadata.execute(
-            f"UPDATE semantic_dimension_contracts SET {', '.join(updates)} WHERE dimension_contract_id = ?",
-            params,
+        self._apply_contract_update(
+            table_name="semantic_dimension_contracts",
+            id_column="dimension_contract_id",
+            object_id=dimension_contract_id,
+            updates=updates,
+            params=params,
         )
         return self.get_dimension(dimension_contract_id)
 
     def publish_dimension(self, dimension_contract_id: str) -> dict[str, Any]:
-        self.get_dimension(dimension_contract_id)
+        current = self.get_dimension(dimension_contract_id)
+        self._require_draft_status(current["status"], "Dimension", dimension_contract_id)
         self.metadata.execute(
             """
             UPDATE semantic_dimension_contracts
@@ -614,6 +645,7 @@ class TypedObjectService(SemanticServiceSupport):
         self, time_contract_id: str, payload: TimeUpdateRequest
     ) -> dict[str, Any]:
         current = self.get_time_semantic(time_contract_id)
+        self._require_draft_status(current["status"], "Time semantic", time_contract_id)
         updates: list[str] = []
         params: list[Any] = []
         if payload.display_name is not None:
@@ -639,17 +671,18 @@ class TypedObjectService(SemanticServiceSupport):
             )
         if not updates:
             return current
-        updates.append("updated_at = ?")
-        params.append(now_iso())
-        params.append(time_contract_id)
-        self.metadata.execute(
-            f"UPDATE semantic_time_objects SET {', '.join(updates)} WHERE time_contract_id = ?",
-            params,
+        self._apply_contract_update(
+            table_name="semantic_time_objects",
+            id_column="time_contract_id",
+            object_id=time_contract_id,
+            updates=updates,
+            params=params,
         )
         return self.get_time_semantic(time_contract_id)
 
     def publish_time_semantic(self, time_contract_id: str) -> dict[str, Any]:
-        self.get_time_semantic(time_contract_id)
+        current = self.get_time_semantic(time_contract_id)
+        self._require_draft_status(current["status"], "Time semantic", time_contract_id)
         self.metadata.execute(
             """
             UPDATE semantic_time_objects
@@ -712,6 +745,7 @@ class TypedObjectService(SemanticServiceSupport):
         self, enum_set_contract_id: str, payload: EnumSetUpdateRequest
     ) -> dict[str, Any]:
         current = self.get_enum_set(enum_set_contract_id)
+        self._require_draft_status(current["status"], "Enum set", enum_set_contract_id)
         updates: list[str] = []
         params: list[Any] = []
         if payload.display_name is not None:
@@ -736,17 +770,18 @@ class TypedObjectService(SemanticServiceSupport):
             )
         if not updates and payload.versions is None:
             return current
-        updates.append("updated_at = ?")
-        params.append(now_iso())
-        params.append(enum_set_contract_id)
-        self.metadata.execute(
-            f"UPDATE semantic_enum_sets SET {', '.join(updates)} WHERE enum_set_contract_id = ?",
-            params,
+        self._apply_contract_update(
+            table_name="semantic_enum_sets",
+            id_column="enum_set_contract_id",
+            object_id=enum_set_contract_id,
+            updates=updates,
+            params=params,
         )
         return self.get_enum_set(enum_set_contract_id)
 
     def publish_enum_set(self, enum_set_contract_id: str) -> dict[str, Any]:
-        self.get_enum_set(enum_set_contract_id)
+        current = self.get_enum_set(enum_set_contract_id)
+        self._require_draft_status(current["status"], "Enum set", enum_set_contract_id)
         self.metadata.execute(
             """
             UPDATE semantic_enum_sets
