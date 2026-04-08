@@ -10,7 +10,6 @@ from app.api.deps import get_services
 from app.api.models import (
     CompatibilityProfileCreateRequest,
     CompatibilityProfileUpdateRequest,
-    EntityPropertiesPatchRequest,
     TypedBindingCreateRequest,
     TypedBindingUpdateRequest,
     TypedEntityCreateRequest,
@@ -18,13 +17,7 @@ from app.api.models import (
     TypedMetricCreateRequest,
     TypedMetricUpdateRequest,
 )
-from app.api.models._legacy import (
-    EntityCreateRequest,
-    EntityUpdateRequest,
-    MappingCreateRequest,
-    MetricCreateRequest,
-    MetricUpdateRequest,
-)
+from app.api.models._legacy import MappingCreateRequest
 
 router = APIRouter()
 
@@ -80,56 +73,13 @@ def _handle_update(
     return _run_route_action(lambda: action(parsed))
 
 
-def _parse_entity_create(payload: dict[str, Any]) -> TypedEntityCreateRequest | EntityCreateRequest:
-    if "header" in payload or "interface_contract" in payload:
-        return TypedEntityCreateRequest.model_validate(payload)
-    return EntityCreateRequest.model_validate(payload)
-
-
-def _parse_entity_update(
-    entity_id: str, payload: dict[str, Any]
-) -> TypedEntityUpdateRequest | EntityUpdateRequest:
-    if "interface_contract" in payload or entity_id.startswith("entc_"):
-        return TypedEntityUpdateRequest.model_validate(payload)
-    return EntityUpdateRequest.model_validate(payload)
-
-
-def _parse_metric_create(payload: dict[str, Any]) -> TypedMetricCreateRequest | MetricCreateRequest:
-    if "header" in payload or "payload" in payload:
-        return TypedMetricCreateRequest.model_validate(payload)
-    return MetricCreateRequest.model_validate(payload)
-
-
-def _parse_metric_update(
-    metric_id: str, payload: dict[str, Any]
-) -> TypedMetricUpdateRequest | MetricUpdateRequest:
-    if "payload" in payload or metric_id.startswith("metc_"):
-        return TypedMetricUpdateRequest.model_validate(payload)
-    return MetricUpdateRequest.model_validate(payload)
-
-
 @router.post("/semantic/entities")
 def create_entity(request: Request, payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
     return _handle_create(
         payload,
-        parser=_parse_entity_create,
-        action=lambda parsed: (
-            semantic_service.create_typed_entity(parsed)
-            if isinstance(parsed, TypedEntityCreateRequest)
-            else semantic_service.create_entity(
-                name=parsed.name,
-                display_name=parsed.display_name,
-                description=parsed.description,
-                keys=parsed.keys,
-                level=parsed.level,
-                join_constraints=parsed.join_constraints,
-                upstream_dependencies=parsed.upstream_dependencies,
-                lineage=parsed.lineage,
-                quality_expectations=parsed.quality_expectations,
-                properties=parsed.properties,
-            )
-        ),
+        parser=TypedEntityCreateRequest.model_validate,
+        action=semantic_service.create_typed_entity,
     )
 
 
@@ -137,35 +87,18 @@ def create_entity(request: Request, payload: dict[str, Any] = Body(...)) -> dict
 def list_entities(
     request: Request,
     status: str | None = Query(default=None),
-    surface: str | None = Query(default=None),
-) -> dict[str, Any] | list[dict[str, Any]]:
+) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
-
-    def _action() -> dict[str, Any] | list[dict[str, Any]]:
-        if surface == "typed":
-            return semantic_service.list_typed_entities(status=status)
-        return semantic_service.list_entities(status=status)
-
-    return _run_route_action(_action)
+    return _run_route_action(lambda: semantic_service.list_typed_entities(status=status))
 
 
 @router.get("/semantic/entities/{entity_id}")
 def get_entity(
     entity_id: str,
     request: Request,
-    surface: str | None = Query(default=None),
 ) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
-
-    def _action() -> dict[str, Any]:
-        if surface == "typed" or entity_id.startswith("entc_"):
-            return semantic_service.get_typed_entity(entity_id)
-        try:
-            return semantic_service.get_entity(entity_id)
-        except KeyError:
-            return semantic_service.get_typed_entity(entity_id)
-
-    return _run_route_action(_action)
+    return _run_route_action(lambda: semantic_service.get_typed_entity(entity_id))
 
 
 @router.put("/semantic/entities/{entity_id}")
@@ -175,39 +108,15 @@ def update_entity(
     semantic_service = get_services(request).semantic_service
     return _handle_update(
         payload,
-        parser=lambda raw_payload: _parse_entity_update(entity_id, raw_payload),
-        action=lambda parsed: (
-            semantic_service.update_typed_entity(entity_id, parsed)
-            if isinstance(parsed, TypedEntityUpdateRequest)
-            else semantic_service.update_entity(entity_id, **parsed.model_dump(exclude_none=True))
-        ),
-    )
-
-
-@router.patch("/semantic/entities/{entity_id}/properties")
-def patch_entity_properties(
-    entity_id: str, payload: EntityPropertiesPatchRequest, request: Request
-) -> dict[str, Any]:
-    return _run_route_action(
-        lambda: get_services(request).semantic_service.patch_entity_properties(
-            entity_id, payload.properties
-        )
+        parser=TypedEntityUpdateRequest.model_validate,
+        action=lambda parsed: semantic_service.update_typed_entity(entity_id, parsed),
     )
 
 
 @router.post("/semantic/entities/{entity_id}/publish")
 def publish_entity(entity_id: str, request: Request) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
-
-    def _action() -> dict[str, Any]:
-        if entity_id.startswith("entc_"):
-            return semantic_service.publish_typed_entity(entity_id)
-        try:
-            return semantic_service.publish_entity(entity_id)
-        except KeyError:
-            return semantic_service.publish_typed_entity(entity_id)
-
-    return _run_route_action(_action)
+    return _run_route_action(lambda: semantic_service.publish_typed_entity(entity_id))
 
 
 @router.post("/semantic/metrics")
@@ -215,26 +124,8 @@ def create_metric(request: Request, payload: dict[str, Any] = Body(...)) -> dict
     semantic_service = get_services(request).semantic_service
     return _handle_create(
         payload,
-        parser=_parse_metric_create,
-        action=lambda parsed: (
-            semantic_service.create_typed_metric(parsed)
-            if isinstance(parsed, TypedMetricCreateRequest)
-            else semantic_service.create_metric(
-                name=parsed.name,
-                display_name=parsed.display_name,
-                description=parsed.description,
-                definition_sql=parsed.definition_sql,
-                dimensions=parsed.dimensions,
-                entity_id=parsed.entity_id,
-                grain=parsed.grain,
-                measure_type=parsed.measure_type,
-                allowed_dimensions=parsed.allowed_dimensions,
-                lineage=parsed.lineage,
-                quality_expectations=parsed.quality_expectations,
-                properties=parsed.properties,
-                desired_direction=parsed.desired_direction,
-            )
-        ),
+        parser=TypedMetricCreateRequest.model_validate,
+        action=semantic_service.create_typed_metric,
     )
 
 
@@ -242,35 +133,18 @@ def create_metric(request: Request, payload: dict[str, Any] = Body(...)) -> dict
 def list_metrics(
     request: Request,
     status: str | None = Query(default=None),
-    surface: str | None = Query(default=None),
-) -> dict[str, Any] | list[dict[str, Any]]:
+) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
-
-    def _action() -> dict[str, Any] | list[dict[str, Any]]:
-        if surface == "typed":
-            return semantic_service.list_typed_metrics(status=status)
-        return semantic_service.list_metrics(status=status)
-
-    return _run_route_action(_action)
+    return _run_route_action(lambda: semantic_service.list_typed_metrics(status=status))
 
 
 @router.get("/semantic/metrics/{metric_id}")
 def get_metric(
     metric_id: str,
     request: Request,
-    surface: str | None = Query(default=None),
 ) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
-
-    def _action() -> dict[str, Any]:
-        if surface == "typed" or metric_id.startswith("metc_"):
-            return semantic_service.get_typed_metric(metric_id)
-        try:
-            return semantic_service.get_metric(metric_id)
-        except KeyError:
-            return semantic_service.get_typed_metric(metric_id)
-
-    return _run_route_action(_action)
+    return _run_route_action(lambda: semantic_service.get_typed_metric(metric_id))
 
 
 @router.put("/semantic/metrics/{metric_id}")
@@ -280,28 +154,15 @@ def update_metric(
     semantic_service = get_services(request).semantic_service
     return _handle_update(
         payload,
-        parser=lambda raw_payload: _parse_metric_update(metric_id, raw_payload),
-        action=lambda parsed: (
-            semantic_service.update_typed_metric(metric_id, parsed)
-            if isinstance(parsed, TypedMetricUpdateRequest)
-            else semantic_service.update_metric(metric_id, **parsed.model_dump(exclude_unset=True))
-        ),
+        parser=TypedMetricUpdateRequest.model_validate,
+        action=lambda parsed: semantic_service.update_typed_metric(metric_id, parsed),
     )
 
 
 @router.post("/semantic/metrics/{metric_id}/publish")
 def publish_metric(metric_id: str, request: Request) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
-
-    def _action() -> dict[str, Any]:
-        if metric_id.startswith("metc_"):
-            return semantic_service.publish_typed_metric(metric_id)
-        try:
-            return semantic_service.publish_metric(metric_id)
-        except KeyError:
-            return semantic_service.publish_typed_metric(metric_id)
-
-    return _run_route_action(_action)
+    return _run_route_action(lambda: semantic_service.publish_typed_metric(metric_id))
 
 
 @router.post("/semantic/bindings")

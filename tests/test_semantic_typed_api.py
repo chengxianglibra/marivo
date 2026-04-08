@@ -57,7 +57,7 @@ class SemanticTypedApiTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertEqual(resp.json()["status"], "published")
 
-        resp = self.client.get("/semantic/entities?surface=typed")
+        resp = self.client.get("/semantic/entities")
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertGreaterEqual(resp.json()["total"], 1)
 
@@ -111,9 +111,30 @@ class SemanticTypedApiTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertEqual(resp.json()["status"], "published")
 
-        resp = self.client.get("/semantic/metrics?surface=typed")
+        resp = self.client.get("/semantic/metrics")
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertGreaterEqual(resp.json()["total"], 1)
+
+    def test_entity_routes_reject_legacy_payloads(self) -> None:
+        resp = self.client.post(
+            "/semantic/entities",
+            json={"name": "user", "display_name": "User", "keys": ["user_id"]},
+        )
+        self.assertEqual(resp.status_code, 422, resp.text)
+        self.assertIsInstance(resp.json()["detail"], list)
+
+    def test_metric_routes_reject_legacy_payloads(self) -> None:
+        resp = self.client.post(
+            "/semantic/metrics",
+            json={
+                "name": "dau",
+                "display_name": "DAU",
+                "definition_sql": "COUNT(DISTINCT user_id)",
+                "dimensions": ["event_date"],
+            },
+        )
+        self.assertEqual(resp.status_code, 422, resp.text)
+        self.assertIsInstance(resp.json()["detail"], list)
 
     def test_typed_binding_and_profile_lifecycle(self) -> None:
         entity_resp = self.client.post(

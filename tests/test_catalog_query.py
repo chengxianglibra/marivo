@@ -7,6 +7,12 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from app.main import create_app
+from tests.semantic_test_helpers import (
+    create_legacy_entity,
+    create_legacy_metric,
+    publish_legacy_entity,
+    publish_legacy_metric,
+)
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 
@@ -37,41 +43,37 @@ class CatalogQueryTests(unittest.TestCase):
         cls.table_objects = {t["native_name"]: t for t in resp.json()}
 
         # Create and publish entities
-        resp = cls.client.post(
-            "/semantic/entities",
-            json={
-                "name": "user",
-                "display_name": "User",
-                "description": "A platform user",
-                "keys": ["user_id"],
-                "level": "user",
-                "join_constraints": {"requires": ["country"]},
-                "upstream_dependencies": ["account"],
-                "lineage": ["analytics.users"],
-                "quality_expectations": {"freshness_hours": 24},
-            },
+        entity = create_legacy_entity(
+            cls.client,
+            name="user",
+            display_name="User",
+            description="A platform user",
+            keys=["user_id"],
+            level="user",
+            join_constraints={"requires": ["country"]},
+            upstream_dependencies=["account"],
+            lineage=["analytics.users"],
+            quality_expectations={"freshness_hours": 24},
         )
-        cls.user_entity_id = resp.json()["entity_id"]
-        cls.client.post(f"/semantic/entities/{cls.user_entity_id}/publish")
+        cls.user_entity_id = entity["entity_id"]
+        publish_legacy_entity(cls.client, cls.user_entity_id)
 
         # Create and publish metrics
-        resp = cls.client.post(
-            "/semantic/metrics",
-            json={
-                "name": "watch_time",
-                "display_name": "Watch Time",
-                "description": "Average play duration per session",
-                "definition_sql": "avg(play_duration_seconds)",
-                "dimensions": ["platform", "app_version", "network_type", "content_type"],
-                "grain": "session",
-                "measure_type": "average",
-                "allowed_dimensions": ["platform", "network_type", "content_type"],
-                "lineage": ["analytics.watch_events.play_duration_seconds"],
-                "quality_expectations": {"min_group_size": 100},
-            },
+        metric = create_legacy_metric(
+            cls.client,
+            name="watch_time",
+            display_name="Watch Time",
+            description="Average play duration per session",
+            definition_sql="avg(play_duration_seconds)",
+            dimensions=["platform", "app_version", "network_type", "content_type"],
+            grain="session",
+            measure_type="average",
+            allowed_dimensions=["platform", "network_type", "content_type"],
+            lineage=["analytics.watch_events.play_duration_seconds"],
+            quality_expectations={"min_group_size": 100},
         )
-        cls.watch_metric_id = resp.json()["metric_id"]
-        cls.client.post(f"/semantic/metrics/{cls.watch_metric_id}/publish")
+        cls.watch_metric_id = metric["metric_id"]
+        publish_legacy_metric(cls.client, cls.watch_metric_id)
 
         # Create mapping: metric -> table
         watch_obj_id = cls.table_objects["watch_events"]["object_id"]
