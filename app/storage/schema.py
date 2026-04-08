@@ -131,6 +131,369 @@ METADATA_DDL: list[str] = [
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS semantic_entity_contracts (
+        entity_contract_id      TEXT PRIMARY KEY,
+        entity_ref              TEXT NOT NULL UNIQUE,
+        display_name            TEXT NOT NULL,
+        description             TEXT NOT NULL DEFAULT '',
+        entity_contract_version TEXT NOT NULL,
+        uniqueness_scope        TEXT NOT NULL CHECK (
+            uniqueness_scope IN ('global', 'parent_scoped')
+        ),
+        id_stability            TEXT NOT NULL CHECK (
+            id_stability IN ('stable', 'reassignable', 'ephemeral')
+        ),
+        nullable_key_policy     TEXT NOT NULL DEFAULT 'reject' CHECK (
+            nullable_key_policy IN ('reject', 'allow_partial')
+        ),
+        parent_entity_ref       TEXT,
+        cardinality_to_parent   TEXT,
+        ownership_semantics     TEXT,
+        primary_time_ref        TEXT,
+        status                  TEXT NOT NULL DEFAULT 'draft' CHECK (
+            status IN ('draft', 'published', 'deprecated')
+        ),
+        revision                INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+        created_at              TEXT NOT NULL,
+        updated_at              TEXT NOT NULL,
+        CHECK (substr(entity_ref, 1, 7) = 'entity.'),
+        CHECK (
+            parent_entity_ref IS NULL
+            OR substr(parent_entity_ref, 1, 7) = 'entity.'
+        ),
+        CHECK (primary_time_ref IS NULL OR substr(primary_time_ref, 1, 5) = 'time.'),
+        CHECK (
+            parent_entity_ref IS NULL
+            OR (
+                cardinality_to_parent IS NOT NULL
+                AND cardinality_to_parent IN ('one_to_one', 'many_to_one')
+            )
+        ),
+        CHECK (
+            ownership_semantics IS NULL
+            OR ownership_semantics IN ('belongs_to', 'contains', 'derives_from')
+        )
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS semantic_entity_key_refs (
+        entity_contract_id  TEXT NOT NULL REFERENCES semantic_entity_contracts(entity_contract_id) ON DELETE CASCADE,
+        position            INTEGER NOT NULL,
+        key_ref             TEXT NOT NULL,
+        description         TEXT,
+        PRIMARY KEY (entity_contract_id, position),
+        UNIQUE(entity_contract_id, key_ref),
+        CHECK (position > 0),
+        CHECK (substr(key_ref, 1, 4) = 'key.')
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS semantic_entity_stable_descriptors (
+        entity_contract_id  TEXT NOT NULL REFERENCES semantic_entity_contracts(entity_contract_id) ON DELETE CASCADE,
+        position            INTEGER NOT NULL,
+        dimension_ref       TEXT NOT NULL,
+        cardinality         TEXT,
+        PRIMARY KEY (entity_contract_id, position),
+        UNIQUE(entity_contract_id, dimension_ref),
+        CHECK (position > 0),
+        CHECK (substr(dimension_ref, 1, 10) = 'dimension.'),
+        CHECK (cardinality IS NULL OR cardinality IN ('one', 'many'))
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS semantic_metric_contracts (
+        metric_contract_id      TEXT PRIMARY KEY,
+        metric_ref              TEXT NOT NULL UNIQUE,
+        display_name            TEXT NOT NULL,
+        description             TEXT NOT NULL DEFAULT '',
+        metric_family           TEXT NOT NULL CHECK (
+            metric_family IN (
+                'count_metric',
+                'sum_metric',
+                'rate_metric',
+                'average_metric',
+                'distribution_metric',
+                'score_metric',
+                'survival_metric'
+            )
+        ),
+        population_subject_ref  TEXT,
+        observed_entity_ref     TEXT NOT NULL,
+        observation_grain_ref   TEXT NOT NULL,
+        sample_kind             TEXT NOT NULL CHECK (
+            sample_kind IN ('numeric', 'rate', 'binary', 'survival')
+        ),
+        value_semantics         TEXT NOT NULL CHECK (
+            value_semantics IN (
+                'count',
+                'sum',
+                'ratio',
+                'mean',
+                'distribution_statistic',
+                'score',
+                'survival_probability'
+            )
+        ),
+        aggregation_scope       TEXT,
+        primary_time_ref        TEXT,
+        additivity              TEXT NOT NULL CHECK (
+            additivity IN ('additive', 'semi_additive', 'non_additive')
+        ),
+        metric_contract_version  TEXT NOT NULL,
+        family_payload_json      TEXT NOT NULL DEFAULT '{}',
+        status                  TEXT NOT NULL DEFAULT 'draft' CHECK (
+            status IN ('draft', 'published', 'deprecated')
+        ),
+        revision                INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+        created_at              TEXT NOT NULL,
+        updated_at              TEXT NOT NULL,
+        CHECK (substr(metric_ref, 1, 7) = 'metric.'),
+        CHECK (
+            population_subject_ref IS NULL
+            OR substr(population_subject_ref, 1, 8) = 'subject.'
+        ),
+        CHECK (substr(observed_entity_ref, 1, 7) = 'entity.'),
+        CHECK (substr(observation_grain_ref, 1, 6) = 'grain.'),
+        CHECK (primary_time_ref IS NULL OR substr(primary_time_ref, 1, 5) = 'time.'),
+        CHECK (
+            aggregation_scope IS NULL
+            OR aggregation_scope IN ('subject', 'event', 'session', 'window')
+        ),
+        CHECK (
+            CASE
+                WHEN metric_family = 'count_metric' THEN value_semantics = 'count'
+                WHEN metric_family = 'sum_metric' THEN value_semantics = 'sum'
+                WHEN metric_family = 'rate_metric' THEN value_semantics = 'ratio'
+                WHEN metric_family = 'average_metric' THEN value_semantics = 'mean'
+                WHEN metric_family = 'distribution_metric' THEN value_semantics = 'distribution_statistic'
+                WHEN metric_family = 'score_metric' THEN value_semantics = 'score'
+                WHEN metric_family = 'survival_metric' THEN value_semantics = 'survival_probability'
+                ELSE 1
+            END
+        )
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS semantic_process_objects (
+        process_contract_id     TEXT PRIMARY KEY,
+        process_ref             TEXT NOT NULL UNIQUE,
+        display_name            TEXT NOT NULL,
+        description             TEXT NOT NULL DEFAULT '',
+        process_type            TEXT NOT NULL CHECK (
+            process_type IN (
+                'experiment_context',
+                'cohort_definition',
+                'funnel_definition',
+                'session_contract',
+                'path_pattern',
+                'lifecycle_state_machine'
+            )
+        ),
+        process_contract_version TEXT NOT NULL,
+        contract_mode           TEXT NOT NULL CHECK (
+            contract_mode IN ('context_provider', 'entity_stream')
+        ),
+        context_kind            TEXT,
+        population_subject_ref  TEXT NOT NULL,
+        membership_cardinality  TEXT,
+        entity_ref              TEXT,
+        emitted_grain_ref       TEXT,
+        subject_cardinality     TEXT,
+        anchor_time_ref         TEXT,
+        process_payload_json     TEXT NOT NULL DEFAULT '{}',
+        status                  TEXT NOT NULL DEFAULT 'draft' CHECK (
+            status IN ('draft', 'published', 'deprecated')
+        ),
+        revision                INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+        created_at              TEXT NOT NULL,
+        updated_at              TEXT NOT NULL,
+        CHECK (substr(process_ref, 1, 8) = 'process.'),
+        CHECK (substr(population_subject_ref, 1, 8) = 'subject.'),
+        CHECK (entity_ref IS NULL OR substr(entity_ref, 1, 7) = 'entity.'),
+        CHECK (emitted_grain_ref IS NULL OR substr(emitted_grain_ref, 1, 6) = 'grain.'),
+        CHECK (anchor_time_ref IS NULL OR substr(anchor_time_ref, 1, 5) = 'time.'),
+        CHECK (
+            (
+                contract_mode = 'context_provider'
+                AND context_kind IS NOT NULL
+                AND membership_cardinality IS NOT NULL
+                AND entity_ref IS NULL
+                AND emitted_grain_ref IS NULL
+                AND subject_cardinality IS NULL
+            )
+            OR
+            (
+                contract_mode = 'entity_stream'
+                AND entity_ref IS NOT NULL
+                AND emitted_grain_ref IS NOT NULL
+                AND subject_cardinality IS NOT NULL
+                AND context_kind IS NULL
+                AND membership_cardinality IS NULL
+            )
+        ),
+        CHECK (
+            context_kind IS NULL OR context_kind IN ('cohort_membership', 'experiment_split')
+        ),
+        CHECK (
+            membership_cardinality IS NULL
+            OR membership_cardinality IN ('exclusive_one', 'repeatable_many')
+        ),
+        CHECK (subject_cardinality IS NULL OR subject_cardinality IN ('one', 'many'))
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS semantic_process_exported_dimension_refs (
+        process_contract_id  TEXT NOT NULL REFERENCES semantic_process_objects(process_contract_id) ON DELETE CASCADE,
+        position             INTEGER NOT NULL,
+        dimension_ref        TEXT NOT NULL,
+        PRIMARY KEY (process_contract_id, position),
+        UNIQUE(process_contract_id, dimension_ref),
+        CHECK (position > 0),
+        CHECK (substr(dimension_ref, 1, 10) = 'dimension.')
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS semantic_dimension_contracts (
+        dimension_contract_id     TEXT PRIMARY KEY,
+        dimension_ref             TEXT NOT NULL UNIQUE,
+        display_name              TEXT NOT NULL,
+        description               TEXT NOT NULL DEFAULT '',
+        dimension_contract_version TEXT NOT NULL,
+        structure_kind            TEXT NOT NULL CHECK (
+            structure_kind IN ('flat', 'hierarchical', 'ordinal', 'time_derived')
+        ),
+        semantic_role             TEXT,
+        value_type                TEXT NOT NULL CHECK (
+            value_type IN ('string', 'integer', 'number', 'boolean', 'date', 'datetime')
+        ),
+        domain_kind               TEXT NOT NULL CHECK (
+            domain_kind IN ('open', 'enumerated')
+        ),
+        enum_set_ref              TEXT,
+        enum_version              TEXT,
+        hierarchy_type            TEXT,
+        parent_dimension_ref      TEXT,
+        supports_grouping         INTEGER NOT NULL DEFAULT 1 CHECK (supports_grouping IN (0, 1)),
+        required_time_anchor_ref  TEXT,
+        dimension_payload_json     TEXT NOT NULL DEFAULT '{}',
+        status                    TEXT NOT NULL DEFAULT 'draft' CHECK (
+            status IN ('draft', 'published', 'deprecated')
+        ),
+        revision                  INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+        created_at                TEXT NOT NULL,
+        updated_at                TEXT NOT NULL,
+        CHECK (substr(dimension_ref, 1, 10) = 'dimension.'),
+        CHECK (enum_set_ref IS NULL OR substr(enum_set_ref, 1, 5) = 'enum.'),
+        CHECK (parent_dimension_ref IS NULL OR substr(parent_dimension_ref, 1, 10) = 'dimension.'),
+        CHECK (required_time_anchor_ref IS NULL OR substr(required_time_anchor_ref, 1, 5) = 'time.'),
+        CHECK (
+            (
+                domain_kind = 'enumerated'
+                AND enum_set_ref IS NOT NULL
+                AND enum_version IS NOT NULL
+            )
+            OR
+            (
+                domain_kind = 'open'
+                AND enum_set_ref IS NULL
+                AND enum_version IS NULL
+            )
+        ),
+        CHECK (
+            (
+                structure_kind = 'time_derived'
+                AND required_time_anchor_ref IS NOT NULL
+            )
+            OR
+            (
+                structure_kind != 'time_derived'
+                AND required_time_anchor_ref IS NULL
+            )
+        ),
+        CHECK (
+            semantic_role IS NULL
+            OR semantic_role IN ('category', 'label', 'state', 'variant', 'metric')
+        ),
+        CHECK (
+            hierarchy_type IS NULL
+            OR hierarchy_type IN ('flat', 'parent_child', 'ordinal', 'calendar_rollup')
+        ),
+        CHECK (
+            parent_dimension_ref IS NULL
+            OR (
+                hierarchy_type IS NOT NULL
+                AND hierarchy_type IN ('parent_child', 'ordinal', 'calendar_rollup')
+            )
+        )
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS semantic_time_objects (
+        time_contract_id        TEXT PRIMARY KEY,
+        time_ref                TEXT NOT NULL UNIQUE,
+        display_name            TEXT NOT NULL,
+        description             TEXT NOT NULL DEFAULT '',
+        time_contract_version   TEXT NOT NULL,
+        business_anchor         INTEGER NOT NULL DEFAULT 0 CHECK (business_anchor IN (0, 1)),
+        measurement             INTEGER NOT NULL DEFAULT 0 CHECK (measurement IN (0, 1)),
+        operational_support     INTEGER NOT NULL DEFAULT 0 CHECK (operational_support IN (0, 1)),
+        status                  TEXT NOT NULL DEFAULT 'draft' CHECK (
+            status IN ('draft', 'published', 'deprecated')
+        ),
+        revision                INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+        created_at              TEXT NOT NULL,
+        updated_at              TEXT NOT NULL,
+        CHECK (substr(time_ref, 1, 5) = 'time.'),
+        CHECK (business_anchor = 1 OR measurement = 1 OR operational_support = 1)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS semantic_enum_sets (
+        enum_set_contract_id    TEXT PRIMARY KEY,
+        enum_set_ref            TEXT NOT NULL UNIQUE,
+        display_name            TEXT NOT NULL,
+        value_type              TEXT NOT NULL CHECK (
+            value_type IN ('string', 'integer', 'number', 'boolean')
+        ),
+        status                  TEXT NOT NULL DEFAULT 'draft' CHECK (
+            status IN ('draft', 'published', 'deprecated')
+        ),
+        revision                INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+        created_at              TEXT NOT NULL,
+        updated_at              TEXT NOT NULL,
+        CHECK (substr(enum_set_ref, 1, 5) = 'enum.')
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS semantic_enum_set_versions (
+        enum_set_version_id     TEXT PRIMARY KEY,
+        enum_set_contract_id    TEXT NOT NULL REFERENCES semantic_enum_sets(enum_set_contract_id) ON DELETE CASCADE,
+        enum_version            TEXT NOT NULL,
+        created_at              TEXT NOT NULL,
+        updated_at              TEXT NOT NULL,
+        UNIQUE(enum_set_contract_id, enum_version)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS semantic_enum_set_values (
+        enum_set_version_id     TEXT NOT NULL REFERENCES semantic_enum_set_versions(enum_set_version_id) ON DELETE CASCADE,
+        position                INTEGER NOT NULL,
+        value_key               TEXT NOT NULL,
+        raw_value               TEXT NOT NULL,
+        label                   TEXT NOT NULL,
+        aliases_json            TEXT NOT NULL DEFAULT '[]',
+        PRIMARY KEY (enum_set_version_id, position),
+        UNIQUE(enum_set_version_id, value_key),
+        UNIQUE(enum_set_version_id, raw_value),
+        CHECK (position > 0)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_semantic_entity_key_refs_entity ON semantic_entity_key_refs(entity_contract_id)",
+    "CREATE INDEX IF NOT EXISTS idx_semantic_entity_stable_descriptors_entity ON semantic_entity_stable_descriptors(entity_contract_id)",
+    "CREATE INDEX IF NOT EXISTS idx_semantic_process_exported_dimension_refs_process ON semantic_process_exported_dimension_refs(process_contract_id)",
+    "CREATE INDEX IF NOT EXISTS idx_semantic_enum_set_versions_enum_set ON semantic_enum_set_versions(enum_set_contract_id)",
+    "CREATE INDEX IF NOT EXISTS idx_semantic_enum_set_values_version ON semantic_enum_set_values(enum_set_version_id)",
+    """
     CREATE TABLE IF NOT EXISTS sync_jobs (
         job_id          TEXT PRIMARY KEY,
         source_id       TEXT NOT NULL REFERENCES sources(source_id),
