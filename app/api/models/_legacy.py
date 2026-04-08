@@ -1,4 +1,4 @@
-"""Pydantic request/response models for the Factum HTTP API.
+"""Pydantic request/response models for the Factum HTTP API (legacy non-semantic models).
 
 Signal vs Decision design principle
 -------------------------------------
@@ -15,6 +15,12 @@ Session constraints summary:
                 System-enforced decision — steps that exceed budget are blocked.
 - policy      : Governance rules (aggregate_only, min_group_size).
                 System-enforced decision — violations block step execution.
+
+Semantic layer models:
+----------------------
+Typed semantic object models (entity, metric, dimension, etc.) are now
+in the app/api/models/ subpackage (entity.py, metric.py, etc.). Import from
+app.api.models for backward compatibility.
 """
 
 from __future__ import annotations
@@ -23,6 +29,100 @@ import re
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+# =============================================================================
+# DEPRECATED: Legacy semantic models (for backward compatibility with semantic.py)
+# These will be removed when semantic.py is updated to use typed models.
+# See docs/semantic/ for new typed contract schemas.
+# =============================================================================
+
+
+class EntityCreateRequest(BaseModel):
+    """DEPRECATED: Legacy entity create request. Use typed EntityCreateRequest from app.api.models.entity."""
+
+    name: str
+    display_name: str
+    description: str = ""
+    keys: list[str]
+    level: str | None = None
+    join_constraints: dict[str, Any] | None = None
+    upstream_dependencies: list[str] | None = None
+    lineage: list[str] | None = None
+    quality_expectations: dict[str, Any] | None = None
+    properties: dict[str, Any] = Field(default_factory=dict)
+
+
+class EntityUpdateRequest(BaseModel):
+    """DEPRECATED: Legacy entity update request. Use typed EntityUpdateRequest from app.api.models.entity."""
+
+    display_name: str | None = None
+    description: str | None = None
+    keys: list[str] | None = None
+    level: str | None = None
+    join_constraints: dict[str, Any] | None = None
+    upstream_dependencies: list[str] | None = None
+    lineage: list[str] | None = None
+    quality_expectations: dict[str, Any] | None = None
+    properties: dict[str, Any] | None = None
+
+
+class EntityPropertiesPatchRequest(BaseModel):
+    """DEPRECATED: Legacy entity properties patch request."""
+
+    properties: dict[str, Any] = Field(
+        ...,
+        description="Properties keys to merge into the entity's existing properties_json.",
+    )
+
+
+class MetricCreateRequest(BaseModel):
+    """DEPRECATED: Legacy metric create request. Use typed MetricCreateRequest from app.api.models.metric."""
+
+    name: str
+    display_name: str
+    description: str = ""
+    definition_sql: str
+    dimensions: list[str]
+    entity_id: str | None = None
+    grain: str | None = None
+    measure_type: str | None = None
+    allowed_dimensions: list[str] | None = None
+    lineage: list[str] | None = None
+    quality_expectations: dict[str, Any] | None = None
+    properties: dict[str, Any] = Field(default_factory=dict)
+    desired_direction: str | None = None
+
+
+class MetricUpdateRequest(BaseModel):
+    """DEPRECATED: Legacy metric update request. Use typed MetricUpdateRequest from app.api.models.metric."""
+
+    display_name: str | None = None
+    description: str | None = None
+    definition_sql: str | None = None
+    dimensions: list[str] | None = None
+    entity_id: str | None = None
+    grain: str | None = None
+    measure_type: str | None = None
+    allowed_dimensions: list[str] | None = None
+    lineage: list[str] | None = None
+    quality_expectations: dict[str, Any] | None = None
+    properties: dict[str, Any] | None = None
+    desired_direction: str | None = None
+
+
+class MappingCreateRequest(BaseModel):
+    """DEPRECATED: Legacy mapping create request. Use TypedBindingCreateRequest from app.api.models.binding."""
+
+    semantic_type: str
+    semantic_id: str
+    object_id: str
+    mapping_type: str
+    mapping_json: dict[str, Any] = Field(default_factory=dict)
+
+
+# =============================================================================
+# Non-semantic API models (kept as-is)
+# =============================================================================
 
 
 class SessionTerminateRequest(BaseModel):
@@ -95,91 +195,17 @@ class EngineRegisterRequest(BaseModel):
     capabilities: dict[str, Any] | None = None
 
 
-class EntityCreateRequest(BaseModel):
-    name: str
-    display_name: str
-    description: str = ""
-    keys: list[str]
-    level: str | None = None
-    join_constraints: dict[str, Any] | None = None
-    upstream_dependencies: list[str] | None = None
-    lineage: list[str] | None = None
-    quality_expectations: dict[str, Any] | None = None
-    properties: dict[str, Any] = Field(default_factory=dict)
-
-
-class EntityUpdateRequest(BaseModel):
-    display_name: str | None = None
-    description: str | None = None
-    keys: list[str] | None = None
-    level: str | None = None
-    join_constraints: dict[str, Any] | None = None
-    upstream_dependencies: list[str] | None = None
-    lineage: list[str] | None = None
-    quality_expectations: dict[str, Any] | None = None
-    properties: dict[str, Any] | None = None
-
-
-class EntityPropertiesPatchRequest(BaseModel):
-    """G-5d: Incrementally patch properties_json on a published entity.
-
-    Only the keys present in `properties` are merged into the existing
-    properties dict.  Bumps revision and updated_at.
-
-    Supported patch shapes: any key/value pairs in `properties`.
-    Use `{"unit": "milliseconds"}` to apply a unit hint suggestion.
-    """
-
-    properties: dict[str, Any] = Field(
-        ...,
-        description="Properties keys to merge into the entity's existing properties_json.",
-    )
-
-
-class MetricCreateRequest(BaseModel):
-    name: str
-    display_name: str
-    description: str = ""
-    definition_sql: str
-    dimensions: list[str]
-    entity_id: str | None = None
-    grain: str | None = None
-    measure_type: str | None = None
-    allowed_dimensions: list[str] | None = None
-    lineage: list[str] | None = None
-    quality_expectations: dict[str, Any] | None = None
-    properties: dict[str, Any] = Field(default_factory=dict)
-    desired_direction: str | None = None
-
-
-class MetricUpdateRequest(BaseModel):
-    display_name: str | None = None
-    description: str | None = None
-    definition_sql: str | None = None
-    dimensions: list[str] | None = None
-    entity_id: str | None = None
-    grain: str | None = None
-    measure_type: str | None = None
-    allowed_dimensions: list[str] | None = None
-    lineage: list[str] | None = None
-    quality_expectations: dict[str, Any] | None = None
-    properties: dict[str, Any] | None = None
-    desired_direction: str | None = None
-
-
-class MappingCreateRequest(BaseModel):
-    semantic_type: str
-    semantic_id: str
-    object_id: str
-    mapping_type: str
-    mapping_json: dict[str, Any] = Field(default_factory=dict)
-
-
-class BindingCreateRequest(BaseModel):
+# Source-Engine Binding (not typed binding)
+# This is for binding a source to an execution engine, not semantic binding
+class SourceEngineBindingCreateRequest(BaseModel):
     source_id: str
     engine_id: str
     priority: int = 0
     namespace: dict[str, Any] = Field(default_factory=dict)
+
+
+# Alias for backward compatibility
+BindingCreateRequest = SourceEngineBindingCreateRequest
 
 
 class RouteIntentRequest(BaseModel):

@@ -1,11 +1,16 @@
 # Semantic Layer
 
-The semantic layer provides a catalog of named entities, metrics, and mappings that agents and analysts use instead of raw table names and SQL. Metrics are defined once with a SQL expression, linked to physical tables via mappings, and then referenced by name in `metric_query` steps.
+The semantic layer provides a catalog of named entities, metrics, bindings, and compatibility profiles that agents and analysts use instead of raw table names and SQL. Metrics are defined once with a SQL expression or typed contract, linked to physical tables via bindings or legacy mappings, and then referenced by name in `metric_query` steps.
 
 All semantic objects follow the lifecycle: `draft` → `published` → `deprecated`. Only `published` objects are available for step execution. Publishing increments the object's `revision`.
 
 > **Note**
-> This document describes the current HTTP surface. Several shapes here are implementation-oriented legacy contracts. Target-state semantic design now lives in:
+> This document describes the current HTTP surface. The entity and metric endpoints now support both:
+>
+> - legacy implementation-oriented payloads
+> - typed target-state payloads from `app/api/models/*`
+>
+> Use `?surface=typed` on `GET /semantic/entities` and `GET /semantic/metrics` to read the typed list surface. Legacy `/semantic/mappings` remains available for compatibility, but typed binding creation should use `/semantic/bindings`. Target-state semantic design lives in:
 >
 > - `docs/semantic/entity-schema-contract.zh.md`
 > - `docs/semantic/process-object-schema.zh.md`
@@ -39,9 +44,29 @@ All semantic objects follow the lifecycle: `draft` → `published` → `deprecat
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/semantic/mappings` | Create a mapping |
-| `GET` | `/semantic/mappings` | List mappings |
-| `DELETE` | `/semantic/mappings/{mapping_id}` | Delete a mapping |
+| `POST` | `/semantic/mappings` | Create a legacy compatibility mapping |
+| `GET` | `/semantic/mappings` | List legacy compatibility mappings |
+| `DELETE` | `/semantic/mappings/{mapping_id}` | Delete a legacy compatibility mapping |
+
+### Typed Bindings
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/semantic/bindings` | Create a typed binding |
+| `GET` | `/semantic/bindings` | List typed bindings |
+| `GET` | `/semantic/bindings/{binding_id}` | Get a typed binding |
+| `PUT` | `/semantic/bindings/{binding_id}` | Update a typed binding |
+| `POST` | `/semantic/bindings/{binding_id}/publish` | Publish a typed binding |
+
+### Compiler Compatibility Profiles
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/compiler/compatibility-profiles` | Create a compatibility profile |
+| `GET` | `/compiler/compatibility-profiles` | List compatibility profiles |
+| `GET` | `/compiler/compatibility-profiles/{profile_id}` | Get a compatibility profile |
+| `PUT` | `/compiler/compatibility-profiles/{profile_id}` | Update a compatibility profile |
+| `POST` | `/compiler/compatibility-profiles/{profile_id}/publish` | Publish a compatibility profile |
 
 ### Catalog & Discovery
 
