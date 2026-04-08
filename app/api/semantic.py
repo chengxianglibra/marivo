@@ -34,7 +34,15 @@ ActionResultT = TypeVar("ActionResultT")
 
 
 def _validation_detail(error: ValidationError) -> list[Any]:
-    return error.errors(include_url=False)
+    detail = error.errors(include_url=False)
+    for item in detail:
+        ctx = item.get("ctx")
+        if not isinstance(ctx, dict):
+            continue
+        for key, value in list(ctx.items()):
+            if isinstance(value, BaseException):
+                ctx[key] = str(value)
+    return detail
 
 
 def _raise_http_422_from_validation(error: ValidationError) -> NoReturn:
@@ -338,9 +346,12 @@ def publish_enum_set(enum_set_contract_id: str, request: Request) -> dict[str, A
 
 
 @router.post("/semantic/bindings")
-def create_typed_binding(payload: TypedBindingCreateRequest, request: Request) -> dict[str, Any]:
-    return _run_route_action(
-        lambda: get_services(request).semantic_service.create_typed_binding(payload)
+def create_typed_binding(request: Request, payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    semantic_service = get_services(request).semantic_service
+    return _handle_create(
+        payload,
+        parser=TypedBindingCreateRequest.model_validate,
+        action=semantic_service.create_typed_binding,
     )
 
 
@@ -362,10 +373,13 @@ def get_typed_binding(binding_id: str, request: Request) -> dict[str, Any]:
 
 @router.put("/semantic/bindings/{binding_id}")
 def update_typed_binding(
-    binding_id: str, payload: TypedBindingUpdateRequest, request: Request
+    binding_id: str, request: Request, payload: dict[str, Any] = Body(...)
 ) -> dict[str, Any]:
-    return _run_route_action(
-        lambda: get_services(request).semantic_service.update_typed_binding(binding_id, payload)
+    semantic_service = get_services(request).semantic_service
+    return _handle_update(
+        payload,
+        parser=TypedBindingUpdateRequest.model_validate,
+        action=lambda parsed: semantic_service.update_typed_binding(binding_id, parsed),
     )
 
 
@@ -378,10 +392,13 @@ def publish_typed_binding(binding_id: str, request: Request) -> dict[str, Any]:
 
 @router.post("/compiler/compatibility-profiles")
 def create_compatibility_profile(
-    payload: CompatibilityProfileCreateRequest, request: Request
+    request: Request, payload: dict[str, Any] = Body(...)
 ) -> dict[str, Any]:
-    return _run_route_action(
-        lambda: get_services(request).semantic_service.create_compatibility_profile(payload)
+    semantic_service = get_services(request).semantic_service
+    return _handle_create(
+        payload,
+        parser=CompatibilityProfileCreateRequest.model_validate,
+        action=semantic_service.create_compatibility_profile,
     )
 
 
@@ -403,12 +420,13 @@ def get_compatibility_profile(profile_id: str, request: Request) -> dict[str, An
 
 @router.put("/compiler/compatibility-profiles/{profile_id}")
 def update_compatibility_profile(
-    profile_id: str, payload: CompatibilityProfileUpdateRequest, request: Request
+    profile_id: str, request: Request, payload: dict[str, Any] = Body(...)
 ) -> dict[str, Any]:
-    return _run_route_action(
-        lambda: get_services(request).semantic_service.update_compatibility_profile(
-            profile_id, payload
-        )
+    semantic_service = get_services(request).semantic_service
+    return _handle_update(
+        payload,
+        parser=CompatibilityProfileUpdateRequest.model_validate,
+        action=lambda parsed: semantic_service.update_compatibility_profile(profile_id, parsed),
     )
 
 

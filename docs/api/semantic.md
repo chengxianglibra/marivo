@@ -103,16 +103,6 @@ Related design docs:
 | `PUT` | `/compiler/compatibility-profiles/{profile_id}` | Update a compatibility profile |
 | `POST` | `/compiler/compatibility-profiles/{profile_id}/publish` | Publish a compatibility profile |
 
-### Legacy Compatibility Surface
-
-`/semantic/mappings` remains available as a legacy compatibility surface for runtime wiring that has not yet migrated to typed bindings.
-
-| Method | Path | Description |
-| --- | --- | --- |
-| `POST` | `/semantic/mappings` | Create a legacy mapping |
-| `GET` | `/semantic/mappings` | List legacy mappings |
-| `DELETE` | `/semantic/mappings/{mapping_id}` | Delete a legacy mapping |
-
 ## Entity Contract
 
 `POST /semantic/entities`
@@ -395,6 +385,218 @@ Representative create payload fragments:
   ]
 }
 ```
+
+## Binding Contract
+
+`POST /semantic/bindings`
+
+Bindings are the target-state physical grounding contract. This is the primary HTTP surface for
+carrier / surface / relation wiring; `mapping_json` is not the main semantic API contract anymore.
+
+Request:
+
+```json
+{
+  "header": {
+    "binding_ref": "binding.account_primary",
+    "display_name": "Account Binding",
+    "description": "Primary warehouse grounding for account identity",
+    "binding_scope": "entity",
+    "bound_object_ref": "entity.account",
+    "binding_contract_version": "binding.v1"
+  },
+  "interface_contract": {
+    "carrier_bindings": [
+      {
+        "binding_key": "primary",
+        "carrier_kind": "table",
+        "carrier_locator": "warehouse.accounts",
+        "binding_role": "primary",
+        "field_surfaces": [
+          {
+            "surface_ref": "field.account_id",
+            "physical_name": "account_id"
+          }
+        ]
+      }
+    ],
+    "field_bindings": [
+      {
+        "carrier_binding_key": "primary",
+        "target": {
+          "target_kind": "identity_key",
+          "target_key": "key.account_id"
+        },
+        "semantic_ref": "key.account_id",
+        "surface_ref": "field.account_id"
+      }
+    ]
+  }
+}
+```
+
+Response:
+
+```json
+{
+  "binding_id": "bind_a1b2c3d4e5f6",
+  "header": {
+    "binding_ref": "binding.account_primary",
+    "display_name": "Account Binding",
+    "description": "Primary warehouse grounding for account identity",
+    "binding_scope": "entity",
+    "bound_object_ref": "entity.account",
+    "binding_contract_version": "binding.v1"
+  },
+  "interface_contract": {
+    "imports": null,
+    "carrier_bindings": [
+      {
+        "binding_key": "primary",
+        "source_object_ref": null,
+        "carrier_kind": "table",
+        "carrier_locator": "warehouse.accounts",
+        "binding_role": "primary",
+        "semantic_role_ref": null,
+        "grain_ref": null,
+        "primary_entity_ref": null,
+        "row_filter_refs": null,
+        "freshness_policy_ref": null,
+        "field_surfaces": [
+          {
+            "surface_ref": "field.account_id",
+            "physical_name": "account_id",
+            "field_type": null
+          }
+        ],
+        "time_surfaces": null
+      }
+    ],
+    "field_bindings": [
+      {
+        "carrier_binding_key": "primary",
+        "target": {
+          "target_kind": "identity_key",
+          "target_key": "key.account_id",
+          "context_ref": null
+        },
+        "semantic_ref": "key.account_id",
+        "surface_ref": "field.account_id",
+        "field_type_ref": null,
+        "nullability_policy": null,
+        "repeated_value_policy": null
+      }
+    ],
+    "join_relations": null,
+    "consumption_policies": null
+  },
+  "status": "draft",
+  "revision": 1,
+  "created_at": "2026-04-08T12:00:00+00:00",
+  "updated_at": "2026-04-08T12:00:00+00:00"
+}
+```
+
+List responses use the shared object envelope:
+
+```json
+{
+  "items": [
+    {
+      "binding_id": "bind_a1b2c3d4e5f6",
+      "header": {
+        "binding_ref": "binding.account_primary",
+        "display_name": "Account Binding",
+        "description": "Primary warehouse grounding for account identity",
+        "binding_scope": "entity",
+        "bound_object_ref": "entity.account",
+        "binding_contract_version": "binding.v1"
+      },
+      "interface_contract": {
+        "imports": null,
+        "carrier_bindings": [],
+        "field_bindings": [],
+        "join_relations": null,
+        "consumption_policies": null
+      },
+      "status": "published",
+      "revision": 2,
+      "created_at": "2026-04-08T12:00:00+00:00",
+      "updated_at": "2026-04-08T12:05:00+00:00"
+    }
+  ],
+  "total": 1
+}
+```
+
+Query parameters:
+
+- `status`: optional lifecycle filter
+
+## Compiler Compatibility Profile Contract
+
+`POST /compiler/compatibility-profiles`
+
+Compatibility profiles are independent compiler-facing artifacts. In the current migration stage,
+they are created and managed explicitly over HTTP; this endpoint is a registration/create surface,
+not an automatic generation trigger.
+
+Request:
+
+```json
+{
+  "profile_ref": "compiler_profile.account_count_requirement",
+  "profile_kind": "requirement",
+  "schema_version": "v1",
+  "subject_kind": "metric",
+  "subject_ref": "metric.account_count",
+  "requirement": {
+    "entity_refs": ["entity.account"]
+  }
+}
+```
+
+Response:
+
+```json
+{
+  "profile_id": "cprof_a1b2c3d4e5f6",
+  "profile_ref": "compiler_profile.account_count_requirement",
+  "profile_kind": "requirement",
+  "schema_version": "v1",
+  "subject_kind": "metric",
+  "subject_ref": "metric.account_count",
+  "requirement": {
+    "contract_modes": null,
+    "context_kinds": null,
+    "entity_refs": ["entity.account"],
+    "population_subject_refs": null
+  },
+  "capability": null,
+  "status": "draft",
+  "revision": 1,
+  "created_at": "2026-04-08T12:00:00+00:00",
+  "updated_at": "2026-04-08T12:00:00+00:00"
+}
+```
+
+List responses are also wrapped as `{"items": [...], "total": n}`.
+
+Query parameters:
+
+- `status`: optional lifecycle filter
+
+Notes:
+
+- `subject_kind/profile_kind` combinations are constrained by the typed profile contract.
+- `POST /compiler/compatibility-profiles` creates a draft profile artifact; automatic generation,
+  if introduced later, belongs to later migration phases rather than this HTTP contract.
+
+## Legacy Mapping Surface
+
+`/semantic/mappings` may still exist in the codebase as a temporary compatibility surface for
+unmigrated runtime wiring, but it is not part of the target-state semantic layer contract.
+New integrations should use typed bindings instead of authoring new legacy mappings.
 
 ## Error Semantics
 
