@@ -263,6 +263,238 @@ class SemanticTypedApiTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertEqual(resp.json()["status"], "published")
 
+    def test_process_object_dimension_time_and_enum_set_lifecycle(self) -> None:
+        time_resp = self.client.post(
+            "/semantic/time",
+            json={
+                "header": {
+                    "time_ref": "time.signup_time",
+                    "display_name": "Signup Time",
+                    "semantic_roles": ["business_anchor", "measurement"],
+                    "time_contract_version": "time.v1",
+                }
+            },
+        )
+        self.assertEqual(time_resp.status_code, 200, time_resp.text)
+        time_contract_id = time_resp.json()["time_contract_id"]
+
+        enum_resp = self.client.post(
+            "/semantic/enum-sets",
+            json={
+                "header": {"enum_set_ref": "enum.country_code", "value_type": "string"},
+                "display_name": "Country Code",
+                "description": "ISO countries",
+                "versions": [
+                    {
+                        "enum_version": "v1",
+                        "values": [
+                            {"value_key": "CN", "raw_value": "CN", "label": "China"},
+                            {
+                                "value_key": "US",
+                                "raw_value": "US",
+                                "label": "United States",
+                            },
+                        ],
+                    }
+                ],
+            },
+        )
+        self.assertEqual(enum_resp.status_code, 200, enum_resp.text)
+        enum_set_contract_id = enum_resp.json()["enum_set_contract_id"]
+
+        dimension_resp = self.client.post(
+            "/semantic/dimensions",
+            json={
+                "header": {
+                    "dimension_ref": "dimension.signup_country",
+                    "display_name": "Signup Country",
+                    "dimension_contract_version": "dimension.v1",
+                },
+                "interface_contract": {
+                    "value_domain": {
+                        "structure_kind": "flat",
+                        "value_type": "string",
+                        "domain_kind": "enumerated",
+                        "enum_set_ref": "enum.country_code",
+                        "enum_version": "v1",
+                    },
+                    "grouping": {"supports_grouping": True},
+                },
+            },
+        )
+        self.assertEqual(dimension_resp.status_code, 200, dimension_resp.text)
+        dimension_contract_id = dimension_resp.json()["dimension_contract_id"]
+
+        entity_resp = self.client.post(
+            "/semantic/entities",
+            json={
+                "header": {
+                    "entity_ref": "entity.signup_event",
+                    "display_name": "Signup Event",
+                    "entity_contract_version": "entity.v4",
+                },
+                "interface_contract": {
+                    "identity": {
+                        "key_refs": ["key.signup_event_id"],
+                        "uniqueness_scope": "global",
+                        "id_stability": "ephemeral",
+                    },
+                    "primary_time_ref": "time.signup_time",
+                },
+            },
+        )
+        self.assertEqual(entity_resp.status_code, 200, entity_resp.text)
+
+        process_resp = self.client.post(
+            "/semantic/process-objects",
+            json={
+                "header": {
+                    "process_ref": "process.new_user_cohort",
+                    "display_name": "New User Cohort",
+                    "process_type": "cohort_definition",
+                    "process_contract_version": "process.v2",
+                },
+                "interface_contract": {
+                    "contract_mode": "context_provider",
+                    "context_kind": "cohort_membership",
+                    "population_subject_ref": "subject.user",
+                    "membership_cardinality": "exclusive_one",
+                    "anchor_time_ref": "time.signup_time",
+                    "exported_dimension_refs": ["dimension.signup_country"],
+                },
+                "payload": {
+                    "process_type": "cohort_definition",
+                    "cohort_key": "new_users",
+                    "entry_population": {"base_population_ref": "population.users"},
+                    "cohort_anchor_ref": "time.signup_time",
+                },
+            },
+        )
+        self.assertEqual(process_resp.status_code, 200, process_resp.text)
+        process_contract_id = process_resp.json()["process_contract_id"]
+
+        resp = self.client.put(
+            f"/semantic/time/{time_contract_id}",
+            json={"semantic_roles": ["business_anchor"]},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(resp.json()["header"]["semantic_roles"], ["business_anchor"])
+
+        resp = self.client.put(
+            f"/semantic/enum-sets/{enum_set_contract_id}",
+            json={
+                "description": "Updated countries",
+                "versions": [
+                    {
+                        "enum_version": "v2",
+                        "values": [
+                            {"value_key": "CN", "raw_value": "CN", "label": "China"},
+                            {"value_key": "JP", "raw_value": "JP", "label": "Japan"},
+                        ],
+                    }
+                ],
+            },
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(resp.json()["description"], "Updated countries")
+        self.assertEqual(resp.json()["versions"][0]["enum_version"], "v2")
+
+        resp = self.client.put(
+            f"/semantic/dimensions/{dimension_contract_id}",
+            json={"description": "Updated dimension description"},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(resp.json()["header"]["description"], "Updated dimension description")
+
+        resp = self.client.put(
+            f"/semantic/process-objects/{process_contract_id}",
+            json={"description": "Updated process description"},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(resp.json()["header"]["description"], "Updated process description")
+
+        for path in [
+            f"/semantic/time/{time_contract_id}/publish",
+            f"/semantic/enum-sets/{enum_set_contract_id}/publish",
+            f"/semantic/dimensions/{dimension_contract_id}/publish",
+            f"/semantic/process-objects/{process_contract_id}/publish",
+        ]:
+            resp = self.client.post(path)
+            self.assertEqual(resp.status_code, 200, resp.text)
+            self.assertEqual(resp.json()["status"], "published")
+
+        for path in [
+            "/semantic/time",
+            "/semantic/enum-sets",
+            "/semantic/dimensions",
+            "/semantic/process-objects",
+        ]:
+            resp = self.client.get(path)
+            self.assertEqual(resp.status_code, 200, resp.text)
+            self.assertGreaterEqual(resp.json()["total"], 1)
+
+    def test_new_typed_object_routes_use_consistent_404_detail(self) -> None:
+        for path in [
+            "/semantic/process-objects/proc_missing",
+            "/semantic/dimensions/dimc_missing",
+            "/semantic/time/timec_missing",
+            "/semantic/enum-sets/enumc_missing",
+        ]:
+            resp = self.client.get(path)
+            self.assertEqual(resp.status_code, 404, resp.text)
+            self.assertIsInstance(resp.json()["detail"], str)
+
+    def test_new_typed_object_routes_reject_unknown_cross_object_refs(self) -> None:
+        resp = self.client.post(
+            "/semantic/dimensions",
+            json={
+                "header": {
+                    "dimension_ref": "dimension.invalid_country",
+                    "display_name": "Invalid Country",
+                    "dimension_contract_version": "dimension.v1",
+                },
+                "interface_contract": {
+                    "value_domain": {
+                        "structure_kind": "flat",
+                        "value_type": "string",
+                        "domain_kind": "enumerated",
+                        "enum_set_ref": "enum.missing",
+                        "enum_version": "v1",
+                    }
+                },
+            },
+        )
+        self.assertEqual(resp.status_code, 422, resp.text)
+        self.assertIsInstance(resp.json()["detail"], str)
+
+        resp = self.client.post(
+            "/semantic/process-objects",
+            json={
+                "header": {
+                    "process_ref": "process.invalid_cohort",
+                    "display_name": "Invalid Cohort",
+                    "process_type": "cohort_definition",
+                    "process_contract_version": "process.v2",
+                },
+                "interface_contract": {
+                    "contract_mode": "context_provider",
+                    "context_kind": "cohort_membership",
+                    "population_subject_ref": "subject.user",
+                    "membership_cardinality": "exclusive_one",
+                    "anchor_time_ref": "time.missing",
+                    "exported_dimension_refs": ["dimension.missing"],
+                },
+                "payload": {
+                    "process_type": "cohort_definition",
+                    "cohort_key": "invalid_users",
+                    "entry_population": {"base_population_ref": "population.users"},
+                    "cohort_anchor_ref": "time.missing",
+                },
+            },
+        )
+        self.assertEqual(resp.status_code, 422, resp.text)
+        self.assertIsInstance(resp.json()["detail"], str)
+
     def test_typed_object_routes_use_consistent_404_detail(self) -> None:
         binding_resp = self.client.get("/semantic/bindings/bind_missing")
         self.assertEqual(binding_resp.status_code, 404, binding_resp.text)

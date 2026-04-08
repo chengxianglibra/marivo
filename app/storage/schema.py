@@ -465,6 +465,7 @@ METADATA_DDL: list[str] = [
         enum_set_contract_id    TEXT PRIMARY KEY,
         enum_set_ref            TEXT NOT NULL UNIQUE,
         display_name            TEXT NOT NULL,
+        description             TEXT NOT NULL DEFAULT '',
         value_type              TEXT NOT NULL CHECK (
             value_type IN ('string', 'integer', 'number', 'boolean')
         ),

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from app.adapters.base import CatalogAdapter, CatalogCapabilities, PhysicalObject
@@ -39,6 +40,7 @@ class TrinoCatalogAdapter(CatalogAdapter):
     def _connect(self) -> Any:
         from trino.dbapi import connect
 
+        connect_fn: Callable[..., Any] = connect
         # Filter out Trino reserved headers to avoid conflicts with
         # parameters (client_tags, source) that the client sets internally.
         _reserved_prefixes = ("x-trino-",)
@@ -69,7 +71,7 @@ class TrinoCatalogAdapter(CatalogAdapter):
             kwargs["source"] = self._source
         if safe_headers is not None:
             kwargs["http_headers"] = safe_headers
-        return connect(**kwargs)
+        return connect_fn(**kwargs)
 
     def _query(self, sql: str, params: list[Any] | None = None) -> list[dict[str, Any]]:
         conn = self._connect()
