@@ -330,7 +330,7 @@ type ProcessInterfaceContract =
     };
 ```
 
-若需要 `supported_intents`、`result_modes`、`capabilities`、`inference support` 等更细粒度组合规则，建议作为 compiler compatibility profile 单独维护，而不是继续塞回 public object schema。
+若需要 `supported_intents`、`result_modes`、`capabilities`、`inference support` 等更细粒度组合规则，应作为 compiler compatibility profile 单独维护，而不是继续塞回 public object schema；其发布形态与边界见 `docs/semantic/compiler-compatibility-profile.zh.md`。
 
 ### 各类 Process Object 示例
 

@@ -46,7 +46,7 @@ process schema ----/--/
 - **只保留稳定且必须的 schema**：对象 contract 只回答”这个对象在语义上是什么”。
 - **catalog metadata 单独承载**：`status`、`revision`、`lineage`、`quality gates`、搜索别名等 catalog/治理元数据，不再视为对象主 contract 的一部分。
 - **compatibility profile 不等于对象本体**：`supported_intents`、`result_modes`、`capabilities`、`inference support` 这类组合/编译信息，不应默认塞入 public object schema；由 compiler 从核心字段推导。
-- **binding 统一承载物理落地**：binding 直接表达 carriers / surfaces / relations，不再引入独立的 asset 层。
+- **binding 统一承载物理落地**：binding 直接表达 carriers / surfaces / relations，不再引入独立的 asset 层；底层物理快照继续由 `source_objects` 承载。
 - **binding 使用类型化 target**：binding 用 `BindingTarget` TypedDict 替代 informal 字符串路径，不依赖 compiler 内部路径。
 - **IR 使用引用而非复制**：IR 只保留对象引用和 resolved/derived 字段，不复制 catalog 对象的全部字段。
 - **entity 定义独立于 binding**：entity contract 在没有 binding 的情况下语义完整，binding 提供物理落地。
@@ -64,6 +64,8 @@ process schema ----/--/
 | [`dimension-schema-contract.zh.md`](./dimension-schema-contract.zh.md) | `dimension` 的目标 schema | 共享分析维度如何成为独立 contract，structure_kind 与 semantic_role 分离 |
 | [`enum-set-schema-contract.zh.md`](./enum-set-schema-contract.zh.md) | `dimension` 的受治理值域 contract | `enum_set_ref` / `enum_version` 引用的值域本体是什么、版本锚定哪一层、与 governance / binding 如何分层 |
 | [`typed-binding-contract.zh.md`](./typed-binding-contract.zh.md) | 语义对象到物理层的绑定契约 | semantic refs 如何映射到 carriers / surfaces / relations，使用类型化 BindingTarget |
+| [`evidence-integration.zh.md`](./evidence-integration.zh.md) | Evidence 与 Semantic 的集成边界 | canonical refs / canonical artifact refs 与 `metric_ref`、`process_ref`、广义 `semantic_ref` 如何分层、关联与禁止互相替代 |
+| [`compiler-compatibility-profile.zh.md`](./compiler-compatibility-profile.zh.md) | compiler compatibility profile 契约 | 哪些组合兼容性与前置能力应独立发布为 profile artifact，如何被 compiler 消费，如何与 object contract / governance context 分层 |
 | [`compiler-spec.zh.md`](./compiler-spec.zh.md) | semantic compiler 规范 | typed intent、metric、process、typed refs 如何被归一化、校验、展开并编译成 IR，包含 capability 推导规则 |
 | [`ir-schema-contract.zh.md`](./ir-schema-contract.zh.md) | IR 的目标 schema 契约 | IR 使用引用而非复制，职责边界是什么、它与 compile report / lowering / engine plan 如何分层 |
 
@@ -113,15 +115,22 @@ process schema ----/--/
 
 ### 3. 再看对象如何落地
 
-接着读 [`typed-binding-contract.zh.md`](./typed-binding-contract.zh.md)。
+接着按顺序读：
 
-前面的对象文档主要回答”语义上是什么”，而这篇回答”如何稳定绑定到底层物理数据”。它强调：
+1. [`typed-binding-contract.zh.md`](./typed-binding-contract.zh.md)
+2. [`evidence-integration.zh.md`](./evidence-integration.zh.md)
+3. [`compiler-compatibility-profile.zh.md`](./compiler-compatibility-profile.zh.md)
+
+前面的对象文档主要回答”语义上是什么”，这三篇回答”如何落地”、”如何与 canonical evidence outputs 对齐”以及”如何参与编译兼容性判断”。它们强调：
 
 - binding 是一等、可引用、可组合对象
-- binding 直接承载 carriers / surfaces / relations，不再依赖独立的 asset 层
+- binding 直接承载 carriers / surfaces / relations，不再依赖独立的 asset 层；解析时落到底层 `source_objects`
 - field binding 的核心是 **类型化 BindingTarget**
+- canonical refs / artifact refs 与 semantic refs 必须分层，允许关联但不得互相替代
 - join、late arrival、incomplete-window 等属于 binding 的消费约束
 - binding 不等于 SQL DSL，也不取代 compiler / IR
+- compatibility profile 是独立 artifact，不回流到 object public schema
+- profile 只承载编译兼容性与前置能力，不承载 object identity 或 runtime policy
 
 ### 4. 最后看编译与 IR
 
@@ -144,7 +153,7 @@ process schema ----/--/
 | 设计 funnel / experiment / cohort / session 等过程对象的人 | `process-object-schema` |
 | 设计 dimension catalog / value governance / drill path 的人 | `dimension-schema-contract`、`enum-set-schema-contract`、`typed-binding-contract` |
 | 设计 semantic mapping / physical grounding 的人 | `typed-binding-contract` |
-| 设计 compiler、validation、IR、lowering 边界的人 | `compiler-spec`、`ir-schema-contract` |
+| 设计 compiler profile、validation、IR、lowering 边界的人 | `compiler-compatibility-profile`、`compiler-spec`、`ir-schema-contract` |
 
 ## 这一目录中的几个反复出现的共识
 
