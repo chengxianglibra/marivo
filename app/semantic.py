@@ -10,8 +10,12 @@ from app.api.models.compatibility_profile import (
     CompatibilityProfileCreateRequest,
     CompatibilityProfileUpdateRequest,
 )
+from app.api.models.dimension import DimensionCreateRequest, DimensionUpdateRequest
 from app.api.models.entity import TypedEntityCreateRequest, TypedEntityUpdateRequest
+from app.api.models.enum_set import EnumSetCreateRequest, EnumSetUpdateRequest
 from app.api.models.metric import TypedMetricCreateRequest, TypedMetricUpdateRequest
+from app.api.models.process_object import ProcessObjectCreateRequest, ProcessObjectUpdateRequest
+from app.api.models.time import TimeCreateRequest, TimeUpdateRequest
 from app.semantic_runtime.semantic_metadata import (
     entity_runtime_metadata,
     metric_runtime_metadata,
@@ -295,6 +299,172 @@ class SemanticService:
             )
             is not None
         )
+
+    def _ref_exists(self, sql: str, ref_value: str) -> bool:
+        return self.metadata.query_one(sql, [ref_value]) is not None
+
+    def _require_ref_exists(self, sql: str, ref_value: str, ref_name: str) -> None:
+        if not self._ref_exists(sql, ref_value):
+            raise ValueError(f"Unknown {ref_name}: {ref_value}")
+
+    def _validate_entity_ref(self, entity_ref: str) -> None:
+        self._require_ref_exists(
+            "SELECT entity_contract_id FROM semantic_entity_contracts WHERE entity_ref = ?",
+            entity_ref,
+            "entity ref",
+        )
+
+    def _validate_dimension_ref(self, dimension_ref: str) -> None:
+        self._require_ref_exists(
+            "SELECT dimension_contract_id FROM semantic_dimension_contracts WHERE dimension_ref = ?",
+            dimension_ref,
+            "dimension ref",
+        )
+
+    def _validate_time_ref(self, time_ref: str) -> None:
+        self._require_ref_exists(
+            "SELECT time_contract_id FROM semantic_time_objects WHERE time_ref = ?",
+            time_ref,
+            "time ref",
+        )
+
+    def _validate_enum_set_ref(self, enum_set_ref: str) -> None:
+        self._require_ref_exists(
+            "SELECT enum_set_contract_id FROM semantic_enum_sets WHERE enum_set_ref = ?",
+            enum_set_ref,
+            "enum set ref",
+        )
+
+    def _validate_dimension_refs(self, dimension_refs: list[str] | None) -> None:
+        for dimension_ref in dimension_refs or []:
+            self._validate_dimension_ref(dimension_ref)
+
+    def _replace_process_exported_dimension_refs(
+        self, process_contract_id: str, dimension_refs: list[str] | None
+    ) -> None:
+        self.metadata.execute(
+            "DELETE FROM semantic_process_exported_dimension_refs WHERE process_contract_id = ?",
+            [process_contract_id],
+        )
+        for position, dimension_ref in enumerate(dimension_refs or [], start=1):
+            self.metadata.execute(
+                """
+                INSERT INTO semantic_process_exported_dimension_refs (
+                    process_contract_id, position, dimension_ref
+                ) VALUES (?, ?, ?)
+                """,
+                [process_contract_id, position, dimension_ref],
+            )
+
+    def _replace_enum_set_versions(
+        self, enum_set_contract_id: str, versions: list[dict[str, Any]]
+    ) -> None:
+        version_rows = self.metadata.query_rows(
+            """
+            SELECT enum_set_version_id
+            FROM semantic_enum_set_versions
+            WHERE enum_set_contract_id = ?
+            """,
+            [enum_set_contract_id],
+        )
+        for version_row in version_rows:
+            self.metadata.execute(
+                "DELETE FROM semantic_enum_set_values WHERE enum_set_version_id = ?",
+                [version_row["enum_set_version_id"]],
+            )
+        self.metadata.execute(
+            "DELETE FROM semantic_enum_set_versions WHERE enum_set_contract_id = ?",
+            [enum_set_contract_id],
+        )
+        now = _now_iso()
+        for version in versions:
+            enum_set_version_id = f"esv_{uuid4().hex[:24]}"
+            self.metadata.execute(
+                """
+                INSERT INTO semantic_enum_set_versions (
+                    enum_set_version_id, enum_set_contract_id, enum_version, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                [enum_set_version_id, enum_set_contract_id, version["enum_version"], now, now],
+            )
+            for position, value in enumerate(version["values"], start=1):
+                self.metadata.execute(
+                    """
+                    INSERT INTO semantic_enum_set_values (
+                        enum_set_version_id, position, value_key, raw_value, label, aliases_json
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        enum_set_version_id,
+                        position,
+                        value["value_key"],
+                        json.dumps(value["raw_value"]),
+                        value["label"],
+                        json.dumps(value.get("aliases") or []),
+                    ],
+                )
+
+    def _validate_process_payload_refs(self, payload: dict[str, Any]) -> None:
+        process_type = payload["process_type"]
+        if process_type == "experiment_context":
+            analysis_window = payload.get("analysis_window")
+            if analysis_window and analysis_window.get("anchor_ref") is not None:
+                self._validate_time_ref(analysis_window["anchor_ref"])
+        elif process_type == "cohort_definition":
+            self._validate_time_ref(payload["cohort_anchor_ref"])
+            observation_window = payload.get("observation_window")
+            if observation_window and observation_window.get("anchor_ref") is not None:
+                self._validate_time_ref(observation_window["anchor_ref"])
+            if payload.get("return_anchor_ref") is not None:
+                self._validate_time_ref(payload["return_anchor_ref"])
+        elif process_type == "lifecycle_state_machine":
+            if payload.get("evaluation_anchor_ref") is not None:
+                self._validate_time_ref(payload["evaluation_anchor_ref"])
+            if payload.get("transition_anchor_ref") is not None:
+                self._validate_time_ref(payload["transition_anchor_ref"])
+
+    def _validate_process_refs(
+        self,
+        interface_contract: dict[str, Any],
+        payload: dict[str, Any],
+    ) -> None:
+        if interface_contract.get("contract_mode") == "entity_stream":
+            self._validate_entity_ref(interface_contract["entity_ref"])
+        if interface_contract.get("anchor_time_ref") is not None:
+            self._validate_time_ref(interface_contract["anchor_time_ref"])
+        self._validate_dimension_refs(interface_contract.get("exported_dimension_refs"))
+        self._validate_process_payload_refs(payload)
+
+    def _validate_dimension_contract_refs(self, interface_contract: dict[str, Any]) -> None:
+        value_domain = interface_contract["value_domain"]
+        if value_domain.get("enum_set_ref") is not None:
+            self._validate_enum_set_ref(value_domain["enum_set_ref"])
+        hierarchy = interface_contract.get("hierarchy")
+        if hierarchy and hierarchy.get("parent_dimension_ref") is not None:
+            self._validate_dimension_ref(hierarchy["parent_dimension_ref"])
+        time_derived_requirement = interface_contract.get("time_derived_requirement")
+        if (
+            time_derived_requirement
+            and time_derived_requirement.get("required_time_anchor_ref") is not None
+        ):
+            self._validate_time_ref(time_derived_requirement["required_time_anchor_ref"])
+
+    def _validate_no_dimension_cycle(self, dimension_ref: str, parent_dimension_ref: str) -> None:
+        visited: set[str] = set()
+        current: str | None = parent_dimension_ref
+        while current is not None:
+            if current == dimension_ref:
+                raise ValueError(
+                    f"Circular dimension hierarchy: '{dimension_ref}' already appears as an ancestor"
+                )
+            if current in visited:
+                break
+            visited.add(current)
+            row = self.metadata.query_one(
+                "SELECT parent_dimension_ref FROM semantic_dimension_contracts WHERE dimension_ref = ?",
+                [current],
+            )
+            current = row["parent_dimension_ref"] if row else None
 
     def _validate_binding_target_ref(self, binding_scope: str, bound_object_ref: str) -> None:
         lookup = {
@@ -1159,6 +1329,508 @@ class SemanticService:
         )
         return self.get_typed_metric(metric_contract_id)
 
+    # ── Process object contracts ───────────────────────────────
+
+    def create_process_object(self, payload: ProcessObjectCreateRequest) -> dict[str, Any]:
+        interface_contract = payload.interface_contract.model_dump(mode="json")
+        payload_json = payload.payload.model_dump(mode="json")
+        self._validate_process_refs(interface_contract, payload_json)
+
+        process_contract_id = f"proc_{uuid4().hex[:24]}"
+        now = _now_iso()
+        self.metadata.execute(
+            """
+            INSERT INTO semantic_process_objects (
+                process_contract_id, process_ref, display_name, description, process_type,
+                process_contract_version, contract_mode, context_kind, population_subject_ref,
+                membership_cardinality, entity_ref, emitted_grain_ref, subject_cardinality,
+                anchor_time_ref, process_payload_json, status, revision, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', 1, ?, ?)
+            """,
+            [
+                process_contract_id,
+                payload.header.process_ref,
+                payload.header.display_name or payload.header.process_ref.removeprefix("process."),
+                payload.header.description or "",
+                payload.header.process_type,
+                payload.header.process_contract_version,
+                interface_contract["contract_mode"],
+                interface_contract.get("context_kind"),
+                interface_contract["population_subject_ref"],
+                interface_contract.get("membership_cardinality"),
+                interface_contract.get("entity_ref"),
+                interface_contract.get("emitted_grain_ref"),
+                interface_contract.get("subject_cardinality"),
+                interface_contract.get("anchor_time_ref"),
+                json.dumps(payload_json),
+                now,
+                now,
+            ],
+        )
+        self._replace_process_exported_dimension_refs(
+            process_contract_id,
+            interface_contract.get("exported_dimension_refs"),
+        )
+        return self.get_process_object(process_contract_id)
+
+    def get_process_object(self, process_contract_id: str) -> dict[str, Any]:
+        row = self.metadata.query_one(
+            "SELECT * FROM semantic_process_objects WHERE process_contract_id = ?",
+            [process_contract_id],
+        )
+        if row is None:
+            raise KeyError(f"Unknown process object: {process_contract_id}")
+        return self._row_to_process_object(row)
+
+    def list_process_objects(self, status: str | None = None) -> dict[str, Any]:
+        if status is None:
+            rows = self.metadata.query_rows(
+                "SELECT * FROM semantic_process_objects ORDER BY process_ref"
+            )
+        else:
+            rows = self.metadata.query_rows(
+                "SELECT * FROM semantic_process_objects WHERE status = ? ORDER BY process_ref",
+                [status],
+            )
+        items = [self._row_to_process_object(row) for row in rows]
+        return {"items": items, "total": len(items)}
+
+    def update_process_object(
+        self, process_contract_id: str, payload: ProcessObjectUpdateRequest
+    ) -> dict[str, Any]:
+        current = self.get_process_object(process_contract_id)
+        updates: list[str] = []
+        params: list[Any] = []
+        interface_contract = payload.interface_contract
+        process_payload = payload.payload
+        if interface_contract is not None:
+            interface_contract_json = interface_contract.model_dump(mode="json")
+            payload_json = (
+                process_payload.model_dump(mode="json")
+                if process_payload is not None
+                else current["payload"]
+            )
+            self._validate_process_refs(interface_contract_json, payload_json)
+            updates.extend(
+                [
+                    "contract_mode = ?",
+                    "context_kind = ?",
+                    "population_subject_ref = ?",
+                    "membership_cardinality = ?",
+                    "entity_ref = ?",
+                    "emitted_grain_ref = ?",
+                    "subject_cardinality = ?",
+                    "anchor_time_ref = ?",
+                ]
+            )
+            params.extend(
+                [
+                    interface_contract_json["contract_mode"],
+                    interface_contract_json.get("context_kind"),
+                    interface_contract_json["population_subject_ref"],
+                    interface_contract_json.get("membership_cardinality"),
+                    interface_contract_json.get("entity_ref"),
+                    interface_contract_json.get("emitted_grain_ref"),
+                    interface_contract_json.get("subject_cardinality"),
+                    interface_contract_json.get("anchor_time_ref"),
+                ]
+            )
+            self._replace_process_exported_dimension_refs(
+                process_contract_id,
+                interface_contract_json.get("exported_dimension_refs"),
+            )
+        if process_payload is not None:
+            payload_json = process_payload.model_dump(mode="json")
+            interface_contract_json = (
+                interface_contract.model_dump(mode="json")
+                if interface_contract is not None
+                else current["interface_contract"]
+            )
+            current_process_type = current["header"]["process_type"]
+            if payload_json["process_type"] != current_process_type:
+                raise ValueError(
+                    f"process_type is immutable; expected '{current_process_type}', got '{payload_json['process_type']}'"
+                )
+            self._validate_process_refs(interface_contract_json, payload_json)
+            updates.append("process_payload_json = ?")
+            params.append(json.dumps(payload_json))
+        if payload.display_name is not None:
+            updates.append("display_name = ?")
+            params.append(payload.display_name)
+        if payload.description is not None:
+            updates.append("description = ?")
+            params.append(payload.description)
+        if not updates:
+            return current
+        updates.append("updated_at = ?")
+        params.append(_now_iso())
+        params.append(process_contract_id)
+        self.metadata.execute(
+            f"UPDATE semantic_process_objects SET {', '.join(updates)} WHERE process_contract_id = ?",
+            params,
+        )
+        return self.get_process_object(process_contract_id)
+
+    def publish_process_object(self, process_contract_id: str) -> dict[str, Any]:
+        self.get_process_object(process_contract_id)
+        self.metadata.execute(
+            """
+            UPDATE semantic_process_objects
+            SET status = 'published', revision = revision + 1, updated_at = ?
+            WHERE process_contract_id = ?
+            """,
+            [_now_iso(), process_contract_id],
+        )
+        return self.get_process_object(process_contract_id)
+
+    # ── Dimension contracts ────────────────────────────────────
+
+    def create_dimension(self, payload: DimensionCreateRequest) -> dict[str, Any]:
+        interface_contract = payload.interface_contract.model_dump(mode="json")
+        self._validate_dimension_contract_refs(interface_contract)
+
+        hierarchy = interface_contract.get("hierarchy")
+        if hierarchy and hierarchy.get("parent_dimension_ref"):
+            self._validate_no_dimension_cycle(
+                payload.header.dimension_ref, hierarchy["parent_dimension_ref"]
+            )
+
+        value_domain = interface_contract["value_domain"]
+        grouping = interface_contract.get("grouping")
+        time_derived_requirement = interface_contract.get("time_derived_requirement")
+        dimension_contract_id = f"dimc_{uuid4().hex[:24]}"
+        now = _now_iso()
+        self.metadata.execute(
+            """
+            INSERT INTO semantic_dimension_contracts (
+                dimension_contract_id, dimension_ref, display_name, description,
+                dimension_contract_version, structure_kind, semantic_role, value_type,
+                domain_kind, enum_set_ref, enum_version, hierarchy_type,
+                parent_dimension_ref, supports_grouping, required_time_anchor_ref,
+                status, revision, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', 1, ?, ?)
+            """,
+            [
+                dimension_contract_id,
+                payload.header.dimension_ref,
+                payload.header.display_name
+                or payload.header.dimension_ref.removeprefix("dimension."),
+                payload.header.description or "",
+                payload.header.dimension_contract_version,
+                value_domain["structure_kind"],
+                value_domain.get("semantic_role"),
+                value_domain["value_type"],
+                value_domain["domain_kind"],
+                value_domain.get("enum_set_ref"),
+                value_domain.get("enum_version"),
+                hierarchy.get("hierarchy_type") if hierarchy else None,
+                hierarchy.get("parent_dimension_ref") if hierarchy else None,
+                1 if grouping is None or grouping.get("supports_grouping", True) else 0,
+                (
+                    time_derived_requirement.get("required_time_anchor_ref")
+                    if time_derived_requirement
+                    else None
+                ),
+                now,
+                now,
+            ],
+        )
+        return self.get_dimension(dimension_contract_id)
+
+    def get_dimension(self, dimension_contract_id: str) -> dict[str, Any]:
+        row = self.metadata.query_one(
+            "SELECT * FROM semantic_dimension_contracts WHERE dimension_contract_id = ?",
+            [dimension_contract_id],
+        )
+        if row is None:
+            raise KeyError(f"Unknown dimension: {dimension_contract_id}")
+        return self._row_to_dimension(row)
+
+    def list_dimensions(self, status: str | None = None) -> dict[str, Any]:
+        if status is None:
+            rows = self.metadata.query_rows(
+                "SELECT * FROM semantic_dimension_contracts ORDER BY dimension_ref"
+            )
+        else:
+            rows = self.metadata.query_rows(
+                "SELECT * FROM semantic_dimension_contracts WHERE status = ? ORDER BY dimension_ref",
+                [status],
+            )
+        items = [self._row_to_dimension(row) for row in rows]
+        return {"items": items, "total": len(items)}
+
+    def update_dimension(
+        self, dimension_contract_id: str, payload: DimensionUpdateRequest
+    ) -> dict[str, Any]:
+        current = self.get_dimension(dimension_contract_id)
+        updates: list[str] = []
+        params: list[Any] = []
+        if payload.display_name is not None:
+            updates.append("display_name = ?")
+            params.append(payload.display_name)
+        if payload.description is not None:
+            updates.append("description = ?")
+            params.append(payload.description)
+        if payload.interface_contract is not None:
+            interface_contract = payload.interface_contract.model_dump(mode="json")
+            self._validate_dimension_contract_refs(interface_contract)
+            hierarchy = interface_contract.get("hierarchy")
+            if hierarchy and hierarchy.get("parent_dimension_ref"):
+                self._validate_no_dimension_cycle(
+                    current["header"]["dimension_ref"], hierarchy["parent_dimension_ref"]
+                )
+            value_domain = interface_contract["value_domain"]
+            grouping = interface_contract.get("grouping")
+            time_derived_requirement = interface_contract.get("time_derived_requirement")
+            updates.extend(
+                [
+                    "structure_kind = ?",
+                    "semantic_role = ?",
+                    "value_type = ?",
+                    "domain_kind = ?",
+                    "enum_set_ref = ?",
+                    "enum_version = ?",
+                    "hierarchy_type = ?",
+                    "parent_dimension_ref = ?",
+                    "supports_grouping = ?",
+                    "required_time_anchor_ref = ?",
+                ]
+            )
+            params.extend(
+                [
+                    value_domain["structure_kind"],
+                    value_domain.get("semantic_role"),
+                    value_domain["value_type"],
+                    value_domain["domain_kind"],
+                    value_domain.get("enum_set_ref"),
+                    value_domain.get("enum_version"),
+                    hierarchy.get("hierarchy_type") if hierarchy else None,
+                    hierarchy.get("parent_dimension_ref") if hierarchy else None,
+                    1 if grouping is None or grouping.get("supports_grouping", True) else 0,
+                    (
+                        time_derived_requirement.get("required_time_anchor_ref")
+                        if time_derived_requirement
+                        else None
+                    ),
+                ]
+            )
+        if not updates:
+            return current
+        updates.append("updated_at = ?")
+        params.append(_now_iso())
+        params.append(dimension_contract_id)
+        self.metadata.execute(
+            f"UPDATE semantic_dimension_contracts SET {', '.join(updates)} WHERE dimension_contract_id = ?",
+            params,
+        )
+        return self.get_dimension(dimension_contract_id)
+
+    def publish_dimension(self, dimension_contract_id: str) -> dict[str, Any]:
+        self.get_dimension(dimension_contract_id)
+        self.metadata.execute(
+            """
+            UPDATE semantic_dimension_contracts
+            SET status = 'published', revision = revision + 1, updated_at = ?
+            WHERE dimension_contract_id = ?
+            """,
+            [_now_iso(), dimension_contract_id],
+        )
+        return self.get_dimension(dimension_contract_id)
+
+    # ── Time contracts ─────────────────────────────────────────
+
+    def create_time_semantic(self, payload: TimeCreateRequest) -> dict[str, Any]:
+        time_contract_id = f"timec_{uuid4().hex[:24]}"
+        now = _now_iso()
+        semantic_roles = set(payload.header.semantic_roles)
+        if not semantic_roles:
+            raise ValueError(
+                "At least one semantic role must be specified "
+                "(business_anchor, measurement, or operational_support)"
+            )
+        self.metadata.execute(
+            """
+            INSERT INTO semantic_time_objects (
+                time_contract_id, time_ref, display_name, description,
+                time_contract_version, business_anchor, measurement,
+                operational_support, status, revision, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', 1, ?, ?)
+            """,
+            [
+                time_contract_id,
+                payload.header.time_ref,
+                payload.header.display_name or payload.header.time_ref.removeprefix("time."),
+                payload.header.description or "",
+                payload.header.time_contract_version,
+                1 if "business_anchor" in semantic_roles else 0,
+                1 if "measurement" in semantic_roles else 0,
+                1 if "operational_support" in semantic_roles else 0,
+                now,
+                now,
+            ],
+        )
+        return self.get_time_semantic(time_contract_id)
+
+    def get_time_semantic(self, time_contract_id: str) -> dict[str, Any]:
+        row = self.metadata.query_one(
+            "SELECT * FROM semantic_time_objects WHERE time_contract_id = ?",
+            [time_contract_id],
+        )
+        if row is None:
+            raise KeyError(f"Unknown time semantic: {time_contract_id}")
+        return self._row_to_time_semantic(row)
+
+    def list_time_semantics(self, status: str | None = None) -> dict[str, Any]:
+        if status is None:
+            rows = self.metadata.query_rows("SELECT * FROM semantic_time_objects ORDER BY time_ref")
+        else:
+            rows = self.metadata.query_rows(
+                "SELECT * FROM semantic_time_objects WHERE status = ? ORDER BY time_ref",
+                [status],
+            )
+        items = [self._row_to_time_semantic(row) for row in rows]
+        return {"items": items, "total": len(items)}
+
+    def update_time_semantic(
+        self, time_contract_id: str, payload: TimeUpdateRequest
+    ) -> dict[str, Any]:
+        current = self.get_time_semantic(time_contract_id)
+        updates: list[str] = []
+        params: list[Any] = []
+        if payload.display_name is not None:
+            updates.append("display_name = ?")
+            params.append(payload.display_name)
+        if payload.description is not None:
+            updates.append("description = ?")
+            params.append(payload.description)
+        if payload.semantic_roles is not None:
+            semantic_roles = set(payload.semantic_roles)
+            if not semantic_roles:
+                raise ValueError(
+                    "At least one semantic role must be specified "
+                    "(business_anchor, measurement, or operational_support)"
+                )
+            updates.extend(["business_anchor = ?", "measurement = ?", "operational_support = ?"])
+            params.extend(
+                [
+                    1 if "business_anchor" in semantic_roles else 0,
+                    1 if "measurement" in semantic_roles else 0,
+                    1 if "operational_support" in semantic_roles else 0,
+                ]
+            )
+        if not updates:
+            return current
+        updates.append("updated_at = ?")
+        params.append(_now_iso())
+        params.append(time_contract_id)
+        self.metadata.execute(
+            f"UPDATE semantic_time_objects SET {', '.join(updates)} WHERE time_contract_id = ?",
+            params,
+        )
+        return self.get_time_semantic(time_contract_id)
+
+    def publish_time_semantic(self, time_contract_id: str) -> dict[str, Any]:
+        self.get_time_semantic(time_contract_id)
+        self.metadata.execute(
+            """
+            UPDATE semantic_time_objects
+            SET status = 'published', revision = revision + 1, updated_at = ?
+            WHERE time_contract_id = ?
+            """,
+            [_now_iso(), time_contract_id],
+        )
+        return self.get_time_semantic(time_contract_id)
+
+    # ── Enum set contracts ─────────────────────────────────────
+
+    def create_enum_set(self, payload: EnumSetCreateRequest) -> dict[str, Any]:
+        enum_set_contract_id = f"enumc_{uuid4().hex[:24]}"
+        now = _now_iso()
+        self.metadata.execute(
+            """
+            INSERT INTO semantic_enum_sets (
+                enum_set_contract_id, enum_set_ref, display_name, description, value_type,
+                status, revision, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, 'draft', 1, ?, ?)
+            """,
+            [
+                enum_set_contract_id,
+                payload.header.enum_set_ref,
+                payload.display_name,
+                payload.description,
+                payload.header.value_type,
+                now,
+                now,
+            ],
+        )
+        self._replace_enum_set_versions(
+            enum_set_contract_id,
+            [version.model_dump(mode="json") for version in payload.versions],
+        )
+        return self.get_enum_set(enum_set_contract_id)
+
+    def get_enum_set(self, enum_set_contract_id: str) -> dict[str, Any]:
+        row = self.metadata.query_one(
+            "SELECT * FROM semantic_enum_sets WHERE enum_set_contract_id = ?",
+            [enum_set_contract_id],
+        )
+        if row is None:
+            raise KeyError(f"Unknown enum set: {enum_set_contract_id}")
+        return self._row_to_enum_set(row)
+
+    def list_enum_sets(self, status: str | None = None) -> dict[str, Any]:
+        if status is None:
+            rows = self.metadata.query_rows(
+                "SELECT * FROM semantic_enum_sets ORDER BY enum_set_ref"
+            )
+        else:
+            rows = self.metadata.query_rows(
+                "SELECT * FROM semantic_enum_sets WHERE status = ? ORDER BY enum_set_ref",
+                [status],
+            )
+        items = [self._row_to_enum_set(row) for row in rows]
+        return {"items": items, "total": len(items)}
+
+    def update_enum_set(
+        self, enum_set_contract_id: str, payload: EnumSetUpdateRequest
+    ) -> dict[str, Any]:
+        current = self.get_enum_set(enum_set_contract_id)
+        updates: list[str] = []
+        params: list[Any] = []
+        if payload.display_name is not None:
+            updates.append("display_name = ?")
+            params.append(payload.display_name)
+        if payload.description is not None:
+            updates.append("description = ?")
+            params.append(payload.description)
+        if payload.versions is not None:
+            self._replace_enum_set_versions(
+                enum_set_contract_id,
+                [version.model_dump(mode="json") for version in payload.versions],
+            )
+        if not updates and payload.versions is None:
+            return current
+        updates.append("updated_at = ?")
+        params.append(_now_iso())
+        params.append(enum_set_contract_id)
+        self.metadata.execute(
+            f"UPDATE semantic_enum_sets SET {', '.join(updates)} WHERE enum_set_contract_id = ?",
+            params,
+        )
+        return self.get_enum_set(enum_set_contract_id)
+
+    def publish_enum_set(self, enum_set_contract_id: str) -> dict[str, Any]:
+        self.get_enum_set(enum_set_contract_id)
+        self.metadata.execute(
+            """
+            UPDATE semantic_enum_sets
+            SET status = 'published', revision = revision + 1, updated_at = ?
+            WHERE enum_set_contract_id = ?
+            """,
+            [_now_iso(), enum_set_contract_id],
+        )
+        return self.get_enum_set(enum_set_contract_id)
+
     # ── Typed bindings ──────────────────────────────────────────
 
     def create_typed_binding(self, payload: TypedBindingCreateRequest) -> dict[str, Any]:
@@ -1492,6 +2164,157 @@ class SemanticService:
                 "metric_contract_version": row["metric_contract_version"],
             },
             "payload": json.loads(row["family_payload_json"]),
+            "status": row["status"],
+            "revision": row["revision"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    def _row_to_process_object(self, row: dict[str, Any]) -> dict[str, Any]:
+        exported_dimension_rows = self.metadata.query_rows(
+            """
+            SELECT dimension_ref
+            FROM semantic_process_exported_dimension_refs
+            WHERE process_contract_id = ?
+            ORDER BY position
+            """,
+            [row["process_contract_id"]],
+        )
+        interface_contract: dict[str, Any] = {
+            "contract_mode": row["contract_mode"],
+            "population_subject_ref": row["population_subject_ref"],
+            "anchor_time_ref": row["anchor_time_ref"],
+            "exported_dimension_refs": [
+                exported_dimension_row["dimension_ref"]
+                for exported_dimension_row in exported_dimension_rows
+            ],
+        }
+        if row["contract_mode"] == "context_provider":
+            interface_contract["context_kind"] = row["context_kind"]
+            interface_contract["membership_cardinality"] = row["membership_cardinality"]
+        else:
+            interface_contract["entity_ref"] = row["entity_ref"]
+            interface_contract["emitted_grain_ref"] = row["emitted_grain_ref"]
+            interface_contract["subject_cardinality"] = row["subject_cardinality"]
+        return {
+            "process_contract_id": row["process_contract_id"],
+            "header": {
+                "process_ref": row["process_ref"],
+                "display_name": row["display_name"],
+                "description": row["description"],
+                "process_type": row["process_type"],
+                "process_contract_version": row["process_contract_version"],
+            },
+            "interface_contract": interface_contract,
+            "payload": json.loads(row["process_payload_json"]),
+            "status": row["status"],
+            "revision": row["revision"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    def _row_to_dimension(self, row: dict[str, Any]) -> dict[str, Any]:
+        value_domain: dict[str, Any] = {
+            "structure_kind": row["structure_kind"],
+            "semantic_role": row["semantic_role"],
+            "value_type": row["value_type"],
+            "domain_kind": row["domain_kind"],
+            "enum_set_ref": row["enum_set_ref"],
+            "enum_version": row["enum_version"],
+        }
+        interface_contract: dict[str, Any] = {"value_domain": value_domain}
+        if row["hierarchy_type"] is not None:
+            interface_contract["hierarchy"] = {
+                "hierarchy_type": row["hierarchy_type"],
+                "parent_dimension_ref": row["parent_dimension_ref"],
+            }
+        interface_contract["grouping"] = {"supports_grouping": bool(row["supports_grouping"])}
+        if row["required_time_anchor_ref"] is not None:
+            interface_contract["time_derived_requirement"] = {
+                "required_time_anchor_ref": row["required_time_anchor_ref"],
+            }
+        return {
+            "dimension_contract_id": row["dimension_contract_id"],
+            "header": {
+                "dimension_ref": row["dimension_ref"],
+                "display_name": row["display_name"],
+                "description": row["description"],
+                "dimension_contract_version": row["dimension_contract_version"],
+            },
+            "interface_contract": interface_contract,
+            "status": row["status"],
+            "revision": row["revision"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    def _row_to_time_semantic(self, row: dict[str, Any]) -> dict[str, Any]:
+        semantic_roles: list[str] = []
+        if row["business_anchor"]:
+            semantic_roles.append("business_anchor")
+        if row["measurement"]:
+            semantic_roles.append("measurement")
+        if row["operational_support"]:
+            semantic_roles.append("operational_support")
+        return {
+            "time_contract_id": row["time_contract_id"],
+            "header": {
+                "time_ref": row["time_ref"],
+                "display_name": row["display_name"],
+                "description": row["description"],
+                "semantic_roles": semantic_roles,
+                "time_contract_version": row["time_contract_version"],
+            },
+            "status": row["status"],
+            "revision": row["revision"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    def _row_to_enum_set(self, row: dict[str, Any]) -> dict[str, Any]:
+        version_rows = self.metadata.query_rows(
+            """
+            SELECT enum_set_version_id, enum_version
+            FROM semantic_enum_set_versions
+            WHERE enum_set_contract_id = ?
+            ORDER BY enum_version
+            """,
+            [row["enum_set_contract_id"]],
+        )
+        versions: list[dict[str, Any]] = []
+        for version_row in version_rows:
+            value_rows = self.metadata.query_rows(
+                """
+                SELECT value_key, raw_value, label, aliases_json
+                FROM semantic_enum_set_values
+                WHERE enum_set_version_id = ?
+                ORDER BY position
+                """,
+                [version_row["enum_set_version_id"]],
+            )
+            versions.append(
+                {
+                    "enum_version": version_row["enum_version"],
+                    "values": [
+                        {
+                            "value_key": value_row["value_key"],
+                            "raw_value": json.loads(value_row["raw_value"]),
+                            "label": value_row["label"],
+                            "aliases": json.loads(value_row["aliases_json"]) or None,
+                        }
+                        for value_row in value_rows
+                    ],
+                }
+            )
+        return {
+            "enum_set_contract_id": row["enum_set_contract_id"],
+            "header": {
+                "enum_set_ref": row["enum_set_ref"],
+                "value_type": row["value_type"],
+            },
+            "display_name": row["display_name"],
+            "description": row["description"],
+            "versions": versions,
             "status": row["status"],
             "revision": row["revision"],
             "created_at": row["created_at"],

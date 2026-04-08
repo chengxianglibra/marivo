@@ -14,6 +14,9 @@ Related design docs:
 
 - `docs/semantic/entity-schema-contract.zh.md`
 - `docs/semantic/metric-v2-schema.zh.md`
+- `docs/semantic/dimension-schema-contract.zh.md`
+- `docs/semantic/time-schema-contract.zh.md`
+- `docs/semantic/enum-set-schema-contract.zh.md`
 - `docs/semantic/process-object-schema.zh.md`
 - `docs/semantic/typed-binding-contract.zh.md`
 - `docs/semantic/compiler-compatibility-profile.zh.md`
@@ -39,6 +42,46 @@ Related design docs:
 | `GET` | `/semantic/metrics/{metric_id}` | Get a typed metric |
 | `PUT` | `/semantic/metrics/{metric_id}` | Update a typed metric |
 | `POST` | `/semantic/metrics/{metric_id}/publish` | Publish a typed metric |
+
+### Process Objects
+
+| Method | Path | Description |
+| --- | --- | --- |
+| `POST` | `/semantic/process-objects` | Create a process object |
+| `GET` | `/semantic/process-objects` | List process objects |
+| `GET` | `/semantic/process-objects/{process_contract_id}` | Get a process object |
+| `PUT` | `/semantic/process-objects/{process_contract_id}` | Update a process object |
+| `POST` | `/semantic/process-objects/{process_contract_id}/publish` | Publish a process object |
+
+### Dimensions
+
+| Method | Path | Description |
+| --- | --- | --- |
+| `POST` | `/semantic/dimensions` | Create a dimension |
+| `GET` | `/semantic/dimensions` | List dimensions |
+| `GET` | `/semantic/dimensions/{dimension_contract_id}` | Get a dimension |
+| `PUT` | `/semantic/dimensions/{dimension_contract_id}` | Update a dimension |
+| `POST` | `/semantic/dimensions/{dimension_contract_id}/publish` | Publish a dimension |
+
+### Time Semantics
+
+| Method | Path | Description |
+| --- | --- | --- |
+| `POST` | `/semantic/time` | Create a time semantic |
+| `GET` | `/semantic/time` | List time semantics |
+| `GET` | `/semantic/time/{time_contract_id}` | Get a time semantic |
+| `PUT` | `/semantic/time/{time_contract_id}` | Update a time semantic |
+| `POST` | `/semantic/time/{time_contract_id}/publish` | Publish a time semantic |
+
+### Enum Sets
+
+| Method | Path | Description |
+| --- | --- | --- |
+| `POST` | `/semantic/enum-sets` | Create an enum set |
+| `GET` | `/semantic/enum-sets` | List enum sets |
+| `GET` | `/semantic/enum-sets/{enum_set_contract_id}` | Get an enum set |
+| `PUT` | `/semantic/enum-sets/{enum_set_contract_id}` | Update an enum set |
+| `POST` | `/semantic/enum-sets/{enum_set_contract_id}/publish` | Publish an enum set |
 
 ### Bindings
 
@@ -258,6 +301,100 @@ Notes:
 
 - Legacy metric payloads such as `definition_sql`, `dimensions`, `grain`, and `measure_type` are rejected on the HTTP route.
 - Family-specific payload shape is determined by `header.metric_family` and `payload.metric_family`.
+
+## Process / Dimension / Time / Enum Set Contracts
+
+All four object families follow the same lifecycle and envelope conventions as entities and metrics:
+
+- create, get, update, and publish return the object detail payload directly
+- list returns `{"items": [...], "total": n}`
+- `status` is the shared lifecycle filter/query parameter
+- invalid request shape returns `422`
+- unknown object id returns `404`
+
+Representative paths:
+
+- `POST /semantic/process-objects`
+- `POST /semantic/dimensions`
+- `POST /semantic/time`
+- `POST /semantic/enum-sets`
+
+Representative create payload fragments:
+
+```json
+{
+  "header": {
+    "process_ref": "process.new_user_cohort",
+    "process_type": "cohort_definition",
+    "process_contract_version": "process.v2"
+  },
+  "interface_contract": {
+    "contract_mode": "context_provider",
+    "context_kind": "cohort_membership",
+    "population_subject_ref": "subject.user",
+    "membership_cardinality": "exclusive_one",
+    "anchor_time_ref": "time.signup_time",
+    "exported_dimension_refs": ["dimension.signup_week"]
+  },
+  "payload": {
+    "process_type": "cohort_definition",
+    "cohort_key": "new_users",
+    "entry_population": {"base_population_ref": "population.users"},
+    "cohort_anchor_ref": "time.signup_time"
+  }
+}
+```
+
+```json
+{
+  "header": {
+    "dimension_ref": "dimension.signup_week",
+    "display_name": "Signup Week",
+    "dimension_contract_version": "dimension.v1"
+  },
+  "interface_contract": {
+    "value_domain": {
+      "structure_kind": "time_derived",
+      "value_type": "string",
+      "domain_kind": "open"
+    },
+    "time_derived_requirement": {
+      "required_time_anchor_ref": "time.signup_time"
+    }
+  }
+}
+```
+
+```json
+{
+  "header": {
+    "time_ref": "time.signup_time",
+    "display_name": "Signup Time",
+    "semantic_roles": ["business_anchor", "measurement"],
+    "time_contract_version": "time.v1"
+  }
+}
+```
+
+```json
+{
+  "header": {
+    "enum_set_ref": "enum.country_code",
+    "value_type": "string"
+  },
+  "display_name": "Country Code",
+  "description": "ISO country codes",
+  "versions": [
+    {
+      "enum_version": "v1",
+      "values": [
+        {"value_key": "CN", "raw_value": "CN", "label": "China"},
+        {"value_key": "US", "raw_value": "US", "label": "United States"}
+      ]
+    }
+  ]
+}
+```
 
 ## Error Semantics
 

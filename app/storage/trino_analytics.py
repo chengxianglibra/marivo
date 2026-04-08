@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from app.storage.analytics import AnalyticsEngine
@@ -39,6 +40,7 @@ class TrinoAnalyticsEngine(AnalyticsEngine):
     def _connect(self) -> Any:
         from trino.dbapi import connect
 
+        connect_fn: Callable[..., Any] = connect
         _reserved_prefixes = ("x-trino-",)
         safe_headers: dict[str, str] | None = None
         if self.http_headers:
@@ -69,7 +71,7 @@ class TrinoAnalyticsEngine(AnalyticsEngine):
             kwargs["http_headers"] = safe_headers
         if self.legacy_prepared_statements is not None:
             kwargs["legacy_prepared_statements"] = self.legacy_prepared_statements
-        return connect(**kwargs)
+        return connect_fn(**kwargs)
 
     def initialize(self) -> None:
         conn = self._connect()
