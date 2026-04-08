@@ -645,6 +645,67 @@ METADATA_DDL: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_field_bindings_binding ON field_bindings(binding_id)",
     "CREATE INDEX IF NOT EXISTS idx_join_relations_binding ON join_relations(binding_id)",
     "CREATE INDEX IF NOT EXISTS idx_consumption_policies_binding ON consumption_policies(binding_id)",
+    # -------------------------------------------------------------------------
+    # Compiler compatibility profiles (Phase 1, Task 1.4)
+    # -------------------------------------------------------------------------
+    # NOTE: subject_ref FK validation deferred to Phase 3 service layer.
+    # SQLite cannot enforce FK across multiple tables based on subject_kind,
+    # so the service layer must validate that subject_ref points to an
+    # existing semantic object (metric/process/binding) before insert.
+    """
+    CREATE TABLE IF NOT EXISTS compiler_compatibility_profiles (
+        profile_id              TEXT PRIMARY KEY,
+        profile_ref             TEXT NOT NULL UNIQUE,
+        profile_kind            TEXT NOT NULL CHECK (
+            profile_kind IN ('requirement', 'capability')
+        ),
+        schema_version          TEXT NOT NULL DEFAULT 'v1' CHECK (schema_version = 'v1'),
+        subject_kind            TEXT NOT NULL CHECK (
+            subject_kind IN ('metric', 'process', 'binding')
+        ),
+        subject_ref             TEXT NOT NULL,
+        requirement_json        TEXT NOT NULL DEFAULT '{}',
+        capability_json         TEXT NOT NULL DEFAULT '{}',
+        status                  TEXT NOT NULL DEFAULT 'draft' CHECK (
+            status IN ('draft', 'published', 'deprecated')
+        ),
+        revision                INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+        created_at              TEXT NOT NULL,
+        updated_at              TEXT NOT NULL,
+        CHECK (substr(profile_ref, 1, 17) = 'compiler_profile.'),
+        CHECK (
+            CASE
+                WHEN subject_kind = 'metric' THEN substr(subject_ref, 1, 7) = 'metric.'
+                WHEN subject_kind = 'process' THEN substr(subject_ref, 1, 8) = 'process.'
+                WHEN subject_kind = 'binding' THEN substr(subject_ref, 1, 8) = 'binding.'
+                ELSE 0
+            END
+        ),
+        CHECK (
+            (subject_kind = 'metric' AND profile_kind = 'requirement')
+            OR (subject_kind = 'process' AND profile_kind = 'capability')
+            OR (subject_kind = 'binding' AND profile_kind = 'capability')
+        ),
+        CHECK (
+            CASE
+                WHEN profile_kind = 'requirement' THEN requirement_json != '{}'
+                WHEN profile_kind = 'capability' THEN capability_json != '{}'
+                ELSE 0
+            END
+        ),
+        CHECK (
+            CASE
+                WHEN profile_kind = 'requirement' THEN capability_json = '{}'
+                WHEN profile_kind = 'capability' THEN requirement_json = '{}'
+                ELSE 0
+            END
+        )
+    )
+    """,
+    # Compiler compatibility profile indexes
+    "CREATE INDEX IF NOT EXISTS idx_compiler_compatibility_profiles_ref ON compiler_compatibility_profiles(profile_ref)",
+    "CREATE INDEX IF NOT EXISTS idx_compiler_compatibility_profiles_subject ON compiler_compatibility_profiles(subject_kind, subject_ref)",
+    "CREATE INDEX IF NOT EXISTS idx_compiler_compatibility_profiles_status ON compiler_compatibility_profiles(status)",
     """
     CREATE TABLE IF NOT EXISTS sync_jobs (
         job_id          TEXT PRIMARY KEY,
