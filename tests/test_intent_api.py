@@ -27,6 +27,7 @@ from app.api.models import (
     ObserveRequest,
 )
 from app.main import create_app
+from tests.semantic_test_helpers import create_legacy_metric, publish_legacy_metric
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 # ── Model-level validation tests (no HTTP) ───────────────────────────────────
@@ -579,20 +580,15 @@ class IntentEndpointWithSemanticLayerTests(unittest.TestCase):
         cls.client.post(f"/sources/{cls.source_id}/sync")
 
         # Create a semantic metric (uses watch_events table from demo data)
-        r = cls.client.post(
-            "/semantic/metrics",
-            json={
-                "name": "test_observe_metric",
-                "display_name": "Test Observe Metric",
-                "definition_sql": "COUNT(*)",
-                "dimensions": ["event_date"],
-                "grain": "day",
-            },
+        metric = create_legacy_metric(
+            cls.client,
+            name="test_observe_metric",
+            display_name="Test Observe Metric",
+            definition_sql="COUNT(*)",
+            dimensions=["event_date"],
+            grain="day",
         )
-        if r.status_code == 200:
-            cls.metric_id = r.json()["metric_id"]
-        else:
-            cls.metric_id = None
+        cls.metric_id = metric["metric_id"]
 
     def test_observe_with_real_metric_executes_or_404_if_not_mapped(self) -> None:
         """Observe succeeds if metric is mapped to a table, or returns 422 if not mapped."""
@@ -692,20 +688,16 @@ class ObserveTypedArtifactTests(unittest.TestCase):
         )
 
         # Create and publish a semantic metric backed by watch_events
-        r = cls.client.post(
-            "/semantic/metrics",
-            json={
-                "name": "observe_test_dau",
-                "display_name": "DAU (observe test)",
-                "definition_sql": "COUNT(DISTINCT user_id)",
-                "dimensions": ["event_date", "platform"],
-                "grain": "day",
-            },
+        metric = create_legacy_metric(
+            cls.client,
+            name="observe_test_dau",
+            display_name="DAU (observe test)",
+            definition_sql="COUNT(DISTINCT user_id)",
+            dimensions=["event_date", "platform"],
+            grain="day",
         )
-        if r.status_code != 200:
-            return
-        metric_id = r.json()["metric_id"]
-        cls.client.post(f"/semantic/metrics/{metric_id}/publish")
+        metric_id = metric["metric_id"]
+        publish_legacy_metric(cls.client, metric_id)
         cls.metric_id = metric_id
 
         # Create mapping: metric → watch_events source_object
@@ -1061,21 +1053,16 @@ class CompareIntentTests(unittest.TestCase):
             [obj_id, source_id, now, now],
         )
 
-        r = cls.client.post(
-            "/semantic/metrics",
-            json={
-                "name": "compare_test_dau",
-                "display_name": "DAU (compare test)",
-                "definition_sql": "COUNT(DISTINCT user_id)",
-                "dimensions": ["event_date", "platform"],
-                "grain": "day",
-            },
+        metric = create_legacy_metric(
+            cls.client,
+            name="compare_test_dau",
+            display_name="DAU (compare test)",
+            definition_sql="COUNT(DISTINCT user_id)",
+            dimensions=["event_date", "platform"],
+            grain="day",
         )
-        if r.status_code != 200:
-            cls.skipped = True
-            return
-        metric_id = r.json()["metric_id"]
-        cls.client.post(f"/semantic/metrics/{metric_id}/publish")
+        metric_id = metric["metric_id"]
+        publish_legacy_metric(cls.client, metric_id)
         cls.client.post(
             "/semantic/mappings",
             json={
@@ -1087,19 +1074,17 @@ class CompareIntentTests(unittest.TestCase):
         )
 
         # Create a second metric for mismatch tests
-        r2 = cls.client.post(
-            "/semantic/metrics",
-            json={
-                "name": "compare_test_other",
-                "display_name": "Other metric",
-                "definition_sql": "COUNT(*)",
-                "dimensions": ["event_date"],
-                "grain": "day",
-            },
+        other_metric = create_legacy_metric(
+            cls.client,
+            name="compare_test_other",
+            display_name="Other metric",
+            definition_sql="COUNT(*)",
+            dimensions=["event_date"],
+            grain="day",
         )
-        cls.other_metric_id = r2.json().get("metric_id") if r2.status_code == 200 else None
+        cls.other_metric_id = other_metric["metric_id"]
         if cls.other_metric_id:
-            cls.client.post(f"/semantic/metrics/{cls.other_metric_id}/publish")
+            publish_legacy_metric(cls.client, cls.other_metric_id)
             cls.client.post(
                 "/semantic/mappings",
                 json={
@@ -1528,21 +1513,16 @@ class DecomposeIntentTests(unittest.TestCase):
             [obj_id, source_id, now, now],
         )
 
-        r = cls.client.post(
-            "/semantic/metrics",
-            json={
-                "name": "decompose_test_dau",
-                "display_name": "DAU (decompose test)",
-                "definition_sql": "COUNT(DISTINCT user_id)",
-                "dimensions": ["event_date", "platform"],
-                "grain": "day",
-            },
+        metric = create_legacy_metric(
+            cls.client,
+            name="decompose_test_dau",
+            display_name="DAU (decompose test)",
+            definition_sql="COUNT(DISTINCT user_id)",
+            dimensions=["event_date", "platform"],
+            grain="day",
         )
-        if r.status_code != 200:
-            cls.skipped = True
-            return
-        metric_id = r.json()["metric_id"]
-        cls.client.post(f"/semantic/metrics/{metric_id}/publish")
+        metric_id = metric["metric_id"]
+        publish_legacy_metric(cls.client, metric_id)
         cls.client.post(
             "/semantic/mappings",
             json={

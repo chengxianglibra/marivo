@@ -13,6 +13,13 @@ from app.time_axis_metadata import (
     PHASE1_TIMEZONE_STRATEGY,
     normalize_time_capabilities,
 )
+from tests.semantic_test_helpers import (
+    create_legacy_entity,
+    create_legacy_metric,
+    patch_legacy_entity_properties,
+    publish_legacy_entity,
+    publish_legacy_metric,
+)
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 
@@ -95,35 +102,31 @@ class TimeAxisMetadataProviderTests(unittest.TestCase):
         ).json()["source_id"]
         cls.client.post(f"/sources/{source_id}/sync")
 
-        entity_resp = cls.client.post(
-            "/semantic/entities",
-            json={
-                "name": "session_tsu11",
-                "display_name": "Session",
-                "keys": ["session_id"],
-                "properties": {
-                    "time_capabilities": {
-                        "analysis_time": {"fallback_date_column": "event_date"},
-                        "default_compare_grain": "day",
-                    },
-                },
+        entity = create_legacy_entity(
+            cls.client,
+            name="session_tsu11",
+            display_name="Session",
+            keys=["session_id"],
+            properties={
+                "time_capabilities": {
+                    "analysis_time": {"fallback_date_column": "event_date"},
+                    "default_compare_grain": "day",
+                }
             },
         )
-        cls.entity_id = entity_resp.json()["entity_id"]
-        cls.client.post(f"/semantic/entities/{cls.entity_id}/publish")
+        cls.entity_id = entity["entity_id"]
+        publish_legacy_entity(cls.client, cls.entity_id)
 
-        metric_resp = cls.client.post(
-            "/semantic/metrics",
-            json={
-                "name": "watch_time_tsu11",
-                "display_name": "Watch Time",
-                "definition_sql": "avg(play_duration_seconds)",
-                "dimensions": ["platform", "event_date"],
-                "entity_id": cls.entity_id,
-            },
+        metric = create_legacy_metric(
+            cls.client,
+            name="watch_time_tsu11",
+            display_name="Watch Time",
+            definition_sql="avg(play_duration_seconds)",
+            dimensions=["platform", "event_date"],
+            entity_id=cls.entity_id,
         )
-        cls.metric_name = metric_resp.json()["name"]
-        cls.client.post(f"/semantic/metrics/{metric_resp.json()['metric_id']}/publish")
+        cls.metric_name = metric["name"]
+        publish_legacy_metric(cls.client, metric["metric_id"])
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -181,13 +184,11 @@ class TimeAxisMetadataProviderTests(unittest.TestCase):
         self.assertEqual(context.timezone_note, PHASE1_TIMEZONE_NOTE)
 
     def test_provider_rejects_invalid_entity_time_capabilities(self) -> None:
-        patch_resp = self.client.patch(
-            f"/semantic/entities/{self.entity_id}/properties",
-            json={
-                "properties": {"time_capabilities": {"partition_time": {"hour_column": "log_hour"}}}
-            },
+        patch_legacy_entity_properties(
+            self.client,
+            self.entity_id,
+            {"time_capabilities": {"partition_time": {"hour_column": "log_hour"}}},
         )
-        self.assertEqual(patch_resp.status_code, 200)
 
         with self.assertRaisesRegex(
             ValueError,
@@ -198,15 +199,13 @@ class TimeAxisMetadataProviderTests(unittest.TestCase):
                 metric_name=self.metric_name,
             )
 
-        repair_resp = self.client.patch(
-            f"/semantic/entities/{self.entity_id}/properties",
-            json={
-                "properties": {
-                    "time_capabilities": {
-                        "analysis_time": {"fallback_date_column": "event_date"},
-                        "default_compare_grain": "day",
-                    }
+        patch_legacy_entity_properties(
+            self.client,
+            self.entity_id,
+            {
+                "time_capabilities": {
+                    "analysis_time": {"fallback_date_column": "event_date"},
+                    "default_compare_grain": "day",
                 }
             },
         )
-        self.assertEqual(repair_resp.status_code, 200)

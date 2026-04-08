@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from app.main import create_app
+from tests.semantic_test_helpers import create_legacy_entity
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 
@@ -239,10 +240,13 @@ class SourceRegistryTests(unittest.TestCase):
         objects = self.client.get(f"/sources/{source_id}/objects?type=table").json()
         object_id = objects[0]["object_id"]
         # Create an entity + mapping
-        ent_resp = self.client.post(
-            "/semantic/entities", json={"name": "tmp_ent", "display_name": "Tmp", "keys": ["id"]}
+        entity = create_legacy_entity(
+            self.client,
+            name="tmp_ent",
+            display_name="Tmp",
+            keys=["id"],
         )
-        entity_id = ent_resp.json()["entity_id"]
+        entity_id = entity["entity_id"]
         self.client.post(
             "/semantic/mappings",
             json={
