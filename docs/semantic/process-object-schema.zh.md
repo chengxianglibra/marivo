@@ -117,7 +117,7 @@ process object 与 metric 的主兼容关系不应依赖：
 - process object 先声明稳定 `interface_contract`
 - metric / intent 先声明自己真正依赖的结构化前提
 - validator 先基于结构化接口判断是否兼容
-- 若未来仍需 capability 词表，应独立成 compiler compatibility profile，而不是直接混入 public schema
+- 若仍需 capability 词表，应独立成 compiler compatibility profile，而不是直接混入 public schema；其发布形态与字段边界见 `docs/semantic/compiler-compatibility-profile.zh.md`
 
 标签可以保留为 catalog 搜索辅助元数据，但不应是主校验机制。
 
@@ -282,23 +282,22 @@ class StateSpec(TypedDict):
 
 ### Capability 归属说明
 
-**保留在 public contract 中：**
-
-- `provided_capabilities`：显式声明 process 提供的能力
-- `comparison_contract`：显式声明比较语义
-
-**由 compiler 推导（不进入 public contract）：**
-
-- `time_projection_support`：由 `anchor_time_ref` 存在性推导
-- `inference_support`：由 `contract_mode` + `context_kind` 推导
-
-**推导规则（compiler 负责）：**
+**由 compiler 推导（不进入 public contract，也不进入 profile）：**
 
 | 推导能力 | 推导规则 |
 |---------|---------|
 | `supports_time_projection` | `anchor_time_ref` exists |
-| `supports_experiment_inference` | `context_kind` == "experiment_split" |
-| `supports_cohort_inference` | `context_kind` == "cohort_membership" |
+| `supports_experiment_inference` | `context_kind == "experiment_split"` |
+| `supports_cohort_inference` | `context_kind == "cohort_membership"` |
+
+**由 compiler profile 补充（无法推导，见 `docs/semantic/compiler-compatibility-profile.zh.md`）：**
+
+| 补充内容 | 说明 |
+|---------|------|
+| `inferential_ready` | process 是否可进入 validate/test 流程 |
+| `supported_sample_summaries` | process 支持哪种 inferential summary |
+
+本文不重复定义这些 profile 结构。
 
 ### ProcessInterfaceContract
 
@@ -342,9 +341,9 @@ ProcessInterfaceContract: TypeAlias = ContextProcessContract | EntityProcessCont
 
 ### 设计说明
 
-`interface_contract` 的作用，是把各 subtype 的“下游接口”统一起来，但不要求所有对象都伪装成“实体发射器”。
+`interface_contract` 的作用，是把各 subtype 的”下游接口”统一起来，但不要求所有对象都伪装成”实体发射器”。
 
-其中 `exported_dimension_refs` 只声明“这个过程会稳定导出哪些维度轴”，维度值域、层级与取值治理仍由独立的 dimension contract 定义；若导出维度是 `time_derived`，则 process 的 `anchor_time_ref` 或窗口显式 override 后实际暴露的窗口锚点，还必须满足该 dimension 的 `required_time_anchor_ref`。
+其中 `exported_dimension_refs` 只声明”这个过程会稳定导出哪些维度轴”，维度值域、层级与取值治理仍由独立的 dimension contract 定义；若导出维度是 `time_derived`，则 process 的 `anchor_time_ref` 或窗口显式 override 后实际暴露的窗口锚点，还必须满足该 dimension 的 `required_time_anchor_ref`。
 
 例如：
 
@@ -354,7 +353,9 @@ ProcessInterfaceContract: TypeAlias = ContextProcessContract | EntityProcessCont
 - session 主要提供 `session_partition`
 - lifecycle 主要提供 `state_assignment`，有时再提供 `state_transition`
 
-这样，validator 可以先基于统一 contract 做大部分结构判断，只在必要时读取 subtype payload。若未来仍需要更细粒度 capability / inference / comparison 词表，建议独立成 compiler profile，并由你再决定最终发布形态。
+这样，validator 可以先基于统一 contract 做大部分结构判断，只在必要时读取 subtype payload。
+
+若仍需要更细粒度 inferential 能力声明（如 `inferential_ready`、`supported_sample_summaries`），应放入独立的 compiler compatibility profile，见 `docs/semantic/compiler-compatibility-profile.zh.md`。
 
 ## 顶层对象类型
 
@@ -421,44 +422,23 @@ class ExperimentContext(ProcessObjectBase):
 
 `default_metric_roles` 属于更高层的 analysis package / orchestration 配置，而不属于实验过程对象的本体语义。
 
-下面的 subtype 示例为**过渡期合并视图**：其中若出现 capability / comparison / inference 一类字段，应理解为可选 compiler compatibility profile，而不是 process public contract 的必需部分。
+下面的 subtype 示例只展示 process public contract。若需要声明 inferential 能力，应通过独立 compiler profile 发布，见 `docs/semantic/compiler-compatibility-profile.zh.md`。
 
 ### 示例
 
 ```json
 {
-  "name": "experiment.exp_123",
+  "process_ref": "process.exp_123",
+  "display_name": "Experiment Exp123",
   "process_type": "experiment_context",
   "process_contract_version": "v2",
-  "quality_gate_refs": ["gate.srm", "gate.experiment_contamination"],
   "interface_contract": {
     "contract_mode": "context_provider",
     "context_kind": "experiment_split",
     "population_subject_ref": "subject.user",
     "membership_cardinality": "exclusive_one",
     "anchor_time_ref": "time.exposure_time",
-    "exported_dimension_refs": ["dimension.variant"],
-    "provided_capabilities": [
-      "population_membership",
-      "anchor_time",
-      "variant_split",
-      "sample_summary_prep"
-    ],
-    "comparison_contract": {
-      "comparable_with_same_contract": true,
-      "requires_same_anchor_semantics": true,
-      "requires_same_window_semantics": true
-    },
-    "time_projection_support": {
-      "supported": true,
-      "default_time_ref": "time.exposure_time",
-      "bucket_stability": "required"
-    },
-    "inference_support": {
-      "supports_population_split": true,
-      "supports_pairwise_comparison": true,
-      "supports_sample_summary_prep": true
-    }
+    "exported_dimension_refs": ["dimension.variant"]
   },
   "experiment_key": "exp_123",
   "variants": [
@@ -479,6 +459,22 @@ class ExperimentContext(ProcessObjectBase):
   "expected_split": {
     "treatment": 0.5,
     "control": 0.5
+  }
+}
+```
+
+若需要声明 inferential 能力，可额外发布 compiler profile：
+
+```json
+{
+  "profile_ref": "compiler_profile.experiment_exp123_capability",
+  "profile_kind": "capability",
+  "schema_version": "v1",
+  "subject_kind": "process",
+  "subject_ref": "process.exp_123",
+  "capability": {
+    "inferential_ready": true,
+    "supported_sample_summaries": ["rate_sample_summary"]
   }
 }
 ```
@@ -514,7 +510,8 @@ class CohortDefinition(ProcessObjectBase):
 
 ```json
 {
-  "name": "cohort.signup_week",
+  "process_ref": "process.signup_week",
+  "display_name": "Signup Week Cohort",
   "process_type": "cohort_definition",
   "process_contract_version": "v2",
   "interface_contract": {
@@ -522,27 +519,7 @@ class CohortDefinition(ProcessObjectBase):
     "context_kind": "cohort_membership",
     "population_subject_ref": "subject.user",
     "membership_cardinality": "exclusive_one",
-    "anchor_time_ref": "time.signup_time",
-    "provided_capabilities": [
-      "population_membership",
-      "anchor_time",
-      "windowed_observation",
-      "sample_summary_prep"
-    ],
-    "comparison_contract": {
-      "comparable_with_same_contract": true,
-      "requires_same_anchor_semantics": true,
-      "requires_same_window_semantics": true
-    },
-    "time_projection_support": {
-      "supported": true,
-      "default_time_ref": "time.signup_time",
-      "bucket_stability": "required"
-    },
-    "inference_support": {
-      "supports_pairwise_comparison": true,
-      "supports_sample_summary_prep": true
-    }
+    "anchor_time_ref": "time.signup_time"
   },
   "cohort_key": "signup_week",
   "entry_population": {
@@ -599,7 +576,8 @@ class FunnelDefinition(ProcessObjectBase):
 
 ```json
 {
-  "name": "funnel.checkout",
+  "process_ref": "process.checkout",
+  "display_name": "Checkout Funnel",
   "process_type": "funnel_definition",
   "process_contract_version": "v2",
   "interface_contract": {
@@ -609,21 +587,7 @@ class FunnelDefinition(ProcessObjectBase):
     "population_subject_ref": "subject.user",
     "subject_cardinality": "many",
     "anchor_time_ref": "time.event_time",
-    "exported_dimension_refs": ["dimension.step"],
-    "provided_capabilities": [
-      "ordered_steps",
-      "completion_state",
-      "step_latency"
-    ],
-    "comparison_contract": {
-      "comparable_with_same_contract": true,
-      "requires_same_partition_semantics": true
-    },
-    "time_projection_support": {
-      "supported": true,
-      "default_time_ref": "time.event_time",
-      "bucket_stability": "optional"
-    }
+    "exported_dimension_refs": ["dimension.step"]
   },
   "funnel_key": "checkout",
   "steps": [
@@ -680,7 +644,8 @@ class SessionContract(ProcessObjectBase):
 
 ```json
 {
-  "name": "session.video_session",
+  "process_ref": "process.video_session",
+  "display_name": "Video Session",
   "process_type": "session_contract",
   "process_contract_version": "v2",
   "interface_contract": {
@@ -689,21 +654,7 @@ class SessionContract(ProcessObjectBase):
     "emitted_grain_ref": "grain.session",
     "population_subject_ref": "subject.user",
     "subject_cardinality": "many",
-    "anchor_time_ref": "time.session_start_time",
-    "provided_capabilities": [
-      "session_partition",
-      "anchor_time",
-      "time_projection"
-    ],
-    "comparison_contract": {
-      "comparable_with_same_contract": true,
-      "requires_same_partition_semantics": true
-    },
-    "time_projection_support": {
-      "supported": true,
-      "default_time_ref": "time.session_start_time",
-      "bucket_stability": "required"
-    }
+    "anchor_time_ref": "time.session_start_time"
   },
   "session_key": "video_session",
   "event_stream_ref": "stream.video_events",
@@ -748,7 +699,8 @@ class PathPattern(ProcessObjectBase):
 
 ```json
 {
-  "name": "path.home_to_pay",
+  "process_ref": "process.home_to_pay",
+  "display_name": "Home to Pay Path",
   "process_type": "path_pattern",
   "process_contract_version": "v2",
   "interface_contract": {
@@ -757,15 +709,7 @@ class PathPattern(ProcessObjectBase):
     "emitted_grain_ref": "grain.path_match",
     "population_subject_ref": "subject.user",
     "subject_cardinality": "many",
-    "anchor_time_ref": "time.event_time",
-    "provided_capabilities": [
-      "path_match",
-      "ordered_steps"
-    ],
-    "comparison_contract": {
-      "comparable_with_same_contract": true,
-      "requires_same_partition_semantics": true
-    }
+    "anchor_time_ref": "time.event_time"
   },
   "path_key": "home_to_pay",
   "nodes": [
@@ -814,7 +758,8 @@ class LifecycleStateMachine(ProcessObjectBase):
 
 ```json
 {
-  "name": "lifecycle.user_states",
+  "process_ref": "process.user_states",
+  "display_name": "User States Lifecycle",
   "process_type": "lifecycle_state_machine",
   "process_contract_version": "v2",
   "interface_contract": {
@@ -824,21 +769,7 @@ class LifecycleStateMachine(ProcessObjectBase):
     "population_subject_ref": "subject.user",
     "subject_cardinality": "many",
     "anchor_time_ref": "time.state_eval_time",
-    "exported_dimension_refs": ["dimension.state"],
-    "provided_capabilities": [
-      "state_assignment",
-      "state_transition",
-      "time_projection"
-    ],
-    "comparison_contract": {
-      "comparable_with_same_contract": true,
-      "requires_same_anchor_semantics": true
-    },
-    "time_projection_support": {
-      "supported": true,
-      "default_time_ref": "time.state_eval_time",
-      "bucket_stability": "required"
-    }
+    "exported_dimension_refs": ["dimension.state"]
   },
   "machine_key": "user_states",
   "states": [
@@ -943,7 +874,7 @@ class LifecycleStateMachine(ProcessObjectBase):
 - process 的 `contract_mode`、`context_kind` / `entity_ref` 是否满足 metric 所需的结构化前提
 - process 的 `population_subject_ref` 是否与 metric 对齐
 - process 的 `emitted_grain_ref` 是否与 metric `observation_grain_ref` 相容（若该 process 暴露实体流）
-- 更细粒度 capability / inference / comparison 规则若存在，应由单独的 compiler profile 判定
+- 更细粒度 capability / inference / comparison 规则若存在，应由单独的 compiler compatibility profile 判定，而不是回流到 process public contract
 - 若请求维度为 `time_derived`，process 的 `anchor_time_ref` 是否满足其 `required_time_anchor_ref`
 
 必要时，再读取 subtype payload 做更细粒度检查，例如：

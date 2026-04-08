@@ -447,7 +447,7 @@ entity 通过 `stable_descriptors[*].dimension_ref` 引用 dimension。
 
 ### 与 metric 的关系
 
-metric 在最小 public contract 中不直接维护维度兼容矩阵。若系统最终需要更细的维度限制或版本 pinning，建议交给 compiler compatibility profile，而不是回写到 dimension 主 contract。
+metric 在最小 public contract 中不直接维护维度兼容矩阵。若系统需要更细的维度限制或版本 pinning，应交给 compiler compatibility profile，而不是回写到 dimension 主 contract；profile 的发布形态与 compiler 消费语义见 `docs/semantic/compiler-compatibility-profile.zh.md`。
 
 ### 与 process object 的关系
 

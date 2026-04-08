@@ -214,64 +214,16 @@ class MetricHeader(TypedDict):
 
 ### Process 兼容 profile（非 public metric schema）
 
-```python
-from typing import Literal, NotRequired, TypedDict
+若 metric 对 process 有编译期结构要求，应通过独立的 compiler compatibility profile 声明，而不是作为 metric public contract 字段。
 
+其 schema 由 `docs/semantic/compiler-compatibility-profile.zh.md` 唯一定义，主要包含：
 
-class ComparisonRequirements(TypedDict):
-    comparable_with_same_contract: NotRequired[bool | None]
-    requires_same_anchor_semantics: NotRequired[bool | None]
-    requires_same_window_semantics: NotRequired[bool | None]
-    requires_same_partition_semantics: NotRequired[bool | None]
+- `contract_modes`：metric 对 process 接口类型的要求
+- `context_kinds`：metric 对 process context kind 的要求
+- `entity_refs`：metric 对 process 实体流类型的要求
+- `population_subject_refs`：metric 对 process 总体主体的要求
 
-
-class TimeProjectionRequirements(TypedDict):
-    supported: NotRequired[bool | None]
-    bucket_stability: NotRequired[
-        Literal["required", "optional", "not_supported"] | None
-    ]
-
-
-class InferenceRequirements(TypedDict):
-    supports_population_split: NotRequired[bool | None]
-    supports_pairwise_comparison: NotRequired[bool | None]
-    supports_sample_summary_prep: NotRequired[bool | None]
-
-
-class RequiredProcessContract(TypedDict):
-    contract_modes: NotRequired[list[Literal["context_provider", "entity_stream"]] | None]
-    population_subject_refs: NotRequired[list[str] | None]
-    context_kinds: NotRequired[
-        list[Literal["cohort_membership", "experiment_split"]] | None
-    ]
-    entity_refs: NotRequired[list[str] | None]
-    emitted_grain_refs: NotRequired[list[str] | None]
-    required_capabilities: NotRequired[list[str] | None]
-    comparison_requirements: NotRequired[ComparisonRequirements | None]
-    time_projection_requirements: NotRequired[TimeProjectionRequirements | None]
-    inference_requirements: NotRequired[InferenceRequirements | None]
-```
-
-这组结构在本轮被降级为 **compiler compatibility profile** 示例，而不是 `MetricHeader` 的公共字段。是否长期保留这套 profile 以及如何发布，属于待决策项。
-
-### 统计能力 profile（非 public metric schema）
-
-```python
-from typing import Literal, NotRequired, TypedDict
-
-
-class InferentialCapabilities(TypedDict):
-    inferential_ready: bool
-    supported_sample_summaries: NotRequired[
-        list[Literal["numeric_sample_summary", "rate_sample_summary"]] | None
-    ]
-    supported_methods: NotRequired[
-        list[Literal["welch_t", "student_t", "two_proportion_z", "logrank", "auto"]]
-        | None
-    ]
-    minimum_sample_size: NotRequired[int | float | None]
-    minimum_event_count: NotRequired[int | float | None]
-```
+本文不重复定义这些结构。
 
 ### 字段说明
 
@@ -299,6 +251,7 @@ class InferentialCapabilities(TypedDict):
 - `sample_kind` 直接决定可支持的 inferential summary contract
 - `additivity` 直接影响 `compare -> decompose -> attribute` 的合法性
 - 维度兼容、process 兼容、统计能力与 freshness 等规则若需要存在，应由 compiler compatibility profile / governance context 承担，而不是回流到 public metric header
+- 上述 `RequiredProcessContract` / `InferentialCapabilities` 的地位是 **profile 子结构**，不是 metric public schema，也不是 engine dispatch plan
 
 其中命名空间应保持统一：
 
@@ -344,7 +297,13 @@ class MeasurementComponent(TypedDict):
     qualifier_refs: NotRequired[list[str] | None]
 ```
 
-`MeasurementComponent` 不再重复声明 `entity_ref`、`grain`、`time_ref`。这些 measurement identity 已由顶层 `MetricHeader` 统一给出，family payload 不应制造第二套真相。
+`MeasurementComponent` 不再重复声明 `entity_ref`、`grain`、`time_ref`。这些 measurement identity 已由顶层 `MetricHeader` 统一给出，family payload 不应制造第二套真相。因此以下字段已从 `MeasurementComponent` 中移除：
+
+- `grain`：已由 `observation_grain_ref` 统一表达
+- `field`：执行细节，不属于 public contract
+- `predicate`：执行细节，不属于 public contract
+- `dedup_key`：执行细节，不属于 public contract
+- `dedup_strategy`：执行细节，不属于 public contract
 
 ### Distribution Spec
 
@@ -400,11 +359,11 @@ class CountMetric(MetricHeader):
 
 ### 示例
 
-以下示例为**过渡期合并视图**：除 public `MetricHeader` 与 family payload 外，示例中若出现 `supported_intents`、`required_process_contract`、`inferential_capabilities` 等字段，应理解为可选 compiler compatibility profile，而不是 metric public contract 的必需字段。
+以下示例只展示 metric public contract。若需要声明对 process 的编译期要求，应通过独立 compiler profile 发布，见 `docs/semantic/compiler-compatibility-profile.zh.md`。
 
 ```json
 {
-  "name": "dau",
+  "metric_ref": "metric.dau",
   "display_name": "Daily Active Users",
   "metric_family": "count_metric",
   "population_subject_ref": "subject.user",
@@ -415,27 +374,10 @@ class CountMetric(MetricHeader):
   "aggregation_scope": "subject",
   "primary_time_ref": "time.activity_time",
   "additivity": "non_additive",
-  "supported_intents": ["observe", "compare", "detect"],
-  "supported_result_modes": ["standard", "numeric_sample_summary"],
-  "comparability_group": "active_user_metrics",
-  "quality_gate_refs": ["gate.activity_completeness"],
-  "required_process_contract": {
-    "emitted_grain_refs": ["grain.user"],
-    "time_projection_requirements": {
-      "supported": true,
-      "bucket_stability": "required"
-    }
-  },
-  "inferential_capabilities": {
-    "inferential_ready": true,
-    "supported_sample_summaries": ["numeric_sample_summary"],
-    "supported_methods": ["welch_t", "auto"]
-  },
   "metric_contract_version": "v1",
   "count_target": {
     "name": "active_users",
     "semantics": "distinct active users",
-    "grain": "user",
     "aggregation": "count_distinct",
     "measure_ref": "measure.active_user"
   }
@@ -465,7 +407,8 @@ class SumMetric(MetricHeader):
 
 ```json
 {
-  "name": "gmv",
+  "metric_ref": "metric.gmv",
+  "display_name": "GMV",
   "metric_family": "sum_metric",
   "population_subject_ref": "subject.order",
   "observed_entity_ref": "entity.order",
@@ -475,14 +418,10 @@ class SumMetric(MetricHeader):
   "aggregation_scope": "event",
   "primary_time_ref": "time.payment_time",
   "additivity": "additive",
-  "supported_intents": ["observe", "compare", "decompose", "attribute", "detect"],
-  "supported_result_modes": ["standard", "numeric_sample_summary"],
-  "comparability_group": "commerce_value_metrics",
   "metric_contract_version": "v1",
   "measure": {
     "name": "paid_amount",
     "semantics": "sum of paid amount",
-    "grain": "order",
     "aggregation": "sum",
     "measure_ref": "measure.paid_amount"
   }
@@ -521,7 +460,7 @@ class RateMetric(MetricHeader):
 
 ```json
 {
-  "name": "conversion_rate",
+  "metric_ref": "metric.conversion_rate",
   "display_name": "Conversion Rate",
   "metric_family": "rate_metric",
   "population_subject_ref": "subject.user",
@@ -532,35 +471,10 @@ class RateMetric(MetricHeader):
   "aggregation_scope": "subject",
   "primary_time_ref": "time.conversion_time",
   "additivity": "non_additive",
-  "supported_intents": ["observe", "compare", "test", "validate"],
-  "supported_result_modes": ["standard", "rate_sample_summary"],
-  "comparability_group": "experiment_primary_metrics",
-  "quality_gate_refs": ["gate.experiment_population_ready"],
-  "required_process_contract": {
-    "contract_modes": ["context_provider"],
-    "population_subject_refs": ["subject.user"],
-    "context_kinds": ["experiment_split"],
-    "required_capabilities": [
-      "population_membership",
-      "variant_split"
-    ],
-    "inference_requirements": {
-      "supports_population_split": true,
-      "supports_pairwise_comparison": true,
-      "supports_sample_summary_prep": true
-    }
-  },
-  "inferential_capabilities": {
-    "inferential_ready": true,
-    "supported_sample_summaries": ["rate_sample_summary"],
-    "supported_methods": ["two_proportion_z", "auto"],
-    "minimum_sample_size": 1000
-  },
   "metric_contract_version": "v1",
   "numerator": {
     "name": "converted_users",
     "semantics": "users who converted",
-    "grain": "user",
     "aggregation": "count_distinct",
     "measure_ref": "measure.converted_user",
     "qualifier_refs": ["predicate.converted"]
@@ -568,11 +482,27 @@ class RateMetric(MetricHeader):
   "denominator": {
     "name": "eligible_users",
     "semantics": "eligible users in analysis population",
-    "grain": "user",
     "aggregation": "count_distinct",
     "measure_ref": "measure.eligible_user"
   },
   "default_test_method": "two_proportion_z"
+}
+```
+
+若需要声明对实验 process 的编译期要求，应额外发布 compiler profile：
+
+```json
+{
+  "profile_ref": "compiler_profile.conversion_rate_requirement",
+  "profile_kind": "requirement",
+  "schema_version": "v1",
+  "subject_kind": "metric",
+  "subject_ref": "metric.conversion_rate",
+  "requirement": {
+    "contract_modes": ["context_provider"],
+    "context_kinds": ["experiment_split"],
+    "population_subject_refs": ["subject.user"]
+  }
 }
 ```
 
@@ -608,7 +538,8 @@ average metric 与 rate metric 类似，都有 numerator / denominator 结构，
 
 ```json
 {
-  "name": "avg_watch_time",
+  "metric_ref": "metric.avg_watch_time",
+  "display_name": "Average Watch Time",
   "metric_family": "average_metric",
   "population_subject_ref": "subject.user",
   "observed_entity_ref": "entity.session",
@@ -618,40 +549,16 @@ average metric 与 rate metric 类似，都有 numerator / denominator 结构，
   "aggregation_scope": "session",
   "primary_time_ref": "time.session_start_time",
   "additivity": "non_additive",
-  "supported_intents": ["observe", "compare", "detect", "test"],
-  "supported_result_modes": ["standard", "numeric_sample_summary"],
-  "comparability_group": "session_quality_metrics",
-  "required_process_contract": {
-    "contract_modes": ["entity_stream"],
-    "population_subject_refs": ["subject.user"],
-    "entity_refs": ["entity.session"],
-    "emitted_grain_refs": ["grain.session"],
-    "required_capabilities": [
-      "session_partition",
-      "time_projection"
-    ],
-    "time_projection_requirements": {
-      "supported": true,
-      "bucket_stability": "required"
-    }
-  },
-  "inferential_capabilities": {
-    "inferential_ready": true,
-    "supported_sample_summaries": ["numeric_sample_summary"],
-    "supported_methods": ["welch_t", "auto"]
-  },
   "metric_contract_version": "v1",
   "numerator": {
     "name": "total_watch_seconds",
     "semantics": "sum of watch duration",
-    "grain": "session",
     "aggregation": "sum",
     "measure_ref": "measure.watch_seconds"
   },
   "denominator": {
     "name": "session_count",
     "semantics": "count of sessions",
-    "grain": "session",
     "aggregation": "count_distinct",
     "measure_ref": "measure.session"
   }
@@ -689,7 +596,8 @@ class DistributionMetric(MetricHeader):
 
 ```json
 {
-  "name": "latency_p95",
+  "metric_ref": "metric.latency_p95",
+  "display_name": "Latency P95",
   "metric_family": "distribution_metric",
   "population_subject_ref": "subject.request",
   "observed_entity_ref": "entity.event",
@@ -699,14 +607,10 @@ class DistributionMetric(MetricHeader):
   "aggregation_scope": "event",
   "primary_time_ref": "time.request_time",
   "additivity": "non_additive",
-  "supported_intents": ["observe", "compare", "detect"],
-  "supported_result_modes": ["standard"],
-  "comparability_group": "latency_metrics",
   "metric_contract_version": "v1",
   "value_component": {
     "name": "latency_ms",
     "semantics": "request latency",
-    "grain": "event",
     "aggregation": "mean",
     "measure_ref": "measure.latency_ms"
   },
@@ -752,7 +656,8 @@ class ScoreMetric(MetricHeader):
 
 ```json
 {
-  "name": "fraud_score",
+  "metric_ref": "metric.fraud_score",
+  "display_name": "Fraud Score",
   "metric_family": "score_metric",
   "population_subject_ref": "subject.user",
   "observed_entity_ref": "entity.user",
@@ -762,14 +667,10 @@ class ScoreMetric(MetricHeader):
   "aggregation_scope": "subject",
   "primary_time_ref": "time.score_time",
   "additivity": "non_additive",
-  "supported_intents": ["observe", "compare", "detect"],
-  "supported_result_modes": ["standard"],
-  "comparability_group": "risk_score_metrics",
   "metric_contract_version": "v1",
   "score_source": {
     "name": "fraud_score_value",
     "semantics": "precomputed fraud score",
-    "grain": "user",
     "aggregation": "mean",
     "measure_ref": "measure.fraud_score"
   },
@@ -811,7 +712,8 @@ class SurvivalMetric(MetricHeader):
 
 ```json
 {
-  "name": "time_to_churn",
+  "metric_ref": "metric.time_to_churn",
+  "display_name": "Time to Churn",
   "metric_family": "survival_metric",
   "population_subject_ref": "subject.user",
   "observed_entity_ref": "entity.user",
@@ -821,28 +723,6 @@ class SurvivalMetric(MetricHeader):
   "aggregation_scope": "subject",
   "primary_time_ref": "time.churn_eval_time",
   "additivity": "non_additive",
-  "supported_intents": ["observe", "compare", "test"],
-  "supported_result_modes": ["standard"],
-  "comparability_group": "retention_survival_metrics",
-  "required_process_contract": {
-    "contract_modes": ["context_provider"],
-    "population_subject_refs": ["subject.user"],
-    "context_kinds": ["cohort_membership"],
-    "required_capabilities": [
-      "population_membership",
-      "anchor_time",
-      "windowed_observation"
-    ],
-    "comparison_requirements": {
-      "comparable_with_same_contract": true,
-      "requires_same_anchor_semantics": true,
-      "requires_same_window_semantics": true
-    }
-  },
-  "inferential_capabilities": {
-    "inferential_ready": true,
-    "supported_methods": ["logrank", "auto"]
-  },
   "metric_contract_version": "v1",
   "survival_spec": {
     "origin_time_ref": "time.signup_time",

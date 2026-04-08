@@ -385,7 +385,7 @@ class IrInputSnapshot(TypedDict):
 - `MetricSemanticSnapshot` → 用 `MetricRefSnapshot` 替代
 - `ProcessSemanticSnapshot` → 用 `ProcessRefSnapshot` 替代
 - `TimeResolutionSnapshot` → 删除，IR 直接引用 `time.*` refs
-- `AssetCarrierSnapshot` → carrier 信息在 binding 中，不需要独立 snapshot
+- `AssetCarrierSnapshot` → 删除；carrier grounding 已并入 binding，并可直接指向 `source_object`
 - `ArtifactRefSnapshot` → 用 binding ref 替代
 
 **为什么使用引用而非复制？**
@@ -393,13 +393,6 @@ class IrInputSnapshot(TypedDict):
 - 避免"双真相"问题（snapshot 与 catalog 对象不一致）
 - IR 更轻量，只包含编译时必要的信息
 - Catalog 对象修改不需要同步更新 IR
-    processes: NotRequired[list[ProcessSemanticSnapshot] | None]
-    bindings: NotRequired[list[BindingResolutionSnapshot] | None]
-    assets: NotRequired[list[AssetCarrierSnapshot] | None]
-    upstream_refs: NotRequired[list[ArtifactRefSnapshot] | None]
-    intent_request: IntentRequestSnapshot
-    time_resolution: NotRequired[TimeResolutionSnapshot | None]
-```
 
 说明：
 
@@ -407,8 +400,8 @@ class IrInputSnapshot(TypedDict):
 - 时间相关解析结果应显式进入 typed snapshot，而不是等 lowering 时再从自由字符串重建
 - `resolved_filter_time_ref` 只表示 request `time_scope` 的最终过滤目标，不替代 metric / process 自身原有的时间引用
 - `upstream_refs` 明确承接 typed ref 入口，而不是只留字符串列表
-- `bindings` / `assets` 让 IR 输入快照显式保留 physical grounding，而不回退到裸 physical names
-- compiler profile / governance decision 若需要保留，应作为单独的 compile artifacts 或 snapshot refs 存在，而不应在 IR 中重新定义一套 process/metric 语义结构
+- `bindings` 让 IR 输入快照显式保留 physical grounding，而不回退到裸 physical names
+- compiler profile / governance decision 若需要保留，应作为单独的 compile artifacts 或 snapshot refs 存在，而不应在 IR 中重新定义一套 process/metric 语义结构；profile 本体定义见 `docs/semantic/compiler-compatibility-profile.zh.md`
 
 ### 3. Artifact 与 Binding 模型
 
@@ -453,7 +446,8 @@ class OutputBinding(TypedDict):
 
 class CarrierBinding(TypedDict):
     binding_ref: str
-    asset_ref: str
+    source_object_ref: NotRequired[str | None]
+    carrier_locator: NotRequired[str | None]
     consumed_surface_refs: NotRequired[list[str] | None]
 ```
 
@@ -462,7 +456,7 @@ class CarrierBinding(TypedDict):
 - artifact 是 IR 中的一等对象，不再只是 `lineage_refs`
 - binding 必须按 slot 和语义角色建模，不能只靠 `depends_on`
 - typed-ref intent 的组合关系通过 binding 表达，而不是通过重建 root anchors
-- physical grounding 通过 `CarrierBinding` 表达，而不是通过裸表名 / 裸列名表达
+- physical grounding 通过 `CarrierBinding` 表达，并直接锚定到 `source_object_ref` 或可解析的 `carrier_locator`，而不是通过裸表名 / 裸列名表达
 
 ### 4. Node Header
 

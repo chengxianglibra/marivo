@@ -9,6 +9,7 @@
 - `docs/semantic/metric-process-contract.zh.md`
 - `docs/semantic/metric-v2-schema.zh.md`
 - `docs/semantic/process-object-schema.zh.md`
+- `docs/semantic/compiler-compatibility-profile.zh.md`
 - `docs/semantic/time-schema-contract.zh.md`
 - `docs/semantic/typed-binding-contract.zh.md`
 - `docs/semantic/ir-schema-contract.zh.md`
@@ -72,6 +73,7 @@ compiler 必须保持以下分工：
 - `metric` 与 `process object` 是 catalog 中受治理的语义对象
 - `binding` 是 compiler 在对象解析阶段补全的 grounding 输入，并携带所需 carrier metadata
 - governance context 包括 quality / freshness / engine capability / policy 信息
+- compiler compatibility profile 的 envelope、发布形态与缺失时语义由 `docs/semantic/compiler-compatibility-profile.zh.md` 定义
 - object public contract 与 compiler compatibility profile 应显式分层，不能混作同一份 schema
 
 ### 输入槽位
@@ -266,7 +268,18 @@ type NormalizedRequest = {
 - `value_semantics`
 - `additivity`
 
-更细粒度的 intent/result mode/process compatibility/inference/freshness 规则，若需要参与编译，应从独立的 compiler profile 或 governance context 中读取，而不是假定它们属于 metric public contract。
+以下能力由 compiler 从核心字段推导，不进入 profile：
+
+| 推导能力 | 推导规则 |
+|---------|---------|
+| `supports_observe` | 始终为 true |
+| `supports_compare` | `additivity != null` AND `primary_time_ref exists` |
+| `supports_test` | `sample_kind in ["numeric", "rate", "binary"]` |
+| `supports_decompose` | `additivity in ["additive", "semi_additive"]` |
+| `supports_detect` | `anchor_time_ref exists` in process OR metric |
+| `supports_validate` | `sample_kind == "rate"` AND `anchor_time_ref exists` in process |
+
+若需要声明对 process 的编译期要求（如 `contract_modes`、`context_kinds`），应通过独立的 compiler compatibility profile 发布，见 `docs/semantic/compiler-compatibility-profile.zh.md`。
 
 ### process object -> normalized process contract
 
@@ -282,7 +295,15 @@ type NormalizedRequest = {
 - `anchor_time_ref`
 - `exported_dimension_refs`
 
-更细粒度 capability / comparison / inference 规则，若需要参与编译，应来自单独的 compiler profile。
+以下能力由 compiler 从核心字段推导，不进入 profile：
+
+| 推导能力 | 推导规则 |
+|---------|---------|
+| `supports_time_projection` | `anchor_time_ref exists` |
+| `supports_experiment_inference` | `context_kind == "experiment_split"` |
+| `supports_cohort_inference` | `context_kind == "cohort_membership"` |
+
+若需要声明 inferential 能力（如 `inferential_ready`、`supported_sample_summaries`），应通过独立的 compiler compatibility profile 发布，见 `docs/semantic/compiler-compatibility-profile.zh.md`。
 
 ### dimension -> normalized dimension contract
 
@@ -320,18 +341,19 @@ type NormalizedRequest = {
 
 - `binding_ref`
 - `bound_object_ref`
-- `asset_refs`
-- `target_path -> semantic_ref -> asset_surface_ref` 映射
+- `carrier_bindings`
+- `BindingTarget -> semantic_ref -> surface_ref` 映射
 - `join_relations`
 - `consumption_policies`
 
-### asset -> normalized carrier contract
+### carrier/source_object -> normalized grounding contract
 
 最少应抽取：
 
-- `asset_ref`
-- `asset_kind`
-- `native_locator`
+- `binding_key`
+- `source_object_ref`（或由 `carrier_locator` 解析到已同步 `source_objects`）
+- `carrier_kind`
+- `carrier_locator`
 - `carrier_capabilities`
 - `field_surfaces`
 - `time_surfaces`
@@ -357,32 +379,32 @@ type NormalizedRequest = {
 
 校验：
 
-- metric 是否支持该 intent
+- metric 是否支持该 intent（由 compiler 从 `sample_kind`、`additivity`、`primary_time_ref` 推导）
 - process contract 是否足以支撑该 intent
 - ref artifact 类型是否允许被该 intent 消费
 
-如果某些 intent-support 规则不在 object public schema 中，它们应来自 intent catalog 或 compiler compatibility profile。
+若 compiler 无法从 object contract 推导某条关键规则，且该 intent 明确依赖它，应返回 `COMPILER_PROFILE_MISSING`。profile 缺失时的固定原则见 `docs/semantic/compiler-compatibility-profile.zh.md`。
 
 ### Gate 3：metric-process 兼容校验
 
 重点校验：
 
-- 若存在 compiler compatibility profile，则其中的 process requirements 是否被满足
 - `population_subject_ref` 是否兼容
 - `context_kind` / `entity_ref` 是否兼容
 - `observation_grain_ref` / `emitted_grain_ref` 是否兼容（若 process 暴露实体流）
 - `primary_time_ref` / `anchor_time_ref` / window `anchor_ref` 是否可被解析为合法 `time.*`，且 request `time_scope` 是否可稳定作用于该组合并产出单一 `resolved_filter_time_ref`
-- 若存在 compiler compatibility profile，则其中的 comparison / inference / time projection 规则是否匹配
+- 若存在 compiler compatibility profile，则其中的 `requirement` 字段是否被 process 满足
 
-### Gate 4：asset-binding compatibility gate
+### Gate 4：binding-grounding compatibility gate
 
 重点校验：
 
 - 所需 `binding_ref` 是否存在
-- 所需 `asset_ref` 是否存在
-- `binding` 引用的 `asset_surface_ref` 是否都存在于对应 asset
+- 所需 `carrier_binding` 是否存在
+- `binding` 引用的 `surface_ref` 是否都存在于对应 carrier
+- `source_object_ref` 是否存在，或 `carrier_locator` 是否可稳定解析到已同步 `source_objects`
 - 所需 relation surface / time surface 是否存在
-- asset kind 是否满足 binding 与 intent 的消费前提
+- `carrier_kind` 是否满足 binding 与 intent 的消费前提
 
 ### Gate 5：dimension compatibility gate
 
@@ -403,46 +425,7 @@ type NormalizedRequest = {
 - `test` / `validate` 的 inference gate
 - `detect` / `forecast` 的 time projection gate
 
-## Capability 推导规则
-
-以下 capability 不进入 public object schema，由 compiler 从核心字段推导：
-
-### Metric Capability 推导
-
-| 推导能力 | 推导规则 |
-|---------|---------|
-| `supports_observe` | 始终为 true（有效 metric 的基本要求） |
-| `supports_compare` | `additivity` != null AND `primary_time_ref` exists |
-| `supports_test` | `sample_kind` in ["numeric", "rate", "binary"] |
-| `supports_decompose` | `additivity` in ["additive", "semi_additive"] |
-| `supports_detect` | `anchor_time_ref` exists（来自 process 或 metric 自身） |
-| `supports_validate` | `sample_kind` == "rate" AND `anchor_time_ref` exists |
-| `supports_forecast` | `sample_kind` in ["numeric", "rate"] AND `primary_time_ref` exists |
-
-### Process Capability 推导
-
-| 推导能力 | 推导规则 |
-|---------|---------|
-| `supports_time_projection` | `anchor_time_ref` exists |
-| `supports_experiment_inference` | `context_kind` == "experiment_split" |
-| `supports_cohort_inference` | `context_kind` == "cohort_membership" |
-| `supports_session_analysis` | `process_type` == "session" |
-| `supports_funnel_analysis` | `process_type` == "funnel" |
-
-### Dimension Capability 推导
-
-| 推导能力 | 推导规则 |
-|---------|---------|
-| `supports_grouping` | 由 `DimensionGroupingContract.supports_grouping` 显式声明 |
-| `supports_time_derived_grouping` | `structure_kind` == "time_derived" AND `required_time_anchor_ref` satisfied |
-
-**推导时机：**
-
-1. Compiler 在 normalization phase 完成后推导
-2. 推导结果用于 Gate 6 的 intent-specific 校验
-3. 推导结果不写入 IR（IR 只保留引用），但在 compile report 中输出
-
-### Gate 7：governance gate
+## Gate 7：governance gate
 
 包括：
 
