@@ -32,6 +32,7 @@ class SemanticSchemaDDLTests(unittest.TestCase):
             "semantic_enum_sets",
             "semantic_enum_set_versions",
             "semantic_enum_set_values",
+            "compiler_compatibility_profiles",
         ]
         for table in tables:
             row = self.conn.execute(
@@ -632,6 +633,228 @@ class SemanticSchemaDDLTests(unittest.TestCase):
                 ["enum_version_1", 3, "country_us_alias", "US", "Duplicate raw value", "[]"],
             )
             self.conn.commit()
+
+    def test_compiler_compatibility_profile_constraints(self) -> None:
+        """Test compiler_compatibility_profiles DDL constraints.
+
+        Validates:
+        - Valid profile inserts for all three subject_kind/profile_kind combinations
+        - profile_ref prefix validation (compiler_profile.*)
+        - subject_ref prefix matching subject_kind
+        - Illegal subject_kind/profile_kind combinations
+        - Payload exclusivity (requirement vs capability JSON fields)
+        - schema_version, revision, status enum constraints
+        - profile_ref uniqueness
+        """
+
+        def _insert_profile(
+            profile_id: str,
+            profile_ref: str,
+            profile_kind: str,
+            subject_kind: str,
+            subject_ref: str,
+            requirement_json: str = "{}",
+            capability_json: str = "{}",
+            status: str = "draft",
+            revision: int = 1,
+            schema_version: str = "v1",
+        ) -> None:
+            """Helper to insert a profile with default values."""
+            self.conn.execute(
+                """
+                INSERT INTO compiler_compatibility_profiles (
+                    profile_id, profile_ref, profile_kind, schema_version,
+                    subject_kind, subject_ref, requirement_json, capability_json,
+                    status, revision, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    profile_id,
+                    profile_ref,
+                    profile_kind,
+                    schema_version,
+                    subject_kind,
+                    subject_ref,
+                    requirement_json,
+                    capability_json,
+                    status,
+                    revision,
+                    "2026-04-08T00:00:00Z",
+                    "2026-04-08T00:00:00Z",
+                ],
+            )
+            self.conn.commit()
+
+        # Valid profiles - all three legal combinations
+        _insert_profile(
+            "profile_1",
+            "compiler_profile.conversion_rate_requirement",
+            "requirement",
+            "metric",
+            "metric.conversion_rate",
+            requirement_json='{"contract_modes": ["context_provider"], "context_kinds": ["experiment_split"]}',
+        )
+        _insert_profile(
+            "profile_2",
+            "compiler_profile.experiment_exp123_capability",
+            "capability",
+            "process",
+            "process.exp_123",
+            capability_json='{"inferential_ready": true, "supported_sample_summaries": ["rate_sample_summary"]}',
+        )
+        _insert_profile(
+            "profile_3",
+            "compiler_profile.binding_user_activity_capability",
+            "capability",
+            "binding",
+            "binding.user_activity",
+            capability_json='{"inferential_ready": false}',
+        )
+
+        # Invalid profile_ref prefix
+        with self.assertRaises(sqlite3.IntegrityError):
+            _insert_profile(
+                "profile_4",
+                "profile.invalid_prefix",
+                "requirement",
+                "metric",
+                "metric.test",
+                requirement_json='{"contract_modes": ["context_provider"]}',
+            )
+
+        # Invalid subject_ref prefix for metric
+        with self.assertRaises(sqlite3.IntegrityError):
+            _insert_profile(
+                "profile_5",
+                "compiler_profile.metric_wrong_ref",
+                "requirement",
+                "metric",
+                "process.wrong_ref",
+                requirement_json='{"contract_modes": ["context_provider"]}',
+            )
+
+        # Invalid subject_ref prefix for process
+        with self.assertRaises(sqlite3.IntegrityError):
+            _insert_profile(
+                "profile_6",
+                "compiler_profile.process_wrong_ref",
+                "capability",
+                "process",
+                "metric.wrong_ref",
+                capability_json='{"inferential_ready": true}',
+            )
+
+        # Invalid subject_ref prefix for binding
+        with self.assertRaises(sqlite3.IntegrityError):
+            _insert_profile(
+                "profile_7",
+                "compiler_profile.binding_wrong_ref",
+                "capability",
+                "binding",
+                "metric.wrong_ref",
+                capability_json='{"inferential_ready": false}',
+            )
+
+        # Illegal combination: metric + capability
+        with self.assertRaises(sqlite3.IntegrityError):
+            _insert_profile(
+                "profile_8",
+                "compiler_profile.metric_illegal_combo",
+                "capability",
+                "metric",
+                "metric.test_illegal",
+                capability_json='{"inferential_ready": true}',
+            )
+
+        # Illegal combination: process + requirement
+        with self.assertRaises(sqlite3.IntegrityError):
+            _insert_profile(
+                "profile_9",
+                "compiler_profile.process_illegal_combo",
+                "requirement",
+                "process",
+                "process.test_illegal",
+                requirement_json='{"contract_modes": ["context_provider"]}',
+            )
+
+        # Empty requirement_json for requirement profile
+        with self.assertRaises(sqlite3.IntegrityError):
+            _insert_profile(
+                "profile_10",
+                "compiler_profile.empty_requirement",
+                "requirement",
+                "metric",
+                "metric.empty_req",
+            )
+
+        # Empty capability_json for capability profile
+        with self.assertRaises(sqlite3.IntegrityError):
+            _insert_profile(
+                "profile_11",
+                "compiler_profile.empty_capability",
+                "capability",
+                "process",
+                "process.empty_cap",
+            )
+
+        # Both payloads populated (payload exclusivity violation)
+        with self.assertRaises(sqlite3.IntegrityError):
+            _insert_profile(
+                "profile_12",
+                "compiler_profile.both_payloads",
+                "requirement",
+                "metric",
+                "metric.both_payloads",
+                requirement_json='{"contract_modes": ["context_provider"]}',
+                capability_json='{"inferential_ready": true}',
+            )
+
+        # Invalid schema_version
+        with self.assertRaises(sqlite3.IntegrityError):
+            _insert_profile(
+                "profile_13",
+                "compiler_profile.invalid_schema_version",
+                "requirement",
+                "metric",
+                "metric.invalid_schema",
+                requirement_json='{"contract_modes": ["context_provider"]}',
+                schema_version="v2",
+            )
+
+        # Invalid revision (revision = 0)
+        with self.assertRaises(sqlite3.IntegrityError):
+            _insert_profile(
+                "profile_14",
+                "compiler_profile.invalid_revision",
+                "requirement",
+                "metric",
+                "metric.invalid_revision",
+                requirement_json='{"contract_modes": ["context_provider"]}',
+                revision=0,
+            )
+
+        # Invalid status
+        with self.assertRaises(sqlite3.IntegrityError):
+            _insert_profile(
+                "profile_15",
+                "compiler_profile.invalid_status",
+                "requirement",
+                "metric",
+                "metric.invalid_status",
+                requirement_json='{"contract_modes": ["context_provider"]}',
+                status="active",
+            )
+
+        # Duplicate profile_ref (violates UNIQUE constraint)
+        with self.assertRaises(sqlite3.IntegrityError):
+            _insert_profile(
+                "profile_16",
+                "compiler_profile.conversion_rate_requirement",  # Same as profile_1
+                "requirement",
+                "metric",
+                "metric.duplicate_ref",
+                requirement_json='{"contract_modes": ["context_provider"]}',
+            )
 
 
 if __name__ == "__main__":
