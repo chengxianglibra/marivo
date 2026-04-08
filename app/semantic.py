@@ -23,6 +23,236 @@ class SemanticService:
     def __init__(self, metadata: MetadataStore) -> None:
         self.metadata = metadata
 
+    def _entity_ref_for_name(self, name: str) -> str:
+        return f"entity.{name}"
+
+    def _metric_ref_for_name(self, name: str) -> str:
+        return f"metric.{name}"
+
+    def _sync_entity_contract(self, entity: dict[str, Any]) -> None:
+        entity_contract_id = entity["entity_id"]
+        entity_ref = self._entity_ref_for_name(str(entity["name"]))
+        key_refs = [self._normalize_key_ref(str(key)) for key in list(entity.get("keys") or [])]
+        contract_row = {
+            "entity_contract_id": entity_contract_id,
+            "entity_ref": entity_ref,
+            "display_name": entity["display_name"],
+            "description": entity.get("description") or "",
+            "entity_contract_version": "entity.v1",
+            "uniqueness_scope": "global",
+            "id_stability": self._infer_entity_stability(entity.get("level")),
+            "nullable_key_policy": "reject",
+            "parent_entity_ref": None,
+            "cardinality_to_parent": None,
+            "ownership_semantics": None,
+            "primary_time_ref": None,
+            "status": entity["status"],
+            "revision": entity["revision"],
+            "created_at": entity["created_at"],
+            "updated_at": entity["updated_at"],
+        }
+        self.metadata.execute(
+            """
+            INSERT INTO semantic_entity_contracts (
+                entity_contract_id, entity_ref, display_name, description,
+                entity_contract_version, uniqueness_scope, id_stability,
+                nullable_key_policy, parent_entity_ref, cardinality_to_parent,
+                ownership_semantics, primary_time_ref, status, revision,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(entity_contract_id) DO UPDATE SET
+                entity_ref = excluded.entity_ref,
+                display_name = excluded.display_name,
+                description = excluded.description,
+                entity_contract_version = excluded.entity_contract_version,
+                uniqueness_scope = excluded.uniqueness_scope,
+                id_stability = excluded.id_stability,
+                nullable_key_policy = excluded.nullable_key_policy,
+                parent_entity_ref = excluded.parent_entity_ref,
+                cardinality_to_parent = excluded.cardinality_to_parent,
+                ownership_semantics = excluded.ownership_semantics,
+                primary_time_ref = excluded.primary_time_ref,
+                status = excluded.status,
+                revision = excluded.revision,
+                created_at = excluded.created_at,
+                updated_at = excluded.updated_at
+            """,
+            [
+                contract_row["entity_contract_id"],
+                contract_row["entity_ref"],
+                contract_row["display_name"],
+                contract_row["description"],
+                contract_row["entity_contract_version"],
+                contract_row["uniqueness_scope"],
+                contract_row["id_stability"],
+                contract_row["nullable_key_policy"],
+                contract_row["parent_entity_ref"],
+                contract_row["cardinality_to_parent"],
+                contract_row["ownership_semantics"],
+                contract_row["primary_time_ref"],
+                contract_row["status"],
+                contract_row["revision"],
+                contract_row["created_at"],
+                contract_row["updated_at"],
+            ],
+        )
+        self.metadata.execute(
+            "DELETE FROM semantic_entity_key_refs WHERE entity_contract_id = ?",
+            [entity_contract_id],
+        )
+        for position, key_ref in enumerate(key_refs, start=1):
+            self.metadata.execute(
+                """
+                INSERT INTO semantic_entity_key_refs (
+                    entity_contract_id, position, key_ref, description
+                ) VALUES (?, ?, ?, ?)
+                """,
+                [entity_contract_id, position, key_ref, None],
+            )
+        self.metadata.execute(
+            "DELETE FROM semantic_entity_stable_descriptors WHERE entity_contract_id = ?",
+            [entity_contract_id],
+        )
+
+    def _sync_metric_contract(self, metric: dict[str, Any]) -> None:
+        metric_contract_id = metric["metric_id"]
+        observed_entity_ref = self._resolve_observed_entity_ref(metric)
+        metric_family, sample_kind, value_semantics, additivity = self._infer_metric_contract_axes(
+            metric.get("measure_type")
+        )
+        observation_grain_ref = self._normalize_grain_ref(
+            metric.get("grain")
+        ) or self._normalize_grain_ref(metric["name"])
+        family_payload = {
+            "definition_sql": metric["definition_sql"],
+            "dimensions": list(metric.get("dimensions") or []),
+            "allowed_dimensions": list(metric.get("allowed_dimensions") or []),
+            "grain": metric.get("grain"),
+            "measure_type": metric.get("measure_type"),
+            "desired_direction": metric.get("desired_direction"),
+        }
+        contract_row = [
+            metric_contract_id,
+            self._metric_ref_for_name(str(metric["name"])),
+            metric["display_name"],
+            metric.get("description") or "",
+            metric_family,
+            None,
+            observed_entity_ref,
+            observation_grain_ref,
+            sample_kind,
+            value_semantics,
+            self._legacy_aggregation_scope(metric.get("grain")),
+            None,
+            additivity,
+            "metric.v1",
+            json.dumps(family_payload),
+            metric["status"],
+            metric["revision"],
+            metric["created_at"],
+            metric["updated_at"],
+        ]
+        self.metadata.execute(
+            """
+            INSERT INTO semantic_metric_contracts (
+                metric_contract_id, metric_ref, display_name, description, metric_family,
+                population_subject_ref, observed_entity_ref, observation_grain_ref,
+                sample_kind, value_semantics, aggregation_scope, primary_time_ref,
+                additivity, metric_contract_version, family_payload_json, status,
+                revision, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(metric_contract_id) DO UPDATE SET
+                metric_ref = excluded.metric_ref,
+                display_name = excluded.display_name,
+                description = excluded.description,
+                metric_family = excluded.metric_family,
+                population_subject_ref = excluded.population_subject_ref,
+                observed_entity_ref = excluded.observed_entity_ref,
+                observation_grain_ref = excluded.observation_grain_ref,
+                sample_kind = excluded.sample_kind,
+                value_semantics = excluded.value_semantics,
+                aggregation_scope = excluded.aggregation_scope,
+                primary_time_ref = excluded.primary_time_ref,
+                additivity = excluded.additivity,
+                metric_contract_version = excluded.metric_contract_version,
+                family_payload_json = excluded.family_payload_json,
+                status = excluded.status,
+                revision = excluded.revision,
+                created_at = excluded.created_at,
+                updated_at = excluded.updated_at
+            """,
+            contract_row,
+        )
+
+    def _resolve_observed_entity_ref(self, metric: dict[str, Any]) -> str:
+        entity_id = metric.get("entity_id")
+        if entity_id:
+            row = self.metadata.query_one(
+                "SELECT name FROM semantic_entities WHERE entity_id = ?",
+                [entity_id],
+            )
+            if row is not None and row.get("name"):
+                return self._entity_ref_for_name(str(row["name"]))
+        preferred = self.metadata.query_one(
+            "SELECT name FROM semantic_entities WHERE status = 'published' AND name = 'user' ORDER BY name LIMIT 1"
+        )
+        if preferred is not None and preferred.get("name"):
+            return self._entity_ref_for_name(str(preferred["name"]))
+        published_entities = self.metadata.query_rows(
+            "SELECT name FROM semantic_entities WHERE status = 'published' ORDER BY name"
+        )
+        if len(published_entities) == 1:
+            return self._entity_ref_for_name(str(published_entities[0]["name"]))
+        return self._entity_ref_for_name(str(metric["name"]))
+
+    @staticmethod
+    def _normalize_key_ref(value: str) -> str:
+        key = value.strip()
+        return key if key.startswith("key.") else f"key.{key}"
+
+    @staticmethod
+    def _normalize_grain_ref(value: str | None) -> str | None:
+        if value is None:
+            return None
+        grain = str(value).strip()
+        if not grain:
+            return None
+        return grain if grain.startswith("grain.") else f"grain.{grain}"
+
+    @staticmethod
+    def _infer_entity_stability(level: str | None) -> str:
+        if str(level or "").strip().lower() in {"session", "event"}:
+            return "ephemeral"
+        return "stable"
+
+    @staticmethod
+    def _infer_metric_contract_axes(measure_type: str | None) -> tuple[str, str, str, str]:
+        kind = str(measure_type or "count").strip().lower()
+        if kind in {"ratio", "rate"}:
+            return ("rate_metric", "rate", "ratio", "non_additive")
+        if kind in {"average", "mean"}:
+            return ("average_metric", "numeric", "mean", "non_additive")
+        if kind == "sum":
+            return ("sum_metric", "numeric", "sum", "additive")
+        if kind == "count":
+            return ("count_metric", "numeric", "count", "additive")
+        if kind in {"percentile", "quantile"}:
+            return ("distribution_metric", "numeric", "distribution_statistic", "non_additive")
+        if kind == "survival":
+            return ("survival_metric", "survival", "survival_probability", "non_additive")
+        if kind == "score":
+            return ("score_metric", "numeric", "score", "non_additive")
+        return ("count_metric", "numeric", "count", "additive")
+
+    @staticmethod
+    def _legacy_aggregation_scope(grain: str | None) -> str | None:
+        if grain is None:
+            return None
+        grain_value = str(grain).strip().lower()
+        if grain_value in {"session", "event"}:
+            return grain_value
+        return "window"
+
     # ── Entity CRUD ──────────────────────────────────────────────
 
     def create_entity(
@@ -66,7 +296,9 @@ class SemanticService:
                 now,
             ],
         )
-        return self.get_entity(entity_id)
+        entity = self.get_entity(entity_id)
+        self._sync_entity_contract(entity)
+        return entity
 
     def get_entity(self, entity_id: str) -> dict[str, Any]:
         row = self.metadata.query_one(
@@ -127,7 +359,9 @@ class SemanticService:
             f"UPDATE semantic_entities SET {', '.join(updates)} WHERE entity_id = ?",
             params,
         )
-        return self.get_entity(entity_id)
+        entity = self.get_entity(entity_id)
+        self._sync_entity_contract(entity)
+        return entity
 
     def patch_entity_properties(
         self, entity_id: str, properties_patch: dict[str, Any]
@@ -173,7 +407,9 @@ class SemanticService:
             "UPDATE semantic_entities SET properties_json = ?, revision = revision + 1, updated_at = ? WHERE entity_id = ?",
             [json.dumps(current_props), now, entity_id],
         )
-        return self.get_entity(entity_id)
+        entity = self.get_entity(entity_id)
+        self._sync_entity_contract(entity)
+        return entity
 
     def publish_entity(self, entity_id: str) -> dict[str, Any]:
         _ = self.get_entity(entity_id)  # Validate entity exists
@@ -182,7 +418,9 @@ class SemanticService:
             "UPDATE semantic_entities SET status = 'published', revision = revision + 1, updated_at = ? WHERE entity_id = ?",
             [now, entity_id],
         )
-        return self.get_entity(entity_id)
+        entity = self.get_entity(entity_id)
+        self._sync_entity_contract(entity)
+        return entity
 
     def deprecate_entity(self, entity_id: str) -> dict[str, Any]:
         self.get_entity(entity_id)  # verify exists
@@ -191,7 +429,9 @@ class SemanticService:
             "UPDATE semantic_entities SET status = 'deprecated', updated_at = ? WHERE entity_id = ?",
             [now, entity_id],
         )
-        return self.get_entity(entity_id)
+        entity = self.get_entity(entity_id)
+        self._sync_entity_contract(entity)
+        return entity
 
     # ── Metric CRUD ──────────────────────────────────────────────
 
@@ -243,7 +483,9 @@ class SemanticService:
                 now,
             ],
         )
-        return self.get_metric(metric_id)
+        metric = self.get_metric(metric_id)
+        self._sync_metric_contract(metric)
+        return metric
 
     def get_metric(self, metric_id: str) -> dict[str, Any]:
         row = self.metadata.query_one(
@@ -309,7 +551,9 @@ class SemanticService:
             f"UPDATE semantic_metrics SET {', '.join(updates)} WHERE metric_id = ?",
             params,
         )
-        return self.get_metric(metric_id)
+        metric = self.get_metric(metric_id)
+        self._sync_metric_contract(metric)
+        return metric
 
     def publish_metric(self, metric_id: str) -> dict[str, Any]:
         self.get_metric(metric_id)
@@ -318,7 +562,9 @@ class SemanticService:
             "UPDATE semantic_metrics SET status = 'published', revision = revision + 1, updated_at = ? WHERE metric_id = ?",
             [now, metric_id],
         )
-        return self.get_metric(metric_id)
+        metric = self.get_metric(metric_id)
+        self._sync_metric_contract(metric)
+        return metric
 
     # ── Mapping CRUD ─────────────────────────────────────────────
 
