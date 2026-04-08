@@ -241,3 +241,80 @@ class SemanticTypedApiTests(unittest.TestCase):
         resp = self.client.post(f"/compiler/compatibility-profiles/{profile_id}/publish")
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertEqual(resp.json()["status"], "published")
+
+    def test_typed_object_routes_use_consistent_404_detail(self) -> None:
+        binding_resp = self.client.get("/semantic/bindings/bind_missing")
+        self.assertEqual(binding_resp.status_code, 404, binding_resp.text)
+        self.assertIsInstance(binding_resp.json()["detail"], str)
+
+        profile_resp = self.client.get("/compiler/compatibility-profiles/cprof_missing")
+        self.assertEqual(profile_resp.status_code, 404, profile_resp.text)
+        self.assertIsInstance(profile_resp.json()["detail"], str)
+
+    def test_typed_object_routes_keep_validation_error_detail_shape(self) -> None:
+        resp = self.client.post(
+            "/semantic/entities",
+            json={
+                "header": {
+                    "entity_ref": "entity.invalid",
+                    "display_name": "Invalid",
+                    "entity_contract_version": "entity.v4",
+                },
+                "interface_contract": {
+                    "identity": {
+                        "key_refs": [],
+                        "uniqueness_scope": "global",
+                        "id_stability": "stable",
+                    }
+                },
+            },
+        )
+        self.assertEqual(resp.status_code, 422, resp.text)
+        self.assertIsInstance(resp.json()["detail"], list)
+
+    def test_typed_object_routes_map_service_value_error_to_422(self) -> None:
+        metric_resp = self.client.post(
+            "/semantic/metrics",
+            json={
+                "header": {
+                    "metric_ref": "metric.error_case",
+                    "display_name": "Error Case Metric",
+                    "metric_family": "count_metric",
+                    "observed_entity_ref": "entity.account",
+                    "observation_grain_ref": "grain.account",
+                    "sample_kind": "numeric",
+                    "value_semantics": "count",
+                    "additivity": "additive",
+                    "metric_contract_version": "metric.v1",
+                },
+                "payload": {
+                    "metric_family": "count_metric",
+                    "count_target": {
+                        "name": "accounts",
+                        "semantics": "distinct accounts",
+                        "aggregation": "count_distinct",
+                    },
+                },
+            },
+        )
+        self.assertEqual(metric_resp.status_code, 200, metric_resp.text)
+
+        profile_resp = self.client.post(
+            "/compiler/compatibility-profiles",
+            json={
+                "profile_ref": "compiler_profile.error_case_requirement",
+                "profile_kind": "requirement",
+                "subject_kind": "metric",
+                "subject_ref": "metric.error_case",
+                "requirement": {"entity_refs": ["entity.account"]},
+            },
+        )
+        self.assertEqual(profile_resp.status_code, 200, profile_resp.text)
+        profile_id = profile_resp.json()["profile_id"]
+
+        resp = self.client.put(
+            f"/compiler/compatibility-profiles/{profile_id}",
+            json={"capability": {"inferential_ready": True}},
+        )
+        self.assertEqual(resp.status_code, 422, resp.text)
+        self.assertIsInstance(resp.json()["detail"], str)
