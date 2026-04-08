@@ -17,6 +17,8 @@ Shared guidance for agents. `AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructi
 
 - Never use bare `python`, `pytest`, `mypy`, or `ruff` in this repository. Use `make` targets or
   explicit `.venv/bin/...` paths only.
+- Repository guard scripts accept both `.venv` and shells that expose the repository root via
+  `VIRTUAL_ENV`, but the invoked tool must still come from `.venv/bin/...`.
 - All new or modified Python code must satisfy `mypy` for the touched modules.
 - Add explicit type annotations for public functions, dataclass/model fields, and non-trivial locals when needed for `mypy` clarity.
 - Do not introduce new implicit `Any`, broad `cast(...)`, or `# type: ignore` unless strictly necessary.

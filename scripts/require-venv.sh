@@ -19,8 +19,9 @@ fi
 
 active_prefix="$("$venv_python" -c 'import os; print(os.path.realpath(os.environ.get("VIRTUAL_ENV", "")))')"
 expected_prefix="$("$venv_python" -c 'import os; print(os.path.realpath(".venv"))')"
+project_prefix="$("$venv_python" -c 'import os; print(os.path.realpath("."))')"
 
-if [ -n "$active_prefix" ] && [ "$active_prefix" != "$expected_prefix" ]; then
+if [ -n "$active_prefix" ] && [ "$active_prefix" != "$expected_prefix" ] && [ "$active_prefix" != "$project_prefix" ]; then
     echo "error: active VIRTUAL_ENV is $active_prefix, expected $expected_prefix" >&2
     exit 1
 fi
