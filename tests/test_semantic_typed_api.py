@@ -263,6 +263,14 @@ class SemanticTypedApiTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertEqual(resp.json()["status"], "published")
 
+        resp = self.client.get("/semantic/bindings?status=published")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertTrue(all(item["status"] == "published" for item in resp.json()["items"]))
+
+        resp = self.client.get("/compiler/compatibility-profiles?status=published")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertTrue(all(item["status"] == "published" for item in resp.json()["items"]))
+
     def test_process_object_dimension_time_and_enum_set_lifecycle(self) -> None:
         time_resp = self.client.post(
             "/semantic/time",
@@ -525,6 +533,38 @@ class SemanticTypedApiTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 422, resp.text)
         self.assertIsInstance(resp.json()["detail"], list)
 
+        resp = self.client.post(
+            "/semantic/bindings",
+            json={
+                "header": {
+                    "binding_ref": "invalid_binding_ref",
+                    "display_name": "Invalid Binding",
+                    "binding_scope": "entity",
+                    "bound_object_ref": "entity.account",
+                    "binding_contract_version": "binding.v1",
+                },
+                "interface_contract": {
+                    "carrier_bindings": [],
+                    "field_bindings": [],
+                },
+            },
+        )
+        self.assertEqual(resp.status_code, 422, resp.text)
+        self.assertIsInstance(resp.json()["detail"], list)
+
+        resp = self.client.post(
+            "/compiler/compatibility-profiles",
+            json={
+                "profile_ref": "invalid_profile_ref",
+                "profile_kind": "requirement",
+                "subject_kind": "metric",
+                "subject_ref": "metric.error_case",
+                "requirement": {"entity_refs": ["entity.account"]},
+            },
+        )
+        self.assertEqual(resp.status_code, 422, resp.text)
+        self.assertIsInstance(resp.json()["detail"], list)
+
     def test_typed_object_routes_map_service_value_error_to_422(self) -> None:
         metric_resp = self.client.post(
             "/semantic/metrics",
@@ -571,3 +611,43 @@ class SemanticTypedApiTests(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 422, resp.text)
         self.assertIsInstance(resp.json()["detail"], str)
+
+    def test_enum_set_update_rejects_raw_value_type_mismatch(self) -> None:
+        """Updating enum set versions must reject raw_values that don't match
+        the immutable value_type declared at creation time."""
+        create_resp = self.client.post(
+            "/semantic/enum-sets",
+            json={
+                "header": {"enum_set_ref": "enum.status_code", "value_type": "integer"},
+                "display_name": "Status Code",
+                "description": "Integer status codes",
+                "versions": [
+                    {
+                        "enum_version": "v1",
+                        "values": [
+                            {"value_key": "active", "raw_value": 1, "label": "Active"},
+                            {"value_key": "inactive", "raw_value": 0, "label": "Inactive"},
+                        ],
+                    }
+                ],
+            },
+        )
+        self.assertEqual(create_resp.status_code, 200, create_resp.text)
+        enum_set_contract_id = create_resp.json()["enum_set_contract_id"]
+
+        # Attempt to update versions with string raw_values on an integer enum set
+        resp = self.client.put(
+            f"/semantic/enum-sets/{enum_set_contract_id}",
+            json={
+                "versions": [
+                    {
+                        "enum_version": "v2",
+                        "values": [
+                            {"value_key": "active", "raw_value": "active", "label": "Active"},
+                        ],
+                    }
+                ]
+            },
+        )
+        self.assertEqual(resp.status_code, 422, resp.text)
+        self.assertIn("value_type", resp.json()["detail"])

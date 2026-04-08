@@ -12,7 +12,11 @@ from app.api.models.compatibility_profile import (
 )
 from app.api.models.dimension import DimensionCreateRequest, DimensionUpdateRequest
 from app.api.models.entity import TypedEntityCreateRequest, TypedEntityUpdateRequest
-from app.api.models.enum_set import EnumSetCreateRequest, EnumSetUpdateRequest
+from app.api.models.enum_set import (
+    EnumSetCreateRequest,
+    EnumSetUpdateRequest,
+    _raw_value_matches_enum_value_type,
+)
 from app.api.models.metric import TypedMetricCreateRequest, TypedMetricUpdateRequest
 from app.api.models.process_object import ProcessObjectCreateRequest, ProcessObjectUpdateRequest
 from app.api.models.time import TimeCreateRequest, TimeUpdateRequest
@@ -1804,6 +1808,15 @@ class SemanticService:
             updates.append("description = ?")
             params.append(payload.description)
         if payload.versions is not None:
+            current_value_type = current["header"]["value_type"]
+            for version in payload.versions:
+                for value in version.values:
+                    if not _raw_value_matches_enum_value_type(value.raw_value, current_value_type):
+                        raise ValueError(
+                            f"raw_value for value_key '{value.value_key}' in enum_version "
+                            f"'{version.enum_version}' must match header.value_type "
+                            f"'{current_value_type}'"
+                        )
             self._replace_enum_set_versions(
                 enum_set_contract_id,
                 [version.model_dump(mode="json") for version in payload.versions],
