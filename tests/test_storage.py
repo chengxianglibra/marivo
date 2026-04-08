@@ -62,6 +62,17 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
             "semantic_entities",
             "semantic_metrics",
             "semantic_mappings",
+            "semantic_entity_contracts",
+            "semantic_entity_key_refs",
+            "semantic_entity_stable_descriptors",
+            "semantic_metric_contracts",
+            "semantic_process_objects",
+            "semantic_process_exported_dimension_refs",
+            "semantic_dimension_contracts",
+            "semantic_time_objects",
+            "semantic_enum_sets",
+            "semantic_enum_set_versions",
+            "semantic_enum_set_values",
             "sync_jobs",
         ]:
             row = self.store.query_one(f"SELECT COUNT(*) AS cnt FROM {table}")
