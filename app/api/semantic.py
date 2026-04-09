@@ -53,12 +53,24 @@ def _run_route_action(  # noqa: UP047
     action: Callable[[], ActionResultT],
     *,
     value_error_status: int = 422,
+    structured_value_error: bool = False,
 ) -> ActionResultT:
     try:
         return action()
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     except ValueError as error:
+        error_code = getattr(error, "code", None)
+        error_category = getattr(error, "category", None)
+        if structured_value_error and isinstance(error_code, str):
+            raise HTTPException(
+                status_code=value_error_status,
+                detail={
+                    "message": str(error),
+                    "code": error_code,
+                    "category": error_category,
+                },
+            ) from error
         raise HTTPException(status_code=value_error_status, detail=str(error)) from error
 
 
@@ -132,7 +144,10 @@ def update_entity(
 @router.post("/semantic/entities/{entity_id}/publish")
 def publish_entity(entity_id: str, request: Request) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
-    return _run_route_action(lambda: semantic_service.publish_typed_entity(entity_id))
+    return _run_route_action(
+        lambda: semantic_service.publish_typed_entity(entity_id),
+        structured_value_error=True,
+    )
 
 
 @router.post("/semantic/metrics")
@@ -178,7 +193,10 @@ def update_metric(
 @router.post("/semantic/metrics/{metric_id}/publish")
 def publish_metric(metric_id: str, request: Request) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
-    return _run_route_action(lambda: semantic_service.publish_typed_metric(metric_id))
+    return _run_route_action(
+        lambda: semantic_service.publish_typed_metric(metric_id),
+        structured_value_error=True,
+    )
 
 
 @router.post("/semantic/process-objects")
@@ -220,7 +238,10 @@ def update_process_object(
 @router.post("/semantic/process-objects/{process_contract_id}/publish")
 def publish_process_object(process_contract_id: str, request: Request) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
-    return _run_route_action(lambda: semantic_service.publish_process_object(process_contract_id))
+    return _run_route_action(
+        lambda: semantic_service.publish_process_object(process_contract_id),
+        structured_value_error=True,
+    )
 
 
 @router.post("/semantic/dimensions")
@@ -260,7 +281,10 @@ def update_dimension(
 @router.post("/semantic/dimensions/{dimension_contract_id}/publish")
 def publish_dimension(dimension_contract_id: str, request: Request) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
-    return _run_route_action(lambda: semantic_service.publish_dimension(dimension_contract_id))
+    return _run_route_action(
+        lambda: semantic_service.publish_dimension(dimension_contract_id),
+        structured_value_error=True,
+    )
 
 
 @router.post("/semantic/time")
@@ -302,7 +326,10 @@ def update_time_semantic(
 @router.post("/semantic/time/{time_contract_id}/publish")
 def publish_time_semantic(time_contract_id: str, request: Request) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
-    return _run_route_action(lambda: semantic_service.publish_time_semantic(time_contract_id))
+    return _run_route_action(
+        lambda: semantic_service.publish_time_semantic(time_contract_id),
+        structured_value_error=True,
+    )
 
 
 @router.post("/semantic/enum-sets")
@@ -342,7 +369,10 @@ def update_enum_set(
 @router.post("/semantic/enum-sets/{enum_set_contract_id}/publish")
 def publish_enum_set(enum_set_contract_id: str, request: Request) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
-    return _run_route_action(lambda: semantic_service.publish_enum_set(enum_set_contract_id))
+    return _run_route_action(
+        lambda: semantic_service.publish_enum_set(enum_set_contract_id),
+        structured_value_error=True,
+    )
 
 
 @router.post("/semantic/bindings")
@@ -386,7 +416,8 @@ def update_typed_binding(
 @router.post("/semantic/bindings/{binding_id}/publish")
 def publish_typed_binding(binding_id: str, request: Request) -> dict[str, Any]:
     return _run_route_action(
-        lambda: get_services(request).semantic_service.publish_typed_binding(binding_id)
+        lambda: get_services(request).semantic_service.publish_typed_binding(binding_id),
+        structured_value_error=True,
     )
 
 
@@ -433,7 +464,8 @@ def update_compatibility_profile(
 @router.post("/compiler/compatibility-profiles/{profile_id}/publish")
 def publish_compatibility_profile(profile_id: str, request: Request) -> dict[str, Any]:
     return _run_route_action(
-        lambda: get_services(request).semantic_service.publish_compatibility_profile(profile_id)
+        lambda: get_services(request).semantic_service.publish_compatibility_profile(profile_id),
+        structured_value_error=True,
     )
 
 

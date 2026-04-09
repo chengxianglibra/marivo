@@ -11,7 +11,12 @@ from app.semantic_runtime.semantic_metadata import (
 )
 from app.storage.metadata import MetadataStore
 
-from .errors import SemanticNotFoundError, SemanticStateError, SemanticValidationError
+from .errors import (
+    SemanticCompatibilityError,
+    SemanticNotFoundError,
+    SemanticStateError,
+    SemanticValidationError,
+)
 
 
 def now_iso() -> str:
@@ -31,11 +36,87 @@ class SemanticServiceSupport:
     def _not_found(self, message: str) -> SemanticNotFoundError:
         return SemanticNotFoundError(message)
 
-    def _validation_error(self, message: str) -> SemanticValidationError:
-        return SemanticValidationError(message)
+    def _validation_error(
+        self,
+        message: str,
+        *,
+        code: str = "semantic_validation_error",
+        category: str = "validation",
+    ) -> SemanticValidationError:
+        return SemanticValidationError(message, code=code, category=category)
 
-    def _state_error(self, message: str) -> SemanticStateError:
-        return SemanticStateError(message)
+    def _state_error(
+        self,
+        message: str,
+        *,
+        code: str = "semantic_state_error",
+        category: str = "state",
+    ) -> SemanticStateError:
+        return SemanticStateError(message, code=code, category=category)
+
+    def _compatibility_error(
+        self,
+        message: str,
+        *,
+        code: str = "semantic_compatibility_error",
+        category: str = "compatibility",
+    ) -> SemanticCompatibilityError:
+        return SemanticCompatibilityError(message, code=code, category=category)
+
+    def _require_draft_status(self, status: str, object_label: str, object_id: str) -> None:
+        if status != "draft":
+            raise self._state_error(
+                f"{object_label} '{object_id}' is not in draft status (status={status}).",
+                code="publish_state_error",
+            )
+
+    def _run_publish_reference_validation(self, validator: Any) -> None:
+        try:
+            validator()
+        except SemanticValidationError as error:
+            raise self._validation_error(
+                str(error),
+                code="reference_validation_error",
+            ) from error
+
+    def _run_publish_compatibility_validation(self, validator: Any) -> None:
+        try:
+            validator()
+        except SemanticValidationError as error:
+            raise self._validation_error(
+                str(error),
+                code="publish_compatibility_validation_error",
+            ) from error
+        except SemanticCompatibilityError as error:
+            raise self._compatibility_error(
+                str(error),
+                code="compatibility_validation_error",
+            ) from error
+
+    def _publish_record(
+        self,
+        *,
+        table_name: str,
+        id_column: str,
+        object_id: str,
+        object_label: str,
+        status: str,
+        reference_validator: Any | None = None,
+        compatibility_validator: Any | None = None,
+    ) -> None:
+        self._require_draft_status(status, object_label, object_id)
+        if reference_validator is not None:
+            self._run_publish_reference_validation(reference_validator)
+        if compatibility_validator is not None:
+            self._run_publish_compatibility_validation(compatibility_validator)
+        self.metadata.execute(
+            f"""
+            UPDATE {table_name}
+            SET status = 'published', revision = revision + 1, updated_at = ?
+            WHERE {id_column} = ?
+            """,
+            [now_iso(), object_id],
+        )
 
     def _sync_entity_contract(self, entity: dict[str, Any]) -> None:
         entity_contract_id = entity["entity_id"]
@@ -1237,17 +1318,50 @@ class SemanticServiceSupport:
             require_published_refs=require_published_dependencies,
         )
 
-    def _validate_profile_subject_ref(self, subject_kind: str, subject_ref: str) -> None:
+    def _validate_profile_subject_ref(
+        self,
+        subject_kind: str,
+        subject_ref: str,
+        *,
+        require_published: bool = False,
+    ) -> None:
         lookup = {
-            "metric": "SELECT metric_contract_id FROM semantic_metric_contracts WHERE metric_ref = ?",
-            "process": "SELECT process_contract_id FROM semantic_process_objects WHERE process_ref = ?",
-            "binding": "SELECT binding_id FROM typed_bindings WHERE binding_ref = ?",
+            "metric": (
+                "SELECT metric_contract_id FROM semantic_metric_contracts WHERE metric_ref = ?",
+                """
+                SELECT metric_contract_id
+                FROM semantic_metric_contracts
+                WHERE metric_ref = ? AND status = 'published'
+                """,
+            ),
+            "process": (
+                "SELECT process_contract_id FROM semantic_process_objects WHERE process_ref = ?",
+                """
+                SELECT process_contract_id
+                FROM semantic_process_objects
+                WHERE process_ref = ? AND status = 'published'
+                """,
+            ),
+            "binding": (
+                "SELECT binding_id FROM typed_bindings WHERE binding_ref = ?",
+                """
+                SELECT binding_id
+                FROM typed_bindings
+                WHERE binding_ref = ? AND status = 'published'
+                """,
+            ),
         }
-        sql = lookup.get(subject_kind)
-        if sql is None:
+        sql_pair = lookup.get(subject_kind)
+        if sql_pair is None:
             raise self._validation_error(f"Unsupported subject_kind: {subject_kind}")
-        if self.metadata.query_one(sql, [subject_ref]) is None:
+        exists_sql, published_sql = sql_pair
+        if self.metadata.query_one(exists_sql, [subject_ref]) is None:
             raise self._validation_error(f"Unknown {subject_kind} ref: {subject_ref}")
+        if require_published and self.metadata.query_one(published_sql, [subject_ref]) is None:
+            raise self._compatibility_error(
+                f"Compatibility profile subject must be published before profile publish: {subject_ref}",
+                code="profile_subject_not_published",
+            )
 
     def _replace_entity_key_refs(self, entity_contract_id: str, key_refs: list[str]) -> None:
         self.metadata.execute(

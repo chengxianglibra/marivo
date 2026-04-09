@@ -19,12 +19,6 @@ from .common import SemanticServiceSupport, now_iso
 
 
 class TypedObjectService(SemanticServiceSupport):
-    def _require_draft_status(self, status: str, object_label: str, object_id: str) -> None:
-        if status != "draft":
-            raise self._state_error(
-                f"{object_label} '{object_id}' is not in draft status (status={status})."
-            )
-
     def _apply_contract_update(
         self,
         *,
@@ -169,15 +163,15 @@ class TypedObjectService(SemanticServiceSupport):
 
     def publish_typed_entity(self, entity_contract_id: str) -> dict[str, Any]:
         current = self.get_typed_entity(entity_contract_id)
-        self._require_draft_status(current["status"], "Typed entity", entity_contract_id)
-        self._validate_published_entity_contract_refs(current["interface_contract"])
-        self.metadata.execute(
-            """
-            UPDATE semantic_entity_contracts
-            SET status = 'published', revision = revision + 1, updated_at = ?
-            WHERE entity_contract_id = ?
-            """,
-            [now_iso(), entity_contract_id],
+        self._publish_record(
+            table_name="semantic_entity_contracts",
+            id_column="entity_contract_id",
+            object_id=entity_contract_id,
+            object_label="Typed entity",
+            status=current["status"],
+            reference_validator=lambda: self._validate_published_entity_contract_refs(
+                current["interface_contract"]
+            ),
         )
         return self.get_typed_entity(entity_contract_id)
 
@@ -272,15 +266,15 @@ class TypedObjectService(SemanticServiceSupport):
 
     def publish_typed_metric(self, metric_contract_id: str) -> dict[str, Any]:
         current = self.get_typed_metric(metric_contract_id)
-        self._require_draft_status(current["status"], "Typed metric", metric_contract_id)
-        self._validate_published_metric_header_refs(current["header"])
-        self.metadata.execute(
-            """
-            UPDATE semantic_metric_contracts
-            SET status = 'published', revision = revision + 1, updated_at = ?
-            WHERE metric_contract_id = ?
-            """,
-            [now_iso(), metric_contract_id],
+        self._publish_record(
+            table_name="semantic_metric_contracts",
+            id_column="metric_contract_id",
+            object_id=metric_contract_id,
+            object_label="Typed metric",
+            status=current["status"],
+            reference_validator=lambda: self._validate_published_metric_header_refs(
+                current["header"]
+            ),
         )
         return self.get_typed_metric(metric_contract_id)
 
@@ -426,15 +420,15 @@ class TypedObjectService(SemanticServiceSupport):
 
     def publish_process_object(self, process_contract_id: str) -> dict[str, Any]:
         current = self.get_process_object(process_contract_id)
-        self._require_draft_status(current["status"], "Process object", process_contract_id)
-        self._validate_published_process_refs(current["interface_contract"], current["payload"])
-        self.metadata.execute(
-            """
-            UPDATE semantic_process_objects
-            SET status = 'published', revision = revision + 1, updated_at = ?
-            WHERE process_contract_id = ?
-            """,
-            [now_iso(), process_contract_id],
+        self._publish_record(
+            table_name="semantic_process_objects",
+            id_column="process_contract_id",
+            object_id=process_contract_id,
+            object_label="Process object",
+            status=current["status"],
+            reference_validator=lambda: self._validate_published_process_refs(
+                current["interface_contract"], current["payload"]
+            ),
         )
         return self.get_process_object(process_contract_id)
 
@@ -581,15 +575,15 @@ class TypedObjectService(SemanticServiceSupport):
 
     def publish_dimension(self, dimension_contract_id: str) -> dict[str, Any]:
         current = self.get_dimension(dimension_contract_id)
-        self._require_draft_status(current["status"], "Dimension", dimension_contract_id)
-        self._validate_published_dimension_contract_refs(current["interface_contract"])
-        self.metadata.execute(
-            """
-            UPDATE semantic_dimension_contracts
-            SET status = 'published', revision = revision + 1, updated_at = ?
-            WHERE dimension_contract_id = ?
-            """,
-            [now_iso(), dimension_contract_id],
+        self._publish_record(
+            table_name="semantic_dimension_contracts",
+            id_column="dimension_contract_id",
+            object_id=dimension_contract_id,
+            object_label="Dimension",
+            status=current["status"],
+            reference_validator=lambda: self._validate_published_dimension_contract_refs(
+                current["interface_contract"]
+            ),
         )
         return self.get_dimension(dimension_contract_id)
 
@@ -686,14 +680,12 @@ class TypedObjectService(SemanticServiceSupport):
 
     def publish_time_semantic(self, time_contract_id: str) -> dict[str, Any]:
         current = self.get_time_semantic(time_contract_id)
-        self._require_draft_status(current["status"], "Time semantic", time_contract_id)
-        self.metadata.execute(
-            """
-            UPDATE semantic_time_objects
-            SET status = 'published', revision = revision + 1, updated_at = ?
-            WHERE time_contract_id = ?
-            """,
-            [now_iso(), time_contract_id],
+        self._publish_record(
+            table_name="semantic_time_objects",
+            id_column="time_contract_id",
+            object_id=time_contract_id,
+            object_label="Time semantic",
+            status=current["status"],
         )
         return self.get_time_semantic(time_contract_id)
 
@@ -785,13 +777,11 @@ class TypedObjectService(SemanticServiceSupport):
 
     def publish_enum_set(self, enum_set_contract_id: str) -> dict[str, Any]:
         current = self.get_enum_set(enum_set_contract_id)
-        self._require_draft_status(current["status"], "Enum set", enum_set_contract_id)
-        self.metadata.execute(
-            """
-            UPDATE semantic_enum_sets
-            SET status = 'published', revision = revision + 1, updated_at = ?
-            WHERE enum_set_contract_id = ?
-            """,
-            [now_iso(), enum_set_contract_id],
+        self._publish_record(
+            table_name="semantic_enum_sets",
+            id_column="enum_set_contract_id",
+            object_id=enum_set_contract_id,
+            object_label="Enum set",
+            status=current["status"],
         )
         return self.get_enum_set(enum_set_contract_id)

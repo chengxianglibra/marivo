@@ -9,12 +9,6 @@ from .common import SemanticServiceSupport, now_iso
 
 
 class TypedBindingService(SemanticServiceSupport):
-    def _require_draft_status(self, status: str, binding_id: str) -> None:
-        if status != "draft":
-            raise self._state_error(
-                f"Typed binding '{binding_id}' is not in draft status (status={status})."
-            )
-
     def create_typed_binding(self, payload: TypedBindingCreateRequest) -> dict[str, Any]:
         interface_contract = payload.interface_contract.model_dump(mode="json")
         self._validate_typed_binding_contract(
@@ -73,7 +67,7 @@ class TypedBindingService(SemanticServiceSupport):
         self, binding_id: str, payload: TypedBindingUpdateRequest
     ) -> dict[str, Any]:
         current = self.get_typed_binding(binding_id)
-        self._require_draft_status(current["status"], binding_id)
+        self._require_draft_status(current["status"], "Typed binding", binding_id)
         updates: list[str] = []
         params: list[Any] = []
         if payload.display_name is not None:
@@ -105,24 +99,18 @@ class TypedBindingService(SemanticServiceSupport):
 
     def publish_typed_binding(self, binding_id: str) -> dict[str, Any]:
         current = self.get_typed_binding(binding_id)
-        self._require_draft_status(current["status"], binding_id)
-        # Note: validation reads the bound object fresh at publish time. If the bound
-        # object is later updated (e.g. a stable_descriptor removed), this binding
-        # becomes stale. Callers are responsible for re-validating or republishing
-        # affected bindings when referenced objects change.
-        self._validate_typed_binding_contract(
-            binding_ref=current["header"]["binding_ref"],
-            binding_scope=current["header"]["binding_scope"],
-            bound_object_ref=current["header"]["bound_object_ref"],
-            interface_contract=current["interface_contract"],
-            require_published_dependencies=True,
-        )
-        self.metadata.execute(
-            """
-            UPDATE typed_bindings
-            SET status = 'published', revision = revision + 1, updated_at = ?
-            WHERE binding_id = ?
-            """,
-            [now_iso(), binding_id],
+        self._publish_record(
+            table_name="typed_bindings",
+            id_column="binding_id",
+            object_id=binding_id,
+            object_label="Typed binding",
+            status=current["status"],
+            reference_validator=lambda: self._validate_typed_binding_contract(
+                binding_ref=current["header"]["binding_ref"],
+                binding_scope=current["header"]["binding_scope"],
+                bound_object_ref=current["header"]["bound_object_ref"],
+                interface_contract=current["interface_contract"],
+                require_published_dependencies=True,
+            ),
         )
         return self.get_typed_binding(binding_id)
