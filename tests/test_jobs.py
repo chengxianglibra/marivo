@@ -145,9 +145,66 @@ class JobAPITests(unittest.TestCase):
         self.assertEqual(resp.json()["job_id"], job_id)
 
     def test_list_jobs_via_api(self) -> None:
+        session_id = self._create_session()
+        self.client.post(
+            "/jobs",
+            json={
+                "session_id": session_id,
+                "job_type": "step",
+                "payload": {
+                    "step_type": "profile_table",
+                    "params": {"table_name": "analytics.watch_events"},
+                },
+            },
+        )
         resp = self.client.get("/jobs")
         self.assertEqual(resp.status_code, 200)
-        self.assertIsInstance(resp.json(), list)
+        payload = resp.json()
+        self.assertIsInstance(payload, list)
+        self.assertGreaterEqual(len(payload), 1)
+        self.assertIn("created_at", payload[0])
+        self.assertIn("updated_at", payload[0])
+
+    def test_get_job_via_api_exposes_read_only_timestamps(self) -> None:
+        session_id = self._create_session()
+        create_resp = self.client.post(
+            "/jobs",
+            json={
+                "session_id": session_id,
+                "job_type": "step",
+                "payload": {
+                    "step_type": "profile_table",
+                    "params": {"table_name": "analytics.watch_events"},
+                },
+            },
+        )
+        self.assertEqual(create_resp.status_code, 200)
+        job_id = create_resp.json()["job_id"]
+
+        resp = self.client.get(f"/jobs/{job_id}")
+        self.assertEqual(resp.status_code, 200)
+        payload = resp.json()
+        self.assertIn("created_at", payload)
+        self.assertIn("updated_at", payload)
+        self.assertEqual(payload["created_at"], payload["submitted_at"])
+
+    def test_list_jobs_via_api_supports_session_and_status_filters(self) -> None:
+        session_id = self._create_session()
+        self.client.post(
+            "/jobs",
+            json={
+                "session_id": session_id,
+                "job_type": "step",
+                "payload": {"step_type": "nonexistent_step"},
+            },
+        )
+
+        resp = self.client.get("/jobs", params={"session_id": session_id, "status": "failed"})
+        self.assertEqual(resp.status_code, 200)
+        payload = resp.json()
+        self.assertGreaterEqual(len(payload), 1)
+        self.assertTrue(all(item["session_id"] == session_id for item in payload))
+        self.assertTrue(all(item["status"] == "failed" for item in payload))
 
 
 if __name__ == "__main__":

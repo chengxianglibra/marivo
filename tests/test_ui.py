@@ -202,6 +202,23 @@ class UIBothEnabledTests(unittest.TestCase):
             resp.text,
         )
 
+    def test_ui_jobs_page_declares_read_only_filters_and_http_contracts(self) -> None:
+        resp = self.client.get("/ui")
+        self.assertIn("Inspect background jobs related to analysis sessions", resp.text)
+        self.assertIn("Filter by session_id", resp.text)
+        self.assertIn("GET /jobs", resp.text)
+        self.assertIn("GET /jobs/{job_id}", resp.text)
+        self.assertIn("View Linked Session", resp.text)
+        self.assertIn("payload summary", resp.text)
+
+    def test_ui_jobs_page_keeps_auxiliary_boundary_and_empty_copy(self) -> None:
+        resp = self.client.get("/ui")
+        self.assertIn("Jobs is an auxiliary troubleshooting surface", resp.text)
+        self.assertIn("It does not replace runtime status diagnosis for blocked work.", resp.text)
+        self.assertIn("当前筛选条件下无相关后台任务", resp.text)
+        self.assertIn("No submit, cancel, or retry controls exist on this page.", resp.text)
+        self.assertIn("T8 aligns the read-only jobs view with created_at / updated_at", resp.text)
+
     def test_ui_removes_legacy_write_entrypoints(self) -> None:
         resp = self.client.get("/ui")
         self.assertNotIn("Create Session", resp.text)

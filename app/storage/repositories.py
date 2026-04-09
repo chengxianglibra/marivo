@@ -83,12 +83,16 @@ class JobRepository:
         )
 
     def _deserialize_job(self, row: dict[str, Any]) -> dict[str, Any]:
+        created_at = row["submitted_at"]
+        updated_at = row.get("completed_at") or row.get("started_at") or created_at
         result: dict[str, Any] = {
             "job_id": row["job_id"],
             "session_id": row["session_id"],
             "job_type": row["job_type"],
             "payload": json.loads(row["payload_json"]),
             "status": row["status"],
+            "created_at": created_at,
+            "updated_at": updated_at,
             "submitted_at": row["submitted_at"],
             "started_at": row.get("started_at"),
             "completed_at": row.get("completed_at"),

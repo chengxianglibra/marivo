@@ -89,6 +89,7 @@ Fields that store structured data are represented as JSON objects in responses. 
 - [Session State Surface](session-state.md) — canonical session-level decision surface HTTP contract
 - [Context Surface](context-surface.md) — canonical proposition-level minimal closure HTTP contract
 - [Runtime Status Surface](runtime-status.md) — operator-facing runtime stage and failure HTTP contract
+- [Jobs](jobs.md) — read-only job inspection contract for the query workbench
 - [Quickstart](quickstart.md) — end-to-end walkthrough with `curl` examples
 - [Error Reference](errors.md) — HTTP status codes, error formats, and common error scenarios
 
