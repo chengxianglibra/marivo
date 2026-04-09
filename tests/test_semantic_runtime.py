@@ -3,11 +3,16 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
 from app.main import create_app
-from app.semantic_runtime import CatalogRuntimeService
+from app.semantic_runtime import (
+    CatalogRuntimeService,
+    SemanticRuntimeInvalidRefError,
+    SemanticRuntimeUnpublishedError,
+)
 from tests.semantic_test_helpers import (
     create_legacy_entity,
     create_legacy_metric,
@@ -74,6 +79,7 @@ class SemanticRuntimeTests(unittest.TestCase):
             for table in cls.client.get(f"/sources/{cls.source_id}/objects?type=table").json()
         }
         cls.watch_events_object_id = table_objects["watch_events"]["object_id"]
+        cls.watch_events_fqn = str(table_objects["watch_events"]["fqn"])
 
         cls.client.post(
             "/semantic/mappings",
@@ -129,6 +135,328 @@ class SemanticRuntimeTests(unittest.TestCase):
         self.assertEqual(resolved_metric.grain, "session")
         self.assertEqual(resolved_entity.entity_ref, "entity.user")
         self.assertEqual(resolved_entity.level, "user")
+
+    def test_semantic_repository_resolves_typed_refs(self) -> None:
+        suffix = uuid4().hex[:8]
+
+        time_resp = self.client.post(
+            "/semantic/time",
+            json={
+                "header": {
+                    "time_ref": f"time.runtime_anchor_{suffix}",
+                    "display_name": "Runtime Anchor Time",
+                    "semantic_roles": ["business_anchor", "measurement"],
+                    "time_contract_version": "time.v1",
+                }
+            },
+        )
+        self.assertEqual(time_resp.status_code, 200, time_resp.text)
+        time_contract_id = time_resp.json()["time_contract_id"]
+        time_ref = time_resp.json()["header"]["time_ref"]
+        self.assertEqual(
+            self.client.post(f"/semantic/time/{time_contract_id}/publish").status_code, 200
+        )
+
+        enum_resp = self.client.post(
+            "/semantic/enum-sets",
+            json={
+                "header": {
+                    "enum_set_ref": f"enum.runtime_country_{suffix}",
+                    "value_type": "string",
+                },
+                "display_name": "Runtime Countries",
+                "versions": [
+                    {
+                        "enum_version": "v1",
+                        "values": [
+                            {"value_key": "CN", "raw_value": "CN", "label": "China"},
+                            {"value_key": "US", "raw_value": "US", "label": "United States"},
+                        ],
+                    }
+                ],
+            },
+        )
+        self.assertEqual(enum_resp.status_code, 200, enum_resp.text)
+        enum_contract_id = enum_resp.json()["enum_set_contract_id"]
+        enum_ref = enum_resp.json()["header"]["enum_set_ref"]
+        self.assertEqual(
+            self.client.post(f"/semantic/enum-sets/{enum_contract_id}/publish").status_code,
+            200,
+        )
+
+        dimension_resp = self.client.post(
+            "/semantic/dimensions",
+            json={
+                "header": {
+                    "dimension_ref": f"dimension.runtime_country_{suffix}",
+                    "display_name": "Runtime Country",
+                    "dimension_contract_version": "dimension.v1",
+                },
+                "interface_contract": {
+                    "value_domain": {
+                        "structure_kind": "flat",
+                        "semantic_role": "category",
+                        "value_type": "string",
+                        "domain_kind": "enumerated",
+                        "enum_set_ref": enum_ref,
+                        "enum_version": "v1",
+                    },
+                    "grouping": {"supports_grouping": True},
+                },
+            },
+        )
+        self.assertEqual(dimension_resp.status_code, 200, dimension_resp.text)
+        dimension_contract_id = dimension_resp.json()["dimension_contract_id"]
+        dimension_ref = dimension_resp.json()["header"]["dimension_ref"]
+        self.assertEqual(
+            self.client.post(f"/semantic/dimensions/{dimension_contract_id}/publish").status_code,
+            200,
+        )
+
+        entity_resp = self.client.post(
+            "/semantic/entities",
+            json={
+                "header": {
+                    "entity_ref": f"entity.runtime_user_{suffix}",
+                    "display_name": "Runtime User",
+                    "entity_contract_version": "entity.v1",
+                },
+                "interface_contract": {
+                    "identity": {
+                        "key_refs": [f"key.runtime_user_id_{suffix}"],
+                        "uniqueness_scope": "global",
+                        "id_stability": "stable",
+                    },
+                    "primary_time_ref": time_ref,
+                    "stable_descriptors": [{"dimension_ref": dimension_ref, "cardinality": "one"}],
+                },
+            },
+        )
+        self.assertEqual(entity_resp.status_code, 200, entity_resp.text)
+        entity_contract_id = entity_resp.json()["entity_contract_id"]
+        entity_ref = entity_resp.json()["header"]["entity_ref"]
+        self.assertEqual(
+            self.client.post(f"/semantic/entities/{entity_contract_id}/publish").status_code,
+            200,
+        )
+
+        metric_resp = self.client.post(
+            "/semantic/metrics",
+            json={
+                "header": {
+                    "metric_ref": f"metric.runtime_watch_time_{suffix}",
+                    "display_name": "Runtime Watch Time",
+                    "metric_family": "sum_metric",
+                    "observed_entity_ref": entity_ref,
+                    "observation_grain_ref": "grain.session",
+                    "sample_kind": "numeric",
+                    "value_semantics": "sum",
+                    "aggregation_scope": "session",
+                    "primary_time_ref": time_ref,
+                    "additivity": "additive",
+                    "metric_contract_version": "metric.v1",
+                },
+                "payload": {
+                    "metric_family": "sum_metric",
+                    "measure": {
+                        "name": "watch_time_seconds",
+                        "semantics": "Watch time in seconds",
+                        "aggregation": "sum",
+                        "measure_ref": "measure.watch_time_seconds",
+                    },
+                },
+            },
+        )
+        self.assertEqual(metric_resp.status_code, 200, metric_resp.text)
+        metric_contract_id = metric_resp.json()["metric_contract_id"]
+        metric_ref = metric_resp.json()["header"]["metric_ref"]
+        self.assertEqual(
+            self.client.post(f"/semantic/metrics/{metric_contract_id}/publish").status_code,
+            200,
+        )
+
+        process_resp = self.client.post(
+            "/semantic/process-objects",
+            json={
+                "header": {
+                    "process_ref": f"process.runtime_session_{suffix}",
+                    "display_name": "Runtime Session",
+                    "process_type": "session_contract",
+                    "process_contract_version": "process.v1",
+                },
+                "interface_contract": {
+                    "contract_mode": "entity_stream",
+                    "population_subject_ref": "subject.user",
+                    "entity_ref": entity_ref,
+                    "emitted_grain_ref": "grain.session",
+                    "subject_cardinality": "many",
+                    "anchor_time_ref": time_ref,
+                    "exported_dimension_refs": [dimension_ref],
+                },
+                "payload": {
+                    "process_type": "session_contract",
+                    "session_key": f"runtime_session_{suffix}",
+                    "event_stream_ref": "event_stream.watch_events",
+                },
+            },
+        )
+        self.assertEqual(process_resp.status_code, 200, process_resp.text)
+        process_contract_id = process_resp.json()["process_contract_id"]
+        process_ref = process_resp.json()["header"]["process_ref"]
+        self.assertEqual(
+            self.client.post(
+                f"/semantic/process-objects/{process_contract_id}/publish"
+            ).status_code,
+            200,
+        )
+
+        binding_resp = self.client.post(
+            "/semantic/bindings",
+            json={
+                "header": {
+                    "binding_ref": f"binding.runtime_entity_{suffix}",
+                    "binding_scope": "entity",
+                    "bound_object_ref": entity_ref,
+                    "binding_contract_version": "binding.v1",
+                },
+                "interface_contract": {
+                    "carrier_bindings": [
+                        {
+                            "binding_key": "primary",
+                            "carrier_kind": "table",
+                            "carrier_locator": self.watch_events_fqn,
+                            "binding_role": "primary",
+                            "field_surfaces": [
+                                {
+                                    "surface_ref": f"field.runtime_user_id_{suffix}",
+                                    "physical_name": "user_id",
+                                },
+                                {
+                                    "surface_ref": f"field.runtime_country_{suffix}",
+                                    "physical_name": "country",
+                                },
+                                {
+                                    "surface_ref": f"field.runtime_event_date_{suffix}",
+                                    "physical_name": "event_date",
+                                },
+                            ],
+                            "time_surfaces": [
+                                {
+                                    "surface_ref": f"time_surface.runtime_event_{suffix}",
+                                    "physical_name": "event_date",
+                                    "time_granularity": "day",
+                                }
+                            ],
+                        }
+                    ],
+                    "field_bindings": [
+                        {
+                            "carrier_binding_key": "primary",
+                            "target": {
+                                "target_kind": "identity_key",
+                                "target_key": f"key.runtime_user_id_{suffix}",
+                            },
+                            "semantic_ref": f"key.runtime_user_id_{suffix}",
+                            "surface_ref": f"field.runtime_user_id_{suffix}",
+                        },
+                        {
+                            "carrier_binding_key": "primary",
+                            "target": {"target_kind": "primary_time", "target_key": time_ref},
+                            "semantic_ref": time_ref,
+                            "surface_ref": f"field.runtime_event_date_{suffix}",
+                        },
+                        {
+                            "carrier_binding_key": "primary",
+                            "target": {
+                                "target_kind": "stable_descriptor",
+                                "target_key": dimension_ref,
+                            },
+                            "semantic_ref": dimension_ref,
+                            "surface_ref": f"field.runtime_country_{suffix}",
+                        },
+                    ],
+                },
+            },
+        )
+        self.assertEqual(binding_resp.status_code, 200, binding_resp.text)
+        binding_id = binding_resp.json()["binding_id"]
+        binding_ref = binding_resp.json()["header"]["binding_ref"]
+        publish_binding_resp = self.client.post(f"/semantic/bindings/{binding_id}/publish")
+        self.assertEqual(publish_binding_resp.status_code, 200, publish_binding_resp.text)
+
+        repository = self.client.app.state.service.semantic_repository
+
+        resolved_metric = repository.resolve_metric_ref(metric_ref)
+        self.assertEqual(resolved_metric.object_kind, "metric")
+        self.assertEqual(resolved_metric.ref, metric_ref)
+        self.assertEqual(
+            resolved_metric.semantic_object["header"]["observed_entity_ref"],
+            entity_ref,
+        )
+
+        resolved_entity = repository.resolve_entity_ref(entity_ref)
+        self.assertEqual(resolved_entity.object_kind, "entity")
+        self.assertEqual(
+            resolved_entity.semantic_object["interface_contract"]["primary_time_ref"],
+            time_ref,
+        )
+
+        resolved_process = repository.resolve_process_ref(process_ref)
+        self.assertEqual(resolved_process.object_kind, "process")
+        self.assertEqual(
+            resolved_process.semantic_object["interface_contract"]["exported_dimension_refs"],
+            [dimension_ref],
+        )
+
+        resolved_dimension = repository.resolve_dimension_ref(dimension_ref)
+        self.assertEqual(resolved_dimension.object_kind, "dimension")
+        self.assertEqual(
+            resolved_dimension.semantic_object["interface_contract"]["value_domain"][
+                "enum_set_ref"
+            ],
+            enum_ref,
+        )
+
+        resolved_time = repository.resolve_time_ref(time_ref)
+        self.assertEqual(resolved_time.object_kind, "time")
+        self.assertEqual(
+            resolved_time.semantic_object["header"]["semantic_roles"],
+            ["business_anchor", "measurement"],
+        )
+
+        resolved_binding = repository.resolve_binding_ref(binding_ref)
+        self.assertEqual(resolved_binding.object_kind, "binding")
+        self.assertEqual(
+            resolved_binding.semantic_object["interface_contract"]["carrier_bindings"][0][
+                "carrier_locator"
+            ],
+            self.watch_events_fqn,
+        )
+        self.assertEqual(repository.resolve_ref(metric_ref).object_kind, "metric")
+
+    def test_typed_repository_rejects_invalid_and_unpublished_refs(self) -> None:
+        repository = self.client.app.state.service.semantic_repository
+
+        with self.assertRaises(SemanticRuntimeInvalidRefError):
+            repository.resolve_ref("profile.not_supported")
+
+        draft_suffix = uuid4().hex[:8]
+        time_resp = self.client.post(
+            "/semantic/time",
+            json={
+                "header": {
+                    "time_ref": f"time.runtime_draft_{draft_suffix}",
+                    "display_name": "Draft Runtime Time",
+                    "semantic_roles": ["measurement"],
+                    "time_contract_version": "time.v1",
+                }
+            },
+        )
+        self.assertEqual(time_resp.status_code, 200, time_resp.text)
+        draft_time_ref = time_resp.json()["header"]["time_ref"]
+
+        with self.assertRaises(SemanticRuntimeUnpublishedError):
+            repository.resolve_time_ref(draft_time_ref)
 
     def test_planner_context_provider_includes_session_details(self) -> None:
         service = self.client.app.state.service
