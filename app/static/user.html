@@ -463,28 +463,47 @@ renderers.catalog = async () => {
     try {
       const res = await localApi.resolveTerm(name);
       const sem = res.semantic_object || {};
+      const header = sem.header || {};
+      const interfaceContract = sem.interface_contract || {};
+      const payload = sem.payload || {};
       let html = '<div class="resolve-grid">';
-      // Left: definition
+      // Left: typed semantic summary
       html += '<div class="card" style="margin-bottom:0;">';
-      html += '<h2 style="font-size:var(--font-size-base);">Definition</h2>';
+      html += '<h2 style="font-size:var(--font-size-base);">Typed Contract</h2>';
       html += `<dl class="detail-meta">
-        <dt>Name</dt><dd>${esc(sem.name || '')}</dd>
-        <dt>Display Name</dt><dd>${esc(sem.display_name || '')}</dd>
-        <dt>Resolved Type</dt><dd>${statusBadge(res.resolved_type || '')}</dd>
-        <dt>Status</dt><dd>${statusBadge(sem.status || '')}</dd>
-        <dt>Description</dt><dd>${esc(sem.description || '')}</dd>
-        ${sem.definition_sql ? `<dt>Definition SQL</dt><dd><code>${esc(sem.definition_sql)}</code></dd>` : ''}
-        ${sem.dimensions ? `<dt>Dimensions</dt><dd>${esc(sem.dimensions.join(', '))}</dd>` : ''}
-        ${sem.keys ? `<dt>Keys</dt><dd>${esc(sem.keys.join(', '))}</dd>` : ''}
+        <dt>Object Kind</dt><dd>${statusBadge(res.object_kind || '')}</dd>
+        <dt>Ref</dt><dd><code>${esc(res.ref || '')}</code></dd>
+        <dt>Status</dt><dd>${statusBadge(res.status || '')}</dd>
+        <dt>Revision</dt><dd>${esc(String(res.revision || ''))}</dd>
+        <dt>Display Name</dt><dd>${esc(header.display_name || '')}</dd>
+        <dt>Description</dt><dd>${esc(header.description || '')}</dd>
       </dl>`;
+      html += '<h3 style="font-size:var(--font-size-sm);margin-top:var(--space-lg);">Header</h3>';
+      html += jsonPre(header);
+      if (Object.keys(interfaceContract).length) {
+        html += '<h3 style="font-size:var(--font-size-sm);margin-top:var(--space-lg);">Interface Contract</h3>';
+        html += jsonPre(interfaceContract);
+      }
+      if (Object.keys(payload).length) {
+        html += '<h3 style="font-size:var(--font-size-sm);margin-top:var(--space-lg);">Payload</h3>';
+        html += jsonPre(payload);
+      }
       html += '</div>';
       // Right: engine info
       html += '<div class="card" style="margin-bottom:0;">';
-      html += '<h2 style="font-size:var(--font-size-base);">Engine Info</h2>';
+      html += '<h2 style="font-size:var(--font-size-base);">Runtime Envelope</h2>';
+      html += jsonPre({
+        object_kind: res.object_kind,
+        object_id: res.object_id,
+        ref: res.ref,
+        status: res.status,
+        revision: res.revision,
+        created_at: res.created_at,
+        updated_at: res.updated_at,
+      });
       if (res.engine_info) {
+        html += '<h3 style="font-size:var(--font-size-sm);margin-top:var(--space-lg);">Engine Info</h3>';
         html += jsonPre(res.engine_info);
-      } else {
-        html += '<p class="empty">No engine info available.</p>';
       }
       html += '</div>';
       html += '</div>'; // end resolve-grid

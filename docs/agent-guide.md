@@ -85,6 +85,8 @@ Compatibility profiles remain explicit catalog artifacts: object publish does no
 Runtime/catalog read surfaces must only expose objects backed by `published` typed contracts; do not re-derive runtime-visible contracts from legacy rows when the typed contract is absent or not published.
 Legacy `/semantic/mappings` HTTP APIs are removed; new write paths must use typed bindings, and any legacy mapping compatibility must stay internal or test-only.
 Compiler normalize/resolve should consume published typed refs through `SemanticRuntimeRepository`; compatibility bridges may keep execution running when promoted legacy dimension names do not yet resolve to published typed dimension contracts, but that fallback must stay explicit and local to compiler preprocessing.
+Recommended implementation order is fixed: typed semantic objects and bindings first, then publish/runtime resolution, then compiler/IR, then evidence/read-surface integration.
+Behavior changes that touch semantic/compiler boundaries must keep at least one end-to-end test covering `published` typed objects -> typed binding -> compile metadata -> persisted `typed_semantic_snapshot`.
 
 Docs layout:
 - `docs/api/`: external HTTP API docs only; target-state step submission is in `intent-steps.md`, and canonical read surfaces are split into `session-state.md` and `context-surface.md`
