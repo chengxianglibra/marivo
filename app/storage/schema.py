@@ -35,6 +35,15 @@ METADATA_DDL: list[str] = [
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS step_metadata (
+        step_id                TEXT PRIMARY KEY REFERENCES steps(step_id) ON DELETE CASCADE,
+        metadata_kind          TEXT NOT NULL,
+        semantic_snapshot_json TEXT NOT NULL,
+        created_at             TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at             TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS artifacts (
         artifact_id             TEXT PRIMARY KEY,
         session_id              TEXT NOT NULL,

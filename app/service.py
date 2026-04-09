@@ -25,6 +25,7 @@ from app.evidence_engine.finding_extractor_registry import (
     default_finding_registry,
     validate_for_commit,
 )
+from app.evidence_engine.ref_boundary import assert_no_canonical_refs_in_semantic_payload
 from app.evidence_engine.state_view import materialize_session_state_view
 from app.execution.feedback import compile_failure_from_error
 from app.execution.orchestrator import WorkflowOrchestrator
@@ -52,6 +53,7 @@ from app.storage.evidence_repositories import (
     PropositionRepository,
 )
 from app.storage.metadata import MetadataStore
+from app.storage.step_metadata_repository import StepMetadataRepository
 from app.time_axis_metadata import TimeAxisMetadataProvider
 from app.time_scope import (
     AdHocAggregateValueSpec,
@@ -166,6 +168,7 @@ class SemanticLayerService:
         self._gap_repo = EvidenceGapRepository(metadata_store)
         self._inference_record_repo = InferenceRecordRepository(metadata_store)
         self._proposal_repo = ActionProposalRepository(metadata_store)
+        self._step_metadata_repo = StepMetadataRepository(metadata_store)
         self._governance_context: dict[str, Any] | None = None
         self._routing_feedback_context: dict[str, Any] | None = None
         self.routing_runtime = RoutingRuntime(query_router, analytics_engine)
@@ -1088,7 +1091,14 @@ class SemanticLayerService:
             result["debug"] = {
                 k: _debug[k] for k in ("current_window", "baseline_window", "window_length_match")
             }
-        self._insert_step(step_id, session_id, step_type, summary, result, provenance=provenance)
+        self._insert_step(
+            step_id,
+            session_id,
+            step_type,
+            summary,
+            result,
+            provenance=provenance,
+        )
         return result
 
     def _resolve_metric_unit_note(self, metric_name: str) -> str | None:
@@ -1309,7 +1319,14 @@ class SemanticLayerService:
             "artifact_id": artifact_id,
             "profile": artifact,
         }
-        self._insert_step(step_id, session_id, step_type, summary, result, provenance=provenance)
+        self._insert_step(
+            step_id,
+            session_id,
+            step_type,
+            summary,
+            result,
+            provenance=provenance,
+        )
         return result
 
     def _run_sample_rows(self, session_id: str, params: dict[str, Any]) -> dict[str, Any]:
@@ -1410,7 +1427,15 @@ class SemanticLayerService:
             "rows": rows,
             "columns_metadata": col_metadata,
         }
-        self._insert_step(step_id, session_id, step_type, summary, result, provenance=provenance)
+        self._insert_step(
+            step_id,
+            session_id,
+            step_type,
+            summary,
+            result,
+            provenance=provenance,
+            semantic_metadata=self.build_step_semantic_metadata(compiled_query),
+        )
         return result
 
     def _run_aggregate_query(self, session_id: str, params: dict[str, Any]) -> dict[str, Any]:
@@ -1593,6 +1618,7 @@ class SemanticLayerService:
         contributions: list[dict[str, Any]] = []
         query_sql_parts: list[str] = []
         query_params: list[Any] = []
+        compiled_queries: list[CompiledQuery] = []
         current_has_data = False
         baseline_has_data = False
 
@@ -1621,6 +1647,7 @@ class SemanticLayerService:
             rows = execute_compiled(engine, compiled_query).rows
             query_sql_parts.append(compiled_query.sql)
             query_params.extend(compiled_query.params)
+            compiled_queries.append(compiled_query)
 
             has_current_rows = any(row.get("metric_value_current") is not None for row in rows)
             has_baseline_rows = any(row.get("metric_value_baseline") is not None for row in rows)
@@ -1737,7 +1764,13 @@ class SemanticLayerService:
         }
 
         self._insert_step(
-            step_id, session_id, "attribute_change", summary, result, provenance=provenance
+            step_id,
+            session_id,
+            "attribute_change",
+            summary,
+            result,
+            provenance=provenance,
+            semantic_metadata=self.build_step_semantic_metadata(compiled_queries),
         )
         return result
 
@@ -2024,6 +2057,7 @@ class SemanticLayerService:
         summary: str,
         result: dict[str, Any],
         provenance: dict[str, Any] | None = None,
+        semantic_metadata: dict[str, Any] | None = None,
     ) -> None:
         self.metadata.execute(
             """
@@ -2039,6 +2073,127 @@ class SemanticLayerService:
                 self._dump(provenance or {}),
             ],
         )
+        if semantic_metadata is not None:
+            self._step_metadata_repo.upsert(
+                step_id=step_id,
+                metadata_kind="typed_semantic_snapshot",
+                semantic_snapshot=semantic_metadata,
+            )
+
+    @staticmethod
+    def _merge_unique_str(values: list[str | None]) -> list[str]:
+        seen: set[str] = set()
+        merged: list[str] = []
+        for value in values:
+            if value is None or value in seen:
+                continue
+            seen.add(value)
+            merged.append(value)
+        return merged
+
+    def build_step_semantic_metadata(
+        self,
+        compiled_queries: CompiledQuery | list[CompiledQuery],
+    ) -> dict[str, Any] | None:
+        compiled_list = (
+            compiled_queries if isinstance(compiled_queries, list) else [compiled_queries]
+        )
+        if not compiled_list:
+            return None
+
+        metric_refs = self._merge_unique_str(
+            [
+                str(compiled.metadata.get("resolved_metric_ref"))
+                if compiled.metadata.get("resolved_metric_ref")
+                else None
+                for compiled in compiled_list
+            ]
+        )
+        process_refs = self._merge_unique_str(
+            [
+                str(compiled.metadata.get("resolved_process_ref"))
+                if compiled.metadata.get("resolved_process_ref")
+                else None
+                for compiled in compiled_list
+            ]
+        )
+        filter_time_refs = self._merge_unique_str(
+            [
+                str(compiled.metadata.get("resolved_filter_time_ref"))
+                if compiled.metadata.get("resolved_filter_time_ref")
+                else None
+                for compiled in compiled_list
+            ]
+        )
+        binding_refs = self._merge_unique_str(
+            [
+                binding_ref
+                for compiled in compiled_list
+                for binding_ref in list(compiled.metadata.get("resolved_binding_refs") or [])
+            ]
+        )
+        dimension_refs = self._merge_unique_str(
+            [
+                dimension_ref
+                for compiled in compiled_list
+                for dimension_ref in list(compiled.metadata.get("resolved_dimension_refs") or [])
+            ]
+        )
+        ir_plan_ids = self._merge_unique_str(
+            [
+                str(compiled.metadata.get("ir_plan_id"))
+                if compiled.metadata.get("ir_plan_id")
+                else None
+                for compiled in compiled_list
+            ]
+        )
+        request_classes = self._merge_unique_str(
+            [
+                str(compiled.metadata.get("normalized_request_class"))
+                if compiled.metadata.get("normalized_request_class")
+                else None
+                for compiled in compiled_list
+            ]
+        )
+        compiler_summaries = [
+            dict(summary)
+            for compiled in compiled_list
+            for summary in [compiled.metadata.get("compiler_summary")]
+            if isinstance(summary, dict)
+        ]
+
+        if not any(
+            (
+                metric_refs,
+                process_refs,
+                filter_time_refs,
+                binding_refs,
+                dimension_refs,
+                ir_plan_ids,
+                request_classes,
+                compiler_summaries,
+            )
+        ):
+            return None
+
+        snapshot: dict[str, Any] = {
+            "schema_version": "step_semantic_metadata.v1",
+            "metadata_kind": "typed_semantic_snapshot",
+            "typed_inputs": {
+                "metric_ref": metric_refs[0] if metric_refs else None,
+                "process_ref": process_refs[0] if process_refs else None,
+                "dimension_refs": dimension_refs,
+                "filter_time_ref": filter_time_refs[0] if filter_time_refs else None,
+                "request_classes": request_classes,
+            },
+            "binding_refs": binding_refs,
+            "compile_context": {
+                "ir_plan_ids": ir_plan_ids,
+                "compiler_summaries": compiler_summaries,
+            },
+        }
+        assert_no_canonical_refs_in_semantic_payload(snapshot, surface="step_semantic_metadata")
+        return snapshot
 
     def _insert_artifact(
         self,

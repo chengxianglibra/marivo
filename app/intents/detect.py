@@ -409,5 +409,13 @@ def run_detect_intent(
         **artifact,
     }
 
-    svc._insert_step(step_id, session_id, "detect", summary, result, provenance=provenance)
+    svc._insert_step(
+        step_id,
+        session_id,
+        "detect",
+        summary,
+        result,
+        provenance=provenance,
+        semantic_metadata=svc.build_step_semantic_metadata(compiled_query),
+    )
     return result
