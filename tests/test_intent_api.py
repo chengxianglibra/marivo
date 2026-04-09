@@ -27,7 +27,11 @@ from app.api.models import (
     ObserveRequest,
 )
 from app.main import create_app
-from tests.semantic_test_helpers import create_legacy_metric, publish_legacy_metric
+from tests.semantic_test_helpers import (
+    create_legacy_mapping,
+    create_legacy_metric,
+    publish_legacy_metric,
+)
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 # ── Model-level validation tests (no HTTP) ───────────────────────────────────
@@ -701,14 +705,12 @@ class ObserveTypedArtifactTests(unittest.TestCase):
         cls.metric_id = metric_id
 
         # Create mapping: metric → watch_events source_object
-        cls.client.post(
-            "/semantic/mappings",
-            json={
-                "semantic_type": "metric",
-                "semantic_id": metric_id,
-                "object_id": obj_id,
-                "mapping_type": "primary",
-            },
+        create_legacy_mapping(
+            cls.client,
+            semantic_type="metric",
+            semantic_id=metric_id,
+            object_id=obj_id,
+            mapping_type="primary",
         )
 
     def test_observe_returns_typed_artifact_shape(self) -> None:
@@ -1063,14 +1065,12 @@ class CompareIntentTests(unittest.TestCase):
         )
         metric_id = metric["metric_id"]
         publish_legacy_metric(cls.client, metric_id)
-        cls.client.post(
-            "/semantic/mappings",
-            json={
-                "semantic_type": "metric",
-                "semantic_id": metric_id,
-                "object_id": obj_id,
-                "mapping_type": "primary",
-            },
+        create_legacy_mapping(
+            cls.client,
+            semantic_type="metric",
+            semantic_id=metric_id,
+            object_id=obj_id,
+            mapping_type="primary",
         )
 
         # Create a second metric for mismatch tests
@@ -1085,14 +1085,12 @@ class CompareIntentTests(unittest.TestCase):
         cls.other_metric_id = other_metric["metric_id"]
         if cls.other_metric_id:
             publish_legacy_metric(cls.client, cls.other_metric_id)
-            cls.client.post(
-                "/semantic/mappings",
-                json={
-                    "semantic_type": "metric",
-                    "semantic_id": cls.other_metric_id,
-                    "object_id": obj_id,
-                    "mapping_type": "primary",
-                },
+            create_legacy_mapping(
+                cls.client,
+                semantic_type="metric",
+                semantic_id=cls.other_metric_id,
+                object_id=obj_id,
+                mapping_type="primary",
             )
 
         # Create session
@@ -1523,14 +1521,12 @@ class DecomposeIntentTests(unittest.TestCase):
         )
         metric_id = metric["metric_id"]
         publish_legacy_metric(cls.client, metric_id)
-        cls.client.post(
-            "/semantic/mappings",
-            json={
-                "semantic_type": "metric",
-                "semantic_id": metric_id,
-                "object_id": obj_id,
-                "mapping_type": "primary",
-            },
+        create_legacy_mapping(
+            cls.client,
+            semantic_type="metric",
+            semantic_id=metric_id,
+            object_id=obj_id,
+            mapping_type="primary",
         )
 
         r = cls.client.post("/sessions", json={"goal": "decompose intent test"})

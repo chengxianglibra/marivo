@@ -37,6 +37,10 @@ from app.analysis_core.ir import STEP_ARTIFACT_KINDS, STEP_OBSERVATION_TYPES, An
 from app.service import SemanticLayerService
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 from app.storage.sqlite_metadata import SQLiteMetadataStore
+from tests.semantic_test_helpers import (
+    ensure_published_typed_metric,
+    ensure_published_typed_metric_binding,
+)
 
 # ---------------------------------------------------------------------------
 # Shared helper: minimal metadata + analytics engine seeder
@@ -116,10 +120,22 @@ def _seed_metadata(meta: SQLiteMetadataStore, db_path: Path | None = None) -> No
         ],
     )
     meta.execute(
-        "INSERT OR IGNORE INTO semantic_mappings "
+        "INSERT OR IGNORE INTO legacy_semantic_mappings "
         "(mapping_id, semantic_type, semantic_id, object_id, mapping_type, mapping_json, "
         " created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         ["map_reg8501", "metric", met_id, obj_id, "primary", "{}", now, now],
+    )
+    ensure_published_typed_metric(
+        meta,
+        metric_name=_METRIC,
+        display_name=_METRIC,
+        grain="day",
+        dimensions=["region"],
+    )
+    ensure_published_typed_metric_binding(
+        meta,
+        metric_name=_METRIC,
+        carrier_locator=f"analytics.{_TABLE}",
     )
     meta.execute(
         "INSERT OR IGNORE INTO engines "

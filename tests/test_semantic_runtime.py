@@ -15,6 +15,7 @@ from app.semantic_runtime import (
 )
 from tests.semantic_test_helpers import (
     create_legacy_entity,
+    create_legacy_mapping,
     create_legacy_metric,
     publish_legacy_entity,
     publish_legacy_metric,
@@ -81,14 +82,12 @@ class SemanticRuntimeTests(unittest.TestCase):
         cls.watch_events_object_id = table_objects["watch_events"]["object_id"]
         cls.watch_events_fqn = str(table_objects["watch_events"]["fqn"])
 
-        cls.client.post(
-            "/semantic/mappings",
-            json={
-                "semantic_type": "metric",
-                "semantic_id": cls.metric_id,
-                "object_id": cls.watch_events_object_id,
-                "mapping_type": "primary_source",
-            },
+        create_legacy_mapping(
+            cls.client,
+            semantic_type="metric",
+            semantic_id=cls.metric_id,
+            object_id=cls.watch_events_object_id,
+            mapping_type="primary_source",
         )
 
     @classmethod

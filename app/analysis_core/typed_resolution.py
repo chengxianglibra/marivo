@@ -301,9 +301,8 @@ def _normalize_dimension_refs(dimensions: list[str]) -> list[str]:
         candidate = dimension.strip()
         if not candidate:
             continue
-        if runtime_ref_kind(candidate) is None:
-            candidate = f"dimension.{candidate}"
-        if runtime_ref_kind(candidate) != "dimension":
+        ref_kind = runtime_ref_kind(candidate)
+        if ref_kind is not None and ref_kind != "dimension":
             raise ValueError(f"Invalid dimension ref: {dimension}")
         if candidate not in seen:
             normalized.append(candidate)

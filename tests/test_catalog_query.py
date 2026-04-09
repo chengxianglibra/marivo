@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from app.main import create_app
 from tests.semantic_test_helpers import (
     create_legacy_entity,
+    create_legacy_mapping,
     create_legacy_metric,
     publish_legacy_entity,
     publish_legacy_metric,
@@ -77,14 +78,12 @@ class CatalogQueryTests(unittest.TestCase):
 
         # Create mapping: metric -> table
         watch_obj_id = cls.table_objects["watch_events"]["object_id"]
-        cls.client.post(
-            "/semantic/mappings",
-            json={
-                "semantic_type": "metric",
-                "semantic_id": cls.watch_metric_id,
-                "object_id": watch_obj_id,
-                "mapping_type": "primary_source",
-            },
+        create_legacy_mapping(
+            cls.client,
+            semantic_type="metric",
+            semantic_id=cls.watch_metric_id,
+            object_id=watch_obj_id,
+            mapping_type="primary_source",
         )
 
     @classmethod

@@ -233,10 +233,10 @@ const api = {
   createMetric: (d)       => api._fetch('/semantic/metrics', { method: 'POST', body: JSON.stringify(d) }),
   updateMetric: (id, d)   => api._fetch(`/semantic/metrics/${id}`, { method: 'PUT', body: JSON.stringify(d) }),
   publishMetric: (id)     => api._fetch(`/semantic/metrics/${id}/publish`, { method: 'POST' }),
-  // Mappings
-  listMappings: (params)  => api._fetch('/semantic/mappings' + (params ? '?' + new URLSearchParams(params) : '')),
-  createMapping: (d)      => api._fetch('/semantic/mappings', { method: 'POST', body: JSON.stringify(d) }),
-  deleteMapping: (id)     => api._fetch(`/semantic/mappings/${id}`, { method: 'DELETE' }),
+  // Legacy semantic mappings have been removed from the public HTTP surface.
+  listMappings: async ()  => [],
+  createMapping: async () => { throw new Error('Legacy semantic mappings have been removed; use typed bindings.'); },
+  deleteMapping: async () => { throw new Error('Legacy semantic mappings have been removed; use typed bindings.'); },
   // Catalog browsing & selections
   browseSchemas: (id)          => api._fetch(`/sources/${id}/catalog/schemas`),
   browseTables: (id, schema)   => api._fetch(`/sources/${id}/catalog/tables?schema=${encodeURIComponent(schema)}`),
