@@ -7,6 +7,11 @@ from datetime import date, datetime
 from typing import Any
 
 from app.analysis_core.ir import AnalysisStepIR
+from app.analysis_core.typed_resolution import (
+    normalize_step_request,
+    resolve_compiler_inputs,
+)
+from app.semantic_runtime import SemanticRuntimeRepository
 
 
 @dataclass(slots=True)
@@ -593,8 +598,33 @@ def compile_step(
     """Compile a step IR into an engine-agnostic query artifact."""
 
     semantic_context = semantic_context or {}
+    semantic_repository = semantic_context.get("semantic_repository")
+    if semantic_repository is not None and not isinstance(
+        semantic_repository, SemanticRuntimeRepository
+    ):
+        raise ValueError("semantic_context.semantic_repository must be a SemanticRuntimeRepository")
+    normalized_request = normalize_step_request(step, semantic_context=semantic_context)
+    resolved_inputs = resolve_compiler_inputs(
+        normalized_request,
+        semantic_repository=semantic_repository,
+    )
     params = dict(step.params)
-    metadata = {"engine_type": engine_type, "step_type": step.step_type}
+    metadata = {
+        "engine_type": engine_type,
+        "step_type": step.step_type,
+        "normalized_request_class": normalized_request.request_class,
+        "normalized_intent_kind": normalized_request.intent_kind,
+        "normalized_metric_ref": normalized_request.metric_ref,
+        "normalized_dimension_refs": list(normalized_request.request_dimensions),
+        "resolved_metric_ref": resolved_inputs.resolved_metric.ref
+        if resolved_inputs.resolved_metric is not None
+        else None,
+        "resolved_filter_time_ref": resolved_inputs.resolved_filter_time.ref
+        if resolved_inputs.resolved_filter_time is not None
+        else None,
+        "resolved_dimension_refs": resolved_inputs.resolved_dimension_refs,
+        "compiler_warnings": resolved_inputs.warnings,
+    }
     table_name: str | None = None
     compiled_params: list[Any] = []
 
