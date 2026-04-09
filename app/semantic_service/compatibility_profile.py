@@ -30,9 +30,9 @@ class CompatibilityProfileService(SemanticServiceSupport):
             """
             INSERT INTO compiler_compatibility_profiles (
                 profile_id, profile_ref, profile_kind, schema_version, subject_kind,
-                subject_ref, requirement_json, capability_json, status, revision,
+                subject_ref, subject_revision, requirement_json, capability_json, status, revision,
                 created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', 1, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', 1, ?, ?)
             """,
             [
                 profile_id,
@@ -41,6 +41,7 @@ class CompatibilityProfileService(SemanticServiceSupport):
                 payload.schema_version,
                 payload.subject_kind,
                 payload.subject_ref,
+                None,
                 json.dumps(
                     payload.requirement.model_dump(mode="json") if payload.requirement else {}
                 ),
@@ -117,17 +118,28 @@ class CompatibilityProfileService(SemanticServiceSupport):
 
     def publish_compatibility_profile(self, profile_id: str) -> dict[str, Any]:
         current = self.get_compatibility_profile(profile_id)
-        self._publish_record(
-            table_name="compiler_compatibility_profiles",
-            id_column="profile_id",
-            object_id=profile_id,
-            object_label="Compatibility profile",
-            status=current["status"],
-            compatibility_validator=lambda: self._validate_profile_subject_ref(
+        self._require_draft_status(current["status"], "Compatibility profile", profile_id)
+        self._run_publish_compatibility_validation(
+            lambda: self._validate_profile_subject_ref(
                 current["subject_kind"],
                 current["subject_ref"],
                 require_published=True,
-            ),
+            )
+        )
+        subject_revision = self._published_profile_subject_revision(
+            current["subject_kind"],
+            current["subject_ref"],
+        )
+        self.metadata.execute(
+            """
+            UPDATE compiler_compatibility_profiles
+            SET status = 'published',
+                subject_revision = ?,
+                revision = revision + 1,
+                updated_at = ?
+            WHERE profile_id = ?
+            """,
+            [subject_revision, now_iso(), profile_id],
         )
         return self.get_compatibility_profile(profile_id)
 

@@ -79,7 +79,7 @@ Metadata reads use synced `source_objects`, not live catalogs.
 Semantic metadata writes go through `app/semantic.py` as a facade over `app/semantic_service/`; keep route-level dependencies on the facade contract unless a task explicitly changes the app wiring.
 Typed semantic objects are only mutable in `draft`; service-layer publish must reject objects whose referenced semantic dependencies are not already `published`.
 Typed binding publish must also reject carriers that cannot be grounded to synced `source_objects`; draft bindings may keep unresolved `carrier_locator` values until publish.
-Compatibility profiles remain explicit catalog artifacts: object publish does not auto-generate profile payloads, and profile publish must reject subjects that are not already `published`.
+Compatibility profiles remain explicit catalog artifacts: object publish does not auto-generate profile payloads, profile publish must reject subjects that are not already `published`, and published profiles freeze `subject_revision` so compiler can reject stale profile/subject pairings.
 Runtime/catalog read surfaces must only expose objects backed by `published` typed contracts; do not re-derive runtime-visible contracts from legacy rows when the typed contract is absent or not published.
 Compiler normalize/resolve should consume published typed refs through `SemanticRuntimeRepository`; compatibility bridges may keep execution running when promoted legacy dimension names do not yet resolve to published typed dimension contracts, but that fallback must stay explicit and local to compiler preprocessing.
 

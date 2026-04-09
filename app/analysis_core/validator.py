@@ -50,6 +50,7 @@ def validate_compiler_inputs(
     derived_state: DerivedCompilerState,
 ) -> ValidationResult:
     issues: list[ValidationIssue] = []
+    issues.extend(_gate_profile_integrity(derived_state))
     issues.extend(_gate_request_shape(step_type, resolved_inputs))
     issues.extend(_gate_intent_support(step_type, resolved_inputs, derived_state))
     issues.extend(_gate_metric_process_compatibility(resolved_inputs, derived_state))
@@ -71,6 +72,22 @@ def validate_compiler_inputs(
 def validation_error_message(result: ValidationResult) -> str:
     error = next(issue for issue in result.issues if issue.severity == "error")
     return f"{error.code}: {error.message}"
+
+
+def _gate_profile_integrity(derived_state: DerivedCompilerState) -> list[ValidationIssue]:
+    issues: list[ValidationIssue] = []
+    for issue in derived_state.profile_validation_issues:
+        issues.append(
+            ValidationIssue(
+                code=issue.code,
+                gate="profile_integrity",
+                severity="error",
+                message=issue.message,
+                subject_ref=issue.subject_ref,
+                details=dict(issue.details),
+            )
+        )
+    return issues
 
 
 def _gate_request_shape(

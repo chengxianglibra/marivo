@@ -1363,6 +1363,45 @@ class SemanticServiceSupport:
                 code="profile_subject_not_published",
             )
 
+    def _published_profile_subject_revision(self, subject_kind: str, subject_ref: str) -> int:
+        lookup = {
+            "metric": (
+                """
+                SELECT revision
+                FROM semantic_metric_contracts
+                WHERE metric_ref = ? AND status = 'published'
+                """,
+                "metric",
+            ),
+            "process": (
+                """
+                SELECT revision
+                FROM semantic_process_objects
+                WHERE process_ref = ? AND status = 'published'
+                """,
+                "process",
+            ),
+            "binding": (
+                """
+                SELECT revision
+                FROM typed_bindings
+                WHERE binding_ref = ? AND status = 'published'
+                """,
+                "binding",
+            ),
+        }
+        sql_pair = lookup.get(subject_kind)
+        if sql_pair is None:
+            raise self._validation_error(f"Unsupported subject_kind: {subject_kind}")
+        sql, _label = sql_pair
+        row = self.metadata.query_one(sql, [subject_ref])
+        if row is None:
+            raise self._compatibility_error(
+                f"Compatibility profile subject must be published before profile publish: {subject_ref}",
+                code="profile_subject_not_published",
+            )
+        return int(row["revision"])
+
     def _replace_entity_key_refs(self, entity_contract_id: str, key_refs: list[str]) -> None:
         self.metadata.execute(
             "DELETE FROM semantic_entity_key_refs WHERE entity_contract_id = ?",
@@ -2041,6 +2080,7 @@ class SemanticServiceSupport:
             "schema_version": row["schema_version"],
             "subject_kind": row["subject_kind"],
             "subject_ref": row["subject_ref"],
+            "subject_revision": row["subject_revision"],
             "requirement": requirement or None,
             "capability": capability or None,
             "status": row["status"],

@@ -45,6 +45,8 @@ class MetricProcessRequirements:
 class ProfileTrace:
     subject_ref: str
     profile_ref: str | None
+    subject_revision: int | None
+    resolved_subject_revision: int | None
     applied: bool
     reason: str
 
@@ -52,9 +54,19 @@ class ProfileTrace:
         return {
             "subject_ref": self.subject_ref,
             "profile_ref": self.profile_ref,
+            "subject_revision": self.subject_revision,
+            "resolved_subject_revision": self.resolved_subject_revision,
             "applied": self.applied,
             "reason": self.reason,
         }
+
+
+@dataclass(slots=True)
+class ProfileValidationIssue:
+    code: str
+    message: str
+    subject_ref: str
+    details: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -66,6 +78,7 @@ class DerivedCompilerState:
         default_factory=MetricProcessRequirements
     )
     profile_traces: list[ProfileTrace] = field(default_factory=list)
+    profile_validation_issues: list[ProfileValidationIssue] = field(default_factory=list)
     usage_trace: list[dict[str, Any]] = field(default_factory=list)
 
     def capabilities_payload(self) -> dict[str, Any]:
@@ -137,10 +150,11 @@ def derive_compiler_state(
             }
         )
         requirement_profile = _load_profile(
-            resolved_metric.ref,
+            resolved_metric,
             expected_kind="requirement",
             profile_reader=profile_reader,
             traces=state.profile_traces,
+            validation_issues=state.profile_validation_issues,
         )
         if requirement_profile is not None:
             requirement = dict(requirement_profile.get("requirement") or {})
@@ -173,10 +187,11 @@ def derive_compiler_state(
             }
         )
         capability_profile = _load_profile(
-            resolved_process.ref,
+            resolved_process,
             expected_kind="capability",
             profile_reader=profile_reader,
             traces=state.profile_traces,
+            validation_issues=state.profile_validation_issues,
         )
         if capability_profile is not None:
             capability = dict(capability_profile.get("capability") or {})
@@ -195,10 +210,11 @@ def derive_compiler_state(
     for binding in resolved_bindings:
         binding_capabilities = DerivedBindingCapabilities()
         capability_profile = _load_profile(
-            binding.ref,
+            binding,
             expected_kind="capability",
             profile_reader=profile_reader,
             traces=state.profile_traces,
+            validation_issues=state.profile_validation_issues,
         )
         if capability_profile is not None:
             capability = dict(capability_profile.get("capability") or {})
@@ -252,21 +268,38 @@ def _derive_process_capabilities(
 
 
 def _load_profile(
-    subject_ref: str,
+    subject: ResolvedSemanticObject,
     *,
     expected_kind: str,
     profile_reader: ProfileReader | None,
     traces: list[ProfileTrace],
+    validation_issues: list[ProfileValidationIssue],
 ) -> dict[str, Any] | None:
+    subject_ref = subject.ref
+    resolved_subject_revision = subject.revision
     if profile_reader is None:
         traces.append(
-            ProfileTrace(subject_ref=subject_ref, profile_ref=None, applied=False, reason="missing")
+            ProfileTrace(
+                subject_ref=subject_ref,
+                profile_ref=None,
+                subject_revision=None,
+                resolved_subject_revision=resolved_subject_revision,
+                applied=False,
+                reason="missing",
+            )
         )
         return None
     profiles = profile_reader(subject_ref)
     if not profiles:
         traces.append(
-            ProfileTrace(subject_ref=subject_ref, profile_ref=None, applied=False, reason="missing")
+            ProfileTrace(
+                subject_ref=subject_ref,
+                profile_ref=None,
+                subject_revision=None,
+                resolved_subject_revision=resolved_subject_revision,
+                applied=False,
+                reason="missing",
+            )
         )
         return None
     matching = [p for p in profiles if str(p.get("profile_kind") or "") == expected_kind]
@@ -275,16 +308,58 @@ def _load_profile(
             ProfileTrace(
                 subject_ref=subject_ref,
                 profile_ref=str(profiles[0].get("profile_ref") or ""),
+                subject_revision=_optional_int(profiles[0].get("subject_revision")),
+                resolved_subject_revision=resolved_subject_revision,
                 applied=False,
                 reason="not_required",
             )
         )
         return None
     profile = matching[0]
+    profile_subject_revision = _optional_int(profile.get("subject_revision"))
+    if profile_subject_revision is None:
+        traces.append(
+            ProfileTrace(
+                subject_ref=subject_ref,
+                profile_ref=str(profile.get("profile_ref") or ""),
+                subject_revision=None,
+                resolved_subject_revision=resolved_subject_revision,
+                applied=False,
+                reason="missing",
+            )
+        )
+        return None
+    if profile_subject_revision != resolved_subject_revision:
+        profile_ref = str(profile.get("profile_ref") or "")
+        traces.append(
+            ProfileTrace(
+                subject_ref=subject_ref,
+                profile_ref=profile_ref,
+                subject_revision=profile_subject_revision,
+                resolved_subject_revision=resolved_subject_revision,
+                applied=False,
+                reason="revision_mismatch",
+            )
+        )
+        validation_issues.append(
+            ProfileValidationIssue(
+                code="COMPILER_PROFILE_REVISION_MISMATCH",
+                message="Published compatibility profile revision does not match the resolved subject revision",
+                subject_ref=subject_ref,
+                details={
+                    "profile_ref": profile_ref,
+                    "profile_subject_revision": profile_subject_revision,
+                    "resolved_subject_revision": resolved_subject_revision,
+                },
+            )
+        )
+        return None
     traces.append(
         ProfileTrace(
             subject_ref=subject_ref,
             profile_ref=str(profile.get("profile_ref") or ""),
+            subject_revision=profile_subject_revision,
+            resolved_subject_revision=resolved_subject_revision,
             applied=True,
             reason="satisfied",
         )
@@ -295,3 +370,9 @@ def _load_profile(
 def _optional_str(value: Any) -> str | None:
     text = str(value or "").strip()
     return text or None
+
+
+def _optional_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    return int(value)
