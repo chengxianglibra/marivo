@@ -169,36 +169,6 @@ class SemanticService:
     def publish_metric(self, metric_id: str) -> dict[str, Any]:
         return self._invoke(lambda: self.legacy.publish_metric(metric_id))
 
-    def create_mapping(
-        self,
-        semantic_type: str,
-        semantic_id: str,
-        object_id: str,
-        mapping_type: str,
-        mapping_json: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        return self._invoke(
-            lambda: self.legacy.create_mapping(
-                semantic_type=semantic_type,
-                semantic_id=semantic_id,
-                object_id=object_id,
-                mapping_type=mapping_type,
-                mapping_json=mapping_json,
-            )
-        )
-
-    def delete_mapping(self, mapping_id: str) -> None:
-        self._invoke(lambda: self.legacy.delete_mapping(mapping_id))
-
-    def list_mappings(
-        self,
-        semantic_type: str | None = None,
-        semantic_id: str | None = None,
-    ) -> list[dict[str, Any]]:
-        return self._invoke(
-            lambda: self.legacy.list_mappings(semantic_type=semantic_type, semantic_id=semantic_id)
-        )
-
     def create_typed_entity(self, payload: TypedEntityCreateRequest) -> dict[str, Any]:
         return self._invoke(lambda: self.typed_objects.create_typed_entity(payload))
 

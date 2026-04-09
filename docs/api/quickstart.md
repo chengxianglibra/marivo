@@ -73,30 +73,69 @@ Define a semantic metric in draft status:
 curl -s -X POST http://localhost:8000/semantic/metrics \
   -H "Content-Type: application/json" \
   -d '{
-    "name": "avg_watch_time_minutes",
-    "display_name": "Average Watch Time (minutes)",
-    "description": "Average video watch duration per session",
-    "definition_sql": "AVG(watch_duration_sec) / 60.0",
-    "dimensions": ["device_type", "region"]
+    "header": {
+      "metric_ref": "metric.avg_watch_time_minutes",
+      "display_name": "Average Watch Time (minutes)",
+      "description": "Average video watch duration per session",
+      "metric_family": "average_metric",
+      "observed_entity_ref": "entity.session",
+      "observation_grain_ref": "grain.session",
+      "sample_kind": "numeric",
+      "value_semantics": "average",
+      "additivity": "non_additive",
+      "metric_contract_version": "metric.v1"
+    },
+    "payload": {
+      "metric_family": "average_metric",
+      "average_target": {
+        "name": "watch_duration_sec",
+        "semantics": "average watch duration",
+        "aggregation": "average"
+      }
+    }
   }' | jq .
 ```
 
-Save the returned `metric_id`.
+Save the returned `metric_contract_id`.
 
-## Step 6 - Map the Metric to a Table
+## Step 6 - Create a Typed Binding
 
-Link the metric to the physical table (get the `object_id` from Step 4 sync results):
+Link the metric to the physical table with a typed binding (get the table FQN or `object_id` from Step 4 sync results):
 
 ```bash
-curl -s -X POST http://localhost:8000/semantic/mappings \
+curl -s -X POST http://localhost:8000/semantic/bindings \
   -H "Content-Type: application/json" \
   -d '{
-    "semantic_type": "metric",
-    "semantic_id": "met_...",
-    "object_id": "obj_...",
-    "mapping_type": "direct",
-    "mapping_json": {
-      "time_column": "event_date"
+    "header": {
+      "binding_ref": "binding.avg_watch_time_minutes_primary",
+      "display_name": "Average Watch Time Binding",
+      "binding_scope": "metric",
+      "bound_object_ref": "metric.avg_watch_time_minutes",
+      "binding_contract_version": "binding.v1"
+    },
+    "interface_contract": {
+      "carrier_bindings": [
+        {
+          "binding_key": "primary",
+          "carrier_kind": "table",
+          "carrier_locator": "analytics.watch_events",
+          "binding_role": "primary",
+          "field_surfaces": [
+            { "surface_ref": "field.watch_duration_sec", "physical_name": "watch_duration_sec" }
+          ]
+        }
+      ],
+      "field_bindings": [
+        {
+          "carrier_binding_key": "primary",
+          "target": {
+            "target_kind": "metric_input",
+            "target_key": "measure.watch_duration_sec"
+          },
+          "semantic_ref": "measure.watch_duration_sec",
+          "surface_ref": "field.watch_duration_sec"
+        }
+      ]
     }
   }' | jq .
 ```
@@ -104,7 +143,8 @@ curl -s -X POST http://localhost:8000/semantic/mappings \
 ## Step 7 - Publish the Metric
 
 ```bash
-curl -s -X POST http://localhost:8000/semantic/metrics/met_.../publish | jq .
+curl -s -X POST http://localhost:8000/semantic/metrics/metc_.../publish | jq .
+curl -s -X POST http://localhost:8000/semantic/bindings/bind_.../publish | jq .
 ```
 
 ## Step 8 - Create a Session

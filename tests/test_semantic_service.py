@@ -169,18 +169,6 @@ class SemanticServiceFacadeTests(unittest.TestCase):
                 ),
             )
 
-    def test_facade_delegates_legacy_mapping_operations(self) -> None:
-        entity = self.service.create_entity(name="user", display_name="User", keys=["user_id"])
-        mapping = self.service.create_mapping(
-            semantic_type="entity",
-            semantic_id=entity["entity_id"],
-            object_id="obj_test",
-            mapping_type="primary_source",
-        )
-        self.assertEqual(mapping["semantic_type"], "entity")
-        listed = self.service.list_mappings(semantic_id=entity["entity_id"])
-        self.assertEqual(len(listed), 1)
-
     def test_compatibility_profile_update_requires_draft_and_increments_revision(self) -> None:
         entity = self.service.create_typed_entity(
             TypedEntityCreateRequest.model_validate(

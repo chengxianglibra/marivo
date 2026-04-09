@@ -197,7 +197,7 @@ class _MissingTimeRepository(_FakeSemanticRepository):
 
 
 class CompilerTypedResolutionTests(unittest.TestCase):
-    def test_normalize_metric_query_request_promotes_typed_refs(self) -> None:
+    def test_normalize_metric_query_request_preserves_plain_dimensions(self) -> None:
         normalized = normalize_step_request(
             AnalysisStepIR(
                 index=0,
@@ -220,7 +220,7 @@ class CompilerTypedResolutionTests(unittest.TestCase):
         self.assertEqual(normalized.metric_ref, "metric.watch_time")
         self.assertEqual(
             normalized.request_dimensions,
-            ["dimension.platform", "dimension.country"],
+            ["platform", "dimension.country"],
         )
         assert normalized.request_time_scope is not None
         self.assertEqual(normalized.request_time_scope["mode"], "compare")
@@ -252,14 +252,14 @@ class CompilerTypedResolutionTests(unittest.TestCase):
 
         assert resolved.resolved_metric is not None
         self.assertEqual(resolved.resolved_metric.ref, "metric.watch_time")
-        self.assertEqual(resolved.resolved_dimension_refs, ["dimension.platform"])
+        self.assertEqual(resolved.resolved_dimension_refs, ["platform"])
         assert resolved.resolved_filter_time is not None
         self.assertEqual(resolved.resolved_filter_time.ref, "time.event_date")
         self.assertEqual(
             repository.calls,
             [
                 ("metric", "metric.watch_time"),
-                ("dimension", "dimension.platform"),
+                ("dimension", "platform"),
                 ("time", "time.event_date"),
             ],
         )
@@ -290,7 +290,7 @@ class CompilerTypedResolutionTests(unittest.TestCase):
         self.assertEqual(resolved.resolved_dimension_refs, [])
         self.assertEqual(len(resolved.warnings), 1)
         self.assertEqual(resolved.warnings[0]["code"], "dimension_ref_unresolved")
-        self.assertIn("dimension.missing_dimension", resolved.warnings[0]["message"])
+        self.assertIn("missing_dimension", resolved.warnings[0]["message"])
 
     def test_compile_step_keeps_sql_output_and_records_resolved_refs(self) -> None:
         compiled = compile_step(
@@ -349,7 +349,7 @@ class CompilerTypedResolutionTests(unittest.TestCase):
         )
         self.assertEqual(compiled.metadata["normalized_request_class"], "root_metric_process")
         self.assertEqual(compiled.metadata["resolved_metric_ref"], "metric.watch_time")
-        self.assertEqual(compiled.metadata["resolved_dimension_refs"], ["dimension.platform"])
+        self.assertEqual(compiled.metadata["resolved_dimension_refs"], ["platform"])
         self.assertEqual(compiled.metadata["resolved_filter_time_ref"], "time.event_date")
         self.assertEqual(compiled.metadata["resolved_binding_refs"], ["binding.watch_time"])
         self.assertNotIn("compiler_validation", compiled.metadata)

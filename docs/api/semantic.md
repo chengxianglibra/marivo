@@ -414,7 +414,7 @@ Representative create payload fragments:
 `POST /semantic/bindings`
 
 Bindings are the target-state physical grounding contract. This is the primary HTTP surface for
-carrier / surface / relation wiring; `mapping_json` is not the main semantic API contract anymore.
+carrier / surface / relation wiring.
 
 Request:
 
@@ -621,12 +621,6 @@ Notes:
   subject revision into `subject_revision`; if the subject is republished later, compiler treats
   the old profile as stale and rejects it until the profile is republished.
 
-## Legacy Mapping Surface
-
-`/semantic/mappings` may still exist in the codebase as a temporary compatibility surface for
-unmigrated runtime wiring, but it is not part of the target-state semantic layer contract.
-New integrations should use typed bindings instead of authoring new legacy mappings.
-
 ## Runtime Catalog Discovery
 
 Runtime catalog discovery exposes only `published` typed semantic contracts.
@@ -662,7 +656,7 @@ Runtime catalog discovery exposes only `published` typed semantic contracts.
   - `created_at`
   - `updated_at`
 - Resolve responses no longer expose legacy `mappings`, `physical_assets`, or legacy object payloads
-  derived from `semantic_mappings`
+  derived from legacy mapping tables
 
 `GET /sessions/{session_id}/planner-context`
 

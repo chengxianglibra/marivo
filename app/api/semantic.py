@@ -25,7 +25,6 @@ from app.api.models import (
     TypedMetricCreateRequest,
     TypedMetricUpdateRequest,
 )
-from app.api.models._legacy import MappingCreateRequest
 
 router = APIRouter()
 
@@ -467,35 +466,3 @@ def publish_compatibility_profile(profile_id: str, request: Request) -> dict[str
         lambda: get_services(request).semantic_service.publish_compatibility_profile(profile_id),
         structured_value_error=True,
     )
-
-
-@router.post("/semantic/mappings")
-def create_mapping(payload: MappingCreateRequest, request: Request) -> dict[str, object]:
-    return get_services(request).semantic_service.create_mapping(
-        semantic_type=payload.semantic_type,
-        semantic_id=payload.semantic_id,
-        object_id=payload.object_id,
-        mapping_type=payload.mapping_type,
-        mapping_json=payload.mapping_json,
-    )
-
-
-@router.get("/semantic/mappings")
-def list_mappings(
-    request: Request,
-    semantic_type: str | None = Query(default=None),
-    semantic_id: str | None = Query(default=None),
-) -> list[dict[str, object]]:
-    return get_services(request).semantic_service.list_mappings(
-        semantic_type=semantic_type,
-        semantic_id=semantic_id,
-    )
-
-
-@router.delete("/semantic/mappings/{mapping_id}")
-def delete_mapping(mapping_id: str, request: Request) -> dict[str, str]:
-    def _action() -> dict[str, str]:
-        get_services(request).semantic_service.delete_mapping(mapping_id)
-        return {"status": "deleted", "mapping_id": mapping_id}
-
-    return _run_route_action(_action)

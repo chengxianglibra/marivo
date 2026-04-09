@@ -43,6 +43,10 @@ from app.main import create_app
 from app.service import SemanticLayerService
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 from app.storage.sqlite_metadata import SQLiteMetadataStore
+from tests.semantic_test_helpers import (
+    ensure_published_typed_metric,
+    ensure_published_typed_metric_binding,
+)
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -123,11 +127,23 @@ def _seed_metadata(
         ],
     )
     meta.execute(
-        "INSERT OR IGNORE INTO semantic_mappings "
+        "INSERT OR IGNORE INTO legacy_semantic_mappings "
         "(mapping_id, semantic_type, semantic_id, object_id, mapping_type, mapping_json, "
         " created_at, updated_at) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         [map_id, "metric", met_id, obj_id, "primary", "{}", now, now],
+    )
+    ensure_published_typed_metric(
+        meta,
+        metric_name=metric_name,
+        display_name=metric_name,
+        grain="day",
+        dimensions=["event_date"],
+    )
+    ensure_published_typed_metric_binding(
+        meta,
+        metric_name=metric_name,
+        carrier_locator="analytics.forecast_events",
     )
     return metric_name
 
