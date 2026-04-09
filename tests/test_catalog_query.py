@@ -96,53 +96,74 @@ class CatalogQueryTests(unittest.TestCase):
         resp = self.client.get("/catalog/search?q=watch")
         self.assertEqual(resp.status_code, 200)
         results = resp.json()
-        self.assertTrue(any(r["name"] == "watch_time" and r["type"] == "metric" for r in results))
+        self.assertTrue(
+            any(
+                r["name"] == "watch_time"
+                and r["object_kind"] == "metric"
+                and r["ref"] == "metric.watch_time"
+                for r in results
+            )
+        )
 
     def test_search_by_type_filter(self) -> None:
         resp = self.client.get("/catalog/search?q=watch&type=metric")
         self.assertEqual(resp.status_code, 200)
         results = resp.json()
-        self.assertTrue(all(r["type"] == "metric" for r in results))
+        self.assertTrue(all(r["object_kind"] == "metric" for r in results))
 
     def test_search_entity(self) -> None:
         resp = self.client.get("/catalog/search?q=user&type=entity")
         self.assertEqual(resp.status_code, 200)
         results = resp.json()
-        self.assertTrue(any(r["name"] == "user" for r in results))
+        self.assertTrue(any(r["name"] == "user" and r["ref"] == "entity.user" for r in results))
 
     def test_search_asset(self) -> None:
         resp = self.client.get("/catalog/search?q=watch_events&type=asset")
         self.assertEqual(resp.status_code, 200)
         results = resp.json()
-        self.assertTrue(any(r["name"] == "watch_events" for r in results))
+        self.assertTrue(
+            any(r["name"] == "watch_events" and r["object_kind"] == "asset" for r in results)
+        )
+
+    def test_search_rejects_invalid_type_filter(self) -> None:
+        resp = self.client.get("/catalog/search?q=watch&type=profile")
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("Unsupported catalog object type filter", resp.json()["detail"])
 
     def test_resolve_metric(self) -> None:
-        resp = self.client.get("/semantic/resolve/watch_time")
+        resp = self.client.get("/semantic/resolve/metric.watch_time")
         self.assertEqual(resp.status_code, 200)
         result = resp.json()
-        self.assertEqual(result["resolved_type"], "metric")
+        self.assertEqual(result["object_kind"], "metric")
+        self.assertEqual(result["ref"], "metric.watch_time")
+        self.assertEqual(result["object_id"], self.watch_metric_id)
         self.assertEqual(result["semantic_object"]["header"]["metric_ref"], "metric.watch_time")
-        self.assertEqual(
-            result["semantic_object"]["identity"]["observed_entity_ref"], "entity.user"
-        )
-        self.assertEqual(result["semantic_object"]["legacy"]["grain"], "session")
-        self.assertEqual(result["semantic_object"]["legacy"]["measure_type"], "average")
-        self.assertEqual(
-            result["semantic_object"]["legacy"]["allowed_dimensions"],
-            ["platform", "network_type", "content_type"],
-        )
-        # Should have physical assets from mapping
-        self.assertGreaterEqual(len(result["physical_assets"]), 1)
-        self.assertEqual(result["physical_assets"][0]["native_name"], "watch_events")
+        self.assertEqual(result["semantic_object"]["header"]["observed_entity_ref"], "entity.user")
+        self.assertIsInstance(result["semantic_object"]["payload"], dict)
+        self.assertEqual(result["status"], "published")
+        self.assertNotIn("resolved_type", result)
+        self.assertNotIn("mappings", result)
+        self.assertNotIn("physical_assets", result)
 
     def test_resolve_entity(self) -> None:
-        resp = self.client.get("/semantic/resolve/user")
+        resp = self.client.get("/semantic/resolve/entity.user")
         self.assertEqual(resp.status_code, 200)
         result = resp.json()
-        self.assertEqual(result["resolved_type"], "entity")
+        self.assertEqual(result["object_kind"], "entity")
+        self.assertEqual(result["ref"], "entity.user")
         self.assertEqual(result["semantic_object"]["header"]["entity_ref"], "entity.user")
-        self.assertEqual(result["semantic_object"]["legacy"]["level"], "user")
-        self.assertEqual(result["semantic_object"]["legacy"]["upstream_dependencies"], ["account"])
+        self.assertEqual(
+            result["semantic_object"]["interface_contract"]["identity"]["key_refs"],
+            ["key.user_id"],
+        )
+
+    def test_resolve_metric_and_entity_bare_name_aliases(self) -> None:
+        metric_resp = self.client.get("/semantic/resolve/watch_time")
+        entity_resp = self.client.get("/semantic/resolve/user")
+        self.assertEqual(metric_resp.status_code, 200)
+        self.assertEqual(entity_resp.status_code, 200)
+        self.assertEqual(metric_resp.json()["ref"], "metric.watch_time")
+        self.assertEqual(entity_resp.json()["ref"], "entity.user")
 
     def test_resolve_404(self) -> None:
         resp = self.client.get("/semantic/resolve/nonexistent_thing")
