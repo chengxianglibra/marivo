@@ -137,27 +137,33 @@ function statusPipeline(steps, current) {
 }
 
 /* --- Sidebar Tab Switching --- */
-function initSidebar() {
+function setActiveTab(tab) {
   const navBtns = document.querySelectorAll('.sidebar-nav button[data-tab]');
   const panels = document.querySelectorAll('.panel[id^="panel-"]');
   const breadcrumbCurrent = document.querySelector('.breadcrumb .current');
+  const btn = document.querySelector(`.sidebar-nav button[data-tab="${tab}"]`);
+  if (!btn) return;
+
+  document.querySelectorAll('.sidebar-nav li').forEach(li => li.classList.remove('active'));
+  btn.parentElement.classList.add('active');
+
+  panels.forEach(p => p.classList.remove('active'));
+  const panel = document.getElementById('panel-' + tab);
+  if (panel) panel.classList.add('active');
+
+  if (breadcrumbCurrent) {
+    breadcrumbCurrent.textContent = btn.querySelector('.nav-label')?.textContent || tab;
+  }
+
+  window.dispatchEvent(new CustomEvent('tab-change', { detail: { tab } }));
+}
+
+function initSidebar() {
+  const navBtns = document.querySelectorAll('.sidebar-nav button[data-tab]');
 
   navBtns.forEach(btn => {
     btn.addEventListener('click', () => {
-      const tab = btn.dataset.tab;
-      // Update active nav
-      document.querySelectorAll('.sidebar-nav li').forEach(li => li.classList.remove('active'));
-      btn.parentElement.classList.add('active');
-      // Show panel
-      panels.forEach(p => p.classList.remove('active'));
-      const panel = document.getElementById('panel-' + tab);
-      if (panel) panel.classList.add('active');
-      // Update breadcrumb
-      if (breadcrumbCurrent) {
-        breadcrumbCurrent.textContent = btn.querySelector('.nav-label')?.textContent || tab;
-      }
-      // Dispatch event for lazy loading
-      window.dispatchEvent(new CustomEvent('tab-change', { detail: { tab } }));
+      setActiveTab(btn.dataset.tab);
     });
   });
 }

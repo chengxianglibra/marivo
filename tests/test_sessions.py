@@ -55,11 +55,14 @@ class SessionAPITests(unittest.TestCase):
         self.assertIsInstance(payload["assets"], list)
         self.assertIsInstance(payload["policies"], list)
 
-    def test_list_sessions_empty(self) -> None:
-        """GET /sessions should return a list."""
+    def test_list_sessions_returns_paged_envelope(self) -> None:
+        """GET /sessions should return the paged list contract."""
         resp = self.client.get("/sessions")
         self.assertEqual(resp.status_code, 200)
-        self.assertIsInstance(resp.json(), list)
+        payload = resp.json()
+        self.assertIn("items", payload)
+        self.assertIn("next_page_token", payload)
+        self.assertIsInstance(payload["items"], list)
 
     def test_get_session_after_create(self) -> None:
         """GET /sessions/{id} should return canonical AnalysisSession root (Phase 5a)."""
@@ -72,6 +75,7 @@ class SessionAPITests(unittest.TestCase):
         # goal is structured in canonical shape
         self.assertIsInstance(data["goal"], dict)
         self.assertEqual(data["goal"]["question"], "Test session")
+        self.assertEqual(data["scope"]["constraints"], {})
         # lifecycle carries status
         self.assertIn("lifecycle", data)
         self.assertEqual(data["lifecycle"]["status"], "open")
@@ -107,7 +111,7 @@ class SessionAPITests(unittest.TestCase):
         session_id = create_resp.json()["session_id"]
         resp = self.client.get("/sessions")
         self.assertEqual(resp.status_code, 200)
-        ids = [s["session_id"] for s in resp.json()]
+        ids = [s["session_id"] for s in resp.json()["items"]]
         self.assertIn(session_id, ids)
 
     def test_list_sessions_filter_by_status(self) -> None:
@@ -115,10 +119,11 @@ class SessionAPITests(unittest.TestCase):
         self.client.post("/sessions", json={"goal": "Status filter test"})
         resp = self.client.get("/sessions?status=open")
         self.assertEqual(resp.status_code, 200)
-        for s in resp.json():
+        for s in resp.json()["items"]:
             self.assertEqual(s["lifecycle"]["status"], "open")
             self.assertIn("goal", s)
             self.assertIn("question", s["goal"])
+            self.assertIn("scope", s)
             self.assertIn("governance", s)
             self.assertIn("state_summary", s)
             self.assertEqual(s["schema_version"], "analysis_session.v1")
@@ -150,6 +155,37 @@ class SessionAPITests(unittest.TestCase):
         """GET /sessions/{id}/runtime-status with unknown ID should 404."""
         resp = self.client.get("/sessions/sess_nonexistent/runtime-status")
         self.assertEqual(resp.status_code, 404)
+
+    def test_list_sessions_supports_session_id_filter(self) -> None:
+        create_resp = self.client.post("/sessions", json={"goal": "Filter by id"})
+        session_id = create_resp.json()["session_id"]
+
+        resp = self.client.get(f"/sessions?session_id={session_id[:10]}")
+
+        self.assertEqual(resp.status_code, 200)
+        items = resp.json()["items"]
+        self.assertEqual([item["session_id"] for item in items], [session_id])
+
+    def test_list_sessions_supports_limit_and_page_token(self) -> None:
+        self.client.post("/sessions", json={"goal": "Page one"})
+        self.client.post("/sessions", json={"goal": "Page two"})
+
+        first_page = self.client.get("/sessions?limit=1")
+
+        self.assertEqual(first_page.status_code, 200)
+        first_payload = first_page.json()
+        self.assertEqual(len(first_payload["items"]), 1)
+        self.assertIsNotNone(first_payload["next_page_token"])
+
+        second_page = self.client.get(
+            f"/sessions?limit=1&page_token={first_payload['next_page_token']}"
+        )
+        self.assertEqual(second_page.status_code, 200)
+        self.assertEqual(len(second_page.json()["items"]), 1)
+
+    def test_list_sessions_rejects_invalid_page_token(self) -> None:
+        resp = self.client.get("/sessions?page_token=bad-token")
+        self.assertEqual(resp.status_code, 400)
 
 
 class SessionCloseTests(unittest.TestCase):
@@ -219,9 +255,9 @@ class SessionCloseTests(unittest.TestCase):
         self.client.post(f"/sessions/{session_id}/terminate", json={})
         r = self.client.get("/sessions?status=closed")
         self.assertEqual(r.status_code, 200)
-        ids = [s["session_id"] for s in r.json()]
+        ids = [s["session_id"] for s in r.json()["items"]]
         self.assertIn(session_id, ids)
-        for s in r.json():
+        for s in r.json()["items"]:
             self.assertEqual(s["lifecycle"]["status"], "closed")
 
 

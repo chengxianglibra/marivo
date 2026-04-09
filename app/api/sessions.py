@@ -42,9 +42,21 @@ def create_session(payload: SessionCreateRequest, request: Request) -> dict[str,
 
 @router.get("/sessions")
 def list_sessions(
-    request: Request, status: str | None = Query(default=None)
-) -> list[dict[str, object]]:
-    return get_services(request).service.list_sessions(status=status)
+    request: Request,
+    status: str | None = Query(default=None),
+    session_id: str | None = Query(default=None),
+    limit: int | None = Query(default=None),
+    page_token: str | None = Query(default=None),
+) -> dict[str, object]:
+    try:
+        return get_services(request).service.list_sessions(
+            status=status,
+            session_id=session_id,
+            limit=limit,
+            page_token=page_token,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @router.get("/sessions/{session_id}")

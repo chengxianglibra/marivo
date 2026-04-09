@@ -346,7 +346,7 @@ class TestCanonicalSurfacesExcludeRuntimeFields(unittest.TestCase):
     def test_list_sessions_excludes_runtime_fields(self) -> None:
         resp = self.client.get("/sessions")
         self.assertEqual(resp.status_code, 200)
-        for s in resp.json():
+        for s in resp.json()["items"]:
             self._assert_no_runtime_fields(s, " (list_sessions entry)")
 
 

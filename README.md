@@ -9,7 +9,7 @@ Stateful sessions, semantic discovery, typed analysis steps, deterministic evide
 - **Readiness signal**: 5-dimensional readiness + suggested_action + live_claims after each step
 - **Causal checkers**: deterministic inference-level upgrades
 - **Dual-backend**: SQLite (metadata) + DuckDB (analytics)
-- **Web UI**: Admin (`/admin`) + User (`/ui`)
+- **Web UI**: Admin (`/admin`) plus a read-only query workbench (`/ui`) for Sessions, State, Context, Runtime, Grounding, and Jobs
 
 ## Quick Start
 
@@ -85,7 +85,7 @@ curl -s http://127.0.0.1:8000/sessions/<id>/evidence | python3 -m json.tool
 | Jobs | `POST/GET /jobs`, `POST /jobs/{id}/cancel` |
 | Approvals | `POST/GET /approvals`, `POST .../approve|reject` |
 | Observability | `GET /metrics`, `GET /health` |
-| UI | `GET /admin`, `GET /ui` |
+| UI | `GET /admin`, `GET /ui` (read-only query/troubleshooting workbench over canonical and runtime read surfaces) |
 
 **Steps**: `metric_query`, `profile_table`, `sample_rows`, `aggregate_query`, `attribute_change`, `correlate_metrics`, `synthesize_findings`
 

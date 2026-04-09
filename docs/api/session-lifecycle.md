@@ -172,6 +172,7 @@ Returns the canonical session root payload for a single session.
 This endpoint is the root read baseline for:
 
 - descriptive task context
+- canonical session scope via `scope.constraints`
 - governance boundary
 - lifecycle state
 - entry to the canonical state surface via `state_summary.state_view_ref`
@@ -194,11 +195,10 @@ Supported query parameters:
 
 | Parameter | Type | Notes |
 |-----------|------|-------|
-| `status` | repeated string | Filter by `open`, `closed`, or `aborted` |
-| `terminal_reason` | repeated string | Filter by lifecycle terminal reason |
-| `rollover_from_session_id` | string | Exact match on rollover origin |
+| `status` | string | Filter by `open`, `closed`, or `aborted` |
+| `session_id` | string | Prefix match against the session identifier |
 | `limit` | integer | Maximum number of returned sessions |
-| `page_token` | string | Opaque cursor for continuing the same normalized query |
+| `page_token` | string | Cursor for continuing the same normalized query; current implementation uses a non-negative offset token |
 
 Response shape:
 
@@ -209,6 +209,11 @@ Response shape:
       "session_id": "sess_123",
       "goal": {
         "question": "Why did watch time decline last week?"
+      },
+      "scope": {
+        "constraints": {
+          "region": "us"
+        }
       },
       "governance": {
         "policy_refs": null,
@@ -241,8 +246,9 @@ List rules:
 - `items` contains canonical `AnalysisSession` payloads
 - `next_page_token` is transport-only and not part of canonical session identity
 - `status` filters use root lifecycle semantics only; clients must not use read-surface concepts such as `active`, `latest`, or `ready`
-- `terminal_reason` filters apply only to terminal sessions; combining `status=open` with any `terminal_reason` returns an empty result set
+- `session_id` filters apply prefix matching against canonical session identifiers
 - `page_token` is session-query scoped and invalid across different normalized filters
+- `limit` defaults to `25` and is capped at `100`
 
 ## Update Mutable Session Fields
 
