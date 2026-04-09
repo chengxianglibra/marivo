@@ -105,6 +105,7 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertIn("session_query", resp.text)
         self.assertIn("session_id", resp.text)
         self.assertIn("proposition_id", resp.text)
+        self.assertIn("artifact_id", resp.text)
         self.assertIn("runtime_scope", resp.text)
         self.assertIn("404 session not found. Returned to session list.", resp.text)
         self.assertIn("setActiveTab(currentRoute.tab)", resp.text)
@@ -150,6 +151,55 @@ class UIBothEnabledTests(unittest.TestCase):
         )
         self.assertIn(
             "latest_assessment = null 时，relevant_findings 按 canonical contract 为 [].", resp.text
+        )
+
+    def test_ui_runtime_page_declares_three_runtime_views_and_contracts(self) -> None:
+        resp = self.client.get("/ui")
+        self.assertIn("Session Runtime", resp.text)
+        self.assertIn("Proposition Runtime", resp.text)
+        self.assertIn("Artifact Runtime", resp.text)
+        self.assertIn("GET /sessions/{session_id}/runtime-status", resp.text)
+        self.assertIn(
+            "GET /sessions/{session_id}/propositions/{proposition_id}/runtime-status",
+            resp.text,
+        )
+        self.assertIn(
+            "GET /sessions/{session_id}/artifacts/{artifact_id}/runtime-status",
+            resp.text,
+        )
+
+    def test_ui_runtime_page_declares_operator_boundary_and_back_links(self) -> None:
+        resp = self.client.get("/ui")
+        self.assertIn("operator-facing runtime truth", resp.text)
+        self.assertIn("Open Session", resp.text)
+        self.assertIn("Open State", resp.text)
+        self.assertIn("Open Context", resp.text)
+        self.assertIn("No retry, cancel, or terminate controls exist on this page.", resp.text)
+        self.assertIn(
+            "Runtime lookup failures stay on this page instead of forcing a jump away from the canonical chain.",
+            resp.text,
+        )
+
+    def test_ui_grounding_page_declares_helper_views_and_http_contracts(self) -> None:
+        resp = self.client.get("/ui")
+        self.assertIn("Catalog Search", resp.text)
+        self.assertIn("Semantic Resolve", resp.text)
+        self.assertIn("Catalog Graph", resp.text)
+        self.assertIn("Planner Context", resp.text)
+        self.assertIn("GET /catalog/search", resp.text)
+        self.assertIn("GET /semantic/resolve/{name}", resp.text)
+        self.assertIn("GET /catalog/graph", resp.text)
+        self.assertIn("GET /sessions/{session_id}/planner-context", resp.text)
+        self.assertIn("Open Grounding Helper from Sessions to inspect planner context.", resp.text)
+
+    def test_ui_grounding_page_keeps_read_only_helper_boundary(self) -> None:
+        resp = self.client.get("/ui")
+        self.assertIn("secondary to State / Context for analysis outcomes", resp.text)
+        self.assertIn("Results never turn into executable analysis actions.", resp.text)
+        self.assertIn("It does not expose any Run Analysis or session creation action.", resp.text)
+        self.assertIn(
+            "Grounding is a helper surface for semantic object discovery and session grounding.",
+            resp.text,
         )
 
     def test_ui_removes_legacy_write_entrypoints(self) -> None:
