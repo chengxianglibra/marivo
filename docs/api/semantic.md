@@ -660,6 +660,12 @@ Runtime catalog discovery exposes only `published` typed semantic contracts.
 - Resolve responses no longer expose legacy `mappings`, `physical_assets`, or legacy object payloads
   derived from `semantic_mappings`
 
+`GET /sessions/{session_id}/planner-context`
+
+- Planner context reads only `published` typed metric/entity contracts
+- `metrics[*]` and `entities[*]` are returned as typed semantic objects
+- Planner context no longer exposes `legacy` compatibility blocks derived from legacy tables
+
 ## Error Semantics
 
 - `400`: invalid catalog type filter or invalid typed semantic ref

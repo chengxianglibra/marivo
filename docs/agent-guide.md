@@ -81,6 +81,7 @@ Typed semantic objects are only mutable in `draft`; service-layer publish must r
 Typed binding publish must also reject carriers that cannot be grounded to synced `source_objects`; draft bindings may keep unresolved `carrier_locator` values until publish.
 Compatibility profiles remain explicit catalog artifacts: object publish does not auto-generate profile payloads, and profile publish must reject subjects that are not already `published`.
 Runtime/catalog read surfaces must only expose objects backed by `published` typed contracts; do not re-derive runtime-visible contracts from legacy rows when the typed contract is absent or not published.
+Compiler normalize/resolve should consume published typed refs through `SemanticRuntimeRepository`; compatibility bridges may keep execution running when promoted legacy dimension names do not yet resolve to published typed dimension contracts, but that fallback must stay explicit and local to compiler preprocessing.
 
 Docs layout:
 - `docs/api/`: external HTTP API docs only; target-state step submission is in `intent-steps.md`, and canonical read surfaces are split into `session-state.md` and `context-surface.md`

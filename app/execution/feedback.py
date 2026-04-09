@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from app.analysis_core.compiler import CompiledQuery
+from app.analysis_core.compiler import CompiledQuery, SemanticCompilerError
 from app.analysis_core.ir import AnalysisStepIR
 from app.execution.errors import ExecutionError
 from app.runtime_contracts import ExecutionFeedback
@@ -47,9 +47,12 @@ def compile_failure_from_error(
     *,
     semantic_context: dict[str, Any] | None = None,
 ) -> ExecutionError:
-    message = str(error)
+    compile_error = error.compile_error if isinstance(error, SemanticCompilerError) else None
+    message = compile_error["message"] if compile_error is not None else str(error)
     normalized = message.lower()
-    if "requires" in normalized:
+    if compile_error is not None:
+        code = str(compile_error["error_code"]).lower()
+    elif "requires" in normalized:
         code = "capability_mismatch"
     elif "unsupported compilation step type" in normalized:
         code = "translation_error"
@@ -66,6 +69,7 @@ def compile_failure_from_error(
             "step_type": step.step_type,
             "step_index": step.index,
             "semantic_context_keys": sorted((semantic_context or {}).keys()),
+            "compile_error": compile_error,
         },
     )
 

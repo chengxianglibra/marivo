@@ -3,16 +3,18 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any, ClassVar, cast
 
 from fastapi.testclient import TestClient
 
-from app.analysis_core.compiler import CompiledQuery
+from app.analysis_core.compiler import CompiledQuery, SemanticCompilerError
 from app.analysis_core.executor import execute_compiled
+from app.analysis_core.ir import AnalysisStepIR
+from app.api.app_factory import create_app
 from app.execution.errors import ExecutionError
 from app.execution.federation import FederationPlanner
-from app.execution.feedback import federation_failure_from_plan
+from app.execution.feedback import compile_failure_from_error, federation_failure_from_plan
 from app.execution.routing_runtime import RoutingRuntime
-from app.main import create_app
 from app.storage.analytics import AnalyticsEngine
 from tests.shared_fixtures import get_seeded_duckdb_path
 
@@ -21,7 +23,8 @@ class FailingEngine(AnalyticsEngine):
     def initialize(self) -> None:
         return None
 
-    def query_rows(self, sql: str, params=None):  # type: ignore[override]
+    def query_rows(self, sql: str, params: list[object] | None = None) -> list[dict[str, object]]:
+        _ = sql, params
         raise RuntimeError("engine offline")
 
     def table_exists(self, table_name: str) -> bool:
@@ -32,7 +35,7 @@ class FailingEngine(AnalyticsEngine):
 
 
 class FakeRouter:
-    def resolve_tables(self, table_names: list[str]):
+    def resolve_tables(self, table_names: list[str]) -> Any:
         raise ValueError(f"No common engine for tables {table_names}")
 
 
@@ -60,12 +63,13 @@ class ExecutionFeedbackTests(unittest.TestCase):
         self.assertTrue(error.exception.replan_candidate)
 
     def test_routing_runtime_returns_structured_fallback_feedback(self) -> None:
-        runtime = RoutingRuntime(FakeRouter(), FailingEngine())
+        runtime = RoutingRuntime(cast("Any", FakeRouter()), FailingEngine())
 
         resolution = runtime.resolve_tables(["watch_events"])
 
         self.assertTrue(resolution.fallback_used)
         self.assertIsNotNone(resolution.feedback)
+        assert resolution.feedback is not None
         self.assertEqual(resolution.feedback.code, "routing_no_common_engine")
 
     def test_federation_failure_includes_plan_detail(self) -> None:
@@ -90,8 +94,28 @@ class ExecutionFeedbackTests(unittest.TestCase):
         self.assertEqual(failure.detail["plan"]["mode"], "staged_handoff")
         self.assertIn("prefer_single_engine_route", failure.fallback_candidates)
 
+    def test_compile_failure_preserves_structured_compile_error(self) -> None:
+        step = AnalysisStepIR(index=2, step_type="metric_query")
+        error = SemanticCompilerError(
+            {
+                "error_code": "COMPILER_BINDING_MISSING",
+                "failed_gate": "binding_grounding",
+                "message": "Resolved metric is not grounded by any published binding",
+                "subject_ref": "metric.watch_time",
+            }
+        )
+
+        failure = compile_failure_from_error(step, error, semantic_context={"metric_sql": "avg(x)"})
+
+        self.assertEqual(failure.code, "compiler_binding_missing")
+        self.assertEqual(failure.detail["compile_error"]["failed_gate"], "binding_grounding")
+        self.assertEqual(failure.detail["compile_error"]["subject_ref"], "metric.watch_time")
+
 
 class ExecutionFeedbackIntegrationTests(unittest.TestCase):
+    client: ClassVar[TestClient]
+    temp_dir: ClassVar[tempfile.TemporaryDirectory[str]]
+
     @classmethod
     def setUpClass(cls) -> None:
         cls.temp_dir = tempfile.TemporaryDirectory()
@@ -105,7 +129,8 @@ class ExecutionFeedbackIntegrationTests(unittest.TestCase):
         cls.temp_dir.cleanup()
 
     def test_make_provenance_includes_routing_feedback_context(self) -> None:
-        service = self.client.app.state.service
+        app = cast("Any", self.client.app)
+        service = app.state.service
         service._routing_feedback_context = {
             "code": "routing_no_common_engine",
             "category": "routing",

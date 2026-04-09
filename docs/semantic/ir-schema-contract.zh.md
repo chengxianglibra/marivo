@@ -534,29 +534,42 @@ class IntentNode(IrNodeHeader):
 ### 8. Compile Report
 
 ```python
-from typing import Literal, NotRequired, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict
 
 
 class ValidationRecord(TypedDict):
     validation_kind: Literal[
         "request_shape",
         "intent_support",
-        "process_compatibility",
-        "comparability_gate",
-        "inference_gate",
-        "quality_gate",
-        "freshness_gate",
-        "sample_sufficiency_gate",
-        "lowerability_precheck",
+        "metric_process_compatibility",
+        "binding_grounding",
+        "dimension_compatibility",
+        "intent_specific",
     ]
     status: Literal["passed"]
     reason_code: NotRequired[str | None]
+
+
+class ValidationSummary(TypedDict):
+    passed_gate_count: int
+    warning_count: int
+    validated_dimension_refs: list[str]
+    resolved_filter_time_ref: NotRequired[str | None]
+
+
+class ProfileUsageTrace(TypedDict):
+    subject_ref: str
+    profile_ref: NotRequired[str | None]
+    applied: bool
+    reason: str
 
 
 class SemanticCompileError(TypedDict):
     error_code: str
     failed_gate: str
     message: str
+    subject_ref: NotRequired[str | None]
+    details: NotRequired[dict[str, Any] | None]
 
 
 class LoweringRequirement(TypedDict):
@@ -566,15 +579,20 @@ class LoweringRequirement(TypedDict):
 
 class CompileReport(TypedDict):
     validation_trace: list[ValidationRecord]
+    validation_summary: ValidationSummary
+    profile_usage_trace: NotRequired[list[ProfileUsageTrace] | None]
+    compiler_usage_trace: NotRequired[list[dict[str, Any]] | None]
     lowering_requirements: NotRequired[list[LoweringRequirement] | None]
 ```
 
 说明：
 
-- 成功编译后的 `CompileReport` 只保留通过的 validation trace
-- 失败时返回 `SemanticCompileError`，而不是带 `failed` 节点的 `IrPlan`
-- lowering requirement 描述“需要什么能力”，不提前绑定某个 engine
-
+- `ValidationRecord.validation_kind` 的枚举值对应 compiler validator 实际运行的 gate 名称
+- 成功编译后的 `CompileReport` 只保留通过的 validation trace（`validation_trace` 中不含失败的 gate）
+- `ValidationSummary` 提供通过/警告数量与维度/时间的汇总摘要
+- `ProfileUsageTrace` 记录 compatibility profile 的应用路径与原因
+- 失败时返回 `SemanticCompileError`，而不是带 `failed` 节点的 `IrPlan`；`subject_ref` 与 `details` 提供诊断上下文
+- lowering requirement 描述"需要什么能力"，不提前绑定某个 engine
 ### 9. Lowering Request / Report
 
 ```python

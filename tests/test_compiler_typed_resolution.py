@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import unittest
 
+from app.analysis_core.capability_profiles import derive_compiler_state
 from app.analysis_core.compiler import compile_step
 from app.analysis_core.ir import AnalysisStepIR
 from app.analysis_core.typed_resolution import (
     normalize_step_request,
     resolve_compiler_inputs,
 )
+from app.analysis_core.validator import validate_compiler_inputs
 from app.semantic_runtime import SemanticRuntimeRepository
 from app.semantic_runtime.errors import SemanticRuntimeNotFoundError
 from app.semantic_runtime.resolution import ResolvedSemanticObject
@@ -31,6 +33,71 @@ def _resolved_object(
     )
 
 
+def _binding_for(bound_object_ref: str) -> ResolvedSemanticObject:
+    suffix = bound_object_ref.split(".", 1)[-1].replace(".", "_")
+    return _resolved_object(
+        "binding",
+        f"binding.{suffix}",
+        semantic_object={
+            "binding_id": f"binding_{suffix}",
+            "header": {
+                "binding_ref": f"binding.{suffix}",
+                "bound_object_ref": bound_object_ref,
+            },
+            "interface_contract": {
+                "carrier_bindings": [
+                    {
+                        "binding_key": "primary",
+                        "carrier_kind": "table",
+                        "carrier_locator": "analytics.watch_events",
+                    }
+                ],
+                "field_bindings": [
+                    {
+                        "carrier_binding_key": "primary",
+                        "target": {"target_kind": "metric_input", "target_key": "value"},
+                        "semantic_ref": "field.metric_value",
+                        "surface_ref": "field.metric_value",
+                    }
+                ],
+            },
+            "status": "published",
+            "revision": 1,
+            "created_at": "2026-04-09T00:00:00Z",
+            "updated_at": "2026-04-09T00:00:00Z",
+        },
+    )
+
+
+def _binding_reader(object_ref: str) -> list[ResolvedSemanticObject]:
+    return [_binding_for(object_ref)]
+
+
+def _profile_reader(subject_ref: str) -> list[dict[str, object]]:
+    if subject_ref == "metric.watch_time":
+        return [
+            {
+                "profile_ref": "compiler_profile.watch_time_requirement",
+                "profile_kind": "requirement",
+                "subject_ref": subject_ref,
+                "requirement": {"contract_modes": ["context_provider"]},
+            }
+        ]
+    if subject_ref == "process.daily_check":
+        return [
+            {
+                "profile_ref": "compiler_profile.daily_check_capability",
+                "profile_kind": "capability",
+                "subject_ref": subject_ref,
+                "capability": {
+                    "inferential_ready": True,
+                    "supported_sample_summaries": ["rate_sample_summary"],
+                },
+            }
+        ]
+    return []
+
+
 class _FakeSemanticRepository(SemanticRuntimeRepository):
     def __init__(self) -> None:
         self.calls: list[tuple[str, str]] = []
@@ -45,6 +112,9 @@ class _FakeSemanticRepository(SemanticRuntimeRepository):
                 "header": {
                     "metric_ref": metric_ref,
                     "primary_time_ref": "time.event_date",
+                    "sample_kind": "rate",
+                    "additivity": "additive",
+                    "population_subject_ref": "subject.user",
                 },
                 "payload": {"definition_sql": "avg(play_duration_seconds)"},
                 "status": "published",
@@ -62,6 +132,7 @@ class _FakeSemanticRepository(SemanticRuntimeRepository):
             semantic_object={
                 "dimension_contract_id": "dimension_contract_1",
                 "header": {"dimension_ref": dimension_ref},
+                "interface_contract": {"grouping": {"supports_grouping": True}},
                 "status": "published",
                 "revision": 1,
                 "created_at": "2026-04-09T00:00:00Z",
@@ -77,6 +148,12 @@ class _FakeSemanticRepository(SemanticRuntimeRepository):
             semantic_object={
                 "process_contract_id": "process_contract_1",
                 "header": {"process_ref": process_ref},
+                "interface_contract": {
+                    "contract_mode": "context_provider",
+                    "population_subject_ref": "subject.user",
+                    "context_kind": "experiment_split",
+                    "anchor_time_ref": "time.event_date",
+                },
                 "status": "published",
                 "revision": 1,
                 "created_at": "2026-04-09T00:00:00Z",
@@ -170,6 +247,7 @@ class CompilerTypedResolutionTests(unittest.TestCase):
             semantic_repository=repository,
         )
 
+        assert resolved.resolved_metric is not None
         self.assertEqual(resolved.resolved_metric.ref, "metric.watch_time")
         self.assertEqual(resolved.resolved_dimension_refs, ["dimension.platform"])
         assert resolved.resolved_filter_time is not None
@@ -237,15 +315,42 @@ class CompilerTypedResolutionTests(unittest.TestCase):
                 "metric_sql": "avg(play_duration_seconds)",
                 "dimensions": ["platform"],
                 "semantic_repository": _FakeSemanticRepository(),
+                "binding_reader": _binding_reader,
+                "compatibility_profile_reader": _profile_reader,
             },
         )
 
         self.assertIn("ROUND(avg(play_duration_seconds), 2) AS current_value", compiled.sql)
-        self.assertEqual(compiled.metadata["normalized_metric_ref"], "metric.watch_time")
+        self.assertIsNotNone(compiled.ir_bundle)
+        assert compiled.ir_bundle is not None
+        resolved_bindings = compiled.ir_bundle["plan"]["inputs"].get("resolved_bindings")
+        assert resolved_bindings is not None
+        self.assertEqual(compiled.ir_bundle["plan"]["header"]["root_intent_kind"], "metric_query")
+        self.assertEqual(
+            compiled.ir_bundle["plan"]["inputs"]["metric_ref"],
+            "metric.watch_time",
+        )
+        self.assertEqual(
+            resolved_bindings[0]["binding_ref"],
+            "binding.watch_time",
+        )
+        self.assertEqual(
+            compiled.ir_bundle["compile_report"]["validation_summary"]["resolved_filter_time_ref"],
+            "time.event_date",
+        )
+        self.assertTrue(
+            any(
+                record["validation_kind"] == "metric_process_compatibility"
+                for record in compiled.ir_bundle["compile_report"]["validation_trace"]
+            )
+        )
+        self.assertEqual(compiled.metadata["normalized_request_class"], "root_metric_process")
         self.assertEqual(compiled.metadata["resolved_metric_ref"], "metric.watch_time")
         self.assertEqual(compiled.metadata["resolved_dimension_refs"], ["dimension.platform"])
         self.assertEqual(compiled.metadata["resolved_filter_time_ref"], "time.event_date")
-        self.assertEqual(compiled.metadata["compiler_warnings"], [])
+        self.assertEqual(compiled.metadata["resolved_binding_refs"], ["binding.watch_time"])
+        self.assertNotIn("compiler_validation", compiled.metadata)
+        self.assertNotIn("compiler_profile_trace", compiled.metadata)
 
     def test_resolve_compiler_inputs_no_repository_warns_for_metric_and_dimensions(self) -> None:
         from app.analysis_core.typed_resolution import NormalizedCompilerRequest
@@ -345,6 +450,67 @@ class CompilerTypedResolutionTests(unittest.TestCase):
         self.assertEqual(resolved.resolved_right_process.ref, "process.right")
         self.assertIn(("process", "process.left"), repository.calls)
         self.assertIn(("process", "process.right"), repository.calls)
+
+    def test_compile_step_fails_for_unresolved_typed_dimension_ref(self) -> None:
+        with self.assertRaisesRegex(ValueError, "COMPILER_DIMENSION_UNRESOLVED"):
+            compile_step(
+                AnalysisStepIR(
+                    index=0,
+                    step_type="metric_query",
+                    params={
+                        "metric": "watch_time",
+                        "table": "analytics.watch_events",
+                        "dimensions": ["dimension.missing"],
+                        "time_scope": {
+                            "mode": "single_window",
+                            "grain": "day",
+                            "current": {"start": "2026-03-10", "end": "2026-03-17"},
+                        },
+                        "scoped_query": {
+                            "mode": "single_window",
+                            "analysis_time_expr": "event_date",
+                            "analysis_time_kind": "date_field",
+                            "current": {"start": "2026-03-10", "end": "2026-03-17"},
+                        },
+                    },
+                ),
+                engine_type="duckdb",
+                semantic_context={
+                    "metric_sql": "avg(play_duration_seconds)",
+                    "dimensions": ["platform"],
+                    "semantic_repository": _MissingDimensionRepository(),
+                    "binding_reader": _binding_reader,
+                },
+            )
+
+    def test_validate_compiler_inputs_requires_process_capability_profile_for_validate(
+        self,
+    ) -> None:
+        normalized = normalize_step_request(
+            AnalysisStepIR(index=0, step_type="validate", params={"metric": "watch_time"})
+        )
+        normalized.process_ref = "process.daily_check"
+        resolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=_FakeSemanticRepository(),
+            binding_reader=_binding_reader,
+        )
+        derived = derive_compiler_state(
+            intent_kind="validate",
+            resolved_metric=resolved.resolved_metric,
+            resolved_process=resolved.resolved_process,
+            resolved_bindings=resolved.resolved_bindings,
+            profile_reader=None,
+        )
+
+        result = validate_compiler_inputs(
+            step_type="validate",
+            resolved_inputs=resolved,
+            derived_state=derived,
+        )
+
+        self.assertFalse(result.ok)
+        self.assertIn("COMPILER_PROFILE_MISSING", [issue.code for issue in result.issues])
 
 
 if __name__ == "__main__":
