@@ -51,7 +51,7 @@ Compiler compatibility profile v1 的职责只有一个：
 | `supports_compare` | `metric.additivity != null` AND `metric.primary_time_ref exists` |
 | `supports_decompose` | `metric.additivity in [“additive”, “semi_additive”]` |
 | `supports_test` | `metric.sample_kind in [“numeric”, “rate”, “binary”]` |
-| `supports_detect` | `process.anchor_time_ref exists` OR `metric.anchor_time_ref exists` |
+| `supports_detect` | `process.anchor_time_ref exists` OR `metric.primary_time_ref exists` |
 | `supports_validate` | `metric.sample_kind == “rate”` AND `process.anchor_time_ref exists` |
 | `supports_time_projection` | `process.anchor_time_ref exists` |
 | `supports_experiment_inference` | `process.context_kind == “experiment_split”` |
