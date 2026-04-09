@@ -79,7 +79,7 @@ curl -s http://127.0.0.1:8000/sessions/<id>/evidence | python3 -m json.tool
 | Sources | `POST/GET/PUT/DELETE /sources`, `POST .../sync`, `GET .../catalog/schemas|tables` |
 | Engines | `POST/GET /engines` |
 | Bindings | `POST/GET/DELETE /bindings`, `POST /routing/resolve` |
-| Semantic | `POST/GET/PUT /semantic/entities|metrics`, `POST .../publish`, `/semantic/mappings` |
+| Semantic | `POST/GET/PUT /semantic/entities|metrics|process-objects|dimensions|time|enum-sets|bindings`, `POST .../publish`, `/compiler/compatibility-profiles` |
 | Catalog | `GET /catalog/search`, `GET /semantic/resolve/{name}`, `GET /catalog/graph` |
 | Governance | `/policies`, `/quality-rules`, `POST /governance/check` |
 | Jobs | `POST/GET /jobs`, `POST /jobs/{id}/cancel` |

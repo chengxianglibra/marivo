@@ -752,74 +752,19 @@ renderers.entities = async () => {
   panel.innerHTML = `
     <div class="card">
       <div class="card-header">
-        <h2>Semantic Entities</h2>
-        <button class="btn btn-primary" id="add-entity">+ Add Entity</button>
+        <h2>Typed Semantic Objects</h2>
       </div>
-      <table>
-        <thead><tr><th>Name</th><th>Display Name</th><th>Status</th><th>Revision</th><th>Keys</th><th></th></tr></thead>
-        <tbody id="entities-tbody">${loadingRow(6)}</tbody>
-      </table>
-    </div>
-    <div class="card" id="ent-mappings-card" style="display:none">
-      <div class="card-header">
-        <h2 id="ent-mappings-title">Mappings</h2>
-        <button class="btn btn-primary btn-sm" id="ent-add-mapping">+ Add Mapping</button>
-      </div>
-      <table>
-        <thead><tr><th>Type</th><th>Semantic ID</th><th>Object ID</th><th>Mapping Type</th><th></th></tr></thead>
-        <tbody id="ent-mappings-tbody"></tbody>
-      </table>
+      <p>
+        The legacy admin editor for semantic entities has been removed. Factum now uses typed
+        semantic object and typed binding contracts as the primary write path.
+      </p>
+      <p>
+        Use the HTTP endpoints documented in <code>docs/api/semantic.md</code> for
+        <code>/semantic/entities</code>, <code>/semantic/time</code>, and
+        <code>/semantic/bindings</code>. Runtime verification happens through
+        <code>/semantic/resolve/{name}</code> and <code>/sessions/{session_id}/planner-context</code>.
+      </p>
     </div>`;
-
-  $('#add-entity').onclick = () => {
-    openModal('Add Entity',
-      `<div class="form-group"><label>Name</label><input type="text" id="f-ent-name" placeholder="user"></div>
-       <div class="form-group"><label>Display Name</label><input type="text" id="f-ent-dname" placeholder="User"></div>
-       <div class="form-group"><label>Description</label><textarea id="f-ent-desc"></textarea></div>
-       <div class="form-group"><label>Keys (comma-separated)</label><input type="text" id="f-ent-keys" placeholder="user_id"></div>`,
-      `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" id="f-ent-submit">Create</button>`);
-    $('#f-ent-submit').onclick = async () => {
-      try {
-        const keys = $('#f-ent-keys').value.split(',').map(k => k.trim()).filter(Boolean);
-        await api.createEntity({ name: $('#f-ent-name').value, display_name: $('#f-ent-dname').value, description: $('#f-ent-desc').value, keys });
-        toast('Entity created');
-        closeModal();
-        renderers.entities();
-      } catch (err) { toast(err.message, 'error'); }
-    };
-  };
-
-  try {
-    const entities = await api.listEntities();
-    const tbody = $('#entities-tbody');
-    if (!entities.length) { tbody.innerHTML = `<tr><td colspan="6" class="empty">No entities.</td></tr>`; return; }
-    // Fetch mapping counts for all entities
-    let mappingCounts = {};
-    try {
-      const allMappings = await api.listMappings({ semantic_type: 'entity' });
-      allMappings.forEach(m => { mappingCounts[m.semantic_id] = (mappingCounts[m.semantic_id] || 0) + 1; });
-    } catch {}
-    tbody.innerHTML = entities.map(e => {
-      const keys = e.keys || [];
-      const mapCount = mappingCounts[e.entity_id] || 0;
-      return `<tr>
-        <td><a href="#" class="ent-link" data-id="${e.entity_id}">${esc(e.name)}</a>${mapCount > 0 ? ` <span class="badge badge-gray">${mapCount} mapping${mapCount > 1 ? 's' : ''}</span>` : ''}</td>
-        <td>${esc(e.display_name)}</td>
-        <td>${statusBadge(e.status)}</td>
-        <td>${e.revision}</td>
-        <td>${esc(keys.join(', '))}</td>
-        <td>
-          <button class="btn btn-sm edit-ent" data-id="${e.entity_id}">Edit</button>
-          ${e.status === 'draft' ? `<button class="btn btn-sm btn-primary pub-ent" data-id="${e.entity_id}">Publish</button>` : ''}
-        </td>
-      </tr>`;
-    }).join('');
-    $$('.pub-ent', tbody).forEach(btn => btn.onclick = async () => {
-      try { await api.publishEntity(btn.dataset.id); toast('Entity published'); renderers.entities(); } catch (err) { toast(err.message, 'error'); }
-    });
-    $$('.edit-ent', tbody).forEach(btn => btn.onclick = () => editEntity(btn.dataset.id, entities));
-    $$('.ent-link', tbody).forEach(a => { a.onclick = (e) => { e.preventDefault(); showMappings('entity', a.dataset.id, a.textContent, 'ent'); }; });
-  } catch (err) { toast(err.message, 'error'); }
 };
 
 function editEntity(id, entities) {
@@ -848,84 +793,18 @@ renderers.metrics = async () => {
   panel.innerHTML = `
     <div class="card">
       <div class="card-header">
-        <h2>Semantic Metrics</h2>
-        <button class="btn btn-primary" id="add-metric">+ Add Metric</button>
+        <h2>Typed Metric Contracts</h2>
       </div>
-      <table>
-        <thead><tr><th>Name</th><th>Display Name</th><th>Status</th><th>Rev</th><th>SQL</th><th></th></tr></thead>
-        <tbody id="metrics-tbody">${loadingRow(6)}</tbody>
-      </table>
-    </div>
-    <div class="card" id="met-mappings-card" style="display:none">
-      <div class="card-header">
-        <h2 id="met-mappings-title">Mappings</h2>
-        <button class="btn btn-primary btn-sm" id="met-add-mapping">+ Add Mapping</button>
-      </div>
-      <table>
-        <thead><tr><th>Type</th><th>Semantic ID</th><th>Object ID</th><th>Mapping Type</th><th></th></tr></thead>
-        <tbody id="met-mappings-tbody"></tbody>
-      </table>
+      <p>
+        This UI no longer exposes the removed legacy metric editor based on
+        <code>definition_sql</code> and <code>/semantic/mappings</code>.
+      </p>
+      <p>
+        Publish typed metrics through <code>/semantic/metrics</code> and ground them with
+        <code>/semantic/bindings</code>. Compiler and evidence handoff should be inspected through
+        step semantic metadata, catalog resolve, and planner context surfaces.
+      </p>
     </div>`;
-
-  $('#add-metric').onclick = async () => {
-    let entities = [];
-    try { entities = await api.listEntities(); } catch {}
-    const entOpts = `<option value="">-- none --</option>` + entities.map(e => `<option value="${e.entity_id}">${esc(e.name)}</option>`).join('');
-    openModal('Add Metric',
-      `<div class="form-group"><label>Name</label><input type="text" id="f-met-name" placeholder="watch_time"></div>
-       <div class="form-group"><label>Display Name</label><input type="text" id="f-met-dname" placeholder="Watch Time"></div>
-       <div class="form-group"><label>Description</label><textarea id="f-met-desc"></textarea></div>
-       <div class="form-group"><label>Definition SQL</label><textarea id="f-met-sql" placeholder="SUM(watch_seconds)"></textarea></div>
-       <div class="form-group"><label>Dimensions (comma-separated)</label><input type="text" id="f-met-dims" placeholder="platform, country"></div>
-       <div class="form-group"><label>Entity</label><select id="f-met-ent">${entOpts}</select></div>
-       <div class="form-group"><label>Desired Direction</label><select id="f-met-dir"><option value="">-- none --</option><option value="up">up</option><option value="down">down</option><option value="neutral">neutral</option></select></div>`,
-      `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" id="f-met-submit">Create</button>`);
-    $('#f-met-submit').onclick = async () => {
-      try {
-        const dims = $('#f-met-dims').value.split(',').map(d => d.trim()).filter(Boolean);
-        const data = { name: $('#f-met-name').value, display_name: $('#f-met-dname').value, description: $('#f-met-desc').value, definition_sql: $('#f-met-sql').value, dimensions: dims };
-        const entVal = $('#f-met-ent').value;
-        if (entVal) data.entity_id = entVal;
-        const dirVal = $('#f-met-dir').value;
-        if (dirVal) data.desired_direction = dirVal;
-        await api.createMetric(data);
-        toast('Metric created');
-        closeModal();
-        renderers.metrics();
-      } catch (err) { toast(err.message, 'error'); }
-    };
-  };
-
-  try {
-    const metrics = await api.listMetrics();
-    const tbody = $('#metrics-tbody');
-    if (!metrics.length) { tbody.innerHTML = `<tr><td colspan="6" class="empty">No metrics.</td></tr>`; return; }
-    // Fetch mapping counts for all metrics
-    let mappingCounts = {};
-    try {
-      const allMappings = await api.listMappings({ semantic_type: 'metric' });
-      allMappings.forEach(m => { mappingCounts[m.semantic_id] = (mappingCounts[m.semantic_id] || 0) + 1; });
-    } catch {}
-    tbody.innerHTML = metrics.map(m => {
-      const mapCount = mappingCounts[m.metric_id] || 0;
-      return `<tr>
-        <td><a href="#" class="met-link" data-id="${m.metric_id}">${esc(m.name)}</a>${mapCount > 0 ? ` <span class="badge badge-gray">${mapCount} mapping${mapCount > 1 ? 's' : ''}</span>` : ''}</td>
-        <td>${esc(m.display_name)}</td>
-        <td>${statusBadge(m.status)}</td>
-        <td>${m.revision}</td>
-        <td><code style="font-size:var(--font-size-sm);">${esc(truncate(m.definition_sql || '', 40))}</code></td>
-        <td>
-          <button class="btn btn-sm edit-met" data-id="${m.metric_id}">Edit</button>
-          ${m.status === 'draft' ? `<button class="btn btn-sm btn-primary pub-met" data-id="${m.metric_id}">Publish</button>` : ''}
-        </td>
-      </tr>`;
-    }).join('');
-    $$('.pub-met', tbody).forEach(btn => btn.onclick = async () => {
-      try { await api.publishMetric(btn.dataset.id); toast('Metric published'); renderers.metrics(); } catch (err) { toast(err.message, 'error'); }
-    });
-    $$('.edit-met', tbody).forEach(btn => btn.onclick = () => editMetric(btn.dataset.id, metrics));
-    $$('.met-link', tbody).forEach(a => { a.onclick = (e) => { e.preventDefault(); showMappings('metric', a.dataset.id, a.textContent, 'met'); }; });
-  } catch (err) { toast(err.message, 'error'); }
 };
 
 function editMetric(id, metrics) {

@@ -12,6 +12,18 @@ Only `published` objects are available to runtime resolution and intent executio
 
 Typed semantic object contract updates are draft-only. After `publish`, the public contract is frozen; a second publish attempt or any later update returns a validation error from the service layer.
 
+The minimal end-to-end semantic closure is:
+
+1. create typed semantic objects and typed bindings in `draft`
+2. publish the referenced objects and bindings
+3. resolve only `published` refs through runtime/catalog surfaces
+4. compile typed intent inputs into IR and compile metadata
+5. persist the step semantic snapshot for evidence/runtime consumers
+
+Compiler and evidence surfaces must keep semantic refs and canonical refs separate. Typed semantic
+refs belong in runtime resolution, compiler metadata, and persisted `typed_semantic_snapshot`
+records; canonical refs remain confined to session/state/context read payloads.
+
 Related design docs:
 
 - `docs/semantic/entity-schema-contract.zh.md`
@@ -663,6 +675,17 @@ Runtime catalog discovery exposes only `published` typed semantic contracts.
 - Planner context reads only `published` typed metric/entity contracts
 - `metrics[*]` and `entities[*]` are returned as typed semantic objects
 - Planner context no longer exposes `legacy` compatibility blocks derived from legacy tables
+
+## Compiler And Evidence Handoff
+
+When a typed step compiles successfully, the compiler emits:
+
+- a typed IR bundle keyed by semantic refs and binding refs
+- compile metadata such as `resolved_metric_ref`, `resolved_binding_refs`, and `ir_plan_id`
+- a persisted step metadata snapshot with `metadata_kind = typed_semantic_snapshot`
+
+That snapshot is the handoff point to evidence/runtime consumers. It must not embed canonical refs;
+consumers recover semantic meaning from typed step metadata and compiler snapshots behind the scenes.
 
 ## Error Semantics
 

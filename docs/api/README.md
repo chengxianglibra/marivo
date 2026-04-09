@@ -79,7 +79,7 @@ Fields that store structured data are represented as JSON objects in responses. 
 | [Planning](planning.md) | `/sessions/{id}/plans` | Multi-step analysis plans with validation and execution |
 | [Sources](sources.md) | `/sources` | Data source registration and catalog sync |
 | [Engines & Bindings](engines.md) | `/engines`, `/bindings` | Analytics engine registration and source-engine routing |
-| [Semantic Layer](semantic.md) | `/semantic` | Entities, metrics, mappings, and catalog search |
+| [Semantic Layer](semantic.md) | `/semantic` | Typed semantic objects, typed bindings, runtime catalog resolve, and compiler profiles |
 | [Governance](governance.md) | `/policies`, `/quality-rules`, `/governance` | Data policies and quality rules |
 | [Jobs](jobs.md) | `/jobs` | Async job submission and tracking |
 | [Approvals](approvals.md) | `/approvals` | Approval workflow for high-risk recommendations |
