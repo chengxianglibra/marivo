@@ -3,6 +3,15 @@ from __future__ import annotations
 import json
 from typing import Any
 
+SUPPORTED_RUNTIME_REF_KINDS: dict[str, str] = {
+    "entity.": "entity",
+    "metric.": "metric",
+    "process.": "process",
+    "dimension.": "dimension",
+    "time.": "time",
+    "binding.": "binding",
+}
+
 
 def metric_runtime_metadata(
     *,
@@ -37,3 +46,11 @@ def entity_runtime_metadata(
         "lineage": list(json.loads(lineage_json or "[]")),
         "quality_expectations": dict(json.loads(quality_expectations_json or "{}")),
     }
+
+
+def runtime_ref_kind(semantic_ref: str) -> str | None:
+    normalized_ref = semantic_ref.strip()
+    for prefix, kind in SUPPORTED_RUNTIME_REF_KINDS.items():
+        if normalized_ref.startswith(prefix):
+            return kind
+    return None

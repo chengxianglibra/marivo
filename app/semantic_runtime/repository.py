@@ -6,13 +6,14 @@ from app.semantic_runtime.planner_context import PlannerContextProvider
 from app.semantic_runtime.resolution import (
     ResolvedEntity,
     ResolvedMetric,
+    ResolvedSemanticObject,
     SemanticResolver,
 )
 from app.storage.metadata import MetadataStore
 
 
 class SemanticRuntimeRepository:
-    """Unified runtime facade for resolving semantic objects and planner context."""
+    """Unified runtime facade for typed semantic resolution and planner context."""
 
     def __init__(
         self,
@@ -24,6 +25,27 @@ class SemanticRuntimeRepository:
         self.metadata = metadata
         self.resolver = resolver or SemanticResolver(metadata)
         self.planner_context_provider = planner_context_provider or PlannerContextProvider(metadata)
+
+    def resolve_ref(self, semantic_ref: str) -> ResolvedSemanticObject:
+        return self.resolver.resolve_ref(semantic_ref)
+
+    def resolve_entity_ref(self, entity_ref: str) -> ResolvedSemanticObject:
+        return self.resolver.resolve_entity_ref(entity_ref)
+
+    def resolve_metric_ref(self, metric_ref: str) -> ResolvedSemanticObject:
+        return self.resolver.resolve_metric_ref(metric_ref)
+
+    def resolve_process_ref(self, process_ref: str) -> ResolvedSemanticObject:
+        return self.resolver.resolve_process_ref(process_ref)
+
+    def resolve_dimension_ref(self, dimension_ref: str) -> ResolvedSemanticObject:
+        return self.resolver.resolve_dimension_ref(dimension_ref)
+
+    def resolve_time_ref(self, time_ref: str) -> ResolvedSemanticObject:
+        return self.resolver.resolve_time_ref(time_ref)
+
+    def resolve_binding_ref(self, binding_ref: str) -> ResolvedSemanticObject:
+        return self.resolver.resolve_binding_ref(binding_ref)
 
     def resolve_metric(self, metric_name: str) -> ResolvedMetric | None:
         return self.resolver.resolve_metric(metric_name)
