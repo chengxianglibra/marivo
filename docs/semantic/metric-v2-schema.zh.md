@@ -209,8 +209,8 @@ class MetricHeader(TypedDict):
 | `supports_compare` | `additivity` != null AND `primary_time_ref` exists |
 | `supports_test` | `sample_kind` in ["numeric", "rate", "binary"] |
 | `supports_decompose` | `additivity` in ["additive", "semi_additive"] |
-| `supports_detect` | `anchor_time_ref` exists in process OR metric |
-| `supports_validate` | `sample_kind` == "rate" AND `anchor_time_ref` exists |
+| `supports_detect` | `process.anchor_time_ref` exists OR `metric.primary_time_ref` exists |
+| `supports_validate` | `sample_kind` == "rate" AND `process.anchor_time_ref` exists |
 
 ### Process 兼容 profile（非 public metric schema）
 

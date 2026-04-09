@@ -40,6 +40,7 @@ from app.intents.observe import run_observe_intent
 from app.intents.test import run_test_intent
 from app.intents.validate import run_validate_intent
 from app.semantic_runtime import SemanticRuntimeRepository
+from app.semantic_runtime.resolution import ResolvedSemanticObject
 from app.session import SessionManager
 from app.storage.analytics import AnalyticsEngine
 from app.storage.evidence_repositories import (
@@ -485,18 +486,75 @@ class SemanticLayerService:
         engine_type: str,
         semantic_context: dict[str, Any] | None = None,
     ) -> CompiledQuery:
+        effective_semantic_context = dict(semantic_context or {})
+        effective_semantic_context.setdefault("semantic_repository", self.semantic_repository)
+        effective_semantic_context.setdefault(
+            "binding_reader", self._published_bindings_for_object_ref
+        )
+        effective_semantic_context.setdefault(
+            "compatibility_profile_reader",
+            self._published_compatibility_profiles_for_subject_ref,
+        )
         try:
             return compile_step(
                 step,
                 engine_type=engine_type,
-                semantic_context=semantic_context,
+                semantic_context=effective_semantic_context,
             )
         except ValueError as error:
             raise compile_failure_from_error(
                 step,
                 error,
-                semantic_context=semantic_context,
+                semantic_context=effective_semantic_context,
             ) from error
+
+    def _published_bindings_for_object_ref(self, object_ref: str) -> list[ResolvedSemanticObject]:
+        rows = self.metadata.query_rows(
+            """
+            SELECT binding_ref
+            FROM typed_bindings
+            WHERE bound_object_ref = ? AND status = 'published'
+            ORDER BY binding_ref
+            """,
+            [object_ref],
+        )
+        return [
+            self.semantic_repository.resolve_binding_ref(str(row["binding_ref"])) for row in rows
+        ]
+
+    def _published_compatibility_profiles_for_subject_ref(
+        self, subject_ref: str
+    ) -> list[dict[str, Any]]:
+        rows = self.metadata.query_rows(
+            """
+            SELECT *
+            FROM compiler_compatibility_profiles
+            WHERE subject_ref = ? AND status = 'published'
+            ORDER BY profile_ref
+            """,
+            [subject_ref],
+        )
+        profiles: list[dict[str, Any]] = []
+        for row in rows:
+            profiles.append(
+                {
+                    "profile_id": row["profile_id"],
+                    "profile_ref": row["profile_ref"],
+                    "profile_kind": row["profile_kind"],
+                    "schema_version": row["schema_version"],
+                    "subject_kind": row["subject_kind"],
+                    "subject_ref": row["subject_ref"],
+                    "requirement": json.loads(row["requirement_json"])
+                    if row["requirement_json"]
+                    else None,
+                    "capability": json.loads(row["capability_json"])
+                    if row["capability_json"]
+                    else None,
+                    "status": row["status"],
+                    "revision": row["revision"],
+                }
+            )
+        return profiles
 
     def _session_constraints_to_filter(self, session_id: str) -> str | None:
         """Convert session constraints and raw_filter to a SQL filter expression.
