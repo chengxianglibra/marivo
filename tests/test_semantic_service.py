@@ -100,6 +100,26 @@ class SemanticServiceFacadeTests(unittest.TestCase):
             )
 
     def test_typed_metric_published_contract_is_frozen(self) -> None:
+        entity = self.service.create_typed_entity(
+            TypedEntityCreateRequest.model_validate(
+                {
+                    "header": {
+                        "entity_ref": "entity.order",
+                        "display_name": "Order",
+                        "entity_contract_version": "entity.v1",
+                    },
+                    "interface_contract": {
+                        "identity": {
+                            "key_refs": ["key.order_id"],
+                            "uniqueness_scope": "global",
+                            "id_stability": "stable",
+                        }
+                    },
+                }
+            )
+        )
+        self.service.publish_typed_entity(entity["entity_contract_id"])
+
         metric = self.service.create_typed_metric(
             TypedMetricCreateRequest.model_validate(
                 {

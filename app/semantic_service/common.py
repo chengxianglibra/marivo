@@ -304,9 +304,25 @@ class SemanticServiceSupport:
         if not self._ref_exists(sql, ref_value):
             raise self._validation_error(f"Unknown {ref_name}: {ref_value}")
 
+    def _require_published_ref_exists(self, sql: str, ref_value: str, ref_name: str) -> None:
+        if not self._ref_exists(sql, ref_value):
+            raise self._validation_error(f"{ref_name.capitalize()} must be published: {ref_value}")
+
     def _validate_entity_ref(self, entity_ref: str) -> None:
         self._require_ref_exists(
             "SELECT entity_contract_id FROM semantic_entity_contracts WHERE entity_ref = ?",
+            entity_ref,
+            "entity ref",
+        )
+
+    def _validate_published_entity_ref(self, entity_ref: str) -> None:
+        self._validate_entity_ref(entity_ref)
+        self._require_published_ref_exists(
+            """
+            SELECT entity_contract_id
+            FROM semantic_entity_contracts
+            WHERE entity_ref = ? AND status = 'published'
+            """,
             entity_ref,
             "entity ref",
         )
@@ -318,9 +334,33 @@ class SemanticServiceSupport:
             "dimension ref",
         )
 
+    def _validate_published_dimension_ref(self, dimension_ref: str) -> None:
+        self._validate_dimension_ref(dimension_ref)
+        self._require_published_ref_exists(
+            """
+            SELECT dimension_contract_id
+            FROM semantic_dimension_contracts
+            WHERE dimension_ref = ? AND status = 'published'
+            """,
+            dimension_ref,
+            "dimension ref",
+        )
+
     def _validate_time_ref(self, time_ref: str) -> None:
         self._require_ref_exists(
             "SELECT time_contract_id FROM semantic_time_objects WHERE time_ref = ?",
+            time_ref,
+            "time ref",
+        )
+
+    def _validate_published_time_ref(self, time_ref: str) -> None:
+        self._validate_time_ref(time_ref)
+        self._require_published_ref_exists(
+            """
+            SELECT time_contract_id
+            FROM semantic_time_objects
+            WHERE time_ref = ? AND status = 'published'
+            """,
             time_ref,
             "time ref",
         )
@@ -332,9 +372,37 @@ class SemanticServiceSupport:
             "enum set ref",
         )
 
+    def _validate_published_enum_set_ref(self, enum_set_ref: str) -> None:
+        self._validate_enum_set_ref(enum_set_ref)
+        self._require_published_ref_exists(
+            """
+            SELECT enum_set_contract_id
+            FROM semantic_enum_sets
+            WHERE enum_set_ref = ? AND status = 'published'
+            """,
+            enum_set_ref,
+            "enum set ref",
+        )
+
     def _validate_dimension_refs(self, dimension_refs: list[str] | None) -> None:
         for dimension_ref in dimension_refs or []:
             self._validate_dimension_ref(dimension_ref)
+
+    def _validate_published_dimension_refs(self, dimension_refs: list[str] | None) -> None:
+        for dimension_ref in dimension_refs or []:
+            self._validate_published_dimension_ref(dimension_ref)
+
+    def _validate_published_entity_contract_refs(self, interface_contract: dict[str, Any]) -> None:
+        if interface_contract.get("primary_time_ref") is not None:
+            self._validate_published_time_ref(interface_contract["primary_time_ref"])
+        for descriptor in interface_contract.get("stable_descriptors") or []:
+            self._validate_published_dimension_ref(descriptor["dimension_ref"])
+
+    def _validate_published_metric_header_refs(self, header: dict[str, Any]) -> None:
+        if header.get("primary_time_ref") is not None:
+            self._validate_published_time_ref(header["primary_time_ref"])
+        if header.get("observed_entity_ref") is not None:
+            self._validate_published_entity_ref(header["observed_entity_ref"])
 
     def _replace_process_exported_dimension_refs(
         self, process_contract_id: str, dimension_refs: list[str] | None
@@ -407,50 +475,98 @@ class SemanticServiceSupport:
                     ],
                 )
 
-    def _validate_process_payload_refs(self, payload: dict[str, Any]) -> None:
+    def _validate_process_payload_refs(
+        self, payload: dict[str, Any], *, require_published: bool = False
+    ) -> None:
+        validate_time = (
+            self._validate_published_time_ref if require_published else self._validate_time_ref
+        )
         process_type = payload["process_type"]
         if process_type == "experiment_context":
             analysis_window = payload.get("analysis_window")
             if analysis_window and analysis_window.get("anchor_ref") is not None:
-                self._validate_time_ref(analysis_window["anchor_ref"])
+                validate_time(analysis_window["anchor_ref"])
         elif process_type == "cohort_definition":
-            self._validate_time_ref(payload["cohort_anchor_ref"])
+            validate_time(payload["cohort_anchor_ref"])
             observation_window = payload.get("observation_window")
             if observation_window and observation_window.get("anchor_ref") is not None:
-                self._validate_time_ref(observation_window["anchor_ref"])
+                validate_time(observation_window["anchor_ref"])
             if payload.get("return_anchor_ref") is not None:
-                self._validate_time_ref(payload["return_anchor_ref"])
+                validate_time(payload["return_anchor_ref"])
         elif process_type == "lifecycle_state_machine":
             if payload.get("evaluation_anchor_ref") is not None:
-                self._validate_time_ref(payload["evaluation_anchor_ref"])
+                validate_time(payload["evaluation_anchor_ref"])
             if payload.get("transition_anchor_ref") is not None:
-                self._validate_time_ref(payload["transition_anchor_ref"])
+                validate_time(payload["transition_anchor_ref"])
+
+    def _validate_published_process_payload_refs(self, payload: dict[str, Any]) -> None:
+        self._validate_process_payload_refs(payload, require_published=True)
 
     def _validate_process_refs(
         self,
         interface_contract: dict[str, Any],
         payload: dict[str, Any],
+        *,
+        require_published: bool = False,
     ) -> None:
+        validate_entity = (
+            self._validate_published_entity_ref if require_published else self._validate_entity_ref
+        )
+        validate_time = (
+            self._validate_published_time_ref if require_published else self._validate_time_ref
+        )
+        validate_dims = (
+            self._validate_published_dimension_refs
+            if require_published
+            else self._validate_dimension_refs
+        )
         if interface_contract.get("contract_mode") == "entity_stream":
-            self._validate_entity_ref(interface_contract["entity_ref"])
+            validate_entity(interface_contract["entity_ref"])
         if interface_contract.get("anchor_time_ref") is not None:
-            self._validate_time_ref(interface_contract["anchor_time_ref"])
-        self._validate_dimension_refs(interface_contract.get("exported_dimension_refs"))
-        self._validate_process_payload_refs(payload)
+            validate_time(interface_contract["anchor_time_ref"])
+        validate_dims(interface_contract.get("exported_dimension_refs"))
+        self._validate_process_payload_refs(payload, require_published=require_published)
 
-    def _validate_dimension_contract_refs(self, interface_contract: dict[str, Any]) -> None:
+    def _validate_published_process_refs(
+        self,
+        interface_contract: dict[str, Any],
+        payload: dict[str, Any],
+    ) -> None:
+        self._validate_process_refs(interface_contract, payload, require_published=True)
+
+    def _validate_dimension_contract_refs(
+        self, interface_contract: dict[str, Any], *, require_published: bool = False
+    ) -> None:
+        validate_enum = (
+            self._validate_published_enum_set_ref
+            if require_published
+            else self._validate_enum_set_ref
+        )
+        validate_dim = (
+            self._validate_published_dimension_ref
+            if require_published
+            else self._validate_dimension_ref
+        )
+        validate_time = (
+            self._validate_published_time_ref if require_published else self._validate_time_ref
+        )
         value_domain = interface_contract["value_domain"]
         if value_domain.get("enum_set_ref") is not None:
-            self._validate_enum_set_ref(value_domain["enum_set_ref"])
+            validate_enum(value_domain["enum_set_ref"])
         hierarchy = interface_contract.get("hierarchy")
         if hierarchy and hierarchy.get("parent_dimension_ref") is not None:
-            self._validate_dimension_ref(hierarchy["parent_dimension_ref"])
+            validate_dim(hierarchy["parent_dimension_ref"])
         time_derived_requirement = interface_contract.get("time_derived_requirement")
         if (
             time_derived_requirement
             and time_derived_requirement.get("required_time_anchor_ref") is not None
         ):
-            self._validate_time_ref(time_derived_requirement["required_time_anchor_ref"])
+            validate_time(time_derived_requirement["required_time_anchor_ref"])
+
+    def _validate_published_dimension_contract_refs(
+        self, interface_contract: dict[str, Any]
+    ) -> None:
+        self._validate_dimension_contract_refs(interface_contract, require_published=True)
 
     def _validate_no_dimension_cycle(self, dimension_ref: str, parent_dimension_ref: str) -> None:
         visited: set[str] = set()

@@ -387,6 +387,7 @@ class SemanticTypedApiTests(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertEqual(resp.json()["header"]["semantic_roles"], ["business_anchor"])
+        self.assertEqual(resp.json()["revision"], 2)
 
         resp = self.client.put(
             f"/semantic/enum-sets/{enum_set_contract_id}",
@@ -406,6 +407,7 @@ class SemanticTypedApiTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertEqual(resp.json()["description"], "Updated countries")
         self.assertEqual(resp.json()["versions"][0]["enum_version"], "v2")
+        self.assertEqual(resp.json()["revision"], 2)
 
         resp = self.client.put(
             f"/semantic/dimensions/{dimension_contract_id}",
@@ -413,6 +415,7 @@ class SemanticTypedApiTests(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertEqual(resp.json()["header"]["description"], "Updated dimension description")
+        self.assertEqual(resp.json()["revision"], 2)
 
         resp = self.client.put(
             f"/semantic/process-objects/{process_contract_id}",
@@ -420,6 +423,7 @@ class SemanticTypedApiTests(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertEqual(resp.json()["header"]["description"], "Updated process description")
+        self.assertEqual(resp.json()["revision"], 2)
 
         for path in [
             f"/semantic/time/{time_contract_id}/publish",
@@ -430,6 +434,27 @@ class SemanticTypedApiTests(unittest.TestCase):
             resp = self.client.post(path)
             self.assertEqual(resp.status_code, 200, resp.text)
             self.assertEqual(resp.json()["status"], "published")
+            self.assertEqual(resp.json()["revision"], 3)
+
+        for path in [
+            f"/semantic/time/{time_contract_id}",
+            f"/semantic/enum-sets/{enum_set_contract_id}",
+            f"/semantic/dimensions/{dimension_contract_id}",
+            f"/semantic/process-objects/{process_contract_id}",
+        ]:
+            resp = self.client.put(path, json={"description": "Should fail after publish"})
+            self.assertEqual(resp.status_code, 422, resp.text)
+            self.assertIn("not in draft status", resp.json()["detail"])
+
+        for path in [
+            f"/semantic/time/{time_contract_id}/publish",
+            f"/semantic/enum-sets/{enum_set_contract_id}/publish",
+            f"/semantic/dimensions/{dimension_contract_id}/publish",
+            f"/semantic/process-objects/{process_contract_id}/publish",
+        ]:
+            resp = self.client.post(path)
+            self.assertEqual(resp.status_code, 422, resp.text)
+            self.assertIn("not in draft status", resp.json()["detail"])
 
         for path in [
             "/semantic/time",
@@ -475,6 +500,110 @@ class SemanticTypedApiTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 422, resp.text)
         self.assertIsInstance(resp.json()["detail"], str)
 
+    def test_publish_requires_published_cross_object_refs(self) -> None:
+        enum_resp = self.client.post(
+            "/semantic/enum-sets",
+            json={
+                "header": {"enum_set_ref": "enum.lifecycle_status", "value_type": "string"},
+                "display_name": "Lifecycle Status",
+                "description": "Draft enum for publish validation",
+                "versions": [
+                    {
+                        "enum_version": "v1",
+                        "values": [
+                            {"value_key": "new", "raw_value": "new", "label": "New"},
+                        ],
+                    }
+                ],
+            },
+        )
+        self.assertEqual(enum_resp.status_code, 200, enum_resp.text)
+        enum_set_contract_id = enum_resp.json()["enum_set_contract_id"]
+
+        dimension_resp = self.client.post(
+            "/semantic/dimensions",
+            json={
+                "header": {
+                    "dimension_ref": "dimension.lifecycle_status",
+                    "display_name": "Lifecycle Status",
+                    "dimension_contract_version": "dimension.v1",
+                },
+                "interface_contract": {
+                    "value_domain": {
+                        "structure_kind": "flat",
+                        "value_type": "string",
+                        "domain_kind": "enumerated",
+                        "enum_set_ref": "enum.lifecycle_status",
+                        "enum_version": "v1",
+                    }
+                },
+            },
+        )
+        self.assertEqual(dimension_resp.status_code, 200, dimension_resp.text)
+        dimension_contract_id = dimension_resp.json()["dimension_contract_id"]
+
+        resp = self.client.post(f"/semantic/dimensions/{dimension_contract_id}/publish")
+        self.assertEqual(resp.status_code, 422, resp.text)
+        self.assertIn("must be published", resp.json()["detail"])
+
+        resp = self.client.post(f"/semantic/enum-sets/{enum_set_contract_id}/publish")
+        self.assertEqual(resp.status_code, 200, resp.text)
+
+        resp = self.client.post(f"/semantic/dimensions/{dimension_contract_id}/publish")
+        self.assertEqual(resp.status_code, 200, resp.text)
+
+        time_resp = self.client.post(
+            "/semantic/time",
+            json={
+                "header": {
+                    "time_ref": "time.lifecycle_anchor",
+                    "display_name": "Lifecycle Anchor",
+                    "semantic_roles": ["business_anchor"],
+                    "time_contract_version": "time.v1",
+                }
+            },
+        )
+        self.assertEqual(time_resp.status_code, 200, time_resp.text)
+        time_contract_id = time_resp.json()["time_contract_id"]
+
+        process_resp = self.client.post(
+            "/semantic/process-objects",
+            json={
+                "header": {
+                    "process_ref": "process.lifecycle_cohort",
+                    "display_name": "Lifecycle Cohort",
+                    "process_type": "cohort_definition",
+                    "process_contract_version": "process.v2",
+                },
+                "interface_contract": {
+                    "contract_mode": "context_provider",
+                    "context_kind": "cohort_membership",
+                    "population_subject_ref": "subject.user",
+                    "membership_cardinality": "exclusive_one",
+                    "anchor_time_ref": "time.lifecycle_anchor",
+                    "exported_dimension_refs": ["dimension.lifecycle_status"],
+                },
+                "payload": {
+                    "process_type": "cohort_definition",
+                    "cohort_key": "lifecycle_users",
+                    "entry_population": {"base_population_ref": "population.users"},
+                    "cohort_anchor_ref": "time.lifecycle_anchor",
+                },
+            },
+        )
+        self.assertEqual(process_resp.status_code, 200, process_resp.text)
+        process_contract_id = process_resp.json()["process_contract_id"]
+
+        resp = self.client.post(f"/semantic/process-objects/{process_contract_id}/publish")
+        self.assertEqual(resp.status_code, 422, resp.text)
+        self.assertIn("must be published", resp.json()["detail"])
+
+        resp = self.client.post(f"/semantic/time/{time_contract_id}/publish")
+        self.assertEqual(resp.status_code, 200, resp.text)
+
+        resp = self.client.post(f"/semantic/process-objects/{process_contract_id}/publish")
+        self.assertEqual(resp.status_code, 200, resp.text)
+
         resp = self.client.post(
             "/semantic/process-objects",
             json={
@@ -503,7 +632,171 @@ class SemanticTypedApiTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 422, resp.text)
         self.assertIsInstance(resp.json()["detail"], str)
 
-    def test_typed_object_routes_use_consistent_404_detail(self) -> None:
+    def test_publish_requires_published_entity_and_metric_refs(self) -> None:
+        # Create a time object but do NOT publish it yet
+        time_resp = self.client.post(
+            "/semantic/time",
+            json={
+                "header": {
+                    "time_ref": "time.entity_test_anchor",
+                    "display_name": "Entity Test Anchor",
+                    "semantic_roles": ["business_anchor"],
+                    "time_contract_version": "time.v1",
+                }
+            },
+        )
+        self.assertEqual(time_resp.status_code, 200, time_resp.text)
+        time_contract_id = time_resp.json()["time_contract_id"]
+
+        # Create a dimension to use as stable_descriptor
+        dim_resp = self.client.post(
+            "/semantic/dimensions",
+            json={
+                "header": {
+                    "dimension_ref": "dimension.entity_test_status",
+                    "display_name": "Entity Test Status",
+                    "dimension_contract_version": "dimension.v1",
+                },
+                "interface_contract": {
+                    "value_domain": {
+                        "structure_kind": "flat",
+                        "value_type": "string",
+                        "domain_kind": "open",
+                    }
+                },
+            },
+        )
+        self.assertEqual(dim_resp.status_code, 200, dim_resp.text)
+        dim_contract_id = dim_resp.json()["dimension_contract_id"]
+
+        # Create entity with primary_time_ref and stable_descriptors
+        entity_resp = self.client.post(
+            "/semantic/entities",
+            json={
+                "header": {
+                    "entity_ref": "entity.publish_test_user",
+                    "display_name": "Publish Test User",
+                    "entity_contract_version": "entity.v1",
+                },
+                "interface_contract": {
+                    "identity": {
+                        "key_refs": ["key.publish_test_user_id"],
+                        "uniqueness_scope": "global",
+                        "id_stability": "stable",
+                    },
+                    "primary_time_ref": "time.entity_test_anchor",
+                    "stable_descriptors": [
+                        {"dimension_ref": "dimension.entity_test_status", "cardinality": "one"}
+                    ],
+                },
+            },
+        )
+        self.assertEqual(entity_resp.status_code, 200, entity_resp.text)
+        entity_contract_id = entity_resp.json()["entity_contract_id"]
+
+        # Publishing entity should fail because primary_time_ref is not published
+        resp = self.client.post(f"/semantic/entities/{entity_contract_id}/publish")
+        self.assertEqual(resp.status_code, 422, resp.text)
+        self.assertIn("must be published", resp.json()["detail"])
+
+        # Publish the time object first
+        resp = self.client.post(f"/semantic/time/{time_contract_id}/publish")
+        self.assertEqual(resp.status_code, 200, resp.text)
+
+        # Publishing entity still fails because stable_descriptor dimension is not published
+        resp = self.client.post(f"/semantic/entities/{entity_contract_id}/publish")
+        self.assertEqual(resp.status_code, 422, resp.text)
+        self.assertIn("must be published", resp.json()["detail"])
+
+        # Publish the dimension
+        resp = self.client.post(f"/semantic/dimensions/{dim_contract_id}/publish")
+        self.assertEqual(resp.status_code, 200, resp.text)
+
+        # Now entity should publish successfully
+        resp = self.client.post(f"/semantic/entities/{entity_contract_id}/publish")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(resp.json()["status"], "published")
+
+        # Create a metric with observed_entity_ref pointing to a draft entity
+        draft_entity_resp = self.client.post(
+            "/semantic/entities",
+            json={
+                "header": {
+                    "entity_ref": "entity.publish_test_draft",
+                    "display_name": "Draft Entity",
+                    "entity_contract_version": "entity.v1",
+                },
+                "interface_contract": {
+                    "identity": {
+                        "key_refs": ["key.publish_test_draft_id"],
+                        "uniqueness_scope": "global",
+                        "id_stability": "stable",
+                    }
+                },
+            },
+        )
+        self.assertEqual(draft_entity_resp.status_code, 200, draft_entity_resp.text)
+
+        metric_resp = self.client.post(
+            "/semantic/metrics",
+            json={
+                "header": {
+                    "metric_ref": "metric.publish_test_dau",
+                    "display_name": "Publish Test DAU",
+                    "metric_family": "count_metric",
+                    "observed_entity_ref": "entity.publish_test_draft",
+                    "observation_grain_ref": "grain.publish_test_user",
+                    "sample_kind": "numeric",
+                    "value_semantics": "count",
+                    "additivity": "additive",
+                    "metric_contract_version": "metric.v1",
+                },
+                "payload": {
+                    "metric_family": "count_metric",
+                    "count_target": {
+                        "name": "users",
+                        "semantics": "distinct users",
+                        "aggregation": "count_distinct",
+                    },
+                },
+            },
+        )
+        self.assertEqual(metric_resp.status_code, 200, metric_resp.text)
+        metric_contract_id = metric_resp.json()["metric_contract_id"]
+
+        # Publishing metric should fail because observed_entity_ref is draft
+        resp = self.client.post(f"/semantic/metrics/{metric_contract_id}/publish")
+        self.assertEqual(resp.status_code, 422, resp.text)
+        self.assertIn("must be published", resp.json()["detail"])
+
+    def test_publish_ref_validation_distinguishes_unknown_from_draft(self) -> None:
+        # Create entity with a primary_time_ref that does NOT exist
+        entity_resp = self.client.post(
+            "/semantic/entities",
+            json={
+                "header": {
+                    "entity_ref": "entity.unknown_ref_test",
+                    "display_name": "Unknown Ref Test Entity",
+                    "entity_contract_version": "entity.v1",
+                },
+                "interface_contract": {
+                    "identity": {
+                        "key_refs": ["key.unknown_ref_test_id"],
+                        "uniqueness_scope": "global",
+                        "id_stability": "stable",
+                    },
+                    "primary_time_ref": "time.does_not_exist",
+                },
+            },
+        )
+        self.assertEqual(entity_resp.status_code, 200, entity_resp.text)
+        entity_contract_id = entity_resp.json()["entity_contract_id"]
+
+        resp = self.client.post(f"/semantic/entities/{entity_contract_id}/publish")
+        self.assertEqual(resp.status_code, 422, resp.text)
+        detail = resp.json()["detail"]
+        self.assertIn("Unknown", detail)
+        self.assertNotIn("must be published", detail)
         binding_resp = self.client.get("/semantic/bindings/bind_missing")
         self.assertEqual(binding_resp.status_code, 404, binding_resp.text)
         self.assertIsInstance(binding_resp.json()["detail"], str)

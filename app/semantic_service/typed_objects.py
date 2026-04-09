@@ -170,6 +170,7 @@ class TypedObjectService(SemanticServiceSupport):
     def publish_typed_entity(self, entity_contract_id: str) -> dict[str, Any]:
         current = self.get_typed_entity(entity_contract_id)
         self._require_draft_status(current["status"], "Typed entity", entity_contract_id)
+        self._validate_published_entity_contract_refs(current["interface_contract"])
         self.metadata.execute(
             """
             UPDATE semantic_entity_contracts
@@ -272,6 +273,7 @@ class TypedObjectService(SemanticServiceSupport):
     def publish_typed_metric(self, metric_contract_id: str) -> dict[str, Any]:
         current = self.get_typed_metric(metric_contract_id)
         self._require_draft_status(current["status"], "Typed metric", metric_contract_id)
+        self._validate_published_metric_header_refs(current["header"])
         self.metadata.execute(
             """
             UPDATE semantic_metric_contracts
@@ -425,6 +427,7 @@ class TypedObjectService(SemanticServiceSupport):
     def publish_process_object(self, process_contract_id: str) -> dict[str, Any]:
         current = self.get_process_object(process_contract_id)
         self._require_draft_status(current["status"], "Process object", process_contract_id)
+        self._validate_published_process_refs(current["interface_contract"], current["payload"])
         self.metadata.execute(
             """
             UPDATE semantic_process_objects
@@ -579,6 +582,7 @@ class TypedObjectService(SemanticServiceSupport):
     def publish_dimension(self, dimension_contract_id: str) -> dict[str, Any]:
         current = self.get_dimension(dimension_contract_id)
         self._require_draft_status(current["status"], "Dimension", dimension_contract_id)
+        self._validate_published_dimension_contract_refs(current["interface_contract"])
         self.metadata.execute(
             """
             UPDATE semantic_dimension_contracts
