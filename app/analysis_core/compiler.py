@@ -1,17 +1,47 @@
 from __future__ import annotations
 
+import hashlib
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import Any
+from typing import Any, Literal, cast
 
-from app.analysis_core.ir import AnalysisStepIR
+from app.analysis_core.capability_profiles import derive_compiler_state
+from app.analysis_core.ir import (
+    STEP_ARTIFACT_KINDS,
+    AnalysisStepIR,
+    ArtifactLineageEntry,
+    BindingRefSnapshot,
+    CarrierBinding,
+    CompileReport,
+    IntentNode,
+    IntentRequestSnapshot,
+    IrArtifact,
+    IrBundle,
+    IrInputSnapshot,
+    IrPlan,
+    IrPlanHeader,
+    LoweringRequirement,
+    MeasurementNode,
+    MetricRefSnapshot,
+    OutputBinding,
+    ProcessNode,
+    ProcessRefSnapshot,
+    ProfileUsageTrace,
+    SemanticCompileError,
+    ValidationRecord,
+    ValidationSummary,
+)
 from app.analysis_core.typed_resolution import (
+    NormalizedCompilerRequest,
+    ResolvedCompilerInputs,
     normalize_step_request,
     resolve_compiler_inputs,
 )
+from app.analysis_core.validator import validate_compiler_inputs, validation_error_message
 from app.semantic_runtime import SemanticRuntimeRepository
+from app.semantic_runtime.resolution import ResolvedSemanticObject
 
 
 @dataclass(slots=True)
@@ -21,6 +51,16 @@ class CompiledQuery:
     sql: str
     params: list[Any] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
+    ir_bundle: IrBundle | None = None
+    compile_error: SemanticCompileError | None = None
+
+
+class SemanticCompilerError(ValueError):
+    """Structured compiler failure that preserves the compile gate diagnosis."""
+
+    def __init__(self, compile_error: SemanticCompileError) -> None:
+        super().__init__(compile_error["message"])
+        self.compile_error = compile_error
 
 
 @dataclass(slots=True)
@@ -589,6 +629,453 @@ def build_aggregate_comparison_query(
     """
 
 
+_VALIDATION_GATE_ORDER: tuple[
+    Literal[
+        "request_shape",
+        "intent_support",
+        "metric_process_compatibility",
+        "binding_grounding",
+        "dimension_compatibility",
+        "intent_specific",
+    ],
+    ...,
+] = (
+    "request_shape",
+    "intent_support",
+    "metric_process_compatibility",
+    "binding_grounding",
+    "dimension_compatibility",
+    "intent_specific",
+)
+
+
+def _build_compile_error(validation_message: str, validation_result: Any) -> SemanticCompileError:
+    first_error = next(issue for issue in validation_result.issues if issue.severity == "error")
+    compile_error: SemanticCompileError = {
+        "error_code": first_error.code,
+        "failed_gate": first_error.gate,
+        "message": validation_message,
+    }
+    if first_error.subject_ref is not None:
+        compile_error["subject_ref"] = first_error.subject_ref
+    if first_error.details:
+        compile_error["details"] = dict(first_error.details)
+    return compile_error
+
+
+def _build_validation_trace(validation_result: Any) -> list[ValidationRecord]:
+    failed_gates = {issue.gate for issue in validation_result.issues if issue.severity == "error"}
+    warning_gates = {issue.gate for issue in validation_result.issues if issue.severity != "error"}
+    trace: list[ValidationRecord] = []
+    for gate in _VALIDATION_GATE_ORDER:
+        if gate in failed_gates:
+            continue
+        record: ValidationRecord = {
+            "validation_kind": gate,
+            "status": "passed",
+        }
+        if gate in warning_gates:
+            record["reason_code"] = "passed_with_warning"
+        trace.append(record)
+    return trace
+
+
+def _build_validation_summary(
+    validation_result: Any, validation_trace: list[ValidationRecord]
+) -> ValidationSummary:
+    summary: ValidationSummary = {
+        "passed_gate_count": len(validation_trace),
+        "warning_count": len(
+            [issue for issue in validation_result.issues if issue.severity != "error"]
+        ),
+        "validated_dimension_refs": list(validation_result.validated_dimension_refs),
+    }
+    if validation_result.resolved_filter_time_ref is not None:
+        summary["resolved_filter_time_ref"] = validation_result.resolved_filter_time_ref
+    return summary
+
+
+def _build_profile_usage_trace(profile_traces: list[Any]) -> list[ProfileUsageTrace]:
+    trace_payload: list[ProfileUsageTrace] = []
+    for trace in profile_traces:
+        item: ProfileUsageTrace = {
+            "subject_ref": trace.subject_ref,
+            "applied": trace.applied,
+            "reason": trace.reason,
+        }
+        if trace.profile_ref is not None:
+            item["profile_ref"] = trace.profile_ref
+        trace_payload.append(item)
+    return trace_payload
+
+
+def _build_lowering_requirements(
+    *,
+    step: AnalysisStepIR,
+    normalized_request: NormalizedCompilerRequest,
+    resolved_inputs: ResolvedCompilerInputs,
+    intent_node_id: str,
+) -> list[LoweringRequirement]:
+    requirements: list[LoweringRequirement] = [
+        {
+            "requirement_kind": "engine_sql_execution",
+            "source_node_id": intent_node_id,
+        }
+    ]
+    if normalized_request.request_time_scope:
+        requirements.append(
+            {
+                "requirement_kind": "time_window_filter",
+                "source_node_id": intent_node_id,
+            }
+        )
+    if resolved_inputs.resolved_bindings and resolved_inputs.resolved_metric is not None:
+        requirements.append(
+            {
+                "requirement_kind": "semantic_binding_grounding",
+                "source_node_id": f"measurement:{step.index}",
+            }
+        )
+    return requirements
+
+
+def _stable_plan_id(step: AnalysisStepIR, normalized_request: NormalizedCompilerRequest) -> str:
+    raw = "|".join(
+        [
+            step.step_type,
+            str(step.index),
+            normalized_request.metric_ref or "",
+            normalized_request.process_ref or "",
+            normalized_request.table_name or "",
+            ",".join(normalized_request.request_dimensions),
+            normalized_request.request_result_mode or "",
+        ]
+    )
+    digest = hashlib.sha1(raw.encode("utf-8"), usedforsecurity=False).hexdigest()[:12]
+    return f"ir_plan.{step.step_type}.{step.index}.{digest}"
+
+
+def _metric_snapshot(metric: ResolvedSemanticObject) -> MetricRefSnapshot:
+    header = dict(metric.semantic_object.get("header") or {})
+    snapshot: MetricRefSnapshot = {
+        "metric_ref": metric.ref,
+    }
+    primary_time_ref = _optional_str(header.get("primary_time_ref"))
+    observation_grain_ref = _optional_str(header.get("observation_grain_ref"))
+    if primary_time_ref is not None:
+        snapshot["resolved_primary_time_ref"] = primary_time_ref
+    if observation_grain_ref is not None:
+        snapshot["resolved_observation_grain_ref"] = observation_grain_ref
+    return snapshot
+
+
+def _process_snapshot(process: ResolvedSemanticObject) -> ProcessRefSnapshot:
+    interface_contract = dict(process.semantic_object.get("interface_contract") or {})
+    snapshot: ProcessRefSnapshot = {
+        "process_ref": process.ref,
+    }
+    anchor_time_ref = _optional_str(interface_contract.get("anchor_time_ref"))
+    if anchor_time_ref is not None:
+        snapshot["resolved_anchor_time_ref"] = anchor_time_ref
+    return snapshot
+
+
+def _binding_snapshot(binding: ResolvedSemanticObject) -> BindingRefSnapshot:
+    return {
+        "binding_ref": binding.ref,
+        "bound_object_ref": str(binding.semantic_object.get("bound_object_ref") or ""),
+    }
+
+
+def _intent_request_snapshot(
+    normalized_request: NormalizedCompilerRequest,
+    resolved_inputs: ResolvedCompilerInputs,
+) -> IntentRequestSnapshot:
+    options: dict[str, str | int | float | bool | None] = {}
+    for key, value in normalized_request.request_options.items():
+        if isinstance(value, (bool, int, float, str)) or value is None:
+            options[key] = value
+    snapshot: IntentRequestSnapshot = {
+        "intent_kind": normalized_request.intent_kind,
+        "request_class": normalized_request.request_class,
+    }
+    if normalized_request.request_dimensions:
+        snapshot["requested_dimensions"] = list(normalized_request.request_dimensions)
+    if normalized_request.request_result_mode is not None:
+        snapshot["requested_result_mode"] = normalized_request.request_result_mode
+    if resolved_inputs.resolved_filter_time is not None:
+        snapshot["request_time_scope_ref"] = resolved_inputs.resolved_filter_time.ref
+    if options:
+        snapshot["request_options"] = options
+    return snapshot
+
+
+def _build_ir_inputs(
+    normalized_request: NormalizedCompilerRequest,
+    resolved_inputs: ResolvedCompilerInputs,
+) -> IrInputSnapshot:
+    input_snapshot: IrInputSnapshot = {
+        "intent_request": _intent_request_snapshot(normalized_request, resolved_inputs),
+    }
+    if normalized_request.metric_ref is not None:
+        input_snapshot["metric_ref"] = normalized_request.metric_ref
+    process_refs = [
+        process_ref
+        for process_ref in (
+            normalized_request.process_ref,
+            normalized_request.left_process_ref,
+            normalized_request.right_process_ref,
+        )
+        if process_ref is not None
+    ]
+    if process_refs:
+        input_snapshot["process_refs"] = process_refs
+    if resolved_inputs.resolved_bindings:
+        input_snapshot["binding_refs"] = [
+            binding.ref for binding in resolved_inputs.resolved_bindings
+        ]
+        input_snapshot["resolved_bindings"] = [
+            _binding_snapshot(binding) for binding in resolved_inputs.resolved_bindings
+        ]
+    if resolved_inputs.resolved_metric is not None:
+        input_snapshot["resolved_metric"] = _metric_snapshot(resolved_inputs.resolved_metric)
+    resolved_processes = [
+        process
+        for process in (
+            resolved_inputs.resolved_process,
+            resolved_inputs.resolved_left_process,
+            resolved_inputs.resolved_right_process,
+        )
+        if process is not None
+    ]
+    if resolved_processes:
+        input_snapshot["resolved_processes"] = [
+            _process_snapshot(process) for process in resolved_processes
+        ]
+    return input_snapshot
+
+
+def _measurement_node(
+    *,
+    step: AnalysisStepIR,
+    resolved_metric: ResolvedSemanticObject,
+    resolved_bindings: list[ResolvedSemanticObject],
+    output_binding: OutputBinding,
+) -> MeasurementNode:
+    header = dict(resolved_metric.semantic_object.get("header") or {})
+    carrier_bindings: list[CarrierBinding] = []
+    for binding in resolved_bindings:
+        interface_contract = dict(binding.semantic_object.get("interface_contract") or {})
+        surfaces = [
+            str(field_binding.get("surface_ref") or "")
+            for field_binding in interface_contract.get("field_bindings") or []
+            if str(field_binding.get("surface_ref") or "").strip()
+        ]
+        for carrier_binding in interface_contract.get("carrier_bindings") or []:
+            binding_payload: CarrierBinding = {
+                "binding_ref": binding.ref,
+            }
+            source_object_ref = _optional_str(carrier_binding.get("source_object_ref"))
+            carrier_locator = _optional_str(carrier_binding.get("carrier_locator"))
+            if source_object_ref is not None:
+                binding_payload["source_object_ref"] = source_object_ref
+            if carrier_locator is not None:
+                binding_payload["carrier_locator"] = carrier_locator
+            if surfaces:
+                binding_payload["consumed_surface_refs"] = sorted(set(surfaces))
+            carrier_bindings.append(binding_payload)
+    sample_kind = cast(
+        "Literal['numeric', 'rate', 'binary', 'survival']",
+        _optional_str(header.get("sample_kind")) or "numeric",
+    )
+    additivity = cast(
+        "Literal['additive', 'semi_additive', 'non_additive']",
+        _optional_str(header.get("additivity")) or "non_additive",
+    )
+    node: MeasurementNode = {
+        "node_id": f"measurement:{step.index}",
+        "node_type": "measurement",
+        "metric_ref": resolved_metric.ref,
+        "observed_entity_ref": _optional_str(header.get("observed_entity_ref")) or "",
+        "observation_grain_ref": _optional_str(header.get("observation_grain_ref")) or "",
+        "sample_kind": sample_kind,
+        "value_semantics": _optional_str(header.get("value_semantics")) or "",
+        "additivity": additivity,
+        "output_bindings": [output_binding],
+    }
+    inferential_summary_mode = _optional_str(header.get("inferential_summary_mode"))
+    if inferential_summary_mode is not None:
+        node["inferential_summary_mode"] = inferential_summary_mode
+    if carrier_bindings:
+        node["carrier_bindings"] = carrier_bindings
+    return node
+
+
+def _process_node(step: AnalysisStepIR, process: ResolvedSemanticObject) -> ProcessNode:
+    interface_contract = dict(process.semantic_object.get("interface_contract") or {})
+    node: ProcessNode = {
+        "node_id": f"process:{step.index}:{process.ref}",
+        "node_type": "process",
+        "process_ref": process.ref,
+        "process_type": _optional_str(process.semantic_object.get("process_type")) or "",
+        "contract_mode": cast(
+            "Literal['context_provider', 'entity_stream']",
+            _optional_str(interface_contract.get("contract_mode")) or "context_provider",
+        ),
+        "population_subject_ref": _optional_str(interface_contract.get("population_subject_ref"))
+        or "",
+    }
+    context_kind = _optional_str(interface_contract.get("context_kind"))
+    entity_ref = _optional_str(interface_contract.get("entity_ref"))
+    emitted_grain_ref = _optional_str(interface_contract.get("emitted_grain_ref"))
+    membership_cardinality = _optional_str(interface_contract.get("membership_cardinality"))
+    subject_cardinality = _optional_str(interface_contract.get("subject_cardinality"))
+    if context_kind is not None:
+        node["context_kind"] = context_kind
+    if entity_ref is not None:
+        node["entity_ref"] = entity_ref
+    if emitted_grain_ref is not None:
+        node["emitted_grain_ref"] = emitted_grain_ref
+    if membership_cardinality in {"exclusive_one", "repeatable_many"}:
+        node["membership_cardinality"] = cast(
+            "Literal['exclusive_one', 'repeatable_many']", membership_cardinality
+        )
+    if subject_cardinality in {"one", "many"}:
+        node["subject_cardinality"] = cast("Literal['one', 'many']", subject_cardinality)
+    return node
+
+
+def _intent_node(
+    *,
+    step: AnalysisStepIR,
+    normalized_request: NormalizedCompilerRequest,
+    output_binding: OutputBinding,
+    depends_on: list[str],
+) -> IntentNode:
+    node: IntentNode = {
+        "node_id": f"intent:{step.index}",
+        "node_type": "intent",
+        "intent_kind": step.step_type,
+        "intent_level": "root",
+        "depends_on": depends_on,
+        "output_bindings": [output_binding],
+    }
+    if normalized_request.request_dimensions:
+        node["requested_dimensions"] = list(normalized_request.request_dimensions)
+    if normalized_request.request_result_mode is not None:
+        node["requested_result_mode"] = normalized_request.request_result_mode
+    return node
+
+
+def _build_ir_bundle(
+    *,
+    step: AnalysisStepIR,
+    normalized_request: NormalizedCompilerRequest,
+    resolved_inputs: ResolvedCompilerInputs,
+    validation_result: Any,
+    derived_state: Any,
+) -> IrBundle:
+    plan_id = _stable_plan_id(step, normalized_request)
+    artifact_id = f"artifact:{plan_id}:output"
+    output_binding: OutputBinding = {
+        "artifact_id": artifact_id,
+        "artifact_kind": STEP_ARTIFACT_KINDS.get(step.step_type, "table"),
+    }
+
+    nodes: list[MeasurementNode | ProcessNode | IntentNode] = []
+    depends_on: list[str] = []
+    if resolved_inputs.resolved_metric is not None:
+        measurement_node = _measurement_node(
+            step=step,
+            resolved_metric=resolved_inputs.resolved_metric,
+            resolved_bindings=resolved_inputs.resolved_bindings,
+            output_binding=output_binding,
+        )
+        nodes.append(measurement_node)
+        depends_on.append(measurement_node["node_id"])
+    for process in (
+        resolved_inputs.resolved_process,
+        resolved_inputs.resolved_left_process,
+        resolved_inputs.resolved_right_process,
+    ):
+        if process is None:
+            continue
+        process_node = _process_node(step, process)
+        nodes.append(process_node)
+        depends_on.append(process_node["node_id"])
+    intent_node = _intent_node(
+        step=step,
+        normalized_request=normalized_request,
+        output_binding=output_binding,
+        depends_on=depends_on,
+    )
+    nodes.append(intent_node)
+
+    lineage = [
+        {
+            "source_artifact_id": upstream_ref,
+            "relationship": "consumes",
+        }
+        for upstream_ref in normalized_request.upstream_refs
+    ]
+    artifact: IrArtifact = {
+        "artifact_id": artifact_id,
+        "artifact_kind": output_binding["artifact_kind"],
+        "producer_node_id": intent_node["node_id"],
+    }
+    if normalized_request.metric_ref is not None:
+        artifact["output_semantics_ref"] = normalized_request.metric_ref
+    if normalized_request.request_result_mode is not None:
+        artifact["result_mode"] = normalized_request.request_result_mode
+    if lineage:
+        artifact["lineage"] = cast("list[ArtifactLineageEntry]", lineage)
+
+    header: IrPlanHeader = {
+        "ir_version": "v1",
+        "plan_id": plan_id,
+        "plan_kind": "atomic",
+        "root_intent_kind": step.step_type,
+    }
+    if normalized_request.request_result_mode is not None:
+        header["result_mode"] = normalized_request.request_result_mode
+
+    lowering_requirements = _build_lowering_requirements(
+        step=step,
+        normalized_request=normalized_request,
+        resolved_inputs=resolved_inputs,
+        intent_node_id=intent_node["node_id"],
+    )
+    validation_trace = _build_validation_trace(validation_result)
+    compile_report: CompileReport = {
+        "validation_trace": validation_trace,
+        "validation_summary": _build_validation_summary(validation_result, validation_trace),
+        "lowering_requirements": lowering_requirements,
+    }
+    profile_usage_trace = _build_profile_usage_trace(derived_state.profile_traces)
+    if profile_usage_trace:
+        compile_report["profile_usage_trace"] = profile_usage_trace
+    if derived_state.usage_trace:
+        compile_report["compiler_usage_trace"] = list(derived_state.usage_trace)
+
+    plan: IrPlan = {
+        "header": header,
+        "inputs": _build_ir_inputs(normalized_request, resolved_inputs),
+        "artifacts": [artifact],
+        "nodes": nodes,
+    }
+    return {
+        "plan": plan,
+        "compile_report": compile_report,
+    }
+
+
+def _optional_str(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
 def compile_step(
     step: AnalysisStepIR,
     *,
@@ -599,6 +1086,8 @@ def compile_step(
 
     semantic_context = semantic_context or {}
     semantic_repository = semantic_context.get("semantic_repository")
+    binding_reader = semantic_context.get("binding_reader")
+    compatibility_profile_reader = semantic_context.get("compatibility_profile_reader")
     if semantic_repository is not None and not isinstance(
         semantic_repository, SemanticRuntimeRepository
     ):
@@ -607,23 +1096,49 @@ def compile_step(
     resolved_inputs = resolve_compiler_inputs(
         normalized_request,
         semantic_repository=semantic_repository,
+        binding_reader=binding_reader,
+    )
+    derived_state = derive_compiler_state(
+        intent_kind=step.step_type,
+        resolved_metric=resolved_inputs.resolved_metric,
+        resolved_process=resolved_inputs.resolved_process,
+        resolved_bindings=resolved_inputs.resolved_bindings,
+        profile_reader=compatibility_profile_reader,
+    )
+    validation_result = validate_compiler_inputs(
+        step_type=step.step_type,
+        resolved_inputs=resolved_inputs,
+        derived_state=derived_state,
+    )
+    if not validation_result.ok:
+        raise SemanticCompilerError(
+            _build_compile_error(validation_error_message(validation_result), validation_result)
+        )
+    ir_bundle = _build_ir_bundle(
+        step=step,
+        normalized_request=normalized_request,
+        resolved_inputs=resolved_inputs,
+        validation_result=validation_result,
+        derived_state=derived_state,
     )
     params = dict(step.params)
     metadata = {
         "engine_type": engine_type,
         "step_type": step.step_type,
+        "ir_plan_id": ir_bundle["plan"]["header"]["plan_id"],
         "normalized_request_class": normalized_request.request_class,
-        "normalized_intent_kind": normalized_request.intent_kind,
-        "normalized_metric_ref": normalized_request.metric_ref,
-        "normalized_dimension_refs": list(normalized_request.request_dimensions),
         "resolved_metric_ref": resolved_inputs.resolved_metric.ref
         if resolved_inputs.resolved_metric is not None
+        else None,
+        "resolved_process_ref": resolved_inputs.resolved_process.ref
+        if resolved_inputs.resolved_process is not None
         else None,
         "resolved_filter_time_ref": resolved_inputs.resolved_filter_time.ref
         if resolved_inputs.resolved_filter_time is not None
         else None,
         "resolved_dimension_refs": resolved_inputs.resolved_dimension_refs,
-        "compiler_warnings": resolved_inputs.warnings,
+        "resolved_binding_refs": [binding.ref for binding in resolved_inputs.resolved_bindings],
+        "compiler_summary": ir_bundle["compile_report"]["validation_summary"],
     }
     table_name: str | None = None
     compiled_params: list[Any] = []
@@ -649,6 +1164,7 @@ def compile_step(
         return CompiledQuery(
             sql=f"SELECT {columns_clause} FROM {table_name}{where_clause} LIMIT {limit}",
             metadata={**metadata, "table_name": table_name, "limit": limit},
+            ir_bundle=ir_bundle,
         )
 
     if step.step_type == "profile_table_row_count":
@@ -656,6 +1172,7 @@ def compile_step(
         return CompiledQuery(
             sql=f"SELECT COUNT(*) AS row_count FROM {table_name}",
             metadata={**metadata, "table_name": table_name},
+            ir_bundle=ir_bundle,
         )
 
     if step.step_type == "profile_table_columns":
@@ -672,6 +1189,7 @@ def compile_step(
         return CompiledQuery(
             sql=f"SELECT column_name FROM information_schema.columns WHERE {where_sql}",
             metadata={**metadata, "short_name": short_name},
+            ir_bundle=ir_bundle,
         )
 
     if step.step_type == "profile_table_column_profile":
@@ -691,6 +1209,7 @@ def compile_step(
                 FROM {table_name}{where_clause}
             """,
             metadata={**metadata, "table_name": table_name, "column_name": column_name},
+            ir_bundle=ir_bundle,
         )
 
     if step.step_type == "metric_query":
@@ -742,6 +1261,7 @@ def compile_step(
                 "metric_name": metric_name,
                 "dimensions": list(dimensions),
             },
+            ir_bundle=ir_bundle,
         )
 
     if step.step_type == "aggregate_query":
@@ -786,6 +1306,7 @@ def compile_step(
                     "limit": limit,
                     "compare_period": compare_period,
                 },
+                ir_bundle=ir_bundle,
             )
 
         select_exprs = params.get("select")
@@ -823,6 +1344,7 @@ def compile_step(
                     "limit": limit,
                     "compare_period": True,
                 },
+                ir_bundle=ir_bundle,
             )
 
         select_clause = ", ".join(select_exprs)
@@ -846,6 +1368,7 @@ def compile_step(
             sql=sql,
             params=compiled_params,
             metadata={**metadata, "table_name": table_name, "limit": limit},
+            ir_bundle=ir_bundle,
         )
 
     raise ValueError(f"Unsupported compilation step type: {step.step_type}")

@@ -190,13 +190,17 @@ class CatalogQueryTests(unittest.TestCase):
             for metric in ctx["metrics"]
             if metric["header"]["metric_ref"] == "metric.watch_time"
         )
-        self.assertEqual(watch_metric["identity"]["metric_family"], "average_metric")
-        self.assertEqual(watch_metric["legacy"]["grain"], "session")
-        self.assertEqual(watch_metric["legacy"]["measure_type"], "average")
+        self.assertEqual(watch_metric["header"]["metric_family"], "average_metric")
+        self.assertEqual(watch_metric["header"]["observation_grain_ref"], "grain.session")
+        self.assertNotIn("legacy", watch_metric)
         user_entity = next(
             entity for entity in ctx["entities"] if entity["header"]["entity_ref"] == "entity.user"
         )
-        self.assertEqual(user_entity["legacy"]["level"], "user")
+        self.assertEqual(
+            user_entity["interface_contract"]["identity"]["key_refs"],
+            ["key.user_id"],
+        )
+        self.assertNotIn("legacy", user_entity)
 
     def test_graph_traversal(self) -> None:
         # Graph from the metric node

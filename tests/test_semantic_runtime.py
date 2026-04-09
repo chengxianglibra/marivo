@@ -496,22 +496,25 @@ class SemanticRuntimeTests(unittest.TestCase):
             for metric in context["metrics"]
             if metric["header"]["metric_ref"] == "metric.watch_time"
         )
-        self.assertEqual(metric["identity"]["metric_family"], "average_metric")
-        self.assertEqual(metric["identity"]["observed_entity_ref"], "entity.user")
-        self.assertEqual(metric["legacy"]["grain"], "session")
-        self.assertEqual(metric["legacy"]["measure_type"], "average")
+        self.assertEqual(metric["header"]["metric_family"], "average_metric")
+        self.assertEqual(metric["header"]["observed_entity_ref"], "entity.user")
+        self.assertEqual(metric["header"]["observation_grain_ref"], "grain.session")
         self.assertEqual(
-            metric["legacy"]["allowed_dimensions"],
+            metric["payload"]["allowed_dimensions"],
             ["platform", "network_type", "content_type"],
         )
+        self.assertNotIn("legacy", metric)
         entity = next(
             entity
             for entity in context["entities"]
             if entity["header"]["entity_ref"] == "entity.user"
         )
-        self.assertEqual(entity["legacy"]["level"], "user")
-        self.assertEqual(entity["legacy"]["upstream_dependencies"], ["account"])
-        self.assertEqual(entity["identity"]["key_refs"], ["key.user_id"])
+        self.assertEqual(
+            entity["interface_contract"]["identity"]["key_refs"],
+            ["key.user_id"],
+        )
+        self.assertIsNone(entity["interface_contract"]["primary_time_ref"])
+        self.assertNotIn("legacy", entity)
 
     def test_semantic_repository_builds_planner_context(self) -> None:
         repository = self.client.app.state.service.semantic_repository
@@ -527,8 +530,9 @@ class SemanticRuntimeTests(unittest.TestCase):
             for metric in context["metrics"]
             if metric["header"]["metric_ref"] == "metric.watch_time"
         )
-        self.assertEqual(metric["legacy"]["grain"], "session")
-        self.assertEqual(metric["identity"]["metric_family"], "average_metric")
+        self.assertEqual(metric["header"]["observation_grain_ref"], "grain.session")
+        self.assertEqual(metric["header"]["metric_family"], "average_metric")
+        self.assertNotIn("legacy", metric)
 
     def test_semantic_resolver_resolves_published_entity(self) -> None:
         service = self.client.app.state.service
@@ -632,8 +636,11 @@ class SemanticRuntimeTests(unittest.TestCase):
             for entity in context["entities"]
             if entity["header"]["entity_ref"] == "entity.user"
         )
-        self.assertEqual(entity["legacy"]["level"], "user")
-        self.assertEqual(entity["legacy"]["upstream_dependencies"], ["account"])
+        self.assertEqual(
+            entity["interface_contract"]["identity"]["key_refs"],
+            ["key.user_id"],
+        )
+        self.assertNotIn("legacy", entity)
 
     def test_runtime_hides_objects_without_published_typed_contracts(self) -> None:
         runtime = CatalogRuntimeService(

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal, NotRequired, TypedDict
 
 from app.analysis_core.primitives import (
     step_category_for,
@@ -30,6 +30,207 @@ STEP_ARTIFACT_KINDS = {
     "profile_table_column_profile": "profile",
     "sample_rows": "rows",
 }
+
+
+class IrPlanHeader(TypedDict):
+    ir_version: str
+    plan_id: str
+    plan_kind: Literal["atomic", "derived"]
+    root_intent_kind: str
+    result_mode: NotRequired[str | None]
+
+
+class MetricRefSnapshot(TypedDict):
+    metric_ref: str
+    resolved_primary_time_ref: NotRequired[str | None]
+    resolved_observation_grain_ref: NotRequired[str | None]
+
+
+class ProcessRefSnapshot(TypedDict):
+    process_ref: str
+    resolved_anchor_time_ref: NotRequired[str | None]
+
+
+class BindingRefSnapshot(TypedDict):
+    binding_ref: str
+    bound_object_ref: str
+
+
+class IntentRequestSnapshot(TypedDict):
+    intent_kind: str
+    request_class: Literal["root_metric_process", "typed_ref", "derived_macro"]
+    requested_dimensions: NotRequired[list[str] | None]
+    requested_result_mode: NotRequired[str | None]
+    request_time_scope_ref: NotRequired[str | None]
+    request_options: NotRequired[dict[str, str | int | float | bool | None] | None]
+
+
+class IrInputSnapshot(TypedDict):
+    metric_ref: NotRequired[str | None]
+    process_refs: NotRequired[list[str] | None]
+    binding_refs: NotRequired[list[str] | None]
+    resolved_metric: NotRequired[MetricRefSnapshot | None]
+    resolved_processes: NotRequired[list[ProcessRefSnapshot] | None]
+    resolved_bindings: NotRequired[list[BindingRefSnapshot] | None]
+    intent_request: IntentRequestSnapshot
+
+
+class ArtifactLineageEntry(TypedDict):
+    source_artifact_id: str
+    relationship: Literal["consumes", "derives_from", "compares", "tests", "projects"]
+
+
+class IrArtifact(TypedDict):
+    artifact_id: str
+    artifact_kind: str
+    producer_node_id: str
+    output_semantics_ref: NotRequired[str | None]
+    result_mode: NotRequired[str | None]
+    lineage: NotRequired[list[ArtifactLineageEntry] | None]
+
+
+class InputBinding(TypedDict):
+    slot_name: str
+    artifact_kind: str
+    artifact_id: str
+    semantic_role: Literal[
+        "source",
+        "left",
+        "right",
+        "compare_source",
+        "decompose_source",
+        "test_left",
+        "test_right",
+        "forecast_source",
+    ]
+
+
+class OutputBinding(TypedDict):
+    artifact_id: str
+    artifact_kind: str
+
+
+class CarrierBinding(TypedDict):
+    binding_ref: str
+    source_object_ref: NotRequired[str | None]
+    carrier_locator: NotRequired[str | None]
+    consumed_surface_refs: NotRequired[list[str] | None]
+
+
+class IrNodeHeader(TypedDict):
+    node_id: str
+    node_type: Literal["measurement", "process", "intent"]
+    depends_on: NotRequired[list[str] | None]
+    input_bindings: NotRequired[list[InputBinding] | None]
+    output_bindings: NotRequired[list[OutputBinding] | None]
+    carrier_bindings: NotRequired[list[CarrierBinding] | None]
+
+
+class MeasurementNode(TypedDict):
+    node_id: str
+    node_type: Literal["measurement"]
+    metric_ref: str
+    observed_entity_ref: str
+    observation_grain_ref: str
+    sample_kind: Literal["numeric", "rate", "binary", "survival"]
+    value_semantics: str
+    additivity: Literal["additive", "semi_additive", "non_additive"]
+    depends_on: NotRequired[list[str] | None]
+    input_bindings: NotRequired[list[InputBinding] | None]
+    output_bindings: NotRequired[list[OutputBinding] | None]
+    carrier_bindings: NotRequired[list[CarrierBinding] | None]
+    inferential_summary_mode: NotRequired[str | None]
+
+
+class ProcessNode(TypedDict):
+    node_id: str
+    node_type: Literal["process"]
+    process_ref: str
+    process_type: str
+    contract_mode: Literal["context_provider", "entity_stream"]
+    population_subject_ref: str
+    depends_on: NotRequired[list[str] | None]
+    input_bindings: NotRequired[list[InputBinding] | None]
+    output_bindings: NotRequired[list[OutputBinding] | None]
+    carrier_bindings: NotRequired[list[CarrierBinding] | None]
+    context_kind: NotRequired[str | None]
+    entity_ref: NotRequired[str | None]
+    emitted_grain_ref: NotRequired[str | None]
+    membership_cardinality: NotRequired[Literal["exclusive_one", "repeatable_many"] | None]
+    subject_cardinality: NotRequired[Literal["one", "many"] | None]
+
+
+class IntentNode(TypedDict):
+    node_id: str
+    node_type: Literal["intent"]
+    intent_kind: str
+    intent_level: Literal["root", "expanded_atomic"]
+    depends_on: NotRequired[list[str] | None]
+    input_bindings: NotRequired[list[InputBinding] | None]
+    output_bindings: NotRequired[list[OutputBinding] | None]
+    carrier_bindings: NotRequired[list[CarrierBinding] | None]
+    requested_dimensions: NotRequired[list[str] | None]
+    requested_result_mode: NotRequired[str | None]
+
+
+class ValidationRecord(TypedDict):
+    validation_kind: Literal[
+        "request_shape",
+        "intent_support",
+        "metric_process_compatibility",
+        "binding_grounding",
+        "dimension_compatibility",
+        "intent_specific",
+    ]
+    status: Literal["passed"]
+    reason_code: NotRequired[str | None]
+
+
+class ValidationSummary(TypedDict):
+    passed_gate_count: int
+    warning_count: int
+    validated_dimension_refs: list[str]
+    resolved_filter_time_ref: NotRequired[str | None]
+
+
+class LoweringRequirement(TypedDict):
+    requirement_kind: str
+    source_node_id: str
+
+
+class ProfileUsageTrace(TypedDict):
+    subject_ref: str
+    profile_ref: NotRequired[str | None]
+    applied: bool
+    reason: str
+
+
+class CompileReport(TypedDict):
+    validation_trace: list[ValidationRecord]
+    validation_summary: ValidationSummary
+    profile_usage_trace: NotRequired[list[ProfileUsageTrace] | None]
+    compiler_usage_trace: NotRequired[list[dict[str, Any]] | None]
+    lowering_requirements: NotRequired[list[LoweringRequirement] | None]
+
+
+class SemanticCompileError(TypedDict):
+    error_code: str
+    failed_gate: str
+    message: str
+    subject_ref: NotRequired[str | None]
+    details: NotRequired[dict[str, Any] | None]
+
+
+class IrPlan(TypedDict):
+    header: IrPlanHeader
+    inputs: IrInputSnapshot
+    artifacts: list[IrArtifact]
+    nodes: list[MeasurementNode | ProcessNode | IntentNode]
+
+
+class IrBundle(TypedDict):
+    plan: IrPlan
+    compile_report: CompileReport
 
 
 @dataclass(slots=True)

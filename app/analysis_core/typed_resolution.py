@@ -185,6 +185,7 @@ def resolve_compiler_inputs(
     normalized_request: NormalizedCompilerRequest,
     *,
     semantic_repository: SemanticRuntimeRepository | None,
+    binding_reader: Any = None,
 ) -> ResolvedCompilerInputs:
     resolved = ResolvedCompilerInputs(normalized_request=normalized_request)
     if semantic_repository is None:
@@ -268,6 +269,11 @@ def resolve_compiler_inputs(
                     "time_ref": filter_time_ref,
                 }
             )
+
+    resolved.resolved_bindings = _resolve_bindings_for_inputs(
+        resolved,
+        binding_reader=binding_reader,
+    )
 
     return resolved
 
@@ -373,3 +379,28 @@ def _resolved_filter_time_ref(
             return str(anchor_time_ref)
 
     return None
+
+
+def _resolve_bindings_for_inputs(
+    resolved: ResolvedCompilerInputs,
+    *,
+    binding_reader: Any,
+) -> list[ResolvedSemanticObject]:
+    if binding_reader is None:
+        return []
+    object_refs: list[str] = []
+    if resolved.resolved_metric is not None:
+        object_refs.append(resolved.resolved_metric.ref)
+    if resolved.resolved_process is not None:
+        object_refs.append(resolved.resolved_process.ref)
+    if not object_refs:
+        return []
+    bindings: list[ResolvedSemanticObject] = []
+    seen: set[str] = set()
+    for object_ref in object_refs:
+        for binding in list(binding_reader(object_ref) or []):
+            if binding.ref in seen:
+                continue
+            bindings.append(binding)
+            seen.add(binding.ref)
+    return bindings
