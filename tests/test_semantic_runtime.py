@@ -481,6 +481,160 @@ class SemanticRuntimeTests(unittest.TestCase):
         with self.assertRaises(SemanticRuntimeUnpublishedError):
             repository.resolve_time_ref(draft_time_ref)
 
+    def test_typed_repository_rejects_unpublished_non_time_refs(self) -> None:
+        repository = self.client.app.state.service.semantic_repository
+        suffix = uuid4().hex[:8]
+
+        enum_resp = self.client.post(
+            "/semantic/enum-sets",
+            json={
+                "header": {
+                    "enum_set_ref": f"enum.runtime_unpublished_country_{suffix}",
+                    "value_type": "string",
+                },
+                "display_name": "Draft Runtime Countries",
+                "versions": [
+                    {
+                        "enum_version": "v1",
+                        "values": [
+                            {"value_key": "CN", "raw_value": "CN", "label": "China"},
+                        ],
+                    }
+                ],
+            },
+        )
+        self.assertEqual(enum_resp.status_code, 200, enum_resp.text)
+        enum_ref = enum_resp.json()["header"]["enum_set_ref"]
+        enum_contract_id = enum_resp.json()["enum_set_contract_id"]
+        self.assertEqual(
+            self.client.post(f"/semantic/enum-sets/{enum_contract_id}/publish").status_code,
+            200,
+        )
+
+        dimension_resp = self.client.post(
+            "/semantic/dimensions",
+            json={
+                "header": {
+                    "dimension_ref": f"dimension.runtime_unpublished_country_{suffix}",
+                    "display_name": "Draft Runtime Country",
+                    "dimension_contract_version": "dimension.v1",
+                },
+                "interface_contract": {
+                    "value_domain": {
+                        "structure_kind": "flat",
+                        "semantic_role": "category",
+                        "value_type": "string",
+                        "domain_kind": "enumerated",
+                        "enum_set_ref": enum_ref,
+                        "enum_version": "v1",
+                    },
+                    "grouping": {"supports_grouping": True},
+                },
+            },
+        )
+        self.assertEqual(dimension_resp.status_code, 200, dimension_resp.text)
+        draft_dimension_ref = dimension_resp.json()["header"]["dimension_ref"]
+
+        entity_resp = self.client.post(
+            "/semantic/entities",
+            json={
+                "header": {
+                    "entity_ref": f"entity.runtime_unpublished_user_{suffix}",
+                    "display_name": "Draft Runtime User",
+                    "entity_contract_version": "entity.v1",
+                },
+                "interface_contract": {
+                    "identity": {
+                        "key_refs": [f"key.runtime_unpublished_user_id_{suffix}"],
+                        "uniqueness_scope": "global",
+                        "id_stability": "stable",
+                    }
+                },
+            },
+        )
+        self.assertEqual(entity_resp.status_code, 200, entity_resp.text)
+        entity_contract_id = entity_resp.json()["entity_contract_id"]
+        entity_ref = entity_resp.json()["header"]["entity_ref"]
+        self.assertEqual(
+            self.client.post(f"/semantic/entities/{entity_contract_id}/publish").status_code,
+            200,
+        )
+
+        process_resp = self.client.post(
+            "/semantic/process-objects",
+            json={
+                "header": {
+                    "process_ref": f"process.runtime_unpublished_session_{suffix}",
+                    "display_name": "Draft Runtime Session",
+                    "process_type": "session_contract",
+                    "process_contract_version": "process.v1",
+                },
+                "interface_contract": {
+                    "contract_mode": "entity_stream",
+                    "population_subject_ref": "subject.user",
+                    "entity_ref": entity_ref,
+                    "emitted_grain_ref": "grain.session",
+                    "subject_cardinality": "many",
+                    "exported_dimension_refs": [draft_dimension_ref],
+                },
+                "payload": {
+                    "process_type": "session_contract",
+                    "session_key": f"runtime_unpublished_session_{suffix}",
+                    "event_stream_ref": "event_stream.watch_events",
+                },
+            },
+        )
+        self.assertEqual(process_resp.status_code, 200, process_resp.text)
+        draft_process_ref = process_resp.json()["header"]["process_ref"]
+
+        binding_resp = self.client.post(
+            "/semantic/bindings",
+            json={
+                "header": {
+                    "binding_ref": f"binding.runtime_unpublished_entity_{suffix}",
+                    "binding_scope": "entity",
+                    "bound_object_ref": entity_ref,
+                    "binding_contract_version": "binding.v1",
+                },
+                "interface_contract": {
+                    "carrier_bindings": [
+                        {
+                            "binding_key": "primary",
+                            "carrier_kind": "table",
+                            "carrier_locator": self.watch_events_fqn,
+                            "binding_role": "primary",
+                            "field_surfaces": [
+                                {
+                                    "surface_ref": f"field.runtime_unpublished_user_id_{suffix}",
+                                    "physical_name": "user_id",
+                                }
+                            ],
+                        }
+                    ],
+                    "field_bindings": [
+                        {
+                            "carrier_binding_key": "primary",
+                            "target": {
+                                "target_kind": "identity_key",
+                                "target_key": f"key.runtime_unpublished_user_id_{suffix}",
+                            },
+                            "semantic_ref": f"key.runtime_unpublished_user_id_{suffix}",
+                            "surface_ref": f"field.runtime_unpublished_user_id_{suffix}",
+                        }
+                    ],
+                },
+            },
+        )
+        self.assertEqual(binding_resp.status_code, 200, binding_resp.text)
+        draft_binding_ref = binding_resp.json()["header"]["binding_ref"]
+
+        with self.assertRaises(SemanticRuntimeUnpublishedError):
+            repository.resolve_dimension_ref(draft_dimension_ref)
+        with self.assertRaises(SemanticRuntimeUnpublishedError):
+            repository.resolve_process_ref(draft_process_ref)
+        with self.assertRaises(SemanticRuntimeUnpublishedError):
+            repository.resolve_binding_ref(draft_binding_ref)
+
     def test_planner_context_provider_includes_session_details(self) -> None:
         service = self.client.app.state.service
         session = service.create_session("Semantic runtime test", {}, {}, {})
@@ -607,7 +761,9 @@ class SemanticRuntimeTests(unittest.TestCase):
 
         self.assertEqual(metric_resolved["ref"], "metric.watch_time")
         self.assertEqual(entity_resolved["ref"], "entity.user")
-        with self.assertRaises(KeyError):
+        with self.assertRaisesRegex(
+            KeyError, "Bare-name aliases are supported only for metric/entity"
+        ):
             runtime.resolve("runtime_session")
 
     def test_catalog_runtime_search_rejects_invalid_type_filter(self) -> None:

@@ -74,6 +74,21 @@ def _binding_reader(object_ref: str) -> list[ResolvedSemanticObject]:
     return [_binding_for(object_ref)]
 
 
+def _empty_binding_reader(object_ref: str) -> list[ResolvedSemanticObject]:
+    _ = object_ref
+    return []
+
+
+def _binding_with_interface(
+    bound_object_ref: str,
+    *,
+    interface_contract: dict[str, object],
+) -> ResolvedSemanticObject:
+    binding = _binding_for(bound_object_ref)
+    binding.semantic_object["interface_contract"] = interface_contract
+    return binding
+
+
 def _profile_reader(subject_ref: str) -> list[dict[str, object]]:
     if subject_ref == "metric.watch_time":
         return [
@@ -194,6 +209,36 @@ class _MissingTimeRepository(_FakeSemanticRepository):
             f"Unknown time ref: {time_ref}",
             semantic_ref=time_ref,
         )
+
+
+class _NonGroupingDimensionRepository(_FakeSemanticRepository):
+    def resolve_dimension_ref(self, dimension_ref: str) -> ResolvedSemanticObject:
+        resolved = super().resolve_dimension_ref(dimension_ref)
+        resolved.semantic_object["interface_contract"] = {"grouping": {"supports_grouping": False}}
+        return resolved
+
+
+class _TimeAnchoredDimensionRepository(_FakeSemanticRepository):
+    def resolve_dimension_ref(self, dimension_ref: str) -> ResolvedSemanticObject:
+        resolved = super().resolve_dimension_ref(dimension_ref)
+        resolved.semantic_object["interface_contract"] = {
+            "grouping": {"supports_grouping": True},
+            "time_derived_requirement": {"required_time_anchor_ref": "time.other_anchor"},
+        }
+        return resolved
+
+
+class _IncompatibleProcessRepository(_FakeSemanticRepository):
+    def resolve_process_ref(self, process_ref: str) -> ResolvedSemanticObject:
+        resolved = super().resolve_process_ref(process_ref)
+        resolved.semantic_object["interface_contract"] = {
+            "contract_mode": "entity_stream",
+            "population_subject_ref": "subject.account",
+            "context_kind": "cohort_membership",
+            "entity_ref": "entity.account",
+            "anchor_time_ref": "time.event_date",
+        }
+        return resolved
 
 
 class CompilerTypedResolutionTests(unittest.TestCase):
@@ -567,6 +612,328 @@ class CompilerTypedResolutionTests(unittest.TestCase):
                 trace.subject_ref == "process.daily_check" and trace.reason == "revision_mismatch"
                 for trace in derived.profile_traces
             )
+        )
+
+    def test_validate_compiler_inputs_requires_process_when_metric_profile_demands_it(self) -> None:
+        normalized = normalize_step_request(
+            AnalysisStepIR(index=0, step_type="validate", params={"metric": "watch_time"})
+        )
+        resolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=_FakeSemanticRepository(),
+            binding_reader=_binding_reader,
+        )
+        derived = derive_compiler_state(
+            intent_kind="validate",
+            resolved_metric=resolved.resolved_metric,
+            resolved_process=resolved.resolved_process,
+            resolved_bindings=resolved.resolved_bindings,
+            profile_reader=_profile_reader,
+        )
+
+        result = validate_compiler_inputs(
+            step_type="validate",
+            resolved_inputs=resolved,
+            derived_state=derived,
+        )
+
+        self.assertFalse(result.ok)
+        self.assertIn("COMPILER_PROCESS_REQUIRED", [issue.code for issue in result.issues])
+
+    def test_validate_compiler_inputs_rejects_incompatible_metric_and_process_subjects(
+        self,
+    ) -> None:
+        normalized = normalize_step_request(
+            AnalysisStepIR(index=0, step_type="validate", params={"metric": "watch_time"})
+        )
+        normalized.process_ref = "process.daily_check"
+        resolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=_IncompatibleProcessRepository(),
+            binding_reader=_binding_reader,
+        )
+        derived = derive_compiler_state(
+            intent_kind="validate",
+            resolved_metric=resolved.resolved_metric,
+            resolved_process=resolved.resolved_process,
+            resolved_bindings=resolved.resolved_bindings,
+            profile_reader=None,
+        )
+
+        result = validate_compiler_inputs(
+            step_type="validate",
+            resolved_inputs=resolved,
+            derived_state=derived,
+        )
+
+        self.assertFalse(result.ok)
+        self.assertIn(
+            "COMPILER_METRIC_PROCESS_INCOMPATIBLE", [issue.code for issue in result.issues]
+        )
+
+    def test_validate_compiler_inputs_rejects_process_profile_that_does_not_satisfy_metric(
+        self,
+    ) -> None:
+        normalized = normalize_step_request(
+            AnalysisStepIR(index=0, step_type="validate", params={"metric": "watch_time"})
+        )
+        normalized.process_ref = "process.daily_check"
+        resolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=_IncompatibleProcessRepository(),
+            binding_reader=_binding_reader,
+        )
+        derived = derive_compiler_state(
+            intent_kind="validate",
+            resolved_metric=resolved.resolved_metric,
+            resolved_process=resolved.resolved_process,
+            resolved_bindings=resolved.resolved_bindings,
+            profile_reader=_profile_reader,
+        )
+
+        result = validate_compiler_inputs(
+            step_type="validate",
+            resolved_inputs=resolved,
+            derived_state=derived,
+        )
+
+        self.assertFalse(result.ok)
+        self.assertIn("COMPILER_PROFILE_NOT_SATISFIED", [issue.code for issue in result.issues])
+
+    def test_validate_compiler_inputs_requires_metric_binding(self) -> None:
+        normalized = normalize_step_request(
+            AnalysisStepIR(
+                index=0,
+                step_type="metric_query",
+                params={"metric": "watch_time", "table": "analytics.watch_events"},
+            )
+        )
+        resolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=_FakeSemanticRepository(),
+            binding_reader=_empty_binding_reader,
+        )
+        derived = derive_compiler_state(
+            intent_kind="metric_query",
+            resolved_metric=resolved.resolved_metric,
+            resolved_process=resolved.resolved_process,
+            resolved_bindings=resolved.resolved_bindings,
+            profile_reader=None,
+        )
+
+        result = validate_compiler_inputs(
+            step_type="metric_query",
+            resolved_inputs=resolved,
+            derived_state=derived,
+        )
+
+        self.assertFalse(result.ok)
+        self.assertIn("COMPILER_BINDING_MISSING", [issue.code for issue in result.issues])
+
+    def test_validate_compiler_inputs_rejects_binding_without_carrier_bindings(self) -> None:
+        normalized = normalize_step_request(
+            AnalysisStepIR(
+                index=0,
+                step_type="metric_query",
+                params={"metric": "watch_time", "table": "analytics.watch_events"},
+            )
+        )
+        resolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=_FakeSemanticRepository(),
+            binding_reader=lambda object_ref: [
+                _binding_with_interface(
+                    object_ref,
+                    interface_contract={"carrier_bindings": [], "field_bindings": []},
+                )
+            ],
+        )
+        derived = derive_compiler_state(
+            intent_kind="metric_query",
+            resolved_metric=resolved.resolved_metric,
+            resolved_process=resolved.resolved_process,
+            resolved_bindings=resolved.resolved_bindings,
+            profile_reader=None,
+        )
+
+        result = validate_compiler_inputs(
+            step_type="metric_query",
+            resolved_inputs=resolved,
+            derived_state=derived,
+        )
+
+        self.assertFalse(result.ok)
+        self.assertIn("COMPILER_BINDING_INVALID", [issue.code for issue in result.issues])
+
+    def test_validate_compiler_inputs_rejects_binding_without_field_bindings(self) -> None:
+        normalized = normalize_step_request(
+            AnalysisStepIR(
+                index=0,
+                step_type="metric_query",
+                params={"metric": "watch_time", "table": "analytics.watch_events"},
+            )
+        )
+        resolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=_FakeSemanticRepository(),
+            binding_reader=lambda object_ref: [
+                _binding_with_interface(
+                    object_ref,
+                    interface_contract={
+                        "carrier_bindings": [
+                            {
+                                "binding_key": "primary",
+                                "carrier_kind": "table",
+                                "carrier_locator": "analytics.watch_events",
+                            }
+                        ],
+                        "field_bindings": [],
+                    },
+                )
+            ],
+        )
+        derived = derive_compiler_state(
+            intent_kind="metric_query",
+            resolved_metric=resolved.resolved_metric,
+            resolved_process=resolved.resolved_process,
+            resolved_bindings=resolved.resolved_bindings,
+            profile_reader=None,
+        )
+
+        result = validate_compiler_inputs(
+            step_type="metric_query",
+            resolved_inputs=resolved,
+            derived_state=derived,
+        )
+
+        self.assertFalse(result.ok)
+        self.assertIn("COMPILER_BINDING_INVALID", [issue.code for issue in result.issues])
+
+    def test_validate_compiler_inputs_rejects_binding_with_unknown_carrier_binding_key(
+        self,
+    ) -> None:
+        normalized = normalize_step_request(
+            AnalysisStepIR(
+                index=0,
+                step_type="metric_query",
+                params={"metric": "watch_time", "table": "analytics.watch_events"},
+            )
+        )
+        resolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=_FakeSemanticRepository(),
+            binding_reader=lambda object_ref: [
+                _binding_with_interface(
+                    object_ref,
+                    interface_contract={
+                        "carrier_bindings": [
+                            {
+                                "binding_key": "primary",
+                                "carrier_kind": "table",
+                                "carrier_locator": "analytics.watch_events",
+                            }
+                        ],
+                        "field_bindings": [
+                            {
+                                "carrier_binding_key": "missing",
+                                "target": {
+                                    "target_kind": "metric_input",
+                                    "target_key": "value",
+                                },
+                                "semantic_ref": "field.metric_value",
+                                "surface_ref": "field.metric_value",
+                            }
+                        ],
+                    },
+                )
+            ],
+        )
+        derived = derive_compiler_state(
+            intent_kind="metric_query",
+            resolved_metric=resolved.resolved_metric,
+            resolved_process=resolved.resolved_process,
+            resolved_bindings=resolved.resolved_bindings,
+            profile_reader=None,
+        )
+
+        result = validate_compiler_inputs(
+            step_type="metric_query",
+            resolved_inputs=resolved,
+            derived_state=derived,
+        )
+
+        self.assertFalse(result.ok)
+        self.assertIn("COMPILER_BINDING_INVALID", [issue.code for issue in result.issues])
+
+    def test_validate_compiler_inputs_rejects_dimension_without_grouping_support(self) -> None:
+        normalized = normalize_step_request(
+            AnalysisStepIR(
+                index=0,
+                step_type="metric_query",
+                params={
+                    "metric": "watch_time",
+                    "table": "analytics.watch_events",
+                    "dimensions": ["dimension.country"],
+                },
+            )
+        )
+        resolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=_NonGroupingDimensionRepository(),
+            binding_reader=_binding_reader,
+        )
+        derived = derive_compiler_state(
+            intent_kind="metric_query",
+            resolved_metric=resolved.resolved_metric,
+            resolved_process=resolved.resolved_process,
+            resolved_bindings=resolved.resolved_bindings,
+            profile_reader=None,
+        )
+
+        result = validate_compiler_inputs(
+            step_type="metric_query",
+            resolved_inputs=resolved,
+            derived_state=derived,
+        )
+
+        self.assertFalse(result.ok)
+        self.assertIn("COMPILER_DIMENSION_UNSUPPORTED", [issue.code for issue in result.issues])
+
+    def test_validate_compiler_inputs_rejects_dimension_time_anchor_mismatch(self) -> None:
+        normalized = normalize_step_request(
+            AnalysisStepIR(
+                index=0,
+                step_type="metric_query",
+                params={
+                    "metric": "watch_time",
+                    "table": "analytics.watch_events",
+                    "dimensions": ["dimension.country"],
+                },
+            )
+        )
+        resolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=_TimeAnchoredDimensionRepository(),
+            binding_reader=_binding_reader,
+        )
+        derived = derive_compiler_state(
+            intent_kind="metric_query",
+            resolved_metric=resolved.resolved_metric,
+            resolved_process=resolved.resolved_process,
+            resolved_bindings=resolved.resolved_bindings,
+            profile_reader=None,
+        )
+
+        result = validate_compiler_inputs(
+            step_type="metric_query",
+            resolved_inputs=resolved,
+            derived_state=derived,
+        )
+
+        self.assertFalse(result.ok)
+        self.assertIn(
+            "COMPILER_DIMENSION_TIME_ANCHOR_MISMATCH",
+            [issue.code for issue in result.issues],
         )
 
 
