@@ -9,7 +9,7 @@ Shared guidance for agents. `AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructi
 - Facts extracted deterministically by code. Models explain, not define evidence.
 - Prefer typed steps over raw SQL.
 - `/ui` is a read-only query and troubleshooting workbench; do not add session, intent, plan, step, or job control entrypoints there.
-- `/ui` session navigation is URL-driven (`tab`, `session_id`, `proposition_id`, `runtime_scope`, `status`, `session_query`); keep cross-page drill-ins compatible with that contract instead of adding ad-hoc client-side state.
+- `/ui` session navigation is URL-driven (`tab`, `session_id`, `proposition_id`, `artifact_id`, `runtime_scope`, `status`, `session_query`); keep cross-page drill-ins compatible with that contract instead of adding ad-hoc client-side state.
 - `/ui` canonical drill-ins should route through `Sessions -> State -> Context`; when `latest_assessment = null`, send users to Runtime for operator-facing cause details instead of inferring them on the canonical pages.
 - Target-state external step submission contract lives in `docs/api/intent-steps.md`; `docs/analysis/intents/` remains the design source, not the wire spec.
 - analysis refactor design docs is located at 'docs/analysis'

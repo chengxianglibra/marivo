@@ -399,6 +399,107 @@
   font-size: var(--font-size-sm);
 }
 
+.runtime-layout,
+.runtime-stack,
+.runtime-grid {
+  display: grid;
+  gap: var(--space-lg);
+}
+
+.runtime-grid {
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 1fr);
+}
+
+.runtime-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-md);
+}
+
+.runtime-summary-card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-md);
+  background: var(--color-bg);
+}
+
+.runtime-summary-card h4 {
+  margin-bottom: var(--space-xs);
+  font-size: var(--font-size-sm);
+}
+
+.runtime-meta-grid {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.grounding-layout,
+.grounding-stack,
+.grounding-sidebar {
+  display: grid;
+  gap: var(--space-lg);
+}
+
+.grounding-layout {
+  grid-template-columns: minmax(320px, 380px) minmax(0, 1fr);
+}
+
+.grounding-search-form {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.grounding-search-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(140px, 180px);
+  gap: var(--space-md);
+  align-items: end;
+}
+
+.grounding-result-list {
+  display: grid;
+  gap: var(--space-sm);
+}
+
+.grounding-result-item {
+  width: 100%;
+  padding: var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg);
+  text-align: left;
+  cursor: pointer;
+}
+
+.grounding-result-item.is-selected {
+  border-color: var(--color-primary);
+  background: var(--color-primary-light);
+}
+
+.grounding-result-item h4 {
+  margin-bottom: var(--space-xs);
+  font-size: var(--font-size-sm);
+}
+
+.grounding-result-meta {
+  display: grid;
+  gap: 4px;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+.grounding-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+
+.grounding-card-header h3 {
+  margin: 0;
+  font-size: var(--font-size-md);
+}
+
 @media (max-width: 768px) {
   .shell-card-title {
     align-items: flex-start;
@@ -414,6 +515,15 @@
   }
 
   .context-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .runtime-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .grounding-layout,
+  .grounding-search-grid {
     grid-template-columns: 1fr;
   }
 
@@ -645,6 +755,7 @@ const DEFAULT_ROUTE = {
   tab: 'sessions',
   sessionId: '',
   propositionId: '',
+  artifactId: '',
   runtimeScope: '',
   status: '',
   sessionQuery: '',
@@ -680,6 +791,31 @@ let contextViewState = {
   loading: false,
   error: '',
   result: null,
+};
+let runtimeViewState = {
+  loading: false,
+  error: '',
+  result: null,
+};
+let groundingViewState = {
+  searchQuery: '',
+  searchType: '',
+  searchLoading: false,
+  searchError: '',
+  searchResults: [],
+  selectedObjectId: '',
+  selectedObjectKind: '',
+  selectedRef: '',
+  resolveLoading: false,
+  resolveError: '',
+  resolveResult: null,
+  graphLoading: false,
+  graphError: '',
+  graphResult: null,
+  graphDepth: '2',
+  plannerLoading: false,
+  plannerError: '',
+  plannerResult: null,
 };
 let suppressTabSync = false;
 
@@ -743,6 +879,37 @@ const uiApi = {
       `/sessions/${encodeURIComponent(sessionId)}/propositions/${encodeURIComponent(propositionId)}/context`
     );
   },
+  getSessionRuntimeStatus(sessionId) {
+    return this.fetchJson(`/sessions/${encodeURIComponent(sessionId)}/runtime-status`);
+  },
+  getPropositionRuntimeStatus(sessionId, propositionId) {
+    return this.fetchJson(
+      `/sessions/${encodeURIComponent(sessionId)}/propositions/${encodeURIComponent(propositionId)}/runtime-status`
+    );
+  },
+  getArtifactRuntimeStatus(sessionId, artifactId) {
+    return this.fetchJson(
+      `/sessions/${encodeURIComponent(sessionId)}/artifacts/${encodeURIComponent(artifactId)}/runtime-status`
+    );
+  },
+  searchCatalog(query, objectType) {
+    const params = new URLSearchParams();
+    params.set('q', query);
+    if (objectType) params.set('type', objectType);
+    return this.fetchJson(`/catalog/search?${params.toString()}`);
+  },
+  resolveSemanticTerm(name) {
+    return this.fetchJson(`/semantic/resolve/${encodeURIComponent(name)}`);
+  },
+  getCatalogGraph(root, depth) {
+    const params = new URLSearchParams();
+    params.set('root', root);
+    params.set('depth', String(depth));
+    return this.fetchJson(`/catalog/graph?${params.toString()}`);
+  },
+  getPlannerContext(sessionId) {
+    return this.fetchJson(`/sessions/${encodeURIComponent(sessionId)}/planner-context`);
+  },
 };
 
 function renderShellPlaceholder(tab) {
@@ -797,12 +964,19 @@ function normalizeRoute(nextRoute) {
     tab: VALID_TABS.includes(nextRoute.tab) ? nextRoute.tab : DEFAULT_ROUTE.tab,
     sessionId: nextRoute.sessionId || '',
     propositionId: nextRoute.propositionId || '',
+    artifactId: nextRoute.artifactId || '',
     runtimeScope: nextRoute.runtimeScope || '',
     status: nextRoute.status || '',
     sessionQuery: (nextRoute.sessionQuery || '').trim(),
   };
   if (!['session', 'proposition', 'artifact'].includes(route.runtimeScope)) {
     route.runtimeScope = '';
+  }
+  if (route.tab !== 'runtime') {
+    route.runtimeScope = '';
+  }
+  if (route.runtimeScope !== 'artifact') {
+    route.artifactId = '';
   }
   return route;
 }
@@ -813,6 +987,7 @@ function routeFromLocation() {
     tab: params.get('tab') || DEFAULT_ROUTE.tab,
     sessionId: params.get('session_id') || '',
     propositionId: params.get('proposition_id') || '',
+    artifactId: params.get('artifact_id') || '',
     runtimeScope: params.get('runtime_scope') || '',
     status: params.get('status') || '',
     sessionQuery: params.get('session_query') || '',
@@ -824,6 +999,7 @@ function writeRoute(route, historyMode = 'push') {
   if (route.tab && route.tab !== DEFAULT_ROUTE.tab) params.set('tab', route.tab);
   if (route.sessionId) params.set('session_id', route.sessionId);
   if (route.propositionId) params.set('proposition_id', route.propositionId);
+  if (route.artifactId) params.set('artifact_id', route.artifactId);
   if (route.runtimeScope) params.set('runtime_scope', route.runtimeScope);
   if (route.status) params.set('status', route.status);
   if (route.sessionQuery) params.set('session_query', route.sessionQuery);
@@ -1124,6 +1300,7 @@ function bindStateEvents() {
         ...currentRoute,
         tab: 'runtime',
         propositionId: button.dataset.propositionId || '',
+        artifactId: '',
         runtimeScope: 'proposition',
       });
     });
@@ -1134,6 +1311,7 @@ function bindStateEvents() {
       ...currentRoute,
       tab: 'sessions',
       propositionId: '',
+      artifactId: '',
       runtimeScope: '',
     });
   });
@@ -1269,12 +1447,18 @@ function bindContextEvents() {
   if (!panel) return;
 
   panel.querySelector('[data-role="context-open-sessions"]')?.addEventListener('click', () => {
-    applyRoute({ ...currentRoute, tab: 'sessions', propositionId: '', runtimeScope: '' });
+    applyRoute({
+      ...currentRoute,
+      tab: 'sessions',
+      propositionId: '',
+      artifactId: '',
+      runtimeScope: '',
+    });
   });
 
   panel.querySelectorAll('[data-role="context-open-state"]').forEach((button) => {
     button.addEventListener('click', () => {
-      applyRoute({ ...currentRoute, tab: 'state', runtimeScope: '' });
+      applyRoute({ ...currentRoute, tab: 'state', artifactId: '', runtimeScope: '' });
     });
   });
 
@@ -1283,6 +1467,7 @@ function bindContextEvents() {
       applyRoute({
         ...currentRoute,
         tab: 'runtime',
+        artifactId: '',
         runtimeScope: 'proposition',
       });
     });
@@ -1297,6 +1482,7 @@ function bindContextEvents() {
       applyRoute({
         ...currentRoute,
         tab: 'runtime',
+        artifactId,
         runtimeScope: 'artifact',
       });
     });
@@ -1459,6 +1645,755 @@ function renderContextPage() {
   bindContextEvents();
 }
 
+function runtimeScopeLabel(scope) {
+  const labels = {
+    session: 'Session Runtime',
+    proposition: 'Proposition Runtime',
+    artifact: 'Artifact Runtime',
+  };
+  return labels[scope] || 'Runtime';
+}
+
+function runtimeLocatorCopy() {
+  if (currentRoute.runtimeScope === 'session') {
+    return currentRoute.sessionId
+      ? 'Session runtime explains overall progress, backlog, and blocking for the selected session.'
+      : 'Select a session from Sessions to inspect session runtime.';
+  }
+  if (currentRoute.runtimeScope === 'proposition') {
+    return currentRoute.propositionId
+      ? 'Proposition runtime explains whether assessment, proposal refresh, or publish visibility is pending.'
+      : 'Open Proposition Runtime from State or Context to inspect one proposition.';
+  }
+  if (currentRoute.runtimeScope === 'artifact') {
+    return currentRoute.artifactId
+      ? 'Artifact runtime explains extractor progress and seeding handoff for the selected artifact.'
+      : 'Open Artifact Runtime from Context artifact_refs to inspect one artifact.';
+  }
+  return 'Choose a runtime scope from linked canonical pages to inspect operator-facing runtime truth.';
+}
+
+function renderRuntimeStructuredValue(value, emptyLabel = 'None') {
+  if (value == null) {
+    return `<span class="empty">${esc(emptyLabel)}</span>`;
+  }
+  if (typeof value === 'string') {
+    return `<span>${esc(value)}</span>`;
+  }
+  return jsonPre(value);
+}
+
+function renderRuntimeSummaryCards(items) {
+  return `
+    <div class="runtime-summary-grid">
+      ${items.map(([label, value, kind]) => `
+        <div class="runtime-summary-card">
+          <h4>${esc(label)}</h4>
+          ${kind === 'status' && value ? statusBadge(value) : renderRuntimeStructuredValue(value)}
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function renderRuntimeMainContent() {
+  if (!currentRoute.runtimeScope) {
+    return `
+      <div class="detail-empty">
+        先从 Sessions、State 或 Context 进入具体 runtime 视图，再查看 operator-facing runtime truth。
+        <div class="detail-actions">
+          <button class="btn btn-sm" type="button" data-role="runtime-open-sessions">Open Sessions</button>
+        </div>
+      </div>
+    `;
+  }
+
+  const missingLocator = (
+    (currentRoute.runtimeScope === 'session' && !currentRoute.sessionId) ||
+    (currentRoute.runtimeScope === 'proposition' && (!currentRoute.sessionId || !currentRoute.propositionId)) ||
+    (currentRoute.runtimeScope === 'artifact' && (!currentRoute.sessionId || !currentRoute.artifactId))
+  );
+  if (missingLocator) {
+    return `
+      <div class="detail-empty">
+        当前 runtime locator 不完整，无法发起查询。
+        <div class="detail-actions">
+          <button class="btn btn-sm" type="button" data-role="runtime-open-sessions">Open Sessions</button>
+          ${currentRoute.sessionId ? '<button class="btn btn-sm" type="button" data-role="runtime-open-state">Open State</button>' : ''}
+          ${currentRoute.propositionId ? '<button class="btn btn-sm" type="button" data-role="runtime-open-context">Open Context</button>' : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  if (runtimeViewState.loading) {
+    return '<div class="detail-empty">Loading runtime status...</div>';
+  }
+
+  if (runtimeViewState.error) {
+    return `
+      <div class="detail-error">${esc(runtimeViewState.error)}</div>
+      <div class="detail-actions">
+        <button class="btn btn-sm" type="button" data-role="runtime-open-sessions">Open Session</button>
+        ${currentRoute.sessionId ? '<button class="btn btn-sm" type="button" data-role="runtime-open-state">Open State</button>' : ''}
+        ${currentRoute.propositionId ? '<button class="btn btn-sm" type="button" data-role="runtime-open-context">Open Context</button>' : ''}
+        ${currentRoute.sessionId ? '<button class="btn btn-sm" type="button" data-role="runtime-open-jobs">Open Jobs</button>' : ''}
+      </div>
+    `;
+  }
+
+  const result = runtimeViewState.result;
+  if (!result) {
+    return '<div class="detail-empty">No runtime status loaded yet.</div>';
+  }
+
+  const scope = currentRoute.runtimeScope;
+  let summaryCards = '';
+  let detailCards = '';
+  let linkButtons = `
+    <button class="btn btn-sm" type="button" data-role="runtime-open-sessions">Open Session</button>
+    ${currentRoute.sessionId ? '<button class="btn btn-sm" type="button" data-role="runtime-open-state">Open State</button>' : ''}
+    ${currentRoute.sessionId ? '<button class="btn btn-sm" type="button" data-role="runtime-open-jobs">Open Jobs</button>' : ''}
+  `;
+
+  if (scope === 'session') {
+    summaryCards = renderRuntimeSummaryCards([
+      ['overall_status', result.overall_status, 'status'],
+      ['last_successful_stage', result.last_successful_stage, 'text'],
+      ['blocked_reason', result.blocked_reason, 'text'],
+      ['updated_at', result.updated_at, 'text'],
+    ]);
+    detailCards = `
+      <div class="card">
+        <div class="shell-card-title">
+          <h3>Backlog Summary</h3>
+          <span class="shell-chip">Session Runtime</span>
+        </div>
+        ${renderRuntimeStructuredValue(result.backlog_summary, 'No backlog summary')}
+      </div>
+      <div class="card">
+        <div class="shell-card-title">
+          <h3>Runtime Boundary</h3>
+          <span class="shell-chip">Operator-facing</span>
+        </div>
+        <p class="panel-note">Session Runtime explains overall progress and backlog only. It does not restate canonical proposition assessments or findings.</p>
+      </div>
+    `;
+  } else if (scope === 'proposition') {
+    summaryCards = renderRuntimeSummaryCards([
+      ['current_stage', result.current_stage, 'status'],
+      ['last_successful_stage', result.last_successful_stage, 'text'],
+      ['current_assessment_id', result.current_assessment_id, 'text'],
+      ['backlog_state', result.backlog_state, 'text'],
+    ]);
+    detailCards = `
+      <div class="card">
+        <div class="shell-card-title">
+          <h3>Attempt / Failure</h3>
+          <span class="shell-chip">Proposition Runtime</span>
+        </div>
+        <div class="runtime-meta-grid">
+          <div class="runtime-summary-card">
+            <h4>current_attempt</h4>
+            ${renderRuntimeStructuredValue(result.current_attempt, 'No active attempt')}
+          </div>
+          <div class="runtime-summary-card">
+            <h4>last_failure_reason</h4>
+            ${renderRuntimeStructuredValue(result.last_failure_reason, 'none')}
+          </div>
+          <div class="runtime-summary-card">
+            <h4>last_failure_at</h4>
+            ${renderRuntimeStructuredValue(result.last_failure_at, 'None')}
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="shell-card-title">
+          <h3>Runtime Boundary</h3>
+          <span class="shell-chip">Canonical Separation</span>
+        </div>
+        <p class="panel-note">Use Proposition Runtime to distinguish queued, publish_ready, externally_visible, or failed execution states. Return to Context for canonical evidence closure.</p>
+      </div>
+    `;
+    linkButtons = `
+      <button class="btn btn-sm" type="button" data-role="runtime-open-sessions">Open Session</button>
+      <button class="btn btn-sm" type="button" data-role="runtime-open-state">Open State</button>
+      <button class="btn btn-sm" type="button" data-role="runtime-open-context">Open Context</button>
+    `;
+  } else if (scope === 'artifact') {
+    summaryCards = renderRuntimeSummaryCards([
+      ['artifact_stage', result.artifact_stage, 'status'],
+      ['correlation_id', result.correlation_id, 'text'],
+      ['attempt_id', result.attempt_id, 'text'],
+      ['last_failure_reason', result.last_failure_reason, 'text'],
+    ]);
+    detailCards = `
+      <div class="card">
+        <div class="shell-card-title">
+          <h3>Extractor / Failure</h3>
+          <span class="shell-chip">Artifact Runtime</span>
+        </div>
+        <div class="runtime-meta-grid">
+          <div class="runtime-summary-card">
+            <h4>extractor_key</h4>
+            ${renderRuntimeStructuredValue(result.extractor_key, 'No extractor key')}
+          </div>
+          <div class="runtime-summary-card">
+            <h4>last_failure_at</h4>
+            ${renderRuntimeStructuredValue(result.last_failure_at, 'None')}
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="shell-card-title">
+          <h3>Runtime Boundary</h3>
+          <span class="shell-chip">Artifact Flow</span>
+        </div>
+        <p class="panel-note">Artifact Runtime explains extractor progress and seeding handoff only. Return to Context or State for canonical proposition meaning.</p>
+      </div>
+    `;
+    linkButtons = `
+      <button class="btn btn-sm" type="button" data-role="runtime-open-sessions">Open Session</button>
+      ${currentRoute.propositionId ? '<button class="btn btn-sm" type="button" data-role="runtime-open-context">Open Context</button>' : ''}
+    `;
+  }
+
+  return `
+    <div class="runtime-stack">
+      <div class="card">
+        <div class="context-header">
+          <div>
+            <h3>${esc(runtimeScopeLabel(scope))}</h3>
+            <div class="context-meta">
+              <span class="inline-code">${esc(currentRoute.sessionId || 'session_id')}</span>
+              ${scope === 'proposition' ? `<span class="inline-code">${esc(currentRoute.propositionId || 'proposition_id')}</span>` : ''}
+              ${scope === 'artifact' ? `<span class="inline-code">${esc(currentRoute.artifactId || 'artifact_id')}</span>` : ''}
+            </div>
+          </div>
+          <div class="detail-actions">
+            ${linkButtons}
+          </div>
+        </div>
+        ${summaryCards}
+      </div>
+      <div class="runtime-grid">
+        <div class="runtime-stack">
+          ${detailCards}
+        </div>
+        <div class="runtime-stack">
+          <div class="card">
+            <div class="shell-card-title">
+              <h3>Raw Runtime Payload</h3>
+              <span class="shell-chip">${esc(result.schema_version || 'runtime')}</span>
+            </div>
+            ${jsonPre(result)}
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderGroundingStructuredValue(value, emptyLabel = 'None') {
+  if (value == null || value === '') {
+    return `<span class="empty">${esc(emptyLabel)}</span>`;
+  }
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return `<span>${esc(String(value))}</span>`;
+  }
+  return jsonPre(value);
+}
+
+function renderGroundingSearchResults() {
+  if (groundingViewState.searchLoading) {
+    return '<div class="detail-empty">Loading catalog search results...</div>';
+  }
+  if (groundingViewState.searchError) {
+    return `<div class="detail-error">${esc(groundingViewState.searchError)}</div>`;
+  }
+  if (groundingViewState.searchResults.length === 0) {
+    if (!groundingViewState.searchQuery) {
+      return '<div class="detail-empty">Search the published catalog to inspect typed refs, synced assets, and their grounding helpers.</div>';
+    }
+    return '<div class="detail-empty">No catalog objects matched the current query.</div>';
+  }
+
+  return `
+    <div class="grounding-result-list">
+      ${groundingViewState.searchResults.map((item) => `
+        <button
+          class="grounding-result-item ${item.object_id === groundingViewState.selectedObjectId ? 'is-selected' : ''}"
+          type="button"
+          data-role="grounding-select-result"
+          data-object-id="${attr(item.object_id || '')}"
+          data-object-kind="${attr(item.object_kind || '')}"
+          data-object-ref="${attr(item.ref || '')}"
+        >
+          <h4>${esc(item.display_name || item.name || item.ref || item.object_id || 'catalog object')}</h4>
+          <div class="grounding-result-meta">
+            <span>${esc(item.object_kind || 'object')}</span>
+            <span>${esc(item.ref || '-')}</span>
+            <span>${esc(item.status || item.object_type || '-')}</span>
+          </div>
+        </button>
+      `).join('')}
+    </div>
+  `;
+}
+
+function renderGroundingResolveCard() {
+  let body = '<div class="detail-empty">Select a typed semantic object from Catalog Search to inspect resolve details.</div>';
+  if (groundingViewState.resolveLoading) {
+    body = '<div class="detail-empty">Loading semantic resolve...</div>';
+  } else if (groundingViewState.resolveError) {
+    body = `<div class="detail-error">${esc(groundingViewState.resolveError)}</div>`;
+  } else if (groundingViewState.resolveResult) {
+    const result = groundingViewState.resolveResult;
+    body = `
+      <div class="detail-grid">
+        <div class="detail-group">
+          <h4>ref</h4>
+          ${renderGroundingStructuredValue(result.ref)}
+        </div>
+        <div class="detail-group">
+          <h4>object_kind</h4>
+          ${renderGroundingStructuredValue(result.object_kind)}
+        </div>
+        <div class="detail-group">
+          <h4>object_id</h4>
+          ${renderGroundingStructuredValue(result.object_id)}
+        </div>
+        <div class="detail-group">
+          <h4>status / revision</h4>
+          ${renderGroundingStructuredValue(`${result.status || 'unknown'} / ${result.revision || '-'}`)}
+        </div>
+      </div>
+      <div class="panel-note">Semantic resolve is descriptive only. It does not expose any Run Analysis or session creation action.</div>
+      <div class="card" style="margin-top: var(--space-md);">
+        <div class="shell-card-title">
+          <h3>semantic_object</h3>
+          <span class="shell-chip">${esc(result.object_kind || 'typed')}</span>
+        </div>
+        ${jsonPre(result.semantic_object)}
+      </div>
+    `;
+  } else if (groundingViewState.selectedObjectId) {
+    body = '<div class="detail-empty">The selected catalog object has no typed semantic ref. Asset rows only support graph lookup.</div>';
+  }
+
+  return `
+    <div class="card">
+      <div class="grounding-card-header">
+        <div>
+          <h3>Semantic Resolve</h3>
+          <p class="panel-note">GET /semantic/resolve/{name}</p>
+        </div>
+        <span class="shell-chip">Read-only</span>
+      </div>
+      ${body}
+    </div>
+  `;
+}
+
+function renderGroundingGraphCard() {
+  let body = '<div class="detail-empty">Select a catalog object to inspect graph edges and grounding paths.</div>';
+  if (groundingViewState.graphLoading) {
+    body = '<div class="detail-empty">Loading catalog graph...</div>';
+  } else if (groundingViewState.graphError) {
+    body = `<div class="detail-error">${esc(groundingViewState.graphError)}</div>`;
+  } else if (groundingViewState.graphResult) {
+    const result = groundingViewState.graphResult;
+    body = `
+      <div class="detail-grid">
+        <div class="detail-group">
+          <h4>root</h4>
+          ${renderGroundingStructuredValue(result.root)}
+        </div>
+        <div class="detail-group">
+          <h4>depth</h4>
+          ${renderGroundingStructuredValue(result.depth)}
+        </div>
+        <div class="detail-group">
+          <h4>nodes</h4>
+          ${renderGroundingStructuredValue(Array.isArray(result.nodes) ? result.nodes.length : 0)}
+        </div>
+        <div class="detail-group">
+          <h4>edges</h4>
+          ${renderGroundingStructuredValue(Array.isArray(result.edges) ? result.edges.length : 0)}
+        </div>
+      </div>
+      <div class="panel-note">Catalog Graph shows typed object and synced asset relationships only. It does not explain session result meaning.</div>
+      <div class="context-grid" style="margin-top: var(--space-md);">
+        <div class="card">
+          <div class="shell-card-title">
+            <h3>nodes</h3>
+            <span class="shell-chip">${esc(Array.isArray(result.nodes) ? `${result.nodes.length} node(s)` : '0 node(s)')}</span>
+          </div>
+          ${jsonPre(result.nodes)}
+        </div>
+        <div class="card">
+          <div class="shell-card-title">
+            <h3>edges</h3>
+            <span class="shell-chip">${esc(Array.isArray(result.edges) ? `${result.edges.length} edge(s)` : '0 edge(s)')}</span>
+          </div>
+          ${jsonPre(result.edges)}
+        </div>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="card">
+      <div class="grounding-card-header">
+        <div>
+          <h3>Catalog Graph</h3>
+          <p class="panel-note">GET /catalog/graph</p>
+        </div>
+        <span class="shell-chip">Read-only</span>
+      </div>
+      <div class="detail-actions">
+        <label class="form-group" for="grounding-graph-depth">
+          <span>depth</span>
+          <select id="grounding-graph-depth" data-role="grounding-graph-depth">
+            <option value="1" ${groundingViewState.graphDepth === '1' ? 'selected' : ''}>1</option>
+            <option value="2" ${groundingViewState.graphDepth === '2' ? 'selected' : ''}>2</option>
+            <option value="3" ${groundingViewState.graphDepth === '3' ? 'selected' : ''}>3</option>
+            <option value="4" ${groundingViewState.graphDepth === '4' ? 'selected' : ''}>4</option>
+            <option value="5" ${groundingViewState.graphDepth === '5' ? 'selected' : ''}>5</option>
+          </select>
+        </label>
+      </div>
+      ${body}
+    </div>
+  `;
+}
+
+function renderGroundingPlannerCard() {
+  let body = '<div class="detail-empty">Open Grounding Helper from Sessions to inspect planner context.</div>';
+  if (groundingViewState.plannerLoading) {
+    body = '<div class="detail-empty">Loading planner context...</div>';
+  } else if (groundingViewState.plannerError) {
+    body = `<div class="detail-error">${esc(groundingViewState.plannerError)}</div>`;
+  } else if (groundingViewState.plannerResult) {
+    const result = groundingViewState.plannerResult;
+    body = `
+      <div class="detail-grid">
+        <div class="detail-group">
+          <h4>session_id</h4>
+          ${renderGroundingStructuredValue(result.session_id)}
+        </div>
+        <div class="detail-group">
+          <h4>available_step_types</h4>
+          ${renderGroundingStructuredValue(result.available_step_types, 'No step types')}
+        </div>
+        <div class="detail-group">
+          <h4>metrics</h4>
+          ${renderGroundingStructuredValue(Array.isArray(result.metrics) ? `${result.metrics.length} metric(s)` : '0 metric(s)')}
+        </div>
+        <div class="detail-group">
+          <h4>entities</h4>
+          ${renderGroundingStructuredValue(Array.isArray(result.entities) ? `${result.entities.length} entity(s)` : '0 entity(s)')}
+        </div>
+      </div>
+      <div class="panel-note">Planner Context is session-scoped grounding only. It remains secondary to State / Context and does not interpret proposition outcomes.</div>
+      <div class="context-grid" style="margin-top: var(--space-md);">
+        <div class="card">
+          <div class="shell-card-title">
+            <h3>metrics</h3>
+            <span class="shell-chip">${esc(Array.isArray(result.metrics) ? `${result.metrics.length} metric(s)` : '0 metric(s)')}</span>
+          </div>
+          ${jsonPre(result.metrics)}
+        </div>
+        <div class="card">
+          <div class="shell-card-title">
+            <h3>entities</h3>
+            <span class="shell-chip">${esc(Array.isArray(result.entities) ? `${result.entities.length} entity(s)` : '0 entity(s)')}</span>
+          </div>
+          ${jsonPre(result.entities)}
+        </div>
+      </div>
+      <div class="card" style="margin-top: var(--space-md);">
+        <div class="shell-card-title">
+          <h3>policies</h3>
+          <span class="shell-chip">${esc(Array.isArray(result.policies) ? `${result.policies.length} policy item(s)` : '0 policy item(s)')}</span>
+        </div>
+        ${jsonPre(result.policies)}
+      </div>
+    `;
+  }
+
+  return `
+    <div class="card">
+      <div class="grounding-card-header">
+        <div>
+          <h3>Planner Context</h3>
+          <p class="panel-note">GET /sessions/{session_id}/planner-context</p>
+        </div>
+        <span class="shell-chip">Session-scoped</span>
+      </div>
+      ${body}
+    </div>
+  `;
+}
+
+function bindGroundingEvents() {
+  const panel = document.getElementById('panel-grounding');
+  if (!panel) return;
+
+  panel.querySelector('[data-role="grounding-search-form"]')?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    groundingViewState.searchQuery = String(formData.get('q') || '').trim();
+    groundingViewState.searchType = String(formData.get('type') || '').trim();
+    groundingViewState.selectedObjectId = '';
+    groundingViewState.selectedObjectKind = '';
+    groundingViewState.selectedRef = '';
+    groundingViewState.resolveError = '';
+    groundingViewState.resolveResult = null;
+    groundingViewState.graphError = '';
+    groundingViewState.graphResult = null;
+    void loadGroundingSearch();
+  });
+
+  panel.querySelector('[data-role="grounding-reset-search"]')?.addEventListener('click', () => {
+    groundingViewState.searchQuery = '';
+    groundingViewState.searchType = '';
+    groundingViewState.searchError = '';
+    groundingViewState.searchResults = [];
+    groundingViewState.selectedObjectId = '';
+    groundingViewState.selectedObjectKind = '';
+    groundingViewState.selectedRef = '';
+    groundingViewState.resolveError = '';
+    groundingViewState.resolveResult = null;
+    groundingViewState.graphError = '';
+    groundingViewState.graphResult = null;
+    renderGroundingPage();
+  });
+
+  panel.querySelectorAll('[data-role="grounding-select-result"]').forEach((button) => {
+    button.addEventListener('click', () => {
+      groundingViewState.selectedObjectId = button.dataset.objectId || '';
+      groundingViewState.selectedObjectKind = button.dataset.objectKind || '';
+      groundingViewState.selectedRef = button.dataset.objectRef || '';
+      groundingViewState.resolveError = '';
+      groundingViewState.resolveResult = null;
+      groundingViewState.graphError = '';
+      groundingViewState.graphResult = null;
+      renderGroundingPage();
+      void Promise.all([loadGroundingResolve(), loadGroundingGraph()]);
+    });
+  });
+
+  panel.querySelector('[data-role="grounding-graph-depth"]')?.addEventListener('change', (event) => {
+    groundingViewState.graphDepth = String(event.currentTarget.value || '2');
+    void loadGroundingGraph();
+  });
+
+  panel.querySelector('[data-role="grounding-open-sessions"]')?.addEventListener('click', () => {
+    applyRoute({
+      ...currentRoute,
+      tab: 'sessions',
+      propositionId: '',
+      artifactId: '',
+      runtimeScope: '',
+    });
+  });
+}
+
+function renderGroundingPage() {
+  const panel = document.getElementById('panel-grounding');
+  if (!panel) return;
+
+  panel.innerHTML = `
+    <div class="page-intro">
+      <h2>Grounding</h2>
+      <p>Use catalog and semantic helper views to understand published objects, resolve behavior, and session planner grounding. This page is read-only and secondary to State / Context for analysis outcomes.</p>
+    </div>
+    <div class="grounding-layout">
+      <div class="grounding-sidebar">
+        <div class="card">
+          <div class="shell-card-title">
+            <h3>Catalog Search</h3>
+            <span class="shell-chip">Read-only</span>
+          </div>
+          <form class="grounding-search-form" data-role="grounding-search-form">
+            <div class="grounding-search-grid">
+              <div class="form-group">
+                <label for="grounding-search-query">q</label>
+                <input id="grounding-search-query" type="text" name="q" value="${attr(groundingViewState.searchQuery)}" placeholder="watch, entity.user, source table..." />
+              </div>
+              <div class="form-group">
+                <label for="grounding-search-type">type</label>
+                <select id="grounding-search-type" name="type">
+                  <option value="" ${groundingViewState.searchType === '' ? 'selected' : ''}>all</option>
+                  <option value="metric" ${groundingViewState.searchType === 'metric' ? 'selected' : ''}>metric</option>
+                  <option value="entity" ${groundingViewState.searchType === 'entity' ? 'selected' : ''}>entity</option>
+                  <option value="process" ${groundingViewState.searchType === 'process' ? 'selected' : ''}>process</option>
+                  <option value="dimension" ${groundingViewState.searchType === 'dimension' ? 'selected' : ''}>dimension</option>
+                  <option value="time" ${groundingViewState.searchType === 'time' ? 'selected' : ''}>time</option>
+                  <option value="binding" ${groundingViewState.searchType === 'binding' ? 'selected' : ''}>binding</option>
+                  <option value="asset" ${groundingViewState.searchType === 'asset' ? 'selected' : ''}>asset</option>
+                </select>
+              </div>
+            </div>
+            <div class="detail-actions">
+              <button class="btn btn-primary" type="submit">Search</button>
+              <button class="btn" type="button" data-role="grounding-reset-search">Reset</button>
+            </div>
+          </form>
+          <p class="panel-note"><span class="inline-code">GET /catalog/search</span> returns published semantic objects and synced assets only. Results never turn into executable analysis actions.</p>
+        </div>
+        <div class="card">
+          <div class="shell-card-title">
+            <h3>Search Results</h3>
+            <span class="shell-chip">${groundingViewState.searchLoading ? 'Loading' : esc(`${groundingViewState.searchResults.length} result(s)`)}</span>
+          </div>
+          ${renderGroundingSearchResults()}
+        </div>
+      </div>
+      <div class="grounding-stack">
+        <div class="card">
+          <div class="shell-card-title">
+            <h3>Grounding Locator</h3>
+            <span class="shell-chip">HTTP-only</span>
+          </div>
+          <div class="detail-grid">
+            <div class="detail-group">
+              <h4>session_id</h4>
+              ${renderGroundingStructuredValue(currentRoute.sessionId, 'Optional; set by Open Grounding Helper from Sessions')}
+            </div>
+            <div class="detail-group">
+              <h4>selected_ref</h4>
+              ${renderGroundingStructuredValue(groundingViewState.selectedRef, 'Select from Catalog Search')}
+            </div>
+            <div class="detail-group">
+              <h4>HTTP Contract</h4>
+              <div class="runtime-meta-grid">
+                <span class="inline-code">GET /catalog/search</span>
+                <span class="inline-code">GET /semantic/resolve/{name}</span>
+                <span class="inline-code">GET /catalog/graph</span>
+                <span class="inline-code">GET /sessions/{session_id}/planner-context</span>
+              </div>
+            </div>
+          </div>
+          <p class="panel-note">Grounding is a helper surface for semantic object discovery and session grounding. It should stay visually and conceptually below State / Context in the main read path.</p>
+          ${!currentRoute.sessionId ? `
+            <div class="detail-actions">
+              <button class="btn btn-sm" type="button" data-role="grounding-open-sessions">Open Sessions</button>
+            </div>
+          ` : ''}
+        </div>
+        ${renderGroundingResolveCard()}
+        ${renderGroundingGraphCard()}
+        ${renderGroundingPlannerCard()}
+      </div>
+    </div>
+  `;
+
+  bindGroundingEvents();
+}
+
+function bindRuntimeEvents() {
+  const panel = document.getElementById('panel-runtime');
+  if (!panel) return;
+
+  panel.querySelectorAll('[data-role="runtime-open-sessions"]').forEach((button) => {
+    button.addEventListener('click', () => {
+      applyRoute({
+        ...currentRoute,
+        tab: 'sessions',
+        artifactId: '',
+        runtimeScope: '',
+      });
+    });
+  });
+
+  panel.querySelectorAll('[data-role="runtime-open-state"]').forEach((button) => {
+    button.addEventListener('click', () => {
+      applyRoute({
+        ...currentRoute,
+        tab: 'state',
+        artifactId: '',
+        runtimeScope: '',
+      });
+    });
+  });
+
+  panel.querySelectorAll('[data-role="runtime-open-context"]').forEach((button) => {
+    button.addEventListener('click', () => {
+      applyRoute({
+        ...currentRoute,
+        tab: 'context',
+        artifactId: '',
+        runtimeScope: '',
+      });
+    });
+  });
+
+  panel.querySelectorAll('[data-role="runtime-open-jobs"]').forEach((button) => {
+    button.addEventListener('click', () => {
+      applyRoute({
+        ...currentRoute,
+        tab: 'jobs',
+        artifactId: '',
+        runtimeScope: '',
+      });
+    });
+  });
+}
+
+function renderRuntimePage() {
+  const panel = document.getElementById('panel-runtime');
+  if (!panel) return;
+
+  panel.innerHTML = `
+    <div class="page-intro">
+      <h2>Runtime</h2>
+      <p>Inspect operator-facing runtime truth for sessions, propositions, and artifacts. This page explains queue, publish, failure, and backlog state without restating canonical evidence conclusions.</p>
+    </div>
+    <div class="runtime-layout">
+      <div class="card">
+        <div class="shell-card-title">
+          <h3>Runtime Locator</h3>
+          <span class="shell-chip">Read-only</span>
+        </div>
+        <div class="detail-grid">
+          <div class="detail-group">
+            <h4>runtime_scope</h4>
+            ${renderRuntimeStructuredValue(currentRoute.runtimeScope, 'Choose from linked pages')}
+          </div>
+          <div class="detail-group">
+            <h4>session_id</h4>
+            ${renderRuntimeStructuredValue(currentRoute.sessionId, 'Select from Sessions')}
+          </div>
+          <div class="detail-group">
+            <h4>proposition_id</h4>
+            ${renderRuntimeStructuredValue(currentRoute.propositionId, 'Open Proposition Runtime from State or Context')}
+          </div>
+          <div class="detail-group">
+            <h4>artifact_id</h4>
+            ${renderRuntimeStructuredValue(currentRoute.artifactId, 'Open Artifact Runtime from Context')}
+          </div>
+          <div class="detail-group">
+            <h4>HTTP Contract</h4>
+            <div class="runtime-meta-grid">
+              <span class="inline-code">GET /sessions/{session_id}/runtime-status</span>
+              <span class="inline-code">GET /sessions/{session_id}/propositions/{proposition_id}/runtime-status</span>
+              <span class="inline-code">GET /sessions/{session_id}/artifacts/{artifact_id}/runtime-status</span>
+            </div>
+          </div>
+        </div>
+        <p class="panel-note">${esc(runtimeLocatorCopy())}</p>
+        <p class="panel-note">Runtime stays on operator-facing runtime truth. Use State and Context for externally visible canonical truth. No retry, cancel, or terminate controls exist on this page.</p>
+        <p class="panel-note">URL contract is query-driven via <span class="inline-code">tab</span>, <span class="inline-code">session_id</span>, <span class="inline-code">proposition_id</span>, <span class="inline-code">artifact_id</span>, and <span class="inline-code">runtime_scope</span>. Runtime lookup failures stay on this page instead of forcing a jump away from the canonical chain.</p>
+      </div>
+      ${renderRuntimeMainContent()}
+    </div>
+  `;
+
+  bindRuntimeEvents();
+}
+
 function renderSessionActionButtons(sessionId) {
   return `
     <button class="btn btn-sm session-nav-btn" data-target-tab="state" data-session-id="${attr(sessionId)}">View State</button>
@@ -1544,6 +2479,111 @@ function renderSessionsDetail() {
   `;
 }
 
+async function loadGroundingSearch() {
+  if (!groundingViewState.searchQuery) {
+    groundingViewState.searchLoading = false;
+    groundingViewState.searchError = '';
+    groundingViewState.searchResults = [];
+    renderGroundingPage();
+    return;
+  }
+
+  groundingViewState.searchLoading = true;
+  groundingViewState.searchError = '';
+  renderGroundingPage();
+  try {
+    const payload = await uiApi.searchCatalog(groundingViewState.searchQuery, groundingViewState.searchType);
+    groundingViewState.searchResults = Array.isArray(payload) ? payload : [];
+  } catch (error) {
+    groundingViewState.searchResults = [];
+    groundingViewState.searchError = error.message || 'Catalog search failed.';
+  } finally {
+    groundingViewState.searchLoading = false;
+    renderGroundingPage();
+  }
+}
+
+async function loadGroundingResolve() {
+  const ref = groundingViewState.selectedRef;
+  if (!ref || groundingViewState.selectedObjectKind === 'asset') {
+    groundingViewState.resolveLoading = false;
+    groundingViewState.resolveError = '';
+    groundingViewState.resolveResult = null;
+    renderGroundingPage();
+    return;
+  }
+
+  groundingViewState.resolveLoading = true;
+  groundingViewState.resolveError = '';
+  renderGroundingPage();
+  try {
+    groundingViewState.resolveResult = await uiApi.resolveSemanticTerm(ref);
+  } catch (error) {
+    groundingViewState.resolveResult = null;
+    groundingViewState.resolveError = error.message || 'Semantic resolve failed.';
+  } finally {
+    groundingViewState.resolveLoading = false;
+    renderGroundingPage();
+  }
+}
+
+async function loadGroundingGraph() {
+  if (!groundingViewState.selectedObjectId) {
+    groundingViewState.graphLoading = false;
+    groundingViewState.graphError = '';
+    groundingViewState.graphResult = null;
+    renderGroundingPage();
+    return;
+  }
+
+  groundingViewState.graphLoading = true;
+  groundingViewState.graphError = '';
+  renderGroundingPage();
+  try {
+    const depth = Number.parseInt(groundingViewState.graphDepth || '2', 10);
+    groundingViewState.graphResult = await uiApi.getCatalogGraph(
+      groundingViewState.selectedObjectId,
+      Number.isNaN(depth) ? 2 : depth
+    );
+  } catch (error) {
+    groundingViewState.graphResult = null;
+    groundingViewState.graphError = error.message || 'Catalog graph lookup failed.';
+  } finally {
+    groundingViewState.graphLoading = false;
+    renderGroundingPage();
+  }
+}
+
+async function loadGroundingPlannerContext() {
+  if (!currentRoute.sessionId) {
+    groundingViewState.plannerLoading = false;
+    groundingViewState.plannerError = '';
+    groundingViewState.plannerResult = null;
+    renderGroundingPage();
+    return;
+  }
+
+  groundingViewState.plannerLoading = true;
+  groundingViewState.plannerError = '';
+  renderGroundingPage();
+  try {
+    groundingViewState.plannerResult = await uiApi.getPlannerContext(currentRoute.sessionId);
+  } catch (error) {
+    groundingViewState.plannerResult = null;
+    groundingViewState.plannerError = error.status === 404
+      ? '404 session not found for planner context.'
+      : (error.message || 'Planner context lookup failed.');
+  } finally {
+    groundingViewState.plannerLoading = false;
+    renderGroundingPage();
+  }
+}
+
+async function loadGroundingView() {
+  renderGroundingPage();
+  await loadGroundingPlannerContext();
+}
+
 function bindSessionsEvents() {
   const panel = document.getElementById('panel-sessions');
   if (!panel) return;
@@ -1559,6 +2599,7 @@ function bindSessionsEvents() {
         status: String(formData.get('status') || ''),
         sessionQuery: String(formData.get('session_query') || ''),
         sessionId: '',
+        artifactId: '',
       });
     });
   }
@@ -1584,6 +2625,7 @@ function bindSessionsEvents() {
         tab: button.dataset.targetTab || 'sessions',
         sessionId: button.dataset.sessionId || '',
         propositionId: '',
+        artifactId: '',
         runtimeScope: button.dataset.targetTab === 'runtime' ? 'session' : '',
       });
     });
@@ -1703,7 +2745,7 @@ async function loadSessionDetail() {
     if (error.status === 404) {
       sessionsViewState.detailError = '404 session not found. Returned to session list.';
       toast('404 session not found. Returned to session list.', 'error');
-      applyRoute({ ...currentRoute, tab: 'sessions', sessionId: '' }, 'replace');
+      applyRoute({ ...currentRoute, tab: 'sessions', sessionId: '', artifactId: '' }, 'replace');
       return;
     }
     sessionsViewState.detailError = error.message || 'Failed to load session detail.';
@@ -1734,7 +2776,14 @@ async function loadStateView() {
       stateViewState.error = '404 session not found. Returned to session list.';
       toast('404 session not found. Returned to session list.', 'error');
       applyRoute(
-        { ...currentRoute, tab: 'sessions', sessionId: '', propositionId: '', runtimeScope: '' },
+        {
+          ...currentRoute,
+          tab: 'sessions',
+          sessionId: '',
+          propositionId: '',
+          artifactId: '',
+          runtimeScope: '',
+        },
         'replace'
       );
       return;
@@ -1770,7 +2819,7 @@ async function loadContextView() {
       contextViewState.error = '404 proposition not found. Returned to State.';
       toast('404 proposition not found. Returned to State.', 'error');
       applyRoute(
-        { ...currentRoute, tab: 'state', propositionId: '', runtimeScope: '' },
+        { ...currentRoute, tab: 'state', propositionId: '', artifactId: '', runtimeScope: '' },
         'replace'
       );
       return;
@@ -1779,6 +2828,57 @@ async function loadContextView() {
   } finally {
     contextViewState.loading = false;
     renderContextPage();
+  }
+}
+
+async function loadRuntimeView() {
+  const scope = currentRoute.runtimeScope;
+  const hasLocator = (
+    (scope === 'session' && currentRoute.sessionId) ||
+    (scope === 'proposition' && currentRoute.sessionId && currentRoute.propositionId) ||
+    (scope === 'artifact' && currentRoute.sessionId && currentRoute.artifactId)
+  );
+
+  if (!scope || !hasLocator) {
+    runtimeViewState.loading = false;
+    runtimeViewState.error = '';
+    runtimeViewState.result = null;
+    renderRuntimePage();
+    return;
+  }
+
+  runtimeViewState.loading = true;
+  runtimeViewState.error = '';
+  renderRuntimePage();
+  try {
+    let payload = null;
+    if (scope === 'session') {
+      payload = await uiApi.getSessionRuntimeStatus(currentRoute.sessionId);
+    } else if (scope === 'proposition') {
+      payload = await uiApi.getPropositionRuntimeStatus(
+        currentRoute.sessionId,
+        currentRoute.propositionId
+      );
+    } else {
+      payload = await uiApi.getArtifactRuntimeStatus(currentRoute.sessionId, currentRoute.artifactId);
+    }
+    runtimeViewState.result = payload;
+  } catch (error) {
+    runtimeViewState.result = null;
+    if (error.status === 404) {
+      const labels = {
+        session: '404 session runtime resource not found.',
+        proposition: '404 proposition runtime resource not found.',
+        artifact: '404 artifact runtime resource not found.',
+      };
+      runtimeViewState.error = labels[scope] || '404 runtime resource not found.';
+      toast(runtimeViewState.error, 'error');
+    } else {
+      runtimeViewState.error = error.message || 'Runtime lookup failed.';
+    }
+  } finally {
+    runtimeViewState.loading = false;
+    renderRuntimePage();
   }
 }
 
@@ -1797,6 +2897,16 @@ async function refreshForRoute() {
   if (currentRoute.tab === 'context') {
     renderContextPage();
     await loadContextView();
+    return;
+  }
+  if (currentRoute.tab === 'runtime') {
+    renderRuntimePage();
+    await loadRuntimeView();
+    return;
+  }
+  if (currentRoute.tab === 'grounding') {
+    renderGroundingPage();
+    await loadGroundingView();
     return;
   }
   renderShellPlaceholder(currentRoute.tab);
