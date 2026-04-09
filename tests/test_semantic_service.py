@@ -13,7 +13,6 @@ from app.api.models.metric import TypedMetricCreateRequest, TypedMetricUpdateReq
 from app.semantic import SemanticService
 from app.semantic_service import (
     CompatibilityProfileService,
-    LegacySemanticService,
     TypedBindingService,
     TypedObjectService,
 )
@@ -34,7 +33,6 @@ class SemanticServiceFacadeTests(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def test_facade_exposes_split_subservices(self) -> None:
-        self.assertIsInstance(self.service.legacy, LegacySemanticService)
         self.assertIsInstance(self.service.typed_objects, TypedObjectService)
         self.assertIsInstance(self.service.bindings, TypedBindingService)
         self.assertIsInstance(

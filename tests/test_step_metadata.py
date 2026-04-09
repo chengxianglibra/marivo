@@ -10,6 +10,10 @@ from typing import Any, ClassVar, cast
 from app.analysis_core.compiler import CompiledQuery
 from app.api.app_factory import create_app
 from app.evidence_engine.ref_boundary import assert_no_canonical_refs_in_semantic_payload
+from tests.semantic_test_helpers import (
+    ensure_published_typed_metric,
+    ensure_published_typed_metric_binding,
+)
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 
@@ -47,39 +51,19 @@ class StepMetadataPersistenceTests(unittest.TestCase):
                 now,
             ],
         )
-        cls.metadata.execute(
-            "INSERT OR IGNORE INTO semantic_metrics "
-            "(metric_id, name, display_name, description, definition_sql, dimensions_json, "
-            " status, grain, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [
-                "met_step_metadata",
-                "dau",
-                "Daily Active Users",
-                "",
-                "COUNT(DISTINCT user_id)",
-                '["event_date"]',
-                "published",
-                "day",
-                now,
-                now,
-            ],
+        ensure_published_typed_metric(
+            cls.metadata,
+            metric_name="dau",
+            display_name="Daily Active Users",
+            grain="day",
+            dimensions=["event_date"],
+            definition_sql="COUNT(DISTINCT user_id)",
         )
-        cls.metadata.execute(
-            "INSERT OR IGNORE INTO legacy_semantic_mappings "
-            "(mapping_id, semantic_type, semantic_id, object_id, mapping_type, mapping_json, "
-            " created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            [
-                "map_step_metadata",
-                "metric",
-                "met_step_metadata",
-                "obj_step_metadata",
-                "primary",
-                "{}",
-                now,
-                now,
-            ],
+        ensure_published_typed_metric_binding(
+            cls.metadata,
+            metric_name="dau",
+            carrier_locator="analytics.watch_events",
+            source_object_ref="obj_step_metadata",
         )
 
     @classmethod

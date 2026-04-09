@@ -18,11 +18,11 @@ from app.time_scope import (
     normalize_metric_query_request,
 )
 from tests.semantic_test_helpers import (
-    create_legacy_entity,
-    create_legacy_metric,
-    patch_legacy_entity_properties,
-    publish_legacy_entity,
-    publish_legacy_metric,
+    create_typed_entity,
+    create_typed_metric,
+    patch_typed_entity_properties,
+    publish_typed_entity,
+    publish_typed_metric,
 )
 from tests.shared_fixtures import get_seeded_duckdb_path
 
@@ -600,25 +600,25 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
     def setUp(self) -> None:
         client = self._client()
         try:
-            entity = create_legacy_entity(
+            entity = create_typed_entity(
                 client,
                 name=f"session_tsu02_{id(self)}",
                 display_name="Session",
                 keys=["session_id"],
             )
-            self.entity_id = entity["entity_id"]
-            publish_legacy_entity(client, self.entity_id)
+            self.entity_id = entity["entity_contract_id"]
+            publish_typed_entity(client, self.entity_id)
 
-            metric = create_legacy_metric(
+            metric = create_typed_metric(
                 client,
                 name=f"watch_time_tsu02_{id(self)}",
                 display_name="Watch Time",
                 definition_sql="avg(play_duration_seconds)",
                 dimensions=["platform", "event_date"],
-                entity_id=self.entity_id,
+                entity_ref=f"entity.session_tsu02_{id(self)}",
             )
-            metric_id = metric["metric_id"]
-            publish_legacy_metric(client, metric_id)
+            metric_id = metric["metric_contract_id"]
+            publish_typed_metric(client, metric_id)
 
             self.metric_name = f"watch_time_tsu02_{id(self)}"
             self.session_id = client.post(
@@ -1114,7 +1114,7 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
                 [json.dumps(table_props), table_row["object_id"]],
             )
 
-            patch_legacy_entity_properties(
+            patch_typed_entity_properties(
                 client,
                 self.entity_id,
                 {"time_capabilities": {"analysis_time": {"fallback_date_column": "event_date"}}},

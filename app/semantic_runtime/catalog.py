@@ -3,9 +3,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from app.analysis_core import SUPPORTED_STEP_TYPES
-from app.semantic_runtime.errors import (
-    SemanticRuntimeError,
-)
 from app.semantic_runtime.repository import SemanticRuntimeRepository
 from app.semantic_runtime.semantic_metadata import runtime_ref_kind
 from app.storage.metadata import MetadataStore
@@ -53,7 +50,6 @@ _SEARCH_CONFIG: dict[str, dict[str, str]] = {
     },
 }
 _SEARCHABLE_OBJECT_TYPES = frozenset({*_SEARCH_CONFIG.keys(), "asset"})
-_ALIASABLE_OBJECT_KINDS = ("metric", "entity")
 
 
 class CatalogRuntimeService:
@@ -122,22 +118,14 @@ class CatalogRuntimeService:
         if not normalized_name:
             raise KeyError("Could not resolve empty semantic term")
 
-        if runtime_ref_kind(normalized_name) is not None:
-            resolved = self.semantic_repository.resolve_ref(normalized_name)
-            return self._resolved_object_to_detail(resolved)
+        if runtime_ref_kind(normalized_name) is None:
+            raise KeyError(
+                "Could not resolve term: "
+                f"{normalized_name}. Semantic resolve requires an explicit typed ref."
+            )
 
-        for object_kind in _ALIASABLE_OBJECT_KINDS:
-            try:
-                resolved = self.semantic_repository.resolve_ref(f"{object_kind}.{normalized_name}")
-                return self._resolved_object_to_detail(resolved)
-            except SemanticRuntimeError:
-                continue
-
-        raise KeyError(
-            "Could not resolve term: "
-            f"{normalized_name}. Bare-name aliases are supported only for metric/entity; "
-            "use a typed ref for other object kinds."
-        )
+        resolved = self.semantic_repository.resolve_ref(normalized_name)
+        return self._resolved_object_to_detail(resolved)
 
     def planner_context(self, session_id: str) -> dict[str, Any]:
         context = self.semantic_repository.build_planner_context(session_id)
@@ -179,21 +167,47 @@ class CatalogRuntimeService:
         if remaining_depth == 0:
             return
 
-        metric_rows = self.metadata.query_rows(
-            "SELECT metric_id, name FROM semantic_metrics WHERE entity_id = ?",
+        typed_entity = self.metadata.query_one(
+            "SELECT entity_ref FROM semantic_entity_contracts WHERE entity_contract_id = ?",
             [node_id],
         )
-        for metric in metric_rows:
-            edges.append({"from": node_id, "to": metric["metric_id"], "edge_type": "defines"})
-            self._traverse(metric["metric_id"], remaining_depth - 1, nodes, edges, visited)
+        if typed_entity is not None:
+            metric_rows = self.metadata.query_rows(
+                """
+                SELECT metric_contract_id
+                FROM semantic_metric_contracts
+                WHERE observed_entity_ref = ? AND status = 'published'
+                """,
+                [typed_entity["entity_ref"]],
+            )
+            for metric in metric_rows:
+                edges.append(
+                    {"from": node_id, "to": metric["metric_contract_id"], "edge_type": "defines"}
+                )
+                self._traverse(
+                    metric["metric_contract_id"], remaining_depth - 1, nodes, edges, visited
+                )
 
-        mapping_rows = self.metadata.query_rows(
-            "SELECT * FROM semantic_mappings WHERE semantic_id = ?",
+        typed_metric = self.metadata.query_one(
+            "SELECT metric_ref FROM semantic_metric_contracts WHERE metric_contract_id = ?",
             [node_id],
         )
-        for mapping in mapping_rows:
-            edges.append({"from": node_id, "to": mapping["object_id"], "edge_type": "maps_to"})
-            self._traverse(mapping["object_id"], remaining_depth - 1, nodes, edges, visited)
+        if typed_metric is not None:
+            binding_rows = self.metadata.query_rows(
+                """
+                SELECT DISTINCT cb.source_object_ref
+                FROM typed_bindings b
+                JOIN carrier_bindings cb ON cb.binding_id = b.binding_id
+                WHERE b.bound_object_ref = ? AND b.status = 'published'
+                """,
+                [typed_metric["metric_ref"]],
+            )
+            for binding in binding_rows:
+                source_object_ref = binding["source_object_ref"]
+                if source_object_ref is None:
+                    continue
+                edges.append({"from": node_id, "to": source_object_ref, "edge_type": "maps_to"})
+                self._traverse(source_object_ref, remaining_depth - 1, nodes, edges, visited)
 
         child_rows = self.metadata.query_rows(
             "SELECT object_id, native_name, object_type FROM source_objects WHERE parent_id = ?",
@@ -260,24 +274,24 @@ class CatalogRuntimeService:
 
     def _identify_node(self, node_id: str) -> dict[str, Any] | None:
         row = self.metadata.query_one(
-            "SELECT * FROM semantic_entities WHERE entity_id = ?", [node_id]
+            "SELECT * FROM semantic_entity_contracts WHERE entity_contract_id = ?", [node_id]
         )
         if row is not None:
             return {
                 "id": node_id,
                 "type": "entity",
-                "name": row["name"],
+                "name": str(row["entity_ref"]).removeprefix("entity."),
                 "display_name": row["display_name"],
             }
 
         row = self.metadata.query_one(
-            "SELECT * FROM semantic_metrics WHERE metric_id = ?", [node_id]
+            "SELECT * FROM semantic_metric_contracts WHERE metric_contract_id = ?", [node_id]
         )
         if row is not None:
             return {
                 "id": node_id,
                 "type": "metric",
-                "name": row["name"],
+                "name": str(row["metric_ref"]).removeprefix("metric."),
                 "display_name": row["display_name"],
             }
 

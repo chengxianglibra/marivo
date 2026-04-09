@@ -87,77 +87,12 @@ METADATA_DDL: list[str] = [
     )
     """,
     """
-    CREATE TABLE IF NOT EXISTS semantic_entities (
-        entity_id       TEXT PRIMARY KEY,
-        name            TEXT NOT NULL UNIQUE,
-        display_name    TEXT NOT NULL,
-        description     TEXT NOT NULL DEFAULT '',
-        keys_json       TEXT NOT NULL,
-        level           TEXT,
-        join_constraints_json TEXT NOT NULL DEFAULT '{}',
-        upstream_dependencies_json TEXT NOT NULL DEFAULT '[]',
-        lineage_json    TEXT NOT NULL DEFAULT '[]',
-        quality_expectations_json TEXT NOT NULL DEFAULT '{}',
-        properties_json TEXT NOT NULL DEFAULT '{}',
-        status          TEXT NOT NULL DEFAULT 'draft',
-        revision        INTEGER NOT NULL DEFAULT 1,
-        created_at      TEXT NOT NULL,
-        updated_at      TEXT NOT NULL
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS semantic_metrics (
-        metric_id       TEXT PRIMARY KEY,
-        name            TEXT NOT NULL UNIQUE,
-        display_name    TEXT NOT NULL,
-        description     TEXT NOT NULL DEFAULT '',
-        definition_sql  TEXT NOT NULL,
-        dimensions_json TEXT NOT NULL,
-        entity_id       TEXT,
-        grain           TEXT,
-        measure_type    TEXT,
-        allowed_dimensions_json TEXT NOT NULL DEFAULT '[]',
-        lineage_json    TEXT NOT NULL DEFAULT '[]',
-        quality_expectations_json TEXT NOT NULL DEFAULT '{}',
-        properties_json TEXT NOT NULL DEFAULT '{}',
-        desired_direction TEXT,
-        status          TEXT NOT NULL DEFAULT 'draft',
-        revision        INTEGER NOT NULL DEFAULT 1,
-        created_at      TEXT NOT NULL,
-        updated_at      TEXT NOT NULL
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS legacy_semantic_mappings (
-        mapping_id       TEXT PRIMARY KEY,
-        semantic_type    TEXT NOT NULL,
-        semantic_id      TEXT NOT NULL,
-        object_id        TEXT NOT NULL,
-        mapping_type     TEXT NOT NULL,
-        mapping_json     TEXT NOT NULL DEFAULT '{}',
-        created_at       TEXT NOT NULL,
-        updated_at       TEXT NOT NULL
-    )
-    """,
-    """
-    CREATE VIEW IF NOT EXISTS semantic_mappings AS
-    SELECT
-        mapping_id,
-        semantic_type,
-        semantic_id,
-        object_id,
-        mapping_type,
-        mapping_json,
-        created_at,
-        updated_at
-    FROM legacy_semantic_mappings
-    """,
-    """
     CREATE TABLE IF NOT EXISTS semantic_entity_contracts (
         entity_contract_id      TEXT PRIMARY KEY,
         entity_ref              TEXT NOT NULL UNIQUE,
         display_name            TEXT NOT NULL,
         description             TEXT NOT NULL DEFAULT '',
+        properties_json         TEXT NOT NULL DEFAULT '{}',
         entity_contract_version TEXT NOT NULL,
         uniqueness_scope        TEXT NOT NULL CHECK (
             uniqueness_scope IN ('global', 'parent_scoped')

@@ -16,7 +16,6 @@ from app.api.models.process_object import ProcessObjectCreateRequest, ProcessObj
 from app.api.models.time import TimeCreateRequest, TimeUpdateRequest
 from app.semantic_service import (
     CompatibilityProfileService,
-    LegacySemanticService,
     SemanticCompatibilityError,
     SemanticNotFoundError,
     SemanticServiceError,
@@ -46,11 +45,10 @@ class SemanticServiceValueError(ValueError):
 
 
 class SemanticService:
-    """Facade that preserves the existing service contract while delegating by concern."""
+    """Facade for typed semantic services."""
 
     def __init__(self, metadata: MetadataStore) -> None:
         self.metadata = metadata
-        self.legacy = LegacySemanticService(metadata)
         self.typed_objects = TypedObjectService(metadata)
         self.bindings = TypedBindingService(metadata)
         self.compatibility_profiles = CompatibilityProfileService(metadata)
@@ -72,102 +70,6 @@ class SemanticService:
                 code=error.code,
                 category=error.category,
             ) from error
-
-    def create_entity(
-        self,
-        name: str,
-        display_name: str,
-        keys: list[str],
-        description: str = "",
-        level: str | None = None,
-        join_constraints: dict[str, Any] | None = None,
-        upstream_dependencies: list[str] | None = None,
-        lineage: list[str] | None = None,
-        quality_expectations: dict[str, Any] | None = None,
-        properties: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        return self._invoke(
-            lambda: self.legacy.create_entity(
-                name=name,
-                display_name=display_name,
-                keys=keys,
-                description=description,
-                level=level,
-                join_constraints=join_constraints,
-                upstream_dependencies=upstream_dependencies,
-                lineage=lineage,
-                quality_expectations=quality_expectations,
-                properties=properties,
-            )
-        )
-
-    def get_entity(self, entity_id: str) -> dict[str, Any]:
-        return self._invoke(lambda: self.legacy.get_entity(entity_id))
-
-    def list_entities(self, status: str | None = None) -> list[dict[str, Any]]:
-        return self._invoke(lambda: self.legacy.list_entities(status=status))
-
-    def update_entity(self, entity_id: str, **kwargs: Any) -> dict[str, Any]:
-        return self._invoke(lambda: self.legacy.update_entity(entity_id, **kwargs))
-
-    def patch_entity_properties(
-        self, entity_id: str, properties_patch: dict[str, Any]
-    ) -> dict[str, Any]:
-        return self._invoke(
-            lambda: self.legacy.patch_entity_properties(entity_id, properties_patch)
-        )
-
-    def publish_entity(self, entity_id: str) -> dict[str, Any]:
-        return self._invoke(lambda: self.legacy.publish_entity(entity_id))
-
-    def deprecate_entity(self, entity_id: str) -> dict[str, Any]:
-        return self._invoke(lambda: self.legacy.deprecate_entity(entity_id))
-
-    def create_metric(
-        self,
-        name: str,
-        display_name: str,
-        definition_sql: str,
-        dimensions: list[str],
-        description: str = "",
-        entity_id: str | None = None,
-        grain: str | None = None,
-        measure_type: str | None = None,
-        allowed_dimensions: list[str] | None = None,
-        lineage: list[str] | None = None,
-        quality_expectations: dict[str, Any] | None = None,
-        properties: dict[str, Any] | None = None,
-        desired_direction: str | None = None,
-    ) -> dict[str, Any]:
-        return self._invoke(
-            lambda: self.legacy.create_metric(
-                name=name,
-                display_name=display_name,
-                definition_sql=definition_sql,
-                dimensions=dimensions,
-                description=description,
-                entity_id=entity_id,
-                grain=grain,
-                measure_type=measure_type,
-                allowed_dimensions=allowed_dimensions,
-                lineage=lineage,
-                quality_expectations=quality_expectations,
-                properties=properties,
-                desired_direction=desired_direction,
-            )
-        )
-
-    def get_metric(self, metric_id: str) -> dict[str, Any]:
-        return self._invoke(lambda: self.legacy.get_metric(metric_id))
-
-    def list_metrics(self, status: str | None = None) -> list[dict[str, Any]]:
-        return self._invoke(lambda: self.legacy.list_metrics(status=status))
-
-    def update_metric(self, metric_id: str, **kwargs: Any) -> dict[str, Any]:
-        return self._invoke(lambda: self.legacy.update_metric(metric_id, **kwargs))
-
-    def publish_metric(self, metric_id: str) -> dict[str, Any]:
-        return self._invoke(lambda: self.legacy.publish_metric(metric_id))
 
     def create_typed_entity(self, payload: TypedEntityCreateRequest) -> dict[str, Any]:
         return self._invoke(lambda: self.typed_objects.create_typed_entity(payload))

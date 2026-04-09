@@ -131,18 +131,21 @@ class SourceRegistry:
     def delete_source(self, source_id: str) -> None:
         self.get_source(source_id)  # raises KeyError if missing
 
-        # Block if semantic mappings reference this source's objects
-        mappings = self.metadata.query_rows(
-            """SELECT m.mapping_id, m.semantic_type, m.semantic_id
-               FROM semantic_mappings m
-               JOIN source_objects o ON m.object_id = o.object_id
-               WHERE o.source_id = ?""",
+        # Block if typed bindings reference this source's objects.
+        bindings_using_source_objects = self.metadata.query_rows(
+            """
+            SELECT DISTINCT b.binding_ref
+            FROM typed_bindings b
+            JOIN carrier_bindings cb ON cb.binding_id = b.binding_id
+            JOIN source_objects o ON cb.source_object_ref = o.object_id
+            WHERE o.source_id = ?
+            """,
             [source_id],
         )
-        if mappings:
-            refs = [f"{r['semantic_type']}:{r['semantic_id']}" for r in mappings]
+        if bindings_using_source_objects:
+            refs = [str(row["binding_ref"]) for row in bindings_using_source_objects]
             raise DependencyError(
-                f"Cannot delete source: {len(mappings)} semantic mapping(s) depend on it",
+                f"Cannot delete source: {len(bindings_using_source_objects)} typed binding(s) depend on it",
                 dependencies=refs,
             )
 

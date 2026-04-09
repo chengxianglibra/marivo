@@ -265,28 +265,48 @@ class SemanticLayerService:
         )
 
     def discover_catalog(self) -> dict[str, Any]:
-        # Entities — all published semantic entities
+        # Entities — all published typed semantic entities
         entity_rows = self.metadata.query_rows(
-            "SELECT name, keys_json FROM semantic_entities WHERE status = 'published' ORDER BY name"
+            """
+            SELECT entity_ref, entity_contract_id
+            FROM semantic_entity_contracts
+            WHERE status = 'published'
+            ORDER BY entity_ref
+            """
         )
-        entities = [
-            {"id": row["name"], "keys": json.loads(row["keys_json"])} for row in entity_rows
-        ]
+        entities = []
+        for row in entity_rows:
+            resolved_entity = self.semantic_repository.resolve_entity(
+                str(row["entity_ref"]).removeprefix("entity.")
+            )
+            if resolved_entity is None:
+                continue
+            entities.append({"id": resolved_entity.name, "keys": list(resolved_entity.key_refs)})
 
-        # Metrics — all published semantic metrics
+        # Metrics — all published typed semantic metrics
         metric_rows = self.metadata.query_rows(
-            "SELECT name, display_name, definition_sql, dimensions_json "
-            "FROM semantic_metrics WHERE status = 'published' ORDER BY name"
+            """
+            SELECT metric_ref
+            FROM semantic_metric_contracts
+            WHERE status = 'published'
+            ORDER BY metric_ref
+            """
         )
-        metrics = [
-            {
-                "id": row["name"],
-                "label": row["display_name"],
-                "definition": row["definition_sql"],
-                "dimensions": json.loads(row["dimensions_json"]),
-            }
-            for row in metric_rows
-        ]
+        metrics = []
+        for row in metric_rows:
+            resolved_metric = self.semantic_repository.resolve_metric(
+                str(row["metric_ref"]).removeprefix("metric.")
+            )
+            if resolved_metric is None:
+                continue
+            metrics.append(
+                {
+                    "id": resolved_metric.name,
+                    "label": resolved_metric.display_name,
+                    "definition": resolved_metric.definition_sql,
+                    "dimensions": list(resolved_metric.dimensions),
+                }
+            )
 
         # Assets — all synced tables from source_objects
         asset_rows = self.metadata.query_rows(
@@ -399,30 +419,21 @@ class SemanticLayerService:
             raise ValueError(f"Unknown intent type: '{intent_type}'") from None
 
     def _resolve_metric_table(self, metric_name: str) -> str | None:
-        """Resolve the physical table FQN for a published semantic metric.
-
-        Looks up semantic_mappings (metric_id → object_id) then source_objects (fqn).
-        Returns None if the metric is not found or has no table mapping.
-        """
-        metric_row = self.metadata.query_one(
-            "SELECT metric_id FROM semantic_metrics WHERE name = ? AND status = 'published'",
-            [metric_name],
+        """Resolve the primary carrier locator for a published typed metric binding."""
+        binding_row = self.metadata.query_one(
+            """
+            SELECT cb.carrier_locator
+            FROM typed_bindings b
+            JOIN carrier_bindings cb ON cb.binding_id = b.binding_id
+            WHERE b.bound_object_ref = ? AND b.status = 'published' AND cb.binding_role = 'primary'
+            ORDER BY cb.binding_key
+            LIMIT 1
+            """,
+            [f"metric.{metric_name}"],
         )
-        if metric_row is None:
+        if binding_row is None:
             return None
-        mapping = self.metadata.query_one(
-            "SELECT object_id FROM semantic_mappings WHERE semantic_type = 'metric' AND semantic_id = ?",
-            [metric_row["metric_id"]],
-        )
-        if mapping is None:
-            return None
-        source_obj = self.metadata.query_one(
-            "SELECT fqn, native_name FROM source_objects WHERE object_id = ?",
-            [mapping["object_id"]],
-        )
-        if source_obj is None:
-            return None
-        return str(source_obj["fqn"] or source_obj["native_name"])
+        return str(binding_row["carrier_locator"])
 
     # ── Metric resolution ────────────────────────────────────────────
 
@@ -978,7 +989,7 @@ class SemanticLayerService:
         all_dimensions = self.resolve_metric_dimensions(metric_name)
         if metric_sql is None or all_dimensions is None:
             raise ValueError(
-                f"Metric '{metric_name}' not found or not published in semantic_metrics"
+                f"Metric '{metric_name}' not found, not published, or missing typed execution metadata"
             )
 
         short_name = resolved.table.split(".")[-1]
@@ -1562,7 +1573,7 @@ class SemanticLayerService:
         metric_sql = self.resolve_metric_sql(str(metric_name))
         if metric_sql is None:
             raise ValueError(
-                f"Metric '{metric_name}' not found or not published in semantic_metrics"
+                f"Metric '{metric_name}' not found, not published, or missing typed execution metadata"
             )
 
         period_end_p = params.get("period_end")
@@ -1823,21 +1834,20 @@ class SemanticLayerService:
     def _resolve_entity_for_metric(self, metric_name: str) -> dict[str, Any] | None:
         """Return the published entity linked to the given metric name, or None."""
         try:
-            metric_row = self.metadata.query_one(
-                "SELECT entity_id FROM semantic_metrics WHERE name = ? AND status = 'published'",
-                [metric_name],
-            )
-            if metric_row is None or not metric_row.get("entity_id"):
+            resolved_metric = self.semantic_repository.resolve_metric(metric_name)
+            if resolved_metric is None or not resolved_metric.observed_entity_ref:
                 return None
-            entity_row = self.metadata.query_one(
-                "SELECT entity_id, name, status, properties_json FROM semantic_entities WHERE entity_id = ?",
-                [metric_row["entity_id"]],
+            resolved_entity = self.semantic_repository.resolve_entity(
+                resolved_metric.observed_entity_ref.removeprefix("entity.")
             )
-            if entity_row is None:
+            if resolved_entity is None:
                 return None
-            entity = dict(entity_row)
-            entity["properties"] = json.loads(entity.pop("properties_json", "{}"))
-            return entity
+            return {
+                "entity_contract_id": resolved_entity.metadata.get("entity_contract_id"),
+                "name": resolved_entity.name,
+                "status": resolved_entity.metadata.get("status"),
+                "properties": dict(resolved_entity.metadata.get("properties") or {}),
+            }
         except Exception:
             return None
 

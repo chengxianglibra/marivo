@@ -104,14 +104,20 @@ class TimeAxisMetadataProvider:
     def _find_metric_entity(self, metric_name: str) -> dict[str, Any] | None:
         row = self.metadata.query_one(
             """
-            SELECT e.entity_id, e.name, e.properties_json
-            FROM semantic_metrics m
-            JOIN semantic_entities e ON e.entity_id = m.entity_id
-            WHERE m.name = ? AND m.status = 'published' AND e.status = 'published'
+            SELECT e.entity_contract_id, e.entity_ref, e.properties_json
+            FROM semantic_metric_contracts m
+            JOIN semantic_entity_contracts e ON e.entity_ref = m.observed_entity_ref
+            WHERE m.metric_ref = ? AND m.status = 'published' AND e.status = 'published'
             """,
-            [metric_name],
+            [f"metric.{metric_name}"],
         )
-        return dict(row) if row is not None else None
+        if row is None:
+            return None
+        return {
+            "entity_contract_id": row["entity_contract_id"],
+            "name": str(row["entity_ref"]).removeprefix("entity."),
+            "properties_json": row["properties_json"],
+        }
 
     def _find_source_table_object(self, table_name: str) -> dict[str, Any] | None:
         short_name = table_name.split(".")[-1]

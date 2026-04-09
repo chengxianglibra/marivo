@@ -33,7 +33,10 @@ from app.main import create_app
 from app.service import SemanticLayerService
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 from app.storage.sqlite_metadata import SQLiteMetadataStore
-from tests.semantic_test_helpers import ensure_published_typed_metric
+from tests.semantic_test_helpers import (
+    ensure_published_typed_metric,
+    ensure_published_typed_metric_binding,
+)
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -103,9 +106,6 @@ def _seed_metadata(
     now = datetime.now(UTC).isoformat()
     src_id = f"src_detecttest{src_suffix}"
     obj_id = f"obj_detecttest{src_suffix}"
-    met_id = f"met_detecttest{src_suffix}"
-    map_id = f"map_detecttest{src_suffix}"
-
     meta.execute(
         "INSERT OR IGNORE INTO sources "
         "(source_id, source_type, display_name, connection_json, capabilities_json, created_at, updated_at) "
@@ -118,37 +118,19 @@ def _seed_metadata(
         "VALUES (?, ?, ?, ?, ?, ?, ?)",
         [obj_id, src_id, "table", native_name, table_fqn, now, now],
     )
-    meta.execute(
-        "INSERT OR IGNORE INTO semantic_metrics "
-        "(metric_id, name, display_name, description, definition_sql, dimensions_json, "
-        " status, grain, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        [
-            met_id,
-            metric_name,
-            metric_name,
-            "",
-            "COUNT(*)",
-            '["event_date"]',
-            "published",
-            "day",
-            now,
-            now,
-        ],
-    )
-    meta.execute(
-        "INSERT OR IGNORE INTO legacy_semantic_mappings "
-        "(mapping_id, semantic_type, semantic_id, object_id, mapping_type, mapping_json, "
-        " created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        [map_id, "metric", met_id, obj_id, "primary", "{}", now, now],
-    )
     ensure_published_typed_metric(
         meta,
         metric_name=metric_name,
         display_name=metric_name,
         grain="day",
         dimensions=["event_date"],
+        definition_sql="COUNT(*)",
+    )
+    ensure_published_typed_metric_binding(
+        meta,
+        metric_name=metric_name,
+        carrier_locator=table_fqn,
+        source_object_ref=obj_id,
     )
     return metric_name
 

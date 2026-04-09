@@ -28,9 +28,9 @@ from app.api.models import (
 )
 from app.main import create_app
 from tests.semantic_test_helpers import (
-    create_legacy_mapping,
-    create_legacy_metric,
-    publish_legacy_metric,
+    create_typed_metric,
+    create_typed_metric_binding,
+    publish_typed_metric,
 )
 from tests.shared_fixtures import get_seeded_duckdb_path
 
@@ -584,7 +584,7 @@ class IntentEndpointWithSemanticLayerTests(unittest.TestCase):
         cls.client.post(f"/sources/{cls.source_id}/sync")
 
         # Create a semantic metric (uses watch_events table from demo data)
-        metric = create_legacy_metric(
+        metric = create_typed_metric(
             cls.client,
             name="test_observe_metric",
             display_name="Test Observe Metric",
@@ -592,7 +592,7 @@ class IntentEndpointWithSemanticLayerTests(unittest.TestCase):
             dimensions=["event_date"],
             grain="day",
         )
-        cls.metric_id = metric["metric_id"]
+        cls.metric_id = metric["metric_contract_id"]
 
     def test_observe_with_real_metric_executes_or_404_if_not_mapped(self) -> None:
         """Observe succeeds if metric is mapped to a table, or returns 422 if not mapped."""
@@ -692,7 +692,7 @@ class ObserveTypedArtifactTests(unittest.TestCase):
         )
 
         # Create and publish a semantic metric backed by watch_events
-        metric = create_legacy_metric(
+        metric = create_typed_metric(
             cls.client,
             name="observe_test_dau",
             display_name="DAU (observe test)",
@@ -700,17 +700,16 @@ class ObserveTypedArtifactTests(unittest.TestCase):
             dimensions=["event_date", "platform"],
             grain="day",
         )
-        metric_id = metric["metric_id"]
-        publish_legacy_metric(cls.client, metric_id)
+        metric_id = metric["metric_contract_id"]
+        publish_typed_metric(cls.client, metric_id)
         cls.metric_id = metric_id
 
-        # Create mapping: metric → watch_events source_object
-        create_legacy_mapping(
+        # Create typed binding: metric → watch_events source_object
+        create_typed_metric_binding(
             cls.client,
-            semantic_type="metric",
-            semantic_id=metric_id,
+            metric_ref="metric.observe_test_dau",
             object_id=obj_id,
-            mapping_type="primary",
+            carrier_locator="analytics.watch_events",
         )
 
     def test_observe_returns_typed_artifact_shape(self) -> None:
@@ -1055,7 +1054,7 @@ class CompareIntentTests(unittest.TestCase):
             [obj_id, source_id, now, now],
         )
 
-        metric = create_legacy_metric(
+        metric = create_typed_metric(
             cls.client,
             name="compare_test_dau",
             display_name="DAU (compare test)",
@@ -1063,18 +1062,17 @@ class CompareIntentTests(unittest.TestCase):
             dimensions=["event_date", "platform"],
             grain="day",
         )
-        metric_id = metric["metric_id"]
-        publish_legacy_metric(cls.client, metric_id)
-        create_legacy_mapping(
+        metric_id = metric["metric_contract_id"]
+        publish_typed_metric(cls.client, metric_id)
+        create_typed_metric_binding(
             cls.client,
-            semantic_type="metric",
-            semantic_id=metric_id,
+            metric_ref="metric.compare_test_dau",
             object_id=obj_id,
-            mapping_type="primary",
+            carrier_locator="analytics.watch_events",
         )
 
         # Create a second metric for mismatch tests
-        other_metric = create_legacy_metric(
+        other_metric = create_typed_metric(
             cls.client,
             name="compare_test_other",
             display_name="Other metric",
@@ -1082,15 +1080,14 @@ class CompareIntentTests(unittest.TestCase):
             dimensions=["event_date"],
             grain="day",
         )
-        cls.other_metric_id = other_metric["metric_id"]
+        cls.other_metric_id = other_metric["metric_contract_id"]
         if cls.other_metric_id:
-            publish_legacy_metric(cls.client, cls.other_metric_id)
-            create_legacy_mapping(
+            publish_typed_metric(cls.client, cls.other_metric_id)
+            create_typed_metric_binding(
                 cls.client,
-                semantic_type="metric",
-                semantic_id=cls.other_metric_id,
+                metric_ref="metric.compare_test_other",
                 object_id=obj_id,
-                mapping_type="primary",
+                carrier_locator="analytics.watch_events",
             )
 
         # Create session
@@ -1511,7 +1508,7 @@ class DecomposeIntentTests(unittest.TestCase):
             [obj_id, source_id, now, now],
         )
 
-        metric = create_legacy_metric(
+        metric = create_typed_metric(
             cls.client,
             name="decompose_test_dau",
             display_name="DAU (decompose test)",
@@ -1519,14 +1516,13 @@ class DecomposeIntentTests(unittest.TestCase):
             dimensions=["event_date", "platform"],
             grain="day",
         )
-        metric_id = metric["metric_id"]
-        publish_legacy_metric(cls.client, metric_id)
-        create_legacy_mapping(
+        metric_id = metric["metric_contract_id"]
+        publish_typed_metric(cls.client, metric_id)
+        create_typed_metric_binding(
             cls.client,
-            semantic_type="metric",
-            semantic_id=metric_id,
+            metric_ref="metric.decompose_test_dau",
             object_id=obj_id,
-            mapping_type="primary",
+            carrier_locator="analytics.watch_events",
         )
 
         r = cls.client.post("/sessions", json={"goal": "decompose intent test"})

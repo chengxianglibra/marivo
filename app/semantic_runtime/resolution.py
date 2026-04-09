@@ -527,21 +527,6 @@ class SemanticResolver:
         return self._resolve_ref_of_kind(binding_ref, expected_kind="binding")
 
     def resolve_metric(self, metric_name: str) -> ResolvedMetric | None:
-        legacy_row = self.metadata.query_one(
-            """
-            SELECT
-                metric_id, name, display_name, description, definition_sql, dimensions_json,
-                entity_id, grain, measure_type, allowed_dimensions_json, lineage_json,
-                quality_expectations_json, properties_json, desired_direction, status, revision,
-                created_at, updated_at
-            FROM semantic_metrics
-            WHERE name = ? AND status = 'published'
-            """,
-            [metric_name],
-        )
-        if legacy_row is None:
-            return None
-
         try:
             resolved_contract = self.resolve_metric_ref(f"metric.{metric_name}")
         except (
@@ -554,13 +539,10 @@ class SemanticResolver:
         semantic_object = resolved_contract.semantic_object
         header = semantic_object["header"]
         family_payload = dict(semantic_object["payload"])
-        dimensions = list(
-            family_payload.get("dimensions") or json.loads(legacy_row["dimensions_json"] or "[]")
-        )
-        properties = json.loads(legacy_row["properties_json"] or "{}")
+        metric_ref = str(header["metric_ref"])
 
         return ResolvedMetric(
-            name=legacy_row["name"],
+            name=metric_ref.removeprefix("metric."),
             metric_ref=str(header["metric_ref"]),
             display_name=str(header["display_name"]),
             description=str(header["description"]),
@@ -575,47 +557,26 @@ class SemanticResolver:
             additivity=str(header["additivity"]),
             metric_contract_version=str(header["metric_contract_version"]),
             family_payload=family_payload,
-            definition_sql=family_payload.get("definition_sql", legacy_row["definition_sql"]),
-            dimensions=dimensions,
-            grain=family_payload.get("grain", legacy_row["grain"]),
-            measure_type=family_payload.get("measure_type", legacy_row["measure_type"]),
-            allowed_dimensions=list(
-                family_payload.get("allowed_dimensions")
-                or json.loads(legacy_row["allowed_dimensions_json"] or "[]")
-            ),
-            lineage=list(json.loads(legacy_row["lineage_json"] or "[]")),
-            quality_expectations=dict(json.loads(legacy_row["quality_expectations_json"] or "{}")),
-            desired_direction=family_payload.get(
-                "desired_direction", legacy_row.get("desired_direction")
-            ),
+            definition_sql=family_payload.get("definition_sql"),
+            dimensions=list(family_payload.get("dimensions") or []),
+            grain=family_payload.get("grain"),
+            measure_type=family_payload.get("measure_type"),
+            allowed_dimensions=list(family_payload.get("allowed_dimensions") or []),
+            lineage=list(family_payload.get("lineage") or []),
+            quality_expectations=dict(family_payload.get("quality_expectations") or {}),
+            desired_direction=family_payload.get("desired_direction"),
             metadata={
-                "metric_id": legacy_row["metric_id"],
+                "metric_contract_id": semantic_object["metric_contract_id"],
                 "display_name": header["display_name"],
                 "description": header["description"],
                 "status": resolved_contract.status,
                 "revision": resolved_contract.revision,
-                "properties": properties,
                 "created_at": resolved_contract.created_at,
                 "updated_at": resolved_contract.updated_at,
             },
         )
 
     def resolve_entity(self, entity_name: str) -> ResolvedEntity | None:
-        legacy_row = self.metadata.query_one(
-            """
-            SELECT
-                entity_id, name, display_name, description, keys_json, level,
-                join_constraints_json, upstream_dependencies_json, lineage_json,
-                quality_expectations_json, properties_json, status, revision,
-                created_at, updated_at
-            FROM semantic_entities
-            WHERE name = ? AND status = 'published'
-            """,
-            [entity_name],
-        )
-        if legacy_row is None:
-            return None
-
         try:
             resolved_contract = self.resolve_entity_ref(f"entity.{entity_name}")
         except (
@@ -630,10 +591,10 @@ class SemanticResolver:
         interface_contract = semantic_object["interface_contract"]
         identity = interface_contract["identity"]
         hierarchy = interface_contract.get("hierarchy") or {}
-        properties = json.loads(legacy_row["properties_json"] or "{}")
+        entity_ref = str(header["entity_ref"])
 
         return ResolvedEntity(
-            name=legacy_row["name"],
+            name=entity_ref.removeprefix("entity."),
             entity_ref=str(header["entity_ref"]),
             display_name=str(header["display_name"]),
             description=str(header["description"]),
@@ -647,19 +608,16 @@ class SemanticResolver:
             ownership_semantics=hierarchy.get("ownership_semantics"),
             primary_time_ref=interface_contract.get("primary_time_ref"),
             stable_descriptors=list(interface_contract.get("stable_descriptors") or []),
-            keys=list(json.loads(legacy_row["keys_json"] or "[]")),
-            level=legacy_row["level"],
-            join_constraints=dict(json.loads(legacy_row["join_constraints_json"] or "{}")),
-            upstream_dependencies=list(
-                json.loads(legacy_row["upstream_dependencies_json"] or "[]")
-            ),
-            lineage=list(json.loads(legacy_row["lineage_json"] or "[]")),
-            quality_expectations=dict(json.loads(legacy_row["quality_expectations_json"] or "{}")),
+            keys=list(identity["key_refs"]),
+            level=None,
+            join_constraints={},
+            upstream_dependencies=[],
+            lineage=[],
+            quality_expectations={},
             metadata={
-                "entity_id": legacy_row["entity_id"],
+                "entity_contract_id": semantic_object["entity_contract_id"],
                 "display_name": header["display_name"],
                 "description": header["description"],
-                "properties": properties,
                 "status": resolved_contract.status,
                 "revision": resolved_contract.revision,
                 "created_at": resolved_contract.created_at,
