@@ -24,6 +24,7 @@ import json
 from typing import Any
 
 from app.evidence_engine.publish_switch import assemble_externally_visible_bundle
+from app.evidence_engine.ref_boundary import assert_no_semantic_refs_in_canonical_payload
 from app.storage.evidence_repositories import (
     ActionProposalRepository,
     AssessmentRepository,
@@ -203,7 +204,7 @@ def materialize_proposition_context_view(
     # ------------------------------------------------------------------
     if bundle is None:
         seed_findings = [e["finding"] for e in seed_entries if e["finding"] is not None]
-        return {
+        view = {
             "proposition": proposition,
             "seed_entries": seed_entries,
             "relevant_findings": [],
@@ -215,6 +216,8 @@ def materialize_proposition_context_view(
             "artifact_refs": _artifact_refs_from_findings(seed_findings),
             "schema_version": PROPOSITION_CONTEXT_VIEW_SCHEMA_VERSION,
         }
+        assert_no_semantic_refs_in_canonical_payload(view, surface="proposition_context_view")
+        return view
 
     # ------------------------------------------------------------------
     # 5. Externally visible bundle exists — build full closure.
@@ -304,7 +307,7 @@ def materialize_proposition_context_view(
     # ------------------------------------------------------------------
     # 11. Return PropositionContextView.
     # ------------------------------------------------------------------
-    return {
+    view = {
         "proposition": proposition,
         "seed_entries": seed_entries,
         "relevant_findings": relevant_findings,
@@ -316,3 +319,5 @@ def materialize_proposition_context_view(
         "artifact_refs": artifact_refs,
         "schema_version": PROPOSITION_CONTEXT_VIEW_SCHEMA_VERSION,
     }
+    assert_no_semantic_refs_in_canonical_payload(view, surface="proposition_context_view")
+    return view

@@ -10,6 +10,7 @@ from app.analysis_core.typed_resolution import (
     resolve_compiler_inputs,
 )
 from app.analysis_core.validator import validate_compiler_inputs
+from app.evidence_engine.ref_boundary import assert_no_canonical_refs_in_semantic_payload
 from app.semantic_runtime import SemanticRuntimeRepository
 from app.semantic_runtime.errors import SemanticRuntimeNotFoundError
 from app.semantic_runtime.resolution import ResolvedSemanticObject
@@ -357,6 +358,16 @@ class CompilerTypedResolutionTests(unittest.TestCase):
         self.assertEqual(profile_trace[0]["subject_ref"], "metric.watch_time")
         self.assertEqual(profile_trace[0]["subject_revision"], 1)
         self.assertEqual(profile_trace[0]["resolved_subject_revision"], 1)
+        assert_no_canonical_refs_in_semantic_payload(
+            compiled.ir_bundle,
+            surface="compiler_ir_bundle",
+        )
+        assert_no_canonical_refs_in_semantic_payload(
+            compiled.metadata,
+            surface="compiler_metadata",
+        )
+        self.assertNotIn("artifact_refs", compiled.ir_bundle["compile_report"])
+        self.assertNotIn("finding_ref", str(compiled.ir_bundle))
 
     def test_resolve_compiler_inputs_no_repository_warns_for_metric_and_dimensions(self) -> None:
         from app.analysis_core.typed_resolution import NormalizedCompilerRequest

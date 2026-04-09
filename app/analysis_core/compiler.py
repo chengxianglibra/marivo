@@ -40,6 +40,7 @@ from app.analysis_core.typed_resolution import (
     resolve_compiler_inputs,
 )
 from app.analysis_core.validator import validate_compiler_inputs, validation_error_message
+from app.evidence_engine.ref_boundary import assert_no_canonical_refs_in_semantic_payload
 from app.semantic_runtime import SemanticRuntimeRepository
 from app.semantic_runtime.resolution import ResolvedSemanticObject
 
@@ -1125,6 +1126,7 @@ def compile_step(
         validation_result=validation_result,
         derived_state=derived_state,
     )
+    assert_no_canonical_refs_in_semantic_payload(ir_bundle, surface="compiler_ir_bundle")
     params = dict(step.params)
     metadata = {
         "engine_type": engine_type,
@@ -1144,6 +1146,7 @@ def compile_step(
         "resolved_binding_refs": [binding.ref for binding in resolved_inputs.resolved_bindings],
         "compiler_summary": ir_bundle["compile_report"]["validation_summary"],
     }
+    assert_no_canonical_refs_in_semantic_payload(metadata, surface="compiler_metadata")
     table_name: str | None = None
     compiled_params: list[Any] = []
 

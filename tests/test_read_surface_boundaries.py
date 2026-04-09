@@ -77,6 +77,24 @@ _CANONICAL_EVIDENCE_FIELDS = frozenset(
     }
 )
 
+_SEMANTIC_REF_PREFIXES = ("metric.", "entity.", "process.", "dimension.", "time.", "binding.")
+
+
+def _walk_strings(payload: Any) -> list[str]:
+    strings: list[str] = []
+    if isinstance(payload, dict):
+        for key, value in payload.items():
+            strings.append(str(key))
+            strings.extend(_walk_strings(value))
+        return strings
+    if isinstance(payload, list):
+        for item in payload:
+            strings.extend(_walk_strings(item))
+        return strings
+    if isinstance(payload, str):
+        return [payload]
+    return strings
+
 
 def _make_store() -> SQLiteMetadataStore:
     tmp = tempfile.mkdtemp()
@@ -968,6 +986,89 @@ class TestStateClosureCorrectness(unittest.TestCase):
             artifact_ids,
             "Artifacts without backing findings must not appear in /state artifact_refs",
         )
+
+
+class TestCanonicalReadSurfacesDoNotExposeSemanticRefs(unittest.TestCase):
+    def setUp(self) -> None:
+        self.store = _make_store()
+        self.session_id = f"sess_{uuid4().hex[:12]}"
+        self.proposition_id = f"prop_{uuid4().hex[:12]}"
+        self.assessment_id = f"assess_{uuid4().hex[:12]}"
+        self.artifact_id = f"art_{uuid4().hex[:12]}"
+        self.finding_id = f"find_{uuid4().hex[:12]}"
+        _insert_session(self.store, self.session_id)
+        _insert_artifact(self.store, self.session_id, self.artifact_id)
+        _insert_finding(self.store, self.session_id, self.finding_id, self.artifact_id)
+        _insert_proposition(
+            self.store,
+            self.session_id,
+            self.proposition_id,
+        )
+        _insert_assessment(self.store, self.session_id, self.assessment_id, self.proposition_id)
+        self.store.execute(
+            "UPDATE propositions SET externally_visible_assessment_id = ? WHERE proposition_id = ?",
+            [self.assessment_id, self.proposition_id],
+        )
+        self.store.execute(
+            "UPDATE assessments SET supporting_finding_ids_json = ? WHERE assessment_id = ?",
+            [json.dumps([self.finding_id]), self.assessment_id],
+        )
+
+    def test_state_view_contains_no_semantic_ref_field_names_or_values(self) -> None:
+        from app.evidence_engine.state_view import materialize_session_state_view
+        from app.storage.evidence_repositories import (
+            ActionProposalRepository,
+            AssessmentRepository,
+            EvidenceGapRepository,
+            FindingRepository,
+            InferenceRecordRepository,
+            PropositionRepository,
+        )
+
+        view = materialize_session_state_view(
+            session_id=self.session_id,
+            query={},
+            finding_repo=FindingRepository(self.store),
+            proposition_repo=PropositionRepository(self.store),
+            assessment_repo=AssessmentRepository(self.store),
+            gap_repo=EvidenceGapRepository(self.store),
+            inference_record_repo=InferenceRecordRepository(self.store),
+            proposal_repo=ActionProposalRepository(self.store),
+        )
+
+        strings = _walk_strings(view)
+        self.assertFalse(
+            any(text in {"metric_ref", "semantic_ref", "subject_ref"} for text in strings)
+        )
+        self.assertFalse(any(text.startswith(_SEMANTIC_REF_PREFIXES) for text in strings))
+
+    def test_context_view_contains_no_semantic_ref_field_names_or_values(self) -> None:
+        from app.evidence_engine.context_view import materialize_proposition_context_view
+        from app.storage.evidence_repositories import (
+            ActionProposalRepository,
+            AssessmentRepository,
+            EvidenceGapRepository,
+            FindingRepository,
+            InferenceRecordRepository,
+            PropositionRepository,
+        )
+
+        view = materialize_proposition_context_view(
+            session_id=self.session_id,
+            proposition_id=self.proposition_id,
+            proposition_repo=PropositionRepository(self.store),
+            assessment_repo=AssessmentRepository(self.store),
+            finding_repo=FindingRepository(self.store),
+            gap_repo=EvidenceGapRepository(self.store),
+            inference_record_repo=InferenceRecordRepository(self.store),
+            proposal_repo=ActionProposalRepository(self.store),
+        )
+
+        strings = _walk_strings(view)
+        self.assertFalse(
+            any(text in {"metric_ref", "semantic_ref", "subject_ref"} for text in strings)
+        )
+        self.assertFalse(any(text.startswith(_SEMANTIC_REF_PREFIXES) for text in strings))
 
 
 if __name__ == "__main__":
