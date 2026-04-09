@@ -108,6 +108,8 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertIn("artifact_id", resp.text)
         self.assertIn("runtime_scope", resp.text)
         self.assertIn("404 session not found. Returned to session list.", resp.text)
+        self.assertIn("function goToSessions(sessionId = '', historyMode = 'push')", resp.text)
+        self.assertIn("function handleSessionNotFound(setError)", resp.text)
         self.assertIn("setActiveTab(currentRoute.tab)", resp.text)
 
     def test_ui_state_page_declares_canonical_filters_and_drill_ins(self) -> None:
@@ -127,7 +129,7 @@ class UIBothEnabledTests(unittest.TestCase):
         resp = self.client.get("/ui")
         self.assertIn("does not expose runtime queue, claim, retry, or backlog fields", resp.text)
         self.assertIn("Slice filters are intentionally excluded from this T4 UI.", resp.text)
-        self.assertIn("当前 session 没有对外可见 proposition", resp.text)
+        self.assertIn("当前 session 尚无对外可见 proposition", resp.text)
         self.assertIn("当前筛选条件下无命中", resp.text)
 
     def test_ui_context_page_declares_locator_contract_and_runtime_drill_ins(self) -> None:
@@ -140,12 +142,14 @@ class UIBothEnabledTests(unittest.TestCase):
 
     def test_ui_context_page_keeps_canonical_boundary_and_error_copy(self) -> None:
         resp = self.client.get("/ui")
+        self.assertIn("该 proposition 当前尚无 latest assessment，请查看 runtime", resp.text)
         self.assertIn("latest_assessment = null is a canonical result only", resp.text)
         self.assertIn(
             "Use Runtime to distinguish untriggered, failed, or migration-blocked states.",
             resp.text,
         )
         self.assertIn("404 proposition not found. Returned to State.", resp.text)
+        self.assertIn("function handlePropositionNotFound(setError)", resp.text)
         self.assertIn(
             "latest_assessment = null 时，blocking_gaps 按 canonical contract 为 null。", resp.text
         )
@@ -174,6 +178,8 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertIn("Open Session", resp.text)
         self.assertIn("Open State", resp.text)
         self.assertIn("Open Context", resp.text)
+        self.assertIn("goToState(currentRoute.sessionId, currentRoute.propositionId)", resp.text)
+        self.assertIn("goToJobs(currentRoute.sessionId)", resp.text)
         self.assertIn("No retry, cancel, or terminate controls exist on this page.", resp.text)
         self.assertIn(
             "Runtime lookup failures stay on this page instead of forcing a jump away from the canonical chain.",
@@ -216,6 +222,9 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertIn("Jobs is an auxiliary troubleshooting surface", resp.text)
         self.assertIn("It does not replace runtime status diagnosis for blocked work.", resp.text)
         self.assertIn("当前筛选条件下无相关后台任务", resp.text)
+        self.assertIn(
+            "function goToJobs(sessionId = '', status = '', historyMode = 'push')", resp.text
+        )
         self.assertIn("No submit, cancel, or retry controls exist on this page.", resp.text)
         self.assertIn("T8 aligns the read-only jobs view with created_at / updated_at", resp.text)
 

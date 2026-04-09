@@ -760,6 +760,17 @@ const DEFAULT_ROUTE = {
   status: '',
   sessionQuery: '',
 };
+const UI_EMPTY_COPY = {
+  sessions: '当前没有可查看的分析会话',
+  state: '当前 session 尚无对外可见 proposition',
+  filteredState: '当前筛选条件下无命中',
+  contextNoAssessment: '该 proposition 当前尚无 latest assessment，请查看 runtime',
+  jobs: '当前筛选条件下无相关后台任务',
+};
+const UI_ERROR_COPY = {
+  sessionNotFound: '404 session not found. Returned to session list.',
+  propositionNotFound: '404 proposition not found. Returned to State.',
+};
 
 let currentRoute = { ...DEFAULT_ROUTE };
 let sessionsViewState = {
@@ -1027,6 +1038,108 @@ function writeRoute(route, historyMode = 'push') {
   window.history[method](null, '', nextUrl);
 }
 
+function goToSessions(sessionId = '', historyMode = 'push') {
+  applyRoute({ ...DEFAULT_ROUTE, tab: 'sessions', sessionId }, historyMode);
+}
+
+function goToState(sessionId, propositionId = '', historyMode = 'push') {
+  applyRoute(
+    {
+      ...DEFAULT_ROUTE,
+      tab: 'state',
+      sessionId: sessionId || '',
+      propositionId: propositionId || '',
+    },
+    historyMode
+  );
+}
+
+function goToContext(sessionId, propositionId, historyMode = 'push') {
+  applyRoute(
+    {
+      ...DEFAULT_ROUTE,
+      tab: 'context',
+      sessionId: sessionId || '',
+      propositionId: propositionId || '',
+    },
+    historyMode
+  );
+}
+
+function goToSessionRuntime(sessionId, historyMode = 'push') {
+  applyRoute(
+    {
+      ...DEFAULT_ROUTE,
+      tab: 'runtime',
+      sessionId: sessionId || '',
+      runtimeScope: 'session',
+    },
+    historyMode
+  );
+}
+
+function goToPropositionRuntime(sessionId, propositionId, historyMode = 'push') {
+  applyRoute(
+    {
+      ...DEFAULT_ROUTE,
+      tab: 'runtime',
+      sessionId: sessionId || '',
+      propositionId: propositionId || '',
+      runtimeScope: 'proposition',
+    },
+    historyMode
+  );
+}
+
+function goToArtifactRuntime(sessionId, artifactId, propositionId = '', historyMode = 'push') {
+  applyRoute(
+    {
+      ...DEFAULT_ROUTE,
+      tab: 'runtime',
+      sessionId: sessionId || '',
+      propositionId: propositionId || '',
+      artifactId: artifactId || '',
+      runtimeScope: 'artifact',
+    },
+    historyMode
+  );
+}
+
+function goToGrounding(sessionId = '', historyMode = 'push') {
+  applyRoute(
+    {
+      ...DEFAULT_ROUTE,
+      tab: 'grounding',
+      sessionId: sessionId || '',
+    },
+    historyMode
+  );
+}
+
+function goToJobs(sessionId = '', status = '', historyMode = 'push') {
+  applyRoute(
+    {
+      ...DEFAULT_ROUTE,
+      tab: 'jobs',
+      sessionId: sessionId || '',
+      status: status || '',
+    },
+    historyMode
+  );
+}
+
+function handleSessionNotFound(setError) {
+  setError(UI_ERROR_COPY.sessionNotFound);
+  toast(UI_ERROR_COPY.sessionNotFound, 'error');
+  goToSessions('', 'replace');
+}
+
+function handlePropositionNotFound(setError) {
+  setError(UI_ERROR_COPY.propositionNotFound);
+  toast(UI_ERROR_COPY.propositionNotFound, 'error');
+  goToState(currentRoute.sessionId, '', 'replace');
+}
+
 function formatPretty(value) {
   if (value == null) return '<span class="empty">None</span>';
   if (typeof value === 'string') return `<span>${esc(value)}</span>`;
@@ -1235,7 +1348,7 @@ function renderStateRows(entries) {
   if (!Array.isArray(entries) || entries.length === 0) {
     const hasFilters = Object.entries(stateViewState.filters)
       .some(([key, value]) => key !== 'limit' && String(value || '').trim() !== '');
-    const emptyCopy = hasFilters ? '当前筛选条件下无命中' : '当前 session 没有对外可见 proposition';
+    const emptyCopy = hasFilters ? UI_EMPTY_COPY.filteredState : UI_EMPTY_COPY.state;
     return `<tr><td colspan="7" class="empty">${esc(emptyCopy)}</td></tr>`;
   }
 
@@ -1305,34 +1418,18 @@ function bindStateEvents() {
 
   panel.querySelectorAll('.state-open-context-btn').forEach((button) => {
     button.addEventListener('click', () => {
-      applyRoute({
-        ...currentRoute,
-        tab: 'context',
-        propositionId: button.dataset.propositionId || '',
-      });
+      goToContext(currentRoute.sessionId, button.dataset.propositionId || '');
     });
   });
 
   panel.querySelectorAll('.state-open-runtime-btn').forEach((button) => {
     button.addEventListener('click', () => {
-      applyRoute({
-        ...currentRoute,
-        tab: 'runtime',
-        propositionId: button.dataset.propositionId || '',
-        artifactId: '',
-        runtimeScope: 'proposition',
-      });
+      goToPropositionRuntime(currentRoute.sessionId, button.dataset.propositionId || '');
     });
   });
 
   panel.querySelector('[data-role="go-to-sessions"]')?.addEventListener('click', () => {
-    applyRoute({
-      ...currentRoute,
-      tab: 'sessions',
-      propositionId: '',
-      artifactId: '',
-      runtimeScope: '',
-    });
+    goToSessions();
   });
 }
 
@@ -1466,29 +1563,18 @@ function bindContextEvents() {
   if (!panel) return;
 
   panel.querySelector('[data-role="context-open-sessions"]')?.addEventListener('click', () => {
-    applyRoute({
-      ...currentRoute,
-      tab: 'sessions',
-      propositionId: '',
-      artifactId: '',
-      runtimeScope: '',
-    });
+    goToSessions(currentRoute.sessionId);
   });
 
   panel.querySelectorAll('[data-role="context-open-state"]').forEach((button) => {
     button.addEventListener('click', () => {
-      applyRoute({ ...currentRoute, tab: 'state', artifactId: '', runtimeScope: '' });
+      goToState(currentRoute.sessionId, currentRoute.propositionId);
     });
   });
 
   panel.querySelectorAll('[data-role="context-open-proposition-runtime"]').forEach((button) => {
     button.addEventListener('click', () => {
-      applyRoute({
-        ...currentRoute,
-        tab: 'runtime',
-        artifactId: '',
-        runtimeScope: 'proposition',
-      });
+      goToPropositionRuntime(currentRoute.sessionId, currentRoute.propositionId);
     });
   });
 
@@ -1498,12 +1584,7 @@ function bindContextEvents() {
       if (artifactId) {
         toast(`Opening Artifact Runtime for ${artifactId} in the Runtime workbench.`, 'info');
       }
-      applyRoute({
-        ...currentRoute,
-        tab: 'runtime',
-        artifactId,
-        runtimeScope: 'artifact',
-      });
+      goToArtifactRuntime(currentRoute.sessionId, artifactId, currentRoute.propositionId);
     });
   });
 }
@@ -1570,7 +1651,7 @@ function renderContextPage() {
               <div class="detail-group">
                 <h4>Latest Assessment</h4>
                 ${renderContextStructuredValue(latestAssessment, 'No externally visible assessment')}
-                ${!latestAssessment ? '<div class="context-inline-meta">latest_assessment = null is a canonical result only. Use Runtime to distinguish untriggered, failed, or migration-blocked states.</div>' : ''}
+                ${!latestAssessment ? `<div class="context-inline-meta">${esc(UI_EMPTY_COPY.contextNoAssessment)} latest_assessment = null is a canonical result only. Use Runtime to distinguish untriggered, failed, or migration-blocked states.</div>` : ''}
               </div>
             </div>
           </div>
@@ -1942,7 +2023,7 @@ function renderJobsRows() {
     return loadingRow(7);
   }
   if (jobsViewState.items.length === 0) {
-    return '<tr><td colspan="7" class="empty">当前筛选条件下无相关后台任务</td></tr>';
+    return `<tr><td colspan="7" class="empty">${esc(UI_EMPTY_COPY.jobs)}</td></tr>`;
   }
   return jobsViewState.items.map((job) => {
     const selectedClass = job.job_id === jobsViewState.selectedJobId ? 'is-selected' : '';
@@ -2034,27 +2115,14 @@ function bindJobsEvents() {
   panel.querySelector('[data-role="jobs-filter-form"]')?.addEventListener('submit', (event) => {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
-    applyRoute({
-      ...currentRoute,
-      tab: 'jobs',
-      sessionId: String(formData.get('session_id') || '').trim(),
-      status: String(formData.get('status') || '').trim(),
-      propositionId: '',
-      artifactId: '',
-      runtimeScope: '',
-    });
+    goToJobs(
+      String(formData.get('session_id') || '').trim(),
+      String(formData.get('status') || '').trim()
+    );
   });
 
   panel.querySelector('[data-role="jobs-reset-filters"]')?.addEventListener('click', () => {
-    applyRoute({
-      ...currentRoute,
-      tab: 'jobs',
-      sessionId: '',
-      status: '',
-      propositionId: '',
-      artifactId: '',
-      runtimeScope: '',
-    });
+    goToJobs();
   });
 
   panel.querySelectorAll('.jobs-open-detail-btn').forEach((button) => {
@@ -2066,15 +2134,7 @@ function bindJobsEvents() {
 
   panel.querySelectorAll('[data-role="jobs-open-session"]').forEach((button) => {
     button.addEventListener('click', () => {
-      applyRoute({
-        ...currentRoute,
-        tab: 'sessions',
-        sessionId: button.dataset.sessionId || '',
-        status: '',
-        propositionId: '',
-        artifactId: '',
-        runtimeScope: '',
-      });
+      goToSessions(button.dataset.sessionId || '');
     });
   });
 }
@@ -2502,14 +2562,7 @@ function bindGroundingEvents() {
   });
 
   panel.querySelector('[data-role="grounding-open-sessions"]')?.addEventListener('click', () => {
-    applyRoute({
-      ...currentRoute,
-      tab: 'sessions',
-      status: '',
-      propositionId: '',
-      artifactId: '',
-      runtimeScope: '',
-    });
+    goToSessions(currentRoute.sessionId);
   });
 }
 
@@ -2612,47 +2665,25 @@ function bindRuntimeEvents() {
 
   panel.querySelectorAll('[data-role="runtime-open-sessions"]').forEach((button) => {
     button.addEventListener('click', () => {
-      applyRoute({
-        ...currentRoute,
-        tab: 'sessions',
-        status: '',
-        artifactId: '',
-        runtimeScope: '',
-      });
+      goToSessions(currentRoute.sessionId);
     });
   });
 
   panel.querySelectorAll('[data-role="runtime-open-state"]').forEach((button) => {
     button.addEventListener('click', () => {
-      applyRoute({
-        ...currentRoute,
-        tab: 'state',
-        artifactId: '',
-        runtimeScope: '',
-      });
+      goToState(currentRoute.sessionId, currentRoute.propositionId);
     });
   });
 
   panel.querySelectorAll('[data-role="runtime-open-context"]').forEach((button) => {
     button.addEventListener('click', () => {
-      applyRoute({
-        ...currentRoute,
-        tab: 'context',
-        artifactId: '',
-        runtimeScope: '',
-      });
+      goToContext(currentRoute.sessionId, currentRoute.propositionId);
     });
   });
 
   panel.querySelectorAll('[data-role="runtime-open-jobs"]').forEach((button) => {
     button.addEventListener('click', () => {
-      applyRoute({
-        ...currentRoute,
-        tab: 'jobs',
-        status: '',
-        artifactId: '',
-        runtimeScope: '',
-      });
+      goToJobs(currentRoute.sessionId);
     });
   });
 }
@@ -2723,7 +2754,7 @@ function renderSessionRows() {
     return loadingRow(6);
   }
   if (sessionsViewState.items.length === 0) {
-    return `<tr><td colspan="7" class="empty">当前没有可查看的分析会话</td></tr>`;
+    return `<tr><td colspan="7" class="empty">${esc(UI_EMPTY_COPY.sessions)}</td></tr>`;
   }
   return sessionsViewState.items.map((session) => {
     const selectedClass = session.session_id === currentRoute.sessionId ? 'is-selected' : '';
@@ -2920,7 +2951,7 @@ function bindSessionsEvents() {
   }
 
   panel.querySelector('[data-role="reset-filters"]')?.addEventListener('click', () => {
-    applyRoute({ ...DEFAULT_ROUTE, tab: 'sessions' });
+    goToSessions();
   });
 
   panel.querySelectorAll('.session-select-btn').forEach((button) => {
@@ -2936,15 +2967,24 @@ function bindSessionsEvents() {
   panel.querySelectorAll('.session-nav-btn').forEach((button) => {
     button.addEventListener('click', () => {
       const targetTab = button.dataset.targetTab || 'sessions';
-      applyRoute({
-        ...currentRoute,
-        tab: targetTab,
-        sessionId: button.dataset.sessionId || '',
-        status: targetTab === 'sessions' ? currentRoute.status : '',
-        propositionId: '',
-        artifactId: '',
-        runtimeScope: targetTab === 'runtime' ? 'session' : '',
-      });
+      const sessionId = button.dataset.sessionId || '';
+      if (targetTab === 'state') {
+        goToState(sessionId);
+        return;
+      }
+      if (targetTab === 'runtime') {
+        goToSessionRuntime(sessionId);
+        return;
+      }
+      if (targetTab === 'jobs') {
+        goToJobs(sessionId);
+        return;
+      }
+      if (targetTab === 'grounding') {
+        goToGrounding(sessionId);
+        return;
+      }
+      goToSessions(sessionId);
     });
   });
 }
@@ -3060,9 +3100,9 @@ async function loadSessionDetail() {
   } catch (error) {
     sessionsViewState.selectedSession = null;
     if (error.status === 404) {
-      sessionsViewState.detailError = '404 session not found. Returned to session list.';
-      toast('404 session not found. Returned to session list.', 'error');
-      applyRoute({ ...currentRoute, tab: 'sessions', sessionId: '', artifactId: '' }, 'replace');
+      handleSessionNotFound((message) => {
+        sessionsViewState.detailError = message;
+      });
       return;
     }
     sessionsViewState.detailError = error.message || 'Failed to load session detail.';
@@ -3090,19 +3130,9 @@ async function loadStateView() {
   } catch (error) {
     stateViewState.result = null;
     if (error.status === 404) {
-      stateViewState.error = '404 session not found. Returned to session list.';
-      toast('404 session not found. Returned to session list.', 'error');
-      applyRoute(
-        {
-          ...currentRoute,
-          tab: 'sessions',
-          sessionId: '',
-          propositionId: '',
-          artifactId: '',
-          runtimeScope: '',
-        },
-        'replace'
-      );
+      handleSessionNotFound((message) => {
+        stateViewState.error = message;
+      });
       return;
     }
     stateViewState.error = error.message || 'State query failed.';
@@ -3133,12 +3163,9 @@ async function loadContextView() {
   } catch (error) {
     contextViewState.result = null;
     if (error.status === 404) {
-      contextViewState.error = '404 proposition not found. Returned to State.';
-      toast('404 proposition not found. Returned to State.', 'error');
-      applyRoute(
-        { ...currentRoute, tab: 'state', propositionId: '', artifactId: '', runtimeScope: '' },
-        'replace'
-      );
+      handlePropositionNotFound((message) => {
+        contextViewState.error = message;
+      });
       return;
     }
     contextViewState.error = error.message || 'Context lookup failed.';
