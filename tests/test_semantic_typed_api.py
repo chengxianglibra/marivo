@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
@@ -22,6 +23,65 @@ class SemanticTypedApiTests(unittest.TestCase):
     def tearDownClass(cls) -> None:
         cls.client.close()
         cls.temp_dir.cleanup()
+
+    def _metadata(self):
+        return self.client.app.state.services.metadata_store
+
+    def _ensure_source_id(self) -> str:
+        row = self._metadata().query_one("SELECT source_id FROM sources ORDER BY source_id LIMIT 1")
+        if row is not None:
+            return str(row["source_id"])
+        source_id = f"src_{uuid4().hex[:12]}"
+        now = "2026-04-09T00:00:00+00:00"
+        self._metadata().execute(
+            """
+            INSERT INTO sources (
+                source_id, source_type, display_name, connection_json,
+                capabilities_json, sync_mode, status, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [source_id, "duckdb", "Test Source", "{}", "{}", "all", "active", now, now],
+        )
+        return source_id
+
+    def _insert_source_object(
+        self,
+        *,
+        fqn: str,
+        object_type: str = "table",
+        native_name: str | None = None,
+    ) -> str:
+        existing = self._metadata().query_one(
+            "SELECT object_id FROM source_objects WHERE fqn = ? AND object_type = ?",
+            [fqn, object_type],
+        )
+        if existing is not None:
+            return str(existing["object_id"])
+        object_id = f"obj_{uuid4().hex[:12]}"
+        now = "2026-04-09T00:00:00+00:00"
+        self._metadata().execute(
+            """
+            INSERT INTO source_objects (
+                object_id, source_id, object_type, parent_id, native_name, native_id,
+                fqn, properties_json, sync_version, synced_at, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                object_id,
+                self._ensure_source_id(),
+                object_type,
+                None,
+                native_name or fqn.rsplit(".", 1)[-1],
+                None,
+                fqn,
+                "{}",
+                "test_sync_v1",
+                now,
+                now,
+                now,
+            ],
+        )
+        return object_id
 
     def test_typed_entity_lifecycle(self) -> None:
         resp = self.client.post(
@@ -155,6 +215,9 @@ class SemanticTypedApiTests(unittest.TestCase):
             },
         )
         self.assertEqual(entity_resp.status_code, 200, entity_resp.text)
+        entity_id = entity_resp.json()["entity_contract_id"]
+        publish_entity_resp = self.client.post(f"/semantic/entities/{entity_id}/publish")
+        self.assertEqual(publish_entity_resp.status_code, 200, publish_entity_resp.text)
 
         binding_resp = self.client.post(
             "/semantic/bindings",
@@ -207,6 +270,7 @@ class SemanticTypedApiTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertEqual(resp.json()["header"]["description"], "Updated binding description")
 
+        self._insert_source_object(fqn="warehouse.accounts")
         resp = self.client.post(f"/semantic/bindings/{binding_id}/publish")
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertEqual(resp.json()["status"], "published")
@@ -270,6 +334,750 @@ class SemanticTypedApiTests(unittest.TestCase):
         resp = self.client.get("/compiler/compatibility-profiles?status=published")
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertTrue(all(item["status"] == "published" for item in resp.json()["items"]))
+
+    def test_binding_rejects_unknown_surface_for_carrier(self) -> None:
+        entity_resp = self.client.post(
+            "/semantic/entities",
+            json={
+                "header": {
+                    "entity_ref": f"entity.surface_case_{uuid4().hex[:8]}",
+                    "display_name": "Surface Case",
+                    "entity_contract_version": "entity.v4",
+                },
+                "interface_contract": {
+                    "identity": {
+                        "key_refs": ["key.surface_id"],
+                        "uniqueness_scope": "global",
+                        "id_stability": "stable",
+                    }
+                },
+            },
+        )
+        self.assertEqual(entity_resp.status_code, 200, entity_resp.text)
+        entity_ref = entity_resp.json()["header"]["entity_ref"]
+
+        resp = self.client.post(
+            "/semantic/bindings",
+            json={
+                "header": {
+                    "binding_ref": f"binding.surface_case_{uuid4().hex[:8]}",
+                    "binding_scope": "entity",
+                    "bound_object_ref": entity_ref,
+                    "binding_contract_version": "binding.v1",
+                },
+                "interface_contract": {
+                    "carrier_bindings": [
+                        {
+                            "binding_key": "primary",
+                            "carrier_kind": "table",
+                            "carrier_locator": "warehouse.surface_case",
+                            "binding_role": "primary",
+                            "field_surfaces": [
+                                {"surface_ref": "field.real_id", "physical_name": "real_id"}
+                            ],
+                        }
+                    ],
+                    "field_bindings": [
+                        {
+                            "carrier_binding_key": "primary",
+                            "target": {
+                                "target_kind": "identity_key",
+                                "target_key": "key.surface_id",
+                            },
+                            "semantic_ref": "key.surface_id",
+                            "surface_ref": "field.missing_id",
+                        }
+                    ],
+                },
+            },
+        )
+        self.assertEqual(resp.status_code, 422, resp.text)
+        self.assertIn("surface_ref does not exist", resp.json()["detail"])
+
+    def test_entity_binding_requires_identity_time_and_descriptor_targets(self) -> None:
+        time_resp = self.client.post(
+            "/semantic/time",
+            json={
+                "header": {
+                    "time_ref": f"time.account_created_{uuid4().hex[:8]}",
+                    "display_name": "Account Created",
+                    "semantic_roles": ["business_anchor", "measurement"],
+                    "time_contract_version": "time.v1",
+                }
+            },
+        )
+        self.assertEqual(time_resp.status_code, 200, time_resp.text)
+        time_ref = time_resp.json()["header"]["time_ref"]
+
+        dimension_resp = self.client.post(
+            "/semantic/dimensions",
+            json={
+                "header": {
+                    "dimension_ref": f"dimension.account_country_{uuid4().hex[:8]}",
+                    "display_name": "Account Country",
+                    "dimension_contract_version": "dimension.v1",
+                },
+                "interface_contract": {
+                    "value_domain": {
+                        "structure_kind": "flat",
+                        "value_type": "string",
+                        "domain_kind": "open",
+                    }
+                },
+            },
+        )
+        self.assertEqual(dimension_resp.status_code, 200, dimension_resp.text)
+        dimension_ref = dimension_resp.json()["header"]["dimension_ref"]
+
+        entity_resp = self.client.post(
+            "/semantic/entities",
+            json={
+                "header": {
+                    "entity_ref": f"entity.account_contract_{uuid4().hex[:8]}",
+                    "display_name": "Account Contract",
+                    "entity_contract_version": "entity.v4",
+                },
+                "interface_contract": {
+                    "identity": {
+                        "key_refs": ["key.account_id"],
+                        "uniqueness_scope": "global",
+                        "id_stability": "stable",
+                    },
+                    "primary_time_ref": time_ref,
+                    "stable_descriptors": [{"dimension_ref": dimension_ref, "cardinality": "one"}],
+                },
+            },
+        )
+        self.assertEqual(entity_resp.status_code, 200, entity_resp.text)
+        entity_ref = entity_resp.json()["header"]["entity_ref"]
+
+        resp = self.client.post(
+            "/semantic/bindings",
+            json={
+                "header": {
+                    "binding_ref": f"binding.account_contract_{uuid4().hex[:8]}",
+                    "binding_scope": "entity",
+                    "bound_object_ref": entity_ref,
+                    "binding_contract_version": "binding.v1",
+                },
+                "interface_contract": {
+                    "carrier_bindings": [
+                        {
+                            "binding_key": "primary",
+                            "carrier_kind": "table",
+                            "carrier_locator": "warehouse.account_contract",
+                            "binding_role": "primary",
+                            "field_surfaces": [
+                                {"surface_ref": "field.account_id", "physical_name": "account_id"},
+                                {"surface_ref": "field.created_at", "physical_name": "created_at"},
+                            ],
+                        }
+                    ],
+                    "field_bindings": [
+                        {
+                            "carrier_binding_key": "primary",
+                            "target": {
+                                "target_kind": "identity_key",
+                                "target_key": "key.account_id",
+                            },
+                            "semantic_ref": "key.account_id",
+                            "surface_ref": "field.account_id",
+                        },
+                        {
+                            "carrier_binding_key": "primary",
+                            "target": {
+                                "target_kind": "primary_time",
+                                "target_key": time_ref,
+                            },
+                            "semantic_ref": time_ref,
+                            "surface_ref": "field.created_at",
+                        },
+                    ],
+                },
+            },
+        )
+        self.assertEqual(resp.status_code, 422, resp.text)
+        self.assertIn("stable descriptor", resp.json()["detail"])
+
+    def test_experiment_process_binding_requires_process_context_and_join_relations(self) -> None:
+        time_resp = self.client.post(
+            "/semantic/time",
+            json={
+                "header": {
+                    "time_ref": f"time.exposure_case_{uuid4().hex[:8]}",
+                    "display_name": "Exposure Time",
+                    "semantic_roles": ["business_anchor", "measurement"],
+                    "time_contract_version": "time.v1",
+                }
+            },
+        )
+        self.assertEqual(time_resp.status_code, 200, time_resp.text)
+        time_ref = time_resp.json()["header"]["time_ref"]
+
+        process_resp = self.client.post(
+            "/semantic/process-objects",
+            json={
+                "header": {
+                    "process_ref": f"process.experiment_case_{uuid4().hex[:8]}",
+                    "display_name": "Experiment Case",
+                    "process_type": "experiment_context",
+                    "process_contract_version": "process.v2",
+                },
+                "interface_contract": {
+                    "contract_mode": "context_provider",
+                    "context_kind": "experiment_split",
+                    "population_subject_ref": "subject.user",
+                    "membership_cardinality": "exclusive_one",
+                    "anchor_time_ref": time_ref,
+                },
+                "payload": {
+                    "process_type": "experiment_context",
+                    "experiment_key": "checkout-redesign",
+                    "variants": [
+                        {"variant_key": "control", "population_ref": "population.control"},
+                        {"variant_key": "treatment", "population_ref": "population.treatment"},
+                    ],
+                    "split_basis": {
+                        "kind": "assignment",
+                        "basis_ref": "event.assignment",
+                        "resolution": "first",
+                    },
+                    "analysis_window": {"size": {"value": 7, "unit": "day"}},
+                },
+            },
+        )
+        self.assertEqual(process_resp.status_code, 200, process_resp.text)
+        process_ref = process_resp.json()["header"]["process_ref"]
+
+        missing_context_resp = self.client.post(
+            "/semantic/bindings",
+            json={
+                "header": {
+                    "binding_ref": f"binding.experiment_case_{uuid4().hex[:8]}",
+                    "binding_scope": "process_object",
+                    "bound_object_ref": process_ref,
+                    "binding_contract_version": "binding.v1",
+                },
+                "interface_contract": {
+                    "carrier_bindings": [
+                        {
+                            "binding_key": "assignment",
+                            "carrier_kind": "table",
+                            "carrier_locator": "warehouse.exp_assignment",
+                            "binding_role": "primary",
+                            "field_surfaces": [
+                                {"surface_ref": "field.user_id", "physical_name": "user_id"},
+                                {
+                                    "surface_ref": "field.assigned_at",
+                                    "physical_name": "assigned_at",
+                                },
+                            ],
+                        }
+                    ],
+                    "field_bindings": [
+                        {
+                            "carrier_binding_key": "assignment",
+                            "target": {
+                                "target_kind": "population_subject",
+                                "target_key": "key.user_id",
+                            },
+                            "semantic_ref": "key.user_id",
+                            "surface_ref": "field.user_id",
+                        },
+                        {
+                            "carrier_binding_key": "assignment",
+                            "target": {
+                                "target_kind": "analysis_window_anchor",
+                                "target_key": time_ref,
+                            },
+                            "semantic_ref": time_ref,
+                            "surface_ref": "field.assigned_at",
+                        },
+                    ],
+                },
+            },
+        )
+        self.assertEqual(missing_context_resp.status_code, 422, missing_context_resp.text)
+        self.assertIn("process_context", missing_context_resp.json()["detail"])
+
+        missing_join_resp = self.client.post(
+            "/semantic/bindings",
+            json={
+                "header": {
+                    "binding_ref": f"binding.experiment_join_{uuid4().hex[:8]}",
+                    "binding_scope": "process_object",
+                    "bound_object_ref": process_ref,
+                    "binding_contract_version": "binding.v1",
+                },
+                "interface_contract": {
+                    "carrier_bindings": [
+                        {
+                            "binding_key": "assignment",
+                            "carrier_kind": "table",
+                            "carrier_locator": "warehouse.exp_assignment",
+                            "binding_role": "primary",
+                            "field_surfaces": [
+                                {"surface_ref": "field.user_id", "physical_name": "user_id"},
+                                {
+                                    "surface_ref": "field.experiment_id",
+                                    "physical_name": "experiment_id",
+                                },
+                                {
+                                    "surface_ref": "field.assigned_at",
+                                    "physical_name": "assigned_at",
+                                },
+                            ],
+                        },
+                        {
+                            "binding_key": "exposure",
+                            "carrier_kind": "table",
+                            "carrier_locator": "warehouse.exp_exposure",
+                            "binding_role": "auxiliary",
+                            "field_surfaces": [
+                                {"surface_ref": "field.user_id", "physical_name": "user_id"},
+                            ],
+                        },
+                    ],
+                    "field_bindings": [
+                        {
+                            "carrier_binding_key": "assignment",
+                            "target": {
+                                "target_kind": "population_subject",
+                                "target_key": "key.user_id",
+                            },
+                            "semantic_ref": "key.user_id",
+                            "surface_ref": "field.user_id",
+                        },
+                        {
+                            "carrier_binding_key": "assignment",
+                            "target": {
+                                "target_kind": "process_context",
+                                "target_key": "process.experiment_id",
+                            },
+                            "semantic_ref": "process.experiment_id",
+                            "surface_ref": "field.experiment_id",
+                        },
+                        {
+                            "carrier_binding_key": "assignment",
+                            "target": {
+                                "target_kind": "analysis_window_anchor",
+                                "target_key": time_ref,
+                            },
+                            "semantic_ref": time_ref,
+                            "surface_ref": "field.assigned_at",
+                        },
+                        {
+                            "carrier_binding_key": "exposure",
+                            "target": {
+                                "target_kind": "population_subject",
+                                "target_key": "key.user_id",
+                            },
+                            "semantic_ref": "key.user_id",
+                            "surface_ref": "field.user_id",
+                        },
+                    ],
+                },
+            },
+        )
+        self.assertEqual(missing_join_resp.status_code, 422, missing_join_resp.text)
+        self.assertIn("join_relations", missing_join_resp.json()["detail"])
+
+    def test_rate_metric_binding_requires_numerator_and_denominator(self) -> None:
+        entity_resp = self.client.post(
+            "/semantic/entities",
+            json={
+                "header": {
+                    "entity_ref": f"entity.metric_case_{uuid4().hex[:8]}",
+                    "display_name": "Metric Case Entity",
+                    "entity_contract_version": "entity.v4",
+                },
+                "interface_contract": {
+                    "identity": {
+                        "key_refs": ["key.user_id"],
+                        "uniqueness_scope": "global",
+                        "id_stability": "stable",
+                    }
+                },
+            },
+        )
+        self.assertEqual(entity_resp.status_code, 200, entity_resp.text)
+        entity_ref = entity_resp.json()["header"]["entity_ref"]
+
+        metric_resp = self.client.post(
+            "/semantic/metrics",
+            json={
+                "header": {
+                    "metric_ref": f"metric.rate_case_{uuid4().hex[:8]}",
+                    "display_name": "Rate Case",
+                    "metric_family": "rate_metric",
+                    "population_subject_ref": "subject.user",
+                    "observed_entity_ref": entity_ref,
+                    "observation_grain_ref": "grain.user",
+                    "sample_kind": "rate",
+                    "value_semantics": "ratio",
+                    "additivity": "non_additive",
+                    "metric_contract_version": "metric.v1",
+                },
+                "payload": {
+                    "metric_family": "rate_metric",
+                    "numerator": {
+                        "name": "converted",
+                        "semantics": "converted users",
+                        "aggregation": "count_distinct",
+                    },
+                    "denominator": {
+                        "name": "eligible",
+                        "semantics": "eligible users",
+                        "aggregation": "count_distinct",
+                    },
+                },
+            },
+        )
+        self.assertEqual(metric_resp.status_code, 200, metric_resp.text)
+        metric_ref = metric_resp.json()["header"]["metric_ref"]
+
+        resp = self.client.post(
+            "/semantic/bindings",
+            json={
+                "header": {
+                    "binding_ref": f"binding.rate_case_{uuid4().hex[:8]}",
+                    "binding_scope": "metric",
+                    "bound_object_ref": metric_ref,
+                    "binding_contract_version": "binding.v1",
+                },
+                "interface_contract": {
+                    "carrier_bindings": [
+                        {
+                            "binding_key": "metric_fact",
+                            "carrier_kind": "table",
+                            "carrier_locator": "warehouse.rate_case",
+                            "binding_role": "primary",
+                            "field_surfaces": [
+                                {"surface_ref": "field.user_id", "physical_name": "user_id"},
+                                {"surface_ref": "field.event_id", "physical_name": "event_id"},
+                            ],
+                        }
+                    ],
+                    "field_bindings": [
+                        {
+                            "carrier_binding_key": "metric_fact",
+                            "target": {
+                                "target_kind": "population_subject",
+                                "target_key": "key.user_id",
+                            },
+                            "semantic_ref": "key.user_id",
+                            "surface_ref": "field.user_id",
+                        },
+                        {
+                            "carrier_binding_key": "metric_fact",
+                            "target": {
+                                "target_kind": "metric_input",
+                                "target_key": "numerator",
+                            },
+                            "semantic_ref": "metric_input.converted_users",
+                            "surface_ref": "field.event_id",
+                        },
+                    ],
+                },
+            },
+        )
+        self.assertEqual(resp.status_code, 422, resp.text)
+        self.assertIn("numerator' and 'denominator", resp.json()["detail"])
+
+    def test_binding_publish_requires_published_dependencies_and_grounding(self) -> None:
+        time_resp = self.client.post(
+            "/semantic/time",
+            json={
+                "header": {
+                    "time_ref": f"time.publish_case_{uuid4().hex[:8]}",
+                    "display_name": "Publish Time",
+                    "semantic_roles": ["business_anchor", "measurement"],
+                    "time_contract_version": "time.v1",
+                }
+            },
+        )
+        self.assertEqual(time_resp.status_code, 200, time_resp.text)
+        time_contract_id = time_resp.json()["time_contract_id"]
+        time_ref = time_resp.json()["header"]["time_ref"]
+
+        dimension_resp = self.client.post(
+            "/semantic/dimensions",
+            json={
+                "header": {
+                    "dimension_ref": f"dimension.publish_country_{uuid4().hex[:8]}",
+                    "display_name": "Publish Country",
+                    "dimension_contract_version": "dimension.v1",
+                },
+                "interface_contract": {
+                    "value_domain": {
+                        "structure_kind": "flat",
+                        "value_type": "string",
+                        "domain_kind": "open",
+                    }
+                },
+            },
+        )
+        self.assertEqual(dimension_resp.status_code, 200, dimension_resp.text)
+        dimension_contract_id = dimension_resp.json()["dimension_contract_id"]
+        dimension_ref = dimension_resp.json()["header"]["dimension_ref"]
+
+        entity_resp = self.client.post(
+            "/semantic/entities",
+            json={
+                "header": {
+                    "entity_ref": f"entity.publish_case_{uuid4().hex[:8]}",
+                    "display_name": "Publish Case Entity",
+                    "entity_contract_version": "entity.v4",
+                },
+                "interface_contract": {
+                    "identity": {
+                        "key_refs": ["key.publish_id"],
+                        "uniqueness_scope": "global",
+                        "id_stability": "stable",
+                    },
+                    "primary_time_ref": time_ref,
+                    "stable_descriptors": [{"dimension_ref": dimension_ref}],
+                },
+            },
+        )
+        self.assertEqual(entity_resp.status_code, 200, entity_resp.text)
+        entity_contract_id = entity_resp.json()["entity_contract_id"]
+        entity_ref = entity_resp.json()["header"]["entity_ref"]
+
+        binding_resp = self.client.post(
+            "/semantic/bindings",
+            json={
+                "header": {
+                    "binding_ref": f"binding.publish_case_{uuid4().hex[:8]}",
+                    "binding_scope": "entity",
+                    "bound_object_ref": entity_ref,
+                    "binding_contract_version": "binding.v1",
+                },
+                "interface_contract": {
+                    "carrier_bindings": [
+                        {
+                            "binding_key": "primary",
+                            "carrier_kind": "table",
+                            "carrier_locator": "warehouse.publish_case_entity",
+                            "binding_role": "primary",
+                            "field_surfaces": [
+                                {"surface_ref": "field.publish_id", "physical_name": "publish_id"},
+                                {"surface_ref": "field.created_at", "physical_name": "created_at"},
+                                {"surface_ref": "field.country", "physical_name": "country"},
+                            ],
+                        }
+                    ],
+                    "field_bindings": [
+                        {
+                            "carrier_binding_key": "primary",
+                            "target": {
+                                "target_kind": "identity_key",
+                                "target_key": "key.publish_id",
+                            },
+                            "semantic_ref": "key.publish_id",
+                            "surface_ref": "field.publish_id",
+                        },
+                        {
+                            "carrier_binding_key": "primary",
+                            "target": {"target_kind": "primary_time", "target_key": time_ref},
+                            "semantic_ref": time_ref,
+                            "surface_ref": "field.created_at",
+                        },
+                        {
+                            "carrier_binding_key": "primary",
+                            "target": {
+                                "target_kind": "stable_descriptor",
+                                "target_key": dimension_ref,
+                            },
+                            "semantic_ref": dimension_ref,
+                            "surface_ref": "field.country",
+                        },
+                    ],
+                },
+            },
+        )
+        self.assertEqual(binding_resp.status_code, 200, binding_resp.text)
+        binding_id = binding_resp.json()["binding_id"]
+
+        publish_resp = self.client.post(f"/semantic/bindings/{binding_id}/publish")
+        self.assertEqual(publish_resp.status_code, 422, publish_resp.text)
+        self.assertIn("must be published", publish_resp.json()["detail"])
+
+        self.assertEqual(
+            self.client.post(f"/semantic/time/{time_contract_id}/publish").status_code,
+            200,
+        )
+        self.assertEqual(
+            self.client.post(f"/semantic/dimensions/{dimension_contract_id}/publish").status_code,
+            200,
+        )
+        self.assertEqual(
+            self.client.post(f"/semantic/entities/{entity_contract_id}/publish").status_code,
+            200,
+        )
+        publish_resp = self.client.post(f"/semantic/bindings/{binding_id}/publish")
+        self.assertEqual(publish_resp.status_code, 422, publish_resp.text)
+        self.assertIn("carrier_locator must resolve", publish_resp.json()["detail"])
+
+        self._insert_source_object(fqn="warehouse.publish_case_entity")
+        publish_resp = self.client.post(f"/semantic/bindings/{binding_id}/publish")
+        self.assertEqual(publish_resp.status_code, 200, publish_resp.text)
+        self.assertEqual(publish_resp.json()["status"], "published")
+
+    def test_binding_publish_requires_imports_to_be_published(self) -> None:
+        entity_resp = self.client.post(
+            "/semantic/entities",
+            json={
+                "header": {
+                    "entity_ref": f"entity.import_case_{uuid4().hex[:8]}",
+                    "display_name": "Import Case Entity",
+                    "entity_contract_version": "entity.v4",
+                },
+                "interface_contract": {
+                    "identity": {
+                        "key_refs": ["key.user_id"],
+                        "uniqueness_scope": "global",
+                        "id_stability": "stable",
+                    }
+                },
+            },
+        )
+        self.assertEqual(entity_resp.status_code, 200, entity_resp.text)
+        entity_contract_id = entity_resp.json()["entity_contract_id"]
+        entity_ref = entity_resp.json()["header"]["entity_ref"]
+        self.assertEqual(
+            self.client.post(f"/semantic/entities/{entity_contract_id}/publish").status_code,
+            200,
+        )
+
+        imported_binding_resp = self.client.post(
+            "/semantic/bindings",
+            json={
+                "header": {
+                    "binding_ref": f"binding.imported_case_{uuid4().hex[:8]}",
+                    "binding_scope": "entity",
+                    "bound_object_ref": entity_ref,
+                    "binding_contract_version": "binding.v1",
+                },
+                "interface_contract": {
+                    "carrier_bindings": [
+                        {
+                            "binding_key": "primary",
+                            "carrier_kind": "table",
+                            "carrier_locator": "warehouse.imported_case",
+                            "binding_role": "primary",
+                            "field_surfaces": [
+                                {"surface_ref": "field.user_id", "physical_name": "user_id"}
+                            ],
+                        }
+                    ],
+                    "field_bindings": [
+                        {
+                            "carrier_binding_key": "primary",
+                            "target": {
+                                "target_kind": "identity_key",
+                                "target_key": "key.user_id",
+                            },
+                            "semantic_ref": "key.user_id",
+                            "surface_ref": "field.user_id",
+                        }
+                    ],
+                },
+            },
+        )
+        self.assertEqual(imported_binding_resp.status_code, 200, imported_binding_resp.text)
+        imported_binding_ref = imported_binding_resp.json()["header"]["binding_ref"]
+
+        metric_resp = self.client.post(
+            "/semantic/metrics",
+            json={
+                "header": {
+                    "metric_ref": f"metric.import_case_{uuid4().hex[:8]}",
+                    "display_name": "Import Case Metric",
+                    "metric_family": "count_metric",
+                    "population_subject_ref": "subject.user",
+                    "observed_entity_ref": entity_ref,
+                    "observation_grain_ref": "grain.user",
+                    "sample_kind": "numeric",
+                    "value_semantics": "count",
+                    "additivity": "additive",
+                    "metric_contract_version": "metric.v1",
+                },
+                "payload": {
+                    "metric_family": "count_metric",
+                    "count_target": {
+                        "name": "users",
+                        "semantics": "distinct users",
+                        "aggregation": "count_distinct",
+                    },
+                },
+            },
+        )
+        self.assertEqual(metric_resp.status_code, 200, metric_resp.text)
+        metric_contract_id = metric_resp.json()["metric_contract_id"]
+        metric_ref = metric_resp.json()["header"]["metric_ref"]
+        self.assertEqual(
+            self.client.post(f"/semantic/metrics/{metric_contract_id}/publish").status_code,
+            200,
+        )
+
+        binding_resp = self.client.post(
+            "/semantic/bindings",
+            json={
+                "header": {
+                    "binding_ref": f"binding.metric_import_case_{uuid4().hex[:8]}",
+                    "binding_scope": "metric",
+                    "bound_object_ref": metric_ref,
+                    "binding_contract_version": "binding.v1",
+                },
+                "interface_contract": {
+                    "imports": [
+                        {
+                            "import_key": "identity_binding",
+                            "binding_ref": imported_binding_ref,
+                        }
+                    ],
+                    "carrier_bindings": [
+                        {
+                            "binding_key": "metric_fact",
+                            "carrier_kind": "table",
+                            "carrier_locator": "warehouse.metric_import_case",
+                            "binding_role": "primary",
+                            "field_surfaces": [
+                                {"surface_ref": "field.user_id", "physical_name": "user_id"},
+                                {"surface_ref": "field.event_id", "physical_name": "event_id"},
+                            ],
+                        }
+                    ],
+                    "field_bindings": [
+                        {
+                            "carrier_binding_key": "metric_fact",
+                            "target": {
+                                "target_kind": "population_subject",
+                                "target_key": "key.user_id",
+                            },
+                            "semantic_ref": "key.user_id",
+                            "surface_ref": "field.user_id",
+                        },
+                        {
+                            "carrier_binding_key": "metric_fact",
+                            "target": {
+                                "target_kind": "metric_input",
+                                "target_key": "count_target",
+                            },
+                            "semantic_ref": "metric_input.user_count",
+                            "surface_ref": "field.event_id",
+                        },
+                    ],
+                },
+            },
+        )
+        self.assertEqual(binding_resp.status_code, 200, binding_resp.text)
+        binding_id = binding_resp.json()["binding_id"]
+
+        publish_resp = self.client.post(f"/semantic/bindings/{binding_id}/publish")
+        self.assertEqual(publish_resp.status_code, 422, publish_resp.text)
+        self.assertIn("Imported binding must be published", publish_resp.json()["detail"])
 
     def test_process_object_dimension_time_and_enum_set_lifecycle(self) -> None:
         time_resp = self.client.post(

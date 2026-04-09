@@ -170,6 +170,20 @@ Response:
 }
 ```
 
+Validation notes:
+
+- `field_bindings[*].surface_ref` must exist on the referenced `carrier_binding_key`.
+- Entity bindings must cover all declared identity keys, plus `primary_time_ref` / stable
+  descriptors when the bound entity declares them.
+- Process bindings must satisfy process-specific targets such as `population_subject`,
+  experiment `process_context`, and required join relations for multi-carrier contracts.
+- Metric bindings must provide at least one `metric_input`; `rate_metric` bindings must expose
+  both `numerator` and `denominator`.
+- `POST /semantic/bindings/{binding_id}/publish` additionally requires:
+  - the bound semantic object and imported bindings are already `published`
+  - referenced `time.*` / `dimension.*` dependencies are already `published`
+  - each carrier resolves to a synced `source_object` via `source_object_ref` or `carrier_locator`
+
 List responses are always wrapped:
 
 ```json
