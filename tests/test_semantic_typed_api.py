@@ -83,6 +83,21 @@ class SemanticTypedApiTests(unittest.TestCase):
         )
         return object_id
 
+    def _assert_publish_error(
+        self,
+        response: object,
+        *,
+        code: str,
+        message_substring: str,
+        category: str | None = None,
+    ) -> None:
+        detail = response.json()["detail"]
+        self.assertIsInstance(detail, dict)
+        self.assertEqual(detail["code"], code)
+        if category is not None:
+            self.assertEqual(detail["category"], category)
+        self.assertIn(message_substring, detail["message"])
+
     def test_typed_entity_lifecycle(self) -> None:
         resp = self.client.post(
             "/semantic/entities",
@@ -322,6 +337,11 @@ class SemanticTypedApiTests(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertEqual(resp.json()["requirement"]["entity_refs"][1], "entity.user")
+
+        resp = self.client.post(
+            f"/semantic/metrics/{metric_resp.json()['metric_contract_id']}/publish"
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
 
         resp = self.client.post(f"/compiler/compatibility-profiles/{profile_id}/publish")
         self.assertEqual(resp.status_code, 200, resp.text)
@@ -901,7 +921,12 @@ class SemanticTypedApiTests(unittest.TestCase):
 
         publish_resp = self.client.post(f"/semantic/bindings/{binding_id}/publish")
         self.assertEqual(publish_resp.status_code, 422, publish_resp.text)
-        self.assertIn("must be published", publish_resp.json()["detail"])
+        self._assert_publish_error(
+            publish_resp,
+            code="reference_validation_error",
+            category="validation",
+            message_substring="must be published",
+        )
 
         self.assertEqual(
             self.client.post(f"/semantic/time/{time_contract_id}/publish").status_code,
@@ -917,7 +942,12 @@ class SemanticTypedApiTests(unittest.TestCase):
         )
         publish_resp = self.client.post(f"/semantic/bindings/{binding_id}/publish")
         self.assertEqual(publish_resp.status_code, 422, publish_resp.text)
-        self.assertIn("carrier_locator must resolve", publish_resp.json()["detail"])
+        self._assert_publish_error(
+            publish_resp,
+            code="reference_validation_error",
+            category="validation",
+            message_substring="carrier_locator must resolve",
+        )
 
         self._insert_source_object(fqn="warehouse.publish_case_entity")
         publish_resp = self.client.post(f"/semantic/bindings/{binding_id}/publish")
@@ -1077,7 +1107,12 @@ class SemanticTypedApiTests(unittest.TestCase):
 
         publish_resp = self.client.post(f"/semantic/bindings/{binding_id}/publish")
         self.assertEqual(publish_resp.status_code, 422, publish_resp.text)
-        self.assertIn("Imported binding must be published", publish_resp.json()["detail"])
+        self._assert_publish_error(
+            publish_resp,
+            code="reference_validation_error",
+            category="validation",
+            message_substring="Imported binding must be published",
+        )
 
     def test_process_object_dimension_time_and_enum_set_lifecycle(self) -> None:
         time_resp = self.client.post(
@@ -1262,7 +1297,12 @@ class SemanticTypedApiTests(unittest.TestCase):
         ]:
             resp = self.client.post(path)
             self.assertEqual(resp.status_code, 422, resp.text)
-            self.assertIn("not in draft status", resp.json()["detail"])
+            self._assert_publish_error(
+                resp,
+                code="publish_state_error",
+                category="state",
+                message_substring="not in draft status",
+            )
 
         for path in [
             "/semantic/time",
@@ -1352,7 +1392,12 @@ class SemanticTypedApiTests(unittest.TestCase):
 
         resp = self.client.post(f"/semantic/dimensions/{dimension_contract_id}/publish")
         self.assertEqual(resp.status_code, 422, resp.text)
-        self.assertIn("must be published", resp.json()["detail"])
+        self._assert_publish_error(
+            resp,
+            code="reference_validation_error",
+            category="validation",
+            message_substring="must be published",
+        )
 
         resp = self.client.post(f"/semantic/enum-sets/{enum_set_contract_id}/publish")
         self.assertEqual(resp.status_code, 200, resp.text)
@@ -1404,7 +1449,12 @@ class SemanticTypedApiTests(unittest.TestCase):
 
         resp = self.client.post(f"/semantic/process-objects/{process_contract_id}/publish")
         self.assertEqual(resp.status_code, 422, resp.text)
-        self.assertIn("must be published", resp.json()["detail"])
+        self._assert_publish_error(
+            resp,
+            code="reference_validation_error",
+            category="validation",
+            message_substring="must be published",
+        )
 
         resp = self.client.post(f"/semantic/time/{time_contract_id}/publish")
         self.assertEqual(resp.status_code, 200, resp.text)
@@ -1505,7 +1555,12 @@ class SemanticTypedApiTests(unittest.TestCase):
         # Publishing entity should fail because primary_time_ref is not published
         resp = self.client.post(f"/semantic/entities/{entity_contract_id}/publish")
         self.assertEqual(resp.status_code, 422, resp.text)
-        self.assertIn("must be published", resp.json()["detail"])
+        self._assert_publish_error(
+            resp,
+            code="reference_validation_error",
+            category="validation",
+            message_substring="must be published",
+        )
 
         # Publish the time object first
         resp = self.client.post(f"/semantic/time/{time_contract_id}/publish")
@@ -1514,7 +1569,12 @@ class SemanticTypedApiTests(unittest.TestCase):
         # Publishing entity still fails because stable_descriptor dimension is not published
         resp = self.client.post(f"/semantic/entities/{entity_contract_id}/publish")
         self.assertEqual(resp.status_code, 422, resp.text)
-        self.assertIn("must be published", resp.json()["detail"])
+        self._assert_publish_error(
+            resp,
+            code="reference_validation_error",
+            category="validation",
+            message_substring="must be published",
+        )
 
         # Publish the dimension
         resp = self.client.post(f"/semantic/dimensions/{dim_contract_id}/publish")
@@ -1575,7 +1635,12 @@ class SemanticTypedApiTests(unittest.TestCase):
         # Publishing metric should fail because observed_entity_ref is draft
         resp = self.client.post(f"/semantic/metrics/{metric_contract_id}/publish")
         self.assertEqual(resp.status_code, 422, resp.text)
-        self.assertIn("must be published", resp.json()["detail"])
+        self._assert_publish_error(
+            resp,
+            code="reference_validation_error",
+            category="validation",
+            message_substring="must be published",
+        )
 
     def test_publish_ref_validation_distinguishes_unknown_from_draft(self) -> None:
         # Create entity with a primary_time_ref that does NOT exist
@@ -1603,8 +1668,10 @@ class SemanticTypedApiTests(unittest.TestCase):
         resp = self.client.post(f"/semantic/entities/{entity_contract_id}/publish")
         self.assertEqual(resp.status_code, 422, resp.text)
         detail = resp.json()["detail"]
-        self.assertIn("Unknown", detail)
-        self.assertNotIn("must be published", detail)
+        self.assertIsInstance(detail, dict)
+        self.assertEqual(detail["code"], "reference_validation_error")
+        self.assertIn("Unknown", detail["message"])
+        self.assertNotIn("must be published", detail["message"])
         binding_resp = self.client.get("/semantic/bindings/bind_missing")
         self.assertEqual(binding_resp.status_code, 404, binding_resp.text)
         self.assertIsInstance(binding_resp.json()["detail"], str)

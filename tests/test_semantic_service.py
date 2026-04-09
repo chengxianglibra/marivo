@@ -4,6 +4,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from app.api.models.compatibility_profile import (
+    CompatibilityProfileCreateRequest,
+    CompatibilityProfileUpdateRequest,
+)
 from app.api.models.entity import TypedEntityCreateRequest, TypedEntityUpdateRequest
 from app.api.models.metric import TypedMetricCreateRequest, TypedMetricUpdateRequest
 from app.semantic import SemanticService
@@ -176,3 +180,84 @@ class SemanticServiceFacadeTests(unittest.TestCase):
         self.assertEqual(mapping["semantic_type"], "entity")
         listed = self.service.list_mappings(semantic_id=entity["entity_id"])
         self.assertEqual(len(listed), 1)
+
+    def test_compatibility_profile_update_requires_draft_and_increments_revision(self) -> None:
+        entity = self.service.create_typed_entity(
+            TypedEntityCreateRequest.model_validate(
+                {
+                    "header": {
+                        "entity_ref": "entity.profile_subject",
+                        "display_name": "Profile Subject",
+                        "entity_contract_version": "entity.v1",
+                    },
+                    "interface_contract": {
+                        "identity": {
+                            "key_refs": ["key.profile_subject_id"],
+                            "uniqueness_scope": "global",
+                            "id_stability": "stable",
+                        }
+                    },
+                }
+            )
+        )
+        self.service.publish_typed_entity(entity["entity_contract_id"])
+
+        metric = self.service.create_typed_metric(
+            TypedMetricCreateRequest.model_validate(
+                {
+                    "header": {
+                        "metric_ref": "metric.profile_requirement",
+                        "display_name": "Profile Requirement Metric",
+                        "metric_family": "count_metric",
+                        "observed_entity_ref": "entity.profile_subject",
+                        "observation_grain_ref": "grain.profile_subject",
+                        "sample_kind": "numeric",
+                        "value_semantics": "count",
+                        "additivity": "additive",
+                        "metric_contract_version": "metric.v1",
+                    },
+                    "payload": {
+                        "metric_family": "count_metric",
+                        "count_target": {
+                            "name": "subject_count",
+                            "semantics": "distinct subjects",
+                            "aggregation": "count_distinct",
+                        },
+                    },
+                }
+            )
+        )
+
+        profile = self.service.create_compatibility_profile(
+            CompatibilityProfileCreateRequest.model_validate(
+                {
+                    "profile_ref": "compiler_profile.profile_requirement",
+                    "profile_kind": "requirement",
+                    "subject_kind": "metric",
+                    "subject_ref": "metric.profile_requirement",
+                    "requirement": {"entity_refs": ["entity.profile_subject"]},
+                }
+            )
+        )
+        updated = self.service.update_compatibility_profile(
+            profile["profile_id"],
+            CompatibilityProfileUpdateRequest.model_validate(
+                {"requirement": {"entity_refs": ["entity.profile_subject"]}}
+            ),
+        )
+        self.assertEqual(updated["revision"], 2)
+
+        with self.assertRaises(ValueError):
+            self.service.publish_compatibility_profile(profile["profile_id"])
+
+        self.service.publish_typed_metric(metric["metric_contract_id"])
+        published = self.service.publish_compatibility_profile(profile["profile_id"])
+        self.assertEqual(published["revision"], 3)
+
+        with self.assertRaises(ValueError):
+            self.service.update_compatibility_profile(
+                profile["profile_id"],
+                CompatibilityProfileUpdateRequest.model_validate(
+                    {"requirement": {"entity_refs": ["entity.profile_subject"]}}
+                ),
+            )

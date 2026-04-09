@@ -17,6 +17,7 @@ from app.api.models.time import TimeCreateRequest, TimeUpdateRequest
 from app.semantic_service import (
     CompatibilityProfileService,
     LegacySemanticService,
+    SemanticCompatibilityError,
     SemanticNotFoundError,
     SemanticServiceError,
     SemanticStateError,
@@ -27,6 +28,21 @@ from app.semantic_service import (
 from app.storage.metadata import MetadataStore
 
 ActionResultT = TypeVar("ActionResultT")
+
+
+class SemanticServiceValueError(ValueError):
+    """ValueError that preserves a stable semantic error code for API routes."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str | None = None,
+        category: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.category = category
 
 
 class SemanticService:
@@ -44,10 +60,18 @@ class SemanticService:
             return action()
         except SemanticNotFoundError as error:
             raise KeyError(str(error)) from error
-        except (SemanticValidationError, SemanticStateError) as error:
-            raise ValueError(str(error)) from error
+        except (SemanticValidationError, SemanticStateError, SemanticCompatibilityError) as error:
+            raise SemanticServiceValueError(
+                str(error),
+                code=error.code,
+                category=error.category,
+            ) from error
         except SemanticServiceError as error:
-            raise ValueError(str(error)) from error
+            raise SemanticServiceValueError(
+                str(error),
+                code=error.code,
+                category=error.category,
+            ) from error
 
     def create_entity(
         self,

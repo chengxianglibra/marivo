@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, ClassVar
 from uuid import uuid4
 
 from app.api.models.compatibility_profile import (
@@ -13,10 +13,17 @@ from .common import SemanticServiceSupport, now_iso
 
 
 class CompatibilityProfileService(SemanticServiceSupport):
+    # Spec-defined valid (subject_kind, profile_kind) pairings
+    _VALID_SUBJECT_KIND_FOR_PROFILE_KIND: ClassVar[dict[str, set[str]]] = {
+        "requirement": {"metric"},
+        "capability": {"process", "binding"},
+    }
+
     def create_compatibility_profile(
         self, payload: CompatibilityProfileCreateRequest
     ) -> dict[str, Any]:
         self._validate_profile_subject_ref(payload.subject_kind, payload.subject_ref)
+        self._validate_profile_kind_subject_kind(payload.profile_kind, payload.subject_kind)
         profile_id = f"cprof_{uuid4().hex[:24]}"
         created_at = now_iso()
         self.metadata.execute(
@@ -72,37 +79,64 @@ class CompatibilityProfileService(SemanticServiceSupport):
         self, profile_id: str, payload: CompatibilityProfileUpdateRequest
     ) -> dict[str, Any]:
         current = self.get_compatibility_profile(profile_id)
+        self._require_draft_status(current["status"], "Compatibility profile", profile_id)
         updates: list[str] = []
         params: list[Any] = []
         if payload.requirement is not None:
             if current["profile_kind"] != "requirement":
                 raise self._validation_error("Only requirement profiles accept requirement updates")
+            if current["subject_kind"] != "metric":
+                raise self._validation_error(
+                    f"Requirement payloads are only valid for metric subjects, "
+                    f"but subject_kind is '{current['subject_kind']}'"
+                )
             updates.append("requirement_json = ?")
             params.append(json.dumps(payload.requirement.model_dump(mode="json")))
         if payload.capability is not None:
             if current["profile_kind"] != "capability":
                 raise self._validation_error("Only capability profiles accept capability updates")
+            if current["subject_kind"] not in ("process", "binding"):
+                raise self._validation_error(
+                    f"Capability payloads are only valid for process or binding subjects, "
+                    f"but subject_kind is '{current['subject_kind']}'"
+                )
             updates.append("capability_json = ?")
             params.append(json.dumps(payload.capability.model_dump(mode="json")))
         if not updates:
             return current
-        updates.append("updated_at = ?")
-        params.append(now_iso())
-        params.append(profile_id)
+        updates.extend(["revision = revision + 1", "updated_at = ?"])
+        params.extend([now_iso(), profile_id])
         self.metadata.execute(
-            f"UPDATE compiler_compatibility_profiles SET {', '.join(updates)} WHERE profile_id = ?",
+            (
+                "UPDATE compiler_compatibility_profiles "
+                f"SET {', '.join(updates)} WHERE profile_id = ?"
+            ),
             params,
         )
         return self.get_compatibility_profile(profile_id)
 
     def publish_compatibility_profile(self, profile_id: str) -> dict[str, Any]:
-        self.get_compatibility_profile(profile_id)
-        self.metadata.execute(
-            """
-            UPDATE compiler_compatibility_profiles
-            SET status = 'published', revision = revision + 1, updated_at = ?
-            WHERE profile_id = ?
-            """,
-            [now_iso(), profile_id],
+        current = self.get_compatibility_profile(profile_id)
+        self._publish_record(
+            table_name="compiler_compatibility_profiles",
+            id_column="profile_id",
+            object_id=profile_id,
+            object_label="Compatibility profile",
+            status=current["status"],
+            compatibility_validator=lambda: self._validate_profile_subject_ref(
+                current["subject_kind"],
+                current["subject_ref"],
+                require_published=True,
+            ),
         )
         return self.get_compatibility_profile(profile_id)
+
+    def _validate_profile_kind_subject_kind(self, profile_kind: str, subject_kind: str) -> None:
+        valid_subjects = self._VALID_SUBJECT_KIND_FOR_PROFILE_KIND.get(profile_kind)
+        if valid_subjects is None:
+            return  # unknown profile_kind is caught by DB constraint
+        if subject_kind not in valid_subjects:
+            raise self._validation_error(
+                f"profile_kind '{profile_kind}' is not valid for subject_kind '{subject_kind}'. "
+                f"Expected subject_kind in {sorted(valid_subjects)}."
+            )

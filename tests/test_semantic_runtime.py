@@ -261,6 +261,37 @@ class SemanticRuntimeTests(unittest.TestCase):
         self.assertEqual(entity["legacy"]["level"], "user")
         self.assertEqual(entity["legacy"]["upstream_dependencies"], ["account"])
 
+    def test_runtime_hides_objects_without_published_typed_contracts(self) -> None:
+        runtime = CatalogRuntimeService(
+            self.metadata_store,
+            self.binding_service,
+            semantic_repository=self.client.app.state.service.semantic_repository,
+        )
+        session = self.client.app.state.service.create_session("Typed visibility gate", {}, {}, {})
+        self.metadata_store.execute(
+            "UPDATE semantic_metric_contracts SET status = 'draft' WHERE metric_contract_id = ?",
+            [self.metric_id],
+        )
+        try:
+            self.assertFalse(any(item["name"] == "watch_time" for item in runtime.search("watch")))
+            with self.assertRaises(KeyError):
+                runtime.resolve("watch_time")
+            context = runtime.planner_context(session["session_id"])
+            self.assertFalse(
+                any(
+                    metric.get("header", {}).get("metric_ref") == "metric.watch_time"
+                    for metric in context["metrics"]
+                )
+            )
+            self.assertIsNone(
+                self.client.app.state.service.semantic_repository.resolve_metric("watch_time")
+            )
+        finally:
+            self.metadata_store.execute(
+                "UPDATE semantic_metric_contracts SET status = 'published' WHERE metric_contract_id = ?",
+                [self.metric_id],
+            )
+
     def test_catalog_runtime_graph_traverses_metric_mapping(self) -> None:
         runtime = CatalogRuntimeService(self.metadata_store, self.binding_service)
 

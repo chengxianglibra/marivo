@@ -17,18 +17,22 @@ class PlannerContextProvider:
     def build_planner_context(self, session_id: str | None = None) -> dict[str, Any]:
         metric_rows = self.metadata.query_rows(
             """
-            SELECT name
-            FROM semantic_metrics
-            WHERE status = 'published'
-            ORDER BY name
+            SELECT m.name
+            FROM semantic_metrics AS m
+            JOIN semantic_metric_contracts AS c
+              ON c.metric_contract_id = m.metric_id
+            WHERE m.status = 'published' AND c.status = 'published'
+            ORDER BY m.name
             """
         )
         entity_rows = self.metadata.query_rows(
             """
-            SELECT name
-            FROM semantic_entities
-            WHERE status = 'published'
-            ORDER BY name
+            SELECT e.name
+            FROM semantic_entities AS e
+            JOIN semantic_entity_contracts AS c
+              ON c.entity_contract_id = e.entity_id
+            WHERE e.status = 'published' AND c.status = 'published'
+            ORDER BY e.name
             """
         )
         context: dict[str, Any] = {

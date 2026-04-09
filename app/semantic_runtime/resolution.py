@@ -96,7 +96,7 @@ class SemanticResolver:
             [legacy_row["metric_id"]],
         )
         if contract_row is None:
-            contract_row = self._derive_metric_contract_row(legacy_row)
+            return None
 
         family_payload = json.loads(contract_row["family_payload_json"] or "{}")
         dimensions = list(
@@ -175,7 +175,7 @@ class SemanticResolver:
             [legacy_row["entity_id"]],
         )
         if contract_row is None:
-            contract_row = self._derive_entity_contract_row(legacy_row)
+            return None
 
         key_rows = self.metadata.query_rows(
             """
@@ -239,124 +239,3 @@ class SemanticResolver:
                 "updated_at": contract_row["updated_at"],
             },
         )
-
-    def _derive_metric_contract_row(self, legacy_row: dict[str, Any]) -> dict[str, Any]:
-        metric_name = str(legacy_row["name"])
-        metric_family, sample_kind, value_semantics, additivity = self._infer_metric_contract_axes(
-            legacy_row.get("measure_type")
-        )
-        dimensions = list(json.loads(legacy_row["dimensions_json"] or "[]"))
-        family_payload = {
-            "definition_sql": legacy_row["definition_sql"],
-            "dimensions": dimensions,
-            "allowed_dimensions": list(
-                json.loads(legacy_row["allowed_dimensions_json"] or "[]") or dimensions
-            ),
-            "grain": legacy_row.get("grain"),
-            "measure_type": legacy_row.get("measure_type"),
-            "desired_direction": legacy_row.get("desired_direction"),
-        }
-        now = legacy_row.get("updated_at")
-        return {
-            "metric_contract_id": legacy_row["metric_id"],
-            "metric_ref": f"metric.{metric_name}",
-            "display_name": legacy_row["display_name"],
-            "description": legacy_row["description"],
-            "metric_family": metric_family,
-            "population_subject_ref": None,
-            "observed_entity_ref": self._legacy_entity_ref(legacy_row.get("entity_id")),
-            "observation_grain_ref": self._legacy_grain_ref(legacy_row.get("grain"))
-            or f"grain.{metric_name}",
-            "sample_kind": sample_kind,
-            "value_semantics": value_semantics,
-            "aggregation_scope": self._legacy_aggregation_scope(legacy_row.get("grain")),
-            "primary_time_ref": None,
-            "additivity": additivity,
-            "metric_contract_version": "metric.v1",
-            "family_payload_json": json.dumps(family_payload),
-            "status": legacy_row["status"],
-            "revision": legacy_row["revision"],
-            "created_at": legacy_row.get("created_at") or legacy_row.get("updated_at") or now,
-            "updated_at": legacy_row.get("updated_at") or now,
-        }
-
-    def _derive_entity_contract_row(self, legacy_row: dict[str, Any]) -> dict[str, Any]:
-        entity_name = str(legacy_row["name"])
-        key_refs = [
-            self._legacy_key_ref(key) for key in json.loads(legacy_row["keys_json"] or "[]")
-        ]
-        return {
-            "entity_contract_id": legacy_row["entity_id"],
-            "entity_ref": f"entity.{entity_name}",
-            "display_name": legacy_row["display_name"],
-            "description": legacy_row["description"],
-            "entity_contract_version": "entity.v1",
-            "uniqueness_scope": "global",
-            "id_stability": self._infer_entity_stability(legacy_row.get("level")),
-            "nullable_key_policy": "reject",
-            "parent_entity_ref": None,
-            "cardinality_to_parent": None,
-            "ownership_semantics": None,
-            "primary_time_ref": None,
-            "status": legacy_row["status"],
-            "revision": legacy_row["revision"],
-            "created_at": legacy_row.get("created_at") or legacy_row.get("updated_at") or "",
-            "updated_at": legacy_row.get("updated_at") or legacy_row.get("created_at") or "",
-            "key_refs": key_refs,
-        }
-
-    @staticmethod
-    def _legacy_key_ref(key: str) -> str:
-        key = str(key).strip()
-        if key.startswith("key."):
-            return key
-        return f"key.{key}"
-
-    @staticmethod
-    def _legacy_entity_ref(entity_id: str | None) -> str | None:
-        if entity_id is None or not str(entity_id).strip():
-            return None
-        return f"entity.{entity_id!s}"
-
-    @staticmethod
-    def _legacy_grain_ref(grain: str | None) -> str | None:
-        if grain is None or not str(grain).strip():
-            return None
-        return f"grain.{str(grain).strip()}"
-
-    @staticmethod
-    def _legacy_aggregation_scope(grain: str | None) -> str | None:
-        if grain is None:
-            return None
-        grain_value = str(grain).strip().lower()
-        if grain_value in {"session", "event"}:
-            return grain_value
-        return "window"
-
-    @staticmethod
-    def _infer_metric_contract_axes(
-        measure_type: str | None,
-    ) -> tuple[str, str, str, str]:
-        kind = str(measure_type or "count").strip().lower()
-        if kind in {"ratio", "rate"}:
-            return ("rate_metric", "rate", "ratio", "non_additive")
-        if kind in {"average", "mean"}:
-            return ("average_metric", "numeric", "mean", "non_additive")
-        if kind == "sum":
-            return ("sum_metric", "numeric", "sum", "additive")
-        if kind == "count":
-            return ("count_metric", "numeric", "count", "additive")
-        if kind in {"percentile", "quantile"}:
-            return ("distribution_metric", "numeric", "distribution_statistic", "non_additive")
-        if kind == "survival":
-            return ("survival_metric", "survival", "survival_probability", "non_additive")
-        if kind == "score":
-            return ("score_metric", "numeric", "score", "non_additive")
-        return ("count_metric", "numeric", "count", "additive")
-
-    @staticmethod
-    def _infer_entity_stability(level: str | None) -> str:
-        value = str(level or "").strip().lower()
-        if value in {"session", "event"}:
-            return "ephemeral"
-        return "stable"
