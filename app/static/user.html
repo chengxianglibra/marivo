@@ -3,175 +3,516 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Factum Analytics</title>
+<title>Factum Query Workbench</title>
 <link rel="stylesheet" href="/static/shared.css">
 <style>
-/* ── Page-specific overrides ────────────────────────────── */
+.page-intro {
+  margin-bottom: var(--space-xl);
+}
 
-/* Detail panel (sessions/plans drill-down) */
-.detail-back { cursor: pointer; color: var(--color-primary); font-size: var(--font-size-sm); margin-bottom: var(--space-md); display: inline-flex; align-items: center; gap: 4px; }
-.detail-back:hover { color: var(--color-primary-hover); }
-.detail-meta { display: grid; grid-template-columns: 140px 1fr; gap: 4px 12px; font-size: var(--font-size-base); margin-bottom: var(--space-lg); }
-.detail-meta dt { color: var(--color-text-secondary); font-weight: 500; }
-.detail-meta dd { color: var(--color-text); word-break: break-all; }
+.page-intro h2 {
+  margin-bottom: var(--space-sm);
+  font-size: var(--font-size-xl);
+}
 
-/* Toolbar */
-.toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-md); }
-.toolbar h2 { margin-bottom: 0; }
+.page-intro p {
+  max-width: 760px;
+  color: var(--color-text-secondary);
+}
 
-/* Inline form row */
-.inline-form { display: flex; gap: var(--space-sm); align-items: flex-end; flex-wrap: wrap; margin-bottom: var(--space-md); }
-.inline-form .form-group { margin-bottom: 0; }
+.shell-grid {
+  display: grid;
+  gap: var(--space-lg);
+}
 
-/* Step builder list */
-.step-list-item { background: #f8fafc; border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: var(--space-sm) var(--space-md); margin-bottom: 6px; font-size: var(--font-size-sm); display: flex; justify-content: space-between; align-items: center; }
-.step-list-item .step-info { flex: 1; }
-.step-list-item .step-remove { cursor: pointer; color: var(--color-error); font-weight: 600; margin-left: var(--space-sm); }
+.shell-card-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  margin-bottom: var(--space-lg);
+}
 
-/* Checkbox label */
-.checkbox-label { display: inline-flex; align-items: center; gap: 6px; font-size: var(--font-size-sm); cursor: pointer; }
+.shell-card-title h3 {
+  margin: 0;
+  font-size: var(--font-size-md);
+}
 
-/* Spinner (for inline loading) */
-.spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid var(--color-border); border-top-color: var(--color-primary); border-radius: 50%; animation: spin 0.6s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
+.shell-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: var(--radius-full);
+  background: var(--color-info-bg);
+  color: var(--color-info);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
 
-/* Evidence dashboard */
-.ev-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--space-md); margin-bottom: var(--space-xl); }
-.ev-claim-row { display: flex; align-items: center; gap: var(--space-md); }
-.ev-claim-row .ev-claim-text { flex: 1; }
-.ev-claim-row .ev-claim-conf { width: 180px; display: flex; align-items: center; gap: var(--space-sm); }
-.ev-donut-row { display: flex; flex-wrap: wrap; gap: var(--space-xl); margin-bottom: var(--space-lg); align-items: flex-start; }
-.ev-donut-item { text-align: center; }
-.ev-donut-item .ev-donut-label { font-size: var(--font-size-xs); color: var(--color-text-secondary); margin-top: 4px; max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shell-controls,
+.shell-results {
+  display: grid;
+  gap: var(--space-md);
+}
 
-/* Recommendation cards */
-.rec-card { margin-bottom: var(--space-md); padding: var(--space-lg); border-radius: var(--radius-lg); background: var(--color-surface); border: 1px solid var(--color-border); }
-.rec-card .rec-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: var(--space-sm); }
-.rec-card .rec-action { font-weight: 500; flex: 1; }
-.rec-card .rec-meta { font-size: var(--font-size-sm); color: var(--color-text-secondary); display: flex; gap: var(--space-lg); margin-top: var(--space-xs); }
+.shell-control {
+  padding: var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg);
+}
 
-/* Plan step cards */
-.plan-step-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--space-md); }
-.plan-step-card { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: var(--space-lg); }
-.plan-step-card .psc-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-sm); }
-.plan-step-card .psc-type { font-weight: 600; font-size: var(--font-size-base); }
-.plan-step-card .psc-deps { font-size: var(--font-size-xs); color: var(--color-text-muted); margin-top: var(--space-xs); }
-.plan-step-card .psc-result { margin-top: var(--space-md); padding-top: var(--space-md); border-top: 1px solid var(--color-border); }
-.plan-step-card .psc-result-label { font-size: var(--font-size-xs); color: var(--color-text-secondary); font-weight: 600; margin-bottom: var(--space-xs); text-transform: uppercase; letter-spacing: 0.03em; }
-.plan-step-card .psc-result-meta { font-size: var(--font-size-xs); color: var(--color-text-muted); margin-top: var(--space-xs); }
-.plan-step-card .psc-result-note { font-size: var(--font-size-xs); color: var(--color-text-muted); margin-top: var(--space-xs); }
-.plan-step-card .psc-result pre { margin: var(--space-sm) 0 0; max-height: 220px; overflow: auto; }
+.shell-control-label {
+  margin-bottom: 4px;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
 
-/* Catalog search result cards */
-.cat-result-card { display: flex; align-items: flex-start; gap: var(--space-md); padding: var(--space-md) var(--space-lg); border: 1px solid var(--color-border); border-radius: var(--radius-lg); margin-bottom: var(--space-sm); background: var(--color-surface); transition: box-shadow var(--transition-fast); }
-.cat-result-card:hover { box-shadow: var(--shadow-md); }
-.cat-result-icon { width: 36px; height: 36px; border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-.cat-result-icon.type-entity { background: var(--color-info-bg); color: var(--color-info); }
-.cat-result-icon.type-metric { background: var(--color-success-bg); color: var(--color-success); }
-.cat-result-icon.type-asset { background: var(--color-warning-bg); color: var(--color-warning); }
-.cat-result-body { flex: 1; min-width: 0; }
-.cat-result-body .cat-name { font-weight: 600; font-size: var(--font-size-base); }
-.cat-result-body .cat-display { font-size: var(--font-size-sm); color: var(--color-text-secondary); }
-.cat-result-body .cat-desc { font-size: var(--font-size-sm); color: var(--color-text-muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shell-control-copy,
+.shell-results-copy {
+  color: var(--color-text-secondary);
+}
 
-/* Resolve structured layout */
-.resolve-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-lg); margin-top: var(--space-md); }
-@media (max-width: 768px) { .resolve-grid { grid-template-columns: 1fr; } }
+.shell-status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-md);
+}
 
-/* Auto-refresh countdown */
-.refresh-indicator { display: inline-flex; align-items: center; gap: 4px; font-size: var(--font-size-xs); color: var(--color-text-muted); }
-.refresh-indicator .pulse-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-success); animation: pulse-dot 2s ease-in-out infinite; }
+.shell-status {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  padding: var(--space-md);
+}
 
-/* Readiness signal panel (M-04) */
-.readiness-panel { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: var(--space-lg); margin-bottom: var(--space-md); }
-.readiness-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-md); }
-.readiness-header h3 { margin: 0; font-size: var(--font-size-base); font-weight: 600; }
-.readiness-dim { display: grid; grid-template-columns: 160px 1fr 44px; align-items: center; gap: var(--space-sm); margin-bottom: var(--space-xs); }
-.readiness-dim-label { font-size: var(--font-size-sm); color: var(--color-text-secondary); }
-.readiness-dim-val { font-size: var(--font-size-sm); font-weight: 600; text-align: right; }
-.badge-action-synthesize { background: var(--color-success-bg); color: var(--color-success); }
-.badge-action-stop { background: var(--color-error-bg); color: var(--color-error); }
-.badge-action-resolve { background: var(--color-warning-bg); color: var(--color-warning); }
-.badge-action-explore { background: var(--color-info-bg); color: var(--color-info); }
+.shell-status strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: var(--font-size-sm);
+}
 
-/* Live claims mini-table (M-04) */
-.live-claims-panel { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: var(--space-lg); margin-bottom: var(--space-md); }
-.live-claims-panel h3 { margin: 0 0 var(--space-sm); font-size: var(--font-size-base); font-weight: 600; }
+.sessions-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(320px, 1fr);
+  gap: var(--space-lg);
+}
 
-/* Graph container override for catalog */
-#cat-graph-vis { min-height: 400px; }
+.sessions-stack {
+  display: grid;
+  gap: var(--space-lg);
+}
 
-/* Causal basis inline panel (M-10) */
-.causal-basis-block { margin-top: var(--space-sm); padding: var(--space-sm) var(--space-md); background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-md); font-size: var(--font-size-xs); }
-.causal-basis-block .cb-label { font-weight: 600; color: var(--color-text-secondary); margin-bottom: 2px; }
+.sessions-filters {
+  display: grid;
+  grid-template-columns: minmax(160px, 220px) minmax(220px, 1fr) auto auto;
+  gap: var(--space-md);
+  align-items: end;
+}
 
-/* Reflection context panel (M-11) */
-.reflection-panel { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: var(--space-lg); margin-bottom: var(--space-md); }
-.reflection-panel h3 { margin: 0 0 var(--space-md); font-size: var(--font-size-base); font-weight: 600; }
+.sessions-table-wrap {
+  overflow-x: auto;
+}
 
-/* Evidence gap list (M-11) */
-.gap-row { display: flex; flex-direction: column; gap: 2px; padding: var(--space-sm) 0; border-bottom: 1px solid var(--color-border); }
-.gap-row:last-child { border-bottom: none; }
-.gap-row .gap-title { font-weight: 500; font-size: var(--font-size-sm); }
-.gap-row .gap-meta { font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.sessions-table tr.is-selected td {
+  background: var(--color-primary-light);
+}
+
+.sessions-table td.actions-cell {
+  white-space: nowrap;
+}
+
+.sessions-table .btn {
+  margin-right: var(--space-xs);
+  margin-bottom: var(--space-xs);
+}
+
+.state-layout {
+  display: grid;
+  gap: var(--space-lg);
+}
+
+.state-filters {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-md);
+  align-items: end;
+}
+
+.state-summary-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(320px, 1fr);
+  gap: var(--space-lg);
+}
+
+.state-results-stack,
+.state-sidebar {
+  display: grid;
+  gap: var(--space-lg);
+}
+
+.state-sidebar-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+}
+
+.state-sidebar-tabs .btn.is-active {
+  border-color: var(--color-primary);
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+}
+
+.subject-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.subject-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  background: #ecfeff;
+  color: #155e75;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+}
+
+.state-meta-note {
+  margin-top: var(--space-sm);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.state-table-wrap {
+  overflow-x: auto;
+}
+
+.state-table td.actions-cell {
+  white-space: nowrap;
+}
+
+.state-table tr.is-selected td {
+  background: var(--color-primary-light);
+}
+
+.state-subject {
+  display: grid;
+  gap: 4px;
+}
+
+.state-subject-main {
+  font-weight: 600;
+}
+
+.state-subject-meta {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+.state-empty,
+.state-error {
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  background: var(--color-bg);
+  color: var(--color-text-secondary);
+}
+
+.state-error {
+  border-color: #fecaca;
+  background: var(--color-error-bg);
+  color: #991b1b;
+}
+
+.state-detail-list {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.state-detail-item {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-md);
+  background: var(--color-bg);
+}
+
+.state-detail-item h4 {
+  margin-bottom: var(--space-xs);
+  font-size: var(--font-size-sm);
+}
+
+.panel-note {
+  margin-top: var(--space-sm);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.inline-code {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background: #eef2ff;
+  color: #3730a3;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+}
+
+.detail-grid {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.detail-group {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-md);
+  background: var(--color-bg);
+}
+
+.detail-group h4 {
+  margin-bottom: var(--space-xs);
+  font-size: var(--font-size-sm);
+}
+
+.detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+}
+
+.detail-empty,
+.detail-error,
+.list-empty,
+.list-error {
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  background: var(--color-bg);
+  color: var(--color-text-secondary);
+}
+
+.detail-error,
+.list-error {
+  border-color: #fecaca;
+  background: var(--color-error-bg);
+  color: #991b1b;
+}
+
+.list-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
+}
+
+.results-count {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.session-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
+}
+
+.session-header h3 {
+  margin: 0;
+  font-size: var(--font-size-lg);
+}
+
+.session-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+}
+
+.json-pre {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.context-layout,
+.context-stack,
+.context-grid {
+  display: grid;
+  gap: var(--space-lg);
+}
+
+.context-grid {
+  grid-template-columns: minmax(0, 1.4fr) minmax(320px, 1fr);
+}
+
+.context-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+
+.context-header h3 {
+  margin: 0;
+  font-size: var(--font-size-lg);
+}
+
+.context-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+}
+
+.context-section-list {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.context-section-item {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-md);
+  background: var(--color-bg);
+}
+
+.context-section-item h4 {
+  margin-bottom: var(--space-xs);
+  font-size: var(--font-size-sm);
+}
+
+.context-inline-meta {
+  margin-top: var(--space-sm);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+@media (max-width: 768px) {
+  .shell-card-title {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .sessions-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .state-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .context-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .state-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .sessions-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .list-meta,
+  .session-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
 </style>
 </head>
 <body>
 
 <div class="app-layout">
-  <!-- ── Sidebar ──────────────────────────────────────────── -->
   <aside class="sidebar">
     <div class="sidebar-brand">
       Factum
-      <small>Analytics</small>
+      <small>Query Workbench</small>
     </div>
 
-    <div class="sidebar-section">Discovery</div>
+    <div class="sidebar-section">Read Surfaces</div>
     <ul class="sidebar-nav">
       <li class="active">
-        <button data-tab="catalog">
-          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-          </svg>
-          <span class="nav-label">Catalog</span>
-        </button>
-      </li>
-    </ul>
-
-    <div class="sidebar-section">Analysis</div>
-    <ul class="sidebar-nav">
-      <li>
         <button data-tab="sessions">
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>
+            <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+            <polyline points="2 17 12 22 22 17"></polyline>
+            <polyline points="2 12 12 17 22 12"></polyline>
           </svg>
           <span class="nav-label">Sessions</span>
         </button>
       </li>
       <li>
-        <button data-tab="evidence">
+        <button data-tab="state">
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>
+            <path d="M4 19h16"></path>
+            <path d="M7 16V8"></path>
+            <path d="M12 16V5"></path>
+            <path d="M17 16v-3"></path>
           </svg>
-          <span class="nav-label">Evidence</span>
+          <span class="nav-label">State</span>
         </button>
       </li>
       <li>
-        <button data-tab="plans">
+        <button data-tab="context">
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/><line x1="9" y1="3" x2="9" y2="18"/><line x1="15" y1="6" x2="15" y2="21"/>
+            <path d="M9 18h6"></path>
+            <path d="M10 22h4"></path>
+            <path d="M12 2v8"></path>
+            <path d="m4.93 10.93 1.41 1.41"></path>
+            <path d="M2 18h2"></path>
+            <path d="M20 18h2"></path>
+            <path d="m19.07 10.93-1.41 1.41"></path>
+            <path d="M22 22H2"></path>
           </svg>
-          <span class="nav-label">Plans</span>
+          <span class="nav-label">Context</span>
         </button>
       </li>
-    </ul>
-
-    <div class="sidebar-section">Execution</div>
-    <ul class="sidebar-nav">
+      <li>
+        <button data-tab="runtime">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+          </svg>
+          <span class="nav-label">Runtime</span>
+        </button>
+      </li>
+      <li>
+        <button data-tab="grounding">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22a10 10 0 1 0-10-10"></path>
+            <path d="M12 8a4 4 0 1 1-4 4"></path>
+            <path d="M12 2v4"></path>
+            <path d="M2 12h4"></path>
+            <path d="m19 5-2.5 2.5"></path>
+            <path d="M22 22 12 12"></path>
+          </svg>
+          <span class="nav-label">Grounding</span>
+        </button>
+      </li>
       <li>
         <button data-tab="jobs">
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+            <rect x="3" y="4" width="18" height="18" rx="2"></rect>
+            <path d="M16 2v4"></path>
+            <path d="M8 2v4"></path>
+            <path d="M3 10h18"></path>
+            <path d="M8 14h.01"></path>
+            <path d="M12 14h.01"></path>
+            <path d="M16 14h.01"></path>
+            <path d="M8 18h.01"></path>
+            <path d="M12 18h.01"></path>
           </svg>
           <span class="nav-label">Jobs</span>
         </button>
@@ -181,1476 +522,1317 @@
     <div class="sidebar-footer">
       <a href="/admin">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
         </svg>
         <span>Admin UI</span>
       </a>
     </div>
   </aside>
 
-  <!-- ── Content Area ─────────────────────────────────────── -->
   <div class="content-area">
     <div class="content-header">
       <div class="breadcrumb">
-        <span>Analytics</span>
+        <span>Query Workbench</span>
         <span class="sep">/</span>
-        <span class="current">Catalog</span>
+        <span class="current">Sessions</span>
       </div>
     </div>
 
     <div class="content-body">
-      <!-- Catalog -->
-      <div class="panel active" id="panel-catalog"></div>
-      <!-- Sessions -->
-      <div class="panel" id="panel-sessions"></div>
-      <!-- Evidence -->
-      <div class="panel" id="panel-evidence"></div>
-      <!-- Plans -->
-      <div class="panel" id="panel-plans"></div>
-      <!-- Jobs -->
+      <div class="panel active" id="panel-sessions"></div>
+      <div class="panel" id="panel-state"></div>
+      <div class="panel" id="panel-context"></div>
+      <div class="panel" id="panel-runtime"></div>
+      <div class="panel" id="panel-grounding"></div>
       <div class="panel" id="panel-jobs"></div>
     </div>
   </div>
 </div>
 
-<!-- Modal -->
-<div class="modal-overlay" id="modal-overlay">
-  <div class="modal">
-    <div class="modal-header" style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--color-border);">
-      <h3 id="modal-title"></h3>
-      <button class="modal-close" id="modal-close" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--color-text-muted);">&times;</button>
-    </div>
-    <div class="modal-body" id="modal-body" style="padding:20px;"></div>
-    <div class="modal-footer" id="modal-footer" style="padding:12px 20px;border-top:1px solid var(--color-border);display:flex;justify-content:flex-end;gap:8px;"></div>
-  </div>
-</div>
-
 <script src="/static/shared.js"></script>
 <script>
-// ── Helpers ────────────────────────────────────────────────
-const $ = (sel, ctx = document) => ctx.querySelector(sel);
-const $$ = (sel, ctx = document) => [...ctx.querySelectorAll(sel)];
-
-function parseJSON(s, fallback) { try { return JSON.parse(s); } catch { return fallback; } }
-
-const STEP_PARAM_TEMPLATES = {
-  metric_query: {
-    table: "analytics.watch_events",
-    metric: "watch_time",
-    dimensions: ["platform"],
-    time_scope: {
-      mode: "single_window",
-      grain: "day",
-      current: { start: "2026-03-10", end: "2026-03-17" }
-    },
-    scope: {
-      constraints: { platform: "android" },
-      predicate: "device_type = 'phone'"
-    },
-    order: "current_value DESC"
+const SHELL_PAGE_CONFIG = {
+  sessions: {
+    title: 'Sessions',
+    summary: 'Browse existing analysis sessions and move into canonical or runtime read surfaces without creating or changing analysis state from this page.',
+    controls: [
+      ['Session Filters', 'Status and session lookup controls will land here in T3.'],
+      ['Navigation', 'Session-driven links into State, Runtime, Grounding, and Jobs will be added in T3.'],
+    ],
+    resultTitle: 'Session Query Surface',
+    resultCopy: 'This workbench is read-only. T3 will replace this placeholder with session list, detail, and drill-in views.',
+    statuses: [
+      ['Empty State', 'No analysis sessions are available to inspect yet.'],
+      ['Error State', 'Session listing and detail lookup failures will render here.'],
+    ],
   },
-  aggregate_query: {
-    table: "analytics.watch_events",
-    group_by: ["platform"],
-    measures: [{ expr: "COUNT(*)", as: "event_count" }],
-    time_scope: {
-      mode: "single_window",
-      grain: "day",
-      current: { start: "2026-03-10", end: "2026-03-17" }
-    },
-    scope: {
-      constraints: { platform: "android" }
-    },
-    order: "event_count DESC"
+  state: {
+    title: 'State',
+    summary: 'Inspect externally visible canonical state for a selected session without mixing in runtime queue or retry details.',
+    controls: [
+      ['Canonical Filters', 'Metric, entity, assessment, origin, and limit controls will land here in T4.'],
+      ['Primary Result', 'Active propositions remain the main reading surface.'],
+    ],
+    resultTitle: 'Canonical State Surface',
+    resultCopy: 'T4 will attach focus subjects, proposition rows, findings references, and gap detail to this panel.',
+    statuses: [
+      ['Empty State', 'No externally visible propositions for the selected session.'],
+      ['Error State', 'State query validation and transport failures will render here.'],
+    ],
   },
-  profile_table: { table_name: "analytics.watch_events" },
-  sample_rows: { table_name: "analytics.watch_events", limit: 10 },
-  attribute_change: {
-    metric_name: "watch_time",
-    table_name: "analytics.watch_events",
-    period_end: "2026-03-17",
-    baseline_start: "2026-03-03",
-    baseline_end: "2026-03-10",
-    candidate_dimensions: ["platform", "app_version"]
+  context: {
+    title: 'Context',
+    summary: 'Inspect one proposition at a time to understand canonical evidence, gaps, assessment state, and dependencies.',
+    controls: [
+      ['Locator', 'Session and proposition selectors will land here in T5.'],
+      ['Drill-in Boundary', 'This page stays focused on one proposition rather than broader runtime flow.'],
+    ],
+    resultTitle: 'Proposition Context Surface',
+    resultCopy: 'T5 will replace this placeholder with proposition details, findings, gaps, inference records, and artifact references.',
+    statuses: [
+      ['Empty State', 'Select a proposition to inspect canonical context.'],
+      ['Error State', 'Missing proposition references or lookup failures will render here.'],
+    ],
+  },
+  runtime: {
+    title: 'Runtime',
+    summary: 'Use runtime status views to explain missing, delayed, or blocked outputs without exposing control actions in the query workbench.',
+    controls: [
+      ['Runtime Scope', 'Session, proposition, and artifact runtime selectors will land here in T6.'],
+      ['Operational Filters', 'Runtime stage and status filters will be added once the runtime surface is wired.'],
+    ],
+    resultTitle: 'Runtime Status Surface',
+    resultCopy: 'T6 will attach stage summaries, failure signals, and runtime drill-ins to this area.',
+    statuses: [
+      ['Empty State', 'No runtime object is selected yet.'],
+      ['Error State', 'Runtime lookup failures will render here.'],
+    ],
+  },
+  grounding: {
+    title: 'Grounding',
+    summary: 'Open supporting catalog and semantic helper views that explain what the session referenced while keeping them secondary to the main read path.',
+    controls: [
+      ['Helper Views', 'Catalog search, semantic resolve, graph, and planner-context helpers will land here in T7.'],
+      ['Session Context', 'Grounding views may receive active session context from Sessions or State.'],
+    ],
+    resultTitle: 'Grounding Helper Surface',
+    resultCopy: 'T7 will replace this placeholder with supporting lookup tools for semantic and catalog grounding.',
+    statuses: [
+      ['Empty State', 'No helper query has been run yet.'],
+      ['Error State', 'Grounding helper lookup failures will render here.'],
+    ],
+  },
+  jobs: {
+    title: 'Jobs',
+    summary: 'Inspect background job status related to analysis sessions without exposing submit, cancel, or retry controls in the main UI.',
+    controls: [
+      ['Job Filters', 'Status and session filters will land here in T8.'],
+      ['Read-only Boundary', 'This page remains observational inside the query workbench.'],
+    ],
+    resultTitle: 'Job Status Surface',
+    resultCopy: 'T8 will replace this placeholder with job listings and read-only detail inspection.',
+    statuses: [
+      ['Empty State', 'No jobs are available for the current filter set.'],
+      ['Error State', 'Job listing and detail lookup failures will render here.'],
+    ],
+  },
+};
+
+const SESSION_PAGE_LIMIT = 25;
+const VALID_TABS = Object.keys(SHELL_PAGE_CONFIG);
+const DEFAULT_ROUTE = {
+  tab: 'sessions',
+  sessionId: '',
+  propositionId: '',
+  runtimeScope: '',
+  status: '',
+  sessionQuery: '',
+};
+
+let currentRoute = { ...DEFAULT_ROUTE };
+let sessionsViewState = {
+  loadingList: false,
+  listError: '',
+  items: [],
+  nextPageToken: null,
+  loadingDetail: false,
+  detailError: '',
+  selectedSession: null,
+};
+let stateViewState = {
+  loading: false,
+  error: '',
+  selectedDetailTab: 'findings',
+  result: null,
+  filters: {
+    metric: '',
+    entity: '',
+    assessmentPresence: '',
+    assessmentStatuses: '',
+    hasBlockingGaps: '',
+    originKinds: '',
+    propositionTypes: '',
+    limit: '50',
+  },
+};
+let contextViewState = {
+  loading: false,
+  error: '',
+  result: null,
+};
+let suppressTabSync = false;
+
+const uiApi = {
+  async fetchJson(path) {
+    const response = await fetch(path, {
+      headers: { 'Content-Type': 'application/json' },
+    });
+    let payload = null;
+    try {
+      payload = await response.json();
+    } catch (error) {
+      payload = null;
+    }
+    if (!response.ok) {
+      const message = payload && typeof payload.detail === 'string'
+        ? payload.detail
+        : `Request failed with status ${response.status}`;
+      const err = new Error(message);
+      err.status = response.status;
+      throw err;
+    }
+    return payload;
+  },
+  listSessions(route, pageToken = null) {
+    const params = new URLSearchParams();
+    if (route.status) params.set('status', route.status);
+    if (route.sessionQuery) params.set('session_id', route.sessionQuery);
+    params.set('limit', String(SESSION_PAGE_LIMIT));
+    if (pageToken) params.set('page_token', pageToken);
+    return this.fetchJson(`/sessions?${params.toString()}`);
+  },
+  getSession(sessionId) {
+    return this.fetchJson(`/sessions/${encodeURIComponent(sessionId)}`);
+  },
+  getSessionState(sessionId, filters) {
+    const params = new URLSearchParams();
+    if (filters.metric) params.set('metric', filters.metric);
+    if (filters.entity) params.set('entity', filters.entity);
+    splitMultiValue(filters.propositionTypes).forEach((value) => {
+      params.append('proposition_type', value);
+    });
+    splitMultiValue(filters.originKinds).forEach((value) => {
+      params.append('origin_kind', value);
+    });
+    if (filters.assessmentPresence) params.set('assessment_presence', filters.assessmentPresence);
+    splitMultiValue(filters.assessmentStatuses).forEach((value) => {
+      params.append('assessment_status', value);
+    });
+    if (filters.hasBlockingGaps === 'true' || filters.hasBlockingGaps === 'false') {
+      params.set('has_blocking_gaps', filters.hasBlockingGaps);
+    }
+    const normalizedLimit = Number.parseInt(filters.limit || '50', 10);
+    if (!Number.isNaN(normalizedLimit) && normalizedLimit > 0) {
+      params.set('limit', String(normalizedLimit));
+    }
+    return this.fetchJson(`/sessions/${encodeURIComponent(sessionId)}/state?${params.toString()}`);
+  },
+  getPropositionContext(sessionId, propositionId) {
+    return this.fetchJson(
+      `/sessions/${encodeURIComponent(sessionId)}/propositions/${encodeURIComponent(propositionId)}/context`
+    );
+  },
+};
+
+function renderShellPlaceholder(tab) {
+  const panel = document.getElementById('panel-' + tab);
+  const config = SHELL_PAGE_CONFIG[tab];
+  if (!panel || !config) {
+    return;
   }
-};
 
-const STEP_PARAM_HINTS = {
-  metric_query: "Use only typed fields: `table`, `metric`, `dimensions`, `time_scope`, optional `scope`/`time_axis`/`order`/`limit`. `time_scope.mode` supports `single_window` or `compare`; use `current_value/current_sessions` ordering for `single_window`, `delta_pct` ordering for `compare`. Compare example: `{\"time_scope\":{\"mode\":\"compare\",\"grain\":\"day\",\"current\":{\"start\":\"2026-03-10\",\"end\":\"2026-03-17\"},\"baseline\":{\"start\":\"2026-03-03\",\"end\":\"2026-03-10\"}},\"order\":\"delta_pct DESC\"}`",
-  aggregate_query: "Use only typed fields: `table`, `group_by`, `measures`, `time_scope`, optional `scope`/`time_axis`/`order`/`limit`.",
-  profile_table: "Legacy table utilities still use `table_name`.",
-  sample_rows: "Legacy table utilities still use `table_name`, optional `limit`, `filter`, `columns`.",
-  attribute_change: "This step still uses the legacy attribution contract."
-};
-
-function stepParamsTemplateText(stepType) {
-  const template = STEP_PARAM_TEMPLATES[stepType] ?? {};
-  return JSON.stringify(template, null, 2);
-}
-
-function renderStepParamTemplate(typeId, textareaId, helpId) {
-  const stepType = $('#' + typeId)?.value;
-  const textarea = $('#' + textareaId);
-  const help = $('#' + helpId);
-  if (!stepType || !textarea) return;
-  textarea.value = stepParamsTemplateText(stepType);
-  if (help) help.innerHTML = STEP_PARAM_HINTS[stepType] || '';
-}
-
-// ── Modal (local wrappers that match old API: title, bodyHtml, footerHtml) ─
-function openModal(title, bodyHtml, footerHtml) {
-  $('#modal-title').textContent = title;
-  $('#modal-body').innerHTML = bodyHtml;
-  $('#modal-footer').innerHTML = footerHtml;
-  $('#modal-overlay').classList.add('open');
-}
-function closeModal() { $('#modal-overlay').classList.remove('open'); }
-$('#modal-close').onclick = closeModal;
-$('#modal-overlay').onclick = (e) => { if (e.target === e.currentTarget) closeModal(); };
-
-// ── API ────────────────────────────────────────────────────
-const localApi = {
-  async _fetch(path, opts = {}) {
-    const res = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts });
-    if (!res.ok) { const body = await res.json().catch(() => ({})); throw new Error(body.detail || `HTTP ${res.status}`); }
-    return res.json();
-  },
-  // Catalog
-  getCatalog: () => localApi._fetch('/catalog'),
-  searchCatalog: (q, type) => localApi._fetch('/catalog/search?' + new URLSearchParams({q, ...(type ? {type} : {})})),
-  resolveTerm: (name) => localApi._fetch(`/semantic/resolve/${encodeURIComponent(name)}`),
-  catalogGraph: (root, depth) => localApi._fetch(`/catalog/graph?root=${encodeURIComponent(root)}&depth=${depth}`),
-  // Sessions
-  listSessions: (params) => localApi._fetch('/sessions' + (params ? '?' + new URLSearchParams(params) : '')),
-  createSession: (d) => localApi._fetch('/sessions', { method: 'POST', body: JSON.stringify(d) }),
-  getSession: (id) => localApi._fetch(`/sessions/${id}`),
-  runStep: (id, stepType, params) => {
-    const path = stepType === 'attribute_change'
-      ? `/sessions/${id}/steps/attribute_change`
-      : `/sessions/${id}/steps/${stepType}`;
-    return localApi._fetch(path, { method: 'POST', body: JSON.stringify(params || {}) });
-  },
-  // Evidence
-  getEvidence: (id) => localApi._fetch(`/sessions/${id}/evidence`),
-  // Plans
-  listPlans: (sessionId) => localApi._fetch(`/sessions/${sessionId}/plans`),
-  getPlan: (sessionId, planId) => localApi._fetch(`/sessions/${sessionId}/plans/${planId}`),
-  draftPlan: (sessionId, steps) => localApi._fetch(`/sessions/${sessionId}/plans`, { method: 'POST', body: JSON.stringify({steps}) }),
-  validatePlan: (sid, pid) => localApi._fetch(`/sessions/${sid}/plans/${pid}/validate`, { method: 'POST' }),
-  approvePlan: (sid, pid) => localApi._fetch(`/sessions/${sid}/plans/${pid}/approve`, { method: 'POST' }),
-  executePlan: (sid, pid) => localApi._fetch(`/sessions/${sid}/plans/${pid}/execute`, { method: 'POST' }),
-  estimateCosts: (sid, pid) => localApi._fetch(`/sessions/${sid}/plans/${pid}/estimate-costs`, { method: 'POST' }),
-  budgetCheck: (sid, pid) => localApi._fetch(`/sessions/${sid}/plans/${pid}/budget-check`),
-  explainPlan: (sid, pid) => localApi._fetch(`/sessions/${sid}/plans/${pid}/explain`),
-  // Plan Patch (M-11)
-  patchPlan: (sid, pid, patch) => localApi._fetch(`/sessions/${sid}/plans/${pid}/patch`, { method: 'POST', body: JSON.stringify(patch) }),
-  // Semantic entity patch (G-5d)
-  patchEntityProperties: (entityId, properties) => localApi._fetch(`/semantic/entities/${encodeURIComponent(entityId)}/properties`, { method: 'PATCH', body: JSON.stringify({ properties }) }),
-  // Jobs
-  listJobs: (params) => localApi._fetch('/jobs' + (params ? '?' + new URLSearchParams(params) : '')),
-  submitJob: (d) => localApi._fetch('/jobs', { method: 'POST', body: JSON.stringify(d) }),
-  getJob: (id) => localApi._fetch(`/jobs/${id}`),
-  cancelJob: (id) => localApi._fetch(`/jobs/${id}/cancel`, { method: 'POST' }),
-};
-
-// ── Tab switching (use shared initSidebar via DOMContentLoaded) ──
-const renderers = {};
-window.addEventListener('tab-change', (e) => {
-  const tab = e.detail.tab;
-  if (renderers[tab]) renderers[tab]();
-});
-
-// ── SVG icon helpers ───────────────────────────────────────
-function catTypeIcon(type) {
-  const t = (type || '').toLowerCase();
-  if (t === 'entity') return '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>';
-  if (t === 'metric') return '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>';
-  return '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><polyline points="16 7 16 2 8 2 8 7"/></svg>';
-}
-
-// ════════════════════════════════════════════════════════════
-// ── Catalog Tab ────────────────────────────────────────────
-// ════════════════════════════════════════════════════════════
-renderers.catalog = async () => {
-  const panel = $('#panel-catalog');
   panel.innerHTML = `
-    <!-- Search bar -->
-    <div class="search-bar" id="cat-search-bar">
-      <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-      <input id="cat-search-q" placeholder="Search catalog... (entities, metrics, assets)" autocomplete="off">
-      <select id="cat-search-type" style="width:auto;border:none;background:transparent;font-size:var(--font-size-sm);color:var(--color-text-secondary);outline:none;cursor:pointer;">
-        <option value="">All types</option>
-        <option value="entity">Entities</option>
-        <option value="metric">Metrics</option>
-        <option value="asset">Assets</option>
-      </select>
-      <button class="btn btn-primary btn-sm" id="cat-search-btn">Search</button>
+    <div class="page-intro">
+      <h2>${esc(config.title)}</h2>
+      <p>${esc(config.summary)}</p>
     </div>
-
-    <!-- Search results -->
-    <div id="cat-search-results"></div>
-
-    <!-- Overview (stat cards + tables) -->
-    <div class="card" id="cat-overview-card">
-      <h2>Catalog Overview</h2>
-      <div id="cat-overview-content"><span class="spinner"></span></div>
-    </div>
-
-    <!-- Resolve -->
-    <div class="card" id="cat-resolve-card">
-      <h2>Resolve Term</h2>
-      <div class="inline-form">
-        <div class="form-group"><label>Term Name</label><input id="cat-resolve-name" placeholder="e.g. watch_time"></div>
-        <button class="btn btn-primary" id="cat-resolve-btn">Resolve</button>
+    <div class="shell-grid">
+      <div class="card">
+        <div class="shell-card-title">
+          <h3>Query / Filters</h3>
+          <span class="shell-chip">Read-only</span>
+        </div>
+        <div class="shell-controls">
+          ${config.controls.map(([label, copy]) => `
+            <div class="shell-control">
+              <div class="shell-control-label">${esc(label)}</div>
+              <div class="shell-control-copy">${esc(copy)}</div>
+            </div>
+          `).join('')}
+        </div>
       </div>
-      <div id="cat-resolve-results"></div>
-    </div>
-
-    <!-- Graph -->
-    <div class="card" id="cat-graph-card">
-      <h2>Catalog Graph</h2>
-      <div class="inline-form">
-        <div class="form-group"><label>Root ID</label><input id="cat-graph-root" placeholder="ent_... or met_..."></div>
-        <div class="form-group"><label>Depth</label><input id="cat-graph-depth" type="number" value="2" min="1" max="5" style="width:80px;"></div>
-        <button class="btn btn-primary" id="cat-graph-btn">Load Graph</button>
+      <div class="card">
+        <div class="shell-card-title">
+          <h3>${esc(config.resultTitle)}</h3>
+          <span class="shell-chip">Placeholder</span>
+        </div>
+        <div class="shell-results">
+          <p class="shell-results-copy">${esc(config.resultCopy)}</p>
+        </div>
       </div>
-      <div id="cat-graph-results"></div>
+      <div class="shell-status-grid">
+        ${config.statuses.map(([label, copy]) => `
+          <div class="shell-status">
+            <strong>${esc(label)}</strong>
+            <span>${esc(copy)}</span>
+          </div>
+        `).join('')}
+      </div>
     </div>`;
+}
 
-  // Search handler — enter key support
-  $('#cat-search-q').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') $('#cat-search-btn').click();
+function normalizeRoute(nextRoute) {
+  const route = {
+    tab: VALID_TABS.includes(nextRoute.tab) ? nextRoute.tab : DEFAULT_ROUTE.tab,
+    sessionId: nextRoute.sessionId || '',
+    propositionId: nextRoute.propositionId || '',
+    runtimeScope: nextRoute.runtimeScope || '',
+    status: nextRoute.status || '',
+    sessionQuery: (nextRoute.sessionQuery || '').trim(),
+  };
+  if (!['session', 'proposition', 'artifact'].includes(route.runtimeScope)) {
+    route.runtimeScope = '';
+  }
+  return route;
+}
+
+function routeFromLocation() {
+  const params = new URLSearchParams(window.location.search);
+  return normalizeRoute({
+    tab: params.get('tab') || DEFAULT_ROUTE.tab,
+    sessionId: params.get('session_id') || '',
+    propositionId: params.get('proposition_id') || '',
+    runtimeScope: params.get('runtime_scope') || '',
+    status: params.get('status') || '',
+    sessionQuery: params.get('session_query') || '',
+  });
+}
+
+function writeRoute(route, historyMode = 'push') {
+  const params = new URLSearchParams();
+  if (route.tab && route.tab !== DEFAULT_ROUTE.tab) params.set('tab', route.tab);
+  if (route.sessionId) params.set('session_id', route.sessionId);
+  if (route.propositionId) params.set('proposition_id', route.propositionId);
+  if (route.runtimeScope) params.set('runtime_scope', route.runtimeScope);
+  if (route.status) params.set('status', route.status);
+  if (route.sessionQuery) params.set('session_query', route.sessionQuery);
+  const nextUrl = params.toString() ? `?${params.toString()}` : window.location.pathname;
+  const method = historyMode === 'replace' ? 'replaceState' : 'pushState';
+  window.history[method](null, '', nextUrl);
+}
+
+function formatPretty(value) {
+  if (value == null) return '<span class="empty">None</span>';
+  if (typeof value === 'string') return `<span>${esc(value)}</span>`;
+  return jsonPre(value);
+}
+
+function sessionStatus(session) {
+  return session?.lifecycle?.status || 'unknown';
+}
+
+function splitMultiValue(value) {
+  return String(value || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function formatSubjectSummary(subject) {
+  if (!subject || typeof subject !== 'object') {
+    return '<span class="empty">No subject</span>';
+  }
+  const titleParts = [subject.metric, subject.entity, subject.grain].filter(Boolean);
+  const sliceSummary = subject.slice && typeof subject.slice === 'object'
+    ? Object.entries(subject.slice).map(([key, value]) => `${key}=${value}`).join(', ')
+    : '';
+  return `
+    <div class="state-subject">
+      <div class="state-subject-main">${esc(titleParts.join(' / ') || 'Unspecified subject')}</div>
+      <div class="state-subject-meta">${esc(sliceSummary || 'No slice')}</div>
+    </div>
+  `;
+}
+
+function getPropositionSubject(proposition) {
+  return proposition?.subject_json || proposition?.subject || null;
+}
+
+function renderContextStructuredValue(value, emptyLabel = 'None') {
+  if (value == null) {
+    return `<span class="empty">${esc(emptyLabel)}</span>`;
+  }
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return `<span>${esc(String(value))}</span>`;
+  }
+  return jsonPre(value);
+}
+
+function renderContextCollection(title, items, renderItem, emptyCopy) {
+  const body = Array.isArray(items) && items.length > 0
+    ? items.map((item, index) => renderItem(item, index)).join('')
+    : `<div class="detail-empty">${esc(emptyCopy)}</div>`;
+  return `
+    <div class="card">
+      <div class="shell-card-title">
+        <h3>${esc(title)}</h3>
+        <span class="shell-chip">${esc(Array.isArray(items) ? `${items.length} item(s)` : 'None')}</span>
+      </div>
+      <div class="context-section-list">${body}</div>
+    </div>
+  `;
+}
+
+function renderContextArtifactRows(items) {
+  return renderContextCollection(
+    'Artifact Refs',
+    items,
+    (item) => `
+      <div class="context-section-item">
+        <h4>${esc(item.artifact_id || 'artifact')}</h4>
+        ${item.step_ref ? jsonPre(item.step_ref) : '<span class="empty">No step_ref</span>'}
+        <div class="detail-actions">
+          <button class="btn btn-sm context-open-artifact-runtime-btn" data-artifact-id="${attr(item.artifact_id || '')}">Artifact Runtime</button>
+        </div>
+      </div>
+    `,
+    '当前 proposition context 没有 artifact refs。'
+  );
+}
+
+function renderContextFindingRows(title, items, emptyCopy) {
+  return renderContextCollection(
+    title,
+    items,
+    (item) => `
+      <div class="context-section-item">
+        <h4>${esc(item.finding_id || item.seed_ref?.finding_id || 'finding')}</h4>
+        ${item.finding
+          ? formatSubjectSummary(item.finding.subject_json)
+          : item.subject_json
+            ? formatSubjectSummary(item.subject_json)
+            : '<span class="empty">No hydrated finding</span>'}
+        <div class="context-inline-meta">
+          artifact: ${esc(item.artifact_id || item.finding?.artifact_id || '-')}
+        </div>
+        ${item.seed_ref ? `<div class="context-inline-meta">seed_ref: ${jsonPre(item.seed_ref)}</div>` : ''}
+      </div>
+    `,
+    emptyCopy
+  );
+}
+
+function renderContextGenericRows(title, items, emptyCopy, keyName) {
+  return renderContextCollection(
+    title,
+    items,
+    (item, index) => `
+      <div class="context-section-item">
+        <h4>${esc(item?.[keyName] || `${title} ${index + 1}`)}</h4>
+        ${jsonPre(item)}
+      </div>
+    `,
+    emptyCopy
+  );
+}
+
+function renderFocusSubjects(subjects) {
+  if (!Array.isArray(subjects) || subjects.length === 0) {
+    return '<div class="state-empty">当前返回的 canonical closure 中没有 focus subjects。</div>';
+  }
+  return `
+    <div class="subject-chip-list">
+      ${subjects.map((subject) => `
+        <span class="subject-chip">${esc(
+          [subject.metric, subject.entity].filter(Boolean).join(' / ') || JSON.stringify(subject)
+        )}</span>
+      `).join('')}
+    </div>
+  `;
+}
+
+function renderStateCounts(entry) {
+  return String((entry.supporting_finding_refs || []).length + (entry.opposing_finding_refs || []).length);
+}
+
+function renderStateDetailItems(items, kind) {
+  if (!Array.isArray(items) || items.length === 0) {
+    const emptyCopy = {
+      findings: '当前查询结果没有 backing findings。',
+      gaps: '当前查询结果没有 blocking gaps。',
+      artifacts: '当前查询结果没有 artifact refs.',
+    };
+    return `<div class="state-empty">${esc(emptyCopy[kind] || 'No detail items.')}</div>`;
+  }
+
+  return `
+    <div class="state-detail-list">
+      ${items.map((item) => {
+        if (kind === 'findings') {
+          return `
+            <div class="state-detail-item">
+              <h4>${esc(item.finding_id || 'finding')}</h4>
+              ${formatSubjectSummary(item.subject_json)}
+              <div class="state-meta-note">artifact: ${esc(item.artifact_id || '-')}</div>
+            </div>
+          `;
+        }
+        if (kind === 'gaps') {
+          return `
+            <div class="state-detail-item">
+              <h4>${esc(item.gap_id || 'gap')}</h4>
+              <div>${esc(item.status || 'open')}</div>
+            </div>
+          `;
+        }
+        return `
+          <div class="state-detail-item">
+            <h4>${esc(item.artifact_id || 'artifact')}</h4>
+            ${item.step_ref ? jsonPre(item.step_ref) : '<span class="empty">No step_ref</span>'}
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+function renderStateSidebar() {
+  const result = stateViewState.result;
+  const detailTab = stateViewState.selectedDetailTab;
+  const tabMap = {
+    findings: { title: 'Backing Findings', items: result?.backing_findings || [], kind: 'findings' },
+    gaps: { title: 'Blocking Gaps', items: result?.blocking_gaps || [], kind: 'gaps' },
+    artifacts: { title: 'Artifact Refs', items: result?.artifact_refs || [], kind: 'artifacts' },
+  };
+  const detail = tabMap[detailTab] || tabMap.findings;
+
+  return `
+    <div class="card">
+      <div class="shell-card-title">
+        <h3>Canonical Detail Closure</h3>
+        <span class="shell-chip">${esc(detail.title)}</span>
+      </div>
+      <div class="state-sidebar-tabs">
+        <button class="btn btn-sm state-detail-tab ${detailTab === 'findings' ? 'is-active' : ''}" data-detail-tab="findings">Backing Findings</button>
+        <button class="btn btn-sm state-detail-tab ${detailTab === 'gaps' ? 'is-active' : ''}" data-detail-tab="gaps">Blocking Gaps</button>
+        <button class="btn btn-sm state-detail-tab ${detailTab === 'artifacts' ? 'is-active' : ''}" data-detail-tab="artifacts">Artifact Refs</button>
+      </div>
+      ${renderStateDetailItems(detail.items, detail.kind)}
+    </div>
+  `;
+}
+
+function renderStateRows(entries) {
+  if (stateViewState.loading) {
+    return loadingRow(7);
+  }
+  if (!Array.isArray(entries) || entries.length === 0) {
+    const hasFilters = Object.entries(stateViewState.filters)
+      .some(([key, value]) => key !== 'limit' && String(value || '').trim() !== '');
+    const emptyCopy = hasFilters ? '当前筛选条件下无命中' : '当前 session 没有对外可见 proposition';
+    return `<tr><td colspan="7" class="empty">${esc(emptyCopy)}</td></tr>`;
+  }
+
+  return entries.map((entry) => {
+    const proposition = entry.proposition || {};
+    const propositionId = proposition.proposition_id || '';
+    const assessment = entry.latest_assessment;
+    const blockingCount = Array.isArray(entry.blocking_gap_refs) ? entry.blocking_gap_refs.length : null;
+    const selectedClass = propositionId === currentRoute.propositionId ? 'is-selected' : '';
+    return `
+      <tr class="${selectedClass}">
+        <td><span class="inline-code">${esc(propositionId || '-')}</span></td>
+        <td>${esc(proposition.proposition_type || '-')}</td>
+        <td>${formatSubjectSummary(proposition.subject_json)}</td>
+        <td>${assessment ? statusBadge(assessment.status) : '<span class="empty">Unassessed</span>'}</td>
+        <td>${blockingCount == null ? '<span class="empty">-</span>' : esc(String(blockingCount))}</td>
+        <td>${esc(renderStateCounts(entry))}</td>
+        <td class="actions-cell">
+          <button class="btn btn-sm state-open-context-btn" data-proposition-id="${attr(propositionId)}">Open Context</button>
+          <button class="btn btn-sm state-open-runtime-btn" data-proposition-id="${attr(propositionId)}">Open Proposition Runtime</button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function bindStateEvents() {
+  const panel = document.getElementById('panel-state');
+  if (!panel) return;
+
+  panel.querySelector('[data-role="state-filters"]')?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    stateViewState.filters = {
+      metric: String(formData.get('metric') || '').trim(),
+      entity: String(formData.get('entity') || '').trim(),
+      assessmentPresence: String(formData.get('assessment_presence') || '').trim(),
+      assessmentStatuses: String(formData.get('assessment_status') || '').trim(),
+      hasBlockingGaps: String(formData.get('has_blocking_gaps') || '').trim(),
+      originKinds: String(formData.get('origin_kind') || '').trim(),
+      propositionTypes: String(formData.get('proposition_type') || '').trim(),
+      limit: String(formData.get('limit') || '50').trim() || '50',
+    };
+    void loadStateView();
   });
 
-  // Search handler
-  $('#cat-search-btn').onclick = async () => {
-    const q = $('#cat-search-q').value.trim();
-    if (!q) { toast('Enter a search query', 'error'); return; }
-    const type = $('#cat-search-type').value;
-    const area = $('#cat-search-results');
-    area.innerHTML = '<div style="text-align:center;padding:var(--space-xl);"><span class="spinner"></span></div>';
-    try {
-      const results = await localApi.searchCatalog(q, type);
-      const items = results.results || results;
-      if (!items || !items.length) { area.innerHTML = '<div class="card"><p class="empty">No results found.</p></div>'; return; }
-      area.innerHTML = items.map(r => {
-        const t = (r.type || '').toLowerCase();
-        const iconCls = t === 'entity' ? 'type-entity' : t === 'metric' ? 'type-metric' : 'type-asset';
-        return `<div class="cat-result-card">
-          <div class="cat-result-icon ${iconCls}">${catTypeIcon(r.type)}</div>
-          <div class="cat-result-body">
-            <div class="cat-name">${esc(r.name)}</div>
-            <div class="cat-display">${esc(r.display_name || '')} ${statusBadge(r.type)}</div>
-            <div class="cat-desc">${esc(truncate(r.description || '', 120))}</div>
-          </div>
-        </div>`;
-      }).join('');
-    } catch (err) { area.innerHTML = ''; toast(err.message, 'error'); }
-  };
+  panel.querySelector('[data-role="reset-state-filters"]')?.addEventListener('click', () => {
+    stateViewState.filters = {
+      metric: '',
+      entity: '',
+      assessmentPresence: '',
+      assessmentStatuses: '',
+      hasBlockingGaps: '',
+      originKinds: '',
+      propositionTypes: '',
+      limit: '50',
+    };
+    void loadStateView();
+  });
 
-  // Resolve handler
-  $('#cat-resolve-btn').onclick = async () => {
-    const name = $('#cat-resolve-name').value.trim();
-    if (!name) { toast('Enter a term name', 'error'); return; }
-    const area = $('#cat-resolve-results');
-    area.innerHTML = '<span class="spinner"></span>';
-    try {
-      const res = await localApi.resolveTerm(name);
-      const sem = res.semantic_object || {};
-      const header = sem.header || {};
-      const interfaceContract = sem.interface_contract || {};
-      const payload = sem.payload || {};
-      let html = '<div class="resolve-grid">';
-      // Left: typed semantic summary
-      html += '<div class="card" style="margin-bottom:0;">';
-      html += '<h2 style="font-size:var(--font-size-base);">Typed Contract</h2>';
-      html += `<dl class="detail-meta">
-        <dt>Object Kind</dt><dd>${statusBadge(res.object_kind || '')}</dd>
-        <dt>Ref</dt><dd><code>${esc(res.ref || '')}</code></dd>
-        <dt>Status</dt><dd>${statusBadge(res.status || '')}</dd>
-        <dt>Revision</dt><dd>${esc(String(res.revision || ''))}</dd>
-        <dt>Display Name</dt><dd>${esc(header.display_name || '')}</dd>
-        <dt>Description</dt><dd>${esc(header.description || '')}</dd>
-      </dl>`;
-      html += '<h3 style="font-size:var(--font-size-sm);margin-top:var(--space-lg);">Header</h3>';
-      html += jsonPre(header);
-      if (Object.keys(interfaceContract).length) {
-        html += '<h3 style="font-size:var(--font-size-sm);margin-top:var(--space-lg);">Interface Contract</h3>';
-        html += jsonPre(interfaceContract);
-      }
-      if (Object.keys(payload).length) {
-        html += '<h3 style="font-size:var(--font-size-sm);margin-top:var(--space-lg);">Payload</h3>';
-        html += jsonPre(payload);
-      }
-      html += '</div>';
-      // Right: engine info
-      html += '<div class="card" style="margin-bottom:0;">';
-      html += '<h2 style="font-size:var(--font-size-base);">Runtime Envelope</h2>';
-      html += jsonPre({
-        object_kind: res.object_kind,
-        object_id: res.object_id,
-        ref: res.ref,
-        status: res.status,
-        revision: res.revision,
-        created_at: res.created_at,
-        updated_at: res.updated_at,
+  panel.querySelectorAll('.state-detail-tab').forEach((button) => {
+    button.addEventListener('click', () => {
+      stateViewState.selectedDetailTab = button.dataset.detailTab || 'findings';
+      renderStatePage();
+    });
+  });
+
+  panel.querySelectorAll('.state-open-context-btn').forEach((button) => {
+    button.addEventListener('click', () => {
+      applyRoute({
+        ...currentRoute,
+        tab: 'context',
+        propositionId: button.dataset.propositionId || '',
       });
-      if (res.engine_info) {
-        html += '<h3 style="font-size:var(--font-size-sm);margin-top:var(--space-lg);">Engine Info</h3>';
-        html += jsonPre(res.engine_info);
-      }
-      html += '</div>';
-      html += '</div>'; // end resolve-grid
+    });
+  });
 
-      // Physical assets (full width below)
-      const assets = res.physical_assets || res.assets || [];
-      if (assets.length) {
-        html += '<div class="card" style="margin-top:var(--space-lg);">';
-        html += `<h2 style="font-size:var(--font-size-base);">Physical Assets (${assets.length})</h2>`;
-        html += `<table><thead><tr><th>Object ID</th><th>FQN</th><th>Type</th><th>Source</th></tr></thead><tbody>${
-          assets.map(a => `<tr>
-            <td><code>${esc(a.object_id || '')}</code></td>
-            <td>${esc(a.fqn || '')}</td>
-            <td>${statusBadge(a.object_type || '')}</td>
-            <td><code>${esc(a.source_id || '')}</code></td>
-          </tr>`).join('')
-        }</tbody></table>`;
-        html += '</div>';
-      }
-      area.innerHTML = html;
-    } catch (err) { area.innerHTML = ''; toast(err.message, 'error'); }
-  };
+  panel.querySelectorAll('.state-open-runtime-btn').forEach((button) => {
+    button.addEventListener('click', () => {
+      applyRoute({
+        ...currentRoute,
+        tab: 'runtime',
+        propositionId: button.dataset.propositionId || '',
+        runtimeScope: 'proposition',
+      });
+    });
+  });
 
-  // Graph handler
-  $('#cat-graph-btn').onclick = async () => {
-    const root = $('#cat-graph-root').value.trim();
-    const depth = parseInt($('#cat-graph-depth').value, 10);
-    if (!root) { toast('Enter a root ID', 'error'); return; }
-    if (isNaN(depth) || depth < 1 || depth > 5) { toast('Depth must be 1-5', 'error'); return; }
-    const area = $('#cat-graph-results');
-    area.innerHTML = '<span class="spinner"></span>';
-    try {
-      const graph = await localApi.catalogGraph(root, depth);
-      const nodes = graph.nodes || [];
-      const edges = graph.edges || [];
+  panel.querySelector('[data-role="go-to-sessions"]')?.addEventListener('click', () => {
+    applyRoute({
+      ...currentRoute,
+      tab: 'sessions',
+      propositionId: '',
+      runtimeScope: '',
+    });
+  });
+}
 
-      let html = '';
-      // Force-directed graph visualization
-      if (nodes.length) {
-        html += '<div class="graph-container" id="cat-graph-vis"></div>';
-      }
-      // Tables below the graph
-      if (nodes.length) {
-        html += `<div class="card" style="margin-top:var(--space-lg);"><h2 style="font-size:var(--font-size-base);">Nodes (${nodes.length})</h2>`;
-        html += `<table><thead><tr><th>ID</th><th>Type</th><th>Name</th></tr></thead><tbody>${
-          nodes.map(n => `<tr><td><code>${esc(n.id || '')}</code></td><td>${statusBadge(n.type || '')}</td><td>${esc(n.name || '')}</td></tr>`).join('')
-        }</tbody></table></div>`;
-      }
-      if (edges.length) {
-        html += `<div class="card"><h2 style="font-size:var(--font-size-base);">Edges (${edges.length})</h2>`;
-        html += `<table><thead><tr><th>From</th><th>To</th><th>Type</th></tr></thead><tbody>${
-          edges.map(e => `<tr><td><code>${esc(e.from || e.source || '')}</code></td><td><code>${esc(e.to || e.target || '')}</code></td><td>${esc(e.type || e.relation || '')}</td></tr>`).join('')
-        }</tbody></table></div>`;
-      }
-      if (!nodes.length && !edges.length) html = '<p class="empty">Empty graph returned.</p>';
-      area.innerHTML = html;
+function renderStatePage() {
+  const panel = document.getElementById('panel-state');
+  if (!panel) return;
 
-      // Render force graph if container exists
-      const graphContainer = $('#cat-graph-vis');
-      if (graphContainer && nodes.length) {
-        const graphNodes = nodes.map(n => ({ id: n.id, label: n.name || n.id, type: n.type }));
-        const graphEdges = edges.map(e => ({ from: e.from || e.source, to: e.to || e.target, label: e.type || e.relation || '' }));
-        renderForceGraph(graphContainer, graphNodes, graphEdges);
-      }
-    } catch (err) { area.innerHTML = ''; toast(err.message, 'error'); }
-  };
+  const hasSession = Boolean(currentRoute.sessionId);
+  const result = stateViewState.result;
+  const truncationCopy = result?.truncation
+    ? `returned ${result.truncation.returned_count} of ${result.truncation.total_count} active_propositions`
+    : 'No canonical state loaded yet.';
 
-  // Overview (load on tab open)
-  try {
-    const catalog = await localApi.getCatalog();
-    const area = $('#cat-overview-content');
-    const entities = catalog.entities || [];
-    const metrics = catalog.metrics || [];
-    const assets = catalog.assets || [];
-
-    // Extract unique schemas from asset FQNs
-    const schemas = [...new Set(assets.map(a => {
-      const parts = (a.fqn || '').split('.');
-      return parts.length >= 3 ? parts[1] : null;
-    }).filter(Boolean))].sort();
-
-    let html = '';
-    // Stat cards
-    html += '<div class="stat-grid">';
-    html += `<div class="stat-card stat-info"><div class="stat-label">Entities</div><div class="stat-value">${entities.length}</div></div>`;
-    html += `<div class="stat-card stat-success"><div class="stat-label">Metrics</div><div class="stat-value">${metrics.length}</div></div>`;
-    html += `<div class="stat-card stat-warning"><div class="stat-label">Assets</div><div class="stat-value">${assets.length}</div></div>`;
-    html += '</div>';
-
-    if (entities.length) {
-      html += `<h3 style="font-size:var(--font-size-base);font-weight:600;margin:0 0 var(--space-sm);">Entities</h3>`;
-      html += `<table><thead><tr><th>Name</th><th>Keys</th></tr></thead><tbody>${
-        entities.map(e => `<tr>
-          <td><strong>${esc(e.name || e.id || '')}</strong></td><td><code>${esc((e.keys || []).join(', '))}</code></td>
-        </tr>`).join('')
-      }</tbody></table>`;
-    }
-    if (metrics.length) {
-      html += `<h3 style="font-size:var(--font-size-base);font-weight:600;margin:var(--space-lg) 0 var(--space-sm);">Metrics</h3>`;
-      html += `<table><thead><tr><th>Name</th><th>Label</th><th>Definition</th><th>Dimensions</th></tr></thead><tbody>${
-        metrics.map(m => `<tr>
-          <td><strong>${esc(m.name || m.id || '')}</strong></td><td>${esc(m.label || m.display_name || '')}</td><td><code>${esc(m.definition || '')}</code></td><td>${esc((m.dimensions || []).join(', '))}</td>
-        </tr>`).join('')
-      }</tbody></table>`;
-    }
-    if (assets.length) {
-      html += `<h3 style="font-size:var(--font-size-base);font-weight:600;margin:var(--space-lg) 0 var(--space-sm);">Assets</h3>`;
-      // Schema filter dropdown
-      if (schemas.length > 0) {
-        html += `<div class="inline-form" style="margin-bottom:var(--space-sm);">
-          <div class="form-group"><label>Filter by Schema</label>
-            <select id="assets-schema-filter" style="min-width:150px;">
-              <option value="">All Schemas</option>
-              ${schemas.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('')}
+  panel.innerHTML = `
+    <div class="page-intro">
+      <h2>State</h2>
+      <p>Inspect externally visible canonical state for one session. This page stays on canonical truth only and does not expose runtime queue, claim, retry, or backlog fields.</p>
+    </div>
+    <div class="state-layout">
+      <div class="card">
+        <div class="shell-card-title">
+          <h3>Canonical Filters</h3>
+          <span class="shell-chip">Read-only</span>
+        </div>
+        <form class="state-filters" data-role="state-filters">
+          <div class="form-group">
+            <label for="state-session-id">Session</label>
+            <input id="state-session-id" type="text" value="${attr(currentRoute.sessionId)}" disabled />
+          </div>
+          <div class="form-group">
+            <label for="state-metric">metric</label>
+            <input id="state-metric" type="text" name="metric" value="${attr(stateViewState.filters.metric)}" placeholder="watch_time" />
+          </div>
+          <div class="form-group">
+            <label for="state-entity">entity</label>
+            <input id="state-entity" type="text" name="entity" value="${attr(stateViewState.filters.entity)}" placeholder="video" />
+          </div>
+          <div class="form-group">
+            <label for="state-assessment-presence">assessment_presence</label>
+            <select id="state-assessment-presence" name="assessment_presence">
+              <option value="">All</option>
+              <option value="assessed" ${stateViewState.filters.assessmentPresence === 'assessed' ? 'selected' : ''}>assessed</option>
+              <option value="unassessed" ${stateViewState.filters.assessmentPresence === 'unassessed' ? 'selected' : ''}>unassessed</option>
             </select>
           </div>
-        </div>`;
-      }
-      // Assets table with schema column
-      html += `<table id="assets-table"><thead><tr><th>Name</th><th>Schema</th><th>Engine</th><th>Kind</th><th>Row Count</th></tr></thead><tbody id="assets-tbody">${
-        assets.map(a => {
-          const parts = (a.fqn || '').split('.');
-          const schema = parts.length >= 3 ? parts[1] : '';
-          return `<tr data-schema="${esc(schema)}">
-            <td><strong>${esc(a.id || a.name || '')}</strong></td>
-            <td>${esc(schema)}</td>
-            <td>${esc(a.engine || '')}</td>
-            <td>${statusBadge(a.kind || a.type || '')}</td>
-            <td>${a.row_count != null ? Number(a.row_count).toLocaleString() : 'N/A'}</td>
-          </tr>`;
-        }).join('')
-      }</tbody></table>`;
-    }
-    if (!entities.length && !metrics.length && !assets.length) {
-      html = '<p class="empty">Catalog is empty. Create entities and metrics in the Admin UI.</p>';
-    }
-    area.innerHTML = html;
-
-    // Add schema filter handler
-    const schemaFilter = $('#assets-schema-filter');
-    if (schemaFilter) {
-      schemaFilter.onchange = () => {
-        const selected = schemaFilter.value;
-        const rows = document.querySelectorAll('#assets-tbody tr');
-        rows.forEach(row => {
-          if (!selected || row.dataset.schema === selected) {
-            row.style.display = '';
-          } else {
-            row.style.display = 'none';
-          }
-        });
-      };
-    }
-  } catch (err) { $('#cat-overview-content').innerHTML = `<p class="empty">Failed to load catalog: ${esc(err.message)}</p>`; }
-};
-
-// ════════════════════════════════════════════════════════════
-// ── Sessions Tab ───────────────────────────────────────────
-// ════════════════════════════════════════════════════════════
-renderers.sessions = async () => {
-  const panel = $('#panel-sessions');
-  panel.innerHTML = `<div class="card">
-    <div class="toolbar"><h2>Sessions</h2><button class="btn btn-primary" id="create-session-btn">+ Create Session</button></div>
-    <table><thead><tr><th>ID</th><th>Goal</th><th>Status</th><th>Created</th></tr></thead>
-    <tbody id="sessions-tbody">${loadingRow(4)}</tbody></table></div>`;
-
-  $('#create-session-btn').onclick = () => {
-    openModal('Create Session',
-      `<div class="form-group"><label>Goal</label><textarea id="f-sess-goal" placeholder="Investigate the recent watch time decline"></textarea></div>
-       <div class="form-group"><label>Constraints (JSON)</label><textarea id="f-sess-constraints">{}</textarea></div>
-       <div class="form-group"><label>Budget (JSON)</label><textarea id="f-sess-budget">{}</textarea></div>
-       <div class="form-group"><label>Policy (JSON)</label><textarea id="f-sess-policy">{}</textarea></div>`,
-      `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" id="f-sess-submit">Create</button>`);
-    $('#f-sess-submit').onclick = async () => {
-      try {
-        const goal = $('#f-sess-goal').value.trim();
-        if (!goal) throw new Error('Goal is required');
-        const constraints = parseJSON($('#f-sess-constraints').value, {});
-        const budget = parseJSON($('#f-sess-budget').value, null);
-        const policy = parseJSON($('#f-sess-policy').value, null);
-        const data = { goal, constraints };
-        if (budget) data.budget = budget;
-        if (policy) data.policy = policy;
-        await localApi.createSession(data);
-        toast('Session created', 'success');
-        closeModal();
-        renderers.sessions();
-      } catch (err) { toast(err.message, 'error'); }
-    };
-  };
-
-  try {
-    const sessions = await localApi.listSessions();
-    const tbody = $('#sessions-tbody');
-    if (!sessions.length) { tbody.innerHTML = `<tr><td colspan="4" class="empty">No sessions.</td></tr>`; return; }
-    tbody.innerHTML = sessions.map(s => `<tr>
-      <td><a href="#" class="sess-link" data-id="${attr(s.session_id)}"><code>${esc(truncate(s.session_id, 20))}</code></a></td>
-      <td>${esc(truncate(s.goal || '', 60))}</td>
-      <td>${statusBadge(s.status)}</td>
-      <td>${fmtDate(s.created_at)}</td>
-    </tr>`).join('');
-    $$('.sess-link', tbody).forEach(a => a.onclick = (e) => { e.preventDefault(); showSessionDetail(a.dataset.id); });
-  } catch (err) { toast(err.message, 'error'); }
-};
-
-async function showSessionDetail(id) {
-  const panel = $('#panel-sessions');
-  panel.innerHTML = `<div class="card"><span class="detail-back" id="sess-back">&larr; Back to sessions</span><div style="text-align:center;padding:var(--space-xl);"><span class="spinner"></span></div></div>`;
-  $('#sess-back').onclick = () => renderers.sessions();
-
-  try {
-    const sess = await localApi.getSession(id);
-    panel.innerHTML = `
-      <div class="card">
-        <span class="detail-back" id="sess-back2">&larr; Back to sessions</span>
-        <h2>Session Detail</h2>
-        <dl class="detail-meta">
-          <dt>ID</dt><dd><code>${esc(sess.session_id)}</code></dd>
-          <dt>Goal</dt><dd>${esc(sess.goal)}</dd>
-          <dt>Status</dt><dd>${statusBadge(sess.status)}</dd>
-          <dt>Constraints</dt><dd><code>${esc(JSON.stringify(sess.constraints || {}))}</code></dd>
-          <dt>Budget</dt><dd><code>${esc(JSON.stringify(sess.budget || {}))}</code></dd>
-          <dt>Policy</dt><dd><code>${esc(JSON.stringify(sess.policy || {}))}</code></dd>
-          <dt>Created</dt><dd>${fmtDate(sess.created_at)}</dd>
-        </dl>
-
-        <!-- Steps Timeline (if session has steps) -->
-        <div id="sess-steps-timeline"></div>
+          <div class="form-group">
+            <label for="state-assessment-status">assessment_status</label>
+            <input id="state-assessment-status" type="text" name="assessment_status" value="${attr(stateViewState.filters.assessmentStatuses)}" placeholder="supported, insufficient" />
+          </div>
+          <div class="form-group">
+            <label for="state-has-blocking-gaps">has_blocking_gaps</label>
+            <select id="state-has-blocking-gaps" name="has_blocking_gaps">
+              <option value="">All</option>
+              <option value="true" ${stateViewState.filters.hasBlockingGaps === 'true' ? 'selected' : ''}>true</option>
+              <option value="false" ${stateViewState.filters.hasBlockingGaps === 'false' ? 'selected' : ''}>false</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="state-origin-kind">origin_kind</label>
+            <input id="state-origin-kind" type="text" name="origin_kind" value="${attr(stateViewState.filters.originKinds)}" placeholder="system_seeded, agent_authored" />
+          </div>
+          <div class="form-group">
+            <label for="state-proposition-type">proposition_type</label>
+            <input id="state-proposition-type" type="text" name="proposition_type" value="${attr(stateViewState.filters.propositionTypes)}" placeholder="change, anomaly" />
+          </div>
+          <div class="form-group">
+            <label for="state-limit">limit</label>
+            <input id="state-limit" type="number" name="limit" min="1" value="${attr(stateViewState.filters.limit)}" />
+          </div>
+          <button class="btn btn-primary" type="submit">Run Query</button>
+          <button class="btn" type="button" data-role="reset-state-filters">Reset</button>
+        </form>
+        <p class="panel-note">State uses <span class="inline-code">GET /sessions/{session_id}/state</span>. Slice filters are intentionally excluded from this T4 UI.</p>
       </div>
-
-      <!-- Run Step -->
-      <div class="card">
-        <div class="collapsible-header" id="step-runner-toggle">
-          <h2>Run Step</h2>
-          <span class="chevron">&#9654;</span>
+      ${!hasSession ? `
+        <div class="state-empty">
+          先从 Sessions 选择一个 session，再查看 canonical state。
+          <div class="detail-actions">
+            <button class="btn btn-sm" type="button" data-role="go-to-sessions">Open Sessions</button>
+          </div>
         </div>
-        <div class="collapsible-body" id="step-runner-body">
-          <div class="inline-form" style="margin-top:var(--space-md);">
-            <div class="form-group"><label>Step Type</label>
-              <select id="sess-step-type">
-                <option value="metric_query">metric_query</option>
-                <option value="profile_table">profile_table</option>
-                <option value="sample_rows">sample_rows</option>
-                <option value="aggregate_query">aggregate_query</option>
-                <option value="attribute_change">attribute_change</option>
+      ` : `
+        <div class="state-summary-grid">
+          <div class="state-results-stack">
+            <div class="card">
+              <div class="shell-card-title">
+                <h3>Focus Subjects</h3>
+                <span class="shell-chip">${esc(result?.focus_subjects?.length != null ? `${result.focus_subjects.length} subject(s)` : 'Idle')}</span>
+              </div>
+              ${stateViewState.error ? `<div class="state-error">${esc(stateViewState.error)}</div>` : renderFocusSubjects(result?.focus_subjects)}
+              <div class="state-meta-note">${esc(truncationCopy)}</div>
+            </div>
+            <div class="card">
+              <div class="shell-card-title">
+                <h3>Active Propositions</h3>
+                <span class="shell-chip">${stateViewState.loading ? 'Loading' : esc(`${result?.active_propositions?.length || 0} row(s)`)}</span>
+              </div>
+              ${stateViewState.error ? `<div class="state-error">${esc(stateViewState.error)}</div>` : `
+                <div class="state-table-wrap">
+                  <table class="sessions-table state-table">
+                    <thead>
+                      <tr>
+                        <th>proposition_id</th>
+                        <th>type</th>
+                        <th>subject</th>
+                        <th>assessment</th>
+                        <th>blocking_gaps</th>
+                        <th>findings</th>
+                        <th>actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>${renderStateRows(result?.active_propositions)}</tbody>
+                  </table>
+                </div>
+              `}
+            </div>
+          </div>
+          <div class="state-sidebar">
+            ${renderStateSidebar()}
+          </div>
+        </div>
+      `}
+    </div>
+  `;
+
+  bindStateEvents();
+}
+
+function bindContextEvents() {
+  const panel = document.getElementById('panel-context');
+  if (!panel) return;
+
+  panel.querySelector('[data-role="context-open-sessions"]')?.addEventListener('click', () => {
+    applyRoute({ ...currentRoute, tab: 'sessions', propositionId: '', runtimeScope: '' });
+  });
+
+  panel.querySelectorAll('[data-role="context-open-state"]').forEach((button) => {
+    button.addEventListener('click', () => {
+      applyRoute({ ...currentRoute, tab: 'state', runtimeScope: '' });
+    });
+  });
+
+  panel.querySelectorAll('[data-role="context-open-proposition-runtime"]').forEach((button) => {
+    button.addEventListener('click', () => {
+      applyRoute({
+        ...currentRoute,
+        tab: 'runtime',
+        runtimeScope: 'proposition',
+      });
+    });
+  });
+
+  panel.querySelectorAll('.context-open-artifact-runtime-btn').forEach((button) => {
+    button.addEventListener('click', () => {
+      const artifactId = button.dataset.artifactId || '';
+      if (artifactId) {
+        toast(`Opening Artifact Runtime for ${artifactId} in the Runtime workbench.`, 'info');
+      }
+      applyRoute({
+        ...currentRoute,
+        tab: 'runtime',
+        runtimeScope: 'artifact',
+      });
+    });
+  });
+}
+
+function renderContextPage() {
+  const panel = document.getElementById('panel-context');
+  if (!panel) return;
+
+  const hasSession = Boolean(currentRoute.sessionId);
+  const hasProposition = Boolean(currentRoute.propositionId);
+  const result = contextViewState.result;
+  const proposition = result?.proposition || null;
+  const subject = getPropositionSubject(proposition);
+  const latestAssessment = result?.latest_assessment;
+
+  let mainContent = `
+    <div class="detail-empty">
+      先从 State 选择一个 proposition，再查看 proposition-level canonical closure。
+      <div class="detail-actions">
+        <button class="btn btn-sm" type="button" data-role="context-open-sessions">Open Sessions</button>
+        ${hasSession ? '<button class="btn btn-sm" type="button" data-role="context-open-state">Open State</button>' : ''}
+      </div>
+    </div>
+  `;
+
+  if (hasSession && hasProposition) {
+    if (contextViewState.loading) {
+      mainContent = '<div class="detail-empty">Loading proposition context...</div>';
+    } else if (contextViewState.error) {
+      mainContent = `
+        <div class="detail-error">${esc(contextViewState.error)}</div>
+        <div class="detail-actions">
+          <button class="btn btn-sm" type="button" data-role="context-open-state">Open State</button>
+          <button class="btn btn-sm" type="button" data-role="context-open-sessions">Open Sessions</button>
+        </div>
+      `;
+    } else if (result) {
+      mainContent = `
+        <div class="context-stack">
+          <div class="card">
+            <div class="context-header">
+              <div>
+                <h3>Proposition Context</h3>
+                <div class="context-meta">
+                  <span class="inline-code">${esc(currentRoute.sessionId)}</span>
+                  <span class="inline-code">${esc(currentRoute.propositionId)}</span>
+                  ${latestAssessment ? statusBadge(latestAssessment.status) : '<span class="empty">latest_assessment = null</span>'}
+                </div>
+              </div>
+              <div class="detail-actions">
+                <button class="btn btn-sm" type="button" data-role="context-open-state">Open State</button>
+                <button class="btn btn-sm" type="button" data-role="context-open-proposition-runtime">Check Proposition Runtime</button>
+              </div>
+            </div>
+            <div class="detail-grid">
+              <div class="detail-group">
+                <h4>Subject Summary</h4>
+                ${formatSubjectSummary(subject)}
+              </div>
+              <div class="detail-group">
+                <h4>Proposition</h4>
+                ${jsonPre(proposition)}
+              </div>
+              <div class="detail-group">
+                <h4>Latest Assessment</h4>
+                ${renderContextStructuredValue(latestAssessment, 'No externally visible assessment')}
+                ${!latestAssessment ? '<div class="context-inline-meta">latest_assessment = null is a canonical result only. Use Runtime to distinguish untriggered, failed, or migration-blocked states.</div>' : ''}
+              </div>
+            </div>
+          </div>
+          <div class="context-grid">
+            <div class="context-stack">
+              ${renderContextFindingRows(
+                'Seed Entries',
+                result.seed_entries || [],
+                '当前 proposition 没有 seed entries。'
+              )}
+              ${renderContextFindingRows(
+                'Relevant Findings',
+                result.relevant_findings || [],
+                latestAssessment
+                  ? '当前 latest assessment 没有直接 relevant findings。'
+                  : 'latest_assessment = null 时，relevant_findings 按 canonical contract 为 [].'
+              )}
+              ${renderContextGenericRows(
+                'Applied Inference Records',
+                result.applied_inference_records,
+                latestAssessment
+                  ? '当前 latest assessment 没有 applied inference records。'
+                  : 'latest_assessment = null 时，applied_inference_records 按 canonical contract 为 null。',
+                'inference_record_id'
+              )}
+            </div>
+            <div class="context-stack">
+              ${renderContextGenericRows(
+                'Blocking Gaps',
+                result.blocking_gaps,
+                latestAssessment
+                  ? '当前 latest assessment 没有 blocking gaps。'
+                  : 'latest_assessment = null 时，blocking_gaps 按 canonical contract 为 null。',
+                'gap_id'
+              )}
+              ${renderContextGenericRows(
+                'Non-blocking Gaps',
+                result.non_blocking_gaps,
+                latestAssessment
+                  ? '当前 latest assessment 没有 non-blocking gaps。'
+                  : 'latest_assessment = null 时，non_blocking_gaps 按 canonical contract 为 null。',
+                'gap_id'
+              )}
+              ${renderContextGenericRows(
+                'Assessment Dependencies',
+                result.assessment_dependencies,
+                latestAssessment
+                  ? '当前 latest assessment 没有 assessment dependencies。'
+                  : 'latest_assessment = null 时，assessment_dependencies 按 canonical contract 为 null。',
+                'assessment_id'
+              )}
+              ${renderContextArtifactRows(result.artifact_refs || [])}
+            </div>
+          </div>
+        </div>
+      `;
+    }
+  }
+
+  panel.innerHTML = `
+    <div class="page-intro">
+      <h2>Context</h2>
+      <p>Inspect one proposition at a time to understand canonical seed hydration, findings, assessment closure, and provenance without mixing in runtime attempt or backlog details.</p>
+    </div>
+    <div class="context-layout">
+      <div class="card">
+        <div class="shell-card-title">
+          <h3>Context Locator</h3>
+          <span class="shell-chip">Read-only</span>
+        </div>
+        <div class="detail-grid">
+          <div class="detail-group">
+            <h4>session_id</h4>
+            ${renderContextStructuredValue(currentRoute.sessionId, 'Select from Sessions or State')}
+          </div>
+          <div class="detail-group">
+            <h4>proposition_id</h4>
+            ${renderContextStructuredValue(currentRoute.propositionId, 'Select from State')}
+          </div>
+          <div class="detail-group">
+            <h4>HTTP Contract</h4>
+            <span class="inline-code">GET /sessions/{session_id}/propositions/{proposition_id}/context</span>
+          </div>
+        </div>
+        <p class="panel-note">Context stays on canonical truth. It does not explain queue, retry, claim, attempt, or backlog state. Use Check Proposition Runtime for that boundary.</p>
+      </div>
+      ${mainContent}
+    </div>
+  `;
+
+  bindContextEvents();
+}
+
+function renderSessionActionButtons(sessionId) {
+  return `
+    <button class="btn btn-sm session-nav-btn" data-target-tab="state" data-session-id="${attr(sessionId)}">View State</button>
+    <button class="btn btn-sm session-nav-btn" data-target-tab="runtime" data-session-id="${attr(sessionId)}">View Runtime</button>
+    <button class="btn btn-sm session-nav-btn" data-target-tab="jobs" data-session-id="${attr(sessionId)}">View Jobs</button>
+    <button class="btn btn-sm session-nav-btn" data-target-tab="grounding" data-session-id="${attr(sessionId)}">Open Grounding Helper</button>
+  `;
+}
+
+function renderSessionRows() {
+  if (sessionsViewState.loadingList) {
+    return loadingRow(6);
+  }
+  if (sessionsViewState.items.length === 0) {
+    return `<tr><td colspan="7" class="empty">当前没有可查看的分析会话</td></tr>`;
+  }
+  return sessionsViewState.items.map((session) => {
+    const selectedClass = session.session_id === currentRoute.sessionId ? 'is-selected' : '';
+    return `
+      <tr class="${selectedClass}">
+        <td><button class="btn btn-sm session-select-btn" data-session-id="${attr(session.session_id)}">Open</button></td>
+        <td><span class="inline-code">${esc(session.session_id)}</span></td>
+        <td>${esc(session.goal?.question || '-')}</td>
+        <td>${statusBadge(sessionStatus(session))}</td>
+        <td>${esc(fmtDate(session.created_at))}</td>
+        <td>${esc(fmtDate(session.updated_at))}</td>
+        <td class="actions-cell">
+          ${renderSessionActionButtons(session.session_id)}
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function renderSessionsDetail() {
+  if (sessionsViewState.loadingDetail) {
+    return '<div class="detail-empty">Loading session detail...</div>';
+  }
+  if (sessionsViewState.detailError) {
+    return `<div class="detail-error">${esc(sessionsViewState.detailError)}</div>`;
+  }
+  const session = sessionsViewState.selectedSession;
+  if (!session) {
+    return '<div class="detail-empty">Select a session to inspect canonical session root details and drill into downstream read surfaces.</div>';
+  }
+  return `
+    <div class="session-header">
+      <div>
+        <h3>${esc(session.goal?.question || 'Untitled session')}</h3>
+        <div class="session-meta">
+          <span class="inline-code">${esc(session.session_id)}</span>
+          ${statusBadge(sessionStatus(session))}
+          <span>Created ${esc(fmtDate(session.created_at))}</span>
+          <span>Updated ${esc(fmtDate(session.updated_at))}</span>
+        </div>
+      </div>
+    </div>
+    <div class="detail-grid">
+      <div class="detail-group">
+        <h4>Constraints</h4>
+        ${formatPretty(session.scope?.constraints)}
+      </div>
+      <div class="detail-group">
+        <h4>Budget</h4>
+        ${formatPretty(session.governance?.budget)}
+      </div>
+      <div class="detail-group">
+        <h4>Policy</h4>
+        ${formatPretty(session.governance?.policy_refs)}
+      </div>
+      <div class="detail-group">
+        <h4>Terminal Reason</h4>
+        ${formatPretty(session.lifecycle?.terminal_reason)}
+      </div>
+      <div class="detail-group">
+        <h4>Rollover From Session</h4>
+        ${formatPretty(session.lifecycle?.rollover_from_session_id)}
+      </div>
+    </div>
+    <div class="detail-actions">
+      ${renderSessionActionButtons(session.session_id)}
+    </div>
+  `;
+}
+
+function bindSessionsEvents() {
+  const panel = document.getElementById('panel-sessions');
+  if (!panel) return;
+
+  const filterForm = panel.querySelector('[data-role="session-filters"]');
+  if (filterForm) {
+    filterForm.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const formData = new FormData(filterForm);
+      applyRoute({
+        ...currentRoute,
+        tab: 'sessions',
+        status: String(formData.get('status') || ''),
+        sessionQuery: String(formData.get('session_query') || ''),
+        sessionId: '',
+      });
+    });
+  }
+
+  panel.querySelector('[data-role="reset-filters"]')?.addEventListener('click', () => {
+    applyRoute({ ...DEFAULT_ROUTE, tab: 'sessions' });
+  });
+
+  panel.querySelectorAll('.session-select-btn').forEach((button) => {
+    button.addEventListener('click', () => {
+      applyRoute({
+        ...currentRoute,
+        tab: 'sessions',
+        sessionId: button.dataset.sessionId || '',
+      });
+    });
+  });
+
+  panel.querySelectorAll('.session-nav-btn').forEach((button) => {
+    button.addEventListener('click', () => {
+      applyRoute({
+        ...currentRoute,
+        tab: button.dataset.targetTab || 'sessions',
+        sessionId: button.dataset.sessionId || '',
+        propositionId: '',
+        runtimeScope: button.dataset.targetTab === 'runtime' ? 'session' : '',
+      });
+    });
+  });
+}
+
+function renderSessionsPage() {
+  const panel = document.getElementById('panel-sessions');
+  if (!panel) return;
+
+  panel.innerHTML = `
+    <div class="page-intro">
+      <h2>Sessions</h2>
+      <p>Browse existing analysis sessions, inspect canonical session root detail, and jump into State, Runtime, Jobs, or Grounding without exposing any write controls.</p>
+    </div>
+    <div class="sessions-layout">
+      <div class="sessions-stack">
+        <div class="card">
+          <div class="shell-card-title">
+            <h3>Session Filters</h3>
+            <span class="shell-chip">Read-only</span>
+          </div>
+          <form class="sessions-filters" data-role="session-filters">
+            <div class="form-group">
+              <label for="session-status-filter">Status</label>
+              <select id="session-status-filter" name="status">
+                <option value="">All statuses</option>
+                <option value="open" ${currentRoute.status === 'open' ? 'selected' : ''}>open</option>
+                <option value="closed" ${currentRoute.status === 'closed' ? 'selected' : ''}>closed</option>
+                <option value="aborted" ${currentRoute.status === 'aborted' ? 'selected' : ''}>aborted</option>
               </select>
             </div>
-            <button class="btn btn-primary" id="sess-run-step-btn">Run</button>
+            <div class="form-group">
+              <label for="session-id-filter">Search by session_id</label>
+              <input id="session-id-filter" type="text" name="session_query" value="${attr(currentRoute.sessionQuery)}" placeholder="sess_..." />
+            </div>
+            <button class="btn btn-primary" type="submit">Filter</button>
+            <button class="btn" type="button" data-role="reset-filters">Reset</button>
+          </form>
+          <p class="panel-note">Results use the canonical session root read surface. Filtering is limited to lifecycle status and session identifier lookup.</p>
+        </div>
+        <div class="card">
+          <div class="list-meta">
+            <div>
+              <h2>Recent Sessions</h2>
+              <div class="results-count">${sessionsViewState.loadingList ? 'Loading sessions...' : `${sessionsViewState.items.length} session(s)`}</div>
+            </div>
           </div>
-          <div class="form-group"><label>Params (JSON)</label><textarea id="sess-step-params" style="min-height:60px;">{}</textarea></div>
-          <div id="sess-step-help" style="font-size:var(--font-size-xs);color:var(--color-text-muted);"></div>
+          ${sessionsViewState.listError ? `<div class="list-error">${esc(sessionsViewState.listError)}</div>` : `
+            <div class="sessions-table-wrap">
+              <table class="sessions-table">
+                <thead>
+                  <tr>
+                    <th>Detail</th>
+                    <th>session_id</th>
+                    <th>goal</th>
+                    <th>status</th>
+                    <th>created_at</th>
+                    <th>updated_at</th>
+                    <th>actions</th>
+                  </tr>
+                </thead>
+                <tbody>${renderSessionRows()}</tbody>
+              </table>
+            </div>
+          `}
         </div>
-        <div id="sess-step-result"></div>
-      </div>`;
-
-    $('#sess-back2').onclick = () => renderers.sessions();
-
-    // Collapsible step runner
-    const stepToggle = $('#step-runner-toggle');
-    const stepBody = $('#step-runner-body');
-    stepToggle.onclick = () => {
-      stepToggle.classList.toggle('open');
-      stepBody.classList.toggle('open');
-    };
-    // Open by default
-    stepToggle.classList.add('open');
-    stepBody.classList.add('open');
-    $('#sess-step-type').onchange = () => renderStepParamTemplate('sess-step-type', 'sess-step-params', 'sess-step-help');
-    renderStepParamTemplate('sess-step-type', 'sess-step-params', 'sess-step-help');
-
-    // Render session steps as timeline if available
-    if (sess.steps && sess.steps.length) {
-      const timelineArea = $('#sess-steps-timeline');
-      let tlHtml = '<h3 style="font-size:var(--font-size-base);font-weight:600;margin:var(--space-lg) 0 var(--space-sm);">Step History</h3>';
-      tlHtml += '<div class="timeline">';
-      sess.steps.forEach(s => {
-        const stClass = s.status === 'completed' ? 'completed' : s.status === 'failed' ? 'failed' : s.status === 'running' ? 'active' : '';
-        tlHtml += `<div class="timeline-item ${stClass}">
-          <div class="tl-title">${esc(s.step_type || '')} ${statusBadge(s.status || '')}</div>
-          <div class="tl-meta">${esc(s.step_id || '')}</div>
-        </div>`;
-      });
-      tlHtml += '</div>';
-      timelineArea.innerHTML = tlHtml;
-    }
-
-    $('#sess-run-step-btn').onclick = async () => {
-      const stepType = $('#sess-step-type').value;
-      const paramsText = $('#sess-step-params').value.trim();
-      const params = parseJSON(paramsText, {});
-      const area = $('#sess-step-result');
-      area.innerHTML = '<div style="text-align:center;padding:var(--space-xl);"><span class="spinner"></span></div>';
-      try {
-        const result = await localApi.runStep(id, stepType, params);
-        area.innerHTML = '<div style="margin-top:var(--space-md);">' + renderStepResult(result) + '</div>';
-        toast('Step completed', 'success');
-        // Wire up the raw result toggle after rendering
-        const rawToggle = area.querySelector('#step-raw-toggle');
-        const rawBody = area.querySelector('#step-raw-body');
-        if (rawToggle && rawBody) rawToggle.onclick = () => { rawToggle.classList.toggle('open'); rawBody.classList.toggle('open'); };
-      } catch (err) { area.innerHTML = ''; toast(err.message, 'error'); }
-    };
-  } catch (err) { toast(err.message, 'error'); renderers.sessions(); }
-}
-
-// ════════════════════════════════════════════════════════════
-// ── Step Result Renderer (M-04 Readiness Signal) ───────────
-// ════════════════════════════════════════════════════════════
-
-function readinessDimBar(label, value) {
-  const pct = Math.round(Math.min(1, Math.max(0, value)) * 100);
-  const cls = pct >= 70 ? 'green' : pct >= 30 ? 'yellow' : 'red';
-  const cssColor = pct >= 70 ? 'var(--color-success)' : pct >= 30 ? 'var(--color-warning)' : 'var(--color-error)';
-  return `<div class="readiness-dim">
-    <div class="readiness-dim-label">${esc(label)}</div>
-    <div class="progress-bar"><div class="fill ${esc(cls)}" style="width:${pct}%"></div></div>
-    <div class="readiness-dim-val" style="color:${cssColor}">${value.toFixed(2)}</div>
-  </div>`;
-}
-
-function renderReadinessSignal(readiness) {
-  const action = readiness.suggested_action || 'continue_exploring';
-  const actionCls = action === 'synthesize' ? 'badge-action-synthesize'
-    : action === 'stop' ? 'badge-action-stop'
-    : action === 'resolve_contradiction' ? 'badge-action-resolve'
-    : 'badge-action-explore';
-  const actionLabel = action.replace(/_/g, ' ');
-
-  let html = `<div class="readiness-panel">
-    <div class="readiness-header">
-      <h3>Readiness Signal</h3>
-      <span class="badge ${esc(actionCls)}">${esc(actionLabel)}</span>
-    </div>`;
-  html += readinessDimBar('goal_coverage', readiness.goal_coverage ?? 0);
-  html += readinessDimBar('evidence_sufficiency', readiness.evidence_sufficiency ?? 0);
-  // contradiction_resolution: 1.0 is good, so invert color logic
-  const cr = readiness.contradiction_resolution ?? 1;
-  const crPct = Math.round(cr * 100);
-  const crCls = crPct >= 100 ? 'green' : crPct >= 50 ? 'yellow' : 'red';
-  const crCssColor = crPct >= 100 ? 'var(--color-success)' : crPct >= 50 ? 'var(--color-warning)' : 'var(--color-error)';
-  html += `<div class="readiness-dim">
-    <div class="readiness-dim-label">contradiction_resolution</div>
-    <div class="progress-bar"><div class="fill ${esc(crCls)}" style="width:${crPct}%"></div></div>
-    <div class="readiness-dim-val" style="color:${crCssColor}">${cr.toFixed(2)}</div>
-  </div>`;
-  html += readinessDimBar('budget_remaining', readiness.budget_remaining ?? 1);
-  html += readinessDimBar('diminishing_returns', readiness.diminishing_returns ?? 1);
-  html += '</div>';
-  return html;
-}
-
-function renderLiveClaims(claims) {
-  if (!claims || !claims.length) return '';
-  let html = `<div class="live-claims-panel"><h3>Live Claims (${claims.length})</h3>`;
-  html += `<table><thead><tr><th>ID</th><th>Type</th><th>Inference</th><th>Confidence</th><th>Status</th></tr></thead><tbody>`;
-  claims.forEach(c => {
-    const conf = typeof c.confidence === 'number' ? c.confidence : 0;
-    const pct = Math.round(conf * 100);
-    const barColor = confidenceColor(conf);
-    html += `<tr>
-      <td><code>${esc(truncate(c.claim_id || '', 18))}</code></td>
-      <td>${statusBadge(c.claim_type || '')}</td>
-      <td><span class="badge badge-gray">${esc(c.inference_level || 'L0')}</span></td>
-      <td style="min-width:120px;">
-        <div style="display:flex;align-items:center;gap:var(--space-xs);">
-          <div class="progress-bar" style="flex:1;"><div class="fill ${esc(barColor)}" style="width:${pct}%"></div></div>
-          <span style="font-size:var(--font-size-xs);font-weight:600;min-width:30px;">${conf.toFixed(2)}</span>
-        </div>
-      </td>
-      <td>${statusBadge(c.status || '')}</td>
-    </tr>`;
-  });
-  html += '</tbody></table></div>';
-  return html;
-}
-
-function renderStepResult(result) {
-  let html = '';
-
-  // Readiness signal panel (M-04) — only for non-synthesize steps
-  if (result.readiness) {
-    html += renderReadinessSignal(result.readiness);
-  }
-
-  // Live claims mini-table (M-04)
-  if (result.live_claims && result.live_claims.length) {
-    html += renderLiveClaims(result.live_claims);
-  }
-
-  // Observations summary (if present)
-  const observations = result.observations || [];
-  if (observations.length) {
-    html += `<div class="live-claims-panel"><h3>Observations (${observations.length})</h3>`;
-    html += `<table><thead><tr><th>ID</th><th>Type</th><th>Metric</th><th>Slice</th></tr></thead><tbody>`;
-    observations.slice(0, 10).forEach(o => {
-      const subj = o.subject || {};
-      const sliceObj = subj.slice || {};
-      const sliceStr = typeof sliceObj === 'string' ? sliceObj : Object.entries(sliceObj).map(([k, v]) => `${k}=${v}`).join(', ');
-      html += `<tr>
-        <td><code>${esc(truncate(o.observation_id || '', 18))}</code></td>
-        <td>${statusBadge(o.type || '')}</td>
-        <td>${esc(subj.metric || '')}</td>
-        <td>${esc(sliceStr)}</td>
-      </tr>`;
-    });
-    if (observations.length > 10) html += `<tr><td colspan="4" class="empty">... ${observations.length - 10} more</td></tr>`;
-    html += '</tbody></table></div>';
-  }
-
-  // Raw result (collapsible)
-  html += `<div class="card" style="margin-bottom:0;">
-    <div class="collapsible-header" id="step-raw-toggle">
-      <h3 style="margin:0;font-size:var(--font-size-base);">Raw Result</h3>
-      <span class="chevron">&#9654;</span>
-    </div>
-    <div class="collapsible-body" id="step-raw-body">${jsonPre(result)}</div>
-  </div>`;
-
-  return html;
-}
-
-// ════════════════════════════════════════════════════════════
-// ── Evidence Tab ───────────────────────────────────────────
-// ════════════════════════════════════════════════════════════
-renderers.evidence = async () => {
-  const panel = $('#panel-evidence');
-  panel.innerHTML = `
-    <div class="card">
-      <h2>Evidence Dashboard</h2>
-      <div class="inline-form">
-        <div class="form-group"><label>Session</label><select id="ev-session-select"><option value="">Loading sessions...</option></select></div>
-        <button class="btn btn-primary" id="ev-load-btn">Load Evidence</button>
       </div>
-    </div>
-    <div id="ev-content"></div>`;
-
-  // Populate session dropdown
-  try {
-    const sessions = await localApi.listSessions();
-    const sel = $('#ev-session-select');
-    if (!sessions.length) { sel.innerHTML = '<option value="">No sessions available</option>'; return; }
-    sel.innerHTML = '<option value="">-- select session --</option>' + sessions.map(s =>
-      `<option value="${attr(s.session_id)}">${esc(truncate(s.session_id, 16))} - ${esc(truncate(s.goal || '', 40))}</option>`
-    ).join('');
-  } catch (err) { toast(err.message, 'error'); }
-
-  $('#ev-load-btn').onclick = async () => {
-    const sessionId = $('#ev-session-select').value;
-    if (!sessionId) { toast('Select a session', 'error'); return; }
-    const area = $('#ev-content');
-    area.innerHTML = '<div class="card" style="text-align:center;padding:var(--space-2xl);"><span class="spinner"></span></div>';
-    try {
-      const ev = await localApi.getEvidence(sessionId);
-      renderEvidence(area, ev);
-    } catch (err) { area.innerHTML = ''; toast(err.message, 'error'); }
-  };
-};
-
-function renderEvidence(area, ev) {
-  const steps = ev.steps || [];
-  const observations = ev.observations || [];
-  const claims = ev.claims || [];
-  const recommendations = ev.recommendations || [];
-  const edges = ev.edges || [];
-
-  let html = '';
-
-  // ── Summary stat bar ─────────────────────────────────────
-  html += '<div class="stat-grid">';
-  html += `<div class="stat-card stat-info"><div class="stat-label">Steps</div><div class="stat-value">${steps.length}</div></div>`;
-  html += `<div class="stat-card stat-warning"><div class="stat-label">Observations</div><div class="stat-value">${observations.length}</div></div>`;
-  html += `<div class="stat-card"><div class="stat-label">Claims</div><div class="stat-value">${claims.length}</div></div>`;
-  html += `<div class="stat-card stat-success"><div class="stat-label">Confirmed</div><div class="stat-value">${claims.filter(c => c.status === 'confirmed' || c.status === 'supported').length}</div></div>`;
-  html += `<div class="stat-card stat-warning"><div class="stat-label">Tentative</div><div class="stat-value">${claims.filter(c => c.status === 'tentative').length}</div></div>`;
-  html += `<div class="stat-card stat-success"><div class="stat-label">Recommendations</div><div class="stat-value">${recommendations.length}</div></div>`;
-  html += `<div class="stat-card stat-error"><div class="stat-label">Edges</div><div class="stat-value">${edges.length}</div></div>`;
-  html += '</div>';
-
-  // ── Confidence donuts for top claims ─────────────────────
-  if (claims.length) {
-    html += '<div class="card"><h2>Claim Confidence</h2>';
-    html += '<div class="ev-donut-row">';
-    claims.slice(0, 8).forEach(c => {
-      const conf = typeof c.confidence === 'number' ? c.confidence : 0;
-      html += `<div class="ev-donut-item">
-        ${donutChart(conf)}
-        <div class="ev-donut-label" title="${attr(c.claim_text || '')}">${esc(truncate(c.claim_type || c.claim_text || '', 18))}</div>
-      </div>`;
-    });
-    html += '</div></div>';
-  }
-
-  // ── Steps ────────────────────────────────────────────────
-  html += `<div class="card"><h2>Steps (${steps.length})</h2>`;
-  if (steps.length) {
-    html += '<div class="timeline">';
-    steps.forEach(s => {
-      const stClass = s.status === 'completed' ? 'completed' : s.status === 'failed' ? 'failed' : s.status === 'running' ? 'active' : '';
-      const prov = s.provenance || s.provenance_json || {};
-      html += `<div class="timeline-item ${stClass}">
-        <div class="tl-title">${esc(s.step_type || '')} ${statusBadge(s.status || '')}</div>
-        <div class="tl-meta">${esc(s.step_id || '')}</div>
-        <div class="tl-body"><code style="font-size:var(--font-size-xs);color:var(--color-text-muted);">${esc(truncate(JSON.stringify(prov), 100))}</code></div>
-      </div>`;
-    });
-    html += '</div>';
-  } else { html += '<p class="empty">No steps.</p>'; }
-  html += '</div>';
-
-  // ── Observations with expandable rows ────────────────────
-  html += `<div class="card"><h2>Observations (${observations.length})</h2>`;
-  if (observations.length) {
-    html += `<table><thead><tr><th></th><th>#</th><th>ID</th><th>Type</th><th>Metric</th><th>Slice</th><th>Window</th><th>Significance</th></tr></thead><tbody>`;
-    observations.forEach((o, idx) => {
-      const subj = o.subject || {};
-      const metric = subj.metric || '';
-      const sliceObj = subj.slice || {};
-      const sliceStr = typeof sliceObj === 'string' ? sliceObj : Object.entries(sliceObj).map(([k,v]) => `${k}=${v}`).join(', ');
-      const sig = o.significance || {};
-      const sigStr = sig.practical_significance ? 'significant' : sig.practical_significance === false ? 'not significant' : '';
-      const win = o.observed_window;
-      const winStr = win ? esc((win.start || '') + ' – ' + (win.end || '')) : '';
-      html += `<tr>
-        <td><button class="expand-btn" data-expand="obs-${idx}">&#9654;</button></td>
-        <td>${o.temporal_order != null ? o.temporal_order : ''}</td>
-        <td><code>${esc(truncate(o.observation_id || '', 20))}</code></td>
-        <td>${statusBadge(o.type || '')}</td>
-        <td>${esc(metric)}</td>
-        <td>${esc(sliceStr)}</td>
-        <td style="white-space:nowrap;font-size:var(--font-size-xs);">${winStr}</td>
-        <td>${statusBadge(sigStr)}</td>
-      </tr>`;
-      html += `<tr class="expand-row" id="obs-${idx}"><td colspan="8">${jsonPre(o)}</td></tr>`;
-    });
-    html += '</tbody></table>';
-  } else { html += '<p class="empty">No observations.</p>'; }
-  html += '</div>';
-
-  // ── Claims with confidence progress bars ─────────────────
-  html += `<div class="card"><h2>Claims (${claims.length})</h2>`;
-  if (claims.length) {
-    html += `<table><thead><tr><th></th><th>ID</th><th>Type</th><th>Text</th><th>Inference</th><th>Confidence</th><th>Status</th></tr></thead><tbody>`;
-    claims.forEach((c, idx) => {
-      const conf = typeof c.confidence === 'number' ? c.confidence : 0;
-      const pct = Math.round(conf * 100);
-      const barColor = confidenceColor(conf);
-      html += `<tr>
-        <td><button class="expand-btn" data-expand="claim-${idx}">&#9654;</button></td>
-        <td><code>${esc(truncate(c.claim_id || '', 20))}</code></td>
-        <td>${statusBadge(c.claim_type || '')}</td>
-        <td>${esc(truncate(c.claim_text || '', 60))}</td>
-        <td><span class="badge badge-gray">${esc(c.inference_level || 'L0')}</span></td>
-        <td style="min-width:140px;">
-          <div style="display:flex;align-items:center;gap:var(--space-sm);">
-            <div class="progress-bar" style="flex:1;"><div class="fill ${barColor}" style="width:${pct}%"></div></div>
-            <span style="font-size:var(--font-size-xs);font-weight:600;min-width:36px;">${conf.toFixed(2)}</span>
-          </div>
-        </td>
-        <td>${statusBadge(c.status || '')}</td>
-      </tr>`;
-      html += `<tr class="expand-row" id="claim-${idx}"><td colspan="7">
-        <div style="display:flex;gap:var(--space-lg);flex-wrap:wrap;padding:var(--space-sm);">
-          <div><strong>Scope:</strong> <code>${esc(JSON.stringify(c.scope || {}))}</code></div>
-          <div><strong>Supporting:</strong> ${(c.supporting_observations || []).length} obs</div>
-          <div><strong>Contradicting:</strong> ${(c.contradicting_observations || []).length} obs</div>
-        </div>
-        ${jsonPre({breakdown: c.confidence_breakdown, inference_justification: c.inference_justification})}
-      </td></tr>`;
-    });
-    html += '</tbody></table>';
-  } else { html += '<p class="empty">No claims.</p>'; }
-  html += '</div>';
-
-  // ── Recommendations with priority cards ──────────────────
-  html += `<div class="card"><h2>Recommendations (${recommendations.length})</h2>`;
-  if (recommendations.length) {
-    recommendations.forEach(r => {
-      const p = (r.priority || '').toUpperCase();
-      const priClass = p === 'P0' ? 'priority-p0' : p === 'P1' ? 'priority-p1' : p === 'P2' ? 'priority-p2' : 'priority-p3';
-      html += `<div class="rec-card ${priClass}">
-        <div class="rec-header">
-          <div class="rec-action">${esc(r.action || '')}</div>
-          ${priorityBadge(r.priority || '')}
-          ${r.type === 'no_action_required' ? '<span class="badge badge-gray" style="margin-left:4px;">No Action</span>' : ''}
-        </div>
-        <div class="rec-meta">
-          <span>ID: <code>${esc(truncate(r.recommendation_id || '', 20))}</code></span>
-          <span>Risk: ${esc(r.risk || 'N/A')}</span>
-          <span>Impact: ${esc(truncate(r.expected_impact || r.impact || '', 60))}</span>
-        </div>
-        ${r.validation_metric ? `<div style="margin-top:var(--space-xs);font-size:var(--font-size-xs);color:var(--color-text-muted);">Validation: ${esc(typeof r.validation_metric === 'object' ? (r.validation_metric.primary_metric || '') + (r.validation_metric.secondary_metric ? ' / ' + r.validation_metric.secondary_metric : '') : String(r.validation_metric))}</div>` : ''}
-        ${r.causal_basis ? `<div class="causal-basis-block">
-          <div class="cb-label">Causal Basis</div>
-          <div>Level: <span class="badge badge-gray">${esc(r.causal_basis.inference_level || 'L0')}</span>${r.causal_basis.unresolved_confounders && r.causal_basis.unresolved_confounders.length ? `&nbsp;&middot;&nbsp;Confounders: ${esc(r.causal_basis.unresolved_confounders.map(c => typeof c === 'string' ? c : (c.text || c.key || '')).join('; '))}` : ''}</div>
-          ${r.causal_basis.suggested_validation ? `<div style="margin-top:2px;color:var(--color-text-secondary);">Next step: ${esc(r.causal_basis.suggested_validation)}</div>` : ''}
-        </div>` : ''}
-        ${r.entity_patch ? `<div class="entity-patch-block">
-          <div style="font-size:var(--font-size-xs);color:var(--color-text-muted);margin-bottom:4px;">
-            Unit hint: <strong>${esc(r.entity_patch.column_name || r.entity_patch.field || '')}</strong>
-            &rarr; <code>${esc(String(r.entity_patch.suggested_value || ''))}</code>
-            <span class="badge badge-gray">${esc(r.entity_patch.source || 'heuristic')}</span>
-            &nbsp;confidence&nbsp;${(r.entity_patch.confidence || 0).toFixed(2)}
-          </div>
-          <button class="btn btn-sm apply-entity-patch-btn"
-            data-entity-id="${esc(r.entity_patch.entity_id || '')}"
-            data-column="${esc(r.entity_patch.column_name || '')}"
-            data-unit="${esc(String(r.entity_patch.suggested_value || ''))}"
-            data-rec-id="${esc(r.recommendation_id || '')}">Apply to entity</button>
-        </div>` : ''}
-      </div>`;
-    });
-  } else { html += '<p class="empty">No recommendations.</p>'; }
-  html += '</div>';
-
-  // ── Evidence Edges as connection list ─────────────────────
-  html += `<div class="card">
-    <div class="collapsible-header" id="ev-edges-toggle">
-      <h2>Evidence Edges (${edges.length})</h2>
-      <span class="chevron">&#9654;</span>
-    </div>
-    <div class="collapsible-body" id="ev-edges-body">`;
-  if (edges.length) {
-    edges.forEach(e => {
-      const edgeTypeCls = e.edge_type === 'supports' ? 'badge-success'
-        : e.edge_type === 'contradicts' ? 'badge-error'
-        : e.edge_type === 'justifies' ? 'badge-info'
-        : e.edge_type === 'correlates_with' ? 'badge-gray'
-        : e.edge_type === 'temporally_precedes' ? 'badge-warning'
-        : e.edge_type === 'mechanistically_explains' ? 'badge-success'
-        : e.edge_type === 'eliminates_alternative' ? 'badge-info'
-        : e.edge_type === 'experimentally_confirms' ? 'badge-success'
-        : 'badge-gray';
-      html += `<div class="connection-row">
-        <code style="font-size:var(--font-size-xs);">${esc(truncate(e.from_id || '', 20))}</code>
-        <span class="connection-arrow">&rarr;</span>
-        <code style="font-size:var(--font-size-xs);">${esc(truncate(e.to_id || '', 20))}</code>
-        <span class="badge ${edgeTypeCls}" style="margin-left:var(--space-sm);">${esc(e.edge_type || '')}</span>
-        ${e.weight != null ? `<span style="font-size:var(--font-size-xs);color:var(--color-text-muted);margin-left:var(--space-sm);">w=${esc(e.weight)}</span>` : ''}
-      </div>`;
-    });
-  } else { html += '<p class="empty">No edges.</p>'; }
-  html += '</div></div>';
-
-  area.innerHTML = html;
-
-  // Wire up collapsible edges
-  const toggle = $('#ev-edges-toggle');
-  const body = $('#ev-edges-body');
-  if (toggle && body) {
-    toggle.onclick = () => {
-      toggle.classList.toggle('open');
-      body.classList.toggle('open');
-    };
-  }
-
-  // Wire up expandable observation rows
-  $$('.expand-btn', area).forEach(btn => {
-    btn.onclick = () => {
-      const targetId = btn.dataset.expand;
-      const row = document.getElementById(targetId);
-      if (row) {
-        row.classList.toggle('open');
-        btn.innerHTML = row.classList.contains('open') ? '&#9660;' : '&#9654;';
-      }
-    };
-  });
-
-  // Wire up "Apply to entity" buttons (G-5d)
-  $$('.apply-entity-patch-btn', area).forEach(btn => {
-    btn.onclick = async () => {
-      const entityId = btn.dataset.entityId;
-      const column = btn.dataset.column;
-      const unit = btn.dataset.unit;
-      if (!entityId || !column || !unit) { toast('Incomplete patch data', 'error'); return; }
-      btn.disabled = true;
-      btn.textContent = 'Applying…';
-      try {
-        await localApi.patchEntityProperties(entityId, { fields: { [column]: { unit } } });
-        btn.textContent = 'Applied';
-        btn.classList.add('btn-success');
-        toast(`Unit "${unit}" applied to ${column} on entity ${entityId}`, 'success');
-      } catch (err) {
-        btn.disabled = false;
-        btn.textContent = 'Apply to entity';
-        toast(err.message, 'error');
-      }
-    };
-  });
-}
-
-// ════════════════════════════════════════════════════════════
-// ── Plans Tab ──────────────────────────────────────────────
-// ════════════════════════════════════════════════════════════
-let plansSessionId = '';
-
-renderers.plans = async () => {
-  const panel = $('#panel-plans');
-  panel.innerHTML = `
-    <div class="card">
-      <h2>Plans</h2>
-      <div class="inline-form">
-        <div class="form-group"><label>Session</label><select id="plans-session-select"><option value="">Loading sessions...</option></select></div>
-        <button class="btn btn-primary" id="plans-load-btn">Load</button>
-        <button class="btn btn-primary" id="plans-draft-btn" disabled>+ Draft Plan</button>
-      </div>
-    </div>
-    <div id="plans-content"></div>`;
-
-  // Populate session dropdown
-  try {
-    const sessions = await localApi.listSessions();
-    const sel = $('#plans-session-select');
-    if (!sessions.length) { sel.innerHTML = '<option value="">No sessions available</option>'; return; }
-    sel.innerHTML = '<option value="">-- select session --</option>' + sessions.map(s =>
-      `<option value="${attr(s.session_id)}">${esc(truncate(s.session_id, 16))} - ${esc(truncate(s.goal || '', 40))}</option>`
-    ).join('');
-  } catch (err) { toast(err.message, 'error'); }
-
-  $('#plans-load-btn').onclick = async () => {
-    const sessionId = $('#plans-session-select').value;
-    if (!sessionId) { toast('Select a session', 'error'); return; }
-    plansSessionId = sessionId;
-    $('#plans-draft-btn').disabled = false;
-    await loadPlans(sessionId);
-  };
-
-  $('#plans-draft-btn').onclick = () => {
-    if (!plansSessionId) { toast('Select a session first', 'error'); return; }
-    openDraftPlanModal(plansSessionId);
-  };
-};
-
-async function loadPlans(sessionId) {
-  const area = $('#plans-content');
-  area.innerHTML = '<div class="card" style="text-align:center;padding:var(--space-2xl);"><span class="spinner"></span></div>';
-  try {
-    const plans = await localApi.listPlans(sessionId);
-    if (!plans.length) { area.innerHTML = '<div class="card"><p class="empty">No plans for this session.</p></div>'; return; }
-    area.innerHTML = `<div class="card">
-      <table><thead><tr><th>Plan ID</th><th>Status</th><th>Steps</th><th>Created</th></tr></thead><tbody>${
-        plans.map(p => `<tr>
-          <td><a href="#" class="plan-link" data-id="${attr(p.plan_id)}"><code>${esc(truncate(p.plan_id, 20))}</code></a></td>
-          <td>${statusBadge(p.status)}</td>
-          <td><span class="badge badge-gray">${(p.steps || []).length} steps</span></td>
-          <td>${fmtDate(p.created_at)}</td>
-        </tr>`).join('')
-      }</tbody></table></div>`;
-    $$('.plan-link', area).forEach(a => a.onclick = (e) => { e.preventDefault(); showPlanDetail(sessionId, a.dataset.id); });
-  } catch (err) { area.innerHTML = ''; toast(err.message, 'error'); }
-}
-
-function openDraftPlanModal(sessionId) {
-  const stepTypes = ['metric_query', 'profile_table', 'sample_rows', 'aggregate_query', 'attribute_change'];
-  const stepOpts = stepTypes.map(t => `<option value="${t}">${t}</option>`).join('');
-  const draftSteps = [];
-
-  openModal('Draft Plan',
-    `<div class="form-group"><label>Step Type</label><select id="f-plan-step-type">${stepOpts}</select></div>
-     <div class="form-group"><label>Params (JSON)</label><textarea id="f-plan-step-params" style="min-height:60px;">{}</textarea></div>
-     <div id="f-plan-step-help" style="font-size:var(--font-size-xs);color:var(--color-text-muted);margin-top:-4px;"></div>
-     <div class="form-group"><label>Dependencies (comma-separated step indices, e.g. 0,1)</label><input id="f-plan-step-deps" placeholder=""></div>
-     <button class="btn btn-sm" id="f-plan-add-step" type="button">Add Step</button>
-     <div id="f-plan-steps-list" style="margin-top:12px;"></div>`,
-    `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" id="f-plan-submit">Submit Plan</button>`);
-
-  function renderStepsList() {
-    const list = $('#f-plan-steps-list');
-    if (!draftSteps.length) { list.innerHTML = '<p class="empty">No steps added yet.</p>'; return; }
-    list.innerHTML = draftSteps.map((s, i) => {
-      const deps = s.dependencies && s.dependencies.length ? ` (deps: ${s.dependencies.join(', ')})` : '';
-      return `<div class="step-list-item">
-        <span class="step-info"><strong>[${i}]</strong> ${esc(s.step_type)}${deps}${s.params && Object.keys(s.params).length ? ' - ' + esc(truncate(JSON.stringify(s.params), 40)) : ''}</span>
-        <span class="step-remove" data-idx="${i}">&times;</span>
-      </div>`;
-    }).join('');
-    $$('.step-remove', list).forEach(btn => {
-      btn.onclick = () => { draftSteps.splice(parseInt(btn.dataset.idx, 10), 1); renderStepsList(); };
-    });
-  }
-
-  renderStepsList();
-  $('#f-plan-step-type').onchange = () => renderStepParamTemplate('f-plan-step-type', 'f-plan-step-params', 'f-plan-step-help');
-  renderStepParamTemplate('f-plan-step-type', 'f-plan-step-params', 'f-plan-step-help');
-
-  $('#f-plan-add-step').onclick = () => {
-    const stepType = $('#f-plan-step-type').value;
-    const params = parseJSON($('#f-plan-step-params').value, {});
-    const depsStr = $('#f-plan-step-deps').value.trim();
-    const dependencies = depsStr ? depsStr.split(',').map(d => parseInt(d.trim(), 10)).filter(n => !isNaN(n)) : [];
-    const step = { step_type: stepType };
-    if (Object.keys(params).length) step.params = params;
-    if (dependencies.length) step.dependencies = dependencies;
-    draftSteps.push(step);
-    renderStepsList();
-    // Reset inputs
-    $('#f-plan-step-deps').value = '';
-    renderStepParamTemplate('f-plan-step-type', 'f-plan-step-params', 'f-plan-step-help');
-  };
-
-  $('#f-plan-submit').onclick = async () => {
-    if (!draftSteps.length) { toast('Add at least one step', 'error'); return; }
-    try {
-      await localApi.draftPlan(sessionId, draftSteps);
-      toast('Plan drafted', 'success');
-      closeModal();
-      loadPlans(sessionId);
-    } catch (err) { toast(err.message, 'error'); }
-  };
-}
-
-function renderPlanResultPreview(result) {
-  if (!result || typeof result !== 'object') return '';
-
-  let preview = result;
-  if (Array.isArray(result.rows)) {
-    preview = { rows: result.rows };
-    if (Array.isArray(result.observations) && result.observations.length) preview.observations = result.observations;
-  } else if (result.profile && typeof result.profile === 'object') {
-    preview = { profile: result.profile };
-  }
-
-  return `<pre>${esc(JSON.stringify(preview, null, 2))}</pre>`;
-}
-
-function renderPlanStepResult(step) {
-  const result = step.result;
-  if (!result || typeof result !== 'object') return '';
-
-  const meta = [];
-  if (result.artifact_id) meta.push(`artifact: <code>${esc(result.artifact_id)}</code>`);
-
-  const previewFlags = [];
-  if (result.rows_truncated) previewFlags.push('rows');
-  if (result.observations_truncated) previewFlags.push('observations');
-  if (result.profile && result.profile.columns_truncated) previewFlags.push('profile columns');
-
-  return `<div class="psc-result">
-    <div class="psc-result-label">Result</div>
-    ${result.summary ? `<div>${esc(result.summary)}</div>` : ''}
-    ${meta.length ? `<div class="psc-result-meta">${meta.join(' · ')}</div>` : ''}
-    ${renderPlanResultPreview(result)}
-    ${previewFlags.length ? `<div class="psc-result-note">Preview only: ${esc(previewFlags.join(', '))}</div>` : ''}
-  </div>`;
-}
-
-async function showPlanDetail(sessionId, planId) {
-  const area = $('#plans-content');
-  area.innerHTML = '<div class="card" style="text-align:center;padding:var(--space-2xl);"><span class="spinner"></span></div>';
-  try {
-    const plan = await localApi.getPlan(sessionId, planId);
-    const steps = plan.steps || [];
-    const status = plan.status || '';
-
-    // Plan lifecycle pipeline
-    const pipelineStages = ['draft', 'validated', 'approved', 'executing', 'completed'];
-    const pipelineHtml = statusPipeline(pipelineStages, status === 'failed' ? 'executing' : status);
-
-    // Build action buttons based on status
-    let actionsHtml = '';
-    if (status === 'draft') {
-      actionsHtml = `<button class="btn btn-primary btn-lg" id="plan-validate-btn">Validate Plan</button>`;
-    } else if (status === 'validated') {
-      actionsHtml = `<button class="btn btn-success btn-lg" id="plan-approve-btn">Approve Plan</button>`;
-    } else if (status === 'approved') {
-      actionsHtml = `<button class="btn btn-primary btn-lg" id="plan-execute-btn">Execute Plan</button>
-        <button class="btn" id="plan-estimate-btn">Estimate Costs</button>
-        <button class="btn" id="plan-budget-btn">Budget Check</button>`;
-    } else if (status === 'completed' || status === 'failed') {
-      actionsHtml = `<button class="btn" id="plan-explain-btn">Explain</button>`;
-    }
-    if (['draft', 'validated', 'approved', 'failed', 'partial'].includes(status)) {
-      actionsHtml += ` <button class="btn" id="plan-patch-btn">Patch Plan</button>`;
-    }
-
-    area.innerHTML = `
       <div class="card">
-        <span class="detail-back" id="plan-back">&larr; Back to plans</span>
-        <h2>Plan Detail</h2>
-        ${pipelineHtml}
-        ${status === 'failed' ? '<div style="margin-bottom:var(--space-md);"><span class="badge badge-error">Plan Failed</span></div>' : ''}
-        <dl class="detail-meta">
-          <dt>Plan ID</dt><dd><code>${esc(plan.plan_id)}</code></dd>
-          <dt>Status</dt><dd>${statusBadge(status)}</dd>
-          <dt>Created</dt><dd>${fmtDate(plan.created_at)}</dd>
-        </dl>
-        <div style="display:flex;gap:var(--space-sm);flex-wrap:wrap;margin-bottom:var(--space-lg);">${actionsHtml}</div>
+        <div class="shell-card-title">
+          <h3>Session Detail</h3>
+          <span class="shell-chip">${currentRoute.sessionId ? 'Selected' : 'Idle'}</span>
+        </div>
+        ${renderSessionsDetail()}
       </div>
+    </div>
+  `;
 
-      <!-- Plan steps as visual cards -->
-      <div class="card">
-        <h2>Steps (${steps.length})</h2>
-        ${steps.length ? `<div class="plan-step-cards">${
-          steps.map((s, i) => {
-            const stStatus = s.status || '';
-            return `<div class="plan-step-card">
-              <div class="psc-header">
-                <span class="psc-type">${esc(s.step_type)}</span>
-                ${statusBadge(stStatus)}
-              </div>
-              <div style="font-size:var(--font-size-xs);color:var(--color-text-muted);">Step ${i}</div>
-              ${s.params && Object.keys(s.params).length ? `<div style="margin-top:var(--space-sm);"><code style="font-size:var(--font-size-xs);">${esc(truncate(JSON.stringify(s.params), 60))}</code></div>` : ''}
-              <div class="psc-deps">${(s.dependencies || []).length ? 'Depends on: ' + (s.dependencies).join(', ') : 'No dependencies'}</div>
-              ${renderPlanStepResult(s)}
-            </div>`;
-          }).join('')
-        }</div>` : '<p class="empty">No steps.</p>'}
-      </div>
-      <div id="plan-action-result"></div>`;
-
-    $('#plan-back').onclick = () => loadPlans(sessionId);
-
-    const resultArea = $('#plan-action-result');
-
-    const validateBtn = $('#plan-validate-btn');
-    if (validateBtn) validateBtn.onclick = async () => {
-      try { await localApi.validatePlan(sessionId, planId); toast('Plan validated', 'success'); showPlanDetail(sessionId, planId); } catch (err) { toast(err.message, 'error'); }
-    };
-
-    const approveBtn = $('#plan-approve-btn');
-    if (approveBtn) approveBtn.onclick = async () => {
-      try { await localApi.approvePlan(sessionId, planId); toast('Plan approved', 'success'); showPlanDetail(sessionId, planId); } catch (err) { toast(err.message, 'error'); }
-    };
-
-    const executeBtn = $('#plan-execute-btn');
-    if (executeBtn) executeBtn.onclick = async () => {
-      executeBtn.disabled = true;
-      executeBtn.textContent = 'Executing...';
-      try {
-        const r = await localApi.executePlan(sessionId, planId);
-        toast('Plan executed', 'success');
-        // Show cost breakdown if available
-        let resultHtml = '<div class="card"><h2>Execution Result</h2>';
-        if (r.step_costs || r.costs) {
-          const costs = r.step_costs || r.costs || [];
-          if (Array.isArray(costs) && costs.length) {
-            resultHtml += '<div style="margin-bottom:var(--space-md);">' + miniBarChart(costs.map(c => c.estimated_rows || c.cost || 0)) + '</div>';
-          }
-        }
-        resultHtml += jsonPre(r) + '</div>';
-        resultArea.innerHTML = resultHtml;
-        showPlanDetail(sessionId, planId);
-      } catch (err) {
-        toast(err.message, 'error');
-        executeBtn.disabled = false;
-        executeBtn.textContent = 'Execute Plan';
-      }
-    };
-
-    const estimateBtn = $('#plan-estimate-btn');
-    if (estimateBtn) estimateBtn.onclick = async () => {
-      try {
-        const r = await localApi.estimateCosts(sessionId, planId);
-        let costHtml = '<div class="card"><h2>Cost Estimate</h2>';
-        // Render bar chart of step costs
-        if (r.steps && Array.isArray(r.steps)) {
-          const costValues = r.steps.map(s => s.estimated_rows || s.estimated_cost || 0);
-          if (costValues.some(v => v > 0)) {
-            costHtml += '<div style="margin-bottom:var(--space-md);">' + miniBarChart(costValues, 60) + '</div>';
-            costHtml += '<table><thead><tr><th>Step</th><th>Estimated Rows</th></tr></thead><tbody>';
-            r.steps.forEach(s => {
-              costHtml += `<tr><td>${esc(s.step_type || '')}</td><td>${esc(s.estimated_rows || s.estimated_cost || 0)}</td></tr>`;
-            });
-            costHtml += '</tbody></table>';
-          }
-        }
-        costHtml += jsonPre(r) + '</div>';
-        resultArea.innerHTML = costHtml;
-      } catch (err) { toast(err.message, 'error'); }
-    };
-
-    const budgetBtn = $('#plan-budget-btn');
-    if (budgetBtn) budgetBtn.onclick = async () => {
-      try { const r = await localApi.budgetCheck(sessionId, planId); resultArea.innerHTML = '<div class="card"><h2>Budget Check</h2>' + jsonPre(r) + '</div>'; } catch (err) { toast(err.message, 'error'); }
-    };
-
-    const explainBtn = $('#plan-explain-btn');
-    if (explainBtn) explainBtn.onclick = async () => {
-      try { const r = await localApi.explainPlan(sessionId, planId); resultArea.innerHTML = '<div class="card"><h2>Plan Explanation</h2>' + jsonPre(r) + '</div>'; } catch (err) { toast(err.message, 'error'); }
-    };
-
-    const patchBtn = $('#plan-patch-btn');
-    if (patchBtn) patchBtn.onclick = () => openPatchPlanModal(sessionId, planId);
-  } catch (err) { area.innerHTML = ''; toast(err.message, 'error'); }
+  bindSessionsEvents();
 }
 
-function openPatchPlanModal(sessionId, planId) {
-  openModal('Patch Plan',
-    `<div class="form-group">
-      <label>Add Steps <span style="font-size:var(--font-size-xs);color:var(--color-text-muted);">(JSON array of step dicts, e.g. [{"step_type":"profile_table","params":{}}])</span></label>
-      <textarea id="f-patch-add" style="min-height:80px;font-family:var(--font-mono);font-size:var(--font-size-xs);">[]</textarea>
-    </div>
-    <div class="form-group">
-      <label>Modify Steps <span style="font-size:var(--font-size-xs);color:var(--color-text-muted);">(JSON array of {index, params} to merge, e.g. [{"index":0,"params":{"limit":5}}])</span></label>
-      <textarea id="f-patch-modify" style="min-height:60px;font-family:var(--font-mono);font-size:var(--font-size-xs);">[]</textarea>
-    </div>
-    <div class="form-group">
-      <label>Skip Steps <span style="font-size:var(--font-size-xs);color:var(--color-text-muted);">(comma-separated step indices, e.g. 1,2)</span></label>
-      <input id="f-patch-skip" placeholder="">
-    </div>`,
-    `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" id="f-patch-submit">Apply Patch</button>`);
-
-  $('#f-patch-submit').onclick = async () => {
-    try {
-      const add_steps = parseJSON($('#f-patch-add').value, []);
-      const modify_steps = parseJSON($('#f-patch-modify').value, []);
-      const skipStr = $('#f-patch-skip').value.trim();
-      const skip_steps = skipStr ? skipStr.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n)) : [];
-      const patch = { add_steps, modify_steps, skip_steps };
-      await localApi.patchPlan(sessionId, planId, patch);
-      toast('Patch applied', 'success');
-      closeModal();
-      showPlanDetail(sessionId, planId);
-    } catch (err) { toast(err.message, 'error'); }
-  };
+async function loadSessions() {
+  sessionsViewState.loadingList = true;
+  sessionsViewState.listError = '';
+  renderSessionsPage();
+  try {
+    const payload = await uiApi.listSessions(currentRoute);
+    sessionsViewState.items = Array.isArray(payload.items) ? payload.items : [];
+    sessionsViewState.nextPageToken = payload.next_page_token || null;
+  } catch (error) {
+    sessionsViewState.items = [];
+    sessionsViewState.nextPageToken = null;
+    sessionsViewState.listError = error.message || 'Failed to load sessions.';
+  } finally {
+    sessionsViewState.loadingList = false;
+    renderSessionsPage();
+  }
 }
 
-// ════════════════════════════════════════════════════════════
-// ── Jobs Tab ───────────────────────────────────────────────
-// ════════════════════════════════════════════════════════════
-let jobsAutoRefreshTimer = null;
-let jobsCountdown = 5;
-let jobsCountdownTimer = null;
-
-renderers.jobs = async () => {
-  if (jobsAutoRefreshTimer) { clearInterval(jobsAutoRefreshTimer); jobsAutoRefreshTimer = null; }
-  if (jobsCountdownTimer) { clearInterval(jobsCountdownTimer); jobsCountdownTimer = null; }
-
-  const panel = $('#panel-jobs');
-  panel.innerHTML = `
-    <div class="card">
-      <div class="toolbar">
-        <h2>Jobs</h2>
-        <div style="display:flex;gap:var(--space-sm);align-items:center;">
-          <label class="checkbox-label">
-            <input type="checkbox" id="jobs-auto-refresh"> Auto-refresh
-            <span class="refresh-indicator" id="jobs-refresh-indicator" style="display:none;">
-              <span class="pulse-dot"></span>
-              <span id="jobs-countdown">5s</span>
-            </span>
-          </label>
-          <button class="btn btn-primary" id="jobs-submit-btn">+ Submit Job</button>
-        </div>
-      </div>
-      <div class="inline-form">
-        <div class="form-group"><label>Status</label>
-          <select id="jobs-filter-status">
-            <option value="">All</option>
-            <option value="pending">pending</option>
-            <option value="running">running</option>
-            <option value="completed">completed</option>
-            <option value="failed">failed</option>
-            <option value="cancelled">cancelled</option>
-          </select>
-        </div>
-        <div class="form-group"><label>Session ID</label><input id="jobs-filter-session" placeholder="sess_..." style="width:200px;"></div>
-        <button class="btn" id="jobs-filter-btn">Filter</button>
-      </div>
-      <table><thead><tr><th>Job ID</th><th>Session</th><th>Type</th><th>Status</th><th>Submitted</th><th>Actions</th></tr></thead>
-      <tbody id="jobs-tbody">${loadingRow(6)}</tbody></table>
-    </div>`;
-
-  async function loadJobs() {
-    const params = {};
-    const status = $('#jobs-filter-status').value;
-    const sessionId = $('#jobs-filter-session').value.trim();
-    if (status) params.status = status;
-    if (sessionId) params.session_id = sessionId;
-    const tbody = $('#jobs-tbody');
-    try {
-      const jobs = await localApi.listJobs(Object.keys(params).length ? params : null);
-      if (!jobs.length) { tbody.innerHTML = `<tr><td colspan="6" class="empty">No jobs found.</td></tr>`; return; }
-      tbody.innerHTML = jobs.map(j => {
-        const canCancel = j.status === 'pending' || j.status === 'running';
-        const isRunning = j.status === 'running';
-        const dotColor = j.status === 'completed' ? 'green' : j.status === 'failed' ? 'red' : j.status === 'running' ? 'blue' : j.status === 'cancelled' ? 'gray' : 'yellow';
-        return `<tr>
-          <td><a href="#" class="job-link" data-id="${attr(j.job_id)}"><code>${esc(truncate(j.job_id || '', 20))}</code></a></td>
-          <td><code>${esc(truncate(j.session_id || '', 16))}</code></td>
-          <td>${esc(j.job_type || '')}</td>
-          <td><span class="status-dot ${dotColor} ${isRunning ? 'pulse' : ''}"></span>${statusBadge(j.status || '')}</td>
-          <td>${fmtDate(j.submitted_at || j.created_at)}</td>
-          <td>${canCancel ? `<button class="btn btn-sm btn-danger cancel-job" data-id="${attr(j.job_id)}">Cancel</button>` : ''}</td>
-        </tr>`;
-      }).join('');
-      $$('.cancel-job', tbody).forEach(btn => btn.onclick = async () => {
-        try { await localApi.cancelJob(btn.dataset.id); toast('Job cancelled', 'success'); loadJobs(); } catch (err) { toast(err.message, 'error'); }
-      });
-      $$('.job-link', tbody).forEach(a => a.onclick = async (e) => {
-        e.preventDefault();
-        try {
-          const job = await localApi.getJob(a.dataset.id);
-          openModal('Job Detail', jsonPre(job), `<button class="btn" onclick="closeModal()">Close</button>`);
-        } catch (err) { toast(err.message, 'error'); }
-      });
-    } catch (err) { tbody.innerHTML = `<tr><td colspan="6" class="empty">Error: ${esc(err.message)}</td></tr>`; }
+async function loadSessionDetail() {
+  if (!currentRoute.sessionId) {
+    sessionsViewState.selectedSession = null;
+    sessionsViewState.loadingDetail = false;
+    sessionsViewState.detailError = '';
+    renderSessionsPage();
+    return;
   }
 
-  $('#jobs-filter-btn').onclick = loadJobs;
-
-  // Auto-refresh toggle with countdown
-  $('#jobs-auto-refresh').onchange = (e) => {
-    const indicator = $('#jobs-refresh-indicator');
-    if (e.target.checked) {
-      indicator.style.display = '';
-      jobsCountdown = 5;
-      jobsAutoRefreshTimer = setInterval(() => {
-        jobsCountdown = 5;
-        loadJobs();
-      }, 5000);
-      jobsCountdownTimer = setInterval(() => {
-        jobsCountdown = Math.max(0, jobsCountdown - 1);
-        const cdEl = $('#jobs-countdown');
-        if (cdEl) cdEl.textContent = jobsCountdown + 's';
-      }, 1000);
-    } else {
-      indicator.style.display = 'none';
-      if (jobsAutoRefreshTimer) { clearInterval(jobsAutoRefreshTimer); jobsAutoRefreshTimer = null; }
-      if (jobsCountdownTimer) { clearInterval(jobsCountdownTimer); jobsCountdownTimer = null; }
+  sessionsViewState.loadingDetail = true;
+  sessionsViewState.detailError = '';
+  renderSessionsPage();
+  try {
+    const session = await uiApi.getSession(currentRoute.sessionId);
+    sessionsViewState.selectedSession = session;
+  } catch (error) {
+    sessionsViewState.selectedSession = null;
+    if (error.status === 404) {
+      sessionsViewState.detailError = '404 session not found. Returned to session list.';
+      toast('404 session not found. Returned to session list.', 'error');
+      applyRoute({ ...currentRoute, tab: 'sessions', sessionId: '' }, 'replace');
+      return;
     }
-  };
+    sessionsViewState.detailError = error.message || 'Failed to load session detail.';
+  } finally {
+    sessionsViewState.loadingDetail = false;
+    renderSessionsPage();
+  }
+}
 
-  // Submit Job modal
-  $('#jobs-submit-btn').onclick = () => {
-    openModal('Submit Job',
-      `<div class="form-group"><label>Session ID</label><input id="f-job-session" placeholder="sess_..."></div>
-       <div class="form-group"><label>Job Type</label>
-         <select id="f-job-type">
-           <option value="step">step</option>
-           <option value="plan">plan</option>
-         </select>
-       </div>
-       <div class="form-group"><label>Payload (JSON)</label><textarea id="f-job-payload">{}</textarea></div>`,
-      `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" id="f-job-submit">Submit</button>`);
-    $('#f-job-submit').onclick = async () => {
-      try {
-        const session_id = $('#f-job-session').value.trim();
-        if (!session_id) throw new Error('Session ID is required');
-        const job_type = $('#f-job-type').value;
-        const payload = parseJSON($('#f-job-payload').value, {});
-        await localApi.submitJob({ session_id, job_type, payload });
-        toast('Job submitted', 'success');
-        closeModal();
-        loadJobs();
-      } catch (err) { toast(err.message, 'error'); }
-    };
-  };
+async function loadStateView() {
+  if (!currentRoute.sessionId) {
+    stateViewState.loading = false;
+    stateViewState.error = '';
+    stateViewState.result = null;
+    renderStatePage();
+    return;
+  }
 
-  // Initial load
-  loadJobs();
-};
+  stateViewState.loading = true;
+  stateViewState.error = '';
+  renderStatePage();
+  try {
+    const payload = await uiApi.getSessionState(currentRoute.sessionId, stateViewState.filters);
+    stateViewState.result = payload;
+  } catch (error) {
+    stateViewState.result = null;
+    if (error.status === 404) {
+      stateViewState.error = '404 session not found. Returned to session list.';
+      toast('404 session not found. Returned to session list.', 'error');
+      applyRoute(
+        { ...currentRoute, tab: 'sessions', sessionId: '', propositionId: '', runtimeScope: '' },
+        'replace'
+      );
+      return;
+    }
+    stateViewState.error = error.message || 'State query failed.';
+  } finally {
+    stateViewState.loading = false;
+    renderStatePage();
+  }
+}
 
-// ── Boot ───────────────────────────────────────────────────
-renderers.catalog();
+async function loadContextView() {
+  if (!currentRoute.sessionId || !currentRoute.propositionId) {
+    contextViewState.loading = false;
+    contextViewState.error = '';
+    contextViewState.result = null;
+    renderContextPage();
+    return;
+  }
+
+  contextViewState.loading = true;
+  contextViewState.error = '';
+  renderContextPage();
+  try {
+    const payload = await uiApi.getPropositionContext(
+      currentRoute.sessionId,
+      currentRoute.propositionId
+    );
+    contextViewState.result = payload;
+  } catch (error) {
+    contextViewState.result = null;
+    if (error.status === 404) {
+      contextViewState.error = '404 proposition not found. Returned to State.';
+      toast('404 proposition not found. Returned to State.', 'error');
+      applyRoute(
+        { ...currentRoute, tab: 'state', propositionId: '', runtimeScope: '' },
+        'replace'
+      );
+      return;
+    }
+    contextViewState.error = error.message || 'Context lookup failed.';
+  } finally {
+    contextViewState.loading = false;
+    renderContextPage();
+  }
+}
+
+async function refreshForRoute() {
+  if (currentRoute.tab === 'sessions') {
+    renderSessionsPage();
+    await loadSessions();
+    await loadSessionDetail();
+    return;
+  }
+  if (currentRoute.tab === 'state') {
+    renderStatePage();
+    await loadStateView();
+    return;
+  }
+  if (currentRoute.tab === 'context') {
+    renderContextPage();
+    await loadContextView();
+    return;
+  }
+  renderShellPlaceholder(currentRoute.tab);
+}
+
+function applyRoute(nextRoute, historyMode = 'push') {
+  currentRoute = normalizeRoute(nextRoute);
+  writeRoute(currentRoute, historyMode);
+  suppressTabSync = true;
+  setActiveTab(currentRoute.tab);
+  suppressTabSync = false;
+  void refreshForRoute();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  initSidebar();
+  Object.keys(SHELL_PAGE_CONFIG).forEach((tab) => {
+    if (tab !== 'sessions') renderShellPlaceholder(tab);
+  });
+  currentRoute = routeFromLocation();
+  window.addEventListener('tab-change', (event) => {
+    if (suppressTabSync) return;
+    applyRoute({ ...currentRoute, tab: event.detail?.tab || DEFAULT_ROUTE.tab });
+  });
+  window.addEventListener('popstate', () => {
+    currentRoute = routeFromLocation();
+    suppressTabSync = true;
+    setActiveTab(currentRoute.tab);
+    suppressTabSync = false;
+    void refreshForRoute();
+  });
+  suppressTabSync = true;
+  setActiveTab(currentRoute.tab);
+  suppressTabSync = false;
+  void refreshForRoute();
+});
 </script>
 </body>
 </html>

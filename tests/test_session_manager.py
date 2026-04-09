@@ -32,6 +32,7 @@ class SessionManagerTests(unittest.TestCase):
         self.assertEqual(loaded["session_id"], created["session_id"])
         # goal is structured in canonical AnalysisSession shape (Phase 5a)
         self.assertEqual(loaded["goal"]["question"], "Investigate watch time regression")
+        self.assertEqual(loaded["scope"]["constraints"], {"region": "all"})
         # governance carries budget
         self.assertEqual(loaded["governance"]["budget"], {"max_latency_sec": 120})
         # lifecycle carries status
@@ -51,13 +52,16 @@ class SessionManagerTests(unittest.TestCase):
         closed_sessions = self.manager.list_sessions(status="closed")
 
         self.assertIn(
-            open_session["session_id"], [session["session_id"] for session in open_sessions]
+            open_session["session_id"],
+            [session["session_id"] for session in open_sessions["items"]],
         )
         self.assertNotIn(
-            closed_session["session_id"], [session["session_id"] for session in open_sessions]
+            closed_session["session_id"],
+            [session["session_id"] for session in open_sessions["items"]],
         )
         self.assertEqual(
-            [session["session_id"] for session in closed_sessions], [closed_session["session_id"]]
+            [session["session_id"] for session in closed_sessions["items"]],
+            [closed_session["session_id"]],
         )
 
     def test_assert_session_exists_raises_for_unknown_session(self) -> None:
@@ -166,16 +170,44 @@ class SessionManagerTests(unittest.TestCase):
     def test_list_sessions_canonical_shape(self) -> None:
         """list_sessions returns AnalysisSession-shaped dicts."""
         s = self.manager.create_session("Shape check", {}, {}, {})
-        items = self.manager.list_sessions()
-        match = next(x for x in items if x["session_id"] == s["session_id"])
+        payload = self.manager.list_sessions()
+        match = next(x for x in payload["items"] if x["session_id"] == s["session_id"])
         self.assertIn("goal", match)
         self.assertIn("question", match["goal"])
+        self.assertIn("scope", match)
         self.assertIn("governance", match)
         self.assertIn("lifecycle", match)
         self.assertIn("state_summary", match)
         self.assertEqual(match["schema_version"], "analysis_session.v1")
         self.assertNotIn("status", match)
         self.assertNotIn("constraints", match)
+
+    def test_list_sessions_supports_session_id_prefix_filter(self) -> None:
+        matched = self.manager.create_session("Prefix match", {}, {}, {})
+        self.manager.create_session("Other session", {}, {}, {})
+
+        payload = self.manager.list_sessions(session_id=matched["session_id"][:8])
+
+        self.assertEqual([item["session_id"] for item in payload["items"]], [matched["session_id"]])
+        self.assertIsNone(payload["next_page_token"])
+
+    def test_list_sessions_paginates_with_offset_tokens(self) -> None:
+        first = self.manager.create_session("First", {}, {}, {})
+        second = self.manager.create_session("Second", {}, {}, {})
+
+        first_page = self.manager.list_sessions(limit=1)
+
+        self.assertEqual(len(first_page["items"]), 1)
+        self.assertIsNotNone(first_page["next_page_token"])
+
+        second_page = self.manager.list_sessions(limit=1, page_token=first_page["next_page_token"])
+
+        ids = [page["items"][0]["session_id"] for page in (first_page, second_page)]
+        self.assertEqual(set(ids), {first["session_id"], second["session_id"]})
+
+    def test_list_sessions_rejects_invalid_page_token(self) -> None:
+        with self.assertRaises(ValueError):
+            self.manager.list_sessions(page_token="bad-token")
 
 
 if __name__ == "__main__":

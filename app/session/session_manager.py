@@ -53,15 +53,37 @@ class SessionManager:
         assert row is not None
         return self._session_from_row(row)
 
-    def list_sessions(self, status: str | None = None) -> list[dict[str, Any]]:
+    def list_sessions(
+        self,
+        status: str | None = None,
+        session_id: str | None = None,
+        limit: int | None = None,
+        page_token: str | None = None,
+    ) -> dict[str, Any]:
+        offset = self._decode_page_token(page_token)
+        normalized_limit = self._normalize_limit(limit)
+
         sql = f"SELECT {_SESSION_SELECT} FROM sessions"
+        clauses: list[str] = []
         params: list[Any] = []
         if status:
-            sql += " WHERE status = ?"
+            clauses.append("status = ?")
             params.append(status)
-        sql += " ORDER BY created_at DESC"
+        if session_id:
+            clauses.append("session_id LIKE ?")
+            params.append(f"{session_id}%")
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
+        sql += " ORDER BY created_at DESC, session_id DESC LIMIT ? OFFSET ?"
+        params.extend([normalized_limit + 1, offset])
         rows = self.metadata.query_rows(sql, params)
-        return [self._session_from_row(row) for row in rows]
+
+        has_next_page = len(rows) > normalized_limit
+        items = [self._session_from_row(row) for row in rows[:normalized_limit]]
+        next_page_token = (
+            self._encode_page_token(offset + normalized_limit) if has_next_page else None
+        )
+        return {"items": items, "next_page_token": next_page_token}
 
     def get_session(self, session_id: str) -> dict[str, Any]:
         row = self.metadata.query_one(
@@ -422,6 +444,11 @@ class SessionManager:
         return {
             "session_id": session_id,
             "goal": {"question": row["goal"]},
+            "scope": {
+                "constraints": json.loads(row["constraints_json"])
+                if row.get("constraints_json")
+                else None,
+            },
             "governance": {
                 "policy_refs": policy_refs,
                 "budget": budget,
@@ -446,3 +473,26 @@ class SessionManager:
 
     def _dump(self, value: Any) -> str:
         return json.dumps(value, default=str, sort_keys=True)
+
+    def _decode_page_token(self, page_token: str | None) -> int:
+        if page_token is None:
+            return 0
+        try:
+            offset = int(page_token)
+        except ValueError as error:
+            raise ValueError(
+                "Invalid page_token. Expected a non-negative integer offset."
+            ) from error
+        if offset < 0:
+            raise ValueError("Invalid page_token. Expected a non-negative integer offset.")
+        return offset
+
+    def _encode_page_token(self, offset: int) -> str:
+        return str(offset)
+
+    def _normalize_limit(self, limit: int | None) -> int:
+        if limit is None:
+            return 25
+        if limit <= 0:
+            raise ValueError("Invalid limit. Expected a positive integer.")
+        return min(limit, 100)

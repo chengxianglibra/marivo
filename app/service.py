@@ -199,8 +199,19 @@ class SemanticLayerService:
             goal, constraints, budget, policy, raw_filter=raw_filter
         )
 
-    def list_sessions(self, status: str | None = None) -> list[dict[str, Any]]:
-        return self.session_manager.list_sessions(status=status)
+    def list_sessions(
+        self,
+        status: str | None = None,
+        session_id: str | None = None,
+        limit: int | None = None,
+        page_token: str | None = None,
+    ) -> dict[str, Any]:
+        return self.session_manager.list_sessions(
+            status=status,
+            session_id=session_id,
+            limit=limit,
+            page_token=page_token,
+        )
 
     def get_session(self, session_id: str) -> dict[str, Any]:
         return self.session_manager.get_session(session_id)
