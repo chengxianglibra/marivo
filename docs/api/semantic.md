@@ -623,8 +623,46 @@ Notes:
 unmigrated runtime wiring, but it is not part of the target-state semantic layer contract.
 New integrations should use typed bindings instead of authoring new legacy mappings.
 
+## Runtime Catalog Discovery
+
+Runtime catalog discovery exposes only `published` typed semantic contracts.
+
+`GET /catalog/search?q=...&type=...`
+
+- Supported semantic `type` filters: `entity`, `metric`, `process`, `dimension`, `time`, `binding`
+- `asset` remains available as a source-object discovery filter and is not a semantic object kind
+- Semantic results use a unified summary envelope:
+  - `object_kind`
+  - `object_id`
+  - `ref`
+  - `name`
+  - `display_name`
+  - `description`
+  - `status`
+  - `revision`
+  - `created_at`
+  - `updated_at`
+
+`GET /semantic/resolve/{name}`
+
+- Runtime resolution is typed-ref first: `entity.*`, `metric.*`, `process.*`, `dimension.*`,
+  `time.*`, `binding.*`
+- Bare-name aliases remain supported only for `entity` and `metric`
+- The response is a typed detail envelope:
+  - `object_kind`
+  - `object_id`
+  - `ref`
+  - `semantic_object`
+  - `status`
+  - `revision`
+  - `created_at`
+  - `updated_at`
+- Resolve responses no longer expose legacy `mappings`, `physical_assets`, or legacy object payloads
+  derived from `semantic_mappings`
+
 ## Error Semantics
 
+- `400`: invalid catalog type filter or invalid typed semantic ref
 - `404`: object not found
 - `422`: request validation failed or service rejected the request as invalid
 

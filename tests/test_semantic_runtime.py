@@ -434,6 +434,30 @@ class SemanticRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(repository.resolve_ref(metric_ref).object_kind, "metric")
 
+        runtime = CatalogRuntimeService(
+            self.metadata_store,
+            self.binding_service,
+            semantic_repository=repository,
+        )
+        for object_type, expected_ref in (
+            ("process", process_ref),
+            ("dimension", dimension_ref),
+            ("time", time_ref),
+            ("binding", binding_ref),
+        ):
+            search_results = runtime.search(suffix, object_type=object_type)
+            self.assertTrue(any(result["ref"] == expected_ref for result in search_results))
+
+        resolved_process_detail = runtime.resolve(process_ref)
+        self.assertEqual(resolved_process_detail["object_kind"], "process")
+        self.assertEqual(resolved_process_detail["ref"], process_ref)
+        self.assertEqual(
+            resolved_process_detail["semantic_object"]["interface_contract"][
+                "exported_dimension_refs"
+            ],
+            [dimension_ref],
+        )
+
     def test_typed_repository_rejects_invalid_and_unpublished_refs(self) -> None:
         repository = self.client.app.state.service.semantic_repository
 
@@ -550,22 +574,44 @@ class SemanticRuntimeTests(unittest.TestCase):
 
         results = runtime.search("watch", object_type="metric")
 
-        self.assertTrue(any(result["name"] == "watch_time" for result in results))
+        metric = next(result for result in results if result["name"] == "watch_time")
+        self.assertEqual(metric["object_kind"], "metric")
+        self.assertEqual(metric["ref"], "metric.watch_time")
+        self.assertEqual(metric["object_id"], self.metric_id)
 
-    def test_catalog_runtime_resolve_returns_assets_and_mappings(self) -> None:
+    def test_catalog_runtime_resolve_returns_typed_detail(self) -> None:
         runtime = CatalogRuntimeService(self.metadata_store, self.binding_service)
 
-        resolved = runtime.resolve("watch_time")
+        resolved = runtime.resolve("metric.watch_time")
 
-        self.assertEqual(resolved["resolved_type"], "metric")
+        self.assertEqual(resolved["object_kind"], "metric")
+        self.assertEqual(resolved["object_id"], self.metric_id)
+        self.assertEqual(resolved["ref"], "metric.watch_time")
         self.assertEqual(resolved["semantic_object"]["header"]["metric_ref"], "metric.watch_time")
         self.assertEqual(
-            resolved["semantic_object"]["identity"]["observed_entity_ref"], "entity.user"
+            resolved["semantic_object"]["header"]["observed_entity_ref"],
+            "entity.user",
         )
-        self.assertEqual(resolved["semantic_object"]["legacy"]["grain"], "session")
-        self.assertEqual(resolved["semantic_object"]["legacy"]["measure_type"], "average")
-        self.assertEqual(resolved["physical_assets"][0]["native_name"], "watch_events")
-        self.assertEqual(resolved["mappings"][0]["semantic_id"], self.metric_id)
+        self.assertIsInstance(resolved["semantic_object"]["payload"], dict)
+        self.assertNotIn("physical_assets", resolved)
+        self.assertNotIn("mappings", resolved)
+
+    def test_catalog_runtime_resolve_supports_metric_and_entity_aliases_only(self) -> None:
+        runtime = CatalogRuntimeService(self.metadata_store, self.binding_service)
+
+        metric_resolved = runtime.resolve("watch_time")
+        entity_resolved = runtime.resolve("user")
+
+        self.assertEqual(metric_resolved["ref"], "metric.watch_time")
+        self.assertEqual(entity_resolved["ref"], "entity.user")
+        with self.assertRaises(KeyError):
+            runtime.resolve("runtime_session")
+
+    def test_catalog_runtime_search_rejects_invalid_type_filter(self) -> None:
+        runtime = CatalogRuntimeService(self.metadata_store, self.binding_service)
+
+        with self.assertRaises(ValueError):
+            runtime.search("watch", object_type="profile")
 
     def test_catalog_runtime_planner_context_formats_runtime_payload(self) -> None:
         runtime = CatalogRuntimeService(
