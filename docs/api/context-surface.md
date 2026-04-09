@@ -134,7 +134,7 @@ Inclusion boundaries are fixed:
 - the field carries lookup handles only, not expanded provenance payloads
 - assessment dependencies do not expand `artifact_refs` by themselves
 - this surface must not expose semantic-layer refs such as `metric_ref`, `process_ref`, `dimension.*`, `time.*`, or `binding.*`
-- if a caller needs semantic meaning, it must derive that from canonical findings / propositions plus the semantic contracts, not by adding semantic refs to this payload
+- if a caller needs semantic meaning, it must derive that from canonical findings / propositions, step lineage metadata, and the semantic contracts, not by adding semantic refs to this payload
 
 ## Ordering
 

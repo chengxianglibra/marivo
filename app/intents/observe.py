@@ -272,7 +272,13 @@ def run_observe_intent(
             **observation_ns,
         }
         svc._insert_step(
-            step_id, session_id, "observe", summary_ns, result_ns, provenance=provenance
+            step_id,
+            session_id,
+            "observe",
+            summary_ns,
+            result_ns,
+            provenance=provenance,
+            semantic_metadata=svc.build_step_semantic_metadata(compiled_query),
         )
         return result_ns
 
@@ -370,7 +376,13 @@ def run_observe_intent(
             **observation_rs,
         }
         svc._insert_step(
-            step_id, session_id, "observe", summary_rs, result_rs, provenance=provenance
+            step_id,
+            session_id,
+            "observe",
+            summary_rs,
+            result_rs,
+            provenance=provenance,
+            semantic_metadata=svc.build_step_semantic_metadata(compiled_query),
         )
         return result_rs
 
@@ -632,5 +644,13 @@ def run_observe_intent(
         **observation,
     }
 
-    svc._insert_step(step_id, session_id, "observe", summary, result, provenance=provenance)
+    svc._insert_step(
+        step_id,
+        session_id,
+        "observe",
+        summary,
+        result,
+        provenance=provenance,
+        semantic_metadata=svc.build_step_semantic_metadata(compiled_query),
+    )
     return result

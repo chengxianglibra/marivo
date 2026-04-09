@@ -54,6 +54,7 @@ from app.evidence_engine.proposition_seed_registry import (
 )
 from app.storage.evidence_repositories import FindingRepository, PropositionRepository
 from app.storage.metadata import MetadataStore
+from app.storage.step_metadata_repository import StepMetadataRepository
 
 # ---------------------------------------------------------------------------
 # Public constants
@@ -116,6 +117,12 @@ class MaterializationContext(Protocol):
         """Return the deserialized ``content_json`` of the artifact or ``None``."""
         ...
 
+    def get_artifact_subject(
+        self, artifact_id: str, *, analysis_axis: str
+    ) -> dict[str, Any] | None:
+        """Return a proposition-subject hint for the artifact or ``None``."""
+        ...
+
 
 # ---------------------------------------------------------------------------
 # SimpleMaterializationContext
@@ -137,9 +144,11 @@ class SimpleMaterializationContext:
         self,
         finding_repo: FindingRepository,
         metadata: MetadataStore,
+        step_metadata_repo: StepMetadataRepository | None = None,
     ) -> None:
         self._finding_repo = finding_repo
         self._metadata = metadata
+        self._step_metadata_repo = step_metadata_repo or StepMetadataRepository(metadata)
 
     def get_finding(self, session_id: str, finding_id: str) -> dict[str, Any] | None:
         row = self._finding_repo.get(finding_id)
@@ -160,6 +169,52 @@ class SimpleMaterializationContext:
         if isinstance(content, str):
             return cast("dict[str, Any]", json.loads(content))
         return cast("dict[str, Any]", content)
+
+    def get_step_semantic_metadata(self, session_id: str, step_id: str) -> dict[str, Any] | None:
+        row = self._metadata.query_one(
+            "SELECT session_id FROM steps WHERE step_id = ?",
+            [step_id],
+        )
+        if row is None or row.get("session_id") != session_id:
+            return None
+        metadata = self._step_metadata_repo.get(step_id)
+        if metadata is None:
+            return None
+        return cast("dict[str, Any]", metadata.get("semantic_snapshot"))
+
+    def get_artifact_subject(
+        self, artifact_id: str, *, analysis_axis: str
+    ) -> dict[str, Any] | None:
+        artifact_row = self._metadata.query_one(
+            "SELECT session_id, step_id, content_json FROM artifacts WHERE artifact_id = ?",
+            [artifact_id],
+        )
+        if artifact_row is None:
+            return None
+
+        session_id = str(artifact_row["session_id"])
+        step_id = str(artifact_row["step_id"])
+        semantic_metadata = self.get_step_semantic_metadata(session_id, step_id)
+        subject = _subject_from_step_semantic_metadata(
+            semantic_metadata, analysis_axis=analysis_axis
+        )
+        if subject is not None:
+            return subject
+
+        content = artifact_row["content_json"]
+        payload = cast(
+            "dict[str, Any]", json.loads(content) if isinstance(content, str) else content
+        )
+        metric_name = payload.get("metric")
+        if not metric_name:
+            return None
+        return {
+            "metric": metric_name,
+            "entity": None,
+            "slice": {},
+            "grain": None,
+            "analysis_axis": analysis_axis,
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -375,6 +430,28 @@ def _bilateral_focus_anchor(
         else right_subject
     )
     return {**base, "analysis_axis": analysis_axis}
+
+
+def _subject_from_step_semantic_metadata(
+    semantic_metadata: dict[str, Any] | None,
+    *,
+    analysis_axis: str,
+) -> dict[str, Any] | None:
+    if not semantic_metadata:
+        return None
+    typed_inputs = semantic_metadata.get("typed_inputs")
+    if not isinstance(typed_inputs, dict):
+        return None
+    metric_ref = typed_inputs.get("metric_ref")
+    if not isinstance(metric_ref, str) or not metric_ref.startswith("metric."):
+        return None
+    return {
+        "metric": metric_ref[7:],
+        "entity": None,
+        "slice": {},
+        "grain": None,
+        "analysis_axis": analysis_axis,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -646,30 +723,40 @@ def _materialize_correlation_from_result(
     if join_basis is None:
         return None
 
-    # left/right subjects: from correlate artifact
+    # left/right subjects: prefer source step metadata, fall back to artifact summary.
     artifact_payload = ctx.get_artifact_payload(finding["artifact_id"])
     if not artifact_payload:
         return None
-    left_metric: str | None = artifact_payload.get("left_metric")
-    right_metric: str | None = artifact_payload.get("right_metric")
-    if not left_metric or not right_metric:
-        return None
-
-    # Build left_subject / right_subject as PropositionSubjects
-    left_subject: dict[str, Any] = {
-        "metric": left_metric,
-        "entity": None,
-        "slice": {},
-        "grain": None,
-        "analysis_axis": "correlation",
-    }
-    right_subject: dict[str, Any] = {
-        "metric": right_metric,
-        "entity": None,
-        "slice": {},
-        "grain": None,
-        "analysis_axis": "correlation",
-    }
+    source_lineage = artifact_payload.get("source_lineage") or {}
+    left_artifact_ref = source_lineage.get("left_artifact") or {}
+    right_artifact_ref = source_lineage.get("right_artifact") or {}
+    left_subject = None
+    right_subject = None
+    left_artifact_id = left_artifact_ref.get("artifact_id")
+    right_artifact_id = right_artifact_ref.get("artifact_id")
+    if left_artifact_id:
+        left_subject = ctx.get_artifact_subject(left_artifact_id, analysis_axis="correlation")
+    if right_artifact_id:
+        right_subject = ctx.get_artifact_subject(right_artifact_id, analysis_axis="correlation")
+    if left_subject is None or right_subject is None:
+        left_metric: str | None = artifact_payload.get("left_metric")
+        right_metric: str | None = artifact_payload.get("right_metric")
+        if not left_metric or not right_metric:
+            return None
+        left_subject = left_subject or {
+            "metric": left_metric,
+            "entity": None,
+            "slice": {},
+            "grain": None,
+            "analysis_axis": "correlation",
+        }
+        right_subject = right_subject or {
+            "metric": right_metric,
+            "entity": None,
+            "slice": {},
+            "grain": None,
+            "analysis_axis": "correlation",
+        }
 
     # relationship_of_interest from coefficient
     coefficient = payload.get("coefficient")
@@ -730,7 +817,7 @@ def _materialize_test_from_result(
     except (TypeError, ValueError):
         return None
 
-    # left/right subjects: from upstream observation artifacts
+    # left/right subjects: prefer upstream observation step metadata.
     left_ref: dict[str, Any] = payload.get("left_ref") or {}
     right_ref: dict[str, Any] = payload.get("right_ref") or {}
     left_artifact_id: str = left_ref.get("artifact_id") or ""
@@ -739,30 +826,33 @@ def _materialize_test_from_result(
     if not left_artifact_id or not right_artifact_id:
         return None
 
-    left_artifact = ctx.get_artifact_payload(left_artifact_id)
-    right_artifact = ctx.get_artifact_payload(right_artifact_id)
-    if not left_artifact or not right_artifact:
-        return None
+    left_subject = ctx.get_artifact_subject(left_artifact_id, analysis_axis="test")
+    right_subject = ctx.get_artifact_subject(right_artifact_id, analysis_axis="test")
+    if left_subject is None or right_subject is None:
+        left_artifact = ctx.get_artifact_payload(left_artifact_id)
+        right_artifact = ctx.get_artifact_payload(right_artifact_id)
+        if not left_artifact or not right_artifact:
+            return None
 
-    left_metric: str | None = left_artifact.get("metric")
-    right_metric: str | None = right_artifact.get("metric")
-    if not left_metric or not right_metric:
-        return None
+        left_metric: str | None = left_artifact.get("metric")
+        right_metric: str | None = right_artifact.get("metric")
+        if not left_metric or not right_metric:
+            return None
 
-    left_subject: dict[str, Any] = {
-        "metric": left_metric,
-        "entity": None,
-        "slice": {},
-        "grain": None,
-        "analysis_axis": "test",
-    }
-    right_subject: dict[str, Any] = {
-        "metric": right_metric,
-        "entity": None,
-        "slice": {},
-        "grain": None,
-        "analysis_axis": "test",
-    }
+        left_subject = left_subject or {
+            "metric": left_metric,
+            "entity": None,
+            "slice": {},
+            "grain": None,
+            "analysis_axis": "test",
+        }
+        right_subject = right_subject or {
+            "metric": right_metric,
+            "entity": None,
+            "slice": {},
+            "grain": None,
+            "analysis_axis": "test",
+        }
 
     subject = _bilateral_focus_anchor(left_subject, right_subject, "test")
     method: str = payload.get("method") or "auto"

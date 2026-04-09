@@ -138,6 +138,7 @@ Canonical payload invariants still follow the analysis contracts:
 - runtime attempt, claim, retry, backlog, or migration-blocked status does not belong to this payload
 - this surface must not expose semantic-layer refs such as `metric_ref`, `process_ref`, `dimension.*`, `time.*`, or `binding.*`
 - `artifact_refs` remain canonical provenance handles only; they must not be expanded into semantic identity payloads
+- semantic meaning may be recovered internally through step lineage metadata, but that recovery must not change this payload's canonical-only shape
 
 ## Session State Pagination
 

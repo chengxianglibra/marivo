@@ -12,6 +12,7 @@ Shared guidance for agents. `AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructi
 - analysis refactor design docs is located at 'docs/analysis'
 - Canonical read surfaces expose externally visible state only; do not mix runtime queue/claim/retry status into `session` / `state` / `context`.
 - Canonical read surfaces (`session` / `state` / `context`) must carry canonical refs and provenance handles only; semantic refs belong to semantic/runtime/compiler contracts and must not leak into evidence read payloads.
+- When evidence consumers need semantic meaning from a `step_ref`, recover it via typed step metadata / compiler snapshots behind the scenes; do not add semantic refs to canonical read payloads.
 - Evidence Engine runtime lifecycle, runtime status surface, and migration/invalidation policies live under `docs/analysis/evidence-engine/`.
 
 ## Python / Typing

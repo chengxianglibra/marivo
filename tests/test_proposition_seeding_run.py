@@ -70,6 +70,50 @@ def _insert_artifact(
     )
 
 
+def _insert_step(
+    store: SQLiteMetadataStore,
+    *,
+    step_id: str,
+    session_id: str = "sess_4e3",
+    step_type: str,
+) -> None:
+    store.execute(
+        "INSERT INTO steps (step_id, session_id, step_type, status, summary, result_json, provenance_json) "
+        "VALUES (?, ?, ?, 'succeeded', ?, ?, ?)",
+        [step_id, session_id, step_type, step_type, "{}", "{}"],
+    )
+
+
+def _insert_step_metadata(
+    store: SQLiteMetadataStore,
+    *,
+    step_id: str,
+    metric_ref: str,
+) -> None:
+    store.execute(
+        "INSERT INTO step_metadata (step_id, metadata_kind, semantic_snapshot_json) VALUES (?, ?, ?)",
+        [
+            step_id,
+            "typed_semantic_snapshot",
+            json.dumps(
+                {
+                    "schema_version": "step_semantic_metadata.v1",
+                    "metadata_kind": "typed_semantic_snapshot",
+                    "typed_inputs": {
+                        "metric_ref": metric_ref,
+                        "process_ref": None,
+                        "dimension_refs": [],
+                        "filter_time_ref": None,
+                        "request_classes": ["root_metric_process"],
+                    },
+                    "binding_refs": [],
+                    "compile_context": {"ir_plan_ids": [], "compiler_summaries": []},
+                }
+            ),
+        ],
+    )
+
+
 def _empty_quality() -> dict[str, Any]:
     return {
         "data_complete": None,
@@ -786,6 +830,10 @@ _CORRELATE_ARTIFACT_CONTENT = {
         "pairing_rule": {"kind": "time_aligned", "grain": "day", "key_fields": []},
         "matched_time_scope": {"start": "2024-01-01", "end": "2024-01-14"},
     },
+    "source_lineage": {
+        "left_artifact": {"artifact_id": "art_obs_left_001"},
+        "right_artifact": {"artifact_id": "art_obs_right_001"},
+    },
 }
 
 _CORRELATION_PAYLOAD = {
@@ -858,15 +906,21 @@ class _T245Base(_Base):
             },
         )
         # T4/T5: observation artifacts (left=dau, right=revenue)
+        _insert_step(self.store, step_id="step_obs_left", step_type="observe")
+        _insert_step(self.store, step_id="step_obs_right", step_type="observe")
+        _insert_step_metadata(self.store, step_id="step_obs_left", metric_ref="metric.dau")
+        _insert_step_metadata(self.store, step_id="step_obs_right", metric_ref="metric.revenue")
         _insert_artifact(
             self.store,
             "art_obs_left_001",
+            step_id="step_obs_left",
             artifact_type="observation",
             content={"metric": "dau"},
         )
         _insert_artifact(
             self.store,
             "art_obs_right_001",
+            step_id="step_obs_right",
             artifact_type="observation",
             content={"metric": "revenue"},
         )
@@ -1209,6 +1263,26 @@ class TestSeedingRunT4Correlation(_T245Base):
         self.assertEqual(payload["left_subject"]["metric"], "dau")
         self.assertEqual(payload["right_subject"]["metric"], "revenue")
 
+    def test_bilateral_subjects_prefer_step_metadata_over_artifact_summary(self) -> None:
+        self.store.execute(
+            "UPDATE artifacts SET content_json = ? WHERE artifact_id = ?",
+            [
+                json.dumps(
+                    {
+                        **_CORRELATE_ARTIFACT_CONTENT,
+                        "left_metric": "wrong_left",
+                        "right_metric": "wrong_right",
+                    }
+                ),
+                "art_correlate_001",
+            ],
+        )
+        result = self._run(["fnd_correlate_001"])
+        pid = result["created_proposition_ids"][0]
+        payload = self.prop_repo.get(pid)["payload_json"]
+        self.assertEqual(payload["left_subject"]["metric"], "dau")
+        self.assertEqual(payload["right_subject"]["metric"], "revenue")
+
     def test_correlation_replay_stable(self) -> None:
         r1 = self._run(["fnd_correlate_001"])
         r2 = self._run(["fnd_correlate_001"])
@@ -1279,6 +1353,21 @@ class TestSeedingRunT5TestHypothesis(_T245Base):
         self.assertEqual(payload["right_subject"]["metric"], "revenue")
         self.assertEqual(payload["left_subject"]["analysis_axis"], "test")
         self.assertEqual(payload["right_subject"]["analysis_axis"], "test")
+
+    def test_test_hypothesis_prefers_step_metadata_over_observation_artifact_metric(self) -> None:
+        self.store.execute(
+            "UPDATE artifacts SET content_json = ? WHERE artifact_id = ?",
+            [json.dumps({"metric": "wrong_left"}), "art_obs_left_001"],
+        )
+        self.store.execute(
+            "UPDATE artifacts SET content_json = ? WHERE artifact_id = ?",
+            [json.dumps({"metric": "wrong_right"}), "art_obs_right_001"],
+        )
+        result = self._run(["fnd_test_001"])
+        pid = result["created_proposition_ids"][0]
+        payload = self.prop_repo.get(pid)["payload_json"]
+        self.assertEqual(payload["left_subject"]["metric"], "dau")
+        self.assertEqual(payload["right_subject"]["metric"], "revenue")
 
     def test_test_hypothesis_replay_stable(self) -> None:
         r1 = self._run(["fnd_test_001"])
