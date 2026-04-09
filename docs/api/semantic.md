@@ -10,7 +10,7 @@ Semantic lifecycle is shared across objects:
 
 Only `published` objects are available to runtime resolution and intent execution.
 
-Entity and metric contract updates are draft-only. After `publish`, the public contract is frozen; a second publish attempt or any later update returns a validation error from the service layer.
+Typed semantic object contract updates are draft-only. After `publish`, the public contract is frozen; a second publish attempt or any later update returns a validation error from the service layer.
 
 Related design docs:
 
@@ -305,6 +305,9 @@ All four object families follow the same lifecycle and envelope conventions as e
 - create, get, update, and publish return the object detail payload directly
 - list returns `{"items": [...], "total": n}`
 - `status` is the shared lifecycle filter/query parameter
+- `PUT` is only valid while the object is in `draft`
+- `POST .../publish` is only valid from `draft`; publish increments `revision`
+- create/update may reference draft semantic objects, but publish requires every referenced object to already be `published`
 - invalid request shape returns `422`
 - unknown object id returns `404`
 

@@ -135,6 +135,29 @@ class SemanticMetricRouteTests(unittest.TestCase):
         cls.temp_dir.cleanup()
 
     def test_metric_routes_use_typed_contract(self) -> None:
+        # Publish the entity that the metric references before creating/publishing the metric
+        entity_resp = self.client.post(
+            "/semantic/entities",
+            json={
+                "header": {
+                    "entity_ref": "entity.user",
+                    "display_name": "User",
+                    "entity_contract_version": "entity.v4",
+                },
+                "interface_contract": {
+                    "identity": {
+                        "key_refs": ["key.user_id"],
+                        "uniqueness_scope": "global",
+                        "id_stability": "stable",
+                    }
+                },
+            },
+        )
+        self.assertEqual(entity_resp.status_code, 200, entity_resp.text)
+        entity_id = entity_resp.json()["entity_contract_id"]
+        publish_resp = self.client.post(f"/semantic/entities/{entity_id}/publish")
+        self.assertEqual(publish_resp.status_code, 200, publish_resp.text)
+
         resp = self.client.post(
             "/semantic/metrics",
             json={
