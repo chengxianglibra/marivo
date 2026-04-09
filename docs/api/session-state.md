@@ -175,9 +175,7 @@ Error behavior is fixed as follows:
 - an invalid or expired `page_token` returns `400`
 - the service must not silently downgrade `slice` on `GET /state`; callers must move to `POST /state/query`
 
-## Relationship To Context Surface And `reflection-context`
-
-`GET /sessions/{session_id}/reflection-context` is not the canonical read baseline for new clients.
+## Relationship To Context Surface
 
 This document defines the session-level canonical read surface:
 
@@ -188,8 +186,6 @@ If a caller needs to know whether recompute, proposal refresh, publish, or migra
 For the proposition-level minimal closure, use [`context-surface.md`](context-surface.md):
 
 - `GET /sessions/{session_id}/propositions/{proposition_id}/context`
-
-`reflection-context` remains a legacy compact summary endpoint only. It must not be treated as equivalent to `SessionStateView`, and new canonical state fields should not be added there instead of the state surface endpoints.
 
 ## Non-goals
 

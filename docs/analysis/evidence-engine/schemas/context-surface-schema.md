@@ -309,15 +309,11 @@ v1 上下文面 只支持：
 
 本文只定义这些对象在 proposition 局部读取中的组合方式。
 
-### 与 reflection-context 的关系
+### 与已移除 compact summary 读面的关系
 
-本文定义的 上下文面 不等价于 `reflection-context`：
+本文定义的 上下文面 是命题中心 canonical 局部闭包。
 
-- `reflection-context` 是 compact summary
-- 上下文面 是 命题中心 canonical 局部闭包
-- readiness、tentative claims 与 compact evidence-gap summary 不并入 v1 canonical context object
-
-HTTP 迁移、兼容期与废弃策略属于后续 API 设计，不在本文定义。
+此前的 compact summary 读面已经移除；readiness、tentative claims 与 compact evidence-gap summary 不并入 v1 canonical context object。
 
 ## Test Cases
 

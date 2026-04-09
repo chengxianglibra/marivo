@@ -22,7 +22,6 @@ from app.api.models import (
     SessionTerminateRequest,
     ValidateRequest,
 )
-from app.reflection.context import build_reflection_context
 
 router = APIRouter()
 
@@ -216,21 +215,6 @@ def get_proposition_runtime_status(
         return get_services(request).service.get_proposition_runtime_status(
             session_id, proposition_id
         )
-    except KeyError as error:
-        raise HTTPException(status_code=404, detail=str(error)) from error
-
-
-@router.get("/sessions/{session_id}/reflection-context")
-def get_reflection_context(
-    session_id: str,
-    request: Request,
-    plan_id: str | None = Query(default=None),
-) -> dict[str, object]:
-    services = get_services(request)
-    if not services.reflection_enabled:
-        raise HTTPException(status_code=404, detail="Reflection context is disabled")
-    try:
-        return build_reflection_context(services.metadata_store, session_id, plan_id=plan_id)
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
 

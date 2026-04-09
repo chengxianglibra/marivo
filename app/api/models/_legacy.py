@@ -521,7 +521,7 @@ class ReadinessSignal(BaseModel):
         le=1.0,
         description=(
             "Remaining budget fraction: (max_steps - primitive_step_count) / max_steps. "
-            "synthesize_findings steps are excluded from the count. 0.0 = budget exhausted."
+            "Only primitive execution steps count toward this budget. 0.0 = budget exhausted."
         ),
     )
     diminishing_returns: float = Field(

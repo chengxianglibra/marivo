@@ -25,7 +25,6 @@ _DEFAULT_STEP_TYPES = (
     "sample_rows",
     "profile_table",
     "metric_query",
-    "synthesize_findings",
 )
 
 _DEFAULT_PROFILES: dict[str, EngineCapabilityProfile] = {

@@ -227,75 +227,10 @@ curl -s -X POST http://localhost:8000/sessions/sess_.../steps/aggregate_query \
   }' | jq .
 ```
 
-**Synthesize findings:**
+## Step 10 - Review Canonical State
 
 ```bash
-curl -s -X POST http://localhost:8000/sessions/sess_.../steps/synthesize_findings \
-  -H "Content-Type: application/json" \
-  -d '{}' | jq .
-```
-
-## Step 10 - Review the Evidence Graph
-
-```bash
-curl -s http://localhost:8000/sessions/sess_.../evidence | jq '{
-  observations: (.observations | length),
-  claims: (.claims | length),
-  recommendations: (.recommendations | length)
-}'
-```
-
----
-
-## Using Plans for Structured Workflows
-
-Instead of running steps individually, you can define a plan:
-
-```bash
-# Draft the plan
-PLAN=$(curl -s -X POST http://localhost:8000/sessions/sess_.../plans \
-  -H "Content-Type: application/json" \
-  -d '{
-    "steps": [
-      {
-        "step_id": "s1",
-        "step_type": "metric_query",
-        "params": {
-          "table": "events.user_video_watch",
-          "metric": "avg_watch_time_minutes",
-          "time_scope": {
-            "mode": "compare",
-            "grain": "day",
-            "current": {
-              "start": "2024-01-24",
-              "end": "2024-01-31"
-            },
-            "baseline": {
-              "start": "2024-01-17",
-              "end": "2024-01-24"
-            }
-          }
-        },
-        "depends_on": []
-      },
-      {
-        "step_id": "s2",
-        "step_type": "synthesize_findings",
-        "params": {},
-        "depends_on": ["s1"]
-      }
-    ]
-  }')
-
-PLAN_ID=$(echo $PLAN | jq -r .plan_id)
-
-# Validate (auto-approves if clean)
-curl -s -X POST http://localhost:8000/sessions/sess_.../plans/$PLAN_ID/validate | jq .
-
-# Execute
-curl -s -X POST http://localhost:8000/sessions/sess_.../plans/$PLAN_ID/execute \
-  -H "Content-Type: application/json" \
-  -d '{"continue_on_failure": false}' | jq .
+curl -s http://localhost:8000/sessions/sess_.../state | jq .
 ```
 
 ---
@@ -308,4 +243,3 @@ curl -s -X POST http://localhost:8000/sessions/sess_.../plans/$PLAN_ID/execute \
 - [Context Surface](context-surface.md) - canonical proposition-level minimal closure
 - [Semantic Layer](semantic.md) - entities, metrics, mappings, and catalog search
 - [Governance](governance.md) - policies and quality rules
-- [Planning](planning.md) - multi-step plans with validation and cost estimation

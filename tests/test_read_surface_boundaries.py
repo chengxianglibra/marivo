@@ -1,8 +1,8 @@
 """Phase 8.4 Read Surface Boundary Contract Tests.
 
 These tests verify that the canonical read surfaces (/sessions/{id},
-/state, /context, /reflection-context) and the operator runtime
-status surfaces are strictly separated:
+/state, /context) and the operator runtime status surfaces are
+strictly separated:
 
   1.  Canonical surfaces must NEVER expose scheduling/runtime fields
       (migration_required, backpressure, claim, lease, attempt_id, …).
@@ -17,8 +17,8 @@ status surfaces are strictly separated:
       are reserved for a future async runtime.
   5.  Session-level runtime status ``last_successful_stage`` advances
       correctly through every pipeline milestone.
-  6.  ``reflection-context`` is a compact stub that does not expose
-      canonical evidence objects.
+  6.  Removed legacy read surfaces stay removed and do not silently
+      reappear as partial canonical views.
   7.  Session root (GET /sessions/{id}) and GET /sessions/{id}/runtime-status
       return strictly disjoint schema shapes.
 """
@@ -826,38 +826,12 @@ class TestSessionRootVsRuntimeStatusSeparation(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# 8. reflection-context is a compact stub (no canonical evidence objects)
+# 8. Removed legacy read surfaces remain unavailable
 # ---------------------------------------------------------------------------
 
 
-class TestReflectionContextCompactSummary(unittest.TestCase):
-    """reflection-context must not expose canonical evidence objects.
-
-    Canonical read surfaces are /state and /context; reflection-context
-    is kept as a minimal stub for agent orientation only.
-    """
-
-    # Canonical evidence fields that must NOT appear in reflection-context.
-    _FORBIDDEN_CANONICAL_FIELDS = frozenset(
-        {
-            "propositions",
-            "active_propositions",
-            "findings",
-            "backing_findings",
-            "assessments",
-            "latest_assessment",
-            "action_proposals",
-            "evidence_gaps",
-            "blocking_gaps",
-            "artifact_refs",
-            "seed_entries",
-        }
-    )
-
-    # Required fields for the compact stub contract.
-    _REQUIRED_FIELDS = frozenset(
-        {"session_id", "plan_id", "tentative_claims", "available_step_types"}
-    )
+class TestRemovedLegacyReadSurfaces(unittest.TestCase):
+    """Legacy read surfaces must stay removed after canonical surface migration."""
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -873,72 +847,9 @@ class TestReflectionContextCompactSummary(unittest.TestCase):
         cls.client.close()
         cls.temp_dir.cleanup()
 
-    def _get_context(self) -> dict[str, Any]:
+    def test_reflection_context_returns_404(self) -> None:
         resp = self.client.get(f"/sessions/{self.session_id}/reflection-context")
-        self.assertEqual(resp.status_code, 200)
-        return resp.json()
-
-    def test_reflection_context_has_required_compact_fields(self) -> None:
-        data = self._get_context()
-        for field in self._REQUIRED_FIELDS:
-            self.assertIn(field, data, f"reflection-context must have compact field {field!r}")
-
-    def test_reflection_context_does_not_expose_full_proposition_objects(self) -> None:
-        data = self._get_context()
-        self.assertNotIn("propositions", data)
-        self.assertNotIn("active_propositions", data)
-
-    def test_reflection_context_does_not_expose_full_finding_objects(self) -> None:
-        data = self._get_context()
-        self.assertNotIn("findings", data)
-        self.assertNotIn("backing_findings", data)
-
-    def test_reflection_context_does_not_expose_assessment_objects(self) -> None:
-        data = self._get_context()
-        self.assertNotIn("assessments", data)
-        self.assertNotIn("latest_assessment", data)
-
-    def test_reflection_context_does_not_expose_gap_objects(self) -> None:
-        """evidence_gaps in reflection-context is the lightweight list stub, not full gap objects."""
-        data = self._get_context()
-        # evidence_gaps is an allowed key (compact list), but it must be an empty list in v1.
-        # The forbidden field would be 'blocking_gaps' (canonical /state surface shape).
-        self.assertNotIn("blocking_gaps", data)
-
-    def test_reflection_context_does_not_expose_action_proposals(self) -> None:
-        data = self._get_context()
-        self.assertNotIn("action_proposals", data)
-
-    def test_reflection_context_tentative_claims_is_empty_list_in_v1(self) -> None:
-        """v1 stub always returns empty tentative_claims (not populated from DB)."""
-        data = self._get_context()
-        self.assertEqual(data["tentative_claims"], [])
-
-    def test_reflection_context_plan_id_is_null_when_not_provided(self) -> None:
-        data = self._get_context()
-        self.assertIsNone(data["plan_id"])
-
-    def test_reflection_context_no_schema_version_of_canonical_surfaces(self) -> None:
-        """reflection-context must not carry a schema_version from /state or /context."""
-        data = self._get_context()
-        schema_v = data.get("schema_version")
-        if schema_v is not None:
-            self.assertNotIn(
-                schema_v,
-                {"session_state_view.v1", "proposition_context_view.v1", "analysis_session.v1"},
-                "reflection-context must not use a canonical surface schema_version",
-            )
-
-    def test_reflection_context_forbidden_fields_absent(self) -> None:
-        data = self._get_context()
-        for field in self._FORBIDDEN_CANONICAL_FIELDS:
-            if field == "evidence_gaps":
-                continue  # evidence_gaps is the allowed lightweight key
-            self.assertNotIn(
-                field,
-                data,
-                f"reflection-context must not expose canonical field {field!r}",
-            )
+        self.assertEqual(resp.status_code, 404)
 
 
 # ---------------------------------------------------------------------------

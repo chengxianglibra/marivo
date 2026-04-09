@@ -237,7 +237,6 @@ def _build_services(
     user_enabled = (
         config.ui.user_enabled if config.ui.user_enabled is not None else config.ui.enabled
     )
-    reflection_enabled = config.reflection.enabled
     static_dir = Path(__file__).resolve().parent.parent / "static"
     return AppServices(
         resolved_path=resolved_path,
@@ -259,7 +258,6 @@ def _build_services(
         catalog_runtime=catalog_runtime,
         admin_enabled=admin_enabled,
         user_enabled=user_enabled,
-        reflection_enabled=reflection_enabled,
         static_dir=static_dir,
     )
 

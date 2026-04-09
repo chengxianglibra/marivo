@@ -7,14 +7,14 @@ from app.analysis_core import (
     ArtifactExpectation,
     ExecutionPlanIR,
     SemanticIntent,
-    from_legacy_step,
-    request_from_legacy_session,
+    request_from_session_payload,
+    step_ir_from_mapping,
 )
 
 
 class AnalysisIRTests(unittest.TestCase):
     def test_from_typed_metric_query_infers_semantic_and_artifact_contract(self) -> None:
-        step = from_legacy_step(
+        step = step_ir_from_mapping(
             2,
             {
                 "step_type": "metric_query",
@@ -61,9 +61,9 @@ class AnalysisIRTests(unittest.TestCase):
         self.assertEqual(step.observation_types(), [])
         self.assertFalse(step.is_optional())
 
-    def test_request_from_legacy_session_aggregates_requested_metrics_and_tables(self) -> None:
+    def test_request_from_session_payload_aggregates_requested_metrics_and_tables(self) -> None:
         steps = [
-            from_legacy_step(
+            step_ir_from_mapping(
                 0,
                 {
                     "step_type": "metric_query",
@@ -78,7 +78,7 @@ class AnalysisIRTests(unittest.TestCase):
                     },
                 },
             ),
-            from_legacy_step(
+            step_ir_from_mapping(
                 1,
                 {
                     "step_type": "sample_rows",
@@ -87,7 +87,7 @@ class AnalysisIRTests(unittest.TestCase):
             ),
         ]
 
-        request = request_from_legacy_session(
+        request = request_from_session_payload(
             {
                 "session_id": "sess_123",
                 "goal": "Investigate watch time",
@@ -107,7 +107,7 @@ class AnalysisIRTests(unittest.TestCase):
 
     def test_typed_aggregate_query_populates_requested_tables(self) -> None:
         steps = [
-            from_legacy_step(
+            step_ir_from_mapping(
                 0,
                 {
                     "step_type": "aggregate_query",
@@ -125,7 +125,7 @@ class AnalysisIRTests(unittest.TestCase):
             ),
         ]
 
-        request = request_from_legacy_session(
+        request = request_from_session_payload(
             {
                 "session_id": "sess_123",
                 "goal": "Aggregate",
@@ -138,6 +138,13 @@ class AnalysisIRTests(unittest.TestCase):
         )
 
         self.assertEqual(request.requested_tables, ["analytics.watch_events"])
+
+    def test_step_ir_from_mapping_handles_sparse_payloads(self) -> None:
+        step = step_ir_from_mapping(4, {"step_type": "sample_rows"})
+
+        self.assertEqual(step.index, 4)
+        self.assertEqual(step.step_type, "sample_rows")
+        self.assertEqual(step.params, {})
 
     def test_execution_plan_ir_lookup_helpers(self) -> None:
         plan_ir = ExecutionPlanIR(plan_id="plan_123")

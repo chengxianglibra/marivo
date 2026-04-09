@@ -425,13 +425,13 @@ class ExecutionPlanIR:
         return None
 
 
-def request_from_legacy_session(
+def request_from_session_payload(
     session: Mapping[str, Any],
     *,
     plan_id: str | None = None,
     steps: Sequence[AnalysisStepIR | Mapping[str, Any]] | None = None,
 ) -> AnalysisRequest:
-    """Adapt current session/step payloads into the richer request IR."""
+    """Adapt a session payload plus step payloads into the request IR."""
 
     step_irs = _coerce_step_irs(steps or ())
     return AnalysisRequest(
@@ -451,8 +451,8 @@ def request_from_legacy_session(
     )
 
 
-def from_legacy_step(index: int, step: Mapping[str, Any]) -> AnalysisStepIR:
-    """Build IR from the current plan/step payload structure."""
+def step_ir_from_mapping(index: int, step: Mapping[str, Any]) -> AnalysisStepIR:
+    """Build IR from a generic step payload mapping."""
 
     step_type = str(step["step_type"])
     params = dict(step.get("params", {}))
@@ -476,7 +476,7 @@ def _coerce_step_irs(steps: Sequence[AnalysisStepIR | Mapping[str, Any]]) -> lis
             coerced.append(step)
             continue
         step_index = int(step.get("index", index))
-        coerced.append(from_legacy_step(step_index, step))
+        coerced.append(step_ir_from_mapping(step_index, step))
     return coerced
 
 

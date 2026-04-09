@@ -13,7 +13,7 @@
 - 以 `proposition + latest_assessment` 作为 session 级主决策骨架
 - 复用既有 canonical objects，而不是发明平行 state object
 - 保持 projection 可排序、可截断，但不重写 规范语义
-- 为未来替换 `reflection-context` 提供更规范的主读取基线
+- 作为 agent 默认主读取基线
 
 ## 核心设计决策
 
@@ -338,15 +338,11 @@ v1 中，顶层 `truncation` 默认描述 `active_propositions` 主集合。
 
 本文只定义这些对象在 session 主状态读取中的组合方式。
 
-### 与 reflection-context 的关系
+### 与已移除 compact summary 读面的关系
 
-本文定义的 状态面 目标上替换当前 `reflection-context` 作为 agent 默认主读取基线，但二者不等价：
+本文定义的 状态面 是 agent 默认主读取基线。
 
-- `reflection-context` 是 compact summary
-- 状态面 是 命题中心 规范状态 view
-- readiness、tentative claims 与 compact evidence-gap summary 不并入 v1 规范状态 object
-
-HTTP 迁移、兼容期与废弃策略属于后续 API 设计，不在本文定义。
+此前的 compact summary 读面已经移除；readiness、tentative claims 与 compact evidence-gap summary 不并入 v1 规范状态 object。
 
 ### 与 action proposal 的关系
 
