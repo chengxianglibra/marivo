@@ -817,6 +817,15 @@ let groundingViewState = {
   plannerError: '',
   plannerResult: null,
 };
+let jobsViewState = {
+  loadingList: false,
+  listError: '',
+  items: [],
+  selectedJobId: '',
+  loadingDetail: false,
+  detailError: '',
+  selectedJob: null,
+};
 let suppressTabSync = false;
 
 const uiApi = {
@@ -909,6 +918,16 @@ const uiApi = {
   },
   getPlannerContext(sessionId) {
     return this.fetchJson(`/sessions/${encodeURIComponent(sessionId)}/planner-context`);
+  },
+  listJobs(filters) {
+    const params = new URLSearchParams();
+    if (filters.sessionId) params.set('session_id', filters.sessionId);
+    if (filters.status) params.set('status', filters.status);
+    const query = params.toString();
+    return this.fetchJson(query ? `/jobs?${query}` : '/jobs');
+  },
+  getJob(jobId) {
+    return this.fetchJson(`/jobs/${encodeURIComponent(jobId)}`);
   },
 };
 
@@ -1904,6 +1923,299 @@ function renderGroundingStructuredValue(value, emptyLabel = 'None') {
   return jsonPre(value);
 }
 
+function renderJobPayloadSummary(payload) {
+  if (!payload || typeof payload !== 'object') {
+    return '<span class="empty">No payload summary</span>';
+  }
+  const parts = [];
+  if (payload.step_type) {
+    parts.push(`step_type=${payload.step_type}`);
+  }
+  if (payload.params && typeof payload.params === 'object') {
+    parts.push(`params=${Object.keys(payload.params).length}`);
+  }
+  return `<span>${esc(parts.join(' | ') || 'Structured payload')}</span>`;
+}
+
+function renderJobsRows() {
+  if (jobsViewState.loadingList) {
+    return loadingRow(7);
+  }
+  if (jobsViewState.items.length === 0) {
+    return '<tr><td colspan="7" class="empty">当前筛选条件下无相关后台任务</td></tr>';
+  }
+  return jobsViewState.items.map((job) => {
+    const selectedClass = job.job_id === jobsViewState.selectedJobId ? 'is-selected' : '';
+    return `
+      <tr class="${selectedClass}">
+        <td><button class="btn btn-sm jobs-open-detail-btn" type="button" data-job-id="${attr(job.job_id)}">Open</button></td>
+        <td><span class="inline-code">${esc(job.job_id)}</span></td>
+        <td><span class="inline-code">${esc(job.session_id)}</span></td>
+        <td>${esc(job.job_type || '-')}</td>
+        <td>${statusBadge(job.status || 'unknown')}</td>
+        <td>${esc(fmtDate(job.created_at))}</td>
+        <td>${esc(fmtDate(job.updated_at))}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function renderJobsDetail() {
+  if (jobsViewState.loadingDetail) {
+    return '<div class="detail-empty">Loading job detail...</div>';
+  }
+  if (jobsViewState.detailError) {
+    return `<div class="detail-error">${esc(jobsViewState.detailError)}</div>`;
+  }
+  if (!jobsViewState.selectedJob) {
+    return '<div class="detail-empty">Select a job to inspect payload summary, linked session, and error detail.</div>';
+  }
+
+  const job = jobsViewState.selectedJob;
+  return `
+    <div class="context-header">
+      <div>
+        <h3>Job Detail</h3>
+        <div class="context-meta">
+          <span class="inline-code">${esc(job.job_id)}</span>
+          ${statusBadge(job.status || 'unknown')}
+          <span>${esc(job.job_type || '-')}</span>
+        </div>
+      </div>
+      <div class="detail-actions">
+        <button class="btn btn-sm" type="button" data-role="jobs-open-session" data-session-id="${attr(job.session_id || '')}">View Linked Session</button>
+      </div>
+    </div>
+    <div class="detail-grid">
+      <div class="detail-group">
+        <h4>session_id</h4>
+        ${renderGroundingStructuredValue(job.session_id, 'No session')}
+      </div>
+      <div class="detail-group">
+        <h4>payload summary</h4>
+        ${renderJobPayloadSummary(job.payload)}
+      </div>
+      <div class="detail-group">
+        <h4>created_at</h4>
+        ${renderGroundingStructuredValue(job.created_at, 'Unknown')}
+      </div>
+      <div class="detail-group">
+        <h4>updated_at</h4>
+        ${renderGroundingStructuredValue(job.updated_at, 'Unknown')}
+      </div>
+      <div class="detail-group">
+        <h4>error_message</h4>
+        ${renderGroundingStructuredValue(job.error_message, 'No error recorded')}
+      </div>
+    </div>
+    <div class="context-grid" style="margin-top: var(--space-md);">
+      <div class="card">
+        <div class="shell-card-title">
+          <h3>payload</h3>
+          <span class="shell-chip">${esc(job.job_type || 'job')}</span>
+        </div>
+        ${jsonPre(job.payload || {})}
+      </div>
+      <div class="card">
+        <div class="shell-card-title">
+          <h3>raw job payload</h3>
+          <span class="shell-chip">Read-only</span>
+        </div>
+        ${jsonPre(job)}
+      </div>
+    </div>
+  `;
+}
+
+function bindJobsEvents() {
+  const panel = document.getElementById('panel-jobs');
+  if (!panel) return;
+
+  panel.querySelector('[data-role="jobs-filter-form"]')?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    applyRoute({
+      ...currentRoute,
+      tab: 'jobs',
+      sessionId: String(formData.get('session_id') || '').trim(),
+      status: String(formData.get('status') || '').trim(),
+      propositionId: '',
+      artifactId: '',
+      runtimeScope: '',
+    });
+  });
+
+  panel.querySelector('[data-role="jobs-reset-filters"]')?.addEventListener('click', () => {
+    applyRoute({
+      ...currentRoute,
+      tab: 'jobs',
+      sessionId: '',
+      status: '',
+      propositionId: '',
+      artifactId: '',
+      runtimeScope: '',
+    });
+  });
+
+  panel.querySelectorAll('.jobs-open-detail-btn').forEach((button) => {
+    button.addEventListener('click', () => {
+      jobsViewState.selectedJobId = button.dataset.jobId || '';
+      void loadJobDetail();
+    });
+  });
+
+  panel.querySelectorAll('[data-role="jobs-open-session"]').forEach((button) => {
+    button.addEventListener('click', () => {
+      applyRoute({
+        ...currentRoute,
+        tab: 'sessions',
+        sessionId: button.dataset.sessionId || '',
+        status: '',
+        propositionId: '',
+        artifactId: '',
+        runtimeScope: '',
+      });
+    });
+  });
+}
+
+function renderJobsPage() {
+  const panel = document.getElementById('panel-jobs');
+  if (!panel) return;
+
+  panel.innerHTML = `
+    <div class="page-intro">
+      <h2>Jobs</h2>
+      <p>Inspect background jobs related to analysis sessions. Jobs is an auxiliary troubleshooting surface and does not replace runtime status diagnosis for blocked work.</p>
+    </div>
+    <div class="sessions-layout">
+      <div class="sessions-stack">
+        <div class="card">
+          <div class="shell-card-title">
+            <h3>Job Filters</h3>
+            <span class="shell-chip">Read-only</span>
+          </div>
+          <form class="sessions-filters" data-role="jobs-filter-form">
+            <div class="form-group">
+              <label for="jobs-session-id-filter">Filter by session_id</label>
+              <input id="jobs-session-id-filter" type="text" name="session_id" value="${attr(currentRoute.sessionId)}" placeholder="sess_..." />
+            </div>
+            <div class="form-group">
+              <label for="jobs-status-filter">status</label>
+              <select id="jobs-status-filter" name="status">
+                <option value="">All statuses</option>
+                <option value="pending" ${currentRoute.status === 'pending' ? 'selected' : ''}>pending</option>
+                <option value="running" ${currentRoute.status === 'running' ? 'selected' : ''}>running</option>
+                <option value="completed" ${currentRoute.status === 'completed' ? 'selected' : ''}>completed</option>
+                <option value="failed" ${currentRoute.status === 'failed' ? 'selected' : ''}>failed</option>
+                <option value="cancelled" ${currentRoute.status === 'cancelled' ? 'selected' : ''}>cancelled</option>
+              </select>
+            </div>
+            <button class="btn btn-primary" type="submit">Filter</button>
+            <button class="btn" type="button" data-role="jobs-reset-filters">Reset</button>
+          </form>
+          <p class="panel-note">T8 aligns the read-only jobs view with created_at / updated_at while preserving detailed submitted_at / started_at / completed_at in the payload.</p>
+          <p class="panel-note"><span class="inline-code">GET /jobs</span> and <span class="inline-code">GET /jobs/{job_id}</span> drive this page. No submit, cancel, or retry controls exist on this page.</p>
+        </div>
+        <div class="card">
+          <div class="list-meta">
+            <div>
+              <h2>Job List</h2>
+              <div class="results-count">${jobsViewState.loadingList ? 'Loading jobs...' : `${jobsViewState.items.length} job(s)`}</div>
+            </div>
+          </div>
+          ${jobsViewState.listError ? `<div class="list-error">${esc(jobsViewState.listError)}</div>` : `
+            <div class="sessions-table-wrap">
+              <table class="sessions-table state-table">
+                <thead>
+                  <tr>
+                    <th>Detail</th>
+                    <th>job_id</th>
+                    <th>session_id</th>
+                    <th>job_type</th>
+                    <th>status</th>
+                    <th>created_at</th>
+                    <th>updated_at</th>
+                  </tr>
+                </thead>
+                <tbody>${renderJobsRows()}</tbody>
+              </table>
+            </div>
+          `}
+        </div>
+      </div>
+      <div class="card">
+        <div class="shell-card-title">
+          <h3>Job Detail</h3>
+          <span class="shell-chip">${jobsViewState.selectedJobId ? 'Selected' : 'Idle'}</span>
+        </div>
+        <p class="panel-note">Use this detail panel for payload summary, linked session, and error detail only. It must stay secondary to Runtime for execution diagnosis.</p>
+        <p class="panel-note">It does not replace runtime status diagnosis for blocked work.</p>
+        ${renderJobsDetail()}
+      </div>
+    </div>
+  `;
+
+  bindJobsEvents();
+}
+
+async function loadJobsList() {
+  jobsViewState.loadingList = true;
+  jobsViewState.listError = '';
+  jobsViewState.detailError = '';
+  jobsViewState.selectedJob = null;
+  renderJobsPage();
+  try {
+    const payload = await uiApi.listJobs(currentRoute);
+    jobsViewState.items = Array.isArray(payload) ? payload : [];
+    if (!jobsViewState.selectedJobId || !jobsViewState.items.some((job) => job.job_id === jobsViewState.selectedJobId)) {
+      jobsViewState.selectedJobId = jobsViewState.items[0]?.job_id || '';
+    }
+    if (!jobsViewState.selectedJobId) {
+      jobsViewState.selectedJob = null;
+    }
+  } catch (error) {
+    jobsViewState.items = [];
+    jobsViewState.selectedJobId = '';
+    jobsViewState.selectedJob = null;
+    jobsViewState.listError = error.message || 'Job listing failed.';
+  } finally {
+    jobsViewState.loadingList = false;
+    renderJobsPage();
+  }
+}
+
+async function loadJobDetail() {
+  if (!jobsViewState.selectedJobId) {
+    jobsViewState.loadingDetail = false;
+    jobsViewState.detailError = '';
+    jobsViewState.selectedJob = null;
+    renderJobsPage();
+    return;
+  }
+
+  jobsViewState.loadingDetail = true;
+  jobsViewState.detailError = '';
+  renderJobsPage();
+  try {
+    jobsViewState.selectedJob = await uiApi.getJob(jobsViewState.selectedJobId);
+  } catch (error) {
+    jobsViewState.selectedJob = null;
+    jobsViewState.detailError = error.status === 404
+      ? '404 job not found. Select another job from the list.'
+      : (error.message || 'Job detail lookup failed.');
+  } finally {
+    jobsViewState.loadingDetail = false;
+    renderJobsPage();
+  }
+}
+
+async function loadJobsView() {
+  renderJobsPage();
+  await loadJobsList();
+  await loadJobDetail();
+}
+
 function renderGroundingSearchResults() {
   if (groundingViewState.searchLoading) {
     return '<div class="detail-empty">Loading catalog search results...</div>';
@@ -2193,6 +2505,7 @@ function bindGroundingEvents() {
     applyRoute({
       ...currentRoute,
       tab: 'sessions',
+      status: '',
       propositionId: '',
       artifactId: '',
       runtimeScope: '',
@@ -2302,6 +2615,7 @@ function bindRuntimeEvents() {
       applyRoute({
         ...currentRoute,
         tab: 'sessions',
+        status: '',
         artifactId: '',
         runtimeScope: '',
       });
@@ -2335,6 +2649,7 @@ function bindRuntimeEvents() {
       applyRoute({
         ...currentRoute,
         tab: 'jobs',
+        status: '',
         artifactId: '',
         runtimeScope: '',
       });
@@ -2620,13 +2935,15 @@ function bindSessionsEvents() {
 
   panel.querySelectorAll('.session-nav-btn').forEach((button) => {
     button.addEventListener('click', () => {
+      const targetTab = button.dataset.targetTab || 'sessions';
       applyRoute({
         ...currentRoute,
-        tab: button.dataset.targetTab || 'sessions',
+        tab: targetTab,
         sessionId: button.dataset.sessionId || '',
+        status: targetTab === 'sessions' ? currentRoute.status : '',
         propositionId: '',
         artifactId: '',
-        runtimeScope: button.dataset.targetTab === 'runtime' ? 'session' : '',
+        runtimeScope: targetTab === 'runtime' ? 'session' : '',
       });
     });
   });
@@ -2909,6 +3226,11 @@ async function refreshForRoute() {
     await loadGroundingView();
     return;
   }
+  if (currentRoute.tab === 'jobs') {
+    renderJobsPage();
+    await loadJobsView();
+    return;
+  }
   renderShellPlaceholder(currentRoute.tab);
 }
 
@@ -2929,7 +3251,12 @@ document.addEventListener('DOMContentLoaded', () => {
   currentRoute = routeFromLocation();
   window.addEventListener('tab-change', (event) => {
     if (suppressTabSync) return;
-    applyRoute({ ...currentRoute, tab: event.detail?.tab || DEFAULT_ROUTE.tab });
+    const targetTab = event.detail?.tab || DEFAULT_ROUTE.tab;
+    applyRoute({
+      ...currentRoute,
+      tab: targetTab,
+      status: targetTab === currentRoute.tab ? currentRoute.status : '',
+    });
   });
   window.addEventListener('popstate', () => {
     currentRoute = routeFromLocation();
