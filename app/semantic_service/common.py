@@ -607,6 +607,636 @@ class SemanticServiceSupport:
         if self.metadata.query_one(sql, [bound_object_ref]) is None:
             raise self._validation_error(f"Unknown {object_name} ref: {bound_object_ref}")
 
+    def _get_entity_contract_by_ref(self, entity_ref: str) -> dict[str, Any] | None:
+        row = self.metadata.query_one(
+            "SELECT * FROM semantic_entity_contracts WHERE entity_ref = ?",
+            [entity_ref],
+        )
+        return None if row is None else self._row_to_typed_entity(row)
+
+    def _get_metric_contract_by_ref(self, metric_ref: str) -> dict[str, Any] | None:
+        row = self.metadata.query_one(
+            "SELECT * FROM semantic_metric_contracts WHERE metric_ref = ?",
+            [metric_ref],
+        )
+        return None if row is None else self._row_to_typed_metric(row)
+
+    def _get_process_object_by_ref(self, process_ref: str) -> dict[str, Any] | None:
+        row = self.metadata.query_one(
+            "SELECT * FROM semantic_process_objects WHERE process_ref = ?",
+            [process_ref],
+        )
+        return None if row is None else self._row_to_process_object(row)
+
+    def _get_dimension_by_ref(self, dimension_ref: str) -> dict[str, Any] | None:
+        row = self.metadata.query_one(
+            "SELECT * FROM semantic_dimension_contracts WHERE dimension_ref = ?",
+            [dimension_ref],
+        )
+        return None if row is None else self._row_to_dimension(row)
+
+    def _get_time_semantic_by_ref(self, time_ref: str) -> dict[str, Any] | None:
+        row = self.metadata.query_one(
+            "SELECT * FROM semantic_time_objects WHERE time_ref = ?",
+            [time_ref],
+        )
+        return None if row is None else self._row_to_time_semantic(row)
+
+    def _get_typed_binding_by_ref(self, binding_ref: str) -> dict[str, Any] | None:
+        row = self.metadata.query_one(
+            "SELECT * FROM typed_bindings WHERE binding_ref = ?",
+            [binding_ref],
+        )
+        return None if row is None else self._row_to_typed_binding(row)
+
+    def _validate_published_binding_ref(self, binding_ref: str) -> None:
+        row = self.metadata.query_one(
+            """
+            SELECT binding_id
+            FROM typed_bindings
+            WHERE binding_ref = ? AND status = 'published'
+            """,
+            [binding_ref],
+        )
+        if row is None:
+            raise self._validation_error(f"Binding ref must be published: {binding_ref}")
+
+    def _binding_contract_target_exists(
+        self,
+        field_bindings: list[dict[str, Any]],
+        *,
+        target_kind: str,
+        target_key: str | None = None,
+        semantic_ref: str | None = None,
+    ) -> bool:
+        for field_binding in field_bindings:
+            target = field_binding["target"]
+            if target["target_kind"] != target_kind:
+                continue
+            if target_key is not None and target.get("target_key") != target_key:
+                continue
+            if semantic_ref is not None and field_binding.get("semantic_ref") != semantic_ref:
+                continue
+            return True
+        return False
+
+    def _resolve_binding_source_object(
+        self,
+        carrier: dict[str, Any],
+        *,
+        require_resolution: bool,
+    ) -> dict[str, Any] | None:
+        source_object_ref = carrier.get("source_object_ref")
+        carrier_locator = carrier["carrier_locator"]
+        carrier_kind = carrier["carrier_kind"]
+
+        if source_object_ref is not None:
+            row = self.metadata.query_one(
+                """
+                SELECT object_id, object_type, fqn
+                FROM source_objects
+                WHERE object_id = ?
+                """,
+                [source_object_ref],
+            )
+            if row is None:
+                raise self._validation_error(f"Unknown source_object_ref: {source_object_ref}")
+            if row["object_type"] != carrier_kind:
+                raise self._validation_error(
+                    "carrier_kind does not match resolved source object type "
+                    f"for carrier '{carrier['binding_key']}': expected '{carrier_kind}', "
+                    f"got '{row['object_type']}'"
+                )
+            if row["fqn"] != carrier_locator:
+                raise self._validation_error(
+                    "carrier_locator does not match resolved source object FQN "
+                    f"for carrier '{carrier['binding_key']}': expected '{row['fqn']}', "
+                    f"got '{carrier_locator}'"
+                )
+            return dict(row)
+
+        if not require_resolution:
+            return None
+
+        rows = self.metadata.query_rows(
+            """
+            SELECT object_id, object_type, fqn
+            FROM source_objects
+            WHERE fqn = ? AND object_type = ?
+            ORDER BY object_id
+            """,
+            [carrier_locator, carrier_kind],
+        )
+        if not rows:
+            raise self._validation_error(
+                "carrier_locator must resolve to a synced source_object at publish time: "
+                f"{carrier_locator}"
+            )
+        if len(rows) > 1:
+            raise self._validation_error(
+                "carrier_locator resolved to multiple source_objects; use source_object_ref to "
+                f"disambiguate: {carrier_locator}"
+            )
+        return dict(rows[0])
+
+    def _validate_binding_field_target(
+        self,
+        field_binding: dict[str, Any],
+        *,
+        require_published_refs: bool,
+    ) -> None:
+        target = field_binding["target"]
+        target_kind = target["target_kind"]
+        target_key = str(target.get("target_key") or "")
+        semantic_ref = str(field_binding["semantic_ref"])
+
+        if target_kind == "identity_key":
+            if not target_key.startswith("key."):
+                raise self._validation_error(
+                    "identity_key target_key must use 'key.' prefix: "
+                    f"{field_binding['carrier_binding_key']} -> {target_key}"
+                )
+            if semantic_ref != target_key:
+                raise self._validation_error(
+                    "identity_key semantic_ref must match target_key exactly: "
+                    f"{semantic_ref} != {target_key}"
+                )
+            return
+
+        if target_kind == "primary_time":
+            if not semantic_ref.startswith("time."):
+                raise self._validation_error(
+                    f"primary_time semantic_ref must use 'time.' prefix, got: {semantic_ref}"
+                )
+            if target_key and semantic_ref != target_key:
+                raise self._validation_error(
+                    "primary_time semantic_ref must match target_key when target_key is provided: "
+                    f"{semantic_ref} != {target_key}"
+                )
+            if require_published_refs:
+                self._validate_published_time_ref(semantic_ref)
+            else:
+                self._validate_time_ref(semantic_ref)
+            return
+
+        if target_kind == "stable_descriptor":
+            if not target_key.startswith("dimension."):
+                raise self._validation_error(
+                    f"stable_descriptor target_key must use 'dimension.' prefix, got: {target_key}"
+                )
+            if semantic_ref != target_key:
+                raise self._validation_error(
+                    "stable_descriptor semantic_ref must match target_key exactly: "
+                    f"{semantic_ref} != {target_key}"
+                )
+            if require_published_refs:
+                self._validate_published_dimension_ref(semantic_ref)
+            else:
+                self._validate_dimension_ref(semantic_ref)
+            return
+
+        if target_kind == "population_subject":
+            if not target_key.startswith("key."):
+                raise self._validation_error(
+                    f"population_subject target_key must use 'key.' prefix, got: {target_key}"
+                )
+            if not semantic_ref.startswith("key."):
+                raise self._validation_error(
+                    f"population_subject semantic_ref must use 'key.' prefix, got: {semantic_ref}"
+                )
+            return
+
+        if target_kind == "analysis_window_anchor":
+            if not semantic_ref.startswith("time."):
+                raise self._validation_error(
+                    "analysis_window_anchor semantic_ref must use 'time.' prefix, "
+                    f"got: {semantic_ref}"
+                )
+            if require_published_refs:
+                self._validate_published_time_ref(semantic_ref)
+            else:
+                self._validate_time_ref(semantic_ref)
+            return
+
+        if target_kind == "process_context":
+            if not target_key.startswith("process."):
+                raise self._validation_error(
+                    f"process_context target_key must use 'process.' prefix, got: {target_key}"
+                )
+            if not semantic_ref.startswith("process."):
+                raise self._validation_error(
+                    f"process_context semantic_ref must use 'process.' prefix, got: {semantic_ref}"
+                )
+            return
+
+        if target_kind == "metric_input":
+            if not semantic_ref.startswith("metric_input."):
+                raise self._validation_error(
+                    f"metric_input semantic_ref must use 'metric_input.' prefix, got: {semantic_ref}"
+                )
+            if not target_key:
+                raise self._validation_error("metric_input target_key must not be empty")
+            return
+
+        raise self._validation_error(f"Unsupported target_kind: {target_kind}")
+
+    def _validate_process_dimension_anchor_requirements(
+        self,
+        process_object: dict[str, Any],
+        *,
+        require_published_refs: bool,
+    ) -> None:
+        interface_contract = process_object["interface_contract"]
+        payload = process_object["payload"]
+        available_anchor_refs = {
+            ref
+            for ref in [
+                interface_contract.get("anchor_time_ref"),
+                payload.get("cohort_anchor_ref"),
+                payload.get("return_anchor_ref"),
+                (payload.get("analysis_window") or {}).get("anchor_ref"),
+                (payload.get("observation_window") or {}).get("anchor_ref"),
+            ]
+            if ref is not None
+        }
+
+        for dimension_ref in interface_contract.get("exported_dimension_refs") or []:
+            dimension = self._get_dimension_by_ref(dimension_ref)
+            if dimension is None:
+                raise self._validation_error(f"Unknown dimension ref: {dimension_ref}")
+            if require_published_refs and dimension["status"] != "published":
+                raise self._validation_error(
+                    f"Referenced dimension must be published before binding publish: {dimension_ref}"
+                )
+            requirement = (
+                dimension["interface_contract"].get("time_derived_requirement") or {}
+            ).get("required_time_anchor_ref")
+            if requirement is not None and requirement not in available_anchor_refs:
+                raise self._validation_error(
+                    "Process exported time_derived dimension requires a matching time anchor: "
+                    f"{dimension_ref} requires {requirement}"
+                )
+
+    def _validate_binding_scope_compatibility(
+        self,
+        *,
+        binding_scope: str,
+        bound_object: dict[str, Any],
+        field_bindings: list[dict[str, Any]],
+        carrier_bindings: list[dict[str, Any]],
+        join_relations: list[dict[str, Any]],
+        require_published_refs: bool,
+    ) -> None:
+        target_kinds = {field_binding["target"]["target_kind"] for field_binding in field_bindings}
+
+        if binding_scope == "entity":
+            entity_ref = bound_object["header"]["entity_ref"]
+            interface_contract = bound_object["interface_contract"]
+            allowed_target_kinds = {"identity_key", "primary_time", "stable_descriptor"}
+            unexpected = target_kinds - allowed_target_kinds
+            if unexpected:
+                raise self._validation_error(
+                    f"Entity binding cannot use target kinds: {sorted(unexpected)}"
+                )
+            for key_ref in interface_contract["identity"]["key_refs"]:
+                if not self._binding_contract_target_exists(
+                    field_bindings,
+                    target_kind="identity_key",
+                    target_key=key_ref,
+                    semantic_ref=key_ref,
+                ):
+                    raise self._validation_error(
+                        f"Entity binding must map identity key '{key_ref}' for {entity_ref}"
+                    )
+            primary_time_ref = interface_contract.get("primary_time_ref")
+            if primary_time_ref is not None and not self._binding_contract_target_exists(
+                field_bindings,
+                target_kind="primary_time",
+                semantic_ref=primary_time_ref,
+            ):
+                raise self._validation_error(
+                    f"Entity binding must map primary_time_ref '{primary_time_ref}' for {entity_ref}"
+                )
+            for descriptor in interface_contract.get("stable_descriptors") or []:
+                dimension_ref = descriptor["dimension_ref"]
+                if not self._binding_contract_target_exists(
+                    field_bindings,
+                    target_kind="stable_descriptor",
+                    target_key=dimension_ref,
+                    semantic_ref=dimension_ref,
+                ):
+                    raise self._validation_error(
+                        "Entity binding must map stable descriptor "
+                        f"'{dimension_ref}' for {entity_ref}"
+                    )
+            for carrier in carrier_bindings:
+                primary_entity_ref = carrier.get("primary_entity_ref")
+                if primary_entity_ref is not None and primary_entity_ref != entity_ref:
+                    raise self._validation_error(
+                        "Entity binding carrier primary_entity_ref must match bound entity_ref: "
+                        f"{primary_entity_ref} != {entity_ref}"
+                    )
+            return
+
+        if binding_scope == "process_object":
+            interface_contract = bound_object["interface_contract"]
+            allowed_target_kinds = {
+                "population_subject",
+                "primary_time",
+                "analysis_window_anchor",
+                "process_context",
+            }
+            unexpected = target_kinds - allowed_target_kinds
+            if unexpected:
+                raise self._validation_error(
+                    f"Process binding cannot use target kinds: {sorted(unexpected)}"
+                )
+            if not any(
+                field_binding["target"]["target_kind"] == "population_subject"
+                for field_binding in field_bindings
+            ):
+                raise self._validation_error(
+                    "Process binding must map at least one population_subject target"
+                )
+            anchor_time_ref = interface_contract.get("anchor_time_ref")
+            if anchor_time_ref is not None and not any(
+                field_binding["semantic_ref"] == anchor_time_ref
+                and field_binding["target"]["target_kind"]
+                in {"primary_time", "analysis_window_anchor"}
+                for field_binding in field_bindings
+            ):
+                raise self._validation_error(
+                    "Process binding must map its anchor_time_ref via primary_time or "
+                    f"analysis_window_anchor: {anchor_time_ref}"
+                )
+            if bound_object["header"]["process_type"] == "experiment_context":
+                if not any(
+                    field_binding["target"]["target_kind"] == "process_context"
+                    for field_binding in field_bindings
+                ):
+                    raise self._validation_error(
+                        "experiment_context binding must map at least one process_context target"
+                    )
+                if bound_object["payload"].get("analysis_window") is not None and not any(
+                    field_binding["target"]["target_kind"] == "analysis_window_anchor"
+                    for field_binding in field_bindings
+                ):
+                    raise self._validation_error(
+                        "experiment_context binding with analysis_window must map an "
+                        "analysis_window_anchor"
+                    )
+                has_anchor_binding = any(
+                    field_binding["target"]["target_kind"] == "analysis_window_anchor"
+                    for field_binding in field_bindings
+                )
+                if has_anchor_binding and bound_object["payload"].get("analysis_window") is None:
+                    raise self._validation_error(
+                        "Binding declares analysis_window_anchor but process does not define "
+                        "analysis_window"
+                    )
+            if len(carrier_bindings) > 1 and not join_relations:
+                raise self._validation_error(
+                    "Bindings with multiple process carriers must declare join_relations"
+                )
+            self._validate_process_dimension_anchor_requirements(
+                bound_object,
+                require_published_refs=require_published_refs,
+            )
+            return
+
+        if binding_scope == "metric":
+            header = bound_object["header"]
+            allowed_target_kinds = {"population_subject", "primary_time", "metric_input"}
+            unexpected = target_kinds - allowed_target_kinds
+            if unexpected:
+                raise self._validation_error(
+                    f"Metric binding cannot use target kinds: {sorted(unexpected)}"
+                )
+            if header.get("population_subject_ref") is not None and not any(
+                field_binding["target"]["target_kind"] == "population_subject"
+                for field_binding in field_bindings
+            ):
+                raise self._validation_error(
+                    "Metric binding must map population_subject when the metric declares "
+                    "population_subject_ref"
+                )
+            primary_time_ref = header.get("primary_time_ref")
+            if primary_time_ref is not None and not self._binding_contract_target_exists(
+                field_bindings,
+                target_kind="primary_time",
+                semantic_ref=primary_time_ref,
+            ):
+                raise self._validation_error(
+                    f"Metric binding must map primary_time_ref '{primary_time_ref}'"
+                )
+            metric_input_keys = {
+                field_binding["target"]["target_key"]
+                for field_binding in field_bindings
+                if field_binding["target"]["target_kind"] == "metric_input"
+            }
+            if not metric_input_keys:
+                raise self._validation_error(
+                    "Metric binding must map at least one metric_input target"
+                )
+            if header["metric_family"] == "rate_metric" and not {
+                "numerator",
+                "denominator",
+            }.issubset(metric_input_keys):
+                raise self._validation_error(
+                    "rate_metric binding must map both 'numerator' and 'denominator' metric_input targets"
+                )
+            if header["metric_family"] == "survival_metric" and primary_time_ref is None:
+                raise self._validation_error(
+                    "survival_metric binding requires metric.primary_time_ref to be set"
+                )
+            return
+
+        raise self._validation_error(f"Unsupported binding_scope: {binding_scope}")
+
+    def _validate_typed_binding_contract(
+        self,
+        *,
+        binding_ref: str,
+        binding_scope: str,
+        bound_object_ref: str,
+        interface_contract: dict[str, Any],
+        require_published_dependencies: bool,
+    ) -> None:
+        bound_object_lookup = {
+            "entity": self._get_entity_contract_by_ref,
+            "process_object": self._get_process_object_by_ref,
+            "metric": self._get_metric_contract_by_ref,
+        }
+        resolver = bound_object_lookup.get(binding_scope)
+        if resolver is None:
+            raise self._validation_error(f"Unsupported binding_scope: {binding_scope}")
+        bound_object = resolver(bound_object_ref)
+        if bound_object is None:
+            raise self._validation_error(f"Unknown {binding_scope} ref: {bound_object_ref}")
+        if require_published_dependencies and bound_object["status"] != "published":
+            raise self._validation_error(
+                "Referenced semantic object must be published before binding publish: "
+                f"{bound_object_ref}"
+            )
+
+        imports = interface_contract.get("imports") or []
+        carrier_bindings = interface_contract.get("carrier_bindings") or []
+        field_bindings = interface_contract.get("field_bindings") or []
+        join_relations = interface_contract.get("join_relations") or []
+        consumption_policies = interface_contract.get("consumption_policies") or []
+
+        if not carrier_bindings:
+            raise self._validation_error("Binding interface_contract must include carrier_bindings")
+        if not field_bindings:
+            raise self._validation_error("Binding interface_contract must include field_bindings")
+
+        import_keys: set[str] = set()
+        for binding_import in imports:
+            import_key = binding_import["import_key"]
+            if import_key in import_keys:
+                raise self._validation_error(f"Duplicate binding import key: {import_key}")
+            import_keys.add(import_key)
+            imported_binding_ref = binding_import["binding_ref"]
+            if imported_binding_ref == binding_ref:
+                raise self._validation_error("Binding cannot import itself")
+            imported_binding = self._get_typed_binding_by_ref(imported_binding_ref)
+            if imported_binding is None:
+                raise self._validation_error(
+                    f"Unknown imported binding_ref: {imported_binding_ref}"
+                )
+            if require_published_dependencies and imported_binding["status"] != "published":
+                raise self._validation_error(
+                    "Imported binding must be published before binding publish: "
+                    f"{imported_binding_ref}"
+                )
+
+        carriers_by_key: dict[str, dict[str, Any]] = {}
+        carrier_field_surfaces: dict[str, set[str]] = {}
+        carrier_time_surfaces: dict[str, set[str]] = {}
+        for carrier in carrier_bindings:
+            binding_key = carrier["binding_key"]
+            if binding_key in carriers_by_key:
+                raise self._validation_error(f"Duplicate carrier binding_key: {binding_key}")
+            field_surfaces = carrier.get("field_surfaces") or []
+            time_surfaces = carrier.get("time_surfaces") or []
+            field_surface_refs = [surface["surface_ref"] for surface in field_surfaces]
+            time_surface_refs = [surface["surface_ref"] for surface in time_surfaces]
+            if len(field_surface_refs) != len(set(field_surface_refs)):
+                raise self._validation_error(
+                    f"Duplicate field surface_ref in carrier '{binding_key}'"
+                )
+            if len(time_surface_refs) != len(set(time_surface_refs)):
+                raise self._validation_error(
+                    f"Duplicate time surface_ref in carrier '{binding_key}'"
+                )
+            if carrier.get("primary_entity_ref") is not None:
+                if require_published_dependencies:
+                    self._validate_published_entity_ref(carrier["primary_entity_ref"])
+                else:
+                    self._validate_entity_ref(carrier["primary_entity_ref"])
+            self._resolve_binding_source_object(
+                carrier,
+                require_resolution=require_published_dependencies,
+            )
+            carriers_by_key[binding_key] = carrier
+            carrier_field_surfaces[binding_key] = set(field_surface_refs)
+            carrier_time_surfaces[binding_key] = set(time_surface_refs)
+
+        for field_binding in field_bindings:
+            carrier_binding_key = field_binding["carrier_binding_key"]
+            if carrier_binding_key not in carriers_by_key:
+                raise self._validation_error(
+                    f"Unknown carrier_binding_key in field binding: {carrier_binding_key}"
+                )
+            if field_binding["surface_ref"] not in carrier_field_surfaces[carrier_binding_key]:
+                raise self._validation_error(
+                    "Field binding surface_ref does not exist on carrier "
+                    f"'{carrier_binding_key}': {field_binding['surface_ref']}"
+                )
+            self._validate_binding_field_target(
+                field_binding,
+                require_published_refs=require_published_dependencies,
+            )
+
+        field_bindings_by_carrier: dict[str, list[dict[str, Any]]] = {}
+        for field_binding in field_bindings:
+            field_bindings_by_carrier.setdefault(field_binding["carrier_binding_key"], []).append(
+                field_binding
+            )
+
+        for join_relation in join_relations:
+            left_binding_key = join_relation["left_binding_key"]
+            right_binding_key = join_relation["right_binding_key"]
+            if left_binding_key not in carriers_by_key:
+                raise self._validation_error(
+                    f"join_relation references unknown left_binding_key: {left_binding_key}"
+                )
+            if right_binding_key not in carriers_by_key:
+                raise self._validation_error(
+                    f"join_relation references unknown right_binding_key: {right_binding_key}"
+                )
+            key_ref_pairs = join_relation.get("key_ref_pairs") or []
+            temporal_constraint_refs = join_relation.get("temporal_constraint_refs") or []
+            if not key_ref_pairs and not temporal_constraint_refs:
+                raise self._validation_error(
+                    "join_relation must declare key_ref_pairs or temporal_constraint_refs"
+                )
+            for left_key_ref, right_key_ref in key_ref_pairs:
+                if not str(left_key_ref).startswith("key."):
+                    raise self._validation_error(
+                        f"join_relation left key ref must use 'key.' prefix: {left_key_ref}"
+                    )
+                if not str(right_key_ref).startswith("key."):
+                    raise self._validation_error(
+                        f"join_relation right key ref must use 'key.' prefix: {right_key_ref}"
+                    )
+                if not any(
+                    field_binding["semantic_ref"] == left_key_ref
+                    for field_binding in field_bindings_by_carrier.get(left_binding_key, [])
+                ):
+                    raise self._validation_error(
+                        "join_relation left key ref is not mapped on carrier "
+                        f"'{left_binding_key}': {left_key_ref}"
+                    )
+                if not any(
+                    field_binding["semantic_ref"] == right_key_ref
+                    for field_binding in field_bindings_by_carrier.get(right_binding_key, [])
+                ):
+                    raise self._validation_error(
+                        "join_relation right key ref is not mapped on carrier "
+                        f"'{right_binding_key}': {right_key_ref}"
+                    )
+
+        reserved_policy_roots = {"analysis_window", "observation_window"}
+        for policy in consumption_policies:
+            anchor_ref = policy.get("anchor_ref")
+            if anchor_ref is not None:
+                if require_published_dependencies:
+                    self._validate_published_time_ref(anchor_ref)
+                else:
+                    self._validate_time_ref(anchor_ref)
+            policy_target_path = str(policy["policy_target_path"])
+            if "." in policy_target_path:
+                root, _ = policy_target_path.split(".", 1)
+                if (
+                    root not in reserved_policy_roots
+                    and root not in carriers_by_key
+                    and root not in import_keys
+                ):
+                    raise self._validation_error(
+                        "consumption policy target path must reference a known root "
+                        f"(carrier/import/policy root), got: {policy_target_path}"
+                    )
+
+        self._validate_binding_scope_compatibility(
+            binding_scope=binding_scope,
+            bound_object=bound_object,
+            field_bindings=field_bindings,
+            carrier_bindings=carrier_bindings,
+            join_relations=join_relations,
+            require_published_refs=require_published_dependencies,
+        )
+
     def _validate_profile_subject_ref(self, subject_kind: str, subject_ref: str) -> None:
         lookup = {
             "metric": "SELECT metric_contract_id FROM semantic_metric_contracts WHERE metric_ref = ?",

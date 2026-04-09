@@ -78,6 +78,7 @@ Client → FastAPI → `app/api/` → service → semantic/routing/execution →
 Metadata reads use synced `source_objects`, not live catalogs.
 Semantic metadata writes go through `app/semantic.py` as a facade over `app/semantic_service/`; keep route-level dependencies on the facade contract unless a task explicitly changes the app wiring.
 Typed semantic objects are only mutable in `draft`; service-layer publish must reject objects whose referenced semantic dependencies are not already `published`.
+Typed binding publish must also reject carriers that cannot be grounded to synced `source_objects`; draft bindings may keep unresolved `carrier_locator` values until publish.
 
 Docs layout:
 - `docs/api/`: external HTTP API docs only; target-state step submission is in `intent-steps.md`, and canonical read surfaces are split into `session-state.md` and `context-surface.md`

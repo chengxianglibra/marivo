@@ -9,10 +9,20 @@ from .common import SemanticServiceSupport, now_iso
 
 
 class TypedBindingService(SemanticServiceSupport):
+    def _require_draft_status(self, status: str, binding_id: str) -> None:
+        if status != "draft":
+            raise self._state_error(
+                f"Typed binding '{binding_id}' is not in draft status (status={status})."
+            )
+
     def create_typed_binding(self, payload: TypedBindingCreateRequest) -> dict[str, Any]:
-        self._validate_binding_target_ref(
-            payload.header.binding_scope,
-            payload.header.bound_object_ref,
+        interface_contract = payload.interface_contract.model_dump(mode="json")
+        self._validate_typed_binding_contract(
+            binding_ref=payload.header.binding_ref,
+            binding_scope=payload.header.binding_scope,
+            bound_object_ref=payload.header.bound_object_ref,
+            interface_contract=interface_contract,
+            require_published_dependencies=False,
         )
         binding_id = f"bind_{uuid4().hex[:24]}"
         created_at = now_iso()
@@ -36,10 +46,7 @@ class TypedBindingService(SemanticServiceSupport):
                 created_at,
             ],
         )
-        self._replace_binding_contract(
-            binding_id,
-            payload.interface_contract.model_dump(mode="json"),
-        )
+        self._replace_binding_contract(binding_id, interface_contract)
         return self.get_typed_binding(binding_id)
 
     def get_typed_binding(self, binding_id: str) -> dict[str, Any]:
@@ -65,7 +72,8 @@ class TypedBindingService(SemanticServiceSupport):
     def update_typed_binding(
         self, binding_id: str, payload: TypedBindingUpdateRequest
     ) -> dict[str, Any]:
-        self.get_typed_binding(binding_id)
+        current = self.get_typed_binding(binding_id)
+        self._require_draft_status(current["status"], binding_id)
         updates: list[str] = []
         params: list[Any] = []
         if payload.display_name is not None:
@@ -75,13 +83,18 @@ class TypedBindingService(SemanticServiceSupport):
             updates.append("description = ?")
             params.append(payload.description)
         if payload.interface_contract is not None:
-            self._replace_binding_contract(
-                binding_id,
-                payload.interface_contract.model_dump(mode="json"),
+            interface_contract = payload.interface_contract.model_dump(mode="json")
+            self._validate_typed_binding_contract(
+                binding_ref=current["header"]["binding_ref"],
+                binding_scope=current["header"]["binding_scope"],
+                bound_object_ref=current["header"]["bound_object_ref"],
+                interface_contract=interface_contract,
+                require_published_dependencies=False,
             )
+            self._replace_binding_contract(binding_id, interface_contract)
         if not updates and payload.interface_contract is None:
-            return self.get_typed_binding(binding_id)
-        updates.append("updated_at = ?")
+            return current
+        updates.extend(["revision = revision + 1", "updated_at = ?"])
         params.append(now_iso())
         params.append(binding_id)
         self.metadata.execute(
@@ -91,7 +104,19 @@ class TypedBindingService(SemanticServiceSupport):
         return self.get_typed_binding(binding_id)
 
     def publish_typed_binding(self, binding_id: str) -> dict[str, Any]:
-        self.get_typed_binding(binding_id)
+        current = self.get_typed_binding(binding_id)
+        self._require_draft_status(current["status"], binding_id)
+        # Note: validation reads the bound object fresh at publish time. If the bound
+        # object is later updated (e.g. a stable_descriptor removed), this binding
+        # becomes stale. Callers are responsible for re-validating or republishing
+        # affected bindings when referenced objects change.
+        self._validate_typed_binding_contract(
+            binding_ref=current["header"]["binding_ref"],
+            binding_scope=current["header"]["binding_scope"],
+            bound_object_ref=current["header"]["bound_object_ref"],
+            interface_contract=current["interface_contract"],
+            require_published_dependencies=True,
+        )
         self.metadata.execute(
             """
             UPDATE typed_bindings
