@@ -29,7 +29,6 @@ Covers:
 
 from __future__ import annotations
 
-import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -41,7 +40,10 @@ from app.main import create_app
 from app.service import SemanticLayerService
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 from app.storage.sqlite_metadata import SQLiteMetadataStore
-from tests.semantic_test_helpers import ensure_published_typed_metric
+from tests.semantic_test_helpers import (
+    ensure_published_typed_metric,
+    ensure_published_typed_metric_binding,
+)
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -100,11 +102,6 @@ def _seed_metadata(meta: SQLiteMetadataStore) -> None:
     now = "2024-06-01T00:00:00"
     src_id = "src_valtest01"
     obj_id = "obj_valtest01"
-    met_num_id = "met_valnum01"
-    met_rate_id = "met_valrate01"
-    map_num_id = "map_valnum01"
-    map_rate_id = "map_valrate01"
-
     meta.execute(
         "INSERT OR IGNORE INTO sources "
         "(source_id, source_type, display_name, connection_json, capabilities_json, "
@@ -118,64 +115,13 @@ def _seed_metadata(meta: SQLiteMetadataStore) -> None:
         [obj_id, src_id, "table", "val_events", "analytics.val_events", now, now],
     )
 
-    # Numeric metric: definition_sql is a simple column ref (required for AVG(value) in
-    # numeric_sample_summary mode)
-    meta.execute(
-        "INSERT OR IGNORE INTO semantic_metrics "
-        "(metric_id, name, display_name, description, definition_sql, dimensions_json, "
-        " status, grain, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        [
-            met_num_id,
-            _METRIC_NUMERIC,
-            _METRIC_NUMERIC,
-            "",
-            "value",
-            json.dumps(["event_date"]),
-            "published",
-            "day",
-            now,
-            now,
-        ],
-    )
-    meta.execute(
-        "INSERT OR IGNORE INTO legacy_semantic_mappings "
-        "(mapping_id, semantic_type, semantic_id, object_id, mapping_type, mapping_json, "
-        " created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        [map_num_id, "metric", met_num_id, obj_id, "primary", "{}", now, now],
-    )
-
-    # Rate metric: definition_sql points to the 0/1 binary_value column
-    meta.execute(
-        "INSERT OR IGNORE INTO semantic_metrics "
-        "(metric_id, name, display_name, description, definition_sql, dimensions_json, "
-        " status, grain, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        [
-            met_rate_id,
-            _METRIC_RATE,
-            _METRIC_RATE,
-            "",
-            "binary_value",
-            json.dumps(["event_date"]),
-            "published",
-            "day",
-            now,
-            now,
-        ],
-    )
-    meta.execute(
-        "INSERT OR IGNORE INTO legacy_semantic_mappings "
-        "(mapping_id, semantic_type, semantic_id, object_id, mapping_type, mapping_json, "
-        " created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        [map_rate_id, "metric", met_rate_id, obj_id, "primary", "{}", now, now],
-    )
     ensure_published_typed_metric(
         meta,
         metric_name=_METRIC_NUMERIC,
         display_name=_METRIC_NUMERIC,
         grain="day",
         dimensions=["event_date"],
+        definition_sql="value",
     )
     ensure_published_typed_metric(
         meta,
@@ -183,6 +129,22 @@ def _seed_metadata(meta: SQLiteMetadataStore) -> None:
         display_name=_METRIC_RATE,
         grain="day",
         dimensions=["event_date"],
+        definition_sql="binary_value",
+        measure_type="rate",
+    )
+    ensure_published_typed_metric_binding(
+        meta,
+        metric_name=_METRIC_NUMERIC,
+        carrier_locator="analytics.val_events",
+        source_object_ref=obj_id,
+        surface_name="value",
+    )
+    ensure_published_typed_metric_binding(
+        meta,
+        metric_name=_METRIC_RATE,
+        carrier_locator="analytics.val_events",
+        source_object_ref=obj_id,
+        surface_name="binary_value",
     )
 
 

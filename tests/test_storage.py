@@ -59,9 +59,6 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
         for table in [
             "sources",
             "source_objects",
-            "semantic_entities",
-            "semantic_metrics",
-            "semantic_mappings",
             "semantic_entity_contracts",
             "semantic_entity_key_refs",
             "semantic_entity_stable_descriptors",

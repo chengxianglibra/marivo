@@ -7,7 +7,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from app.main import create_app
-from tests.semantic_test_helpers import create_legacy_entity, create_legacy_mapping
+from tests.semantic_test_helpers import create_typed_metric, create_typed_metric_binding
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 
@@ -224,8 +224,8 @@ class SourceRegistryTests(unittest.TestCase):
         self.assertIn("binding", detail["message"].lower())
         self.assertGreater(len(detail["dependencies"]), 0)
 
-    def test_delete_source_blocked_by_mapping(self) -> None:
-        """DELETE returns 409 when semantic mappings reference source objects."""
+    def test_delete_source_blocked_by_typed_binding(self) -> None:
+        """DELETE returns 409 when typed bindings reference source objects."""
         resp = self.client.post(
             "/sources",
             json={
@@ -239,27 +239,25 @@ class SourceRegistryTests(unittest.TestCase):
         self.client.post(f"/sources/{source_id}/sync")
         objects = self.client.get(f"/sources/{source_id}/objects?type=table").json()
         object_id = objects[0]["object_id"]
-        # Create an entity + mapping
-        entity = create_legacy_entity(
+        metric = create_typed_metric(
             self.client,
-            name="tmp_ent",
-            display_name="Tmp",
-            keys=["id"],
+            name="tmp_metric",
+            display_name="Tmp Metric",
+            definition_sql="COUNT(*)",
+            dimensions=["event_date"],
         )
-        entity_id = entity["entity_id"]
-        create_legacy_mapping(
+        create_typed_metric_binding(
             self.client,
-            semantic_type="entity",
-            semantic_id=entity_id,
+            metric_ref="metric.tmp_metric",
             object_id=object_id,
-            mapping_type="primary",
+            carrier_locator=str(objects[0]["fqn"]),
         )
 
         resp = self.client.delete(f"/sources/{source_id}")
         self.assertEqual(resp.status_code, 409)
         detail = resp.json()["detail"]
-        self.assertIn("mapping", detail["message"].lower())
-        self.assertIn(entity_id, detail["dependencies"][0])
+        self.assertIn("binding", detail["message"].lower())
+        self.assertIn("binding.tmp_metric_primary", detail["dependencies"][0])
 
 
 class SyncModeTests(unittest.TestCase):

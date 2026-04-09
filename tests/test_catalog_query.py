@@ -8,11 +8,11 @@ from fastapi.testclient import TestClient
 
 from app.main import create_app
 from tests.semantic_test_helpers import (
-    create_legacy_entity,
-    create_legacy_mapping,
-    create_legacy_metric,
-    publish_legacy_entity,
-    publish_legacy_metric,
+    create_typed_entity,
+    create_typed_metric,
+    create_typed_metric_binding,
+    publish_typed_entity,
+    publish_typed_metric,
 )
 from tests.shared_fixtures import get_seeded_duckdb_path
 
@@ -44,46 +44,40 @@ class CatalogQueryTests(unittest.TestCase):
         cls.table_objects = {t["native_name"]: t for t in resp.json()}
 
         # Create and publish entities
-        entity = create_legacy_entity(
+        entity = create_typed_entity(
             cls.client,
             name="user",
             display_name="User",
             description="A platform user",
             keys=["user_id"],
-            level="user",
-            join_constraints={"requires": ["country"]},
-            upstream_dependencies=["account"],
-            lineage=["analytics.users"],
-            quality_expectations={"freshness_hours": 24},
         )
-        cls.user_entity_id = entity["entity_id"]
-        publish_legacy_entity(cls.client, cls.user_entity_id)
+        cls.user_entity_id = entity["entity_contract_id"]
+        publish_typed_entity(cls.client, cls.user_entity_id)
 
         # Create and publish metrics
-        metric = create_legacy_metric(
+        metric = create_typed_metric(
             cls.client,
             name="watch_time",
             display_name="Watch Time",
             description="Average play duration per session",
             definition_sql="avg(play_duration_seconds)",
             dimensions=["platform", "app_version", "network_type", "content_type"],
+            entity_ref="entity.user",
             grain="session",
             measure_type="average",
             allowed_dimensions=["platform", "network_type", "content_type"],
-            lineage=["analytics.watch_events.play_duration_seconds"],
             quality_expectations={"min_group_size": 100},
         )
-        cls.watch_metric_id = metric["metric_id"]
-        publish_legacy_metric(cls.client, cls.watch_metric_id)
+        cls.watch_metric_id = metric["metric_contract_id"]
+        publish_typed_metric(cls.client, cls.watch_metric_id)
 
         # Create mapping: metric -> table
         watch_obj_id = cls.table_objects["watch_events"]["object_id"]
-        create_legacy_mapping(
+        create_typed_metric_binding(
             cls.client,
-            semantic_type="metric",
-            semantic_id=cls.watch_metric_id,
+            metric_ref="metric.watch_time",
             object_id=watch_obj_id,
-            mapping_type="primary_source",
+            carrier_locator=str(cls.table_objects["watch_events"]["fqn"]),
         )
 
     @classmethod
@@ -156,13 +150,11 @@ class CatalogQueryTests(unittest.TestCase):
             ["key.user_id"],
         )
 
-    def test_resolve_metric_and_entity_bare_name_aliases(self) -> None:
+    def test_resolve_requires_explicit_typed_refs(self) -> None:
         metric_resp = self.client.get("/semantic/resolve/watch_time")
         entity_resp = self.client.get("/semantic/resolve/user")
-        self.assertEqual(metric_resp.status_code, 200)
-        self.assertEqual(entity_resp.status_code, 200)
-        self.assertEqual(metric_resp.json()["ref"], "metric.watch_time")
-        self.assertEqual(entity_resp.json()["ref"], "entity.user")
+        self.assertEqual(metric_resp.status_code, 404)
+        self.assertEqual(entity_resp.status_code, 404)
 
     def test_resolve_404(self) -> None:
         resp = self.client.get("/semantic/resolve/nonexistent_thing")

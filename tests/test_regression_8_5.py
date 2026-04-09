@@ -101,41 +101,20 @@ def _seed_metadata(meta: SQLiteMetadataStore, db_path: Path | None = None) -> No
         "VALUES (?, ?, ?, ?, ?, ?, ?)",
         [obj_id, src_id, "table", _TABLE, f"analytics.{_TABLE}", now, now],
     )
-    meta.execute(
-        "INSERT OR IGNORE INTO semantic_metrics "
-        "(metric_id, name, display_name, description, definition_sql, dimensions_json, "
-        " status, grain, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        [
-            met_id,
-            _METRIC,
-            _METRIC,
-            "",
-            "SUM(value)",
-            json.dumps(["region"]),
-            "published",
-            "day",
-            now,
-            now,
-        ],
-    )
-    meta.execute(
-        "INSERT OR IGNORE INTO legacy_semantic_mappings "
-        "(mapping_id, semantic_type, semantic_id, object_id, mapping_type, mapping_json, "
-        " created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        ["map_reg8501", "metric", met_id, obj_id, "primary", "{}", now, now],
-    )
     ensure_published_typed_metric(
         meta,
         metric_name=_METRIC,
         display_name=_METRIC,
         grain="day",
         dimensions=["region"],
+        definition_sql="SUM(value)",
+        measure_type="sum",
     )
     ensure_published_typed_metric_binding(
         meta,
         metric_name=_METRIC,
         carrier_locator=f"analytics.{_TABLE}",
+        source_object_ref=obj_id,
     )
     meta.execute(
         "INSERT OR IGNORE INTO engines "

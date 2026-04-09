@@ -14,11 +14,11 @@ from app.time_axis_metadata import (
     normalize_time_capabilities,
 )
 from tests.semantic_test_helpers import (
-    create_legacy_entity,
-    create_legacy_metric,
-    patch_legacy_entity_properties,
-    publish_legacy_entity,
-    publish_legacy_metric,
+    create_typed_entity,
+    create_typed_metric,
+    patch_typed_entity_properties,
+    publish_typed_entity,
+    publish_typed_metric,
 )
 from tests.shared_fixtures import get_seeded_duckdb_path
 
@@ -102,7 +102,7 @@ class TimeAxisMetadataProviderTests(unittest.TestCase):
         ).json()["source_id"]
         cls.client.post(f"/sources/{source_id}/sync")
 
-        entity = create_legacy_entity(
+        entity = create_typed_entity(
             cls.client,
             name="session_tsu11",
             display_name="Session",
@@ -114,19 +114,19 @@ class TimeAxisMetadataProviderTests(unittest.TestCase):
                 }
             },
         )
-        cls.entity_id = entity["entity_id"]
-        publish_legacy_entity(cls.client, cls.entity_id)
+        cls.entity_id = entity["entity_contract_id"]
+        publish_typed_entity(cls.client, cls.entity_id)
 
-        metric = create_legacy_metric(
+        metric = create_typed_metric(
             cls.client,
             name="watch_time_tsu11",
             display_name="Watch Time",
             definition_sql="avg(play_duration_seconds)",
             dimensions=["platform", "event_date"],
-            entity_id=cls.entity_id,
+            entity_ref="entity.session_tsu11",
         )
-        cls.metric_name = metric["name"]
-        publish_legacy_metric(cls.client, metric["metric_id"])
+        cls.metric_name = metric["header"]["metric_ref"].removeprefix("metric.")
+        publish_typed_metric(cls.client, metric["metric_contract_id"])
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -184,7 +184,7 @@ class TimeAxisMetadataProviderTests(unittest.TestCase):
         self.assertEqual(context.timezone_note, PHASE1_TIMEZONE_NOTE)
 
     def test_provider_rejects_invalid_entity_time_capabilities(self) -> None:
-        patch_legacy_entity_properties(
+        patch_typed_entity_properties(
             self.client,
             self.entity_id,
             {"time_capabilities": {"partition_time": {"hour_column": "log_hour"}}},
@@ -199,7 +199,7 @@ class TimeAxisMetadataProviderTests(unittest.TestCase):
                 metric_name=self.metric_name,
             )
 
-        patch_legacy_entity_properties(
+        patch_typed_entity_properties(
             self.client,
             self.entity_id,
             {

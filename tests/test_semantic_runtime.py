@@ -14,11 +14,11 @@ from app.semantic_runtime import (
     SemanticRuntimeUnpublishedError,
 )
 from tests.semantic_test_helpers import (
-    create_legacy_entity,
-    create_legacy_mapping,
-    create_legacy_metric,
-    publish_legacy_entity,
-    publish_legacy_metric,
+    create_typed_entity,
+    create_typed_metric,
+    create_typed_metric_binding,
+    publish_typed_entity,
+    publish_typed_metric,
 )
 from tests.shared_fixtures import get_seeded_duckdb_path
 
@@ -33,36 +33,31 @@ class SemanticRuntimeTests(unittest.TestCase):
         cls.metadata_store = cls.client.app.state.metadata_store
         cls.binding_service = cls.client.app.state.binding_service
 
-        entity = create_legacy_entity(
+        entity = create_typed_entity(
             cls.client,
             name="user",
             display_name="User",
             description="A platform user",
             keys=["user_id"],
-            level="user",
-            join_constraints={"requires": ["country"]},
-            upstream_dependencies=["account"],
-            lineage=["analytics.users"],
-            quality_expectations={"freshness_hours": 24},
         )
-        publish_legacy_entity(cls.client, entity["entity_id"])
-        cls.entity_id = entity["entity_id"]
+        publish_typed_entity(cls.client, entity["entity_contract_id"])
+        cls.entity_id = entity["entity_contract_id"]
 
-        metric = create_legacy_metric(
+        metric = create_typed_metric(
             cls.client,
             name="watch_time",
             display_name="Watch Time",
             description="Average play duration per session",
             definition_sql="avg(play_duration_seconds)",
             dimensions=["platform", "app_version", "network_type", "content_type"],
+            entity_ref="entity.user",
             grain="session",
             measure_type="average",
             allowed_dimensions=["platform", "network_type", "content_type"],
-            lineage=["analytics.watch_events.play_duration_seconds"],
             quality_expectations={"min_group_size": 100},
         )
-        publish_legacy_metric(cls.client, metric["metric_id"])
-        cls.metric_id = metric["metric_id"]
+        publish_typed_metric(cls.client, metric["metric_contract_id"])
+        cls.metric_id = metric["metric_contract_id"]
 
         source = cls.client.post(
             "/sources",
@@ -82,12 +77,11 @@ class SemanticRuntimeTests(unittest.TestCase):
         cls.watch_events_object_id = table_objects["watch_events"]["object_id"]
         cls.watch_events_fqn = str(table_objects["watch_events"]["fqn"])
 
-        create_legacy_mapping(
+        create_typed_metric_binding(
             cls.client,
-            semantic_type="metric",
-            semantic_id=cls.metric_id,
+            metric_ref="metric.watch_time",
             object_id=cls.watch_events_object_id,
-            mapping_type="primary_source",
+            carrier_locator=cls.watch_events_fqn,
         )
 
     @classmethod
@@ -133,7 +127,7 @@ class SemanticRuntimeTests(unittest.TestCase):
         self.assertEqual(resolved_metric.observation_grain_ref, "grain.session")
         self.assertEqual(resolved_metric.grain, "session")
         self.assertEqual(resolved_entity.entity_ref, "entity.user")
-        self.assertEqual(resolved_entity.level, "user")
+        self.assertEqual(resolved_entity.key_refs, ["key.user_id"])
 
     def test_semantic_repository_resolves_typed_refs(self) -> None:
         suffix = uuid4().hex[:8]
@@ -696,12 +690,9 @@ class SemanticRuntimeTests(unittest.TestCase):
         assert resolved is not None
         self.assertEqual(resolved.entity_ref, "entity.user")
         self.assertEqual(resolved.key_refs, ["key.user_id"])
-        self.assertEqual(resolved.level, "user")
-        self.assertEqual(resolved.join_constraints, {"requires": ["country"]})
-        self.assertEqual(resolved.upstream_dependencies, ["account"])
-        self.assertEqual(resolved.lineage, ["analytics.users"])
+        self.assertEqual(resolved.stable_descriptors, [])
 
-    def test_contract_tables_are_synced_from_legacy_crud(self) -> None:
+    def test_contract_tables_are_published_for_typed_semantic_objects(self) -> None:
         metric_contract = self.metadata_store.query_one(
             "SELECT * FROM semantic_metric_contracts WHERE metric_contract_id = ?",
             [self.metric_id],
@@ -753,17 +744,15 @@ class SemanticRuntimeTests(unittest.TestCase):
         self.assertNotIn("physical_assets", resolved)
         self.assertNotIn("mappings", resolved)
 
-    def test_catalog_runtime_resolve_supports_metric_and_entity_aliases_only(self) -> None:
+    def test_catalog_runtime_resolve_requires_explicit_typed_refs(self) -> None:
         runtime = CatalogRuntimeService(self.metadata_store, self.binding_service)
 
-        metric_resolved = runtime.resolve("watch_time")
-        entity_resolved = runtime.resolve("user")
+        metric_resolved = runtime.resolve("metric.watch_time")
+        entity_resolved = runtime.resolve("entity.user")
 
         self.assertEqual(metric_resolved["ref"], "metric.watch_time")
         self.assertEqual(entity_resolved["ref"], "entity.user")
-        with self.assertRaisesRegex(
-            KeyError, "Bare-name aliases are supported only for metric/entity"
-        ):
+        with self.assertRaisesRegex(KeyError, "requires an explicit typed ref"):
             runtime.resolve("runtime_session")
 
     def test_catalog_runtime_search_rejects_invalid_type_filter(self) -> None:
@@ -810,8 +799,8 @@ class SemanticRuntimeTests(unittest.TestCase):
         )
         try:
             self.assertFalse(any(item["name"] == "watch_time" for item in runtime.search("watch")))
-            with self.assertRaises(KeyError):
-                runtime.resolve("watch_time")
+            with self.assertRaises(SemanticRuntimeUnpublishedError):
+                runtime.resolve("metric.watch_time")
             context = runtime.planner_context(session["session_id"])
             self.assertFalse(
                 any(
