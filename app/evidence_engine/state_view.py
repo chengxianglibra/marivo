@@ -23,6 +23,7 @@ import json
 from typing import Any
 
 from app.evidence_engine.publish_switch import assemble_externally_visible_bundle
+from app.evidence_engine.ref_boundary import assert_no_semantic_refs_in_canonical_payload
 from app.storage.evidence_repositories import (
     ActionProposalRepository,
     AssessmentRepository,
@@ -94,7 +95,7 @@ def _build_active_proposition_entry(
     )
 
     if bundle is None:
-        return {
+        draft_entry: dict[str, Any] = {
             "proposition": proposition,
             "latest_assessment": None,
             "supporting_finding_refs": None,
@@ -106,6 +107,11 @@ def _build_active_proposition_entry(
             # Private: hydrated findings for backing_findings collection (stripped before response).
             "_live_findings": [],
         }
+        assert_no_semantic_refs_in_canonical_payload(
+            {key: value for key, value in draft_entry.items() if not key.startswith("_")},
+            surface="session_state_entry",
+        )
+        return draft_entry
 
     latest_assessment: dict[str, Any] = bundle["latest_assessment"]
     live_closure = bundle["live_closure"]
@@ -161,7 +167,7 @@ def _build_active_proposition_entry(
         key_fn=lambda r: r["artifact_id"],
     )
 
-    return {
+    published_entry: dict[str, Any] = {
         "proposition": proposition,
         "latest_assessment": latest_assessment,
         "supporting_finding_refs": supporting_finding_refs,
@@ -173,6 +179,11 @@ def _build_active_proposition_entry(
         # Private: hydrated findings for backing_findings collection (stripped before response).
         "_live_findings": all_findings,
     }
+    assert_no_semantic_refs_in_canonical_payload(
+        {key: value for key, value in published_entry.items() if not key.startswith("_")},
+        surface="session_state_entry",
+    )
+    return published_entry
 
 
 def _apply_query_filters(
@@ -453,7 +464,7 @@ def materialize_session_state_view(
     # ------------------------------------------------------------------
     # Return SessionStateView.
     # ------------------------------------------------------------------
-    return {
+    view: dict[str, Any] = {
         "session_id": session_id,
         "focus_subjects": focus_subjects,
         "active_propositions": returned_entries,
@@ -464,6 +475,8 @@ def materialize_session_state_view(
         "schema_version": SESSION_STATE_VIEW_SCHEMA_VERSION,
         "next_page_token": None,  # v1: no cursor pagination
     }
+    assert_no_semantic_refs_in_canonical_payload(view, surface="session_state_view")
+    return view
 
 
 __all__ = [

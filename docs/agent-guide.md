@@ -11,6 +11,7 @@ Shared guidance for agents. `AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructi
 - Target-state external step submission contract lives in `docs/api/intent-steps.md`; `docs/analysis/intents/` remains the design source, not the wire spec.
 - analysis refactor design docs is located at 'docs/analysis'
 - Canonical read surfaces expose externally visible state only; do not mix runtime queue/claim/retry status into `session` / `state` / `context`.
+- Canonical read surfaces (`session` / `state` / `context`) must carry canonical refs and provenance handles only; semantic refs belong to semantic/runtime/compiler contracts and must not leak into evidence read payloads.
 - Evidence Engine runtime lifecycle, runtime status surface, and migration/invalidation policies live under `docs/analysis/evidence-engine/`.
 
 ## Python / Typing
