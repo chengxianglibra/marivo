@@ -175,6 +175,7 @@ class IntentNode(TypedDict):
 
 class ValidationRecord(TypedDict):
     validation_kind: Literal[
+        "profile_integrity",
         "request_shape",
         "intent_support",
         "metric_process_compatibility",
@@ -201,6 +202,8 @@ class LoweringRequirement(TypedDict):
 class ProfileUsageTrace(TypedDict):
     subject_ref: str
     profile_ref: NotRequired[str | None]
+    subject_revision: NotRequired[int | None]
+    resolved_subject_revision: NotRequired[int | None]
     applied: bool
     reason: str
 

@@ -591,6 +591,7 @@ Response:
   "schema_version": "v1",
   "subject_kind": "metric",
   "subject_ref": "metric.account_count",
+  "subject_revision": null,
   "requirement": {
     "contract_modes": null,
     "context_kinds": null,
@@ -616,6 +617,9 @@ Notes:
 - `subject_kind/profile_kind` combinations are constrained by the typed profile contract.
 - `POST /compiler/compatibility-profiles` creates a draft profile artifact; automatic generation,
   if introduced later, belongs to later migration phases rather than this HTTP contract.
+- `POST /compiler/compatibility-profiles/{profile_id}/publish` freezes the current published
+  subject revision into `subject_revision`; if the subject is republished later, compiler treats
+  the old profile as stale and rejects it until the profile is republished.
 
 ## Legacy Mapping Surface
 

@@ -560,6 +560,8 @@ class ValidationSummary(TypedDict):
 class ProfileUsageTrace(TypedDict):
     subject_ref: str
     profile_ref: NotRequired[str | None]
+    subject_revision: NotRequired[int | None]
+    resolved_subject_revision: NotRequired[int | None]
     applied: bool
     reason: str
 
@@ -590,7 +592,7 @@ class CompileReport(TypedDict):
 - `ValidationRecord.validation_kind` 的枚举值对应 compiler validator 实际运行的 gate 名称
 - 成功编译后的 `CompileReport` 只保留通过的 validation trace（`validation_trace` 中不含失败的 gate）
 - `ValidationSummary` 提供通过/警告数量与维度/时间的汇总摘要
-- `ProfileUsageTrace` 记录 compatibility profile 的应用路径与原因
+- `ProfileUsageTrace` 记录 compatibility profile 的应用路径、原因与 subject revision 绑定结果
 - 失败时返回 `SemanticCompileError`，而不是带 `failed` 节点的 `IrPlan`；`subject_ref` 与 `details` 提供诊断上下文
 - lowering requirement 描述"需要什么能力"，不提前绑定某个 engine
 ### 9. Lowering Request / Report

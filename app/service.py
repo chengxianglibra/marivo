@@ -544,6 +544,7 @@ class SemanticLayerService:
                     "schema_version": row["schema_version"],
                     "subject_kind": row["subject_kind"],
                     "subject_ref": row["subject_ref"],
+                    "subject_revision": row["subject_revision"],
                     "requirement": json.loads(row["requirement_json"])
                     if row["requirement_json"]
                     else None,

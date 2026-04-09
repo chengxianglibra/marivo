@@ -690,6 +690,7 @@ METADATA_DDL: list[str] = [
             subject_kind IN ('metric', 'process', 'binding')
         ),
         subject_ref             TEXT NOT NULL,
+        subject_revision        INTEGER,
         requirement_json        TEXT NOT NULL DEFAULT '{}',
         capability_json         TEXT NOT NULL DEFAULT '{}',
         status                  TEXT NOT NULL DEFAULT 'draft' CHECK (
@@ -725,8 +726,27 @@ METADATA_DDL: list[str] = [
                 WHEN profile_kind = 'capability' THEN requirement_json = '{}'
                 ELSE 0
             END
-        )
+        ),
+        CHECK (subject_revision IS NULL OR subject_revision >= 1)
     )
+    """,
+    """
+    CREATE TRIGGER IF NOT EXISTS trg_compiler_profiles_subject_revision_guard
+    BEFORE UPDATE ON compiler_compatibility_profiles
+    FOR EACH ROW
+    WHEN NEW.status = 'published' AND NEW.subject_revision IS NULL
+    BEGIN
+        SELECT RAISE(ABORT, 'published compatibility profiles require subject_revision');
+    END
+    """,
+    """
+    CREATE TRIGGER IF NOT EXISTS trg_compiler_profiles_subject_revision_insert_guard
+    BEFORE INSERT ON compiler_compatibility_profiles
+    FOR EACH ROW
+    WHEN NEW.status = 'published' AND NEW.subject_revision IS NULL
+    BEGIN
+        SELECT RAISE(ABORT, 'published compatibility profiles require subject_revision');
+    END
     """,
     # Compiler compatibility profile indexes
     "CREATE INDEX IF NOT EXISTS idx_compiler_compatibility_profiles_ref ON compiler_compatibility_profiles(profile_ref)",

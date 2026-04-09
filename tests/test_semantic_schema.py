@@ -657,6 +657,7 @@ class SemanticSchemaDDLTests(unittest.TestCase):
             capability_json: str = "{}",
             status: str = "draft",
             revision: int = 1,
+            subject_revision: int | None = None,
             schema_version: str = "v1",
         ) -> None:
             """Helper to insert a profile with default values."""
@@ -664,9 +665,9 @@ class SemanticSchemaDDLTests(unittest.TestCase):
                 """
                 INSERT INTO compiler_compatibility_profiles (
                     profile_id, profile_ref, profile_kind, schema_version,
-                    subject_kind, subject_ref, requirement_json, capability_json,
+                    subject_kind, subject_ref, subject_revision, requirement_json, capability_json,
                     status, revision, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     profile_id,
@@ -675,6 +676,7 @@ class SemanticSchemaDDLTests(unittest.TestCase):
                     schema_version,
                     subject_kind,
                     subject_ref,
+                    subject_revision,
                     requirement_json,
                     capability_json,
                     status,
@@ -843,6 +845,17 @@ class SemanticSchemaDDLTests(unittest.TestCase):
                 "metric.invalid_status",
                 requirement_json='{"contract_modes": ["context_provider"]}',
                 status="active",
+            )
+
+        with self.assertRaises(sqlite3.IntegrityError):
+            _insert_profile(
+                "profile_16",
+                "compiler_profile.missing_subject_revision",
+                "requirement",
+                "metric",
+                "metric.published_missing_subject_revision",
+                requirement_json='{"contract_modes": ["context_provider"]}',
+                status="published",
             )
 
         # Duplicate profile_ref (violates UNIQUE constraint)

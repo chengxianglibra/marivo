@@ -246,6 +246,7 @@ class SemanticServiceFacadeTests(unittest.TestCase):
             ),
         )
         self.assertEqual(updated["revision"], 2)
+        self.assertIsNone(updated["subject_revision"])
 
         with self.assertRaises(ValueError):
             self.service.publish_compatibility_profile(profile["profile_id"])
@@ -253,6 +254,7 @@ class SemanticServiceFacadeTests(unittest.TestCase):
         self.service.publish_typed_metric(metric["metric_contract_id"])
         published = self.service.publish_compatibility_profile(profile["profile_id"])
         self.assertEqual(published["revision"], 3)
+        self.assertEqual(published["subject_revision"], 2)
 
         with self.assertRaises(ValueError):
             self.service.update_compatibility_profile(

@@ -280,6 +280,7 @@ type NormalizedRequest = {
 | `supports_validate` | `sample_kind == "rate"` AND `anchor_time_ref exists` in process |
 
 若需要声明对 process 的编译期要求（如 `contract_modes`、`context_kinds`），应通过独立的 compiler compatibility profile 发布，见 `docs/semantic/compiler-compatibility-profile.zh.md`。
+profile 继续采用显式登记策略；对象 publish 不自动生成 profile，profile publish 会冻结当前 subject revision，供 compiler 在消费时执行 revision 一致性校验。
 
 ### process object -> normalized process contract
 

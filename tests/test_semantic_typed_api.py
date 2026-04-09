@@ -330,6 +330,7 @@ class SemanticTypedApiTests(unittest.TestCase):
         profile = profile_resp.json()
         profile_id = profile["profile_id"]
         self.assertEqual(profile["profile_ref"], "compiler_profile.account_count_requirement")
+        self.assertIsNone(profile["subject_revision"])
 
         resp = self.client.put(
             f"/compiler/compatibility-profiles/{profile_id}",
@@ -346,6 +347,7 @@ class SemanticTypedApiTests(unittest.TestCase):
         resp = self.client.post(f"/compiler/compatibility-profiles/{profile_id}/publish")
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertEqual(resp.json()["status"], "published")
+        self.assertEqual(resp.json()["subject_revision"], 2)
 
         resp = self.client.get("/semantic/bindings?status=published")
         self.assertEqual(resp.status_code, 200, resp.text)

@@ -705,6 +705,10 @@ def _build_profile_usage_trace(profile_traces: list[Any]) -> list[ProfileUsageTr
         }
         if trace.profile_ref is not None:
             item["profile_ref"] = trace.profile_ref
+        if trace.subject_revision is not None:
+            item["subject_revision"] = trace.subject_revision
+        if trace.resolved_subject_revision is not None:
+            item["resolved_subject_revision"] = trace.resolved_subject_revision
         trace_payload.append(item)
     return trace_payload
 

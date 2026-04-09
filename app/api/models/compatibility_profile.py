@@ -207,6 +207,10 @@ class CompatibilityProfileResponse(ObjectResponseBase):
         description="Kind of subject: metric, process, or binding."
     )
     subject_ref: str = Field(description="Reference to the subject object.")
+    subject_revision: int | None = Field(
+        default=None,
+        description="Published revision of the bound subject when this profile was last published.",
+    )
     requirement: ProcessRequirement | None = Field(
         default=None, description="Requirement payload, if profile_kind='requirement'."
     )
@@ -234,5 +238,17 @@ class ProfileTrace(BaseModel):
     profile_ref: str = Field(description="Reference to the profile that was consulted.")
     applied: bool = Field(description="Whether the profile was applied during compilation.")
     reason: str = Field(
-        description="Reason for the result: satisfied, missing, not_satisfied, or not_required."
+        description=(
+            "Reason for the result: satisfied, missing, revision_mismatch, "
+            "not_satisfied, or not_required."
+        )
+    )
+    subject_ref: str = Field(description="Semantic object ref that the compiler checked.")
+    subject_revision: int | None = Field(
+        default=None,
+        description="Published subject revision recorded on the consulted profile, if any.",
+    )
+    resolved_subject_revision: int | None = Field(
+        default=None,
+        description="Published subject revision resolved by the compiler for the current compile.",
     )

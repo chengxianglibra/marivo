@@ -80,6 +80,7 @@ def _profile_reader(subject_ref: str) -> list[dict[str, object]]:
                 "profile_ref": "compiler_profile.watch_time_requirement",
                 "profile_kind": "requirement",
                 "subject_ref": subject_ref,
+                "subject_revision": 1,
                 "requirement": {"contract_modes": ["context_provider"]},
             }
         ]
@@ -89,6 +90,7 @@ def _profile_reader(subject_ref: str) -> list[dict[str, object]]:
                 "profile_ref": "compiler_profile.daily_check_capability",
                 "profile_kind": "capability",
                 "subject_ref": subject_ref,
+                "subject_revision": 1,
                 "capability": {
                     "inferential_ready": True,
                     "supported_sample_summaries": ["rate_sample_summary"],
@@ -351,6 +353,10 @@ class CompilerTypedResolutionTests(unittest.TestCase):
         self.assertEqual(compiled.metadata["resolved_binding_refs"], ["binding.watch_time"])
         self.assertNotIn("compiler_validation", compiled.metadata)
         self.assertNotIn("compiler_profile_trace", compiled.metadata)
+        profile_trace = compiled.ir_bundle["compile_report"]["profile_usage_trace"]
+        self.assertEqual(profile_trace[0]["subject_ref"], "metric.watch_time")
+        self.assertEqual(profile_trace[0]["subject_revision"], 1)
+        self.assertEqual(profile_trace[0]["resolved_subject_revision"], 1)
 
     def test_resolve_compiler_inputs_no_repository_warns_for_metric_and_dimensions(self) -> None:
         from app.analysis_core.typed_resolution import NormalizedCompilerRequest
@@ -511,6 +517,46 @@ class CompilerTypedResolutionTests(unittest.TestCase):
 
         self.assertFalse(result.ok)
         self.assertIn("COMPILER_PROFILE_MISSING", [issue.code for issue in result.issues])
+
+    def test_validate_compiler_inputs_rejects_profile_revision_mismatch(self) -> None:
+        normalized = normalize_step_request(
+            AnalysisStepIR(index=0, step_type="validate", params={"metric": "watch_time"})
+        )
+        normalized.process_ref = "process.daily_check"
+        resolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=_FakeSemanticRepository(),
+            binding_reader=_binding_reader,
+        )
+
+        def _stale_profile_reader(subject_ref: str) -> list[dict[str, object]]:
+            profiles = _profile_reader(subject_ref)
+            if subject_ref != "process.daily_check":
+                return profiles
+            return [dict(profiles[0], subject_revision=99)]
+
+        derived = derive_compiler_state(
+            intent_kind="validate",
+            resolved_metric=resolved.resolved_metric,
+            resolved_process=resolved.resolved_process,
+            resolved_bindings=resolved.resolved_bindings,
+            profile_reader=_stale_profile_reader,
+        )
+
+        result = validate_compiler_inputs(
+            step_type="validate",
+            resolved_inputs=resolved,
+            derived_state=derived,
+        )
+
+        self.assertFalse(result.ok)
+        self.assertIn("COMPILER_PROFILE_REVISION_MISMATCH", [issue.code for issue in result.issues])
+        self.assertTrue(
+            any(
+                trace.subject_ref == "process.daily_check" and trace.reason == "revision_mismatch"
+                for trace in derived.profile_traces
+            )
+        )
 
 
 if __name__ == "__main__":
