@@ -1,5 +1,9 @@
 # Causal Inference Guide
 
+> Historical note: this guide predates the typed-intent and canonical evidence-engine
+> refactor. Mentions of claim objects, `correlate_metrics`, `synthesize_findings`, and
+> `reflection-context` describe an older workflow and are not the current HTTP contract.
+
 This document explains how Factum promotes claims from **L0 (correlation only)** through
 **L2 (temporal precedence established)** automatically, which step types and observation
 patterns are required at each stage, and how to design a step sequence that reliably
@@ -21,7 +25,7 @@ assembled so far. The level never decreases — it can only be promoted upward.
 | `L4` | Confounders ruled out | Reserved (not yet implemented) |
 | `L5` | Experimental confirmation (A/B or natural experiment) | Reserved (not yet implemented) |
 
-Levels appear in every claim object in the evidence graph and in `reflection-context`:
+Levels appear in every claim object in the historical evidence graph examples:
 
 ```json
 {

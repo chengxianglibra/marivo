@@ -272,9 +272,7 @@ const STEP_PARAM_TEMPLATES = {
     baseline_start: "2026-03-03",
     baseline_end: "2026-03-10",
     candidate_dimensions: ["platform", "app_version"]
-  },
-  correlate_metrics: {},
-  synthesize_findings: {}
+  }
 };
 
 const STEP_PARAM_HINTS = {
@@ -282,9 +280,7 @@ const STEP_PARAM_HINTS = {
   aggregate_query: "Use only typed fields: `table`, `group_by`, `measures`, `time_scope`, optional `scope`/`time_axis`/`order`/`limit`.",
   profile_table: "Legacy table utilities still use `table_name`.",
   sample_rows: "Legacy table utilities still use `table_name`, optional `limit`, `filter`, `columns`.",
-  attribute_change: "This step still uses the legacy attribution contract.",
-  correlate_metrics: "Provide artifact/step references plus join/value columns.",
-  synthesize_findings: "Usually no params are required."
+  attribute_change: "This step still uses the legacy attribution contract."
 };
 
 function stepParamsTemplateText(stepType) {
@@ -346,8 +342,6 @@ const localApi = {
   estimateCosts: (sid, pid) => localApi._fetch(`/sessions/${sid}/plans/${pid}/estimate-costs`, { method: 'POST' }),
   budgetCheck: (sid, pid) => localApi._fetch(`/sessions/${sid}/plans/${pid}/budget-check`),
   explainPlan: (sid, pid) => localApi._fetch(`/sessions/${sid}/plans/${pid}/explain`),
-  // Reflection Context (M-11)
-  getReflectionContext: (id, planId) => localApi._fetch(`/sessions/${id}/reflection-context` + (planId ? `?plan_id=${encodeURIComponent(planId)}` : '')),
   // Plan Patch (M-11)
   patchPlan: (sid, pid, patch) => localApi._fetch(`/sessions/${sid}/plans/${pid}/patch`, { method: 'POST', body: JSON.stringify(patch) }),
   // Semantic entity patch (G-5d)
@@ -749,8 +743,6 @@ async function showSessionDetail(id) {
                 <option value="sample_rows">sample_rows</option>
                 <option value="aggregate_query">aggregate_query</option>
                 <option value="attribute_change">attribute_change</option>
-                <option value="correlate_metrics">correlate_metrics</option>
-                <option value="synthesize_findings">synthesize_findings</option>
               </select>
             </div>
             <button class="btn btn-primary" id="sess-run-step-btn">Run</button>
@@ -759,21 +751,6 @@ async function showSessionDetail(id) {
           <div id="sess-step-help" style="font-size:var(--font-size-xs);color:var(--color-text-muted);"></div>
         </div>
         <div id="sess-step-result"></div>
-      </div>
-
-      <!-- Reflection Context (M-11) -->
-      <div class="card">
-        <div class="collapsible-header" id="reflection-toggle">
-          <h2>Reflection Context</h2>
-          <span class="chevron">&#9654;</span>
-        </div>
-        <div class="collapsible-body" id="reflection-body">
-          <div class="inline-form" style="margin-top:var(--space-md);">
-            <div class="form-group"><label>Plan ID (optional)</label><input id="reflection-plan-id" placeholder="plan_..."></div>
-            <button class="btn btn-primary" id="reflection-load-btn">Load Reflection</button>
-          </div>
-          <div id="reflection-content"></div>
-        </div>
       </div>`;
 
     $('#sess-back2').onclick = () => renderers.sessions();
@@ -806,32 +783,6 @@ async function showSessionDetail(id) {
       tlHtml += '</div>';
       timelineArea.innerHTML = tlHtml;
     }
-
-    // Reflection Context toggle + loader
-    const reflectionToggle = $('#reflection-toggle');
-    const reflectionBody = $('#reflection-body');
-    if (reflectionToggle && reflectionBody) {
-      reflectionToggle.onclick = () => {
-        reflectionToggle.classList.toggle('open');
-        reflectionBody.classList.toggle('open');
-      };
-    }
-    $('#reflection-load-btn').onclick = async () => {
-      const planId = $('#reflection-plan-id').value.trim() || null;
-      const rArea = $('#reflection-content');
-      rArea.innerHTML = '<div style="text-align:center;padding:var(--space-lg);"><span class="spinner"></span></div>';
-      try {
-        const ctx = await localApi.getReflectionContext(id, planId);
-        renderReflectionContext(rArea, ctx);
-      } catch (err) {
-        if (err.message && err.message.includes('404')) {
-          rArea.innerHTML = '<p class="empty">Reflection Context is disabled. Enable it via <code>reflection.enabled</code> in config.</p>';
-        } else {
-          rArea.innerHTML = '';
-          toast(err.message, 'error');
-        }
-      }
-    };
 
     $('#sess-run-step-btn').onclick = async () => {
       const stepType = $('#sess-step-type').value;
@@ -966,90 +917,6 @@ function renderStepResult(result) {
   </div>`;
 
   return html;
-}
-
-// ════════════════════════════════════════════════════════════
-// ── Reflection Context Renderer (M-11) ─────────────────────
-// ════════════════════════════════════════════════════════════
-
-function renderReflectionContext(area, ctx) {
-  let html = '';
-
-  // ── Readiness signal (reuse existing renderer) ────────────
-  if (ctx.readiness_signal) {
-    html += renderReadinessSignal(ctx.readiness_signal);
-  }
-
-  // ── Readiness score ───────────────────────────────────────
-  if (ctx.readiness_score != null) {
-    const score = ctx.readiness_score;
-    const scoreColor = score >= 0.7 ? 'var(--color-success)' : score >= 0.3 ? 'var(--color-warning)' : 'var(--color-error)';
-    html += `<div style="margin-bottom:var(--space-md);display:flex;align-items:center;gap:var(--space-md);">
-      <span style="font-size:var(--font-size-sm);color:var(--color-text-secondary);">Readiness Score</span>
-      <span style="font-size:1.5rem;font-weight:700;color:${scoreColor};">${score.toFixed(2)}</span>
-    </div>`;
-  }
-
-  // ── Tentative claims ──────────────────────────────────────
-  const tentative = ctx.tentative_claims || [];
-  html += `<div class="card" style="margin-bottom:var(--space-md);">
-    <h3 style="font-size:var(--font-size-base);font-weight:600;margin:0 0 var(--space-sm);">Tentative Claims (${tentative.length})</h3>`;
-  if (tentative.length) {
-    html += `<table><thead><tr><th>Claim ID</th><th>Inference</th><th>Confidence</th><th>Confounders</th></tr></thead><tbody>`;
-    tentative.forEach(c => {
-      const conf = typeof c.confidence === 'number' ? c.confidence : 0;
-      const pct = Math.round(conf * 100);
-      const barColor = confidenceColor(conf);
-      const confounders = (c.unresolved_confounders || []).join('; ') || '—';
-      html += `<tr>
-        <td><code>${esc(truncate(c.claim_id || '', 20))}</code></td>
-        <td><span class="badge badge-gray">${esc(c.inference_level || 'L0')}</span></td>
-        <td style="min-width:120px;">
-          <div style="display:flex;align-items:center;gap:var(--space-xs);">
-            <div class="progress-bar" style="flex:1;"><div class="fill ${barColor}" style="width:${pct}%"></div></div>
-            <span style="font-size:var(--font-size-xs);font-weight:600;min-width:30px;">${conf.toFixed(2)}</span>
-          </div>
-        </td>
-        <td style="font-size:var(--font-size-xs);color:var(--color-text-muted);">${esc(truncate(confounders, 80))}</td>
-      </tr>`;
-    });
-    html += '</tbody></table>';
-  } else {
-    html += '<p class="empty">No tentative claims.</p>';
-  }
-  html += '</div>';
-
-  // ── Evidence gaps ─────────────────────────────────────────
-  const gaps = ctx.evidence_gaps || [];
-  html += `<div class="card" style="margin-bottom:var(--space-md);">
-    <h3 style="font-size:var(--font-size-base);font-weight:600;margin:0 0 var(--space-sm);">Evidence Gaps (${gaps.length})</h3>`;
-  if (gaps.length) {
-    gaps.forEach(g => {
-      const claimsNote = g.affected_claims && g.affected_claims.length
-        ? `${g.affected_claims.length} claim${g.affected_claims.length > 1 ? 's' : ''}` : '';
-      html += `<div class="gap-row">
-        <div class="gap-title"><code>${esc(g.gap_key || '')}</code>${claimsNote ? ` &nbsp;<span class="badge badge-gray">${esc(claimsNote)}</span>` : ''}</div>
-        <div class="gap-meta">${esc(g.text || '')}</div>
-        ${g.suggested_validation ? `<div class="gap-meta" style="color:var(--color-primary);">Next step: ${esc(g.suggested_validation)}</div>` : ''}
-      </div>`;
-    });
-  } else {
-    html += '<p class="empty">No evidence gaps.</p>';
-  }
-  html += '</div>';
-
-  // ── Available step types ──────────────────────────────────
-  const stepTypes = ctx.available_step_types || [];
-  if (stepTypes.length) {
-    html += `<div class="card" style="margin-bottom:0;">
-      <h3 style="font-size:var(--font-size-base);font-weight:600;margin:0 0 var(--space-sm);">Available Step Types</h3>
-      <div style="display:flex;flex-wrap:wrap;gap:var(--space-xs);">
-        ${stepTypes.map(t => `<span class="badge badge-gray">${esc(t)}</span>`).join('')}
-      </div>
-    </div>`;
-  }
-
-  area.innerHTML = html;
 }
 
 // ════════════════════════════════════════════════════════════
@@ -1383,7 +1250,7 @@ async function loadPlans(sessionId) {
 }
 
 function openDraftPlanModal(sessionId) {
-  const stepTypes = ['metric_query', 'profile_table', 'sample_rows', 'aggregate_query', 'attribute_change', 'correlate_metrics', 'synthesize_findings'];
+  const stepTypes = ['metric_query', 'profile_table', 'sample_rows', 'aggregate_query', 'attribute_change'];
   const stepOpts = stepTypes.map(t => `<option value="${t}">${t}</option>`).join('');
   const draftSteps = [];
 

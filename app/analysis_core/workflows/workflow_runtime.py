@@ -4,7 +4,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from app.analysis_core.composites import CompositeWorkflowSpec
-from app.analysis_core.ir import AnalysisStepIR, from_legacy_step
+from app.analysis_core.ir import AnalysisStepIR, step_ir_from_mapping
 from app.analysis_core.workflows.catalog import WORKFLOW_SPECS
 
 
@@ -33,7 +33,7 @@ class CompositeWorkflowRuntime:
         steps: list[AnalysisStepIR] = []
         for index, template in enumerate(spec.steps):
             rendered_params = _render_mapping(template.params, context)
-            step = from_legacy_step(
+            step = step_ir_from_mapping(
                 index,
                 {
                     "step_type": template.step_type,
@@ -63,7 +63,7 @@ class CompositeWorkflowRuntime:
         if isinstance(step, AnalysisStepIR):
             step.index = index
             return step
-        return from_legacy_step(index, step)
+        return step_ir_from_mapping(index, step)
 
     def materialize_runtime_steps(
         self,

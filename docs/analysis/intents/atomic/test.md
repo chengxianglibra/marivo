@@ -424,7 +424,7 @@ type HypothesisTestArtifact = {
 
 - `validate` 可以展开为 `observe -> observe -> test`
 - `test` 只能消费 inferential-ready 的 `observe` 工件
-- `synthesize_findings` 可以引用 `test` 结果作为结构化证据，但不能把它当作因果证明
+- canonical evidence pipeline 可以引用 `test` 结果作为结构化证据，但不能把它当作因果证明
 
 ## Artifact 与 Projection
 

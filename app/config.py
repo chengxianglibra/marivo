@@ -67,10 +67,6 @@ class ObservabilityConfig(BaseModel):
     metrics_enabled: bool = True
 
 
-class ReflectionConfig(BaseModel):
-    enabled: bool = True
-
-
 class FactumConfig(BaseModel):
     sources: list[SourceConfig] = Field(default_factory=list)
     engines: list[EngineConfig] = Field(default_factory=list)
@@ -78,7 +74,6 @@ class FactumConfig(BaseModel):
     ui: UIConfig = Field(default_factory=UIConfig)
     governance: GovernanceConfig = Field(default_factory=GovernanceConfig)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
-    reflection: ReflectionConfig = Field(default_factory=ReflectionConfig)
 
 
 # Backward-compatible alias

@@ -48,7 +48,11 @@ class CompositeWorkflowRuntimeTests(unittest.TestCase):
                                 "table_name": "analytics.watch_events",
                             },
                         ),
-                        CompositeStepTemplate("synthesize_findings", dependencies=[0]),
+                        CompositeStepTemplate(
+                            "sample_rows",
+                            params={"table_name": "analytics.watch_events", "limit": 5},
+                            dependencies=[0],
+                        ),
                     ],
                 )
             }
@@ -58,7 +62,7 @@ class CompositeWorkflowRuntimeTests(unittest.TestCase):
 
         self.assertEqual(
             [step.step_type for step in steps],
-            ["metric_query", "synthesize_findings"],
+            ["metric_query", "sample_rows"],
         )
         self.assertEqual(steps[-1].dependencies, [0])
 

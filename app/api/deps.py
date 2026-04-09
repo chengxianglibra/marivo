@@ -45,7 +45,6 @@ class AppServices:
     catalog_runtime: CatalogRuntimeService
     admin_enabled: bool
     user_enabled: bool
-    reflection_enabled: bool
     static_dir: Path
 
 

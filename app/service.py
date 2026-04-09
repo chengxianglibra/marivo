@@ -17,7 +17,7 @@ from app.analysis_core import (
 from app.analysis_core.compiler import CompiledQuery, compile_step
 from app.analysis_core.compiler import build_metric_query as compile_metric_query
 from app.analysis_core.executor import execute_compiled
-from app.analysis_core.ir import AnalysisStepIR, from_legacy_step
+from app.analysis_core.ir import AnalysisStepIR
 from app.evidence_engine.canonical_finding import StepRef
 from app.evidence_engine.canonical_pipeline_runtime import run_canonical_downstream
 from app.evidence_engine.finding_extractor_registry import (
@@ -1413,10 +1413,7 @@ class SemanticLayerService:
                 compiler_params["date_value"] = params["period_end"]
 
         compiled_query = self._compile_step_with_feedback(
-            from_legacy_step(
-                0,
-                {"step_type": step_type, "params": compiler_params},
-            ),
+            AnalysisStepIR(index=0, step_type=step_type, params=compiler_params),
             engine_type=engine_type,
         )
         rows = execute_compiled(engine, compiled_query).rows
@@ -1635,19 +1632,17 @@ class SemanticLayerService:
 
         for dimension in candidate_dimensions:
             select_exprs = [dimension, f"{metric_sql} AS metric_value"]
-            step_ir = from_legacy_step(
-                0,
-                {
-                    "step_type": "aggregate_query",
-                    "params": {
-                        "table_name": qualified_table,
-                        "select": select_exprs,
-                        "group_by": [dimension],
-                        "compare_period": True,
-                        "date_column": date_column,
-                        "limit": query_limit,
-                        **({"where": merged_where} if merged_where else {}),
-                    },
+            step_ir = AnalysisStepIR(
+                index=0,
+                step_type="aggregate_query",
+                params={
+                    "table_name": qualified_table,
+                    "select": select_exprs,
+                    "group_by": [dimension],
+                    "compare_period": True,
+                    "date_column": date_column,
+                    "limit": query_limit,
+                    **({"where": merged_where} if merged_where else {}),
                 },
             )
             compiled_query = self._compile_step_with_feedback(
@@ -1817,19 +1812,6 @@ class SemanticLayerService:
         if isinstance(content, list):
             return [dict(r) for r in content]
         return [dict(content)]
-
-    def _run_correlate_metrics(self, session_id: str, params: dict[str, Any]) -> dict[str, Any]:
-        """Removed in Phase 6. Use POST /intents/correlate instead."""
-        raise NotImplementedError(
-            "correlate_metrics step removed in Phase 6. Use POST /sessions/{id}/intents/correlate."
-        )
-
-    def _run_synthesis(self, session_id: str) -> dict[str, Any]:
-        """Removed in Phase 6. synthesize_findings is a legacy step type."""
-        raise NotImplementedError(
-            "synthesize_findings step removed in Phase 6. "
-            "The canonical pipeline (artifact→finding→proposition→assessment) replaces it."
-        )
 
     def _resolve_entity_for_metric(self, metric_name: str) -> dict[str, Any] | None:
         """Return the published entity linked to the given metric name, or None."""

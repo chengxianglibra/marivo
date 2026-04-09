@@ -178,7 +178,7 @@ Error behavior is fixed as follows:
 - unsupported projection-style query parameters such as `include_findings`, `profile`, `limit`, or `page_token` return `400`
 - unresolved seed hydration does not return `404`; it is represented as `seed_entries[*].finding = null`
 
-## Relationship To Session State And `reflection-context`
+## Relationship To Session State
 
 This document defines the proposition-level canonical read surface only.
 
@@ -186,8 +186,6 @@ For the session-level decision surface, use [`session-state.md`](session-state.m
 
 - `GET /sessions/{session_id}/state`
 - `POST /sessions/{session_id}/state/query`
-
-`GET /sessions/{session_id}/reflection-context` remains a legacy compact summary endpoint only. It is not equivalent to `PropositionContextView`, and new canonical context fields must not be added there instead of this endpoint.
 
 If a caller needs runtime progress or failure detail for the proposition publish path, that belongs to a separate operator-facing runtime status surface rather than this endpoint.
 

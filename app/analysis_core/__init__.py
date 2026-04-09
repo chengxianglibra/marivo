@@ -13,8 +13,8 @@ from app.analysis_core.ir import (
     ResolvedMetricIR,
     SemanticIntent,
     SemanticResolutionIR,
-    from_legacy_step,
-    request_from_legacy_session,
+    request_from_session_payload,
+    step_ir_from_mapping,
 )
 from app.analysis_core.primitives import (
     ATOMIC_INTENT_TYPES,
@@ -64,7 +64,7 @@ __all__ = [
     "StepRunnerRegistry",
     "build_primitive_step_registry",
     "build_service_step_registry",
-    "from_legacy_step",
-    "request_from_legacy_session",
+    "request_from_session_payload",
     "step_category_for",
+    "step_ir_from_mapping",
 ]

@@ -60,8 +60,6 @@ Fields that store structured data are represented as JSON objects in responses. 
 | Resource | Status values |
 |----------|---------------|
 | Session | `open`, `closed`, `aborted` |
-| Plan | `draft` → `validated` → `approved` → `executing` → `completed` / `failed` |
-| Claim | `tentative` → `confirmed` / `insufficient` (promoted by `synthesize_findings`) |
 | Semantic entity / metric | `draft` → `published` → `deprecated` |
 | Job | `pending` → `running` → `completed` / `failed` / `cancelled` |
 | Approval request | `pending` → `approved` / `rejected` |
@@ -72,11 +70,10 @@ Fields that store structured data are represented as JSON objects in responses. 
 | Domain | Path prefix | Description |
 |--------|-------------|-------------|
 | [Session Lifecycle](session-lifecycle.md) | `/sessions` | Session root lifecycle: create, read, list, patch, terminate, and rollover |
-| [Intent Step Submission](intent-steps.md) | `/sessions/{id}/steps/*` | Target-state per-intent step submission for atomic and derived analysis intents |
+| [Intent Step Submission](intent-steps.md) | `/sessions/{id}/intents/*` | Target-state per-intent step submission for atomic and derived analysis intents |
 | [Session State Surface](session-state.md) | `/sessions/{id}/state` | Canonical session-level decision surface |
 | [Context Surface](context-surface.md) | `/sessions/{id}/propositions/{pid}/context` | Canonical proposition-level minimal closure |
 | [Runtime Status Surface](runtime-status.md) | `/sessions/{id}/**/runtime-status` | Operator-facing runtime stage, attempt, failure, and backlog status |
-| [Planning](planning.md) | `/sessions/{id}/plans` | Multi-step analysis plans with validation and execution |
 | [Sources](sources.md) | `/sources` | Data source registration and catalog sync |
 | [Engines & Bindings](engines.md) | `/engines`, `/bindings` | Analytics engine registration and source-engine routing |
 | [Semantic Layer](semantic.md) | `/semantic` | Typed semantic objects, typed bindings, runtime catalog resolve, and compiler profiles |
