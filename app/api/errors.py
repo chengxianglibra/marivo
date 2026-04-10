@@ -104,6 +104,241 @@ _GUIDED_EXAMPLES: dict[tuple[str, str], dict[str, Any]] = {
             },
         },
     },
+    (
+        "POST",
+        "/semantic/time",
+    ): {
+        "summary": "Minimal time semantic create payload",
+        "payload": {
+            "header": {
+                "time_ref": "time.signup_time",
+                "display_name": "Signup Time",
+                "semantic_roles": ["business_anchor"],
+                "time_contract_version": "time.v1",
+            }
+        },
+    },
+    (
+        "PUT",
+        "/semantic/time/{time_contract_id}",
+    ): {
+        "summary": "Minimal time semantic update payload",
+        "payload": {
+            "display_name": "User Signup Time",
+            "semantic_roles": ["business_anchor", "measurement"],
+        },
+    },
+    (
+        "POST",
+        "/semantic/dimensions",
+    ): {
+        "summary": "Minimal dimension create payload",
+        "payload": {
+            "header": {
+                "dimension_ref": "dimension.country",
+                "display_name": "Country",
+                "dimension_contract_version": "dimension.v1",
+            },
+            "interface_contract": {
+                "value_domain": {
+                    "structure_kind": "flat",
+                    "value_type": "string",
+                    "domain_kind": "open",
+                }
+            },
+        },
+    },
+    (
+        "PUT",
+        "/semantic/dimensions/{dimension_contract_id}",
+    ): {
+        "summary": "Minimal dimension update payload",
+        "payload": {
+            "display_name": "Country",
+            "interface_contract": {
+                "value_domain": {
+                    "structure_kind": "flat",
+                    "value_type": "string",
+                    "domain_kind": "open",
+                }
+            },
+        },
+    },
+    (
+        "POST",
+        "/semantic/enum-sets",
+    ): {
+        "summary": "Minimal enum set create payload",
+        "payload": {
+            "header": {
+                "enum_set_ref": "enum.country_code",
+                "value_type": "string",
+            },
+            "display_name": "Country Code",
+            "description": "ISO country code values",
+            "versions": [
+                {
+                    "enum_version": "v1",
+                    "values": [
+                        {"value_key": "CN", "raw_value": "CN", "label": "China"},
+                    ],
+                }
+            ],
+        },
+    },
+    (
+        "PUT",
+        "/semantic/enum-sets/{enum_set_contract_id}",
+    ): {
+        "summary": "Minimal enum set update payload",
+        "payload": {
+            "display_name": "Country Code",
+            "versions": [
+                {
+                    "enum_version": "v2",
+                    "values": [
+                        {"value_key": "CN", "raw_value": "CN", "label": "China"},
+                    ],
+                }
+            ],
+        },
+    },
+    (
+        "POST",
+        "/semantic/process-objects",
+    ): {
+        "summary": "Minimal process object create payload",
+        "payload": {
+            "header": {
+                "process_ref": "process.signup_cohort",
+                "display_name": "Signup Cohort",
+                "process_type": "cohort_definition",
+                "process_contract_version": "process.v1",
+            },
+            "interface_contract": {
+                "contract_mode": "context_provider",
+                "context_kind": "cohort_membership",
+                "population_subject_ref": "subject.user",
+                "membership_cardinality": "exclusive_one",
+            },
+            "payload": {
+                "process_type": "cohort_definition",
+                "cohort_key": "signup_cohort",
+                "entry_population": {"base_population_ref": "population.user"},
+                "cohort_anchor_ref": "time.signup_time",
+            },
+        },
+    },
+    (
+        "PUT",
+        "/semantic/process-objects/{process_contract_id}",
+    ): {
+        "summary": "Minimal process object update payload",
+        "payload": {
+            "display_name": "Signup Cohort",
+            "payload": {
+                "process_type": "cohort_definition",
+                "cohort_key": "signup_cohort",
+                "entry_population": {"base_population_ref": "population.user"},
+                "cohort_anchor_ref": "time.signup_time",
+            },
+        },
+    },
+    (
+        "POST",
+        "/semantic/bindings",
+    ): {
+        "summary": "Minimal typed binding create payload",
+        "payload": {
+            "header": {
+                "binding_ref": "binding.user_identity",
+                "display_name": "User Identity Binding",
+                "binding_scope": "entity",
+                "bound_object_ref": "entity.user",
+                "binding_contract_version": "binding.v1",
+            },
+            "interface_contract": {
+                "carrier_bindings": [
+                    {
+                        "binding_key": "users",
+                        "carrier_kind": "table",
+                        "carrier_locator": "analytics.users",
+                        "binding_role": "primary",
+                    }
+                ],
+                "field_bindings": [
+                    {
+                        "carrier_binding_key": "users",
+                        "target": {
+                            "target_kind": "identity_key",
+                            "target_key": "key.user_id",
+                        },
+                        "semantic_ref": "key.user_id",
+                        "surface_ref": "field.user_id",
+                    }
+                ],
+            },
+        },
+    },
+    (
+        "PUT",
+        "/semantic/bindings/{binding_id}",
+    ): {
+        "summary": "Minimal typed binding update payload",
+        "payload": {
+            "display_name": "User Identity Binding",
+            "interface_contract": {
+                "carrier_bindings": [
+                    {
+                        "binding_key": "users",
+                        "carrier_kind": "table",
+                        "carrier_locator": "analytics.users",
+                        "binding_role": "primary",
+                    }
+                ],
+                "field_bindings": [
+                    {
+                        "carrier_binding_key": "users",
+                        "target": {
+                            "target_kind": "identity_key",
+                            "target_key": "key.user_id",
+                        },
+                        "semantic_ref": "key.user_id",
+                        "surface_ref": "field.user_id",
+                    }
+                ],
+            },
+        },
+    },
+    (
+        "POST",
+        "/compiler/compatibility-profiles",
+    ): {
+        "summary": "Minimal compatibility profile create payload",
+        "payload": {
+            "profile_ref": "compiler_profile.metric_requires_signup_cohort",
+            "profile_kind": "requirement",
+            "schema_version": "v1",
+            "subject_kind": "metric",
+            "subject_ref": "metric.signup_rate",
+            "requirement": {
+                "contract_modes": ["context_provider"],
+                "context_kinds": ["cohort_membership"],
+            },
+        },
+    },
+    (
+        "PUT",
+        "/compiler/compatibility-profiles/{profile_id}",
+    ): {
+        "summary": "Minimal compatibility profile update payload",
+        "payload": {
+            "requirement": {
+                "contract_modes": ["context_provider"],
+                "context_kinds": ["cohort_membership"],
+            }
+        },
+    },
 }
 
 _SCHEMA_NAME_BY_ROUTE: dict[tuple[str, str], str] = {
@@ -111,6 +346,18 @@ _SCHEMA_NAME_BY_ROUTE: dict[tuple[str, str], str] = {
     ("PUT", "/semantic/entities/{entity_id}"): "TypedEntityUpdateRequest",
     ("POST", "/semantic/metrics"): "TypedMetricCreateRequest",
     ("PUT", "/semantic/metrics/{metric_id}"): "TypedMetricUpdateRequest",
+    ("POST", "/semantic/time"): "TimeCreateRequest",
+    ("PUT", "/semantic/time/{time_contract_id}"): "TimeUpdateRequest",
+    ("POST", "/semantic/dimensions"): "DimensionCreateRequest",
+    ("PUT", "/semantic/dimensions/{dimension_contract_id}"): "DimensionUpdateRequest",
+    ("POST", "/semantic/enum-sets"): "EnumSetCreateRequest",
+    ("PUT", "/semantic/enum-sets/{enum_set_contract_id}"): "EnumSetUpdateRequest",
+    ("POST", "/semantic/process-objects"): "ProcessObjectCreateRequest",
+    ("PUT", "/semantic/process-objects/{process_contract_id}"): "ProcessObjectUpdateRequest",
+    ("POST", "/semantic/bindings"): "TypedBindingCreateRequest",
+    ("PUT", "/semantic/bindings/{binding_id}"): "TypedBindingUpdateRequest",
+    ("POST", "/compiler/compatibility-profiles"): "CompatibilityProfileCreateRequest",
+    ("PUT", "/compiler/compatibility-profiles/{profile_id}"): "CompatibilityProfileUpdateRequest",
 }
 
 
