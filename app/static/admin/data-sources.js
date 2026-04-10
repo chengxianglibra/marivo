@@ -696,6 +696,7 @@ export function createDataSourcesModule(ctx) {
 
     let schemas = [];
     let currentSchema = '';
+    let tableRequestVersion = 0;
 
     const renderModalState = async (schemaName) => {
       currentSchema = schemaName || schemas[0]?.name || '';
@@ -708,11 +709,13 @@ export function createDataSourcesModule(ctx) {
         if (checklist) checklist.innerHTML = renderEmptyState('No schema available from the live catalog for this source.');
         return;
       }
+      const requestVersion = ++tableRequestVersion;
       if (checklist) checklist.innerHTML = renderLoadingState('Loading live tables...');
       try {
         const tables = extractItems(await ctx.adminApi.listCatalogTables(sourceId, currentSchema));
+        if (requestVersion !== tableRequestVersion) return;
         if (checklist) checklist.innerHTML = renderSelectionChecklist(currentSchema, tables, selectedKeys);
-        overlay.querySelectorAll('[data-role="table-checkbox"]').forEach((input) => {
+        checklist?.querySelectorAll('[data-role="table-checkbox"]').forEach((input) => {
           input.addEventListener('change', (event) => {
             const tableKey = sourceSelectionKey(
               event.currentTarget.dataset.schemaName || '',
@@ -726,6 +729,7 @@ export function createDataSourcesModule(ctx) {
           });
         });
       } catch (error) {
+        if (requestVersion !== tableRequestVersion) return;
         if (checklist) checklist.innerHTML = renderStructuredError(error, 'Catalog tables unavailable.');
       }
     };

@@ -175,17 +175,27 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
 
     @patch("app.adapters.trino_adapter.TrinoCatalogAdapter._query")
     def test_list_tables(self, mock_query) -> None:
-        # Single JOIN query returns table_name, table_type, column_count
-        mock_query.return_value = [
-            {"table_name": "events", "table_type": "TABLE", "column_count": 5},
-            {"table_name": "users", "table_type": "VIEW", "column_count": 3},
+        mock_query.side_effect = [
+            [{"Table": "events"}, {"Table": "users"}],
+            [
+                {"table_name": "events", "column_count": 5},
+                {"table_name": "users", "column_count": 3},
+            ],
         ]
         tables = self.adapter.list_tables("analytics")
         self.assertEqual(len(tables), 2)
         self.assertEqual(tables[0].native_name, "events")
-        self.assertEqual(tables[0].properties["table_type"], "TABLE")
+        self.assertEqual(tables[0].properties["table_type"], "BASE TABLE")
         self.assertEqual(tables[0].properties["column_count"], 5)
         self.assertEqual(tables[1].native_name, "users")
+        self.assertEqual(tables[1].properties["column_count"], 3)
+
+    @patch("app.adapters.trino_adapter.TrinoCatalogAdapter._query")
+    def test_list_tables_empty_schema(self, mock_query) -> None:
+        mock_query.return_value = []
+        tables = self.adapter.list_tables("missing_schema")
+        self.assertEqual(tables, [])
+        self.assertEqual(mock_query.call_count, 1)
 
     @patch("app.adapters.trino_adapter.TrinoCatalogAdapter._query")
     def test_get_table_detail(self, mock_query) -> None:

@@ -83,6 +83,9 @@ class TrinoCatalogAdapter(CatalogAdapter):
         finally:
             conn.close()
 
+    def _quote_identifier(self, identifier: str) -> str:
+        return '"' + identifier.replace('"', '""') + '"'
+
     def source_type(self) -> str:
         return "trino"
 
@@ -150,30 +153,32 @@ class TrinoCatalogAdapter(CatalogAdapter):
         ]
 
     def list_tables(self, schema_name: str) -> list[PhysicalObject]:
-        rows = self._query(
-            "SELECT t.table_name, t.table_type, COUNT(c.column_name) AS column_count "
-            "FROM information_schema.tables t "
-            "LEFT JOIN information_schema.columns c "
-            "  ON c.table_catalog = t.table_catalog "
-            " AND c.table_schema  = t.table_schema "
-            " AND c.table_name    = t.table_name "
-            "WHERE t.table_catalog = ? AND t.table_schema = ? "
-            "GROUP BY t.table_name, t.table_type "
-            "ORDER BY t.table_name",
+        table_rows = self._query(f"SHOW TABLES FROM {self._quote_identifier(schema_name)}")
+        if not table_rows:
+            return []
+
+        column_rows = self._query(
+            "SELECT table_name, COUNT(column_name) AS column_count "
+            "FROM information_schema.columns "
+            "WHERE table_catalog = ? AND table_schema = ? "
+            "GROUP BY table_name",
             [self._catalog, schema_name],
         )
+        column_counts = {
+            str(row["table_name"]): int(row.get("column_count", 0) or 0) for row in column_rows
+        }
         return [
             PhysicalObject(
-                native_name=r["table_name"],
+                native_name=str(r["Table"]),
                 native_id=None,
                 object_type="table",
                 parent_path=schema_name,
                 properties={
-                    "table_type": r.get("table_type", ""),
-                    "column_count": r.get("column_count", 0),
+                    "table_type": "BASE TABLE",
+                    "column_count": column_counts.get(str(r["Table"]), 0),
                 },
             )
-            for r in rows
+            for r in table_rows
         ]
 
     def _get_column_comments(self, schema_name: str, table_name: str) -> dict[str, str]:
