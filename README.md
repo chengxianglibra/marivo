@@ -95,6 +95,9 @@ curl -s http://127.0.0.1:8000/sessions/<id>/evidence | python3 -m json.tool
 HTTP → FastAPI → Services → Analysis Core + Evidence Engine + Storage
 ```
 
+An external MCP adapter scaffold now lives in `factum-mcp/`. It is a separate
+subproject and does not change Factum's HTTP-only product boundary.
+
 - **Services**: SemanticLayerService, SourceService, EngineService, BindingService, QueryRouter, SemanticService, GovernanceService, JobService
 - **Analysis core**: IR, compiler, executor, primitives, composites
 - **Evidence engine**: extractors, synthesizers, causal checkers, readiness
