@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING, Any
 
 from app.analysis_core import SUPPORTED_STEP_TYPES
@@ -112,6 +113,25 @@ class CatalogRuntimeService:
             results.extend(self._asset_search_row_to_summary(row) for row in rows)
 
         return results
+
+    def get_catalog_object_detail(self, object_kind: str, object_id: str) -> dict[str, Any]:
+        normalized_kind = self._normalize_object_type_filter(object_kind)
+        if normalized_kind is None:
+            raise KeyError(f"Unsupported catalog object kind: {object_kind}")
+        if normalized_kind == "asset":
+            return self._asset_object_detail(object_id)
+
+        config = _SEARCH_CONFIG[normalized_kind]
+        row = self.metadata.query_one(
+            f"SELECT {config['ref_column']} AS ref FROM {config['table']} WHERE {config['id_column']} = ?",
+            [object_id],
+        )
+        if row is None:
+            raise KeyError(f"Catalog object {object_id!r} not found for kind {normalized_kind!r}")
+        resolved = self.semantic_repository.resolve_ref(str(row["ref"]))
+        detail = self._resolved_object_to_detail(resolved)
+        detail["detail_path"] = self._catalog_detail_path(normalized_kind, object_id)
+        return detail
 
     def resolve(self, name: str) -> dict[str, Any]:
         normalized_name = name.strip()
@@ -232,9 +252,10 @@ class CatalogRuntimeService:
         self, object_kind: str, row: dict[str, Any]
     ) -> dict[str, Any]:
         ref = str(row["ref"])
+        object_id = str(row["object_id"])
         return {
             "object_kind": object_kind,
-            "object_id": str(row["object_id"]),
+            "object_id": object_id,
             "ref": ref,
             "name": ref.split(".", 1)[1] if "." in ref else ref,
             "display_name": row["display_name"],
@@ -244,20 +265,26 @@ class CatalogRuntimeService:
             "revision": row["revision"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
+            "detail_path": self._catalog_detail_path(object_kind, object_id),
+            "resolve_path": f"/semantic/resolve/{ref}",
         }
 
     def _asset_search_row_to_summary(self, row: dict[str, Any]) -> dict[str, Any]:
+        object_id = str(row["object_id"])
+        source_id = str(row["source_id"])
         return {
             "object_kind": "asset",
-            "object_id": str(row["object_id"]),
+            "object_id": object_id,
             "ref": str(row["fqn"]),
             "name": row["native_name"],
             "display_name": row["native_name"],
             "description": None,
             "status": "synced",
             "object_type": row["object_type"],
-            "source_id": row["source_id"],
+            "source_id": source_id,
             "synced_at": row["synced_at"],
+            "detail_path": self._catalog_detail_path("asset", object_id),
+            "source_object_path": f"/sources/{source_id}/objects/{object_id}",
         }
 
     def _resolved_object_to_detail(self, resolved: Any) -> dict[str, Any]:
@@ -271,6 +298,39 @@ class CatalogRuntimeService:
             "created_at": resolved.created_at,
             "updated_at": resolved.updated_at,
         }
+
+    def _asset_object_detail(self, object_id: str) -> dict[str, Any]:
+        row = self.metadata.query_one(
+            "SELECT * FROM source_objects WHERE object_id = ?", [object_id]
+        )
+        if row is None:
+            raise KeyError(f"Catalog asset {object_id!r} not found")
+        source_object = self._source_object_row_to_detail(row)
+        return {
+            "object_kind": "asset",
+            "object_id": source_object["object_id"],
+            "ref": source_object["fqn"],
+            "source_object": source_object,
+            "detail_path": self._catalog_detail_path("asset", object_id),
+        }
+
+    def _source_object_row_to_detail(self, row: dict[str, Any]) -> dict[str, Any]:
+        properties = row["properties_json"]
+        return {
+            "object_id": str(row["object_id"]),
+            "source_id": str(row["source_id"]),
+            "object_type": str(row["object_type"]),
+            "parent_id": str(row["parent_id"]) if row["parent_id"] is not None else None,
+            "native_name": str(row["native_name"]),
+            "native_id": str(row["native_id"]) if row["native_id"] is not None else None,
+            "fqn": str(row["fqn"]),
+            "properties": {} if properties in (None, "") else json.loads(properties),
+            "sync_version": str(row["sync_version"]) if row["sync_version"] is not None else None,
+            "synced_at": str(row["synced_at"]) if row["synced_at"] is not None else None,
+        }
+
+    def _catalog_detail_path(self, object_kind: str, object_id: str) -> str:
+        return f"/catalog/objects/{object_kind}/{object_id}"
 
     def _identify_node(self, node_id: str) -> dict[str, Any] | None:
         row = self.metadata.query_one(

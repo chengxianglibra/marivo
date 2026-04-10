@@ -2,11 +2,21 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import cast
 
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
+from starlette.requests import Request
+from starlette.responses import Response
 
 from app.api.deps import AppServices
+from app.api.errors import (
+    GuidedValidationError,
+    guided_validation_exception_handler,
+    request_validation_exception_handler,
+)
 from app.api.router import include_api_routers
 from app.approvals import ApprovalService
 from app.bindings import BindingService
@@ -300,6 +310,20 @@ def create_app(
     )
     app = FastAPI(title="Factum Semantic Layer", version="0.2.0")
     _attach_state(app, services)
+    app.add_exception_handler(
+        RequestValidationError,
+        cast(
+            "Callable[[Request, Exception], Response | Awaitable[Response]]",
+            request_validation_exception_handler,
+        ),
+    )
+    app.add_exception_handler(
+        GuidedValidationError,
+        cast(
+            "Callable[[Request, Exception], Response | Awaitable[Response]]",
+            guided_validation_exception_handler,
+        ),
+    )
     app.add_middleware(TimingMiddleware)
     include_api_routers(app)
     register_ui(

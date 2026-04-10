@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.api.deps import get_services
+from app.api.models import CatalogObjectDetail, CatalogSearchResult
 from app.semantic_runtime import (
     SemanticRuntimeInvalidRefError,
     SemanticRuntimeNotFoundError,
@@ -12,7 +13,7 @@ from app.semantic_runtime import (
 router = APIRouter()
 
 
-@router.get("/catalog/search")
+@router.get("/catalog/search", response_model=list[CatalogSearchResult])
 def catalog_search(
     request: Request,
     q: str = Query(..., min_length=1),
@@ -20,6 +21,26 @@ def catalog_search(
 ) -> list[dict[str, object]]:
     try:
         return get_services(request).catalog_runtime.search(q, object_type=type)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@router.get("/catalog/objects/{object_kind}/{object_id}", response_model=CatalogObjectDetail)
+def get_catalog_object_detail(
+    object_kind: str, object_id: str, request: Request
+) -> dict[str, object]:
+    try:
+        return get_services(request).catalog_runtime.get_catalog_object_detail(
+            object_kind, object_id
+        )
+    except (
+        SemanticRuntimeInvalidRefError,
+        SemanticRuntimeNotFoundError,
+        SemanticRuntimeUnpublishedError,
+    ) as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 

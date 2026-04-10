@@ -196,6 +196,14 @@ Validation notes:
   - referenced `time.*` / `dimension.*` dependencies are already `published`
   - each carrier resolves to a synced `source_object` via `source_object_ref` or `carrier_locator`
 
+OpenAPI notes:
+
+- `POST /semantic/entities` and `PUT /semantic/entities/{entity_id}` publish explicit typed
+  request schemas in `components/schemas`.
+- `GET /openapi/schemas/TypedEntityCreateRequest` returns the canonical create-body fragment.
+- Validation failures now keep the legacy `detail` array and add guided `error` / `guidance`
+  fields with contract links and minimal payload examples.
+
 List responses are always wrapped:
 
 ```json
@@ -652,6 +660,25 @@ Runtime catalog discovery exposes only `published` typed semantic contracts.
   - `revision`
   - `created_at`
   - `updated_at`
+  - `detail_path`
+  - `resolve_path`
+- Asset results additionally expose:
+  - `source_id`
+  - `object_type`
+  - `synced_at`
+  - `source_object_path`
+
+`GET /catalog/objects/{object_kind}/{object_id}`
+
+- Canonical follow-up detail read for catalog search results
+- Semantic object kinds return the same typed detail envelope shape used by runtime resolution
+- `asset` returns:
+  - `object_kind`
+  - `object_id`
+  - `ref`
+  - `source_object`
+- `source_object` matches the synced source-object detail from
+  `GET /sources/{source_id}/objects/{object_id}`
 
 `GET /semantic/resolve/{name}`
 
@@ -694,3 +721,12 @@ consumers recover semantic meaning from typed step metadata and compiler snapsho
 - `422`: request validation failed or service rejected the request as invalid
 
 Validation errors use FastAPI/Pydantic `detail` arrays. Service-level validation errors use string `detail` values.
+
+Request-body validation errors may additionally include:
+
+- `error.code = request_validation_error`
+- `error.message`
+- `guidance.docs_url`
+- `guidance.contract_url`
+- `guidance.schema_url` when the endpoint has a dedicated request schema
+- `guidance.examples` with minimal valid payloads for typed semantic create/update routes

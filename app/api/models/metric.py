@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .base import (
     Additivity,
@@ -304,6 +304,34 @@ _FAMILY_VALUE_SEMANTICS_MAP: dict[MetricFamily, ValueSemantics] = {
 class TypedMetricCreateRequest(BaseModel):
     """Request to create a new typed metric."""
 
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "header": {
+                        "metric_ref": "metric.dau",
+                        "display_name": "DAU",
+                        "metric_family": "count_metric",
+                        "observed_entity_ref": "entity.user",
+                        "observation_grain_ref": "grain.user",
+                        "sample_kind": "numeric",
+                        "value_semantics": "count",
+                        "additivity": "additive",
+                        "metric_contract_version": "metric.v1",
+                    },
+                    "payload": {
+                        "metric_family": "count_metric",
+                        "count_target": {
+                            "name": "active_users",
+                            "semantics": "distinct active users",
+                            "aggregation": "count_distinct",
+                        },
+                    },
+                }
+            ]
+        }
+    )
+
     header: MetricHeader = Field(description="Metric header.")
     payload: MetricPayload = Field(description="Family-specific payload.")
 
@@ -335,6 +363,24 @@ class TypedMetricUpdateRequest(BaseModel):
 
     All fields are optional; only provided fields will be updated.
     """
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "display_name": "Daily Active Users",
+                    "payload": {
+                        "metric_family": "count_metric",
+                        "count_target": {
+                            "name": "active_users",
+                            "semantics": "distinct active users",
+                            "aggregation": "count_distinct",
+                        },
+                    },
+                }
+            ]
+        }
+    )
 
     display_name: str | None = Field(default=None, description="New display name.")
     description: str | None = Field(default=None, description="New description.")
