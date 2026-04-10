@@ -222,6 +222,64 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertIn("source-form-modal", resp.text)
         self.assertIn("selection-modal", resp.text)
 
+    def test_admin_execution_engines_declares_t5_inventory_detail_and_mutation_contracts(
+        self,
+    ) -> None:
+        resp = self.client.get("/admin?tab=execution-engines")
+        self.assertIn("Engine Inventory", resp.text)
+        self.assertIn("Binding Inventory", resp.text)
+        self.assertIn("Engine Summary", resp.text)
+        self.assertIn("Binding Summary", resp.text)
+        self.assertIn("Source-engine Relationship", resp.text)
+        self.assertIn("Execution Binding Contract", resp.text)
+        self.assertIn("Create Engine", resp.text)
+        self.assertIn("Create Binding", resp.text)
+        self.assertIn("Delete Binding", resp.text)
+        self.assertIn("engine_id", resp.text)
+        self.assertIn("display_name", resp.text)
+        self.assertIn("engine_type", resp.text)
+        self.assertIn("binding_id", resp.text)
+        self.assertIn("source_id", resp.text)
+        self.assertIn("priority", resp.text)
+        self.assertIn("GET /engines", resp.text)
+        self.assertIn("GET /engines/{engine_id}", resp.text)
+        self.assertIn("GET /bindings", resp.text)
+        self.assertIn("GET /bindings/{binding_id}", resp.text)
+        self.assertIn("DELETE /bindings/{binding_id}", resp.text)
+        self.assertIn("GET /sources/{source_id}/engines", resp.text)
+
+    def test_admin_execution_engines_declares_boundary_copy_empty_states_and_modals(
+        self,
+    ) -> None:
+        resp = self.client.get("/admin?tab=execution-engines")
+        self.assertIn("No execution engines configured yet.", resp.text)
+        self.assertIn("No source-engine bindings configured yet.", resp.text)
+        self.assertIn(
+            "Create at least one data source before creating an execution binding.", resp.text
+        )
+        self.assertIn(
+            "Create at least one execution engine before creating an execution binding.", resp.text
+        )
+        self.assertIn(
+            "Execution engine bindings connect a source to an execution backend.", resp.text
+        )
+        self.assertIn("semantic typed bindings stay in Semantic Catalog", resp.text)
+        self.assertIn("Advanced Namespace JSON", resp.text)
+        self.assertIn("engine-form-modal", resp.text)
+        self.assertIn("binding-form-modal", resp.text)
+        self.assertNotIn("still waits for its task-specific data sources", resp.text)
+
+    def test_admin_execution_engines_declares_t5_client_helpers(self) -> None:
+        resp = self.client.get("/admin?tab=execution-engines")
+        self.assertIn("hydrateExecutionEngines", resp.text)
+        self.assertIn("renderExecutionEnginesBody", resp.text)
+        self.assertIn("ensureEngineFormModal", resp.text)
+        self.assertIn("ensureBindingFormModal", resp.text)
+        self.assertIn("openEngineFormModal", resp.text)
+        self.assertIn("openBindingFormModal", resp.text)
+        self.assertIn("handleDeleteBinding", resp.text)
+        self.assertIn("refreshCurrentExecutionEngines", resp.text)
+
     def test_user_uses_shared_assets(self) -> None:
         resp = self.client.get("/ui")
         self.assertIn("shared.css", resp.text)
