@@ -450,6 +450,7 @@ const DEFAULT_ADMIN_ROUTE = {
   sourceId: '',
   engineId: '',
   bindingId: '',
+  objectId: '',
   sessionId: '',
   jobId: '',
 };
@@ -497,7 +498,7 @@ const ADMIN_TAB_META = {
   'semantic-catalog': {
     label: 'Semantic Catalog',
     subtitle: 'Centralized shell for typed semantic objects, bindings, and compatibility profiles.',
-    objectLabel: 'binding_id',
+    objectLabel: 'object_id',
     subtabConfig: [
       { value: 'entities', label: 'Entities' },
       { value: 'metrics', label: 'Metrics' },
@@ -509,11 +510,11 @@ const ADMIN_TAB_META = {
       { value: 'compatibility-profiles', label: 'Compatibility Profiles' },
     ],
     summary: [
-      'The first delivery only locks the semantic catalog shell and subtab model.',
-      'Typed Bindings and Compatibility Profiles are first-class subtabs, not hidden helper areas.',
-      'Published vs draft lifecycle rendering will be added on top of this shell in T6 and T7.'
+      'Semantic Catalog now provides a shared shell for typed semantic objects, typed bindings, and compatibility profiles.',
+      'Typed Bindings and Compatibility Profiles remain first-class subtabs instead of helper-only areas.',
+      'T6 standardizes list/detail/form/publish primitives here so T7 can focus on object-specific fields and workflows.'
     ],
-    routeFocus: ['tab', 'subtab', 'binding_id'],
+    routeFocus: ['tab', 'subtab', 'object_id'],
     uiLinks: [],
   },
   'analysis-ops': {
@@ -606,6 +607,7 @@ function normalizeAdminRoute(nextRoute) {
     sourceId: String(nextRoute.sourceId || '').trim(),
     engineId: String(nextRoute.engineId || '').trim(),
     bindingId: String(nextRoute.bindingId || '').trim(),
+    objectId: String(nextRoute.objectId || '').trim(),
     sessionId: String(nextRoute.sessionId || '').trim(),
     jobId: String(nextRoute.jobId || '').trim(),
   };
@@ -622,8 +624,14 @@ function normalizeAdminRoute(nextRoute) {
   if (normalized.tab !== 'execution-engines') {
     normalized.engineId = '';
   }
-  if (!['execution-engines', 'semantic-catalog'].includes(normalized.tab)) {
+  if (normalized.tab === 'semantic-catalog' && !normalized.objectId && normalized.subtab === 'typed-bindings' && normalized.bindingId) {
+    normalized.objectId = normalized.bindingId;
+  }
+  if (normalized.tab !== 'execution-engines') {
     normalized.bindingId = '';
+  }
+  if (normalized.tab !== 'semantic-catalog') {
+    normalized.objectId = '';
   }
   if (!['analysis-ops', 'runtime-jobs', 'governance'].includes(normalized.tab)) {
     normalized.sessionId = '';
@@ -643,6 +651,7 @@ function adminRouteFromLocation() {
     sourceId: params.get('source_id') || '',
     engineId: params.get('engine_id') || '',
     bindingId: params.get('binding_id') || '',
+    objectId: params.get('object_id') || '',
     sessionId: params.get('session_id') || '',
     jobId: params.get('job_id') || '',
   });
@@ -655,6 +664,7 @@ function writeAdminRoute(route, historyMode = 'push') {
   if (route.sourceId) params.set('source_id', route.sourceId);
   if (route.engineId) params.set('engine_id', route.engineId);
   if (route.bindingId) params.set('binding_id', route.bindingId);
+  if (route.objectId) params.set('object_id', route.objectId);
   if (route.sessionId) params.set('session_id', route.sessionId);
   if (route.jobId) params.set('job_id', route.jobId);
   const nextUrl = params.toString() ? `?${params.toString()}` : window.location.pathname;
@@ -665,7 +675,7 @@ function writeAdminRoute(route, historyMode = 'push') {
 function adminObjectLocator(route) {
   if (route.tab === 'data-sources') return route.sourceId;
   if (route.tab === 'execution-engines') return route.engineId || route.bindingId;
-  if (route.tab === 'semantic-catalog') return route.bindingId;
+  if (route.tab === 'semantic-catalog') return route.objectId;
   if (route.tab === 'analysis-ops') return route.sessionId;
   if (route.tab === 'runtime-jobs') return route.jobId || route.sessionId;
   if (route.tab === 'governance') return route.sessionId;
@@ -738,6 +748,7 @@ function renderRouteSummary(route, tabMeta) {
         { label: 'source_id', value: route.sourceId || '-' },
         { label: 'engine_id', value: route.engineId || '-' },
         { label: 'binding_id', value: route.bindingId || '-' },
+        { label: 'object_id', value: route.objectId || '-' },
         { label: 'session_id', value: route.sessionId || '-' },
         { label: 'job_id', value: route.jobId || '-' },
       ])}
@@ -752,6 +763,7 @@ function renderRouteSummary(route, tabMeta) {
           source_id: route.sourceId || null,
           engine_id: route.engineId || null,
           binding_id: route.bindingId || null,
+          object_id: route.objectId || null,
           session_id: route.sessionId || null,
           job_id: route.jobId || null,
           locator: locator || null,
@@ -818,6 +830,7 @@ const OVERVIEW_CARD_SPECS = [
 let overviewRenderVersion = 0;
 let dataSourcesRenderVersion = 0;
 let executionEnginesRenderVersion = 0;
+let semanticCatalogRenderVersion = 0;
 const dataSourcesUiState = {
   syncJobs: {},
   syncErrors: {},
@@ -826,14 +839,47 @@ const dataSourcesUiState = {
 const executionEnginesUiState = {
   sourceEngineErrors: {},
 };
+const semanticCatalogUiState = {
+  statusBySubtab: {},
+  formModeBySubtab: {},
+  relatedBindingRef: '',
+  helperDataByKey: {},
+  publishErrorsByKey: {},
+};
 
 function parseResponseError(response, fallbackMessage) {
-  return response.text().then((text) => ({
-    status: response.status,
-    message: fallbackMessage,
-    detail: text || response.statusText || fallbackMessage,
-    transport: `HTTP ${response.status}`,
-  }));
+  return response.text().then((text) => {
+    let detail = text || response.statusText || fallbackMessage;
+    let message = fallbackMessage;
+    try {
+      const parsed = text ? JSON.parse(text) : null;
+      if (parsed && typeof parsed === 'object') {
+        if (Object.hasOwn(parsed, 'detail')) {
+          detail = parsed.detail;
+          if (typeof parsed.detail === 'string' && parsed.detail) {
+            message = parsed.detail;
+          } else if (parsed.detail && typeof parsed.detail.message === 'string') {
+            message = parsed.detail.message;
+          }
+        } else {
+          detail = parsed;
+        }
+        if (typeof parsed.message === 'string' && parsed.message) {
+          message = parsed.message;
+        }
+      }
+    } catch {
+      if (text) {
+        message = text;
+      }
+    }
+    return {
+      status: response.status,
+      message,
+      detail,
+      transport: `HTTP ${response.status}`,
+    };
+  });
 }
 
 async function requestJson(path, fallbackMessage) {
@@ -2833,6 +2879,727 @@ function bindDataSourcesEvents(panel, viewModel) {
   });
 }
 
+const SEMANTIC_CATALOG_CONFIG = {
+  entities: {
+    label: 'Entities',
+    singularLabel: 'Entity',
+    listTitle: 'Entity Catalog',
+    idField: 'entity_contract_id',
+    stableRef: (item) => item?.header?.entity_ref || '',
+    displayName: (item) => item?.header?.display_name || item?.header?.entity_ref || '',
+    detailFields: (item) => [
+      { label: 'object_id', value: item.entity_contract_id },
+      { label: 'stable_ref', value: item.header?.entity_ref || '-' },
+      { label: 'display_name', value: item.header?.display_name || '-' },
+      { label: 'status', valueHtml: statusBadge(item.status) },
+      { label: 'revision', value: String(item.revision ?? '-') },
+      { label: 'primary_time_ref', value: item.interface_contract?.primary_time_ref || '-' },
+    ],
+    listEndpointLabel: 'GET /semantic/entities',
+  },
+  metrics: {
+    label: 'Metrics',
+    singularLabel: 'Metric',
+    listTitle: 'Metric Catalog',
+    idField: 'metric_contract_id',
+    stableRef: (item) => item?.header?.metric_ref || '',
+    displayName: (item) => item?.header?.display_name || item?.header?.metric_ref || '',
+    detailFields: (item) => [
+      { label: 'object_id', value: item.metric_contract_id },
+      { label: 'stable_ref', value: item.header?.metric_ref || '-' },
+      { label: 'display_name', value: item.header?.display_name || '-' },
+      { label: 'status', valueHtml: statusBadge(item.status) },
+      { label: 'revision', value: String(item.revision ?? '-') },
+      { label: 'observed_entity_ref', value: item.header?.observed_entity_ref || '-' },
+    ],
+    listEndpointLabel: 'GET /semantic/metrics',
+  },
+  'process-objects': {
+    label: 'Process Objects',
+    singularLabel: 'Process Object',
+    listTitle: 'Process Object Catalog',
+    idField: 'process_contract_id',
+    stableRef: (item) => item?.header?.process_ref || '',
+    displayName: (item) => item?.header?.display_name || item?.header?.process_ref || '',
+    detailFields: (item) => [
+      { label: 'object_id', value: item.process_contract_id },
+      { label: 'stable_ref', value: item.header?.process_ref || '-' },
+      { label: 'display_name', value: item.header?.display_name || '-' },
+      { label: 'status', valueHtml: statusBadge(item.status) },
+      { label: 'revision', value: String(item.revision ?? '-') },
+      { label: 'contract_mode', value: item.interface_contract?.contract_mode || '-' },
+    ],
+    listEndpointLabel: 'GET /semantic/process-objects',
+  },
+  dimensions: {
+    label: 'Dimensions',
+    singularLabel: 'Dimension',
+    listTitle: 'Dimension Catalog',
+    idField: 'dimension_contract_id',
+    stableRef: (item) => item?.header?.dimension_ref || '',
+    displayName: (item) => item?.header?.display_name || item?.header?.dimension_ref || '',
+    detailFields: (item) => [
+      { label: 'object_id', value: item.dimension_contract_id },
+      { label: 'stable_ref', value: item.header?.dimension_ref || '-' },
+      { label: 'display_name', value: item.header?.display_name || '-' },
+      { label: 'status', valueHtml: statusBadge(item.status) },
+      { label: 'revision', value: String(item.revision ?? '-') },
+      { label: 'value_type', value: item.interface_contract?.value_domain?.value_type || '-' },
+    ],
+    listEndpointLabel: 'GET /semantic/dimensions',
+  },
+  time: {
+    label: 'Time',
+    singularLabel: 'Time Semantic',
+    listTitle: 'Time Catalog',
+    idField: 'time_contract_id',
+    stableRef: (item) => item?.header?.time_ref || '',
+    displayName: (item) => item?.header?.display_name || item?.header?.time_ref || '',
+    detailFields: (item) => [
+      { label: 'object_id', value: item.time_contract_id },
+      { label: 'stable_ref', value: item.header?.time_ref || '-' },
+      { label: 'display_name', value: item.header?.display_name || '-' },
+      { label: 'status', valueHtml: statusBadge(item.status) },
+      { label: 'revision', value: String(item.revision ?? '-') },
+      { label: 'semantic_roles', value: (item.header?.semantic_roles || []).join(', ') || '-' },
+    ],
+    listEndpointLabel: 'GET /semantic/time',
+  },
+  'enum-sets': {
+    label: 'Enum Sets',
+    singularLabel: 'Enum Set',
+    listTitle: 'Enum Set Catalog',
+    idField: 'enum_set_contract_id',
+    stableRef: (item) => item?.header?.enum_set_ref || '',
+    displayName: (item) => item?.display_name || item?.header?.enum_set_ref || '',
+    detailFields: (item) => [
+      { label: 'object_id', value: item.enum_set_contract_id },
+      { label: 'stable_ref', value: item.header?.enum_set_ref || '-' },
+      { label: 'display_name', value: item.display_name || '-' },
+      { label: 'status', valueHtml: statusBadge(item.status) },
+      { label: 'revision', value: String(item.revision ?? '-') },
+      { label: 'value_type', value: item.header?.value_type || '-' },
+    ],
+    listEndpointLabel: 'GET /semantic/enum-sets',
+  },
+  'typed-bindings': {
+    label: 'Typed Bindings',
+    singularLabel: 'Typed Binding',
+    listTitle: 'Typed Binding Catalog',
+    idField: 'binding_id',
+    stableRef: (item) => item?.header?.binding_ref || '',
+    displayName: (item) => item?.header?.display_name || item?.header?.binding_ref || '',
+    detailFields: (item) => [
+      { label: 'object_id', value: item.binding_id },
+      { label: 'stable_ref', value: item.header?.binding_ref || '-' },
+      { label: 'display_name', value: item.header?.display_name || '-' },
+      { label: 'status', valueHtml: statusBadge(item.status) },
+      { label: 'revision', value: String(item.revision ?? '-') },
+      { label: 'bound_object_ref', value: item.header?.bound_object_ref || '-' },
+    ],
+    listEndpointLabel: 'GET /semantic/bindings',
+  },
+  'compatibility-profiles': {
+    label: 'Compatibility Profiles',
+    singularLabel: 'Compatibility Profile',
+    listTitle: 'Compatibility Profile Catalog',
+    idField: 'profile_id',
+    stableRef: (item) => item?.profile_ref || '',
+    displayName: (item) => item?.profile_ref || '',
+    detailFields: (item) => [
+      { label: 'object_id', value: item.profile_id },
+      { label: 'stable_ref', value: item.profile_ref || '-' },
+      { label: 'display_name', value: item.profile_ref || '-' },
+      { label: 'status', valueHtml: statusBadge(item.status) },
+      { label: 'revision', value: String(item.revision ?? '-') },
+      { label: 'subject_ref', value: item.subject_ref || '-' },
+    ],
+    listEndpointLabel: 'GET /compiler/compatibility-profiles',
+  },
+};
+
+function semanticConfigForSubtab(subtab) {
+  return SEMANTIC_CATALOG_CONFIG[subtab] || SEMANTIC_CATALOG_CONFIG.entities;
+}
+
+function semanticStatusFilterForSubtab(subtab) {
+  return semanticCatalogUiState.statusBySubtab[subtab] || 'all';
+}
+
+function semanticFormModeForSubtab(subtab) {
+  return semanticCatalogUiState.formModeBySubtab[subtab] || 'create';
+}
+
+function semanticObjectId(config, item) {
+  return String(item?.[config.idField] || '');
+}
+
+function semanticStableRef(config, item) {
+  return String(config.stableRef(item) || '');
+}
+
+function semanticDisplayName(config, item) {
+  return String(config.displayName(item) || semanticStableRef(config, item) || semanticObjectId(config, item));
+}
+
+function semanticHelperKey(subtab, objectId) {
+  return `${subtab}:${objectId || 'none'}`;
+}
+
+function semanticHelperState(subtab, objectId) {
+  return semanticCatalogUiState.helperDataByKey[semanticHelperKey(subtab, objectId)] || {};
+}
+
+function resetSemanticHelperState(subtab, objectId) {
+  semanticCatalogUiState.helperDataByKey[semanticHelperKey(subtab, objectId)] = {
+    resolveResult: null,
+    resolveError: null,
+    graphResult: null,
+    graphError: null,
+  };
+}
+
+function semanticPublishError(subtab, objectId) {
+  return semanticCatalogUiState.publishErrorsByKey[semanticHelperKey(subtab, objectId)] || null;
+}
+
+function setSemanticPublishError(subtab, objectId, error) {
+  semanticCatalogUiState.publishErrorsByKey[semanticHelperKey(subtab, objectId)] = error;
+}
+
+function semanticEndpointForSubtab(subtab) {
+  const lookup = {
+    entities: {
+      list: (status) => adminApi.listSemanticEntities(status),
+      get: (objectId) => adminApi.getSemanticEntity(objectId),
+      publish: (objectId) => adminApi.publishSemanticEntity(objectId),
+    },
+    metrics: {
+      list: (status) => adminApi.listSemanticMetrics(status),
+      get: (objectId) => adminApi.getSemanticMetric(objectId),
+      publish: (objectId) => adminApi.publishSemanticMetric(objectId),
+    },
+    'process-objects': {
+      list: (status) => adminApi.listSemanticProcessObjects(status),
+      get: (objectId) => adminApi.getSemanticProcessObject(objectId),
+      publish: (objectId) => adminApi.publishSemanticProcessObject(objectId),
+    },
+    dimensions: {
+      list: (status) => adminApi.listSemanticDimensions(status),
+      get: (objectId) => adminApi.getSemanticDimension(objectId),
+      publish: (objectId) => adminApi.publishSemanticDimension(objectId),
+    },
+    time: {
+      list: (status) => adminApi.listSemanticTime(status),
+      get: (objectId) => adminApi.getSemanticTime(objectId),
+      publish: (objectId) => adminApi.publishSemanticTime(objectId),
+    },
+    'enum-sets': {
+      list: (status) => adminApi.listSemanticEnumSets(status),
+      get: (objectId) => adminApi.getSemanticEnumSet(objectId),
+      publish: (objectId) => adminApi.publishSemanticEnumSet(objectId),
+    },
+    'typed-bindings': {
+      list: (status) => adminApi.listTypedSemanticBindings(status),
+      get: (objectId) => adminApi.getTypedSemanticBinding(objectId),
+      publish: (objectId) => adminApi.publishTypedSemanticBinding(objectId),
+    },
+    'compatibility-profiles': {
+      list: (status) => adminApi.listCompatibilityProfiles(status),
+      get: (objectId) => adminApi.getCompatibilityProfile(objectId),
+      publish: (objectId) => adminApi.publishCompatibilityProfile(objectId),
+    },
+  };
+  return lookup[subtab] || lookup.entities;
+}
+
+function semanticListMatchesRelatedBindingFilter(item, filterRef) {
+  if (!filterRef) return true;
+  return JSON.stringify(item).includes(filterRef);
+}
+
+function renderSemanticStatusFilters(subtab, items) {
+  const counts = countStatuses(items);
+  const current = semanticStatusFilterForSubtab(subtab);
+  const options = [
+    { value: 'all', label: 'All statuses', count: items.length },
+    { value: 'draft', label: 'Draft', count: counts.draft || 0 },
+    { value: 'published', label: 'Published', count: counts.published || 0 },
+  ];
+  return `
+    <div class="detail-actions">
+      ${options.map((option) => `
+        <button
+          type="button"
+          class="btn btn-sm ${current === option.value ? 'btn-primary' : ''}"
+          data-action="set-semantic-status"
+          data-status="${option.value}"
+        >${esc(option.label)} (${esc(String(option.count))})</button>
+      `).join('')}
+    </div>
+  `;
+}
+
+function renderSemanticCatalogRows(config, items, selectedObjectId) {
+  if (!items.length) {
+    return `
+      <tr>
+        <td colspan="6">${renderEmptyState(`No ${config.label.toLowerCase()} found for the current status filter.`)}</td>
+      </tr>
+    `;
+  }
+  return items.map((item) => {
+    const objectId = semanticObjectId(config, item);
+    const stableRef = semanticStableRef(config, item) || '-';
+    const displayName = semanticDisplayName(config, item) || '-';
+    const isSelected = objectId === selectedObjectId;
+    return `
+      <tr class="${isSelected ? 'is-selected' : ''}">
+        <td>
+          <button
+            type="button"
+            class="selectable-list-item ${isSelected ? 'is-active' : ''}"
+            data-action="select-semantic-object"
+            data-object-id="${esc(objectId)}"
+          >
+            <span class="selectable-list-title">${esc(objectId)}</span>
+            <span class="selectable-list-meta">${esc(stableRef)}</span>
+          </button>
+        </td>
+        <td>${esc(stableRef)}</td>
+        <td>${esc(displayName)}</td>
+        <td>${statusBadge(item.status)}</td>
+        <td>${esc(String(item.revision ?? '-'))}</td>
+        <td>${esc(formatMaybeDate(item.updated_at))}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function renderSemanticCatalogListCard(route, viewModel) {
+  const config = viewModel.config;
+  const filterRef = viewModel.relatedBindingRef;
+  const filterNote = route.subtab === 'typed-bindings' && filterRef
+    ? `Filtered to bindings related to ${filterRef}.`
+    : `${config.listEndpointLabel} backs the shared Semantic Catalog list contract.`;
+  return renderAdminTableCard({
+    title: config.listTitle,
+    count: viewModel.items.length,
+    countLabel: 'object(s)',
+    note: filterNote,
+    columns: ['object_id', 'stable_ref', 'display_name', 'status', 'revision', 'updated_at'],
+    actionsHtml: `
+      <div class="detail-actions">
+        <button type="button" class="btn btn-sm btn-primary" data-action="open-semantic-form" data-form-mode="create">Create / Edit Form Shell</button>
+        ${route.subtab === 'typed-bindings' && filterRef ? '<button type="button" class="btn btn-sm" data-action="clear-related-bindings-filter">Clear Related Binding Filter</button>' : ''}
+      </div>
+    `,
+    countHtml: renderResultsCount(viewModel.items.length, 'object(s)') + renderSemanticStatusFilters(route.subtab, viewModel.unfilteredItems),
+    rowsHtml: renderSemanticCatalogRows(config, viewModel.items, viewModel.selectedObjectId),
+    errorHtml: viewModel.listError ? renderStructuredError(viewModel.listError, `${config.label} unavailable.`) : '',
+  });
+}
+
+function renderSemanticLifecycleCard(selectedItem, config, publishError) {
+  if (!selectedItem) {
+    return renderAdminDetailCard({
+      title: 'Lifecycle Summary',
+      statusHtml: '<span class="shell-chip">no object selected</span>',
+      note: 'Select an object to inspect draft/published lifecycle, publish guardrails, and structured publish errors.',
+      bodyHtml: renderEmptyState('Select a semantic object to inspect lifecycle and publish controls.'),
+    });
+  }
+  const isPublished = String(selectedItem.status || '').toLowerCase() === 'published';
+  return renderAdminDetailCard({
+    title: 'Lifecycle Summary',
+    statusHtml: statusBadge(selectedItem.status),
+    note: isPublished
+      ? 'Published objects are frozen and stay read-only in T6. T7 will only attach specialized read-only summaries on top of this shell.'
+      : 'Draft objects can publish through the shared confirmation flow. Publish failures render structured error details instead of raw transport text.',
+    bodyHtml: `
+      ${renderDetailList([
+        { label: 'status', valueHtml: statusBadge(selectedItem.status) },
+        { label: 'revision', value: String(selectedItem.revision ?? '-') },
+        { label: 'updated_at', value: formatMaybeDate(selectedItem.updated_at) },
+        { label: 'freeze_rule', value: isPublished ? 'published objects are read-only' : 'draft objects remain editable in the shared form shell' },
+      ])}
+      <div class="detail-actions">
+        <button type="button" class="btn btn-danger" data-action="publish-semantic-object" ${isPublished ? 'disabled' : ''}>Publish</button>
+      </div>
+      ${publishError ? renderStructuredError(publishError, 'Publish failed.') : ''}
+      <p class="panel-note">${esc(`Publish ${config.singularLabel} uses the shared confirmation flow and keeps publish failure detail structured.`)}</p>
+    `,
+  });
+}
+
+function renderSemanticHelperActionsCard(selectedItem, viewModel) {
+  if (!selectedItem) {
+    return renderAdminDetailCard({
+      title: 'Dependency Helpers',
+      statusHtml: '<span class="shell-chip">Resolve / View Related Bindings / View Catalog Graph</span>',
+      note: 'Resolve, View Related Bindings, and View Catalog Graph stay in the shared shell so later object pages do not re-implement helper entrypoints.',
+      bodyHtml: renderEmptyState('Select an object to run Resolve, View Related Bindings, or View Catalog Graph.'),
+    });
+  }
+  const stableRef = semanticStableRef(viewModel.config, selectedItem);
+  const helperState = viewModel.helperState;
+  const resolveDisabled = stableRef ? '' : 'disabled';
+  const relatedDisabled = stableRef ? '' : 'disabled';
+  return renderAdminDetailCard({
+    title: 'Dependency Helpers',
+    statusHtml: '<span class="shell-chip">Resolve / View Related Bindings / View Catalog Graph</span>',
+    note: 'Resolve uses GET /semantic/resolve/{name}. View Related Bindings reuses the typed binding list. View Catalog Graph uses GET /catalog/graph without introducing planner-context behavior.',
+    bodyHtml: `
+      ${renderDetailList([
+        { label: 'stable_ref', value: stableRef || '-' },
+        { label: 'helper_scope', value: viewModel.config.label },
+        { label: 'binding_filter', value: viewModel.relatedBindingRef || '-' },
+      ])}
+      <div class="detail-actions">
+        <button type="button" class="btn btn-sm" data-action="semantic-resolve" ${resolveDisabled}>Resolve</button>
+        <button type="button" class="btn btn-sm" data-action="view-related-bindings" ${relatedDisabled}>View Related Bindings</button>
+        <button type="button" class="btn btn-sm" data-action="view-catalog-graph">View Catalog Graph</button>
+      </div>
+      ${helperState.resolveError ? renderStructuredError(helperState.resolveError, 'Resolve failed.') : ''}
+      ${helperState.resolveResult ? renderJsonPanel('Resolve Result', helperState.resolveResult, 'No resolve result.') : ''}
+      ${helperState.graphError ? renderStructuredError(helperState.graphError, 'Catalog Graph failed.') : ''}
+      ${helperState.graphResult ? renderJsonPanel('Catalog Graph', helperState.graphResult, 'No graph result.') : ''}
+    `,
+  });
+}
+
+function renderSemanticObjectSummaryCard(viewModel) {
+  const selectedItem = viewModel.selectedItem;
+  if (!selectedItem) {
+    return renderAdminDetailCard({
+      title: 'Object Summary',
+      statusHtml: '<span class="shell-chip">waiting for selection</span>',
+      note: 'Each Semantic Catalog subtab reuses the same summary shape: object_id, stable_ref, display_name, status, revision, updated_at.',
+      bodyHtml: renderEmptyState('Select an object from the list to inspect summary fields and raw JSON.'),
+    });
+  }
+  return renderAdminDetailCard({
+    title: 'Object Summary',
+    statusHtml: statusBadge(selectedItem.status),
+    note: 'The shared Semantic Catalog table always exposes object_id, stable_ref, display_name, status, revision, and updated_at before T7 adds object-specific columns.',
+    bodyHtml: `
+      ${renderDetailList(viewModel.config.detailFields(selectedItem))}
+      ${renderJsonPanel('Raw JSON Panel', selectedItem, 'No object payload.')}
+    `,
+  });
+}
+
+function renderSemanticFormShellCard(viewModel) {
+  const mode = semanticFormModeForSubtab(viewModel.route.subtab);
+  const selectedItem = viewModel.selectedItem;
+  const isPublished = String(selectedItem?.status || '').toLowerCase() === 'published';
+  const editDisabled = !selectedItem || isPublished;
+  return renderAdminDetailCard({
+    title: 'Create / Edit Form Shell',
+    statusHtml: `<span class="shell-chip">${esc(mode === 'edit' ? 'edit-mode' : 'create-mode')}</span>`,
+    note: 'T6 provides the shared Create / Edit form shell only. T7 will attach object-specific fields, payload builders, and submit flows here.',
+    bodyHtml: `
+      ${renderDetailList([
+        { label: 'subtab', value: viewModel.config.label },
+        { label: 'form_mode', value: mode },
+        { label: 'selected_object', value: selectedItem ? semanticObjectId(viewModel.config, selectedItem) : '-' },
+        { label: 'freeze_rule', value: isPublished ? 'published objects stay read-only' : 'draft objects can switch into edit shell' },
+      ])}
+      <div class="detail-actions">
+        <button type="button" class="btn btn-sm btn-primary" data-action="open-semantic-form" data-form-mode="create">Create</button>
+        <button type="button" class="btn btn-sm" data-action="open-semantic-form" data-form-mode="edit" ${editDisabled ? 'disabled' : ''}>Edit</button>
+      </div>
+      <div class="admin-shell-card">
+        <h3>Shared Form Boundary</h3>
+        <p>T6 stops at the shared form shell. Object-specific validation, payload shaping, and save actions move into T7 so every typed object page can reuse one structure.</p>
+        <p>Published objects display only a read-only shell. Draft objects can switch into the edit shell, but no object-specific submit action is wired in this task.</p>
+      </div>
+    `,
+  });
+}
+
+function renderSemanticCatalogBody(viewModel) {
+  return renderAdminListDetailLayout({
+    primaryHtml: renderSemanticCatalogListCard(viewModel.route, viewModel),
+    secondaryHtml: renderSemanticLifecycleCard(viewModel.selectedItem, viewModel.config, viewModel.publishError),
+    detailHtml: `
+      ${renderSemanticObjectSummaryCard(viewModel)}
+      ${renderSemanticHelperActionsCard(viewModel.selectedItem, viewModel)}
+      ${renderSemanticFormShellCard(viewModel)}
+    `,
+  });
+}
+
+function renderSemanticCatalogLoading(route) {
+  const config = semanticConfigForSubtab(route.subtab || 'entities');
+  return renderSemanticCatalogBody({
+    route,
+    config,
+    items: [],
+    unfilteredItems: [],
+    selectedObjectId: route.objectId || '',
+    selectedItem: null,
+    listError: null,
+    publishError: null,
+    helperState: {},
+    relatedBindingRef: semanticCatalogUiState.relatedBindingRef,
+  });
+}
+
+async function runSemanticResolve(route, selectedItem) {
+  const config = semanticConfigForSubtab(route.subtab);
+  const stableRef = semanticStableRef(config, selectedItem);
+  if (!stableRef) {
+    toast('Resolve requires a stable_ref.', 'error');
+    return;
+  }
+  const helperKey = semanticHelperKey(route.subtab, route.objectId);
+  const helperState = semanticCatalogUiState.helperDataByKey[helperKey] || {};
+  helperState.resolveError = null;
+  helperState.resolveResult = null;
+  semanticCatalogUiState.helperDataByKey[helperKey] = helperState;
+  try {
+    helperState.resolveResult = await adminApi.resolveSemantic(stableRef);
+  } catch (error) {
+    helperState.resolveError = normalizeApiError(error, 'Resolve failed.');
+  }
+  renderAdminPanel(currentAdminRoute);
+}
+
+async function runSemanticCatalogGraph(route, selectedItem) {
+  const config = semanticConfigForSubtab(route.subtab);
+  const root = semanticStableRef(config, selectedItem) || semanticObjectId(config, selectedItem);
+  if (!root) {
+    toast('Catalog Graph requires a selected object.', 'error');
+    return;
+  }
+  const helperKey = semanticHelperKey(route.subtab, route.objectId);
+  const helperState = semanticCatalogUiState.helperDataByKey[helperKey] || {};
+  helperState.graphError = null;
+  helperState.graphResult = null;
+  semanticCatalogUiState.helperDataByKey[helperKey] = helperState;
+  try {
+    helperState.graphResult = await adminApi.getCatalogGraph(root);
+  } catch (error) {
+    helperState.graphError = normalizeApiError(error, 'Catalog Graph failed.');
+  }
+  renderAdminPanel(currentAdminRoute);
+}
+
+function handleViewRelatedBindings(route, selectedItem) {
+  const config = semanticConfigForSubtab(route.subtab);
+  const stableRef = semanticStableRef(config, selectedItem);
+  if (!stableRef) {
+    toast('View Related Bindings requires a stable_ref.', 'error');
+    return;
+  }
+  semanticCatalogUiState.relatedBindingRef = stableRef;
+  semanticCatalogUiState.formModeBySubtab['typed-bindings'] = 'edit';
+  applyAdminRoute(
+    {
+      ...currentAdminRoute,
+      tab: 'semantic-catalog',
+      subtab: 'typed-bindings',
+      objectId: '',
+      bindingId: '',
+    },
+    'push'
+  );
+}
+
+function handlePublishSemanticObject(route, viewModel) {
+  const selectedItem = viewModel.selectedItem;
+  if (!selectedItem) {
+    toast('Select an object before publishing.', 'error');
+    return;
+  }
+  const objectId = semanticObjectId(viewModel.config, selectedItem);
+  const stableRef = semanticStableRef(viewModel.config, selectedItem);
+  openDangerConfirm({
+    title: `Publish ${viewModel.config.singularLabel}`,
+    objectLabel: objectId,
+    impactScope: 'Promotes the current draft into the published semantic catalog and freezes further edits for this revision.',
+    reversible: 'No',
+    confirmLabel: 'Publish',
+    detailsHtml: renderDetailList([
+      { label: 'object_id', value: objectId },
+      { label: 'stable_ref', value: stableRef || '-' },
+      { label: 'status', value: selectedItem.status || '-' },
+      { label: 'warning', value: 'Publish failures surface structured validation or compatibility errors.' },
+    ]),
+    onConfirm: async () => {
+      try {
+        setSemanticPublishError(route.subtab, objectId, null);
+        await semanticEndpointForSubtab(route.subtab).publish(objectId);
+        toast('Semantic object published.', 'success');
+        await refreshCurrentSemanticCatalog();
+      } catch (error) {
+        const normalized = normalizeApiError(error, 'Publish failed.');
+        setSemanticPublishError(route.subtab, objectId, normalized);
+        toast(normalized.message, 'error');
+        renderAdminPanel(currentAdminRoute);
+      }
+    },
+  });
+}
+
+function bindSemanticCatalogEvents(panel, viewModel) {
+  panel.querySelectorAll('[data-action="set-semantic-status"]').forEach((button) => {
+    button.addEventListener('click', () => {
+      semanticCatalogUiState.statusBySubtab[viewModel.route.subtab] = button.dataset.status || 'all';
+      applyAdminRoute(
+        { ...currentAdminRoute, tab: 'semantic-catalog', subtab: viewModel.route.subtab, objectId: '' },
+        'replace'
+      );
+    });
+  });
+
+  panel.querySelectorAll('[data-action="select-semantic-object"]').forEach((button) => {
+    button.addEventListener('click', () => {
+      resetSemanticHelperState(viewModel.route.subtab, button.dataset.objectId || '');
+      applyAdminRoute(
+        { ...currentAdminRoute, tab: 'semantic-catalog', subtab: viewModel.route.subtab, objectId: button.dataset.objectId || '' },
+        'replace'
+      );
+    });
+  });
+
+  panel.querySelectorAll('[data-action="open-semantic-form"]').forEach((button) => {
+    button.addEventListener('click', () => {
+      semanticCatalogUiState.formModeBySubtab[viewModel.route.subtab] = button.dataset.formMode || 'create';
+      renderAdminPanel(currentAdminRoute);
+    });
+  });
+
+  panel.querySelectorAll('[data-action="publish-semantic-object"]').forEach((button) => {
+    button.addEventListener('click', () => {
+      handlePublishSemanticObject(viewModel.route, viewModel);
+    });
+  });
+
+  panel.querySelectorAll('[data-action="semantic-resolve"]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      await runSemanticResolve(viewModel.route, viewModel.selectedItem);
+    });
+  });
+
+  panel.querySelectorAll('[data-action="view-catalog-graph"]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      await runSemanticCatalogGraph(viewModel.route, viewModel.selectedItem);
+    });
+  });
+
+  panel.querySelectorAll('[data-action="view-related-bindings"]').forEach((button) => {
+    button.addEventListener('click', () => {
+      handleViewRelatedBindings(viewModel.route, viewModel.selectedItem);
+    });
+  });
+
+  panel.querySelectorAll('[data-action="clear-related-bindings-filter"]').forEach((button) => {
+    button.addEventListener('click', () => {
+      semanticCatalogUiState.relatedBindingRef = '';
+      applyAdminRoute(
+        { ...currentAdminRoute, tab: 'semantic-catalog', subtab: 'typed-bindings', objectId: '' },
+        'replace'
+      );
+    });
+  });
+}
+
+async function hydrateSemanticCatalog(panel, route) {
+  const renderVersion = ++semanticCatalogRenderVersion;
+  const config = semanticConfigForSubtab(route.subtab || 'entities');
+  const statusFilter = semanticStatusFilterForSubtab(route.subtab);
+  const endpoints = semanticEndpointForSubtab(route.subtab);
+  const safeRender = (viewModel) => {
+    if (renderVersion !== semanticCatalogRenderVersion) return;
+    const target = panel.querySelector('[data-role="semantic-catalog-body"]');
+    if (target) {
+      target.innerHTML = renderSemanticCatalogBody(viewModel);
+      bindSemanticCatalogEvents(panel, viewModel);
+    }
+  };
+
+  safeRender({
+    route,
+    config,
+    items: [],
+    unfilteredItems: [],
+    selectedObjectId: route.objectId || '',
+    selectedItem: null,
+    listError: null,
+    publishError: null,
+    helperState: semanticHelperState(route.subtab, route.objectId),
+    relatedBindingRef: semanticCatalogUiState.relatedBindingRef,
+  });
+
+  try {
+    const payload = await endpoints.list(statusFilter === 'all' ? null : statusFilter);
+    const unfilteredItems = extractItems(payload);
+    const filteredItems = route.subtab === 'typed-bindings' && semanticCatalogUiState.relatedBindingRef
+      ? unfilteredItems.filter((item) => semanticListMatchesRelatedBindingFilter(item, semanticCatalogUiState.relatedBindingRef))
+      : unfilteredItems;
+    let selectedObjectId = filteredItems.some((item) => semanticObjectId(config, item) === route.objectId)
+      ? route.objectId
+      : '';
+    if (!selectedObjectId && filteredItems.length) {
+      selectedObjectId = semanticObjectId(config, filteredItems[0]);
+    }
+    if (route.objectId !== selectedObjectId) {
+      applyAdminRoute(
+        { ...route, tab: 'semantic-catalog', subtab: route.subtab, objectId: selectedObjectId, bindingId: '' },
+        'replace'
+      );
+      return;
+    }
+
+    let selectedItem = filteredItems.find((item) => semanticObjectId(config, item) === selectedObjectId) || null;
+    let detailError = null;
+    if (selectedObjectId) {
+      try {
+        selectedItem = await endpoints.get(selectedObjectId);
+      } catch (error) {
+        detailError = normalizeApiError(error, `${config.label} detail unavailable.`);
+      }
+    }
+    if (!semanticCatalogUiState.helperDataByKey[semanticHelperKey(route.subtab, selectedObjectId)]) {
+      resetSemanticHelperState(route.subtab, selectedObjectId);
+    }
+    safeRender({
+      route,
+      config,
+      items: filteredItems,
+      unfilteredItems,
+      selectedObjectId,
+      selectedItem,
+      listError: detailError,
+      publishError: semanticPublishError(route.subtab, selectedObjectId),
+      helperState: semanticHelperState(route.subtab, selectedObjectId),
+      relatedBindingRef: semanticCatalogUiState.relatedBindingRef,
+    });
+  } catch (error) {
+    safeRender({
+      route,
+      config,
+      items: [],
+      unfilteredItems: [],
+      selectedObjectId: '',
+      selectedItem: null,
+      listError: normalizeApiError(error, `${config.label} unavailable.`),
+      publishError: null,
+      helperState: semanticHelperState(route.subtab, route.objectId),
+      relatedBindingRef: semanticCatalogUiState.relatedBindingRef,
+    });
+  }
+}
+
+async function refreshCurrentSemanticCatalog() {
+  const panel = document.getElementById('panel-semantic-catalog');
+  if (panel && currentAdminRoute.tab === 'semantic-catalog') {
+    await hydrateSemanticCatalog(panel, currentAdminRoute);
+  }
+}
+
 function renderAdminPanel(route) {
   const panel = document.getElementById(`panel-${route.tab}`);
   if (!panel) return;
@@ -2841,12 +3608,15 @@ function renderAdminPanel(route) {
   const isOverview = route.tab === 'overview';
   const isDataSources = route.tab === 'data-sources';
   const isExecutionEngines = route.tab === 'execution-engines';
+  const isSemanticCatalog = route.tab === 'semantic-catalog';
   const mainContent = isOverview
     ? renderOverviewShell()
     : isDataSources
       ? `<div data-role="data-sources-body">${renderDataSourcesLoading()}</div>`
     : isExecutionEngines
       ? `<div data-role="execution-engines-body">${renderExecutionEnginesLoading()}</div>`
+    : isSemanticCatalog
+      ? `<div data-role="semantic-catalog-body">${renderSemanticCatalogLoading(route)}</div>`
     : renderAdminListDetailLayout({
         primaryHtml: `
           <div class="admin-shell-card">
@@ -2904,6 +3674,9 @@ function renderAdminPanel(route) {
   }
   if (isExecutionEngines) {
     void hydrateExecutionEngines(panel, route);
+  }
+  if (isSemanticCatalog) {
+    void hydrateSemanticCatalog(panel, route);
   }
 
   panel.querySelectorAll('[data-subtab]').forEach((button) => {
@@ -3005,6 +3778,84 @@ const adminApi = {
   },
   listSourceEngines(sourceId) {
     return requestJson(`/sources/${encodeURIComponent(sourceId)}/engines`, 'Source-engine relationship unavailable.');
+  },
+  listSemanticEntities(status = null) {
+    return requestJson(`/semantic/entities${status ? `?status=${encodeURIComponent(status)}` : ''}`, 'Entity Catalog unavailable.');
+  },
+  getSemanticEntity(objectId) {
+    return requestJson(`/semantic/entities/${encodeURIComponent(objectId)}`, 'Entity detail unavailable.');
+  },
+  publishSemanticEntity(objectId) {
+    return sendJson(`/semantic/entities/${encodeURIComponent(objectId)}/publish`, 'POST', null, 'Publish Entity failed.');
+  },
+  listSemanticMetrics(status = null) {
+    return requestJson(`/semantic/metrics${status ? `?status=${encodeURIComponent(status)}` : ''}`, 'Metric Catalog unavailable.');
+  },
+  getSemanticMetric(objectId) {
+    return requestJson(`/semantic/metrics/${encodeURIComponent(objectId)}`, 'Metric detail unavailable.');
+  },
+  publishSemanticMetric(objectId) {
+    return sendJson(`/semantic/metrics/${encodeURIComponent(objectId)}/publish`, 'POST', null, 'Publish Metric failed.');
+  },
+  listSemanticProcessObjects(status = null) {
+    return requestJson(`/semantic/process-objects${status ? `?status=${encodeURIComponent(status)}` : ''}`, 'Process Object Catalog unavailable.');
+  },
+  getSemanticProcessObject(objectId) {
+    return requestJson(`/semantic/process-objects/${encodeURIComponent(objectId)}`, 'Process Object detail unavailable.');
+  },
+  publishSemanticProcessObject(objectId) {
+    return sendJson(`/semantic/process-objects/${encodeURIComponent(objectId)}/publish`, 'POST', null, 'Publish Process Object failed.');
+  },
+  listSemanticDimensions(status = null) {
+    return requestJson(`/semantic/dimensions${status ? `?status=${encodeURIComponent(status)}` : ''}`, 'Dimension Catalog unavailable.');
+  },
+  getSemanticDimension(objectId) {
+    return requestJson(`/semantic/dimensions/${encodeURIComponent(objectId)}`, 'Dimension detail unavailable.');
+  },
+  publishSemanticDimension(objectId) {
+    return sendJson(`/semantic/dimensions/${encodeURIComponent(objectId)}/publish`, 'POST', null, 'Publish Dimension failed.');
+  },
+  listSemanticTime(status = null) {
+    return requestJson(`/semantic/time${status ? `?status=${encodeURIComponent(status)}` : ''}`, 'Time Catalog unavailable.');
+  },
+  getSemanticTime(objectId) {
+    return requestJson(`/semantic/time/${encodeURIComponent(objectId)}`, 'Time detail unavailable.');
+  },
+  publishSemanticTime(objectId) {
+    return sendJson(`/semantic/time/${encodeURIComponent(objectId)}/publish`, 'POST', null, 'Publish Time failed.');
+  },
+  listSemanticEnumSets(status = null) {
+    return requestJson(`/semantic/enum-sets${status ? `?status=${encodeURIComponent(status)}` : ''}`, 'Enum Set Catalog unavailable.');
+  },
+  getSemanticEnumSet(objectId) {
+    return requestJson(`/semantic/enum-sets/${encodeURIComponent(objectId)}`, 'Enum Set detail unavailable.');
+  },
+  publishSemanticEnumSet(objectId) {
+    return sendJson(`/semantic/enum-sets/${encodeURIComponent(objectId)}/publish`, 'POST', null, 'Publish Enum Set failed.');
+  },
+  listTypedSemanticBindings(status = null) {
+    return requestJson(`/semantic/bindings${status ? `?status=${encodeURIComponent(status)}` : ''}`, 'Typed Binding Catalog unavailable.');
+  },
+  getTypedSemanticBinding(objectId) {
+    return requestJson(`/semantic/bindings/${encodeURIComponent(objectId)}`, 'Typed Binding detail unavailable.');
+  },
+  publishTypedSemanticBinding(objectId) {
+    return sendJson(`/semantic/bindings/${encodeURIComponent(objectId)}/publish`, 'POST', null, 'Publish Typed Binding failed.');
+  },
+  listCompatibilityProfiles(status = null) {
+    return requestJson(`/compiler/compatibility-profiles${status ? `?status=${encodeURIComponent(status)}` : ''}`, 'Compatibility Profile Catalog unavailable.');
+  },
+  getCompatibilityProfile(objectId) {
+    return requestJson(`/compiler/compatibility-profiles/${encodeURIComponent(objectId)}`, 'Compatibility Profile detail unavailable.');
+  },
+  publishCompatibilityProfile(objectId) {
+    return sendJson(`/compiler/compatibility-profiles/${encodeURIComponent(objectId)}/publish`, 'POST', null, 'Publish Compatibility Profile failed.');
+  },
+  resolveSemantic(name) {
+    return requestJson(`/semantic/resolve/${encodeURIComponent(name)}`, 'Resolve failed.');
+  },
+  getCatalogGraph(root) {
+    return requestJson(`/catalog/graph?root=${encodeURIComponent(root)}&depth=2`, 'Catalog Graph unavailable.');
   },
   async listApprovals(params) {
     const query = params ? `?${new URLSearchParams(params)}` : '';

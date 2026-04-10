@@ -86,3 +86,8 @@ Docs layout:
 - `docs/api/`: external HTTP API docs only; target-state step submission is in `intent-steps.md`, and canonical read surfaces are split into `session-state.md` and `context-surface.md`
 - `docs/analysis/`: intents/evidence engine related schema.
 - `docs/semantic`: entity/dimension/metric/process related schema.
+
+UI/Admin notes:
+- `/admin` remains a single-page shell in `app/static/admin.html`.
+- `Semantic Catalog` routing uses `tab=semantic-catalog`, `subtab=<object-kind>`, and `object_id=<catalog-id>` as the canonical locator; `binding_id` is only for execution-engine bindings and legacy typed-binding deep-link compatibility.
+- `Semantic Catalog` T6 is a shared shell: unified list/detail/form/publish/helper scaffolding first, object-specific create/edit flows later.
