@@ -1,0 +1,26 @@
+[project]
+name = "factum-mcp"
+version = "0.1.0"
+description = "External MCP adapter scaffold for Factum's HTTP API."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.28.0",
+    "mcp>=1.0.0",
+    "pydantic>=2.9.0",
+]
+
+[project.scripts]
+factum-mcp = "factum_mcp.server:main"
+factum-mcp-http = "factum_mcp.server:main_http"
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["factum_mcp*"]
