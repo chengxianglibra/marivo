@@ -1,4 +1,4 @@
-.PHONY: test typecheck lint format check
+.PHONY: test typecheck lint format check reset-metadata
 
 VENV_PYTHON := .venv/bin/python
 VENV_PYTEST := .venv/bin/pytest
@@ -23,3 +23,6 @@ format:
 	@$(VENV_RUFF) check --fix .
 
 check: lint typecheck test
+
+reset-metadata:
+	@./scripts/reset-metadata-sqlite.sh

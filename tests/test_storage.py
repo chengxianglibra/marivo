@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from subprocess import run
 
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 from app.storage.sqlite_metadata import SQLiteMetadataStore
@@ -21,6 +22,19 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
         row = self.store.query_one("SELECT COUNT(*) AS cnt FROM sessions")
         self.assertIsNotNone(row)
         self.assertEqual(row["cnt"], 0)
+
+    def test_initialize_uses_current_sessions_schema(self) -> None:
+        rows = self.store.query_rows("PRAGMA table_info(sessions)")
+        column_names = {str(row["name"]) for row in rows}
+        self.assertTrue(
+            {
+                "raw_filter",
+                "terminal_reason",
+                "ended_at",
+                "rollover_from_session_id",
+                "updated_at",
+            }.issubset(column_names)
+        )
 
     def test_execute_and_query(self) -> None:
         self.store.execute(
@@ -74,6 +88,53 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
         ]:
             row = self.store.query_one(f"SELECT COUNT(*) AS cnt FROM {table}")
             self.assertIsNotNone(row, f"Table {table} should exist")
+
+
+class ResetMetadataScriptTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.repo_root = Path(__file__).resolve().parents[1]
+        self.script_path = self.repo_root / "scripts" / "reset-metadata-sqlite.sh"
+        self.duckdb_path = Path(self.temp_dir.name) / "scratch.duckdb"
+        self.metadata_path = self.duckdb_path.with_suffix(".meta.sqlite")
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def test_script_removes_metadata_sqlite_and_sidecars(self) -> None:
+        for path in (
+            self.metadata_path,
+            Path(f"{self.metadata_path}-wal"),
+            Path(f"{self.metadata_path}-shm"),
+        ):
+            path.write_text("x", encoding="utf-8")
+
+        result = run(
+            ["/bin/bash", str(self.script_path), str(self.duckdb_path)],
+            cwd=self.repo_root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0)
+        self.assertFalse(self.metadata_path.exists())
+        self.assertFalse(Path(f"{self.metadata_path}-wal").exists())
+        self.assertFalse(Path(f"{self.metadata_path}-shm").exists())
+
+    def test_script_accepts_direct_metadata_path(self) -> None:
+        self.metadata_path.write_text("x", encoding="utf-8")
+
+        result = run(
+            ["/bin/bash", str(self.script_path), str(self.metadata_path)],
+            cwd=self.repo_root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0)
+        self.assertFalse(self.metadata_path.exists())
 
 
 class DuckDBAnalyticsEngineTests(unittest.TestCase):

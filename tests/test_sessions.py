@@ -187,38 +187,6 @@ class SessionAPITests(unittest.TestCase):
         resp = self.client.get("/sessions?page_token=bad-token")
         self.assertEqual(resp.status_code, 400)
 
-    def test_list_sessions_handles_legacy_session_table_without_runtime_columns(self) -> None:
-        legacy_dir = tempfile.TemporaryDirectory()
-        self.addCleanup(legacy_dir.cleanup)
-        db_path = Path(legacy_dir.name) / "legacy.duckdb"
-        get_seeded_duckdb_path(db_path)
-        metadata_path = db_path.with_suffix(".meta.sqlite")
-        import sqlite3
-
-        with sqlite3.connect(metadata_path) as con:
-            con.execute(
-                """
-                CREATE TABLE sessions (
-                    session_id TEXT PRIMARY KEY,
-                    goal TEXT NOT NULL,
-                    constraints_json TEXT NOT NULL,
-                    budget_json TEXT NOT NULL,
-                    policy_json TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    created_at TEXT NOT NULL DEFAULT (datetime('now'))
-                )
-                """
-            )
-            con.commit()
-
-        client = TestClient(create_app(db_path))
-        self.addCleanup(client.close)
-
-        resp = client.get("/sessions")
-
-        self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.json(), {"items": [], "next_page_token": None})
-
 
 class SessionCloseTests(unittest.TestCase):
     """Phase 8.1: POST /sessions/{id}/close contract tests."""
