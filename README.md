@@ -4,9 +4,9 @@ Stateful sessions, semantic discovery, typed analysis steps, deterministic evide
 
 ## Features
 
-- **FastAPI service**: sessions, typed plans, semantic catalog, source/engine registries, bindings with routing, governance, async jobs, observability
+- **FastAPI service**: sessions, typed intents, semantic catalog, source/engine registries, bindings with routing, governance, async jobs, observability
 - **Evidence packaging**: observations (5 types), claims with confidence/inference_level (L0–L5), evidence edges, recommendations with causal_basis
-- **Readiness signal**: 5-dimensional readiness + suggested_action + live_claims after each step
+- **Readiness signal**: 5-dimensional readiness + suggested_action + live_claims after each typed analysis step
 - **Causal checkers**: deterministic inference-level upgrades
 - **Dual-backend**: SQLite (metadata) + DuckDB (analytics)
 - **Web UI**: Admin (`/admin`) plus a read-only query workbench (`/ui`) for Sessions, State, Context, Runtime, Grounding, and Jobs
@@ -60,22 +60,21 @@ curl -s http://127.0.0.1:8000/sessions -X POST \
   -H "Content-Type: application/json" \
   -d '{"goal": "Investigate watch time drop"}'
 
-# Run step
-curl -s http://127.0.0.1:8000/sessions/<id>/steps/metric_query -X POST \
+# Run a typed intent
+curl -s http://127.0.0.1:8000/sessions/<id>/intents/detect -X POST \
   -H "Content-Type: application/json" \
-  -d '{"table": "analytics.watch_events", "metric": "watch_time",
-       "time_scope": {"mode": "single_window", "grain": "day",
-                      "current": {"start": "2026-03-01", "end": "2026-03-08"}}}'
+  -d '{"metric": "metric.watch_time",
+       "time_scope": {"kind": "range", "start": "2026-03-01", "end": "2026-03-08"}}'
 
-# Evidence graph
-curl -s http://127.0.0.1:8000/sessions/<id>/evidence | python3 -m json.tool
+# Read canonical session state
+curl -s http://127.0.0.1:8000/sessions/<id>/state | python3 -m json.tool
 ```
 
 ## Endpoints
 
 | Domain | Endpoints |
 |--------|-----------|
-| Sessions | `POST/GET /sessions`, `POST /sessions/{id}/steps/{type}`, `GET .../evidence|debug|reflection-context` |
+| Sessions | `POST/GET /sessions`, `POST /sessions/{id}/intents/*`, `GET /sessions/{id}/state`, `GET /sessions/{id}/propositions/{pid}/context` |
 | Sources | `POST/GET/PUT/DELETE /sources`, `POST .../sync`, `GET .../catalog/schemas|tables` |
 | Engines | `POST/GET /engines` |
 | Bindings | `POST/GET/DELETE /bindings`, `POST /routing/resolve` |
@@ -87,7 +86,7 @@ curl -s http://127.0.0.1:8000/sessions/<id>/evidence | python3 -m json.tool
 | Observability | `GET /metrics`, `GET /health` |
 | UI | `GET /admin`, `GET /ui` (read-only query/troubleshooting workbench over canonical and runtime read surfaces) |
 
-**Steps**: `metric_query`, `profile_table`, `sample_rows`, `aggregate_query`, `attribute_change`, `correlate_metrics`, `synthesize_findings`
+**Typed intents**: `observe`, `compare`, `decompose`, `correlate`, `detect`, `test`, `forecast`, `attribute`, `diagnose`, `validate`
 
 ## Architecture
 
@@ -105,9 +104,9 @@ subproject and does not change Factum's HTTP-only product boundary.
 
 ## Key Concepts
 
-- **Incremental synthesis**: tentative claims after each step; `synthesize_findings` promotes to confirmed/insufficient
+- **Canonical read surfaces**: session decisions come from `/sessions/{id}/state`; proposition closure comes from `/sessions/{id}/propositions/{pid}/context`
 - **Inference levels**: L0=correlation, L1=consistency, L2=temporal precedence, L3=mechanism
-- **Plan lifecycle**: draft → validated → approved → executing → completed/failed
+- **Published semantic contracts**: runtime resolution and typed analysis should rely on published semantic objects
 
 ## Tests
 

@@ -6,21 +6,39 @@ This subproject keeps the MCP runtime separate from Factum's core HTTP service.
 Factum remains HTTP-only. The MCP server is a client-side adapter over the
 canonical HTTP API.
 
-## Current Scope
+## Supported Scope
 
-Current scope provides:
+Validated P0 scope provides:
 
 - a standalone Python package
 - `stdio` and Streamable HTTP MCP server entrypoints
 - environment-driven configuration loading
 - a shared HTTP client with uniform result envelopes
 - discovery and catalog tools that proxy canonical Factum HTTP endpoints
+- TTL-based caching for OpenAPI discovery tools
 - session lifecycle and canonical state/context investigation tools
 - typed intent tools that map directly to Factum's `/sessions/{id}/intents/*` routes
+- semantic-layer lifecycle tools for all public object families
+- read-only MCP resources that mirror canonical Factum HTTP surfaces
 
-It does not yet provide:
+Implemented but non-P0 surfaces remain available for source admin and routing
+workflows:
 
-- semantic-layer production tool implementations
+- `get_openapi_path_fragment`
+- `list_sources`
+- `register_source`
+- `sync_source`
+- `get_source_objects`
+- `get_source_object`
+- `resolve_routing`
+- `factum://catalog/summary`
+- `factum://sources/{source_id}/objects{?type,schema}`
+- `factum://sources/{source_id}/objects/{object_id}`
+- `factum://server/config`
+
+The executable support inventory lives in `factum_mcp.inventory`. Tests use that
+module as the machine-readable source of truth for registration and contract
+consistency checks.
 
 ## Environment
 
@@ -76,6 +94,74 @@ factum-mcp
 With the current defaults and the official Python MCP SDK, clients should
 connect to `http://127.0.0.1:8000/mcp`.
 
+## Validation
+
+Run the offline MCP regression checks from the repository root:
+
+```bash
+.venv/bin/pytest \
+  tests/test_factum_mcp_config.py \
+  tests/test_factum_mcp_transport.py \
+  tests/test_factum_mcp_resources.py \
+  tests/test_factum_mcp_inventory.py \
+  tests/test_factum_mcp_smoke.py
+```
+
+Optional live smoke against a running Factum HTTP service:
+
+```bash
+cd factum-mcp
+FACTUM_BASE_URL=http://127.0.0.1:8000 .venv/bin/factum-mcp-smoke
+```
+
+The live smoke checks:
+
+- configuration loading
+- `GET /health`
+- `GET /openapi/index`
+- `POST /sessions`
+- `GET /sessions/{session_id}/state`
+- one intentional `422` validation envelope via `POST /semantic/entities`
+
+The release checklist is documented in
+[`docs/release-checklist.md`](docs/release-checklist.md).
+
+## Resources
+
+The adapter also exposes read-only MCP resources for high-frequency canonical
+reads:
+
+- `factum://catalog/summary`
+- `factum://sessions/{session_id}/state`
+- `factum://sessions/{session_id}/propositions/{proposition_id}/context`
+- `factum://semantic/{family}{?status}`
+- `factum://sources/{source_id}/objects{?type,schema}`
+- `factum://sources/{source_id}/objects/{object_id}`
+- `factum://server/config`
+
+Resource rules:
+
+- resources return the raw canonical JSON body for the mirrored HTTP surface
+- resources do not wrap responses in the tool envelope
+- `factum://catalog/summary` is a fixed aggregate snapshot over canonical read
+  surfaces; it does not become a search API
+- `factum://sources/{source_id}/objects` reads synced metadata only, not live
+  external catalog browse endpoints
+- `factum://sources/{source_id}/objects/{object_id}` reads one synced source
+  object detail only, not live external catalog browse endpoints
+- `factum://semantic/{family}` only supports public semantic families and the
+  canonical `status` filter
+
+## Known Limitations
+
+- Factum remains HTTP-only; this adapter is a separate client-side process.
+- MCP resources mirror canonical HTTP reads and do not become a second source
+  of evidence.
+- The adapter does not invent planner-style tools, generic step submission, or
+  SQL execution surfaces.
+- Some valid HTTP contracts are intentionally not wrapped yet, including
+  `GET /sessions` and `GET /sources/{source_id}`.
+
 ## Tool Envelope
 
 Every HTTP-backed tool returns the same envelope:
@@ -110,6 +196,12 @@ Typed semantic `422` responses preserve Factum's canonical `detail` and
 `guidance` fields. The MCP adapter only adds a short `remediation_hint`; it
 does not rewrite the original error body.
 
+Semantic publish failures may return structured `detail` payloads instead of the
+usual validation list. The MCP adapter extracts `error.message` and
+`error.code` from that structure while preserving the original `error.detail`
+object. Use that combination to distinguish draft-state errors, missing
+dependencies, compatibility failures, and missing objects.
+
 ## T4 Tools
 
 Current discovery / health / catalog coverage:
@@ -124,6 +216,16 @@ Current discovery / health / catalog coverage:
 
 These tools are adapters over the canonical HTTP contract. They do not publish a
 second schema or reinterpret Factum object families.
+
+OpenAPI discovery responses are cached inside the MCP adapter using
+`FACTUM_OPENAPI_CACHE_TTL_SEC`:
+
+- cache scope is limited to `list_openapi_paths`, `get_openapi_schema`,
+  `get_openapi_fragment`, and `get_openapi_path_fragment`
+- only successful responses are cached
+- `FACTUM_OPENAPI_CACHE_TTL_SEC=0` disables the cache
+- once the TTL expires, the adapter re-reads Factum's OpenAPI surface and
+  surfaces the latest `revision`
 
 ## T5 Tools
 
@@ -163,6 +265,78 @@ Boundary notes:
 - MCP parameter names intentionally reuse the canonical HTTP request field names
 - tool `data` remains the raw Factum success body; the adapter does not derive a new evidence summary
 - for `422` responses, use `error.guidance.contract_url`, `error.guidance.schema_url`, and `error.guidance.examples` to repair the payload
+
+## T7 Tools
+
+Current semantic-layer coverage:
+
+- `create_entity(header, interface_contract)` -> `POST /semantic/entities`
+- `list_entities(status=None)` -> `GET /semantic/entities`
+- `get_entity(entity_id)` -> `GET /semantic/entities/{entity_id}`
+- `update_entity(entity_id, display_name=None, description=None, interface_contract=None)` -> `PUT /semantic/entities/{entity_id}`
+- `publish_entity(entity_id)` -> `POST /semantic/entities/{entity_id}/publish`
+- `create_metric(header, payload)` -> `POST /semantic/metrics`
+- `list_metrics(status=None)` -> `GET /semantic/metrics`
+- `get_metric(metric_id)` -> `GET /semantic/metrics/{metric_id}`
+- `update_metric(metric_id, display_name=None, description=None, payload=None)` -> `PUT /semantic/metrics/{metric_id}`
+- `publish_metric(metric_id)` -> `POST /semantic/metrics/{metric_id}/publish`
+- `create_process_object(header, interface_contract, payload)` -> `POST /semantic/process-objects`
+- `list_process_objects(status=None)` -> `GET /semantic/process-objects`
+- `get_process_object(process_contract_id)` -> `GET /semantic/process-objects/{process_contract_id}`
+- `update_process_object(process_contract_id, display_name=None, description=None, interface_contract=None, payload=None)` -> `PUT /semantic/process-objects/{process_contract_id}`
+- `publish_process_object(process_contract_id)` -> `POST /semantic/process-objects/{process_contract_id}/publish`
+- `create_dimension(header, interface_contract)` -> `POST /semantic/dimensions`
+- `list_dimensions(status=None)` -> `GET /semantic/dimensions`
+- `get_dimension(dimension_contract_id)` -> `GET /semantic/dimensions/{dimension_contract_id}`
+- `update_dimension(dimension_contract_id, display_name=None, description=None, interface_contract=None)` -> `PUT /semantic/dimensions/{dimension_contract_id}`
+- `publish_dimension(dimension_contract_id)` -> `POST /semantic/dimensions/{dimension_contract_id}/publish`
+- `create_time_semantic(header)` -> `POST /semantic/time`
+- `list_time_semantics(status=None)` -> `GET /semantic/time`
+- `get_time_semantic(time_contract_id)` -> `GET /semantic/time/{time_contract_id}`
+- `update_time_semantic(time_contract_id, display_name=None, description=None, semantic_roles=None)` -> `PUT /semantic/time/{time_contract_id}`
+- `publish_time_semantic(time_contract_id)` -> `POST /semantic/time/{time_contract_id}/publish`
+- `create_enum_set(header, display_name, versions, description=None)` -> `POST /semantic/enum-sets`
+- `list_enum_sets(status=None)` -> `GET /semantic/enum-sets`
+- `get_enum_set(enum_set_contract_id)` -> `GET /semantic/enum-sets/{enum_set_contract_id}`
+- `update_enum_set(enum_set_contract_id, display_name=None, description=None, versions=None)` -> `PUT /semantic/enum-sets/{enum_set_contract_id}`
+- `publish_enum_set(enum_set_contract_id)` -> `POST /semantic/enum-sets/{enum_set_contract_id}/publish`
+- `create_binding(header, interface_contract)` -> `POST /semantic/bindings`
+- `list_bindings(status=None)` -> `GET /semantic/bindings`
+- `get_binding(binding_id)` -> `GET /semantic/bindings/{binding_id}`
+- `update_binding(binding_id, display_name=None, description=None, interface_contract=None)` -> `PUT /semantic/bindings/{binding_id}`
+- `publish_binding(binding_id)` -> `POST /semantic/bindings/{binding_id}/publish`
+- `create_compatibility_profile(profile_ref, profile_kind, subject_kind, subject_ref, schema_version="v1", requirement=None, capability=None)` -> `POST /compiler/compatibility-profiles`
+- `list_compatibility_profiles(status=None)` -> `GET /compiler/compatibility-profiles`
+- `get_compatibility_profile(profile_id)` -> `GET /compiler/compatibility-profiles/{profile_id}`
+- `update_compatibility_profile(profile_id, requirement=None, capability=None)` -> `PUT /compiler/compatibility-profiles/{profile_id}`
+- `publish_compatibility_profile(profile_id)` -> `POST /compiler/compatibility-profiles/{profile_id}/publish`
+
+Boundary notes:
+
+- these tools map directly to the existing HTTP families; they do not create MCP-only semantic abstractions
+- `publish_*` marks the runtime visibility boundary; draft objects should not be treated as resolvable runtime inputs
+- `key.*`, `grain.*`, `measure.*`, and `metric_input.*` remain payload values only, not CRUD families
+- on publish failures, inspect `error.code`, `error.message`, and the preserved `error.detail` object before falling back to raw OpenAPI discovery
+
+## T8 Tools
+
+Current source metadata and routing coverage:
+
+- `list_sources()` -> `GET /sources`
+- `register_source(source_type, display_name, connection=None, capabilities=None)` -> `POST /sources`
+- `sync_source(source_id)` -> `POST /sources/{source_id}/sync`
+- `get_source_objects(source_id, type=None, schema=None)` -> `GET /sources/{source_id}/objects`
+- `get_source_object(source_id, object_id)` -> `GET /sources/{source_id}/objects/{object_id}`
+- `resolve_routing(table_names, routing_intent=None)` -> `POST /routing/resolve`
+
+Boundary notes:
+
+- `get_source_objects()` reads synced source metadata from Factum's local store; it does not browse the live external catalog
+- `get_source_object()` reads one synced source object from Factum's local store; it does not browse the live external catalog
+- live catalog browse remains under `/sources/{source_id}/catalog/schemas` and `/sources/{source_id}/catalog/tables`, and is intentionally not wrapped by T8
+- `sync_source()` preserves the current HTTP response body as-is; the MCP adapter does not invent a separate async status model
+- `resolve_routing()` is a planning and debugging aid over the public routing contract; it does not expose a second routing schema
+- tool `data` remains the raw Factum canonical body for both source and routing tools
 
 ## Minimal Examples
 
@@ -456,9 +630,76 @@ Validate:
 }
 ```
 
+Minimal semantic examples:
+
+Create an entity:
+
+```json
+{
+  "header": {
+    "entity_ref": "entity.user",
+    "display_name": "User",
+    "entity_contract_version": "entity.v4"
+  },
+  "interface_contract": {
+    "identity": {
+      "key_refs": ["key.user_id"],
+      "uniqueness_scope": "global",
+      "id_stability": "stable"
+    }
+  }
+}
+```
+
+Create a metric:
+
+```json
+{
+  "header": {
+    "metric_ref": "metric.watch_time",
+    "display_name": "Watch Time",
+    "metric_family": "count_metric",
+    "observed_entity_ref": "entity.user",
+    "observation_grain_ref": "grain.user",
+    "sample_kind": "numeric",
+    "value_semantics": "count",
+    "additivity": "additive",
+    "metric_contract_version": "metric.v1"
+  },
+  "payload": {
+    "metric_family": "count_metric",
+    "count_target": {
+      "name": "watch_time",
+      "semantics": "total watch time",
+      "aggregation": "sum"
+    }
+  }
+}
+```
+
+Create a binding:
+
+```json
+{
+  "header": {
+    "binding_ref": "binding.user_events_primary",
+    "display_name": "User Events Binding",
+    "binding_scope": "entity",
+    "bound_object_ref": "entity.user",
+    "binding_contract_version": "binding.v1"
+  },
+  "interface_contract": {
+    "carrier_bindings": [],
+    "field_bindings": []
+  }
+}
+```
+
 Common failure examples:
 
 - `get_session({"session_id":"sess_missing"})` -> `404` with `error.category = "not_found"`
 - `query_session_state(...)` with an invalid body field or enum -> `422` with canonical `detail` preserved under `error.detail`
 - `get_proposition_context(...)` for a missing or cross-session proposition -> `404` with the original Factum error message
 - `observe(...)` with an invalid or incomplete body -> `422` with canonical `guidance` preserved under `error.guidance`; start with `error.guidance.examples`, then inspect `error.guidance.schema_url` or `error.guidance.contract_url`
+- `publish_entity(...)` after the object is already published -> `422` with structured `error.detail`, `error.code = "publish_state_error"`, and a message explaining the draft-state violation
+- `publish_binding(...)` before required semantic imports are published -> `422` with structured `error.detail` and a publish-specific validation code such as `reference_validation_error`

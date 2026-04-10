@@ -13,6 +13,7 @@ dependencies = [
 [project.scripts]
 factum-mcp = "factum_mcp.server:main"
 factum-mcp-http = "factum_mcp.server:main_http"
+factum-mcp-smoke = "factum_mcp.smoke:main"
 
 [build-system]
 requires = ["setuptools>=68.0"]
