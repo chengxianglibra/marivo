@@ -378,6 +378,7 @@ function statusBadge(status) {
     pending: 'badge-warning', approved: 'badge-success', rejected: 'badge-error',
     running: 'badge-info', completed: 'badge-success', failed: 'badge-error',
     cancelled: 'badge-gray', submitted: 'badge-info',
+    open: 'badge-info', closed: 'badge-gray',
     validated: 'badge-info', executing: 'badge-info',
     ok: 'badge-success',
     tentative: 'badge-warning',
