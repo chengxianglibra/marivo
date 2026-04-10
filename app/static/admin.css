@@ -313,6 +313,29 @@
   gap: var(--space-lg);
 }
 
+.source-inventory-row {
+  cursor: pointer;
+}
+
+.source-inventory-row:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
+.source-inventory-link {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+}
+
+.source-inventory-link:hover {
+  text-decoration: none;
+}
+
+.source-inventory-link-status {
+  display: inline-flex;
+}
+
 .source-object-summary {
   display: flex;
   flex-wrap: wrap;
