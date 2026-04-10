@@ -13,11 +13,13 @@ sys.path.insert(0, str(FACTUM_MCP_SRC))
 tools_module = import_module("factum_mcp.tools")
 config_module = import_module("factum_mcp.config")
 http_client_module = import_module("factum_mcp.http_client")
+openapi_cache_module = import_module("factum_mcp.openapi_cache")
 
 FactumMcpConfig = config_module.FactumMcpConfig
 HttpTransportConfig = config_module.HttpTransportConfig
 FactumHttpClient = http_client_module.FactumHttpClient
 register_tools = tools_module.register_tools
+OpenApiResponseCache = openapi_cache_module.OpenApiResponseCache
 
 
 class _FakeServerSettings:
@@ -317,6 +319,55 @@ def test_registers_t4_discovery_and_catalog_tools() -> None:
         "diagnose",
         "validate",
     }
+    assert set(server.tools) >= {
+        "create_entity",
+        "list_entities",
+        "get_entity",
+        "update_entity",
+        "publish_entity",
+        "create_metric",
+        "list_metrics",
+        "get_metric",
+        "update_metric",
+        "publish_metric",
+        "create_process_object",
+        "list_process_objects",
+        "get_process_object",
+        "update_process_object",
+        "publish_process_object",
+        "create_dimension",
+        "list_dimensions",
+        "get_dimension",
+        "update_dimension",
+        "publish_dimension",
+        "create_time_semantic",
+        "list_time_semantics",
+        "get_time_semantic",
+        "update_time_semantic",
+        "publish_time_semantic",
+        "create_enum_set",
+        "list_enum_sets",
+        "get_enum_set",
+        "update_enum_set",
+        "publish_enum_set",
+        "create_binding",
+        "list_bindings",
+        "get_binding",
+        "update_binding",
+        "publish_binding",
+        "create_compatibility_profile",
+        "list_compatibility_profiles",
+        "get_compatibility_profile",
+        "update_compatibility_profile",
+        "publish_compatibility_profile",
+    }
+    assert set(server.tools) >= {
+        "list_sources",
+        "register_source",
+        "sync_source",
+        "get_source_objects",
+        "resolve_routing",
+    }
 
 
 def test_list_openapi_paths_uses_openapi_index_endpoint() -> None:
@@ -455,6 +506,130 @@ def test_get_openapi_path_fragment_preserves_http_400_for_invalid_encoded_path()
     assert result["error"]["message"] == (
         "Invalid encoded path. Use unpadded base64url for the raw OpenAPI path."
     )
+
+
+def test_openapi_index_hits_cache_until_ttl_expires() -> None:
+    attempts = {"count": 0}
+    now = {"value": 100.0}
+    cache = OpenApiResponseCache(30, time_fn=lambda: now["value"])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        attempts["count"] += 1
+        return httpx.Response(
+            200,
+            json={"revision": f"rev-{attempts['count']}", "paths": [], "schemas": []},
+            request=request,
+        )
+
+    first = _invoke_registered_tool("list_openapi_paths", handler, _openapi_cache=cache)
+    second = _invoke_registered_tool("list_openapi_paths", handler, _openapi_cache=cache)
+    now["value"] = 131.0
+    third = _invoke_registered_tool("list_openapi_paths", handler, _openapi_cache=cache)
+
+    assert attempts["count"] == 2
+    assert first["data"]["revision"] == "rev-1"
+    assert second["data"]["revision"] == "rev-1"
+    assert third["data"]["revision"] == "rev-2"
+
+
+def test_openapi_cache_key_includes_expand_and_depth() -> None:
+    attempts = {"count": 0}
+    cache = OpenApiResponseCache(60, time_fn=lambda: 100.0)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        attempts["count"] += 1
+        params = request.url.params
+        return httpx.Response(
+            200,
+            json={
+                "path": params.get("path"),
+                "expand": params.get_list("expand"),
+                "depth": params.get("depth"),
+                "attempt": attempts["count"],
+            },
+            request=request,
+        )
+
+    first = _invoke_registered_tool(
+        "get_openapi_fragment",
+        handler,
+        _openapi_cache=cache,
+        path="/sessions",
+        expand=["schemas"],
+        depth=1,
+    )
+    second = _invoke_registered_tool(
+        "get_openapi_fragment",
+        handler,
+        _openapi_cache=cache,
+        path="/sessions",
+        expand=["schemas"],
+        depth=1,
+    )
+    third = _invoke_registered_tool(
+        "get_openapi_fragment",
+        handler,
+        _openapi_cache=cache,
+        path="/sessions",
+        expand=["request", "schemas"],
+        depth=1,
+    )
+    fourth = _invoke_registered_tool(
+        "get_openapi_fragment",
+        handler,
+        _openapi_cache=cache,
+        path="/sessions",
+        expand=["schemas"],
+        depth=2,
+    )
+
+    assert attempts["count"] == 3
+    assert first["data"]["attempt"] == 1
+    assert second["data"]["attempt"] == 1
+    assert third["data"]["attempt"] == 2
+    assert fourth["data"]["attempt"] == 3
+
+
+def test_openapi_cache_does_not_store_errors() -> None:
+    attempts = {"count": 0}
+    cache = OpenApiResponseCache(60, time_fn=lambda: 100.0)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        attempts["count"] += 1
+        return httpx.Response(404, json={"detail": "missing schema"}, request=request)
+
+    first = _invoke_registered_tool(
+        "get_openapi_schema",
+        handler,
+        _openapi_cache=cache,
+        schema_name="MissingSchema",
+    )
+    second = _invoke_registered_tool(
+        "get_openapi_schema",
+        handler,
+        _openapi_cache=cache,
+        schema_name="MissingSchema",
+    )
+
+    assert attempts["count"] == 2
+    assert first["ok"] is False
+    assert second["ok"] is False
+
+
+def test_openapi_cache_can_be_disabled_with_zero_ttl() -> None:
+    attempts = {"count": 0}
+    cache = OpenApiResponseCache(0, time_fn=lambda: 100.0)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        attempts["count"] += 1
+        return httpx.Response(200, json={"attempt": attempts["count"]}, request=request)
+
+    first = _invoke_registered_tool("list_openapi_paths", handler, _openapi_cache=cache)
+    second = _invoke_registered_tool("list_openapi_paths", handler, _openapi_cache=cache)
+
+    assert attempts["count"] == 2
+    assert first["data"]["attempt"] == 1
+    assert second["data"]["attempt"] == 2
 
 
 def test_search_catalog_forwards_query_and_type_filter() -> None:
@@ -1098,6 +1273,573 @@ def test_intent_tools_preserve_422_guidance_from_factum() -> None:
     assert "guidance.examples" in cast("str", result["error"]["remediation_hint"])
 
 
+def test_semantic_create_tools_use_inventory_names_and_canonical_paths() -> None:
+    cases: list[tuple[str, str, dict[str, object]]] = [
+        (
+            "create_entity",
+            "/semantic/entities",
+            {
+                "header": {"entity_ref": "entity.user"},
+                "interface_contract": {"identity": {"key_refs": ["key.user_id"]}},
+            },
+        ),
+        (
+            "create_metric",
+            "/semantic/metrics",
+            {
+                "header": {"metric_ref": "metric.watch_time"},
+                "payload": {"metric_family": "count_metric"},
+            },
+        ),
+        (
+            "create_process_object",
+            "/semantic/process-objects",
+            {
+                "header": {"process_ref": "process.watch_events"},
+                "interface_contract": {"contract_mode": "entity_stream"},
+                "payload": {"process_type": "event_stream"},
+            },
+        ),
+        (
+            "create_dimension",
+            "/semantic/dimensions",
+            {
+                "header": {"dimension_ref": "dimension.country"},
+                "interface_contract": {"grouping": {"supports_grouping": True}},
+            },
+        ),
+        (
+            "create_time_semantic",
+            "/semantic/time",
+            {"header": {"time_ref": "time.created_at"}},
+        ),
+        (
+            "create_enum_set",
+            "/semantic/enum-sets",
+            {
+                "header": {"enum_set_ref": "enum.country_code"},
+                "display_name": "Country Code",
+                "versions": [{"enum_version": "v1", "values": []}],
+            },
+        ),
+        (
+            "create_binding",
+            "/semantic/bindings",
+            {
+                "header": {"binding_ref": "binding.user_events"},
+                "interface_contract": {"carrier_bindings": [], "field_bindings": []},
+            },
+        ),
+        (
+            "create_compatibility_profile",
+            "/compiler/compatibility-profiles",
+            {
+                "profile_ref": "compiler_profile.metric_requirement",
+                "profile_kind": "requirement",
+                "schema_version": "v1",
+                "subject_kind": "metric",
+                "subject_ref": "metric.watch_time",
+                "requirement": {"required_process_refs": ["process.watch_events"]},
+            },
+        ),
+    ]
+
+    for tool_name, expected_path, tool_kwargs in cases:
+        expected_body = httpx.Request("POST", "http://factum.test", json=tool_kwargs).read()
+
+        def handler(
+            request: httpx.Request,
+            expected_path: str = expected_path,
+            expected_body: bytes = expected_body,
+            tool_name: str = tool_name,
+        ) -> httpx.Response:
+            assert request.method == "POST"
+            assert request.url.path == expected_path
+            assert request.read() == expected_body
+            return httpx.Response(200, json={"tool": tool_name}, request=request)
+
+        result = _invoke_registered_tool(tool_name, handler, **tool_kwargs)
+
+        assert result["ok"] is True
+        assert result["data"] == {"tool": tool_name}
+        assert result["meta"]["factum_path"] == expected_path
+
+
+def test_semantic_list_and_get_tools_forward_canonical_status_and_path_parameters() -> None:
+    cases: list[tuple[str, str, dict[str, str]]] = [
+        ("list_entities", "/semantic/entities", {"status": "published"}),
+        ("list_metrics", "/semantic/metrics", {"status": "draft"}),
+        ("list_process_objects", "/semantic/process-objects", {"status": "published"}),
+        ("list_dimensions", "/semantic/dimensions", {"status": "draft"}),
+        ("list_time_semantics", "/semantic/time", {"status": "published"}),
+        ("list_enum_sets", "/semantic/enum-sets", {"status": "draft"}),
+        ("list_bindings", "/semantic/bindings", {"status": "published"}),
+        ("list_compatibility_profiles", "/compiler/compatibility-profiles", {"status": "draft"}),
+        ("get_entity", "/semantic/entities/ent_123", {"entity_id": "ent_123"}),
+        ("get_metric", "/semantic/metrics/met_123", {"metric_id": "met_123"}),
+        (
+            "get_process_object",
+            "/semantic/process-objects/proc_123",
+            {"process_contract_id": "proc_123"},
+        ),
+        ("get_dimension", "/semantic/dimensions/dim_123", {"dimension_contract_id": "dim_123"}),
+        ("get_time_semantic", "/semantic/time/time_123", {"time_contract_id": "time_123"}),
+        ("get_enum_set", "/semantic/enum-sets/enum_123", {"enum_set_contract_id": "enum_123"}),
+        ("get_binding", "/semantic/bindings/bind_123", {"binding_id": "bind_123"}),
+        (
+            "get_compatibility_profile",
+            "/compiler/compatibility-profiles/cprof_123",
+            {"profile_id": "cprof_123"},
+        ),
+    ]
+
+    for tool_name, expected_path, tool_kwargs in cases:
+
+        def handler(
+            request: httpx.Request,
+            expected_path: str = expected_path,
+            tool_name: str = tool_name,
+            tool_kwargs: dict[str, str] = tool_kwargs,
+        ) -> httpx.Response:
+            assert request.method == "GET"
+            assert request.url.path == expected_path
+            if tool_name.startswith("list_"):
+                assert dict(request.url.params) == {"status": next(iter(tool_kwargs.values()))}
+            else:
+                assert request.url.query == b""
+            return httpx.Response(200, json={"tool": tool_name}, request=request)
+
+        result = _invoke_registered_tool(tool_name, handler, **tool_kwargs)
+
+        assert result["ok"] is True
+        assert result["meta"]["factum_path"] == expected_path
+
+
+def test_semantic_update_tools_send_only_canonical_body_fields() -> None:
+    cases: list[tuple[str, str, dict[str, object], dict[str, object]]] = [
+        (
+            "update_entity",
+            "/semantic/entities/ent_123",
+            {"entity_id": "ent_123", "display_name": "User", "description": "Updated"},
+            {"display_name": "User", "description": "Updated"},
+        ),
+        (
+            "update_metric",
+            "/semantic/metrics/met_123",
+            {"metric_id": "met_123", "payload": {"metric_family": "count_metric"}},
+            {"payload": {"metric_family": "count_metric"}},
+        ),
+        (
+            "update_process_object",
+            "/semantic/process-objects/proc_123",
+            {
+                "process_contract_id": "proc_123",
+                "interface_contract": {"contract_mode": "entity_stream"},
+            },
+            {"interface_contract": {"contract_mode": "entity_stream"}},
+        ),
+        (
+            "update_dimension",
+            "/semantic/dimensions/dim_123",
+            {
+                "dimension_contract_id": "dim_123",
+                "interface_contract": {"grouping": {"supports_grouping": True}},
+            },
+            {"interface_contract": {"grouping": {"supports_grouping": True}}},
+        ),
+        (
+            "update_time_semantic",
+            "/semantic/time/time_123",
+            {"time_contract_id": "time_123", "semantic_roles": ["business_anchor"]},
+            {"semantic_roles": ["business_anchor"]},
+        ),
+        (
+            "update_enum_set",
+            "/semantic/enum-sets/enum_123",
+            {"enum_set_contract_id": "enum_123", "display_name": "Country Code"},
+            {"display_name": "Country Code"},
+        ),
+        (
+            "update_binding",
+            "/semantic/bindings/bind_123",
+            {"binding_id": "bind_123", "description": "Updated"},
+            {"description": "Updated"},
+        ),
+        (
+            "update_compatibility_profile",
+            "/compiler/compatibility-profiles/cprof_123",
+            {
+                "profile_id": "cprof_123",
+                "capability": {"provided_process_refs": ["process.watch_events"]},
+            },
+            {"capability": {"provided_process_refs": ["process.watch_events"]}},
+        ),
+    ]
+
+    for tool_name, expected_path, tool_kwargs, expected_body_payload in cases:
+        expected_body = httpx.Request(
+            "PUT", "http://factum.test", json=expected_body_payload
+        ).read()
+
+        def handler(
+            request: httpx.Request,
+            expected_path: str = expected_path,
+            expected_body: bytes = expected_body,
+            tool_name: str = tool_name,
+        ) -> httpx.Response:
+            assert request.method == "PUT"
+            assert request.url.path == expected_path
+            assert request.read() == expected_body
+            return httpx.Response(200, json={"tool": tool_name}, request=request)
+
+        result = _invoke_registered_tool(tool_name, handler, **tool_kwargs)
+
+        assert result["ok"] is True
+        assert result["meta"]["factum_path"] == expected_path
+
+
+def test_semantic_publish_tools_use_canonical_publish_paths() -> None:
+    cases = [
+        ("publish_entity", "/semantic/entities/ent_123/publish", {"entity_id": "ent_123"}),
+        ("publish_metric", "/semantic/metrics/met_123/publish", {"metric_id": "met_123"}),
+        (
+            "publish_process_object",
+            "/semantic/process-objects/proc_123/publish",
+            {"process_contract_id": "proc_123"},
+        ),
+        (
+            "publish_dimension",
+            "/semantic/dimensions/dim_123/publish",
+            {"dimension_contract_id": "dim_123"},
+        ),
+        (
+            "publish_time_semantic",
+            "/semantic/time/time_123/publish",
+            {"time_contract_id": "time_123"},
+        ),
+        (
+            "publish_enum_set",
+            "/semantic/enum-sets/enum_123/publish",
+            {"enum_set_contract_id": "enum_123"},
+        ),
+        ("publish_binding", "/semantic/bindings/bind_123/publish", {"binding_id": "bind_123"}),
+        (
+            "publish_compatibility_profile",
+            "/compiler/compatibility-profiles/cprof_123/publish",
+            {"profile_id": "cprof_123"},
+        ),
+    ]
+
+    for tool_name, expected_path, tool_kwargs in cases:
+
+        def handler(
+            request: httpx.Request,
+            expected_path: str = expected_path,
+        ) -> httpx.Response:
+            assert request.method == "POST"
+            assert request.url.path == expected_path
+            assert request.read() == b""
+            return httpx.Response(200, json={"status": "published"}, request=request)
+
+        result = _invoke_registered_tool(tool_name, handler, **tool_kwargs)
+
+        assert result["ok"] is True
+        assert result["data"] == {"status": "published"}
+        assert result["meta"]["factum_path"] == expected_path
+
+
+def test_publish_errors_extract_message_and_code_from_structured_detail() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/semantic/entities/ent_123/publish"
+        return httpx.Response(
+            422,
+            json={
+                "detail": {
+                    "message": "Entity 'ent_123' is not in draft status (status=published).",
+                    "code": "publish_state_error",
+                    "category": "state",
+                }
+            },
+            request=request,
+        )
+
+    result = _invoke_registered_tool(
+        "publish_entity",
+        handler,
+        entity_id="ent_123",
+    )
+
+    assert result["ok"] is False
+    assert result["status_code"] == 422
+    assert result["error"]["category"] == "validation"
+    assert result["error"]["message"] == (
+        "Entity 'ent_123' is not in draft status (status=published)."
+    )
+    assert result["error"]["code"] == "publish_state_error"
+    assert result["error"]["detail"] == {
+        "message": "Entity 'ent_123' is not in draft status (status=published).",
+        "code": "publish_state_error",
+        "category": "state",
+    }
+
+
+def test_publish_binding_preserves_reference_validation_failure_shape() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/semantic/bindings/bind_123/publish"
+        return httpx.Response(
+            422,
+            json={
+                "detail": {
+                    "message": "All imported semantic refs must be published before binding publish.",
+                    "code": "reference_validation_error",
+                    "category": "validation",
+                }
+            },
+            request=request,
+        )
+
+    result = _invoke_registered_tool(
+        "publish_binding",
+        handler,
+        binding_id="bind_123",
+    )
+
+    assert result["ok"] is False
+    assert result["status_code"] == 422
+    assert result["error"]["message"] == (
+        "All imported semantic refs must be published before binding publish."
+    )
+    assert result["error"]["code"] == "reference_validation_error"
+
+
+def test_publish_compatibility_profile_preserves_not_found() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/compiler/compatibility-profiles/cprof_missing/publish"
+        return httpx.Response(404, json={"detail": "'cprof_missing' not found"}, request=request)
+
+    result = _invoke_registered_tool(
+        "publish_compatibility_profile",
+        handler,
+        profile_id="cprof_missing",
+    )
+
+    assert result["ok"] is False
+    assert result["status_code"] == 404
+    assert result["error"]["category"] == "not_found"
+
+
+def test_list_sources_uses_canonical_sources_index() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert request.url.path == "/sources"
+        assert request.url.query == b""
+        return httpx.Response(200, json=[{"source_id": "src_123"}], request=request)
+
+    result = _invoke_registered_tool("list_sources", handler)
+
+    assert result["ok"] is True
+    assert result["data"] == [{"source_id": "src_123"}]
+    assert result["meta"]["factum_path"] == "/sources"
+
+
+def test_register_source_uses_only_canonical_body_fields() -> None:
+    tool_kwargs = {
+        "source_type": "duckdb",
+        "display_name": "Analytics DuckDB",
+        "connection": {"db_path": "/data/analytics.duckdb"},
+        "capabilities": {"supports_partitions": False},
+    }
+    expected_body = httpx.Request("POST", "http://factum.test", json=tool_kwargs).read()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"
+        assert request.url.path == "/sources"
+        assert request.read() == expected_body
+        return httpx.Response(200, json={"source_id": "src_123"}, request=request)
+
+    result = _invoke_registered_tool("register_source", handler, **tool_kwargs)
+
+    assert result["ok"] is True
+    assert result["data"] == {"source_id": "src_123"}
+    assert result["meta"]["factum_path"] == "/sources"
+
+
+def test_register_source_omits_none_optional_fields() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"
+        assert request.url.path == "/sources"
+        assert request.read() == (
+            httpx.Request(
+                "POST",
+                "http://factum.test",
+                json={"source_type": "trino", "display_name": "Warehouse"},
+            ).read()
+        )
+        return httpx.Response(200, json={"source_id": "src_456"}, request=request)
+
+    result = _invoke_registered_tool(
+        "register_source",
+        handler,
+        source_type="trino",
+        display_name="Warehouse",
+    )
+
+    assert result["ok"] is True
+    assert result["data"] == {"source_id": "src_456"}
+
+
+def test_sync_source_uses_canonical_sync_route_without_body() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"
+        assert request.url.path == "/sources/src_123/sync"
+        assert request.read() == b""
+        return httpx.Response(
+            200,
+            json={"job_id": "sync_123", "source_id": "src_123", "status": "succeeded"},
+            request=request,
+        )
+
+    result = _invoke_registered_tool("sync_source", handler, source_id="src_123")
+
+    assert result["ok"] is True
+    assert result["data"] == {"job_id": "sync_123", "source_id": "src_123", "status": "succeeded"}
+    assert result["meta"]["factum_path"] == "/sources/src_123/sync"
+
+
+def test_sync_source_preserves_not_found_and_client_failure_shapes() -> None:
+    def not_found_handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/sources/src_missing/sync"
+        return httpx.Response(404, json={"detail": "'src_missing' not found"}, request=request)
+
+    not_found = _invoke_registered_tool("sync_source", not_found_handler, source_id="src_missing")
+
+    assert not_found["ok"] is False
+    assert not_found["status_code"] == 404
+    assert not_found["error"]["category"] == "not_found"
+    assert not_found["error"]["message"] == "'src_missing' not found"
+
+    def client_error_handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/sources/src_disabled/sync"
+        return httpx.Response(
+            400,
+            json={"detail": "Sync disabled for this source (mode=none)"},
+            request=request,
+        )
+
+    client_error = _invoke_registered_tool(
+        "sync_source",
+        client_error_handler,
+        source_id="src_disabled",
+    )
+
+    assert client_error["ok"] is False
+    assert client_error["status_code"] == 400
+    assert client_error["error"]["category"] == "server_error"
+    assert client_error["error"]["message"] == "Sync disabled for this source (mode=none)"
+
+
+def test_get_source_objects_uses_only_canonical_type_and_schema_filters() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert request.url.path == "/sources/src_123/objects"
+        assert dict(request.url.params) == {"type": "table", "schema": "events"}
+        return httpx.Response(200, json=[{"object_id": "obj_123"}], request=request)
+
+    result = _invoke_registered_tool(
+        "get_source_objects",
+        handler,
+        source_id="src_123",
+        type="table",
+        schema="events",
+    )
+
+    assert result["ok"] is True
+    assert result["data"] == [{"object_id": "obj_123"}]
+    assert result["meta"]["factum_path"] == "/sources/src_123/objects"
+
+
+def test_get_source_objects_preserves_missing_source_not_found() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/sources/src_missing/objects"
+        return httpx.Response(404, json={"detail": "'src_missing' not found"}, request=request)
+
+    result = _invoke_registered_tool(
+        "get_source_objects",
+        handler,
+        source_id="src_missing",
+    )
+
+    assert result["ok"] is False
+    assert result["status_code"] == 404
+    assert result["error"]["category"] == "not_found"
+    assert result["error"]["message"] == "'src_missing' not found"
+
+
+def test_get_source_object_reads_one_synced_object_detail() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert request.url.path == "/sources/src_123/objects/obj_456"
+        assert dict(request.url.params) == {}
+        return httpx.Response(200, json={"object_id": "obj_456"}, request=request)
+
+    result = _invoke_registered_tool(
+        "get_source_object",
+        handler,
+        source_id="src_123",
+        object_id="obj_456",
+    )
+
+    assert result["ok"] is True
+    assert result["data"] == {"object_id": "obj_456"}
+    assert result["meta"]["factum_path"] == "/sources/src_123/objects/obj_456"
+
+
+def test_get_source_object_preserves_missing_object_not_found() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/sources/src_123/objects/obj_missing"
+        return httpx.Response(404, json={"detail": "'obj_missing' not found"}, request=request)
+
+    result = _invoke_registered_tool(
+        "get_source_object",
+        handler,
+        source_id="src_123",
+        object_id="obj_missing",
+    )
+
+    assert result["ok"] is False
+    assert result["status_code"] == 404
+    assert result["error"]["category"] == "not_found"
+    assert result["error"]["message"] == "'obj_missing' not found"
+
+
+def test_resolve_routing_uses_canonical_nested_payload() -> None:
+    tool_kwargs = {
+        "table_names": ["events.user_video_watch", "dimensions.video_metadata"],
+        "routing_intent": {
+            "step_type": "aggregate_query",
+            "requested_dimensions": ["device_type"],
+            "compatible_dimensions": ["device_type", "region"],
+            "legal_grains": ["daily"],
+            "policy_hints": ["aggregate_only"],
+        },
+    }
+    expected_body = httpx.Request("POST", "http://factum.test", json=tool_kwargs).read()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"
+        assert request.url.path == "/routing/resolve"
+        assert request.read() == expected_body
+        return httpx.Response(
+            200, json={"resolved": True, "engine": {"engine_id": "eng_123"}}, request=request
+        )
+
+    result = _invoke_registered_tool("resolve_routing", handler, **tool_kwargs)
+
+    assert result["ok"] is True
+    assert result["data"] == {"resolved": True, "engine": {"engine_id": "eng_123"}}
+    assert result["meta"]["factum_path"] == "/routing/resolve"
+
+
 def _invoke_registered_tool(
     tool_name: str,
     handler: Any,
@@ -1110,10 +1852,14 @@ def _invoke_registered_tool(
     def build_client(config: Any) -> Any:
         return FactumHttpClient(config, transport=httpx.MockTransport(handler))
 
+    openapi_cache = tool_kwargs.pop("_openapi_cache", None)
     tools_module_any.FactumHttpClient = build_client
     try:
         server = cast("Any", _FakeServer())
-        register_tools(server, _build_config())
+        if openapi_cache is None:
+            register_tools(server, _build_config())
+        else:
+            register_tools(server, _build_config(), openapi_cache=openapi_cache)
         return cast("dict[str, Any]", server.tools[tool_name](**tool_kwargs))
     finally:
         tools_module_any.FactumHttpClient = original_client

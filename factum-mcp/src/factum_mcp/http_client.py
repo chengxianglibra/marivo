@@ -13,6 +13,27 @@ _TIMEOUT_STATUS_CODE = 504
 _TRANSPORT_STATUS_CODE = 503
 
 
+class FactumHttpClientError(RuntimeError):
+    """Raised when a canonical HTTP read fails outside the tool envelope path."""
+
+    def __init__(
+        self,
+        *,
+        status_code: int,
+        category: str,
+        message: str,
+        path: str,
+        detail: object | None = None,
+        guidance: dict[str, object] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.category = category
+        self.path = path
+        self.detail = detail
+        self.guidance = guidance
+
+
 class FactumHttpClient:
     """Shared transport wrapper for all MCP tools."""
 
@@ -85,6 +106,30 @@ class FactumHttpClient:
                 method=normalized_method,
                 attempt_count=attempt_count,
             )
+
+    def request_canonical(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: (
+            dict[str, str | int | float | bool | None | list[str | int | float | bool | None]]
+            | None
+        ) = None,
+        json_body: object | None = None,
+    ) -> object | None:
+        envelope = self.request_envelope(method, path, params=params, json_body=json_body)
+        if envelope.ok:
+            return envelope.data
+        error = envelope.error
+        raise FactumHttpClientError(
+            status_code=envelope.status_code,
+            category=error.category if error is not None else "server_error",
+            message=error.message if error is not None else "Factum request failed.",
+            path=path,
+            detail=error.detail if error is not None else None,
+            guidance=error.guidance if error is not None else None,
+        )
 
     def _should_retry(
         self,
@@ -181,7 +226,14 @@ class FactumHttpClient:
         message = self._extract_message(
             detail=detail, error_payload=error_payload, raw_body=raw_body
         )
-        code = error_payload.get("code") if error_payload else payload.get("code")
+        detail_payload = detail if isinstance(detail, dict) else None
+        code = (
+            error_payload.get("code")
+            if error_payload
+            else detail_payload.get("code")
+            if detail_payload
+            else payload.get("code")
+        )
         remediation_hint = (
             self._build_validation_remediation_hint(detail=detail, guidance=guidance)
             if status_code == 422
@@ -219,6 +271,10 @@ class FactumHttpClient:
     ) -> str:
         if error_payload is not None:
             message = error_payload.get("message")
+            if isinstance(message, str) and message:
+                return message
+        if isinstance(detail, dict):
+            message = detail.get("message")
             if isinstance(message, str) and message:
                 return message
         if isinstance(detail, str) and detail:
