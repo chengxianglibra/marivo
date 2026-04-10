@@ -879,7 +879,7 @@ rec_analysis     → RecommendationExtractor（待实现）→ recommendation_si
 Browser / Agent / HTTP Client
   → FastAPI service (app/main.py → app/api/app_factory.py)
   → Web UI:
-      Admin UI (app/static/admin.html) — Sources、Engines、Bindings、Semantic、Governance、Observability
+      Admin UI (app/static/admin.html) — Overview、Data Sources、Execution Engines、Semantic Catalog、Analysis Ops、Runtime & Jobs、Governance、Observability
       Query Workbench (app/static/user.html) — Sessions、State、Context、Runtime、Grounding、Jobs（只读查询/排查）
   → API routers (app/api/ — 每个领域一个模块):
       sessions, planning, sources, engines, routing, semantic, catalog,
@@ -978,7 +978,7 @@ app/
     spark_thrift_analytics.py   # Spark Thrift/Kyuubi 适配器
     repositories.py          # JobRepository 等存储仓库
   static/
-    admin.html               # 管理 UI（Sources、Engines、Governance 等）
+    admin.html               # 管理 UI（Overview、Data Sources、Execution Engines、Semantic Catalog、Analysis Ops、Runtime & Jobs、Governance、Observability）
     user.html                # 查询型工作台（Sessions、State、Context、Runtime、Grounding、Jobs）
     shared.css / shared.js   # 共享设计令牌与组件
   adapters/
