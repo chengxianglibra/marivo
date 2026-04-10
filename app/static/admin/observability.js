@@ -291,7 +291,7 @@ export function createObservabilityModule(ctx) {
     target.querySelector('[data-action="refresh-observability"]')?.addEventListener('click', () => {
       const panel = document.getElementById('panel-observability');
       const route = ctx.getCurrentRoute();
-      if (panel && route.tab === 'observability') {
+      if (panel && route?.tab === 'observability') {
         void hydrate(panel, route);
       }
     });
@@ -320,7 +320,7 @@ export function createObservabilityModule(ctx) {
     observabilityAutoRefreshTimer = window.setTimeout(() => {
       const panel = document.getElementById('panel-observability');
       const currentRoute = ctx.getCurrentRoute();
-      if (!panel || currentRoute.tab !== 'observability') {
+      if (!panel || currentRoute?.tab !== 'observability') {
         clearObservabilityAutoRefresh();
         return;
       }

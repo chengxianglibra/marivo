@@ -698,7 +698,7 @@ export function createGovernanceModule(ctx) {
           <form data-role="auto-flag-form">
             <label>
               <span>session_id</span>
-              <input type="text" name="session_id" value="${esc(approval?.session_id || ctx.getCurrentRoute().sessionId || '')}" placeholder="sess_..." required />
+              <input type="text" name="session_id" value="${esc(approval?.session_id || ctx.getCurrentRoute()?.sessionId || '')}" placeholder="sess_..." required />
             </label>
             <label>
               <span>risk_threshold</span>
