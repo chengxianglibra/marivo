@@ -1,29 +1,35 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any, TypeVar
+from typing import Any
 
 from fastapi import APIRouter, Body, HTTPException, Query, Request
-from pydantic import ValidationError
 
 from app.api.deps import get_services
-from app.api.errors import (
-    GuidedValidationError,
-    build_validation_error_payload,
-    sanitize_validation_errors,
-)
 from app.api.models import (
     CompatibilityProfileCreateRequest,
+    CompatibilityProfileListResponse,
+    CompatibilityProfileResponse,
     CompatibilityProfileUpdateRequest,
     DimensionCreateRequest,
+    DimensionListResponse,
+    DimensionResponse,
     DimensionUpdateRequest,
     EnumSetCreateRequest,
+    EnumSetListResponse,
+    EnumSetResponse,
     EnumSetUpdateRequest,
     ProcessObjectCreateRequest,
+    ProcessObjectListResponse,
+    ProcessObjectResponse,
     ProcessObjectUpdateRequest,
     TimeCreateRequest,
+    TimeListResponse,
+    TimeResponse,
     TimeUpdateRequest,
     TypedBindingCreateRequest,
+    TypedBindingListResponse,
+    TypedBindingResponse,
     TypedBindingUpdateRequest,
     TypedEntityCreateRequest,
     TypedEntityListResponse,
@@ -37,16 +43,13 @@ from app.api.models import (
 
 router = APIRouter()
 
-ActionResultT = TypeVar("ActionResultT")
-PayloadParser = Callable[[dict[str, Any]], Any]
 
-
-def _run_route_action(  # noqa: UP047
-    action: Callable[[], ActionResultT],
+def _run_route_action(
+    action: Callable[[], dict[str, Any]],
     *,
     value_error_status: int = 422,
     structured_value_error: bool = False,
-) -> ActionResultT:
+) -> dict[str, Any]:
     try:
         return action()
     except KeyError as error:
@@ -64,37 +67,6 @@ def _run_route_action(  # noqa: UP047
                 },
             ) from error
         raise HTTPException(status_code=value_error_status, detail=str(error)) from error
-
-
-def _parse_payload(payload: dict[str, Any], parser: PayloadParser, request: Request) -> Any:
-    try:
-        return parser(payload)
-    except ValidationError as error:
-        raise GuidedValidationError(
-            build_validation_error_payload(request, sanitize_validation_errors(error))
-        ) from error
-
-
-def _handle_create(
-    request: Request,
-    payload: dict[str, Any],
-    *,
-    parser: PayloadParser,
-    action: Callable[[Any], dict[str, Any]],
-) -> dict[str, Any]:
-    parsed = _parse_payload(payload, parser, request)
-    return _run_route_action(lambda: action(parsed))
-
-
-def _handle_update(
-    request: Request,
-    payload: dict[str, Any],
-    *,
-    parser: PayloadParser,
-    action: Callable[[Any], dict[str, Any]],
-) -> dict[str, Any]:
-    parsed = _parse_payload(payload, parser, request)
-    return _run_route_action(lambda: action(parsed))
 
 
 @router.post("/semantic/entities", response_model=TypedEntityResponse)
@@ -187,18 +159,15 @@ def publish_metric(metric_id: str, request: Request) -> dict[str, Any]:
     )
 
 
-@router.post("/semantic/process-objects")
-def create_process_object(request: Request, payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+@router.post("/semantic/process-objects", response_model=ProcessObjectResponse)
+def create_process_object(
+    request: Request, payload: ProcessObjectCreateRequest = Body(...)
+) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
-    return _handle_create(
-        request,
-        payload,
-        parser=ProcessObjectCreateRequest.model_validate,
-        action=semantic_service.create_process_object,
-    )
+    return _run_route_action(lambda: semantic_service.create_process_object(payload))
 
 
-@router.get("/semantic/process-objects")
+@router.get("/semantic/process-objects", response_model=ProcessObjectListResponse)
 def list_process_objects(
     request: Request, status: str | None = Query(default=None)
 ) -> dict[str, Any]:
@@ -206,22 +175,21 @@ def list_process_objects(
     return _run_route_action(lambda: semantic_service.list_process_objects(status=status))
 
 
-@router.get("/semantic/process-objects/{process_contract_id}")
+@router.get("/semantic/process-objects/{process_contract_id}", response_model=ProcessObjectResponse)
 def get_process_object(process_contract_id: str, request: Request) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
     return _run_route_action(lambda: semantic_service.get_process_object(process_contract_id))
 
 
-@router.put("/semantic/process-objects/{process_contract_id}")
+@router.put("/semantic/process-objects/{process_contract_id}", response_model=ProcessObjectResponse)
 def update_process_object(
-    process_contract_id: str, request: Request, payload: dict[str, Any] = Body(...)
+    process_contract_id: str,
+    request: Request,
+    payload: ProcessObjectUpdateRequest = Body(...),
 ) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
-    return _handle_update(
-        request,
-        payload,
-        parser=ProcessObjectUpdateRequest.model_validate,
-        action=lambda parsed: semantic_service.update_process_object(process_contract_id, parsed),
+    return _run_route_action(
+        lambda: semantic_service.update_process_object(process_contract_id, payload)
     )
 
 
@@ -234,39 +202,35 @@ def publish_process_object(process_contract_id: str, request: Request) -> dict[s
     )
 
 
-@router.post("/semantic/dimensions")
-def create_dimension(request: Request, payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+@router.post("/semantic/dimensions", response_model=DimensionResponse)
+def create_dimension(
+    request: Request, payload: DimensionCreateRequest = Body(...)
+) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
-    return _handle_create(
-        request,
-        payload,
-        parser=DimensionCreateRequest.model_validate,
-        action=semantic_service.create_dimension,
-    )
+    return _run_route_action(lambda: semantic_service.create_dimension(payload))
 
 
-@router.get("/semantic/dimensions")
+@router.get("/semantic/dimensions", response_model=DimensionListResponse)
 def list_dimensions(request: Request, status: str | None = Query(default=None)) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
     return _run_route_action(lambda: semantic_service.list_dimensions(status=status))
 
 
-@router.get("/semantic/dimensions/{dimension_contract_id}")
+@router.get("/semantic/dimensions/{dimension_contract_id}", response_model=DimensionResponse)
 def get_dimension(dimension_contract_id: str, request: Request) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
     return _run_route_action(lambda: semantic_service.get_dimension(dimension_contract_id))
 
 
-@router.put("/semantic/dimensions/{dimension_contract_id}")
+@router.put("/semantic/dimensions/{dimension_contract_id}", response_model=DimensionResponse)
 def update_dimension(
-    dimension_contract_id: str, request: Request, payload: dict[str, Any] = Body(...)
+    dimension_contract_id: str,
+    request: Request,
+    payload: DimensionUpdateRequest = Body(...),
 ) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
-    return _handle_update(
-        request,
-        payload,
-        parser=DimensionUpdateRequest.model_validate,
-        action=lambda parsed: semantic_service.update_dimension(dimension_contract_id, parsed),
+    return _run_route_action(
+        lambda: semantic_service.update_dimension(dimension_contract_id, payload)
     )
 
 
@@ -279,18 +243,15 @@ def publish_dimension(dimension_contract_id: str, request: Request) -> dict[str,
     )
 
 
-@router.post("/semantic/time")
-def create_time_semantic(request: Request, payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+@router.post("/semantic/time", response_model=TimeResponse)
+def create_time_semantic(
+    request: Request, payload: TimeCreateRequest = Body(...)
+) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
-    return _handle_create(
-        request,
-        payload,
-        parser=TimeCreateRequest.model_validate,
-        action=semantic_service.create_time_semantic,
-    )
+    return _run_route_action(lambda: semantic_service.create_time_semantic(payload))
 
 
-@router.get("/semantic/time")
+@router.get("/semantic/time", response_model=TimeListResponse)
 def list_time_semantics(
     request: Request, status: str | None = Query(default=None)
 ) -> dict[str, Any]:
@@ -298,22 +259,21 @@ def list_time_semantics(
     return _run_route_action(lambda: semantic_service.list_time_semantics(status=status))
 
 
-@router.get("/semantic/time/{time_contract_id}")
+@router.get("/semantic/time/{time_contract_id}", response_model=TimeResponse)
 def get_time_semantic(time_contract_id: str, request: Request) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
     return _run_route_action(lambda: semantic_service.get_time_semantic(time_contract_id))
 
 
-@router.put("/semantic/time/{time_contract_id}")
+@router.put("/semantic/time/{time_contract_id}", response_model=TimeResponse)
 def update_time_semantic(
-    time_contract_id: str, request: Request, payload: dict[str, Any] = Body(...)
+    time_contract_id: str,
+    request: Request,
+    payload: TimeUpdateRequest = Body(...),
 ) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
-    return _handle_update(
-        request,
-        payload,
-        parser=TimeUpdateRequest.model_validate,
-        action=lambda parsed: semantic_service.update_time_semantic(time_contract_id, parsed),
+    return _run_route_action(
+        lambda: semantic_service.update_time_semantic(time_contract_id, payload)
     )
 
 
@@ -326,39 +286,33 @@ def publish_time_semantic(time_contract_id: str, request: Request) -> dict[str, 
     )
 
 
-@router.post("/semantic/enum-sets")
-def create_enum_set(request: Request, payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+@router.post("/semantic/enum-sets", response_model=EnumSetResponse)
+def create_enum_set(request: Request, payload: EnumSetCreateRequest = Body(...)) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
-    return _handle_create(
-        request,
-        payload,
-        parser=EnumSetCreateRequest.model_validate,
-        action=semantic_service.create_enum_set,
-    )
+    return _run_route_action(lambda: semantic_service.create_enum_set(payload))
 
 
-@router.get("/semantic/enum-sets")
+@router.get("/semantic/enum-sets", response_model=EnumSetListResponse)
 def list_enum_sets(request: Request, status: str | None = Query(default=None)) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
     return _run_route_action(lambda: semantic_service.list_enum_sets(status=status))
 
 
-@router.get("/semantic/enum-sets/{enum_set_contract_id}")
+@router.get("/semantic/enum-sets/{enum_set_contract_id}", response_model=EnumSetResponse)
 def get_enum_set(enum_set_contract_id: str, request: Request) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
     return _run_route_action(lambda: semantic_service.get_enum_set(enum_set_contract_id))
 
 
-@router.put("/semantic/enum-sets/{enum_set_contract_id}")
+@router.put("/semantic/enum-sets/{enum_set_contract_id}", response_model=EnumSetResponse)
 def update_enum_set(
-    enum_set_contract_id: str, request: Request, payload: dict[str, Any] = Body(...)
+    enum_set_contract_id: str,
+    request: Request,
+    payload: EnumSetUpdateRequest = Body(...),
 ) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
-    return _handle_update(
-        request,
-        payload,
-        parser=EnumSetUpdateRequest.model_validate,
-        action=lambda parsed: semantic_service.update_enum_set(enum_set_contract_id, parsed),
+    return _run_route_action(
+        lambda: semantic_service.update_enum_set(enum_set_contract_id, payload)
     )
 
 
@@ -371,18 +325,15 @@ def publish_enum_set(enum_set_contract_id: str, request: Request) -> dict[str, A
     )
 
 
-@router.post("/semantic/bindings")
-def create_typed_binding(request: Request, payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+@router.post("/semantic/bindings", response_model=TypedBindingResponse)
+def create_typed_binding(
+    request: Request, payload: TypedBindingCreateRequest = Body(...)
+) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
-    return _handle_create(
-        request,
-        payload,
-        parser=TypedBindingCreateRequest.model_validate,
-        action=semantic_service.create_typed_binding,
-    )
+    return _run_route_action(lambda: semantic_service.create_typed_binding(payload))
 
 
-@router.get("/semantic/bindings")
+@router.get("/semantic/bindings", response_model=TypedBindingListResponse)
 def list_typed_bindings(
     request: Request, status: str | None = Query(default=None)
 ) -> dict[str, Any]:
@@ -391,24 +342,21 @@ def list_typed_bindings(
     )
 
 
-@router.get("/semantic/bindings/{binding_id}")
+@router.get("/semantic/bindings/{binding_id}", response_model=TypedBindingResponse)
 def get_typed_binding(binding_id: str, request: Request) -> dict[str, Any]:
     return _run_route_action(
         lambda: get_services(request).semantic_service.get_typed_binding(binding_id)
     )
 
 
-@router.put("/semantic/bindings/{binding_id}")
+@router.put("/semantic/bindings/{binding_id}", response_model=TypedBindingResponse)
 def update_typed_binding(
-    binding_id: str, request: Request, payload: dict[str, Any] = Body(...)
+    binding_id: str,
+    request: Request,
+    payload: TypedBindingUpdateRequest = Body(...),
 ) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
-    return _handle_update(
-        request,
-        payload,
-        parser=TypedBindingUpdateRequest.model_validate,
-        action=lambda parsed: semantic_service.update_typed_binding(binding_id, parsed),
-    )
+    return _run_route_action(lambda: semantic_service.update_typed_binding(binding_id, payload))
 
 
 @router.post("/semantic/bindings/{binding_id}/publish")
@@ -419,20 +367,15 @@ def publish_typed_binding(binding_id: str, request: Request) -> dict[str, Any]:
     )
 
 
-@router.post("/compiler/compatibility-profiles")
+@router.post("/compiler/compatibility-profiles", response_model=CompatibilityProfileResponse)
 def create_compatibility_profile(
-    request: Request, payload: dict[str, Any] = Body(...)
+    request: Request, payload: CompatibilityProfileCreateRequest = Body(...)
 ) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
-    return _handle_create(
-        request,
-        payload,
-        parser=CompatibilityProfileCreateRequest.model_validate,
-        action=semantic_service.create_compatibility_profile,
-    )
+    return _run_route_action(lambda: semantic_service.create_compatibility_profile(payload))
 
 
-@router.get("/compiler/compatibility-profiles")
+@router.get("/compiler/compatibility-profiles", response_model=CompatibilityProfileListResponse)
 def list_compatibility_profiles(
     request: Request, status: str | None = Query(default=None)
 ) -> dict[str, Any]:
@@ -441,23 +384,26 @@ def list_compatibility_profiles(
     )
 
 
-@router.get("/compiler/compatibility-profiles/{profile_id}")
+@router.get(
+    "/compiler/compatibility-profiles/{profile_id}", response_model=CompatibilityProfileResponse
+)
 def get_compatibility_profile(profile_id: str, request: Request) -> dict[str, Any]:
     return _run_route_action(
         lambda: get_services(request).semantic_service.get_compatibility_profile(profile_id)
     )
 
 
-@router.put("/compiler/compatibility-profiles/{profile_id}")
+@router.put(
+    "/compiler/compatibility-profiles/{profile_id}", response_model=CompatibilityProfileResponse
+)
 def update_compatibility_profile(
-    profile_id: str, request: Request, payload: dict[str, Any] = Body(...)
+    profile_id: str,
+    request: Request,
+    payload: CompatibilityProfileUpdateRequest = Body(...),
 ) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
-    return _handle_update(
-        request,
-        payload,
-        parser=CompatibilityProfileUpdateRequest.model_validate,
-        action=lambda parsed: semantic_service.update_compatibility_profile(profile_id, parsed),
+    return _run_route_action(
+        lambda: semantic_service.update_compatibility_profile(profile_id, payload)
     )
 
 

@@ -204,6 +204,21 @@ OpenAPI notes:
 - Validation failures now keep the legacy `detail` array and add guided `error` / `guidance`
   fields with contract links and minimal payload examples.
 
+Across the semantic layer, create and update routes publish explicit request-body schemas instead of
+opaque `object` payloads. The main component names are:
+
+- entities: `TypedEntityCreateRequest`, `TypedEntityUpdateRequest`
+- metrics: `TypedMetricCreateRequest`, `TypedMetricUpdateRequest`
+- process objects: `ProcessObjectCreateRequest`, `ProcessObjectUpdateRequest`
+- dimensions: `DimensionCreateRequest`, `DimensionUpdateRequest`
+- time semantics: `TimeCreateRequest`, `TimeUpdateRequest`, `TimeSemanticHeader`
+- enum sets: `EnumSetCreateRequest`, `EnumSetUpdateRequest`
+- bindings: `TypedBindingCreateRequest`, `TypedBindingUpdateRequest`
+- compatibility profiles: `CompatibilityProfileCreateRequest`, `CompatibilityProfileUpdateRequest`
+
+Time semantics intentionally do not publish a standalone `TimeInterfaceContract` schema today
+because the current HTTP contract is header-only.
+
 List responses are always wrapped:
 
 ```json
