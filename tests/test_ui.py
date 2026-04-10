@@ -68,6 +68,7 @@ class UIBothEnabledTests(unittest.TestCase):
             "/static/admin/data-sources.js",
             "/static/admin/execution-engines.js",
             "/static/admin/analysis-ops.js",
+            "/static/admin/runtime-jobs.js",
             "/static/admin/semantic-catalog.js",
         ]:
             with self.subTest(path=path):
@@ -127,6 +128,8 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertIn("binding_id", resp.text)
         self.assertIn("object_id", resp.text)
         self.assertIn("session_id", resp.text)
+        self.assertIn("proposition_id", resp.text)
+        self.assertIn("artifact_id", resp.text)
         self.assertIn("job_id", resp.text)
 
     def test_admin_overview_declares_t3_summary_cards_and_links(self) -> None:
@@ -479,6 +482,11 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertIn("createAnalysisOpsModule", resp.text)
         self.assertIn("analysisOps: createAnalysisOpsModule(ctx)", resp.text)
 
+    def test_admin_index_registers_runtime_jobs_module(self) -> None:
+        resp = self.client.get("/static/admin/index.js")
+        self.assertIn("createRuntimeJobsModule", resp.text)
+        self.assertIn("runtimeJobs: createRuntimeJobsModule(ctx)", resp.text)
+
     def test_admin_analysis_ops_declares_t8_inventory_filters_and_actions(self) -> None:
         module_resp = self.client.get("/static/admin/analysis-ops.js")
         api_resp = self.client.get("/static/admin/api.js")
@@ -530,6 +538,83 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertNotIn("Run Intent", resp.text)
         self.assertNotIn("Run Step", resp.text)
         self.assertNotIn("Plan management", resp.text)
+
+    def test_admin_guide_documents_t9_runtime_jobs_boundary(self) -> None:
+        guide_path = Path(__file__).resolve().parents[1] / "docs" / "agent-guide.md"
+        content = guide_path.read_text(encoding="utf-8")
+        self.assertIn("Runtime & Jobs", content)
+        self.assertIn("runtime truth rather than canonical result", content)
+        self.assertIn("do not add job submit/cancel, retry/replay, or publish controls", content)
+
+    def test_admin_runtime_jobs_declares_t9_runtime_views_and_job_contracts(self) -> None:
+        module_resp = self.client.get("/static/admin/runtime-jobs.js")
+        api_resp = self.client.get("/static/admin/api.js")
+        self.assertIn("Session Runtime", module_resp.text)
+        self.assertIn("Proposition Runtime", module_resp.text)
+        self.assertIn("Artifact Runtime", module_resp.text)
+        self.assertIn("Jobs", module_resp.text)
+        self.assertIn("resource type", module_resp.text)
+        self.assertIn("overall_status", module_resp.text)
+        self.assertIn("last_successful_stage", module_resp.text)
+        self.assertIn("blocked_reason", module_resp.text)
+        self.assertIn("backlog_summary", module_resp.text)
+        self.assertIn("current_assessment_id", module_resp.text)
+        self.assertIn("current_attempt", module_resp.text)
+        self.assertIn("backlog_state", module_resp.text)
+        self.assertIn("artifact_stage", module_resp.text)
+        self.assertIn("extractor_key", module_resp.text)
+        self.assertIn("correlation_id", module_resp.text)
+        self.assertIn("attempt_id", module_resp.text)
+        self.assertIn("job_id", module_resp.text)
+        self.assertIn("job_type", module_resp.text)
+        self.assertIn("created_at", module_resp.text)
+        self.assertIn("updated_at", module_resp.text)
+        self.assertIn("payload summary", module_resp.text)
+        self.assertIn("error detail", module_resp.text)
+        self.assertIn("linked session", module_resp.text)
+        self.assertIn("Open in /ui Runtime", module_resp.text)
+        self.assertIn("Open linked session in /ui", module_resp.text)
+        self.assertIn("Open State in /ui", module_resp.text)
+        self.assertIn("Open Context in /ui", module_resp.text)
+        self.assertIn("GET /sessions/{session_id}/runtime-status", module_resp.text)
+        self.assertIn(
+            "GET /sessions/{session_id}/propositions/{proposition_id}/runtime-status",
+            module_resp.text,
+        )
+        self.assertIn(
+            "GET /sessions/{session_id}/artifacts/{artifact_id}/runtime-status",
+            module_resp.text,
+        )
+        self.assertIn("GET /jobs", module_resp.text)
+        self.assertIn("GET /jobs/{job_id}", module_resp.text)
+        self.assertIn("getSessionRuntimeStatus(sessionId)", api_resp.text)
+        self.assertIn("getPropositionRuntimeStatus(sessionId, propositionId)", api_resp.text)
+        self.assertIn("getArtifactRuntimeStatus(sessionId, artifactId)", api_resp.text)
+        self.assertIn("listJobs(params = {})", api_resp.text)
+        self.assertIn("getJob(jobId)", api_resp.text)
+
+    def test_admin_runtime_jobs_keeps_t9_read_only_boundary_and_error_copy(self) -> None:
+        resp = self.client.get("/static/admin/runtime-jobs.js")
+        self.assertIn("runtime truth", resp.text)
+        self.assertIn("not canonical result", resp.text)
+        self.assertIn(
+            "No retry, replay, submit, cancel, or publish controls exist on this page.", resp.text
+        )
+        self.assertIn("No runtime status loaded yet.", resp.text)
+        self.assertIn("404 runtime target not found.", resp.text)
+        self.assertIn("404 job not found. Select another job from the list.", resp.text)
+        self.assertIn("No background jobs recorded yet.", resp.text)
+        self.assertIn("No jobs match the current filters.", resp.text)
+        self.assertIn("Session Runtime unavailable.", resp.text)
+        self.assertIn("Proposition Runtime unavailable.", resp.text)
+        self.assertIn("Artifact Runtime unavailable.", resp.text)
+        self.assertIn("Jobs unavailable.", resp.text)
+        self.assertIn("Job detail unavailable.", resp.text)
+        self.assertNotIn("POST /jobs", resp.text)
+        self.assertNotIn("POST /jobs/{job_id}/cancel", resp.text)
+        self.assertNotIn("Retry Job", resp.text)
+        self.assertNotIn("Replay", resp.text)
+        self.assertNotIn("Publish", resp.text)
 
     def test_user_uses_shared_assets(self) -> None:
         resp = self.client.get("/ui")

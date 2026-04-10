@@ -17,6 +17,8 @@ export const DEFAULT_ADMIN_ROUTE = {
   bindingId: '',
   objectId: '',
   sessionId: '',
+  propositionId: '',
+  artifactId: '',
   jobId: '',
 };
 
@@ -115,7 +117,7 @@ export const ADMIN_TAB_META = {
       'The page reserves subtab routing for runtime scopes and jobs before data widgets land.',
       'Future implementation will map runtime and job IDs into structured detail panes.',
     ],
-    routeFocus: ['tab', 'subtab', 'session_id', 'job_id'],
+    routeFocus: ['tab', 'subtab', 'session_id', 'proposition_id', 'artifact_id', 'job_id'],
     uiLinks: [
       { label: 'Open Runtime in /ui', route: { tab: 'runtime' } },
       { label: 'Open Jobs in /ui', route: { tab: 'jobs' } },
@@ -183,6 +185,8 @@ export function createAdminShell(ctx) {
       bindingId: String(nextRoute.bindingId || '').trim(),
       objectId: String(nextRoute.objectId || '').trim(),
       sessionId: String(nextRoute.sessionId || '').trim(),
+      propositionId: String(nextRoute.propositionId || '').trim(),
+      artifactId: String(nextRoute.artifactId || '').trim(),
       jobId: String(nextRoute.jobId || '').trim(),
     };
 
@@ -205,7 +209,26 @@ export function createAdminShell(ctx) {
     if (normalized.tab !== 'execution-engines') normalized.bindingId = '';
     if (normalized.tab !== 'semantic-catalog') normalized.objectId = '';
     if (!['analysis-ops', 'runtime-jobs', 'governance'].includes(normalized.tab)) normalized.sessionId = '';
+    if (normalized.tab !== 'runtime-jobs') normalized.propositionId = '';
+    if (normalized.tab !== 'runtime-jobs') normalized.artifactId = '';
     if (normalized.tab !== 'runtime-jobs') normalized.jobId = '';
+
+    if (normalized.tab === 'runtime-jobs') {
+      if (normalized.subtab === 'session-runtime') {
+        normalized.propositionId = '';
+        normalized.artifactId = '';
+        normalized.jobId = '';
+      } else if (normalized.subtab === 'proposition-runtime') {
+        normalized.artifactId = '';
+        normalized.jobId = '';
+      } else if (normalized.subtab === 'artifact-runtime') {
+        normalized.propositionId = '';
+        normalized.jobId = '';
+      } else if (normalized.subtab === 'jobs') {
+        normalized.propositionId = '';
+        normalized.artifactId = '';
+      }
+    }
 
     return normalized;
   }
@@ -220,6 +243,8 @@ export function createAdminShell(ctx) {
       bindingId: params.get('binding_id') || '',
       objectId: params.get('object_id') || '',
       sessionId: params.get('session_id') || '',
+      propositionId: params.get('proposition_id') || '',
+      artifactId: params.get('artifact_id') || '',
       jobId: params.get('job_id') || '',
     });
   }
@@ -233,6 +258,8 @@ export function createAdminShell(ctx) {
     if (route.bindingId) params.set('binding_id', route.bindingId);
     if (route.objectId) params.set('object_id', route.objectId);
     if (route.sessionId) params.set('session_id', route.sessionId);
+    if (route.propositionId) params.set('proposition_id', route.propositionId);
+    if (route.artifactId) params.set('artifact_id', route.artifactId);
     if (route.jobId) params.set('job_id', route.jobId);
     const nextUrl = params.toString() ? `?${params.toString()}` : window.location.pathname;
     const method = historyMode === 'replace' ? 'replaceState' : 'pushState';
@@ -244,7 +271,12 @@ export function createAdminShell(ctx) {
     if (route.tab === 'execution-engines') return route.engineId || route.bindingId;
     if (route.tab === 'semantic-catalog') return route.objectId;
     if (route.tab === 'analysis-ops') return route.sessionId;
-    if (route.tab === 'runtime-jobs') return route.jobId || route.sessionId;
+    if (route.tab === 'runtime-jobs') {
+      if (route.subtab === 'jobs') return route.jobId || route.sessionId;
+      if (route.subtab === 'artifact-runtime') return route.artifactId || route.sessionId;
+      if (route.subtab === 'proposition-runtime') return route.propositionId || route.sessionId;
+      return route.sessionId;
+    }
     if (route.tab === 'governance') return route.sessionId;
     return '';
   }
@@ -317,6 +349,8 @@ export function createAdminShell(ctx) {
           { label: 'binding_id', value: route.bindingId || '-' },
           { label: 'object_id', value: route.objectId || '-' },
           { label: 'session_id', value: route.sessionId || '-' },
+          { label: 'proposition_id', value: route.propositionId || '-' },
+          { label: 'artifact_id', value: route.artifactId || '-' },
           { label: 'job_id', value: route.jobId || '-' },
         ])}
         <div class="detail-actions">
@@ -332,6 +366,8 @@ export function createAdminShell(ctx) {
             binding_id: route.bindingId || null,
             object_id: route.objectId || null,
             session_id: route.sessionId || null,
+            proposition_id: route.propositionId || null,
+            artifact_id: route.artifactId || null,
             job_id: route.jobId || null,
             locator: locator || null,
             deep_links: deepLinks,
@@ -369,6 +405,7 @@ export function createAdminShell(ctx) {
     const isExecutionEngines = route.tab === 'execution-engines';
     const isSemanticCatalog = route.tab === 'semantic-catalog';
     const isAnalysisOps = route.tab === 'analysis-ops';
+    const isRuntimeJobs = route.tab === 'runtime-jobs';
     const mainContent = isOverview
       ? modules.overview.render(route)
       : isDataSources
@@ -376,9 +413,11 @@ export function createAdminShell(ctx) {
         : isExecutionEngines
           ? modules.executionEngines.render(route)
           : isSemanticCatalog
-            ? modules.semanticCatalog.render(route)
-            : isAnalysisOps
-              ? modules.analysisOps.render(route)
+          ? modules.semanticCatalog.render(route)
+          : isAnalysisOps
+            ? modules.analysisOps.render(route)
+            : isRuntimeJobs
+              ? modules.runtimeJobs.render(route)
             : renderAdminListDetailLayout({
                 primaryHtml: `
                   <div class="admin-shell-card">
@@ -433,6 +472,7 @@ export function createAdminShell(ctx) {
     if (isExecutionEngines) void modules.executionEngines.hydrate(panel, route);
     if (isSemanticCatalog) void modules.semanticCatalog.hydrate(panel, route);
     if (isAnalysisOps) void modules.analysisOps.hydrate(panel, route);
+    if (isRuntimeJobs) void modules.runtimeJobs.hydrate(panel, route);
 
     panel.querySelectorAll('[data-subtab]').forEach((button) => {
       button.addEventListener('click', () => {
