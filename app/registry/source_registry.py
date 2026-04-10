@@ -278,8 +278,14 @@ class SourceRegistry:
         self.metadata.execute("DELETE FROM sync_selections WHERE source_id = ?", [source_id])
 
     def browse_catalog_schemas(self, source_id: str) -> list[dict[str, Any]]:
-        adapter = self.get_adapter(source_id)
-        schemas = adapter.list_schemas()
+        source = self.get_source(source_id)
+        adapter = build_catalog_adapter(source["source_type"], source["connection"])
+        catalog_name = None
+        if source["source_type"] == "trino":
+            raw_catalog = source["connection"].get("catalog")
+            if isinstance(raw_catalog, str) and raw_catalog:
+                catalog_name = raw_catalog
+        schemas = adapter.list_schemas(catalog_name)
         return [{"name": schema.native_name, "properties": schema.properties} for schema in schemas]
 
     def browse_catalog_tables(self, source_id: str, schema_name: str) -> list[dict[str, Any]]:

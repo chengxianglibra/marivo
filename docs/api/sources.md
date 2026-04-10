@@ -289,6 +289,8 @@ GET /sources/{source_id}/catalog/schemas
 ```
 
 Queries the external source directly (not the local snapshot) to list available schemas. Useful for exploring before configuring sync selections.
+For cataloged backends such as Trino, the live schema list is scoped to the source's configured
+catalog rather than aggregating every catalog visible to the connection.
 
 ### Response
 
@@ -308,6 +310,11 @@ GET /sources/{source_id}/catalog/tables?schema=events
 ```
 
 Queries the external source directly for tables in a specific schema.
+For Trino sources, live table browse should enumerate tables from the requested schema within the
+source's configured catalog; do not treat the connection's default schema as the browse target.
+Admin UI note: `Manage Selections` should treat the schema dropdown as the single source of truth
+and ignore stale table-list responses from earlier schema requests so the checklist always matches
+the currently selected schema.
 
 ### Query Parameters
 

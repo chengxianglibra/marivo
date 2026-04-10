@@ -413,6 +413,32 @@ class SyncModeTests(unittest.TestCase):
         resp = self.client.get(f"/sources/{source_id}/objects")
         self.assertEqual(resp.json(), [])
 
+    def test_browse_catalog_schemas_uses_source_catalog_for_trino(self) -> None:
+        from unittest.mock import MagicMock, patch
+
+        resp = self.client.post(
+            "/sources",
+            json={
+                "source_type": "trino",
+                "display_name": "Browse Trino Schemas",
+                "connection": {
+                    "host": "trino.example.com",
+                    "catalog": "iceberg",
+                    "user": "factum",
+                },
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        source_id = resp.json()["source_id"]
+
+        mock_adapter = MagicMock()
+        mock_adapter.list_schemas.return_value = []
+        with patch("app.registry.source_registry.build_catalog_adapter", return_value=mock_adapter):
+            resp = self.client.get(f"/sources/{source_id}/catalog/schemas")
+
+        self.assertEqual(resp.status_code, 200)
+        mock_adapter.list_schemas.assert_called_once_with("iceberg")
+
 
 class TrinoCatalogAdapterTests(unittest.TestCase):
     """Unit tests for TrinoCatalogAdapter — mocks _connect() so no real Trino needed."""
@@ -526,28 +552,46 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
         self.assertIn("default", names)
         self.assertIn("sf1", names)
 
-    def test_list_tables_uses_single_query(self) -> None:
-        """list_tables() uses a single JOIN query; column_count comes from grouped result."""
+    def test_list_tables_uses_show_tables_and_column_count_query(self) -> None:
+        """list_tables() enumerates schema-local tables and hydrates column counts separately."""
         from unittest.mock import patch
 
         from app.adapters.trino_adapter import TrinoCatalogAdapter
 
         adapter = TrinoCatalogAdapter(host="localhost", catalog="hive")
-        cursor = self._make_cursor(
-            [("orders", "BASE TABLE", 5), ("lineitem", "BASE TABLE", 16)],
-            ["table_name", "table_type", "column_count"],
+        show_tables_cursor = self._make_cursor([("orders",), ("lineitem",)], ["Table"])
+        column_count_cursor = self._make_cursor(
+            [("orders", 5), ("lineitem", 16)],
+            ["table_name", "column_count"],
         )
-        with patch.object(
-            adapter, "_connect", return_value=self._make_conn(cursor)
-        ) as mock_connect:
+        call_count = [0]
+        cursors = [show_tables_cursor, column_count_cursor]
+
+        def side_effect():
+            c = cursors[call_count[0]]
+            call_count[0] += 1
+            return self._make_conn(c)
+
+        with patch.object(adapter, "_connect", side_effect=side_effect) as mock_connect:
             tables = adapter.list_tables("sales")
-        # Only one _connect() call — no per-table sub-queries
-        self.assertEqual(mock_connect.call_count, 1)
+        self.assertEqual(mock_connect.call_count, 2)
         self.assertEqual(len(tables), 2)
         self.assertEqual(tables[0].native_name, "orders")
         self.assertEqual(tables[0].properties["column_count"], 5)
+        self.assertEqual(tables[0].properties["table_type"], "BASE TABLE")
         self.assertEqual(tables[1].native_name, "lineitem")
         self.assertEqual(tables[1].properties["column_count"], 16)
+
+    def test_list_tables_empty_schema(self) -> None:
+        from unittest.mock import patch
+
+        from app.adapters.trino_adapter import TrinoCatalogAdapter
+
+        adapter = TrinoCatalogAdapter(host="localhost", catalog="hive")
+        show_tables_cursor = self._make_cursor([], ["Table"])
+        with patch.object(adapter, "_connect", return_value=self._make_conn(show_tables_cursor)):
+            tables = adapter.list_tables("missing_schema")
+        self.assertEqual(tables, [])
 
     def test_get_table_detail(self) -> None:
         from unittest.mock import patch
