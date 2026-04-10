@@ -268,7 +268,7 @@ export function createAnalysisOpsModule(ctx) {
   function refreshCurrentAnalysisOps() {
     const panel = document.getElementById('panel-analysis-ops');
     const route = ctx.getCurrentRoute();
-    if (panel && route.tab === 'analysis-ops') {
+    if (panel && route?.tab === 'analysis-ops') {
       void hydrate(panel, route);
     }
   }

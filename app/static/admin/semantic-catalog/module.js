@@ -962,7 +962,7 @@ export function createSemanticCatalogModule(ctx) {
   async function refreshCurrentSemanticCatalog() {
     const panel = document.getElementById("panel-semantic-catalog");
     const route = ctx.getCurrentRoute();
-    if (panel && route.tab === "semantic-catalog") {
+    if (panel && route?.tab === "semantic-catalog") {
       await hydrate(panel, route);
     }
   }

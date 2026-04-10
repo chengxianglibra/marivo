@@ -648,7 +648,7 @@ export function createDataSourcesModule(ctx) {
   function refreshCurrentDataSources() {
     const panel = document.getElementById('panel-data-sources');
     const route = ctx.getCurrentRoute();
-    if (panel && route.tab === 'data-sources') {
+    if (panel && route?.tab === 'data-sources') {
       void hydrate(panel, route);
     }
   }

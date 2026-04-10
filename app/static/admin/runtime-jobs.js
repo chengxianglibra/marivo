@@ -422,7 +422,7 @@ export function createRuntimeJobsModule(ctx) {
   function refreshCurrentRuntimeJobs() {
     const panel = document.getElementById('panel-runtime-jobs');
     const route = ctx.getCurrentRoute();
-    if (panel && route.tab === 'runtime-jobs') {
+    if (panel && route?.tab === 'runtime-jobs') {
       void hydrate(panel, route);
     }
   }
@@ -551,7 +551,7 @@ export function createRuntimeJobsModule(ctx) {
           sessionId: String(formData.get('session_id') || '').trim(),
           propositionId: String(formData.get('proposition_id') || '').trim(),
           artifactId: String(formData.get('artifact_id') || '').trim(),
-          jobId: nextSubtab === 'jobs' ? ctx.getCurrentRoute().jobId || '' : '',
+          jobId: nextSubtab === 'jobs' ? ctx.getCurrentRoute()?.jobId || '' : '',
         });
       });
     }

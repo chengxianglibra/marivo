@@ -228,6 +228,8 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertIn("Metrics raw text unavailable.", resp.text)
         self.assertIn("function scheduleAutoRefresh", resp.text)
         self.assertIn("async function hydrate(panel, route)", resp.text)
+        self.assertIn("route?.tab === 'observability'", resp.text)
+        self.assertIn("currentRoute?.tab !== 'observability'", resp.text)
 
     def test_admin_index_and_shell_register_observability_module(self) -> None:
         index_resp = self.client.get("/static/admin/index.js")
@@ -298,6 +300,7 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertIn("source-form-modal", resp.text)
         self.assertIn("selection-modal", resp.text)
         self.assertIn("target?.closest('[data-action=\"select-source\"]')", resp.text)
+        self.assertIn("route?.tab === 'data-sources'", resp.text)
 
     def test_admin_execution_engines_declares_t5_inventory_detail_and_mutation_contracts(
         self,
@@ -360,6 +363,7 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertIn("openBindingFormModal", resp.text)
         self.assertIn("handleDeleteBinding", resp.text)
         self.assertIn("refreshCurrentExecutionEngines", resp.text)
+        self.assertIn("route?.tab === 'execution-engines'", resp.text)
 
     def test_admin_semantic_catalog_declares_t7_object_page_contracts(self) -> None:
         module_resp = self.client.get("/static/admin/semantic-catalog/module.js")
@@ -385,6 +389,7 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertIn("All statuses", module_resp.text)
         self.assertIn("Draft", module_resp.text)
         self.assertIn("Published", module_resp.text)
+        self.assertIn('route?.tab === "semantic-catalog"', module_resp.text)
 
     def test_admin_semantic_catalog_entities_and_metrics_expose_front_four_contract_fields(
         self,
@@ -578,6 +583,7 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertIn("getSession(sessionId)", api_resp.text)
         self.assertIn("terminateSession(sessionId, payload)", api_resp.text)
         self.assertIn("POST /sessions/{session_id}/terminate", api_resp.text)
+        self.assertIn("route?.tab === 'analysis-ops'", module_resp.text)
 
     def test_admin_analysis_ops_keeps_t8_boundaries_and_empty_error_copy(self) -> None:
         resp = self.client.get("/static/admin/analysis-ops.js")
@@ -653,6 +659,8 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertIn("getArtifactRuntimeStatus(sessionId, artifactId)", api_resp.text)
         self.assertIn("listJobs(params = {})", api_resp.text)
         self.assertIn("getJob(jobId)", api_resp.text)
+        self.assertIn("route?.tab === 'runtime-jobs'", module_resp.text)
+        self.assertIn("ctx.getCurrentRoute()?.jobId", module_resp.text)
 
     def test_admin_runtime_jobs_keeps_t9_read_only_boundary_and_error_copy(self) -> None:
         resp = self.client.get("/static/admin/runtime-jobs.js")
@@ -737,6 +745,7 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertIn("autoFlagApprovals(sessionId, payload)", api_resp.text)
         self.assertIn("governanceCheck(payload)", api_resp.text)
         self.assertIn("routingResolve(payload)", api_resp.text)
+        self.assertIn("ctx.getCurrentRoute()?.sessionId", module_resp.text)
 
     def test_admin_governance_declares_empty_states_and_scope_limits(self) -> None:
         resp = self.client.get("/static/admin/governance.js")

@@ -426,7 +426,7 @@ export function createExecutionEnginesModule(ctx) {
   function refreshCurrentExecutionEngines() {
     const panel = document.getElementById('panel-execution-engines');
     const route = ctx.getCurrentRoute();
-    if (panel && route.tab === 'execution-engines') {
+    if (panel && route?.tab === 'execution-engines') {
       void hydrate(panel, route);
     }
   }
