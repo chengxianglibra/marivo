@@ -17,6 +17,9 @@ export const DEFAULT_ADMIN_ROUTE = {
   bindingId: '',
   objectId: '',
   sessionId: '',
+  policyId: '',
+  ruleId: '',
+  requestId: '',
   propositionId: '',
   artifactId: '',
   jobId: '',
@@ -127,7 +130,7 @@ export const ADMIN_TAB_META = {
   governance: {
     label: 'Governance',
     subtitle: 'Shell for policy, quality, approval, and helper workflows.',
-    objectLabel: 'session_id',
+    objectLabel: 'request_id',
     subtabConfig: [
       { value: 'policies', label: 'Policies' },
       { value: 'quality-rules', label: 'Quality Rules' },
@@ -139,7 +142,7 @@ export const ADMIN_TAB_META = {
       'The global approvals badge remains attached to the governance nav item.',
       'Governance Helpers stay explicitly auxiliary instead of becoming the default task flow.',
     ],
-    routeFocus: ['tab', 'subtab', 'session_id'],
+    routeFocus: ['tab', 'subtab', 'session_id', 'policy_id', 'rule_id', 'request_id'],
     uiLinks: [],
   },
   observability: {
@@ -185,6 +188,9 @@ export function createAdminShell(ctx) {
       bindingId: String(nextRoute.bindingId || '').trim(),
       objectId: String(nextRoute.objectId || '').trim(),
       sessionId: String(nextRoute.sessionId || '').trim(),
+      policyId: String(nextRoute.policyId || '').trim(),
+      ruleId: String(nextRoute.ruleId || '').trim(),
+      requestId: String(nextRoute.requestId || '').trim(),
       propositionId: String(nextRoute.propositionId || '').trim(),
       artifactId: String(nextRoute.artifactId || '').trim(),
       jobId: String(nextRoute.jobId || '').trim(),
@@ -209,9 +215,29 @@ export function createAdminShell(ctx) {
     if (normalized.tab !== 'execution-engines') normalized.bindingId = '';
     if (normalized.tab !== 'semantic-catalog') normalized.objectId = '';
     if (!['analysis-ops', 'runtime-jobs', 'governance'].includes(normalized.tab)) normalized.sessionId = '';
+    if (normalized.tab !== 'governance') normalized.policyId = '';
+    if (normalized.tab !== 'governance') normalized.ruleId = '';
+    if (normalized.tab !== 'governance') normalized.requestId = '';
     if (normalized.tab !== 'runtime-jobs') normalized.propositionId = '';
     if (normalized.tab !== 'runtime-jobs') normalized.artifactId = '';
     if (normalized.tab !== 'runtime-jobs') normalized.jobId = '';
+
+    if (normalized.tab === 'governance') {
+      if (normalized.subtab === 'policies') {
+        normalized.ruleId = '';
+        normalized.requestId = '';
+      } else if (normalized.subtab === 'quality-rules') {
+        normalized.policyId = '';
+        normalized.requestId = '';
+      } else if (normalized.subtab === 'approvals') {
+        normalized.policyId = '';
+        normalized.ruleId = '';
+      } else {
+        normalized.policyId = '';
+        normalized.ruleId = '';
+        normalized.requestId = '';
+      }
+    }
 
     if (normalized.tab === 'runtime-jobs') {
       if (normalized.subtab === 'session-runtime') {
@@ -243,6 +269,9 @@ export function createAdminShell(ctx) {
       bindingId: params.get('binding_id') || '',
       objectId: params.get('object_id') || '',
       sessionId: params.get('session_id') || '',
+      policyId: params.get('policy_id') || '',
+      ruleId: params.get('rule_id') || '',
+      requestId: params.get('request_id') || '',
       propositionId: params.get('proposition_id') || '',
       artifactId: params.get('artifact_id') || '',
       jobId: params.get('job_id') || '',
@@ -258,6 +287,9 @@ export function createAdminShell(ctx) {
     if (route.bindingId) params.set('binding_id', route.bindingId);
     if (route.objectId) params.set('object_id', route.objectId);
     if (route.sessionId) params.set('session_id', route.sessionId);
+    if (route.policyId) params.set('policy_id', route.policyId);
+    if (route.ruleId) params.set('rule_id', route.ruleId);
+    if (route.requestId) params.set('request_id', route.requestId);
     if (route.propositionId) params.set('proposition_id', route.propositionId);
     if (route.artifactId) params.set('artifact_id', route.artifactId);
     if (route.jobId) params.set('job_id', route.jobId);
@@ -277,7 +309,7 @@ export function createAdminShell(ctx) {
       if (route.subtab === 'proposition-runtime') return route.propositionId || route.sessionId;
       return route.sessionId;
     }
-    if (route.tab === 'governance') return route.sessionId;
+    if (route.tab === 'governance') return route.requestId || route.policyId || route.ruleId || route.sessionId;
     return '';
   }
 
@@ -349,6 +381,9 @@ export function createAdminShell(ctx) {
           { label: 'binding_id', value: route.bindingId || '-' },
           { label: 'object_id', value: route.objectId || '-' },
           { label: 'session_id', value: route.sessionId || '-' },
+          { label: 'policy_id', value: route.policyId || '-' },
+          { label: 'rule_id', value: route.ruleId || '-' },
+          { label: 'request_id', value: route.requestId || '-' },
           { label: 'proposition_id', value: route.propositionId || '-' },
           { label: 'artifact_id', value: route.artifactId || '-' },
           { label: 'job_id', value: route.jobId || '-' },
@@ -366,6 +401,9 @@ export function createAdminShell(ctx) {
             binding_id: route.bindingId || null,
             object_id: route.objectId || null,
             session_id: route.sessionId || null,
+            policy_id: route.policyId || null,
+            rule_id: route.ruleId || null,
+            request_id: route.requestId || null,
             proposition_id: route.propositionId || null,
             artifact_id: route.artifactId || null,
             job_id: route.jobId || null,
@@ -406,6 +444,8 @@ export function createAdminShell(ctx) {
     const isSemanticCatalog = route.tab === 'semantic-catalog';
     const isAnalysisOps = route.tab === 'analysis-ops';
     const isRuntimeJobs = route.tab === 'runtime-jobs';
+    const isGovernance = route.tab === 'governance';
+    const isObservability = route.tab === 'observability';
     const mainContent = isOverview
       ? modules.overview.render(route)
       : isDataSources
@@ -418,6 +458,10 @@ export function createAdminShell(ctx) {
             ? modules.analysisOps.render(route)
             : isRuntimeJobs
               ? modules.runtimeJobs.render(route)
+              : isGovernance
+                ? modules.governance.render(route)
+                : isObservability
+                  ? modules.observability.render(route)
             : renderAdminListDetailLayout({
                 primaryHtml: `
                   <div class="admin-shell-card">
@@ -473,6 +517,8 @@ export function createAdminShell(ctx) {
     if (isSemanticCatalog) void modules.semanticCatalog.hydrate(panel, route);
     if (isAnalysisOps) void modules.analysisOps.hydrate(panel, route);
     if (isRuntimeJobs) void modules.runtimeJobs.hydrate(panel, route);
+    if (isGovernance) void modules.governance.hydrate(panel, route);
+    if (isObservability) void modules.observability.hydrate(panel, route);
 
     panel.querySelectorAll('[data-subtab]').forEach((button) => {
       button.addEventListener('click', () => {

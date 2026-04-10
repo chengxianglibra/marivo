@@ -69,6 +69,8 @@ class UIBothEnabledTests(unittest.TestCase):
             "/static/admin/execution-engines.js",
             "/static/admin/analysis-ops.js",
             "/static/admin/runtime-jobs.js",
+            "/static/admin/governance.js",
+            "/static/admin/observability.js",
             "/static/admin/semantic-catalog.js",
         ]:
             with self.subTest(path=path):
@@ -128,6 +130,9 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertIn("binding_id", resp.text)
         self.assertIn("object_id", resp.text)
         self.assertIn("session_id", resp.text)
+        self.assertIn("policy_id", resp.text)
+        self.assertIn("rule_id", resp.text)
+        self.assertIn("request_id", resp.text)
         self.assertIn("proposition_id", resp.text)
         self.assertIn("artifact_id", resp.text)
         self.assertIn("job_id", resp.text)
@@ -198,6 +203,40 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertIn(".selectable-list-item", resp.text)
         self.assertIn(".checklist-grid", resp.text)
 
+    def test_admin_css_declares_observability_summary_layout(self) -> None:
+        resp = self.client.get("/static/admin.css")
+        self.assertIn(".observability-summary-grid", resp.text)
+        self.assertIn(".observability-raw-text", resp.text)
+
+    def test_admin_observability_declares_t11_health_metrics_and_refresh_contract(self) -> None:
+        resp = self.client.get("/static/admin/observability.js")
+        self.assertIn("Health Summary", resp.text)
+        self.assertIn("Metrics Summary Cards", resp.text)
+        self.assertIn("Key Metric Values", resp.text)
+        self.assertIn("Health JSON", resp.text)
+        self.assertIn("Metrics JSON", resp.text)
+        self.assertIn("Metrics Raw Text", resp.text)
+        self.assertIn("GET /health", resp.text)
+        self.assertIn("GET /metrics", resp.text)
+        self.assertIn("GET /metrics?format=prometheus", resp.text)
+        self.assertIn("Auto Refresh", resp.text)
+        self.assertIn("Manual Refresh", resp.text)
+        self.assertIn("Every 15 seconds", resp.text)
+        self.assertIn("No key metrics available yet.", resp.text)
+        self.assertIn("Health Summary unavailable.", resp.text)
+        self.assertIn("Metrics Summary unavailable.", resp.text)
+        self.assertIn("Metrics raw text unavailable.", resp.text)
+        self.assertIn("function scheduleAutoRefresh", resp.text)
+        self.assertIn("async function hydrate(panel, route)", resp.text)
+
+    def test_admin_index_and_shell_register_observability_module(self) -> None:
+        index_resp = self.client.get("/static/admin/index.js")
+        shell_resp = self.client.get("/static/admin/shell.js")
+        self.assertIn("createObservabilityModule", index_resp.text)
+        self.assertIn("observability: createObservabilityModule(ctx)", index_resp.text)
+        self.assertIn("modules.observability.render", shell_resp.text)
+        self.assertIn("modules.observability.hydrate", shell_resp.text)
+
     def test_admin_data_sources_declares_t4_inventory_detail_and_mutation_contracts(self) -> None:
         resp = self.client.get("/static/admin/data-sources.js")
         self.assertIn("Source Inventory", resp.text)
@@ -236,6 +275,10 @@ class UIBothEnabledTests(unittest.TestCase):
     def test_admin_data_sources_declares_t4_client_helpers_and_modals(self) -> None:
         resp = self.client.get("/static/admin/data-sources.js")
         self.assertIn("async function hydrate(panel, route)", resp.text)
+        self.assertIn("function extractItems(payload)", resp.text)
+        self.assertIn("Array.isArray(payload?.items)", resp.text)
+        self.assertIn("let lastSources = []", resp.text)
+        self.assertIn("lastSources = sources", resp.text)
         self.assertIn("openSourceFormModal", resp.text)
         self.assertIn("openSelectionModal", resp.text)
         self.assertIn("handleRunSourceSync", resp.text)
@@ -297,6 +340,10 @@ class UIBothEnabledTests(unittest.TestCase):
     def test_admin_execution_engines_declares_t5_client_helpers(self) -> None:
         resp = self.client.get("/static/admin/execution-engines.js")
         self.assertIn("async function hydrate(panel, route)", resp.text)
+        self.assertIn("function extractItems(payload)", resp.text)
+        self.assertIn("let lastEngines = []", resp.text)
+        self.assertIn("let lastBindings = []", resp.text)
+        self.assertIn("let lastSources = []", resp.text)
         self.assertIn("function renderBody(viewModel)", resp.text)
         self.assertIn("ensureEngineFormModal", resp.text)
         self.assertIn("ensureBindingFormModal", resp.text)
@@ -487,6 +534,11 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertIn("createRuntimeJobsModule", resp.text)
         self.assertIn("runtimeJobs: createRuntimeJobsModule(ctx)", resp.text)
 
+    def test_admin_index_registers_governance_module(self) -> None:
+        resp = self.client.get("/static/admin/index.js")
+        self.assertIn("createGovernanceModule", resp.text)
+        self.assertIn("governance: createGovernanceModule(ctx)", resp.text)
+
     def test_admin_analysis_ops_declares_t8_inventory_filters_and_actions(self) -> None:
         module_resp = self.client.get("/static/admin/analysis-ops.js")
         api_resp = self.client.get("/static/admin/api.js")
@@ -615,6 +667,95 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertNotIn("Retry Job", resp.text)
         self.assertNotIn("Replay", resp.text)
         self.assertNotIn("Publish", resp.text)
+
+    def test_admin_shell_wires_governance_module_and_locator_contract(self) -> None:
+        resp = self.client.get("/static/admin/shell.js")
+        self.assertIn("modules.governance.render(route)", resp.text)
+        self.assertIn("modules.governance.hydrate(panel, route)", resp.text)
+        self.assertIn("params.get('policy_id')", resp.text)
+        self.assertIn("params.get('rule_id')", resp.text)
+        self.assertIn("params.get('request_id')", resp.text)
+        self.assertIn("params.set('policy_id', route.policyId)", resp.text)
+        self.assertIn("params.set('rule_id', route.ruleId)", resp.text)
+        self.assertIn("params.set('request_id', route.requestId)", resp.text)
+        self.assertIn(
+            "route.requestId || route.policyId || route.ruleId || route.sessionId", resp.text
+        )
+
+    def test_admin_governance_declares_t10_inventory_actions_and_helper_boundaries(self) -> None:
+        module_resp = self.client.get("/static/admin/governance.js")
+        api_resp = self.client.get("/static/admin/api.js")
+        self.assertIn("Policy Inventory", module_resp.text)
+        self.assertIn("Policy Summary", module_resp.text)
+        self.assertIn("Policy Editor", module_resp.text)
+        self.assertIn("Create Policy", module_resp.text)
+        self.assertIn("Edit Definition", module_resp.text)
+        self.assertIn("Delete Policy", module_resp.text)
+        self.assertIn("Enable Policy", module_resp.text)
+        self.assertIn("Disable Policy", module_resp.text)
+        self.assertIn("Quality Rule Inventory", module_resp.text)
+        self.assertIn("Quality Rule Summary", module_resp.text)
+        self.assertIn("Quality Rule Create", module_resp.text)
+        self.assertIn("Create Quality Rule", module_resp.text)
+        self.assertIn("Delete Quality Rule", module_resp.text)
+        self.assertIn("Approval Queue", module_resp.text)
+        self.assertIn("Approval Summary", module_resp.text)
+        self.assertIn("Approval Actions", module_resp.text)
+        self.assertIn("Approve / Reject", module_resp.text)
+        self.assertIn("Auto-flag Approvals", module_resp.text)
+        self.assertIn("Governance Helpers", module_resp.text)
+        self.assertIn("Governance Check", module_resp.text)
+        self.assertIn("Routing Resolve", module_resp.text)
+        self.assertIn("diagnostic only", module_resp.text)
+        self.assertIn("GET /policies", module_resp.text)
+        self.assertIn("PUT /policies/{policy_id}", module_resp.text)
+        self.assertIn("DELETE /policies/{policy_id}", module_resp.text)
+        self.assertIn("GET /quality-rules", module_resp.text)
+        self.assertIn("DELETE /quality-rules/{rule_id}", module_resp.text)
+        self.assertIn("GET /approvals/{request_id}", module_resp.text)
+        self.assertIn("POST /approvals/{request_id}/approve", module_resp.text)
+        self.assertIn("POST /approvals/{request_id}/reject", module_resp.text)
+        self.assertIn("POST /sessions/{session_id}/approvals/auto-flag", module_resp.text)
+        self.assertIn("POST /governance/check", module_resp.text)
+        self.assertIn("POST /routing/resolve", module_resp.text)
+        self.assertIn("listPolicies()", api_resp.text)
+        self.assertIn("getPolicy(policyId)", api_resp.text)
+        self.assertIn("updatePolicy(policyId, payload)", api_resp.text)
+        self.assertIn("listQualityRules(params = {})", api_resp.text)
+        self.assertIn("getApproval(requestId)", api_resp.text)
+        self.assertIn("approveApproval(requestId, payload)", api_resp.text)
+        self.assertIn("rejectApproval(requestId, payload)", api_resp.text)
+        self.assertIn("autoFlagApprovals(sessionId, payload)", api_resp.text)
+        self.assertIn("governanceCheck(payload)", api_resp.text)
+        self.assertIn("routingResolve(payload)", api_resp.text)
+
+    def test_admin_governance_declares_empty_states_and_scope_limits(self) -> None:
+        resp = self.client.get("/static/admin/governance.js")
+        self.assertIn("No policies configured yet.", resp.text)
+        self.assertIn("No quality rules configured yet.", resp.text)
+        self.assertIn("No approval requests match the current filters.", resp.text)
+        self.assertIn("The default queue only shows pending requests.", resp.text)
+        self.assertIn(
+            "There is no update endpoint, so /admin does not expose edit actions.", resp.text
+        )
+        self.assertIn("name, policy_type, and scope remain immutable in /admin", resp.text)
+        self.assertIn("Do not move approvals or runtime troubleshooting into this page.", resp.text)
+        self.assertIn(
+            "Run Governance Check or Routing Resolve to inspect diagnostic output.", resp.text
+        )
+
+    def test_admin_guide_documents_t10_governance_boundaries(self) -> None:
+        guide_path = Path(__file__).resolve().parents[1] / "docs" / "agent-guide.md"
+        content = guide_path.read_text(encoding="utf-8")
+        self.assertIn("Governance", content)
+        self.assertIn("Policies", content)
+        self.assertIn("Quality Rules", content)
+        self.assertIn("Approvals", content)
+        self.assertIn("Governance Helpers", content)
+        self.assertIn("policy_id", content)
+        self.assertIn("rule_id", content)
+        self.assertIn("request_id", content)
+        self.assertIn("does not fake unsupported policy or quality-rule edit capabilities", content)
 
     def test_user_uses_shared_assets(self) -> None:
         resp = self.client.get("/ui")
