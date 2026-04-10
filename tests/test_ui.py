@@ -58,10 +58,28 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertIn("javascript", resp.headers["content-type"])
 
+    def test_admin_split_assets_accessible(self) -> None:
+        for path in [
+            "/static/admin.css",
+            "/static/admin/index.js",
+            "/static/admin/shell.js",
+            "/static/admin/api.js",
+            "/static/admin/overview.js",
+            "/static/admin/data-sources.js",
+            "/static/admin/execution-engines.js",
+            "/static/admin/analysis-ops.js",
+            "/static/admin/semantic-catalog.js",
+        ]:
+            with self.subTest(path=path):
+                resp = self.client.get(path)
+                self.assertEqual(resp.status_code, 200)
+
     def test_admin_uses_shared_assets(self) -> None:
         resp = self.client.get("/admin")
         self.assertIn("shared.css", resp.text)
         self.assertIn("shared.js", resp.text)
+        self.assertIn("admin.css", resp.text)
+        self.assertIn("/static/admin/index.js", resp.text)
 
     def test_admin_uses_redesigned_primary_navigation(self) -> None:
         resp = self.client.get("/admin")
@@ -93,11 +111,13 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertIn('<div class="panel" id="panel-observability"></div>', resp.text)
 
     def test_admin_declares_url_driven_shell_contract(self) -> None:
-        resp = self.client.get("/admin")
+        resp = self.client.get("/static/admin/shell.js")
         self.assertIn("normalizeAdminRoute", resp.text)
         self.assertIn("adminRouteFromLocation", resp.text)
         self.assertIn("writeAdminRoute", resp.text)
         self.assertIn("applyAdminRoute", resp.text)
+        self.assertIn("modules.analysisOps.render", resp.text)
+        self.assertIn("modules.analysisOps.hydrate", resp.text)
         self.assertIn("setActiveTab(currentAdminRoute.tab)", resp.text)
         self.assertIn("window.addEventListener('popstate'", resp.text)
         self.assertIn("tab", resp.text)
@@ -110,7 +130,7 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertIn("job_id", resp.text)
 
     def test_admin_overview_declares_t3_summary_cards_and_links(self) -> None:
-        resp = self.client.get("/admin")
+        resp = self.client.get("/static/admin/overview.js")
         self.assertIn("Source Summary", resp.text)
         self.assertIn("Engine / Binding Summary", resp.text)
         self.assertIn("Semantic Summary", resp.text)
@@ -129,7 +149,7 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertNotIn("Preview Delete Binding confirmation", resp.text)
 
     def test_admin_overview_declares_card_level_loading_empty_and_error_states(self) -> None:
-        resp = self.client.get("/admin")
+        resp = self.client.get("/static/admin/overview.js")
         self.assertIn("Loading Source Summary...", resp.text)
         self.assertIn("No data sources configured yet.", resp.text)
         self.assertIn("No analysis sessions available yet.", resp.text)
@@ -142,10 +162,11 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertIn("GET /health", resp.text)
 
     def test_admin_routes_ui_drill_ins_through_shared_helpers(self) -> None:
-        resp = self.client.get("/admin")
-        self.assertIn("adminUiDeepLinks", resp.text)
-        self.assertIn("buildUiSessionsUrl", resp.text)
-        self.assertNotIn("function buildUiUrl", resp.text)
+        overview_resp = self.client.get("/static/admin/overview.js")
+        shared_resp = self.client.get("/static/shared.js")
+        self.assertIn("adminUiDeepLinks", overview_resp.text)
+        self.assertIn("buildUiSessionsUrl", shared_resp.text)
+        self.assertNotIn("function buildUiUrl", shared_resp.text)
 
     def test_shared_js_declares_admin_t2_primitives(self) -> None:
         resp = self.client.get("/static/shared.js")
@@ -175,7 +196,7 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertIn(".checklist-grid", resp.text)
 
     def test_admin_data_sources_declares_t4_inventory_detail_and_mutation_contracts(self) -> None:
-        resp = self.client.get("/admin?tab=data-sources")
+        resp = self.client.get("/static/admin/data-sources.js")
         self.assertIn("Source Inventory", resp.text)
         self.assertIn("Source Summary", resp.text)
         self.assertIn("Sync & Jobs", resp.text)
@@ -197,7 +218,7 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertIn("GET /sources/{source_id}/objects?type=table", resp.text)
 
     def test_admin_data_sources_declares_empty_and_error_copy(self) -> None:
-        resp = self.client.get("/admin?tab=data-sources")
+        resp = self.client.get("/static/admin/data-sources.js")
         self.assertIn("No data sources configured yet.", resp.text)
         self.assertIn("No sync selections configured yet.", resp.text)
         self.assertIn("No schema available from the live catalog for this source.", resp.text)
@@ -210,8 +231,8 @@ class UIBothEnabledTests(unittest.TestCase):
         )
 
     def test_admin_data_sources_declares_t4_client_helpers_and_modals(self) -> None:
-        resp = self.client.get("/admin?tab=data-sources")
-        self.assertIn("hydrateDataSources", resp.text)
+        resp = self.client.get("/static/admin/data-sources.js")
+        self.assertIn("async function hydrate(panel, route)", resp.text)
         self.assertIn("openSourceFormModal", resp.text)
         self.assertIn("openSelectionModal", resp.text)
         self.assertIn("handleRunSourceSync", resp.text)
@@ -226,7 +247,7 @@ class UIBothEnabledTests(unittest.TestCase):
     def test_admin_execution_engines_declares_t5_inventory_detail_and_mutation_contracts(
         self,
     ) -> None:
-        resp = self.client.get("/admin?tab=execution-engines")
+        resp = self.client.get("/static/admin/execution-engines.js")
         self.assertIn("Engine Inventory", resp.text)
         self.assertIn("Binding Inventory", resp.text)
         self.assertIn("Engine Summary", resp.text)
@@ -252,7 +273,7 @@ class UIBothEnabledTests(unittest.TestCase):
     def test_admin_execution_engines_declares_boundary_copy_empty_states_and_modals(
         self,
     ) -> None:
-        resp = self.client.get("/admin?tab=execution-engines")
+        resp = self.client.get("/static/admin/execution-engines.js")
         self.assertIn("No execution engines configured yet.", resp.text)
         self.assertIn("No source-engine bindings configured yet.", resp.text)
         self.assertIn(
@@ -271,9 +292,9 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertNotIn("still waits for its task-specific data sources", resp.text)
 
     def test_admin_execution_engines_declares_t5_client_helpers(self) -> None:
-        resp = self.client.get("/admin?tab=execution-engines")
-        self.assertIn("hydrateExecutionEngines", resp.text)
-        self.assertIn("renderExecutionEnginesBody", resp.text)
+        resp = self.client.get("/static/admin/execution-engines.js")
+        self.assertIn("async function hydrate(panel, route)", resp.text)
+        self.assertIn("function renderBody(viewModel)", resp.text)
         self.assertIn("ensureEngineFormModal", resp.text)
         self.assertIn("ensureBindingFormModal", resp.text)
         self.assertIn("openEngineFormModal", resp.text)
@@ -281,49 +302,234 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertIn("handleDeleteBinding", resp.text)
         self.assertIn("refreshCurrentExecutionEngines", resp.text)
 
-    def test_admin_semantic_catalog_declares_t6_shared_shell_contracts(self) -> None:
-        resp = self.client.get("/admin?tab=semantic-catalog&subtab=entities")
-        self.assertIn("Entity Catalog", resp.text)
-        self.assertIn("Object Summary", resp.text)
-        self.assertIn("Lifecycle Summary", resp.text)
-        self.assertIn("Create / Edit Form Shell", resp.text)
-        self.assertIn("Dependency Helpers", resp.text)
-        self.assertIn("Resolve / View Related Bindings / View Catalog Graph", resp.text)
-        self.assertIn("Raw JSON Panel", resp.text)
-        self.assertIn("object_id", resp.text)
-        self.assertIn("stable_ref", resp.text)
-        self.assertIn("display_name", resp.text)
-        self.assertIn("revision", resp.text)
-        self.assertIn("updated_at", resp.text)
-        self.assertIn("All statuses", resp.text)
-        self.assertIn("Draft", resp.text)
-        self.assertIn("Published", resp.text)
+    def test_admin_semantic_catalog_declares_t7_object_page_contracts(self) -> None:
+        module_resp = self.client.get("/static/admin/semantic-catalog/module.js")
+        core_resp = self.client.get("/static/admin/semantic-catalog/core-config.js")
+        self.assertIn("Entity Catalog", core_resp.text)
+        self.assertIn("Object Summary", module_resp.text)
+        self.assertIn("Interface / Payload Summary", module_resp.text)
+        self.assertIn("Relationship Summary", module_resp.text)
+        self.assertIn("Lifecycle Summary", module_resp.text)
+        self.assertIn('singularLabel: "Entity"', core_resp.text)
+        self.assertIn("Dependency Helpers", module_resp.text)
+        self.assertIn("Resolve / View Related Bindings / View Catalog Graph", module_resp.text)
+        self.assertIn("Raw JSON Panel", module_resp.text)
+        self.assertIn("Hierarchy JSON", core_resp.text)
+        self.assertIn("Stable Descriptors JSON", core_resp.text)
+        self.assertIn("POST /semantic/entities", core_resp.text)
+        self.assertIn("PUT /semantic/entities/{entity_id}", core_resp.text)
+        self.assertIn("object_id", module_resp.text)
+        self.assertIn("stable_ref", module_resp.text)
+        self.assertIn("display_name", module_resp.text)
+        self.assertIn("revision", module_resp.text)
+        self.assertIn("updated_at", module_resp.text)
+        self.assertIn("All statuses", module_resp.text)
+        self.assertIn("Draft", module_resp.text)
+        self.assertIn("Published", module_resp.text)
+
+    def test_admin_semantic_catalog_entities_and_metrics_expose_front_four_contract_fields(
+        self,
+    ) -> None:
+        core_resp = self.client.get("/static/admin/semantic-catalog/core-config.js")
+        api_resp = self.client.get("/static/admin/api.js")
+        self.assertIn("Identity Key Refs", core_resp.text)
+        self.assertIn("Nullable Key Policy", core_resp.text)
+        self.assertIn("Parent Entity", core_resp.text)
+        self.assertIn("Primary Time", core_resp.text)
+        self.assertIn("Metric Payload JSON", core_resp.text)
+        self.assertIn("Observed Entity", core_resp.text)
+        self.assertIn("Use View Related Bindings to inspect grounding.", core_resp.text)
+        self.assertIn("createSemanticMetric", api_resp.text)
+        self.assertIn("updateSemanticMetric", api_resp.text)
+        self.assertIn("publishSemanticMetric", api_resp.text)
+
+    def test_admin_semantic_catalog_process_objects_and_dimensions_expose_front_four_contract_fields(
+        self,
+    ) -> None:
+        module_resp = self.client.get("/static/admin/semantic-catalog/module.js")
+        supporting_resp = self.client.get("/static/admin/semantic-catalog/supporting-config.js")
+        api_resp = self.client.get("/static/admin/api.js")
+        self.assertIn("Interface Contract JSON", supporting_resp.text)
+        self.assertIn("Process Payload JSON", supporting_resp.text)
+        self.assertIn("Anchor Time", supporting_resp.text)
+        self.assertIn("Exported ${ref}", supporting_resp.text)
+        self.assertIn("Grouping JSON", supporting_resp.text)
+        self.assertIn("Time Derived Requirement JSON", supporting_resp.text)
+        self.assertIn("Required Time Anchor", supporting_resp.text)
+        self.assertIn("Parent Dimension", supporting_resp.text)
+        self.assertIn(
+            '["metrics", "process-objects", "compatibility-profiles"].includes', module_resp.text
+        )
+        self.assertIn("createSemanticProcessObject", api_resp.text)
+        self.assertIn("updateSemanticProcessObject", api_resp.text)
+        self.assertIn("publishSemanticProcessObject", api_resp.text)
+        self.assertIn("createSemanticDimension", api_resp.text)
+        self.assertIn("updateSemanticDimension", api_resp.text)
+        self.assertIn("publishSemanticDimension", api_resp.text)
+
+    def test_admin_semantic_catalog_time_and_enum_sets_expose_supporting_contract_fields(
+        self,
+    ) -> None:
+        module_resp = self.client.get("/static/admin/semantic-catalog/module.js")
+        supporting_resp = self.client.get("/static/admin/semantic-catalog/supporting-config.js")
+        api_resp = self.client.get("/static/admin/api.js")
+        self.assertIn("Time Catalog", supporting_resp.text)
+        self.assertIn("Enum Set Catalog", supporting_resp.text)
+        self.assertIn("role_count", supporting_resp.text)
+        self.assertIn("Time Usage Guidance", supporting_resp.text)
+        self.assertIn("binding_surfaces", supporting_resp.text)
+        self.assertIn("latest_value_count", supporting_resp.text)
+        self.assertIn("latest_value_keys", supporting_resp.text)
+        self.assertIn("Enum Governance Guidance", supporting_resp.text)
+        self.assertIn("Operator Guidance", module_resp.text)
+        self.assertIn("createSemanticTime", api_resp.text)
+        self.assertIn("updateSemanticTime", api_resp.text)
+        self.assertIn("publishSemanticTime", api_resp.text)
+        self.assertIn("createSemanticEnumSet", api_resp.text)
+        self.assertIn("updateSemanticEnumSet", api_resp.text)
+        self.assertIn("publishSemanticEnumSet", api_resp.text)
+
+    def test_admin_semantic_catalog_typed_bindings_and_profiles_expose_remaining_contract_fields(
+        self,
+    ) -> None:
+        module_resp = self.client.get("/static/admin/semantic-catalog/module.js")
+        core_resp = self.client.get("/static/admin/semantic-catalog/core-config.js")
+        api_resp = self.client.get("/static/admin/api.js")
+        self.assertIn("Typed Binding Catalog", core_resp.text)
+        self.assertIn("Compatibility Profile Catalog", core_resp.text)
+        self.assertIn("time_surfaces", core_resp.text)
+        self.assertIn("imported_binding_refs", core_resp.text)
+        self.assertIn("Binding Grounding Guidance", core_resp.text)
+        self.assertIn("payload_kind", core_resp.text)
+        self.assertIn("population_subject_refs", core_resp.text)
+        self.assertIn("subject_freeze", core_resp.text)
+        self.assertIn("Compile Compatibility Guidance", core_resp.text)
+        self.assertIn(
+            "All eight T7 object pages keep structured contract summaries", module_resp.text
+        )
+        self.assertIn("Object-specific operator guidance stays with each subpage", module_resp.text)
+        self.assertIn("publishTypedSemanticBinding", api_resp.text)
+        self.assertIn("publishCompatibilityProfile", api_resp.text)
 
     def test_admin_semantic_catalog_declares_publish_freeze_and_helper_http_contracts(self) -> None:
-        resp = self.client.get("/admin?tab=semantic-catalog&subtab=typed-bindings")
-        self.assertIn("Published objects are frozen and stay read-only in T6.", resp.text)
-        self.assertIn("Publish failures render structured error details", resp.text)
-        self.assertIn("GET /semantic/bindings", resp.text)
-        self.assertIn("GET /semantic/resolve/{name}", resp.text)
-        self.assertIn("GET /catalog/graph", resp.text)
-        self.assertIn("publishTypedSemanticBinding", resp.text)
-        self.assertIn("View Related Bindings", resp.text)
-        self.assertIn("Catalog Graph", resp.text)
-        self.assertIn("Resolve Result", resp.text)
+        module_resp = self.client.get("/static/admin/semantic-catalog/module.js")
+        core_resp = self.client.get("/static/admin/semantic-catalog/core-config.js")
+        self.assertIn("Published objects are frozen and stay read-only in T7.", module_resp.text)
+        self.assertIn("Publish failures render structured error details", module_resp.text)
+        self.assertIn("GET /semantic/bindings", core_resp.text)
+        self.assertIn("POST /semantic/bindings", core_resp.text)
+        self.assertIn("PUT /semantic/bindings/{binding_id}", core_resp.text)
+        self.assertIn("GET /semantic/resolve/{name}", module_resp.text)
+        self.assertIn("GET /catalog/graph", module_resp.text)
+        self.assertIn("publishTypedSemanticBinding", module_resp.text)
+        self.assertIn("createTypedSemanticBinding", module_resp.text)
+        self.assertIn("updateTypedSemanticBinding", module_resp.text)
+        self.assertIn("View Related Bindings", module_resp.text)
+        self.assertIn("Catalog Graph", module_resp.text)
+        self.assertIn("Resolve Result", module_resp.text)
+        self.assertIn("Bound Semantic Object", core_resp.text)
+        self.assertIn("published revision freeze", module_resp.text)
+        self.assertIn("Execution Binding Contract", core_resp.text)
 
-    def test_admin_semantic_catalog_uses_object_id_route_and_t6_client_helpers(self) -> None:
-        resp = self.client.get("/admin?tab=semantic-catalog&subtab=compatibility-profiles")
-        self.assertIn("params.get('object_id')", resp.text)
-        self.assertIn("params.set('object_id', route.objectId)", resp.text)
-        self.assertIn("objectLabel: 'object_id'", resp.text)
-        self.assertIn("hydrateSemanticCatalog", resp.text)
-        self.assertIn("renderSemanticCatalogBody", resp.text)
-        self.assertIn("refreshCurrentSemanticCatalog", resp.text)
-        self.assertIn("runSemanticResolve", resp.text)
-        self.assertIn("runSemanticCatalogGraph", resp.text)
-        self.assertIn("handlePublishSemanticObject", resp.text)
-        self.assertIn("listCompatibilityProfiles", resp.text)
-        self.assertIn("publishCompatibilityProfile", resp.text)
+    def test_admin_semantic_catalog_uses_object_id_route_and_t7_client_helpers(self) -> None:
+        shell_resp = self.client.get("/static/admin/shell.js")
+        semantic_resp = self.client.get("/static/admin/semantic-catalog/module.js")
+        wrapper_resp = self.client.get("/static/admin/semantic-catalog.js")
+        api_resp = self.client.get("/static/admin/api.js")
+        self.assertIn("params.get('object_id')", shell_resp.text)
+        self.assertIn("params.set('object_id', route.objectId)", shell_resp.text)
+        self.assertIn("objectLabel: 'object_id'", shell_resp.text)
+        self.assertIn("export { createSemanticCatalogModule }", wrapper_resp.text)
+        self.assertIn("async function hydrate(panel, route)", semantic_resp.text)
+        self.assertIn("function renderBody(viewModel)", semantic_resp.text)
+        self.assertIn("refreshCurrentSemanticCatalog", semantic_resp.text)
+        self.assertIn("runSemanticResolve", semantic_resp.text)
+        self.assertIn("runSemanticCatalogGraph", semantic_resp.text)
+        self.assertIn("runSemanticPlannerContext", semantic_resp.text)
+        self.assertIn("handleSemanticFormSubmit", semantic_resp.text)
+        self.assertIn("handleJumpSemanticRef", semantic_resp.text)
+        self.assertIn("handlePublishSemanticObject", semantic_resp.text)
+        self.assertIn("relatedBindingsFilter", semantic_resp.text)
+        self.assertIn("listCompatibilityProfiles", api_resp.text)
+        self.assertIn("createCompatibilityProfile", api_resp.text)
+        self.assertIn("updateCompatibilityProfile", api_resp.text)
+        self.assertIn("publishCompatibilityProfile", api_resp.text)
+        self.assertIn("GET /sessions/{session_id}/planner-context", semantic_resp.text)
+
+    def test_admin_guide_documents_all_t7_semantic_catalog_object_pages(self) -> None:
+        guide_path = Path(__file__).resolve().parents[1] / "docs" / "agent-guide.md"
+        content = guide_path.read_text(encoding="utf-8")
+        self.assertIn("all eight subtabs", content)
+        self.assertIn("Time", content)
+        self.assertIn("Enum Sets", content)
+        self.assertIn("Typed Bindings", content)
+        self.assertIn("Compatibility Profiles", content)
+
+    def test_admin_guide_documents_t8_analysis_ops_boundary(self) -> None:
+        guide_path = Path(__file__).resolve().parents[1] / "docs" / "agent-guide.md"
+        content = guide_path.read_text(encoding="utf-8")
+        self.assertIn("Analysis Ops", content)
+        self.assertIn("Terminate Session", content)
+        self.assertIn(
+            "Do not add create-session, intent, step, or plan-management controls", content
+        )
+
+    def test_admin_index_registers_analysis_ops_module(self) -> None:
+        resp = self.client.get("/static/admin/index.js")
+        self.assertIn("createAnalysisOpsModule", resp.text)
+        self.assertIn("analysisOps: createAnalysisOpsModule(ctx)", resp.text)
+
+    def test_admin_analysis_ops_declares_t8_inventory_filters_and_actions(self) -> None:
+        module_resp = self.client.get("/static/admin/analysis-ops.js")
+        api_resp = self.client.get("/static/admin/api.js")
+        self.assertIn("Session Inventory", module_resp.text)
+        self.assertIn("Session Summary", module_resp.text)
+        self.assertIn("Session Operations", module_resp.text)
+        self.assertIn("Status", module_resp.text)
+        self.assertIn("Search by session_id", module_resp.text)
+        self.assertIn("All statuses", module_resp.text)
+        self.assertIn("session_id", module_resp.text)
+        self.assertIn("goal", module_resp.text)
+        self.assertIn("status", module_resp.text)
+        self.assertIn("created_at", module_resp.text)
+        self.assertIn("updated_at", module_resp.text)
+        self.assertIn("terminal_reason", module_resp.text)
+        self.assertIn("rollover_from_session_id", module_resp.text)
+        self.assertIn("Constraints JSON", module_resp.text)
+        self.assertIn("Budget JSON", module_resp.text)
+        self.assertIn("Policy JSON", module_resp.text)
+        self.assertIn("Terminate Session", module_resp.text)
+        self.assertIn("Open in /ui Sessions", module_resp.text)
+        self.assertIn("View State in /ui", module_resp.text)
+        self.assertIn("View Runtime in /ui", module_resp.text)
+        self.assertIn("View Jobs in /ui", module_resp.text)
+        self.assertIn("GET /sessions", module_resp.text)
+        self.assertIn("GET /sessions/{session_id}", module_resp.text)
+        self.assertIn("listSessions(params = {})", api_resp.text)
+        self.assertIn("getSession(sessionId)", api_resp.text)
+        self.assertIn("terminateSession(sessionId, payload)", api_resp.text)
+        self.assertIn("POST /sessions/{session_id}/terminate", api_resp.text)
+
+    def test_admin_analysis_ops_keeps_t8_boundaries_and_empty_error_copy(self) -> None:
+        resp = self.client.get("/static/admin/analysis-ops.js")
+        self.assertIn("No analysis sessions available yet.", resp.text)
+        self.assertIn("No sessions match the current filters.", resp.text)
+        self.assertIn("404 session not found.", resp.text)
+        self.assertIn("Terminate Session failed.", resp.text)
+        self.assertIn("Session detail unavailable.", resp.text)
+        self.assertIn("Analysis Ops unavailable.", resp.text)
+        self.assertIn(
+            "Select a session to inspect goal, constraints, budget, policy, terminal reason, and rollover lineage.",
+            resp.text,
+        )
+        self.assertIn("终止后将阻止新的 intent 写入", resp.text)
+        self.assertIn(
+            "does not expose create-session, intent, step, or plan-management controls", resp.text
+        )
+        self.assertNotIn("Create Session", resp.text)
+        self.assertNotIn("Run Intent", resp.text)
+        self.assertNotIn("Run Step", resp.text)
+        self.assertNotIn("Plan management", resp.text)
 
     def test_user_uses_shared_assets(self) -> None:
         resp = self.client.get("/ui")

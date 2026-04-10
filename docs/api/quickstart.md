@@ -241,5 +241,6 @@ curl -s http://localhost:8000/sessions/sess_.../state | jq .
 - [Session Lifecycle](session-lifecycle.md) - session root lifecycle contract
 - [Session State Surface](session-state.md) - canonical session-level decision surface
 - [Context Surface](context-surface.md) - canonical proposition-level minimal closure
+- [Progressive OpenAPI Access](openapi.md) - path- and schema-focused contract retrieval
 - [Semantic Layer](semantic.md) - entities, metrics, mappings, and catalog search
 - [Governance](governance.md) - policies and quality rules
