@@ -158,6 +158,9 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertIn("function buildUiContextUrl", resp.text)
         self.assertIn("function buildUiRuntimeUrl", resp.text)
         self.assertIn("function buildUiJobsUrl", resp.text)
+        self.assertIn("function normalizeApiError", resp.text)
+        self.assertIn("function pollAsync", resp.text)
+        self.assertIn("function formatKeyValueSummary", resp.text)
 
     def test_shared_css_declares_admin_t2_layout_and_states(self) -> None:
         resp = self.client.get("/static/shared.css")
@@ -166,6 +169,58 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertIn(".detail-error", resp.text)
         self.assertIn(".list-error", resp.text)
         self.assertIn(".danger-confirm-modal", resp.text)
+        self.assertIn(".catalog-browser-grid", resp.text)
+        self.assertIn(".selectable-list-item", resp.text)
+        self.assertIn(".checklist-grid", resp.text)
+
+    def test_admin_data_sources_declares_t4_inventory_detail_and_mutation_contracts(self) -> None:
+        resp = self.client.get("/admin?tab=data-sources")
+        self.assertIn("Source Inventory", resp.text)
+        self.assertIn("Source Summary", resp.text)
+        self.assertIn("Sync & Jobs", resp.text)
+        self.assertIn("Sync Selections", resp.text)
+        self.assertIn("Catalog Browser", resp.text)
+        self.assertIn("Synced Source Objects", resp.text)
+        self.assertIn("Create Source", resp.text)
+        self.assertIn("Edit Source", resp.text)
+        self.assertIn("Delete Source", resp.text)
+        self.assertIn("Run Sync", resp.text)
+        self.assertIn("Manage Selections", resp.text)
+        self.assertIn("Clear All", resp.text)
+        self.assertIn("Browse Catalog", resp.text)
+        self.assertIn("last_sync_at", resp.text)
+        self.assertIn("GET /sources/{source_id}", resp.text)
+        self.assertIn("POST /sources/{source_id}/sync", resp.text)
+        self.assertIn("GET /sources/{source_id}/catalog/schemas", resp.text)
+        self.assertIn("GET /sources/{source_id}/catalog/tables", resp.text)
+        self.assertIn("GET /sources/{source_id}/objects?type=table", resp.text)
+
+    def test_admin_data_sources_declares_empty_and_error_copy(self) -> None:
+        resp = self.client.get("/admin?tab=data-sources")
+        self.assertIn("No data sources configured yet.", resp.text)
+        self.assertIn("No sync selections configured yet.", resp.text)
+        self.assertIn("No schema available from the live catalog for this source.", resp.text)
+        self.assertIn("No table found for the selected schema.", resp.text)
+        self.assertIn("Sync request failed.", resp.text)
+        self.assertIn("Catalog schemas unavailable.", resp.text)
+        self.assertIn("Catalog tables unavailable.", resp.text)
+        self.assertIn(
+            "No synced source objects yet. Run Sync or configure selections first.", resp.text
+        )
+
+    def test_admin_data_sources_declares_t4_client_helpers_and_modals(self) -> None:
+        resp = self.client.get("/admin?tab=data-sources")
+        self.assertIn("hydrateDataSources", resp.text)
+        self.assertIn("openSourceFormModal", resp.text)
+        self.assertIn("openSelectionModal", resp.text)
+        self.assertIn("handleRunSourceSync", resp.text)
+        self.assertIn("handleDeleteSource", resp.text)
+        self.assertIn("ensureSourceFormModal", resp.text)
+        self.assertIn("ensureSelectionModal", resp.text)
+        self.assertIn("Manage Selections writes the full selection set back", resp.text)
+        self.assertIn("Connection JSON", resp.text)
+        self.assertIn("source-form-modal", resp.text)
+        self.assertIn("selection-modal", resp.text)
 
     def test_user_uses_shared_assets(self) -> None:
         resp = self.client.get("/ui")

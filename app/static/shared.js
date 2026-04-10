@@ -193,6 +193,54 @@ function renderAdminListDetailLayout(config) {
   `;
 }
 
+function normalizeApiError(error, fallbackMessage = 'Request failed.') {
+  if (!error) {
+    return { message: fallbackMessage, detail: '', status: 0, transport: '' };
+  }
+  if (typeof error === 'string') {
+    return { message: error, detail: '', status: 0, transport: '' };
+  }
+  return {
+    message: error.message || error.detail || fallbackMessage,
+    detail: typeof error.detail === 'string' ? error.detail : JSON.stringify(error.detail || ''),
+    status: Number(error.status || 0),
+    transport: error.transport || '',
+  };
+}
+
+async function pollAsync(loader, options = {}) {
+  const maxAttempts = Number(options.maxAttempts || 6);
+  const intervalMs = Number(options.intervalMs || 500);
+  const shouldStop = typeof options.shouldStop === 'function'
+    ? options.shouldStop
+    : (value) => ['succeeded', 'failed', 'completed', 'cancelled'].includes(
+      String(value?.status || '').toLowerCase()
+    );
+
+  let lastValue = null;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    lastValue = await loader(attempt);
+    if (shouldStop(lastValue, attempt)) {
+      return lastValue;
+    }
+    if (attempt < maxAttempts - 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, intervalMs));
+    }
+  }
+  return lastValue;
+}
+
+function formatKeyValueSummary(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return '-';
+  }
+  const entries = Object.entries(value);
+  if (!entries.length) {
+    return '-';
+  }
+  return entries.map(([key, item]) => `${key}: ${String(item)}`).join(', ');
+}
+
 function buildFactumUiUrl(route = {}) {
   const params = new URLSearchParams();
   if (route.tab) params.set('tab', route.tab);
