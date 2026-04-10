@@ -10,6 +10,7 @@ from app.api import (
     health,
     jobs,
     metrics,
+    openapi_fragments,
     routing,
     semantic,
     sessions,
@@ -20,6 +21,7 @@ from app.api import (
 def include_api_routers(app: FastAPI) -> None:
     for router in (
         health.router,
+        openapi_fragments.router,
         sessions.router,
         sources.router,
         engines.router,

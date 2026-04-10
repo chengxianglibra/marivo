@@ -74,6 +74,7 @@ Fields that store structured data are represented as JSON objects in responses. 
 | [Session State Surface](session-state.md) | `/sessions/{id}/state` | Canonical session-level decision surface |
 | [Context Surface](context-surface.md) | `/sessions/{id}/propositions/{pid}/context` | Canonical proposition-level minimal closure |
 | [Runtime Status Surface](runtime-status.md) | `/sessions/{id}/**/runtime-status` | Operator-facing runtime stage, attempt, failure, and backlog status |
+| [Progressive OpenAPI Access](openapi.md) | `/openapi/*`, `/openapi.json` | Progressive machine-readable contract retrieval derived from the canonical OpenAPI schema |
 | [Sources](sources.md) | `/sources` | Data source registration and catalog sync |
 | [Engines & Bindings](engines.md) | `/engines`, `/bindings` | Analytics engine registration and source-engine routing |
 | [Semantic Layer](semantic.md) | `/semantic` | Typed semantic objects, typed bindings, runtime catalog resolve, and compiler profiles |
@@ -89,6 +90,7 @@ Fields that store structured data are represented as JSON objects in responses. 
 - [Session State Surface](session-state.md) — canonical session-level decision surface HTTP contract
 - [Context Surface](context-surface.md) — canonical proposition-level minimal closure HTTP contract
 - [Runtime Status Surface](runtime-status.md) — operator-facing runtime stage and failure HTTP contract
+- [Progressive OpenAPI Access](openapi.md) — path- and schema-focused contract retrieval over the canonical OpenAPI document
 - [Jobs](jobs.md) — read-only job inspection contract for the query workbench
 - [Quickstart](quickstart.md) — end-to-end walkthrough with `curl` examples
 - [Error Reference](errors.md) — HTTP status codes, error formats, and common error scenarios

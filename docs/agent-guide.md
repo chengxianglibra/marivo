@@ -89,5 +89,7 @@ Docs layout:
 
 UI/Admin notes:
 - `/admin` remains a single-page shell in `app/static/admin.html`.
+- `app/static/admin.html` is the shell entrypoint; admin-specific behavior is split across `/static/admin/*.js`, `/static/admin/semantic-catalog/*.js`, and `/static/admin.css`.
 - `Semantic Catalog` routing uses `tab=semantic-catalog`, `subtab=<object-kind>`, and `object_id=<catalog-id>` as the canonical locator; `binding_id` is only for execution-engine bindings and legacy typed-binding deep-link compatibility.
-- `Semantic Catalog` T6 is a shared shell: unified list/detail/form/publish/helper scaffolding first, object-specific create/edit flows later.
+- `Semantic Catalog` T7 now ships object-specific contract pages for all eight subtabs: `Entities`, `Metrics`, `Process Objects`, `Dimensions`, `Time`, `Enum Sets`, `Typed Bindings`, and `Compatibility Profiles`. Keep summary cards, mixed create/edit forms, relation jumps, publish freeze states, typed binding grounding cues, enum/time guidance, and on-demand planner-context helper wiring on typed HTTP contracts only; do not reintroduce legacy mappings or runtime result panels into contract views.
+- `Analysis Ops` T8 now ships real session inventory/detail rendering for `tab=analysis-ops` with `session_id` route recovery, `Terminate Session` as the only write action, and `/ui` deep links for Sessions, State, Runtime, and Jobs. Do not add create-session, intent, step, or plan-management controls to `/admin`.
