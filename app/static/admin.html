@@ -6,126 +6,222 @@
 <title>Factum Admin</title>
 <link rel="stylesheet" href="/static/shared.css">
 <style>
-/* Page-specific overrides */
-.detail-back { cursor: pointer; color: var(--color-primary); font-size: var(--font-size-sm); margin-bottom: var(--space-md); display: inline-flex; align-items: center; gap: 4px; }
-.detail-back:hover { color: var(--color-primary-hover); }
-.detail-meta { display: grid; grid-template-columns: 140px 1fr; gap: var(--space-xs) var(--space-md); font-size: var(--font-size-base); margin-bottom: var(--space-lg); }
-.detail-meta dt { color: var(--color-text-secondary); font-weight: 500; }
-.detail-meta dd { color: var(--color-text); }
-.toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-md); }
-.toolbar h2 { margin-bottom: 0; }
-.filter-toolbar { display: flex; gap: var(--space-sm); align-items: center; }
-.filter-toolbar select { padding: 6px 10px; border: 1px solid var(--color-border); border-radius: var(--radius-md); font-size: var(--font-size-sm); }
-.auto-refresh { display: flex; align-items: center; gap: 6px; font-size: var(--font-size-sm); color: var(--color-text-secondary); }
-.auto-refresh input[type="checkbox"] { margin: 0; }
-.spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid var(--color-border); border-top-color: var(--color-primary); border-radius: 50%; animation: spin 0.6s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
-.loading-row td { text-align: center; padding: var(--space-2xl); }
-.source-status { display: inline-flex; align-items: center; gap: 6px; }
-.engine-type-badge { font-family: var(--font-mono); font-size: var(--font-size-xs); }
-.binding-connection { display: flex; align-items: center; gap: var(--space-sm); font-size: var(--font-size-sm); }
-.binding-arrow { color: var(--color-text-muted); font-size: 16px; }
-.severity-indicator { display: inline-flex; align-items: center; gap: 4px; }
-.severity-indicator .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-.severity-indicator .dot.error { background: var(--color-error); }
-.severity-indicator .dot.warn { background: var(--color-warning); }
-.severity-indicator .dot.info { background: var(--color-info); }
-.approval-timeline .timeline-item { padding-bottom: var(--space-lg); }
-.metrics-group { margin-bottom: var(--space-xl); }
-.metrics-group h3 { font-size: var(--font-size-base); font-weight: 600; margin-bottom: var(--space-sm); color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.3px; font-size: var(--font-size-xs); }
-.policy-type-badge { font-family: var(--font-mono); }
+.admin-shell-copy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.admin-shell-copy h1 {
+  margin-bottom: 0;
+}
+
+.admin-shell-copy p {
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+
+.admin-shell-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-lg);
+  margin-bottom: var(--space-xl);
+}
+
+.admin-shell-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.admin-shell-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
+  gap: var(--space-lg);
+}
+
+.admin-shell-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.admin-shell-card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  padding: var(--space-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.admin-shell-card h3,
+.admin-shell-card h4 {
+  margin-bottom: var(--space-sm);
+}
+
+.admin-shell-card p:last-child,
+.admin-shell-card ul:last-child,
+.admin-shell-card dl:last-child {
+  margin-bottom: 0;
+}
+
+.admin-shell-card ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  color: var(--color-text-secondary);
+}
+
+.admin-shell-card li + li {
+  margin-top: 6px;
+}
+
+.admin-shell-link-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.admin-subnav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-lg);
+}
+
+.admin-subnav-btn.is-active {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 8%, white);
+}
+
+.admin-route-grid {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: var(--space-xs) var(--space-md);
+  margin: 0;
+}
+
+.admin-route-grid dt {
+  color: var(--color-text-secondary);
+  font-weight: 500;
+}
+
+.admin-route-grid dd {
+  margin: 0;
+  word-break: break-word;
+}
+
+.shell-chip-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.shell-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: var(--color-surface-muted, #f8fafc);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.shell-chip strong {
+  color: var(--color-text);
+}
+
+@media (max-width: 960px) {
+  .admin-shell-header {
+    flex-direction: column;
+  }
+
+  .admin-shell-grid {
+    grid-template-columns: 1fr;
+  }
+}
 </style>
 </head>
 <body>
 
 <div class="app-layout">
-  <!-- Sidebar -->
   <aside class="sidebar">
     <div class="sidebar-brand">
       Factum
       <small>Administration</small>
     </div>
 
-    <div class="sidebar-section">Infrastructure</div>
+    <div class="sidebar-section">Admin Console</div>
     <ul class="sidebar-nav">
       <li class="active">
-        <button data-tab="sources">
+        <button data-tab="overview">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 12l9-9 9 9"/>
+            <path d="M9 21V9h6v12"/>
+          </svg>
+          <span class="nav-label">Overview</span>
+        </button>
+      </li>
+      <li>
+        <button data-tab="data-sources">
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <ellipse cx="12" cy="5" rx="9" ry="3"/>
             <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
             <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
           </svg>
-          <span class="nav-label">Sources</span>
+          <span class="nav-label">Data Sources</span>
         </button>
       </li>
       <li>
-        <button data-tab="engines">
+        <button data-tab="execution-engines">
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="4" y="4" width="16" height="16" rx="2"/>
             <rect x="9" y="9" width="6" height="6"/>
             <path d="M9 1v3"/><path d="M15 1v3"/><path d="M9 20v3"/><path d="M15 20v3"/>
             <path d="M20 9h3"/><path d="M20 14h3"/><path d="M1 9h3"/><path d="M1 14h3"/>
           </svg>
-          <span class="nav-label">Engines</span>
+          <span class="nav-label">Execution Engines</span>
         </button>
       </li>
       <li>
-        <button data-tab="bindings">
-          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
-            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
-          </svg>
-          <span class="nav-label">Bindings</span>
-        </button>
-      </li>
-    </ul>
-
-    <div class="sidebar-section">Semantic Layer</div>
-    <ul class="sidebar-nav">
-      <li>
-        <button data-tab="entities">
+        <button data-tab="semantic-catalog">
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
             <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
             <line x1="12" y1="22.08" x2="12" y2="12"/>
           </svg>
-          <span class="nav-label">Entities</span>
+          <span class="nav-label">Semantic Catalog</span>
         </button>
       </li>
       <li>
-        <button data-tab="metrics">
+        <button data-tab="analysis-ops">
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+            <path d="M3 3v18h18"/>
+            <path d="m19 9-5 5-4-4-3 3"/>
           </svg>
-          <span class="nav-label">Metrics</span>
+          <span class="nav-label">Analysis Ops</span>
         </button>
       </li>
-    </ul>
-
-    <div class="sidebar-section">Governance</div>
-    <ul class="sidebar-nav">
+      <li>
+        <button data-tab="runtime-jobs">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M13 2 3 14h7l-1 8 10-12h-7z"/>
+          </svg>
+          <span class="nav-label">Runtime &amp; Jobs</span>
+        </button>
+      </li>
       <li>
         <button data-tab="governance">
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
           </svg>
-          <span class="nav-label">Policies</span>
-        </button>
-      </li>
-      <li>
-        <button data-tab="approvals">
-          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
-            <polyline points="22 4 12 14.01 9 11.01"/>
-          </svg>
-          <span class="nav-label">Approvals</span>
+          <span class="nav-label">Governance</span>
           <span class="nav-badge" id="approvals-badge" style="display:none;">0</span>
         </button>
       </li>
-    </ul>
-
-    <div class="sidebar-section">System</div>
-    <ul class="sidebar-nav">
       <li>
         <button data-tab="observability">
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -146,1167 +242,473 @@
     </div>
   </aside>
 
-  <!-- Content Area -->
   <div class="content-area">
     <div class="content-header">
       <div class="breadcrumb">
         <span>Admin</span>
         <span class="sep">/</span>
-        <span class="current">Sources</span>
+        <span class="current">Overview</span>
       </div>
     </div>
 
     <div class="content-body">
-      <!-- Sources -->
-      <div class="panel active" id="panel-sources"></div>
-      <!-- Engines -->
-      <div class="panel" id="panel-engines"></div>
-      <!-- Bindings -->
-      <div class="panel" id="panel-bindings"></div>
-      <!-- Entities -->
-      <div class="panel" id="panel-entities"></div>
-      <!-- Metrics -->
-      <div class="panel" id="panel-metrics"></div>
-      <!-- Governance -->
+      <div class="panel active" id="panel-overview"></div>
+      <div class="panel" id="panel-data-sources"></div>
+      <div class="panel" id="panel-execution-engines"></div>
+      <div class="panel" id="panel-semantic-catalog"></div>
+      <div class="panel" id="panel-analysis-ops"></div>
+      <div class="panel" id="panel-runtime-jobs"></div>
       <div class="panel" id="panel-governance"></div>
-      <!-- Approvals -->
-      <div class="panel" id="panel-approvals"></div>
-      <!-- Observability -->
       <div class="panel" id="panel-observability"></div>
     </div>
   </div>
 </div>
 
-<!-- Modal -->
-<div class="modal-overlay" id="modal-overlay">
-  <div class="modal">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-lg);">
-      <h3 id="modal-title"></h3>
-      <button id="modal-close" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--color-text-muted);padding:4px;">&times;</button>
-    </div>
-    <div id="modal-body"></div>
-    <div id="modal-footer" style="display:flex;justify-content:flex-end;gap:var(--space-sm);margin-top:var(--space-lg);"></div>
-  </div>
-</div>
-
 <script src="/static/shared.js"></script>
 <script>
-// ── Helpers ────────────────────────────────────────────────
 const $ = (sel, ctx = document) => ctx.querySelector(sel);
-const $$ = (sel, ctx = document) => [...ctx.querySelectorAll(sel)];
 
-// Override shared.js api with our domain-specific methods
-const api = {
-  async _fetch(path, opts = {}) {
-    const res = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      const detail = body.detail;
-      const msg = (detail && typeof detail === 'object') ? detail.message : (detail || `HTTP ${res.status}`);
-      throw new Error(msg);
-    }
-    return res.json();
-  },
-  // Sources
-  listSources: ()         => api._fetch('/sources'),
-  createSource: (d)       => api._fetch('/sources', { method: 'POST', body: JSON.stringify(d) }),
-  getSource: (id)         => api._fetch(`/sources/${id}`),
-  updateSource: (id, d)   => api._fetch(`/sources/${id}`, { method: 'PUT', body: JSON.stringify(d) }),
-  deleteSource: (id)      => api._fetch(`/sources/${id}`, { method: 'DELETE' }),
-  syncSource: (id)        => api._fetch(`/sources/${id}/sync`, { method: 'POST' }),
-  listObjects: (id)       => api._fetch(`/sources/${id}/objects`),
-  // Engines
-  listEngines: ()         => api._fetch('/engines'),
-  createEngine: (d)       => api._fetch('/engines', { method: 'POST', body: JSON.stringify(d) }),
-  getEngine: (id)         => api._fetch(`/engines/${id}`),
-  // Bindings
-  listBindings: ()        => api._fetch('/bindings'),
-  createBinding: (d)      => api._fetch('/bindings', { method: 'POST', body: JSON.stringify(d) }),
-  deleteBinding: (id)     => api._fetch(`/bindings/${id}`, { method: 'DELETE' }),
-  // Entities
-  listEntities: ()        => api._fetch('/semantic/entities'),
-  createEntity: (d)       => api._fetch('/semantic/entities', { method: 'POST', body: JSON.stringify(d) }),
-  updateEntity: (id, d)   => api._fetch(`/semantic/entities/${id}`, { method: 'PUT', body: JSON.stringify(d) }),
-  publishEntity: (id)     => api._fetch(`/semantic/entities/${id}/publish`, { method: 'POST' }),
-  // Metrics
-  listMetrics: ()         => api._fetch('/semantic/metrics'),
-  createMetric: (d)       => api._fetch('/semantic/metrics', { method: 'POST', body: JSON.stringify(d) }),
-  updateMetric: (id, d)   => api._fetch(`/semantic/metrics/${id}`, { method: 'PUT', body: JSON.stringify(d) }),
-  publishMetric: (id)     => api._fetch(`/semantic/metrics/${id}/publish`, { method: 'POST' }),
-  // Legacy semantic mappings have been removed from the public HTTP surface.
-  listMappings: async ()  => [],
-  createMapping: async () => { throw new Error('Legacy semantic mappings have been removed; use typed bindings.'); },
-  deleteMapping: async () => { throw new Error('Legacy semantic mappings have been removed; use typed bindings.'); },
-  // Catalog browsing & selections
-  browseSchemas: (id)          => api._fetch(`/sources/${id}/catalog/schemas`),
-  browseTables: (id, schema)   => api._fetch(`/sources/${id}/catalog/tables?schema=${encodeURIComponent(schema)}`),
-  listSelections: (id)         => api._fetch(`/sources/${id}/sync/selections`),
-  setSelections: (id, selections) => api._fetch(`/sources/${id}/sync/selections`, { method: 'POST', body: JSON.stringify({ selections }) }),
-  // Governance
-  listPolicies: ()             => api._fetch('/policies'),
-  createPolicy: (d)            => api._fetch('/policies', { method: 'POST', body: JSON.stringify(d) }),
-  updatePolicy: (id, d)        => api._fetch(`/policies/${id}`, { method: 'PUT', body: JSON.stringify(d) }),
-  deletePolicy: (id)           => api._fetch(`/policies/${id}`, { method: 'DELETE' }),
-  listQualityRules: ()         => api._fetch('/quality-rules'),
-  createQualityRule: (d)       => api._fetch('/quality-rules', { method: 'POST', body: JSON.stringify(d) }),
-  deleteQualityRule: (id)      => api._fetch(`/quality-rules/${id}`, { method: 'DELETE' }),
-  // Approvals
-  listApprovals: (params)      => api._fetch('/approvals' + (params ? '?' + new URLSearchParams(params) : '')),
-  approveRequest: (id, d)      => api._fetch(`/approvals/${id}/approve`, { method: 'POST', body: JSON.stringify(d) }),
-  rejectRequest: (id, d)       => api._fetch(`/approvals/${id}/reject`, { method: 'POST', body: JSON.stringify(d) }),
-  // Observability
-  getHealth: ()                => api._fetch('/health'),
-  getMetrics: ()               => api._fetch('/metrics'),
+const ADMIN_TABS = [
+  'overview',
+  'data-sources',
+  'execution-engines',
+  'semantic-catalog',
+  'analysis-ops',
+  'runtime-jobs',
+  'governance',
+  'observability',
+];
+
+const DEFAULT_ADMIN_ROUTE = {
+  tab: 'overview',
+  subtab: '',
+  sourceId: '',
+  engineId: '',
+  bindingId: '',
+  sessionId: '',
+  jobId: '',
 };
 
-function toast(msg, type = 'success') {
-  let container = document.querySelector('.toast-container');
-  if (!container) {
-    container = document.createElement('div');
-    container.className = 'toast-container';
-    document.body.appendChild(container);
+const ADMIN_TAB_META = {
+  overview: {
+    label: 'Overview',
+    subtitle: 'Unified entrypoint for configuration and operator workflows.',
+    objectLabel: '',
+    subtabConfig: [],
+    summary: [
+      'Use this page as the default landing shell for the redesigned admin console.',
+      'Overview will later host summary cards for sources, engines, semantic lifecycle, sessions, governance, and health.',
+      'This shell intentionally avoids authoring, intent submission, or plan execution controls.'
+    ],
+    routeFocus: ['tab'],
+    uiLinks: [{ label: 'Open Sessions in /ui', route: { tab: 'sessions' } }],
+  },
+  'data-sources': {
+    label: 'Data Sources',
+    subtitle: 'Configuration area for source lifecycle, catalog selections, and sync entrypoints.',
+    objectLabel: 'source_id',
+    subtabConfig: [],
+    summary: [
+      'T1 only establishes the page shell and source-oriented URL state.',
+      'Future tasks will attach source lists, details, catalog browsing, and sync controls here.',
+      'Semantic contract authoring remains outside this page.'
+    ],
+    routeFocus: ['tab', 'source_id'],
+    uiLinks: [],
+  },
+  'execution-engines': {
+    label: 'Execution Engines',
+    subtitle: 'Shell for engine inventory and source-engine binding management.',
+    objectLabel: 'engine_id',
+    subtabConfig: [],
+    summary: [
+      'T1 reserves a stable page slug for engine and binding administration.',
+      'Execution contract details and mutation forms land in later tasks.',
+      'The URL contract already supports both engine_id and binding_id for future drill-ins.'
+    ],
+    routeFocus: ['tab', 'engine_id', 'binding_id'],
+    uiLinks: [],
+  },
+  'semantic-catalog': {
+    label: 'Semantic Catalog',
+    subtitle: 'Centralized shell for typed semantic objects, bindings, and compatibility profiles.',
+    objectLabel: 'binding_id',
+    subtabConfig: [
+      { value: 'entities', label: 'Entities' },
+      { value: 'metrics', label: 'Metrics' },
+      { value: 'process-objects', label: 'Process Objects' },
+      { value: 'dimensions', label: 'Dimensions' },
+      { value: 'time', label: 'Time' },
+      { value: 'enum-sets', label: 'Enum Sets' },
+      { value: 'typed-bindings', label: 'Typed Bindings' },
+      { value: 'compatibility-profiles', label: 'Compatibility Profiles' },
+    ],
+    summary: [
+      'The first delivery only locks the semantic catalog shell and subtab model.',
+      'Typed Bindings and Compatibility Profiles are first-class subtabs, not hidden helper areas.',
+      'Published vs draft lifecycle rendering will be added on top of this shell in T6 and T7.'
+    ],
+    routeFocus: ['tab', 'subtab', 'binding_id'],
+    uiLinks: [],
+  },
+  'analysis-ops': {
+    label: 'Analysis Ops',
+    subtitle: 'Session operations shell for operator actions and jumps into canonical read surfaces.',
+    objectLabel: 'session_id',
+    subtabConfig: [],
+    summary: [
+      'This page is reserved for session list, filters, and terminate controls.',
+      'Canonical session reading stays in /ui instead of being reimplemented in /admin.',
+      'The route model already supports session_id-based deep links.'
+    ],
+    routeFocus: ['tab', 'session_id'],
+    uiLinks: [
+      { label: 'Open Sessions in /ui', route: { tab: 'sessions' } },
+      { label: 'Open State in /ui', route: { tab: 'state' } },
+      { label: 'Open Runtime in /ui', route: { tab: 'runtime' } },
+      { label: 'Open Jobs in /ui', route: { tab: 'jobs' } },
+    ],
+  },
+  'runtime-jobs': {
+    label: 'Runtime & Jobs',
+    subtitle: 'Read-only operator shell for runtime truth and job troubleshooting.',
+    objectLabel: 'job_id',
+    subtabConfig: [
+      { value: 'session-runtime', label: 'Session Runtime' },
+      { value: 'proposition-runtime', label: 'Proposition Runtime' },
+      { value: 'artifact-runtime', label: 'Artifact Runtime' },
+      { value: 'jobs', label: 'Jobs' },
+    ],
+    summary: [
+      'This shell is explicitly for runtime truth, not canonical result reading.',
+      'The page reserves subtab routing for runtime scopes and jobs before data widgets land.',
+      'Future implementation will map runtime and job IDs into structured detail panes.'
+    ],
+    routeFocus: ['tab', 'subtab', 'session_id', 'job_id'],
+    uiLinks: [
+      { label: 'Open Runtime in /ui', route: { tab: 'runtime' } },
+      { label: 'Open Jobs in /ui', route: { tab: 'jobs' } },
+      { label: 'Open State in /ui', route: { tab: 'state' } },
+    ],
+  },
+  governance: {
+    label: 'Governance',
+    subtitle: 'Shell for policy, quality, approval, and helper workflows.',
+    objectLabel: 'session_id',
+    subtabConfig: [
+      { value: 'policies', label: 'Policies' },
+      { value: 'quality-rules', label: 'Quality Rules' },
+      { value: 'approvals', label: 'Approvals' },
+      { value: 'governance-helpers', label: 'Governance Helpers' },
+    ],
+    summary: [
+      'T1 preserves a single governance entrypoint while moving old approvals navigation into subtabs.',
+      'The global approvals badge remains attached to the governance nav item.',
+      'Governance Helpers stay explicitly auxiliary instead of becoming the default task flow.'
+    ],
+    routeFocus: ['tab', 'subtab', 'session_id'],
+    uiLinks: [],
+  },
+  observability: {
+    label: 'Observability',
+    subtitle: 'Read-only shell for health and metrics summaries.',
+    objectLabel: '',
+    subtabConfig: [],
+    summary: [
+      'This page remains intentionally read-only and operational.',
+      'Auto-refresh, JSON panes, and degraded metric rendering will be layered in later tasks.',
+      'T1 only establishes the page shell and route stability.'
+    ],
+    routeFocus: ['tab'],
+    uiLinks: [],
+  },
+};
+
+let currentAdminRoute = { ...DEFAULT_ADMIN_ROUTE };
+let suppressAdminTabSync = false;
+
+function esc(s) {
+  if (s == null) return '';
+  const d = document.createElement('div');
+  d.textContent = String(s);
+  return d.innerHTML;
+}
+
+function buildUiUrl(route = {}) {
+  const params = new URLSearchParams();
+  if (route.tab) params.set('tab', route.tab);
+  if (route.sessionId) params.set('session_id', route.sessionId);
+  if (route.propositionId) params.set('proposition_id', route.propositionId);
+  if (route.artifactId) params.set('artifact_id', route.artifactId);
+  if (route.runtimeScope) params.set('runtime_scope', route.runtimeScope);
+  if (route.status) params.set('status', route.status);
+  if (route.sessionQuery) params.set('session_query', route.sessionQuery);
+  const query = params.toString();
+  return query ? `/ui?${query}` : '/ui';
+}
+
+function normalizeAdminRoute(nextRoute) {
+  const normalized = {
+    tab: ADMIN_TABS.includes(nextRoute.tab) ? nextRoute.tab : DEFAULT_ADMIN_ROUTE.tab,
+    subtab: String(nextRoute.subtab || '').trim(),
+    sourceId: String(nextRoute.sourceId || '').trim(),
+    engineId: String(nextRoute.engineId || '').trim(),
+    bindingId: String(nextRoute.bindingId || '').trim(),
+    sessionId: String(nextRoute.sessionId || '').trim(),
+    jobId: String(nextRoute.jobId || '').trim(),
+  };
+
+  const tabMeta = ADMIN_TAB_META[normalized.tab];
+  const validSubtabs = tabMeta.subtabConfig.map((item) => item.value);
+  if (!validSubtabs.includes(normalized.subtab)) {
+    normalized.subtab = validSubtabs[0] || '';
   }
-  const el = document.createElement('div');
-  el.className = `toast ${type}`;
-  el.textContent = msg;
-  container.appendChild(el);
-  setTimeout(() => el.remove(), 3500);
+
+  if (normalized.tab !== 'data-sources') {
+    normalized.sourceId = '';
+  }
+  if (normalized.tab !== 'execution-engines') {
+    normalized.engineId = '';
+  }
+  if (!['execution-engines', 'semantic-catalog'].includes(normalized.tab)) {
+    normalized.bindingId = '';
+  }
+  if (!['analysis-ops', 'runtime-jobs', 'governance'].includes(normalized.tab)) {
+    normalized.sessionId = '';
+  }
+  if (normalized.tab !== 'runtime-jobs') {
+    normalized.jobId = '';
+  }
+
+  return normalized;
 }
 
-function loadingRow(cols) {
-  return `<tr class="loading-row"><td colspan="${cols}"><span class="spinner"></span></td></tr>`;
+function adminRouteFromLocation() {
+  const params = new URLSearchParams(window.location.search);
+  return normalizeAdminRoute({
+    tab: params.get('tab') || DEFAULT_ADMIN_ROUTE.tab,
+    subtab: params.get('subtab') || '',
+    sourceId: params.get('source_id') || '',
+    engineId: params.get('engine_id') || '',
+    bindingId: params.get('binding_id') || '',
+    sessionId: params.get('session_id') || '',
+    jobId: params.get('job_id') || '',
+  });
 }
 
-// ── Modal ──────────────────────────────────────────────────
-function openModal(title, bodyHtml, footerHtml) {
-  $('#modal-title').textContent = title;
-  $('#modal-body').innerHTML = bodyHtml;
-  $('#modal-footer').innerHTML = footerHtml;
-  $('#modal-overlay').classList.add('open');
+function writeAdminRoute(route, historyMode = 'push') {
+  const params = new URLSearchParams();
+  if (route.tab && route.tab !== DEFAULT_ADMIN_ROUTE.tab) params.set('tab', route.tab);
+  if (route.subtab) params.set('subtab', route.subtab);
+  if (route.sourceId) params.set('source_id', route.sourceId);
+  if (route.engineId) params.set('engine_id', route.engineId);
+  if (route.bindingId) params.set('binding_id', route.bindingId);
+  if (route.sessionId) params.set('session_id', route.sessionId);
+  if (route.jobId) params.set('job_id', route.jobId);
+  const nextUrl = params.toString() ? `?${params.toString()}` : window.location.pathname;
+  const method = historyMode === 'replace' ? 'replaceState' : 'pushState';
+  window.history[method](null, '', nextUrl);
 }
-function closeModal() { $('#modal-overlay').classList.remove('open'); }
-$('#modal-close').onclick = closeModal;
-$('#modal-overlay').onclick = (e) => { if (e.target === e.currentTarget) closeModal(); };
 
-// ── Tab switching (rendered via shared.js initSidebar) ─────
-// We also hook into the tab-change event for lazy-loading
-const renderers = {};
-window.addEventListener('tab-change', (e) => {
-  const tab = e.detail.tab;
-  if (renderers[tab]) renderers[tab]();
-});
+function adminObjectLocator(route) {
+  if (route.tab === 'data-sources') return route.sourceId;
+  if (route.tab === 'execution-engines') return route.engineId || route.bindingId;
+  if (route.tab === 'semantic-catalog') return route.bindingId;
+  if (route.tab === 'analysis-ops') return route.sessionId;
+  if (route.tab === 'runtime-jobs') return route.jobId || route.sessionId;
+  if (route.tab === 'governance') return route.sessionId;
+  return '';
+}
 
-// ── Pending approvals badge ────────────────────────────────
+function updateAdminBreadcrumb(route) {
+  const breadcrumb = $('.breadcrumb');
+  if (!breadcrumb) return;
+  const tabMeta = ADMIN_TAB_META[route.tab];
+  const segments = ['Admin', tabMeta.label];
+  if (route.subtab) {
+    const subtabMeta = tabMeta.subtabConfig.find((item) => item.value === route.subtab);
+    if (subtabMeta) segments.push(subtabMeta.label);
+  }
+  const locator = adminObjectLocator(route);
+  if (locator) segments.push(locator);
+  breadcrumb.innerHTML = segments.map((segment, index) => {
+    if (index === segments.length - 1) {
+      return `<span class="current">${esc(segment)}</span>`;
+    }
+    return `<span>${esc(segment)}</span><span class="sep">/</span>`;
+  }).join('');
+}
+
+function renderAdminSubnav(route, tabMeta) {
+  if (!tabMeta.subtabConfig.length) return '';
+  return `
+    <div class="admin-subnav">
+      ${tabMeta.subtabConfig.map((item) => `
+        <button
+          class="btn btn-sm admin-subnav-btn ${route.subtab === item.value ? 'is-active' : ''}"
+          type="button"
+          data-subtab="${item.value}"
+        >${esc(item.label)}</button>
+      `).join('')}
+    </div>
+  `;
+}
+
+function renderRouteSummary(route, tabMeta) {
+  const locator = adminObjectLocator(route);
+  const uiLinks = tabMeta.uiLinks.map((link) => {
+    const resolvedRoute = {
+      ...link.route,
+      sessionId: currentAdminRoute.sessionId,
+    };
+    return `<a class="btn btn-sm" href="${esc(buildUiUrl(resolvedRoute))}">${esc(link.label)}</a>`;
+  }).join('');
+
+  return `
+    <div class="admin-shell-card">
+      <h3>URL State Model</h3>
+      <dl class="admin-route-grid">
+        <dt>tab</dt>
+        <dd><code>${esc(route.tab)}</code></dd>
+        <dt>subtab</dt>
+        <dd><code>${esc(route.subtab || '-')}</code></dd>
+        <dt>source_id</dt>
+        <dd><code>${esc(route.sourceId || '-')}</code></dd>
+        <dt>engine_id</dt>
+        <dd><code>${esc(route.engineId || '-')}</code></dd>
+        <dt>binding_id</dt>
+        <dd><code>${esc(route.bindingId || '-')}</code></dd>
+        <dt>session_id</dt>
+        <dd><code>${esc(route.sessionId || '-')}</code></dd>
+        <dt>job_id</dt>
+        <dd><code>${esc(route.jobId || '-')}</code></dd>
+      </dl>
+    </div>
+    <div class="admin-shell-card">
+      <h3>Deep Link Readiness</h3>
+      <p>${locator ? `Current locator: <code>${esc(locator)}</code>.` : 'No object locator is active for this page yet.'}</p>
+      <p>Refresh, copy link, and browser history restore the current shell state through query parameters.</p>
+      ${uiLinks ? `<div class="admin-shell-link-grid">${uiLinks}</div>` : '<p>/ui deep-link helpers are available for later tasks.</p>'}
+    </div>
+  `;
+}
+
+function renderAdminPanel(route) {
+  const panel = document.getElementById(`panel-${route.tab}`);
+  if (!panel) return;
+  const tabMeta = ADMIN_TAB_META[route.tab];
+  const routeFocus = tabMeta.routeFocus.map((item) => `<span class="shell-chip"><strong>${esc(item)}</strong></span>`).join('');
+
+  panel.innerHTML = `
+    <div class="admin-shell-header">
+      <div class="admin-shell-copy">
+        <h1>${esc(tabMeta.label)}</h1>
+        <p>${esc(tabMeta.subtitle)}</p>
+        <div class="shell-chip-group">
+          ${routeFocus}
+          <span class="shell-chip"><strong>refresh-safe</strong></span>
+          <span class="shell-chip"><strong>shareable-link</strong></span>
+        </div>
+      </div>
+      <div class="admin-shell-meta">
+        <a class="btn btn-sm" href="/admin">Reset to Overview</a>
+        <a class="btn btn-sm" href="${esc(buildUiUrl({ tab: 'sessions', sessionId: route.sessionId }))}">Open /ui</a>
+      </div>
+    </div>
+    ${renderAdminSubnav(route, tabMeta)}
+    <div class="admin-shell-grid">
+      <section class="admin-shell-section">
+        <div class="admin-shell-card">
+          <h3>Page Scope</h3>
+          <ul>
+            ${tabMeta.summary.map((item) => `<li>${esc(item)}</li>`).join('')}
+          </ul>
+        </div>
+        <div class="admin-shell-card">
+          <h3>Implementation Boundary</h3>
+          <p>This T1 shell does not render business tables, forms, side panels, or write controls yet. It only establishes navigation, breadcrumbs, route persistence, and stable mount points for later tasks.</p>
+        </div>
+      </section>
+      <aside class="admin-shell-section">
+        ${renderRouteSummary(route, tabMeta)}
+      </aside>
+    </div>
+  `;
+
+  panel.querySelectorAll('[data-subtab]').forEach((button) => {
+    button.addEventListener('click', () => {
+      applyAdminRoute({
+        ...currentAdminRoute,
+        tab: route.tab,
+        subtab: button.dataset.subtab || '',
+      });
+    });
+  });
+}
+
+function applyAdminRoute(nextRoute, historyMode = 'push') {
+  currentAdminRoute = normalizeAdminRoute(nextRoute);
+  writeAdminRoute(currentAdminRoute, historyMode);
+  updateAdminBreadcrumb(currentAdminRoute);
+  suppressAdminTabSync = true;
+  setActiveTab(currentAdminRoute.tab);
+  suppressAdminTabSync = false;
+  renderAdminPanel(currentAdminRoute);
+}
+
+const adminApi = {
+  async listApprovals(params) {
+    const query = params ? `?${new URLSearchParams(params)}` : '';
+    const response = await fetch(`/approvals${query}`, {
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return response.json();
+  },
+};
+
 async function updateApprovalsBadge() {
   try {
-    const approvals = await api.listApprovals({ status: 'pending' });
+    const approvals = await adminApi.listApprovals({ status: 'pending' });
     const badge = $('#approvals-badge');
-    if (badge) {
-      if (approvals.length > 0) {
-        badge.textContent = approvals.length;
-        badge.style.display = '';
-      } else {
-        badge.style.display = 'none';
-      }
-    }
-  } catch {}
-}
-
-// ── Helper functions ───────────────────────────────────────
-function engineTypeBadge(type) {
-  const map = { duckdb: 'badge-info', trino: 'badge-primary' };
-  const cls = map[(type || '').toLowerCase()] || 'badge-gray';
-  return `<span class="badge ${cls} engine-type-badge">${esc(type || 'unknown')}</span>`;
-}
-
-function policyTypeBadge(type) {
-  const map = { aggregate_only: 'badge-info', field_mask: 'badge-warning', row_filter: 'badge-error', max_rows: 'badge-gray' };
-  const cls = map[(type || '').toLowerCase()] || 'badge-gray';
-  return `<span class="badge ${cls} policy-type-badge">${esc(type || 'unknown')}</span>`;
-}
-
-function severityBadge(sev) {
-  const map = { error: 'badge-error', warn: 'badge-warning', info: 'badge-info' };
-  const cls = map[(sev || '').toLowerCase()] || 'badge-gray';
-  return `<span class="badge ${cls}">${esc(sev || 'info')}</span>`;
-}
-
-function syncStatusDot(source) {
-  const status = (source.status || '').toLowerCase();
-  if (status === 'synced' || status === 'active' || status === 'ok') return '<span class="status-dot green"></span>';
-  if (status === 'error' || status === 'failed') return '<span class="status-dot red"></span>';
-  return '<span class="status-dot gray"></span>';
-}
-
-// ── Sources Tab ────────────────────────────────────────────
-renderers.sources = async () => {
-  const panel = $('#panel-sources');
-  panel.innerHTML = `
-    <div class="card">
-      <div class="card-header">
-        <h2>Catalog Sources</h2>
-        <button class="btn btn-primary" id="add-source">+ Add Source</button>
-      </div>
-      <table>
-        <thead><tr><th>Name</th><th>Type</th><th>Sync Mode</th><th>Status</th><th>Created</th><th></th></tr></thead>
-        <tbody id="sources-tbody">${loadingRow(6)}</tbody>
-      </table>
-    </div>`;
-
-  const CONN_TEMPLATES = {
-    local:          '{"path": "/path/to/file.duckdb"}',
-    duckdb:         '{"path": "/path/to/file.duckdb"}',
-    hive_metastore: '{"host": "localhost", "port": 9083}',
-    trino:          '{"host": "localhost", "port": 8080, "user": "factum", "catalog": "hive", "schema": "default"}',
-    unity_catalog:  '{"host": "your-workspace.azuredatabricks.net", "token": "", "catalog": "main"}',
-    aws_glue:       '{"region": "us-east-1", "catalog_id": null}',
-    polaris:        '{"host": "polaris.example.com", "token": "", "warehouse": "default"}',
-  };
-  $('#add-source').onclick = () => {
-    openModal('Add Source',
-      `<div class="form-group"><label>Source Type</label><select id="f-src-type"><option value="local">local</option><option value="duckdb">duckdb</option><option value="hive_metastore">hive_metastore</option><option value="trino">trino</option><option value="unity_catalog">unity_catalog</option><option value="aws_glue">aws_glue</option><option value="polaris">polaris</option></select></div>
-       <div class="form-group"><label>Display Name</label><input type="text" id="f-src-name" placeholder="My Source"></div>
-       <div class="form-group"><label>Connection (JSON)</label><textarea id="f-src-conn">{"path": "/path/to/file.duckdb"}</textarea></div>`,
-      `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" id="f-src-submit">Create</button>`);
-    $('#f-src-type').onchange = () => {
-      $('#f-src-conn').value = CONN_TEMPLATES[$('#f-src-type').value] || '{}';
-    };
-    $('#f-src-submit').onclick = async () => {
-      try {
-        let conn = {};
-        try { conn = JSON.parse($('#f-src-conn').value); } catch { throw new Error('Invalid connection JSON'); }
-        await api.createSource({ source_type: $('#f-src-type').value, display_name: $('#f-src-name').value, connection: conn });
-        toast('Source created');
-        closeModal();
-        renderers.sources();
-      } catch (err) { toast(err.message, 'error'); }
-    };
-  };
-
-  try {
-    const sources = await api.listSources();
-    const tbody = $('#sources-tbody');
-    if (!sources.length) { tbody.innerHTML = `<tr><td colspan="6" class="empty">No sources registered.</td></tr>`; return; }
-    tbody.innerHTML = sources.map(s => {
-      const mode = s.sync_mode || 'all';
-      let actionBtn = '';
-      if (mode === 'by_select') {
-        actionBtn = `<button class="btn btn-sm btn-primary select-tables-btn" data-id="${s.source_id}">Select Tables</button>`;
-      } else if (mode === 'none') {
-        actionBtn = `<button class="btn btn-sm" disabled>Sync</button>`;
-      } else {
-        actionBtn = `<button class="btn btn-sm sync-btn" data-id="${s.source_id}">Sync</button>`;
-      }
-      return `<tr>
-        <td><span class="source-status">${syncStatusDot(s)}<a href="#" class="src-link" data-id="${s.source_id}">${esc(s.display_name)}</a></span></td>
-        <td><span class="badge badge-gray">${esc(s.source_type)}</span></td>
-        <td>${esc(mode)}</td>
-        <td>${statusBadge(s.status)}</td>
-        <td>${fmtDate(s.created_at)}</td>
-        <td>${actionBtn} <button class="btn btn-sm edit-src-btn" data-id="${s.source_id}">Edit</button> <button class="btn btn-sm btn-danger del-src-btn" data-id="${s.source_id}">Delete</button></td>
-      </tr>`;
-    }).join('');
-    $$('.src-link', tbody).forEach(a => a.onclick = (e) => { e.preventDefault(); showSourceDetail(a.dataset.id); });
-    $$('.sync-btn', tbody).forEach(b => b.onclick = async () => {
-      try { await api.syncSource(b.dataset.id); toast('Sync triggered'); } catch (err) { toast(err.message, 'error'); }
-    });
-    $$('.select-tables-btn', tbody).forEach(b => b.onclick = () => openTableSelectionModal(b.dataset.id));
-    $$('.edit-src-btn', tbody).forEach(btn => btn.onclick = () => editSource(btn.dataset.id, sources));
-    $$('.del-src-btn', tbody).forEach(btn => btn.onclick = async () => {
-      if (!confirm('Delete this source? This will also remove its synced objects, selections, and bindings.')) return;
-      try { await api.deleteSource(btn.dataset.id); toast('Source deleted'); renderers.sources(); } catch (err) { toast(err.message, 'error'); }
-    });
-  } catch (err) { toast(err.message, 'error'); }
-};
-
-function editSource(id, sources) {
-  const s = sources.find(x => x.source_id === id);
-  if (!s) return;
-  const SYNC_MODES = ['all', 'by_select', 'none'];
-  const modeOptions = SYNC_MODES.map(m => `<option value="${m}"${m === (s.sync_mode || 'all') ? ' selected' : ''}>${m}</option>`).join('');
-  openModal('Edit Source',
-    `<div class="form-group"><label>Display Name</label><input type="text" id="f-esrc-name" value="${attr(s.display_name)}"></div>
-     <div class="form-group"><label>Sync Mode</label><select id="f-esrc-mode">${modeOptions}</select></div>
-     <div class="form-group"><label>Connection (JSON)</label><textarea id="f-esrc-conn">${esc(JSON.stringify(s.connection, null, 2))}</textarea></div>`,
-    `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" id="f-esrc-save">Save</button>`);
-  $('#f-esrc-save').onclick = async () => {
-    try {
-      let conn;
-      try { conn = JSON.parse($('#f-esrc-conn').value); } catch { throw new Error('Invalid connection JSON'); }
-      await api.updateSource(id, { display_name: $('#f-esrc-name').value, sync_mode: $('#f-esrc-mode').value, connection: conn });
-      toast('Source updated');
-      closeModal();
-      renderers.sources();
-    } catch (err) { toast(err.message, 'error'); }
-  };
-}
-
-async function openTableSelectionModal(sourceId) {
-  openModal('Select Tables to Sync',
-    `<div class="form-group"><label>Schema</label><select id="f-sel-schema"><option value="">Loading schemas...</option></select></div>
-     <div id="sel-tables-area" style="max-height:300px;overflow-y:auto;"></div>`,
-    `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" id="f-sel-save" disabled>Save &amp; Sync</button>`);
-
-  const schemaSelect = $('#f-sel-schema');
-  const tablesArea = $('#sel-tables-area');
-  let currentSelections = new Set();
-
-  try {
-    const [schemas, existingSels] = await Promise.all([
-      api.browseSchemas(sourceId),
-      api.listSelections(sourceId).catch(() => [])
-    ]);
-    existingSels.forEach(s => currentSelections.add(`${s.schema_name}.${s.table_name}`));
-
-    schemaSelect.innerHTML = '<option value="">-- pick a schema --</option>' +
-      schemas.map(s => `<option value="${attr(s.name)}">${esc(s.name)}</option>`).join('');
-  } catch (err) {
-    tablesArea.innerHTML = `<p class="empty">Failed to load schemas: ${esc(err.message)}</p>`;
-    return;
-  }
-
-  schemaSelect.onchange = async () => {
-    const schema = schemaSelect.value;
-    if (!schema) { tablesArea.innerHTML = ''; return; }
-    tablesArea.innerHTML = `<p style="padding:12px;text-align:center;"><span class="spinner"></span></p>`;
-    try {
-      const tables = await api.browseTables(sourceId, schema);
-      if (!tables.length) { tablesArea.innerHTML = '<p class="empty">No tables in this schema.</p>'; return; }
-      tablesArea.innerHTML = tables.map(t => {
-        const name = t.name;
-        const key = `${schema}.${name}`;
-        const checked = currentSelections.has(key) ? 'checked' : '';
-        return `<label style="display:block;padding:4px 0;font-size:14px;cursor:pointer;">
-          <input type="checkbox" class="sel-cb" data-schema="${attr(schema)}" data-table="${attr(name)}" ${checked} style="margin-right:8px;">
-          ${esc(name)}
-        </label>`;
-      }).join('');
-      $('#f-sel-save').disabled = false;
-    } catch (err) {
-      tablesArea.innerHTML = `<p class="empty">Failed to load tables: ${esc(err.message)}</p>`;
-    }
-  };
-
-  $('#f-sel-save').onclick = async () => {
-    const checkedBoxes = $$('.sel-cb', tablesArea);
-    const visibleSchema = schemaSelect.value;
-    currentSelections.forEach(key => {
-      if (key.startsWith(visibleSchema + '.')) currentSelections.delete(key);
-    });
-    checkedBoxes.forEach(cb => {
-      if (cb.checked) currentSelections.add(`${cb.dataset.schema}.${cb.dataset.table}`);
-    });
-
-    const selections = [...currentSelections].map(key => {
-      const dot = key.indexOf('.');
-      return { schema_name: key.slice(0, dot), table_name: key.slice(dot + 1) };
-    });
-
-    try {
-      await api.setSelections(sourceId, selections);
-      toast('Selections saved');
-      await api.syncSource(sourceId);
-      toast('Sync triggered');
-      closeModal();
-      renderers.sources();
-    } catch (err) { toast(err.message, 'error'); }
-  };
-}
-
-async function showSourceDetail(id) {
-  const panel = $('#panel-sources');
-  panel.innerHTML = `<div class="card"><span class="detail-back" id="src-back">&larr; Back to sources</span><div style="padding:24px;text-align:center;"><span class="spinner"></span></div></div>`;
-  $('#src-back').onclick = () => renderers.sources();
-  try {
-    const [src, objs] = await Promise.all([api.getSource(id), api.listObjects(id)]);
-    const schemas = objs.filter(o => o.object_type === 'schema');
-    const tables = objs.filter(o => o.object_type === 'table');
-    const columns = objs.filter(o => o.object_type === 'column');
-    const colsByParent = {};
-    columns.forEach(c => { (colsByParent[c.parent_id] = colsByParent[c.parent_id] || []).push(c); });
-    const tablesByParent = {};
-    tables.forEach(t => { (tablesByParent[t.parent_id] = tablesByParent[t.parent_id] || []).push(t); });
-    const orphanTables = tables.filter(t => !schemas.some(s => s.object_id === t.parent_id));
-
-    let objectsHtml = '';
-    if (!tables.length && !schemas.length) {
-      objectsHtml = '<p class="empty">No objects synced. Trigger a sync to populate.</p>';
+    if (!badge) return;
+    if (Array.isArray(approvals) && approvals.length > 0) {
+      badge.textContent = String(approvals.length);
+      badge.style.display = '';
     } else {
-      schemas.forEach(s => {
-        objectsHtml += `<h3 style="margin-top:16px;font-size:14px;color:var(--color-text-secondary);">Schema: ${esc(s.native_name)}</h3>`;
-        const schemaTables = tablesByParent[s.object_id] || [];
-        if (!schemaTables.length) {
-          objectsHtml += `<p class="empty" style="margin-left:12px;">No tables in this schema.</p>`;
-        } else {
-          objectsHtml += renderTablesWithColumns(schemaTables, colsByParent);
-        }
-      });
-      if (orphanTables.length) {
-        if (schemas.length) objectsHtml += `<h3 style="margin-top:16px;font-size:14px;color:var(--color-text-secondary);">Tables</h3>`;
-        objectsHtml += renderTablesWithColumns(orphanTables, colsByParent);
-      }
+      badge.style.display = 'none';
     }
-
-    panel.innerHTML = `
-      <span class="detail-back" id="src-back2">&larr; Back to sources</span>
-      <div class="stat-grid">
-        <div class="stat-card stat-info">
-          <div class="stat-label">Schemas</div>
-          <div class="stat-value">${schemas.length}</div>
-        </div>
-        <div class="stat-card stat-success">
-          <div class="stat-label">Tables</div>
-          <div class="stat-value">${tables.length}</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Columns</div>
-          <div class="stat-value">${columns.length}</div>
-        </div>
-      </div>
-      <div class="card">
-        <h2>${esc(src.display_name)}</h2>
-        <dl class="detail-meta">
-          <dt>ID</dt><dd><code style="font-size:var(--font-size-sm);">${esc(src.source_id)}</code></dd>
-          <dt>Type</dt><dd>${esc(src.source_type)}</dd>
-          <dt>Status</dt><dd>${statusBadge(src.status)}</dd>
-          <dt>Sync Mode</dt><dd>${esc(src.sync_mode || 'all')}</dd>
-          <dt>Created</dt><dd>${fmtDate(src.created_at)}</dd>
-        </dl>
-        ${(src.sync_mode || 'all') === 'by_select' ? '<button class="btn btn-primary btn-sm" id="src-manage-sel" style="margin-bottom:12px;">Manage Selections</button>' : ''}
-      </div>
-      <div class="card">
-        <h2>Tables &amp; Columns (${tables.length} tables, ${columns.length} columns)</h2>
-        ${objectsHtml}
-      </div>`;
-    $('#src-back2').onclick = () => renderers.sources();
-    const manageBtn = $('#src-manage-sel');
-    if (manageBtn) manageBtn.onclick = () => openTableSelectionModal(id);
-  } catch (err) { toast(err.message, 'error'); renderers.sources(); }
+  } catch {
+    const badge = $('#approvals-badge');
+    if (badge) badge.style.display = 'none';
+  }
 }
 
-function renderTablesWithColumns(tables, colsByParent) {
-  let html = '<table><thead><tr><th>Table</th><th>FQN</th><th>Columns</th><th>Properties</th></tr></thead><tbody>';
-  tables.forEach(t => {
-    const cols = colsByParent[t.object_id] || [];
-    const colNames = cols.map(c => esc(c.native_name)).join(', ');
-    const props = t.properties || {};
-    const tableProps = props.table_properties || {};
-    const owner = tableProps.owner || props.owner || '';
-    const comment = tableProps.comment || props.comment || '';
-
-    // Format table properties for display
-    let propsHtml = '';
-    if (owner) {
-      propsHtml += `<div style="margin-bottom:4px;"><span style="color:var(--color-text-secondary);">Owner:</span> ${esc(owner)}</div>`;
-    }
-    if (comment) {
-      const shortComment = comment.length > 100 ? comment.substring(0, 100) + '...' : comment;
-      propsHtml += `<div style="margin-bottom:4px;"><span style="color:var(--color-text-secondary);">Comment:</span> ${esc(shortComment)}</div>`;
-    }
-    // Show other table properties
-    const otherProps = Object.entries(tableProps).filter(([k]) => !['owner', 'comment'].includes(k));
-    if (otherProps.length > 0) {
-      propsHtml += `<details style="margin-top:4px;"><summary style="cursor:pointer;color:var(--color-primary);font-size:var(--font-size-xs);">${otherProps.length} more properties</summary>`;
-      propsHtml += '<div style="margin-top:4px;font-size:var(--font-size-xs);">';
-      otherProps.forEach(([k, v]) => {
-        propsHtml += `<div><code>${esc(k)}</code>: ${esc(String(v))}</div>`;
-      });
-      propsHtml += '</div></details>';
-    }
-    if (!propsHtml) {
-      propsHtml = '<span class="empty">-</span>';
-    }
-
-    html += `<tr>
-      <td><strong>${esc(t.native_name)}</strong></td>
-      <td><code style="font-size:12px;color:var(--color-text-secondary);">${esc(t.fqn)}</code></td>
-      <td>${colNames || '<span class="empty">no columns synced</span>'}</td>
-      <td style="font-size:var(--font-size-xs);max-width:300px;">${propsHtml}</td>
-    </tr>`;
+document.addEventListener('DOMContentLoaded', () => {
+  initSidebar();
+  currentAdminRoute = adminRouteFromLocation();
+  window.addEventListener('tab-change', (event) => {
+    if (suppressAdminTabSync) return;
+    applyAdminRoute({
+      ...currentAdminRoute,
+      tab: event.detail?.tab || DEFAULT_ADMIN_ROUTE.tab,
+    });
   });
-  html += '</tbody></table>';
-  return html;
-}
-
-// ── Engines Tab ────────────────────────────────────────────
-renderers.engines = async () => {
-  const panel = $('#panel-engines');
-  panel.innerHTML = `
-    <div class="card">
-      <div class="card-header">
-        <h2>Query Engines</h2>
-        <button class="btn btn-primary" id="add-engine">+ Add Engine</button>
-      </div>
-      <table>
-        <thead><tr><th>Name</th><th>Type</th><th>Status</th><th>Created</th></tr></thead>
-        <tbody id="engines-tbody">${loadingRow(4)}</tbody>
-      </table>
-    </div>`;
-
-  $('#add-engine').onclick = () => {
-    openModal('Add Engine',
-      `<div class="form-group"><label>Engine Type</label><select id="f-eng-type"><option value="duckdb">duckdb</option><option value="trino">trino</option></select></div>
-       <div class="form-group"><label>Display Name</label><input type="text" id="f-eng-name" placeholder="My Engine"></div>
-       <div class="form-group"><label>Connection (JSON)</label><textarea id="f-eng-conn">{}</textarea></div>`,
-      `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" id="f-eng-submit">Create</button>`);
-    $('#f-eng-submit').onclick = async () => {
-      try {
-        let conn = {};
-        try { conn = JSON.parse($('#f-eng-conn').value); } catch { throw new Error('Invalid connection JSON'); }
-        await api.createEngine({ engine_type: $('#f-eng-type').value, display_name: $('#f-eng-name').value, connection: conn });
-        toast('Engine created');
-        closeModal();
-        renderers.engines();
-      } catch (err) { toast(err.message, 'error'); }
-    };
-  };
-
-  try {
-    const engines = await api.listEngines();
-    const tbody = $('#engines-tbody');
-    if (!engines.length) { tbody.innerHTML = `<tr><td colspan="4" class="empty">No engines registered.</td></tr>`; return; }
-    tbody.innerHTML = engines.map(e => {
-      const statusDot = (e.status || '').toLowerCase() === 'active' || (e.status || '').toLowerCase() === 'ok'
-        ? '<span class="status-dot green pulse"></span>'
-        : '<span class="status-dot gray"></span>';
-      return `<tr>
-        <td><span style="display:inline-flex;align-items:center;gap:6px;">${statusDot}${esc(e.display_name)}</span></td>
-        <td>${engineTypeBadge(e.engine_type)}</td>
-        <td>${statusBadge(e.status)}</td>
-        <td>${fmtDate(e.created_at)}</td>
-      </tr>`;
-    }).join('');
-  } catch (err) { toast(err.message, 'error'); }
-};
-
-// ── Bindings Tab ───────────────────────────────────────────
-renderers.bindings = async () => {
-  const panel = $('#panel-bindings');
-  panel.innerHTML = `
-    <div class="card">
-      <div class="card-header">
-        <h2>Source-Engine Bindings</h2>
-        <button class="btn btn-primary" id="add-binding">+ Add Binding</button>
-      </div>
-      <table>
-        <thead><tr><th>Connection</th><th>Priority</th><th>Status</th><th></th></tr></thead>
-        <tbody id="bindings-tbody">${loadingRow(4)}</tbody>
-      </table>
-    </div>`;
-
-  let sourcesCache = [], enginesCache = [];
-  $('#add-binding').onclick = async () => {
-    try {
-      [sourcesCache, enginesCache] = await Promise.all([api.listSources(), api.listEngines()]);
-    } catch (err) { toast(err.message, 'error'); return; }
-    const srcOpts = sourcesCache.map(s => `<option value="${s.source_id}">${esc(s.display_name)}</option>`).join('');
-    const engOpts = enginesCache.map(e => `<option value="${e.engine_id}">${esc(e.display_name)}</option>`).join('');
-    openModal('Add Binding',
-      `<div class="form-group"><label>Source</label><select id="f-bind-src">${srcOpts}</select></div>
-       <div class="form-group"><label>Engine</label><select id="f-bind-eng">${engOpts}</select></div>
-       <div class="form-group"><label>Priority</label><input id="f-bind-pri" type="number" value="0"></div>
-       <div class="form-group"><label>Namespace (JSON)</label><textarea id="f-bind-ns">{}</textarea></div>`,
-      `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" id="f-bind-submit">Create</button>`);
-    $('#f-bind-submit').onclick = async () => {
-      try {
-        let ns = {};
-        try { ns = JSON.parse($('#f-bind-ns').value); } catch { throw new Error('Invalid namespace JSON'); }
-        await api.createBinding({ source_id: $('#f-bind-src').value, engine_id: $('#f-bind-eng').value, priority: parseInt($('#f-bind-pri').value, 10), namespace: ns });
-        toast('Binding created');
-        closeModal();
-        renderers.bindings();
-      } catch (err) { toast(err.message, 'error'); }
-    };
-  };
-
-  try {
-    const [bindings, sources, engines] = await Promise.all([api.listBindings(), api.listSources(), api.listEngines()]);
-    const srcMap = Object.fromEntries(sources.map(s => [s.source_id, s.display_name]));
-    const engMap = Object.fromEntries(engines.map(e => [e.engine_id, e.display_name]));
-    const engTypeMap = Object.fromEntries(engines.map(e => [e.engine_id, e.engine_type]));
-    const tbody = $('#bindings-tbody');
-    if (!bindings.length) { tbody.innerHTML = `<tr><td colspan="4" class="empty">No bindings.</td></tr>`; return; }
-    tbody.innerHTML = bindings.map(b => `<tr>
-      <td>
-        <div class="binding-connection">
-          <span class="badge badge-gray">${esc(srcMap[b.source_id] || b.source_id)}</span>
-          <span class="binding-arrow">&rarr;</span>
-          ${engineTypeBadge(engTypeMap[b.engine_id] || 'unknown')}
-          <span>${esc(engMap[b.engine_id] || b.engine_id)}</span>
-        </div>
-      </td>
-      <td><span class="badge badge-info">${b.priority}</span></td>
-      <td>${statusBadge(b.status)}</td>
-      <td><button class="btn btn-sm btn-danger del-bind" data-id="${b.binding_id}">Delete</button></td>
-    </tr>`).join('');
-    $$('.del-bind', tbody).forEach(btn => btn.onclick = async () => {
-      if (!confirm('Delete this binding?')) return;
-      try { await api.deleteBinding(btn.dataset.id); toast('Binding deleted'); renderers.bindings(); } catch (err) { toast(err.message, 'error'); }
-    });
-  } catch (err) { toast(err.message, 'error'); }
-};
-
-// ── Entities Tab ───────────────────────────────────────────
-renderers.entities = async () => {
-  const panel = $('#panel-entities');
-  panel.innerHTML = `
-    <div class="card">
-      <div class="card-header">
-        <h2>Typed Semantic Objects</h2>
-      </div>
-      <p>
-        The legacy admin editor for semantic entities has been removed. Factum now uses typed
-        semantic object and typed binding contracts as the primary write path.
-      </p>
-      <p>
-        Use the HTTP endpoints documented in <code>docs/api/semantic.md</code> for
-        <code>/semantic/entities</code>, <code>/semantic/time</code>, and
-        <code>/semantic/bindings</code>. Runtime verification happens through
-        <code>/semantic/resolve/{name}</code> and <code>/sessions/{session_id}/planner-context</code>.
-      </p>
-    </div>`;
-};
-
-function editEntity(id, entities) {
-  const e = entities.find(x => x.entity_id === id);
-  if (!e) return;
-  const keys = e.keys || [];
-  openModal('Edit Entity',
-    `<div class="form-group"><label>Display Name</label><input type="text" id="f-ent-dname" value="${attr(e.display_name)}"></div>
-     <div class="form-group"><label>Description</label><textarea id="f-ent-desc">${esc(e.description || '')}</textarea></div>
-     <div class="form-group"><label>Keys (comma-separated)</label><input type="text" id="f-ent-keys" value="${attr(keys.join(', '))}"></div>`,
-    `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" id="f-ent-save">Save</button>`);
-  $('#f-ent-save').onclick = async () => {
-    try {
-      const newKeys = $('#f-ent-keys').value.split(',').map(k => k.trim()).filter(Boolean);
-      await api.updateEntity(id, { display_name: $('#f-ent-dname').value, description: $('#f-ent-desc').value, keys: newKeys });
-      toast('Entity updated');
-      closeModal();
-      renderers.entities();
-    } catch (err) { toast(err.message, 'error'); }
-  };
-}
-
-// ── Metrics Tab ────────────────────────────────────────────
-renderers.metrics = async () => {
-  const panel = $('#panel-metrics');
-  panel.innerHTML = `
-    <div class="card">
-      <div class="card-header">
-        <h2>Typed Metric Contracts</h2>
-      </div>
-      <p>
-        This UI no longer exposes the removed legacy metric editor based on
-        <code>definition_sql</code> and <code>/semantic/mappings</code>.
-      </p>
-      <p>
-        Publish typed metrics through <code>/semantic/metrics</code> and ground them with
-        <code>/semantic/bindings</code>. Compiler and evidence handoff should be inspected through
-        step semantic metadata, catalog resolve, and planner context surfaces.
-      </p>
-    </div>`;
-};
-
-function editMetric(id, metrics) {
-  const m = metrics.find(x => x.metric_id === id);
-  if (!m) return;
-  const dims = m.dimensions || [];
-  openModal('Edit Metric',
-    `<div class="form-group"><label>Display Name</label><input type="text" id="f-met-dname" value="${attr(m.display_name)}"></div>
-     <div class="form-group"><label>Description</label><textarea id="f-met-desc">${esc(m.description || '')}</textarea></div>
-     <div class="form-group"><label>Definition SQL</label><textarea id="f-met-sql">${esc(m.definition_sql || '')}</textarea></div>
-     <div class="form-group"><label>Dimensions (comma-separated)</label><input type="text" id="f-met-dims" value="${attr(dims.join(', '))}"></div>
-     <div class="form-group"><label>Desired Direction</label><select id="f-met-dir"><option value="">-- none --</option><option value="up"${m.desired_direction === 'up' ? ' selected' : ''}>up</option><option value="down"${m.desired_direction === 'down' ? ' selected' : ''}>down</option><option value="neutral"${m.desired_direction === 'neutral' ? ' selected' : ''}>neutral</option></select></div>`,
-    `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" id="f-met-save">Save</button>`);
-  $('#f-met-save').onclick = async () => {
-    try {
-      const newDims = $('#f-met-dims').value.split(',').map(d => d.trim()).filter(Boolean);
-      const updateData = { display_name: $('#f-met-dname').value, description: $('#f-met-desc').value, definition_sql: $('#f-met-sql').value, dimensions: newDims };
-      const dirEdit = $('#f-met-dir').value;
-      if (dirEdit) updateData.desired_direction = dirEdit; else updateData.desired_direction = null;
-      await api.updateMetric(id, updateData);
-      toast('Metric updated');
-      closeModal();
-      renderers.metrics();
-    } catch (err) { toast(err.message, 'error'); }
-  };
-}
-
-async function showMappings(semType, semId, name, prefix) {
-  const card = $(`#${prefix}-mappings-card`);
-  card.style.display = 'block';
-  $(`#${prefix}-mappings-title`).textContent = `Mappings for ${name}`;
-  const tbody = $(`#${prefix}-mappings-tbody`);
-  tbody.innerHTML = loadingRow(5);
-
-  $(`#${prefix}-add-mapping`).onclick = () => openAddMappingModal(semType, semId, name, prefix);
-
-  try {
-    const mappings = await api.listMappings({ semantic_type: semType, semantic_id: semId });
-    if (!mappings.length) { tbody.innerHTML = `<tr><td colspan="5" class="empty">No mappings.</td></tr>`; return; }
-    tbody.innerHTML = mappings.map(m => `<tr>
-      <td>${esc(m.semantic_type)}</td><td><code style="font-size:var(--font-size-sm);">${esc(m.semantic_id)}</code></td><td><code style="font-size:var(--font-size-sm);">${esc(m.object_id)}</code></td><td><span class="badge badge-gray">${esc(m.mapping_type)}</span></td>
-      <td><button class="btn btn-sm btn-danger del-map" data-id="${m.mapping_id}">Delete</button></td>
-    </tr>`).join('');
-    $$('.del-map', tbody).forEach(btn => btn.onclick = async () => {
-      if (!confirm('Delete this mapping?')) return;
-      try { await api.deleteMapping(btn.dataset.id); toast('Mapping deleted'); showMappings(semType, semId, name, prefix); } catch (err) { toast(err.message, 'error'); }
-    });
-  } catch (err) { toast(err.message, 'error'); }
-}
-
-async function openAddMappingModal(semType, semId, name, prefix) {
-  let sources = [];
-  try { sources = await api.listSources(); } catch {}
-  const srcOpts = sources.map(s => `<option value="${s.source_id}">${esc(s.display_name)}</option>`).join('');
-
-  openModal('Add Mapping',
-    `<div class="form-group"><label>Source</label><select id="f-map-source"><option value="">-- select source --</option>${srcOpts}</select></div>
-     <div class="form-group"><label>Table</label><select id="f-map-obj" disabled><option value="">-- select source first --</option></select></div>
-     <div class="form-group"><label>Mapping Type</label><select id="f-map-mtype"><option value="primary_table">primary_table</option><option value="direct">direct</option><option value="derived">derived</option></select></div>
-     <div class="form-group"><label>Mapping JSON</label><textarea id="f-map-json">{}</textarea></div>`,
-    `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" id="f-map-submit">Create</button>`);
-
-  $('#f-map-source').onchange = async () => {
-    const sourceId = $('#f-map-source').value;
-    const objSelect = $('#f-map-obj');
-    if (!sourceId) { objSelect.innerHTML = '<option value="">-- select source first --</option>'; objSelect.disabled = true; return; }
-    objSelect.innerHTML = '<option value="">Loading...</option>';
-    objSelect.disabled = true;
-    try {
-      const objs = await api.listObjects(sourceId);
-      const tables = objs.filter(o => o.object_type === 'table');
-      if (!tables.length) { objSelect.innerHTML = '<option value="">No tables found</option>'; return; }
-      objSelect.innerHTML = '<option value="">-- select table --</option>' + tables.map(t => `<option value="${t.object_id}">${esc(t.fqn)}</option>`).join('');
-      objSelect.disabled = false;
-    } catch (err) { objSelect.innerHTML = '<option value="">Error loading tables</option>'; }
-  };
-
-  $('#f-map-submit').onclick = async () => {
-    try {
-      const objectId = $('#f-map-obj').value;
-      if (!objectId) throw new Error('Please select a table');
-      let mj = {};
-      try { mj = JSON.parse($('#f-map-json').value); } catch { throw new Error('Invalid mapping JSON'); }
-      await api.createMapping({ semantic_type: semType, semantic_id: semId, object_id: objectId, mapping_type: $('#f-map-mtype').value, mapping_json: mj });
-      toast('Mapping created');
-      closeModal();
-      showMappings(semType, semId, name, prefix);
-    } catch (err) { toast(err.message, 'error'); }
-  };
-}
-
-// ── Governance Tab ─────────────────────────────────────────
-renderers.governance = async () => {
-  const panel = $('#panel-governance');
-  panel.innerHTML = `
-    <div class="card">
-      <div class="card-header">
-        <h2>Policies</h2>
-        <button class="btn btn-primary" id="add-policy">+ Add Policy</button>
-      </div>
-      <table>
-        <thead><tr><th>Name</th><th>Type</th><th>Scope</th><th>Enabled</th><th>Actions</th></tr></thead>
-        <tbody id="policies-tbody">${loadingRow(5)}</tbody>
-      </table>
-    </div>
-    <div class="card">
-      <div class="card-header">
-        <h2>Quality Rules</h2>
-        <button class="btn btn-primary" id="add-quality-rule">+ Add Quality Rule</button>
-      </div>
-      <table>
-        <thead><tr><th>Name</th><th>Type</th><th>Table</th><th>Severity</th><th>Actions</th></tr></thead>
-        <tbody id="quality-rules-tbody">${loadingRow(5)}</tbody>
-      </table>
-    </div>`;
-
-  // Add Policy button
-  $('#add-policy').onclick = () => {
-    openModal('Add Policy',
-      `<div class="form-group"><label>Name</label><input type="text" id="f-pol-name" placeholder="Policy name"></div>
-       <div class="form-group"><label>Policy Type</label><select id="f-pol-type">
-         <option value="aggregate_only">aggregate_only</option>
-         <option value="field_mask">field_mask</option>
-         <option value="row_filter">row_filter</option>
-         <option value="max_rows">max_rows</option>
-       </select></div>
-       <div class="form-group"><label>Definition (JSON)</label><textarea id="f-pol-def">{}</textarea></div>
-       <div class="form-group"><label>Scope (JSON)</label><textarea id="f-pol-scope">{}</textarea></div>`,
-      `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" id="f-pol-submit">Create</button>`);
-    $('#f-pol-submit').onclick = async () => {
-      try {
-        let definition = {};
-        try { definition = JSON.parse($('#f-pol-def').value); } catch { throw new Error('Invalid definition JSON'); }
-        let scope = {};
-        try { scope = JSON.parse($('#f-pol-scope').value); } catch { throw new Error('Invalid scope JSON'); }
-        await api.createPolicy({
-          name: $('#f-pol-name').value,
-          policy_type: $('#f-pol-type').value,
-          definition,
-          scope
-        });
-        toast('Policy created');
-        closeModal();
-        renderers.governance();
-      } catch (err) { toast(err.message, 'error'); }
-    };
-  };
-
-  // Add Quality Rule button
-  $('#add-quality-rule').onclick = () => {
-    openModal('Add Quality Rule',
-      `<div class="form-group"><label>Name</label><input type="text" id="f-qr-name" placeholder="Rule name"></div>
-       <div class="form-group"><label>Rule Type</label><select id="f-qr-type">
-         <option value="freshness">freshness</option>
-         <option value="null_rate">null_rate</option>
-         <option value="row_count_min">row_count_min</option>
-       </select></div>
-       <div class="form-group"><label>Table Name</label><input type="text" id="f-qr-table" placeholder="schema.table_name"></div>
-       <div class="form-group"><label>Threshold (JSON)</label><textarea id="f-qr-threshold">{}</textarea></div>
-       <div class="form-group"><label>Severity</label><select id="f-qr-severity">
-         <option value="info">info</option>
-         <option value="warn">warn</option>
-         <option value="error">error</option>
-       </select></div>`,
-      `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" id="f-qr-submit">Create</button>`);
-    $('#f-qr-submit').onclick = async () => {
-      try {
-        let threshold = {};
-        try { threshold = JSON.parse($('#f-qr-threshold').value); } catch { throw new Error('Invalid threshold JSON'); }
-        await api.createQualityRule({
-          name: $('#f-qr-name').value,
-          rule_type: $('#f-qr-type').value,
-          table_name: $('#f-qr-table').value,
-          threshold,
-          severity: $('#f-qr-severity').value
-        });
-        toast('Quality rule created');
-        closeModal();
-        renderers.governance();
-      } catch (err) { toast(err.message, 'error'); }
-    };
-  };
-
-  // Load policies
-  try {
-    const policies = await api.listPolicies();
-    const tbody = $('#policies-tbody');
-    if (!policies.length) {
-      tbody.innerHTML = `<tr><td colspan="5" class="empty">No policies defined.</td></tr>`;
-    } else {
-      tbody.innerHTML = policies.map(p => {
-        const enabled = p.enabled !== false;
-        const scopeStr = p.scope ? truncate(JSON.stringify(p.scope), 40) : '-';
-        return `<tr>
-          <td>${esc(p.name)}</td>
-          <td>${policyTypeBadge(p.policy_type)}</td>
-          <td><code style="font-size:var(--font-size-sm);">${esc(scopeStr)}</code></td>
-          <td>${enabled ? '<span class="badge badge-success">Enabled</span>' : '<span class="badge badge-gray">Disabled</span>'}</td>
-          <td>
-            <button class="btn btn-sm toggle-pol" data-id="${p.policy_id}" data-enabled="${enabled}">${enabled ? 'Disable' : 'Enable'}</button>
-            <button class="btn btn-sm btn-danger del-pol" data-id="${p.policy_id}">Delete</button>
-          </td>
-        </tr>`;
-      }).join('');
-      $$('.toggle-pol', tbody).forEach(btn => btn.onclick = async () => {
-        try {
-          const nowEnabled = btn.dataset.enabled === 'true';
-          await api.updatePolicy(btn.dataset.id, { enabled: !nowEnabled });
-          toast(nowEnabled ? 'Policy disabled' : 'Policy enabled');
-          renderers.governance();
-        } catch (err) { toast(err.message, 'error'); }
-      });
-      $$('.del-pol', tbody).forEach(btn => btn.onclick = async () => {
-        if (!confirm('Delete this policy?')) return;
-        try { await api.deletePolicy(btn.dataset.id); toast('Policy deleted'); renderers.governance(); } catch (err) { toast(err.message, 'error'); }
-      });
-    }
-  } catch (err) { toast('Failed to load policies: ' + err.message, 'error'); }
-
-  // Load quality rules
-  try {
-    const rules = await api.listQualityRules();
-    const tbody = $('#quality-rules-tbody');
-    if (!rules.length) {
-      tbody.innerHTML = `<tr><td colspan="5" class="empty">No quality rules defined.</td></tr>`;
-    } else {
-      tbody.innerHTML = rules.map(r => `<tr>
-        <td>${esc(r.name)}</td>
-        <td><span class="badge badge-gray">${esc(r.rule_type)}</span></td>
-        <td><code style="font-size:var(--font-size-sm);">${esc(r.table_name || '-')}</code></td>
-        <td>${severityBadge(r.severity)}</td>
-        <td><button class="btn btn-sm btn-danger del-qr" data-id="${r.rule_id}">Delete</button></td>
-      </tr>`).join('');
-      $$('.del-qr', tbody).forEach(btn => btn.onclick = async () => {
-        if (!confirm('Delete this quality rule?')) return;
-        try { await api.deleteQualityRule(btn.dataset.id); toast('Quality rule deleted'); renderers.governance(); } catch (err) { toast(err.message, 'error'); }
-      });
-    }
-  } catch (err) { toast('Failed to load quality rules: ' + err.message, 'error'); }
-};
-
-// ── Approvals Tab ──────────────────────────────────────────
-renderers.approvals = async () => {
-  const panel = $('#panel-approvals');
-  panel.innerHTML = `
-    <div class="card">
-      <div class="card-header">
-        <h2>Approval Requests</h2>
-        <div class="filter-toolbar">
-          <select id="approval-status-filter">
-            <option value="">All</option>
-            <option value="pending">Pending</option>
-            <option value="approved">Approved</option>
-            <option value="rejected">Rejected</option>
-          </select>
-          <button class="btn btn-sm" id="approval-filter-btn">Filter</button>
-        </div>
-      </div>
-      <table>
-        <thead><tr><th>Request ID</th><th>Session</th><th>Rec ID</th><th>Status</th><th>Reviewer</th><th>Submitted</th><th>Actions</th></tr></thead>
-        <tbody id="approvals-tbody">${loadingRow(7)}</tbody>
-      </table>
-    </div>`;
-
-  const loadApprovals = async (status) => {
-    const tbody = $('#approvals-tbody');
-    tbody.innerHTML = loadingRow(7);
-    try {
-      const params = status ? { status } : null;
-      const approvals = await api.listApprovals(params);
-      if (!approvals.length) {
-        tbody.innerHTML = `<tr><td colspan="7" class="empty">No approval requests found.</td></tr>`;
-        return;
-      }
-      tbody.innerHTML = approvals.map(a => {
-        const st = a.status || 'pending';
-        const isPending = st === 'pending';
-        const actions = isPending
-          ? `<button class="btn btn-sm btn-success approve-btn" data-id="${a.request_id}">Approve</button>
-             <button class="btn btn-sm btn-danger reject-btn" data-id="${a.request_id}">Reject</button>`
-          : '<span style="color:var(--color-text-muted);">-</span>';
-        return `<tr>
-          <td><code style="font-size:var(--font-size-sm);">${esc(truncate(a.request_id || '', 20))}</code></td>
-          <td><code style="font-size:var(--font-size-sm);">${esc(truncate(a.session_id || '', 20))}</code></td>
-          <td><code style="font-size:var(--font-size-sm);">${esc(truncate(a.recommendation_id || '', 20))}</code></td>
-          <td>${statusBadge(st)}</td>
-          <td>${esc(a.reviewer || '-')}</td>
-          <td>${fmtDate(a.created_at)}</td>
-          <td>${actions}</td>
-        </tr>`;
-      }).join('');
-
-      // Approve buttons
-      $$('.approve-btn', tbody).forEach(btn => btn.onclick = () => {
-        openApprovalActionModal(btn.dataset.id, 'approve');
-      });
-      // Reject buttons
-      $$('.reject-btn', tbody).forEach(btn => btn.onclick = () => {
-        openApprovalActionModal(btn.dataset.id, 'reject');
-      });
-    } catch (err) { toast('Failed to load approvals: ' + err.message, 'error'); }
-  };
-
-  $('#approval-filter-btn').onclick = () => {
-    const status = $('#approval-status-filter').value;
-    loadApprovals(status || null);
-  };
-
-  loadApprovals(null);
-};
-
-function openApprovalActionModal(approvalId, action) {
-  const title = action === 'approve' ? 'Approve Request' : 'Reject Request';
-  const btnClass = action === 'approve' ? 'btn-success' : 'btn-danger';
-  const btnLabel = action === 'approve' ? 'Approve' : 'Reject';
-  openModal(title,
-    `<div class="form-group"><label>Reviewer Name</label><input type="text" id="f-apr-reviewer" placeholder="Your name"></div>
-     <div class="form-group"><label>Reason</label><textarea id="f-apr-reason" placeholder="Reason for this decision..."></textarea></div>`,
-    `<button class="btn" onclick="closeModal()">Cancel</button><button class="btn ${btnClass}" id="f-apr-submit">${btnLabel}</button>`);
-  $('#f-apr-submit').onclick = async () => {
-    try {
-      const data = {
-        reviewer: $('#f-apr-reviewer').value,
-        reason: $('#f-apr-reason').value
-      };
-      if (action === 'approve') {
-        await api.approveRequest(approvalId, data);
-        toast('Request approved');
-      } else {
-        await api.rejectRequest(approvalId, data);
-        toast('Request rejected');
-      }
-      closeModal();
-      renderers.approvals();
-      updateApprovalsBadge();
-    } catch (err) { toast(err.message, 'error'); }
-  };
-}
-
-// ── Observability Tab ──────────────────────────────────────
-let observabilityInterval = null;
-
-renderers.observability = async () => {
-  if (observabilityInterval) {
-    clearInterval(observabilityInterval);
-    observabilityInterval = null;
-  }
-
-  const panel = $('#panel-observability');
-  panel.innerHTML = `
-    <div class="card">
-      <div class="card-header">
-        <h2>System Health</h2>
-        <div class="auto-refresh">
-          <input type="checkbox" id="obs-auto-refresh">
-          <label for="obs-auto-refresh">Auto-refresh (10s)</label>
-        </div>
-      </div>
-      <div id="health-content"><span class="spinner"></span></div>
-    </div>
-    <div class="card">
-      <h2>Request Metrics</h2>
-      <div id="metrics-content"><span class="spinner"></span></div>
-    </div>`;
-
-  const loadObservability = async () => {
-    // Load health
-    try {
-      const health = await api.getHealth();
-      const healthEl = $('#health-content');
-      if (healthEl) {
-        const healthStatus = (health.status || 'unknown').toLowerCase();
-        const healthBadgeCls = healthStatus === 'ok' ? 'badge-success' : healthStatus === 'error' ? 'badge-error' : 'badge-warning';
-        let extraFields = '';
-        for (const [key, value] of Object.entries(health)) {
-          if (key === 'status' || key === 'db_path' || key === 'database') continue;
-          extraFields += `<dt>${esc(key)}</dt><dd>${esc(String(value))}</dd>`;
-        }
-        healthEl.innerHTML = `
-          <dl class="detail-meta">
-            <dt>Status</dt><dd><span id="health-status-badge" class="badge ${healthBadgeCls}">${esc(health.status || 'unknown')}</span></dd>
-            <dt>Database Path</dt><dd><code style="font-size:var(--font-size-sm);">${esc(health.db_path || health.database || '-')}</code></dd>
-            ${extraFields}
-          </dl>`;
-      }
-    } catch (err) {
-      const healthEl = $('#health-content');
-      if (healthEl) healthEl.innerHTML = `<p class="empty">Failed to load health: ${esc(err.message)}</p>`;
-    }
-
-    // Load metrics
-    try {
-      const metrics = await api.getMetrics();
-      const metricsEl = $('#metrics-content');
-      if (!metricsEl) return;
-
-      if (typeof metrics === 'object' && metrics !== null) {
-        const statEntries = [];
-        const tableEntries = [];
-
-        for (const [key, value] of Object.entries(metrics)) {
-          if (typeof value === 'number') {
-            statEntries.push({ key, value });
-          } else if (typeof value === 'string') {
-            tableEntries.push({ key, value });
-          } else if (typeof value === 'object' && value !== null) {
-            tableEntries.push({ key, value: JSON.stringify(value) });
-          }
-        }
-
-        let html = '';
-
-        // Group numeric metrics into categories for mini bar charts
-        const requestMetrics = statEntries.filter(s => s.key.toLowerCase().includes('request') || s.key.toLowerCase().includes('count'));
-        const latencyMetrics = statEntries.filter(s => s.key.toLowerCase().includes('latency') || s.key.toLowerCase().includes('time') || s.key.toLowerCase().includes('duration'));
-        const errorMetrics = statEntries.filter(s => s.key.toLowerCase().includes('error') || s.key.toLowerCase().includes('fail'));
-        const otherMetrics = statEntries.filter(s =>
-          !requestMetrics.includes(s) && !latencyMetrics.includes(s) && !errorMetrics.includes(s)
-        );
-
-        // Stat cards
-        if (statEntries.length) {
-          html += '<div class="stat-grid">';
-          statEntries.forEach(s => {
-            const label = s.key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-            let cardClass = '';
-            if (s.key.toLowerCase().includes('error') || s.key.toLowerCase().includes('fail')) cardClass = 'stat-error';
-            else if (s.key.toLowerCase().includes('request') || s.key.toLowerCase().includes('count')) cardClass = 'stat-info';
-            else if (s.key.toLowerCase().includes('latency') || s.key.toLowerCase().includes('time')) cardClass = 'stat-warning';
-            html += `<div class="stat-card ${cardClass}"><div class="stat-label">${esc(label)}</div><div class="stat-value">${esc(String(s.value))}</div></div>`;
-          });
-          html += '</div>';
-        }
-
-        // Mini bar charts for grouped metrics
-        if (requestMetrics.length > 1) {
-          html += `<div class="metrics-group"><h3>Requests</h3>${miniBarChart(requestMetrics.map(m => m.value), 50)}</div>`;
-        }
-        if (latencyMetrics.length > 1) {
-          html += `<div class="metrics-group"><h3>Latency</h3>${miniBarChart(latencyMetrics.map(m => m.value), 50)}</div>`;
-        }
-        if (errorMetrics.length > 1) {
-          html += `<div class="metrics-group"><h3>Errors</h3>${miniBarChart(errorMetrics.map(m => m.value), 50)}</div>`;
-        }
-
-        if (tableEntries.length) {
-          html += '<table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody>';
-          tableEntries.forEach(e => {
-            html += `<tr><td>${esc(e.key)}</td><td><code style="font-size:var(--font-size-sm);">${esc(truncate(String(e.value), 100))}</code></td></tr>`;
-          });
-          html += '</tbody></table>';
-        }
-
-        if (!statEntries.length && !tableEntries.length) {
-          html = '<p class="empty">No metrics data available.</p>';
-        }
-
-        metricsEl.innerHTML = html;
-      } else {
-        metricsEl.innerHTML = '<p class="empty">No metrics data available.</p>';
-      }
-    } catch (err) {
-      const metricsEl = $('#metrics-content');
-      if (metricsEl) metricsEl.innerHTML = `<p class="empty">Failed to load metrics: ${esc(err.message)}</p>`;
-    }
-  };
-
-  loadObservability();
-
-  // Auto-refresh toggle
-  const checkbox = $('#obs-auto-refresh');
-  if (checkbox) {
-    checkbox.onchange = () => {
-      if (observabilityInterval) {
-        clearInterval(observabilityInterval);
-        observabilityInterval = null;
-      }
-      if (checkbox.checked) {
-        observabilityInterval = setInterval(() => {
-          const obsPanel = $('#panel-observability');
-          if (obsPanel && obsPanel.classList.contains('active')) {
-            loadObservability();
-          } else {
-            clearInterval(observabilityInterval);
-            observabilityInterval = null;
-          }
-        }, 10000);
-      }
-    };
-  }
-};
-
-// ── Utilities ──────────────────────────────────────────────
-function esc(s) { const d = document.createElement('div'); d.textContent = String(s ?? ''); return d.innerHTML; }
-function attr(s) { return esc(s).replace(/"/g, '&quot;'); }
-function truncate(s, n) { return s.length > n ? s.slice(0, n) + '...' : s; }
-function fmtDate(s) { if (!s) return ''; try { return new Date(s).toLocaleDateString(); } catch { return s; } }
-function parseJSON(s, fallback) { try { return JSON.parse(s); } catch { return fallback; } }
-
-// ── Boot ───────────────────────────────────────────────────
-renderers.sources();
-updateApprovalsBadge();
+  window.addEventListener('popstate', () => {
+    currentAdminRoute = adminRouteFromLocation();
+    updateAdminBreadcrumb(currentAdminRoute);
+    suppressAdminTabSync = true;
+    setActiveTab(currentAdminRoute.tab);
+    suppressAdminTabSync = false;
+    renderAdminPanel(currentAdminRoute);
+  });
+  updateAdminBreadcrumb(currentAdminRoute);
+  suppressAdminTabSync = true;
+  setActiveTab(currentAdminRoute.tab);
+  suppressAdminTabSync = false;
+  renderAdminPanel(currentAdminRoute);
+  void updateApprovalsBadge();
+});
 </script>
 </body>
 </html>

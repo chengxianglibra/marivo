@@ -63,6 +63,51 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertIn("shared.css", resp.text)
         self.assertIn("shared.js", resp.text)
 
+    def test_admin_uses_redesigned_primary_navigation(self) -> None:
+        resp = self.client.get("/admin")
+        self.assertIn('<span class="nav-label">Overview</span>', resp.text)
+        self.assertIn('<span class="nav-label">Data Sources</span>', resp.text)
+        self.assertIn('<span class="nav-label">Execution Engines</span>', resp.text)
+        self.assertIn('<span class="nav-label">Semantic Catalog</span>', resp.text)
+        self.assertIn('<span class="nav-label">Analysis Ops</span>', resp.text)
+        self.assertIn('<span class="nav-label">Runtime &amp; Jobs</span>', resp.text)
+        self.assertIn('<span class="nav-label">Governance</span>', resp.text)
+        self.assertIn('<span class="nav-label">Observability</span>', resp.text)
+        self.assertNotIn('data-tab="sources"', resp.text)
+        self.assertNotIn('data-tab="engines"', resp.text)
+        self.assertNotIn('data-tab="bindings"', resp.text)
+        self.assertNotIn('data-tab="entities"', resp.text)
+        self.assertNotIn('data-tab="metrics"', resp.text)
+        self.assertNotIn('data-tab="approvals"', resp.text)
+
+    def test_admin_defaults_to_overview_panel(self) -> None:
+        resp = self.client.get("/admin")
+        self.assertIn('<span class="current">Overview</span>', resp.text)
+        self.assertIn('<div class="panel active" id="panel-overview"></div>', resp.text)
+        self.assertIn('<div class="panel" id="panel-data-sources"></div>', resp.text)
+        self.assertIn('<div class="panel" id="panel-execution-engines"></div>', resp.text)
+        self.assertIn('<div class="panel" id="panel-semantic-catalog"></div>', resp.text)
+        self.assertIn('<div class="panel" id="panel-analysis-ops"></div>', resp.text)
+        self.assertIn('<div class="panel" id="panel-runtime-jobs"></div>', resp.text)
+        self.assertIn('<div class="panel" id="panel-governance"></div>', resp.text)
+        self.assertIn('<div class="panel" id="panel-observability"></div>', resp.text)
+
+    def test_admin_declares_url_driven_shell_contract(self) -> None:
+        resp = self.client.get("/admin")
+        self.assertIn("normalizeAdminRoute", resp.text)
+        self.assertIn("adminRouteFromLocation", resp.text)
+        self.assertIn("writeAdminRoute", resp.text)
+        self.assertIn("applyAdminRoute", resp.text)
+        self.assertIn("setActiveTab(currentAdminRoute.tab)", resp.text)
+        self.assertIn("window.addEventListener('popstate'", resp.text)
+        self.assertIn("tab", resp.text)
+        self.assertIn("subtab", resp.text)
+        self.assertIn("source_id", resp.text)
+        self.assertIn("engine_id", resp.text)
+        self.assertIn("binding_id", resp.text)
+        self.assertIn("session_id", resp.text)
+        self.assertIn("job_id", resp.text)
+
     def test_user_uses_shared_assets(self) -> None:
         resp = self.client.get("/ui")
         self.assertIn("shared.css", resp.text)
@@ -90,6 +135,18 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertIn('<div class="panel" id="panel-runtime"></div>', resp.text)
         self.assertIn('<div class="panel" id="panel-grounding"></div>', resp.text)
         self.assertIn('<div class="panel" id="panel-jobs"></div>', resp.text)
+
+    def test_ui_keeps_stable_primary_page_names(self) -> None:
+        resp = self.client.get("/ui")
+        self.assertIn('<span class="nav-label">Sessions</span>', resp.text)
+        self.assertIn('<span class="nav-label">State</span>', resp.text)
+        self.assertIn('<span class="nav-label">Context</span>', resp.text)
+        self.assertIn('<span class="nav-label">Runtime</span>', resp.text)
+        self.assertIn('<span class="nav-label">Grounding</span>', resp.text)
+        self.assertIn('<span class="nav-label">Jobs</span>', resp.text)
+        self.assertNotIn('<span class="nav-label">Catalog</span>', resp.text)
+        self.assertNotIn('<span class="nav-label">Evidence</span>', resp.text)
+        self.assertNotIn('<span class="nav-label">Plans</span>', resp.text)
 
     def test_ui_sessions_page_declares_session_filters_and_drill_ins(self) -> None:
         resp = self.client.get("/ui")
