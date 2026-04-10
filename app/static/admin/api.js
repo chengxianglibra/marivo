@@ -166,6 +166,34 @@ export function createAdminApi() {
         'Terminate Session failed.'
       );
     },
+    getSessionRuntimeStatus(sessionId) {
+      return requestJson(
+        `/sessions/${encodeURIComponent(sessionId)}/runtime-status`,
+        'Session Runtime unavailable.'
+      );
+    },
+    getPropositionRuntimeStatus(sessionId, propositionId) {
+      return requestJson(
+        `/sessions/${encodeURIComponent(sessionId)}/propositions/${encodeURIComponent(propositionId)}/runtime-status`,
+        'Proposition Runtime unavailable.'
+      );
+    },
+    getArtifactRuntimeStatus(sessionId, artifactId) {
+      return requestJson(
+        `/sessions/${encodeURIComponent(sessionId)}/artifacts/${encodeURIComponent(artifactId)}/runtime-status`,
+        'Artifact Runtime unavailable.'
+      );
+    },
+    listJobs(params = {}) {
+      const search = new URLSearchParams();
+      if (params.sessionId) search.set('session_id', params.sessionId);
+      if (params.status) search.set('status', params.status);
+      const query = search.toString();
+      return requestJson(`/jobs${query ? `?${query}` : ''}`, 'Jobs unavailable.');
+    },
+    getJob(jobId) {
+      return requestJson(`/jobs/${encodeURIComponent(jobId)}`, 'Job detail unavailable.');
+    },
     getEngine(engineId) {
       return requestJson(`/engines/${encodeURIComponent(engineId)}`, 'Engine detail unavailable.');
     },

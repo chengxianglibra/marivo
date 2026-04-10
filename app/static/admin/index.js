@@ -4,6 +4,7 @@ import { createDataSourcesModule } from './data-sources.js';
 import { createExecutionEnginesModule } from './execution-engines.js';
 import { createSemanticCatalogModule } from './semantic-catalog.js';
 import { createAnalysisOpsModule } from './analysis-ops.js';
+import { createRuntimeJobsModule } from './runtime-jobs.js';
 import { createAdminShell } from './shell.js';
 
 const shared = {
@@ -27,6 +28,7 @@ const shared = {
   buildFactumUiUrl: window.buildFactumUiUrl,
   buildUiSessionsUrl: window.buildUiSessionsUrl,
   buildUiStateUrl: window.buildUiStateUrl,
+  buildUiContextUrl: window.buildUiContextUrl,
   buildUiRuntimeUrl: window.buildUiRuntimeUrl,
   buildUiJobsUrl: window.buildUiJobsUrl,
   adminUiDeepLinks: window.adminUiDeepLinks,
@@ -52,6 +54,7 @@ const modules = {
   executionEngines: createExecutionEnginesModule(ctx),
   semanticCatalog: createSemanticCatalogModule(ctx),
   analysisOps: createAnalysisOpsModule(ctx),
+  runtimeJobs: createRuntimeJobsModule(ctx),
 };
 
 ctx.modules = modules;
