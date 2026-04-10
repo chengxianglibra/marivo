@@ -5,6 +5,8 @@ import { createExecutionEnginesModule } from './execution-engines.js';
 import { createSemanticCatalogModule } from './semantic-catalog.js';
 import { createAnalysisOpsModule } from './analysis-ops.js';
 import { createRuntimeJobsModule } from './runtime-jobs.js';
+import { createGovernanceModule } from './governance.js';
+import { createObservabilityModule } from './observability.js';
 import { createAdminShell } from './shell.js';
 
 const shared = {
@@ -55,6 +57,8 @@ const modules = {
   semanticCatalog: createSemanticCatalogModule(ctx),
   analysisOps: createAnalysisOpsModule(ctx),
   runtimeJobs: createRuntimeJobsModule(ctx),
+  governance: createGovernanceModule(ctx),
+  observability: createObservabilityModule(ctx),
 };
 
 ctx.modules = modules;

@@ -43,6 +43,14 @@ export async function requestJson(path, fallbackMessage) {
   return response.json();
 }
 
+export async function requestText(path, fallbackMessage) {
+  const response = await fetch(path);
+  if (!response.ok) {
+    throw await parseResponseError(response, fallbackMessage);
+  }
+  return response.text();
+}
+
 export async function sendJson(path, method, payload, fallbackMessage) {
   const response = await fetch(path, {
     method,
@@ -67,7 +75,18 @@ export async function sendDelete(path, fallbackMessage) {
 
 export function createAdminApi() {
   return {
+    parseError: parseResponseError,
     getJson: requestJson,
+    getText: requestText,
+    getHealth() {
+      return requestJson('/health', 'Health Summary unavailable.');
+    },
+    getMetrics() {
+      return requestJson('/metrics', 'Metrics Summary unavailable.');
+    },
+    getMetricsPrometheus() {
+      return requestText('/metrics?format=prometheus', 'Metrics raw text unavailable.');
+    },
     listSources() {
       return requestJson('/sources', 'Data Sources unavailable.');
     },
@@ -495,6 +514,77 @@ export function createAdminApi() {
     async listApprovals(params) {
       const query = params ? `?${new URLSearchParams(params)}` : '';
       return requestJson(`/approvals${query}`, 'Approvals badge unavailable.');
+    },
+    listPolicies() {
+      return requestJson('/policies', 'Policies unavailable.');
+    },
+    getPolicy(policyId) {
+      return requestJson(`/policies/${encodeURIComponent(policyId)}`, 'Policy detail unavailable.');
+    },
+    createPolicy(payload) {
+      return sendJson('/policies', 'POST', payload, 'Create Policy failed.');
+    },
+    updatePolicy(policyId, payload) {
+      return sendJson(
+        `/policies/${encodeURIComponent(policyId)}`,
+        'PUT',
+        payload,
+        'Update Policy failed.'
+      );
+    },
+    deletePolicy(policyId) {
+      return sendDelete(`/policies/${encodeURIComponent(policyId)}`, 'Delete Policy failed.');
+    },
+    listQualityRules(params = {}) {
+      const search = new URLSearchParams();
+      if (params.table) search.set('table', params.table);
+      const query = search.toString();
+      return requestJson(`/quality-rules${query ? `?${query}` : ''}`, 'Quality Rules unavailable.');
+    },
+    createQualityRule(payload) {
+      return sendJson('/quality-rules', 'POST', payload, 'Create Quality Rule failed.');
+    },
+    deleteQualityRule(ruleId) {
+      return sendDelete(
+        `/quality-rules/${encodeURIComponent(ruleId)}`,
+        'Delete Quality Rule failed.'
+      );
+    },
+    getApproval(requestId) {
+      return requestJson(
+        `/approvals/${encodeURIComponent(requestId)}`,
+        'Approval detail unavailable.'
+      );
+    },
+    approveApproval(requestId, payload) {
+      return sendJson(
+        `/approvals/${encodeURIComponent(requestId)}/approve`,
+        'POST',
+        payload,
+        'Approve request failed.'
+      );
+    },
+    rejectApproval(requestId, payload) {
+      return sendJson(
+        `/approvals/${encodeURIComponent(requestId)}/reject`,
+        'POST',
+        payload,
+        'Reject request failed.'
+      );
+    },
+    autoFlagApprovals(sessionId, payload) {
+      return sendJson(
+        `/sessions/${encodeURIComponent(sessionId)}/approvals/auto-flag`,
+        'POST',
+        payload,
+        'Auto-flag approvals failed.'
+      );
+    },
+    governanceCheck(payload) {
+      return sendJson('/governance/check', 'POST', payload, 'Governance Check failed.');
+    },
+    routingResolve(payload) {
+      return sendJson('/routing/resolve', 'POST', payload, 'Routing Resolve failed.');
     },
   };
 }

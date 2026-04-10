@@ -2,6 +2,8 @@
 
 Governance enforces data access policies and quality rules across all analysis sessions. Policies restrict what queries can be run (e.g., aggregate-only access, field masking, row filtering, row count limits). Quality rules assert expectations about data freshness, null rates, and minimum row counts.
 
+Admin UI note: `/admin?tab=governance` exposes the current write contract only. Policies support create, delete, enable/disable, and definition updates; quality rules currently support create and delete only; approvals support queue review plus approve/reject and auto-flag helpers.
+
 ## Endpoints
 
 ### Policies

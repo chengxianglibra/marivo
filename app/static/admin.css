@@ -229,6 +229,48 @@
   gap: var(--space-lg);
 }
 
+.observability-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--space-sm);
+}
+
+.observability-summary-card {
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-muted, #f8fafc);
+  padding: var(--space-md);
+}
+
+.observability-summary-card h4 {
+  margin: 0 0 var(--space-xs);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.observability-summary-card.is-warning {
+  border-color: color-mix(in srgb, var(--color-warning) 35%, var(--color-border));
+}
+
+.observability-summary-card.is-good {
+  border-color: color-mix(in srgb, var(--color-success) 30%, var(--color-border));
+}
+
+.observability-summary-card.is-muted {
+  opacity: 0.85;
+}
+
+.observability-summary-value {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  word-break: break-word;
+}
+
+.observability-raw-text {
+  max-height: 360px;
+  overflow: auto;
+}
+
 .overview-mini-list {
   display: flex;
   flex-direction: column;

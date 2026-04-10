@@ -28,6 +28,12 @@ export function createExecutionEnginesModule(ctx) {
     return formatKeyValueSummary(config);
   }
 
+  function extractItems(payload) {
+    if (Array.isArray(payload)) return payload;
+    if (Array.isArray(payload?.items)) return payload.items;
+    return [];
+  }
+
   function buildEngineBindingsByEngine(bindings) {
     return (bindings || []).reduce((acc, binding) => {
       const engineId = String(binding?.engine_id || '');
@@ -586,6 +592,9 @@ export function createExecutionEnginesModule(ctx) {
 
   async function hydrate(panel, route) {
     const renderVersion = ++executionEnginesRenderVersion;
+    let lastEngines = [];
+    let lastBindings = [];
+    let lastSources = [];
     const safeRender = (viewModel) => {
       if (renderVersion !== executionEnginesRenderVersion) return;
       const target = panel.querySelector('[data-role="execution-engines-body"]');
@@ -612,11 +621,17 @@ export function createExecutionEnginesModule(ctx) {
     });
 
     try {
-      const [engines, bindings, sources] = await Promise.all([
+      const [rawEngines, rawBindings, rawSources] = await Promise.all([
         ctx.adminApi.listEngines(),
         ctx.adminApi.listBindings(),
         ctx.adminApi.listSources(),
       ]);
+      const engines = extractItems(rawEngines);
+      const bindings = extractItems(rawBindings);
+      const sources = extractItems(rawSources);
+      lastEngines = engines;
+      lastBindings = bindings;
+      lastSources = sources;
 
       let selectedEngineId = engines.some((item) => item.engine_id === route.engineId) ? route.engineId : '';
       let selectedBindingId = bindings.some((item) => item.binding_id === route.bindingId) ? route.bindingId : '';
@@ -626,6 +641,22 @@ export function createExecutionEnginesModule(ctx) {
           selectedBindingId = bindings[0]?.binding_id || '';
         }
       }
+
+      safeRender({
+        engines,
+        bindings,
+        sources,
+        selectedEngineId: engines.some((item) => item.engine_id === route.engineId) ? route.engineId : '',
+        selectedBindingId: bindings.some((item) => item.binding_id === route.bindingId) ? route.bindingId : '',
+        selectedEngine: null,
+        selectedBinding: null,
+        selectedSourceEngines: [],
+        sourceEngineError: null,
+        listError: null,
+        engineDetailError: null,
+        bindingDetailError: null,
+        engineBindingsByEngine: buildEngineBindingsByEngine(bindings),
+      });
 
       if (route.engineId !== selectedEngineId || route.bindingId !== selectedBindingId) {
         ctx.applyAdminRoute({ ...route, engineId: selectedEngineId, bindingId: selectedBindingId }, 'replace');
@@ -657,7 +688,7 @@ export function createExecutionEnginesModule(ctx) {
 
       if (selectedBinding?.source_id) {
         try {
-          selectedSourceEngines = await ctx.adminApi.listSourceEngines(selectedBinding.source_id);
+          selectedSourceEngines = extractItems(await ctx.adminApi.listSourceEngines(selectedBinding.source_id));
           delete executionEnginesUiState.sourceEngineErrors[selectedBinding.source_id];
         } catch (error) {
           sourceEngineError = normalizeApiError(error, 'Source-engine relationship unavailable.');
@@ -682,11 +713,11 @@ export function createExecutionEnginesModule(ctx) {
       });
     } catch (error) {
       safeRender({
-        engines: [],
-        bindings: [],
-        sources: [],
-        selectedEngineId: '',
-        selectedBindingId: '',
+        engines: lastEngines,
+        bindings: lastBindings,
+        sources: lastSources,
+        selectedEngineId: route.engineId || '',
+        selectedBindingId: route.bindingId || '',
         selectedEngine: null,
         selectedBinding: null,
         selectedSourceEngines: [],

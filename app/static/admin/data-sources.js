@@ -61,6 +61,12 @@ export function createDataSourcesModule(ctx) {
     return value ? fmtDate(value) : '-';
   }
 
+  function extractItems(payload) {
+    if (Array.isArray(payload)) return payload;
+    if (Array.isArray(payload?.items)) return payload.items;
+    return [];
+  }
+
   function summarizeConnection(config) {
     return formatKeyValueSummary(config);
   }
@@ -465,7 +471,7 @@ export function createDataSourcesModule(ctx) {
   async function loadCatalogState(sourceId) {
     const existing = sourceCatalogState(sourceId);
     try {
-      const schemas = await ctx.adminApi.listCatalogSchemas(sourceId);
+      const schemas = extractItems(await ctx.adminApi.listCatalogSchemas(sourceId));
       const selectedSchema = schemas.some((item) => item.name === existing.selectedSchema)
         ? existing.selectedSchema
         : (schemas[0]?.name || '');
@@ -473,7 +479,7 @@ export function createDataSourcesModule(ctx) {
       let tablesError = null;
       if (selectedSchema) {
         try {
-          tables = await ctx.adminApi.listCatalogTables(sourceId, selectedSchema);
+          tables = extractItems(await ctx.adminApi.listCatalogTables(sourceId, selectedSchema));
         } catch (error) {
           tablesError = normalizeApiError(error, 'Catalog tables unavailable.');
         }
@@ -496,6 +502,7 @@ export function createDataSourcesModule(ctx) {
 
   async function hydrate(panel, route) {
     const renderVersion = ++dataSourcesRenderVersion;
+    let lastSources = [];
     const safeRender = (viewModel) => {
       if (renderVersion !== dataSourcesRenderVersion) return;
       const target = panel.querySelector('[data-role="data-sources-body"]');
@@ -518,11 +525,23 @@ export function createDataSourcesModule(ctx) {
 
     try {
       const rawSources = await ctx.adminApi.listSources();
-      const sources = await enrichSourcesWithSyncMetadata(rawSources);
+      const sources = await enrichSourcesWithSyncMetadata(extractItems(rawSources));
+      lastSources = sources;
       const firstSourceId = sources[0]?.source_id || '';
       const selectedSourceId = sources.some((item) => item.source_id === route.sourceId)
         ? route.sourceId
         : firstSourceId;
+
+      safeRender({
+        sources,
+        selectedSourceId: sources.some((item) => item.source_id === route.sourceId) ? route.sourceId : '',
+        selectedSource: null,
+        selections: [],
+        tables: [],
+        syncError: null,
+        catalogState: {},
+        listError: null,
+      });
 
       if (route.sourceId !== selectedSourceId) {
         ctx.applyAdminRoute({ ...route, sourceId: selectedSourceId }, 'replace');
@@ -557,16 +576,16 @@ export function createDataSourcesModule(ctx) {
         sources,
         selectedSourceId,
         selectedSource,
-        selections,
-        tables,
+        selections: extractItems(selections),
+        tables: extractItems(tables),
         syncError: dataSourcesUiState.syncErrors[selectedSourceId] || null,
         catalogState,
         listError: null,
       });
     } catch (error) {
       safeRender({
-        sources: [],
-        selectedSourceId: '',
+        sources: lastSources,
+        selectedSourceId: route.sourceId || '',
         selectedSource: null,
         selections: [],
         tables: [],
@@ -620,7 +639,7 @@ export function createDataSourcesModule(ctx) {
 
     const selectedKeys = new Set();
     try {
-      const existingSelections = await ctx.adminApi.listSourceSelections(sourceId);
+      const existingSelections = extractItems(await ctx.adminApi.listSourceSelections(sourceId));
       existingSelections.forEach((item) => selectedKeys.add(sourceSelectionKey(item.schema_name, item.table_name)));
     } catch (error) {
       toast(normalizeApiError(error, 'Failed to load existing selections.').message, 'error');
@@ -642,7 +661,7 @@ export function createDataSourcesModule(ctx) {
       }
       if (checklist) checklist.innerHTML = renderLoadingState('Loading live tables...');
       try {
-        const tables = await ctx.adminApi.listCatalogTables(sourceId, currentSchema);
+        const tables = extractItems(await ctx.adminApi.listCatalogTables(sourceId, currentSchema));
         if (checklist) checklist.innerHTML = renderSelectionChecklist(currentSchema, tables, selectedKeys);
         overlay.querySelectorAll('[data-role="table-checkbox"]').forEach((input) => {
           input.addEventListener('change', (event) => {
@@ -663,7 +682,7 @@ export function createDataSourcesModule(ctx) {
     };
 
     try {
-      schemas = await ctx.adminApi.listCatalogSchemas(sourceId);
+      schemas = extractItems(await ctx.adminApi.listCatalogSchemas(sourceId));
     } catch (error) {
       if (errorBox) errorBox.innerHTML = renderStructuredError(error, 'Catalog schemas unavailable.');
     }
