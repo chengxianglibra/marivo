@@ -107,3 +107,31 @@ class OpenApiFragmentTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertIn("encoded path", response.json()["detail"])
+
+    def test_semantic_create_routes_publish_typed_request_schemas(self) -> None:
+        response = self.client.get("/openapi.json")
+
+        self.assertEqual(response.status_code, 200)
+        schema = response.json()
+        components = schema["components"]["schemas"]
+
+        self.assertIn("TypedEntityCreateRequest", components)
+        self.assertIn("TypedMetricCreateRequest", components)
+        self.assertIn("examples", components["TypedEntityCreateRequest"])
+        self.assertIn("examples", components["TypedMetricCreateRequest"])
+
+        entity_request_body = schema["paths"]["/semantic/entities"]["post"]["requestBody"][
+            "content"
+        ]["application/json"]["schema"]
+        metric_request_body = schema["paths"]["/semantic/metrics"]["post"]["requestBody"][
+            "content"
+        ]["application/json"]["schema"]
+
+        self.assertEqual(
+            entity_request_body["$ref"], "#/components/schemas/TypedEntityCreateRequest"
+        )
+        self.assertEqual(
+            metric_request_body["$ref"], "#/components/schemas/TypedMetricCreateRequest"
+        )
+        self.assertNotIn("additionalProperties", entity_request_body)
+        self.assertNotIn("additionalProperties", metric_request_body)

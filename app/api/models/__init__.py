@@ -166,6 +166,17 @@ from .binding import (
     TypedBindingResponse,
     TypedBindingUpdateRequest,
 )
+from .catalog import (
+    CatalogAssetDetail,
+    CatalogAssetSearchResult,
+    CatalogEntityDetail,
+    CatalogGenericSemanticDetail,
+    CatalogMetricDetail,
+    CatalogObjectDetail,
+    CatalogSearchResult,
+    CatalogSemanticSearchResult,
+    SourceObjectResponse,
+)
 
 # Compatibility Profile models
 from .compatibility_profile import (
@@ -271,13 +282,12 @@ from .time import (
     TimeUpdateRequest,
 )
 
-__all__ = [
+__all__ = [  # noqa: RUF022
     "Additivity",
     "AggregateQueryStep",
     "AggregationMethod",
     "AggregationScope",
     "AnalysisTimeOverride",
-    # Base models
     "ApiErrorDetail",
     "ApprovalCreateRequest",
     "ApprovalDecisionRequest",
@@ -288,13 +298,20 @@ __all__ = [
     "AutoFlagRequest",
     "AverageMetricPayload",
     "BindingCreateRequest",
-    # Binding models
     "BindingHeader",
     "BindingImport",
     "BindingInterfaceContract",
     "BindingRole",
     "BindingScope",
     "BindingTarget",
+    "CatalogAssetDetail",
+    "CatalogAssetSearchResult",
+    "CatalogEntityDetail",
+    "CatalogGenericSemanticDetail",
+    "CatalogMetricDetail",
+    "CatalogObjectDetail",
+    "CatalogSearchResult",
+    "CatalogSemanticSearchResult",
     "Cardinality",
     "CardinalityToParent",
     "CarrierBinding",
@@ -324,7 +341,6 @@ __all__ = [
     "DimensionCreateRequest",
     "DimensionDomainKind",
     "DimensionGroupingContract",
-    # Dimension models
     "DimensionHeader",
     "DimensionHierarchySpec",
     "DimensionInterfaceContract",
@@ -336,16 +352,13 @@ __all__ = [
     "DistributionMetricPayload",
     "DistributionSpec",
     "EngineRegisterRequest",
-    # Entity models
     "EntityHeader",
     "EntityHierarchySpec",
     "EntityIdentitySpec",
     "EntityInterfaceContract",
     "EntityProcessContract",
-    # Legacy models (non-semantic API models)
     "EntityPropertiesPatchRequest",
     "EnumSetCreateRequest",
-    # Enum Set models
     "EnumSetHeader",
     "EnumSetListResponse",
     "EnumSetResponse",
@@ -378,7 +391,6 @@ __all__ = [
     "MeasurementComponent",
     "MembershipCardinality",
     "MetricFamily",
-    # Metric models
     "MetricHeader",
     "MetricPayload",
     "MetricQueryStep",
@@ -407,13 +419,11 @@ __all__ = [
     "ProcessCapability",
     "ProcessInterfaceContract",
     "ProcessObjectCreateRequest",
-    # Process Object models
     "ProcessObjectHeader",
     "ProcessObjectListResponse",
     "ProcessObjectResponse",
     "ProcessObjectUpdateRequest",
     "ProcessPayload",
-    # Compatibility Profile models
     "ProcessRequirement",
     "ProcessType",
     "ProfileKind",
@@ -436,6 +446,7 @@ __all__ = [
     "SessionStateQueryRequest",
     "SessionTerminateRequest",
     "SourceEngineBindingCreateRequest",
+    "SourceObjectResponse",
     "SourceRegisterRequest",
     "SourceUpdateRequest",
     "StableDescriptorSpec",
@@ -458,7 +469,6 @@ __all__ = [
     "TimeListResponse",
     "TimeResponse",
     "TimeScope",
-    # Time models
     "TimeSemanticHeader",
     "TimeSemanticRole",
     "TimeSurfaceSpec",
@@ -476,7 +486,6 @@ __all__ = [
     "TypedMetricListResponse",
     "TypedMetricResponse",
     "TypedMetricUpdateRequest",
-    # Base types
     "UniquenessScope",
     "ValidateHypothesis",
     "ValidateObservationInput",
@@ -485,6 +494,5 @@ __all__ = [
     "WindowOffset",
     "WindowSpec",
     "validate_contract_version",
-    # Validators
     "validate_ref_prefix",
 ]

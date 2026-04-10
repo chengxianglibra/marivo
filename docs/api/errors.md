@@ -33,9 +33,40 @@ For Pydantic validation errors (422):
       "msg": "field required",
       "type": "value_error.missing"
     }
-  ]
+  ],
+  "error": {
+    "code": "request_validation_error",
+    "message": "Request validation failed. Use the guided example and contract links."
+  },
+  "guidance": {
+    "docs_url": "docs/api/semantic.md",
+    "contract_url": "/openapi/paths/L3NlbWFudGljL2VudGl0aWVz?operation=post&expand=request,schemas&depth=2",
+    "schema_url": "/openapi/schemas/TypedEntityCreateRequest?depth=2",
+    "examples": [
+      {
+        "summary": "Minimal typed entity create payload",
+        "payload": {
+          "header": {
+            "entity_ref": "entity.user",
+            "display_name": "User",
+            "entity_contract_version": "entity.v4"
+          },
+          "interface_contract": {
+            "identity": {
+              "key_refs": ["key.user_id"],
+              "uniqueness_scope": "global",
+              "id_stability": "stable"
+            }
+          }
+        }
+      }
+    ]
+  }
 }
 ```
+
+The legacy `detail` array is preserved for compatibility. Clients that want guided remediation should
+prefer `error` and `guidance` when present.
 
 ## Step Submission Semantic Context
 

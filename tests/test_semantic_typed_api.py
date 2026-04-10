@@ -1701,7 +1701,18 @@ class SemanticTypedApiTests(unittest.TestCase):
             },
         )
         self.assertEqual(resp.status_code, 422, resp.text)
-        self.assertIsInstance(resp.json()["detail"], list)
+        payload = resp.json()
+        self.assertIsInstance(payload["detail"], list)
+        self.assertEqual(payload["error"]["code"], "request_validation_error")
+        self.assertEqual(payload["guidance"]["docs_url"], "docs/api/semantic.md")
+        self.assertEqual(
+            payload["guidance"]["schema_url"], "/openapi/schemas/TypedEntityCreateRequest?depth=2"
+        )
+        self.assertEqual(
+            payload["guidance"]["contract_url"],
+            "/openapi/paths/L3NlbWFudGljL2VudGl0aWVz?operation=post&expand=request,schemas&depth=2",
+        )
+        self.assertGreaterEqual(len(payload["guidance"]["examples"]), 1)
 
         resp = self.client.post(
             "/semantic/bindings",
@@ -1720,7 +1731,11 @@ class SemanticTypedApiTests(unittest.TestCase):
             },
         )
         self.assertEqual(resp.status_code, 422, resp.text)
-        self.assertIsInstance(resp.json()["detail"], list)
+        payload = resp.json()
+        self.assertIsInstance(payload["detail"], list)
+        self.assertEqual(payload["error"]["code"], "request_validation_error")
+        self.assertEqual(payload["guidance"]["docs_url"], "docs/api/semantic.md")
+        self.assertIn("contract_url", payload["guidance"])
 
         resp = self.client.post(
             "/compiler/compatibility-profiles",
@@ -1733,7 +1748,10 @@ class SemanticTypedApiTests(unittest.TestCase):
             },
         )
         self.assertEqual(resp.status_code, 422, resp.text)
-        self.assertIsInstance(resp.json()["detail"], list)
+        payload = resp.json()
+        self.assertIsInstance(payload["detail"], list)
+        self.assertEqual(payload["error"]["code"], "request_validation_error")
+        self.assertEqual(payload["guidance"]["docs_url"], "docs/api/semantic.md")
 
     def test_typed_object_routes_map_service_value_error_to_422(self) -> None:
         metric_resp = self.client.post(

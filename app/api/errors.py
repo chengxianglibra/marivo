@@ -1,0 +1,201 @@
+from __future__ import annotations
+
+from base64 import urlsafe_b64encode
+from typing import Any, cast
+
+from fastapi import Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from pydantic import ValidationError
+
+_DOCS_BY_PATH_PREFIX: tuple[tuple[str, str], ...] = (
+    ("/semantic/", "docs/api/semantic.md"),
+    ("/catalog/", "docs/api/semantic.md"),
+    ("/compiler/", "docs/api/semantic.md"),
+    ("/sessions/", "docs/api/intent-steps.md"),
+    ("/sources/", "docs/api/sources.md"),
+    ("/engines/", "docs/api/engines.md"),
+    ("/bindings/", "docs/api/engines.md"),
+    ("/governance/", "docs/api/governance.md"),
+    ("/policies/", "docs/api/governance.md"),
+    ("/quality-rules/", "docs/api/governance.md"),
+    ("/jobs/", "docs/api/jobs.md"),
+    ("/approvals/", "docs/api/approvals.md"),
+)
+
+_GUIDED_EXAMPLES: dict[tuple[str, str], dict[str, Any]] = {
+    (
+        "POST",
+        "/semantic/entities",
+    ): {
+        "summary": "Minimal typed entity create payload",
+        "payload": {
+            "header": {
+                "entity_ref": "entity.user",
+                "display_name": "User",
+                "entity_contract_version": "entity.v4",
+            },
+            "interface_contract": {
+                "identity": {
+                    "key_refs": ["key.user_id"],
+                    "uniqueness_scope": "global",
+                    "id_stability": "stable",
+                }
+            },
+        },
+    },
+    (
+        "PUT",
+        "/semantic/entities/{entity_id}",
+    ): {
+        "summary": "Minimal typed entity update payload",
+        "payload": {
+            "display_name": "User",
+            "interface_contract": {
+                "identity": {
+                    "key_refs": ["key.user_id"],
+                    "uniqueness_scope": "global",
+                    "id_stability": "stable",
+                }
+            },
+        },
+    },
+    (
+        "POST",
+        "/semantic/metrics",
+    ): {
+        "summary": "Minimal typed metric create payload",
+        "payload": {
+            "header": {
+                "metric_ref": "metric.dau",
+                "display_name": "DAU",
+                "metric_family": "count_metric",
+                "observed_entity_ref": "entity.user",
+                "observation_grain_ref": "grain.user",
+                "sample_kind": "numeric",
+                "value_semantics": "count",
+                "additivity": "additive",
+                "metric_contract_version": "metric.v1",
+            },
+            "payload": {
+                "metric_family": "count_metric",
+                "count_target": {
+                    "name": "active_users",
+                    "semantics": "distinct active users",
+                    "aggregation": "count_distinct",
+                },
+            },
+        },
+    },
+    (
+        "PUT",
+        "/semantic/metrics/{metric_id}",
+    ): {
+        "summary": "Minimal typed metric update payload",
+        "payload": {
+            "display_name": "Daily Active Users",
+            "payload": {
+                "metric_family": "count_metric",
+                "count_target": {
+                    "name": "active_users",
+                    "semantics": "distinct active users",
+                    "aggregation": "count_distinct",
+                },
+            },
+        },
+    },
+}
+
+_SCHEMA_NAME_BY_ROUTE: dict[tuple[str, str], str] = {
+    ("POST", "/semantic/entities"): "TypedEntityCreateRequest",
+    ("PUT", "/semantic/entities/{entity_id}"): "TypedEntityUpdateRequest",
+    ("POST", "/semantic/metrics"): "TypedMetricCreateRequest",
+    ("PUT", "/semantic/metrics/{metric_id}"): "TypedMetricUpdateRequest",
+}
+
+
+class GuidedValidationError(Exception):
+    """Raised when a route wants the shared guided 422 response body."""
+
+    def __init__(self, payload: dict[str, Any]) -> None:
+        super().__init__(payload["error"]["message"])
+        self.payload = payload
+
+
+def sanitize_validation_errors(
+    error: ValidationError | RequestValidationError,
+) -> list[dict[str, Any]]:
+    try:
+        detail = cast("list[dict[str, Any]]", error.errors(include_url=False))  # type: ignore[call-arg]
+    except TypeError:
+        detail = cast("list[dict[str, Any]]", error.errors())
+    for item in detail:
+        ctx = item.get("ctx")
+        if not isinstance(ctx, dict):
+            continue
+        for key, value in list(ctx.items()):
+            if isinstance(value, BaseException):
+                ctx[key] = str(value)
+    return detail
+
+
+def _encode_openapi_path(path: str) -> str:
+    return urlsafe_b64encode(path.encode("utf-8")).decode("ascii").rstrip("=")
+
+
+def _normalize_route_path(request: Request) -> str:
+    route = request.scope.get("route")
+    path = getattr(route, "path", None)
+    if isinstance(path, str):
+        return path
+    return request.url.path
+
+
+def _docs_url_for_path(path: str) -> str:
+    for prefix, docs_path in _DOCS_BY_PATH_PREFIX:
+        if path.startswith(prefix):
+            return docs_path
+    return "docs/api/errors.md"
+
+
+def build_validation_error_payload(
+    request: Request,
+    detail: list[dict[str, Any]],
+) -> dict[str, Any]:
+    route_path = _normalize_route_path(request)
+    method = request.method.upper()
+    path_fragment_url = (
+        f"/openapi/paths/{_encode_openapi_path(route_path)}"
+        f"?operation={method.lower()}&expand=request,schemas&depth=2"
+    )
+    schema_name = _SCHEMA_NAME_BY_ROUTE.get((method, route_path))
+    guidance: dict[str, Any] = {
+        "docs_url": _docs_url_for_path(route_path),
+        "contract_url": path_fragment_url,
+    }
+    if schema_name is not None:
+        guidance["schema_url"] = f"/openapi/schemas/{schema_name}?depth=2"
+    example = _GUIDED_EXAMPLES.get((method, route_path))
+    if example is not None:
+        guidance["examples"] = [example]
+    return {
+        "detail": detail,
+        "error": {
+            "code": "request_validation_error",
+            "message": "Request validation failed. Use the guided example and contract links.",
+        },
+        "guidance": guidance,
+    }
+
+
+async def request_validation_exception_handler(
+    request: Request, error: RequestValidationError
+) -> JSONResponse:
+    payload = build_validation_error_payload(request, sanitize_validation_errors(error))
+    return JSONResponse(status_code=422, content=payload)
+
+
+async def guided_validation_exception_handler(
+    _request: Request, error: GuidedValidationError
+) -> JSONResponse:
+    return JSONResponse(status_code=422, content=error.payload)

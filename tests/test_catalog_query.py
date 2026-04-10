@@ -94,6 +94,8 @@ class CatalogQueryTests(unittest.TestCase):
                 r["name"] == "watch_time"
                 and r["object_kind"] == "metric"
                 and r["ref"] == "metric.watch_time"
+                and r["detail_path"] == f"/catalog/objects/metric/{self.watch_metric_id}"
+                and r["resolve_path"] == "/semantic/resolve/metric.watch_time"
                 for r in results
             )
         )
@@ -115,7 +117,13 @@ class CatalogQueryTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         results = resp.json()
         self.assertTrue(
-            any(r["name"] == "watch_events" and r["object_kind"] == "asset" for r in results)
+            any(
+                r["name"] == "watch_events"
+                and r["object_kind"] == "asset"
+                and r["detail_path"] == f"/catalog/objects/asset/{r['object_id']}"
+                and r["source_object_path"] == f"/sources/{self.source_id}/objects/{r['object_id']}"
+                for r in results
+            )
         )
 
     def test_search_rejects_invalid_type_filter(self) -> None:
@@ -149,6 +157,35 @@ class CatalogQueryTests(unittest.TestCase):
             result["semantic_object"]["interface_contract"]["identity"]["key_refs"],
             ["key.user_id"],
         )
+
+    def test_catalog_detail_round_trip_for_metric(self) -> None:
+        search_resp = self.client.get("/catalog/search?q=watch&type=metric")
+        self.assertEqual(search_resp.status_code, 200, search_resp.text)
+        summary = next(
+            item for item in search_resp.json() if item["object_id"] == self.watch_metric_id
+        )
+
+        detail_resp = self.client.get(summary["detail_path"])
+        self.assertEqual(detail_resp.status_code, 200, detail_resp.text)
+        detail = detail_resp.json()
+
+        self.assertEqual(detail["object_kind"], "metric")
+        self.assertEqual(detail["object_id"], self.watch_metric_id)
+        self.assertEqual(detail["semantic_object"]["header"]["metric_ref"], "metric.watch_time")
+
+    def test_catalog_detail_round_trip_for_asset(self) -> None:
+        search_resp = self.client.get("/catalog/search?q=watch_events&type=asset")
+        self.assertEqual(search_resp.status_code, 200, search_resp.text)
+        summary = next(item for item in search_resp.json() if item["name"] == "watch_events")
+
+        detail_resp = self.client.get(summary["detail_path"])
+        self.assertEqual(detail_resp.status_code, 200, detail_resp.text)
+        detail = detail_resp.json()
+
+        self.assertEqual(detail["object_kind"], "asset")
+        self.assertEqual(detail["object_id"], summary["object_id"])
+        self.assertEqual(detail["source_object"]["source_id"], self.source_id)
+        self.assertEqual(detail["source_object"]["native_name"], "watch_events")
 
     def test_resolve_requires_explicit_typed_refs(self) -> None:
         metric_resp = self.client.get("/semantic/resolve/watch_time")

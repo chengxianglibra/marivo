@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .base import (
     CardinalityToParent,
@@ -203,6 +203,27 @@ class EntityInterfaceContract(BaseModel):
 class TypedEntityCreateRequest(BaseModel):
     """Request to create a new typed entity."""
 
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "header": {
+                        "entity_ref": "entity.user",
+                        "display_name": "User",
+                        "entity_contract_version": "entity.v4",
+                    },
+                    "interface_contract": {
+                        "identity": {
+                            "key_refs": ["key.user_id"],
+                            "uniqueness_scope": "global",
+                            "id_stability": "stable",
+                        }
+                    },
+                }
+            ]
+        }
+    )
+
     header: EntityHeader = Field(description="Entity header.")
     interface_contract: EntityInterfaceContract = Field(description="Entity interface contract.")
 
@@ -212,6 +233,23 @@ class TypedEntityUpdateRequest(BaseModel):
 
     All fields are optional; only provided fields will be updated.
     """
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "display_name": "User",
+                    "interface_contract": {
+                        "identity": {
+                            "key_refs": ["key.user_id"],
+                            "uniqueness_scope": "global",
+                            "id_stability": "stable",
+                        }
+                    },
+                }
+            ]
+        }
+    )
 
     display_name: str | None = Field(default=None, description="New display name.")
     description: str | None = Field(default=None, description="New description.")
