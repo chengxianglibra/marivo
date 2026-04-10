@@ -121,6 +121,94 @@ class SourceRegistryTests(unittest.TestCase):
         tables = resp.json()
         self.assertEqual(len(tables), 4)
 
+    def test_get_source_object_detail(self) -> None:
+        resp = self.client.post(
+            "/sources",
+            json={
+                "source_type": "duckdb",
+                "display_name": "Object Detail Test",
+                "connection": self._local_connection(),
+            },
+        )
+        source_id = resp.json()["source_id"]
+        self.client.post(f"/sources/{source_id}/sync")
+
+        list_resp = self.client.get(f"/sources/{source_id}/objects?type=table")
+        self.assertEqual(list_resp.status_code, 200)
+        listed_object = list_resp.json()[0]
+
+        resp = self.client.get(f"/sources/{source_id}/objects/{listed_object['object_id']}")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), listed_object)
+
+    def test_get_source_object_detail_for_column(self) -> None:
+        resp = self.client.post(
+            "/sources",
+            json={
+                "source_type": "duckdb",
+                "display_name": "Column Detail Test",
+                "connection": self._local_connection(),
+            },
+        )
+        source_id = resp.json()["source_id"]
+        self.client.post(f"/sources/{source_id}/sync")
+
+        list_resp = self.client.get(f"/sources/{source_id}/objects?type=column")
+        self.assertEqual(list_resp.status_code, 200)
+        listed_object = list_resp.json()[0]
+
+        resp = self.client.get(f"/sources/{source_id}/objects/{listed_object['object_id']}")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), listed_object)
+
+    def test_get_source_object_detail_404_for_unknown_source(self) -> None:
+        resp = self.client.get("/sources/src_missing/objects/obj_missing")
+        self.assertEqual(resp.status_code, 404)
+
+    def test_get_source_object_detail_404_for_unknown_object(self) -> None:
+        resp = self.client.post(
+            "/sources",
+            json={
+                "source_type": "duckdb",
+                "display_name": "Unknown Object Test",
+                "connection": self._local_connection(),
+            },
+        )
+        source_id = resp.json()["source_id"]
+        self.client.post(f"/sources/{source_id}/sync")
+
+        detail_resp = self.client.get(f"/sources/{source_id}/objects/obj_missing")
+        self.assertEqual(detail_resp.status_code, 404)
+
+    def test_get_source_object_detail_404_for_object_from_other_source(self) -> None:
+        first_resp = self.client.post(
+            "/sources",
+            json={
+                "source_type": "duckdb",
+                "display_name": "First Source Detail Test",
+                "connection": self._local_connection(),
+            },
+        )
+        first_source_id = first_resp.json()["source_id"]
+        self.client.post(f"/sources/{first_source_id}/sync")
+        first_object = self.client.get(f"/sources/{first_source_id}/objects?type=table").json()[0]
+
+        second_resp = self.client.post(
+            "/sources",
+            json={
+                "source_type": "duckdb",
+                "display_name": "Second Source Detail Test",
+                "connection": self._local_connection(),
+            },
+        )
+        second_source_id = second_resp.json()["source_id"]
+        self.client.post(f"/sources/{second_source_id}/sync")
+
+        detail_resp = self.client.get(
+            f"/sources/{second_source_id}/objects/{first_object['object_id']}"
+        )
+        self.assertEqual(detail_resp.status_code, 404)
+
     def test_update_source_api(self) -> None:
         resp = self.client.post(
             "/sources",
