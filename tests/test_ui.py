@@ -105,6 +105,7 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertIn("source_id", resp.text)
         self.assertIn("engine_id", resp.text)
         self.assertIn("binding_id", resp.text)
+        self.assertIn("object_id", resp.text)
         self.assertIn("session_id", resp.text)
         self.assertIn("job_id", resp.text)
 
@@ -279,6 +280,50 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertIn("openBindingFormModal", resp.text)
         self.assertIn("handleDeleteBinding", resp.text)
         self.assertIn("refreshCurrentExecutionEngines", resp.text)
+
+    def test_admin_semantic_catalog_declares_t6_shared_shell_contracts(self) -> None:
+        resp = self.client.get("/admin?tab=semantic-catalog&subtab=entities")
+        self.assertIn("Entity Catalog", resp.text)
+        self.assertIn("Object Summary", resp.text)
+        self.assertIn("Lifecycle Summary", resp.text)
+        self.assertIn("Create / Edit Form Shell", resp.text)
+        self.assertIn("Dependency Helpers", resp.text)
+        self.assertIn("Resolve / View Related Bindings / View Catalog Graph", resp.text)
+        self.assertIn("Raw JSON Panel", resp.text)
+        self.assertIn("object_id", resp.text)
+        self.assertIn("stable_ref", resp.text)
+        self.assertIn("display_name", resp.text)
+        self.assertIn("revision", resp.text)
+        self.assertIn("updated_at", resp.text)
+        self.assertIn("All statuses", resp.text)
+        self.assertIn("Draft", resp.text)
+        self.assertIn("Published", resp.text)
+
+    def test_admin_semantic_catalog_declares_publish_freeze_and_helper_http_contracts(self) -> None:
+        resp = self.client.get("/admin?tab=semantic-catalog&subtab=typed-bindings")
+        self.assertIn("Published objects are frozen and stay read-only in T6.", resp.text)
+        self.assertIn("Publish failures render structured error details", resp.text)
+        self.assertIn("GET /semantic/bindings", resp.text)
+        self.assertIn("GET /semantic/resolve/{name}", resp.text)
+        self.assertIn("GET /catalog/graph", resp.text)
+        self.assertIn("publishTypedSemanticBinding", resp.text)
+        self.assertIn("View Related Bindings", resp.text)
+        self.assertIn("Catalog Graph", resp.text)
+        self.assertIn("Resolve Result", resp.text)
+
+    def test_admin_semantic_catalog_uses_object_id_route_and_t6_client_helpers(self) -> None:
+        resp = self.client.get("/admin?tab=semantic-catalog&subtab=compatibility-profiles")
+        self.assertIn("params.get('object_id')", resp.text)
+        self.assertIn("params.set('object_id', route.objectId)", resp.text)
+        self.assertIn("objectLabel: 'object_id'", resp.text)
+        self.assertIn("hydrateSemanticCatalog", resp.text)
+        self.assertIn("renderSemanticCatalogBody", resp.text)
+        self.assertIn("refreshCurrentSemanticCatalog", resp.text)
+        self.assertIn("runSemanticResolve", resp.text)
+        self.assertIn("runSemanticCatalogGraph", resp.text)
+        self.assertIn("handlePublishSemanticObject", resp.text)
+        self.assertIn("listCompatibilityProfiles", resp.text)
+        self.assertIn("publishCompatibilityProfile", resp.text)
 
     def test_user_uses_shared_assets(self) -> None:
         resp = self.client.get("/ui")
