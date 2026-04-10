@@ -134,6 +134,139 @@
   color: var(--color-text);
 }
 
+.overview-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xl);
+}
+
+.overview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: var(--space-lg);
+}
+
+.overview-summary-card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+  padding: var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  min-height: 240px;
+}
+
+.overview-summary-card.is-alert {
+  border-color: color-mix(in srgb, var(--color-error) 35%, var(--color-border));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--color-error) 6%, white), white);
+}
+
+.overview-summary-card.is-warning {
+  border-color: color-mix(in srgb, var(--color-warning) 35%, var(--color-border));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--color-warning) 8%, white), white);
+}
+
+.overview-card-header,
+.overview-card-footer {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+
+.overview-card-header h3,
+.overview-card-footer h4 {
+  margin: 0;
+}
+
+.overview-card-kpis {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-sm);
+}
+
+.overview-kpi {
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  background: #f8fafc;
+  padding: var(--space-md);
+}
+
+.overview-kpi-label {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.overview-kpi-value {
+  margin-top: 4px;
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+}
+
+.overview-card-copy {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.overview-card-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-top: auto;
+}
+
+.overview-card-meta {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.overview-card-contracts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.overview-ops-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
+  gap: var(--space-lg);
+}
+
+.overview-mini-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.overview-mini-item {
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  background: #f8fafc;
+  padding: var(--space-md);
+}
+
+.overview-mini-item strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.overview-card-error .detail-error,
+.overview-card-empty .detail-empty,
+.overview-card-loading .detail-empty {
+  margin: 0;
+}
+
+@media (max-width: 960px) {
+  .overview-ops-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 960px) {
   .admin-shell-header {
     flex-direction: column;
@@ -598,161 +731,459 @@ function renderRouteSummary(route, tabMeta) {
   });
 }
 
-function renderOverviewSummaryCard(title, detail, route) {
-  const deepLinks = adminUiDeepLinks({ sessionId: route.sessionId });
+const OVERVIEW_CARD_SPECS = [
+  {
+    key: 'sources',
+    title: 'Source Summary',
+    href: '?tab=data-sources',
+    actionLabel: 'Open Data Sources',
+    helperLabel: 'Source sync inventory',
+  },
+  {
+    key: 'engines',
+    title: 'Engine / Binding Summary',
+    href: '?tab=execution-engines',
+    actionLabel: 'Open Execution Engines',
+    helperLabel: 'Routing foundation',
+  },
+  {
+    key: 'semantic',
+    title: 'Semantic Summary',
+    href: '?tab=semantic-catalog&subtab=entities',
+    actionLabel: 'Open Semantic Catalog',
+    helperLabel: 'Draft vs published contracts',
+  },
+  {
+    key: 'sessions',
+    title: 'Session Operations Summary',
+    href: '?tab=analysis-ops',
+    actionLabel: 'Open Analysis Ops',
+    helperLabel: 'Operator entrypoint',
+  },
+  {
+    key: 'runtime',
+    title: 'Runtime / Jobs Summary',
+    href: '?tab=runtime-jobs&subtab=jobs',
+    actionLabel: 'Open Runtime & Jobs',
+    helperLabel: 'Operator-facing runtime truth',
+  },
+  {
+    key: 'governance',
+    title: 'Governance / Approvals Summary',
+    href: '?tab=governance&subtab=approvals',
+    actionLabel: 'Open Governance',
+    helperLabel: 'Pending review queue',
+  },
+  {
+    key: 'observability',
+    title: 'Observability Summary',
+    href: '?tab=observability',
+    actionLabel: 'Open Observability',
+    helperLabel: 'Health and metrics snapshot',
+  },
+];
+
+let overviewRenderVersion = 0;
+
+function parseResponseError(response, fallbackMessage) {
+  return response.text().then((text) => ({
+    status: response.status,
+    message: fallbackMessage,
+    detail: text || response.statusText || fallbackMessage,
+    transport: `HTTP ${response.status}`,
+  }));
+}
+
+async function requestJson(path, fallbackMessage) {
+  const response = await fetch(path, {
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!response.ok) {
+    throw await parseResponseError(response, fallbackMessage);
+  }
+  return response.json();
+}
+
+function countStatuses(items) {
+  return (items || []).reduce((acc, item) => {
+    const status = String(item?.status || 'unknown').toLowerCase();
+    acc[status] = (acc[status] || 0) + 1;
+    return acc;
+  }, {});
+}
+
+function pickLatest(items, keys = ['updated_at', 'ended_at', 'created_at']) {
+  return (items || []).reduce((latest, item) => {
+    const currentValue = keys.map((key) => item?.[key]).find(Boolean);
+    if (!currentValue) return latest;
+    if (!latest) return item;
+    const latestValue = keys.map((key) => latest?.[key]).find(Boolean);
+    return String(currentValue) > String(latestValue || '') ? item : latest;
+  }, null);
+}
+
+function formatMaybeDate(value) {
+  return value ? fmtDate(value) : '-';
+}
+
+function extractItems(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.items)) return payload.items;
+  return [];
+}
+
+function renderOverviewKpis(kpis) {
   return `
-    <div class="stat-card stat-info">
-      <div class="stat-label">${esc(title)}</div>
-      <div class="stat-value">${esc(detail.value)}</div>
-      <div class="stat-detail">${esc(detail.copy)}</div>
-      <div class="detail-actions">
-        <a class="btn btn-sm" href="${esc(detail.href || deepLinks.sessions)}">${esc(detail.actionLabel)}</a>
+    <div class="overview-card-kpis">
+      ${kpis.map((item) => `
+        <div class="overview-kpi">
+          <div class="overview-kpi-label">${esc(item.label)}</div>
+          <div class="overview-kpi-value">${esc(item.value)}</div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function renderOverviewCardLinks(primaryLink, secondaryLink) {
+  return `
+    <div class="overview-card-links">
+      <a class="btn btn-sm" href="${esc(primaryLink.href)}">${esc(primaryLink.label)}</a>
+      ${secondaryLink ? `<a class="btn btn-sm" href="${esc(secondaryLink.href)}">${esc(secondaryLink.label)}</a>` : ''}
+    </div>
+  `;
+}
+
+function renderOverviewCardState(card, bodyHtml, tone = '') {
+  return `
+    <section class="overview-summary-card ${tone}" data-overview-card="${esc(card.key)}">
+      <div class="overview-card-header">
+        <div>
+          <h3>${esc(card.title)}</h3>
+          <p class="overview-card-copy">${esc(card.helperLabel)}</p>
+        </div>
+        <span class="shell-chip">overview-card</span>
+      </div>
+      ${bodyHtml}
+    </section>
+  `;
+}
+
+function renderOverviewCardLoading(card) {
+  return renderOverviewCardState(
+    card,
+    `<div class="overview-card-loading">${renderLoadingState(`Loading ${card.title}...`)}</div>`,
+  );
+}
+
+function renderOverviewCardError(card, error) {
+  return renderOverviewCardState(
+    card,
+    `
+      <div class="overview-card-error">
+        ${renderStructuredError(error, `${card.title} unavailable.`)}
+      </div>
+      ${renderOverviewCardLinks(
+        { href: card.href, label: card.actionLabel },
+        null,
+      )}
+    `,
+    'is-alert',
+  );
+}
+
+function renderOverviewCardEmpty(card, copy, secondaryLink = null) {
+  return renderOverviewCardState(
+    card,
+    `
+      <div class="overview-card-empty">${renderEmptyState(copy)}</div>
+      ${renderOverviewCardLinks({ href: card.href, label: card.actionLabel }, secondaryLink)}
+    `,
+  );
+}
+
+function renderOverviewCardSuccess(card, summary) {
+  return renderOverviewCardState(
+    card,
+    `
+      ${renderOverviewKpis(summary.kpis)}
+      <div class="overview-card-meta">
+        <p class="overview-card-copy">${esc(summary.copy)}</p>
+        ${summary.metaHtml || ''}
+      </div>
+      ${renderOverviewCardLinks(
+        { href: card.href, label: card.actionLabel },
+        summary.secondaryLink || null,
+      )}
+    `,
+    summary.tone || '',
+  );
+}
+
+function summarizeSources(sources) {
+  if (!sources.length) {
+    return { empty: 'No data sources configured yet.' };
+  }
+  const statusCounts = countStatuses(sources);
+  const activeCount = statusCounts.active || 0;
+  const syncEnabledCount = sources.filter((item) => item?.sync_mode && item.sync_mode !== 'none').length;
+  const latest = pickLatest(sources);
+  return {
+    kpis: [
+      { label: 'Total Sources', value: String(sources.length) },
+      { label: 'Active', value: String(activeCount) },
+      { label: 'Sync Enabled', value: String(syncEnabledCount) },
+      { label: 'Last Updated', value: formatMaybeDate(latest?.updated_at) },
+    ],
+    copy: 'Source inventory, sync readiness, and lifecycle entrypoint for catalog onboarding.',
+    metaHtml: `<div class="overview-card-contracts"><span class="shell-chip">GET /sources</span></div>`,
+  };
+}
+
+function summarizeEngines(engines, bindings) {
+  if (!engines.length && !bindings.length) {
+    return { empty: 'No execution engines or source-engine bindings configured yet.' };
+  }
+  const activeBindings = bindings.filter((item) => String(item?.status || '').toLowerCase() === 'active').length;
+  const latestBinding = pickLatest(bindings);
+  return {
+    kpis: [
+      { label: 'Engines', value: String(engines.length) },
+      { label: 'Bindings', value: String(bindings.length) },
+      { label: 'Active Bindings', value: String(activeBindings) },
+      { label: 'Latest Binding', value: latestBinding?.binding_id || '-' },
+    ],
+    copy: 'Engine inventory and binding coverage for source routing and execution setup.',
+    metaHtml: `<div class="overview-card-contracts"><span class="shell-chip">GET /engines</span><span class="shell-chip">GET /bindings</span></div>`,
+  };
+}
+
+function summarizeSemantic(payloads) {
+  const groups = [
+    ['Entities', extractItems(payloads.entities)],
+    ['Metrics', extractItems(payloads.metrics)],
+    ['Process Objects', extractItems(payloads.processObjects)],
+    ['Dimensions', extractItems(payloads.dimensions)],
+    ['Time', extractItems(payloads.time)],
+    ['Enum Sets', extractItems(payloads.enumSets)],
+    ['Typed Bindings', extractItems(payloads.typedBindings)],
+    ['Compatibility Profiles', extractItems(payloads.compatibilityProfiles)],
+  ];
+  const allItems = groups.flatMap(([, items]) => items);
+  if (!allItems.length) {
+    return { empty: 'No semantic contracts, typed bindings, or compatibility profiles published yet.' };
+  }
+  const statusCounts = countStatuses(allItems);
+  const groupSummary = groups
+    .filter(([, items]) => items.length > 0)
+    .slice(0, 3)
+    .map(([label, items]) => `<span class="shell-chip">${esc(label)} ${esc(String(items.length))}</span>`)
+    .join('');
+  return {
+    kpis: [
+      { label: 'Contracts', value: String(allItems.length) },
+      { label: 'Draft', value: String(statusCounts.draft || 0) },
+      { label: 'Published', value: String(statusCounts.published || 0) },
+      { label: 'Typed Bindings', value: String(extractItems(payloads.typedBindings).length) },
+    ],
+    copy: 'Typed semantic lifecycle across contracts, bindings, and compatibility profiles.',
+    metaHtml: `<div class="overview-card-contracts">${groupSummary || '<span class="shell-chip">semantic inventory</span>'}</div>`,
+    tone: (statusCounts.draft || 0) > 0 ? 'is-warning' : '',
+  };
+}
+
+function summarizeSessions(payload) {
+  const sessions = extractItems(payload);
+  if (!sessions.length) {
+    return { empty: 'No analysis sessions available yet.' };
+  }
+  const statusCounts = countStatuses(sessions);
+  const openCount = statusCounts.open || 0;
+  const terminalCount = sessions.length - openCount;
+  const latest = pickLatest(sessions);
+  const deepLinks = adminUiDeepLinks({ sessionId: latest?.session_id || '' });
+  return {
+    kpis: [
+      { label: 'Open Sessions', value: String(openCount) },
+      { label: 'Terminal Sessions', value: String(terminalCount) },
+      { label: 'Latest Session', value: latest?.session_id || '-' },
+      { label: 'Updated', value: formatMaybeDate(latest?.updated_at) },
+    ],
+    copy: 'Session operations summary for terminate workflows and canonical drill-ins.',
+    secondaryLink: { href: deepLinks.sessions, label: 'Open /ui Sessions' },
+    metaHtml: `<div class="overview-card-contracts"><span class="shell-chip">GET /sessions</span></div>`,
+    tone: openCount > 0 ? 'is-warning' : '',
+  };
+}
+
+function summarizeRuntime(jobs) {
+  if (!jobs.length) {
+    return { empty: 'No background jobs recorded yet.' };
+  }
+  const statusCounts = countStatuses(jobs);
+  const pending = (statusCounts.submitted || 0) + (statusCounts.running || 0);
+  const failed = statusCounts.failed || 0;
+  const latest = pickLatest(jobs);
+  return {
+    kpis: [
+      { label: 'Pending Jobs', value: String(pending) },
+      { label: 'Failed Jobs', value: String(failed) },
+      { label: 'Active Jobs', value: String(statusCounts.running || 0) },
+      { label: 'Latest Job', value: latest?.job_id || '-' },
+    ],
+    copy: 'Jobs are the current runtime signal for operator-facing troubleshooting on the admin homepage.',
+    secondaryLink: { href: buildUiJobsUrl('', pending > 0 ? 'running' : ''), label: 'Open /ui Jobs' },
+    metaHtml: `<div class="overview-card-contracts"><span class="shell-chip">GET /jobs</span><span class="shell-chip">runtime truth stays in /ui</span></div>`,
+    tone: failed > 0 ? 'is-alert' : pending > 0 ? 'is-warning' : '',
+  };
+}
+
+function summarizeGovernance(approvals, policies, qualityRules) {
+  if (!approvals.length && !policies.length && !qualityRules.length) {
+    return { empty: 'No approvals, policies, or quality rules configured yet.' };
+  }
+  const pendingApprovals = approvals.filter((item) => String(item?.status || '').toLowerCase() === 'pending').length;
+  return {
+    kpis: [
+      { label: 'Pending Approvals', value: String(pendingApprovals) },
+      { label: 'Policies', value: String(policies.length) },
+      { label: 'Quality Rules', value: String(qualityRules.length) },
+      { label: 'Governance Items', value: String(policies.length + qualityRules.length) },
+    ],
+    copy: 'Governance queue and rule inventory for review workflows and enforcement configuration.',
+    metaHtml: `<div class="overview-card-contracts"><span class="shell-chip">GET /approvals?status=pending</span><span class="shell-chip">GET /policies</span><span class="shell-chip">GET /quality-rules</span></div>`,
+    tone: pendingApprovals > 0 ? 'is-alert' : '',
+  };
+}
+
+function summarizeObservability(health, metrics) {
+  const requestCount = metrics?.request_count ? Object.values(metrics.request_count).reduce((sum, value) => sum + Number(value || 0), 0) : 0;
+  const errorCount = metrics?.error_count ? Object.values(metrics.error_count).reduce((sum, value) => sum + Number(value || 0), 0) : 0;
+  const activeJobs = metrics?.active_jobs ?? '-';
+  const activeSessions = metrics?.active_sessions ?? '-';
+  return {
+    kpis: [
+      { label: 'Health Status', value: String(health?.status || 'unknown') },
+      { label: 'Active Sessions', value: String(activeSessions) },
+      { label: 'Active Jobs', value: String(activeJobs) },
+      { label: 'Error Count', value: String(errorCount) },
+    ],
+    copy: requestCount > 0
+      ? `Metrics snapshot available with ${requestCount} recorded request(s).`
+      : 'Health is available. Metrics may be cold, disabled, or not yet populated.',
+    metaHtml: `<div class="overview-card-contracts"><span class="shell-chip">GET /health</span><span class="shell-chip">GET /metrics</span></div>`,
+    tone: String(health?.status || '').toLowerCase() === 'ok' ? '' : 'is-alert',
+  };
+}
+
+function renderOverviewOperationsCard() {
+  return renderAdminDetailCard({
+    title: 'Overview Operating Model',
+    statusHtml: '<span class="shell-chip">configuration + operator workflows</span>',
+    note: 'Overview is intentionally summary-only. Editing, large tables, and canonical deep reads stay in their dedicated pages.',
+    bodyHtml: `
+      <div class="overview-mini-list">
+        <div class="overview-mini-item">
+          <strong>Configuration</strong>
+          Sources, engines, semantic contracts, and governance remain primary admin objects.
+        </div>
+        <div class="overview-mini-item">
+          <strong>Operations</strong>
+          Session termination, runtime troubleshooting, and job reading stay operator-focused.
+        </div>
+        <div class="overview-mini-item">
+          <strong>Canonical Reads</strong>
+          Use adminUiDeepLinks() to jump back into /ui for Sessions, State, Runtime, and Jobs.
+        </div>
+      </div>
+    `,
+  });
+}
+
+function renderOverviewContractCard() {
+  return renderAdminDetailCard({
+    title: 'Overview Data Contracts',
+    statusHtml: '<span class="shell-chip">partial failure tolerant</span>',
+    note: 'Each card loads independently and degrades locally when one summary endpoint fails.',
+    bodyHtml: `
+      <div class="overview-mini-list">
+        <div class="overview-mini-item"><strong>Card-level loading</strong>Loading Source Summary..., Loading Semantic Summary..., and other card placeholders render before fetches settle.</div>
+        <div class="overview-mini-item"><strong>Card-level empty state</strong>No data sources configured yet. No analysis sessions available yet. No background jobs recorded yet.</div>
+        <div class="overview-mini-item"><strong>Card-level errors</strong>Source Summary unavailable. Semantic Summary unavailable. Observability Summary unavailable.</div>
+      </div>
+    `,
+  });
+}
+
+function renderOverviewShell() {
+  const cardsHtml = OVERVIEW_CARD_SPECS.map((card) => renderOverviewCardLoading(card)).join('');
+  return `
+    <div class="overview-page">
+      <div class="overview-grid" data-role="overview-grid">
+        ${cardsHtml}
+      </div>
+      <div class="overview-ops-grid">
+        ${renderOverviewOperationsCard()}
+        ${renderOverviewContractCard()}
       </div>
     </div>
   `;
 }
 
-function renderOverviewFoundation(route) {
-  const deepLinks = adminUiDeepLinks({ sessionId: route.sessionId });
-  const overviewCards = [
-    {
-      title: 'Sources',
-      value: 'List shell',
-      copy: 'Shared list/detail structure is ready for source inventory, selection management, and sync entrypoints.',
-      actionLabel: 'Open Data Sources',
-      href: '?tab=data-sources',
-    },
-    {
-      title: 'Semantic',
-      value: 'JSON first',
-      copy: 'Structured fields stay in detail panes while raw payloads live behind a shared JSON viewer.',
-      actionLabel: 'Open Semantic Catalog',
-      href: '?tab=semantic-catalog&subtab=entities',
-    },
-    {
-      title: 'Analysis Ops',
-      value: 'Deep link',
-      copy: 'Shared helpers now generate `/ui?tab=sessions`, `/ui?tab=state&session_id=...`, and related canonical drill-ins.',
-      actionLabel: 'Open /ui Sessions',
-      href: deepLinks.sessions,
-    },
-    {
-      title: 'Governance',
-      value: 'Confirm modal',
-      copy: 'Delete, publish, and terminate flows can reuse one danger-confirm structure with object, impact scope, and reversibility copy.',
-      actionLabel: 'Open Governance',
-      href: '?tab=governance&subtab=approvals',
-    },
-  ];
+function renderOverviewCardInto(panel, cardKey, html) {
+  const target = panel.querySelector(`[data-overview-card="${cardKey}"]`);
+  if (target) target.outerHTML = html;
+}
 
-  const primaryHtml = renderAdminTableCard({
-    title: 'Shared Foundation Checklist',
-    count: overviewCards.length,
-    countLabel: 'component(s)',
-    note: 'Overview now uses the shared list/detail shell that later tasks will reuse for Data Sources, Execution Engines, Semantic Catalog, Analysis Ops, Runtime & Jobs, Governance, and Observability.',
-    columns: ['Capability', 'Shared Contract', 'Status', 'Why It Exists'],
-    rowsHtml: `
-      <tr>
-        <td>List + Detail Pane</td>
-        <td><span class="inline-code">renderAdminListDetailLayout</span></td>
-        <td>${statusBadge('published')}</td>
-        <td class="is-quiet">All admin list pages can reuse a consistent two-column shell.</td>
-      </tr>
-      <tr>
-        <td>Structured Errors</td>
-        <td><span class="inline-code">renderStructuredError</span></td>
-        <td>${statusBadge('published')}</td>
-        <td class="is-quiet">List, detail, and write failures can show transport, message, and structured details.</td>
-      </tr>
-      <tr>
-        <td>JSON Viewer</td>
-        <td><span class="inline-code">renderJsonPanel</span></td>
-        <td>${statusBadge('published')}</td>
-        <td class="is-quiet">Complex payloads stay secondary instead of dominating table cells.</td>
-      </tr>
-      <tr>
-        <td>/admin to /ui Links</td>
-        <td><span class="inline-code">adminUiDeepLinks</span></td>
-        <td>${statusBadge('published')}</td>
-        <td class="is-quiet">Canonical read surfaces remain in /ui while /admin stays operator-focused.</td>
-      </tr>
-      <tr>
-        <td>Danger Confirm</td>
-        <td><span class="inline-code">openDangerConfirm</span></td>
-        <td>${statusBadge('published')}</td>
-        <td class="is-quiet">Delete Source, Delete Binding, Publish, and Terminate share one confirmation contract.</td>
-      </tr>
-    `,
-    actionsHtml: '<span class="shell-chip">T2 foundation</span>',
-  });
+async function hydrateOverview(panel, route) {
+  const renderVersion = ++overviewRenderVersion;
+  const cards = Object.fromEntries(OVERVIEW_CARD_SPECS.map((card) => [card.key, card]));
 
-  const secondaryHtml = `
-    <div class="stat-grid">
-      ${overviewCards.map((card) => renderOverviewSummaryCard(card.title, card, route)).join('')}
-    </div>
-    ${renderAdminTableCard({
-      title: 'Structured Error Contract',
-      count: 3,
-      countLabel: 'state(s)',
-      note: 'The shared error layer distinguishes loading, empty, and failure instead of collapsing everything into a generic toast.',
-      columns: ['State', 'Shared Container', 'Contract'],
-      rowsHtml: `
-        <tr>
-          <td>Loading</td>
-          <td><span class="inline-code">renderLoadingState</span></td>
-          <td class="is-quiet">Keeps current filters and selection context visible while data is in-flight.</td>
-        </tr>
-        <tr>
-          <td>Empty</td>
-          <td><span class="inline-code">renderEmptyState</span></td>
-          <td class="is-quiet">Tells operators what is missing and what next action is available.</td>
-        </tr>
-        <tr>
-          <td>Failure</td>
-          <td><span class="inline-code">renderStructuredError</span></td>
-          <td class="is-quiet">Shows transport/message and leaves room for backend details instead of a dead page.</td>
-        </tr>
-      `,
-    })}
-  `;
+  const safeRender = (cardKey, html) => {
+    if (renderVersion !== overviewRenderVersion) return;
+    renderOverviewCardInto(panel, cardKey, html);
+  };
 
-  const dangerPreview = renderAdminDetailCard({
-    title: 'Danger Confirm Preview',
-    statusHtml: '<span class="shell-chip">operation object / impact scope / reversible</span>',
-    note: 'This preview exercises the shared danger confirm contract without introducing a real destructive action in T2.',
-    bodyHtml: `
-      ${renderDetailList([
-        { label: 'Operation Object', value: 'binding.bind_checkout_redesign' },
-        { label: 'Impact Scope', value: 'Would remove one source-engine binding from operator routing.' },
-        { label: 'Reversible', value: 'No. Re-create the binding manually after deletion.' },
-      ])}
-      <div class="detail-actions">
-        <button class="btn btn-danger" type="button" data-role="preview-danger-confirm">Preview Delete Binding confirmation</button>
-      </div>
-    `,
-  });
+  const settleCard = async (cardKey, loader, summarize) => {
+    try {
+      const payload = await loader();
+      const summary = summarize(payload, route);
+      if (summary?.empty) {
+        safeRender(cardKey, renderOverviewCardEmpty(cards[cardKey], summary.empty, summary.secondaryLink || null));
+        return;
+      }
+      safeRender(cardKey, renderOverviewCardSuccess(cards[cardKey], summary));
+    } catch (error) {
+      safeRender(cardKey, renderOverviewCardError(cards[cardKey], error));
+    }
+  };
 
-  const routeSummary = renderRouteSummary(route, ADMIN_TAB_META.overview);
-  const detailHtml = `
-    ${dangerPreview}
-    ${routeSummary}
-    ${renderAdminDetailCard({
-      title: 'Shared JSON /ui Deep Link Matrix',
-      statusHtml: '<span class="shell-chip">canonical drill-ins</span>',
-      note: 'These helpers keep `/admin` query-driven while routing canonical reading back to `/ui`.',
-      bodyHtml: renderJsonPanel(
-        'adminUiDeepLinks(route)',
-        deepLinks,
-        'No deep links generated.'
-      ),
-    })}
-  `;
-
-  return renderAdminListDetailLayout({
-    primaryHtml,
-    secondaryHtml,
-    detailHtml,
-  });
+  void settleCard('sources', () => requestJson('/sources', 'Source Summary unavailable.'), summarizeSources);
+  void settleCard('engines', async () => ({
+    engines: await requestJson('/engines', 'Engine / Binding Summary unavailable.'),
+    bindings: await requestJson('/bindings', 'Engine / Binding Summary unavailable.'),
+  }), (payload) => summarizeEngines(payload.engines, payload.bindings));
+  void settleCard('semantic', async () => ({
+    entities: await requestJson('/semantic/entities', 'Semantic Summary unavailable.'),
+    metrics: await requestJson('/semantic/metrics', 'Semantic Summary unavailable.'),
+    processObjects: await requestJson('/semantic/process-objects', 'Semantic Summary unavailable.'),
+    dimensions: await requestJson('/semantic/dimensions', 'Semantic Summary unavailable.'),
+    time: await requestJson('/semantic/time', 'Semantic Summary unavailable.'),
+    enumSets: await requestJson('/semantic/enum-sets', 'Semantic Summary unavailable.'),
+    typedBindings: await requestJson('/semantic/bindings', 'Semantic Summary unavailable.'),
+    compatibilityProfiles: await requestJson('/compiler/compatibility-profiles', 'Semantic Summary unavailable.'),
+  }), summarizeSemantic);
+  void settleCard('sessions', () => requestJson('/sessions', 'Session Operations Summary unavailable.'), summarizeSessions);
+  void settleCard('runtime', () => requestJson('/jobs', 'Runtime / Jobs Summary unavailable.'), summarizeRuntime);
+  void settleCard('governance', async () => ({
+    approvals: await requestJson('/approvals?status=pending', 'Governance / Approvals Summary unavailable.'),
+    policies: await requestJson('/policies', 'Governance / Approvals Summary unavailable.'),
+    qualityRules: await requestJson('/quality-rules', 'Governance / Approvals Summary unavailable.'),
+  }), (payload) => summarizeGovernance(payload.approvals, payload.policies, payload.qualityRules));
+  void settleCard('observability', async () => ({
+    health: await requestJson('/health', 'Observability Summary unavailable.'),
+    metrics: await requestJson('/metrics', 'Observability Summary unavailable.'),
+  }), (payload) => summarizeObservability(payload.health, payload.metrics));
 }
 
 function renderAdminPanel(route) {
@@ -762,7 +1193,7 @@ function renderAdminPanel(route) {
   const routeFocus = tabMeta.routeFocus.map((item) => `<span class="shell-chip"><strong>${esc(item)}</strong></span>`).join('');
   const isOverview = route.tab === 'overview';
   const mainContent = isOverview
-    ? renderOverviewFoundation(route)
+    ? renderOverviewShell()
     : renderAdminListDetailLayout({
         primaryHtml: `
           <div class="admin-shell-card">
@@ -812,6 +1243,10 @@ function renderAdminPanel(route) {
     ${mainContent}
   `;
 
+  if (isOverview) {
+    void hydrateOverview(panel, route);
+  }
+
   panel.querySelectorAll('[data-subtab]').forEach((button) => {
     button.addEventListener('click', () => {
       applyAdminRoute({
@@ -819,26 +1254,6 @@ function renderAdminPanel(route) {
         tab: route.tab,
         subtab: button.dataset.subtab || '',
       });
-    });
-  });
-
-  panel.querySelector('[data-role="preview-danger-confirm"]')?.addEventListener('click', () => {
-    openDangerConfirm({
-      title: 'Delete Binding',
-      objectLabel: 'binding.bind_checkout_redesign',
-      impactScope: 'Removes one source-engine binding from operator routing and breaks dependent publish flows until recreated.',
-      reversible: 'No. Re-create the binding manually after deletion.',
-      confirmLabel: 'Delete Binding',
-      detailsHtml: renderStructuredError(
-        {
-          status: 409,
-          message: 'Publish semantic object failed.',
-          detail: 'Dependent runtime carriers still reference this binding.',
-          transport: 'structured backend error',
-        },
-        'Delete preview only.'
-      ),
-      onConfirm: () => toast('Preview only: no destructive request was sent.', 'info'),
     });
   });
 }
@@ -854,13 +1269,10 @@ function applyAdminRoute(nextRoute, historyMode = 'push') {
 }
 
 const adminApi = {
+  getJson: requestJson,
   async listApprovals(params) {
     const query = params ? `?${new URLSearchParams(params)}` : '';
-    const response = await fetch(`/approvals${query}`, {
-      headers: { 'Content-Type': 'application/json' },
-    });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return response.json();
+    return requestJson(`/approvals${query}`, 'Approvals badge unavailable.');
   },
 };
 
