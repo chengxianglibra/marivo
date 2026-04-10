@@ -189,6 +189,15 @@ class SourceRegistry:
         rows = self.metadata.query_rows(sql, params)
         return [self._row_to_object(r) for r in rows]
 
+    def get_object(self, source_id: str, object_id: str) -> dict[str, Any]:
+        row = self.metadata.query_one(
+            "SELECT * FROM source_objects WHERE object_id = ? AND source_id = ?",
+            [object_id, source_id],
+        )
+        if row is None:
+            raise KeyError(f"Object {object_id!r} not found in source {source_id!r}")
+        return self._row_to_object(row)
+
     def patch_object_properties(
         self, source_id: str, object_id: str, user_props: dict[str, Any]
     ) -> dict[str, Any]:

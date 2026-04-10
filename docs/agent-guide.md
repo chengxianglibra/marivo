@@ -124,14 +124,8 @@ DuckDB/Trino engines.
 Client → FastAPI → `app/api/` → service → semantic/routing/execution → SQLite + engines.
 Metadata reads use synced `source_objects`, not live catalogs.
 
-Docs layout:
+## Docs layout:
 - `docs/api/`: external HTTP API docs only; target-state step submission is in `intent-steps.md`, and canonical read surfaces are split into `session-state.md` and `context-surface.md`
 - `docs/analysis/`: intents/evidence engine related schema.
 - `docs/semantic`: entity/dimension/metric/process related schema.
-
-## Admin UI Boundaries
-
-- Semantic Catalog covers all eight subtabs: Entities, Metrics, Process Objects, Dimensions, Time, Enum Sets, Typed Bindings, and Compatibility Profiles.
-- Analysis Ops is the operator surface for session inventory and Terminate Session only. Do not add create-session, intent, step, or plan-management controls.
-- Runtime & Jobs is for runtime truth rather than canonical result. Keep it read-only and do not add job submit/cancel, retry/replay, or publish controls.
-- Governance covers Policies, Quality Rules, Approvals, and Governance Helpers. Keep `policy_id`, `rule_id`, and `request_id` as first-class route identifiers, and does not fake unsupported policy or quality-rule edit capabilities.
+- Do not update this document with implementation details; keep it focused on shared agent guidance and repository-wide boundaries.

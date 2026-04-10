@@ -183,6 +183,16 @@ def patch_column_properties(
         raise HTTPException(status_code=400, detail=str(e)) from e
 
 
+@router.get("/sources/{source_id}/objects/{object_id}")
+def get_source_object(source_id: str, object_id: str, request: Request) -> dict[str, object]:
+    services = get_services(request)
+    try:
+        services.source_service.get_source(source_id)
+        return services.source_service.get_object(source_id, object_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+
 @router.get("/sources/{source_id}/objects")
 def list_source_objects(
     source_id: str,

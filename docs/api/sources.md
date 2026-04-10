@@ -20,6 +20,7 @@ Sources represent external data catalogs (DuckDB databases, Trino clusters, etc.
 | `GET` | `/sources/{source_id}/catalog/schemas` | Browse source schemas (live) |
 | `GET` | `/sources/{source_id}/catalog/tables` | Browse source tables (live) |
 | `GET` | `/sources/{source_id}/objects` | List synced source objects |
+| `GET` | `/sources/{source_id}/objects/{object_id}` | Get one synced source object |
 
 ---
 
@@ -392,3 +393,35 @@ Returns synced objects from the local metadata store. These are snapshots taken 
 | `partition` | Partition (if supported by the adapter) |
 
 For typed time resolution, table-level `properties.time_capabilities` is the source-metadata hint consumed after semantic-entity overrides and before field-name heuristics.
+
+---
+
+## Get Source Object
+
+```
+GET /sources/{source_id}/objects/{object_id}
+```
+
+Returns one synced source object from the local metadata store. This is the detail form of the list endpoint and returns the same payload shape as one item from `GET /sources/{source_id}/objects`.
+
+### Response
+
+```json
+{
+  "object_id": "obj_...",
+  "source_id": "src_...",
+  "object_type": "table",
+  "parent_id": "obj_...",
+  "native_name": "user_video_watch",
+  "native_id": null,
+  "fqn": "events.user_video_watch",
+  "properties": {
+    "row_count": 15234891,
+    "partition_columns": ["event_date"]
+  },
+  "sync_version": "sync_a1b2c3d4e5f6",
+  "synced_at": "2024-01-15T10:01:08+00:00"
+}
+```
+
+Returns `404` if the source does not exist or if the object is not present under that source.
