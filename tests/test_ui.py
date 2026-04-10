@@ -108,6 +108,42 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertIn("session_id", resp.text)
         self.assertIn("job_id", resp.text)
 
+    def test_admin_overview_uses_shared_t2_foundation(self) -> None:
+        resp = self.client.get("/admin")
+        self.assertIn("Shared Foundation Checklist", resp.text)
+        self.assertIn("renderAdminListDetailLayout", resp.text)
+        self.assertIn("renderAdminTableCard", resp.text)
+        self.assertIn("renderAdminDetailCard", resp.text)
+        self.assertIn("Structured Error Contract", resp.text)
+        self.assertIn("Preview Delete Binding confirmation", resp.text)
+
+    def test_admin_routes_ui_drill_ins_through_shared_helpers(self) -> None:
+        resp = self.client.get("/admin")
+        self.assertIn("adminUiDeepLinks", resp.text)
+        self.assertIn("buildUiSessionsUrl", resp.text)
+        self.assertNotIn("function buildUiUrl", resp.text)
+
+    def test_shared_js_declares_admin_t2_primitives(self) -> None:
+        resp = self.client.get("/static/shared.js")
+        self.assertIn("function renderAdminListDetailLayout", resp.text)
+        self.assertIn("function renderAdminTableCard", resp.text)
+        self.assertIn("function renderAdminDetailCard", resp.text)
+        self.assertIn("function renderStructuredError", resp.text)
+        self.assertIn("function openDangerConfirm", resp.text)
+        self.assertIn("function buildFactumUiUrl", resp.text)
+        self.assertIn("function buildUiStateUrl", resp.text)
+        self.assertIn("function buildUiContextUrl", resp.text)
+        self.assertIn("function buildUiRuntimeUrl", resp.text)
+        self.assertIn("function buildUiJobsUrl", resp.text)
+
+    def test_shared_css_declares_admin_t2_layout_and_states(self) -> None:
+        resp = self.client.get("/static/shared.css")
+        self.assertIn(".admin-list-detail-layout", resp.text)
+        self.assertIn(".detail-empty", resp.text)
+        self.assertIn(".detail-error", resp.text)
+        self.assertIn(".list-error", resp.text)
+        self.assertIn(".danger-confirm-modal", resp.text)
+
     def test_user_uses_shared_assets(self) -> None:
         resp = self.client.get("/ui")
         self.assertIn("shared.css", resp.text)

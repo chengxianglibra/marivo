@@ -434,19 +434,6 @@ function esc(s) {
   return d.innerHTML;
 }
 
-function buildUiUrl(route = {}) {
-  const params = new URLSearchParams();
-  if (route.tab) params.set('tab', route.tab);
-  if (route.sessionId) params.set('session_id', route.sessionId);
-  if (route.propositionId) params.set('proposition_id', route.propositionId);
-  if (route.artifactId) params.set('artifact_id', route.artifactId);
-  if (route.runtimeScope) params.set('runtime_scope', route.runtimeScope);
-  if (route.status) params.set('status', route.status);
-  if (route.sessionQuery) params.set('session_query', route.sessionQuery);
-  const query = params.toString();
-  return query ? `/ui?${query}` : '/ui';
-}
-
 function normalizeAdminRoute(nextRoute) {
   const normalized = {
     tab: ADMIN_TABS.includes(nextRoute.tab) ? nextRoute.tab : DEFAULT_ADMIN_ROUTE.tab,
@@ -556,41 +543,216 @@ function renderAdminSubnav(route, tabMeta) {
 
 function renderRouteSummary(route, tabMeta) {
   const locator = adminObjectLocator(route);
+  const deepLinks = adminUiDeepLinks({
+    sessionId: route.sessionId,
+    propositionId: route.propositionId,
+    artifactId: route.artifactId,
+    runtimeScope: route.runtimeScope,
+    status: route.status,
+    sessionQuery: route.sessionQuery,
+  });
+  const linkMap = {
+    'Open Sessions in /ui': deepLinks.sessions,
+    'Open State in /ui': deepLinks.state,
+    'Open Runtime in /ui': deepLinks.runtime,
+    'Open Jobs in /ui': deepLinks.jobs,
+  };
   const uiLinks = tabMeta.uiLinks.map((link) => {
-    const resolvedRoute = {
-      ...link.route,
-      sessionId: currentAdminRoute.sessionId,
-    };
-    return `<a class="btn btn-sm" href="${esc(buildUiUrl(resolvedRoute))}">${esc(link.label)}</a>`;
+    const href = linkMap[link.label] || buildFactumUiUrl(link.route || {});
+    return `<a class="btn btn-sm" href="${esc(href)}">${esc(link.label)}</a>`;
   }).join('');
 
+  return renderAdminDetailCard({
+    title: 'Shared Route Summary',
+    statusHtml: '<span class="shell-chip">shareable-link</span>',
+    note: 'Shared deep-link and error helpers are centralized in shared.js so later admin pages do not inline query-string assembly.',
+    bodyHtml: `
+      ${renderDetailList([
+        { label: 'tab', value: route.tab },
+        { label: 'subtab', value: route.subtab || '-' },
+        { label: 'source_id', value: route.sourceId || '-' },
+        { label: 'engine_id', value: route.engineId || '-' },
+        { label: 'binding_id', value: route.bindingId || '-' },
+        { label: 'session_id', value: route.sessionId || '-' },
+        { label: 'job_id', value: route.jobId || '-' },
+      ])}
+      <div class="detail-actions">
+        ${uiLinks || '<span class="shell-chip">No /ui deep links for this page yet.</span>'}
+      </div>
+      ${renderJsonPanel(
+        'Route JSON',
+        {
+          tab: route.tab,
+          subtab: route.subtab || null,
+          source_id: route.sourceId || null,
+          engine_id: route.engineId || null,
+          binding_id: route.bindingId || null,
+          session_id: route.sessionId || null,
+          job_id: route.jobId || null,
+          locator: locator || null,
+          deep_links: deepLinks,
+        },
+        'No route state.'
+      )}
+    `,
+  });
+}
+
+function renderOverviewSummaryCard(title, detail, route) {
+  const deepLinks = adminUiDeepLinks({ sessionId: route.sessionId });
   return `
-    <div class="admin-shell-card">
-      <h3>URL State Model</h3>
-      <dl class="admin-route-grid">
-        <dt>tab</dt>
-        <dd><code>${esc(route.tab)}</code></dd>
-        <dt>subtab</dt>
-        <dd><code>${esc(route.subtab || '-')}</code></dd>
-        <dt>source_id</dt>
-        <dd><code>${esc(route.sourceId || '-')}</code></dd>
-        <dt>engine_id</dt>
-        <dd><code>${esc(route.engineId || '-')}</code></dd>
-        <dt>binding_id</dt>
-        <dd><code>${esc(route.bindingId || '-')}</code></dd>
-        <dt>session_id</dt>
-        <dd><code>${esc(route.sessionId || '-')}</code></dd>
-        <dt>job_id</dt>
-        <dd><code>${esc(route.jobId || '-')}</code></dd>
-      </dl>
-    </div>
-    <div class="admin-shell-card">
-      <h3>Deep Link Readiness</h3>
-      <p>${locator ? `Current locator: <code>${esc(locator)}</code>.` : 'No object locator is active for this page yet.'}</p>
-      <p>Refresh, copy link, and browser history restore the current shell state through query parameters.</p>
-      ${uiLinks ? `<div class="admin-shell-link-grid">${uiLinks}</div>` : '<p>/ui deep-link helpers are available for later tasks.</p>'}
+    <div class="stat-card stat-info">
+      <div class="stat-label">${esc(title)}</div>
+      <div class="stat-value">${esc(detail.value)}</div>
+      <div class="stat-detail">${esc(detail.copy)}</div>
+      <div class="detail-actions">
+        <a class="btn btn-sm" href="${esc(detail.href || deepLinks.sessions)}">${esc(detail.actionLabel)}</a>
+      </div>
     </div>
   `;
+}
+
+function renderOverviewFoundation(route) {
+  const deepLinks = adminUiDeepLinks({ sessionId: route.sessionId });
+  const overviewCards = [
+    {
+      title: 'Sources',
+      value: 'List shell',
+      copy: 'Shared list/detail structure is ready for source inventory, selection management, and sync entrypoints.',
+      actionLabel: 'Open Data Sources',
+      href: '?tab=data-sources',
+    },
+    {
+      title: 'Semantic',
+      value: 'JSON first',
+      copy: 'Structured fields stay in detail panes while raw payloads live behind a shared JSON viewer.',
+      actionLabel: 'Open Semantic Catalog',
+      href: '?tab=semantic-catalog&subtab=entities',
+    },
+    {
+      title: 'Analysis Ops',
+      value: 'Deep link',
+      copy: 'Shared helpers now generate `/ui?tab=sessions`, `/ui?tab=state&session_id=...`, and related canonical drill-ins.',
+      actionLabel: 'Open /ui Sessions',
+      href: deepLinks.sessions,
+    },
+    {
+      title: 'Governance',
+      value: 'Confirm modal',
+      copy: 'Delete, publish, and terminate flows can reuse one danger-confirm structure with object, impact scope, and reversibility copy.',
+      actionLabel: 'Open Governance',
+      href: '?tab=governance&subtab=approvals',
+    },
+  ];
+
+  const primaryHtml = renderAdminTableCard({
+    title: 'Shared Foundation Checklist',
+    count: overviewCards.length,
+    countLabel: 'component(s)',
+    note: 'Overview now uses the shared list/detail shell that later tasks will reuse for Data Sources, Execution Engines, Semantic Catalog, Analysis Ops, Runtime & Jobs, Governance, and Observability.',
+    columns: ['Capability', 'Shared Contract', 'Status', 'Why It Exists'],
+    rowsHtml: `
+      <tr>
+        <td>List + Detail Pane</td>
+        <td><span class="inline-code">renderAdminListDetailLayout</span></td>
+        <td>${statusBadge('published')}</td>
+        <td class="is-quiet">All admin list pages can reuse a consistent two-column shell.</td>
+      </tr>
+      <tr>
+        <td>Structured Errors</td>
+        <td><span class="inline-code">renderStructuredError</span></td>
+        <td>${statusBadge('published')}</td>
+        <td class="is-quiet">List, detail, and write failures can show transport, message, and structured details.</td>
+      </tr>
+      <tr>
+        <td>JSON Viewer</td>
+        <td><span class="inline-code">renderJsonPanel</span></td>
+        <td>${statusBadge('published')}</td>
+        <td class="is-quiet">Complex payloads stay secondary instead of dominating table cells.</td>
+      </tr>
+      <tr>
+        <td>/admin to /ui Links</td>
+        <td><span class="inline-code">adminUiDeepLinks</span></td>
+        <td>${statusBadge('published')}</td>
+        <td class="is-quiet">Canonical read surfaces remain in /ui while /admin stays operator-focused.</td>
+      </tr>
+      <tr>
+        <td>Danger Confirm</td>
+        <td><span class="inline-code">openDangerConfirm</span></td>
+        <td>${statusBadge('published')}</td>
+        <td class="is-quiet">Delete Source, Delete Binding, Publish, and Terminate share one confirmation contract.</td>
+      </tr>
+    `,
+    actionsHtml: '<span class="shell-chip">T2 foundation</span>',
+  });
+
+  const secondaryHtml = `
+    <div class="stat-grid">
+      ${overviewCards.map((card) => renderOverviewSummaryCard(card.title, card, route)).join('')}
+    </div>
+    ${renderAdminTableCard({
+      title: 'Structured Error Contract',
+      count: 3,
+      countLabel: 'state(s)',
+      note: 'The shared error layer distinguishes loading, empty, and failure instead of collapsing everything into a generic toast.',
+      columns: ['State', 'Shared Container', 'Contract'],
+      rowsHtml: `
+        <tr>
+          <td>Loading</td>
+          <td><span class="inline-code">renderLoadingState</span></td>
+          <td class="is-quiet">Keeps current filters and selection context visible while data is in-flight.</td>
+        </tr>
+        <tr>
+          <td>Empty</td>
+          <td><span class="inline-code">renderEmptyState</span></td>
+          <td class="is-quiet">Tells operators what is missing and what next action is available.</td>
+        </tr>
+        <tr>
+          <td>Failure</td>
+          <td><span class="inline-code">renderStructuredError</span></td>
+          <td class="is-quiet">Shows transport/message and leaves room for backend details instead of a dead page.</td>
+        </tr>
+      `,
+    })}
+  `;
+
+  const dangerPreview = renderAdminDetailCard({
+    title: 'Danger Confirm Preview',
+    statusHtml: '<span class="shell-chip">operation object / impact scope / reversible</span>',
+    note: 'This preview exercises the shared danger confirm contract without introducing a real destructive action in T2.',
+    bodyHtml: `
+      ${renderDetailList([
+        { label: 'Operation Object', value: 'binding.bind_checkout_redesign' },
+        { label: 'Impact Scope', value: 'Would remove one source-engine binding from operator routing.' },
+        { label: 'Reversible', value: 'No. Re-create the binding manually after deletion.' },
+      ])}
+      <div class="detail-actions">
+        <button class="btn btn-danger" type="button" data-role="preview-danger-confirm">Preview Delete Binding confirmation</button>
+      </div>
+    `,
+  });
+
+  const routeSummary = renderRouteSummary(route, ADMIN_TAB_META.overview);
+  const detailHtml = `
+    ${dangerPreview}
+    ${routeSummary}
+    ${renderAdminDetailCard({
+      title: 'Shared JSON /ui Deep Link Matrix',
+      statusHtml: '<span class="shell-chip">canonical drill-ins</span>',
+      note: 'These helpers keep `/admin` query-driven while routing canonical reading back to `/ui`.',
+      bodyHtml: renderJsonPanel(
+        'adminUiDeepLinks(route)',
+        deepLinks,
+        'No deep links generated.'
+      ),
+    })}
+  `;
+
+  return renderAdminListDetailLayout({
+    primaryHtml,
+    secondaryHtml,
+    detailHtml,
+  });
 }
 
 function renderAdminPanel(route) {
@@ -598,6 +760,37 @@ function renderAdminPanel(route) {
   if (!panel) return;
   const tabMeta = ADMIN_TAB_META[route.tab];
   const routeFocus = tabMeta.routeFocus.map((item) => `<span class="shell-chip"><strong>${esc(item)}</strong></span>`).join('');
+  const isOverview = route.tab === 'overview';
+  const mainContent = isOverview
+    ? renderOverviewFoundation(route)
+    : renderAdminListDetailLayout({
+        primaryHtml: `
+          <div class="admin-shell-card">
+            <h3>Page Scope</h3>
+            <ul>
+              ${tabMeta.summary.map((item) => `<li>${esc(item)}</li>`).join('')}
+            </ul>
+          </div>
+          <div class="admin-shell-card">
+            <h3>Implementation Boundary</h3>
+            <p>T2 provides shared list/detail, JSON, error, and danger-confirm primitives. This page still waits for its task-specific data sources and write flows.</p>
+          </div>
+        `,
+        secondaryHtml: renderAdminTableCard({
+          title: 'Upcoming Page Integration',
+          count: tabMeta.routeFocus.length,
+          countLabel: 'route signal(s)',
+          note: 'Later tasks will plug this page into real list queries and detail panes without re-implementing table shells or `/ui` deep links.',
+          columns: ['Signal', 'Why it matters'],
+          rowsHtml: tabMeta.routeFocus.map((item) => `
+            <tr>
+              <td><span class="inline-code">${esc(item)}</span></td>
+              <td class="is-quiet">Shared renderers keep ${esc(item)} in the URL contract and out of ad-hoc client state.</td>
+            </tr>
+          `).join(''),
+        }),
+        detailHtml: renderRouteSummary(route, tabMeta),
+      });
 
   panel.innerHTML = `
     <div class="admin-shell-header">
@@ -612,27 +805,11 @@ function renderAdminPanel(route) {
       </div>
       <div class="admin-shell-meta">
         <a class="btn btn-sm" href="/admin">Reset to Overview</a>
-        <a class="btn btn-sm" href="${esc(buildUiUrl({ tab: 'sessions', sessionId: route.sessionId }))}">Open /ui</a>
+        <a class="btn btn-sm" href="${esc(buildUiSessionsUrl(route.sessionId || ''))}">Open /ui</a>
       </div>
     </div>
     ${renderAdminSubnav(route, tabMeta)}
-    <div class="admin-shell-grid">
-      <section class="admin-shell-section">
-        <div class="admin-shell-card">
-          <h3>Page Scope</h3>
-          <ul>
-            ${tabMeta.summary.map((item) => `<li>${esc(item)}</li>`).join('')}
-          </ul>
-        </div>
-        <div class="admin-shell-card">
-          <h3>Implementation Boundary</h3>
-          <p>This T1 shell does not render business tables, forms, side panels, or write controls yet. It only establishes navigation, breadcrumbs, route persistence, and stable mount points for later tasks.</p>
-        </div>
-      </section>
-      <aside class="admin-shell-section">
-        ${renderRouteSummary(route, tabMeta)}
-      </aside>
-    </div>
+    ${mainContent}
   `;
 
   panel.querySelectorAll('[data-subtab]').forEach((button) => {
@@ -642,6 +819,26 @@ function renderAdminPanel(route) {
         tab: route.tab,
         subtab: button.dataset.subtab || '',
       });
+    });
+  });
+
+  panel.querySelector('[data-role="preview-danger-confirm"]')?.addEventListener('click', () => {
+    openDangerConfirm({
+      title: 'Delete Binding',
+      objectLabel: 'binding.bind_checkout_redesign',
+      impactScope: 'Removes one source-engine binding from operator routing and breaks dependent publish flows until recreated.',
+      reversible: 'No. Re-create the binding manually after deletion.',
+      confirmLabel: 'Delete Binding',
+      detailsHtml: renderStructuredError(
+        {
+          status: 409,
+          message: 'Publish semantic object failed.',
+          detail: 'Dependent runtime carriers still reference this binding.',
+          transport: 'structured backend error',
+        },
+        'Delete preview only.'
+      ),
+      onConfirm: () => toast('Preview only: no destructive request was sent.', 'info'),
     });
   });
 }

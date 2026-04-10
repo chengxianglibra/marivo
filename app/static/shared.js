@@ -69,6 +69,253 @@ function jsonPre(obj) {
   return `<pre class="json-pre">${esc(s)}</pre>`;
 }
 
+function renderEmptyState(copy, actionHtml = '') {
+  return `
+    <div class="detail-empty">
+      <p>${esc(copy || 'No data available.')}</p>
+      ${actionHtml || ''}
+    </div>
+  `;
+}
+
+function renderLoadingState(copy = 'Loading...') {
+  return `<div class="detail-empty detail-loading">${esc(copy)}</div>`;
+}
+
+function renderErrorState(message, details = '') {
+  return `
+    <div class="detail-error">
+      <div class="state-title">Request Failed</div>
+      <p>${esc(message || 'Unexpected error.')}</p>
+      ${details ? `<div class="state-meta">${esc(details)}</div>` : ''}
+    </div>
+  `;
+}
+
+function renderStructuredError(error, fallbackMessage = 'Request failed.') {
+  if (!error) return renderErrorState(fallbackMessage);
+
+  if (typeof error === 'string') {
+    return renderErrorState(error);
+  }
+
+  const status = error.status ? `HTTP ${error.status}` : '';
+  const message = error.message || error.detail || fallbackMessage;
+  const details = error.transport || error.code || status;
+  return renderErrorState(message, details);
+}
+
+function renderJsonPanel(title, value, emptyCopy = 'No JSON payload.') {
+  const body = value == null ? renderEmptyState(emptyCopy) : jsonPre(value);
+  return `
+    <div class="card shared-json-panel">
+      <div class="shell-card-title">
+        <h3>${esc(title)}</h3>
+        <span class="shell-chip">JSON viewer</span>
+      </div>
+      ${body}
+    </div>
+  `;
+}
+
+function renderDetailList(items) {
+  if (!items || !items.length) {
+    return renderEmptyState('No detail fields configured.');
+  }
+  return `
+    <div class="detail-grid">
+      ${items.map((item) => `
+        <div class="detail-group">
+          <h4>${esc(item.label)}</h4>
+          ${item.valueHtml || `<div>${esc(item.value || '-')}</div>`}
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function renderResultsCount(count, noun, loadingCopy = '') {
+  if (loadingCopy) return `<div class="results-count">${esc(loadingCopy)}</div>`;
+  return `<div class="results-count">${esc(String(count))} ${esc(noun)}</div>`;
+}
+
+function renderAdminTableCard(config) {
+  const headerMeta = config.countHtml || renderResultsCount(config.count || 0, config.countLabel || 'item(s)');
+  const body = config.errorHtml
+    ? `<div class="list-error">${config.errorHtml}</div>`
+    : `
+      <div class="shared-table-wrap">
+        <table class="shared-data-table">
+          <thead><tr>${(config.columns || []).map((column) => `<th>${esc(column)}</th>`).join('')}</tr></thead>
+          <tbody>${config.rowsHtml || ''}</tbody>
+        </table>
+      </div>
+    `;
+  return `
+    <div class="card">
+      <div class="list-meta">
+        <div>
+          <h2>${esc(config.title)}</h2>
+          ${headerMeta}
+        </div>
+        ${config.actionsHtml || ''}
+      </div>
+      ${config.note ? `<p class="panel-note">${config.note}</p>` : ''}
+      ${body}
+    </div>
+  `;
+}
+
+function renderAdminDetailCard(config) {
+  return `
+    <div class="card">
+      <div class="shell-card-title">
+        <h3>${esc(config.title)}</h3>
+        ${config.statusHtml || '<span class="shell-chip">Idle</span>'}
+      </div>
+      ${config.note ? `<p class="panel-note">${config.note}</p>` : ''}
+      ${config.bodyHtml || renderEmptyState('No detail selected.')}
+    </div>
+  `;
+}
+
+function renderAdminListDetailLayout(config) {
+  return `
+    <div class="admin-list-detail-layout">
+      <div class="admin-list-stack">
+        ${config.primaryHtml || ''}
+        ${config.secondaryHtml || ''}
+      </div>
+      <div class="admin-detail-stack">
+        ${config.detailHtml || ''}
+      </div>
+    </div>
+  `;
+}
+
+function buildFactumUiUrl(route = {}) {
+  const params = new URLSearchParams();
+  if (route.tab) params.set('tab', route.tab);
+  if (route.sessionId) params.set('session_id', route.sessionId);
+  if (route.propositionId) params.set('proposition_id', route.propositionId);
+  if (route.artifactId) params.set('artifact_id', route.artifactId);
+  if (route.runtimeScope) params.set('runtime_scope', route.runtimeScope);
+  if (route.status) params.set('status', route.status);
+  if (route.sessionQuery) params.set('session_query', route.sessionQuery);
+  const query = params.toString();
+  return query ? `/ui?${query}` : '/ui';
+}
+
+function buildUiSessionsUrl(sessionId = '', status = '', sessionQuery = '') {
+  return buildFactumUiUrl({ tab: 'sessions', sessionId, status, sessionQuery });
+}
+
+function buildUiStateUrl(sessionId = '') {
+  return buildFactumUiUrl({ tab: 'state', sessionId });
+}
+
+function buildUiContextUrl(sessionId = '', propositionId = '') {
+  return buildFactumUiUrl({ tab: 'context', sessionId, propositionId });
+}
+
+function buildUiRuntimeUrl(sessionId = '', propositionId = '', artifactId = '', runtimeScope = '') {
+  return buildFactumUiUrl({ tab: 'runtime', sessionId, propositionId, artifactId, runtimeScope });
+}
+
+function buildUiJobsUrl(sessionId = '', status = '') {
+  return buildFactumUiUrl({ tab: 'jobs', sessionId, status });
+}
+
+function adminUiDeepLinks(route = {}) {
+  return {
+    sessions: buildUiSessionsUrl(route.sessionId || '', route.status || '', route.sessionQuery || ''),
+    state: buildUiStateUrl(route.sessionId || ''),
+    context: buildUiContextUrl(route.sessionId || '', route.propositionId || ''),
+    runtime: buildUiRuntimeUrl(
+      route.sessionId || '',
+      route.propositionId || '',
+      route.artifactId || '',
+      route.runtimeScope || ''
+    ),
+    jobs: buildUiJobsUrl(route.sessionId || '', route.status || ''),
+  };
+}
+
+function ensureDangerConfirmModal() {
+  let overlay = document.getElementById('shared-danger-confirm');
+  if (overlay) return overlay;
+
+  overlay = document.createElement('div');
+  overlay.id = 'shared-danger-confirm';
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal danger-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="danger-confirm-title">
+      <div class="danger-confirm-header">
+        <span class="badge badge-error">Dangerous action</span>
+        <h3 id="danger-confirm-title">Confirm action</h3>
+      </div>
+      <p class="panel-note danger-confirm-copy">Review object, impact scope, and reversibility before continuing.</p>
+      <div class="detail-grid danger-confirm-grid">
+        <div class="detail-group">
+          <h4>Operation Object</h4>
+          <div data-role="object-label">-</div>
+        </div>
+        <div class="detail-group">
+          <h4>Impact Scope</h4>
+          <div data-role="impact-scope">-</div>
+        </div>
+        <div class="detail-group">
+          <h4>Reversible</h4>
+          <div data-role="reversible">-</div>
+        </div>
+      </div>
+      <div class="danger-confirm-details" data-role="details"></div>
+      <div class="danger-confirm-actions">
+        <button type="button" class="btn" data-role="cancel">Cancel</button>
+        <button type="button" class="btn btn-danger" data-role="confirm">Confirm</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay || event.target?.dataset?.role === 'cancel') {
+      closeModal('shared-danger-confirm');
+    }
+  });
+
+  return overlay;
+}
+
+function openDangerConfirm(options = {}) {
+  const overlay = ensureDangerConfirmModal();
+  const title = overlay.querySelector('#danger-confirm-title');
+  const objectLabel = overlay.querySelector('[data-role="object-label"]');
+  const impactScope = overlay.querySelector('[data-role="impact-scope"]');
+  const reversible = overlay.querySelector('[data-role="reversible"]');
+  const details = overlay.querySelector('[data-role="details"]');
+  const confirm = overlay.querySelector('[data-role="confirm"]');
+
+  if (title) title.textContent = options.title || 'Confirm action';
+  if (objectLabel) objectLabel.textContent = options.objectLabel || '-';
+  if (impactScope) impactScope.textContent = options.impactScope || '-';
+  if (reversible) reversible.textContent = options.reversible || '-';
+  if (details) {
+    details.innerHTML = options.detailsHtml || '';
+  }
+  if (confirm) {
+    confirm.textContent = options.confirmLabel || 'Confirm';
+    confirm.onclick = () => {
+      if (typeof options.onConfirm === 'function') {
+        options.onConfirm();
+      }
+      closeModal('shared-danger-confirm');
+    };
+  }
+
+  openModal('shared-danger-confirm');
+}
+
 /* --- Priority Badge --- */
 function priorityBadge(p) {
   const map = { p0: 'badge-error', p1: 'badge-warning', p2: 'badge-info', p3: 'badge-success' };

@@ -8,17 +8,6 @@ Shared guidance for agents. `AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructi
 - Contract: sessions, semantic entities/metrics, typed steps.
 - Facts extracted deterministically by code. Models explain, not define evidence.
 - Prefer typed steps over raw SQL.
-- `/ui` is a read-only query and troubleshooting workbench; do not add session, intent, plan, step, or job control entrypoints there.
-- `/ui` session navigation is URL-driven (`tab`, `session_id`, `proposition_id`, `artifact_id`, `runtime_scope`, `status`, `session_query`); keep cross-page drill-ins compatible with that contract instead of adding ad-hoc client-side state.
-- `/ui` cross-page drill-ins should reuse shared route helpers and standardized copy: `404 session not found` returns to `Sessions`, `404 proposition not found` returns to `State`, and runtime lookup failures stay on `Runtime` so the canonical chain remains available.
-- `/ui` canonical drill-ins should route through `Sessions -> State -> Context`; when `latest_assessment = null`, send users to Runtime for operator-facing cause details instead of inferring them on the canonical pages.
-- `/admin` is the configuration and operator shell; keep it query-driven via `tab`, `subtab`, and object locator params (`source_id`, `engine_id`, `binding_id`, `session_id`, `job_id`) so refresh/share/back-forward always restore the current admin surface.
-- Target-state external step submission contract lives in `docs/api/intent-steps.md`; `docs/analysis/intents/` remains the design source, not the wire spec.
-- analysis refactor design docs is located at 'docs/analysis'
-- Canonical read surfaces expose externally visible state only; do not mix runtime queue/claim/retry status into `session` / `state` / `context`.
-- Canonical read surfaces (`session` / `state` / `context`) must carry canonical refs and provenance handles only; semantic refs belong to semantic/runtime/compiler contracts and must not leak into evidence read payloads.
-- When evidence consumers need semantic meaning from a `step_ref`, recover it via typed step metadata / compiler snapshots behind the scenes; do not add semantic refs to canonical read payloads.
-- Evidence Engine runtime lifecycle, runtime status surface, and migration/invalidation policies live under `docs/analysis/evidence-engine/`.
 
 ## Python / Typing
 
