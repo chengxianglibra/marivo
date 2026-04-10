@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .base import (
     ListResponseBase,
@@ -77,6 +77,21 @@ class TimeSemanticHeader(ObjectHeaderBase):
 
 class TimeCreateRequest(BaseModel):
     """Request to create a new time semantic object."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "header": {
+                        "time_ref": "time.signup_time",
+                        "display_name": "Signup Time",
+                        "semantic_roles": ["business_anchor"],
+                        "time_contract_version": "time.v1",
+                    }
+                }
+            ]
+        }
+    )
 
     header: TimeSemanticHeader = Field(
         description="Time semantic header containing identity and roles."

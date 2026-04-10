@@ -68,6 +68,33 @@ For Pydantic validation errors (422):
 The legacy `detail` array is preserved for compatibility. Clients that want guided remediation should
 prefer `error` and `guidance` when present.
 
+For typed semantic create/update failures, use this remediation order:
+
+1. `guidance.examples`
+2. `guidance.schema_url`
+3. `guidance.contract_url`
+4. `detail[*].loc`
+
+`guidance.schema_url` is usually the fastest way for an agent to repair a payload because it points
+to the exact request model. `guidance.contract_url` is a path-level OpenAPI fragment for the route
+and is better for route-scoped context than for first-pass payload repair.
+
+`guidance.contract_url` uses `GET /openapi/paths/{encoded_path}` where `encoded_path` is the raw
+route path encoded with unpadded base64url. Example:
+
+- raw path: `/semantic/entities`
+- encoded path: `L3NlbWFudGljL2VudGl0aWVz`
+
+Common typed semantic `422` patterns:
+
+| Symptom | Correct structure |
+| --- | --- |
+| entity create is missing `header` or `interface_contract` | include both, and include `interface_contract.identity.key_refs` |
+| metric create is missing `payload` or mismatches metric family | include `payload` and keep `header.metric_family` equal to `payload.metric_family` |
+| dimension create is missing `value_domain` | place it at `interface_contract.value_domain` |
+| time create sends `interface_contract` | remove it; `/semantic/time` is header-only |
+| binding create omits grounding structure | include `interface_contract.carrier_bindings` and `interface_contract.field_bindings` |
+
 ## Step Submission Semantic Context
 
 Some step submission endpoints may include extra structured context beyond `detail` when the intent contract exposes a stable semantic failure class.

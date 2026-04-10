@@ -65,52 +65,94 @@ curl -s -X POST http://localhost:8000/sources/src_.../sync | jq .
 curl -s http://localhost:8000/sources/src_.../sync/sync_... | jq .status
 ```
 
-## Step 5 - Create a Metric
+## Step 5 - Create the Semantic Closure
 
-Define a semantic metric in draft status:
+Build a minimal reusable semantic layer before running analysis. This example uses one `time`,
+one `entity`, one `metric`, and one typed `binding`.
+
+Create a time semantic:
+
+```bash
+curl -s -X POST http://localhost:8000/semantic/time \
+  -H "Content-Type: application/json" \
+  -d '{
+    "header": {
+      "time_ref": "time.watch_event_date",
+      "display_name": "Watch Event Date",
+      "semantic_roles": ["measurement"],
+      "time_contract_version": "time.v1"
+    }
+  }' | jq .
+```
+
+Create an entity:
+
+```bash
+curl -s -X POST http://localhost:8000/semantic/entities \
+  -H "Content-Type: application/json" \
+  -d '{
+    "header": {
+      "entity_ref": "entity.user",
+      "display_name": "User",
+      "entity_contract_version": "entity.v1"
+    },
+    "interface_contract": {
+      "identity": {
+        "key_refs": ["key.user_id"],
+        "uniqueness_scope": "global",
+        "id_stability": "stable"
+      },
+      "primary_time_ref": "time.watch_event_date"
+    }
+  }' | jq .
+```
+
+Create a metric:
 
 ```bash
 curl -s -X POST http://localhost:8000/semantic/metrics \
   -H "Content-Type: application/json" \
   -d '{
     "header": {
-      "metric_ref": "metric.avg_watch_time_minutes",
-      "display_name": "Average Watch Time (minutes)",
-      "description": "Average video watch duration per session",
-      "metric_family": "average_metric",
-      "observed_entity_ref": "entity.session",
-      "observation_grain_ref": "grain.session",
+      "metric_ref": "metric.daily_active_users",
+      "display_name": "Daily Active Users",
+      "metric_family": "count_metric",
+      "observed_entity_ref": "entity.user",
+      "observation_grain_ref": "grain.day",
       "sample_kind": "numeric",
-      "value_semantics": "average",
-      "additivity": "non_additive",
+      "value_semantics": "count",
+      "aggregation_scope": "window",
+      "primary_time_ref": "time.watch_event_date",
+      "additivity": "additive",
       "metric_contract_version": "metric.v1"
     },
     "payload": {
-      "metric_family": "average_metric",
-      "average_target": {
-        "name": "watch_duration_sec",
-        "semantics": "average watch duration",
-        "aggregation": "average"
+      "metric_family": "count_metric",
+      "count_target": {
+        "name": "active_users",
+        "semantics": "Distinct active users",
+        "aggregation": "count_distinct"
       }
     }
   }' | jq .
 ```
 
-Save the returned `metric_contract_id`.
+Save the returned `time_contract_id`, `entity_contract_id`, and `metric_contract_id`.
 
 ## Step 6 - Create a Typed Binding
 
-Link the metric to the physical table with a typed binding (get the table FQN or `object_id` from Step 4 sync results):
+Link the metric to the physical table with a typed binding. Use the table FQN or `object_id` from
+Step 4 sync results:
 
 ```bash
 curl -s -X POST http://localhost:8000/semantic/bindings \
   -H "Content-Type: application/json" \
   -d '{
     "header": {
-      "binding_ref": "binding.avg_watch_time_minutes_primary",
-      "display_name": "Average Watch Time Binding",
+      "binding_ref": "binding.daily_active_users_primary",
+      "display_name": "Daily Active Users Binding",
       "binding_scope": "metric",
-      "bound_object_ref": "metric.avg_watch_time_minutes",
+      "bound_object_ref": "metric.daily_active_users",
       "binding_contract_version": "binding.v1"
     },
     "interface_contract": {
@@ -121,7 +163,8 @@ curl -s -X POST http://localhost:8000/semantic/bindings \
           "carrier_locator": "analytics.watch_events",
           "binding_role": "primary",
           "field_surfaces": [
-            { "surface_ref": "field.watch_duration_sec", "physical_name": "watch_duration_sec" }
+            { "surface_ref": "field.user_id", "physical_name": "user_id" },
+            { "surface_ref": "field.event_date", "physical_name": "event_date" }
           ]
         }
       ],
@@ -129,22 +172,39 @@ curl -s -X POST http://localhost:8000/semantic/bindings \
         {
           "carrier_binding_key": "primary",
           "target": {
-            "target_kind": "metric_input",
-            "target_key": "measure.watch_duration_sec"
+            "target_kind": "primary_time",
+            "target_key": "time.watch_event_date"
           },
-          "semantic_ref": "measure.watch_duration_sec",
-          "surface_ref": "field.watch_duration_sec"
+          "semantic_ref": "time.watch_event_date",
+          "surface_ref": "field.event_date"
+        },
+        {
+          "carrier_binding_key": "primary",
+          "target": {
+            "target_kind": "metric_input",
+            "target_key": "metric_input.active_users"
+          },
+          "semantic_ref": "metric_input.active_users",
+          "surface_ref": "field.user_id"
         }
       ]
     }
   }' | jq .
 ```
 
-## Step 7 - Publish the Metric
+## Step 7 - Publish the Semantic Closure
 
 ```bash
+curl -s -X POST http://localhost:8000/semantic/time/timec_.../publish | jq .
+curl -s -X POST http://localhost:8000/semantic/entities/entc_.../publish | jq .
 curl -s -X POST http://localhost:8000/semantic/metrics/metc_.../publish | jq .
 curl -s -X POST http://localhost:8000/semantic/bindings/bind_.../publish | jq .
+```
+
+Verify that runtime resolution sees only published typed refs:
+
+```bash
+curl -s http://localhost:8000/semantic/resolve/metric.daily_active_users | jq .
 ```
 
 ## Step 8 - Create a Session

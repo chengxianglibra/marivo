@@ -14,15 +14,41 @@ Typed semantic object contract updates are draft-only. After `publish`, the publ
 
 The minimal end-to-end semantic closure is:
 
-1. create typed semantic objects and typed bindings in `draft`
-2. publish the referenced objects and bindings
-3. resolve only `published` refs through runtime/catalog surfaces
-4. compile typed intent inputs into IR and compile metadata
-5. persist the step semantic snapshot for evidence/runtime consumers
+1. read synced source metadata from `/sources/{source_id}/objects`
+2. create typed semantic objects and typed bindings in dependency order while they are in `draft`
+3. publish the referenced objects and bindings
+4. resolve only `published` refs through runtime/catalog surfaces
+5. compile typed intent inputs into IR and compile metadata
+6. persist the step semantic snapshot for evidence/runtime consumers
 
 Compiler and evidence surfaces must keep semantic refs and canonical refs separate. Typed semantic
 refs belong in runtime resolution, compiler metadata, and persisted `typed_semantic_snapshot`
 records; canonical refs remain confined to session/state/context read payloads.
+
+## Ref Taxonomy
+
+Current public semantic object families are:
+
+- `entity.*`
+- `metric.*`
+- `process.*`
+- `dimension.*`
+- `time.*`
+- `enum.*`
+- `binding.*`
+- `compiler_profile.*`
+
+The semantic layer also uses constrained ref namespaces that are **not** standalone object
+families today:
+
+- `key.*` — entity identity keys referenced from entity contracts and typed bindings
+- `grain.*` — observation or emitted grain refs referenced from metric/process/binding contracts
+- `measure.*` — measure identifiers used inside metric family payloads
+- `metric_input.*` — typed binding inputs for metric grounding
+
+These refs are legal contract values, but there are no public create/list/get/publish routes such as
+`/semantic/keys` or `/semantic/grains`. Agents should generate them as stable refs inside typed
+payloads, not as separate objects.
 
 Related design docs:
 
@@ -218,6 +244,201 @@ opaque `object` payloads. The main component names are:
 
 Time semantics intentionally do not publish a standalone `TimeInterfaceContract` schema today
 because the current HTTP contract is header-only.
+
+## Complete Modeling Walkthrough
+
+When you want Factum to build a reusable semantic layer from synced source metadata, use this order:
+
+1. read the synced table and column metadata from `/sources/{source_id}/objects`
+2. create `time.*` semantics for the business or measurement anchors you need
+3. create `enum.*` value sets when a dimension has a governed domain
+4. create `dimension.*` contracts
+5. create `entity.*` contracts
+6. create `metric.*` contracts
+7. create `binding.*` contracts that ground the semantic objects to synced `source_objects`
+8. publish in dependency order
+9. verify with `/semantic/resolve/{typed_ref}` or `/catalog/search`
+
+Recommended naming rules for generated refs:
+
+- derive `entity.*` refs from the business subject, not directly from the table name
+- derive `key.*` refs from stable identity fields such as `key.user_id`
+- derive `grain.*` refs from the observation unit such as `grain.user`, `grain.session`, or `grain.day`
+- derive `binding.*` refs from the grounded carrier such as `binding.user_events_primary`
+
+Example semantic closure over a synced `analytics.user_events` table:
+
+Create a time semantic:
+
+```json
+{
+  "header": {
+    "time_ref": "time.event_date",
+    "display_name": "Event Date",
+    "semantic_roles": ["measurement"],
+    "time_contract_version": "time.v1"
+  }
+}
+```
+
+Create an enum set for a governed dimension:
+
+```json
+{
+  "header": {
+    "enum_set_ref": "enum.country_code",
+    "value_type": "string"
+  },
+  "display_name": "Country Code",
+  "versions": [
+    {
+      "enum_version": "v1",
+      "values": [
+        {"value_key": "CN", "raw_value": "CN", "label": "China"},
+        {"value_key": "US", "raw_value": "US", "label": "United States"}
+      ]
+    }
+  ]
+}
+```
+
+Create a dimension:
+
+```json
+{
+  "header": {
+    "dimension_ref": "dimension.country",
+    "display_name": "Country",
+    "dimension_contract_version": "dimension.v1"
+  },
+  "interface_contract": {
+    "value_domain": {
+      "structure_kind": "flat",
+      "semantic_role": "category",
+      "value_type": "string",
+      "domain_kind": "enumerated",
+      "enum_set_ref": "enum.country_code",
+      "enum_version": "v1"
+    },
+    "grouping": {
+      "supports_grouping": true
+    }
+  }
+}
+```
+
+Create an entity:
+
+```json
+{
+  "header": {
+    "entity_ref": "entity.user",
+    "display_name": "User",
+    "entity_contract_version": "entity.v1"
+  },
+  "interface_contract": {
+    "identity": {
+      "key_refs": ["key.user_id"],
+      "uniqueness_scope": "global",
+      "id_stability": "stable"
+    },
+    "primary_time_ref": "time.event_date",
+    "stable_descriptors": [
+      {
+        "dimension_ref": "dimension.country",
+        "cardinality": "one"
+      }
+    ]
+  }
+}
+```
+
+Create a metric:
+
+```json
+{
+  "header": {
+    "metric_ref": "metric.daily_active_users",
+    "display_name": "Daily Active Users",
+    "metric_family": "count_metric",
+    "observed_entity_ref": "entity.user",
+    "observation_grain_ref": "grain.day",
+    "sample_kind": "numeric",
+    "value_semantics": "count",
+    "aggregation_scope": "window",
+    "primary_time_ref": "time.event_date",
+    "additivity": "additive",
+    "metric_contract_version": "metric.v1"
+  },
+  "payload": {
+    "metric_family": "count_metric",
+    "count_target": {
+      "name": "active_users",
+      "semantics": "Distinct active users",
+      "aggregation": "count_distinct"
+    }
+  }
+}
+```
+
+Create a typed binding against the synced source object:
+
+```json
+{
+  "header": {
+    "binding_ref": "binding.user_events_primary",
+    "display_name": "User Events Primary Binding",
+    "binding_scope": "metric",
+    "bound_object_ref": "metric.daily_active_users",
+    "binding_contract_version": "binding.v1"
+  },
+  "interface_contract": {
+    "carrier_bindings": [
+      {
+        "binding_key": "primary",
+        "source_object_ref": "obj_user_events",
+        "carrier_kind": "table",
+        "carrier_locator": "analytics.user_events",
+        "binding_role": "primary",
+        "field_surfaces": [
+          {"surface_ref": "field.user_id", "physical_name": "user_id"},
+          {"surface_ref": "field.event_date", "physical_name": "event_date"},
+          {"surface_ref": "field.country", "physical_name": "country"}
+        ]
+      }
+    ],
+    "field_bindings": [
+      {
+        "carrier_binding_key": "primary",
+        "target": {"target_kind": "identity_key", "target_key": "key.user_id"},
+        "semantic_ref": "key.user_id",
+        "surface_ref": "field.user_id"
+      },
+      {
+        "carrier_binding_key": "primary",
+        "target": {"target_kind": "primary_time", "target_key": "time.event_date"},
+        "semantic_ref": "time.event_date",
+        "surface_ref": "field.event_date"
+      },
+      {
+        "carrier_binding_key": "primary",
+        "target": {"target_kind": "metric_input", "target_key": "metric_input.active_users"},
+        "semantic_ref": "metric_input.active_users",
+        "surface_ref": "field.user_id"
+      }
+    ]
+  }
+}
+```
+
+Publish in dependency order:
+
+1. `time.event_date`
+2. `enum.country_code`
+3. `dimension.country`
+4. `entity.user`
+5. `metric.daily_active_users`
+6. `binding.user_events_primary`
 
 List responses are always wrapped:
 
@@ -745,3 +966,24 @@ Request-body validation errors may additionally include:
 - `guidance.contract_url`
 - `guidance.schema_url` when the endpoint has a dedicated request schema
 - `guidance.examples` with minimal valid payloads for typed semantic create/update routes
+
+Recommended remediation order for typed semantic `422` responses:
+
+1. start with `guidance.examples` to find the shortest valid payload shape
+2. read `guidance.schema_url` for the exact request model
+3. read `guidance.contract_url` when you need the route-scoped OpenAPI fragment
+4. use `detail[*].loc` to map the failure to a concrete field path
+
+`guidance.contract_url` points to `GET /openapi/paths/{encoded_path}` where `encoded_path` is the
+raw route path encoded with unpadded base64url. For example, `/semantic/entities` becomes
+`L3NlbWFudGljL2VudGl0aWVz`.
+
+Common typed semantic request failures:
+
+| Symptom | Correct structure |
+| --- | --- |
+| Entity create says `header` or `interface_contract` is missing | `POST /semantic/entities` requires both `header` and `interface_contract.identity` |
+| Metric create says `payload` is missing or the family mismatches | include both `header.metric_family` and `payload.metric_family`, and keep them identical |
+| Dimension create says `value_domain` is missing | nest it under `interface_contract.value_domain` |
+| Time create says extra fields are not allowed or `header` is missing | `POST /semantic/time` is header-only today |
+| Binding create says required grounding is missing | provide `interface_contract.carrier_bindings` plus `interface_contract.field_bindings` with explicit semantic targets |

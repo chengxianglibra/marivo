@@ -9,7 +9,7 @@ and exported by process objects.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .base import (
     DimensionDomainKind,
@@ -222,6 +222,29 @@ class DimensionInterfaceContract(BaseModel):
 
 class DimensionCreateRequest(BaseModel):
     """Request to create a new dimension."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "header": {
+                        "dimension_ref": "dimension.country",
+                        "display_name": "Country",
+                        "dimension_contract_version": "dimension.v1",
+                    },
+                    "interface_contract": {
+                        "value_domain": {
+                            "structure_kind": "flat",
+                            "semantic_role": "category",
+                            "value_type": "string",
+                            "domain_kind": "open",
+                        },
+                        "grouping": {"supports_grouping": True},
+                    },
+                }
+            ]
+        }
+    )
 
     header: DimensionHeader = Field(description="Dimension header.")
     interface_contract: DimensionInterfaceContract = Field(
