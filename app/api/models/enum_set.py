@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .base import (
     EnumValueType,
@@ -148,6 +148,33 @@ class EnumSetVersionSpec(BaseModel):
 
 class EnumSetCreateRequest(BaseModel):
     """Request to create a new enum set."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "header": {
+                        "enum_set_ref": "enum.country_code",
+                        "value_type": "string",
+                    },
+                    "display_name": "Country Code",
+                    "versions": [
+                        {
+                            "enum_version": "v1",
+                            "values": [
+                                {"value_key": "CN", "raw_value": "CN", "label": "China"},
+                                {
+                                    "value_key": "US",
+                                    "raw_value": "US",
+                                    "label": "United States",
+                                },
+                            ],
+                        }
+                    ],
+                }
+            ]
+        }
+    )
 
     header: EnumSetHeader = Field(description="Enum set header with ref and value type.")
     display_name: str = Field(description="Human-readable display name.")

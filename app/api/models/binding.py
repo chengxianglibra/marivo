@@ -9,7 +9,7 @@ to their physical carriers (tables, views) with typed field mappings.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .base import (
     BindingRole,
@@ -335,6 +335,62 @@ class BindingInterfaceContract(BaseModel):
 
 class TypedBindingCreateRequest(BaseModel):
     """Request to create a new typed binding."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "header": {
+                        "binding_ref": "binding.user_events_primary",
+                        "display_name": "User Events Binding",
+                        "binding_scope": "entity",
+                        "bound_object_ref": "entity.user",
+                        "binding_contract_version": "binding.v1",
+                    },
+                    "interface_contract": {
+                        "carrier_bindings": [
+                            {
+                                "binding_key": "primary",
+                                "carrier_kind": "table",
+                                "carrier_locator": "analytics.user_events",
+                                "binding_role": "primary",
+                                "field_surfaces": [
+                                    {
+                                        "surface_ref": "field.user_id",
+                                        "physical_name": "user_id",
+                                    },
+                                    {
+                                        "surface_ref": "field.event_date",
+                                        "physical_name": "event_date",
+                                    },
+                                ],
+                            }
+                        ],
+                        "field_bindings": [
+                            {
+                                "carrier_binding_key": "primary",
+                                "target": {
+                                    "target_kind": "identity_key",
+                                    "target_key": "key.user_id",
+                                },
+                                "semantic_ref": "key.user_id",
+                                "surface_ref": "field.user_id",
+                            },
+                            {
+                                "carrier_binding_key": "primary",
+                                "target": {
+                                    "target_kind": "primary_time",
+                                    "target_key": "time.signup_time",
+                                },
+                                "semantic_ref": "time.signup_time",
+                                "surface_ref": "field.event_date",
+                            },
+                        ],
+                    },
+                }
+            ]
+        }
+    )
 
     header: BindingHeader = Field(description="Binding header.")
     interface_contract: BindingInterfaceContract = Field(description="Binding interface contract.")

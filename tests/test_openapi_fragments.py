@@ -143,6 +143,10 @@ class OpenApiFragmentTests(unittest.TestCase):
 
         self.assertIn("examples", components["TypedEntityCreateRequest"])
         self.assertIn("examples", components["TypedMetricCreateRequest"])
+        self.assertIn("examples", components["DimensionCreateRequest"])
+        self.assertIn("examples", components["TimeCreateRequest"])
+        self.assertIn("examples", components["EnumSetCreateRequest"])
+        self.assertIn("examples", components["TypedBindingCreateRequest"])
 
         for route_path, schema_name in request_schema_by_route.items():
             request_body = schema["paths"][route_path]["post"]["requestBody"]["content"][
