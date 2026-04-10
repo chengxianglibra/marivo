@@ -12,6 +12,7 @@ Shared guidance for agents. `AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructi
 - `/ui` session navigation is URL-driven (`tab`, `session_id`, `proposition_id`, `artifact_id`, `runtime_scope`, `status`, `session_query`); keep cross-page drill-ins compatible with that contract instead of adding ad-hoc client-side state.
 - `/ui` cross-page drill-ins should reuse shared route helpers and standardized copy: `404 session not found` returns to `Sessions`, `404 proposition not found` returns to `State`, and runtime lookup failures stay on `Runtime` so the canonical chain remains available.
 - `/ui` canonical drill-ins should route through `Sessions -> State -> Context`; when `latest_assessment = null`, send users to Runtime for operator-facing cause details instead of inferring them on the canonical pages.
+- `/admin` is the configuration and operator shell; keep it query-driven via `tab`, `subtab`, and object locator params (`source_id`, `engine_id`, `binding_id`, `session_id`, `job_id`) so refresh/share/back-forward always restore the current admin surface.
 - Target-state external step submission contract lives in `docs/api/intent-steps.md`; `docs/analysis/intents/` remains the design source, not the wire spec.
 - analysis refactor design docs is located at 'docs/analysis'
 - Canonical read surfaces expose externally visible state only; do not mix runtime queue/claim/retry status into `session` / `state` / `context`.
