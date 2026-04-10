@@ -76,6 +76,10 @@ export function createDataSourcesModule(ctx) {
     return count === 1 ? '1 table' : `${count} tables`;
   }
 
+  function buildSourceRouteHref(sourceId) {
+    return `?tab=data-sources&source_id=${encodeURIComponent(sourceId)}`;
+  }
+
   function buildSourceListRows(sources, selectedSourceId) {
     if (!sources.length) {
       return `
@@ -85,21 +89,27 @@ export function createDataSourcesModule(ctx) {
       `;
     }
     return sources.map((source) => `
-      <tr class="${source.source_id === selectedSourceId ? 'is-selected' : ''}">
+      <tr
+        class="${source.source_id === selectedSourceId ? 'is-selected' : ''} source-inventory-row"
+        data-role="source-row"
+        data-source-id="${esc(source.source_id)}"
+        data-source-href="${esc(buildSourceRouteHref(source.source_id))}"
+        tabindex="0"
+      >
         <td>
-          <button type="button" class="selectable-list-item ${source.source_id === selectedSourceId ? 'is-active' : ''}" data-action="select-source" data-source-id="${esc(source.source_id)}">
+          <a class="selectable-list-item ${source.source_id === selectedSourceId ? 'is-active' : ''}" data-action="select-source" data-source-id="${esc(source.source_id)}" href="${esc(buildSourceRouteHref(source.source_id))}">
             <span class="selectable-list-copy">
               <span class="selectable-list-title">${esc(source.source_id)}</span>
               <span class="selectable-list-meta">${esc(source.display_name || 'Unnamed Source')}</span>
             </span>
             ${statusBadge(source.status)}
-          </button>
+          </a>
         </td>
-        <td>${esc(source.display_name || '-')}</td>
-        <td>${esc(source.source_type || '-')}</td>
-        <td>${statusBadge(source.status)}</td>
-        <td>${esc(formatMaybeDate(source.last_sync_at))}</td>
-        <td>${esc(formatMaybeDate(source.updated_at))}</td>
+        <td><a class="source-inventory-link" href="${esc(buildSourceRouteHref(source.source_id))}">${esc(source.display_name || '-')}</a></td>
+        <td><a class="source-inventory-link" href="${esc(buildSourceRouteHref(source.source_id))}">${esc(source.source_type || '-')}</a></td>
+        <td><a class="source-inventory-link source-inventory-link-status" href="${esc(buildSourceRouteHref(source.source_id))}">${statusBadge(source.status)}</a></td>
+        <td><a class="source-inventory-link" href="${esc(buildSourceRouteHref(source.source_id))}">${esc(formatMaybeDate(source.last_sync_at))}</a></td>
+        <td><a class="source-inventory-link" href="${esc(buildSourceRouteHref(source.source_id))}">${esc(formatMaybeDate(source.updated_at))}</a></td>
       </tr>
     `).join('');
   }
@@ -122,7 +132,7 @@ export function createDataSourcesModule(ctx) {
     });
   }
 
-  function renderSourceSummaryCard(source) {
+  function renderSourceSummaryCard(source, sourceError) {
     if (!source) {
       return renderAdminDetailCard({
         title: 'Source Summary',
@@ -131,25 +141,29 @@ export function createDataSourcesModule(ctx) {
         bodyHtml: renderEmptyState('Select a source to inspect connection/config summary, sync mode, and catalog entrypoints.'),
       });
     }
-    return renderAdminDetailCard({
-      title: 'Source Summary',
-      statusHtml: statusBadge(source.status),
-      note: 'GET /sources/{source_id} is the canonical detail fetch for source lifecycle metadata.',
-      bodyHtml: `
-        ${renderDetailList([
-          { label: 'source_id', value: source.source_id },
-          { label: 'display_name', value: source.display_name || '-' },
-          { label: 'source_type', value: source.source_type || '-' },
-          { label: 'sync_mode', value: source.sync_mode || 'all' },
-          { label: 'enabled/status', valueHtml: statusBadge(source.status) },
-          { label: 'connection/config', value: summarizeConnection(source.connection) },
-        ])}
+    const bodyParts = [
+      renderDetailList([
+        { label: 'source_id', value: source.source_id },
+        { label: 'display_name', value: source.display_name || '-' },
+        { label: 'source_type', value: source.source_type || '-' },
+        { label: 'sync_mode', value: source.sync_mode || 'all' },
+        { label: 'enabled/status', valueHtml: statusBadge(source.status) },
+        { label: 'connection/config', value: summarizeConnection(source.connection) },
+      ]),
+      sourceError ? renderStructuredError(sourceError, 'Source Summary unavailable.') : '',
+      `
         <div class="detail-actions">
           <button type="button" class="btn" data-action="edit-source" data-source-id="${esc(source.source_id)}">Edit Source</button>
           <button type="button" class="btn btn-danger" data-action="delete-source" data-source-id="${esc(source.source_id)}">Delete Source</button>
         </div>
-        ${renderJsonPanel('Connection JSON', source.connection, 'No connection payload.')}
       `,
+      renderJsonPanel('Connection JSON', source.connection, 'No connection payload.'),
+    ];
+    return renderAdminDetailCard({
+      title: 'Source Summary',
+      statusHtml: statusBadge(source.status),
+      note: 'GET /sources/{source_id} is the canonical detail fetch for source lifecycle metadata.',
+      bodyHtml: bodyParts.join(''),
     });
   }
 
@@ -333,7 +347,7 @@ export function createDataSourcesModule(ctx) {
           secondaryHtml: viewModel.listError ? '' : '',
           detailHtml: `
             <div class="data-sources-detail-stack">
-              ${renderSourceSummaryCard(viewModel.selectedSource)}
+              ${renderSourceSummaryCard(viewModel.selectedSource, viewModel.sourceError)}
               ${renderSourceSyncCard(viewModel.selectedSource, viewModel.tables, viewModel.syncError)}
               ${renderSelectionsCard(viewModel.selectedSource, viewModel.selections)}
               ${renderCatalogCard(viewModel.selectedSource, viewModel.catalogState)}
@@ -350,6 +364,7 @@ export function createDataSourcesModule(ctx) {
       sources: [],
       selectedSourceId: '',
       selectedSource: null,
+      sourceError: null,
       selections: [],
       tables: [],
       syncError: null,
@@ -516,6 +531,7 @@ export function createDataSourcesModule(ctx) {
       sources: [],
       selectedSourceId: route.sourceId || '',
       selectedSource: null,
+      sourceError: null,
       selections: [],
       tables: [],
       syncError: null,
@@ -536,6 +552,7 @@ export function createDataSourcesModule(ctx) {
         sources,
         selectedSourceId: sources.some((item) => item.source_id === route.sourceId) ? route.sourceId : '',
         selectedSource: null,
+        sourceError: null,
         selections: [],
         tables: [],
         syncError: null,
@@ -553,6 +570,7 @@ export function createDataSourcesModule(ctx) {
           sources,
           selectedSourceId: '',
           selectedSource: null,
+          sourceError: null,
           selections: [],
           tables: [],
           syncError: null,
@@ -562,22 +580,52 @@ export function createDataSourcesModule(ctx) {
         return;
       }
 
-      const [sourceDetail, selections, tables, catalogState] = await Promise.all([
-        ctx.adminApi.getSource(selectedSourceId),
-        ctx.adminApi.listSourceSelections(selectedSourceId),
-        ctx.adminApi.listSourceObjects(selectedSourceId, { type: 'table' }),
-        loadCatalogState(selectedSourceId),
-      ]);
+      const selectedSourceSeed = sources.find((item) => item.source_id === selectedSourceId) || null;
+      safeRender({
+        sources,
+        selectedSourceId,
+        selectedSource: selectedSourceSeed,
+        sourceError: null,
+        selections: [],
+        tables: [],
+        syncError: null,
+        catalogState: sourceCatalogState(selectedSourceId),
+        listError: null,
+      });
+
+      const [sourceDetailResult, selectionsResult, tablesResult, catalogStateResult] =
+        await Promise.allSettled([
+          ctx.adminApi.getSource(selectedSourceId),
+          ctx.adminApi.listSourceSelections(selectedSourceId),
+          ctx.adminApi.listSourceObjects(selectedSourceId, { type: 'table' }),
+          loadCatalogState(selectedSourceId),
+        ]);
+
+      const sourceDetail = sourceDetailResult.status === 'fulfilled' ? sourceDetailResult.value : null;
+      const sourceError = sourceDetailResult.status === 'rejected'
+        ? normalizeApiError(sourceDetailResult.reason, 'Source Summary unavailable.')
+        : null;
+      const selections = selectionsResult.status === 'fulfilled'
+        ? extractItems(selectionsResult.value)
+        : [];
+      const tables = tablesResult.status === 'fulfilled'
+        ? extractItems(tablesResult.value)
+        : [];
+      const catalogState = catalogStateResult.status === 'fulfilled'
+        ? catalogStateResult.value
+        : sourceCatalogState(selectedSourceId);
       const selectedSource = {
-        ...sourceDetail,
+        ...(selectedSourceSeed || {}),
+        ...(sourceDetail || {}),
         last_sync_at: sources.find((item) => item.source_id === selectedSourceId)?.last_sync_at || '',
       };
       safeRender({
         sources,
         selectedSourceId,
         selectedSource,
-        selections: extractItems(selections),
-        tables: extractItems(tables),
+        sourceError,
+        selections,
+        tables,
         syncError: dataSourcesUiState.syncErrors[selectedSourceId] || null,
         catalogState,
         listError: null,
@@ -587,6 +635,7 @@ export function createDataSourcesModule(ctx) {
         sources: lastSources,
         selectedSourceId: route.sourceId || '',
         selectedSource: null,
+        sourceError: null,
         selections: [],
         tables: [],
         syncError: null,
@@ -859,16 +908,33 @@ export function createDataSourcesModule(ctx) {
   }
 
   function bindEvents(panel, viewModel) {
+    panel.querySelectorAll('[data-role="source-row"]').forEach((row) => {
+      const selectSource = () => {
+        const sourceId = row.dataset.sourceId || '';
+        ctx.applyAdminRoute({ ...ctx.getCurrentRoute(), sourceId }, 'push');
+      };
+      row.addEventListener('click', (event) => {
+        const target = event.target instanceof Element ? event.target : null;
+        if (target?.closest('[data-action="select-source"]')) return;
+        selectSource();
+      });
+      row.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        selectSource();
+      });
+    });
+    panel.querySelectorAll('[data-action="select-source"]').forEach((button) => {
+      button.addEventListener('click', (event) => {
+        event.preventDefault();
+        ctx.applyAdminRoute({ ...ctx.getCurrentRoute(), sourceId: button.dataset.sourceId || '' }, 'push');
+      });
+    });
     panel.querySelectorAll('[data-action="refresh-sources"]').forEach((button) => {
       button.addEventListener('click', () => refreshCurrentDataSources());
     });
     panel.querySelectorAll('[data-action="create-source"]').forEach((button) => {
       button.addEventListener('click', () => openSourceFormModal('create', null));
-    });
-    panel.querySelectorAll('[data-action="select-source"]').forEach((button) => {
-      button.addEventListener('click', () => {
-        ctx.applyAdminRoute({ ...ctx.getCurrentRoute(), sourceId: button.dataset.sourceId || '' }, 'push');
-      });
     });
     panel.querySelectorAll('[data-action="edit-source"]').forEach((button) => {
       button.addEventListener('click', () => {

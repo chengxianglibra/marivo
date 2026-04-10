@@ -252,6 +252,8 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertIn("Manage Selections", resp.text)
         self.assertIn("Clear All", resp.text)
         self.assertIn("Browse Catalog", resp.text)
+        self.assertIn('data-role="source-row"', resp.text)
+        self.assertIn("?tab=data-sources&source_id=", resp.text)
         self.assertIn("last_sync_at", resp.text)
         self.assertIn("GET /sources/{source_id}", resp.text)
         self.assertIn("POST /sources/{source_id}/sync", resp.text)
@@ -279,6 +281,8 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertIn("Array.isArray(payload?.items)", resp.text)
         self.assertIn("let lastSources = []", resp.text)
         self.assertIn("lastSources = sources", resp.text)
+        self.assertIn("Promise.allSettled", resp.text)
+        self.assertIn("sourceError", resp.text)
         self.assertIn("openSourceFormModal", resp.text)
         self.assertIn("openSelectionModal", resp.text)
         self.assertIn("handleRunSourceSync", resp.text)
@@ -289,6 +293,7 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertIn("Connection JSON", resp.text)
         self.assertIn("source-form-modal", resp.text)
         self.assertIn("selection-modal", resp.text)
+        self.assertIn("target?.closest('[data-action=\"select-source\"]')", resp.text)
 
     def test_admin_execution_engines_declares_t5_inventory_detail_and_mutation_contracts(
         self,

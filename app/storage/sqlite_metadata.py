@@ -4,7 +4,7 @@ import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from app.storage.metadata import MetadataStore
 from app.storage.schema import METADATA_DDL
@@ -12,6 +12,14 @@ from app.storage.schema import METADATA_DDL
 
 class SQLiteMetadataStore(MetadataStore):
     """SQLite-backed metadata store for tests and local development."""
+
+    _SESSION_COLUMN_DEFAULTS: ClassVar[dict[str, str]] = {
+        "raw_filter": "TEXT",
+        "terminal_reason": "TEXT",
+        "ended_at": "TEXT",
+        "rollover_from_session_id": "TEXT",
+        "updated_at": "TEXT NOT NULL DEFAULT (datetime('now'))",
+    }
 
     def __init__(self, db_path: str | Path) -> None:
         self.db_path = Path(db_path)
@@ -21,7 +29,17 @@ class SQLiteMetadataStore(MetadataStore):
         with self.connect() as con:
             for ddl in METADATA_DDL:
                 con.execute(ddl)
+            self._ensure_session_schema(con)
             con.commit()
+
+    def _ensure_session_schema(self, con: sqlite3.Connection) -> None:
+        columns = {
+            str(row["name"]) for row in con.execute("PRAGMA table_info(sessions)").fetchall()
+        }
+        for column_name, column_sql in self._SESSION_COLUMN_DEFAULTS.items():
+            if column_name in columns:
+                continue
+            con.execute(f"ALTER TABLE sessions ADD COLUMN {column_name} {column_sql}")
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
