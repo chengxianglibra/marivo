@@ -7,6 +7,7 @@ objects without requiring all data upfront.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -58,11 +59,9 @@ def _runtime_object_kind(ref: str) -> ObjectKind | None:
         ("binding.", "binding"),
     )
     for prefix, object_kind in prefixes:
-        if ref.startswith(prefix) and (len(ref) == len(prefix) or ref[len(prefix)] == "."):
+        if ref.startswith(prefix):
             return object_kind
-    if ref.startswith("compiler_profile.") and (
-        len(ref) == len("compiler_profile.") or ref[len("compiler_profile.")] == "."
-    ):
+    if ref.startswith("compiler_profile."):
         return "compiler_profile"
     return None
 
@@ -106,7 +105,7 @@ class ReadinessEvaluationContext:
     def load_dependency_snapshot(self, ref: str) -> ReadinessObjectSnapshot | None:
         if self.dependency_snapshot_loader is not None:
             return self.dependency_snapshot_loader(ref)
-        return None
+        return self._default_dependency_snapshot_loader(ref)
 
     def load_dependency_result(self, ref: str) -> ReadinessResult | None:
         if self.dependency_result_loader is not None:
@@ -143,14 +142,14 @@ class ReadinessEvaluationContext:
             return []
         rows = self.metadata.query_rows(
             """
-            SELECT binding_id, binding_ref, binding_scope, bound_object_ref, status, revision
+            SELECT *
             FROM typed_bindings
             WHERE bound_object_ref = ?
             ORDER BY binding_ref
             """,
             [subject_ref],
         )
-        return [dict(row) for row in rows]
+        return [self._build_binding_snapshot(dict(row)) for row in rows]
 
     def _default_binding_imports_loader(self, binding_ref: str) -> list[dict[str, Any]]:
         if self.metadata is None:
@@ -170,7 +169,14 @@ class ReadinessEvaluationContext:
             """,
             [binding_row["binding_id"]],
         )
-        return [dict(row) for row in rows]
+        return [
+            {
+                "import_key": row["import_key"],
+                "imported_binding_ref": row["imported_binding_ref"],
+                "required_ref_prefixes": json.loads(row["required_ref_prefixes_json"]),
+            }
+            for row in rows
+        ]
 
     def _default_carrier_source_object_loader(
         self, carrier_binding: dict[str, Any]
@@ -208,12 +214,329 @@ class ReadinessEvaluationContext:
             """
             SELECT *
             FROM compiler_compatibility_profiles
-            WHERE subject_kind = ? AND subject_ref = ?
+            WHERE subject_kind = ? AND subject_ref = ? AND status = 'published'
             ORDER BY profile_ref
             """,
             [subject_kind, subject_ref],
         )
-        return [dict(row) for row in rows]
+        profiles: list[dict[str, Any]] = []
+        for row in rows:
+            profiles.append(
+                {
+                    **dict(row),
+                    "requirement": json.loads(row["requirement_json"] or "{}"),
+                    "capability": json.loads(row["capability_json"] or "{}"),
+                }
+            )
+        return profiles
+
+    def _default_dependency_snapshot_loader(self, ref: str) -> ReadinessObjectSnapshot | None:
+        if self.metadata is None:
+            return None
+        object_kind = _runtime_object_kind(ref)
+        if object_kind is None:
+            return None
+        if object_kind == "entity":
+            row = self.metadata.query_one(
+                "SELECT * FROM semantic_entity_contracts WHERE entity_ref = ?",
+                [ref],
+            )
+            if row is None:
+                return None
+            row_dict = dict(row)
+            return ReadinessObjectSnapshot(
+                object_kind="entity",
+                object_id=str(row_dict["entity_contract_id"]),
+                ref=str(row_dict["entity_ref"]),
+                status=str(row_dict["status"]),
+                revision=int(row_dict["revision"]),
+                semantic_object=self._build_entity_snapshot(row_dict),
+            )
+        if object_kind == "metric":
+            row = self.metadata.query_one(
+                "SELECT * FROM semantic_metric_contracts WHERE metric_ref = ?",
+                [ref],
+            )
+            if row is None:
+                return None
+            row_dict = dict(row)
+            return ReadinessObjectSnapshot(
+                object_kind="metric",
+                object_id=str(row_dict["metric_contract_id"]),
+                ref=str(row_dict["metric_ref"]),
+                status=str(row_dict["status"]),
+                revision=int(row_dict["revision"]),
+                semantic_object=self._build_metric_snapshot(row_dict),
+            )
+        if object_kind == "process":
+            row = self.metadata.query_one(
+                "SELECT * FROM semantic_process_objects WHERE process_ref = ?",
+                [ref],
+            )
+            if row is None:
+                return None
+            row_dict = dict(row)
+            return ReadinessObjectSnapshot(
+                object_kind="process",
+                object_id=str(row_dict["process_contract_id"]),
+                ref=str(row_dict["process_ref"]),
+                status=str(row_dict["status"]),
+                revision=int(row_dict["revision"]),
+                semantic_object=self._build_process_snapshot(row_dict),
+            )
+        lookup: dict[ObjectKind, tuple[str, str, str]] = {
+            "dimension": (
+                "semantic_dimension_contracts",
+                "dimension_contract_id",
+                "dimension_ref",
+            ),
+            "time": (
+                "semantic_time_objects",
+                "time_contract_id",
+                "time_ref",
+            ),
+            "enum": (
+                "semantic_enum_sets",
+                "enum_set_contract_id",
+                "enum_set_ref",
+            ),
+            "binding": (
+                "typed_bindings",
+                "binding_id",
+                "binding_ref",
+            ),
+        }
+        # Assertion documents that object_kind comes from type-checked ObjectKind literal,
+        # making SQL identifiers safe (values from hardcoded dict, not user input).
+        assert object_kind in lookup, f"Invalid object_kind: {object_kind}"
+        table, id_field, ref_field = lookup[object_kind]
+        row = self.metadata.query_one(f"SELECT * FROM {table} WHERE {ref_field} = ?", [ref])
+        if row is None:
+            return None
+        row_dict = dict(row)
+        semantic_object: dict[str, Any]
+        if object_kind == "binding":
+            semantic_object = self._build_binding_snapshot(row_dict)
+        else:
+            semantic_object = {"header": {ref_field: row_dict[ref_field]}}
+        return ReadinessObjectSnapshot(
+            object_kind=object_kind,
+            object_id=str(row_dict[id_field]),
+            ref=str(row_dict[ref_field]),
+            status=str(row_dict["status"]),
+            revision=int(row_dict["revision"]),
+            semantic_object=semantic_object,
+        )
+
+    def _build_entity_snapshot(self, row: dict[str, Any]) -> dict[str, Any]:
+        if self.metadata is None:
+            return {"header": {"entity_ref": row["entity_ref"]}}
+        key_rows = self.metadata.query_rows(
+            """
+            SELECT key_ref
+            FROM semantic_entity_key_refs
+            WHERE entity_contract_id = ?
+            ORDER BY position
+            """,
+            [row["entity_contract_id"]],
+        )
+        descriptor_rows = self.metadata.query_rows(
+            """
+            SELECT dimension_ref, cardinality
+            FROM semantic_entity_stable_descriptors
+            WHERE entity_contract_id = ?
+            ORDER BY position
+            """,
+            [row["entity_contract_id"]],
+        )
+        return {
+            "header": {
+                "entity_ref": row["entity_ref"],
+                "entity_contract_version": row["entity_contract_version"],
+            },
+            "interface_contract": {
+                "identity": {
+                    "key_refs": [key_row["key_ref"] for key_row in key_rows],
+                    "uniqueness_scope": row["uniqueness_scope"],
+                    "id_stability": row["id_stability"],
+                    "nullable_key_policy": row["nullable_key_policy"],
+                },
+                "primary_time_ref": row["primary_time_ref"],
+                "stable_descriptors": [
+                    {
+                        "dimension_ref": descriptor_row["dimension_ref"],
+                        "cardinality": descriptor_row["cardinality"],
+                    }
+                    for descriptor_row in descriptor_rows
+                ],
+            },
+        }
+
+    def _build_metric_snapshot(self, row: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "header": {
+                "metric_ref": row["metric_ref"],
+                "metric_family": row["metric_family"],
+                "population_subject_ref": row["population_subject_ref"],
+                "observed_entity_ref": row["observed_entity_ref"],
+                "observation_grain_ref": row["observation_grain_ref"],
+                "sample_kind": row["sample_kind"],
+                "value_semantics": row["value_semantics"],
+                "aggregation_scope": row["aggregation_scope"],
+                "primary_time_ref": row["primary_time_ref"],
+                "additivity": row["additivity"],
+                "metric_contract_version": row["metric_contract_version"],
+            },
+            "payload": json.loads(row["family_payload_json"]),
+        }
+
+    def _build_process_snapshot(self, row: dict[str, Any]) -> dict[str, Any]:
+        exported_dimension_rows = []
+        if self.metadata is not None:
+            exported_dimension_rows = self.metadata.query_rows(
+                """
+                SELECT dimension_ref
+                FROM semantic_process_exported_dimension_refs
+                WHERE process_contract_id = ?
+                ORDER BY position
+                """,
+                [row["process_contract_id"]],
+            )
+        interface_contract: dict[str, Any] = {
+            "contract_mode": row["contract_mode"],
+            "population_subject_ref": row["population_subject_ref"],
+            "anchor_time_ref": row["anchor_time_ref"],
+            "exported_dimension_refs": [
+                exported_dimension_row["dimension_ref"]
+                for exported_dimension_row in exported_dimension_rows
+            ],
+        }
+        if row["contract_mode"] == "context_provider":
+            interface_contract["context_kind"] = row["context_kind"]
+            interface_contract["membership_cardinality"] = row["membership_cardinality"]
+        else:
+            interface_contract["entity_ref"] = row["entity_ref"]
+            interface_contract["emitted_grain_ref"] = row["emitted_grain_ref"]
+            interface_contract["subject_cardinality"] = row["subject_cardinality"]
+        return {
+            "header": {
+                "process_ref": row["process_ref"],
+                "process_type": row["process_type"],
+                "process_contract_version": row["process_contract_version"],
+            },
+            "interface_contract": interface_contract,
+            "payload": json.loads(row["process_payload_json"]),
+        }
+
+    def _build_binding_snapshot(self, row: dict[str, Any]) -> dict[str, Any]:
+        if self.metadata is None:
+            return {
+                "binding_id": row["binding_id"],
+                "binding_ref": row["binding_ref"],
+                "binding_scope": row["binding_scope"],
+                "bound_object_ref": row["bound_object_ref"],
+                "status": row["status"],
+                "revision": row["revision"],
+            }
+        import_rows = self.metadata.query_rows(
+            """
+            SELECT import_key, imported_binding_ref, required_ref_prefixes_json
+            FROM binding_imports
+            WHERE binding_id = ?
+            ORDER BY id
+            """,
+            [row["binding_id"]],
+        )
+        carrier_rows = self.metadata.query_rows(
+            """
+            SELECT *
+            FROM carrier_bindings
+            WHERE binding_id = ?
+            ORDER BY binding_key
+            """,
+            [row["binding_id"]],
+        )
+        carriers: list[dict[str, Any]] = []
+        for carrier_row in carrier_rows:
+            field_surface_rows = self.metadata.query_rows(
+                """
+                SELECT surface_ref, physical_name, field_type
+                FROM carrier_field_surfaces
+                WHERE carrier_binding_id = ?
+                ORDER BY position
+                """,
+                [carrier_row["carrier_binding_id"]],
+            )
+            time_surface_rows = self.metadata.query_rows(
+                """
+                SELECT surface_ref, physical_name, time_granularity
+                FROM carrier_time_surfaces
+                WHERE carrier_binding_id = ?
+                ORDER BY position
+                """,
+                [carrier_row["carrier_binding_id"]],
+            )
+            carriers.append(
+                {
+                    "binding_key": carrier_row["binding_key"],
+                    "source_object_ref": carrier_row["source_object_ref"],
+                    "carrier_kind": carrier_row["carrier_kind"],
+                    "carrier_locator": carrier_row["carrier_locator"],
+                    "binding_role": carrier_row["binding_role"],
+                    "semantic_role_ref": carrier_row["semantic_role_ref"],
+                    "grain_ref": carrier_row["grain_ref"],
+                    "primary_entity_ref": carrier_row["primary_entity_ref"],
+                    "field_surfaces": [dict(surface_row) for surface_row in field_surface_rows],
+                    "time_surfaces": [dict(surface_row) for surface_row in time_surface_rows],
+                }
+            )
+        field_binding_rows = self.metadata.query_rows(
+            """
+            SELECT carrier_binding_key, target_kind, target_key, context_ref, semantic_ref,
+                   surface_ref, field_type_ref, nullability_policy, repeated_value_policy
+            FROM field_bindings
+            WHERE binding_id = ?
+            ORDER BY carrier_binding_key, target_kind, target_key
+            """,
+            [row["binding_id"]],
+        )
+        return {
+            "binding_id": row["binding_id"],
+            "binding_ref": row["binding_ref"],
+            "binding_scope": row["binding_scope"],
+            "bound_object_ref": row["bound_object_ref"],
+            "status": row["status"],
+            "revision": row["revision"],
+            "interface_contract": {
+                "imports": [
+                    {
+                        "import_key": import_row["import_key"],
+                        "binding_ref": import_row["imported_binding_ref"],
+                        "required_ref_prefixes": json.loads(
+                            import_row["required_ref_prefixes_json"]
+                        ),
+                    }
+                    for import_row in import_rows
+                ],
+                "carrier_bindings": carriers,
+                "field_bindings": [
+                    {
+                        "carrier_binding_key": field_binding_row["carrier_binding_key"],
+                        "target": {
+                            "target_kind": field_binding_row["target_kind"],
+                            "target_key": field_binding_row["target_key"],
+                            "context_ref": field_binding_row["context_ref"],
+                        },
+                        "semantic_ref": field_binding_row["semantic_ref"],
+                        "surface_ref": field_binding_row["surface_ref"],
+                        "field_type_ref": field_binding_row["field_type_ref"],
+                        "nullability_policy": field_binding_row["nullability_policy"],
+                        "repeated_value_policy": field_binding_row["repeated_value_policy"],
+                    }
+                    for field_binding_row in field_binding_rows
+                ],
+            },
+        }
 
 
 def build_snapshot(

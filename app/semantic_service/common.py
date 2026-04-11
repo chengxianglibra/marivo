@@ -5,7 +5,11 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-from app.semantic_readiness import ObjectKind, SemanticReadinessService
+from app.semantic_readiness import (
+    ObjectKind,
+    SemanticReadinessService,
+    binding_contract_target_exists,
+)
 from app.semantic_runtime.semantic_metadata import (
     entity_runtime_metadata,
     metric_runtime_metadata,
@@ -625,25 +629,6 @@ class SemanticServiceSupport:
         if row is None:
             raise self._validation_error(f"Binding ref must be published: {binding_ref}")
 
-    def _binding_contract_target_exists(
-        self,
-        field_bindings: list[dict[str, Any]],
-        *,
-        target_kind: str,
-        target_key: str | None = None,
-        semantic_ref: str | None = None,
-    ) -> bool:
-        for field_binding in field_bindings:
-            target = field_binding["target"]
-            if target["target_kind"] != target_kind:
-                continue
-            if target_key is not None and target.get("target_key") != target_key:
-                continue
-            if semantic_ref is not None and field_binding.get("semantic_ref") != semantic_ref:
-                continue
-            return True
-        return False
-
     def _resolve_binding_source_object(
         self,
         carrier: dict[str, Any],
@@ -863,7 +848,7 @@ class SemanticServiceSupport:
                     f"Entity binding cannot use target kinds: {sorted(unexpected)}"
                 )
             for key_ref in interface_contract["identity"]["key_refs"]:
-                if not self._binding_contract_target_exists(
+                if not binding_contract_target_exists(
                     field_bindings,
                     target_kind="identity_key",
                     target_key=key_ref,
@@ -873,7 +858,7 @@ class SemanticServiceSupport:
                         f"Entity binding must map identity key '{key_ref}' for {entity_ref}"
                     )
             primary_time_ref = interface_contract.get("primary_time_ref")
-            if primary_time_ref is not None and not self._binding_contract_target_exists(
+            if primary_time_ref is not None and not binding_contract_target_exists(
                 field_bindings,
                 target_kind="primary_time",
                 semantic_ref=primary_time_ref,
@@ -883,7 +868,7 @@ class SemanticServiceSupport:
                 )
             for descriptor in interface_contract.get("stable_descriptors") or []:
                 dimension_ref = descriptor["dimension_ref"]
-                if not self._binding_contract_target_exists(
+                if not binding_contract_target_exists(
                     field_bindings,
                     target_kind="stable_descriptor",
                     target_key=dimension_ref,
@@ -985,7 +970,7 @@ class SemanticServiceSupport:
                     "population_subject_ref"
                 )
             primary_time_ref = header.get("primary_time_ref")
-            if primary_time_ref is not None and not self._binding_contract_target_exists(
+            if primary_time_ref is not None and not binding_contract_target_exists(
                 field_bindings,
                 target_kind="primary_time",
                 semantic_ref=primary_time_ref,

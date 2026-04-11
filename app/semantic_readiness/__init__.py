@@ -19,6 +19,7 @@ Key components:
   - ReadinessResult: Output with lifecycle, readiness, blockers, capabilities
 """
 
+from .binding_utils import binding_contract_target_exists
 from .context import ReadinessEvaluationContext, ReadinessObjectSnapshot, build_snapshot
 from .registry import (
     SemanticReadinessRegistry,
@@ -47,6 +48,7 @@ __all__ = [
     "SemanticReadinessRegistry",
     "SemanticReadinessService",
     "UnknownSemanticReadinessKindError",
+    "binding_contract_target_exists",
     "build_default_registry",
     "build_snapshot",
     "derive_lifecycle_status",

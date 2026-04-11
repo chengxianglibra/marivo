@@ -193,7 +193,17 @@ class SemanticMetricRouteTests(unittest.TestCase):
         self.assertEqual(metric["lifecycle_status"], "draft")
         self.assertEqual(metric["readiness_status"], "not_ready")
         self.assertEqual(metric["blocking_requirements"], [])
-        self.assertEqual(metric["capabilities"], {})
+        self.assertEqual(
+            metric["capabilities"],
+            {
+                "supports_observe": True,
+                "supports_attribute": False,
+                "supports_diagnose": True,
+                "supports_detect": False,
+                "supports_validate": False,
+                "supports_decompose": True,
+            },
+        )
 
         resp = self.client.get(f"/semantic/metrics/{metric_id}")
         self.assertEqual(resp.status_code, 200, resp.text)
@@ -220,7 +230,19 @@ class SemanticMetricRouteTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertEqual(resp.json()["status"], "published")
         self.assertEqual(resp.json()["lifecycle_status"], "active")
-        self.assertEqual(resp.json()["readiness_status"], "ready")
+        self.assertEqual(resp.json()["readiness_status"], "not_ready")
+        self.assertEqual(resp.json()["blocking_requirements"][0]["code"], "METRIC_BINDING_MISSING")
+        self.assertEqual(
+            resp.json()["capabilities"],
+            {
+                "supports_observe": True,
+                "supports_attribute": False,
+                "supports_diagnose": True,
+                "supports_detect": False,
+                "supports_validate": False,
+                "supports_decompose": True,
+            },
+        )
         self.assertEqual(resp.json()["revision"], 3)
 
         resp = self.client.get("/semantic/metrics?status=published")

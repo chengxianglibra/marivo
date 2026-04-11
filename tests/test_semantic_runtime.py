@@ -736,9 +736,22 @@ class SemanticRuntimeTests(unittest.TestCase):
         self.assertEqual(resolved["object_id"], self.metric_id)
         self.assertEqual(resolved["ref"], "metric.watch_time")
         self.assertEqual(resolved["semantic_object"]["lifecycle_status"], "active")
-        self.assertEqual(resolved["semantic_object"]["readiness_status"], "ready")
-        self.assertEqual(resolved["semantic_object"]["blocking_requirements"], [])
-        self.assertEqual(resolved["semantic_object"]["capabilities"], {})
+        self.assertEqual(resolved["semantic_object"]["readiness_status"], "not_ready")
+        self.assertEqual(
+            resolved["semantic_object"]["blocking_requirements"][0]["code"],
+            "METRIC_INPUT_COVERAGE_MISSING",
+        )
+        self.assertEqual(
+            resolved["semantic_object"]["capabilities"],
+            {
+                "supports_observe": True,
+                "supports_attribute": True,
+                "supports_diagnose": True,
+                "supports_detect": True,
+                "supports_validate": False,
+                "supports_decompose": False,
+            },
+        )
         self.assertEqual(resolved["semantic_object"]["header"]["metric_ref"], "metric.watch_time")
         self.assertEqual(
             resolved["semantic_object"]["header"]["observed_entity_ref"],
