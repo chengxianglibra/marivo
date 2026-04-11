@@ -8,11 +8,13 @@ from app.api.models.base import (
     Additivity,
     ApiErrorDetail,
     BindingScope,
+    BlockingRequirement,
     ContextKind,
     ContractMode,
     DimensionDomainKind,
     HorizonSpec,
     IdStability,
+    LifecycleStatus,
     ListResponseBase,
     MetricFamily,
     ObjectHeaderBase,
@@ -22,6 +24,7 @@ from app.api.models.base import (
     ProcessType,
     ProfileKind,
     ProfileSubjectKind,
+    ReadinessStatus,
     SampleKind,
     SemanticRef,
     StateSpec,
@@ -164,12 +167,28 @@ class TestObjectBaseModels(unittest.TestCase):
     def test_response_base(self):
         response = ObjectResponseBase(
             status="draft",
+            lifecycle_status="draft",
+            readiness_status="not_ready",
+            blocking_requirements=[],
+            capabilities={},
             revision=1,
             created_at="2026-01-01T00:00:00Z",
             updated_at="2026-01-01T00:00:00Z",
         )
         self.assertEqual(response.status, "draft")
+        self.assertEqual(response.lifecycle_status, "draft")
+        self.assertEqual(response.readiness_status, "not_ready")
         self.assertEqual(response.revision, 1)
+
+    def test_blocking_requirement(self):
+        blocker = BlockingRequirement(
+            code="METRIC_BINDING_MISSING",
+            message="No active metric binding grounds this metric",
+            subject_ref="metric.dau",
+            dependency_ref="binding.metric_dau",
+        )
+        self.assertEqual(blocker.code, "METRIC_BINDING_MISSING")
+        self.assertEqual(blocker.subject_ref, "metric.dau")
 
     def test_list_response_base(self):
         response = ListResponseBase[str](items=["a", "b"], total=2)
@@ -368,3 +387,16 @@ class TestLiteralTypes(unittest.TestCase):
         status: ObjectStatus = "draft"
         status = "published"
         status = "deprecated"
+
+    def test_lifecycle_status(self):
+        """Type includes reserved 'validated' for Phase B; Phase A never produces it."""
+        status: LifecycleStatus = "draft"
+        status = "validated"  # reserved, not produced by current derivation
+        status = "active"
+        status = "deprecated"
+
+    def test_readiness_status(self):
+        """Type includes reserved 'stale' for Phase B; Phase A never produces it."""
+        status: ReadinessStatus = "not_ready"
+        status = "ready"
+        status = "stale"  # reserved, not produced by current derivation

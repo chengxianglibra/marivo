@@ -69,8 +69,8 @@ def test_registers_t9_resources_and_scaffold_config_resource() -> None:
         "factum://catalog/summary",
         "factum://sessions/{session_id}/state",
         "factum://sessions/{session_id}/propositions/{proposition_id}/context",
-        "factum://semantic/{family}{?status}",
-        "factum://sources/{source_id}/objects{?type,schema}",
+        "factum://semantic/{family}",
+        "factum://sources/{source_id}/objects",
         "factum://sources/{source_id}/objects/{object_id}",
     }
 
@@ -121,18 +121,17 @@ def test_proposition_context_resource_mirrors_canonical_http_body() -> None:
     assert result == {"proposition_id": "prop_456"}
 
 
-def test_semantic_family_resource_supports_canonical_status_filter_only() -> None:
+def test_semantic_family_resource_reads_one_canonical_family_surface() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "GET"
         assert request.url.path == "/semantic/metrics"
-        assert dict(request.url.params) == {"status": "published"}
+        assert dict(request.url.params) == {}
         return httpx.Response(200, json=[{"metric_id": "met_123"}], request=request)
 
     result = _invoke_registered_resource(
-        "factum://semantic/{family}{?status}",
+        "factum://semantic/{family}",
         handler,
         family="metrics",
-        status="published",
     )
 
     assert result == [{"metric_id": "met_123"}]
@@ -141,25 +140,23 @@ def test_semantic_family_resource_supports_canonical_status_filter_only() -> Non
 def test_semantic_family_resource_rejects_unknown_families() -> None:
     with pytest.raises(ValueError, match="Unsupported semantic family"):
         _invoke_registered_resource(
-            "factum://semantic/{family}{?status}",
+            "factum://semantic/{family}",
             lambda request: httpx.Response(200, json={}, request=request),
             family="keys",
         )
 
 
-def test_source_objects_resource_uses_synced_metadata_filters_only() -> None:
+def test_source_objects_resource_reads_synced_metadata_listing() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "GET"
         assert request.url.path == "/sources/src_123/objects"
-        assert dict(request.url.params) == {"type": "table", "schema": "events"}
+        assert dict(request.url.params) == {}
         return httpx.Response(200, json=[{"object_id": "obj_123"}], request=request)
 
     result = _invoke_registered_resource(
-        "factum://sources/{source_id}/objects{?type,schema}",
+        "factum://sources/{source_id}/objects",
         handler,
         source_id="src_123",
-        type="table",
-        schema="events",
     )
 
     assert result == [{"object_id": "obj_123"}]

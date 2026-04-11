@@ -457,7 +457,7 @@ SURFACE_SPECS: tuple[McpSurfaceSpec, ...] = (
         ("/sessions/{session_id}/propositions/{proposition_id}/context",),
     ),
     McpSurfaceSpec(
-        "factum://semantic/{family}{?status}",
+        "factum://semantic/{family}",
         "resource",
         "p0",
         True,
@@ -474,7 +474,7 @@ SURFACE_SPECS: tuple[McpSurfaceSpec, ...] = (
         ),
     ),
     McpSurfaceSpec(
-        "factum://sources/{source_id}/objects{?type,schema}",
+        "factum://sources/{source_id}/objects",
         "resource",
         "p1",
         True,

@@ -32,7 +32,7 @@ workflows:
 - `get_source_object`
 - `resolve_routing`
 - `factum://catalog/summary`
-- `factum://sources/{source_id}/objects{?type,schema}`
+- `factum://sources/{source_id}/objects`
 - `factum://sources/{source_id}/objects/{object_id}`
 - `factum://server/config`
 
@@ -134,8 +134,8 @@ reads:
 - `factum://catalog/summary`
 - `factum://sessions/{session_id}/state`
 - `factum://sessions/{session_id}/propositions/{proposition_id}/context`
-- `factum://semantic/{family}{?status}`
-- `factum://sources/{source_id}/objects{?type,schema}`
+- `factum://semantic/{family}`
+- `factum://sources/{source_id}/objects`
 - `factum://sources/{source_id}/objects/{object_id}`
 - `factum://server/config`
 
@@ -149,8 +149,10 @@ Resource rules:
   external catalog browse endpoints
 - `factum://sources/{source_id}/objects/{object_id}` reads one synced source
   object detail only, not live external catalog browse endpoints
-- `factum://semantic/{family}` only supports public semantic families and the
-  canonical `status` filter
+- `factum://semantic/{family}` only supports public semantic families
+- **MCP resources do not support query parameters** (e.g., `{?status}`, `{?type}`).
+  The HTTP endpoints remain the authoritative surface for filtering; MCP resources
+  simply mirror the canonical read surface. Use HTTP tools for parameterized queries.
 
 ## Known Limitations
 
