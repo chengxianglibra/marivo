@@ -305,6 +305,11 @@ class ReadinessEvaluationContext:
                 "binding_id",
                 "binding_ref",
             ),
+            "compiler_profile": (
+                "compiler_compatibility_profiles",
+                "profile_id",
+                "profile_ref",
+            ),
         }
         # Assertion documents that object_kind comes from type-checked ObjectKind literal,
         # making SQL identifiers safe (values from hardcoded dict, not user input).
@@ -315,8 +320,16 @@ class ReadinessEvaluationContext:
             return None
         row_dict = dict(row)
         semantic_object: dict[str, Any]
-        if object_kind == "binding":
+        if object_kind == "dimension":
+            semantic_object = self._build_dimension_snapshot(row_dict)
+        elif object_kind == "time":
+            semantic_object = self._build_time_snapshot(row_dict)
+        elif object_kind == "enum":
+            semantic_object = self._build_enum_snapshot(row_dict)
+        elif object_kind == "binding":
             semantic_object = self._build_binding_snapshot(row_dict)
+        elif object_kind == "compiler_profile":
+            semantic_object = self._build_compatibility_profile_snapshot(row_dict)
         else:
             semantic_object = {"header": {ref_field: row_dict[ref_field]}}
         return ReadinessObjectSnapshot(
@@ -505,6 +518,11 @@ class ReadinessEvaluationContext:
             "binding_ref": row["binding_ref"],
             "binding_scope": row["binding_scope"],
             "bound_object_ref": row["bound_object_ref"],
+            "header": {
+                "binding_ref": row["binding_ref"],
+                "binding_scope": row["binding_scope"],
+                "bound_object_ref": row["bound_object_ref"],
+            },
             "status": row["status"],
             "revision": row["revision"],
             "interface_contract": {
@@ -536,6 +554,106 @@ class ReadinessEvaluationContext:
                     for field_binding_row in field_binding_rows
                 ],
             },
+        }
+
+    def _build_dimension_snapshot(self, row: dict[str, Any]) -> dict[str, Any]:
+        interface_contract: dict[str, Any] = {
+            "value_domain": {
+                "structure_kind": row["structure_kind"],
+                "semantic_role": row["semantic_role"],
+                "value_type": row["value_type"],
+                "domain_kind": row["domain_kind"],
+                "enum_set_ref": row["enum_set_ref"],
+                "enum_version": row["enum_version"],
+            },
+            "grouping": {"supports_grouping": bool(row["supports_grouping"])},
+        }
+        if row["hierarchy_type"] is not None:
+            interface_contract["hierarchy"] = {
+                "hierarchy_type": row["hierarchy_type"],
+                "parent_dimension_ref": row["parent_dimension_ref"],
+            }
+        if row["required_time_anchor_ref"] is not None:
+            interface_contract["time_derived_requirement"] = {
+                "required_time_anchor_ref": row["required_time_anchor_ref"]
+            }
+        return {
+            "header": {
+                "dimension_ref": row["dimension_ref"],
+                "dimension_contract_version": row["dimension_contract_version"],
+            },
+            "interface_contract": interface_contract,
+        }
+
+    def _build_time_snapshot(self, row: dict[str, Any]) -> dict[str, Any]:
+        semantic_roles: list[str] = []
+        if row["business_anchor"]:
+            semantic_roles.append("business_anchor")
+        if row["measurement"]:
+            semantic_roles.append("measurement")
+        if row["operational_support"]:
+            semantic_roles.append("operational_support")
+        return {
+            "header": {
+                "time_ref": row["time_ref"],
+                "semantic_roles": semantic_roles,
+                "time_contract_version": row["time_contract_version"],
+            }
+        }
+
+    def _build_enum_snapshot(self, row: dict[str, Any]) -> dict[str, Any]:
+        versions: list[dict[str, Any]] = []
+        if self.metadata is not None:
+            version_rows = self.metadata.query_rows(
+                """
+                SELECT enum_set_version_id, enum_version
+                FROM semantic_enum_set_versions
+                WHERE enum_set_contract_id = ?
+                ORDER BY enum_version
+                """,
+                [row["enum_set_contract_id"]],
+            )
+            for version_row in version_rows:
+                value_rows = self.metadata.query_rows(
+                    """
+                    SELECT value_key, raw_value, label, aliases_json
+                    FROM semantic_enum_set_values
+                    WHERE enum_set_version_id = ?
+                    ORDER BY position
+                    """,
+                    [version_row["enum_set_version_id"]],
+                )
+                versions.append(
+                    {
+                        "enum_version": version_row["enum_version"],
+                        "values": [
+                            {
+                                "value_key": value_row["value_key"],
+                                "raw_value": json.loads(value_row["raw_value"]),
+                                "label": value_row["label"],
+                                "aliases": json.loads(value_row["aliases_json"]) or None,
+                            }
+                            for value_row in value_rows
+                        ],
+                    }
+                )
+        return {
+            "header": {
+                "enum_set_ref": row["enum_set_ref"],
+                "value_type": row["value_type"],
+            },
+            "versions": versions,
+        }
+
+    def _build_compatibility_profile_snapshot(self, row: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "profile_ref": row["profile_ref"],
+            "profile_kind": row["profile_kind"],
+            "subject_kind": row["subject_kind"],
+            "subject_ref": row["subject_ref"],
+            "subject_revision": row["subject_revision"],
+            "requirement": json.loads(row["requirement_json"] or "{}") or None,
+            "capability": json.loads(row["capability_json"] or "{}") or None,
         }
 
 

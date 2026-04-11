@@ -7,13 +7,16 @@ the corresponding evaluator implementation.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import cast
 
 from .evaluators import (
+    BindingReadinessEvaluator,
+    CompilerProfileReadinessEvaluator,
+    DimensionReadinessEvaluator,
     EntityReadinessEvaluator,
+    EnumReadinessEvaluator,
     MetricReadinessEvaluator,
-    PlaceholderSemanticReadinessEvaluator,
     ProcessReadinessEvaluator,
+    TimeReadinessEvaluator,
 )
 from .types import ObjectKind, SemanticReadinessEvaluator
 
@@ -56,18 +59,14 @@ class SemanticReadinessRegistry:
 
 
 def build_default_registry() -> SemanticReadinessRegistry:
-    """Build registry with concrete evaluators for T3 object kinds.
-
-    Entity, metric, and process use concrete evaluators. Remaining object
-    families stay on placeholder evaluators until later tasks land.
-    """
+    """Build registry with concrete evaluators for all current object kinds."""
     registry = SemanticReadinessRegistry()
     registry.register("entity", EntityReadinessEvaluator())
     registry.register("metric", MetricReadinessEvaluator())
     registry.register("process", ProcessReadinessEvaluator())
-    for object_kind in ("dimension", "time", "enum", "binding", "compiler_profile"):
-        registry.register(
-            cast("ObjectKind", object_kind),
-            PlaceholderSemanticReadinessEvaluator(object_kind),
-        )
+    registry.register("dimension", DimensionReadinessEvaluator())
+    registry.register("time", TimeReadinessEvaluator())
+    registry.register("enum", EnumReadinessEvaluator())
+    registry.register("binding", BindingReadinessEvaluator())
+    registry.register("compiler_profile", CompilerProfileReadinessEvaluator())
     return registry

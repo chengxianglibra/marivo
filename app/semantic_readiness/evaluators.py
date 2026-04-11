@@ -1,13 +1,4 @@
-"""Placeholder readiness evaluators for Phase A.
-
-These evaluators preserve the simple status-to-readiness mapping used
-in Phase A: published → active + ready, draft → draft + not_ready,
-deprecated → deprecated + not_ready.
-
-Phase B will replace these with object-specific evaluators that compute
-blocking_requirements and capabilities based on dependencies, bindings,
-and physical grounding requirements.
-"""
+"""Semantic readiness evaluators."""
 
 from __future__ import annotations
 
@@ -26,30 +17,12 @@ from .types import (
 
 
 class PlaceholderSemanticReadinessEvaluator:
-    """Placeholder evaluator that preserves Phase A readiness semantics.
-
-    This evaluator is used for all object kinds in Phase A. It simply
-    derives lifecycle_status and readiness_status from the storage status,
-    with empty blocking_requirements and capabilities.
-
-    The trace entry identifies the placeholder source for debugging and
-    helps distinguish Phase A behavior from Phase B object-specific rules.
-    """
+    """Placeholder evaluator that preserves simple status-derived readiness."""
 
     def __init__(self, object_kind: str) -> None:
-        """Initialize placeholder evaluator for a specific object kind.
-
-        Args:
-            object_kind: The semantic object type this evaluator handles.
-        """
         self.object_kind = object_kind
 
     def evaluate(self, context: ReadinessEvaluationContext) -> ReadinessResult:
-        """Evaluate readiness using Phase A simple mapping.
-
-        Returns lifecycle_status and readiness_status derived from storage
-        status, with empty blockers/capabilities and a trace entry.
-        """
         snapshot = context.snapshot
         return ReadinessResult(
             lifecycle_status=derive_lifecycle_status(snapshot.status),
@@ -208,10 +181,7 @@ class MetricReadinessEvaluator:
                         ("metric_input", target_key, None)
                         for target_key in _required_metric_inputs(header, payload)
                     ],
-                    *_optional_required_target(
-                        "primary_time",
-                        header.get("primary_time_ref"),
-                    ),
+                    *_optional_required_target("primary_time", header.get("primary_time_ref")),
                     *_optional_required_target(
                         "population_subject",
                         header.get("population_subject_ref"),
@@ -369,32 +339,364 @@ class ProcessReadinessEvaluator:
         )
 
 
+class DimensionReadinessEvaluator:
+    def evaluate(self, context: ReadinessEvaluationContext) -> ReadinessResult:
+        snapshot = context.snapshot
+        lifecycle_status = derive_lifecycle_status(snapshot.status)
+        header = dict(snapshot.semantic_object.get("header") or {})
+        interface_contract = dict(snapshot.semantic_object.get("interface_contract") or {})
+        value_domain = dict(interface_contract.get("value_domain") or {})
+        time_requirement = dict(interface_contract.get("time_derived_requirement") or {})
+        blockers: list[BlockingRequirementPayload] = []
+        capabilities: dict[str, Any] = {
+            "supports_grouping": bool(
+                dict(interface_contract.get("grouping") or {}).get("supports_grouping")
+            ),
+            "requires_time_anchor": bool(time_requirement.get("required_time_anchor_ref")),
+        }
+        required_time_anchor_ref = _optional_str(time_requirement.get("required_time_anchor_ref"))
+        if required_time_anchor_ref is not None:
+            capabilities["required_time_anchor_ref"] = required_time_anchor_ref
+        required_fields = ("structure_kind", "semantic_role", "value_type", "domain_kind")
+        if not header.get("dimension_ref") or any(
+            not value_domain.get(field) for field in required_fields
+        ):
+            blockers.append(
+                _blocker(
+                    code="DIMENSION_CONTRACT_INVALID",
+                    message=(
+                        "Dimension contract must define dimension_ref and value_domain fields "
+                        "structure_kind, semantic_role, value_type, and domain_kind."
+                    ),
+                    subject_ref=snapshot.ref,
+                )
+            )
+        if (
+            value_domain.get("structure_kind") == "time_derived"
+            and required_time_anchor_ref is None
+        ):
+            blockers.append(
+                _blocker(
+                    code="DIMENSION_TIME_DERIVED_REQUIREMENT_MISSING",
+                    message=(
+                        "Time-derived dimensions must define "
+                        "time_derived_requirement.required_time_anchor_ref."
+                    ),
+                    subject_ref=snapshot.ref,
+                )
+            )
+        readiness_status = "ready" if lifecycle_status == "active" and not blockers else "not_ready"
+        return ReadinessResult(
+            lifecycle_status=lifecycle_status,
+            readiness_status=readiness_status,
+            capabilities=capabilities,
+            blocking_requirements=blockers,
+            trace=[
+                ReadinessTraceItem(
+                    stage="lifecycle_gate",
+                    detail=f"Derived lifecycle_status={lifecycle_status} from storage status={snapshot.status}.",
+                    source="dimension_readiness_evaluator",
+                    subject_ref=snapshot.ref,
+                )
+            ],
+            had_ready_predecessor=context.previously_ready(),
+        )
+
+
+class TimeReadinessEvaluator:
+    def evaluate(self, context: ReadinessEvaluationContext) -> ReadinessResult:
+        snapshot = context.snapshot
+        lifecycle_status = derive_lifecycle_status(snapshot.status)
+        header = dict(snapshot.semantic_object.get("header") or {})
+        semantic_roles = [
+            str(role) for role in header.get("semantic_roles") or [] if str(role).strip()
+        ]
+        blockers: list[BlockingRequirementPayload] = []
+        capabilities = {
+            "semantic_roles": semantic_roles,
+            "supports_business_anchor": "business_anchor" in semantic_roles,
+            "supports_measurement": "measurement" in semantic_roles,
+            "supports_operational_support": "operational_support" in semantic_roles,
+        }
+        if not header.get("time_ref") or not semantic_roles:
+            blockers.append(
+                _blocker(
+                    code="TIME_CONTRACT_INVALID",
+                    message="Time semantic must define time_ref and at least one semantic role.",
+                    subject_ref=snapshot.ref,
+                )
+            )
+        readiness_status = "ready" if lifecycle_status == "active" and not blockers else "not_ready"
+        return ReadinessResult(
+            lifecycle_status=lifecycle_status,
+            readiness_status=readiness_status,
+            capabilities=capabilities,
+            blocking_requirements=blockers,
+            trace=[
+                ReadinessTraceItem(
+                    stage="lifecycle_gate",
+                    detail=f"Derived lifecycle_status={lifecycle_status} from storage status={snapshot.status}.",
+                    source="time_readiness_evaluator",
+                    subject_ref=snapshot.ref,
+                )
+            ],
+            had_ready_predecessor=context.previously_ready(),
+        )
+
+
+class EnumReadinessEvaluator:
+    def evaluate(self, context: ReadinessEvaluationContext) -> ReadinessResult:
+        snapshot = context.snapshot
+        lifecycle_status = derive_lifecycle_status(snapshot.status)
+        header = dict(snapshot.semantic_object.get("header") or {})
+        versions = list(snapshot.semantic_object.get("versions") or [])
+        blockers: list[BlockingRequirementPayload] = []
+        capabilities = {
+            "value_type": header.get("value_type"),
+            "version_count": len(versions),
+            "has_governed_values": True,
+        }
+        has_values = all(list(dict(version).get("values") or []) for version in versions)
+        if (
+            not header.get("enum_set_ref")
+            or not header.get("value_type")
+            or not versions
+            or not has_values
+        ):
+            blockers.append(
+                _blocker(
+                    code="ENUM_CONTRACT_INVALID",
+                    message="Enum set must define enum_set_ref, value_type, and at least one populated version.",
+                    subject_ref=snapshot.ref,
+                )
+            )
+        readiness_status = "ready" if lifecycle_status == "active" and not blockers else "not_ready"
+        return ReadinessResult(
+            lifecycle_status=lifecycle_status,
+            readiness_status=readiness_status,
+            capabilities=capabilities,
+            blocking_requirements=blockers,
+            trace=[
+                ReadinessTraceItem(
+                    stage="lifecycle_gate",
+                    detail=f"Derived lifecycle_status={lifecycle_status} from storage status={snapshot.status}.",
+                    source="enum_readiness_evaluator",
+                    subject_ref=snapshot.ref,
+                )
+            ],
+            had_ready_predecessor=context.previously_ready(),
+        )
+
+
+class BindingReadinessEvaluator:
+    def evaluate(self, context: ReadinessEvaluationContext) -> ReadinessResult:
+        snapshot = context.snapshot
+        lifecycle_status = derive_lifecycle_status(snapshot.status)
+        header = dict(snapshot.semantic_object.get("header") or {})
+        interface_contract = dict(snapshot.semantic_object.get("interface_contract") or {})
+        binding_scope = _optional_str(header.get("binding_scope"))
+        bound_object_ref = _optional_str(header.get("bound_object_ref"))
+        blockers: list[BlockingRequirementPayload] = []
+        carrier_bindings = list(interface_contract.get("carrier_bindings") or [])
+        field_bindings = list(interface_contract.get("field_bindings") or [])
+        capabilities = {
+            "binding_scope": binding_scope,
+            "has_imports": bool(interface_contract.get("imports")),
+            "carrier_count": len(carrier_bindings),
+            "field_binding_count": len(field_bindings),
+            "resolves_synced_source": bool(carrier_bindings),
+            "covers_required_targets": False,
+        }
+
+        if not header.get("binding_ref") or binding_scope is None or bound_object_ref is None:
+            blockers.append(
+                _blocker(
+                    code="BINDING_SCOPE_UNSUPPORTED",
+                    message="Binding must define binding_ref, binding_scope, and bound_object_ref.",
+                    subject_ref=snapshot.ref,
+                )
+            )
+
+        if lifecycle_status == "active":
+            if bound_object_ref is not None:
+                subject = context.load_dependency_snapshot(bound_object_ref)
+                if subject is None or derive_lifecycle_status(subject.status) != "active":
+                    blockers.append(
+                        _blocker(
+                            code="BINDING_SUBJECT_INACTIVE",
+                            message="Binding subject must exist and be active.",
+                            subject_ref=snapshot.ref,
+                            dependency_ref=bound_object_ref,
+                        )
+                    )
+            blockers.extend(
+                _binding_import_blockers(
+                    context=context,
+                    binding=interface_contract,
+                    subject_ref=snapshot.ref,
+                    blocker_code="BINDING_IMPORT_INACTIVE",
+                )
+            )
+            if not carrier_bindings:
+                blockers.append(
+                    _blocker(
+                        code="BINDING_CARRIER_MISSING",
+                        message="Binding must expose at least one carrier binding.",
+                        subject_ref=snapshot.ref,
+                    )
+                )
+            carrier_keys = {str(carrier.get("binding_key") or "") for carrier in carrier_bindings}
+            carriers_resolve = True
+            for carrier in carrier_bindings:
+                resolved_carrier = context.load_carrier_source_object(carrier)
+                carriers_resolve = carriers_resolve and resolved_carrier is not None
+                if resolved_carrier is None:
+                    blockers.append(
+                        _blocker(
+                            code="BINDING_CARRIER_SOURCE_MISSING",
+                            message="Binding carrier must resolve to a synced source object.",
+                            subject_ref=snapshot.ref,
+                            dependency_ref=str(carrier.get("binding_key") or snapshot.ref),
+                        )
+                    )
+            capabilities["resolves_synced_source"] = carriers_resolve
+            if not field_bindings:
+                blockers.append(
+                    _blocker(
+                        code="BINDING_FIELD_MAPPING_MISSING",
+                        message="Binding must define at least one field binding.",
+                        subject_ref=snapshot.ref,
+                    )
+                )
+            for field_binding in field_bindings:
+                if str(field_binding.get("carrier_binding_key") or "") not in carrier_keys:
+                    blockers.append(
+                        _blocker(
+                            code="BINDING_FIELD_MAPPING_MISSING",
+                            message="Field binding must reference a declared carrier_binding_key.",
+                            subject_ref=snapshot.ref,
+                            dependency_ref=str(field_binding.get("carrier_binding_key") or ""),
+                        )
+                    )
+            required_targets = _required_binding_targets(context, binding_scope, bound_object_ref)
+            if required_targets is None:
+                blockers.append(
+                    _blocker(
+                        code="BINDING_SCOPE_UNSUPPORTED",
+                        message=f"Binding scope {binding_scope!r} is not supported for readiness evaluation.",
+                        subject_ref=snapshot.ref,
+                    )
+                )
+            else:
+                coverage_blockers = _binding_target_coverage_blockers(
+                    field_bindings=field_bindings,
+                    required_targets=required_targets,
+                    subject_ref=snapshot.ref,
+                )
+                blockers.extend(coverage_blockers)
+                capabilities["covers_required_targets"] = not coverage_blockers
+
+        readiness_status = "ready" if lifecycle_status == "active" and not blockers else "not_ready"
+        return ReadinessResult(
+            lifecycle_status=lifecycle_status,
+            readiness_status=readiness_status,
+            capabilities=capabilities,
+            blocking_requirements=_dedupe_blockers(blockers),
+            trace=[
+                ReadinessTraceItem(
+                    stage="lifecycle_gate",
+                    detail=f"Derived lifecycle_status={lifecycle_status} from storage status={snapshot.status}.",
+                    source="binding_readiness_evaluator",
+                    subject_ref=snapshot.ref,
+                )
+            ],
+            had_ready_predecessor=context.previously_ready(),
+        )
+
+
+class CompilerProfileReadinessEvaluator:
+    def evaluate(self, context: ReadinessEvaluationContext) -> ReadinessResult:
+        snapshot = context.snapshot
+        lifecycle_status = derive_lifecycle_status(snapshot.status)
+        semantic_object = snapshot.semantic_object
+        profile_kind = _optional_str(semantic_object.get("profile_kind"))
+        subject_kind = _optional_str(semantic_object.get("subject_kind"))
+        subject_ref = _optional_str(semantic_object.get("subject_ref"))
+        subject_revision = semantic_object.get("subject_revision")
+        blockers: list[BlockingRequirementPayload] = []
+        capabilities: dict[str, Any] = {
+            "profile_kind": profile_kind,
+            "subject_kind": subject_kind,
+            "subject_ref": subject_ref,
+            "matches_subject_revision": False,
+        }
+        capability_payload = dict(semantic_object.get("capability") or {})
+        if "inferential_ready" in capability_payload:
+            capabilities["inferential_ready"] = bool(capability_payload.get("inferential_ready"))
+        if (
+            not semantic_object.get("profile_ref")
+            or profile_kind is None
+            or subject_kind is None
+            or subject_ref is None
+            or (profile_kind == "requirement" and not semantic_object.get("requirement"))
+            or (profile_kind == "capability" and not semantic_object.get("capability"))
+        ):
+            blockers.append(
+                _blocker(
+                    code="PROFILE_CONTRACT_INVALID",
+                    message=(
+                        "Compatibility profile must define profile_ref, profile_kind, subject_kind, "
+                        "subject_ref, and the payload matching profile_kind."
+                    ),
+                    subject_ref=snapshot.ref,
+                )
+            )
+        if lifecycle_status == "active" and subject_ref is not None:
+            subject = context.load_dependency_snapshot(subject_ref)
+            if subject is None or derive_lifecycle_status(subject.status) != "active":
+                blockers.append(
+                    _blocker(
+                        code="PROFILE_SUBJECT_INACTIVE",
+                        message="Compatibility profile subject must exist and be active.",
+                        subject_ref=snapshot.ref,
+                        dependency_ref=subject_ref,
+                    )
+                )
+            elif subject_revision is None or int(subject_revision) != subject.revision:
+                blockers.append(
+                    _blocker(
+                        code="PROFILE_SUBJECT_REVISION_MISMATCH",
+                        message="Compatibility profile subject_revision does not match the active subject revision.",
+                        subject_ref=snapshot.ref,
+                        dependency_ref=subject_ref,
+                    )
+                )
+            else:
+                capabilities["matches_subject_revision"] = True
+        if lifecycle_status != "active":
+            readiness_status = "not_ready"
+        elif any(blocker.code == "PROFILE_SUBJECT_REVISION_MISMATCH" for blocker in blockers):
+            readiness_status = "stale"
+        else:
+            readiness_status = "ready" if not blockers else "not_ready"
+        return ReadinessResult(
+            lifecycle_status=lifecycle_status,
+            readiness_status=readiness_status,
+            capabilities=capabilities,
+            blocking_requirements=blockers,
+            trace=[
+                ReadinessTraceItem(
+                    stage="lifecycle_gate",
+                    detail=f"Derived lifecycle_status={lifecycle_status} from storage status={snapshot.status}.",
+                    source="compiler_profile_readiness_evaluator",
+                    subject_ref=snapshot.ref,
+                )
+            ],
+            had_ready_predecessor=context.previously_ready(),
+        )
+
+
 def _contains_basic_process_blockers(blockers: Iterable[BlockingRequirementPayload]) -> bool:
-    """Check if blockers include any "basic" readiness blockers.
-
-    Process objects have a two-tier blocker system:
-
-    **Basic blockers** (affect readiness_status):
-    - PROCESS_CONTRACT_INVALID: Missing required header fields
-    - PROCESS_BINDING_MISSING: No binding when grounding required
-    - PROCESS_BINDING_COVERAGE_MISSING: Binding missing required targets
-
-    **Inferential-only blockers** (do NOT affect readiness_status):
-    - PROCESS_PROFILE_MISSING: No capability profile published
-    - PROCESS_PROFILE_MISMATCH: Profile revision doesn't match process
-
-    Inferential-only blockers are recorded in blocking_requirements for visibility
-    but don't prevent the process from being "ready" for non-inferential use cases.
-    The `inferential_ready` capability flag indicates whether the process can
-    support inferential analysis (requires matching capability profile).
-
-    Args:
-        blockers: Iterable of blocking requirements from process evaluation.
-
-    Returns:
-        True if any blocker is a basic (non-inferential) blocker,
-        False if blockers are only inferential or empty.
-    """
     inferential_only_codes = {"PROCESS_PROFILE_MISSING", "PROCESS_PROFILE_MISMATCH"}
     return any(blocker.code not in inferential_only_codes for blocker in blockers)
 
@@ -471,6 +773,102 @@ def _optional_required_target(
     return [(target_kind, ref, ref)]
 
 
+def _required_binding_targets(
+    context: ReadinessEvaluationContext,
+    binding_scope: str | None,
+    bound_object_ref: str | None,
+) -> list[tuple[str, str, str | None]] | None:
+    if binding_scope is None or bound_object_ref is None:
+        return None
+    subject = context.load_dependency_snapshot(bound_object_ref)
+    semantic_object = subject.semantic_object if subject is not None else {}
+    if binding_scope == "entity":
+        interface_contract = dict(semantic_object.get("interface_contract") or {})
+        identity = dict(interface_contract.get("identity") or {})
+        key_refs = [str(item) for item in identity.get("key_refs") or [] if str(item).strip()]
+        return [
+            *[("identity_key", key_ref, key_ref) for key_ref in key_refs],
+            *_optional_required_target("primary_time", interface_contract.get("primary_time_ref")),
+            *[
+                ("stable_descriptor", descriptor["dimension_ref"], descriptor["dimension_ref"])
+                for descriptor in interface_contract.get("stable_descriptors") or []
+                if isinstance(descriptor, dict) and descriptor.get("dimension_ref")
+            ],
+        ]
+    if binding_scope == "metric":
+        header = dict(semantic_object.get("header") or {})
+        payload = dict(semantic_object.get("payload") or {})
+        return [
+            *[
+                ("metric_input", target_key, None)
+                for target_key in _required_metric_inputs(header, payload)
+            ],
+            *_optional_required_target("primary_time", header.get("primary_time_ref")),
+            *_optional_required_target("population_subject", header.get("population_subject_ref")),
+        ]
+    if binding_scope == "process_object":
+        interface_contract = dict(semantic_object.get("interface_contract") or {})
+        return [
+            *_optional_required_target(
+                "population_subject", interface_contract.get("population_subject_ref")
+            ),
+            *_optional_required_target(
+                "analysis_window_anchor", interface_contract.get("anchor_time_ref")
+            ),
+        ]
+    return None
+
+
+def _binding_import_blockers(
+    *,
+    context: ReadinessEvaluationContext,
+    binding: dict[str, Any],
+    subject_ref: str,
+    blocker_code: str,
+) -> list[BlockingRequirementPayload]:
+    blockers: list[BlockingRequirementPayload] = []
+    for binding_import in binding.get("imports") or []:
+        imported_binding_ref = str(
+            binding_import.get("imported_binding_ref") or binding_import.get("binding_ref") or ""
+        )
+        imported = context.load_dependency_snapshot(imported_binding_ref)
+        if imported is None or derive_lifecycle_status(imported.status) != "active":
+            blockers.append(
+                _blocker(
+                    code=blocker_code,
+                    message="Required imported binding must exist and be active.",
+                    subject_ref=subject_ref,
+                    dependency_ref=imported_binding_ref,
+                )
+            )
+    return blockers
+
+
+def _binding_target_coverage_blockers(
+    *,
+    field_bindings: list[dict[str, Any]],
+    required_targets: list[tuple[str, str, str | None]],
+    subject_ref: str,
+) -> list[BlockingRequirementPayload]:
+    blockers: list[BlockingRequirementPayload] = []
+    for target_kind, target_key, semantic_ref in required_targets:
+        if binding_contract_target_exists(
+            field_bindings,
+            target_kind=target_kind,
+            target_key=target_key,
+            semantic_ref=semantic_ref,
+        ):
+            continue
+        blockers.append(
+            _blocker(
+                code="BINDING_TARGET_COVERAGE_MISSING",
+                message=f"Binding is missing required {target_kind} coverage for {target_key}.",
+                subject_ref=subject_ref,
+            )
+        )
+    return blockers
+
+
 def _evaluate_subject_bindings(
     *,
     context: ReadinessEvaluationContext,
@@ -515,7 +913,6 @@ def _evaluate_subject_bindings(
             context=context,
             binding=binding,
             subject_ref=snapshot.ref,
-            object_kind=snapshot.object_kind,
             required_targets=required_targets,
             coverage_code=coverage_code,
             coverage_code_map=coverage_code_map,
@@ -542,7 +939,6 @@ def _check_binding_readiness(
     context: ReadinessEvaluationContext,
     binding: dict[str, Any],
     subject_ref: str,
-    object_kind: str,
     required_targets: list[tuple[str, str, str | None]],
     coverage_code: str | None,
     coverage_code_map: dict[str, str] | None,
@@ -552,28 +948,23 @@ def _check_binding_readiness(
     trace: list[ReadinessTraceItem] = []
     blockers: list[BlockingRequirementPayload] = []
 
-    for binding_import in interface_contract.get("imports") or context.load_binding_imports(
-        binding_ref
-    ):
-        imported_binding_ref = str(
-            binding_import.get("imported_binding_ref") or binding_import.get("binding_ref") or ""
+    blockers.extend(
+        _binding_import_blockers(
+            context=context,
+            binding={
+                "imports": interface_contract.get("imports")
+                or context.load_binding_imports(binding_ref)
+            },
+            subject_ref=subject_ref,
+            blocker_code=f"{subject_ref.split('.', 1)[0].upper()}_BINDING_IMPORT_MISSING",
         )
-        imported = context.load_dependency_snapshot(imported_binding_ref)
-        if imported is None or derive_lifecycle_status(imported.status) != "active":
-            blockers.append(
-                _blocker(
-                    code=f"{object_kind.upper()}_BINDING_IMPORT_MISSING",
-                    message="Required imported binding must exist and be active.",
-                    subject_ref=subject_ref,
-                    dependency_ref=imported_binding_ref,
-                )
-            )
+    )
     carriers = list(interface_contract.get("carrier_bindings") or [])
     if not carriers:
         blockers.append(
             _blocker(
-                code=f"{object_kind.upper()}_CARRIER_SOURCE_MISSING",
-                message="Binding must expose at least one carrier binding with a synced source object.",
+                code=f"{subject_ref.split('.', 1)[0].upper()}_CARRIER_MISSING",
+                message="Binding must expose at least one carrier binding.",
                 subject_ref=subject_ref,
                 dependency_ref=binding_ref,
             )
@@ -582,7 +973,7 @@ def _check_binding_readiness(
         if context.load_carrier_source_object(carrier) is None:
             blockers.append(
                 _blocker(
-                    code=f"{object_kind.upper()}_CARRIER_SOURCE_MISSING",
+                    code=f"{subject_ref.split('.', 1)[0].upper()}_CARRIER_SOURCE_MISSING",
                     message="Binding carrier must resolve to a synced source object.",
                     subject_ref=subject_ref,
                     dependency_ref=binding_ref,
