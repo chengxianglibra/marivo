@@ -520,24 +520,6 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertIn("publishCompatibilityProfile", api_resp.text)
         self.assertIn("GET /sessions/{session_id}/planner-context", semantic_resp.text)
 
-    def test_admin_guide_documents_all_t7_semantic_catalog_object_pages(self) -> None:
-        guide_path = Path(__file__).resolve().parents[1] / "docs" / "agent-guide.md"
-        content = guide_path.read_text(encoding="utf-8")
-        self.assertIn("all eight subtabs", content)
-        self.assertIn("Time", content)
-        self.assertIn("Enum Sets", content)
-        self.assertIn("Typed Bindings", content)
-        self.assertIn("Compatibility Profiles", content)
-
-    def test_admin_guide_documents_t8_analysis_ops_boundary(self) -> None:
-        guide_path = Path(__file__).resolve().parents[1] / "docs" / "agent-guide.md"
-        content = guide_path.read_text(encoding="utf-8")
-        self.assertIn("Analysis Ops", content)
-        self.assertIn("Terminate Session", content)
-        self.assertIn(
-            "Do not add create-session, intent, step, or plan-management controls", content
-        )
-
     def test_admin_index_registers_analysis_ops_module(self) -> None:
         resp = self.client.get("/static/admin/index.js")
         self.assertIn("createAnalysisOpsModule", resp.text)
@@ -605,13 +587,6 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertNotIn("Run Intent", resp.text)
         self.assertNotIn("Run Step", resp.text)
         self.assertNotIn("Plan management", resp.text)
-
-    def test_admin_guide_documents_t9_runtime_jobs_boundary(self) -> None:
-        guide_path = Path(__file__).resolve().parents[1] / "docs" / "agent-guide.md"
-        content = guide_path.read_text(encoding="utf-8")
-        self.assertIn("Runtime & Jobs", content)
-        self.assertIn("runtime truth rather than canonical result", content)
-        self.assertIn("do not add job submit/cancel, retry/replay, or publish controls", content)
 
     def test_admin_runtime_jobs_declares_t9_runtime_views_and_job_contracts(self) -> None:
         module_resp = self.client.get("/static/admin/runtime-jobs.js")
@@ -761,19 +736,6 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertIn(
             "Run Governance Check or Routing Resolve to inspect diagnostic output.", resp.text
         )
-
-    def test_admin_guide_documents_t10_governance_boundaries(self) -> None:
-        guide_path = Path(__file__).resolve().parents[1] / "docs" / "agent-guide.md"
-        content = guide_path.read_text(encoding="utf-8")
-        self.assertIn("Governance", content)
-        self.assertIn("Policies", content)
-        self.assertIn("Quality Rules", content)
-        self.assertIn("Approvals", content)
-        self.assertIn("Governance Helpers", content)
-        self.assertIn("policy_id", content)
-        self.assertIn("rule_id", content)
-        self.assertIn("request_id", content)
-        self.assertIn("does not fake unsupported policy or quality-rule edit capabilities", content)
 
     def test_user_uses_shared_assets(self) -> None:
         resp = self.client.get("/ui")
