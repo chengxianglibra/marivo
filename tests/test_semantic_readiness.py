@@ -4,6 +4,7 @@ import unittest
 
 from app.semantic_readiness import (
     ReadinessEvaluationContext,
+    ReadinessResult,
     SemanticReadinessService,
     UnknownSemanticReadinessKindError,
     build_default_registry,
@@ -33,7 +34,7 @@ class SemanticReadinessRegistryTests(unittest.TestCase):
         with self.assertRaises(UnknownSemanticReadinessKindError):
             registry.evaluator_for("asset")  # type: ignore[arg-type]
 
-    def test_binding_stays_on_placeholder_evaluator(self) -> None:
+    def test_binding_uses_concrete_evaluator(self) -> None:
         service = SemanticReadinessService()
 
         result = service.evaluate_snapshot(
@@ -45,7 +46,7 @@ class SemanticReadinessRegistryTests(unittest.TestCase):
             semantic_object={"header": {"binding_ref": "binding.watch_time"}},
         )
 
-        self.assertEqual(result.trace[0].source, "binding_placeholder_evaluator")
+        self.assertEqual(result.trace[0].source, "binding_readiness_evaluator")
 
 
 class ReadinessEvaluationContextTests(unittest.TestCase):
@@ -532,6 +533,685 @@ class ProcessReadinessEvaluatorTests(unittest.TestCase):
             carrier_source_object_loader=lambda _carrier: {"object_id": "src_123"},
         )
         return self.registry.evaluator_for("process").evaluate(context)
+
+
+class DimensionReadinessEvaluatorTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.registry = build_default_registry()
+
+    def test_active_dimension_with_grouping_is_ready(self) -> None:
+        result = self._evaluate(
+            semantic_object={
+                "header": {"dimension_ref": "dimension.country"},
+                "interface_contract": {
+                    "value_domain": {
+                        "structure_kind": "flat",
+                        "semantic_role": "category",
+                        "value_type": "string",
+                        "domain_kind": "enumerated",
+                    },
+                    "grouping": {"supports_grouping": True},
+                },
+            }
+        )
+
+        self.assertEqual(result.readiness_status, "ready")
+        self.assertEqual(result.capabilities["supports_grouping"], True)
+
+    def test_time_derived_dimension_requires_time_anchor(self) -> None:
+        result = self._evaluate(
+            semantic_object={
+                "header": {"dimension_ref": "dimension.signup_week"},
+                "interface_contract": {
+                    "value_domain": {
+                        "structure_kind": "time_derived",
+                        "semantic_role": "temporal_bucket",
+                        "value_type": "string",
+                        "domain_kind": "open",
+                    }
+                },
+            }
+        )
+
+        self.assertEqual(result.readiness_status, "not_ready")
+        self.assertEqual(
+            result.blocking_requirements[0].code,
+            "DIMENSION_TIME_DERIVED_REQUIREMENT_MISSING",
+        )
+
+    def _evaluate(self, *, semantic_object: dict[str, object]):
+        snapshot = build_snapshot(
+            object_kind="dimension",
+            object_id="dimc_123",
+            ref="dimension.country",
+            status="published",
+            revision=2,
+            semantic_object=semantic_object,
+        )
+        return self.registry.evaluator_for("dimension").evaluate(
+            ReadinessEvaluationContext(snapshot=snapshot)
+        )
+
+    def test_dimension_with_invalid_contract_is_not_ready(self) -> None:
+        result = self._evaluate(
+            semantic_object={
+                "header": {},
+                "interface_contract": {
+                    "value_domain": {},
+                },
+            }
+        )
+
+        self.assertEqual(result.readiness_status, "not_ready")
+        self.assertEqual(result.blocking_requirements[0].code, "DIMENSION_CONTRACT_INVALID")
+
+    def test_draft_dimension_is_not_ready(self) -> None:
+        snapshot = build_snapshot(
+            object_kind="dimension",
+            object_id="dimc_123",
+            ref="dimension.country",
+            status="draft",
+            revision=2,
+            semantic_object={
+                "header": {"dimension_ref": "dimension.country"},
+                "interface_contract": {
+                    "value_domain": {
+                        "structure_kind": "flat",
+                        "semantic_role": "category",
+                        "value_type": "string",
+                        "domain_kind": "enumerated",
+                    },
+                    "grouping": {"supports_grouping": True},
+                },
+            },
+        )
+        context = ReadinessEvaluationContext(snapshot=snapshot)
+        result = self.registry.evaluator_for("dimension").evaluate(context)
+
+        self.assertEqual(result.lifecycle_status, "draft")
+        self.assertEqual(result.readiness_status, "not_ready")
+
+
+class TimeReadinessEvaluatorTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.registry = build_default_registry()
+
+    def test_active_time_semantic_is_ready(self) -> None:
+        result = self._evaluate(semantic_roles=["business_anchor", "measurement"])
+
+        self.assertEqual(result.readiness_status, "ready")
+        self.assertEqual(result.capabilities["supports_business_anchor"], True)
+        self.assertEqual(result.capabilities["supports_measurement"], True)
+
+    def test_time_semantic_requires_roles(self) -> None:
+        result = self._evaluate(semantic_roles=[])
+
+        self.assertEqual(result.readiness_status, "not_ready")
+        self.assertEqual(result.blocking_requirements[0].code, "TIME_CONTRACT_INVALID")
+
+    def _evaluate(self, *, semantic_roles: list[str]):
+        snapshot = build_snapshot(
+            object_kind="time",
+            object_id="time_123",
+            ref="time.event_date",
+            status="published",
+            revision=1,
+            semantic_object={
+                "header": {
+                    "time_ref": "time.event_date",
+                    "semantic_roles": semantic_roles,
+                }
+            },
+        )
+        return self.registry.evaluator_for("time").evaluate(
+            ReadinessEvaluationContext(snapshot=snapshot)
+        )
+
+
+class EnumReadinessEvaluatorTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.registry = build_default_registry()
+
+    def test_active_enum_set_is_ready(self) -> None:
+        result = self._evaluate(
+            versions=[{"enum_version": "v1", "values": [{"value_key": "CN", "label": "China"}]}]
+        )
+
+        self.assertEqual(result.readiness_status, "ready")
+        self.assertEqual(result.capabilities["version_count"], 1)
+
+    def test_enum_set_requires_populated_versions(self) -> None:
+        result = self._evaluate(versions=[])
+
+        self.assertEqual(result.readiness_status, "not_ready")
+        self.assertEqual(result.blocking_requirements[0].code, "ENUM_CONTRACT_INVALID")
+
+    def _evaluate(self, *, versions: list[dict[str, object]]):
+        snapshot = build_snapshot(
+            object_kind="enum",
+            object_id="enum_123",
+            ref="enum.country_code",
+            status="published",
+            revision=1,
+            semantic_object={
+                "header": {
+                    "enum_set_ref": "enum.country_code",
+                    "value_type": "string",
+                },
+                "versions": versions,
+            },
+        )
+        return self.registry.evaluator_for("enum").evaluate(
+            ReadinessEvaluationContext(snapshot=snapshot)
+        )
+
+
+class BindingReadinessEvaluatorTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.registry = build_default_registry()
+
+    def test_binding_missing_synced_carrier_is_not_ready(self) -> None:
+        result = self._evaluate(
+            carrier_source_object_loader=lambda _carrier: None,
+        )
+
+        self.assertEqual(result.readiness_status, "not_ready")
+        self.assertIn(
+            "BINDING_CARRIER_SOURCE_MISSING",
+            {item.code for item in result.blocking_requirements},
+        )
+
+    def test_binding_missing_target_coverage_is_not_ready(self) -> None:
+        result = self._evaluate(
+            field_bindings=[
+                {
+                    "carrier_binding_key": "primary",
+                    "target": {"target_kind": "metric_input", "target_key": "numerator"},
+                    "semantic_ref": "metric_input.converted",
+                }
+            ]
+        )
+
+        self.assertEqual(result.readiness_status, "not_ready")
+        self.assertIn(
+            "BINDING_TARGET_COVERAGE_MISSING",
+            {item.code for item in result.blocking_requirements},
+        )
+
+    def test_binding_with_complete_metric_coverage_is_ready(self) -> None:
+        result = self._evaluate(
+            field_bindings=[
+                {
+                    "carrier_binding_key": "primary",
+                    "target": {"target_kind": "metric_input", "target_key": "numerator"},
+                    "semantic_ref": "metric_input.converted",
+                },
+                {
+                    "carrier_binding_key": "primary",
+                    "target": {"target_kind": "metric_input", "target_key": "denominator"},
+                    "semantic_ref": "metric_input.eligible",
+                },
+                {
+                    "carrier_binding_key": "primary",
+                    "target": {"target_kind": "primary_time", "target_key": "time.event_date"},
+                    "semantic_ref": "time.event_date",
+                },
+            ]
+        )
+
+        self.assertEqual(result.readiness_status, "ready")
+        self.assertEqual(result.capabilities["covers_required_targets"], True)
+
+    def _evaluate(
+        self,
+        *,
+        field_bindings: list[dict[str, object]] | None = None,
+        carrier_bindings: list[dict[str, object]] | None = None,
+        carrier_source_object_loader=None,
+    ):
+        snapshot = build_snapshot(
+            object_kind="binding",
+            object_id="bind_123",
+            ref="binding.metric_conversion_rate",
+            status="published",
+            revision=1,
+            semantic_object={
+                "header": {
+                    "binding_ref": "binding.metric_conversion_rate",
+                    "binding_scope": "metric",
+                    "bound_object_ref": "metric.conversion_rate",
+                },
+                "interface_contract": {
+                    "imports": [],
+                    "carrier_bindings": carrier_bindings
+                    if carrier_bindings is not None
+                    else [{"binding_key": "primary", "carrier_locator": "warehouse.metric_fact"}],
+                    "field_bindings": field_bindings if field_bindings is not None else [],
+                },
+            },
+        )
+        context = ReadinessEvaluationContext(
+            snapshot=snapshot,
+            dependency_snapshot_loader=lambda ref: build_snapshot(
+                object_kind="metric",
+                object_id="metc_123",
+                ref=ref,
+                status="published",
+                revision=2,
+                semantic_object={
+                    "header": {
+                        "metric_ref": "metric.conversion_rate",
+                        "metric_family": "rate_metric",
+                        "observed_entity_ref": "entity.user",
+                        "primary_time_ref": "time.event_date",
+                    },
+                    "payload": {
+                        "metric_family": "rate_metric",
+                        "numerator": {"name": "converted"},
+                        "denominator": {"name": "eligible"},
+                    },
+                },
+            ),
+            carrier_source_object_loader=carrier_source_object_loader
+            or (lambda _carrier: {"object_id": "src_123"}),
+        )
+        return self.registry.evaluator_for("binding").evaluate(context)
+
+    def test_binding_without_carrier_bindings_is_not_ready(self) -> None:
+        result = self._evaluate(carrier_bindings=[])
+
+        self.assertEqual(result.readiness_status, "not_ready")
+        self.assertIn(
+            "BINDING_CARRIER_MISSING",
+            {item.code for item in result.blocking_requirements},
+        )
+
+    def test_binding_without_field_bindings_is_not_ready(self) -> None:
+        result = self._evaluate(field_bindings=[])
+
+        self.assertEqual(result.readiness_status, "not_ready")
+        self.assertIn(
+            "BINDING_FIELD_MAPPING_MISSING",
+            {item.code for item in result.blocking_requirements},
+        )
+
+    def test_binding_with_invalid_carrier_binding_key_is_not_ready(self) -> None:
+        result = self._evaluate(
+            field_bindings=[
+                {
+                    "carrier_binding_key": "invalid_key",
+                    "target": {"target_kind": "metric_input", "target_key": "numerator"},
+                    "semantic_ref": "metric_input.converted",
+                }
+            ]
+        )
+
+        self.assertEqual(result.readiness_status, "not_ready")
+        self.assertIn(
+            "BINDING_FIELD_MAPPING_MISSING",
+            {item.code for item in result.blocking_requirements},
+        )
+
+    def test_binding_with_inactive_import_is_not_ready(self) -> None:
+        result = self._evaluate_with_import(import_status="draft")
+
+        self.assertEqual(result.readiness_status, "not_ready")
+        self.assertIn(
+            "BINDING_IMPORT_INACTIVE",
+            {item.code for item in result.blocking_requirements},
+        )
+
+    def test_binding_with_missing_import_is_not_ready(self) -> None:
+        result = self._evaluate_with_import(import_status="missing")
+
+        self.assertEqual(result.readiness_status, "not_ready")
+        self.assertIn(
+            "BINDING_IMPORT_INACTIVE",
+            {item.code for item in result.blocking_requirements},
+        )
+
+    def test_binding_with_inactive_subject_is_not_ready(self) -> None:
+        result = self._evaluate_with_subject_status(subject_status="draft")
+
+        self.assertEqual(result.readiness_status, "not_ready")
+        self.assertIn(
+            "BINDING_SUBJECT_INACTIVE",
+            {item.code for item in result.blocking_requirements},
+        )
+
+    def test_binding_blockers_are_deduplicated(self) -> None:
+        result = self._evaluate(
+            carrier_bindings=[
+                {"binding_key": "primary", "carrier_locator": "warehouse.metric_fact"},
+                {"binding_key": "secondary", "carrier_locator": "warehouse.metric_fact_secondary"},
+            ],
+            carrier_source_object_loader=lambda _carrier: None,
+        )
+
+        carrier_blockers = [
+            b for b in result.blocking_requirements if b.code == "BINDING_CARRIER_SOURCE_MISSING"
+        ]
+        self.assertEqual(len(carrier_blockers), 2)
+        blocker_keys = [
+            (b.code, b.subject_ref, b.dependency_ref) for b in result.blocking_requirements
+        ]
+        self.assertEqual(len(blocker_keys), len(set(blocker_keys)))
+
+    def _evaluate_with_import(self, *, import_status: str) -> ReadinessResult:
+        def dependency_loader(ref: str):
+            if ref == "binding.imported_binding":
+                if import_status == "missing":
+                    return None
+                return build_snapshot(
+                    object_kind="binding",
+                    object_id="bind_import",
+                    ref=ref,
+                    status=import_status,
+                    revision=1,
+                    semantic_object={"header": {"binding_ref": ref}},
+                )
+            if ref == "metric.conversion_rate":
+                return build_snapshot(
+                    object_kind="metric",
+                    object_id="metc_123",
+                    ref=ref,
+                    status="published",
+                    revision=2,
+                    semantic_object={
+                        "header": {
+                            "metric_ref": ref,
+                            "metric_family": "rate_metric",
+                            "observed_entity_ref": "entity.user",
+                            "primary_time_ref": "time.event_date",
+                        },
+                        "payload": {
+                            "metric_family": "rate_metric",
+                            "numerator": {"name": "converted"},
+                            "denominator": {"name": "eligible"},
+                        },
+                    },
+                )
+            return None
+
+        snapshot = build_snapshot(
+            object_kind="binding",
+            object_id="bind_123",
+            ref="binding.metric_conversion_rate",
+            status="published",
+            revision=1,
+            semantic_object={
+                "header": {
+                    "binding_ref": "binding.metric_conversion_rate",
+                    "binding_scope": "metric",
+                    "bound_object_ref": "metric.conversion_rate",
+                },
+                "interface_contract": {
+                    "imports": [{"imported_binding_ref": "binding.imported_binding"}],
+                    "carrier_bindings": [
+                        {"binding_key": "primary", "carrier_locator": "warehouse.metric_fact"}
+                    ],
+                    "field_bindings": [
+                        {
+                            "carrier_binding_key": "primary",
+                            "target": {"target_kind": "metric_input", "target_key": "numerator"},
+                            "semantic_ref": "metric_input.converted",
+                        },
+                        {
+                            "carrier_binding_key": "primary",
+                            "target": {"target_kind": "metric_input", "target_key": "denominator"},
+                            "semantic_ref": "metric_input.eligible",
+                        },
+                        {
+                            "carrier_binding_key": "primary",
+                            "target": {
+                                "target_kind": "primary_time",
+                                "target_key": "time.event_date",
+                            },
+                            "semantic_ref": "time.event_date",
+                        },
+                    ],
+                },
+            },
+        )
+        context = ReadinessEvaluationContext(
+            snapshot=snapshot,
+            dependency_snapshot_loader=dependency_loader,
+            carrier_source_object_loader=lambda _carrier: {"object_id": "src_123"},
+        )
+        return self.registry.evaluator_for("binding").evaluate(context)
+
+    def _evaluate_with_subject_status(self, *, subject_status: str) -> ReadinessResult:
+        snapshot = build_snapshot(
+            object_kind="binding",
+            object_id="bind_123",
+            ref="binding.metric_conversion_rate",
+            status="published",
+            revision=1,
+            semantic_object={
+                "header": {
+                    "binding_ref": "binding.metric_conversion_rate",
+                    "binding_scope": "metric",
+                    "bound_object_ref": "metric.conversion_rate",
+                },
+                "interface_contract": {
+                    "imports": [],
+                    "carrier_bindings": [
+                        {"binding_key": "primary", "carrier_locator": "warehouse.metric_fact"}
+                    ],
+                    "field_bindings": [],
+                },
+            },
+        )
+        context = ReadinessEvaluationContext(
+            snapshot=snapshot,
+            dependency_snapshot_loader=lambda ref: build_snapshot(
+                object_kind="metric",
+                object_id="metc_123",
+                ref=ref,
+                status=subject_status,
+                revision=2,
+                semantic_object={
+                    "header": {
+                        "metric_ref": ref,
+                        "metric_family": "rate_metric",
+                        "observed_entity_ref": "entity.user",
+                        "primary_time_ref": "time.event_date",
+                    },
+                    "payload": {
+                        "metric_family": "rate_metric",
+                        "numerator": {"name": "converted"},
+                        "denominator": {"name": "eligible"},
+                    },
+                },
+            ),
+            carrier_source_object_loader=lambda _carrier: {"object_id": "src_123"},
+        )
+        return self.registry.evaluator_for("binding").evaluate(context)
+
+
+class CompatibilityProfileReadinessEvaluatorTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.registry = build_default_registry()
+
+    def test_profile_with_matching_subject_revision_is_ready(self) -> None:
+        result = self._evaluate(subject_revision=3)
+
+        self.assertEqual(result.readiness_status, "ready")
+        self.assertEqual(result.capabilities["matches_subject_revision"], True)
+
+    def test_profile_revision_mismatch_is_stale(self) -> None:
+        result = self._evaluate(subject_revision=2)
+
+        self.assertEqual(result.readiness_status, "stale")
+        self.assertEqual(
+            result.blocking_requirements[0].code,
+            "PROFILE_SUBJECT_REVISION_MISMATCH",
+        )
+
+    def _evaluate(self, *, subject_revision: int | None):
+        snapshot = build_snapshot(
+            object_kind="compiler_profile",
+            object_id="cprof_123",
+            ref="compiler_profile.metric_requirement",
+            status="published",
+            revision=4,
+            semantic_object={
+                "profile_ref": "compiler_profile.metric_requirement",
+                "profile_kind": "requirement",
+                "subject_kind": "metric",
+                "subject_ref": "metric.conversion_rate",
+                "subject_revision": subject_revision,
+                "requirement": {"entity_refs": ["entity.user"]},
+            },
+        )
+        context = ReadinessEvaluationContext(
+            snapshot=snapshot,
+            dependency_snapshot_loader=lambda ref: build_snapshot(
+                object_kind="metric",
+                object_id="metc_123",
+                ref=ref,
+                status="published",
+                revision=3,
+                semantic_object={"header": {"metric_ref": ref}},
+            ),
+        )
+        return self.registry.evaluator_for("compiler_profile").evaluate(context)
+
+    def test_profile_with_inactive_subject_is_not_ready(self) -> None:
+        result = self._evaluate_with_subject_status(subject_status="draft")
+
+        self.assertEqual(result.readiness_status, "not_ready")
+        self.assertIn(
+            "PROFILE_SUBJECT_INACTIVE",
+            {item.code for item in result.blocking_requirements},
+        )
+
+    def test_profile_with_missing_subject_is_not_ready(self) -> None:
+        result = self._evaluate_with_missing_subject()
+
+        self.assertEqual(result.readiness_status, "not_ready")
+        self.assertIn(
+            "PROFILE_SUBJECT_INACTIVE",
+            {item.code for item in result.blocking_requirements},
+        )
+
+    def test_profile_with_invalid_contract_is_not_ready(self) -> None:
+        result = self._evaluate_invalid_contract()
+
+        self.assertEqual(result.readiness_status, "not_ready")
+        self.assertIn(
+            "PROFILE_CONTRACT_INVALID",
+            {item.code for item in result.blocking_requirements},
+        )
+
+    def test_draft_profile_is_not_ready(self) -> None:
+        result = self._evaluate_with_profile_status(profile_status="draft")
+
+        self.assertEqual(result.lifecycle_status, "draft")
+        self.assertEqual(result.readiness_status, "not_ready")
+
+    def test_stale_profile_has_explanatory_blocker(self) -> None:
+        result = self._evaluate(subject_revision=2)
+
+        self.assertEqual(result.readiness_status, "stale")
+        self.assertEqual(len(result.blocking_requirements), 1)
+        self.assertEqual(result.blocking_requirements[0].code, "PROFILE_SUBJECT_REVISION_MISMATCH")
+
+    def _evaluate_with_subject_status(self, *, subject_status: str) -> ReadinessResult:
+        snapshot = build_snapshot(
+            object_kind="compiler_profile",
+            object_id="cprof_123",
+            ref="compiler_profile.metric_requirement",
+            status="published",
+            revision=4,
+            semantic_object={
+                "profile_ref": "compiler_profile.metric_requirement",
+                "profile_kind": "requirement",
+                "subject_kind": "metric",
+                "subject_ref": "metric.conversion_rate",
+                "subject_revision": 3,
+                "requirement": {"entity_refs": ["entity.user"]},
+            },
+        )
+        context = ReadinessEvaluationContext(
+            snapshot=snapshot,
+            dependency_snapshot_loader=lambda ref: build_snapshot(
+                object_kind="metric",
+                object_id="metc_123",
+                ref=ref,
+                status=subject_status,
+                revision=3,
+                semantic_object={"header": {"metric_ref": ref}},
+            ),
+        )
+        return self.registry.evaluator_for("compiler_profile").evaluate(context)
+
+    def _evaluate_with_missing_subject(self) -> ReadinessResult:
+        snapshot = build_snapshot(
+            object_kind="compiler_profile",
+            object_id="cprof_123",
+            ref="compiler_profile.metric_requirement",
+            status="published",
+            revision=4,
+            semantic_object={
+                "profile_ref": "compiler_profile.metric_requirement",
+                "profile_kind": "requirement",
+                "subject_kind": "metric",
+                "subject_ref": "metric.conversion_rate",
+                "subject_revision": 3,
+                "requirement": {"entity_refs": ["entity.user"]},
+            },
+        )
+        context = ReadinessEvaluationContext(
+            snapshot=snapshot,
+            dependency_snapshot_loader=lambda _ref: None,
+        )
+        return self.registry.evaluator_for("compiler_profile").evaluate(context)
+
+    def _evaluate_invalid_contract(self) -> ReadinessResult:
+        snapshot = build_snapshot(
+            object_kind="compiler_profile",
+            object_id="cprof_123",
+            ref="compiler_profile.metric_requirement",
+            status="published",
+            revision=4,
+            semantic_object={
+                "subject_kind": "metric",
+                "subject_ref": "metric.conversion_rate",
+                "subject_revision": 3,
+            },
+        )
+        context = ReadinessEvaluationContext(snapshot=snapshot)
+        return self.registry.evaluator_for("compiler_profile").evaluate(context)
+
+    def _evaluate_with_profile_status(self, *, profile_status: str) -> ReadinessResult:
+        snapshot = build_snapshot(
+            object_kind="compiler_profile",
+            object_id="cprof_123",
+            ref="compiler_profile.metric_requirement",
+            status=profile_status,
+            revision=4,
+            semantic_object={
+                "profile_ref": "compiler_profile.metric_requirement",
+                "profile_kind": "requirement",
+                "subject_kind": "metric",
+                "subject_ref": "metric.conversion_rate",
+                "subject_revision": 3,
+                "requirement": {"entity_refs": ["entity.user"]},
+            },
+        )
+        context = ReadinessEvaluationContext(
+            snapshot=snapshot,
+            dependency_snapshot_loader=lambda ref: build_snapshot(
+                object_kind="metric",
+                object_id="metc_123",
+                ref=ref,
+                status="published",
+                revision=3,
+                semantic_object={"header": {"metric_ref": ref}},
+            ),
+        )
+        return self.registry.evaluator_for("compiler_profile").evaluate(context)
 
 
 if __name__ == "__main__":

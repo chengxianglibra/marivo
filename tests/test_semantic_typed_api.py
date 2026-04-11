@@ -1800,6 +1800,148 @@ class SemanticTypedApiTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 422, resp.text)
         self.assertIsInstance(resp.json()["detail"], str)
 
+    def test_binding_and_profile_readiness_surfaces_update_after_dependencies_change(self) -> None:
+        suffix = uuid4().hex[:8]
+
+        entity_resp = self.client.post(
+            "/semantic/entities",
+            json={
+                "header": {
+                    "entity_ref": f"entity.readiness_case_{suffix}",
+                    "display_name": "Readiness Case",
+                    "entity_contract_version": "entity.v4",
+                },
+                "interface_contract": {
+                    "identity": {
+                        "key_refs": [f"key.readiness_id_{suffix}"],
+                        "uniqueness_scope": "global",
+                        "id_stability": "stable",
+                    }
+                },
+            },
+        )
+        self.assertEqual(entity_resp.status_code, 200, entity_resp.text)
+        entity_id = entity_resp.json()["entity_contract_id"]
+        self.assertEqual(
+            self.client.post(f"/semantic/entities/{entity_id}/publish").status_code, 200
+        )
+
+        binding_ref = f"binding.readiness_case_{suffix}"
+        source_fqn = f"warehouse.readiness_case_{suffix}"
+        binding_resp = self.client.post(
+            "/semantic/bindings",
+            json={
+                "header": {
+                    "binding_ref": binding_ref,
+                    "display_name": "Readiness Binding",
+                    "binding_scope": "entity",
+                    "bound_object_ref": entity_resp.json()["header"]["entity_ref"],
+                    "binding_contract_version": "binding.v1",
+                },
+                "interface_contract": {
+                    "carrier_bindings": [
+                        {
+                            "binding_key": "primary",
+                            "carrier_kind": "table",
+                            "carrier_locator": source_fqn,
+                            "binding_role": "primary",
+                            "field_surfaces": [
+                                {
+                                    "surface_ref": "field.entity_id",
+                                    "physical_name": "entity_id",
+                                }
+                            ],
+                        }
+                    ],
+                    "field_bindings": [
+                        {
+                            "carrier_binding_key": "primary",
+                            "target": {
+                                "target_kind": "identity_key",
+                                "target_key": f"key.readiness_id_{suffix}",
+                            },
+                            "semantic_ref": f"key.readiness_id_{suffix}",
+                            "surface_ref": "field.entity_id",
+                        }
+                    ],
+                },
+            },
+        )
+        self.assertEqual(binding_resp.status_code, 200, binding_resp.text)
+        binding_id = binding_resp.json()["binding_id"]
+        self._insert_source_object(fqn=source_fqn)
+        publish_binding_resp = self.client.post(f"/semantic/bindings/{binding_id}/publish")
+        self.assertEqual(publish_binding_resp.status_code, 200, publish_binding_resp.text)
+
+        metric_resp = self.client.post(
+            "/semantic/metrics",
+            json={
+                "header": {
+                    "metric_ref": f"metric.readiness_case_{suffix}",
+                    "display_name": "Readiness Metric",
+                    "metric_family": "count_metric",
+                    "observed_entity_ref": entity_resp.json()["header"]["entity_ref"],
+                    "observation_grain_ref": "grain.account",
+                    "sample_kind": "numeric",
+                    "value_semantics": "count",
+                    "additivity": "additive",
+                    "metric_contract_version": "metric.v1",
+                },
+                "payload": {
+                    "metric_family": "count_metric",
+                    "count_target": {
+                        "name": "rows",
+                        "semantics": "row count",
+                        "aggregation": "count",
+                    },
+                },
+            },
+        )
+        self.assertEqual(metric_resp.status_code, 200, metric_resp.text)
+        metric_id = metric_resp.json()["metric_contract_id"]
+        self.assertEqual(
+            self.client.post(f"/semantic/metrics/{metric_id}/publish").status_code, 200
+        )
+
+        profile_resp = self.client.post(
+            "/compiler/compatibility-profiles",
+            json={
+                "profile_ref": f"compiler_profile.readiness_case_{suffix}",
+                "profile_kind": "requirement",
+                "subject_kind": "metric",
+                "subject_ref": metric_resp.json()["header"]["metric_ref"],
+                "requirement": {"entity_refs": [entity_resp.json()["header"]["entity_ref"]]},
+            },
+        )
+        self.assertEqual(profile_resp.status_code, 200, profile_resp.text)
+        profile_id = profile_resp.json()["profile_id"]
+        publish_profile_resp = self.client.post(
+            f"/compiler/compatibility-profiles/{profile_id}/publish"
+        )
+        self.assertEqual(publish_profile_resp.status_code, 200, publish_profile_resp.text)
+
+        self._metadata().execute("DELETE FROM source_objects WHERE fqn = ?", [source_fqn])
+        self._metadata().execute(
+            "UPDATE semantic_metric_contracts SET revision = revision + 1 WHERE metric_contract_id = ?",
+            [metric_id],
+        )
+
+        binding_detail_resp = self.client.get(f"/semantic/bindings/{binding_id}")
+        self.assertEqual(binding_detail_resp.status_code, 200, binding_detail_resp.text)
+        self.assertEqual(binding_detail_resp.json()["readiness_status"], "not_ready")
+        self.assertIn(
+            "BINDING_CARRIER_SOURCE_MISSING",
+            {item["code"] for item in binding_detail_resp.json()["blocking_requirements"]},
+        )
+
+        profile_detail_resp = self.client.get(f"/compiler/compatibility-profiles/{profile_id}")
+        self.assertEqual(profile_detail_resp.status_code, 200, profile_detail_resp.text)
+        self.assertEqual(profile_detail_resp.json()["readiness_status"], "stale")
+        self.assertIn(
+            "PROFILE_SUBJECT_REVISION_MISMATCH",
+            {item["code"] for item in profile_detail_resp.json()["blocking_requirements"]},
+        )
+
     def test_enum_set_update_rejects_raw_value_type_mismatch(self) -> None:
         """Updating enum set versions must reject raw_values that don't match
         the immutable value_type declared at creation time."""
