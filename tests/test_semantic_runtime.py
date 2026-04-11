@@ -735,6 +735,10 @@ class SemanticRuntimeTests(unittest.TestCase):
         self.assertEqual(resolved["object_kind"], "metric")
         self.assertEqual(resolved["object_id"], self.metric_id)
         self.assertEqual(resolved["ref"], "metric.watch_time")
+        self.assertEqual(resolved["semantic_object"]["lifecycle_status"], "active")
+        self.assertEqual(resolved["semantic_object"]["readiness_status"], "ready")
+        self.assertEqual(resolved["semantic_object"]["blocking_requirements"], [])
+        self.assertEqual(resolved["semantic_object"]["capabilities"], {})
         self.assertEqual(resolved["semantic_object"]["header"]["metric_ref"], "metric.watch_time")
         self.assertEqual(
             resolved["semantic_object"]["header"]["observed_entity_ref"],

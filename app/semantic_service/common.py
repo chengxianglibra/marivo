@@ -5,11 +5,11 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
+from app.semantic_readiness import ObjectKind, SemanticReadinessService
 from app.semantic_runtime.semantic_metadata import (
     entity_runtime_metadata,
     metric_runtime_metadata,
 )
-from app.semantic_runtime.status_utils import default_readiness_contract
 from app.storage.metadata import MetadataStore
 
 from .errors import (
@@ -27,6 +27,64 @@ def now_iso() -> str:
 class SemanticServiceSupport:
     def __init__(self, metadata: MetadataStore) -> None:
         self.metadata = metadata
+        self.readiness_service = SemanticReadinessService(metadata)
+
+    def _evaluate_readiness(
+        self,
+        *,
+        object_kind: ObjectKind,
+        object_id: str,
+        ref: str,
+        status: str,
+        revision: int,
+        semantic_object: dict[str, Any],
+    ) -> dict[str, Any]:
+        result = self.readiness_service.evaluate_snapshot(
+            object_kind=object_kind,
+            object_id=object_id,
+            ref=ref,
+            status=status,
+            revision=revision,
+            semantic_object=semantic_object,
+        )
+        return result.contract_payload()
+
+    def _augment_object_with_readiness(
+        self,
+        base: dict[str, Any],
+        *,
+        object_kind: ObjectKind,
+        row: dict[str, Any],
+        id_field: str,
+        ref: str,
+    ) -> dict[str, Any]:
+        """Augment a semantic object dict with computed readiness fields.
+
+        This helper bundles the common pattern of extracting id/status/revision
+        from a database row and calling _evaluate_readiness to add lifecycle_status,
+        readiness_status, blocking_requirements, and capabilities.
+
+        Args:
+            base: The base semantic object dict to augment (mutated in-place).
+            object_kind: The semantic object kind (entity, metric, process, etc).
+            row: The database row dict containing id, status, revision fields.
+            id_field: The key in row for the object's ID (e.g., "entity_id", "metric_id").
+            ref: The pre-computed ref string (e.g., "entity.user", "metric.watch_time").
+
+        Returns:
+            The augmented base dict (same object, mutated in-place).
+        """
+        base.update(
+            self._evaluate_readiness(
+                object_kind=object_kind,
+                object_id=str(row[id_field]),
+                ref=ref,
+                status=str(row["status"]),
+                revision=int(row["revision"]),
+                semantic_object=base,
+            )
+        )
+        return base
 
     def _entity_ref_for_name(self, name: str) -> str:
         return f"entity.{name}"
@@ -1446,7 +1504,7 @@ class SemanticServiceSupport:
             lineage_json=row["lineage_json"],
             quality_expectations_json=row["quality_expectations_json"],
         )
-        return {
+        entity = {
             "entity_id": row["entity_id"],
             "name": row["name"],
             "display_name": row["display_name"],
@@ -1455,11 +1513,17 @@ class SemanticServiceSupport:
             "properties": properties,
             **semantic_metadata,
             "status": row["status"],
-            **default_readiness_contract(row["status"]),
             "revision": row["revision"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
+        return self._augment_object_with_readiness(
+            entity,
+            object_kind="entity",
+            row=row,
+            id_field="entity_id",
+            ref=self._entity_ref_for_name(str(row["name"])),
+        )
 
     def _row_to_metric(self, row: dict[str, Any]) -> dict[str, Any]:
         properties = json.loads(row["properties_json"])
@@ -1472,7 +1536,7 @@ class SemanticServiceSupport:
             quality_expectations_json=row["quality_expectations_json"],
             dimensions=dimensions,
         )
-        return {
+        metric = {
             "metric_id": row["metric_id"],
             "name": row["name"],
             "display_name": row["display_name"],
@@ -1484,11 +1548,17 @@ class SemanticServiceSupport:
             "properties": properties,
             **semantic_metadata,
             "status": row["status"],
-            **default_readiness_contract(row["status"]),
             "revision": row["revision"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
+        return self._augment_object_with_readiness(
+            metric,
+            object_kind="metric",
+            row=row,
+            id_field="metric_id",
+            ref=self._metric_ref_for_name(str(row["name"])),
+        )
 
     def _row_to_mapping(self, row: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -1528,7 +1598,7 @@ class SemanticServiceSupport:
                 "cardinality_to_parent": row["cardinality_to_parent"],
                 "ownership_semantics": row["ownership_semantics"],
             }
-        return {
+        entity = {
             "entity_contract_id": row["entity_contract_id"],
             "header": {
                 "entity_ref": row["entity_ref"],
@@ -1555,14 +1625,20 @@ class SemanticServiceSupport:
                 or None,
             },
             "status": row["status"],
-            **default_readiness_contract(row["status"]),
             "revision": row["revision"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
+        return self._augment_object_with_readiness(
+            entity,
+            object_kind="entity",
+            row=row,
+            id_field="entity_contract_id",
+            ref=str(row["entity_ref"]),
+        )
 
     def _row_to_typed_metric(self, row: dict[str, Any]) -> dict[str, Any]:
-        return {
+        metric = {
             "metric_contract_id": row["metric_contract_id"],
             "header": {
                 "metric_ref": row["metric_ref"],
@@ -1581,11 +1657,17 @@ class SemanticServiceSupport:
             },
             "payload": json.loads(row["family_payload_json"]),
             "status": row["status"],
-            **default_readiness_contract(row["status"]),
             "revision": row["revision"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
+        return self._augment_object_with_readiness(
+            metric,
+            object_kind="metric",
+            row=row,
+            id_field="metric_contract_id",
+            ref=str(row["metric_ref"]),
+        )
 
     def _row_to_process_object(self, row: dict[str, Any]) -> dict[str, Any]:
         exported_dimension_rows = self.metadata.query_rows(
@@ -1613,7 +1695,7 @@ class SemanticServiceSupport:
             interface_contract["entity_ref"] = row["entity_ref"]
             interface_contract["emitted_grain_ref"] = row["emitted_grain_ref"]
             interface_contract["subject_cardinality"] = row["subject_cardinality"]
-        return {
+        process_object = {
             "process_contract_id": row["process_contract_id"],
             "header": {
                 "process_ref": row["process_ref"],
@@ -1625,11 +1707,17 @@ class SemanticServiceSupport:
             "interface_contract": interface_contract,
             "payload": json.loads(row["process_payload_json"]),
             "status": row["status"],
-            **default_readiness_contract(row["status"]),
             "revision": row["revision"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
+        return self._augment_object_with_readiness(
+            process_object,
+            object_kind="process",
+            row=row,
+            id_field="process_contract_id",
+            ref=str(row["process_ref"]),
+        )
 
     def _row_to_dimension(self, row: dict[str, Any]) -> dict[str, Any]:
         value_domain: dict[str, Any] = {
@@ -1651,7 +1739,7 @@ class SemanticServiceSupport:
             interface_contract["time_derived_requirement"] = {
                 "required_time_anchor_ref": row["required_time_anchor_ref"],
             }
-        return {
+        dimension = {
             "dimension_contract_id": row["dimension_contract_id"],
             "header": {
                 "dimension_ref": row["dimension_ref"],
@@ -1661,11 +1749,17 @@ class SemanticServiceSupport:
             },
             "interface_contract": interface_contract,
             "status": row["status"],
-            **default_readiness_contract(row["status"]),
             "revision": row["revision"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
+        return self._augment_object_with_readiness(
+            dimension,
+            object_kind="dimension",
+            row=row,
+            id_field="dimension_contract_id",
+            ref=str(row["dimension_ref"]),
+        )
 
     def _row_to_time_semantic(self, row: dict[str, Any]) -> dict[str, Any]:
         semantic_roles: list[str] = []
@@ -1675,7 +1769,7 @@ class SemanticServiceSupport:
             semantic_roles.append("measurement")
         if row["operational_support"]:
             semantic_roles.append("operational_support")
-        return {
+        time_semantic = {
             "time_contract_id": row["time_contract_id"],
             "header": {
                 "time_ref": row["time_ref"],
@@ -1685,11 +1779,17 @@ class SemanticServiceSupport:
                 "time_contract_version": row["time_contract_version"],
             },
             "status": row["status"],
-            **default_readiness_contract(row["status"]),
             "revision": row["revision"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
+        return self._augment_object_with_readiness(
+            time_semantic,
+            object_kind="time",
+            row=row,
+            id_field="time_contract_id",
+            ref=str(row["time_ref"]),
+        )
 
     def _row_to_enum_set(self, row: dict[str, Any]) -> dict[str, Any]:
         version_rows = self.metadata.query_rows(
@@ -1726,7 +1826,7 @@ class SemanticServiceSupport:
                     ],
                 }
             )
-        return {
+        enum_set = {
             "enum_set_contract_id": row["enum_set_contract_id"],
             "header": {
                 "enum_set_ref": row["enum_set_ref"],
@@ -1736,11 +1836,17 @@ class SemanticServiceSupport:
             "description": row["description"],
             "versions": versions,
             "status": row["status"],
-            **default_readiness_contract(row["status"]),
             "revision": row["revision"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
+        return self._augment_object_with_readiness(
+            enum_set,
+            object_kind="enum",
+            row=row,
+            id_field="enum_set_contract_id",
+            ref=str(row["enum_set_ref"]),
+        )
 
     def _row_to_typed_binding(self, row: dict[str, Any]) -> dict[str, Any]:
         import_rows = self.metadata.query_rows(
@@ -1830,7 +1936,7 @@ class SemanticServiceSupport:
             """,
             [row["binding_id"]],
         )
-        return {
+        binding = {
             "binding_id": row["binding_id"],
             "header": {
                 "binding_ref": row["binding_ref"],
@@ -1898,16 +2004,22 @@ class SemanticServiceSupport:
                 ],
             },
             "status": row["status"],
-            **default_readiness_contract(row["status"]),
             "revision": row["revision"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
+        return self._augment_object_with_readiness(
+            binding,
+            object_kind="binding",
+            row=row,
+            id_field="binding_id",
+            ref=str(row["binding_ref"]),
+        )
 
     def _row_to_compatibility_profile(self, row: dict[str, Any]) -> dict[str, Any]:
         requirement = json.loads(row["requirement_json"])
         capability = json.loads(row["capability_json"])
-        return {
+        profile = {
             "profile_id": row["profile_id"],
             "profile_ref": row["profile_ref"],
             "profile_kind": row["profile_kind"],
@@ -1918,8 +2030,14 @@ class SemanticServiceSupport:
             "requirement": requirement or None,
             "capability": capability or None,
             "status": row["status"],
-            **default_readiness_contract(row["status"]),
             "revision": row["revision"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
+        return self._augment_object_with_readiness(
+            profile,
+            object_kind="compiler_profile",
+            row=row,
+            id_field="profile_id",
+            ref=str(row["profile_ref"]),
+        )
