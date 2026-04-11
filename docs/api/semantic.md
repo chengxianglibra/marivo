@@ -10,7 +10,7 @@ Semantic lifecycle is shared across objects:
 
 Only `published` objects are available to runtime resolution and intent execution.
 
-Semantic object responses expose both the legacy storage status and a new derived lifecycle/readiness
+Semantic object responses expose both the legacy storage status and a derived lifecycle/readiness
 contract:
 
 - `status`: compatibility field backed by storage (`draft`, `published`, `deprecated`)
@@ -18,15 +18,16 @@ contract:
   - **Phase A**: `validated` is a reserved value in the type definition but never produced; it will
     become a persisted state in Phase B when a validation step is introduced between draft and active.
 - `readiness_status`: derived readiness (`not_ready`, `ready`)
-  - **Phase A**: `stale` is a reserved value in the type definition but never produced; it will be
-    computed by readiness evaluators in Phase B when previously-ready objects become unavailable due
-    to dependency changes.
+  - `published` no longer implies `ready` for entity, metric, or process objects.
+  - `stale` is still reserved and not produced yet; a later task will compute it when a previously
+    ready object becomes unavailable due to dependency changes.
 - `blocking_requirements`: structured blockers for why an object is not currently ready
-  - **Phase A**: always empty; Phase B evaluators will populate with object-specific blockers.
+  - Entity, metric, and process routes now return object-specific blockers.
 - `capabilities`: object-family-specific capability payload
-  - **Phase A**: always empty; Phase B evaluators will populate with computed capabilities.
+  - Metric and process routes now return computed capability flags.
 
 During the current migration phase, `status=published` maps to `lifecycle_status=active`.
+Readiness is evaluated separately from lifecycle.
 
 Unknown storage status values will raise `ValueError` at the service layer to catch data integrity
 issues early, rather than silently falling back to a default status.

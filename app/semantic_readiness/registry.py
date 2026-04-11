@@ -7,8 +7,14 @@ the corresponding evaluator implementation.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import cast
 
-from .evaluators import PlaceholderSemanticReadinessEvaluator
+from .evaluators import (
+    EntityReadinessEvaluator,
+    MetricReadinessEvaluator,
+    PlaceholderSemanticReadinessEvaluator,
+    ProcessReadinessEvaluator,
+)
 from .types import ObjectKind, SemanticReadinessEvaluator
 
 
@@ -50,22 +56,18 @@ class SemanticReadinessRegistry:
 
 
 def build_default_registry() -> SemanticReadinessRegistry:
-    """Build registry with placeholder evaluators for all object kinds.
+    """Build registry with concrete evaluators for T3 object kinds.
 
-    Phase A uses placeholder evaluators that preserve simple status mapping.
-    Phase B will replace with object-specific evaluators.
+    Entity, metric, and process use concrete evaluators. Remaining object
+    families stay on placeholder evaluators until later tasks land.
     """
     registry = SemanticReadinessRegistry()
-    object_kinds: tuple[ObjectKind, ...] = (
-        "entity",
-        "metric",
-        "process",
-        "dimension",
-        "time",
-        "enum",
-        "binding",
-        "compiler_profile",
-    )
-    for object_kind in object_kinds:
-        registry.register(object_kind, PlaceholderSemanticReadinessEvaluator(object_kind))
+    registry.register("entity", EntityReadinessEvaluator())
+    registry.register("metric", MetricReadinessEvaluator())
+    registry.register("process", ProcessReadinessEvaluator())
+    for object_kind in ("dimension", "time", "enum", "binding", "compiler_profile"):
+        registry.register(
+            cast("ObjectKind", object_kind),
+            PlaceholderSemanticReadinessEvaluator(object_kind),
+        )
     return registry
