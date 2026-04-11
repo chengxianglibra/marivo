@@ -259,10 +259,15 @@ class TestTypedEntityResponse:
                 ),
             ),
             status="draft",
+            lifecycle_status="draft",
+            readiness_status="not_ready",
+            blocking_requirements=[],
+            capabilities={},
             revision=1,
             created_at="2024-01-01T00:00:00Z",
             updated_at="2024-01-01T00:00:00Z",
         )
         assert response.entity_contract_id == "ec_123"
         assert response.status == "draft"
+        assert response.lifecycle_status == "draft"
         assert response.revision == 1

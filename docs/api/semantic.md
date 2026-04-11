@@ -10,6 +10,27 @@ Semantic lifecycle is shared across objects:
 
 Only `published` objects are available to runtime resolution and intent execution.
 
+Semantic object responses expose both the legacy storage status and a new derived lifecycle/readiness
+contract:
+
+- `status`: compatibility field backed by storage (`draft`, `published`, `deprecated`)
+- `lifecycle_status`: derived public lifecycle (`draft`, `active`, `deprecated`)
+  - **Phase A**: `validated` is a reserved value in the type definition but never produced; it will
+    become a persisted state in Phase B when a validation step is introduced between draft and active.
+- `readiness_status`: derived readiness (`not_ready`, `ready`)
+  - **Phase A**: `stale` is a reserved value in the type definition but never produced; it will be
+    computed by readiness evaluators in Phase B when previously-ready objects become unavailable due
+    to dependency changes.
+- `blocking_requirements`: structured blockers for why an object is not currently ready
+  - **Phase A**: always empty; Phase B evaluators will populate with object-specific blockers.
+- `capabilities`: object-family-specific capability payload
+  - **Phase A**: always empty; Phase B evaluators will populate with computed capabilities.
+
+During the current migration phase, `status=published` maps to `lifecycle_status=active`.
+
+Unknown storage status values will raise `ValueError` at the service layer to catch data integrity
+issues early, rather than silently falling back to a default status.
+
 Typed semantic object contract updates are draft-only. After `publish`, the public contract is frozen; a second publish attempt or any later update returns a validation error from the service layer.
 
 The minimal end-to-end semantic closure is:
@@ -201,6 +222,10 @@ Response:
       }
     ]
   },
+  "lifecycle_status": "draft",
+  "readiness_status": "not_ready",
+  "blocking_requirements": [],
+  "capabilities": {},
   "status": "draft",
   "revision": 1,
   "created_at": "2026-04-08T12:00:00+00:00",
@@ -548,6 +573,10 @@ Response:
       "qualifier_refs": null
     }
   },
+  "lifecycle_status": "draft",
+  "readiness_status": "not_ready",
+  "blocking_requirements": [],
+  "capabilities": {},
   "status": "draft",
   "revision": 1,
   "created_at": "2026-04-08T12:00:00+00:00",

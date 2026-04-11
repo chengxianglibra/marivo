@@ -47,6 +47,10 @@ class SemanticEntityRouteTests(unittest.TestCase):
         entity_id = entity["entity_contract_id"]
         self.assertEqual(entity["header"]["entity_ref"], "entity.user")
         self.assertEqual(entity["status"], "draft")
+        self.assertEqual(entity["lifecycle_status"], "draft")
+        self.assertEqual(entity["readiness_status"], "not_ready")
+        self.assertEqual(entity["blocking_requirements"], [])
+        self.assertEqual(entity["capabilities"], {})
         self.assertEqual(entity["revision"], 1)
 
         resp = self.client.get(f"/semantic/entities/{entity_id}")
@@ -64,6 +68,8 @@ class SemanticEntityRouteTests(unittest.TestCase):
         resp = self.client.post(f"/semantic/entities/{entity_id}/publish")
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertEqual(resp.json()["status"], "published")
+        self.assertEqual(resp.json()["lifecycle_status"], "active")
+        self.assertEqual(resp.json()["readiness_status"], "ready")
         self.assertEqual(resp.json()["revision"], 3)
 
         resp = self.client.get("/semantic/entities?status=published")
@@ -184,6 +190,10 @@ class SemanticMetricRouteTests(unittest.TestCase):
         metric_id = metric["metric_contract_id"]
         self.assertEqual(metric["header"]["metric_ref"], "metric.dau")
         self.assertEqual(metric["status"], "draft")
+        self.assertEqual(metric["lifecycle_status"], "draft")
+        self.assertEqual(metric["readiness_status"], "not_ready")
+        self.assertEqual(metric["blocking_requirements"], [])
+        self.assertEqual(metric["capabilities"], {})
 
         resp = self.client.get(f"/semantic/metrics/{metric_id}")
         self.assertEqual(resp.status_code, 200, resp.text)
@@ -209,6 +219,8 @@ class SemanticMetricRouteTests(unittest.TestCase):
         resp = self.client.post(f"/semantic/metrics/{metric_id}/publish")
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertEqual(resp.json()["status"], "published")
+        self.assertEqual(resp.json()["lifecycle_status"], "active")
+        self.assertEqual(resp.json()["readiness_status"], "ready")
         self.assertEqual(resp.json()["revision"], 3)
 
         resp = self.client.get("/semantic/metrics?status=published")

@@ -123,6 +123,8 @@ DuckDB/Trino engines.
 
 Client → FastAPI → `app/api/` → service → semantic/routing/execution → SQLite + engines.
 Metadata reads use synced `source_objects`, not live catalogs.
+Semantic object HTTP responses may expose derived lifecycle/readiness contract fields in addition to
+legacy storage `status`; preserve backward compatibility unless a task explicitly removes old fields.
 
 ## Docs layout:
 - `docs/api/`: external HTTP API docs only; target-state step submission is in `intent-steps.md`, and canonical read surfaces are split into `session-state.md` and `context-surface.md`

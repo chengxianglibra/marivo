@@ -8,7 +8,7 @@ defined in docs/semantic/*.md.
 from __future__ import annotations
 
 import re
-from typing import Generic, Literal, TypeVar
+from typing import Any, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -111,6 +111,8 @@ InferentialSampleSummary = Literal["numeric_sample_summary", "rate_sample_summar
 
 # Lifecycle status
 ObjectStatus = Literal["draft", "published", "deprecated"]
+LifecycleStatus = Literal["draft", "validated", "active", "deprecated"]
+ReadinessStatus = Literal["not_ready", "ready", "stale"]
 
 
 # =============================================================================
@@ -214,10 +216,39 @@ class ObjectHeaderBase(BaseModel):
     description: str | None = Field(default=None, description="Description of the semantic object.")
 
 
+class BlockingRequirement(BaseModel):
+    """Structured blocker explaining why an object is not ready."""
+
+    code: str = Field(description="Stable blocker code.")
+    message: str = Field(description="Human-readable blocker message.")
+    subject_ref: str | None = Field(
+        default=None,
+        description="Optional ref for the object or subject directly affected by the blocker.",
+    )
+    dependency_ref: str | None = Field(
+        default=None,
+        description="Optional dependency ref associated with the blocker.",
+    )
+
+
 class ObjectResponseBase(BaseModel):
     """Common lifecycle metadata returned by semantic object APIs."""
 
     status: ObjectStatus = Field(description="Lifecycle status: draft, published, or deprecated.")
+    lifecycle_status: LifecycleStatus = Field(
+        description="Derived lifecycle status: draft, validated, active, or deprecated."
+    )
+    readiness_status: ReadinessStatus = Field(
+        description="Derived readiness status: not_ready, ready, or stale."
+    )
+    blocking_requirements: list[BlockingRequirement] = Field(
+        default_factory=list,
+        description="Structured reasons why the object is not currently ready for default use.",
+    )
+    capabilities: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Structured capability flags or payloads exposed for this object.",
+    )
     revision: int = Field(ge=1, description="Revision number (>= 1).")
     created_at: str = Field(description="Creation timestamp (ISO-8601).")
     updated_at: str = Field(description="Last update timestamp (ISO-8601).")

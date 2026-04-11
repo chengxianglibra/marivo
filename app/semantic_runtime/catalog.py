@@ -6,6 +6,10 @@ from typing import TYPE_CHECKING, Any
 from app.analysis_core import SUPPORTED_STEP_TYPES
 from app.semantic_runtime.repository import SemanticRuntimeRepository
 from app.semantic_runtime.semantic_metadata import runtime_ref_kind
+from app.semantic_runtime.status_utils import (
+    derive_lifecycle_status,
+    derive_readiness_status,
+)
 from app.storage.metadata import MetadataStore
 
 if TYPE_CHECKING:
@@ -288,11 +292,18 @@ class CatalogRuntimeService:
         }
 
     def _resolved_object_to_detail(self, resolved: Any) -> dict[str, Any]:
+        # Explicitly set derived fields, not setdefault, to ensure our
+        # derivation is authoritative and upstream values don't silently override.
+        semantic_object = dict(resolved.semantic_object)
+        semantic_object["lifecycle_status"] = derive_lifecycle_status(resolved.status)
+        semantic_object["readiness_status"] = derive_readiness_status(resolved.status)
+        semantic_object["blocking_requirements"] = []
+        semantic_object["capabilities"] = {}
         return {
             "object_kind": resolved.object_kind,
             "object_id": resolved.object_id,
             "ref": resolved.ref,
-            "semantic_object": resolved.semantic_object,
+            "semantic_object": semantic_object,
             "status": resolved.status,
             "revision": resolved.revision,
             "created_at": resolved.created_at,

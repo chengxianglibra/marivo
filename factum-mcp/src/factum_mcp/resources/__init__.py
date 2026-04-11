@@ -99,7 +99,7 @@ def register_resources(
             client, f"/sessions/{session_id}/propositions/{proposition_id}/context"
         )
 
-    @server.resource("factum://semantic/{family}{?status}")
+    @server.resource("factum://semantic/{family}")
     @_resource_metadata(
         http_method="GET",
         http_paths=(
@@ -113,7 +113,7 @@ def register_resources(
             "/compiler/compatibility-profiles",
         ),
     )
-    def semantic_family(family: str, status: str | None = None) -> object:
+    def semantic_family(family: str) -> object:
         """Mirror semantic family list endpoints without adding MCP-only filtering semantics."""
         path = _SEMANTIC_RESOURCE_PATHS.get(family)
         if path is None:
@@ -121,21 +121,13 @@ def register_resources(
             raise ValueError(
                 f"Unsupported semantic family {family!r}. Supported families: {supported}."
             )
-        return _read_resource(client, path, params=_compact_params(status=status))
+        return _read_resource(client, path)
 
-    @server.resource("factum://sources/{source_id}/objects{?type,schema}")
+    @server.resource("factum://sources/{source_id}/objects")
     @_resource_metadata(http_method="GET", http_paths=("/sources/{source_id}/objects",))
-    def source_objects(
-        source_id: str,
-        type: str | None = None,
-        schema: str | None = None,
-    ) -> object:
+    def source_objects(source_id: str) -> object:
         """Mirror synced source metadata reads via GET /sources/{source_id}/objects only."""
-        return _read_resource(
-            client,
-            f"/sources/{source_id}/objects",
-            params=_compact_params(type=type, schema=schema),
-        )
+        return _read_resource(client, f"/sources/{source_id}/objects")
 
     @server.resource("factum://sources/{source_id}/objects/{object_id}")
     @_resource_metadata(
@@ -145,10 +137,6 @@ def register_resources(
     def source_object(source_id: str, object_id: str) -> object:
         """Mirror synced source metadata detail via GET /sources/{source_id}/objects/{object_id} only."""
         return _read_resource(client, f"/sources/{source_id}/objects/{object_id}")
-
-
-def _compact_params(**params: _ParamValue) -> dict[str, _ParamValue]:
-    return {key: value for key, value in params.items() if value is not None}
 
 
 def _read_resource(
