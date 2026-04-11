@@ -171,6 +171,8 @@ class CatalogQueryTests(unittest.TestCase):
 
         self.assertEqual(detail["object_kind"], "metric")
         self.assertEqual(detail["object_id"], self.watch_metric_id)
+        self.assertEqual(detail["semantic_object"]["lifecycle_status"], "active")
+        self.assertEqual(detail["semantic_object"]["readiness_status"], "ready")
         self.assertEqual(detail["semantic_object"]["header"]["metric_ref"], "metric.watch_time")
 
     def test_catalog_detail_round_trip_for_asset(self) -> None:

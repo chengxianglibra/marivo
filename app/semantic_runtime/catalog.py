@@ -1,15 +1,12 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from app.analysis_core import SUPPORTED_STEP_TYPES
+from app.semantic_readiness import ObjectKind, SemanticReadinessService
 from app.semantic_runtime.repository import SemanticRuntimeRepository
 from app.semantic_runtime.semantic_metadata import runtime_ref_kind
-from app.semantic_runtime.status_utils import (
-    derive_lifecycle_status,
-    derive_readiness_status,
-)
 from app.storage.metadata import MetadataStore
 
 if TYPE_CHECKING:
@@ -69,6 +66,7 @@ class CatalogRuntimeService:
         self.metadata = metadata
         self.binding_service = binding_service
         self.semantic_repository = semantic_repository or SemanticRuntimeRepository(metadata)
+        self.readiness_service = SemanticReadinessService(metadata)
 
     def search(self, query: str, object_type: str | None = None) -> list[dict[str, Any]]:
         normalized_type = self._normalize_object_type_filter(object_type)
@@ -292,13 +290,16 @@ class CatalogRuntimeService:
         }
 
     def _resolved_object_to_detail(self, resolved: Any) -> dict[str, Any]:
-        # Explicitly set derived fields, not setdefault, to ensure our
-        # derivation is authoritative and upstream values don't silently override.
         semantic_object = dict(resolved.semantic_object)
-        semantic_object["lifecycle_status"] = derive_lifecycle_status(resolved.status)
-        semantic_object["readiness_status"] = derive_readiness_status(resolved.status)
-        semantic_object["blocking_requirements"] = []
-        semantic_object["capabilities"] = {}
+        readiness = self.readiness_service.evaluate_snapshot(
+            object_kind=cast("ObjectKind", resolved.object_kind),
+            object_id=resolved.object_id,
+            ref=resolved.ref,
+            status=resolved.status,
+            revision=resolved.revision,
+            semantic_object=semantic_object,
+        )
+        semantic_object.update(readiness.contract_payload())
         return {
             "object_kind": resolved.object_kind,
             "object_id": resolved.object_id,
