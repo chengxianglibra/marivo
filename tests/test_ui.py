@@ -899,10 +899,12 @@ class UIBothEnabledTests(unittest.TestCase):
     def test_ui_grounding_page_declares_helper_views_and_http_contracts(self) -> None:
         resp = self.client.get("/ui")
         self.assertIn("Catalog Search", resp.text)
+        self.assertIn("Catalog Detail", resp.text)
         self.assertIn("Semantic Resolve", resp.text)
         self.assertIn("Catalog Graph", resp.text)
         self.assertIn("Planner Context", resp.text)
         self.assertIn("GET /catalog/search", resp.text)
+        self.assertIn("GET /catalog/objects/{object_kind}/{object_id}", resp.text)
         self.assertIn("GET /semantic/resolve/{name}", resp.text)
         self.assertIn("GET /catalog/graph", resp.text)
         self.assertIn("GET /sessions/{session_id}/planner-context", resp.text)
@@ -911,12 +913,23 @@ class UIBothEnabledTests(unittest.TestCase):
     def test_ui_grounding_page_keeps_read_only_helper_boundary(self) -> None:
         resp = self.client.get("/ui")
         self.assertIn("secondary to State / Context for analysis outcomes", resp.text)
-        self.assertIn("Results never turn into executable analysis actions.", resp.text)
+        self.assertIn("Show unavailable objects with blockers and capability limits", resp.text)
+        self.assertIn("defaults to", resp.text)
+        self.assertIn("readiness=ready", resp.text)
         self.assertIn("It does not expose any Run Analysis or session creation action.", resp.text)
+        self.assertIn("Why-not-ready is shown directly here", resp.text)
+        self.assertIn("published means usable", resp.text)
         self.assertIn(
             "Grounding is a helper surface for semantic object discovery and session grounding.",
             resp.text,
         )
+
+    def test_ui_grounding_page_handles_structured_readiness_errors(self) -> None:
+        resp = self.client.get("/static/user.html")
+        self.assertIn("err.detail = detail", resp.text)
+        self.assertIn("error.status === 409", resp.text)
+        self.assertIn("error.detail.code === 'semantic_not_ready'", resp.text)
+        self.assertIn("resolveWhyNotReady", resp.text)
 
     def test_ui_jobs_page_declares_read_only_filters_and_http_contracts(self) -> None:
         resp = self.client.get("/ui")

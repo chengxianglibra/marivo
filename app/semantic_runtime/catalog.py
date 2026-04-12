@@ -306,6 +306,7 @@ class CatalogRuntimeService:
     ) -> dict[str, Any]:
         ref = str(row["ref"])
         object_id = str(row["object_id"])
+        blocking_preview = list(availability.blocking_requirements[:2])
         return {
             "object_kind": object_kind,
             "object_id": object_id,
@@ -317,6 +318,9 @@ class CatalogRuntimeService:
             "status": row["status"],
             "lifecycle_status": availability.lifecycle_status,
             "readiness_status": availability.readiness_status,
+            "blocker_count": len(availability.blocking_requirements),
+            "blocking_requirements_preview": blocking_preview,
+            "capabilities_summary": self._capabilities_summary(availability.capabilities),
             "revision": row["revision"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
@@ -365,6 +369,9 @@ class CatalogRuntimeService:
             "created_at": resolved.created_at,
             "updated_at": resolved.updated_at,
         }
+
+    def _capabilities_summary(self, capabilities: dict[str, Any]) -> dict[str, bool]:
+        return {key: value for key, value in capabilities.items() if isinstance(value, bool)}
 
     def _asset_object_detail(self, object_id: str) -> dict[str, Any]:
         row = self.metadata.query_one(

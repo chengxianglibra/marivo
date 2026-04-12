@@ -811,14 +811,19 @@ let runtimeViewState = {
 let groundingViewState = {
   searchQuery: '',
   searchType: '',
+  showUnavailable: false,
   searchLoading: false,
   searchError: '',
   searchResults: [],
   selectedObjectId: '',
   selectedObjectKind: '',
   selectedRef: '',
+  detailLoading: false,
+  detailError: '',
+  detailResult: null,
   resolveLoading: false,
   resolveError: '',
+  resolveWhyNotReady: null,
   resolveResult: null,
   graphLoading: false,
   graphError: '',
@@ -851,11 +856,15 @@ const uiApi = {
       payload = null;
     }
     if (!response.ok) {
-      const message = payload && typeof payload.detail === 'string'
+      const detail = payload && Object.prototype.hasOwnProperty.call(payload, 'detail')
         ? payload.detail
-        : `Request failed with status ${response.status}`;
+        : payload;
+      const message = detail && typeof detail === 'object' && typeof detail.message === 'string'
+        ? detail.message
+        : (typeof detail === 'string' ? detail : `Request failed with status ${response.status}`);
       const err = new Error(message);
       err.status = response.status;
+      err.detail = detail;
       throw err;
     }
     return payload;
@@ -912,11 +921,17 @@ const uiApi = {
       `/sessions/${encodeURIComponent(sessionId)}/artifacts/${encodeURIComponent(artifactId)}/runtime-status`
     );
   },
-  searchCatalog(query, objectType) {
+  searchCatalog(query, objectType, readiness = 'ready') {
     const params = new URLSearchParams();
     params.set('q', query);
     if (objectType) params.set('type', objectType);
+    if (readiness) params.set('readiness', readiness);
     return this.fetchJson(`/catalog/search?${params.toString()}`);
+  },
+  getCatalogObjectDetail(objectKind, objectId) {
+    return this.fetchJson(
+      `/catalog/objects/${encodeURIComponent(objectKind)}/${encodeURIComponent(objectId)}`
+    );
   },
   resolveSemanticTerm(name) {
     return this.fetchJson(`/semantic/resolve/${encodeURIComponent(name)}`);
@@ -2276,6 +2291,93 @@ async function loadJobsView() {
   await loadJobDetail();
 }
 
+function groundingSearchReadinessMode() {
+  return groundingViewState.showUnavailable ? 'all' : 'ready';
+}
+
+function isSemanticGroundingResult(item) {
+  return item && item.object_kind && item.object_kind !== 'asset';
+}
+
+function renderGroundingBadges(item) {
+  if (!isSemanticGroundingResult(item)) {
+    return statusBadge(item?.status || item?.object_type || 'unknown');
+  }
+  return `
+    ${statusBadge(item.lifecycle_status || item.status || 'unknown')}
+    ${statusBadge(item.readiness_status || 'unknown')}
+  `;
+}
+
+function summarizeGroundingBlockers(item) {
+  if (!isSemanticGroundingResult(item)) {
+    return '';
+  }
+  const blockers = Array.isArray(item.blocking_requirements_preview)
+    ? item.blocking_requirements_preview
+    : [];
+  if (blockers.length === 0) {
+    return item.readiness_status === 'ready'
+      ? 'Ready for default use.'
+      : 'Unavailable object without blocker detail.';
+  }
+  const preview = blockers
+    .map((blocker) => blocker?.message || blocker?.code || 'Unknown blocker')
+    .filter(Boolean)
+    .join(' | ');
+  const remaining = Math.max((item.blocker_count || 0) - blockers.length, 0);
+  return remaining > 0 ? `${preview} | +${remaining} more blocker(s)` : preview;
+}
+
+function summarizeGroundingCapabilities(item) {
+  if (!isSemanticGroundingResult(item)) {
+    return '';
+  }
+  const capabilities = item.capabilities_summary || {};
+  const limits = [];
+  if (item.object_kind === 'metric' && capabilities.supports_validate === false) {
+    limits.push('validate unavailable');
+  }
+  if (item.object_kind === 'process' && capabilities.inferential_ready === false) {
+    limits.push('inferential runtime unavailable');
+  }
+  if (limits.length > 0) {
+    return limits.join(' | ');
+  }
+  const enabled = Object.entries(capabilities)
+    .filter(([, value]) => value === true)
+    .slice(0, 2)
+    .map(([key]) => key);
+  return enabled.length > 0 ? `Capabilities: ${enabled.join(', ')}` : '';
+}
+
+function renderGroundingSemanticSummaryCard(title, content) {
+  return `
+    <div class="detail-group">
+      <h4>${esc(title)}</h4>
+      ${content}
+    </div>
+  `;
+}
+
+function renderGroundingBlockerList(blockers, emptyLabel) {
+  if (!Array.isArray(blockers) || blockers.length === 0) {
+    return `<div class="detail-empty">${esc(emptyLabel)}</div>`;
+  }
+  return `
+    <div class="state-detail-list">
+      ${blockers.map((blocker) => `
+        <div class="state-detail-item">
+          <h4>${esc(blocker.code || 'BLOCKER')}</h4>
+          <div>${esc(blocker.message || 'No blocker message')}</div>
+          ${blocker.subject_ref ? `<div class="panel-note">subject_ref: <span class="inline-code">${esc(blocker.subject_ref)}</span></div>` : ''}
+          ${blocker.dependency_ref ? `<div class="panel-note">dependency_ref: <span class="inline-code">${esc(blocker.dependency_ref)}</span></div>` : ''}
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
 function renderGroundingSearchResults() {
   if (groundingViewState.searchLoading) {
     return '<div class="detail-empty">Loading catalog search results...</div>';
@@ -2285,7 +2387,7 @@ function renderGroundingSearchResults() {
   }
   if (groundingViewState.searchResults.length === 0) {
     if (!groundingViewState.searchQuery) {
-      return '<div class="detail-empty">Search the published catalog to inspect typed refs, synced assets, and their grounding helpers.</div>';
+      return '<div class="detail-empty">Search the ready-first published catalog to inspect typed refs, synced assets, and readiness blockers when you explicitly include unavailable objects.</div>';
     }
     return '<div class="detail-empty">No catalog objects matched the current query.</div>';
   }
@@ -2305,10 +2407,105 @@ function renderGroundingSearchResults() {
           <div class="grounding-result-meta">
             <span>${esc(item.object_kind || 'object')}</span>
             <span>${esc(item.ref || '-')}</span>
-            <span>${esc(item.status || item.object_type || '-')}</span>
+            <span>${renderGroundingBadges(item)}</span>
           </div>
+          ${isSemanticGroundingResult(item) ? `
+            <div class="panel-note">Blockers: ${esc(summarizeGroundingBlockers(item))}</div>
+            ${summarizeGroundingCapabilities(item)
+              ? `<div class="panel-note">Capability limits: ${esc(summarizeGroundingCapabilities(item))}</div>`
+              : ''
+            }
+          ` : ''}
         </button>
       `).join('')}
+    </div>
+  `;
+}
+
+function renderGroundingDetailCard() {
+  let body = '<div class="detail-empty">Select a catalog object to inspect readiness, dependencies, and typed payload details.</div>';
+  if (groundingViewState.detailLoading) {
+    body = '<div class="detail-empty">Loading catalog detail...</div>';
+  } else if (groundingViewState.detailError) {
+    body = `<div class="detail-error">${esc(groundingViewState.detailError)}</div>`;
+  } else if (groundingViewState.detailResult) {
+    const result = groundingViewState.detailResult;
+    if (result.object_kind === 'asset') {
+      body = `
+        <div class="detail-grid">
+          ${renderGroundingSemanticSummaryCard('ref', renderGroundingStructuredValue(result.ref))}
+          ${renderGroundingSemanticSummaryCard('object_kind', renderGroundingStructuredValue(result.object_kind))}
+          ${renderGroundingSemanticSummaryCard('object_id', renderGroundingStructuredValue(result.object_id))}
+          ${renderGroundingSemanticSummaryCard('source_id', renderGroundingStructuredValue(result.source_object?.source_id))}
+        </div>
+        <div class="panel-note">Assets do not participate in semantic readiness. They remain synced metadata helpers only.</div>
+        <div class="card" style="margin-top: var(--space-md);">
+          <div class="shell-card-title">
+            <h3>source_object</h3>
+            <span class="shell-chip">asset</span>
+          </div>
+          ${jsonPre(result.source_object)}
+        </div>
+      `;
+    } else {
+      const semanticObject = result.semantic_object || {};
+      const blockers = Array.isArray(semanticObject.blocking_requirements)
+        ? semanticObject.blocking_requirements
+        : [];
+      body = `
+        <div class="detail-grid">
+          ${renderGroundingSemanticSummaryCard('ref', renderGroundingStructuredValue(result.ref))}
+          ${renderGroundingSemanticSummaryCard('object_kind', renderGroundingStructuredValue(result.object_kind))}
+          ${renderGroundingSemanticSummaryCard('object_id', renderGroundingStructuredValue(result.object_id))}
+          ${renderGroundingSemanticSummaryCard('status / revision', renderGroundingStructuredValue(`${result.status || 'unknown'} / ${result.revision || '-'}`))}
+          ${renderGroundingSemanticSummaryCard('lifecycle', statusBadge(semanticObject.lifecycle_status || result.status || 'unknown'))}
+          ${renderGroundingSemanticSummaryCard('readiness', statusBadge(semanticObject.readiness_status || 'unknown'))}
+        </div>
+        <div class="context-grid" style="margin-top: var(--space-md);">
+          <div class="card">
+            <div class="shell-card-title">
+              <h3>Blocking Requirements</h3>
+              <span class="shell-chip">${esc(`${blockers.length} blocker(s)`)}</span>
+            </div>
+            ${renderGroundingBlockerList(blockers, 'No blocking requirements. Object is ready for default use.')}
+          </div>
+          <div class="card">
+            <div class="shell-card-title">
+              <h3>Capabilities</h3>
+              <span class="shell-chip">${esc(`${Object.keys(semanticObject.capabilities || {}).length} key(s)`)}</span>
+            </div>
+            ${renderGroundingStructuredValue(semanticObject.capabilities, 'No capability flags')}
+          </div>
+        </div>
+        <div class="context-grid" style="margin-top: var(--space-md);">
+          <div class="card">
+            <div class="shell-card-title">
+              <h3>Dependencies</h3>
+            </div>
+            ${renderGroundingStructuredValue(semanticObject.dependency_refs, 'No dependencies')}
+          </div>
+          <div class="card">
+            <div class="shell-card-title">
+              <h3>semantic_object</h3>
+              <span class="shell-chip">${esc(result.object_kind || 'typed')}</span>
+            </div>
+            ${jsonPre(semanticObject)}
+          </div>
+        </div>
+      `;
+    }
+  }
+
+  return `
+    <div class="card">
+      <div class="grounding-card-header">
+        <div>
+          <h3>Catalog Detail</h3>
+          <p class="panel-note">GET /catalog/objects/{object_kind}/{object_id}</p>
+        </div>
+        <span class="shell-chip">Ready-first</span>
+      </div>
+      ${body}
     </div>
   `;
 }
@@ -2317,6 +2514,38 @@ function renderGroundingResolveCard() {
   let body = '<div class="detail-empty">Select a typed semantic object from Catalog Search to inspect resolve details.</div>';
   if (groundingViewState.resolveLoading) {
     body = '<div class="detail-empty">Loading semantic resolve...</div>';
+  } else if (groundingViewState.resolveWhyNotReady) {
+    const detail = groundingViewState.resolveWhyNotReady;
+    body = `
+      <div class="detail-grid">
+        ${renderGroundingSemanticSummaryCard('subject_ref', renderGroundingStructuredValue(detail.subject_ref))}
+        ${renderGroundingSemanticSummaryCard('object_kind', renderGroundingStructuredValue(detail.object_kind))}
+        ${renderGroundingSemanticSummaryCard('lifecycle', statusBadge(detail.lifecycle_status || 'unknown'))}
+        ${renderGroundingSemanticSummaryCard('readiness', statusBadge(detail.readiness_status || 'unknown'))}
+      </div>
+      <div class="panel-note">Why-not-ready is shown directly here so users do not need to infer readiness from a generic runtime failure.</div>
+      <div class="context-grid" style="margin-top: var(--space-md);">
+        <div class="card">
+          <div class="shell-card-title">
+            <h3>Blocking Requirements</h3>
+            <span class="shell-chip">${esc(`${Array.isArray(detail.blocking_requirements) ? detail.blocking_requirements.length : 0} blocker(s)`)}</span>
+          </div>
+          ${renderGroundingBlockerList(detail.blocking_requirements, 'No blocker detail returned.')}
+        </div>
+        <div class="card">
+          <div class="shell-card-title">
+            <h3>Capabilities</h3>
+          </div>
+          ${renderGroundingStructuredValue(detail.capabilities, 'No capability flags')}
+        </div>
+      </div>
+      <div class="card" style="margin-top: var(--space-md);">
+        <div class="shell-card-title">
+          <h3>dependency_refs</h3>
+        </div>
+        ${renderGroundingStructuredValue(detail.dependency_refs, 'No dependency refs')}
+      </div>
+    `;
   } else if (groundingViewState.resolveError) {
     body = `<div class="detail-error">${esc(groundingViewState.resolveError)}</div>`;
   } else if (groundingViewState.resolveResult) {
@@ -2517,10 +2746,14 @@ function bindGroundingEvents() {
     const formData = new FormData(event.currentTarget);
     groundingViewState.searchQuery = String(formData.get('q') || '').trim();
     groundingViewState.searchType = String(formData.get('type') || '').trim();
+    groundingViewState.showUnavailable = formData.get('show_unavailable') === 'on';
     groundingViewState.selectedObjectId = '';
     groundingViewState.selectedObjectKind = '';
     groundingViewState.selectedRef = '';
+    groundingViewState.detailError = '';
+    groundingViewState.detailResult = null;
     groundingViewState.resolveError = '';
+    groundingViewState.resolveWhyNotReady = null;
     groundingViewState.resolveResult = null;
     groundingViewState.graphError = '';
     groundingViewState.graphResult = null;
@@ -2530,12 +2763,16 @@ function bindGroundingEvents() {
   panel.querySelector('[data-role="grounding-reset-search"]')?.addEventListener('click', () => {
     groundingViewState.searchQuery = '';
     groundingViewState.searchType = '';
+    groundingViewState.showUnavailable = false;
     groundingViewState.searchError = '';
     groundingViewState.searchResults = [];
     groundingViewState.selectedObjectId = '';
     groundingViewState.selectedObjectKind = '';
     groundingViewState.selectedRef = '';
+    groundingViewState.detailError = '';
+    groundingViewState.detailResult = null;
     groundingViewState.resolveError = '';
+    groundingViewState.resolveWhyNotReady = null;
     groundingViewState.resolveResult = null;
     groundingViewState.graphError = '';
     groundingViewState.graphResult = null;
@@ -2547,12 +2784,15 @@ function bindGroundingEvents() {
       groundingViewState.selectedObjectId = button.dataset.objectId || '';
       groundingViewState.selectedObjectKind = button.dataset.objectKind || '';
       groundingViewState.selectedRef = button.dataset.objectRef || '';
+      groundingViewState.detailError = '';
+      groundingViewState.detailResult = null;
       groundingViewState.resolveError = '';
+      groundingViewState.resolveWhyNotReady = null;
       groundingViewState.resolveResult = null;
       groundingViewState.graphError = '';
       groundingViewState.graphResult = null;
       renderGroundingPage();
-      void Promise.all([loadGroundingResolve(), loadGroundingGraph()]);
+      void Promise.all([loadGroundingDetail(), loadGroundingResolve(), loadGroundingGraph()]);
     });
   });
 
@@ -2602,12 +2842,16 @@ function renderGroundingPage() {
                 </select>
               </div>
             </div>
+            <label class="panel-note" style="display: inline-flex; align-items: center; gap: var(--space-sm); margin-top: var(--space-sm);">
+              <input type="checkbox" name="show_unavailable" ${groundingViewState.showUnavailable ? 'checked' : ''} />
+              Show unavailable objects with blockers and capability limits
+            </label>
             <div class="detail-actions">
               <button class="btn btn-primary" type="submit">Search</button>
               <button class="btn" type="button" data-role="grounding-reset-search">Reset</button>
             </div>
           </form>
-          <p class="panel-note"><span class="inline-code">GET /catalog/search</span> returns published semantic objects and synced assets only. Results never turn into executable analysis actions.</p>
+          <p class="panel-note"><span class="inline-code">GET /catalog/search</span> defaults to <span class="inline-code">readiness=ready</span>. Turn on Show unavailable objects to inspect non-ready blockers without implying that published means usable.</p>
         </div>
         <div class="card">
           <div class="shell-card-title">
@@ -2649,6 +2893,7 @@ function renderGroundingPage() {
             </div>
           ` : ''}
         </div>
+        ${renderGroundingDetailCard()}
         ${renderGroundingResolveCard()}
         ${renderGroundingGraphCard()}
         ${renderGroundingPlannerCard()}
@@ -2838,7 +3083,11 @@ async function loadGroundingSearch() {
   groundingViewState.searchError = '';
   renderGroundingPage();
   try {
-    const payload = await uiApi.searchCatalog(groundingViewState.searchQuery, groundingViewState.searchType);
+    const payload = await uiApi.searchCatalog(
+      groundingViewState.searchQuery,
+      groundingViewState.searchType,
+      groundingSearchReadinessMode()
+    );
     groundingViewState.searchResults = Array.isArray(payload) ? payload : [];
   } catch (error) {
     groundingViewState.searchResults = [];
@@ -2849,11 +3098,37 @@ async function loadGroundingSearch() {
   }
 }
 
+async function loadGroundingDetail() {
+  const objectId = groundingViewState.selectedObjectId;
+  const objectKind = groundingViewState.selectedObjectKind;
+  if (!objectId || !objectKind) {
+    groundingViewState.detailLoading = false;
+    groundingViewState.detailError = '';
+    groundingViewState.detailResult = null;
+    renderGroundingPage();
+    return;
+  }
+
+  groundingViewState.detailLoading = true;
+  groundingViewState.detailError = '';
+  renderGroundingPage();
+  try {
+    groundingViewState.detailResult = await uiApi.getCatalogObjectDetail(objectKind, objectId);
+  } catch (error) {
+    groundingViewState.detailResult = null;
+    groundingViewState.detailError = error.message || 'Catalog detail lookup failed.';
+  } finally {
+    groundingViewState.detailLoading = false;
+    renderGroundingPage();
+  }
+}
+
 async function loadGroundingResolve() {
   const ref = groundingViewState.selectedRef;
   if (!ref || groundingViewState.selectedObjectKind === 'asset') {
     groundingViewState.resolveLoading = false;
     groundingViewState.resolveError = '';
+    groundingViewState.resolveWhyNotReady = null;
     groundingViewState.resolveResult = null;
     renderGroundingPage();
     return;
@@ -2861,12 +3136,18 @@ async function loadGroundingResolve() {
 
   groundingViewState.resolveLoading = true;
   groundingViewState.resolveError = '';
+  groundingViewState.resolveWhyNotReady = null;
   renderGroundingPage();
   try {
     groundingViewState.resolveResult = await uiApi.resolveSemanticTerm(ref);
   } catch (error) {
     groundingViewState.resolveResult = null;
-    groundingViewState.resolveError = error.message || 'Semantic resolve failed.';
+    if (error.status === 409 && error.detail && error.detail.code === 'semantic_not_ready') {
+      groundingViewState.resolveWhyNotReady = error.detail;
+      groundingViewState.resolveError = '';
+    } else {
+      groundingViewState.resolveError = error.message || 'Semantic resolve failed.';
+    }
   } finally {
     groundingViewState.resolveLoading = false;
     renderGroundingPage();

@@ -112,6 +112,9 @@ class CatalogQueryTests(unittest.TestCase):
                 and r["resolve_path"] == "/semantic/resolve/metric.watch_time"
                 and r["lifecycle_status"] == "active"
                 and r["readiness_status"] == "not_ready"
+                and r["blocker_count"] == 1
+                and r["blocking_requirements_preview"][0]["code"] == "METRIC_INPUT_COVERAGE_MISSING"
+                and r["capabilities_summary"]["supports_validate"] is False
                 for r in results
             )
         )

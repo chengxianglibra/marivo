@@ -140,6 +140,8 @@ full objects including `dependency_refs` and stubbed `dependent_refs` (empty lis
 Admin semantic catalog views should treat `lifecycle_status` and `readiness_status` as the primary
 operator-facing state, with blockers shown before helper/debug actions so `published` is never
 presented as a proxy for usability.
+User-facing `/ui` grounding/discovery surfaces should default to ready semantic objects and only
+surface non-ready objects when the caller explicitly opts into blocker inspection.
 
 ## Docs layout:
 - `docs/api/`: external HTTP API docs only; target-state step submission is in `intent-steps.md`, and canonical read surfaces are split into `session-state.md` and `context-surface.md`

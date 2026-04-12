@@ -697,6 +697,12 @@ class SemanticRuntimeTests(unittest.TestCase):
         self.assertEqual(metric["object_id"], self.metric_id)
         self.assertEqual(metric["lifecycle_status"], "active")
         self.assertEqual(metric["readiness_status"], "not_ready")
+        self.assertEqual(metric["blocker_count"], 1)
+        self.assertEqual(
+            metric["blocking_requirements_preview"][0]["code"],
+            "METRIC_INPUT_COVERAGE_MISSING",
+        )
+        self.assertFalse(metric["capabilities_summary"]["supports_validate"])
 
     def test_catalog_runtime_resolve_raises_not_ready_for_non_ready_metric(self) -> None:
         runtime = CatalogRuntimeService(self.metadata_store, self.binding_service)
