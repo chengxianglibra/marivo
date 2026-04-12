@@ -3,6 +3,21 @@ from __future__ import annotations
 from collections.abc import Callable
 from copy import deepcopy
 
+from pydantic import BaseModel
+
+from app.api.models._legacy import (
+    ArtifactRef,
+    AttributeObservationInput,
+    CorrelateObservationRef,
+    DetectTimeScope,
+    HypothesisContract,
+    ObservationRef,
+    ObserveScope,
+    ObserveTimeScope,
+    TestObservationRef,
+    ValidateHypothesis,
+    ValidateObservationInput,
+)
 from factum_mcp.config import FactumMcpConfig
 from factum_mcp.http_client import FactumHttpClient
 from factum_mcp.openapi_cache import OpenApiResponseCache
@@ -142,9 +157,9 @@ def register_tools(
     def observe(
         session_id: str,
         metric: str,
-        time_scope: dict[str, object],
+        time_scope: ObserveTimeScope,
         result_mode: str = "standard",
-        scope: dict[str, object] | None = None,
+        scope: ObserveScope | None = None,
         granularity: str | None = None,
         dimensions: list[str] | None = None,
     ) -> dict[str, object]:
@@ -165,8 +180,8 @@ def register_tools(
     @_tool_metadata("POST", "/sessions/{session_id}/intents/compare")
     def compare(
         session_id: str,
-        left_ref: dict[str, object],
-        right_ref: dict[str, object],
+        left_ref: ObservationRef,
+        right_ref: ObservationRef,
         mode: str = "auto",
     ) -> dict[str, object]:
         """Submit POST /sessions/{session_id}/intents/compare using the canonical CompareRequest body; this path selects the intent, so do not add an extra intent field. On 422, follow error.guidance.contract_url, schema_url, and examples."""
@@ -183,7 +198,7 @@ def register_tools(
     @_tool_metadata("POST", "/sessions/{session_id}/intents/decompose")
     def decompose(
         session_id: str,
-        compare_ref: dict[str, object],
+        compare_ref: ArtifactRef,
         dimension: str,
         method: str = "delta_share",
     ) -> dict[str, object]:
@@ -201,8 +216,8 @@ def register_tools(
     @_tool_metadata("POST", "/sessions/{session_id}/intents/correlate")
     def correlate(
         session_id: str,
-        left_ref: dict[str, object],
-        right_ref: dict[str, object],
+        left_ref: CorrelateObservationRef,
+        right_ref: CorrelateObservationRef,
         method: str = "spearman",
         min_pairs: int = 5,
     ) -> dict[str, object]:
@@ -222,8 +237,8 @@ def register_tools(
     def detect(
         session_id: str,
         metric: str,
-        time_scope: dict[str, object],
-        scope: dict[str, object] | None = None,
+        time_scope: DetectTimeScope,
+        scope: ObserveScope | None = None,
         split_by: str | None = None,
         profile: str = "auto",
         sensitivity: str = "balanced",
@@ -249,9 +264,9 @@ def register_tools(
     @_tool_metadata("POST", "/sessions/{session_id}/intents/test")
     def test_intent(
         session_id: str,
-        left_ref: dict[str, object],
-        right_ref: dict[str, object],
-        hypothesis: dict[str, object],
+        left_ref: TestObservationRef,
+        right_ref: TestObservationRef,
+        hypothesis: HypothesisContract,
         method: str = "auto",
     ) -> dict[str, object]:
         """Submit POST /sessions/{session_id}/intents/test using the canonical IntentTestRequest body; this path selects the intent, so do not add an extra intent field. On 422, follow error.guidance.contract_url, schema_url, and examples."""
@@ -269,7 +284,7 @@ def register_tools(
     @_tool_metadata("POST", "/sessions/{session_id}/intents/forecast")
     def forecast(
         session_id: str,
-        source_ref: dict[str, object],
+        source_ref: ObservationRef,
         horizon: int,
         profile: str = "auto",
         interval_level: float | None = None,
@@ -290,8 +305,8 @@ def register_tools(
     def attribute(
         session_id: str,
         metric: str,
-        left: dict[str, object],
-        right: dict[str, object],
+        left: AttributeObservationInput,
+        right: AttributeObservationInput,
         dimensions: list[str],
         decomposition_method: str = "delta_share",
         decomposition_limit: int = 5,
@@ -314,9 +329,9 @@ def register_tools(
     def diagnose(
         session_id: str,
         metric: str,
-        time_scope: dict[str, object],
+        time_scope: DetectTimeScope,
         candidate_dimensions: list[str],
-        scope: dict[str, object] | None = None,
+        scope: ObserveScope | None = None,
         detect_split_by: str | None = None,
         profile: str = "auto",
         sensitivity: str = "balanced",
@@ -346,10 +361,10 @@ def register_tools(
     def validate(
         session_id: str,
         metric: str,
-        left: dict[str, object],
-        right: dict[str, object],
+        left: ValidateObservationInput,
+        right: ValidateObservationInput,
         sample_kind: str | None = None,
-        hypothesis: dict[str, object] | None = None,
+        hypothesis: ValidateHypothesis | None = None,
         method: str | None = None,
     ) -> dict[str, object]:
         """Submit POST /sessions/{session_id}/intents/validate using the canonical ValidateRequest body; this path selects the intent, so do not add an extra intent field. On 422, follow error.guidance.contract_url, schema_url, and examples."""
@@ -1418,7 +1433,23 @@ def _compact_params(
 
 
 def _compact_body(**params: object) -> dict[str, object]:
-    return {key: value for key, value in params.items() if value is not None}
+    return {key: _normalize_json_value(value) for key, value in params.items() if value is not None}
+
+
+def _normalize_json_value(value: object) -> object:
+    if isinstance(value, BaseModel):
+        return value.model_dump(mode="json", by_alias=True, exclude_none=True)
+    if isinstance(value, list):
+        return [_normalize_json_value(item) for item in value]
+    if isinstance(value, tuple):
+        return [_normalize_json_value(item) for item in value]
+    if isinstance(value, dict):
+        return {
+            str(key): _normalize_json_value(item) for key, item in value.items() if item is not None
+        }
+    if isinstance(value, str | int | float | bool) or value is None:
+        return value
+    raise TypeError(f"Unsupported JSON value for Factum MCP request body: {type(value).__name__}")
 
 
 def _intent_request(

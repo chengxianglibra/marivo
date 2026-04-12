@@ -3,7 +3,9 @@ from __future__ import annotations
 import sys
 from importlib import import_module
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, cast, get_type_hints
+
+from pydantic import TypeAdapter
 
 FACTUM_MCP_SRC = Path(__file__).resolve().parents[1] / "factum-mcp" / "src"
 sys.path.insert(0, str(FACTUM_MCP_SRC))
@@ -111,3 +113,50 @@ def test_p0_inventory_surfaces_remain_implemented() -> None:
 def test_inventory_tracks_known_http_contracts_not_yet_wrapped() -> None:
     assert get_surface_spec("list_sessions").implemented is False
     assert get_surface_spec("get_source").implemented is False
+
+
+def test_observe_tool_time_scope_annotation_exposes_discriminator_schema() -> None:
+    server = cast("Any", _FakeServer())
+    register_tools(server, _build_config())
+
+    observe = server.tools["observe"]
+    time_scope_type = get_type_hints(observe, include_extras=True)["time_scope"]
+    schema = TypeAdapter(time_scope_type).json_schema()
+
+    assert schema["discriminator"]["propertyName"] == "kind"
+    assert {item["$ref"] for item in schema["oneOf"]} == {
+        "#/$defs/ObserveTimeScopeRange",
+        "#/$defs/ObserveTimeScopeSnapshotNow",
+        "#/$defs/ObserveTimeScopeLatestAvailable",
+        "#/$defs/ObserveTimeScopeAsOf",
+    }
+
+
+def test_detect_and_diagnose_time_scope_annotations_expose_grain_enum() -> None:
+    server = cast("Any", _FakeServer())
+    register_tools(server, _build_config())
+
+    detect = server.tools["detect"]
+    diagnose = server.tools["diagnose"]
+
+    detect_schema = get_type_hints(detect)["time_scope"].model_json_schema()
+    diagnose_schema = get_type_hints(diagnose)["time_scope"].model_json_schema()
+
+    expected_grains = ["hour", "day", "week", "month"]
+    assert detect_schema["properties"]["grain"]["enum"] == expected_grains
+    assert diagnose_schema["properties"]["grain"]["enum"] == expected_grains
+
+
+def test_t6_tools_use_strongly_typed_nested_models_instead_of_raw_dicts() -> None:
+    server = cast("Any", _FakeServer())
+    register_tools(server, _build_config())
+
+    compare_hints = get_type_hints(server.tools["compare"])
+    test_hints = get_type_hints(server.tools["test_intent"])
+    validate_hints = get_type_hints(server.tools["validate"])
+
+    assert compare_hints["left_ref"].__name__ == "ObservationRef"
+    assert compare_hints["right_ref"].__name__ == "ObservationRef"
+    assert test_hints["hypothesis"].__name__ == "HypothesisContract"
+    assert validate_hints["left"].__name__ == "ValidateObservationInput"
+    assert validate_hints["right"].__name__ == "ValidateObservationInput"

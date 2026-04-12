@@ -72,8 +72,13 @@ No implicit fallback base URL is used.
 cd factum-mcp
 python3 -m venv .venv
 source .venv/bin/activate
+pip install -e ..
 pip install -e .
 ```
+
+`factum-mcp` reuses Factum's canonical Pydantic request models for typed intent
+tool schemas. Keep the repository root package importable in the same
+environment as the MCP adapter.
 
 ## Run
 
@@ -272,6 +277,9 @@ Boundary notes:
 
 - these are path-discriminated intent tools; do not add an extra `intent` or `step_type` field to the request body
 - MCP parameter names intentionally reuse the canonical HTTP request field names
+- nested MCP input schemas now reuse Factum's canonical request models, so
+  discriminators such as `time_scope.kind`, nested required fields, and enums
+  such as `grain` are exposed directly in the tool contract
 - tool `data` remains the raw Factum success body; the adapter does not derive a new evidence summary
 - for `422` responses, use `error.guidance.contract_url`, `error.guidance.schema_url`, and `error.guidance.examples` to repair the payload
 

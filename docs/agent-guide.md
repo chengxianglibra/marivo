@@ -155,4 +155,5 @@ surface non-ready objects when the caller explicitly opts into blocker inspectio
 - `docs/analysis/`: intents/evidence engine related schema.
 - `docs/semantic`: entity/dimension/metric/process related schema.
 - `factum-mcp/README.md` and `factum_mcp.inventory`: factum-mcp runtime scope, validation, and executable MCP surface inventory. Keep MCP implementation details there instead of expanding this guide.
+- When canonical intent request models change, treat `factum-mcp` typed intent tool schemas as affected because the adapter reuses those request models directly.
 - Do not update this document with implementation details; keep it focused on shared agent guidance and repository-wide boundaries.

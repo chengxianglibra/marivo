@@ -7,6 +7,17 @@ from typing import Any, cast
 
 import httpx
 
+from app.api.models._legacy import (
+    DetectTimeScope,
+    DetectTimeScopeCurrentWindow,
+    HypothesisContract,
+    ObserveTimeScopeAsOf,
+    ObserveTimeScopeRange,
+    TestObservationRef,
+    ValidateHypothesis,
+    ValidateObservationInput,
+)
+
 FACTUM_MCP_SRC = Path(__file__).resolve().parents[1] / "factum-mcp" / "src"
 sys.path.insert(0, str(FACTUM_MCP_SRC))
 
@@ -1247,6 +1258,126 @@ def test_validate_omits_null_optional_fields() -> None:
         metric="metric.conversion_rate",
         left={"time_scope": {"kind": "range", "start": "2025-03-01", "end": "2025-03-08"}},
         right={"time_scope": {"kind": "range", "start": "2025-02-22", "end": "2025-03-01"}},
+    )
+
+    assert result["ok"] is True
+
+
+def test_observe_accepts_pydantic_time_scope_models_and_serializes_canonical_body() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"
+        assert request.url.path == "/sessions/sess_123/intents/observe"
+        assert request.read() == (
+            b'{"metric":"metric.watch_time","time_scope":{"kind":"as_of","at":"2025-03-08T00:00:00"},'
+            b'"result_mode":"standard"}'
+        )
+        return httpx.Response(200, json={"artifact_id": "obs_123"}, request=request)
+
+    result = _invoke_registered_tool(
+        "observe",
+        handler,
+        session_id="sess_123",
+        metric="metric.watch_time",
+        time_scope=ObserveTimeScopeAsOf(kind="as_of", at="2025-03-08T00:00:00"),
+    )
+
+    assert result["ok"] is True
+
+
+def test_detect_accepts_pydantic_time_scope_models_and_serializes_canonical_body() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"
+        assert request.url.path == "/sessions/sess_123/intents/detect"
+        assert request.read() == (
+            b'{"metric":"metric.watch_time","time_scope":{"mode":"single_window","grain":"day",'
+            b'"current":{"start":"2025-03-01","end":"2025-03-08"}},'
+            b'"profile":"auto","sensitivity":"balanced"}'
+        )
+        return httpx.Response(200, json={"artifact_id": "detect_123"}, request=request)
+
+    result = _invoke_registered_tool(
+        "detect",
+        handler,
+        session_id="sess_123",
+        metric="metric.watch_time",
+        time_scope=DetectTimeScope(
+            mode="single_window",
+            grain="day",
+            current=DetectTimeScopeCurrentWindow(start="2025-03-01", end="2025-03-08"),
+        ),
+    )
+
+    assert result["ok"] is True
+
+
+def test_validate_accepts_pydantic_nested_models_and_serializes_canonical_body() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"
+        assert request.url.path == "/sessions/sess_123/intents/validate"
+        assert request.read() == (
+            b'{"metric":"metric.conversion_rate","left":{"time_scope":{"kind":"range",'
+            b'"start":"2025-03-01","end":"2025-03-08"}},"right":{"time_scope":{"kind":"range",'
+            b'"start":"2025-02-22","end":"2025-03-01"}},"hypothesis":{"family":"difference",'
+            b'"alternative":"greater","alpha":0.1,"label":"lift"}}'
+        )
+        return httpx.Response(200, json={"artifact_id": "validate_123"}, request=request)
+
+    result = _invoke_registered_tool(
+        "validate",
+        handler,
+        session_id="sess_123",
+        metric="metric.conversion_rate",
+        left=ValidateObservationInput(
+            time_scope=ObserveTimeScopeRange(kind="range", start="2025-03-01", end="2025-03-08")
+        ),
+        right=ValidateObservationInput(
+            time_scope=ObserveTimeScopeRange(kind="range", start="2025-02-22", end="2025-03-01")
+        ),
+        hypothesis=ValidateHypothesis(
+            family="difference",
+            alternative="greater",
+            alpha=0.1,
+            label="lift",
+        ),
+    )
+
+    assert result["ok"] is True
+
+
+def test_test_intent_accepts_pydantic_nested_models_and_serializes_canonical_body() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"
+        assert request.url.path == "/sessions/sess_123/intents/test"
+        assert request.read() == (
+            b'{"left_ref":{"step_id":"obs_left","step_type":"observe","artifact_id":"artifact_left",'
+            b'"observation_type":"numeric_sample_summary"},"right_ref":{"step_id":"obs_right",'
+            b'"step_type":"observe","artifact_id":"artifact_right","observation_type":"rate_sample_summary"},'
+            b'"hypothesis":{"family":"difference","alternative":"less","alpha":0.2},'
+            b'"method":"auto"}'
+        )
+        return httpx.Response(200, json={"artifact_id": "test_123"}, request=request)
+
+    result = _invoke_registered_tool(
+        "test_intent",
+        handler,
+        session_id="sess_123",
+        left_ref=TestObservationRef(
+            step_id="obs_left",
+            step_type="observe",
+            artifact_id="artifact_left",
+            observation_type="numeric_sample_summary",
+        ),
+        right_ref=TestObservationRef(
+            step_id="obs_right",
+            step_type="observe",
+            artifact_id="artifact_right",
+            observation_type="rate_sample_summary",
+        ),
+        hypothesis=HypothesisContract(
+            family="difference",
+            alternative="less",
+            alpha=0.2,
+        ),
     )
 
     assert result["ok"] is True
