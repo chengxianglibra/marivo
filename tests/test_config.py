@@ -3,11 +3,13 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from typing import ClassVar
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
+from app.api.app_factory import create_app
 from app.config import FactumConfig, UIConfig, load_config
-from app.main import create_app
 from app.sources import SourceService
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 from app.storage.sqlite_metadata import SQLiteMetadataStore
@@ -139,6 +141,9 @@ class EnsureSourceTests(unittest.TestCase):
 
 
 class StartupWithConfigTests(unittest.TestCase):
+    class_tmp: ClassVar[tempfile.TemporaryDirectory[str]]
+    shared_analytics: ClassVar[DuckDBAnalyticsEngine]
+
     @classmethod
     def setUpClass(cls) -> None:
         cls.class_tmp = tempfile.TemporaryDirectory()
@@ -201,6 +206,52 @@ class StartupWithConfigTests(unittest.TestCase):
             self.assertEqual(resp.json(), [])
 
             client.close()
+
+    def test_startup_requires_trino_dependency_when_config_uses_trino_source(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / "factum.yaml"
+            config_path.write_text(
+                "sources:\n"
+                '  - name: "Config Trino"\n'
+                "    type: trino\n"
+                "    connection:\n"
+                "      host: trino.local\n"
+            )
+            meta_path = Path(tmp) / "test.meta.sqlite"
+            metadata = SQLiteMetadataStore(meta_path)
+            with patch("app.api.app_factory.importlib.import_module") as mock_import:
+                mock_import.side_effect = ModuleNotFoundError("No module named 'trino'")
+                with self.assertRaisesRegex(RuntimeError, "optional dependency 'trino'"):
+                    create_app(
+                        metadata_store=metadata,
+                        analytics_engine=self.shared_analytics,
+                        config_path=config_path,
+                    )
+
+                mock_import.assert_called_once_with("trino")
+
+    def test_startup_requires_trino_dependency_when_config_uses_trino_engine(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / "factum.yaml"
+            config_path.write_text(
+                "engines:\n"
+                '  - name: "Config Trino Engine"\n'
+                "    type: trino\n"
+                "    connection:\n"
+                "      host: trino.local\n"
+            )
+            meta_path = Path(tmp) / "test.meta.sqlite"
+            metadata = SQLiteMetadataStore(meta_path)
+            with patch("app.api.app_factory.importlib.import_module") as mock_import:
+                mock_import.side_effect = ModuleNotFoundError("No module named 'trino'")
+                with self.assertRaisesRegex(RuntimeError, "optional dependency 'trino'"):
+                    create_app(
+                        metadata_store=metadata,
+                        analytics_engine=self.shared_analytics,
+                        config_path=config_path,
+                    )
+
+                mock_import.assert_called_once_with("trino")
 
     def test_startup_idempotent_on_restart(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

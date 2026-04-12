@@ -2,6 +2,9 @@
 
 Sources represent external data catalogs (DuckDB databases, Trino clusters, etc.). After registering a source, you trigger a sync to snapshot its schema and table metadata into Factum's local metadata store. Post-sync, all catalog queries hit SQLite — the external system is not queried at read time.
 
+When `factum.yaml` includes a Trino source, Factum validates the optional `trino` Python package at
+startup and fails fast if it is missing. Install Trino support with `pip install -e .[trino]`.
+
 ## Endpoints
 
 | Method | Path | Description |
