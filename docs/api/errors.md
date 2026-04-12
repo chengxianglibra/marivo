@@ -77,9 +77,10 @@ For typed semantic create/update failures, use this remediation order:
 3. `guidance.contract_url`
 4. `detail[*].loc`
 
-`guidance.schema_url` is usually the fastest way for an agent to repair a payload because it points
-to the exact request model. `guidance.contract_url` is a path-level OpenAPI fragment for the route
-and is better for route-scoped context than for first-pass payload repair.
+`guidance.examples` is the fastest way to recover because the service returns a shortest-valid
+payload shape for the specific route. `guidance.schema_url` is the next stop when you need the
+exact request model. `guidance.contract_url` is a path-level OpenAPI fragment for route-scoped
+context and is usually a later step than the example and schema links.
 
 `guidance.contract_url` uses `GET /openapi/paths/{encoded_path}` where `encoded_path` is the raw
 route path encoded with unpadded base64url. Example:
@@ -93,10 +94,15 @@ Common typed semantic `422` patterns:
 | --- | --- |
 | entity create is missing `header` or `interface_contract` | include both, and include `interface_contract.identity.key_refs` |
 | metric create is missing `payload` or mismatches metric family | include `payload` and keep `header.metric_family` equal to `payload.metric_family` |
+| metric create is missing `header.additivity` | include `header.additivity` and use `additive`, `semi_additive`, or `non_additive` |
+| metric create uses an unsupported `metric_family` or `value_semantics` | use one of the service-supported pairs such as `count_metric -> count`, `sum_metric -> sum`, `average_metric -> mean`, or `rate_metric -> ratio` |
+| metric create uses the wrong payload shape for the family | `count_metric` uses `count_target`, `sum_metric` uses `measure`, and `average_metric` or `rate_metric` use `numerator` plus `denominator` |
 | dimension create is missing `value_domain` | place it at `interface_contract.value_domain` |
 | time create sends `interface_contract` | remove it; `/semantic/time` is header-only |
 | binding create omits grounding structure | include `interface_contract.carrier_bindings`, declare `field_surfaces`, then reference them from `field_bindings[*].surface_ref` |
+| binding uses a short `carrier_locator` such as `schema.table` | use the resolved synced source object's full FQN in `carrier_locator` |
 | binding uses `target_kind=measure` | use `target_kind=metric_input`; `measure.*` is a metric payload ref, not a binding target kind |
+| metric binding uses `target_key=metric_input.count_target` | use only the slot name in `target_key`, such as `count_target`, `measure`, `numerator`, or `denominator` |
 
 ## Step Submission Semantic Context
 

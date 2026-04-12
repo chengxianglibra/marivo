@@ -1136,6 +1136,11 @@ Common typed semantic request failures:
 | --- | --- |
 | Entity create says `header` or `interface_contract` is missing | `POST /semantic/entities` requires both `header` and `interface_contract.identity` |
 | Metric create says `payload` is missing or the family mismatches | include both `header.metric_family` and `payload.metric_family`, and keep them identical |
+| Metric create says `header.additivity` is missing | include `header.additivity` and use one of `additive`, `semi_additive`, or `non_additive` |
+| Metric create says `metric_family` or `value_semantics` is invalid | use a supported pair such as `count_metric -> count`, `sum_metric -> sum`, `average_metric -> mean`, or `rate_metric -> ratio` |
+| Metric create says the payload shape is invalid for the family | use the family slot names required by the payload: `count_target` for `count_metric`, `measure` for `sum_metric`, and `numerator` plus `denominator` for `average_metric` and `rate_metric` |
 | Dimension create says `value_domain` is missing | nest it under `interface_contract.value_domain` |
 | Time create says extra fields are not allowed or `header` is missing | `POST /semantic/time` is header-only today |
 | Binding create says required grounding is missing | provide `interface_contract.carrier_bindings` plus `interface_contract.field_bindings` with explicit semantic targets |
+| Binding create says `carrier_locator` does not match the resolved source object | use the synced source object's full FQN in `carrier_locator`, not a shortened catalog name |
+| Metric binding says `metric_input target_key` is invalid | `target.target_key` must be the metric family slot name such as `count_target`, `measure`, `numerator`, or `denominator`, not `metric_input.*` |

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import logging
 import os
 from collections.abc import Awaitable, Callable
@@ -39,6 +40,21 @@ from app.sync import SyncEngine
 from app.ui import register_ui
 
 logger = logging.getLogger(__name__)
+
+
+def _require_runtime_dependencies(config: FactumConfig) -> None:
+    needs_trino = any(source.type == "trino" for source in config.sources) or any(
+        engine.type == "trino" for engine in config.engines
+    )
+    if not needs_trino:
+        return
+    try:
+        importlib.import_module("trino")
+    except ModuleNotFoundError as error:
+        raise RuntimeError(
+            "factum.yaml references a Trino source or engine, but the optional dependency "
+            "'trino' is not installed. Install it with: pip install -e .[trino]"
+        ) from error
 
 
 def _resolve_storage(
@@ -302,6 +318,7 @@ def create_app(
         db_path, metadata_store, analytics_engine
     )
     config = load_config(Path(config_path) if config_path is not None else None)
+    _require_runtime_dependencies(config)
     services = _build_services(
         resolved_path=resolved_path,
         metadata_store=metadata_store,
