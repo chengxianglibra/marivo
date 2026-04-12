@@ -51,6 +51,8 @@ class SemanticEntityRouteTests(unittest.TestCase):
         self.assertEqual(entity["readiness_status"], "not_ready")
         self.assertEqual(entity["blocking_requirements"], [])
         self.assertEqual(entity["capabilities"], {})
+        self.assertEqual(entity["dependency_refs"], [])
+        self.assertEqual(entity["dependent_refs"], [])  # Stubbed - deferred implementation
         self.assertEqual(entity["revision"], 1)
 
         resp = self.client.get(f"/semantic/entities/{entity_id}")
@@ -193,6 +195,7 @@ class SemanticMetricRouteTests(unittest.TestCase):
         self.assertEqual(metric["lifecycle_status"], "draft")
         self.assertEqual(metric["readiness_status"], "not_ready")
         self.assertEqual(metric["blocking_requirements"], [])
+        self.assertEqual(metric["dependency_refs"], ["entity.user"])
         self.assertEqual(
             metric["capabilities"],
             {
@@ -248,6 +251,16 @@ class SemanticMetricRouteTests(unittest.TestCase):
         resp = self.client.get("/semantic/metrics?status=published")
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertTrue(all(item["status"] == "published" for item in resp.json()["items"]))
+        # List items use lightweight format - no payload, no dependency_refs
+        self.assertNotIn("payload", resp.json()["items"][0])
+        self.assertNotIn("dependency_refs", resp.json()["items"][0])
+        self.assertIn("blocker_count", resp.json()["items"][0])
+        self.assertIn("capabilities_summary", resp.json()["items"][0])
+        # With detail=true, returns full format
+        resp = self.client.get("/semantic/metrics?status=published&detail=true")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertIn("payload", resp.json()["items"][0])
+        self.assertIn("dependency_refs", resp.json()["items"][0])
 
         resp = self.client.put(
             f"/semantic/metrics/{metric_id}",

@@ -32,11 +32,9 @@ from app.api.models import (
     TypedBindingResponse,
     TypedBindingUpdateRequest,
     TypedEntityCreateRequest,
-    TypedEntityListResponse,
     TypedEntityResponse,
     TypedEntityUpdateRequest,
     TypedMetricCreateRequest,
-    TypedMetricListResponse,
     TypedMetricResponse,
     TypedMetricUpdateRequest,
 )
@@ -77,13 +75,18 @@ def create_entity(
     return _run_route_action(lambda: semantic_service.create_typed_entity(payload))
 
 
-@router.get("/semantic/entities", response_model=TypedEntityListResponse)
+@router.get("/semantic/entities")
 def list_entities(
     request: Request,
     status: str | None = Query(default=None),
+    detail: bool = Query(
+        default=False, description="Return full detail instead of lightweight format."
+    ),
 ) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
-    return _run_route_action(lambda: semantic_service.list_typed_entities(status=status))
+    return _run_route_action(
+        lambda: semantic_service.list_typed_entities(status=status, detail=detail)
+    )
 
 
 @router.get("/semantic/entities/{entity_id}", response_model=TypedEntityResponse)
@@ -122,13 +125,18 @@ def create_metric(
     return _run_route_action(lambda: semantic_service.create_typed_metric(payload))
 
 
-@router.get("/semantic/metrics", response_model=TypedMetricListResponse)
+@router.get("/semantic/metrics")
 def list_metrics(
     request: Request,
     status: str | None = Query(default=None),
+    detail: bool = Query(
+        default=False, description="Return full detail instead of lightweight format."
+    ),
 ) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
-    return _run_route_action(lambda: semantic_service.list_typed_metrics(status=status))
+    return _run_route_action(
+        lambda: semantic_service.list_typed_metrics(status=status, detail=detail)
+    )
 
 
 @router.get("/semantic/metrics/{metric_id}", response_model=TypedMetricResponse)

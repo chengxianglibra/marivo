@@ -20,6 +20,7 @@ from .base import (
     ListResponseBase,
     NullableKeyPolicy,
     ObjectHeaderBase,
+    ObjectListItemBase,
     ObjectResponseBase,
     OwnershipSemantics,
     UniquenessScope,
@@ -264,6 +265,16 @@ class TypedEntityUpdateRequest(BaseModel):
 # =============================================================================
 
 
+class TypedEntityListItem(ObjectListItemBase):
+    """Lightweight list item for entity endpoints.
+
+    Includes header only, not full interface_contract.
+    """
+
+    entity_contract_id: str = Field(description="Internal ID of the entity contract.")
+    header: EntityHeader = Field(description="Entity header (contains entity_ref).")
+
+
 class TypedEntityResponse(ObjectResponseBase):
     """Response model for a typed entity object.
 
@@ -275,5 +286,13 @@ class TypedEntityResponse(ObjectResponseBase):
     interface_contract: EntityInterfaceContract = Field(description="Entity interface contract.")
 
 
-class TypedEntityListResponse(ListResponseBase[TypedEntityResponse]):
-    """Response model for listing typed entity objects."""
+class TypedEntityListResponse(ListResponseBase[TypedEntityListItem]):
+    """Response model for listing typed entity objects (lightweight, default)."""
+
+
+# Union for backward compatibility - accepts both lightweight and full items
+TypedEntityListItemOrFull = TypedEntityListItem | TypedEntityResponse
+
+
+class TypedEntityListResponseFull(ListResponseBase[TypedEntityListItemOrFull]):
+    """Response model for listing typed entity objects with detail=true (accepts both formats)."""

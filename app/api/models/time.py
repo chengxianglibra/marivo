@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from .base import (
     ListResponseBase,
     ObjectHeaderBase,
+    ObjectListItemBase,
     ObjectResponseBase,
     TimeGranularity,
     TimeSemanticRole,
@@ -125,6 +126,13 @@ class TimeUpdateRequest(BaseModel):
 # =============================================================================
 
 
+class TimeListItem(ObjectListItemBase):
+    """Lightweight list item for time semantic endpoints."""
+
+    time_contract_id: str = Field(description="Internal ID of the time contract.")
+    header: TimeSemanticHeader = Field(description="Time header (contains time_ref).")
+
+
 class TimeResponse(ObjectResponseBase):
     """Response model for a time semantic object.
 
@@ -135,7 +143,7 @@ class TimeResponse(ObjectResponseBase):
     header: TimeSemanticHeader = Field(description="Time semantic header.")
 
 
-class TimeListResponse(ListResponseBase[TimeResponse]):
+class TimeListResponse(ListResponseBase[TimeListItem]):
     """Response model for listing time semantic objects."""
 
 

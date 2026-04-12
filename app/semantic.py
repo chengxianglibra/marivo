@@ -77,8 +77,12 @@ class SemanticService:
     def get_typed_entity(self, entity_contract_id: str) -> dict[str, Any]:
         return self._invoke(lambda: self.typed_objects.get_typed_entity(entity_contract_id))
 
-    def list_typed_entities(self, status: str | None = None) -> dict[str, Any]:
-        return self._invoke(lambda: self.typed_objects.list_typed_entities(status=status))
+    def list_typed_entities(
+        self, status: str | None = None, detail: bool = False
+    ) -> dict[str, Any]:
+        return self._invoke(
+            lambda: self.typed_objects.list_typed_entities(status=status, detail=detail)
+        )
 
     def update_typed_entity(
         self, entity_contract_id: str, payload: TypedEntityUpdateRequest
@@ -96,8 +100,10 @@ class SemanticService:
     def get_typed_metric(self, metric_contract_id: str) -> dict[str, Any]:
         return self._invoke(lambda: self.typed_objects.get_typed_metric(metric_contract_id))
 
-    def list_typed_metrics(self, status: str | None = None) -> dict[str, Any]:
-        return self._invoke(lambda: self.typed_objects.list_typed_metrics(status=status))
+    def list_typed_metrics(self, status: str | None = None, detail: bool = False) -> dict[str, Any]:
+        return self._invoke(
+            lambda: self.typed_objects.list_typed_metrics(status=status, detail=detail)
+        )
 
     def update_typed_metric(
         self, metric_contract_id: str, payload: TypedMetricUpdateRequest

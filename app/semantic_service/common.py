@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 from app.semantic_readiness import (
@@ -29,6 +29,18 @@ def now_iso() -> str:
 
 
 class SemanticServiceSupport:
+    _dependency_prefixes = (
+        "entity.",
+        "metric.",
+        "process.",
+        "dimension.",
+        "time.",
+        "enum.",
+        "binding.",
+        "compiler_profile.",
+        "source_object.",
+    )
+
     def __init__(self, metadata: MetadataStore) -> None:
         self.metadata = metadata
         self.readiness_service = SemanticReadinessService(metadata)
@@ -61,6 +73,7 @@ class SemanticServiceSupport:
         row: dict[str, Any],
         id_field: str,
         ref: str,
+        mode: Literal["list", "detail"] = "detail",
     ) -> dict[str, Any]:
         """Augment a semantic object dict with computed readiness fields.
 
@@ -74,21 +87,139 @@ class SemanticServiceSupport:
             row: The database row dict containing id, status, revision fields.
             id_field: The key in row for the object's ID (e.g., "entity_id", "metric_id").
             ref: The pre-computed ref string (e.g., "entity.user", "metric.watch_time").
+            mode: "list" for lightweight format, "detail" for full format.
 
         Returns:
             The augmented base dict (same object, mutated in-place).
         """
-        base.update(
-            self._evaluate_readiness(
-                object_kind=object_kind,
-                object_id=str(row[id_field]),
-                ref=ref,
-                status=str(row["status"]),
-                revision=int(row["revision"]),
-                semantic_object=base,
-            )
+        result = self._evaluate_readiness(
+            object_kind=object_kind,
+            object_id=str(row[id_field]),
+            ref=ref,
+            status=str(row["status"]),
+            revision=int(row["revision"]),
+            semantic_object=base,
         )
+        # result contains: lifecycle_status, readiness_status, blocking_requirements, capabilities
+        # base already contains: status, revision, created_at, updated_at (from row)
+        base["lifecycle_status"] = result["lifecycle_status"]
+        base["readiness_status"] = result["readiness_status"]
+
+        if mode == "list":
+            # Lightweight: blocker_count and capabilities_summary
+            base["blocker_count"] = len(result.get("blocking_requirements") or [])
+            caps = result.get("capabilities") or {}
+            base["capabilities_summary"] = {
+                k: bool(v) if isinstance(v, bool) else v is not None for k, v in caps.items()
+            }
+        else:
+            # Full detail: blocking_requirements, capabilities, dependency_refs, dependent_refs
+            base["blocking_requirements"] = result.get("blocking_requirements") or []
+            base["capabilities"] = result.get("capabilities") or {}
+            base["dependency_refs"] = self._dependency_refs_for_object(
+                object_kind=object_kind, obj=base
+            )
+            base["dependent_refs"] = []  # Stubbed - deferred implementation
         return base
+
+    @classmethod
+    def _append_dependency_ref(
+        cls, refs: list[str], seen: set[str], value: str | None, *, allow_locator: bool = False
+    ) -> None:
+        if value is None:
+            return
+        ref = str(value).strip()
+        if not ref:
+            return
+        if not allow_locator and not ref.startswith(cls._dependency_prefixes):
+            return
+        if ref in seen:
+            return
+        seen.add(ref)
+        refs.append(ref)
+
+    def _dependency_refs_for_object(
+        self, *, object_kind: ObjectKind, obj: dict[str, Any]
+    ) -> list[str]:
+        refs: list[str] = []
+        seen: set[str] = set()
+        if object_kind == "entity":
+            interface_contract = obj.get("interface_contract") or {}
+            hierarchy = interface_contract.get("hierarchy") or {}
+            self._append_dependency_ref(refs, seen, hierarchy.get("parent_entity_ref"))
+            self._append_dependency_ref(refs, seen, interface_contract.get("primary_time_ref"))
+            for descriptor in interface_contract.get("stable_descriptors") or []:
+                self._append_dependency_ref(refs, seen, descriptor.get("dimension_ref"))
+            return refs
+        if object_kind == "metric":
+            header = obj.get("header") or {}
+            payload = obj.get("payload") or {}
+            for value in (
+                header.get("population_subject_ref"),
+                header.get("observed_entity_ref"),
+                header.get("primary_time_ref"),
+            ):
+                self._append_dependency_ref(refs, seen, value)
+            self._collect_dependency_refs(payload, refs, seen)
+            return refs
+        if object_kind == "process":
+            header = obj.get("header") or {}
+            interface_contract = obj.get("interface_contract") or {}
+            self._append_dependency_ref(refs, seen, header.get("process_ref"))
+            self._collect_dependency_refs(interface_contract, refs, seen)
+            self._collect_dependency_refs(obj.get("payload") or {}, refs, seen)
+            refs = [ref for ref in refs if ref != header.get("process_ref")]
+            return refs
+        if object_kind == "dimension":
+            interface_contract = obj.get("interface_contract") or {}
+            self._collect_dependency_refs(interface_contract, refs, seen)
+            return refs
+        if object_kind == "time":
+            return refs
+        if object_kind == "enum":
+            return refs
+        if object_kind == "binding":
+            header = obj.get("header") or {}
+            interface_contract = obj.get("interface_contract") or {}
+            self._append_dependency_ref(refs, seen, header.get("bound_object_ref"))
+            for imported in interface_contract.get("imports") or []:
+                self._append_dependency_ref(refs, seen, imported.get("binding_ref"))
+            for carrier in interface_contract.get("carrier_bindings") or []:
+                self._append_dependency_ref(refs, seen, carrier.get("primary_entity_ref"))
+                self._append_dependency_ref(refs, seen, carrier.get("source_object_ref"))
+                self._append_dependency_ref(
+                    refs, seen, carrier.get("carrier_locator"), allow_locator=True
+                )
+            for field_binding in interface_contract.get("field_bindings") or []:
+                self._append_dependency_ref(refs, seen, field_binding.get("semantic_ref"))
+                target = field_binding.get("target") or {}
+                self._append_dependency_ref(refs, seen, target.get("target_key"))
+                self._append_dependency_ref(refs, seen, target.get("context_ref"))
+            for join_relation in interface_contract.get("join_relations") or []:
+                for key_pair in join_relation.get("key_ref_pairs") or []:
+                    self._collect_dependency_refs(key_pair, refs, seen)
+            for policy in interface_contract.get("consumption_policies") or []:
+                self._append_dependency_ref(refs, seen, policy.get("anchor_ref"))
+                self._append_dependency_ref(refs, seen, policy.get("grace_period_ref"))
+            return refs
+        if object_kind == "compiler_profile":
+            self._append_dependency_ref(refs, seen, obj.get("subject_ref"))
+            return refs
+        return refs
+
+    def _collect_dependency_refs(
+        self, value: Any, refs: list[str], seen: set[str], *, allow_locator: bool = False
+    ) -> None:
+        if isinstance(value, str):
+            self._append_dependency_ref(refs, seen, value, allow_locator=allow_locator)
+            return
+        if isinstance(value, dict):
+            for nested in value.values():
+                self._collect_dependency_refs(nested, refs, seen, allow_locator=allow_locator)
+            return
+        if isinstance(value, list):
+            for item in value:
+                self._collect_dependency_refs(item, refs, seen, allow_locator=allow_locator)
 
     def _entity_ref_for_name(self, name: str) -> str:
         return f"entity.{name}"
@@ -1557,7 +1688,9 @@ class SemanticServiceSupport:
             "updated_at": row["updated_at"],
         }
 
-    def _row_to_typed_entity(self, row: dict[str, Any]) -> dict[str, Any]:
+    def _row_to_typed_entity(
+        self, row: dict[str, Any], mode: Literal["list", "detail"] = "detail"
+    ) -> dict[str, Any]:
         key_rows = self.metadata.query_rows(
             """
             SELECT key_ref
@@ -1583,6 +1716,7 @@ class SemanticServiceSupport:
                 "cardinality_to_parent": row["cardinality_to_parent"],
                 "ownership_semantics": row["ownership_semantics"],
             }
+        # Build base entity - for list mode, skip interface_contract
         entity = {
             "entity_contract_id": row["entity_contract_id"],
             "header": {
@@ -1591,7 +1725,13 @@ class SemanticServiceSupport:
                 "description": row["description"],
                 "entity_contract_version": row["entity_contract_version"],
             },
-            "interface_contract": {
+            "status": row["status"],
+            "revision": row["revision"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+        if mode == "detail":
+            entity["interface_contract"] = {
                 "identity": {
                     "key_refs": [key_row["key_ref"] for key_row in key_rows],
                     "uniqueness_scope": row["uniqueness_scope"],
@@ -1608,21 +1748,19 @@ class SemanticServiceSupport:
                     for descriptor_row in descriptor_rows
                 ]
                 or None,
-            },
-            "status": row["status"],
-            "revision": row["revision"],
-            "created_at": row["created_at"],
-            "updated_at": row["updated_at"],
-        }
+            }
         return self._augment_object_with_readiness(
             entity,
             object_kind="entity",
             row=row,
             id_field="entity_contract_id",
             ref=str(row["entity_ref"]),
+            mode=mode,
         )
 
-    def _row_to_typed_metric(self, row: dict[str, Any]) -> dict[str, Any]:
+    def _row_to_typed_metric(
+        self, row: dict[str, Any], mode: Literal["list", "detail"] = "detail"
+    ) -> dict[str, Any]:
         metric = {
             "metric_contract_id": row["metric_contract_id"],
             "header": {
@@ -1640,18 +1778,20 @@ class SemanticServiceSupport:
                 "additivity": row["additivity"],
                 "metric_contract_version": row["metric_contract_version"],
             },
-            "payload": json.loads(row["family_payload_json"]),
             "status": row["status"],
             "revision": row["revision"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
+        if mode == "detail":
+            metric["payload"] = json.loads(row["family_payload_json"])
         return self._augment_object_with_readiness(
             metric,
             object_kind="metric",
             row=row,
             id_field="metric_contract_id",
             ref=str(row["metric_ref"]),
+            mode=mode,
         )
 
     def _row_to_process_object(self, row: dict[str, Any]) -> dict[str, Any]:

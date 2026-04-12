@@ -21,6 +21,7 @@ from .base import (
     ListResponseBase,
     MetricFamily,
     ObjectHeaderBase,
+    ObjectListItemBase,
     ObjectResponseBase,
     SampleKind,
     ValueSemantics,
@@ -394,6 +395,16 @@ class TypedMetricUpdateRequest(BaseModel):
 # =============================================================================
 
 
+class TypedMetricListItem(ObjectListItemBase):
+    """Lightweight list item for metric endpoints.
+
+    Includes header only, not full payload.
+    """
+
+    metric_contract_id: str = Field(description="Internal ID of the metric contract.")
+    header: MetricHeader = Field(description="Metric header (contains metric_ref).")
+
+
 class TypedMetricResponse(ObjectResponseBase):
     """Response model for a typed metric object.
 
@@ -405,5 +416,5 @@ class TypedMetricResponse(ObjectResponseBase):
     payload: MetricPayload = Field(description="Family-specific payload.")
 
 
-class TypedMetricListResponse(ListResponseBase[TypedMetricResponse]):
+class TypedMetricListResponse(ListResponseBase[TypedMetricListItem]):
     """Response model for listing typed metric objects."""

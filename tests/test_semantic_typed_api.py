@@ -1929,6 +1929,13 @@ class SemanticTypedApiTests(unittest.TestCase):
         binding_detail_resp = self.client.get(f"/semantic/bindings/{binding_id}")
         self.assertEqual(binding_detail_resp.status_code, 200, binding_detail_resp.text)
         self.assertEqual(binding_detail_resp.json()["readiness_status"], "not_ready")
+        self.assertEqual(
+            binding_detail_resp.json()["dependency_refs"],
+            [
+                entity_resp.json()["header"]["entity_ref"],
+                source_fqn,
+            ],
+        )
         self.assertIn(
             "BINDING_CARRIER_SOURCE_MISSING",
             {item["code"] for item in binding_detail_resp.json()["blocking_requirements"]},
@@ -1937,6 +1944,10 @@ class SemanticTypedApiTests(unittest.TestCase):
         profile_detail_resp = self.client.get(f"/compiler/compatibility-profiles/{profile_id}")
         self.assertEqual(profile_detail_resp.status_code, 200, profile_detail_resp.text)
         self.assertEqual(profile_detail_resp.json()["readiness_status"], "stale")
+        self.assertEqual(
+            profile_detail_resp.json()["dependency_refs"],
+            [metric_resp.json()["header"]["metric_ref"]],
+        )
         self.assertIn(
             "PROFILE_SUBJECT_REVISION_MISMATCH",
             {item["code"] for item in profile_detail_resp.json()["blocking_requirements"]},

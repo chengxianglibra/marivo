@@ -19,6 +19,7 @@ from .base import (
     ListResponseBase,
     MembershipCardinality,
     ObjectHeaderBase,
+    ObjectListItemBase,
     ObjectResponseBase,
     PopulationSpec,
     ProcessType,
@@ -456,6 +457,16 @@ class ProcessObjectUpdateRequest(BaseModel):
 # =============================================================================
 
 
+class ProcessObjectListItem(ObjectListItemBase):
+    """Lightweight list item for process object endpoints.
+
+    Includes header only, not full interface_contract or payload.
+    """
+
+    process_contract_id: str = Field(description="Internal ID of the process contract.")
+    header: ProcessObjectHeader = Field(description="Process header (contains process_ref).")
+
+
 class ProcessObjectResponse(ObjectResponseBase):
     """Response model for a process object.
 
@@ -468,5 +479,5 @@ class ProcessObjectResponse(ObjectResponseBase):
     payload: ProcessPayload = Field(description="Process-type-specific payload.")
 
 
-class ProcessObjectListResponse(ListResponseBase[ProcessObjectResponse]):
+class ProcessObjectListResponse(ListResponseBase[ProcessObjectListItem]):
     """Response model for listing process objects."""

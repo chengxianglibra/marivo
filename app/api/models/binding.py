@@ -22,6 +22,7 @@ from .base import (
     ListResponseBase,
     NullabilityPolicy,
     ObjectHeaderBase,
+    ObjectListItemBase,
     ObjectResponseBase,
     RepeatedValuePolicy,
     TargetKind,
@@ -414,6 +415,16 @@ class TypedBindingUpdateRequest(BaseModel):
 # =============================================================================
 
 
+class TypedBindingListItem(ObjectListItemBase):
+    """Lightweight list item for binding endpoints.
+
+    Includes header only, not full interface_contract.
+    """
+
+    binding_id: str = Field(description="Internal ID of the binding.")
+    header: BindingHeader = Field(description="Binding header (contains binding_ref).")
+
+
 class TypedBindingResponse(ObjectResponseBase):
     """Response model for a typed binding object.
 
@@ -425,5 +436,5 @@ class TypedBindingResponse(ObjectResponseBase):
     interface_contract: BindingInterfaceContract = Field(description="Binding interface contract.")
 
 
-class TypedBindingListResponse(ListResponseBase[TypedBindingResponse]):
+class TypedBindingListResponse(ListResponseBase[TypedBindingListItem]):
     """Response model for listing typed binding objects."""
