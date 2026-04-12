@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 from app.semantic_runtime.errors import (
     SemanticRuntimeError,
+    SemanticRuntimeNotReadyError,
 )
 from app.semantic_runtime.resolution import ResolvedSemanticObject
 from app.semantic_runtime.semantic_metadata import runtime_ref_kind
@@ -354,6 +355,8 @@ def _resolve_runtime_ref(
 ) -> ResolvedSemanticObject:
     try:
         resolved = resolver(semantic_ref)
+    except SemanticRuntimeNotReadyError:
+        raise
     except SemanticRuntimeError as error:
         raise ValueError(f"Could not resolve {label} ref '{semantic_ref}': {error}") from error
     return cast("ResolvedSemanticObject", resolved)

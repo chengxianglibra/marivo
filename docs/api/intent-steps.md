@@ -147,7 +147,7 @@ Common transport statuses:
 |--------|----------|
 | `400` | semantic request invalid, invalid filter, unsupported operation, not comparable, not attributable, not aligned, insufficient history, insufficient data |
 | `404` | session not found, typed ref not found |
-| `409` | session is not open |
+| `409` | session is not open, or a referenced semantic object is active but not ready for runtime use |
 | `422` | request body fails schema validation |
 | `500` | unexpected server-side failure while executing or materializing an artifact |
 | `503` | metadata store or analytics engine unavailable |
@@ -157,6 +157,20 @@ Step submission errors may include additional structured fields such as:
 - `code`: stable semantic failure class such as `INVALID_ARGUMENT`, `INVALID_FILTER`, `STEP_NOT_FOUND`, `NOT_COMPARABLE`, or `INSUFFICIENT_HISTORY`
 - `issues`: typed validation issues when the failing intent contract defines them
 - `ref`: the typed ref or path target associated with the failure when useful
+
+When intent compilation hits an object-level readiness gate, the endpoint returns `409` with the
+same readiness payload used by `GET /semantic/resolve/{typed_ref}`:
+
+- `message`
+- `code`
+- `category`
+- `subject_ref`
+- `object_kind`
+- `lifecycle_status`
+- `readiness_status`
+- `blocking_requirements`
+- `capabilities`
+- `dependency_refs`
 
 ## Atomic Intents
 

@@ -15,6 +15,7 @@ from app.execution.errors import ExecutionError
 from app.execution.federation import FederationPlanner
 from app.execution.feedback import compile_failure_from_error, federation_failure_from_plan
 from app.execution.routing_runtime import RoutingRuntime
+from app.semantic_runtime.errors import SemanticRuntimeNotReadyError
 from app.storage.analytics import AnalyticsEngine
 from tests.shared_fixtures import get_seeded_duckdb_path
 
@@ -110,6 +111,34 @@ class ExecutionFeedbackTests(unittest.TestCase):
         self.assertEqual(failure.code, "compiler_binding_missing")
         self.assertEqual(failure.detail["compile_error"]["failed_gate"], "binding_grounding")
         self.assertEqual(failure.detail["compile_error"]["subject_ref"], "metric.watch_time")
+
+    def test_compile_failure_maps_not_ready_error_to_readiness_feedback(self) -> None:
+        step = AnalysisStepIR(index=1, step_type="metric_query")
+        error = SemanticRuntimeNotReadyError(
+            "Semantic ref is not ready: metric.watch_time",
+            semantic_ref="metric.watch_time",
+            object_kind="metric",
+            lifecycle_status="active",
+            readiness_status="not_ready",
+            blocking_requirements=[
+                {
+                    "code": "METRIC_INPUT_COVERAGE_MISSING",
+                    "message": "Missing required metric input coverage",
+                }
+            ],
+            capabilities={},
+            dependency_refs=["entity.user"],
+        )
+
+        failure = compile_failure_from_error(step, error, semantic_context={"metric_sql": "avg(x)"})
+
+        self.assertEqual(failure.code, "semantic_not_ready")
+        self.assertEqual(failure.category, "readiness")
+        self.assertEqual(
+            failure.detail["readiness_error"]["blocking_requirements"][0]["code"],
+            "METRIC_INPUT_COVERAGE_MISSING",
+        )
+        self.assertEqual(failure.detail["readiness_error"]["subject_ref"], "metric.watch_time")
 
 
 class ExecutionFeedbackIntegrationTests(unittest.TestCase):

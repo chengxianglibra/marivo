@@ -12,7 +12,7 @@ from app.analysis_core.typed_resolution import (
 from app.analysis_core.validator import validate_compiler_inputs
 from app.evidence_engine.ref_boundary import assert_no_canonical_refs_in_semantic_payload
 from app.semantic_runtime import SemanticRuntimeRepository
-from app.semantic_runtime.errors import SemanticRuntimeNotFoundError
+from app.semantic_runtime.errors import SemanticRuntimeNotFoundError, SemanticRuntimeNotReadyError
 from app.semantic_runtime.resolution import ResolvedSemanticObject
 
 
@@ -208,6 +208,25 @@ class _MissingTimeRepository(_FakeSemanticRepository):
         raise SemanticRuntimeNotFoundError(
             f"Unknown time ref: {time_ref}",
             semantic_ref=time_ref,
+        )
+
+
+class _NotReadyMetricRepository(_FakeSemanticRepository):
+    def resolve_metric_ref(self, metric_ref: str) -> ResolvedSemanticObject:
+        raise SemanticRuntimeNotReadyError(
+            f"Semantic ref is not ready: {metric_ref}",
+            semantic_ref=metric_ref,
+            object_kind="metric",
+            lifecycle_status="active",
+            readiness_status="not_ready",
+            blocking_requirements=[
+                {
+                    "code": "METRIC_INPUT_COVERAGE_MISSING",
+                    "message": "Missing required metric input coverage",
+                }
+            ],
+            capabilities={},
+            dependency_refs=["entity.user", "time.event_date"],
         )
 
 
@@ -413,6 +432,36 @@ class CompilerTypedResolutionTests(unittest.TestCase):
         )
         self.assertNotIn("artifact_refs", compiled.ir_bundle["compile_report"])
         self.assertNotIn("finding_ref", str(compiled.ir_bundle))
+
+    def test_compile_step_propagates_not_ready_metric_error(self) -> None:
+        with self.assertRaises(SemanticRuntimeNotReadyError) as ctx:
+            compile_step(
+                AnalysisStepIR(
+                    index=0,
+                    step_type="metric_query",
+                    params={
+                        "metric": "watch_time",
+                        "table": "analytics.watch_events",
+                        "time_scope": {
+                            "mode": "single_window",
+                            "grain": "day",
+                            "current": {"start": "2026-03-10", "end": "2026-03-17"},
+                        },
+                    },
+                ),
+                engine_type="duckdb",
+                semantic_context={
+                    "semantic_repository": _NotReadyMetricRepository(),
+                },
+            )
+
+        error = ctx.exception
+        self.assertEqual(error.semantic_ref, "metric.watch_time")
+        self.assertEqual(error.readiness_status, "not_ready")
+        self.assertEqual(
+            error.blocking_requirements[0]["code"],
+            "METRIC_INPUT_COVERAGE_MISSING",
+        )
 
     def test_resolve_compiler_inputs_no_repository_warns_for_metric_and_dimensions(self) -> None:
         from app.analysis_core.typed_resolution import NormalizedCompilerRequest

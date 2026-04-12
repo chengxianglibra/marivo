@@ -22,6 +22,8 @@ from app.api.models import (
     SessionTerminateRequest,
     ValidateRequest,
 )
+from app.execution.errors import ExecutionError
+from app.semantic_runtime.errors import SemanticRuntimeNotReadyError
 
 router = APIRouter()
 
@@ -259,6 +261,14 @@ def _run_intent(
         raise http_error(error) from error
     except NotImplementedError as error:
         raise HTTPException(status_code=501, detail=str(error)) from error
+    except SemanticRuntimeNotReadyError as error:
+        raise HTTPException(status_code=409, detail=error.detail_payload()) from error
+    except ExecutionError as error:
+        if error.category == "readiness":
+            readiness_error = error.detail.get("readiness_error")
+            if isinstance(readiness_error, dict):
+                raise HTTPException(status_code=409, detail=readiness_error) from error
+        raise HTTPException(status_code=422, detail=str(error)) from error
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     except Exception as error:

@@ -139,6 +139,20 @@ class IntentEndpointTests(unittest.TestCase):
         db_path = Path(cls.temp_dir.name) / "intent_api.duckdb"
         get_seeded_duckdb_path(db_path)
         cls.client = TestClient(create_app(db_path))
+        source = cls.client.post(
+            "/sources",
+            json={
+                "source_type": "duckdb",
+                "display_name": "Intent API Source",
+                "connection": {"path": str(db_path)},
+            },
+        ).json()
+        cls.source_id = source["source_id"]
+        cls.client.post(f"/sources/{cls.source_id}/sync")
+        source_objects = cls.client.get(f"/sources/{cls.source_id}/objects?type=table").json()
+        watch_events = next(obj for obj in source_objects if obj["native_name"] == "watch_events")
+        cls.watch_events_object_id = watch_events["object_id"]
+        cls.watch_events_fqn = str(watch_events["fqn"])
         r = cls.client.post("/sessions", json={"goal": "Intent API test session"})
         cls.session_id = r.json()["session_id"]
 
@@ -190,6 +204,44 @@ class IntentEndpointTests(unittest.TestCase):
         )
         # snapshot_now is implemented; unknown metric → 422
         self.assertEqual(r.status_code, 422)
+
+    def test_observe_not_ready_metric_returns_409_with_structured_readiness_error(self) -> None:
+        metric = create_typed_metric(
+            self.client,
+            name="intent_not_ready_metric",
+            display_name="Intent Not Ready Metric",
+            description="Metric with incomplete binding coverage",
+            definition_sql="COUNT(*)",
+            dimensions=["platform"],
+            measure_type="average",
+        )
+        publish_typed_metric(self.client, metric["metric_contract_id"])
+        create_typed_metric_binding(
+            self.client,
+            metric_ref="metric.intent_not_ready_metric",
+            object_id=self.watch_events_object_id,
+            carrier_locator=self.watch_events_fqn,
+            metric_input_target_keys=["numerator"],
+        )
+
+        response = self.client.post(
+            f"/sessions/{self.session_id}/intents/observe",
+            json={
+                "metric": "intent_not_ready_metric",
+                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+            },
+        )
+
+        self.assertEqual(response.status_code, 409, response.text)
+        detail = response.json()["detail"]
+        self.assertEqual(detail["code"], "semantic_not_ready")
+        self.assertEqual(detail["category"], "readiness")
+        self.assertEqual(detail["subject_ref"], "metric.intent_not_ready_metric")
+        self.assertEqual(detail["readiness_status"], "not_ready")
+        self.assertEqual(
+            detail["blocking_requirements"][0]["code"],
+            "METRIC_INPUT_COVERAGE_MISSING",
+        )
 
     # ── compare ───────────────────────────────────────────────────────────────
 
@@ -591,6 +643,7 @@ class IntentEndpointWithSemanticLayerTests(unittest.TestCase):
             definition_sql="COUNT(*)",
             dimensions=["event_date"],
             grain="day",
+            measure_type="average",
         )
         cls.metric_id = metric["metric_contract_id"]
 
@@ -699,6 +752,7 @@ class ObserveTypedArtifactTests(unittest.TestCase):
             definition_sql="COUNT(DISTINCT user_id)",
             dimensions=["event_date", "platform"],
             grain="day",
+            measure_type="average",
         )
         metric_id = metric["metric_contract_id"]
         publish_typed_metric(cls.client, metric_id)
@@ -1061,6 +1115,7 @@ class CompareIntentTests(unittest.TestCase):
             definition_sql="COUNT(DISTINCT user_id)",
             dimensions=["event_date", "platform"],
             grain="day",
+            measure_type="average",
         )
         metric_id = metric["metric_contract_id"]
         publish_typed_metric(cls.client, metric_id)
@@ -1079,6 +1134,7 @@ class CompareIntentTests(unittest.TestCase):
             definition_sql="COUNT(*)",
             dimensions=["event_date"],
             grain="day",
+            measure_type="average",
         )
         cls.other_metric_id = other_metric["metric_contract_id"]
         if cls.other_metric_id:
@@ -1515,6 +1571,7 @@ class DecomposeIntentTests(unittest.TestCase):
             definition_sql="COUNT(DISTINCT user_id)",
             dimensions=["event_date", "platform"],
             grain="day",
+            measure_type="average",
         )
         metric_id = metric["metric_contract_id"]
         publish_typed_metric(cls.client, metric_id)

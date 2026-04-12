@@ -78,6 +78,7 @@ class CatalogQueryTests(unittest.TestCase):
             metric_ref="metric.watch_time",
             object_id=watch_obj_id,
             carrier_locator=str(cls.table_objects["watch_events"]["fqn"]),
+            metric_input_target_keys=["numerator"],
         )
 
     @classmethod

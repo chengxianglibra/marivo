@@ -20,6 +20,7 @@ from app.time_scope import (
 from tests.semantic_test_helpers import (
     create_typed_entity,
     create_typed_metric,
+    create_typed_metric_binding,
     patch_typed_entity_properties,
     publish_typed_entity,
     publish_typed_metric,
@@ -590,6 +591,12 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
                 },
             ).json()["source_id"]
             client.post(f"/sources/{source_id}/sync")
+            table_objects = {
+                table["native_name"]: table
+                for table in client.get(f"/sources/{source_id}/objects?type=table").json()
+            }
+            cls.watch_events_object_id = table_objects["watch_events"]["object_id"]
+            cls.watch_events_fqn = str(table_objects["watch_events"]["fqn"])
         finally:
             client.close()
 
@@ -619,6 +626,13 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
             )
             metric_id = metric["metric_contract_id"]
             publish_typed_metric(client, metric_id)
+            create_typed_metric_binding(
+                client,
+                metric_ref=f"metric.watch_time_tsu02_{id(self)}",
+                object_id=self.watch_events_object_id,
+                carrier_locator=self.watch_events_fqn,
+                metric_input_target_keys=["count_target"],
+            )
 
             self.metric_name = f"watch_time_tsu02_{id(self)}"
             self.session_id = client.post(
