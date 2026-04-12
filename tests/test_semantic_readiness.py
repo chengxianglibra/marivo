@@ -179,10 +179,47 @@ class EntityReadinessEvaluatorTests(unittest.TestCase):
             {"ENTITY_CARRIER_SOURCE_MISSING"},
         )
 
+    def test_draft_entity_is_not_ready(self) -> None:
+        result = self._evaluate(
+            status="draft",
+            semantic_object={
+                "header": {"entity_ref": "entity.user"},
+                "interface_contract": {
+                    "identity": {
+                        "key_refs": ["key.user_id"],
+                        "uniqueness_scope": "global",
+                        "id_stability": "stable",
+                    }
+                },
+            },
+        )
+
+        self.assertEqual(result.lifecycle_status, "draft")
+        self.assertEqual(result.readiness_status, "not_ready")
+
+    def test_deprecated_entity_is_not_ready(self) -> None:
+        result = self._evaluate(
+            status="deprecated",
+            semantic_object={
+                "header": {"entity_ref": "entity.user"},
+                "interface_contract": {
+                    "identity": {
+                        "key_refs": ["key.user_id"],
+                        "uniqueness_scope": "global",
+                        "id_stability": "stable",
+                    }
+                },
+            },
+        )
+
+        self.assertEqual(result.lifecycle_status, "deprecated")
+        self.assertEqual(result.readiness_status, "not_ready")
+
     def _evaluate(
         self,
         *,
         semantic_object: dict[str, object],
+        status: str = "published",
         require_physical_grounding: bool = False,
         subject_bindings: list[dict[str, object]] | None = None,
         carrier_source_object_loader=None,
@@ -191,7 +228,7 @@ class EntityReadinessEvaluatorTests(unittest.TestCase):
             object_kind="entity",
             object_id="entc_123",
             ref="entity.user",
-            status="published",
+            status=status,
             revision=3,
             semantic_object=semantic_object,
         )
@@ -325,9 +362,22 @@ class MetricReadinessEvaluatorTests(unittest.TestCase):
             {"METRIC_CARRIER_SOURCE_MISSING"},
         )
 
+    def test_draft_metric_is_not_ready(self) -> None:
+        result = self._evaluate(status="draft")
+
+        self.assertEqual(result.lifecycle_status, "draft")
+        self.assertEqual(result.readiness_status, "not_ready")
+
+    def test_deprecated_metric_is_not_ready(self) -> None:
+        result = self._evaluate(status="deprecated")
+
+        self.assertEqual(result.lifecycle_status, "deprecated")
+        self.assertEqual(result.readiness_status, "not_ready")
+
     def _evaluate(
         self,
         *,
+        status: str = "published",
         dependency_statuses: dict[str, str] | None = None,
         subject_bindings: list[dict[str, object]] | None = None,
         binding_import_statuses: dict[str, str] | None = None,
@@ -359,7 +409,7 @@ class MetricReadinessEvaluatorTests(unittest.TestCase):
             object_kind="metric",
             object_id="metc_123",
             ref="metric.conversion_rate",
-            status="published",
+            status=status,
             revision=2,
             semantic_object=semantic_object,
         )
@@ -618,9 +668,22 @@ class ProcessReadinessEvaluatorTests(unittest.TestCase):
             {"PROCESS_CARRIER_SOURCE_MISSING"},
         )
 
+    def test_draft_process_is_not_ready(self) -> None:
+        result = self._evaluate(status="draft")
+
+        self.assertEqual(result.lifecycle_status, "draft")
+        self.assertEqual(result.readiness_status, "not_ready")
+
+    def test_deprecated_process_is_not_ready(self) -> None:
+        result = self._evaluate(status="deprecated")
+
+        self.assertEqual(result.lifecycle_status, "deprecated")
+        self.assertEqual(result.readiness_status, "not_ready")
+
     def _evaluate(
         self,
         *,
+        status: str = "published",
         require_physical_grounding: bool = False,
         subject_bindings: list[dict[str, object]] | None = None,
         profiles: list[dict[str, object]] | None = None,
@@ -630,7 +693,7 @@ class ProcessReadinessEvaluatorTests(unittest.TestCase):
             object_kind="process",
             object_id="proc_123",
             ref="process.experiment_assignment",
-            status="published",
+            status=status,
             revision=3,
             semantic_object={
                 "header": {
@@ -720,12 +783,12 @@ class DimensionReadinessEvaluatorTests(unittest.TestCase):
         self.assertEqual(result.readiness_status, "not_ready")
         self.assertEqual(result.blocking_requirements[0].code, "DIMENSION_GROUPING_UNSUPPORTED")
 
-    def _evaluate(self, *, semantic_object: dict[str, object]):
+    def _evaluate(self, *, semantic_object: dict[str, object], status: str = "published"):
         snapshot = build_snapshot(
             object_kind="dimension",
             object_id="dimc_123",
             ref="dimension.country",
-            status="published",
+            status=status,
             revision=2,
             semantic_object=semantic_object,
         )
@@ -747,12 +810,8 @@ class DimensionReadinessEvaluatorTests(unittest.TestCase):
         self.assertEqual(result.blocking_requirements[0].code, "DIMENSION_CONTRACT_INVALID")
 
     def test_draft_dimension_is_not_ready(self) -> None:
-        snapshot = build_snapshot(
-            object_kind="dimension",
-            object_id="dimc_123",
-            ref="dimension.country",
+        result = self._evaluate(
             status="draft",
-            revision=2,
             semantic_object={
                 "header": {"dimension_ref": "dimension.country"},
                 "interface_contract": {
@@ -766,10 +825,28 @@ class DimensionReadinessEvaluatorTests(unittest.TestCase):
                 },
             },
         )
-        context = ReadinessEvaluationContext(snapshot=snapshot)
-        result = self.registry.evaluator_for("dimension").evaluate(context)
 
         self.assertEqual(result.lifecycle_status, "draft")
+        self.assertEqual(result.readiness_status, "not_ready")
+
+    def test_deprecated_dimension_is_not_ready(self) -> None:
+        result = self._evaluate(
+            status="deprecated",
+            semantic_object={
+                "header": {"dimension_ref": "dimension.country"},
+                "interface_contract": {
+                    "value_domain": {
+                        "structure_kind": "flat",
+                        "semantic_role": "category",
+                        "value_type": "string",
+                        "domain_kind": "enumerated",
+                    },
+                    "grouping": {"supports_grouping": True},
+                },
+            },
+        )
+
+        self.assertEqual(result.lifecycle_status, "deprecated")
         self.assertEqual(result.readiness_status, "not_ready")
 
 
@@ -790,12 +867,12 @@ class TimeReadinessEvaluatorTests(unittest.TestCase):
         self.assertEqual(result.readiness_status, "not_ready")
         self.assertEqual(result.blocking_requirements[0].code, "TIME_CONTRACT_INVALID")
 
-    def _evaluate(self, *, semantic_roles: list[str]):
+    def _evaluate(self, *, semantic_roles: list[str], status: str = "published"):
         snapshot = build_snapshot(
             object_kind="time",
             object_id="time_123",
             ref="time.event_date",
-            status="published",
+            status=status,
             revision=1,
             semantic_object={
                 "header": {
@@ -807,6 +884,18 @@ class TimeReadinessEvaluatorTests(unittest.TestCase):
         return self.registry.evaluator_for("time").evaluate(
             ReadinessEvaluationContext(snapshot=snapshot)
         )
+
+    def test_draft_time_semantic_is_not_ready(self) -> None:
+        result = self._evaluate(status="draft", semantic_roles=["measurement"])
+
+        self.assertEqual(result.lifecycle_status, "draft")
+        self.assertEqual(result.readiness_status, "not_ready")
+
+    def test_deprecated_time_semantic_is_not_ready(self) -> None:
+        result = self._evaluate(status="deprecated", semantic_roles=["measurement"])
+
+        self.assertEqual(result.lifecycle_status, "deprecated")
+        self.assertEqual(result.readiness_status, "not_ready")
 
 
 class EnumReadinessEvaluatorTests(unittest.TestCase):
@@ -827,12 +916,12 @@ class EnumReadinessEvaluatorTests(unittest.TestCase):
         self.assertEqual(result.readiness_status, "not_ready")
         self.assertEqual(result.blocking_requirements[0].code, "ENUM_CONTRACT_INVALID")
 
-    def _evaluate(self, *, versions: list[dict[str, object]]):
+    def _evaluate(self, *, versions: list[dict[str, object]], status: str = "published"):
         snapshot = build_snapshot(
             object_kind="enum",
             object_id="enum_123",
             ref="enum.country_code",
-            status="published",
+            status=status,
             revision=1,
             semantic_object={
                 "header": {
@@ -845,6 +934,21 @@ class EnumReadinessEvaluatorTests(unittest.TestCase):
         return self.registry.evaluator_for("enum").evaluate(
             ReadinessEvaluationContext(snapshot=snapshot)
         )
+
+    def test_draft_enum_set_is_not_ready(self) -> None:
+        result = self._evaluate(status="draft", versions=[])
+
+        self.assertEqual(result.lifecycle_status, "draft")
+        self.assertEqual(result.readiness_status, "not_ready")
+
+    def test_deprecated_enum_set_is_not_ready(self) -> None:
+        result = self._evaluate(
+            status="deprecated",
+            versions=[{"enum_version": "v1", "values": [{"value_key": "CN", "label": "China"}]}],
+        )
+
+        self.assertEqual(result.lifecycle_status, "deprecated")
+        self.assertEqual(result.readiness_status, "not_ready")
 
 
 class BindingReadinessEvaluatorTests(unittest.TestCase):
@@ -923,6 +1027,7 @@ class BindingReadinessEvaluatorTests(unittest.TestCase):
     def _evaluate(
         self,
         *,
+        status: str = "published",
         field_bindings: list[dict[str, object]] | None = None,
         carrier_bindings: list[dict[str, object]] | None = None,
         carrier_source_object_loader=None,
@@ -931,7 +1036,7 @@ class BindingReadinessEvaluatorTests(unittest.TestCase):
             object_kind="binding",
             object_id="bind_123",
             ref="binding.metric_conversion_rate",
-            status="published",
+            status=status,
             revision=1,
             semantic_object={
                 "header": {
@@ -1054,6 +1159,18 @@ class BindingReadinessEvaluatorTests(unittest.TestCase):
             (b.code, b.subject_ref, b.dependency_ref) for b in result.blocking_requirements
         ]
         self.assertEqual(len(blocker_keys), len(set(blocker_keys)))
+
+    def test_draft_binding_is_not_ready(self) -> None:
+        result = self._evaluate(status="draft")
+
+        self.assertEqual(result.lifecycle_status, "draft")
+        self.assertEqual(result.readiness_status, "not_ready")
+
+    def test_deprecated_binding_is_not_ready(self) -> None:
+        result = self._evaluate(status="deprecated")
+
+        self.assertEqual(result.lifecycle_status, "deprecated")
+        self.assertEqual(result.readiness_status, "not_ready")
 
     def _evaluate_with_import(self, *, import_status: str) -> ReadinessResult:
         def dependency_loader(ref: str):
@@ -1293,6 +1410,12 @@ class CompatibilityProfileReadinessEvaluatorTests(unittest.TestCase):
         self.assertEqual(result.readiness_status, "stale")
         self.assertEqual(len(result.blocking_requirements), 1)
         self.assertEqual(result.blocking_requirements[0].code, "PROFILE_SUBJECT_REVISION_MISMATCH")
+
+    def test_deprecated_profile_is_not_ready(self) -> None:
+        result = self._evaluate_with_profile_status(profile_status="deprecated")
+
+        self.assertEqual(result.lifecycle_status, "deprecated")
+        self.assertEqual(result.readiness_status, "not_ready")
 
     def _evaluate_with_subject_status(self, *, subject_status: str) -> ReadinessResult:
         snapshot = build_snapshot(
