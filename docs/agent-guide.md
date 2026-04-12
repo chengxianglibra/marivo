@@ -130,6 +130,8 @@ surfaces when a task needs catalog/debug visibility.
 Runtime/catalog defaults should treat readiness as the availability gate. For entity/metric/process,
 do not assume `published` implies `ready`; readiness may be blocked by dependencies, bindings, or
 profile mismatches.
+Request-level incompatibility must stay separate from object readiness. Do not write request-specific
+dimension/process/intent mismatches back into semantic object readiness fields.
 Compiler and intent execution entrypoints should enforce the same object-level readiness gate and
 surface structured readiness failures instead of collapsing them into generic compile errors.
 List endpoints return lightweight items by default (header, status, blocker_count, capabilities_summary);

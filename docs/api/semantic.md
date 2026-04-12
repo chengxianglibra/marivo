@@ -1010,6 +1010,8 @@ for modeling/admin callers.
   - `blocking_requirements`
   - `capabilities`
   - `dependency_refs`
+- Request-level compatibility is not evaluated on `/semantic/resolve/{typed_ref}`. Compatibility
+  failures only surface on compile/intent execution routes that include request context.
 
 `GET /sessions/{session_id}/planner-context`
 
@@ -1032,7 +1034,8 @@ consumers recover semantic meaning from typed step metadata and compiler snapsho
 
 - `400`: invalid catalog type filter or invalid typed semantic ref
 - `404`: object not found
-- `409`: typed semantic ref exists and is active, but is not ready for runtime use
+- `409`: typed semantic ref exists and is active but not ready for runtime use, or a compile/intent
+  request is incompatible with otherwise ready semantic objects
 - `422`: request validation failed or service rejected the request as invalid
 
 Validation errors use FastAPI/Pydantic `detail` arrays. Service-level validation errors use string `detail` values.

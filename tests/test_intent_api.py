@@ -238,9 +238,86 @@ class IntentEndpointTests(unittest.TestCase):
         self.assertEqual(detail["category"], "readiness")
         self.assertEqual(detail["subject_ref"], "metric.intent_not_ready_metric")
         self.assertEqual(detail["readiness_status"], "not_ready")
+
+    def test_observe_incompatible_dimension_returns_409_with_structured_compatibility_error(
+        self,
+    ) -> None:
+        time_resp = self.client.post(
+            "/semantic/time",
+            json={
+                "header": {
+                    "time_ref": "time.signup_date",
+                    "display_name": "Signup Date",
+                    "semantic_roles": ["business_anchor"],
+                    "time_contract_version": "time.v1",
+                }
+            },
+        )
+        self.assertEqual(time_resp.status_code, 200, time_resp.text)
+        time_id = time_resp.json()["time_contract_id"]
+        publish_time_resp = self.client.post(f"/semantic/time/{time_id}/publish")
+        self.assertEqual(publish_time_resp.status_code, 200, publish_time_resp.text)
+
+        dimension_resp = self.client.post(
+            "/semantic/dimensions",
+            json={
+                "header": {
+                    "dimension_ref": "dimension.intent_signup_week",
+                    "display_name": "Intent Signup Week",
+                    "dimension_contract_version": "dimension.v1",
+                },
+                "interface_contract": {
+                    "value_domain": {
+                        "structure_kind": "time_derived",
+                        "semantic_role": "category",
+                        "value_type": "string",
+                        "domain_kind": "open",
+                    },
+                    "grouping": {"supports_grouping": True},
+                    "time_derived_requirement": {"required_time_anchor_ref": "time.signup_date"},
+                },
+            },
+        )
+        self.assertEqual(dimension_resp.status_code, 200, dimension_resp.text)
+        dimension_id = dimension_resp.json()["dimension_contract_id"]
+        publish_resp = self.client.post(f"/semantic/dimensions/{dimension_id}/publish")
+        self.assertEqual(publish_resp.status_code, 200, publish_resp.text)
+
+        metric = create_typed_metric(
+            self.client,
+            name="intent_compatible_metric",
+            display_name="Intent Compatible Metric",
+            description="Metric with request-level incompatible dimension",
+            definition_sql="COUNT(DISTINCT user_id)",
+            dimensions=["dimension.intent_signup_week"],
+            grain="day",
+            measure_type="average",
+        )
+        publish_typed_metric(self.client, metric["metric_contract_id"])
+        create_typed_metric_binding(
+            self.client,
+            metric_ref="metric.intent_compatible_metric",
+            object_id=self.watch_events_object_id,
+            carrier_locator=self.watch_events_fqn,
+        )
+
+        response = self.client.post(
+            f"/sessions/{self.session_id}/intents/observe",
+            json={
+                "metric": "intent_compatible_metric",
+                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+                "dimensions": ["dimension.intent_signup_week"],
+            },
+        )
+
+        self.assertEqual(response.status_code, 409, response.text)
+        detail = response.json()["detail"]
+        self.assertEqual(detail["code"], "semantic_request_incompatible")
+        self.assertEqual(detail["category"], "compatibility")
+        self.assertEqual(detail["subject_ref"], "dimension.intent_signup_week")
         self.assertEqual(
-            detail["blocking_requirements"][0]["code"],
-            "METRIC_INPUT_COVERAGE_MISSING",
+            detail["issues"][0]["code"],
+            "COMPILER_DIMENSION_TIME_ANCHOR_MISMATCH",
         )
 
     # ── compare ───────────────────────────────────────────────────────────────

@@ -14,7 +14,11 @@ from app.analysis_core import (
     IntentRunnerRegistry,
     build_service_step_registry,
 )
-from app.analysis_core.compiler import CompiledQuery, compile_step
+from app.analysis_core.compiler import (
+    CompiledQuery,
+    SemanticRequestCompatibilityError,
+    compile_step,
+)
 from app.analysis_core.compiler import build_metric_query as compile_metric_query
 from app.analysis_core.executor import execute_compiled
 from app.analysis_core.ir import AnalysisStepIR
@@ -551,7 +555,11 @@ class SemanticLayerService:
                 engine_type=engine_type,
                 semantic_context=effective_semantic_context,
             )
-        except (SemanticRuntimeNotReadyError, ValueError) as error:
+        except (
+            SemanticRuntimeNotReadyError,
+            SemanticRequestCompatibilityError,
+            ValueError,
+        ) as error:
             raise compile_failure_from_error(
                 step,
                 error,

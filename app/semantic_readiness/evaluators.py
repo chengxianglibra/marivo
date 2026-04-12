@@ -385,6 +385,14 @@ class DimensionReadinessEvaluator:
                     subject_ref=snapshot.ref,
                 )
             )
+        if not capabilities["supports_grouping"]:
+            blockers.append(
+                _blocker(
+                    code="DIMENSION_GROUPING_UNSUPPORTED",
+                    message="Dimension does not support grouping.",
+                    subject_ref=snapshot.ref,
+                )
+            )
         readiness_status = "ready" if lifecycle_status == "active" and not blockers else "not_ready"
         return ReadinessResult(
             lifecycle_status=lifecycle_status,

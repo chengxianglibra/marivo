@@ -579,6 +579,25 @@ class DimensionReadinessEvaluatorTests(unittest.TestCase):
             "DIMENSION_TIME_DERIVED_REQUIREMENT_MISSING",
         )
 
+    def test_dimension_without_grouping_support_is_not_ready(self) -> None:
+        result = self._evaluate(
+            semantic_object={
+                "header": {"dimension_ref": "dimension.country"},
+                "interface_contract": {
+                    "value_domain": {
+                        "structure_kind": "flat",
+                        "semantic_role": "category",
+                        "value_type": "string",
+                        "domain_kind": "enumerated",
+                    },
+                    "grouping": {"supports_grouping": False},
+                },
+            }
+        )
+
+        self.assertEqual(result.readiness_status, "not_ready")
+        self.assertEqual(result.blocking_requirements[0].code, "DIMENSION_GROUPING_UNSUPPORTED")
+
     def _evaluate(self, *, semantic_object: dict[str, object]):
         snapshot = build_snapshot(
             object_kind="dimension",

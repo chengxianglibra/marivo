@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from app.analysis_core.compiler import CompiledQuery, SemanticCompilerError
+from app.analysis_core.compiler import (
+    CompiledQuery,
+    SemanticCompilerError,
+    SemanticRequestCompatibilityError,
+)
 from app.analysis_core.ir import AnalysisStepIR
 from app.execution.errors import ExecutionError
 from app.runtime_contracts import ExecutionFeedback
@@ -61,6 +65,21 @@ def compile_failure_from_error(
                 "step_index": step.index,
                 "semantic_context_keys": sorted((semantic_context or {}).keys()),
                 "readiness_error": detail,
+            },
+        )
+    if isinstance(error, SemanticRequestCompatibilityError):
+        detail = dict(error.detail)
+        return ExecutionError(
+            code=str(detail["code"]),
+            category="compatibility",
+            message=str(detail["message"]),
+            replan_candidate=False,
+            fallback_candidates=[],
+            detail={
+                "step_type": step.step_type,
+                "step_index": step.index,
+                "semantic_context_keys": sorted((semantic_context or {}).keys()),
+                "compatibility_error": detail,
             },
         )
 

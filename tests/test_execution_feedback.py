@@ -7,7 +7,11 @@ from typing import Any, ClassVar, cast
 
 from fastapi.testclient import TestClient
 
-from app.analysis_core.compiler import CompiledQuery, SemanticCompilerError
+from app.analysis_core.compiler import (
+    CompiledQuery,
+    SemanticCompilerError,
+    SemanticRequestCompatibilityError,
+)
 from app.analysis_core.executor import execute_compiled
 from app.analysis_core.ir import AnalysisStepIR
 from app.api.app_factory import create_app
@@ -139,6 +143,43 @@ class ExecutionFeedbackTests(unittest.TestCase):
             "METRIC_INPUT_COVERAGE_MISSING",
         )
         self.assertEqual(failure.detail["readiness_error"]["subject_ref"], "metric.watch_time")
+
+    def test_compile_failure_maps_compatibility_error_to_compatibility_feedback(self) -> None:
+        step = AnalysisStepIR(index=1, step_type="metric_query")
+        error = SemanticRequestCompatibilityError(
+            {
+                "message": "Request is incompatible with resolved semantic objects",
+                "code": "semantic_request_incompatible",
+                "category": "compatibility",
+                "subject_ref": "dimension.country",
+                "issues": [
+                    {
+                        "code": "COMPILER_DIMENSION_TIME_ANCHOR_MISMATCH",
+                        "gate": "dimension_compatibility",
+                        "category": "compatibility",
+                        "severity": "error",
+                        "message": "Time-derived dimension anchor is incompatible",
+                        "subject_ref": "dimension.country",
+                        "details": {},
+                    }
+                ],
+                "request_context": {
+                    "step_type": "metric_query",
+                    "intent_kind": "metric_query",
+                    "metric_ref": "metric.watch_time",
+                    "dimension_refs": ["dimension.country"],
+                },
+            }
+        )
+
+        failure = compile_failure_from_error(step, error, semantic_context={"metric_sql": "avg(x)"})
+
+        self.assertEqual(failure.code, "semantic_request_incompatible")
+        self.assertEqual(failure.category, "compatibility")
+        self.assertEqual(
+            failure.detail["compatibility_error"]["issues"][0]["code"],
+            "COMPILER_DIMENSION_TIME_ANCHOR_MISMATCH",
+        )
 
 
 class ExecutionFeedbackIntegrationTests(unittest.TestCase):

@@ -268,6 +268,10 @@ def _run_intent(
             readiness_error = error.detail.get("readiness_error")
             if isinstance(readiness_error, dict):
                 raise HTTPException(status_code=409, detail=readiness_error) from error
+        if error.category == "compatibility":
+            compatibility_error = error.detail.get("compatibility_error")
+            if isinstance(compatibility_error, dict):
+                raise HTTPException(status_code=409, detail=compatibility_error) from error
         raise HTTPException(status_code=422, detail=str(error)) from error
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error

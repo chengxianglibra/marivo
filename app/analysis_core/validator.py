@@ -11,6 +11,7 @@ from app.analysis_core.typed_resolution import ResolvedCompilerInputs
 class ValidationIssue:
     code: str
     gate: str
+    category: str
     severity: str
     message: str
     subject_ref: str | None = None
@@ -20,6 +21,7 @@ class ValidationIssue:
         return {
             "code": self.code,
             "gate": self.gate,
+            "category": self.category,
             "severity": self.severity,
             "message": self.message,
             "subject_ref": self.subject_ref,
@@ -33,6 +35,20 @@ class ValidationResult:
     issues: list[ValidationIssue] = field(default_factory=list)
     resolved_filter_time_ref: str | None = None
     validated_dimension_refs: list[str] = field(default_factory=list)
+
+    def error_issues(self) -> list[ValidationIssue]:
+        return [issue for issue in self.issues if issue.severity == "error"]
+
+    def issues_for_category(self, category: str) -> list[ValidationIssue]:
+        return [issue for issue in self.error_issues() if issue.category == category]
+
+    def primary_error_issue(self) -> ValidationIssue:
+        errors = self.error_issues()
+        for category in ("compiler", "readiness", "compatibility"):
+            for issue in errors:
+                if issue.category == category:
+                    return issue
+        return errors[0]
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -70,7 +86,7 @@ def validate_compiler_inputs(
 
 
 def validation_error_message(result: ValidationResult) -> str:
-    error = next(issue for issue in result.issues if issue.severity == "error")
+    error = result.primary_error_issue()
     return f"{error.code}: {error.message}"
 
 
@@ -81,6 +97,7 @@ def _gate_profile_integrity(derived_state: DerivedCompilerState) -> list[Validat
             ValidationIssue(
                 code=issue.code,
                 gate="profile_integrity",
+                category="readiness",
                 severity="error",
                 message=issue.message,
                 subject_ref=issue.subject_ref,
@@ -100,6 +117,7 @@ def _gate_request_shape(
             ValidationIssue(
                 code="COMPILER_REQUEST_INVALID",
                 gate="request_shape",
+                category="compiler",
                 severity="error",
                 message="metric_query requires a normalized metric_ref",
             )
@@ -118,6 +136,7 @@ def _gate_request_shape(
             ValidationIssue(
                 code="COMPILER_TIME_REF_UNRESOLVED",
                 gate="request_shape",
+                category="compiler",
                 severity="error",
                 message="Request time_scope could not be resolved to a published time ref",
                 subject_ref=normalized.metric_ref,
@@ -144,6 +163,7 @@ def _gate_intent_support(
             ValidationIssue(
                 code="COMPILER_INTENT_UNSUPPORTED",
                 gate="intent_support",
+                category="compatibility",
                 severity="error",
                 message="Metric does not support time-window comparison semantics",
                 subject_ref=resolved_inputs.resolved_metric.ref,
@@ -173,6 +193,7 @@ def _gate_metric_process_compatibility(
                 ValidationIssue(
                     code="COMPILER_PROCESS_REQUIRED",
                     gate="metric_process_compatibility",
+                    category="compatibility",
                     severity="error",
                     message="Metric requirement profile demands a process but none was provided",
                     subject_ref=metric.ref,
@@ -192,6 +213,7 @@ def _gate_metric_process_compatibility(
             ValidationIssue(
                 code="COMPILER_METRIC_PROCESS_INCOMPATIBLE",
                 gate="metric_process_compatibility",
+                category="compatibility",
                 severity="error",
                 message="Metric and process population_subject_ref do not match",
                 subject_ref=metric.ref,
@@ -209,6 +231,7 @@ def _gate_metric_process_compatibility(
             ValidationIssue(
                 code="COMPILER_PROFILE_NOT_SATISFIED",
                 gate="metric_process_compatibility",
+                category="compatibility",
                 severity="error",
                 message="Process contract_mode does not satisfy metric requirement profile",
                 subject_ref=metric.ref,
@@ -223,6 +246,7 @@ def _gate_metric_process_compatibility(
             ValidationIssue(
                 code="COMPILER_PROFILE_NOT_SATISFIED",
                 gate="metric_process_compatibility",
+                category="compatibility",
                 severity="error",
                 message="Process context_kind does not satisfy metric requirement profile",
                 subject_ref=metric.ref,
@@ -237,6 +261,7 @@ def _gate_metric_process_compatibility(
             ValidationIssue(
                 code="COMPILER_PROFILE_NOT_SATISFIED",
                 gate="metric_process_compatibility",
+                category="compatibility",
                 severity="error",
                 message="Process entity_ref does not satisfy metric requirement profile",
                 subject_ref=metric.ref,
@@ -254,6 +279,7 @@ def _gate_metric_process_compatibility(
             ValidationIssue(
                 code="COMPILER_PROFILE_NOT_SATISFIED",
                 gate="metric_process_compatibility",
+                category="compatibility",
                 severity="error",
                 message="Process population_subject_ref does not satisfy metric requirement profile",
                 subject_ref=metric.ref,
@@ -272,6 +298,7 @@ def _gate_metric_process_compatibility(
             ValidationIssue(
                 code="COMPILER_PROFILE_MISSING",
                 gate="metric_process_compatibility",
+                category="readiness",
                 severity="error",
                 message="Inferential intent requires a published process capability profile",
                 subject_ref=process.ref,
@@ -291,6 +318,7 @@ def _gate_binding_compatibility(
             ValidationIssue(
                 code="COMPILER_BINDING_MISSING",
                 gate="binding_grounding",
+                category="readiness",
                 severity="error",
                 message="Resolved metric is not grounded by any published binding",
                 subject_ref=resolved_inputs.resolved_metric.ref,
@@ -305,6 +333,7 @@ def _gate_binding_compatibility(
                 ValidationIssue(
                     code="COMPILER_BINDING_INVALID",
                     gate="binding_grounding",
+                    category="readiness",
                     severity="error",
                     message="Binding must declare at least one carrier_binding",
                     subject_ref=binding.ref,
@@ -317,6 +346,7 @@ def _gate_binding_compatibility(
                 ValidationIssue(
                     code="COMPILER_BINDING_INVALID",
                     gate="binding_grounding",
+                    category="readiness",
                     severity="error",
                     message="Binding must declare at least one field_binding",
                     subject_ref=binding.ref,
@@ -329,6 +359,7 @@ def _gate_binding_compatibility(
                     ValidationIssue(
                         code="COMPILER_BINDING_INVALID",
                         gate="binding_grounding",
+                        category="readiness",
                         severity="error",
                         message="field_binding references an unknown carrier_binding_key",
                         subject_ref=binding.ref,
@@ -359,6 +390,7 @@ def _gate_dimension_compatibility(resolved_inputs: ResolvedCompilerInputs) -> li
                 ValidationIssue(
                     code="COMPILER_DIMENSION_UNRESOLVED",
                     gate="dimension_compatibility",
+                    category="compatibility",
                     severity="error",
                     message="Explicit typed dimension ref could not be resolved",
                     subject_ref=dimension_ref,
@@ -371,18 +403,6 @@ def _gate_dimension_compatibility(resolved_inputs: ResolvedCompilerInputs) -> li
         interface_contract = dict(
             resolved_dimension.semantic_object.get("interface_contract") or {}
         )
-        grouping = dict(interface_contract.get("grouping") or {})
-        supports_grouping = bool(grouping.get("supports_grouping"))
-        if not supports_grouping:
-            issues.append(
-                ValidationIssue(
-                    code="COMPILER_DIMENSION_UNSUPPORTED",
-                    gate="dimension_compatibility",
-                    severity="error",
-                    message="Dimension does not support grouping",
-                    subject_ref=dimension_ref,
-                )
-            )
         time_requirement = dict(interface_contract.get("time_derived_requirement") or {})
         required_time_anchor_ref = _optional_str(time_requirement.get("required_time_anchor_ref"))
         if required_time_anchor_ref is not None:
@@ -411,6 +431,7 @@ def _gate_dimension_compatibility(resolved_inputs: ResolvedCompilerInputs) -> li
                     ValidationIssue(
                         code="COMPILER_DIMENSION_TIME_ANCHOR_MISMATCH",
                         gate="dimension_compatibility",
+                        category="compatibility",
                         severity="error",
                         message="Time-derived dimension anchor is incompatible with metric/process time anchors",
                         subject_ref=dimension_ref,
@@ -438,6 +459,7 @@ def _gate_intent_specific(
             ValidationIssue(
                 code="COMPILER_INTENT_UNSUPPORTED",
                 gate="intent_specific",
+                category="compatibility",
                 severity="error",
                 message="Metric/process combination does not support validate intent",
                 subject_ref=resolved_inputs.resolved_metric.ref
