@@ -444,6 +444,7 @@ def ensure_published_typed_metric_binding(
     metric_name: str,
     carrier_locator: str,
     source_object_ref: str | None = None,
+    binding_role: str = "primary",
     surface_name: str = "value",
     dimension_names: Sequence[str] | None = None,
     metric_input_target_keys: Sequence[str] | None = None,
@@ -540,7 +541,7 @@ def ensure_published_typed_metric_binding(
                                 "source_object_ref": source_object_ref,
                                 "carrier_kind": "table",
                                 "carrier_locator": carrier_locator,
-                                "binding_role": "primary",
+                                "binding_role": binding_role,
                                 "field_surfaces": field_surfaces,
                             }
                         ],
@@ -562,6 +563,7 @@ def create_typed_metric_binding(
     metric_ref: str,
     object_id: str,
     carrier_locator: str,
+    binding_role: str = "primary",
     mapping_type: str | None = None,
     metric_input_target_keys: Sequence[str] | None = None,
 ) -> dict[str, Any]:
@@ -573,6 +575,7 @@ def create_typed_metric_binding(
         metric_name=metric_name,
         carrier_locator=carrier_locator,
         source_object_ref=object_id,
+        binding_role=binding_role,
         metric_input_target_keys=metric_input_target_keys,
     )
     row = metadata_store.query_one(

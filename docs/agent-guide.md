@@ -143,6 +143,9 @@ Request-level incompatibility must stay separate from object readiness. Do not w
 dimension/process/intent mismatches back into semantic object readiness fields.
 Compiler and intent execution entrypoints should enforce the same object-level readiness gate and
 surface structured readiness failures instead of collapsing them into generic compile errors.
+Intent metric preflight must resolve execution bindings from the same semantic runtime inspection
+used for readiness; do not reintroduce separate published/table-mapping checks that can disagree
+with `readiness_status`.
 List endpoints return lightweight items by default (header, status, blocker_count, capabilities_summary);
 use `detail=true` query parameter for backward-compatible full payload. Lightweight list responses
 must still derive readiness from the same full semantic contract used by detail reads. Detail

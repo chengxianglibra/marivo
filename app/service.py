@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import time
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -85,6 +86,23 @@ _STUB_INTENT_TYPES: frozenset[str] = frozenset()
 
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class MetricExecutionContext:
+    metric_ref: str
+    table_name: str
+    binding_ref: str
+    carrier_binding_key: str | None = None
+    source_object_ref: str | None = None
+    carrier_locator: str | None = None
+
+
+def _optional_str(value: Any) -> str | None:
+    if isinstance(value, str):
+        normalized = value.strip()
+        return normalized or None
+    return None
 
 
 def _make_stub_runner(intent_type: str) -> Any:
@@ -440,21 +458,135 @@ class SemanticLayerService:
             raise ValueError(f"Unknown intent type: '{intent_type}'") from None
 
     def _resolve_metric_table(self, metric_name: str) -> str | None:
-        """Resolve the primary carrier locator for a published typed metric binding."""
-        binding_row = self.metadata.query_one(
-            """
-            SELECT cb.carrier_locator
-            FROM typed_bindings b
-            JOIN carrier_bindings cb ON cb.binding_id = b.binding_id
-            WHERE b.bound_object_ref = ? AND b.status = 'published' AND cb.binding_role = 'primary'
-            ORDER BY cb.binding_key
-            LIMIT 1
-            """,
-            [f"metric.{metric_name}"],
-        )
-        if binding_row is None:
+        """Resolve an execution-ready table for a metric, if one can be derived."""
+        try:
+            return self._resolve_metric_execution_context(metric_name).table_name
+        except (SemanticRuntimeNotReadyError, ValueError):
             return None
-        return str(binding_row["carrier_locator"])
+
+    def _resolve_metric_execution_context(self, metric_name: str) -> MetricExecutionContext:
+        metric_ref = f"metric.{metric_name}"
+        try:
+            availability = self.semantic_repository.inspect_ref(metric_ref)
+        except (SemanticRuntimeInvalidRefError, SemanticRuntimeNotFoundError):
+            raise ValueError(f"Metric '{metric_name}' not found or not published") from None
+
+        if availability.lifecycle_status != "active":
+            raise ValueError(f"Metric '{metric_name}' not found or not published")
+        if availability.readiness_status != "ready":
+            raise SemanticRuntimeNotReadyError(
+                f"Semantic ref is not ready: {metric_ref}",
+                semantic_ref=metric_ref,
+                object_kind=availability.resolved.object_kind,
+                lifecycle_status=availability.lifecycle_status,
+                readiness_status=availability.readiness_status,
+                blocking_requirements=availability.blocking_requirements,
+                capabilities=availability.capabilities,
+                dependency_refs=availability.dependency_refs,
+            )
+
+        binding_candidates: list[dict[str, Any]] = []
+        for binding in self._published_bindings_for_object_ref(metric_ref):
+            interface_contract = dict(binding.semantic_object.get("interface_contract") or {})
+            carriers = list(interface_contract.get("carrier_bindings") or [])
+            ordered_carriers = sorted(
+                carriers,
+                key=lambda carrier: str(carrier.get("binding_role") or "") != "primary",
+            )
+            for carrier in ordered_carriers:
+                source_row = self._resolve_metric_carrier_source_object(carrier)
+                runtime_table_name = _optional_str(carrier.get("carrier_locator")) or (
+                    str(source_row["fqn"]) if source_row is not None else None
+                )
+                binding_candidates.append(
+                    {
+                        "binding_ref": binding.ref,
+                        "carrier_binding_key": carrier.get("binding_key"),
+                        "binding_role": carrier.get("binding_role"),
+                        "source_object_ref": carrier.get("source_object_ref"),
+                        "carrier_locator": carrier.get("carrier_locator"),
+                        "resolved_source_object_ref": (
+                            str(source_row["object_id"]) if source_row is not None else None
+                        ),
+                        "resolved_table_name": runtime_table_name,
+                        "failure_stage": None if source_row is not None else "source_object_lookup",
+                    }
+                )
+                if source_row is None or runtime_table_name is None:
+                    continue
+                return MetricExecutionContext(
+                    metric_ref=metric_ref,
+                    table_name=runtime_table_name,
+                    binding_ref=binding.ref,
+                    carrier_binding_key=_optional_str(carrier.get("binding_key")),
+                    source_object_ref=_optional_str(carrier.get("source_object_ref")),
+                    carrier_locator=_optional_str(carrier.get("carrier_locator")),
+                )
+
+        raise SemanticRuntimeNotReadyError(
+            f"Metric execution preflight failed: {metric_ref}",
+            semantic_ref=metric_ref,
+            object_kind=availability.resolved.object_kind,
+            lifecycle_status=availability.lifecycle_status,
+            readiness_status=availability.readiness_status,
+            blocking_requirements=[
+                {
+                    "code": "METRIC_EXECUTION_BINDING_UNRESOLVED",
+                    "message": (
+                        "Metric is ready in the semantic layer, but execution could not resolve "
+                        "any published binding carrier to a synced source object."
+                    ),
+                    "subject_ref": metric_ref,
+                    "details": {
+                        "failure_stage": "metric_execution_preflight",
+                        "candidate_bindings": binding_candidates,
+                    },
+                }
+            ],
+            capabilities=availability.capabilities,
+            dependency_refs=availability.dependency_refs,
+        )
+
+    def _resolve_metric_carrier_source_object(
+        self, carrier_binding: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        source_object_ref = _optional_str(carrier_binding.get("source_object_ref"))
+        if source_object_ref is not None:
+            row = self.metadata.query_one(
+                "SELECT * FROM source_objects WHERE object_id = ? OR fqn = ?",
+                [source_object_ref, source_object_ref],
+            )
+            if row is not None:
+                return dict(row)
+
+        carrier_locator = carrier_binding.get("carrier_locator")
+        if isinstance(carrier_locator, dict):
+            object_id = _optional_str(carrier_locator.get("object_id"))
+            if object_id is not None:
+                row = self.metadata.query_one(
+                    "SELECT * FROM source_objects WHERE object_id = ?",
+                    [object_id],
+                )
+                if row is not None:
+                    return dict(row)
+            fqn = _optional_str(carrier_locator.get("fqn"))
+            if fqn is not None:
+                row = self.metadata.query_one(
+                    "SELECT * FROM source_objects WHERE fqn = ?",
+                    [fqn],
+                )
+                if row is not None:
+                    return dict(row)
+            return None
+
+        carrier_locator_str = _optional_str(carrier_locator)
+        if carrier_locator_str is None:
+            return None
+        row = self.metadata.query_one(
+            "SELECT * FROM source_objects WHERE fqn = ?",
+            [carrier_locator_str],
+        )
+        return dict(row) if row is not None else None
 
     # ── Metric resolution ────────────────────────────────────────────
 

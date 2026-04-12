@@ -621,6 +621,85 @@ class IntentEndpointTests(unittest.TestCase):
         self.assertEqual(detail["subject_ref"], "metric.intent_not_ready_metric")
         self.assertEqual(detail["readiness_status"], "not_ready")
 
+    def test_observe_ready_metric_with_auxiliary_binding_executes(self) -> None:
+        object_id, table_fqn = self._ensure_import_bridge_table()
+        metric = create_typed_metric(
+            self.client,
+            name="intent_aux_binding_metric",
+            display_name="Intent Auxiliary Binding Metric",
+            description="Metric grounded by an auxiliary carrier.",
+            definition_sql="COUNT(*)",
+            dimensions=["event_date"],
+        )
+        publish_typed_metric(self.client, metric["metric_contract_id"])
+        create_typed_metric_binding(
+            self.client,
+            metric_ref="metric.intent_aux_binding_metric",
+            object_id=object_id,
+            carrier_locator=table_fqn,
+            binding_role="auxiliary",
+        )
+
+        response = self.client.post(
+            f"/sessions/{self.session_id}/intents/observe",
+            json={
+                "metric": "intent_aux_binding_metric",
+                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+            },
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["metric"], "intent_aux_binding_metric")
+
+    def test_observe_execution_preflight_failure_returns_candidate_binding_detail(self) -> None:
+        metric = create_typed_metric(
+            self.client,
+            name="intent_preflight_failure_metric",
+            display_name="Intent Preflight Failure Metric",
+            description="Metric used to assert execution preflight detail payloads.",
+            definition_sql="COUNT(*)",
+            dimensions=["event_date"],
+        )
+        publish_typed_metric(self.client, metric["metric_contract_id"])
+        create_typed_metric_binding(
+            self.client,
+            metric_ref="metric.intent_preflight_failure_metric",
+            object_id=self.watch_events_object_id,
+            carrier_locator=self.watch_events_fqn,
+        )
+
+        service = self.client.app.state.service
+        original = service._resolve_metric_carrier_source_object
+        service._resolve_metric_carrier_source_object = lambda _carrier: None
+        try:
+            response = self.client.post(
+                f"/sessions/{self.session_id}/intents/observe",
+                json={
+                    "metric": "intent_preflight_failure_metric",
+                    "time_scope": {
+                        "kind": "range",
+                        "start": "2024-01-01",
+                        "end": "2024-01-08",
+                    },
+                },
+            )
+        finally:
+            service._resolve_metric_carrier_source_object = original
+
+        self.assertEqual(response.status_code, 409, response.text)
+        detail = response.json()["detail"]
+        self.assertEqual(detail["code"], "semantic_not_ready")
+        self.assertEqual(detail["subject_ref"], "metric.intent_preflight_failure_metric")
+        self.assertEqual(
+            detail["blocking_requirements"][0]["code"],
+            "METRIC_EXECUTION_BINDING_UNRESOLVED",
+        )
+        candidate = detail["blocking_requirements"][0]["details"]["candidate_bindings"][0]
+        self.assertEqual(
+            candidate["binding_ref"], "binding.intent_preflight_failure_metric_primary"
+        )
+        self.assertEqual(candidate["failure_stage"], "source_object_lookup")
+
     def test_observe_incompatible_dimension_returns_409_with_structured_compatibility_error(
         self,
     ) -> None:
