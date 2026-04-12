@@ -342,6 +342,25 @@ class MetricReadinessEvaluatorTests(unittest.TestCase):
         self.assertEqual(result.readiness_status, "ready")
         self.assertEqual(result.blocking_requirements, [])
 
+    def test_metric_readiness_does_not_require_imported_dimension_bridge(self) -> None:
+        result = self._evaluate(
+            subject_bindings=[
+                self._binding(
+                    field_bindings=[
+                        self._field_binding("metric_input", "numerator", "metric_input.converted"),
+                        self._field_binding("metric_input", "denominator", "metric_input.eligible"),
+                        self._field_binding("primary_time", "time.event_date", "time.event_date"),
+                    ]
+                )
+            ],
+        )
+
+        self.assertEqual(result.readiness_status, "ready")
+        self.assertNotIn(
+            "METRIC_IMPORTED_DIMENSION_BRIDGE_MISSING",
+            {item.code for item in result.blocking_requirements},
+        )
+
     def test_metric_with_drifted_binding_is_stale(self) -> None:
         result = self._evaluate(
             subject_bindings=[

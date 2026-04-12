@@ -2197,6 +2197,43 @@ class SemanticLayerService:
             for summary in [compiled.metadata.get("compiler_summary")]
             if isinstance(summary, dict)
         ]
+        imported_dimension_lineage = [
+            dict(summary)
+            for compiled in compiled_list
+            for summary in [compiled.metadata.get("resolved_imported_dimensions")]
+            if isinstance(summary, list)
+            for summary in summary
+            if isinstance(summary, dict)
+        ]
+        imported_dimension_conflicts = [
+            {
+                "dimension_ref": dimension_ref,
+                "candidates": [
+                    dict(candidate) for candidate in candidates if isinstance(candidate, dict)
+                ],
+            }
+            for compiled in compiled_list
+            for conflict_map in [compiled.metadata.get("imported_dimension_conflicts")]
+            if isinstance(conflict_map, dict)
+            for dimension_ref, candidates in conflict_map.items()
+            if isinstance(candidates, list)
+        ]
+        imported_dimension_sources = [
+            dict(source)
+            for compiled in compiled_list
+            for source_list in [compiled.metadata.get("resolved_imported_dimension_sources")]
+            if isinstance(source_list, list)
+            for source in source_list
+            if isinstance(source, dict)
+        ]
+        metric_entity_anchor_refs = self._merge_unique_str(
+            [
+                str(compiled.metadata.get("metric_entity_anchor_ref"))
+                if compiled.metadata.get("metric_entity_anchor_ref")
+                else None
+                for compiled in compiled_list
+            ]
+        )
 
         if not any(
             (
@@ -2208,6 +2245,10 @@ class SemanticLayerService:
                 ir_plan_ids,
                 request_classes,
                 compiler_summaries,
+                imported_dimension_lineage,
+                imported_dimension_conflicts,
+                imported_dimension_sources,
+                metric_entity_anchor_refs,
             )
         ):
             return None
@@ -2220,12 +2261,18 @@ class SemanticLayerService:
                 "process_ref": process_refs[0] if process_refs else None,
                 "dimension_refs": dimension_refs,
                 "filter_time_ref": filter_time_refs[0] if filter_time_refs else None,
+                "metric_entity_anchor_ref": (
+                    metric_entity_anchor_refs[0] if metric_entity_anchor_refs else None
+                ),
                 "request_classes": request_classes,
             },
             "binding_refs": binding_refs,
             "compile_context": {
                 "ir_plan_ids": ir_plan_ids,
                 "compiler_summaries": compiler_summaries,
+                "imported_dimension_lineage": imported_dimension_lineage,
+                "imported_dimension_conflicts": imported_dimension_conflicts,
+                "imported_dimension_sources": imported_dimension_sources,
             },
         }
         assert_no_canonical_refs_in_semantic_payload(snapshot, surface="step_semantic_metadata")

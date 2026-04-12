@@ -534,6 +534,17 @@ class TypedBindingObject(TypedDict):
 
 这使 `identity_binding_ref`、跨对象 anchor 引用与组合校验都不再依赖隐式全局约定。
 
+第一阶段中，`imports` 还承担一项受限的 capability bridge 语义：
+
+- 仅适用于 `metric` binding 显式 import 的 `entity` binding
+- 仅桥接 imported entity binding 中 `target.target_kind = "stable_descriptor"` 且 `semantic_ref` 为 `dimension.*` 的 public contract target
+- 该 bridge 只支持一跳，不递归合并 imported binding 的能力
+- 该 bridge 不桥接 join relations、consumption policies、carrier internals，也不桥接任意 field-level physical details
+
+这项 bridge 语义属于 compiler/runtime 对既有 binding contract 的受限解释，不引入新的
+binding payload 字段，也不把 imported binding 的 carrier 实现细节暴露为 metric 自身的
+public contract。
+
 ### 2. `target_path` 比宽泛 `semantic_slot` 更适合作为主绑定目标
 
 同样是 `key.user_id`，它可能服务于：
@@ -679,6 +690,11 @@ binding contract 负责提供：
 - `denominator_input`
 - `weight_input`
 - 必要的 sample basis 与时间锚点映射
+
+`metric` scope 的 public target vocabulary 仍保持现状，不因 imported dimension bridge 引入
+新的 `dimension` target kind。若 metric 需要消费 imported entity 的稳定维度，应通过
+`imports` 显式依赖对应 entity binding；可消费的 `dimension.*` 由 compiler/runtime 基于
+受限 bridge 规则解析，而不是在 metric binding payload 中新增独立声明。
 
 若 metric 依赖 attribution / experiment / retention 之类 process 窗口，窗口本体应继续来自 process object 或 metric-process contract，而不是在 metric binding 中重新声明一个新窗口。
 
@@ -865,6 +881,11 @@ binding 不直接等于 IR，也不直接等于 engine plan。
 ```
 
 ### 示例 3：`conversion_rate` metric binding
+
+该示例展示 metric binding 继续通过既有 `imports` 与 `metric_input` target 组合工作。若该
+metric 还要消费 imported entity binding 暴露的 `stable_descriptor -> dimension.*`，做法是
+继续通过 `imports` 显式依赖该 entity binding；imported dimension 的可用性属于
+compiler/runtime bridge 能力，不要求在本 payload 中新增 `dimension` target 或额外字段。
 
 ```json
 {

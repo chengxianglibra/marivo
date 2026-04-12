@@ -181,6 +181,47 @@ class ExecutionFeedbackTests(unittest.TestCase):
             "COMPILER_DIMENSION_TIME_ANCHOR_MISMATCH",
         )
 
+    def test_compile_failure_keeps_import_missing_as_compatibility_feedback(self) -> None:
+        step = AnalysisStepIR(index=1, step_type="metric_query")
+        error = SemanticRequestCompatibilityError(
+            {
+                "message": "Request is incompatible with resolved semantic objects",
+                "code": "semantic_request_incompatible",
+                "category": "compatibility",
+                "subject_ref": "dimension.cluster",
+                "issues": [
+                    {
+                        "code": "COMPILER_DIMENSION_IMPORT_MISSING",
+                        "gate": "dimension_compatibility",
+                        "category": "compatibility",
+                        "severity": "error",
+                        "message": "Requested dimension requires an imported entity dimension bridge",
+                        "subject_ref": "dimension.cluster",
+                        "details": {
+                            "metric_ref": "metric.watch_time",
+                            "metric_entity_anchor_ref": "entity.user",
+                            "available_imported_dimension_refs": [],
+                        },
+                    }
+                ],
+                "request_context": {
+                    "step_type": "metric_query",
+                    "intent_kind": "metric_query",
+                    "metric_ref": "metric.watch_time",
+                    "dimension_refs": ["dimension.cluster"],
+                },
+            }
+        )
+
+        failure = compile_failure_from_error(step, error, semantic_context={"metric_sql": "avg(x)"})
+
+        self.assertEqual(failure.code, "semantic_request_incompatible")
+        self.assertEqual(failure.category, "compatibility")
+        self.assertEqual(
+            failure.detail["compatibility_error"]["issues"][0]["code"],
+            "COMPILER_DIMENSION_IMPORT_MISSING",
+        )
+
 
 class ExecutionFeedbackIntegrationTests(unittest.TestCase):
     client: ClassVar[TestClient]

@@ -375,6 +375,10 @@ def _gate_dimension_compatibility(resolved_inputs: ResolvedCompilerInputs) -> li
     resolved_dimensions = {
         dimension.ref: dimension for dimension in resolved_inputs.resolved_dimensions
     }
+    metric_dimension_refs = _metric_consumable_dimension_refs(resolved_inputs)
+    imported_dimension_refs = {
+        bridge.dimension_ref for bridge in resolved_inputs.resolved_imported_dimensions
+    }
     unresolved_dimension_refs = {
         str(warning.get("dimension_ref"))
         for warning in resolved_inputs.warnings
@@ -394,6 +398,76 @@ def _gate_dimension_compatibility(resolved_inputs: ResolvedCompilerInputs) -> li
                     severity="error",
                     message="Explicit typed dimension ref could not be resolved",
                     subject_ref=dimension_ref,
+                )
+            )
+            continue
+        if dimension_ref in resolved_inputs.imported_dimension_conflicts:
+            issues.append(
+                ValidationIssue(
+                    code="COMPILER_DIMENSION_IMPORT_AMBIGUOUS",
+                    gate="dimension_compatibility",
+                    category="compatibility",
+                    severity="error",
+                    message="Imported dimension bridge is ambiguous for the requested metric",
+                    subject_ref=dimension_ref,
+                    details={
+                        "metric_ref": resolved_inputs.resolved_metric.ref
+                        if resolved_inputs.resolved_metric is not None
+                        else None,
+                        "metric_entity_anchor_ref": resolved_inputs.metric_entity_anchor_ref,
+                        "candidates": [
+                            {
+                                "dimension_ref": bridge.dimension_ref,
+                                "source_binding_ref": bridge.source_binding_ref,
+                                "source_entity_ref": bridge.source_entity_ref,
+                                "import_key": bridge.import_key,
+                            }
+                            for bridge in resolved_inputs.imported_dimension_conflicts[
+                                dimension_ref
+                            ]
+                        ],
+                    },
+                )
+            )
+            continue
+        if (
+            dimension_ref.startswith("dimension.")
+            and dimension_ref not in metric_dimension_refs
+            and dimension_ref not in imported_dimension_refs
+        ):
+            if resolved_inputs.metric_entity_anchor_ref is not None:
+                issues.append(
+                    ValidationIssue(
+                        code="COMPILER_DIMENSION_IMPORT_MISSING",
+                        gate="dimension_compatibility",
+                        category="compatibility",
+                        severity="error",
+                        message="Requested dimension requires an imported entity dimension bridge",
+                        subject_ref=dimension_ref,
+                        details={
+                            "metric_ref": resolved_inputs.resolved_metric.ref
+                            if resolved_inputs.resolved_metric is not None
+                            else None,
+                            "metric_entity_anchor_ref": resolved_inputs.metric_entity_anchor_ref,
+                            "available_imported_dimension_refs": sorted(imported_dimension_refs),
+                        },
+                    )
+                )
+                continue
+            issues.append(
+                ValidationIssue(
+                    code="COMPILER_DIMENSION_NOT_EXPORTED",
+                    gate="dimension_compatibility",
+                    category="compatibility",
+                    severity="error",
+                    message="Requested dimension is not exported by the resolved metric",
+                    subject_ref=dimension_ref,
+                    details={
+                        "metric_ref": resolved_inputs.resolved_metric.ref
+                        if resolved_inputs.resolved_metric is not None
+                        else None,
+                        "available_metric_dimension_refs": sorted(metric_dimension_refs),
+                    },
                 )
             )
             continue
@@ -442,6 +516,31 @@ def _gate_dimension_compatibility(resolved_inputs: ResolvedCompilerInputs) -> li
                     )
                 )
     return issues
+
+
+def _metric_consumable_dimension_refs(resolved_inputs: ResolvedCompilerInputs) -> set[str]:
+    metric = resolved_inputs.resolved_metric
+    if metric is None:
+        return set()
+    payload = dict(metric.semantic_object.get("payload") or {})
+    raw_dimension_refs = list(payload.get("allowed_dimensions") or payload.get("dimensions") or [])
+    normalized: set[str] = set()
+    for raw_dimension_ref in raw_dimension_refs:
+        normalized_ref = _normalize_metric_dimension_ref(raw_dimension_ref)
+        if normalized_ref is not None:
+            normalized.add(normalized_ref)
+    return normalized
+
+
+def _normalize_metric_dimension_ref(value: Any) -> str | None:
+    text = _optional_str(value)
+    if text is None:
+        return None
+    if text.startswith("dimension."):
+        return text
+    if "." in text:
+        return None
+    return f"dimension.{text}"
 
 
 def _gate_intent_specific(

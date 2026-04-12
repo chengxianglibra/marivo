@@ -338,6 +338,11 @@ Validation notes:
 - Metric bindings must map family slot names through `target.target_kind = "metric_input"`.
   Valid `target.target_key` values are `count_target`, `measure`, `numerator`, `denominator`,
   `value_component`, and `score_source` depending on the metric family.
+- Metric bindings do not add a `dimension` target kind. Imported `dimension.*` consumption stays
+  on the existing binding payload and is resolved through compiler/runtime bridge logic.
+- A metric may consume imported entity stable descriptors by declaring `imports` against the
+  matching published entity binding. In the first bridge stage, only imported
+  `stable_descriptor -> dimension.*` public contract targets are eligible.
 - `POST /semantic/bindings/{binding_id}/publish` additionally requires:
   - the bound semantic object and imported bindings are already `published`
   - referenced `time.*` / `dimension.*` dependencies are already `published`

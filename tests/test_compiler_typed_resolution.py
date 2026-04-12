@@ -47,9 +47,11 @@ def _binding_for(bound_object_ref: str) -> ResolvedSemanticObject:
             "binding_id": f"binding_{suffix}",
             "header": {
                 "binding_ref": f"binding.{suffix}",
+                "binding_scope": "metric",
                 "bound_object_ref": bound_object_ref,
             },
             "interface_contract": {
+                "imports": [],
                 "carrier_bindings": [
                     {
                         "binding_key": "primary",
@@ -93,6 +95,81 @@ def _binding_with_interface(
     return binding
 
 
+def _metric_binding_with_imports(
+    bound_object_ref: str,
+    *,
+    imports: list[dict[str, object]],
+) -> ResolvedSemanticObject:
+    binding = _binding_for(bound_object_ref)
+    binding.semantic_object["interface_contract"] = {
+        "imports": imports,
+        "carrier_bindings": [
+            {
+                "binding_key": "primary",
+                "carrier_kind": "table",
+                "carrier_locator": "analytics.watch_events",
+            }
+        ],
+        "field_bindings": [
+            {
+                "carrier_binding_key": "primary",
+                "target": {"target_kind": "metric_input", "target_key": "value"},
+                "semantic_ref": "field.metric_value",
+                "surface_ref": "field.metric_value",
+            }
+        ],
+    }
+    return binding
+
+
+def _entity_binding(
+    binding_ref: str,
+    *,
+    bound_object_ref: str,
+    field_bindings: list[dict[str, object]],
+    carrier_bindings: list[dict[str, object]] | None = None,
+) -> ResolvedSemanticObject:
+    synthesized_surfaces = [
+        {
+            "surface_ref": str(field_binding.get("surface_ref") or "").strip(),
+            "physical_name": str(field_binding.get("surface_ref") or "")
+            .strip()
+            .removeprefix("field."),
+        }
+        for field_binding in field_bindings
+        if str(field_binding.get("surface_ref") or "").strip()
+    ]
+    return _resolved_object(
+        "binding",
+        binding_ref,
+        semantic_object={
+            "binding_id": binding_ref.replace(".", "_"),
+            "header": {
+                "binding_ref": binding_ref,
+                "binding_scope": "entity",
+                "bound_object_ref": bound_object_ref,
+            },
+            "interface_contract": {
+                "imports": [],
+                "carrier_bindings": carrier_bindings
+                or [
+                    {
+                        "binding_key": "primary",
+                        "carrier_kind": "table",
+                        "carrier_locator": "analytics.entity_events",
+                        "field_surfaces": synthesized_surfaces,
+                    }
+                ],
+                "field_bindings": field_bindings,
+            },
+            "status": "published",
+            "revision": 1,
+            "created_at": "2026-04-09T00:00:00Z",
+            "updated_at": "2026-04-09T00:00:00Z",
+        },
+    )
+
+
 def _profile_reader(subject_ref: str) -> list[dict[str, object]]:
     if subject_ref == "metric.watch_time":
         return [
@@ -123,6 +200,7 @@ def _profile_reader(subject_ref: str) -> list[dict[str, object]]:
 class _FakeSemanticRepository(SemanticRuntimeRepository):
     def __init__(self) -> None:
         self.calls: list[tuple[str, str]] = []
+        self.binding_map: dict[str, ResolvedSemanticObject] = {}
 
     def resolve_metric_ref(self, metric_ref: str) -> ResolvedSemanticObject:
         self.calls.append(("metric", metric_ref))
@@ -198,6 +276,184 @@ class _FakeSemanticRepository(SemanticRuntimeRepository):
             },
         )
 
+    def resolve_binding_ref(self, binding_ref: str) -> ResolvedSemanticObject:
+        self.calls.append(("binding", binding_ref))
+        try:
+            return self.binding_map[binding_ref]
+        except KeyError as error:
+            raise SemanticRuntimeNotFoundError(
+                f"Unknown binding ref: {binding_ref}",
+                semantic_ref=binding_ref,
+            ) from error
+
+
+class _ImportedBindingRepository(_FakeSemanticRepository):
+    def __init__(self) -> None:
+        super().__init__()
+        self.binding_map = {
+            "binding.entity_user": _entity_binding(
+                "binding.entity_user",
+                bound_object_ref="entity.user",
+                field_bindings=[
+                    {
+                        "carrier_binding_key": "primary",
+                        "target": {
+                            "target_kind": "stable_descriptor",
+                            "target_key": "dimension.cluster",
+                        },
+                        "semantic_ref": "dimension.cluster",
+                        "surface_ref": "field.cluster",
+                    },
+                    {
+                        "carrier_binding_key": "primary",
+                        "target": {
+                            "target_kind": "stable_descriptor",
+                            "target_key": "dimension.cluster",
+                        },
+                        "semantic_ref": "dimension.cluster",
+                        "surface_ref": "field.cluster_shadow",
+                    },
+                    {
+                        "carrier_binding_key": "primary",
+                        "target": {
+                            "target_kind": "stable_descriptor",
+                            "target_key": "dimension.country",
+                        },
+                        "semantic_ref": "dimension.country",
+                        "surface_ref": "field.country",
+                    },
+                    {
+                        "carrier_binding_key": "primary",
+                        "target": {"target_kind": "identity_key", "target_key": "key.user_id"},
+                        "semantic_ref": "key.user_id",
+                        "surface_ref": "field.user_id",
+                    },
+                ],
+            ),
+            "binding.entity_account": _entity_binding(
+                "binding.entity_account",
+                bound_object_ref="entity.account",
+                field_bindings=[
+                    {
+                        "carrier_binding_key": "primary",
+                        "target": {
+                            "target_kind": "stable_descriptor",
+                            "target_key": "dimension.cluster",
+                        },
+                        "semantic_ref": "dimension.cluster",
+                        "surface_ref": "field.account_cluster",
+                    }
+                ],
+            ),
+            "binding.metric_other": _resolved_object(
+                "binding",
+                "binding.metric_other",
+                semantic_object={
+                    "binding_id": "binding_metric_other",
+                    "header": {
+                        "binding_ref": "binding.metric_other",
+                        "binding_scope": "metric",
+                        "bound_object_ref": "metric.other",
+                    },
+                    "interface_contract": {
+                        "imports": [],
+                        "carrier_bindings": [
+                            {
+                                "binding_key": "primary",
+                                "carrier_kind": "table",
+                                "carrier_locator": "analytics.other_metric",
+                            }
+                        ],
+                        "field_bindings": [
+                            {
+                                "carrier_binding_key": "primary",
+                                "target": {"target_kind": "metric_input", "target_key": "value"},
+                                "semantic_ref": "field.metric_value",
+                                "surface_ref": "field.metric_value",
+                            }
+                        ],
+                    },
+                    "status": "published",
+                    "revision": 1,
+                    "created_at": "2026-04-09T00:00:00Z",
+                    "updated_at": "2026-04-09T00:00:00Z",
+                },
+            ),
+        }
+
+    def resolve_metric_ref(self, metric_ref: str) -> ResolvedSemanticObject:
+        self.calls.append(("metric", metric_ref))
+        return _resolved_object(
+            "metric",
+            metric_ref,
+            semantic_object={
+                "metric_contract_id": "metric_contract_1",
+                "header": {
+                    "metric_ref": metric_ref,
+                    "primary_time_ref": "time.event_date",
+                    "sample_kind": "rate",
+                    "additivity": "additive",
+                    "population_subject_ref": "subject.user",
+                    "observed_entity_ref": "entity.user",
+                },
+                "payload": {"definition_sql": "avg(play_duration_seconds)"},
+                "status": "published",
+                "revision": 1,
+                "created_at": "2026-04-09T00:00:00Z",
+                "updated_at": "2026-04-09T00:00:00Z",
+            },
+        )
+
+
+class _ImportedBindingFallbackRepository(_ImportedBindingRepository):
+    def resolve_metric_ref(self, metric_ref: str) -> ResolvedSemanticObject:
+        self.calls.append(("metric", metric_ref))
+        return _resolved_object(
+            "metric",
+            metric_ref,
+            semantic_object={
+                "metric_contract_id": "metric_contract_1",
+                "header": {
+                    "metric_ref": metric_ref,
+                    "primary_time_ref": "time.event_date",
+                    "sample_kind": "rate",
+                    "additivity": "additive",
+                    "population_subject_ref": "entity.user",
+                    "observed_entity_ref": "",
+                },
+                "payload": {"definition_sql": "avg(play_duration_seconds)"},
+                "status": "published",
+                "revision": 1,
+                "created_at": "2026-04-09T00:00:00Z",
+                "updated_at": "2026-04-09T00:00:00Z",
+            },
+        )
+
+
+class _NoAnchorMetricRepository(_ImportedBindingRepository):
+    def resolve_metric_ref(self, metric_ref: str) -> ResolvedSemanticObject:
+        self.calls.append(("metric", metric_ref))
+        return _resolved_object(
+            "metric",
+            metric_ref,
+            semantic_object={
+                "metric_contract_id": "metric_contract_1",
+                "header": {
+                    "metric_ref": metric_ref,
+                    "primary_time_ref": "time.event_date",
+                    "sample_kind": "rate",
+                    "additivity": "additive",
+                    "population_subject_ref": "",
+                    "observed_entity_ref": "",
+                },
+                "payload": {"definition_sql": "avg(play_duration_seconds)"},
+                "status": "published",
+                "revision": 1,
+                "created_at": "2026-04-09T00:00:00Z",
+                "updated_at": "2026-04-09T00:00:00Z",
+            },
+        )
+
 
 class _MissingDimensionRepository(_FakeSemanticRepository):
     def resolve_dimension_ref(self, dimension_ref: str) -> ResolvedSemanticObject:
@@ -241,7 +497,24 @@ class _NonGroupingDimensionRepository(_FakeSemanticRepository):
         return resolved
 
 
-class _TimeAnchoredDimensionRepository(_FakeSemanticRepository):
+class _MetricDimensionRepository(_FakeSemanticRepository):
+    def resolve_metric_ref(self, metric_ref: str) -> ResolvedSemanticObject:
+        resolved = super().resolve_metric_ref(metric_ref)
+        resolved.semantic_object["payload"] = {
+            "definition_sql": "avg(play_duration_seconds)",
+            "allowed_dimensions": ["country", "dimension.platform"],
+        }
+        return resolved
+
+
+class _NonGroupingMetricDimensionRepository(_MetricDimensionRepository):
+    def resolve_dimension_ref(self, dimension_ref: str) -> ResolvedSemanticObject:
+        resolved = super().resolve_dimension_ref(dimension_ref)
+        resolved.semantic_object["interface_contract"] = {"grouping": {"supports_grouping": False}}
+        return resolved
+
+
+class _TimeAnchoredDimensionRepository(_MetricDimensionRepository):
     def resolve_dimension_ref(self, dimension_ref: str) -> ResolvedSemanticObject:
         resolved = super().resolve_dimension_ref(dimension_ref)
         resolved.semantic_object["interface_contract"] = {
@@ -249,6 +522,45 @@ class _TimeAnchoredDimensionRepository(_FakeSemanticRepository):
             "time_derived_requirement": {"required_time_anchor_ref": "time.other_anchor"},
         }
         return resolved
+
+
+class _TimeAnchoredImportedBindingRepository(_ImportedBindingRepository):
+    def resolve_dimension_ref(self, dimension_ref: str) -> ResolvedSemanticObject:
+        resolved = super().resolve_dimension_ref(dimension_ref)
+        resolved.semantic_object["interface_contract"] = {
+            "grouping": {"supports_grouping": True},
+            "time_derived_requirement": {"required_time_anchor_ref": "time.other_anchor"},
+        }
+        return resolved
+
+
+class _UniqueImportedBindingRepository(_ImportedBindingRepository):
+    def __init__(self) -> None:
+        super().__init__()
+        self.binding_map["binding.entity_user"] = _entity_binding(
+            "binding.entity_user",
+            bound_object_ref="entity.user",
+            field_bindings=[
+                {
+                    "carrier_binding_key": "primary",
+                    "target": {
+                        "target_kind": "stable_descriptor",
+                        "target_key": "dimension.cluster",
+                    },
+                    "semantic_ref": "dimension.cluster",
+                    "surface_ref": "field.cluster",
+                },
+                {
+                    "carrier_binding_key": "primary",
+                    "target": {
+                        "target_kind": "stable_descriptor",
+                        "target_key": "dimension.country",
+                    },
+                    "semantic_ref": "dimension.country",
+                    "surface_ref": "field.country",
+                },
+            ],
+        )
 
 
 class _MissingTimeAnchoredDimensionRepository(_TimeAnchoredDimensionRepository):
@@ -368,6 +680,243 @@ class CompilerTypedResolutionTests(unittest.TestCase):
         self.assertEqual(resolved.warnings[0]["code"], "dimension_ref_unresolved")
         self.assertIn("missing_dimension", resolved.warnings[0]["message"])
 
+    def test_resolve_compiler_inputs_collects_imported_dimensions_from_matching_entity_binding(
+        self,
+    ) -> None:
+        repository = _ImportedBindingRepository()
+        normalized = normalize_step_request(
+            AnalysisStepIR(
+                index=0,
+                step_type="metric_query",
+                params={"table": "analytics.watch_events", "metric": "watch_time"},
+            )
+        )
+
+        resolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=repository,
+            binding_reader=lambda object_ref: [
+                _metric_binding_with_imports(
+                    object_ref,
+                    imports=[
+                        {
+                            "import_key": "entity_bridge",
+                            "binding_ref": "binding.entity_user",
+                            "required_ref_prefixes": ["dimension."],
+                        }
+                    ],
+                )
+            ],
+        )
+
+        self.assertEqual(resolved.metric_entity_anchor_ref, "entity.user")
+        self.assertEqual(
+            resolved.resolved_imported_dimension_refs, ["dimension.cluster", "dimension.country"]
+        )
+        self.assertEqual(resolved.imported_dimension_conflicts, {})
+        cluster = next(
+            bridge
+            for bridge in resolved.resolved_imported_dimensions
+            if bridge.dimension_ref == "dimension.cluster"
+        )
+        self.assertEqual(cluster.source_binding_ref, "binding.entity_user")
+        self.assertEqual(cluster.source_entity_ref, "entity.user")
+        self.assertEqual(cluster.import_key, "entity_bridge")
+
+    def test_resolve_compiler_inputs_falls_back_to_population_subject_for_entity_anchor(
+        self,
+    ) -> None:
+        repository = _ImportedBindingFallbackRepository()
+        normalized = normalize_step_request(
+            AnalysisStepIR(
+                index=0,
+                step_type="metric_query",
+                params={"table": "analytics.watch_events", "metric": "watch_time"},
+            )
+        )
+
+        resolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=repository,
+            binding_reader=lambda object_ref: [
+                _metric_binding_with_imports(
+                    object_ref,
+                    imports=[
+                        {
+                            "import_key": "entity_bridge",
+                            "binding_ref": "binding.entity_user",
+                            "required_ref_prefixes": ["dimension."],
+                        }
+                    ],
+                )
+            ],
+        )
+
+        self.assertEqual(resolved.metric_entity_anchor_ref, "entity.user")
+        self.assertEqual(
+            resolved.resolved_imported_dimension_refs, ["dimension.cluster", "dimension.country"]
+        )
+
+    def test_resolve_compiler_inputs_skips_imported_dimensions_without_entity_anchor(self) -> None:
+        repository = _NoAnchorMetricRepository()
+        normalized = normalize_step_request(
+            AnalysisStepIR(
+                index=0,
+                step_type="metric_query",
+                params={"table": "analytics.watch_events", "metric": "watch_time"},
+            )
+        )
+
+        resolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=repository,
+            binding_reader=lambda object_ref: [
+                _metric_binding_with_imports(
+                    object_ref,
+                    imports=[
+                        {
+                            "import_key": "entity_bridge",
+                            "binding_ref": "binding.entity_user",
+                            "required_ref_prefixes": ["dimension."],
+                        }
+                    ],
+                )
+            ],
+        )
+
+        self.assertIsNone(resolved.metric_entity_anchor_ref)
+        self.assertEqual(resolved.resolved_imported_dimensions, [])
+        self.assertEqual(resolved.imported_dimension_conflicts, {})
+        self.assertEqual(resolved.warnings, [])
+
+    def test_resolve_compiler_inputs_ignores_non_entity_and_anchor_mismatched_imports(self) -> None:
+        repository = _ImportedBindingRepository()
+        normalized = normalize_step_request(
+            AnalysisStepIR(
+                index=0,
+                step_type="metric_query",
+                params={"table": "analytics.watch_events", "metric": "watch_time"},
+            )
+        )
+
+        resolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=repository,
+            binding_reader=lambda object_ref: [
+                _metric_binding_with_imports(
+                    object_ref,
+                    imports=[
+                        {
+                            "import_key": "wrong_scope",
+                            "binding_ref": "binding.metric_other",
+                            "required_ref_prefixes": ["dimension."],
+                        },
+                        {
+                            "import_key": "wrong_anchor",
+                            "binding_ref": "binding.entity_account",
+                            "required_ref_prefixes": ["dimension."],
+                        },
+                    ],
+                )
+            ],
+        )
+
+        self.assertEqual(resolved.metric_entity_anchor_ref, "entity.user")
+        self.assertEqual(resolved.resolved_imported_dimensions, [])
+        self.assertEqual(resolved.imported_dimension_conflicts, {})
+
+    def test_resolve_compiler_inputs_records_conflicts_for_multi_source_imported_dimensions(
+        self,
+    ) -> None:
+        repository = _ImportedBindingRepository()
+        repository.binding_map["binding.entity_user_alt"] = _entity_binding(
+            "binding.entity_user_alt",
+            bound_object_ref="entity.user",
+            field_bindings=[
+                {
+                    "carrier_binding_key": "primary",
+                    "target": {
+                        "target_kind": "stable_descriptor",
+                        "target_key": "dimension.cluster",
+                    },
+                    "semantic_ref": "dimension.cluster",
+                    "surface_ref": "field.cluster_alt",
+                }
+            ],
+        )
+        normalized = normalize_step_request(
+            AnalysisStepIR(
+                index=0,
+                step_type="metric_query",
+                params={"table": "analytics.watch_events", "metric": "watch_time"},
+            )
+        )
+
+        resolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=repository,
+            binding_reader=lambda object_ref: [
+                _metric_binding_with_imports(
+                    object_ref,
+                    imports=[
+                        {
+                            "import_key": "entity_bridge",
+                            "binding_ref": "binding.entity_user",
+                            "required_ref_prefixes": ["dimension."],
+                        },
+                        {
+                            "import_key": "entity_bridge_alt",
+                            "binding_ref": "binding.entity_user_alt",
+                            "required_ref_prefixes": ["dimension."],
+                        },
+                    ],
+                )
+            ],
+        )
+
+        self.assertEqual(resolved.resolved_imported_dimension_refs, ["dimension.country"])
+        self.assertIn("dimension.cluster", resolved.imported_dimension_conflicts)
+        self.assertEqual(
+            [
+                bridge.source_binding_ref
+                for bridge in resolved.imported_dimension_conflicts["dimension.cluster"]
+            ],
+            ["binding.entity_user", "binding.entity_user_alt"],
+        )
+
+    def test_resolve_compiler_inputs_warns_when_imported_binding_cannot_be_resolved(self) -> None:
+        repository = _ImportedBindingRepository()
+        normalized = normalize_step_request(
+            AnalysisStepIR(
+                index=0,
+                step_type="metric_query",
+                params={"table": "analytics.watch_events", "metric": "watch_time"},
+            )
+        )
+
+        resolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=repository,
+            binding_reader=lambda object_ref: [
+                _metric_binding_with_imports(
+                    object_ref,
+                    imports=[
+                        {
+                            "import_key": "missing_import",
+                            "binding_ref": "binding.missing_entity",
+                            "required_ref_prefixes": ["dimension."],
+                        }
+                    ],
+                )
+            ],
+        )
+
+        self.assertEqual(resolved.resolved_imported_dimensions, [])
+        self.assertEqual(len(resolved.warnings), 1)
+        self.assertEqual(resolved.warnings[0]["code"], "binding_import_unresolved")
+        self.assertEqual(resolved.warnings[0]["binding_ref"], "binding.missing_entity")
+        self.assertEqual(resolved.warnings[0]["import_key"], "missing_import")
+
     def test_compile_step_keeps_sql_output_and_records_resolved_refs(self) -> None:
         compiled = compile_step(
             AnalysisStepIR(
@@ -428,9 +977,14 @@ class CompilerTypedResolutionTests(unittest.TestCase):
         self.assertEqual(compiled.metadata["resolved_dimension_refs"], ["platform"])
         self.assertEqual(compiled.metadata["resolved_filter_time_ref"], "time.event_date")
         self.assertEqual(compiled.metadata["resolved_binding_refs"], ["binding.watch_time"])
+        self.assertEqual(compiled.metadata["metric_entity_anchor_ref"], "subject.user")
+        self.assertEqual(compiled.metadata["resolved_imported_dimensions"], [])
+        self.assertEqual(compiled.metadata["imported_dimension_conflicts"], {})
+        self.assertEqual(compiled.metadata["resolved_imported_dimension_sources"], [])
         self.assertNotIn("compiler_validation", compiled.metadata)
         self.assertNotIn("compiler_profile_trace", compiled.metadata)
         profile_trace = compiled.ir_bundle["compile_report"]["profile_usage_trace"]
+        assert profile_trace is not None
         self.assertEqual(profile_trace[0]["subject_ref"], "metric.watch_time")
         self.assertEqual(profile_trace[0]["subject_revision"], 1)
         self.assertEqual(profile_trace[0]["resolved_subject_revision"], 1)
@@ -947,7 +1501,7 @@ class CompilerTypedResolutionTests(unittest.TestCase):
         )
         resolved = resolve_compiler_inputs(
             normalized,
-            semantic_repository=_NonGroupingDimensionRepository(),
+            semantic_repository=_NonGroupingMetricDimensionRepository(),
             binding_reader=_binding_reader,
         )
         derived = derive_compiler_state(
@@ -966,6 +1520,202 @@ class CompilerTypedResolutionTests(unittest.TestCase):
 
         self.assertTrue(result.ok)
         self.assertNotIn("COMPILER_DIMENSION_UNSUPPORTED", [issue.code for issue in result.issues])
+
+    def test_validate_compiler_inputs_allows_imported_dimension_bridge(self) -> None:
+        normalized = normalize_step_request(
+            AnalysisStepIR(
+                index=0,
+                step_type="metric_query",
+                params={
+                    "metric": "watch_time",
+                    "table": "analytics.watch_events",
+                    "dimensions": ["dimension.cluster"],
+                },
+            )
+        )
+        resolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=_ImportedBindingRepository(),
+            binding_reader=lambda object_ref: [
+                _metric_binding_with_imports(
+                    object_ref,
+                    imports=[
+                        {
+                            "import_key": "entity_bridge",
+                            "binding_ref": "binding.entity_user",
+                            "required_ref_prefixes": ["dimension."],
+                        }
+                    ],
+                )
+            ],
+        )
+        derived = derive_compiler_state(
+            intent_kind="metric_query",
+            resolved_metric=resolved.resolved_metric,
+            resolved_process=resolved.resolved_process,
+            resolved_bindings=resolved.resolved_bindings,
+            profile_reader=None,
+        )
+
+        result = validate_compiler_inputs(
+            step_type="metric_query",
+            resolved_inputs=resolved,
+            derived_state=derived,
+        )
+
+        self.assertTrue(result.ok)
+
+    def test_validate_compiler_inputs_rejects_missing_imported_dimension_bridge(self) -> None:
+        normalized = normalize_step_request(
+            AnalysisStepIR(
+                index=0,
+                step_type="metric_query",
+                params={
+                    "metric": "watch_time",
+                    "table": "analytics.watch_events",
+                    "dimensions": ["dimension.cluster"],
+                },
+            )
+        )
+        resolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=_ImportedBindingRepository(),
+            binding_reader=_binding_reader,
+        )
+        derived = derive_compiler_state(
+            intent_kind="metric_query",
+            resolved_metric=resolved.resolved_metric,
+            resolved_process=resolved.resolved_process,
+            resolved_bindings=resolved.resolved_bindings,
+            profile_reader=None,
+        )
+
+        result = validate_compiler_inputs(
+            step_type="metric_query",
+            resolved_inputs=resolved,
+            derived_state=derived,
+        )
+
+        self.assertFalse(result.ok)
+        issue = next(
+            issue for issue in result.issues if issue.code == "COMPILER_DIMENSION_IMPORT_MISSING"
+        )
+        self.assertEqual(issue.subject_ref, "dimension.cluster")
+        self.assertEqual(issue.details["metric_entity_anchor_ref"], "entity.user")
+        self.assertEqual(issue.details["available_imported_dimension_refs"], [])
+
+    def test_validate_compiler_inputs_rejects_ambiguous_imported_dimension_bridge(self) -> None:
+        repository = _ImportedBindingRepository()
+        repository.binding_map["binding.entity_user_alt"] = _entity_binding(
+            "binding.entity_user_alt",
+            bound_object_ref="entity.user",
+            field_bindings=[
+                {
+                    "carrier_binding_key": "primary",
+                    "target": {
+                        "target_kind": "stable_descriptor",
+                        "target_key": "dimension.cluster",
+                    },
+                    "semantic_ref": "dimension.cluster",
+                    "surface_ref": "field.cluster_alt",
+                }
+            ],
+        )
+        normalized = normalize_step_request(
+            AnalysisStepIR(
+                index=0,
+                step_type="metric_query",
+                params={
+                    "metric": "watch_time",
+                    "table": "analytics.watch_events",
+                    "dimensions": ["dimension.cluster"],
+                },
+            )
+        )
+        resolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=repository,
+            binding_reader=lambda object_ref: [
+                _metric_binding_with_imports(
+                    object_ref,
+                    imports=[
+                        {
+                            "import_key": "entity_bridge",
+                            "binding_ref": "binding.entity_user",
+                            "required_ref_prefixes": ["dimension."],
+                        },
+                        {
+                            "import_key": "entity_bridge_alt",
+                            "binding_ref": "binding.entity_user_alt",
+                            "required_ref_prefixes": ["dimension."],
+                        },
+                    ],
+                )
+            ],
+        )
+        derived = derive_compiler_state(
+            intent_kind="metric_query",
+            resolved_metric=resolved.resolved_metric,
+            resolved_process=resolved.resolved_process,
+            resolved_bindings=resolved.resolved_bindings,
+            profile_reader=None,
+        )
+
+        result = validate_compiler_inputs(
+            step_type="metric_query",
+            resolved_inputs=resolved,
+            derived_state=derived,
+        )
+
+        self.assertFalse(result.ok)
+        issue = next(
+            issue for issue in result.issues if issue.code == "COMPILER_DIMENSION_IMPORT_AMBIGUOUS"
+        )
+        self.assertEqual(issue.subject_ref, "dimension.cluster")
+        self.assertEqual(
+            [candidate["source_binding_ref"] for candidate in issue.details["candidates"]],
+            ["binding.entity_user", "binding.entity_user_alt"],
+        )
+
+    def test_validate_compiler_inputs_rejects_non_exported_dimension_without_entity_anchor(
+        self,
+    ) -> None:
+        normalized = normalize_step_request(
+            AnalysisStepIR(
+                index=0,
+                step_type="metric_query",
+                params={
+                    "metric": "watch_time",
+                    "table": "analytics.watch_events",
+                    "dimensions": ["dimension.cluster"],
+                },
+            )
+        )
+        resolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=_NoAnchorMetricRepository(),
+            binding_reader=_binding_reader,
+        )
+        derived = derive_compiler_state(
+            intent_kind="metric_query",
+            resolved_metric=resolved.resolved_metric,
+            resolved_process=resolved.resolved_process,
+            resolved_bindings=resolved.resolved_bindings,
+            profile_reader=None,
+        )
+
+        result = validate_compiler_inputs(
+            step_type="metric_query",
+            resolved_inputs=resolved,
+            derived_state=derived,
+        )
+
+        self.assertFalse(result.ok)
+        issue = next(
+            issue for issue in result.issues if issue.code == "COMPILER_DIMENSION_NOT_EXPORTED"
+        )
+        self.assertEqual(issue.subject_ref, "dimension.cluster")
+        self.assertEqual(issue.details["available_metric_dimension_refs"], [])
 
     def test_validate_compiler_inputs_rejects_dimension_time_anchor_mismatch(self) -> None:
         normalized = normalize_step_request(
@@ -1010,6 +1760,60 @@ class CompilerTypedResolutionTests(unittest.TestCase):
         )
         self.assertEqual(issue.category, "compatibility")
 
+    def test_validate_compiler_inputs_checks_time_anchor_after_import_bridge_resolution(
+        self,
+    ) -> None:
+        normalized = normalize_step_request(
+            AnalysisStepIR(
+                index=0,
+                step_type="metric_query",
+                params={
+                    "metric": "watch_time",
+                    "table": "analytics.watch_events",
+                    "dimensions": ["dimension.cluster"],
+                },
+            )
+        )
+        resolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=_TimeAnchoredImportedBindingRepository(),
+            binding_reader=lambda object_ref: [
+                _metric_binding_with_imports(
+                    object_ref,
+                    imports=[
+                        {
+                            "import_key": "entity_bridge",
+                            "binding_ref": "binding.entity_user",
+                            "required_ref_prefixes": ["dimension."],
+                        }
+                    ],
+                )
+            ],
+        )
+        derived = derive_compiler_state(
+            intent_kind="metric_query",
+            resolved_metric=resolved.resolved_metric,
+            resolved_process=resolved.resolved_process,
+            resolved_bindings=resolved.resolved_bindings,
+            profile_reader=None,
+        )
+
+        result = validate_compiler_inputs(
+            step_type="metric_query",
+            resolved_inputs=resolved,
+            derived_state=derived,
+        )
+
+        self.assertFalse(result.ok)
+        self.assertIn(
+            "COMPILER_DIMENSION_TIME_ANCHOR_MISMATCH",
+            [issue.code for issue in result.issues],
+        )
+        self.assertNotIn(
+            "COMPILER_DIMENSION_IMPORT_MISSING",
+            [issue.code for issue in result.issues],
+        )
+
     def test_compile_step_raises_structured_request_compatibility_error(self) -> None:
         with self.assertRaises(SemanticRequestCompatibilityError) as ctx:
             compile_step(
@@ -1036,6 +1840,191 @@ class CompilerTypedResolutionTests(unittest.TestCase):
         self.assertEqual(
             detail["issues"][0]["code"],
             "COMPILER_DIMENSION_TIME_ANCHOR_MISMATCH",
+        )
+
+    def test_compile_step_raises_import_missing_request_compatibility_error(self) -> None:
+        with self.assertRaises(SemanticRequestCompatibilityError) as ctx:
+            compile_step(
+                AnalysisStepIR(
+                    index=0,
+                    step_type="metric_query",
+                    params={
+                        "metric": "watch_time",
+                        "table": "analytics.watch_events",
+                        "dimensions": ["dimension.cluster"],
+                    },
+                ),
+                engine_type="duckdb",
+                semantic_context={
+                    "semantic_repository": _ImportedBindingRepository(),
+                    "binding_reader": _binding_reader,
+                },
+            )
+
+        detail = ctx.exception.detail
+        self.assertEqual(detail["code"], "semantic_request_incompatible")
+        self.assertEqual(detail["subject_ref"], "dimension.cluster")
+        self.assertEqual(
+            detail["issues"][0]["code"],
+            "COMPILER_DIMENSION_IMPORT_MISSING",
+        )
+        self.assertEqual(detail["request_context"]["dimension_refs"], ["dimension.cluster"])
+
+    def test_compile_step_records_imported_dimension_lineage_in_metadata(self) -> None:
+        compiled = compile_step(
+            AnalysisStepIR(
+                index=0,
+                step_type="metric_query",
+                params={
+                    "metric": "watch_time",
+                    "table": "analytics.watch_events",
+                    "dimensions": ["dimension.cluster"],
+                },
+            ),
+            engine_type="duckdb",
+            semantic_context={
+                "metric_sql": "avg(play_duration_seconds)",
+                "dimensions": ["dimension.cluster"],
+                "semantic_repository": _UniqueImportedBindingRepository(),
+                "binding_reader": lambda object_ref: [
+                    _metric_binding_with_imports(
+                        object_ref,
+                        imports=[
+                            {
+                                "import_key": "entity_bridge",
+                                "binding_ref": "binding.entity_user",
+                                "required_ref_prefixes": ["dimension."],
+                            }
+                        ],
+                    )
+                ],
+            },
+        )
+
+        self.assertEqual(compiled.metadata["metric_entity_anchor_ref"], "entity.user")
+        self.assertEqual(
+            compiled.metadata["resolved_imported_dimensions"],
+            [
+                {
+                    "dimension_ref": "dimension.cluster",
+                    "source_binding_ref": "binding.entity_user",
+                    "source_entity_ref": "entity.user",
+                    "import_key": "entity_bridge",
+                },
+                {
+                    "dimension_ref": "dimension.country",
+                    "source_binding_ref": "binding.entity_user",
+                    "source_entity_ref": "entity.user",
+                    "import_key": "entity_bridge",
+                },
+            ],
+        )
+        self.assertEqual(
+            compiled.metadata["resolved_imported_dimension_sources"],
+            [
+                {
+                    "dimension_ref": "dimension.cluster",
+                    "source_binding_ref": "binding.entity_user",
+                    "source_entity_ref": "entity.user",
+                    "import_key": "entity_bridge",
+                    "carrier_binding_key": "primary",
+                    "carrier_locator": "analytics.entity_events",
+                    "surface_ref": "field.cluster",
+                    "physical_name": "cluster",
+                }
+            ],
+        )
+
+    def test_compile_step_rejects_imported_dimension_without_unique_field_lineage(self) -> None:
+        with self.assertRaises(SemanticRequestCompatibilityError) as ctx:
+            compile_step(
+                AnalysisStepIR(
+                    index=0,
+                    step_type="metric_query",
+                    params={
+                        "metric": "watch_time",
+                        "table": "analytics.watch_events",
+                        "dimensions": ["dimension.cluster"],
+                    },
+                ),
+                engine_type="duckdb",
+                semantic_context={
+                    "semantic_repository": _ImportedBindingRepository(),
+                    "binding_reader": lambda object_ref: [
+                        _metric_binding_with_imports(
+                            object_ref,
+                            imports=[
+                                {
+                                    "import_key": "entity_bridge",
+                                    "binding_ref": "binding.entity_user",
+                                    "required_ref_prefixes": ["dimension."],
+                                }
+                            ],
+                        )
+                    ],
+                },
+            )
+
+        self.assertEqual(
+            ctx.exception.detail["issues"][0]["code"],
+            "COMPILER_DIMENSION_IMPORT_LINEAGE_MISSING",
+        )
+
+    def test_compile_step_rejects_imported_dimension_without_physical_carrier_source(self) -> None:
+        repository = _ImportedBindingRepository()
+        repository.binding_map["binding.entity_user"] = _entity_binding(
+            "binding.entity_user",
+            bound_object_ref="entity.user",
+            carrier_bindings=[
+                {
+                    "binding_key": "primary",
+                    "carrier_kind": "table",
+                }
+            ],
+            field_bindings=[
+                {
+                    "carrier_binding_key": "primary",
+                    "target": {
+                        "target_kind": "stable_descriptor",
+                        "target_key": "dimension.cluster",
+                    },
+                    "semantic_ref": "dimension.cluster",
+                    "surface_ref": "field.cluster",
+                }
+            ],
+        )
+        with self.assertRaises(SemanticRequestCompatibilityError) as ctx:
+            compile_step(
+                AnalysisStepIR(
+                    index=0,
+                    step_type="metric_query",
+                    params={
+                        "metric": "watch_time",
+                        "table": "analytics.watch_events",
+                        "dimensions": ["dimension.cluster"],
+                    },
+                ),
+                engine_type="duckdb",
+                semantic_context={
+                    "semantic_repository": repository,
+                    "binding_reader": lambda object_ref: [
+                        _metric_binding_with_imports(
+                            object_ref,
+                            imports=[
+                                {
+                                    "import_key": "entity_bridge",
+                                    "binding_ref": "binding.entity_user",
+                                    "required_ref_prefixes": ["dimension."],
+                                }
+                            ],
+                        )
+                    ],
+                },
+            )
+
+        self.assertEqual(
+            ctx.exception.detail["issues"][0]["code"],
+            "COMPILER_DIMENSION_IMPORT_PHYSICAL_UNRESOLVED",
         )
 
     def test_compile_step_prefers_non_compatibility_error_when_mixed_with_compatibility(
