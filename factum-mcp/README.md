@@ -280,49 +280,75 @@ Boundary notes:
 Current semantic-layer coverage:
 
 - `create_entity(header, interface_contract)` -> `POST /semantic/entities`
-- `list_entities(status=None)` -> `GET /semantic/entities`
+- `list_entities(status=None, detail=None)` -> `GET /semantic/entities`
 - `get_entity(entity_id)` -> `GET /semantic/entities/{entity_id}`
 - `update_entity(entity_id, display_name=None, description=None, interface_contract=None)` -> `PUT /semantic/entities/{entity_id}`
+- `validate_entity(entity_id)` -> `POST /semantic/entities/{entity_id}/validate`
+- `activate_entity(entity_id)` -> `POST /semantic/entities/{entity_id}/activate`
+- `deprecate_entity(entity_id)` -> `POST /semantic/entities/{entity_id}/deprecate`
 - `publish_entity(entity_id)` -> `POST /semantic/entities/{entity_id}/publish`
 - `create_metric(header, payload)` -> `POST /semantic/metrics`
-- `list_metrics(status=None)` -> `GET /semantic/metrics`
+- `list_metrics(status=None, detail=None)` -> `GET /semantic/metrics`
 - `get_metric(metric_id)` -> `GET /semantic/metrics/{metric_id}`
 - `update_metric(metric_id, display_name=None, description=None, payload=None)` -> `PUT /semantic/metrics/{metric_id}`
+- `validate_metric(metric_id)` -> `POST /semantic/metrics/{metric_id}/validate`
+- `activate_metric(metric_id)` -> `POST /semantic/metrics/{metric_id}/activate`
+- `deprecate_metric(metric_id)` -> `POST /semantic/metrics/{metric_id}/deprecate`
 - `publish_metric(metric_id)` -> `POST /semantic/metrics/{metric_id}/publish`
 - `create_process_object(header, interface_contract, payload)` -> `POST /semantic/process-objects`
-- `list_process_objects(status=None)` -> `GET /semantic/process-objects`
+- `list_process_objects(status=None, detail=None)` -> `GET /semantic/process-objects`
 - `get_process_object(process_contract_id)` -> `GET /semantic/process-objects/{process_contract_id}`
 - `update_process_object(process_contract_id, display_name=None, description=None, interface_contract=None, payload=None)` -> `PUT /semantic/process-objects/{process_contract_id}`
+- `validate_process_object(process_contract_id)` -> `POST /semantic/process-objects/{process_contract_id}/validate`
+- `activate_process_object(process_contract_id)` -> `POST /semantic/process-objects/{process_contract_id}/activate`
+- `deprecate_process_object(process_contract_id)` -> `POST /semantic/process-objects/{process_contract_id}/deprecate`
 - `publish_process_object(process_contract_id)` -> `POST /semantic/process-objects/{process_contract_id}/publish`
 - `create_dimension(header, interface_contract)` -> `POST /semantic/dimensions`
-- `list_dimensions(status=None)` -> `GET /semantic/dimensions`
+- `list_dimensions(status=None, detail=None)` -> `GET /semantic/dimensions`
 - `get_dimension(dimension_contract_id)` -> `GET /semantic/dimensions/{dimension_contract_id}`
 - `update_dimension(dimension_contract_id, display_name=None, description=None, interface_contract=None)` -> `PUT /semantic/dimensions/{dimension_contract_id}`
+- `validate_dimension(dimension_contract_id)` -> `POST /semantic/dimensions/{dimension_contract_id}/validate`
+- `activate_dimension(dimension_contract_id)` -> `POST /semantic/dimensions/{dimension_contract_id}/activate`
+- `deprecate_dimension(dimension_contract_id)` -> `POST /semantic/dimensions/{dimension_contract_id}/deprecate`
 - `publish_dimension(dimension_contract_id)` -> `POST /semantic/dimensions/{dimension_contract_id}/publish`
 - `create_time_semantic(header)` -> `POST /semantic/time`
-- `list_time_semantics(status=None)` -> `GET /semantic/time`
+- `list_time_semantics(status=None, detail=None)` -> `GET /semantic/time`
 - `get_time_semantic(time_contract_id)` -> `GET /semantic/time/{time_contract_id}`
 - `update_time_semantic(time_contract_id, display_name=None, description=None, semantic_roles=None)` -> `PUT /semantic/time/{time_contract_id}`
+- `validate_time_semantic(time_contract_id)` -> `POST /semantic/time/{time_contract_id}/validate`
+- `activate_time_semantic(time_contract_id)` -> `POST /semantic/time/{time_contract_id}/activate`
+- `deprecate_time_semantic(time_contract_id)` -> `POST /semantic/time/{time_contract_id}/deprecate`
 - `publish_time_semantic(time_contract_id)` -> `POST /semantic/time/{time_contract_id}/publish`
 - `create_enum_set(header, display_name, versions, description=None)` -> `POST /semantic/enum-sets`
-- `list_enum_sets(status=None)` -> `GET /semantic/enum-sets`
+- `list_enum_sets(status=None, detail=None)` -> `GET /semantic/enum-sets`
 - `get_enum_set(enum_set_contract_id)` -> `GET /semantic/enum-sets/{enum_set_contract_id}`
 - `update_enum_set(enum_set_contract_id, display_name=None, description=None, versions=None)` -> `PUT /semantic/enum-sets/{enum_set_contract_id}`
+- `validate_enum_set(enum_set_contract_id)` -> `POST /semantic/enum-sets/{enum_set_contract_id}/validate`
+- `activate_enum_set(enum_set_contract_id)` -> `POST /semantic/enum-sets/{enum_set_contract_id}/activate`
+- `deprecate_enum_set(enum_set_contract_id)` -> `POST /semantic/enum-sets/{enum_set_contract_id}/deprecate`
 - `publish_enum_set(enum_set_contract_id)` -> `POST /semantic/enum-sets/{enum_set_contract_id}/publish`
 - `create_binding(header, interface_contract)` -> `POST /semantic/bindings`
-- `list_bindings(status=None)` -> `GET /semantic/bindings`
+- `list_bindings(status=None, detail=None)` -> `GET /semantic/bindings`
 - `get_binding(binding_id)` -> `GET /semantic/bindings/{binding_id}`
 - `update_binding(binding_id, display_name=None, description=None, interface_contract=None)` -> `PUT /semantic/bindings/{binding_id}`
+- `validate_binding(binding_id)` -> `POST /semantic/bindings/{binding_id}/validate`
+- `activate_binding(binding_id)` -> `POST /semantic/bindings/{binding_id}/activate`
+- `deprecate_binding(binding_id)` -> `POST /semantic/bindings/{binding_id}/deprecate`
 - `publish_binding(binding_id)` -> `POST /semantic/bindings/{binding_id}/publish`
 - `create_compatibility_profile(profile_ref, profile_kind, subject_kind, subject_ref, schema_version="v1", requirement=None, capability=None)` -> `POST /compiler/compatibility-profiles`
-- `list_compatibility_profiles(status=None)` -> `GET /compiler/compatibility-profiles`
+- `list_compatibility_profiles(status=None, detail=None)` -> `GET /compiler/compatibility-profiles`
 - `get_compatibility_profile(profile_id)` -> `GET /compiler/compatibility-profiles/{profile_id}`
 - `update_compatibility_profile(profile_id, requirement=None, capability=None)` -> `PUT /compiler/compatibility-profiles/{profile_id}`
+- `validate_compatibility_profile(profile_id)` -> `POST /compiler/compatibility-profiles/{profile_id}/validate`
+- `activate_compatibility_profile(profile_id)` -> `POST /compiler/compatibility-profiles/{profile_id}/activate`
+- `deprecate_compatibility_profile(profile_id)` -> `POST /compiler/compatibility-profiles/{profile_id}/deprecate`
 - `publish_compatibility_profile(profile_id)` -> `POST /compiler/compatibility-profiles/{profile_id}/publish`
 
 Boundary notes:
 
 - these tools map directly to the existing HTTP families; they do not create MCP-only semantic abstractions
+- list tools also accept the canonical `detail` query parameter so MCP callers can choose lightweight
+  list items or backward-compatible full payloads
 - `publish_*` marks the runtime visibility boundary; draft objects should not be treated as resolvable runtime inputs
 - `key.*`, `grain.*`, `measure.*`, and `metric_input.*` remain payload values only, not CRUD families
 - on publish failures, inspect `error.code`, `error.message`, and the preserved `error.detail` object before falling back to raw OpenAPI discovery
