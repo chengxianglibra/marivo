@@ -715,6 +715,18 @@ class SemanticRuntimeTests(unittest.TestCase):
         self.assertEqual(error.lifecycle_status, "active")
         self.assertEqual(error.readiness_status, "not_ready")
         self.assertEqual(error.blocking_requirements[0]["code"], "METRIC_INPUT_COVERAGE_MISSING")
+        self.assertIn("entity.user", error.dependency_refs)
+        detail = error.detail_payload()
+        self.assertEqual(detail["code"], "semantic_not_ready")
+        self.assertEqual(detail["category"], "readiness")
+        self.assertEqual(detail["subject_ref"], "metric.watch_time")
+        self.assertEqual(detail["object_kind"], "metric")
+        self.assertEqual(detail["lifecycle_status"], "active")
+        self.assertEqual(detail["readiness_status"], "not_ready")
+        self.assertEqual(
+            detail["blocking_requirements"][0]["code"], "METRIC_INPUT_COVERAGE_MISSING"
+        )
+        self.assertIn("entity.user", detail["dependency_refs"])
 
     def test_catalog_runtime_resolve_requires_explicit_typed_refs(self) -> None:
         runtime = CatalogRuntimeService(self.metadata_store, self.binding_service)

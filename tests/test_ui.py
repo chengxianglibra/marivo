@@ -541,6 +541,7 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertIn("relatedBindingsFilter", semantic_resp.text)
         self.assertIn("set-semantic-filter", semantic_resp.text)
         self.assertIn("detail: false", semantic_resp.text)
+        self.assertIn("await endpoints.get(selectedObjectId)", semantic_resp.text)
         self.assertIn("search.set('detail', 'true')", api_resp.text)
         self.assertIn("listCompatibilityProfiles", api_resp.text)
         self.assertIn("createCompatibilityProfile", api_resp.text)
@@ -931,12 +932,23 @@ class UIBothEnabledTests(unittest.TestCase):
             resp.text,
         )
 
+    def test_ui_grounding_page_uses_ready_first_search_and_explicit_unavailable_opt_in(
+        self,
+    ) -> None:
+        resp = self.client.get("/static/user.html")
+        self.assertIn("function groundingSearchReadinessMode()", resp.text)
+        self.assertIn("return groundingViewState.showUnavailable ? 'all' : 'ready';", resp.text)
+        self.assertIn("uiApi.searchCatalog(", resp.text)
+        self.assertIn("groundingSearchReadinessMode()", resp.text)
+        self.assertIn('name="show_unavailable"', resp.text)
+
     def test_ui_grounding_page_handles_structured_readiness_errors(self) -> None:
         resp = self.client.get("/static/user.html")
         self.assertIn("err.detail = detail", resp.text)
         self.assertIn("error.status === 409", resp.text)
         self.assertIn("error.detail.code === 'semantic_not_ready'", resp.text)
         self.assertIn("resolveWhyNotReady", resp.text)
+        self.assertIn("groundingViewState.resolveWhyNotReady = error.detail;", resp.text)
 
     def test_ui_jobs_page_declares_read_only_filters_and_http_contracts(self) -> None:
         resp = self.client.get("/ui")
