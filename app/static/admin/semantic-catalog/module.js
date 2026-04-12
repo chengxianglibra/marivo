@@ -27,7 +27,7 @@ export function createSemanticCatalogModule(ctx) {
 
   let semanticCatalogRenderVersion = 0;
   const semanticCatalogUiState = {
-    statusBySubtab: {},
+    filtersBySubtab: {},
     formModeBySubtab: {},
     relatedBindingsFilter: null,
     focusRefBySubtab: {},
@@ -36,12 +36,23 @@ export function createSemanticCatalogModule(ctx) {
     formErrorsByKey: {},
   };
 
-  function countStatuses(items) {
+  function countValues(items, key) {
     return (items || []).reduce((acc, item) => {
-      const status = String(item?.status || "unknown").toLowerCase();
-      acc[status] = (acc[status] || 0) + 1;
+      const value = String(item?.[key] || "unknown").toLowerCase();
+      acc[value] = (acc[value] || 0) + 1;
       return acc;
     }, {});
+  }
+
+  function countHasBlockers(items) {
+    return (items || []).reduce(
+      (acc, item) => {
+        const key = Number(item?.blocker_count || 0) > 0 ? "with" : "without";
+        acc[key] += 1;
+        return acc;
+      },
+      { with: 0, without: 0 }
+    );
   }
 
   function formatMaybeDate(value) {
@@ -58,8 +69,14 @@ export function createSemanticCatalogModule(ctx) {
     return SEMANTIC_CATALOG_CONFIG[subtab] || SEMANTIC_CATALOG_CONFIG.entities;
   }
 
-  function semanticStatusFilterForSubtab(subtab) {
-    return semanticCatalogUiState.statusBySubtab[subtab] || "all";
+  function semanticFiltersForSubtab(subtab) {
+    return (
+      semanticCatalogUiState.filtersBySubtab[subtab] || {
+        lifecycle: "all",
+        readiness: "all",
+        blockers: "all",
+      }
+    );
   }
 
   function semanticFormModeForSubtab(subtab) {
@@ -125,49 +142,49 @@ export function createSemanticCatalogModule(ctx) {
   function semanticEndpointForSubtab(subtab) {
     const lookup = {
       entities: {
-        list: (status) => ctx.adminApi.listSemanticEntities(status),
+        list: (status, options) => ctx.adminApi.listSemanticEntities(status, options),
         get: (objectId) => ctx.adminApi.getSemanticEntity(objectId),
         create: (payload) => ctx.adminApi.createSemanticEntity(payload),
         update: (objectId, payload) => ctx.adminApi.updateSemanticEntity(objectId, payload),
         publish: (objectId) => ctx.adminApi.publishSemanticEntity(objectId),
       },
       metrics: {
-        list: (status) => ctx.adminApi.listSemanticMetrics(status),
+        list: (status, options) => ctx.adminApi.listSemanticMetrics(status, options),
         get: (objectId) => ctx.adminApi.getSemanticMetric(objectId),
         create: (payload) => ctx.adminApi.createSemanticMetric(payload),
         update: (objectId, payload) => ctx.adminApi.updateSemanticMetric(objectId, payload),
         publish: (objectId) => ctx.adminApi.publishSemanticMetric(objectId),
       },
       "process-objects": {
-        list: (status) => ctx.adminApi.listSemanticProcessObjects(status),
+        list: (status, options) => ctx.adminApi.listSemanticProcessObjects(status, options),
         get: (objectId) => ctx.adminApi.getSemanticProcessObject(objectId),
         create: (payload) => ctx.adminApi.createSemanticProcessObject(payload),
         update: (objectId, payload) => ctx.adminApi.updateSemanticProcessObject(objectId, payload),
         publish: (objectId) => ctx.adminApi.publishSemanticProcessObject(objectId),
       },
       dimensions: {
-        list: (status) => ctx.adminApi.listSemanticDimensions(status),
+        list: (status, options) => ctx.adminApi.listSemanticDimensions(status, options),
         get: (objectId) => ctx.adminApi.getSemanticDimension(objectId),
         create: (payload) => ctx.adminApi.createSemanticDimension(payload),
         update: (objectId, payload) => ctx.adminApi.updateSemanticDimension(objectId, payload),
         publish: (objectId) => ctx.adminApi.publishSemanticDimension(objectId),
       },
       time: {
-        list: (status) => ctx.adminApi.listSemanticTime(status),
+        list: (status, options) => ctx.adminApi.listSemanticTime(status, options),
         get: (objectId) => ctx.adminApi.getSemanticTime(objectId),
         create: (payload) => ctx.adminApi.createSemanticTime(payload),
         update: (objectId, payload) => ctx.adminApi.updateSemanticTime(objectId, payload),
         publish: (objectId) => ctx.adminApi.publishSemanticTime(objectId),
       },
       "enum-sets": {
-        list: (status) => ctx.adminApi.listSemanticEnumSets(status),
+        list: (status, options) => ctx.adminApi.listSemanticEnumSets(status, options),
         get: (objectId) => ctx.adminApi.getSemanticEnumSet(objectId),
         create: (payload) => ctx.adminApi.createSemanticEnumSet(payload),
         update: (objectId, payload) => ctx.adminApi.updateSemanticEnumSet(objectId, payload),
         publish: (objectId) => ctx.adminApi.publishSemanticEnumSet(objectId),
       },
       "typed-bindings": {
-        list: (status) => ctx.adminApi.listTypedSemanticBindings(status),
+        list: (status, options) => ctx.adminApi.listTypedSemanticBindings(status, options),
         get: (objectId) => ctx.adminApi.getTypedSemanticBinding(objectId),
         create: (payload) => ctx.adminApi.createTypedSemanticBinding(payload),
         update: (objectId, payload) => ctx.adminApi.updateTypedSemanticBinding(objectId, payload),
@@ -234,24 +251,18 @@ export function createSemanticCatalogModule(ctx) {
     return "";
   }
 
-  function renderSemanticStatusFilters(subtab, items) {
-    const counts = countStatuses(items);
-    const current = semanticStatusFilterForSubtab(subtab);
-    const options = [
-      { value: "all", label: "All statuses", count: items.length },
-      { value: "draft", label: "Draft", count: counts.draft || 0 },
-      { value: "published", label: "Published", count: counts.published || 0 },
-    ];
+  function renderSemanticFilterGroup(filterKey, options, current) {
     return `
-      <div class="detail-actions">
+      <div class="detail-actions semantic-filter-group">
         ${options
           .map(
             (option) => `
           <button
             type="button"
             class="btn btn-sm ${current === option.value ? "btn-primary" : ""}"
-            data-action="set-semantic-status"
-            data-status="${option.value}"
+            data-action="set-semantic-filter"
+            data-filter-key="${filterKey}"
+            data-filter-value="${option.value}"
           >${esc(option.label)} (${esc(String(option.count))})</button>
         `
           )
@@ -260,11 +271,73 @@ export function createSemanticCatalogModule(ctx) {
     `;
   }
 
+  function renderSemanticReadinessFilters(subtab, items) {
+    const filters = semanticFiltersForSubtab(subtab);
+    const lifecycleCounts = countValues(items, "lifecycle_status");
+    const readinessCounts = countValues(items, "readiness_status");
+    const blockerCounts = countHasBlockers(items);
+    return `
+      <div class="semantic-filter-stack">
+        <div>
+          <p class="panel-note">Lifecycle</p>
+          ${renderSemanticFilterGroup(
+            "lifecycle",
+            [
+              { value: "all", label: "All lifecycle", count: items.length },
+              { value: "draft", label: "Draft", count: lifecycleCounts.draft || 0 },
+              { value: "active", label: "Active", count: lifecycleCounts.active || 0 },
+              { value: "deprecated", label: "Deprecated", count: lifecycleCounts.deprecated || 0 },
+            ],
+            filters.lifecycle
+          )}
+        </div>
+        <div>
+          <p class="panel-note">Readiness</p>
+          ${renderSemanticFilterGroup(
+            "readiness",
+            [
+              { value: "all", label: "All readiness", count: items.length },
+              { value: "ready", label: "Ready", count: readinessCounts.ready || 0 },
+              { value: "not_ready", label: "Not Ready", count: readinessCounts.not_ready || 0 },
+              { value: "stale", label: "Stale", count: readinessCounts.stale || 0 },
+            ],
+            filters.readiness
+          )}
+        </div>
+        <div>
+          <p class="panel-note">Has Blockers</p>
+          ${renderSemanticFilterGroup(
+            "blockers",
+            [
+              { value: "all", label: "All blocker states", count: items.length },
+              { value: "with", label: "With Blockers", count: blockerCounts.with },
+              { value: "without", label: "Without Blockers", count: blockerCounts.without },
+            ],
+            filters.blockers
+          )}
+        </div>
+      </div>
+    `;
+  }
+
+  function semanticBlockerCount(item) {
+    return Number(item?.blocker_count ?? item?.blocking_requirements?.length ?? 0);
+  }
+
+  function semanticReadinessBadge(readinessStatus) {
+    const readiness = String(readinessStatus || "unknown").toLowerCase();
+    return `${statusBadge(readiness)}${
+      readiness === "stale"
+        ? ' <span class="shell-chip semantic-readiness-chip">stale needs operator review</span>'
+        : ""
+    }`;
+  }
+
   function renderSemanticCatalogRows(config, items, selectedObjectId) {
     if (!items.length) {
       return `
         <tr>
-          <td colspan="6">${renderEmptyState(`No ${config.label.toLowerCase()} found for the current status filter.`)}</td>
+          <td colspan="8">${renderEmptyState(`No ${config.label.toLowerCase()} found for the current readiness filters.`)}</td>
         </tr>
       `;
     }
@@ -289,7 +362,9 @@ export function createSemanticCatalogModule(ctx) {
             </td>
             <td>${esc(stableRef)}</td>
             <td>${esc(displayName)}</td>
-            <td>${statusBadge(item.status)}</td>
+            <td>${statusBadge(item.lifecycle_status || "unknown")}</td>
+            <td>${semanticReadinessBadge(item.readiness_status || "unknown")}</td>
+            <td>${esc(String(semanticBlockerCount(item)))}</td>
             <td>${esc(String(item.revision ?? "-"))}</td>
             <td>${esc(formatMaybeDate(item.updated_at))}</td>
           </tr>
@@ -313,7 +388,16 @@ export function createSemanticCatalogModule(ctx) {
       count: viewModel.items.length,
       countLabel: "object(s)",
       note: filterNote,
-      columns: ["object_id", "stable_ref", "display_name", "status", "revision", "updated_at"],
+      columns: [
+        "object_id",
+        "stable_ref",
+        "display_name",
+        "lifecycle",
+        "readiness",
+        "blockers",
+        "revision",
+        "updated_at",
+      ],
       actionsHtml: `
         <div class="detail-actions">
           <button type="button" class="btn btn-sm btn-primary" data-action="open-semantic-form" data-form-mode="create">Create ${esc(config.singularLabel)}</button>
@@ -332,31 +416,193 @@ export function createSemanticCatalogModule(ctx) {
       `,
       countHtml:
         renderResultsCount(viewModel.items.length, "object(s)") +
-        renderSemanticStatusFilters(route.subtab, viewModel.unfilteredItems),
+        renderSemanticReadinessFilters(route.subtab, viewModel.unfilteredItems),
       rowsHtml: renderSemanticCatalogRows(config, viewModel.items, viewModel.selectedObjectId),
       errorHtml: viewModel.listError ? renderStructuredError(viewModel.listError, `${config.label} unavailable.`) : "",
+    });
+  }
+
+  function semanticReadinessSummary(selectedItem) {
+    const readiness = String(selectedItem?.readiness_status || "").toLowerCase();
+    if (readiness === "ready") {
+      return "Ready objects are eligible for catalog, resolve, and runtime default consumption.";
+    }
+    if (readiness === "stale") {
+      return "Stale means the object was previously usable but a dependency or pinned profile is no longer aligned.";
+    }
+    return "Not ready means this object is active or draft but blocked from safe consumption until the listed requirements are resolved.";
+  }
+
+  function renderSemanticRefPills(refs, emptyCopy, actionLabel) {
+    if (!refs?.length) {
+      return renderEmptyState(emptyCopy);
+    }
+    return `
+      <div class="shell-chip-group">
+        ${refs
+          .map(
+            (ref) => `
+              <button
+                type="button"
+                class="btn btn-sm"
+                data-action="${actionLabel}"
+                data-semantic-ref="${esc(ref)}"
+              >${esc(ref)}</button>
+            `
+          )
+          .join("")}
+      </div>
+    `;
+  }
+
+  function renderBlockingRequirementsCard(selectedItem) {
+    if (!selectedItem) {
+      return renderAdminDetailCard({
+        title: "Blocking Requirements",
+        statusHtml: "<span class=\"shell-chip\">waiting for selection</span>",
+        note: "Why-not-ready is front-loaded here so operators do not need to trigger a runtime failure first.",
+        bodyHtml: renderEmptyState("Select an object to inspect blocker codes and dependency refs."),
+      });
+    }
+    const blockers = selectedItem.blocking_requirements || [];
+    return renderAdminDetailCard({
+      title: "Blocking Requirements",
+      statusHtml: `<span class="shell-chip">${esc(`${blockers.length} blocker(s)`)}</span>`,
+      note: "Each blocker exposes code, message, and optional subject/dependency refs for debugging.",
+      bodyHtml: blockers.length
+        ? `
+            <div class="semantic-blocker-list">
+              ${blockers
+                .map(
+                  (blocker) => `
+                    <div class="semantic-blocker-item">
+                      <div class="semantic-blocker-header">
+                        ${statusBadge("not_ready")}
+                        <code>${esc(blocker.code || "UNKNOWN_BLOCKER")}</code>
+                      </div>
+                      <p>${esc(blocker.message || "No blocker message provided.")}</p>
+                      <div class="shell-chip-group">
+                        ${
+                          blocker.subject_ref
+                            ? `<span class="shell-chip"><strong>subject</strong> ${esc(blocker.subject_ref)}</span>`
+                            : ""
+                        }
+                        ${
+                          blocker.dependency_ref
+                            ? `<span class="shell-chip"><strong>dependency</strong> ${esc(blocker.dependency_ref)}</span>`
+                            : ""
+                        }
+                      </div>
+                    </div>
+                  `
+                )
+                .join("")}
+            </div>
+          `
+        : renderEmptyState("No blocking requirements. This object is currently not blocked by readiness guardrails."),
+    });
+  }
+
+  function renderDependenciesCard(selectedItem) {
+    if (!selectedItem) {
+      return renderAdminDetailCard({
+        title: "Dependencies",
+        statusHtml: "<span class=\"shell-chip\">waiting for selection</span>",
+        note: "Dependency refs come from the semantic detail payload.",
+        bodyHtml: renderEmptyState("Select an object to inspect dependency refs."),
+      });
+    }
+    return renderAdminDetailCard({
+      title: "Dependencies",
+      statusHtml: `<span class="shell-chip">${esc(String((selectedItem.dependency_refs || []).length))} dependency ref(s)</span>`,
+      note: "Dependency jumps help move directly to upstream semantic objects or bindings.",
+      bodyHtml: renderSemanticRefPills(
+        selectedItem.dependency_refs || [],
+        "No dependency refs on this object.",
+        "jump-semantic-ref"
+      ),
+    });
+  }
+
+  function renderDependentsCard(selectedItem) {
+    if (!selectedItem) {
+      return renderAdminDetailCard({
+        title: "Dependents",
+        statusHtml: "<span class=\"shell-chip\">waiting for selection</span>",
+        note: "Dependent refs are still a stubbed detail field in this phase.",
+        bodyHtml: renderEmptyState("Select an object to inspect dependent refs."),
+      });
+    }
+    const dependents = selectedItem.dependent_refs || [];
+    return renderAdminDetailCard({
+      title: "Dependents",
+      statusHtml: `<span class="shell-chip">${esc(String(dependents.length))} dependent ref(s)</span>`,
+      note: dependents.length
+        ? "Dependent refs are available for jump navigation."
+        : "Dependent refs are currently stubbed in the semantic detail response when reverse expansion is not implemented yet.",
+      bodyHtml: renderSemanticRefPills(
+        dependents,
+        "No dependent refs are available yet.",
+        "jump-semantic-ref"
+      ),
+    });
+  }
+
+  function renderCapabilitiesCard(selectedItem) {
+    if (!selectedItem) {
+      return renderAdminDetailCard({
+        title: "Capabilities",
+        statusHtml: "<span class=\"shell-chip\">waiting for selection</span>",
+        note: "Capability flags summarize what the object can support once selected.",
+        bodyHtml: renderEmptyState("Select an object to inspect capability flags."),
+      });
+    }
+    const capabilities = selectedItem.capabilities || {};
+    const capabilityEntries = Object.entries(capabilities);
+    return renderAdminDetailCard({
+      title: "Capabilities",
+      statusHtml: `<span class="shell-chip">${esc(String(capabilityEntries.length))} capability field(s)</span>`,
+      note: "Capabilities are shown directly so operators can distinguish usable objects from merely published ones.",
+      bodyHtml: capabilityEntries.length
+        ? `
+            ${renderDetailList(
+              capabilityEntries.map(([key, value]) => ({
+                label: key,
+                value:
+                  typeof value === "object" && value !== null
+                    ? JSON.stringify(value)
+                    : String(value),
+              }))
+            )}
+            ${renderJsonPanel("Capabilities JSON", capabilities, "No capabilities payload.")}
+          `
+        : renderEmptyState("No capability flags are exposed for this object."),
     });
   }
 
   function renderSemanticLifecycleCard(selectedItem, config, publishError) {
     if (!selectedItem) {
       return renderAdminDetailCard({
-        title: "Lifecycle Summary",
+        title: "Lifecycle",
         statusHtml: '<span class="shell-chip">no object selected</span>',
-        note: "Select an object to inspect draft/published lifecycle, publish guardrails, and structured publish errors.",
+        note: "Select an object to inspect storage status, derived lifecycle, and publish guardrails.",
         bodyHtml: renderEmptyState("Select a semantic object to inspect lifecycle and publish controls."),
       });
     }
     const isPublished = String(selectedItem.status || "").toLowerCase() === "published";
     return renderAdminDetailCard({
-      title: "Lifecycle Summary",
-      statusHtml: statusBadge(selectedItem.status),
+      title: "Lifecycle",
+      statusHtml: statusBadge(selectedItem.lifecycle_status || selectedItem.status),
       note: isPublished
-        ? "Published objects are frozen and stay read-only in T7. Published revision freeze state is explicit in the mixed form shell."
+        ? "Published storage state maps to lifecycle active, but readiness still decides whether the object is actually usable."
         : "Draft objects can publish through the shared confirmation flow. Publish failures render structured error details instead of raw transport text.",
       bodyHtml: `
         ${renderDetailList([
           { label: "status", valueHtml: statusBadge(selectedItem.status) },
+          {
+            label: "lifecycle_status",
+            valueHtml: statusBadge(selectedItem.lifecycle_status || "unknown"),
+          },
           { label: "revision", value: String(selectedItem.revision ?? "-") },
           { label: "updated_at", value: formatMaybeDate(selectedItem.updated_at) },
           {
@@ -369,6 +615,47 @@ export function createSemanticCatalogModule(ctx) {
         </div>
         ${publishError ? renderStructuredError(publishError, "Publish failed.") : ""}
         <p class="panel-note">${esc(`Publish ${config.singularLabel} uses the shared confirmation flow and keeps publish failure detail structured.`)}</p>
+      `,
+    });
+  }
+
+  function renderSemanticReadinessCard(selectedItem) {
+    if (!selectedItem) {
+      return renderAdminDetailCard({
+        title: "Readiness",
+        statusHtml: "<span class=\"shell-chip\">waiting for selection</span>",
+        note: "Readiness explains whether the object is actually usable, separate from storage status.",
+        bodyHtml: renderEmptyState("Select an object to inspect readiness status and why-not-ready detail."),
+      });
+    }
+    const readiness = String(selectedItem.readiness_status || "unknown").toLowerCase();
+    const blockers = semanticBlockerCount(selectedItem);
+    return renderAdminDetailCard({
+      title: "Readiness",
+      statusHtml: semanticReadinessBadge(readiness),
+      note: "Why-not-ready appears here before helper actions so blocker triage starts in the detail pane.",
+      bodyHtml: `
+        ${renderDetailList([
+          {
+            label: "readiness_status",
+            valueHtml: semanticReadinessBadge(readiness),
+          },
+          {
+            label: "blocker_count",
+            value: String(blockers),
+          },
+          {
+            label: "operator_summary",
+            value: semanticReadinessSummary(selectedItem),
+          },
+          {
+            label: "stale_hint",
+            value:
+              readiness === "stale"
+                ? "Stale objects need dependency or pinned revision review before they should be trusted."
+                : "-",
+          },
+        ])}
       `,
     });
   }
@@ -432,18 +719,33 @@ export function createSemanticCatalogModule(ctx) {
     const selectedItem = viewModel.selectedItem;
     if (!selectedItem) {
       return renderAdminDetailCard({
-        title: "Object Summary",
+        title: "Summary",
         statusHtml: "<span class=\"shell-chip\">waiting for selection</span>",
-        note: "Each Semantic Catalog subtab reuses the same summary shape: object_id, stable_ref, display_name, status, revision, updated_at.",
+        note: "Each Semantic Catalog subtab reuses the same summary shape and adds derived lifecycle/readiness fields.",
         bodyHtml: renderEmptyState("Select an object from the list to inspect summary fields and raw JSON."),
       });
     }
+    const summaryFields = [
+      ...viewModel.config.detailFields(selectedItem),
+      {
+        label: "lifecycle_status",
+        valueHtml: statusBadge(selectedItem.lifecycle_status || "unknown"),
+      },
+      {
+        label: "readiness_status",
+        valueHtml: semanticReadinessBadge(selectedItem.readiness_status || "unknown"),
+      },
+      {
+        label: "blocker_count",
+        value: String(semanticBlockerCount(selectedItem)),
+      },
+    ];
     return renderAdminDetailCard({
-      title: "Object Summary",
-      statusHtml: statusBadge(selectedItem.status),
+      title: "Summary",
+      statusHtml: semanticReadinessBadge(selectedItem.readiness_status || selectedItem.status),
       note: `${viewModel.config.singularLabel} summary now includes object-specific contract fields instead of only the shared list columns.`,
       bodyHtml: `
-        ${renderDetailList(viewModel.config.detailFields(selectedItem))}
+        ${renderDetailList(summaryFields)}
         ${renderJsonPanel("Raw JSON Panel", selectedItem, "No object payload.")}
       `,
     });
@@ -601,7 +903,13 @@ export function createSemanticCatalogModule(ctx) {
       primaryHtml: renderSemanticCatalogListCard(viewModel.route, viewModel),
       secondaryHtml: renderSemanticLifecycleCard(viewModel.selectedItem, viewModel.config, viewModel.publishError),
       detailHtml: `
+        ${viewModel.detailError ? renderStructuredError(viewModel.detailError, `${viewModel.config.singularLabel} detail unavailable.`) : ""}
         ${renderSemanticObjectSummaryCard(viewModel)}
+        ${renderSemanticReadinessCard(viewModel.selectedItem)}
+        ${renderBlockingRequirementsCard(viewModel.selectedItem)}
+        ${renderDependenciesCard(viewModel.selectedItem)}
+        ${renderDependentsCard(viewModel.selectedItem)}
+        ${renderCapabilitiesCard(viewModel.selectedItem)}
         ${renderSemanticContractSummaryCard(viewModel)}
         ${renderSemanticRelationshipSummaryCard(viewModel)}
         ${renderSemanticOperatorGuidanceCard(viewModel)}
@@ -621,6 +929,7 @@ export function createSemanticCatalogModule(ctx) {
       selectedObjectId: route.objectId || "",
       selectedItem: null,
       listError: null,
+      detailError: null,
       publishError: null,
       helperState: {},
       relatedBindingsFilter: semanticCatalogUiState.relatedBindingsFilter,
@@ -788,9 +1097,13 @@ export function createSemanticCatalogModule(ctx) {
   }
 
   function bindEvents(panel, viewModel) {
-    panel.querySelectorAll('[data-action="set-semantic-status"]').forEach((button) => {
+    panel.querySelectorAll('[data-action="set-semantic-filter"]').forEach((button) => {
       button.addEventListener("click", () => {
-        semanticCatalogUiState.statusBySubtab[viewModel.route.subtab] = button.dataset.status || "all";
+        const current = semanticFiltersForSubtab(viewModel.route.subtab);
+        semanticCatalogUiState.filtersBySubtab[viewModel.route.subtab] = {
+          ...current,
+          [button.dataset.filterKey || "lifecycle"]: button.dataset.filterValue || "all",
+        };
         ctx.applyAdminRoute({ ...ctx.getCurrentRoute(), tab: "semantic-catalog", subtab: viewModel.route.subtab, objectId: "" }, "replace");
       });
     });
@@ -872,7 +1185,7 @@ export function createSemanticCatalogModule(ctx) {
   async function hydrate(panel, route) {
     const renderVersion = ++semanticCatalogRenderVersion;
     const config = semanticConfigForSubtab(route.subtab || "entities");
-    const statusFilter = semanticStatusFilterForSubtab(route.subtab);
+    const semanticFilters = semanticFiltersForSubtab(route.subtab);
     const endpoints = semanticEndpointForSubtab(route.subtab);
     const safeRender = (viewModel) => {
       if (renderVersion !== semanticCatalogRenderVersion) return;
@@ -891,6 +1204,7 @@ export function createSemanticCatalogModule(ctx) {
       selectedObjectId: route.objectId || "",
       selectedItem: null,
       listError: null,
+      detailError: null,
       publishError: null,
       helperState: semanticHelperState(route.subtab, route.objectId),
       relatedBindingsFilter: semanticCatalogUiState.relatedBindingsFilter,
@@ -898,16 +1212,37 @@ export function createSemanticCatalogModule(ctx) {
     });
 
     try {
-      const payload = await endpoints.list(statusFilter === "all" ? null : statusFilter);
+      const payload = await endpoints.list(null, { detail: false });
       const unfilteredItems = extractItems(payload);
       const focusedRef = semanticFocusedRefForSubtab(route.subtab);
       const focusedItems = focusedRef
         ? unfilteredItems.filter((item) => semanticListMatchesFocusedRef(config, item, focusedRef))
         : unfilteredItems;
-      const filteredItems =
+      const bindingFilteredItems =
         route.subtab === "typed-bindings" && semanticCatalogUiState.relatedBindingsFilter?.ref
           ? focusedItems.filter((item) => semanticListMatchesRelatedBindingFilter(item, semanticCatalogUiState.relatedBindingsFilter))
           : focusedItems;
+      const filteredItems = bindingFilteredItems.filter((item) => {
+        if (
+          semanticFilters.lifecycle !== "all" &&
+          String(item?.lifecycle_status || "").toLowerCase() !== semanticFilters.lifecycle
+        ) {
+          return false;
+        }
+        if (
+          semanticFilters.readiness !== "all" &&
+          String(item?.readiness_status || "").toLowerCase() !== semanticFilters.readiness
+        ) {
+          return false;
+        }
+        if (semanticFilters.blockers === "with" && semanticBlockerCount(item) === 0) {
+          return false;
+        }
+        if (semanticFilters.blockers === "without" && semanticBlockerCount(item) > 0) {
+          return false;
+        }
+        return true;
+      });
       let selectedObjectId = filteredItems.some((item) => semanticObjectId(config, item) === route.objectId) ? route.objectId : "";
       if (!selectedObjectId && filteredItems.length) {
         selectedObjectId = semanticObjectId(config, filteredItems[0]);
@@ -936,7 +1271,8 @@ export function createSemanticCatalogModule(ctx) {
         unfilteredItems,
         selectedObjectId,
         selectedItem,
-        listError: detailError,
+        listError: null,
+        detailError,
         publishError: semanticPublishError(route.subtab, selectedObjectId),
         helperState: semanticHelperState(route.subtab, selectedObjectId),
         relatedBindingsFilter: semanticCatalogUiState.relatedBindingsFilter,
@@ -951,6 +1287,7 @@ export function createSemanticCatalogModule(ctx) {
         selectedObjectId: "",
         selectedItem: null,
         listError: normalizeApiError(error, `${config.label} unavailable.`),
+        detailError: null,
         publishError: null,
         helperState: semanticHelperState(route.subtab, route.objectId),
         relatedBindingsFilter: semanticCatalogUiState.relatedBindingsFilter,
