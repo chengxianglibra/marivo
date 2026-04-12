@@ -128,7 +128,9 @@ legacy storage `status`; preserve backward compatibility unless a task explicitl
 Lifecycle actions should use `validate`, `activate`, and `deprecate` as the primary public verbs;
 `publish` is a compatibility alias for `activate`, and `activate` must never be presented as a
 proxy for readiness. For semantic list filters, prefer `lifecycle_status` and
-`readiness_status`; `status` remains a storage compatibility filter only.
+`readiness_status`; `status` remains a storage compatibility filter only. `status=active` is a
+read-time compatibility alias for storage `published`; new work should still prefer
+`lifecycle_status=active`.
 Direct dependency information may also be exposed via `dependency_refs` on semantic object read
 surfaces when a task needs catalog/debug visibility.
 Runtime/catalog defaults should treat readiness as the availability gate. For entity/metric/process,
