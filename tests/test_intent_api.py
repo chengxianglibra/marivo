@@ -16,7 +16,9 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from uuid import uuid4
 
+import duckdb
 from fastapi.testclient import TestClient
 
 from app.api.models import (
@@ -28,8 +30,11 @@ from app.api.models import (
 )
 from app.main import create_app
 from tests.semantic_test_helpers import (
+    create_typed_entity,
     create_typed_metric,
     create_typed_metric_binding,
+    ensure_published_typed_time,
+    publish_typed_entity,
     publish_typed_metric,
 )
 from tests.shared_fixtures import get_seeded_duckdb_path
@@ -136,15 +141,15 @@ class IntentEndpointTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.temp_dir = tempfile.TemporaryDirectory()
-        db_path = Path(cls.temp_dir.name) / "intent_api.duckdb"
-        get_seeded_duckdb_path(db_path)
-        cls.client = TestClient(create_app(db_path))
+        cls.db_path = Path(cls.temp_dir.name) / "intent_api.duckdb"
+        get_seeded_duckdb_path(cls.db_path)
+        cls.client = TestClient(create_app(cls.db_path))
         source = cls.client.post(
             "/sources",
             json={
                 "source_type": "duckdb",
                 "display_name": "Intent API Source",
-                "connection": {"path": str(db_path)},
+                "connection": {"path": str(cls.db_path)},
             },
         ).json()
         cls.source_id = source["source_id"]
@@ -160,6 +165,383 @@ class IntentEndpointTests(unittest.TestCase):
     def tearDownClass(cls) -> None:
         cls.client.close()
         cls.temp_dir.cleanup()
+
+    @classmethod
+    def _ensure_import_bridge_table(cls) -> tuple[str, str]:
+        table_name = "intent_import_bridge_events"
+        table_fqn = f"analytics.{table_name}"
+        con = duckdb.connect(str(cls.db_path))
+        try:
+            con.execute("CREATE SCHEMA IF NOT EXISTS analytics")
+            con.execute(
+                f"""
+                CREATE TABLE IF NOT EXISTS {table_fqn} (
+                    event_date DATE NOT NULL,
+                    user_id VARCHAR NOT NULL,
+                    cluster VARCHAR NOT NULL,
+                    value DOUBLE NOT NULL
+                )
+                """
+            )
+            con.execute(f"DELETE FROM {table_fqn}")
+            con.executemany(
+                f"INSERT INTO {table_fqn} VALUES (?, ?, ?, ?)",
+                [
+                    ("2024-01-01", "u1", "alpha", 10.0),
+                    ("2024-01-02", "u2", "beta", 20.0),
+                    ("2024-01-03", "u3", "alpha", 30.0),
+                ],
+            )
+        finally:
+            con.close()
+
+        metadata = cls.client.app.state.service.metadata
+        existing = metadata.query_one(
+            "SELECT object_id FROM source_objects WHERE source_id = ? AND fqn = ?",
+            [cls.source_id, table_fqn],
+        )
+        if existing is not None:
+            return str(existing["object_id"]), table_fqn
+        object_id = f"obj_{uuid4().hex[:12]}"
+        now = "2026-01-01T00:00:00"
+        metadata.execute(
+            """
+            INSERT INTO source_objects
+                (object_id, source_id, object_type, native_name, fqn,
+                 properties_json, created_at, updated_at)
+            VALUES (?, ?, 'table', ?, ?, '{}', ?, ?)
+            """,
+            [object_id, cls.source_id, table_name, table_fqn, now, now],
+        )
+        return object_id, table_fqn
+
+    def _create_import_bridge_metric(self, *, mode: str) -> str:
+        object_id, table_fqn = self._ensure_import_bridge_table()
+        metadata = self.client.app.state.metadata_store
+        ensure_published_typed_time(metadata)
+        dimension_row = metadata.query_one(
+            """
+            SELECT dimension_contract_id, status
+            FROM semantic_dimension_contracts
+            WHERE dimension_ref = ?
+            """,
+            ["dimension.cluster"],
+        )
+        if dimension_row is None:
+            dimension_resp = self.client.post(
+                "/semantic/dimensions",
+                json={
+                    "header": {
+                        "dimension_ref": "dimension.cluster",
+                        "display_name": "Cluster",
+                        "dimension_contract_version": "dimension.v1",
+                    },
+                    "interface_contract": {
+                        "value_domain": {
+                            "structure_kind": "flat",
+                            "semantic_role": "category",
+                            "value_type": "string",
+                            "domain_kind": "open",
+                        },
+                        "grouping": {"supports_grouping": True},
+                    },
+                },
+            )
+            self.assertEqual(dimension_resp.status_code, 200, dimension_resp.text)
+            dimension_id = dimension_resp.json()["dimension_contract_id"]
+            publish_dimension_resp = self.client.post(
+                f"/semantic/dimensions/{dimension_id}/publish"
+            )
+            self.assertEqual(
+                publish_dimension_resp.status_code,
+                200,
+                publish_dimension_resp.text,
+            )
+        elif dimension_row["status"] != "published":
+            publish_dimension_resp = self.client.post(
+                f"/semantic/dimensions/{dimension_row['dimension_contract_id']}/publish"
+            )
+            self.assertEqual(
+                publish_dimension_resp.status_code,
+                200,
+                publish_dimension_resp.text,
+            )
+
+        suffix = uuid4().hex[:8]
+        entity = create_typed_entity(
+            self.client,
+            name=f"intent_bridge_entity_{suffix}",
+            display_name="Intent Bridge Entity",
+            keys=["user_id"],
+            primary_time_ref="time.event_date",
+        )
+        publish_typed_entity(self.client, entity["entity_contract_id"])
+        entity_ref = entity["header"]["entity_ref"]
+
+        metric_name = f"intent_bridge_metric_{suffix}"
+        metric_ref = f"metric.{metric_name}"
+        metric = create_typed_metric(
+            self.client,
+            name=metric_name,
+            display_name="Intent Bridge Metric",
+            description="Metric that relies on imported entity dimensions",
+            definition_sql="SUM(value)",
+            dimensions=[],
+            entity_ref=entity_ref,
+            grain="day",
+            measure_type="sum",
+        )
+        publish_typed_metric(self.client, metric["metric_contract_id"])
+
+        primary_imported_binding_ref = f"binding.intent_bridge_entity_{suffix}"
+        entity_binding_resp = self.client.post(
+            "/semantic/bindings",
+            json={
+                "header": {
+                    "binding_ref": primary_imported_binding_ref,
+                    "display_name": "Intent Bridge Entity Binding",
+                    "binding_scope": "entity",
+                    "bound_object_ref": entity_ref,
+                    "binding_contract_version": "binding.v1",
+                },
+                "interface_contract": {
+                    "carrier_bindings": [
+                        {
+                            "binding_key": "primary",
+                            "source_object_ref": object_id,
+                            "carrier_kind": "table",
+                            "carrier_locator": table_fqn,
+                            "binding_role": "primary",
+                            "field_surfaces": [
+                                {
+                                    "surface_ref": "field.event_date",
+                                    "physical_name": "event_date",
+                                },
+                                {
+                                    "surface_ref": "field.user_id",
+                                    "physical_name": "user_id",
+                                },
+                                {
+                                    "surface_ref": "field.cluster",
+                                    "physical_name": "cluster",
+                                },
+                            ],
+                        }
+                    ],
+                    "field_bindings": [
+                        {
+                            "carrier_binding_key": "primary",
+                            "target": {
+                                "target_kind": "identity_key",
+                                "target_key": "key.user_id",
+                            },
+                            "semantic_ref": "key.user_id",
+                            "surface_ref": "field.user_id",
+                        },
+                        {
+                            "carrier_binding_key": "primary",
+                            "target": {
+                                "target_kind": "primary_time",
+                                "target_key": "time.event_date",
+                            },
+                            "semantic_ref": "time.event_date",
+                            "surface_ref": "field.event_date",
+                        },
+                        {
+                            "carrier_binding_key": "primary",
+                            "target": {
+                                "target_kind": "stable_descriptor",
+                                "target_key": "dimension.cluster",
+                            },
+                            "semantic_ref": "dimension.cluster",
+                            "surface_ref": "field.cluster",
+                        },
+                    ],
+                },
+            },
+        )
+        self.assertEqual(entity_binding_resp.status_code, 200, entity_binding_resp.text)
+        entity_binding_id = entity_binding_resp.json()["binding_id"]
+        publish_entity_binding_resp = self.client.post(
+            f"/semantic/bindings/{entity_binding_id}/publish"
+        )
+        self.assertEqual(
+            publish_entity_binding_resp.status_code, 200, publish_entity_binding_resp.text
+        )
+
+        imports: list[dict[str, object]] = []
+        if mode in {"single", "ambiguous"}:
+            imports.append(
+                {
+                    "import_key": "entity_bridge",
+                    "binding_ref": primary_imported_binding_ref,
+                    "required_ref_prefixes": ["dimension."],
+                }
+            )
+        if mode == "ambiguous":
+            secondary_imported_binding_ref = f"binding.intent_bridge_entity_alt_{suffix}"
+            entity_binding_alt_resp = self.client.post(
+                "/semantic/bindings",
+                json={
+                    "header": {
+                        "binding_ref": secondary_imported_binding_ref,
+                        "display_name": "Intent Bridge Entity Binding Alt",
+                        "binding_scope": "entity",
+                        "bound_object_ref": entity_ref,
+                        "binding_contract_version": "binding.v1",
+                    },
+                    "interface_contract": {
+                        "carrier_bindings": [
+                            {
+                                "binding_key": "primary",
+                                "source_object_ref": object_id,
+                                "carrier_kind": "table",
+                                "carrier_locator": table_fqn,
+                                "binding_role": "primary",
+                                "field_surfaces": [
+                                    {
+                                        "surface_ref": "field.event_date",
+                                        "physical_name": "event_date",
+                                    },
+                                    {
+                                        "surface_ref": "field.user_id",
+                                        "physical_name": "user_id",
+                                    },
+                                    {
+                                        "surface_ref": "field.cluster_alt",
+                                        "physical_name": "cluster",
+                                    },
+                                ],
+                            }
+                        ],
+                        "field_bindings": [
+                            {
+                                "carrier_binding_key": "primary",
+                                "target": {
+                                    "target_kind": "identity_key",
+                                    "target_key": "key.user_id",
+                                },
+                                "semantic_ref": "key.user_id",
+                                "surface_ref": "field.user_id",
+                            },
+                            {
+                                "carrier_binding_key": "primary",
+                                "target": {
+                                    "target_kind": "primary_time",
+                                    "target_key": "time.event_date",
+                                },
+                                "semantic_ref": "time.event_date",
+                                "surface_ref": "field.event_date",
+                            },
+                            {
+                                "carrier_binding_key": "primary",
+                                "target": {
+                                    "target_kind": "stable_descriptor",
+                                    "target_key": "dimension.cluster",
+                                },
+                                "semantic_ref": "dimension.cluster",
+                                "surface_ref": "field.cluster_alt",
+                            },
+                        ],
+                    },
+                },
+            )
+            self.assertEqual(entity_binding_alt_resp.status_code, 200, entity_binding_alt_resp.text)
+            entity_binding_alt_id = entity_binding_alt_resp.json()["binding_id"]
+            publish_entity_binding_alt_resp = self.client.post(
+                f"/semantic/bindings/{entity_binding_alt_id}/publish"
+            )
+            self.assertEqual(
+                publish_entity_binding_alt_resp.status_code,
+                200,
+                publish_entity_binding_alt_resp.text,
+            )
+            imports.append(
+                {
+                    "import_key": "entity_bridge_alt",
+                    "binding_ref": secondary_imported_binding_ref,
+                    "required_ref_prefixes": ["dimension."],
+                }
+            )
+
+        metric_binding_resp = self.client.post(
+            "/semantic/bindings",
+            json={
+                "header": {
+                    "binding_ref": f"binding.intent_bridge_metric_{suffix}",
+                    "display_name": "Intent Bridge Metric Binding",
+                    "binding_scope": "metric",
+                    "bound_object_ref": metric_ref,
+                    "binding_contract_version": "binding.v1",
+                },
+                "interface_contract": {
+                    "imports": imports,
+                    "carrier_bindings": [
+                        {
+                            "binding_key": "primary",
+                            "source_object_ref": object_id,
+                            "carrier_kind": "table",
+                            "carrier_locator": table_fqn,
+                            "binding_role": "primary",
+                            "field_surfaces": [
+                                {
+                                    "surface_ref": "field.event_date",
+                                    "physical_name": "event_date",
+                                },
+                                {
+                                    "surface_ref": "field.user_id",
+                                    "physical_name": "user_id",
+                                },
+                                {
+                                    "surface_ref": "field.value",
+                                    "physical_name": "value",
+                                },
+                            ],
+                        }
+                    ],
+                    "field_bindings": [
+                        {
+                            "carrier_binding_key": "primary",
+                            "target": {
+                                "target_kind": "primary_time",
+                                "target_key": "time.event_date",
+                            },
+                            "semantic_ref": "time.event_date",
+                            "surface_ref": "field.event_date",
+                        },
+                        {
+                            "carrier_binding_key": "primary",
+                            "target": {
+                                "target_kind": "population_subject",
+                                "target_key": "key.user_id",
+                            },
+                            "semantic_ref": "key.user_id",
+                            "surface_ref": "field.user_id",
+                        },
+                        {
+                            "carrier_binding_key": "primary",
+                            "target": {
+                                "target_kind": "metric_input",
+                                "target_key": "measure",
+                            },
+                            "semantic_ref": "metric_input.measure",
+                            "surface_ref": "field.value",
+                        },
+                    ],
+                },
+            },
+        )
+        self.assertEqual(metric_binding_resp.status_code, 200, metric_binding_resp.text)
+        metric_binding_id = metric_binding_resp.json()["binding_id"]
+        publish_metric_binding_resp = self.client.post(
+            f"/semantic/bindings/{metric_binding_id}/publish"
+        )
+        self.assertEqual(
+            publish_metric_binding_resp.status_code,
+            200,
+            publish_metric_binding_resp.text,
+        )
+        return metric_name
 
     # ── observe ───────────────────────────────────────────────────────────────
 
@@ -318,6 +700,69 @@ class IntentEndpointTests(unittest.TestCase):
         self.assertEqual(
             detail["issues"][0]["code"],
             "COMPILER_DIMENSION_TIME_ANCHOR_MISMATCH",
+        )
+
+    def test_observe_imported_dimension_bridge_allows_segmented_request(self) -> None:
+        metric_name = self._create_import_bridge_metric(mode="single")
+
+        response = self.client.post(
+            f"/sessions/{self.session_id}/intents/observe",
+            json={
+                "metric": metric_name,
+                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-04"},
+                "dimensions": ["dimension.cluster"],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()
+        self.assertEqual(data["observation_type"], "segmented")
+        self.assertEqual(data["dimensions"], ["dimension.cluster"])
+        self.assertEqual(len(data["segments"]), 2)
+        values = [segment["value"] for segment in data["segments"]]
+        self.assertEqual(values, sorted(values, reverse=True))
+
+    def test_observe_imported_dimension_bridge_missing_returns_structured_error(self) -> None:
+        metric_name = self._create_import_bridge_metric(mode="missing")
+
+        response = self.client.post(
+            f"/sessions/{self.session_id}/intents/observe",
+            json={
+                "metric": metric_name,
+                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-04"},
+                "dimensions": ["dimension.cluster"],
+            },
+        )
+
+        self.assertEqual(response.status_code, 409, response.text)
+        detail = response.json()["detail"]
+        self.assertEqual(detail["code"], "semantic_request_incompatible")
+        self.assertEqual(detail["subject_ref"], "dimension.cluster")
+        self.assertEqual(detail["issues"][0]["code"], "COMPILER_DIMENSION_IMPORT_MISSING")
+
+    def test_observe_imported_dimension_bridge_ambiguous_returns_structured_error(self) -> None:
+        metric_name = self._create_import_bridge_metric(mode="ambiguous")
+
+        response = self.client.post(
+            f"/sessions/{self.session_id}/intents/observe",
+            json={
+                "metric": metric_name,
+                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-04"},
+                "dimensions": ["dimension.cluster"],
+            },
+        )
+
+        self.assertEqual(response.status_code, 409, response.text)
+        detail = response.json()["detail"]
+        self.assertEqual(detail["code"], "semantic_request_incompatible")
+        self.assertEqual(detail["subject_ref"], "dimension.cluster")
+        self.assertEqual(detail["issues"][0]["code"], "COMPILER_DIMENSION_IMPORT_AMBIGUOUS")
+        self.assertEqual(
+            sorted(
+                candidate["import_key"]
+                for candidate in detail["issues"][0]["details"]["candidates"]
+            ),
+            ["entity_bridge", "entity_bridge_alt"],
         )
 
     # ── compare ───────────────────────────────────────────────────────────────

@@ -39,7 +39,11 @@ from app.analysis_core.typed_resolution import (
     normalize_step_request,
     resolve_compiler_inputs,
 )
-from app.analysis_core.validator import validate_compiler_inputs, validation_error_message
+from app.analysis_core.validator import (
+    ValidationIssue,
+    validate_compiler_inputs,
+    validation_error_message,
+)
 from app.evidence_engine.ref_boundary import assert_no_canonical_refs_in_semantic_payload
 from app.semantic_runtime import SemanticRuntimeRepository
 from app.semantic_runtime.resolution import ResolvedSemanticObject
@@ -230,6 +234,7 @@ def build_metric_query(
     table_name: str,
     metric_sql: str,
     dimensions: list[str],
+    dimension_sql_expressions: Mapping[str, str] | None = None,
     date_column: str = "event_date",
     order: str = "DELTA_PCT ASC",
     limit: int = 10,
@@ -246,10 +251,23 @@ def build_metric_query(
 
     del metric_name
 
+    dimension_sql_expressions = dimension_sql_expressions or {}
+    select_dimension_exprs: list[str] = []
+    group_dimension_exprs: list[str] = []
+    for dimension in dimensions:
+        expr = str(dimension_sql_expressions.get(dimension) or dimension).strip()
+        if expr != dimension:
+            select_dimension_exprs.append(f'{expr} AS "{dimension}"')
+            group_dimension_exprs.append(expr)
+            continue
+        select_dimension_exprs.append(dimension)
+        group_dimension_exprs.append(dimension)
+
     if dimensions:
-        dim_cols = ", ".join(dimensions)
-        group_by_period = f"GROUP BY period, {dim_cols}"
-        group_by_dims = f"GROUP BY {dim_cols}"
+        dim_cols = ", ".join(select_dimension_exprs)
+        group_dim_cols = ", ".join(group_dimension_exprs)
+        group_by_period = f"GROUP BY period, {group_dim_cols}"
+        group_by_dims = f"GROUP BY {group_dim_cols}"
         select_dims = f"{dim_cols},"
     else:
         group_by_period = "GROUP BY period"
@@ -264,7 +282,7 @@ def build_metric_query(
         order_field, order_direction = _normalize_metric_query_order(effective_order, mode=mode)
         if mode == "single_window":
             scoped = _build_scoped_query_parts(table_name, scoped_query, include_period=False)
-            group_clause = f"GROUP BY {', '.join(dimensions)}" if dimensions else ""
+            group_clause = f"GROUP BY {', '.join(group_dimension_exprs)}" if dimensions else ""
             order_clause = f"ORDER BY {order_field} {order_direction}" if order else ""
             return f"""
                 WITH {scoped.cte_sql}
@@ -358,6 +376,22 @@ def build_metric_query(
         ORDER BY {legacy_order_field} {legacy_order_direction}
         LIMIT {limit}
     """
+
+
+def _metric_query_dimension_sql_expressions(
+    dimensions: list[str],
+    imported_dimension_sources: list[dict[str, Any]],
+) -> dict[str, str]:
+    physical_names = {
+        str(source.get("dimension_ref")): str(source.get("physical_name"))
+        for source in imported_dimension_sources
+        if source.get("dimension_ref") is not None and source.get("physical_name") is not None
+    }
+    return {
+        dimension: physical_names[dimension]
+        for dimension in dimensions
+        if dimension in physical_names
+    }
 
 
 def _extract_agg_alias(expr: str) -> str:
@@ -699,6 +733,158 @@ def _build_request_compatibility_error(
         "issues": [issue.to_dict() for issue in issues],
         "request_context": request_context,
     }
+
+
+def _requests_imported_dimensions(resolved_inputs: ResolvedCompilerInputs) -> bool:
+    requested_dimension_refs = set(resolved_inputs.normalized_request.request_dimensions)
+    imported_dimension_refs = {
+        bridge.dimension_ref for bridge in resolved_inputs.resolved_imported_dimensions
+    }
+    return bool(requested_dimension_refs & imported_dimension_refs)
+
+
+def _resolve_imported_dimension_physical_sources(
+    resolved_inputs: ResolvedCompilerInputs,
+    *,
+    semantic_repository: SemanticRuntimeRepository | None,
+) -> tuple[list[dict[str, Any]], list[ValidationIssue]]:
+    if not _requests_imported_dimensions(resolved_inputs):
+        return [], []
+    if semantic_repository is None:
+        return [], [
+            ValidationIssue(
+                code="COMPILER_DIMENSION_IMPORT_PHYSICAL_UNRESOLVED",
+                gate="dimension_compatibility",
+                category="compatibility",
+                severity="error",
+                message="Imported dimension physical source resolution requires semantic_repository",
+                subject_ref=resolved_inputs.resolved_metric.ref
+                if resolved_inputs.resolved_metric is not None
+                else None,
+            )
+        ]
+
+    requested_dimension_refs = set(resolved_inputs.normalized_request.request_dimensions)
+    imported_dimension_refs = {
+        bridge.dimension_ref: bridge
+        for bridge in resolved_inputs.resolved_imported_dimensions
+        if bridge.dimension_ref in requested_dimension_refs
+    }
+    resolved_sources: list[dict[str, Any]] = []
+    issues: list[ValidationIssue] = []
+    for dimension_ref, bridge in sorted(imported_dimension_refs.items()):
+        imported_binding = semantic_repository.resolve_binding_ref(bridge.source_binding_ref)
+        interface_contract = dict(imported_binding.semantic_object.get("interface_contract") or {})
+        matching_field_bindings = [
+            dict(field_binding)
+            for field_binding in interface_contract.get("field_bindings") or []
+            if str(field_binding.get("semantic_ref") or "").strip() == dimension_ref
+            and str((field_binding.get("target") or {}).get("target_kind") or "").strip()
+            == "stable_descriptor"
+        ]
+        if len(matching_field_bindings) != 1:
+            issues.append(
+                ValidationIssue(
+                    code="COMPILER_DIMENSION_IMPORT_LINEAGE_MISSING",
+                    gate="dimension_compatibility",
+                    category="compatibility",
+                    severity="error",
+                    message="Imported dimension bridge does not resolve to a unique field lineage",
+                    subject_ref=dimension_ref,
+                    details={
+                        "metric_ref": resolved_inputs.resolved_metric.ref
+                        if resolved_inputs.resolved_metric is not None
+                        else None,
+                        "source_binding_ref": bridge.source_binding_ref,
+                        "source_entity_ref": bridge.source_entity_ref,
+                        "import_key": bridge.import_key,
+                        "match_count": len(matching_field_bindings),
+                    },
+                )
+            )
+            continue
+
+        field_binding = matching_field_bindings[0]
+        carrier_binding_key = _optional_str(field_binding.get("carrier_binding_key"))
+        surface_ref = _optional_str(field_binding.get("surface_ref"))
+        carrier_bindings = {
+            _optional_str(carrier_binding.get("binding_key")): dict(carrier_binding)
+            for carrier_binding in interface_contract.get("carrier_bindings") or []
+            if _optional_str(carrier_binding.get("binding_key")) is not None
+        }
+        carrier_binding = carrier_bindings.get(carrier_binding_key)
+        carrier_locator = (
+            _optional_str(carrier_binding.get("carrier_locator"))
+            if carrier_binding is not None
+            else None
+        )
+        physical_name = None
+        if carrier_binding is not None:
+            for field_surface in carrier_binding.get("field_surfaces") or []:
+                if _optional_str(field_surface.get("surface_ref")) == surface_ref:
+                    physical_name = _optional_str(field_surface.get("physical_name"))
+                    break
+        if carrier_binding_key is None or surface_ref is None or carrier_binding is None:
+            issues.append(
+                ValidationIssue(
+                    code="COMPILER_DIMENSION_IMPORT_LINEAGE_MISSING",
+                    gate="dimension_compatibility",
+                    category="compatibility",
+                    severity="error",
+                    message="Imported dimension bridge lineage is incomplete",
+                    subject_ref=dimension_ref,
+                    details={
+                        "metric_ref": resolved_inputs.resolved_metric.ref
+                        if resolved_inputs.resolved_metric is not None
+                        else None,
+                        "source_binding_ref": bridge.source_binding_ref,
+                        "source_entity_ref": bridge.source_entity_ref,
+                        "import_key": bridge.import_key,
+                        "carrier_binding_key": carrier_binding_key,
+                        "surface_ref": surface_ref,
+                    },
+                )
+            )
+            continue
+        if carrier_locator is None or physical_name is None:
+            issues.append(
+                ValidationIssue(
+                    code="COMPILER_DIMENSION_IMPORT_PHYSICAL_UNRESOLVED",
+                    gate="dimension_compatibility",
+                    category="compatibility",
+                    severity="error",
+                    message="Imported dimension bridge cannot resolve a physical carrier source",
+                    subject_ref=dimension_ref,
+                    details={
+                        "metric_ref": resolved_inputs.resolved_metric.ref
+                        if resolved_inputs.resolved_metric is not None
+                        else None,
+                        "source_binding_ref": bridge.source_binding_ref,
+                        "source_entity_ref": bridge.source_entity_ref,
+                        "import_key": bridge.import_key,
+                        "carrier_binding_key": carrier_binding_key,
+                        "surface_ref": surface_ref,
+                        "physical_name": physical_name,
+                    },
+                )
+            )
+            continue
+        resolved_source = {
+            "dimension_ref": dimension_ref,
+            "source_binding_ref": bridge.source_binding_ref,
+            "source_entity_ref": bridge.source_entity_ref,
+            "import_key": bridge.import_key,
+            "carrier_binding_key": carrier_binding_key,
+            "carrier_locator": carrier_locator,
+            "surface_ref": surface_ref,
+            "physical_name": physical_name,
+        }
+        source_object_ref = _optional_str(carrier_binding.get("source_object_ref"))
+        if source_object_ref is not None:
+            resolved_source["source_object_ref"] = source_object_ref
+        resolved_sources.append(resolved_source)
+
+    return resolved_sources, issues
 
 
 def _build_validation_trace(validation_result: Any) -> list[ValidationRecord]:
@@ -1152,6 +1338,47 @@ def compile_step(
         resolved_inputs=resolved_inputs,
         derived_state=derived_state,
     )
+    imported_dimension_sources, imported_dimension_issues = (
+        _resolve_imported_dimension_physical_sources(
+            resolved_inputs,
+            semantic_repository=semantic_repository,
+        )
+    )
+    if imported_dimension_issues:
+        compatibility_issues = [
+            issue for issue in imported_dimension_issues if issue.category == "compatibility"
+        ]
+        if compatibility_issues and len(compatibility_issues) == len(imported_dimension_issues):
+            request_context = {
+                "step_type": step.step_type,
+                "intent_kind": normalized_request.intent_kind,
+                "metric_ref": normalized_request.metric_ref,
+                "process_ref": normalized_request.process_ref,
+                "dimension_refs": list(normalized_request.request_dimensions),
+            }
+            request_context = {
+                key: value for key, value in request_context.items() if value not in (None, [])
+            }
+            raise SemanticRequestCompatibilityError(
+                {
+                    "message": "Request is incompatible with resolved semantic objects",
+                    "code": "semantic_request_incompatible",
+                    "category": "compatibility",
+                    "subject_ref": compatibility_issues[0].subject_ref,
+                    "issues": [issue.to_dict() for issue in compatibility_issues],
+                    "request_context": request_context,
+                }
+            )
+        compile_error: dict[str, Any] = {
+            "error_code": imported_dimension_issues[0].code,
+            "failed_gate": imported_dimension_issues[0].gate,
+            "message": imported_dimension_issues[0].message,
+        }
+        if imported_dimension_issues[0].subject_ref is not None:
+            compile_error["subject_ref"] = imported_dimension_issues[0].subject_ref
+        if imported_dimension_issues[0].details:
+            compile_error["details"] = dict(imported_dimension_issues[0].details)
+        raise SemanticCompilerError(cast("SemanticCompileError", compile_error))
     if not validation_result.ok:
         compatibility_issues = validation_result.issues_for_category("compatibility")
         non_compatibility_issues = [
@@ -1194,6 +1421,29 @@ def compile_step(
         else None,
         "resolved_dimension_refs": resolved_inputs.resolved_dimension_refs,
         "resolved_binding_refs": [binding.ref for binding in resolved_inputs.resolved_bindings],
+        "metric_entity_anchor_ref": resolved_inputs.metric_entity_anchor_ref,
+        "resolved_imported_dimensions": [
+            {
+                "dimension_ref": bridge.dimension_ref,
+                "source_binding_ref": bridge.source_binding_ref,
+                "source_entity_ref": bridge.source_entity_ref,
+                "import_key": bridge.import_key,
+            }
+            for bridge in resolved_inputs.resolved_imported_dimensions
+        ],
+        "imported_dimension_conflicts": {
+            dimension_ref: [
+                {
+                    "dimension_ref": bridge.dimension_ref,
+                    "source_binding_ref": bridge.source_binding_ref,
+                    "source_entity_ref": bridge.source_entity_ref,
+                    "import_key": bridge.import_key,
+                }
+                for bridge in bridges
+            ]
+            for dimension_ref, bridges in resolved_inputs.imported_dimension_conflicts.items()
+        },
+        "resolved_imported_dimension_sources": imported_dimension_sources,
         "compiler_summary": ir_bundle["compile_report"]["validation_summary"],
     }
     assert_no_canonical_refs_in_semantic_payload(metadata, surface="compiler_metadata")
@@ -1298,6 +1548,10 @@ def compile_step(
             table_name=table_name,
             metric_sql=str(metric_sql),
             dimensions=list(dimensions),
+            dimension_sql_expressions=_metric_query_dimension_sql_expressions(
+                list(dimensions),
+                imported_dimension_sources,
+            ),
             order=order,
             limit=limit,
             scoped_query=scoped_query if isinstance(scoped_query, Mapping) else None,

@@ -84,6 +84,28 @@ class StepMetadataPersistenceTests(unittest.TestCase):
                 "resolved_filter_time_ref": "time.event_date",
                 "resolved_dimension_refs": ["dimension.country"],
                 "resolved_binding_refs": ["binding.watch_events"],
+                "metric_entity_anchor_ref": "entity.user",
+                "resolved_imported_dimensions": [
+                    {
+                        "dimension_ref": "dimension.cluster",
+                        "source_binding_ref": "binding.entity_user",
+                        "source_entity_ref": "entity.user",
+                        "import_key": "entity_bridge",
+                    }
+                ],
+                "imported_dimension_conflicts": {},
+                "resolved_imported_dimension_sources": [
+                    {
+                        "dimension_ref": "dimension.cluster",
+                        "source_binding_ref": "binding.entity_user",
+                        "source_entity_ref": "entity.user",
+                        "import_key": "entity_bridge",
+                        "carrier_binding_key": "primary",
+                        "carrier_locator": "analytics.entity_events",
+                        "surface_ref": "field.cluster",
+                        "physical_name": "cluster",
+                    }
+                ],
                 "compiler_summary": {
                     "passed_gate_count": 2,
                     "warning_count": 0,
@@ -119,4 +141,13 @@ class StepMetadataPersistenceTests(unittest.TestCase):
         snapshot = json.loads(row["semantic_snapshot_json"])
         assert_no_canonical_refs_in_semantic_payload(snapshot, surface="step_semantic_metadata")
         self.assertEqual(snapshot["typed_inputs"]["metric_ref"], "metric.dau")
+        self.assertEqual(snapshot["typed_inputs"]["metric_entity_anchor_ref"], "entity.user")
+        self.assertEqual(
+            snapshot["compile_context"]["imported_dimension_lineage"][0]["dimension_ref"],
+            "dimension.cluster",
+        )
+        self.assertEqual(
+            snapshot["compile_context"]["imported_dimension_sources"][0]["carrier_locator"],
+            "analytics.entity_events",
+        )
         self.assertGreaterEqual(len(snapshot["compile_context"]["ir_plan_ids"]), 1)
