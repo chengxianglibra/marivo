@@ -17,6 +17,7 @@ from .base import (
     HierarchyType,
     ListResponseBase,
     ObjectHeaderBase,
+    ObjectListItemBase,
     ObjectResponseBase,
     SemanticRole,
     StructureKind,
@@ -271,6 +272,16 @@ class DimensionUpdateRequest(BaseModel):
 # =============================================================================
 
 
+class DimensionListItem(ObjectListItemBase):
+    """Lightweight list item for dimension endpoints.
+
+    Includes header only, not full interface_contract.
+    """
+
+    dimension_contract_id: str = Field(description="Internal ID of the dimension contract.")
+    header: DimensionHeader = Field(description="Dimension header (contains dimension_ref).")
+
+
 class DimensionResponse(ObjectResponseBase):
     """Response model for a dimension object.
 
@@ -284,5 +295,5 @@ class DimensionResponse(ObjectResponseBase):
     )
 
 
-class DimensionListResponse(ListResponseBase[DimensionResponse]):
+class DimensionListResponse(ListResponseBase[DimensionListItem]):
     """Response model for listing dimension objects."""

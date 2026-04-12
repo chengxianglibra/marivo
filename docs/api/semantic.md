@@ -13,11 +13,13 @@ Only `published` objects are available to runtime resolution and intent executio
 Semantic object responses expose both the legacy storage status and a derived lifecycle/readiness
 contract:
 
+**For detail endpoints (GET by ID):**
+
 - `status`: compatibility field backed by storage (`draft`, `published`, `deprecated`)
 - `lifecycle_status`: derived public lifecycle (`draft`, `active`, `deprecated`)
   - **Phase A**: `validated` is a reserved value in the type definition but never produced; it will
     become a persisted state in Phase B when a validation step is introduced between draft and active.
-- `readiness_status`: derived readiness (`not_ready`, `ready`)
+- `readiness_status`: derived readiness (`not_ready`, `ready`, `stale`)
   - `published` no longer implies `ready` for entity, metric, or process objects.
   - `stale` is currently produced for published compatibility profiles whose pinned
     `subject_revision` no longer matches the active subject revision.
@@ -27,9 +29,34 @@ contract:
 - `capabilities`: object-family-specific capability payload
   - Metric, process, dimension, time, enum set, binding, and compatibility profile routes now
     return computed capability flags.
+- `dependency_refs`: direct refs or locators the object depends on
+  - These surface the immediate semantic/runtime dependencies used for modeling and debugging
+    without requiring callers to reverse-engineer every contract payload.
+- `dependent_refs`: refs of objects that depend on this object (stubbed as empty list)
+
+**For list endpoints (GET without ID):**
+
+- `blocker_count`: count of blocking requirements for quick filtering
+- `capabilities_summary`: summary of key capability flags (boolean only)
+- Headers are included but heavy payloads (interface_contract, payload) are omitted
 
 During the current migration phase, `status=published` maps to `lifecycle_status=active`.
 Readiness is evaluated separately from lifecycle.
+
+**Backward compatibility:**
+
+- Use `detail=true` query parameter on list endpoints to return full object payloads
+- Example: `GET /semantic/entities?detail=true` returns full objects instead of lightweight items
+- Default behavior (`detail=false`) returns lightweight items
+
+Current compatibility policy for read routes:
+
+- list endpoints continue returning the same full object payload shape used by current admin and
+  integration callers
+- readiness-facing callers should consume `lifecycle_status`, `readiness_status`,
+  `blocking_requirements`, `capabilities`, and `dependency_refs`
+- `status` remains a storage lifecycle compatibility field only; callers must not infer
+  `published=ready`
 
 Unknown storage status values will raise `ValueError` at the service layer to catch data integrity
 issues early, rather than silently falling back to a default status.

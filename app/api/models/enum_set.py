@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from .base import (
     EnumValueType,
     ListResponseBase,
+    ObjectListItemBase,
     ObjectResponseBase,
     validate_ref_prefix,
 )
@@ -236,6 +237,13 @@ class EnumSetUpdateRequest(BaseModel):
 # =============================================================================
 
 
+class EnumSetListItem(ObjectListItemBase):
+    """Lightweight list item for enum set endpoints."""
+
+    enum_set_contract_id: str = Field(description="Internal ID of the enum set contract.")
+    header: EnumSetHeader = Field(description="Enum set header (contains enum_set_ref).")
+
+
 class EnumSetResponse(ObjectResponseBase):
     """Response model for an enum set object.
 
@@ -249,7 +257,7 @@ class EnumSetResponse(ObjectResponseBase):
     versions: list[EnumSetVersionSpec] = Field(description="List of versions with their values.")
 
 
-class EnumSetListResponse(ListResponseBase[EnumSetResponse]):
+class EnumSetListResponse(ListResponseBase[EnumSetListItem]):
     """Response model for listing enum set objects."""
 
 

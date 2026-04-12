@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 from app.api.models.dimension import DimensionCreateRequest, DimensionUpdateRequest
@@ -89,7 +89,10 @@ class TypedObjectService(SemanticServiceSupport):
             raise self._not_found(f"Unknown typed entity: {entity_contract_id}")
         return self._row_to_typed_entity(row)
 
-    def list_typed_entities(self, status: str | None = None) -> dict[str, Any]:
+    def list_typed_entities(
+        self, status: str | None = None, detail: bool = False
+    ) -> dict[str, Any]:
+        mode: Literal["list", "detail"] = "detail" if detail else "list"
         if status is None:
             rows = self.metadata.query_rows(
                 "SELECT * FROM semantic_entity_contracts ORDER BY entity_ref"
@@ -99,7 +102,7 @@ class TypedObjectService(SemanticServiceSupport):
                 "SELECT * FROM semantic_entity_contracts WHERE status = ? ORDER BY entity_ref",
                 [status],
             )
-        items = [self._row_to_typed_entity(row) for row in rows]
+        items = [self._row_to_typed_entity(row, mode=mode) for row in rows]
         return {"items": items, "total": len(items)}
 
     def update_typed_entity(
@@ -219,7 +222,8 @@ class TypedObjectService(SemanticServiceSupport):
             raise self._not_found(f"Unknown typed metric: {metric_contract_id}")
         return self._row_to_typed_metric(row)
 
-    def list_typed_metrics(self, status: str | None = None) -> dict[str, Any]:
+    def list_typed_metrics(self, status: str | None = None, detail: bool = False) -> dict[str, Any]:
+        mode: Literal["list", "detail"] = "detail" if detail else "list"
         if status is None:
             rows = self.metadata.query_rows(
                 "SELECT * FROM semantic_metric_contracts ORDER BY metric_ref"
@@ -229,7 +233,7 @@ class TypedObjectService(SemanticServiceSupport):
                 "SELECT * FROM semantic_metric_contracts WHERE status = ? ORDER BY metric_ref",
                 [status],
             )
-        items = [self._row_to_typed_metric(row) for row in rows]
+        items = [self._row_to_typed_metric(row, mode=mode) for row in rows]
         return {"items": items, "total": len(items)}
 
     def update_typed_metric(

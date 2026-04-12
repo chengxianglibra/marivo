@@ -231,8 +231,32 @@ class BlockingRequirement(BaseModel):
     )
 
 
+class ObjectListItemBase(BaseModel):
+    """Lightweight model for list endpoints - excludes heavy detail fields."""
+
+    status: ObjectStatus = Field(description="Lifecycle status: draft, published, or deprecated.")
+    lifecycle_status: LifecycleStatus = Field(
+        description="Derived lifecycle status: draft, validated, active, or deprecated."
+    )
+    readiness_status: ReadinessStatus = Field(
+        description="Derived readiness status: not_ready, ready, or stale."
+    )
+    blocker_count: int = Field(
+        default=0,
+        ge=0,
+        description="Count of blocking requirements for quick filtering (detail endpoint returns full list).",
+    )
+    capabilities_summary: dict[str, bool] = Field(
+        default_factory=dict,
+        description="Summary of key capability flags (detail endpoint returns full payload).",
+    )
+    revision: int = Field(ge=1, description="Revision number (>= 1).")
+    created_at: str = Field(description="Creation timestamp (ISO-8601).")
+    updated_at: str = Field(description="Last update timestamp (ISO-8601).")
+
+
 class ObjectResponseBase(BaseModel):
-    """Common lifecycle metadata returned by semantic object APIs."""
+    """Full detail model for single-object endpoints - includes all fields."""
 
     status: ObjectStatus = Field(description="Lifecycle status: draft, published, or deprecated.")
     lifecycle_status: LifecycleStatus = Field(
@@ -248,6 +272,14 @@ class ObjectResponseBase(BaseModel):
     capabilities: dict[str, Any] = Field(
         default_factory=dict,
         description="Structured capability flags or payloads exposed for this object.",
+    )
+    dependency_refs: list[str] = Field(
+        default_factory=list,
+        description="Direct refs or locators this object depends on for semantic use or grounding.",
+    )
+    dependent_refs: list[str] = Field(
+        default_factory=list,
+        description="Refs of objects that depend on this object (reverse dependencies).",
     )
     revision: int = Field(ge=1, description="Revision number (>= 1).")
     created_at: str = Field(description="Creation timestamp (ISO-8601).")

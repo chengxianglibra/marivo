@@ -16,6 +16,7 @@ from .base import (
     ContractMode,
     InferentialSampleSummary,
     ListResponseBase,
+    ObjectListItemBase,
     ObjectResponseBase,
     ProfileKind,
     ProfileSchemaVersion,
@@ -193,6 +194,20 @@ class CompatibilityProfileUpdateRequest(BaseModel):
     )
 
 
+class CompatibilityProfileListItem(ObjectListItemBase):
+    """Lightweight list item for compatibility profile endpoints.
+
+    Includes core identity fields only.
+    """
+
+    profile_id: str = Field(description="Internal ID of the profile.")
+    profile_ref: str = Field(description="Stable profile reference.")
+    subject_kind: ProfileSubjectKind = Field(
+        description="Kind of subject: metric, process, or binding."
+    )
+    subject_ref: str = Field(description="Reference to the subject object.")
+
+
 class CompatibilityProfileResponse(ObjectResponseBase):
     """Response model for a compiler compatibility profile.
 
@@ -219,7 +234,7 @@ class CompatibilityProfileResponse(ObjectResponseBase):
     )
 
 
-class CompatibilityProfileListResponse(ListResponseBase[CompatibilityProfileResponse]):
+class CompatibilityProfileListResponse(ListResponseBase[CompatibilityProfileListItem]):
     """Response model for listing compatibility profiles."""
 
 
