@@ -962,11 +962,16 @@ for modeling/admin callers.
   - `status`
   - `lifecycle_status`
   - `readiness_status`
+  - `blocker_count`
+  - `blocking_requirements_preview`
+  - `capabilities_summary`
   - `revision`
   - `created_at`
   - `updated_at`
   - `detail_path`
   - `resolve_path`
+- `readiness=ready` is the intended end-user default for picker/search UI. Use `readiness=all`
+  only when the caller explicitly wants to inspect unavailable objects and surface why-not-ready.
 - Asset results additionally expose:
   - `source_id`
   - `object_type`

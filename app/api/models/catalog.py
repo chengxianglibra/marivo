@@ -4,7 +4,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
 
-from .base import LifecycleStatus, ReadinessStatus
+from .base import BlockingRequirement, LifecycleStatus, ReadinessStatus
 from .entity import TypedEntityResponse
 from .metric import TypedMetricResponse
 
@@ -38,6 +38,9 @@ class CatalogSemanticSearchResult(CatalogSearchResultBase):
     contract_version: str
     lifecycle_status: LifecycleStatus
     readiness_status: ReadinessStatus
+    blocker_count: int = 0
+    blocking_requirements_preview: list[BlockingRequirement] = Field(default_factory=list)
+    capabilities_summary: dict[str, bool] = Field(default_factory=dict)
     revision: int
     created_at: str
     updated_at: str
