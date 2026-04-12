@@ -474,9 +474,9 @@ def register_tools(
 
     @server.tool()
     @_tool_metadata("GET", "/semantic/entities")
-    def list_entities(status: str | None = None) -> dict[str, object]:
-        """List entities via GET /semantic/entities with the canonical status filter only."""
-        return _semantic_read_request(client, "/semantic/entities", status=status)
+    def list_entities(status: str | None = None, detail: bool | None = None) -> dict[str, object]:
+        """List entities via GET /semantic/entities with the canonical status/detail filters."""
+        return _semantic_read_request(client, "/semantic/entities", status=status, detail=detail)
 
     @server.tool()
     @_tool_metadata("GET", "/semantic/entities/{entity_id}")
@@ -543,9 +543,9 @@ def register_tools(
 
     @server.tool()
     @_tool_metadata("GET", "/semantic/metrics")
-    def list_metrics(status: str | None = None) -> dict[str, object]:
-        """List metrics via GET /semantic/metrics with the canonical status filter only."""
-        return _semantic_read_request(client, "/semantic/metrics", status=status)
+    def list_metrics(status: str | None = None, detail: bool | None = None) -> dict[str, object]:
+        """List metrics via GET /semantic/metrics with the canonical status/detail filters."""
+        return _semantic_read_request(client, "/semantic/metrics", status=status, detail=detail)
 
     @server.tool()
     @_tool_metadata("GET", "/semantic/metrics/{metric_id}")
@@ -614,9 +614,13 @@ def register_tools(
 
     @server.tool()
     @_tool_metadata("GET", "/semantic/process-objects")
-    def list_process_objects(status: str | None = None) -> dict[str, object]:
-        """List process objects via GET /semantic/process-objects with the canonical status filter only."""
-        return _semantic_read_request(client, "/semantic/process-objects", status=status)
+    def list_process_objects(
+        status: str | None = None, detail: bool | None = None
+    ) -> dict[str, object]:
+        """List process objects via GET /semantic/process-objects with the canonical status/detail filters."""
+        return _semantic_read_request(
+            client, "/semantic/process-objects", status=status, detail=detail
+        )
 
     @server.tool()
     @_tool_metadata("GET", "/semantic/process-objects/{process_contract_id}")
@@ -697,9 +701,9 @@ def register_tools(
 
     @server.tool()
     @_tool_metadata("GET", "/semantic/dimensions")
-    def list_dimensions(status: str | None = None) -> dict[str, object]:
-        """List dimensions via GET /semantic/dimensions with the canonical status filter only."""
-        return _semantic_read_request(client, "/semantic/dimensions", status=status)
+    def list_dimensions(status: str | None = None, detail: bool | None = None) -> dict[str, object]:
+        """List dimensions via GET /semantic/dimensions with the canonical status/detail filters."""
+        return _semantic_read_request(client, "/semantic/dimensions", status=status, detail=detail)
 
     @server.tool()
     @_tool_metadata("GET", "/semantic/dimensions/{dimension_contract_id}")
@@ -770,9 +774,11 @@ def register_tools(
 
     @server.tool()
     @_tool_metadata("GET", "/semantic/time")
-    def list_time_semantics(status: str | None = None) -> dict[str, object]:
-        """List time semantics via GET /semantic/time with the canonical status filter only."""
-        return _semantic_read_request(client, "/semantic/time", status=status)
+    def list_time_semantics(
+        status: str | None = None, detail: bool | None = None
+    ) -> dict[str, object]:
+        """List time semantics via GET /semantic/time with the canonical status/detail filters."""
+        return _semantic_read_request(client, "/semantic/time", status=status, detail=detail)
 
     @server.tool()
     @_tool_metadata("GET", "/semantic/time/{time_contract_id}")
@@ -843,9 +849,9 @@ def register_tools(
 
     @server.tool()
     @_tool_metadata("GET", "/semantic/enum-sets")
-    def list_enum_sets(status: str | None = None) -> dict[str, object]:
-        """List enum sets via GET /semantic/enum-sets with the canonical status filter only."""
-        return _semantic_read_request(client, "/semantic/enum-sets", status=status)
+    def list_enum_sets(status: str | None = None, detail: bool | None = None) -> dict[str, object]:
+        """List enum sets via GET /semantic/enum-sets with the canonical status/detail filters."""
+        return _semantic_read_request(client, "/semantic/enum-sets", status=status, detail=detail)
 
     @server.tool()
     @_tool_metadata("GET", "/semantic/enum-sets/{enum_set_contract_id}")
@@ -920,9 +926,9 @@ def register_tools(
 
     @server.tool()
     @_tool_metadata("GET", "/semantic/bindings")
-    def list_bindings(status: str | None = None) -> dict[str, object]:
-        """List bindings via GET /semantic/bindings with the canonical status filter only."""
-        return _semantic_read_request(client, "/semantic/bindings", status=status)
+    def list_bindings(status: str | None = None, detail: bool | None = None) -> dict[str, object]:
+        """List bindings via GET /semantic/bindings with the canonical status/detail filters."""
+        return _semantic_read_request(client, "/semantic/bindings", status=status, detail=detail)
 
     @server.tool()
     @_tool_metadata("GET", "/semantic/bindings/{binding_id}")
@@ -999,9 +1005,13 @@ def register_tools(
 
     @server.tool()
     @_tool_metadata("GET", "/compiler/compatibility-profiles")
-    def list_compatibility_profiles(status: str | None = None) -> dict[str, object]:
-        """List compatibility profiles via GET /compiler/compatibility-profiles with the canonical status filter only."""
-        return _semantic_read_request(client, "/compiler/compatibility-profiles", status=status)
+    def list_compatibility_profiles(
+        status: str | None = None, detail: bool | None = None
+    ) -> dict[str, object]:
+        """List compatibility profiles via GET /compiler/compatibility-profiles with the canonical status/detail filters."""
+        return _semantic_read_request(
+            client, "/compiler/compatibility-profiles", status=status, detail=detail
+        )
 
     @server.tool()
     @_tool_metadata("GET", "/compiler/compatibility-profiles/{profile_id}")
@@ -1170,11 +1180,12 @@ def _semantic_read_request(
     path: str,
     *,
     status: str | None = None,
+    detail: bool | None = None,
 ) -> dict[str, object]:
     return client.request_envelope(
         "GET",
         path,
-        params=_compact_params(status=status),
+        params=_compact_params(status=status, detail=detail),
     ).model_dump()
 
 

@@ -1439,6 +1439,61 @@ def test_semantic_list_and_get_tools_forward_canonical_status_and_path_parameter
         assert result["meta"]["factum_path"] == expected_path
 
 
+def test_semantic_list_tools_forward_detail_query_parameter_when_requested() -> None:
+    cases: list[tuple[str, str, dict[str, object]]] = [
+        ("list_entities", "/semantic/entities", {"status": "published", "detail": True}),
+        ("list_metrics", "/semantic/metrics", {"status": "draft", "detail": True}),
+        (
+            "list_process_objects",
+            "/semantic/process-objects",
+            {"status": "published", "detail": True},
+        ),
+        ("list_dimensions", "/semantic/dimensions", {"status": "draft", "detail": True}),
+        ("list_time_semantics", "/semantic/time", {"status": "published", "detail": True}),
+        ("list_enum_sets", "/semantic/enum-sets", {"status": "draft", "detail": True}),
+        ("list_bindings", "/semantic/bindings", {"status": "published", "detail": True}),
+        (
+            "list_compatibility_profiles",
+            "/compiler/compatibility-profiles",
+            {"status": "draft", "detail": True},
+        ),
+    ]
+
+    for tool_name, expected_path, tool_kwargs in cases:
+
+        def handler(
+            request: httpx.Request,
+            expected_path: str = expected_path,
+            tool_name: str = tool_name,
+            tool_kwargs: dict[str, object] = tool_kwargs,
+        ) -> httpx.Response:
+            assert request.method == "GET"
+            assert request.url.path == expected_path
+            assert dict(request.url.params) == {
+                "status": str(tool_kwargs["status"]),
+                "detail": "true",
+            }
+            return httpx.Response(200, json={"tool": tool_name}, request=request)
+
+        result = _invoke_registered_tool(tool_name, handler, **tool_kwargs)
+
+        assert result["ok"] is True
+        assert result["meta"]["factum_path"] == expected_path
+
+
+def test_semantic_list_tools_omit_detail_query_parameter_by_default() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert request.url.path == "/semantic/bindings"
+        assert dict(request.url.params) == {"status": "published"}
+        return httpx.Response(200, json={"items": []}, request=request)
+
+    result = _invoke_registered_tool("list_bindings", handler, status="published")
+
+    assert result["ok"] is True
+    assert result["data"] == {"items": []}
+
+
 def test_semantic_update_tools_send_only_canonical_body_fields() -> None:
     cases: list[tuple[str, str, dict[str, object], dict[str, object]]] = [
         (
