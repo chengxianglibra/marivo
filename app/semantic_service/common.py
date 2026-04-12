@@ -73,8 +73,10 @@ class SemanticServiceSupport:
         status: str | None,
         lifecycle_status: str | None,
     ) -> str | None:
+        status_aliases = {"active": "published"}
+        normalized_status = status_aliases.get(status, status) if status is not None else None
         if lifecycle_status is None:
-            return status
+            return normalized_status
         lifecycle_to_status = {
             "draft": "draft",
             "active": "published",
@@ -85,7 +87,7 @@ class SemanticServiceSupport:
             raise self._validation_error(
                 "Unsupported lifecycle_status filter. Expected one of: draft, active, deprecated."
             )
-        if status is not None and status != resolved_status:
+        if normalized_status is not None and normalized_status != resolved_status:
             raise self._validation_error(
                 "status and lifecycle_status filters conflict. "
                 f"status={status!r} maps differently than lifecycle_status={lifecycle_status!r}."

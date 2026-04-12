@@ -52,9 +52,11 @@ contract:
 - Headers are included but heavy payloads (interface_contract, payload) are omitted
 
 During the current migration phase, `status=published` maps to `lifecycle_status=active`.
-Readiness is evaluated separately from lifecycle. List routes accept `lifecycle_status` as the
-canonical lifecycle filter and `readiness_status` as the usability filter; `status` remains a
-storage compatibility filter.
+For list-route backward compatibility, `status=active` is also accepted as an alias and is
+normalized to storage `published`. Readiness is evaluated separately from lifecycle. List routes
+accept `lifecycle_status` as the canonical lifecycle filter and `readiness_status` as the
+usability filter; `status` remains a compatibility filter and callers should prefer
+`lifecycle_status`.
 
 **Migration notes:**
 
