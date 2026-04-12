@@ -304,6 +304,32 @@ class ApiErrorDetail(BaseModel):
     field: str | None = Field(default=None, description="Optional field associated with the error.")
 
 
+class SemanticValidationSummary(BaseModel):
+    """Structured validate-action summary for semantic lifecycle checks."""
+
+    blocking_requirements: list[BlockingRequirement] = Field(
+        default_factory=list,
+        description="Current blocking requirements after validate checks complete.",
+    )
+    capabilities: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Current capability payload exposed by the semantic object.",
+    )
+
+
+class SemanticValidateActionResponse(BaseModel):
+    """Response envelope for check-only semantic validate actions."""
+
+    action: Literal["validate"] = Field(description="Lifecycle action that was executed.")
+    ok: bool = Field(description="Whether the validate action completed successfully.")
+    semantic_object: dict[str, Any] = Field(
+        description="Current semantic object detail payload after validation."
+    )
+    validation: SemanticValidationSummary = Field(
+        description="Structured validation summary derived from the current object detail."
+    )
+
+
 # =============================================================================
 # Shared Sub-Models
 # =============================================================================

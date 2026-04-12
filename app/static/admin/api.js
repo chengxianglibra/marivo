@@ -272,13 +272,32 @@ export function createAdminApi() {
         'Update Entity failed.'
       );
     },
-    publishSemanticEntity(objectId) {
+    validateSemanticEntity(objectId) {
       return sendJson(
-        `/semantic/entities/${encodeURIComponent(objectId)}/publish`,
+        `/semantic/entities/${encodeURIComponent(objectId)}/validate`,
         'POST',
         null,
-        'Publish Entity failed.'
+        'Validate Entity failed.'
       );
+    },
+    activateSemanticEntity(objectId) {
+      return sendJson(
+        `/semantic/entities/${encodeURIComponent(objectId)}/activate`,
+        'POST',
+        null,
+        'Activate Entity failed.'
+      );
+    },
+    deprecateSemanticEntity(objectId) {
+      return sendJson(
+        `/semantic/entities/${encodeURIComponent(objectId)}/deprecate`,
+        'POST',
+        null,
+        'Deprecate Entity failed.'
+      );
+    },
+    publishSemanticEntity(objectId) {
+      return this.activateSemanticEntity(objectId);
     },
     listSemanticMetrics(status = null, options = {}) {
       return requestJson(
@@ -303,13 +322,32 @@ export function createAdminApi() {
         'Update Metric failed.'
       );
     },
-    publishSemanticMetric(objectId) {
+    validateSemanticMetric(objectId) {
       return sendJson(
-        `/semantic/metrics/${encodeURIComponent(objectId)}/publish`,
+        `/semantic/metrics/${encodeURIComponent(objectId)}/validate`,
         'POST',
         null,
-        'Publish Metric failed.'
+        'Validate Metric failed.'
       );
+    },
+    activateSemanticMetric(objectId) {
+      return sendJson(
+        `/semantic/metrics/${encodeURIComponent(objectId)}/activate`,
+        'POST',
+        null,
+        'Activate Metric failed.'
+      );
+    },
+    deprecateSemanticMetric(objectId) {
+      return sendJson(
+        `/semantic/metrics/${encodeURIComponent(objectId)}/deprecate`,
+        'POST',
+        null,
+        'Deprecate Metric failed.'
+      );
+    },
+    publishSemanticMetric(objectId) {
+      return this.activateSemanticMetric(objectId);
     },
     listSemanticProcessObjects(status = null, options = {}) {
       return requestJson(
@@ -339,13 +377,32 @@ export function createAdminApi() {
         'Update Process Object failed.'
       );
     },
-    publishSemanticProcessObject(objectId) {
+    validateSemanticProcessObject(objectId) {
       return sendJson(
-        `/semantic/process-objects/${encodeURIComponent(objectId)}/publish`,
+        `/semantic/process-objects/${encodeURIComponent(objectId)}/validate`,
         'POST',
         null,
-        'Publish Process Object failed.'
+        'Validate Process Object failed.'
       );
+    },
+    activateSemanticProcessObject(objectId) {
+      return sendJson(
+        `/semantic/process-objects/${encodeURIComponent(objectId)}/activate`,
+        'POST',
+        null,
+        'Activate Process Object failed.'
+      );
+    },
+    deprecateSemanticProcessObject(objectId) {
+      return sendJson(
+        `/semantic/process-objects/${encodeURIComponent(objectId)}/deprecate`,
+        'POST',
+        null,
+        'Deprecate Process Object failed.'
+      );
+    },
+    publishSemanticProcessObject(objectId) {
+      return this.activateSemanticProcessObject(objectId);
     },
     listSemanticDimensions(status = null, options = {}) {
       return requestJson(
@@ -370,13 +427,32 @@ export function createAdminApi() {
         'Update Dimension failed.'
       );
     },
-    publishSemanticDimension(objectId) {
+    validateSemanticDimension(objectId) {
       return sendJson(
-        `/semantic/dimensions/${encodeURIComponent(objectId)}/publish`,
+        `/semantic/dimensions/${encodeURIComponent(objectId)}/validate`,
         'POST',
         null,
-        'Publish Dimension failed.'
+        'Validate Dimension failed.'
       );
+    },
+    activateSemanticDimension(objectId) {
+      return sendJson(
+        `/semantic/dimensions/${encodeURIComponent(objectId)}/activate`,
+        'POST',
+        null,
+        'Activate Dimension failed.'
+      );
+    },
+    deprecateSemanticDimension(objectId) {
+      return sendJson(
+        `/semantic/dimensions/${encodeURIComponent(objectId)}/deprecate`,
+        'POST',
+        null,
+        'Deprecate Dimension failed.'
+      );
+    },
+    publishSemanticDimension(objectId) {
+      return this.activateSemanticDimension(objectId);
     },
     listSemanticTime(status = null, options = {}) {
       return requestJson(
@@ -398,13 +474,32 @@ export function createAdminApi() {
         'Update Time failed.'
       );
     },
-    publishSemanticTime(objectId) {
+    validateSemanticTime(objectId) {
       return sendJson(
-        `/semantic/time/${encodeURIComponent(objectId)}/publish`,
+        `/semantic/time/${encodeURIComponent(objectId)}/validate`,
         'POST',
         null,
-        'Publish Time failed.'
+        'Validate Time failed.'
       );
+    },
+    activateSemanticTime(objectId) {
+      return sendJson(
+        `/semantic/time/${encodeURIComponent(objectId)}/activate`,
+        'POST',
+        null,
+        'Activate Time failed.'
+      );
+    },
+    deprecateSemanticTime(objectId) {
+      return sendJson(
+        `/semantic/time/${encodeURIComponent(objectId)}/deprecate`,
+        'POST',
+        null,
+        'Deprecate Time failed.'
+      );
+    },
+    publishSemanticTime(objectId) {
+      return this.activateSemanticTime(objectId);
     },
     listSemanticEnumSets(status = null, options = {}) {
       return requestJson(
@@ -429,13 +524,32 @@ export function createAdminApi() {
         'Update Enum Set failed.'
       );
     },
-    publishSemanticEnumSet(objectId) {
+    validateSemanticEnumSet(objectId) {
       return sendJson(
-        `/semantic/enum-sets/${encodeURIComponent(objectId)}/publish`,
+        `/semantic/enum-sets/${encodeURIComponent(objectId)}/validate`,
         'POST',
         null,
-        'Publish Enum Set failed.'
+        'Validate Enum Set failed.'
       );
+    },
+    activateSemanticEnumSet(objectId) {
+      return sendJson(
+        `/semantic/enum-sets/${encodeURIComponent(objectId)}/activate`,
+        'POST',
+        null,
+        'Activate Enum Set failed.'
+      );
+    },
+    deprecateSemanticEnumSet(objectId) {
+      return sendJson(
+        `/semantic/enum-sets/${encodeURIComponent(objectId)}/deprecate`,
+        'POST',
+        null,
+        'Deprecate Enum Set failed.'
+      );
+    },
+    publishSemanticEnumSet(objectId) {
+      return this.activateSemanticEnumSet(objectId);
     },
     listTypedSemanticBindings(status = null, options = {}) {
       return requestJson(
@@ -460,13 +574,32 @@ export function createAdminApi() {
         'Update Typed Binding failed.'
       );
     },
-    publishTypedSemanticBinding(objectId) {
+    validateTypedSemanticBinding(objectId) {
       return sendJson(
-        `/semantic/bindings/${encodeURIComponent(objectId)}/publish`,
+        `/semantic/bindings/${encodeURIComponent(objectId)}/validate`,
         'POST',
         null,
-        'Publish Typed Binding failed.'
+        'Validate Typed Binding failed.'
       );
+    },
+    activateTypedSemanticBinding(objectId) {
+      return sendJson(
+        `/semantic/bindings/${encodeURIComponent(objectId)}/activate`,
+        'POST',
+        null,
+        'Activate Typed Binding failed.'
+      );
+    },
+    deprecateTypedSemanticBinding(objectId) {
+      return sendJson(
+        `/semantic/bindings/${encodeURIComponent(objectId)}/deprecate`,
+        'POST',
+        null,
+        'Deprecate Typed Binding failed.'
+      );
+    },
+    publishTypedSemanticBinding(objectId) {
+      return this.activateTypedSemanticBinding(objectId);
     },
     listCompatibilityProfiles(status = null) {
       return requestJson(
@@ -496,13 +629,32 @@ export function createAdminApi() {
         'Update Compatibility Profile failed.'
       );
     },
-    publishCompatibilityProfile(objectId) {
+    validateCompatibilityProfile(objectId) {
       return sendJson(
-        `/compiler/compatibility-profiles/${encodeURIComponent(objectId)}/publish`,
+        `/compiler/compatibility-profiles/${encodeURIComponent(objectId)}/validate`,
         'POST',
         null,
-        'Publish Compatibility Profile failed.'
+        'Validate Compatibility Profile failed.'
       );
+    },
+    activateCompatibilityProfile(objectId) {
+      return sendJson(
+        `/compiler/compatibility-profiles/${encodeURIComponent(objectId)}/activate`,
+        'POST',
+        null,
+        'Activate Compatibility Profile failed.'
+      );
+    },
+    deprecateCompatibilityProfile(objectId) {
+      return sendJson(
+        `/compiler/compatibility-profiles/${encodeURIComponent(objectId)}/deprecate`,
+        'POST',
+        null,
+        'Deprecate Compatibility Profile failed.'
+      );
+    },
+    publishCompatibilityProfile(objectId) {
+      return this.activateCompatibilityProfile(objectId);
     },
     resolveSemantic(name) {
       return requestJson(`/semantic/resolve/${encodeURIComponent(name)}`, 'Resolve failed.');

@@ -503,9 +503,27 @@ def register_tools(
         )
 
     @server.tool()
+    @_tool_metadata("POST", "/semantic/entities/{entity_id}/validate")
+    def validate_entity(entity_id: str) -> dict[str, object]:
+        """Validate one entity via POST /semantic/entities/{entity_id}/validate without changing stored lifecycle state."""
+        return _semantic_action_request(client, f"/semantic/entities/{entity_id}/validate")
+
+    @server.tool()
+    @_tool_metadata("POST", "/semantic/entities/{entity_id}/activate")
+    def activate_entity(entity_id: str) -> dict[str, object]:
+        """Activate one entity via POST /semantic/entities/{entity_id}/activate; activation adds it to the formal catalog but does not imply ready."""
+        return _semantic_action_request(client, f"/semantic/entities/{entity_id}/activate")
+
+    @server.tool()
+    @_tool_metadata("POST", "/semantic/entities/{entity_id}/deprecate")
+    def deprecate_entity(entity_id: str) -> dict[str, object]:
+        """Deprecate one entity via POST /semantic/entities/{entity_id}/deprecate."""
+        return _semantic_action_request(client, f"/semantic/entities/{entity_id}/deprecate")
+
+    @server.tool()
     @_tool_metadata("POST", "/semantic/entities/{entity_id}/publish")
     def publish_entity(entity_id: str) -> dict[str, object]:
-        """Publish one entity via POST /semantic/entities/{entity_id}/publish; published objects become runtime-visible and draft-only updates stop applying."""
+        """Compatibility alias for activate_entity via POST /semantic/entities/{entity_id}/publish."""
         return _semantic_publish_request(client, f"/semantic/entities/{entity_id}/publish")
 
     @server.tool()
@@ -554,9 +572,27 @@ def register_tools(
         )
 
     @server.tool()
+    @_tool_metadata("POST", "/semantic/metrics/{metric_id}/validate")
+    def validate_metric(metric_id: str) -> dict[str, object]:
+        """Validate one metric via POST /semantic/metrics/{metric_id}/validate without changing stored lifecycle state."""
+        return _semantic_action_request(client, f"/semantic/metrics/{metric_id}/validate")
+
+    @server.tool()
+    @_tool_metadata("POST", "/semantic/metrics/{metric_id}/activate")
+    def activate_metric(metric_id: str) -> dict[str, object]:
+        """Activate one metric via POST /semantic/metrics/{metric_id}/activate; activation adds it to the formal catalog but does not imply ready."""
+        return _semantic_action_request(client, f"/semantic/metrics/{metric_id}/activate")
+
+    @server.tool()
+    @_tool_metadata("POST", "/semantic/metrics/{metric_id}/deprecate")
+    def deprecate_metric(metric_id: str) -> dict[str, object]:
+        """Deprecate one metric via POST /semantic/metrics/{metric_id}/deprecate."""
+        return _semantic_action_request(client, f"/semantic/metrics/{metric_id}/deprecate")
+
+    @server.tool()
     @_tool_metadata("POST", "/semantic/metrics/{metric_id}/publish")
     def publish_metric(metric_id: str) -> dict[str, object]:
-        """Publish one metric via POST /semantic/metrics/{metric_id}/publish; published objects become runtime-visible and draft-only updates stop applying."""
+        """Compatibility alias for activate_metric via POST /semantic/metrics/{metric_id}/publish."""
         return _semantic_publish_request(client, f"/semantic/metrics/{metric_id}/publish")
 
     @server.tool()
@@ -612,9 +648,33 @@ def register_tools(
         )
 
     @server.tool()
+    @_tool_metadata("POST", "/semantic/process-objects/{process_contract_id}/validate")
+    def validate_process_object(process_contract_id: str) -> dict[str, object]:
+        """Validate one process object via POST /semantic/process-objects/{process_contract_id}/validate without changing stored lifecycle state."""
+        return _semantic_action_request(
+            client, f"/semantic/process-objects/{process_contract_id}/validate"
+        )
+
+    @server.tool()
+    @_tool_metadata("POST", "/semantic/process-objects/{process_contract_id}/activate")
+    def activate_process_object(process_contract_id: str) -> dict[str, object]:
+        """Activate one process object via POST /semantic/process-objects/{process_contract_id}/activate; activation adds it to the formal catalog but does not imply ready."""
+        return _semantic_action_request(
+            client, f"/semantic/process-objects/{process_contract_id}/activate"
+        )
+
+    @server.tool()
+    @_tool_metadata("POST", "/semantic/process-objects/{process_contract_id}/deprecate")
+    def deprecate_process_object(process_contract_id: str) -> dict[str, object]:
+        """Deprecate one process object via POST /semantic/process-objects/{process_contract_id}/deprecate."""
+        return _semantic_action_request(
+            client, f"/semantic/process-objects/{process_contract_id}/deprecate"
+        )
+
+    @server.tool()
     @_tool_metadata("POST", "/semantic/process-objects/{process_contract_id}/publish")
     def publish_process_object(process_contract_id: str) -> dict[str, object]:
-        """Publish one process object via POST /semantic/process-objects/{process_contract_id}/publish; published objects become runtime-visible and draft-only updates stop applying."""
+        """Compatibility alias for activate_process_object via POST /semantic/process-objects/{process_contract_id}/publish."""
         return _semantic_publish_request(
             client,
             f"/semantic/process-objects/{process_contract_id}/publish",
@@ -666,9 +726,33 @@ def register_tools(
         )
 
     @server.tool()
+    @_tool_metadata("POST", "/semantic/dimensions/{dimension_contract_id}/validate")
+    def validate_dimension(dimension_contract_id: str) -> dict[str, object]:
+        """Validate one dimension via POST /semantic/dimensions/{dimension_contract_id}/validate without changing stored lifecycle state."""
+        return _semantic_action_request(
+            client, f"/semantic/dimensions/{dimension_contract_id}/validate"
+        )
+
+    @server.tool()
+    @_tool_metadata("POST", "/semantic/dimensions/{dimension_contract_id}/activate")
+    def activate_dimension(dimension_contract_id: str) -> dict[str, object]:
+        """Activate one dimension via POST /semantic/dimensions/{dimension_contract_id}/activate; activation adds it to the formal catalog but does not imply ready."""
+        return _semantic_action_request(
+            client, f"/semantic/dimensions/{dimension_contract_id}/activate"
+        )
+
+    @server.tool()
+    @_tool_metadata("POST", "/semantic/dimensions/{dimension_contract_id}/deprecate")
+    def deprecate_dimension(dimension_contract_id: str) -> dict[str, object]:
+        """Deprecate one dimension via POST /semantic/dimensions/{dimension_contract_id}/deprecate."""
+        return _semantic_action_request(
+            client, f"/semantic/dimensions/{dimension_contract_id}/deprecate"
+        )
+
+    @server.tool()
     @_tool_metadata("POST", "/semantic/dimensions/{dimension_contract_id}/publish")
     def publish_dimension(dimension_contract_id: str) -> dict[str, object]:
-        """Publish one dimension via POST /semantic/dimensions/{dimension_contract_id}/publish; published objects become runtime-visible and draft-only updates stop applying."""
+        """Compatibility alias for activate_dimension via POST /semantic/dimensions/{dimension_contract_id}/publish."""
         return _semantic_publish_request(
             client, f"/semantic/dimensions/{dimension_contract_id}/publish"
         )
@@ -715,9 +799,27 @@ def register_tools(
         )
 
     @server.tool()
+    @_tool_metadata("POST", "/semantic/time/{time_contract_id}/validate")
+    def validate_time_semantic(time_contract_id: str) -> dict[str, object]:
+        """Validate one time semantic via POST /semantic/time/{time_contract_id}/validate without changing stored lifecycle state."""
+        return _semantic_action_request(client, f"/semantic/time/{time_contract_id}/validate")
+
+    @server.tool()
+    @_tool_metadata("POST", "/semantic/time/{time_contract_id}/activate")
+    def activate_time_semantic(time_contract_id: str) -> dict[str, object]:
+        """Activate one time semantic via POST /semantic/time/{time_contract_id}/activate; activation adds it to the formal catalog but does not imply ready."""
+        return _semantic_action_request(client, f"/semantic/time/{time_contract_id}/activate")
+
+    @server.tool()
+    @_tool_metadata("POST", "/semantic/time/{time_contract_id}/deprecate")
+    def deprecate_time_semantic(time_contract_id: str) -> dict[str, object]:
+        """Deprecate one time semantic via POST /semantic/time/{time_contract_id}/deprecate."""
+        return _semantic_action_request(client, f"/semantic/time/{time_contract_id}/deprecate")
+
+    @server.tool()
     @_tool_metadata("POST", "/semantic/time/{time_contract_id}/publish")
     def publish_time_semantic(time_contract_id: str) -> dict[str, object]:
-        """Publish one time semantic via POST /semantic/time/{time_contract_id}/publish; published objects become runtime-visible and draft-only updates stop applying."""
+        """Compatibility alias for activate_time_semantic via POST /semantic/time/{time_contract_id}/publish."""
         return _semantic_publish_request(client, f"/semantic/time/{time_contract_id}/publish")
 
     @server.tool()
@@ -770,9 +872,33 @@ def register_tools(
         )
 
     @server.tool()
+    @_tool_metadata("POST", "/semantic/enum-sets/{enum_set_contract_id}/validate")
+    def validate_enum_set(enum_set_contract_id: str) -> dict[str, object]:
+        """Validate one enum set via POST /semantic/enum-sets/{enum_set_contract_id}/validate without changing stored lifecycle state."""
+        return _semantic_action_request(
+            client, f"/semantic/enum-sets/{enum_set_contract_id}/validate"
+        )
+
+    @server.tool()
+    @_tool_metadata("POST", "/semantic/enum-sets/{enum_set_contract_id}/activate")
+    def activate_enum_set(enum_set_contract_id: str) -> dict[str, object]:
+        """Activate one enum set via POST /semantic/enum-sets/{enum_set_contract_id}/activate; activation adds it to the formal catalog but does not imply ready."""
+        return _semantic_action_request(
+            client, f"/semantic/enum-sets/{enum_set_contract_id}/activate"
+        )
+
+    @server.tool()
+    @_tool_metadata("POST", "/semantic/enum-sets/{enum_set_contract_id}/deprecate")
+    def deprecate_enum_set(enum_set_contract_id: str) -> dict[str, object]:
+        """Deprecate one enum set via POST /semantic/enum-sets/{enum_set_contract_id}/deprecate."""
+        return _semantic_action_request(
+            client, f"/semantic/enum-sets/{enum_set_contract_id}/deprecate"
+        )
+
+    @server.tool()
     @_tool_metadata("POST", "/semantic/enum-sets/{enum_set_contract_id}/publish")
     def publish_enum_set(enum_set_contract_id: str) -> dict[str, object]:
-        """Publish one enum set via POST /semantic/enum-sets/{enum_set_contract_id}/publish; published objects become runtime-visible and draft-only updates stop applying."""
+        """Compatibility alias for activate_enum_set via POST /semantic/enum-sets/{enum_set_contract_id}/publish."""
         return _semantic_publish_request(
             client, f"/semantic/enum-sets/{enum_set_contract_id}/publish"
         )
@@ -823,9 +949,27 @@ def register_tools(
         )
 
     @server.tool()
+    @_tool_metadata("POST", "/semantic/bindings/{binding_id}/validate")
+    def validate_binding(binding_id: str) -> dict[str, object]:
+        """Validate one binding via POST /semantic/bindings/{binding_id}/validate without changing stored lifecycle state."""
+        return _semantic_action_request(client, f"/semantic/bindings/{binding_id}/validate")
+
+    @server.tool()
+    @_tool_metadata("POST", "/semantic/bindings/{binding_id}/activate")
+    def activate_binding(binding_id: str) -> dict[str, object]:
+        """Activate one binding via POST /semantic/bindings/{binding_id}/activate; activation adds it to the formal catalog but does not imply ready."""
+        return _semantic_action_request(client, f"/semantic/bindings/{binding_id}/activate")
+
+    @server.tool()
+    @_tool_metadata("POST", "/semantic/bindings/{binding_id}/deprecate")
+    def deprecate_binding(binding_id: str) -> dict[str, object]:
+        """Deprecate one binding via POST /semantic/bindings/{binding_id}/deprecate."""
+        return _semantic_action_request(client, f"/semantic/bindings/{binding_id}/deprecate")
+
+    @server.tool()
     @_tool_metadata("POST", "/semantic/bindings/{binding_id}/publish")
     def publish_binding(binding_id: str) -> dict[str, object]:
-        """Publish one binding via POST /semantic/bindings/{binding_id}/publish; published objects become runtime-visible and draft-only updates stop applying."""
+        """Compatibility alias for activate_binding via POST /semantic/bindings/{binding_id}/publish."""
         return _semantic_publish_request(client, f"/semantic/bindings/{binding_id}/publish")
 
     @server.tool()
@@ -882,9 +1026,33 @@ def register_tools(
         )
 
     @server.tool()
+    @_tool_metadata("POST", "/compiler/compatibility-profiles/{profile_id}/validate")
+    def validate_compatibility_profile(profile_id: str) -> dict[str, object]:
+        """Validate one compatibility profile via POST /compiler/compatibility-profiles/{profile_id}/validate without changing stored lifecycle state."""
+        return _semantic_action_request(
+            client, f"/compiler/compatibility-profiles/{profile_id}/validate"
+        )
+
+    @server.tool()
+    @_tool_metadata("POST", "/compiler/compatibility-profiles/{profile_id}/activate")
+    def activate_compatibility_profile(profile_id: str) -> dict[str, object]:
+        """Activate one compatibility profile via POST /compiler/compatibility-profiles/{profile_id}/activate; activation adds it to the formal catalog but does not imply ready."""
+        return _semantic_action_request(
+            client, f"/compiler/compatibility-profiles/{profile_id}/activate"
+        )
+
+    @server.tool()
+    @_tool_metadata("POST", "/compiler/compatibility-profiles/{profile_id}/deprecate")
+    def deprecate_compatibility_profile(profile_id: str) -> dict[str, object]:
+        """Deprecate one compatibility profile via POST /compiler/compatibility-profiles/{profile_id}/deprecate."""
+        return _semantic_action_request(
+            client, f"/compiler/compatibility-profiles/{profile_id}/deprecate"
+        )
+
+    @server.tool()
     @_tool_metadata("POST", "/compiler/compatibility-profiles/{profile_id}/publish")
     def publish_compatibility_profile(profile_id: str) -> dict[str, object]:
-        """Publish one compatibility profile via POST /compiler/compatibility-profiles/{profile_id}/publish; published objects become runtime-visible and draft-only updates stop applying."""
+        """Compatibility alias for activate_compatibility_profile via POST /compiler/compatibility-profiles/{profile_id}/publish."""
         return _semantic_publish_request(
             client, f"/compiler/compatibility-profiles/{profile_id}/publish"
         )
@@ -1023,11 +1191,18 @@ def _semantic_write_request(
     ).model_dump()
 
 
-def _semantic_publish_request(
+def _semantic_action_request(
     client: FactumHttpClient,
     path: str,
 ) -> dict[str, object]:
     return client.request_envelope("POST", path).model_dump()
+
+
+def _semantic_publish_request(
+    client: FactumHttpClient,
+    path: str,
+) -> dict[str, object]:
+    return _semantic_action_request(client, path)
 
 
 def _openapi_cached_request(

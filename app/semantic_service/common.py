@@ -29,6 +29,8 @@ def now_iso() -> str:
 
 
 class SemanticServiceSupport:
+    SemanticLifecycleAction = Literal["validate", "activate", "deprecate", "publish"]
+
     _dependency_prefixes = (
         "entity.",
         "metric.",
@@ -257,11 +259,36 @@ class SemanticServiceSupport:
     ) -> SemanticCompatibilityError:
         return SemanticCompatibilityError(message, code=code, category=category)
 
-    def _require_draft_status(self, status: str, object_label: str, object_id: str) -> None:
-        if status != "draft":
+    def _require_lifecycle_action_status(
+        self,
+        *,
+        action: SemanticLifecycleAction,
+        status: str,
+        object_label: str,
+        object_id: str,
+    ) -> None:
+        allowed_statuses: tuple[str, ...]
+        expected_label: str
+        if action == "validate":
+            allowed_statuses = ("draft", "published")
+            expected_label = "draft or published"
+        elif action in {"activate", "publish"}:
+            allowed_statuses = ("draft",)
+            expected_label = "draft"
+        elif action == "deprecate":
+            allowed_statuses = ("published",)
+            expected_label = "published"
+        else:
             raise self._state_error(
-                f"{object_label} '{object_id}' is not in draft status (status={status}).",
-                code="publish_state_error",
+                f"Unsupported lifecycle action '{action}'.",
+                code="semantic_lifecycle_action_unsupported",
+            )
+        if status not in allowed_statuses:
+            action_name = "publish" if action == "publish" else action
+            raise self._state_error(
+                f"{object_label} '{object_id}' cannot {action_name} from status={status}; "
+                f"expected {expected_label}.",
+                code=f"{action_name}_state_error",
             )
 
     def _run_publish_reference_validation(self, validator: Any) -> None:
@@ -287,7 +314,27 @@ class SemanticServiceSupport:
                 code="compatibility_validation_error",
             ) from error
 
-    def _publish_record(
+    def _validate_record(
+        self,
+        *,
+        object_id: str,
+        object_label: str,
+        status: str,
+        reference_validator: Any | None = None,
+        compatibility_validator: Any | None = None,
+    ) -> None:
+        self._require_lifecycle_action_status(
+            action="validate",
+            status=status,
+            object_label=object_label,
+            object_id=object_id,
+        )
+        if reference_validator is not None:
+            self._run_publish_reference_validation(reference_validator)
+        if compatibility_validator is not None:
+            self._run_publish_compatibility_validation(compatibility_validator)
+
+    def _activate_record(
         self,
         *,
         table_name: str,
@@ -298,7 +345,12 @@ class SemanticServiceSupport:
         reference_validator: Any | None = None,
         compatibility_validator: Any | None = None,
     ) -> None:
-        self._require_draft_status(status, object_label, object_id)
+        self._require_lifecycle_action_status(
+            action="activate",
+            status=status,
+            object_label=object_label,
+            object_id=object_id,
+        )
         if reference_validator is not None:
             self._run_publish_reference_validation(reference_validator)
         if compatibility_validator is not None:
@@ -310,6 +362,51 @@ class SemanticServiceSupport:
             WHERE {id_column} = ?
             """,
             [now_iso(), object_id],
+        )
+
+    def _deprecate_record(
+        self,
+        *,
+        table_name: str,
+        id_column: str,
+        object_id: str,
+        object_label: str,
+        status: str,
+    ) -> None:
+        self._require_lifecycle_action_status(
+            action="deprecate",
+            status=status,
+            object_label=object_label,
+            object_id=object_id,
+        )
+        self.metadata.execute(
+            f"""
+            UPDATE {table_name}
+            SET status = 'deprecated', revision = revision + 1, updated_at = ?
+            WHERE {id_column} = ?
+            """,
+            [now_iso(), object_id],
+        )
+
+    def _publish_record(
+        self,
+        *,
+        table_name: str,
+        id_column: str,
+        object_id: str,
+        object_label: str,
+        status: str,
+        reference_validator: Any | None = None,
+        compatibility_validator: Any | None = None,
+    ) -> None:
+        self._activate_record(
+            table_name=table_name,
+            id_column=id_column,
+            object_id=object_id,
+            object_label=object_label,
+            status=status,
+            reference_validator=reference_validator,
+            compatibility_validator=compatibility_validator,
         )
 
     @staticmethod
