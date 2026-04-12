@@ -137,6 +137,9 @@ surface structured readiness failures instead of collapsing them into generic co
 List endpoints return lightweight items by default (header, status, blocker_count, capabilities_summary);
 use `detail=true` query parameter for backward-compatible full payload. Detail endpoints return
 full objects including `dependency_refs` and stubbed `dependent_refs` (empty list, deferred implementation).
+Admin semantic catalog views should treat `lifecycle_status` and `readiness_status` as the primary
+operator-facing state, with blockers shown before helper/debug actions so `published` is never
+presented as a proxy for usability.
 
 ## Docs layout:
 - `docs/api/`: external HTTP API docs only; target-state step submission is in `intent-steps.md`, and canonical read surfaces are split into `session-state.md` and `context-surface.md`

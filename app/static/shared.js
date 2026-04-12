@@ -375,6 +375,7 @@ function priorityBadge(p) {
 function statusBadge(status) {
   const map = {
     draft: 'badge-warning', published: 'badge-success', deprecated: 'badge-gray',
+    active: 'badge-success', ready: 'badge-success', not_ready: 'badge-error', stale: 'badge-warning',
     pending: 'badge-warning', approved: 'badge-success', rejected: 'badge-error',
     running: 'badge-info', completed: 'badge-success', failed: 'badge-error',
     cancelled: 'badge-gray', submitted: 'badge-info',

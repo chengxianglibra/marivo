@@ -50,6 +50,10 @@ Readiness is evaluated separately from lifecycle.
 - Use `detail=true` query parameter on list endpoints to return full object payloads
 - Example: `GET /semantic/entities?detail=true` returns full objects instead of lightweight items
 - Default behavior (`detail=false`) returns lightweight items
+- `/admin?tab=semantic-catalog` uses the lightweight list shape for inventory and fetches detail by
+  object id when the operator selects an object. That UI surfaces `lifecycle_status`,
+  `readiness_status`, blocker detail, dependencies, dependents, and capabilities directly so
+  operators can see why an object is unusable without triggering a runtime failure first.
 
 Current compatibility policy for read routes:
 

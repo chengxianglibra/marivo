@@ -73,6 +73,14 @@ export async function sendDelete(path, fallbackMessage) {
   return response.json();
 }
 
+function semanticListQuery(status = null, options = {}) {
+  const search = new URLSearchParams();
+  if (status) search.set('status', status);
+  if (options.detail) search.set('detail', 'true');
+  const query = search.toString();
+  return query ? `?${query}` : '';
+}
+
 export function createAdminApi() {
   return {
     parseError: parseResponseError,
@@ -241,9 +249,9 @@ export function createAdminApi() {
         'Source-engine relationship unavailable.'
       );
     },
-    listSemanticEntities(status = null) {
+    listSemanticEntities(status = null, options = {}) {
       return requestJson(
-        `/semantic/entities${status ? `?status=${encodeURIComponent(status)}` : ''}`,
+        `/semantic/entities${semanticListQuery(status, options)}`,
         'Entity Catalog unavailable.'
       );
     },
@@ -272,9 +280,9 @@ export function createAdminApi() {
         'Publish Entity failed.'
       );
     },
-    listSemanticMetrics(status = null) {
+    listSemanticMetrics(status = null, options = {}) {
       return requestJson(
-        `/semantic/metrics${status ? `?status=${encodeURIComponent(status)}` : ''}`,
+        `/semantic/metrics${semanticListQuery(status, options)}`,
         'Metric Catalog unavailable.'
       );
     },
@@ -303,9 +311,9 @@ export function createAdminApi() {
         'Publish Metric failed.'
       );
     },
-    listSemanticProcessObjects(status = null) {
+    listSemanticProcessObjects(status = null, options = {}) {
       return requestJson(
-        `/semantic/process-objects${status ? `?status=${encodeURIComponent(status)}` : ''}`,
+        `/semantic/process-objects${semanticListQuery(status, options)}`,
         'Process Object Catalog unavailable.'
       );
     },
@@ -339,9 +347,9 @@ export function createAdminApi() {
         'Publish Process Object failed.'
       );
     },
-    listSemanticDimensions(status = null) {
+    listSemanticDimensions(status = null, options = {}) {
       return requestJson(
-        `/semantic/dimensions${status ? `?status=${encodeURIComponent(status)}` : ''}`,
+        `/semantic/dimensions${semanticListQuery(status, options)}`,
         'Dimension Catalog unavailable.'
       );
     },
@@ -370,9 +378,9 @@ export function createAdminApi() {
         'Publish Dimension failed.'
       );
     },
-    listSemanticTime(status = null) {
+    listSemanticTime(status = null, options = {}) {
       return requestJson(
-        `/semantic/time${status ? `?status=${encodeURIComponent(status)}` : ''}`,
+        `/semantic/time${semanticListQuery(status, options)}`,
         'Time Catalog unavailable.'
       );
     },
@@ -398,9 +406,9 @@ export function createAdminApi() {
         'Publish Time failed.'
       );
     },
-    listSemanticEnumSets(status = null) {
+    listSemanticEnumSets(status = null, options = {}) {
       return requestJson(
-        `/semantic/enum-sets${status ? `?status=${encodeURIComponent(status)}` : ''}`,
+        `/semantic/enum-sets${semanticListQuery(status, options)}`,
         'Enum Set Catalog unavailable.'
       );
     },
@@ -429,9 +437,9 @@ export function createAdminApi() {
         'Publish Enum Set failed.'
       );
     },
-    listTypedSemanticBindings(status = null) {
+    listTypedSemanticBindings(status = null, options = {}) {
       return requestJson(
-        `/semantic/bindings${status ? `?status=${encodeURIComponent(status)}` : ''}`,
+        `/semantic/bindings${semanticListQuery(status, options)}`,
         'Typed Binding Catalog unavailable.'
       );
     },
