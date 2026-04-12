@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Literal, cast
+from typing import Any, Literal
 from uuid import uuid4
 
 from app.api.models.dimension import DimensionCreateRequest, DimensionUpdateRequest
@@ -90,9 +90,14 @@ class TypedObjectService(SemanticServiceSupport):
         return self._row_to_typed_entity(row)
 
     def list_typed_entities(
-        self, status: str | None = None, detail: bool = False
+        self,
+        status: str | None = None,
+        lifecycle_status: str | None = None,
+        readiness_status: str | None = None,
+        detail: bool = False,
     ) -> dict[str, Any]:
         mode: Literal["list", "detail"] = "detail" if detail else "list"
+        status = self._resolve_semantic_filters(status=status, lifecycle_status=lifecycle_status)
         if status is None:
             rows = self.metadata.query_rows(
                 "SELECT * FROM semantic_entity_contracts ORDER BY entity_ref"
@@ -102,7 +107,14 @@ class TypedObjectService(SemanticServiceSupport):
                 "SELECT * FROM semantic_entity_contracts WHERE status = ? ORDER BY entity_ref",
                 [status],
             )
-        items = [self._row_to_typed_entity(row, mode=mode) for row in rows]
+        items = [
+            item
+            for row in rows
+            if self._matches_readiness_filter(
+                item := self._row_to_typed_entity(row, mode=mode),
+                readiness_status=readiness_status,
+            )
+        ]
         return {"items": items, "total": len(items)}
 
     def update_typed_entity(
@@ -253,8 +265,15 @@ class TypedObjectService(SemanticServiceSupport):
             raise self._not_found(f"Unknown typed metric: {metric_contract_id}")
         return self._row_to_typed_metric(row)
 
-    def list_typed_metrics(self, status: str | None = None, detail: bool = False) -> dict[str, Any]:
+    def list_typed_metrics(
+        self,
+        status: str | None = None,
+        lifecycle_status: str | None = None,
+        readiness_status: str | None = None,
+        detail: bool = False,
+    ) -> dict[str, Any]:
         mode: Literal["list", "detail"] = "detail" if detail else "list"
+        status = self._resolve_semantic_filters(status=status, lifecycle_status=lifecycle_status)
         if status is None:
             rows = self.metadata.query_rows(
                 "SELECT * FROM semantic_metric_contracts ORDER BY metric_ref"
@@ -264,7 +283,14 @@ class TypedObjectService(SemanticServiceSupport):
                 "SELECT * FROM semantic_metric_contracts WHERE status = ? ORDER BY metric_ref",
                 [status],
             )
-        items = [self._row_to_typed_metric(row, mode=mode) for row in rows]
+        items = [
+            item
+            for row in rows
+            if self._matches_readiness_filter(
+                item := self._row_to_typed_metric(row, mode=mode),
+                readiness_status=readiness_status,
+            )
+        ]
         return {"items": items, "total": len(items)}
 
     def update_typed_metric(
@@ -395,8 +421,13 @@ class TypedObjectService(SemanticServiceSupport):
         return self._row_to_process_object(row)
 
     def list_process_objects(
-        self, status: str | None = None, detail: bool = False
+        self,
+        status: str | None = None,
+        lifecycle_status: str | None = None,
+        readiness_status: str | None = None,
+        detail: bool = False,
     ) -> dict[str, Any]:
+        status = self._resolve_semantic_filters(status=status, lifecycle_status=lifecycle_status)
         if status is None:
             rows = self.metadata.query_rows(
                 "SELECT * FROM semantic_process_objects ORDER BY process_ref"
@@ -406,9 +437,14 @@ class TypedObjectService(SemanticServiceSupport):
                 "SELECT * FROM semantic_process_objects WHERE status = ? ORDER BY process_ref",
                 [status],
             )
-        mode = cast("Literal['list', 'detail']", "detail" if detail else "list")
+        mode: Literal["list", "detail"] = "detail" if detail else "list"
         items = [
-            self._row_to_process_object(row, mode=mode, include_dependents=detail) for row in rows
+            item
+            for row in rows
+            if self._matches_readiness_filter(
+                item := self._row_to_process_object(row, mode=mode, include_dependents=detail),
+                readiness_status=readiness_status,
+            )
         ]
         return {"items": items, "total": len(items)}
 
@@ -594,7 +630,14 @@ class TypedObjectService(SemanticServiceSupport):
             raise self._not_found(f"Unknown dimension: {dimension_contract_id}")
         return self._row_to_dimension(row)
 
-    def list_dimensions(self, status: str | None = None, detail: bool = False) -> dict[str, Any]:
+    def list_dimensions(
+        self,
+        status: str | None = None,
+        lifecycle_status: str | None = None,
+        readiness_status: str | None = None,
+        detail: bool = False,
+    ) -> dict[str, Any]:
+        status = self._resolve_semantic_filters(status=status, lifecycle_status=lifecycle_status)
         if status is None:
             rows = self.metadata.query_rows(
                 "SELECT * FROM semantic_dimension_contracts ORDER BY dimension_ref"
@@ -604,8 +647,15 @@ class TypedObjectService(SemanticServiceSupport):
                 "SELECT * FROM semantic_dimension_contracts WHERE status = ? ORDER BY dimension_ref",
                 [status],
             )
-        mode = cast("Literal['list', 'detail']", "detail" if detail else "list")
-        items = [self._row_to_dimension(row, mode=mode, include_dependents=detail) for row in rows]
+        mode: Literal["list", "detail"] = "detail" if detail else "list"
+        items = [
+            item
+            for row in rows
+            if self._matches_readiness_filter(
+                item := self._row_to_dimension(row, mode=mode, include_dependents=detail),
+                readiness_status=readiness_status,
+            )
+        ]
         return {"items": items, "total": len(items)}
 
     def update_dimension(
@@ -763,8 +813,13 @@ class TypedObjectService(SemanticServiceSupport):
         return self._row_to_time_semantic(row)
 
     def list_time_semantics(
-        self, status: str | None = None, detail: bool = False
+        self,
+        status: str | None = None,
+        lifecycle_status: str | None = None,
+        readiness_status: str | None = None,
+        detail: bool = False,
     ) -> dict[str, Any]:
+        status = self._resolve_semantic_filters(status=status, lifecycle_status=lifecycle_status)
         if status is None:
             rows = self.metadata.query_rows("SELECT * FROM semantic_time_objects ORDER BY time_ref")
         else:
@@ -772,9 +827,14 @@ class TypedObjectService(SemanticServiceSupport):
                 "SELECT * FROM semantic_time_objects WHERE status = ? ORDER BY time_ref",
                 [status],
             )
-        mode = cast("Literal['list', 'detail']", "detail" if detail else "list")
+        mode: Literal["list", "detail"] = "detail" if detail else "list"
         items = [
-            self._row_to_time_semantic(row, mode=mode, include_dependents=detail) for row in rows
+            item
+            for row in rows
+            if self._matches_readiness_filter(
+                item := self._row_to_time_semantic(row, mode=mode, include_dependents=detail),
+                readiness_status=readiness_status,
+            )
         ]
         return {"items": items, "total": len(items)}
 
@@ -891,7 +951,14 @@ class TypedObjectService(SemanticServiceSupport):
             raise self._not_found(f"Unknown enum set: {enum_set_contract_id}")
         return self._row_to_enum_set(row)
 
-    def list_enum_sets(self, status: str | None = None, detail: bool = False) -> dict[str, Any]:
+    def list_enum_sets(
+        self,
+        status: str | None = None,
+        lifecycle_status: str | None = None,
+        readiness_status: str | None = None,
+        detail: bool = False,
+    ) -> dict[str, Any]:
+        status = self._resolve_semantic_filters(status=status, lifecycle_status=lifecycle_status)
         if status is None:
             rows = self.metadata.query_rows(
                 "SELECT * FROM semantic_enum_sets ORDER BY enum_set_ref"
@@ -901,8 +968,15 @@ class TypedObjectService(SemanticServiceSupport):
                 "SELECT * FROM semantic_enum_sets WHERE status = ? ORDER BY enum_set_ref",
                 [status],
             )
-        mode = cast("Literal['list', 'detail']", "detail" if detail else "list")
-        items = [self._row_to_enum_set(row, mode=mode, include_dependents=detail) for row in rows]
+        mode: Literal["list", "detail"] = "detail" if detail else "list"
+        items = [
+            item
+            for row in rows
+            if self._matches_readiness_filter(
+                item := self._row_to_enum_set(row, mode=mode, include_dependents=detail),
+                readiness_status=readiness_status,
+            )
+        ]
         return {"items": items, "total": len(items)}
 
     def update_enum_set(

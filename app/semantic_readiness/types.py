@@ -53,6 +53,7 @@ class BlockingRequirementPayload:
     message: str
     subject_ref: str | None = None
     dependency_ref: str | None = None
+    details: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dict for API response."""
@@ -64,6 +65,8 @@ class BlockingRequirementPayload:
             payload["subject_ref"] = self.subject_ref
         if self.dependency_ref is not None:
             payload["dependency_ref"] = self.dependency_ref
+        if self.details:
+            payload["details"] = dict(self.details)
         return payload
 
 

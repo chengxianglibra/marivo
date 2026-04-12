@@ -182,7 +182,7 @@ curl -s -X POST http://localhost:8000/semantic/bindings \
           "carrier_binding_key": "primary",
           "target": {
             "target_kind": "metric_input",
-            "target_key": "metric_input.active_users"
+            "target_key": "count_target"
           },
           "semantic_ref": "metric_input.active_users",
           "surface_ref": "field.user_id"
@@ -206,6 +206,10 @@ Verify that runtime resolution sees only published typed refs:
 ```bash
 curl -s http://localhost:8000/semantic/resolve/metric.daily_active_users | jq .
 ```
+
+Metric bindings use family slot names for `target.target_key`. Common values are `count_target`,
+`measure`, `numerator`, `denominator`, `value_component`, and `score_source`. Do not use a
+`metric_input.*` ref as `target_key`; that belongs in `semantic_ref`.
 
 ## Step 8 - Create a Session
 

@@ -135,9 +135,10 @@ def test_validation_error_preserves_guidance_and_adds_hint() -> None:
                     "message": "Request validation failed. Use the guided example and contract links.",
                 },
                 "guidance": {
-                    "schema_url": "/openapi/schemas/TypedEntityCreateRequest?depth=2",
+                    "schema_url": "/openapi/schemas/TypedEntityCreateRequest?depth=6",
                     "contract_url": "/openapi/paths/L3NlbWFudGljL2VudGl0aWVz",
                     "examples": [{"summary": "Minimal payload", "payload": {"header": {}}}],
+                    "next_action": "Start with guidance.examples.",
                 },
             },
             request=request,
@@ -159,9 +160,10 @@ def test_validation_error_preserves_guidance_and_adds_hint() -> None:
         }
     ]
     assert envelope.error.guidance == {
-        "schema_url": "/openapi/schemas/TypedEntityCreateRequest?depth=2",
+        "schema_url": "/openapi/schemas/TypedEntityCreateRequest?depth=6",
         "contract_url": "/openapi/paths/L3NlbWFudGljL2VudGl0aWVz",
         "examples": [{"summary": "Minimal payload", "payload": {"header": {}}}],
+        "next_action": "Start with guidance.examples.",
     }
     assert envelope.error.remediation_hint is not None
     assert "guidance.examples" in envelope.error.remediation_hint
@@ -1992,3 +1994,32 @@ def _invoke_registered_tool(
         return cast("dict[str, Any]", server.tools[tool_name](**tool_kwargs))
     finally:
         tools_module_any.FactumHttpClient = original_client
+
+
+def test_semantic_tool_accepts_object_id_alias() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/semantic/entities/entc_123"
+        return httpx.Response(200, json={"entity_contract_id": "entc_123"}, request=request)
+
+    result = _invoke_registered_tool("get_entity", handler, object_id="entc_123")
+
+    assert result["ok"] is True
+    assert result["data"]["entity_contract_id"] == "entc_123"
+
+
+def test_list_metrics_forwards_lifecycle_and_readiness_filters() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/semantic/metrics"
+        assert request.url.params["lifecycle_status"] == "active"
+        assert request.url.params["readiness_status"] == "ready"
+        return httpx.Response(200, json={"items": [], "total": 0}, request=request)
+
+    result = _invoke_registered_tool(
+        "list_metrics",
+        handler,
+        lifecycle_status="active",
+        readiness_status="ready",
+    )
+
+    assert result["ok"] is True
+    assert result["data"] == {"items": [], "total": 0}

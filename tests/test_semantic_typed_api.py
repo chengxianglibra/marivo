@@ -1749,13 +1749,14 @@ class SemanticTypedApiTests(unittest.TestCase):
         self.assertEqual(payload["error"]["code"], "request_validation_error")
         self.assertEqual(payload["guidance"]["docs_url"], "docs/api/semantic.md")
         self.assertEqual(
-            payload["guidance"]["schema_url"], "/openapi/schemas/TypedEntityCreateRequest?depth=2"
+            payload["guidance"]["schema_url"], "/openapi/schemas/TypedEntityCreateRequest?depth=6"
         )
         self.assertEqual(
             payload["guidance"]["contract_url"],
-            "/openapi/paths/L3NlbWFudGljL2VudGl0aWVz?operation=post&expand=request,schemas&depth=2",
+            "/openapi/paths/L3NlbWFudGljL2VudGl0aWVz?operation=post&expand=request,schemas&depth=6",
         )
         self.assertGreaterEqual(len(payload["guidance"]["examples"]), 1)
+        self.assertIn("next_action", payload["guidance"])
 
         resp = self.client.post(
             "/semantic/bindings",
@@ -1779,6 +1780,7 @@ class SemanticTypedApiTests(unittest.TestCase):
         self.assertEqual(payload["error"]["code"], "request_validation_error")
         self.assertEqual(payload["guidance"]["docs_url"], "docs/api/semantic.md")
         self.assertIn("contract_url", payload["guidance"])
+        self.assertGreaterEqual(len(payload["guidance"]["examples"]), 2)
 
         resp = self.client.post(
             "/compiler/compatibility-profiles",
@@ -1795,6 +1797,98 @@ class SemanticTypedApiTests(unittest.TestCase):
         self.assertIsInstance(payload["detail"], list)
         self.assertEqual(payload["error"]["code"], "request_validation_error")
         self.assertEqual(payload["guidance"]["docs_url"], "docs/api/semantic.md")
+
+    def test_metric_binding_rejects_measure_target_kind_with_guidance(self) -> None:
+        entity_resp = self.client.post(
+            "/semantic/entities",
+            json={
+                "header": {
+                    "entity_ref": "entity.account_measure_target",
+                    "display_name": "Account",
+                    "entity_contract_version": "entity.v4",
+                },
+                "interface_contract": {
+                    "identity": {
+                        "key_refs": ["key.account_id"],
+                        "uniqueness_scope": "global",
+                        "id_stability": "stable",
+                    }
+                },
+            },
+        )
+        self.assertEqual(entity_resp.status_code, 200, entity_resp.text)
+        entity_id = entity_resp.json()["entity_contract_id"]
+        self.assertEqual(
+            self.client.post(f"/semantic/entities/{entity_id}/publish").status_code, 200
+        )
+
+        metric_resp = self.client.post(
+            "/semantic/metrics",
+            json={
+                "header": {
+                    "metric_ref": "metric.account_spend",
+                    "display_name": "Account Spend",
+                    "metric_family": "sum_metric",
+                    "observed_entity_ref": "entity.account_measure_target",
+                    "observation_grain_ref": "grain.account",
+                    "sample_kind": "numeric",
+                    "value_semantics": "sum",
+                    "additivity": "additive",
+                    "metric_contract_version": "metric.v1",
+                },
+                "payload": {
+                    "metric_family": "sum_metric",
+                    "measure": {
+                        "name": "spend",
+                        "semantics": "total spend",
+                        "aggregation": "sum",
+                        "measure_ref": "measure.spend",
+                    },
+                },
+            },
+        )
+        self.assertEqual(metric_resp.status_code, 200, metric_resp.text)
+        metric_id = metric_resp.json()["metric_contract_id"]
+        self.assertEqual(
+            self.client.post(f"/semantic/metrics/{metric_id}/publish").status_code, 200
+        )
+
+        resp = self.client.post(
+            "/semantic/bindings",
+            json={
+                "header": {
+                    "binding_ref": "binding.account_spend_invalid",
+                    "display_name": "Account Spend Invalid",
+                    "binding_scope": "metric",
+                    "bound_object_ref": "metric.account_spend",
+                    "binding_contract_version": "binding.v1",
+                },
+                "interface_contract": {
+                    "carrier_bindings": [
+                        {
+                            "binding_key": "primary",
+                            "carrier_kind": "table",
+                            "carrier_locator": "analytics.account_spend",
+                            "binding_role": "primary",
+                            "field_surfaces": [
+                                {"surface_ref": "field.amount", "physical_name": "amount"}
+                            ],
+                        }
+                    ],
+                    "field_bindings": [
+                        {
+                            "carrier_binding_key": "primary",
+                            "target": {"target_kind": "measure", "target_key": "measure.spend"},
+                            "semantic_ref": "measure.spend",
+                            "surface_ref": "field.amount",
+                        }
+                    ],
+                },
+            },
+        )
+        self.assertEqual(resp.status_code, 422, resp.text)
+        self.assertEqual(resp.json()["error"]["code"], "request_validation_error")
+        self.assertIn("metric_input", resp.json()["detail"][0]["msg"])
 
     def test_typed_object_routes_map_service_value_error_to_422(self) -> None:
         metric_resp = self.client.post(

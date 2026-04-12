@@ -474,29 +474,44 @@ def register_tools(
 
     @server.tool()
     @_tool_metadata("GET", "/semantic/entities")
-    def list_entities(status: str | None = None, detail: bool | None = None) -> dict[str, object]:
-        """List entities via GET /semantic/entities with the canonical status/detail filters."""
-        return _semantic_read_request(client, "/semantic/entities", status=status, detail=detail)
+    def list_entities(
+        status: str | None = None,
+        lifecycle_status: str | None = None,
+        readiness_status: str | None = None,
+        detail: bool | None = None,
+    ) -> dict[str, object]:
+        """List entities via GET /semantic/entities; prefer lifecycle_status/readiness_status over legacy status."""
+        return _semantic_read_request(
+            client,
+            "/semantic/entities",
+            status=status,
+            lifecycle_status=lifecycle_status,
+            readiness_status=readiness_status,
+            detail=detail,
+        )
 
     @server.tool()
     @_tool_metadata("GET", "/semantic/entities/{entity_id}")
-    def get_entity(entity_id: str) -> dict[str, object]:
-        """Read one entity via GET /semantic/entities/{entity_id}."""
-        return _semantic_read_request(client, f"/semantic/entities/{entity_id}")
+    def get_entity(object_id: str | None = None, entity_id: str | None = None) -> dict[str, object]:
+        """Read one entity via GET /semantic/entities/{entity_id}; prefer object_id over the legacy entity_id name."""
+        resolved_id = _resolve_object_id(object_id, entity_id, legacy_name="entity_id")
+        return _semantic_read_request(client, f"/semantic/entities/{resolved_id}")
 
     @server.tool()
     @_tool_metadata("PUT", "/semantic/entities/{entity_id}")
     def update_entity(
-        entity_id: str,
+        object_id: str | None = None,
+        entity_id: str | None = None,
         display_name: str | None = None,
         description: str | None = None,
         interface_contract: dict[str, object] | None = None,
     ) -> dict[str, object]:
         """Update one draft entity via PUT /semantic/entities/{entity_id} using the canonical TypedEntityUpdateRequest fields."""
+        resolved_id = _resolve_object_id(object_id, entity_id, legacy_name="entity_id")
         return _semantic_write_request(
             client,
             "PUT",
-            f"/semantic/entities/{entity_id}",
+            f"/semantic/entities/{resolved_id}",
             display_name=display_name,
             description=description,
             interface_contract=interface_contract,
@@ -504,27 +519,39 @@ def register_tools(
 
     @server.tool()
     @_tool_metadata("POST", "/semantic/entities/{entity_id}/validate")
-    def validate_entity(entity_id: str) -> dict[str, object]:
+    def validate_entity(
+        object_id: str | None = None, entity_id: str | None = None
+    ) -> dict[str, object]:
         """Validate one entity via POST /semantic/entities/{entity_id}/validate without changing stored lifecycle state."""
-        return _semantic_action_request(client, f"/semantic/entities/{entity_id}/validate")
+        resolved_id = _resolve_object_id(object_id, entity_id, legacy_name="entity_id")
+        return _semantic_action_request(client, f"/semantic/entities/{resolved_id}/validate")
 
     @server.tool()
     @_tool_metadata("POST", "/semantic/entities/{entity_id}/activate")
-    def activate_entity(entity_id: str) -> dict[str, object]:
+    def activate_entity(
+        object_id: str | None = None, entity_id: str | None = None
+    ) -> dict[str, object]:
         """Activate one entity via POST /semantic/entities/{entity_id}/activate; activation adds it to the formal catalog but does not imply ready."""
-        return _semantic_action_request(client, f"/semantic/entities/{entity_id}/activate")
+        resolved_id = _resolve_object_id(object_id, entity_id, legacy_name="entity_id")
+        return _semantic_action_request(client, f"/semantic/entities/{resolved_id}/activate")
 
     @server.tool()
     @_tool_metadata("POST", "/semantic/entities/{entity_id}/deprecate")
-    def deprecate_entity(entity_id: str) -> dict[str, object]:
+    def deprecate_entity(
+        object_id: str | None = None, entity_id: str | None = None
+    ) -> dict[str, object]:
         """Deprecate one entity via POST /semantic/entities/{entity_id}/deprecate."""
-        return _semantic_action_request(client, f"/semantic/entities/{entity_id}/deprecate")
+        resolved_id = _resolve_object_id(object_id, entity_id, legacy_name="entity_id")
+        return _semantic_action_request(client, f"/semantic/entities/{resolved_id}/deprecate")
 
     @server.tool()
     @_tool_metadata("POST", "/semantic/entities/{entity_id}/publish")
-    def publish_entity(entity_id: str) -> dict[str, object]:
+    def publish_entity(
+        object_id: str | None = None, entity_id: str | None = None
+    ) -> dict[str, object]:
         """Compatibility alias for activate_entity via POST /semantic/entities/{entity_id}/publish."""
-        return _semantic_publish_request(client, f"/semantic/entities/{entity_id}/publish")
+        resolved_id = _resolve_object_id(object_id, entity_id, legacy_name="entity_id")
+        return _semantic_publish_request(client, f"/semantic/entities/{resolved_id}/publish")
 
     @server.tool()
     @_tool_metadata("POST", "/semantic/metrics")
@@ -543,29 +570,44 @@ def register_tools(
 
     @server.tool()
     @_tool_metadata("GET", "/semantic/metrics")
-    def list_metrics(status: str | None = None, detail: bool | None = None) -> dict[str, object]:
-        """List metrics via GET /semantic/metrics with the canonical status/detail filters."""
-        return _semantic_read_request(client, "/semantic/metrics", status=status, detail=detail)
+    def list_metrics(
+        status: str | None = None,
+        lifecycle_status: str | None = None,
+        readiness_status: str | None = None,
+        detail: bool | None = None,
+    ) -> dict[str, object]:
+        """List metrics via GET /semantic/metrics; prefer lifecycle_status/readiness_status over legacy status."""
+        return _semantic_read_request(
+            client,
+            "/semantic/metrics",
+            status=status,
+            lifecycle_status=lifecycle_status,
+            readiness_status=readiness_status,
+            detail=detail,
+        )
 
     @server.tool()
     @_tool_metadata("GET", "/semantic/metrics/{metric_id}")
-    def get_metric(metric_id: str) -> dict[str, object]:
-        """Read one metric via GET /semantic/metrics/{metric_id}."""
-        return _semantic_read_request(client, f"/semantic/metrics/{metric_id}")
+    def get_metric(object_id: str | None = None, metric_id: str | None = None) -> dict[str, object]:
+        """Read one metric via GET /semantic/metrics/{metric_id}; prefer object_id over the legacy metric_id name."""
+        resolved_id = _resolve_object_id(object_id, metric_id, legacy_name="metric_id")
+        return _semantic_read_request(client, f"/semantic/metrics/{resolved_id}")
 
     @server.tool()
     @_tool_metadata("PUT", "/semantic/metrics/{metric_id}")
     def update_metric(
-        metric_id: str,
+        object_id: str | None = None,
+        metric_id: str | None = None,
         display_name: str | None = None,
         description: str | None = None,
         payload: dict[str, object] | None = None,
     ) -> dict[str, object]:
         """Update one draft metric via PUT /semantic/metrics/{metric_id} using the canonical TypedMetricUpdateRequest fields."""
+        resolved_id = _resolve_object_id(object_id, metric_id, legacy_name="metric_id")
         return _semantic_write_request(
             client,
             "PUT",
-            f"/semantic/metrics/{metric_id}",
+            f"/semantic/metrics/{resolved_id}",
             display_name=display_name,
             description=description,
             payload=payload,
@@ -573,27 +615,39 @@ def register_tools(
 
     @server.tool()
     @_tool_metadata("POST", "/semantic/metrics/{metric_id}/validate")
-    def validate_metric(metric_id: str) -> dict[str, object]:
+    def validate_metric(
+        object_id: str | None = None, metric_id: str | None = None
+    ) -> dict[str, object]:
         """Validate one metric via POST /semantic/metrics/{metric_id}/validate without changing stored lifecycle state."""
-        return _semantic_action_request(client, f"/semantic/metrics/{metric_id}/validate")
+        resolved_id = _resolve_object_id(object_id, metric_id, legacy_name="metric_id")
+        return _semantic_action_request(client, f"/semantic/metrics/{resolved_id}/validate")
 
     @server.tool()
     @_tool_metadata("POST", "/semantic/metrics/{metric_id}/activate")
-    def activate_metric(metric_id: str) -> dict[str, object]:
+    def activate_metric(
+        object_id: str | None = None, metric_id: str | None = None
+    ) -> dict[str, object]:
         """Activate one metric via POST /semantic/metrics/{metric_id}/activate; activation adds it to the formal catalog but does not imply ready."""
-        return _semantic_action_request(client, f"/semantic/metrics/{metric_id}/activate")
+        resolved_id = _resolve_object_id(object_id, metric_id, legacy_name="metric_id")
+        return _semantic_action_request(client, f"/semantic/metrics/{resolved_id}/activate")
 
     @server.tool()
     @_tool_metadata("POST", "/semantic/metrics/{metric_id}/deprecate")
-    def deprecate_metric(metric_id: str) -> dict[str, object]:
+    def deprecate_metric(
+        object_id: str | None = None, metric_id: str | None = None
+    ) -> dict[str, object]:
         """Deprecate one metric via POST /semantic/metrics/{metric_id}/deprecate."""
-        return _semantic_action_request(client, f"/semantic/metrics/{metric_id}/deprecate")
+        resolved_id = _resolve_object_id(object_id, metric_id, legacy_name="metric_id")
+        return _semantic_action_request(client, f"/semantic/metrics/{resolved_id}/deprecate")
 
     @server.tool()
     @_tool_metadata("POST", "/semantic/metrics/{metric_id}/publish")
-    def publish_metric(metric_id: str) -> dict[str, object]:
+    def publish_metric(
+        object_id: str | None = None, metric_id: str | None = None
+    ) -> dict[str, object]:
         """Compatibility alias for activate_metric via POST /semantic/metrics/{metric_id}/publish."""
-        return _semantic_publish_request(client, f"/semantic/metrics/{metric_id}/publish")
+        resolved_id = _resolve_object_id(object_id, metric_id, legacy_name="metric_id")
+        return _semantic_publish_request(client, f"/semantic/metrics/{resolved_id}/publish")
 
     @server.tool()
     @_tool_metadata("POST", "/semantic/process-objects")
@@ -615,36 +669,54 @@ def register_tools(
     @server.tool()
     @_tool_metadata("GET", "/semantic/process-objects")
     def list_process_objects(
-        status: str | None = None, detail: bool | None = None
+        status: str | None = None,
+        lifecycle_status: str | None = None,
+        readiness_status: str | None = None,
+        detail: bool | None = None,
     ) -> dict[str, object]:
-        """List process objects via GET /semantic/process-objects with the canonical status/detail filters."""
+        """List process objects via GET /semantic/process-objects; prefer lifecycle_status/readiness_status over legacy status."""
         return _semantic_read_request(
-            client, "/semantic/process-objects", status=status, detail=detail
+            client,
+            "/semantic/process-objects",
+            status=status,
+            lifecycle_status=lifecycle_status,
+            readiness_status=readiness_status,
+            detail=detail,
         )
 
     @server.tool()
     @_tool_metadata("GET", "/semantic/process-objects/{process_contract_id}")
-    def get_process_object(process_contract_id: str) -> dict[str, object]:
-        """Read one process object via GET /semantic/process-objects/{process_contract_id}."""
+    def get_process_object(
+        object_id: str | None = None,
+        process_contract_id: str | None = None,
+    ) -> dict[str, object]:
+        """Read one process object via GET /semantic/process-objects/{process_contract_id}; prefer object_id over the legacy process_contract_id name."""
+        resolved_id = _resolve_object_id(
+            object_id, process_contract_id, legacy_name="process_contract_id"
+        )
         return _semantic_read_request(
             client,
-            f"/semantic/process-objects/{process_contract_id}",
+            f"/semantic/process-objects/{resolved_id}",
         )
 
     @server.tool()
     @_tool_metadata("PUT", "/semantic/process-objects/{process_contract_id}")
     def update_process_object(
-        process_contract_id: str,
+        object_id: str | None = None,
+        process_contract_id: str | None = None,
         display_name: str | None = None,
         description: str | None = None,
         interface_contract: dict[str, object] | None = None,
         payload: dict[str, object] | None = None,
     ) -> dict[str, object]:
         """Update one draft process object via PUT /semantic/process-objects/{process_contract_id} using the canonical ProcessObjectUpdateRequest fields."""
+        resolved_id = _resolve_object_id(
+            object_id, process_contract_id, legacy_name="process_contract_id"
+        )
         return _semantic_write_request(
             client,
             "PUT",
-            f"/semantic/process-objects/{process_contract_id}",
+            f"/semantic/process-objects/{resolved_id}",
             display_name=display_name,
             description=description,
             interface_contract=interface_contract,
@@ -653,35 +725,55 @@ def register_tools(
 
     @server.tool()
     @_tool_metadata("POST", "/semantic/process-objects/{process_contract_id}/validate")
-    def validate_process_object(process_contract_id: str) -> dict[str, object]:
+    def validate_process_object(
+        object_id: str | None = None,
+        process_contract_id: str | None = None,
+    ) -> dict[str, object]:
         """Validate one process object via POST /semantic/process-objects/{process_contract_id}/validate without changing stored lifecycle state."""
-        return _semantic_action_request(
-            client, f"/semantic/process-objects/{process_contract_id}/validate"
+        resolved_id = _resolve_object_id(
+            object_id, process_contract_id, legacy_name="process_contract_id"
         )
+        return _semantic_action_request(client, f"/semantic/process-objects/{resolved_id}/validate")
 
     @server.tool()
     @_tool_metadata("POST", "/semantic/process-objects/{process_contract_id}/activate")
-    def activate_process_object(process_contract_id: str) -> dict[str, object]:
+    def activate_process_object(
+        object_id: str | None = None,
+        process_contract_id: str | None = None,
+    ) -> dict[str, object]:
         """Activate one process object via POST /semantic/process-objects/{process_contract_id}/activate; activation adds it to the formal catalog but does not imply ready."""
-        return _semantic_action_request(
-            client, f"/semantic/process-objects/{process_contract_id}/activate"
+        resolved_id = _resolve_object_id(
+            object_id, process_contract_id, legacy_name="process_contract_id"
         )
+        return _semantic_action_request(client, f"/semantic/process-objects/{resolved_id}/activate")
 
     @server.tool()
     @_tool_metadata("POST", "/semantic/process-objects/{process_contract_id}/deprecate")
-    def deprecate_process_object(process_contract_id: str) -> dict[str, object]:
+    def deprecate_process_object(
+        object_id: str | None = None,
+        process_contract_id: str | None = None,
+    ) -> dict[str, object]:
         """Deprecate one process object via POST /semantic/process-objects/{process_contract_id}/deprecate."""
+        resolved_id = _resolve_object_id(
+            object_id, process_contract_id, legacy_name="process_contract_id"
+        )
         return _semantic_action_request(
-            client, f"/semantic/process-objects/{process_contract_id}/deprecate"
+            client, f"/semantic/process-objects/{resolved_id}/deprecate"
         )
 
     @server.tool()
     @_tool_metadata("POST", "/semantic/process-objects/{process_contract_id}/publish")
-    def publish_process_object(process_contract_id: str) -> dict[str, object]:
+    def publish_process_object(
+        object_id: str | None = None,
+        process_contract_id: str | None = None,
+    ) -> dict[str, object]:
         """Compatibility alias for activate_process_object via POST /semantic/process-objects/{process_contract_id}/publish."""
+        resolved_id = _resolve_object_id(
+            object_id, process_contract_id, legacy_name="process_contract_id"
+        )
         return _semantic_publish_request(
             client,
-            f"/semantic/process-objects/{process_contract_id}/publish",
+            f"/semantic/process-objects/{resolved_id}/publish",
         )
 
     @server.tool()
@@ -701,29 +793,51 @@ def register_tools(
 
     @server.tool()
     @_tool_metadata("GET", "/semantic/dimensions")
-    def list_dimensions(status: str | None = None, detail: bool | None = None) -> dict[str, object]:
-        """List dimensions via GET /semantic/dimensions with the canonical status/detail filters."""
-        return _semantic_read_request(client, "/semantic/dimensions", status=status, detail=detail)
+    def list_dimensions(
+        status: str | None = None,
+        lifecycle_status: str | None = None,
+        readiness_status: str | None = None,
+        detail: bool | None = None,
+    ) -> dict[str, object]:
+        """List dimensions via GET /semantic/dimensions; prefer lifecycle_status/readiness_status over legacy status."""
+        return _semantic_read_request(
+            client,
+            "/semantic/dimensions",
+            status=status,
+            lifecycle_status=lifecycle_status,
+            readiness_status=readiness_status,
+            detail=detail,
+        )
 
     @server.tool()
     @_tool_metadata("GET", "/semantic/dimensions/{dimension_contract_id}")
-    def get_dimension(dimension_contract_id: str) -> dict[str, object]:
-        """Read one dimension via GET /semantic/dimensions/{dimension_contract_id}."""
-        return _semantic_read_request(client, f"/semantic/dimensions/{dimension_contract_id}")
+    def get_dimension(
+        object_id: str | None = None,
+        dimension_contract_id: str | None = None,
+    ) -> dict[str, object]:
+        """Read one dimension via GET /semantic/dimensions/{dimension_contract_id}; prefer object_id over the legacy dimension_contract_id name."""
+        resolved_id = _resolve_object_id(
+            object_id, dimension_contract_id, legacy_name="dimension_contract_id"
+        )
+        return _semantic_read_request(client, f"/semantic/dimensions/{resolved_id}")
 
     @server.tool()
     @_tool_metadata("PUT", "/semantic/dimensions/{dimension_contract_id}")
     def update_dimension(
-        dimension_contract_id: str,
+        object_id: str | None = None,
+        dimension_contract_id: str | None = None,
         display_name: str | None = None,
         description: str | None = None,
         interface_contract: dict[str, object] | None = None,
     ) -> dict[str, object]:
         """Update one draft dimension via PUT /semantic/dimensions/{dimension_contract_id} using the canonical DimensionUpdateRequest fields."""
+        resolved_id = _resolve_object_id(
+            object_id, dimension_contract_id, legacy_name="dimension_contract_id"
+        )
         return _semantic_write_request(
             client,
             "PUT",
-            f"/semantic/dimensions/{dimension_contract_id}",
+            f"/semantic/dimensions/{resolved_id}",
             display_name=display_name,
             description=description,
             interface_contract=interface_contract,
@@ -731,35 +845,51 @@ def register_tools(
 
     @server.tool()
     @_tool_metadata("POST", "/semantic/dimensions/{dimension_contract_id}/validate")
-    def validate_dimension(dimension_contract_id: str) -> dict[str, object]:
+    def validate_dimension(
+        object_id: str | None = None,
+        dimension_contract_id: str | None = None,
+    ) -> dict[str, object]:
         """Validate one dimension via POST /semantic/dimensions/{dimension_contract_id}/validate without changing stored lifecycle state."""
-        return _semantic_action_request(
-            client, f"/semantic/dimensions/{dimension_contract_id}/validate"
+        resolved_id = _resolve_object_id(
+            object_id, dimension_contract_id, legacy_name="dimension_contract_id"
         )
+        return _semantic_action_request(client, f"/semantic/dimensions/{resolved_id}/validate")
 
     @server.tool()
     @_tool_metadata("POST", "/semantic/dimensions/{dimension_contract_id}/activate")
-    def activate_dimension(dimension_contract_id: str) -> dict[str, object]:
+    def activate_dimension(
+        object_id: str | None = None,
+        dimension_contract_id: str | None = None,
+    ) -> dict[str, object]:
         """Activate one dimension via POST /semantic/dimensions/{dimension_contract_id}/activate; activation adds it to the formal catalog but does not imply ready."""
-        return _semantic_action_request(
-            client, f"/semantic/dimensions/{dimension_contract_id}/activate"
+        resolved_id = _resolve_object_id(
+            object_id, dimension_contract_id, legacy_name="dimension_contract_id"
         )
+        return _semantic_action_request(client, f"/semantic/dimensions/{resolved_id}/activate")
 
     @server.tool()
     @_tool_metadata("POST", "/semantic/dimensions/{dimension_contract_id}/deprecate")
-    def deprecate_dimension(dimension_contract_id: str) -> dict[str, object]:
+    def deprecate_dimension(
+        object_id: str | None = None,
+        dimension_contract_id: str | None = None,
+    ) -> dict[str, object]:
         """Deprecate one dimension via POST /semantic/dimensions/{dimension_contract_id}/deprecate."""
-        return _semantic_action_request(
-            client, f"/semantic/dimensions/{dimension_contract_id}/deprecate"
+        resolved_id = _resolve_object_id(
+            object_id, dimension_contract_id, legacy_name="dimension_contract_id"
         )
+        return _semantic_action_request(client, f"/semantic/dimensions/{resolved_id}/deprecate")
 
     @server.tool()
     @_tool_metadata("POST", "/semantic/dimensions/{dimension_contract_id}/publish")
-    def publish_dimension(dimension_contract_id: str) -> dict[str, object]:
+    def publish_dimension(
+        object_id: str | None = None,
+        dimension_contract_id: str | None = None,
+    ) -> dict[str, object]:
         """Compatibility alias for activate_dimension via POST /semantic/dimensions/{dimension_contract_id}/publish."""
-        return _semantic_publish_request(
-            client, f"/semantic/dimensions/{dimension_contract_id}/publish"
+        resolved_id = _resolve_object_id(
+            object_id, dimension_contract_id, legacy_name="dimension_contract_id"
         )
+        return _semantic_publish_request(client, f"/semantic/dimensions/{resolved_id}/publish")
 
     @server.tool()
     @_tool_metadata("POST", "/semantic/time")
@@ -775,30 +905,50 @@ def register_tools(
     @server.tool()
     @_tool_metadata("GET", "/semantic/time")
     def list_time_semantics(
-        status: str | None = None, detail: bool | None = None
+        status: str | None = None,
+        lifecycle_status: str | None = None,
+        readiness_status: str | None = None,
+        detail: bool | None = None,
     ) -> dict[str, object]:
-        """List time semantics via GET /semantic/time with the canonical status/detail filters."""
-        return _semantic_read_request(client, "/semantic/time", status=status, detail=detail)
+        """List time semantics via GET /semantic/time; prefer lifecycle_status/readiness_status over legacy status."""
+        return _semantic_read_request(
+            client,
+            "/semantic/time",
+            status=status,
+            lifecycle_status=lifecycle_status,
+            readiness_status=readiness_status,
+            detail=detail,
+        )
 
     @server.tool()
     @_tool_metadata("GET", "/semantic/time/{time_contract_id}")
-    def get_time_semantic(time_contract_id: str) -> dict[str, object]:
-        """Read one time semantic via GET /semantic/time/{time_contract_id}."""
-        return _semantic_read_request(client, f"/semantic/time/{time_contract_id}")
+    def get_time_semantic(
+        object_id: str | None = None,
+        time_contract_id: str | None = None,
+    ) -> dict[str, object]:
+        """Read one time semantic via GET /semantic/time/{time_contract_id}; prefer object_id over the legacy time_contract_id name."""
+        resolved_id = _resolve_object_id(
+            object_id, time_contract_id, legacy_name="time_contract_id"
+        )
+        return _semantic_read_request(client, f"/semantic/time/{resolved_id}")
 
     @server.tool()
     @_tool_metadata("PUT", "/semantic/time/{time_contract_id}")
     def update_time_semantic(
-        time_contract_id: str,
+        object_id: str | None = None,
+        time_contract_id: str | None = None,
         display_name: str | None = None,
         description: str | None = None,
         semantic_roles: list[str] | None = None,
     ) -> dict[str, object]:
         """Update one draft time semantic via PUT /semantic/time/{time_contract_id} using the canonical TimeUpdateRequest fields."""
+        resolved_id = _resolve_object_id(
+            object_id, time_contract_id, legacy_name="time_contract_id"
+        )
         return _semantic_write_request(
             client,
             "PUT",
-            f"/semantic/time/{time_contract_id}",
+            f"/semantic/time/{resolved_id}",
             display_name=display_name,
             description=description,
             semantic_roles=semantic_roles,
@@ -806,27 +956,51 @@ def register_tools(
 
     @server.tool()
     @_tool_metadata("POST", "/semantic/time/{time_contract_id}/validate")
-    def validate_time_semantic(time_contract_id: str) -> dict[str, object]:
+    def validate_time_semantic(
+        object_id: str | None = None,
+        time_contract_id: str | None = None,
+    ) -> dict[str, object]:
         """Validate one time semantic via POST /semantic/time/{time_contract_id}/validate without changing stored lifecycle state."""
-        return _semantic_action_request(client, f"/semantic/time/{time_contract_id}/validate")
+        resolved_id = _resolve_object_id(
+            object_id, time_contract_id, legacy_name="time_contract_id"
+        )
+        return _semantic_action_request(client, f"/semantic/time/{resolved_id}/validate")
 
     @server.tool()
     @_tool_metadata("POST", "/semantic/time/{time_contract_id}/activate")
-    def activate_time_semantic(time_contract_id: str) -> dict[str, object]:
+    def activate_time_semantic(
+        object_id: str | None = None,
+        time_contract_id: str | None = None,
+    ) -> dict[str, object]:
         """Activate one time semantic via POST /semantic/time/{time_contract_id}/activate; activation adds it to the formal catalog but does not imply ready."""
-        return _semantic_action_request(client, f"/semantic/time/{time_contract_id}/activate")
+        resolved_id = _resolve_object_id(
+            object_id, time_contract_id, legacy_name="time_contract_id"
+        )
+        return _semantic_action_request(client, f"/semantic/time/{resolved_id}/activate")
 
     @server.tool()
     @_tool_metadata("POST", "/semantic/time/{time_contract_id}/deprecate")
-    def deprecate_time_semantic(time_contract_id: str) -> dict[str, object]:
+    def deprecate_time_semantic(
+        object_id: str | None = None,
+        time_contract_id: str | None = None,
+    ) -> dict[str, object]:
         """Deprecate one time semantic via POST /semantic/time/{time_contract_id}/deprecate."""
-        return _semantic_action_request(client, f"/semantic/time/{time_contract_id}/deprecate")
+        resolved_id = _resolve_object_id(
+            object_id, time_contract_id, legacy_name="time_contract_id"
+        )
+        return _semantic_action_request(client, f"/semantic/time/{resolved_id}/deprecate")
 
     @server.tool()
     @_tool_metadata("POST", "/semantic/time/{time_contract_id}/publish")
-    def publish_time_semantic(time_contract_id: str) -> dict[str, object]:
+    def publish_time_semantic(
+        object_id: str | None = None,
+        time_contract_id: str | None = None,
+    ) -> dict[str, object]:
         """Compatibility alias for activate_time_semantic via POST /semantic/time/{time_contract_id}/publish."""
-        return _semantic_publish_request(client, f"/semantic/time/{time_contract_id}/publish")
+        resolved_id = _resolve_object_id(
+            object_id, time_contract_id, legacy_name="time_contract_id"
+        )
+        return _semantic_publish_request(client, f"/semantic/time/{resolved_id}/publish")
 
     @server.tool()
     @_tool_metadata("POST", "/semantic/enum-sets")
@@ -849,29 +1023,51 @@ def register_tools(
 
     @server.tool()
     @_tool_metadata("GET", "/semantic/enum-sets")
-    def list_enum_sets(status: str | None = None, detail: bool | None = None) -> dict[str, object]:
-        """List enum sets via GET /semantic/enum-sets with the canonical status/detail filters."""
-        return _semantic_read_request(client, "/semantic/enum-sets", status=status, detail=detail)
+    def list_enum_sets(
+        status: str | None = None,
+        lifecycle_status: str | None = None,
+        readiness_status: str | None = None,
+        detail: bool | None = None,
+    ) -> dict[str, object]:
+        """List enum sets via GET /semantic/enum-sets; prefer lifecycle_status/readiness_status over legacy status."""
+        return _semantic_read_request(
+            client,
+            "/semantic/enum-sets",
+            status=status,
+            lifecycle_status=lifecycle_status,
+            readiness_status=readiness_status,
+            detail=detail,
+        )
 
     @server.tool()
     @_tool_metadata("GET", "/semantic/enum-sets/{enum_set_contract_id}")
-    def get_enum_set(enum_set_contract_id: str) -> dict[str, object]:
-        """Read one enum set via GET /semantic/enum-sets/{enum_set_contract_id}."""
-        return _semantic_read_request(client, f"/semantic/enum-sets/{enum_set_contract_id}")
+    def get_enum_set(
+        object_id: str | None = None,
+        enum_set_contract_id: str | None = None,
+    ) -> dict[str, object]:
+        """Read one enum set via GET /semantic/enum-sets/{enum_set_contract_id}; prefer object_id over the legacy enum_set_contract_id name."""
+        resolved_id = _resolve_object_id(
+            object_id, enum_set_contract_id, legacy_name="enum_set_contract_id"
+        )
+        return _semantic_read_request(client, f"/semantic/enum-sets/{resolved_id}")
 
     @server.tool()
     @_tool_metadata("PUT", "/semantic/enum-sets/{enum_set_contract_id}")
     def update_enum_set(
-        enum_set_contract_id: str,
+        object_id: str | None = None,
+        enum_set_contract_id: str | None = None,
         display_name: str | None = None,
         description: str | None = None,
         versions: list[dict[str, object]] | None = None,
     ) -> dict[str, object]:
         """Update one draft enum set via PUT /semantic/enum-sets/{enum_set_contract_id} using the canonical EnumSetUpdateRequest fields."""
+        resolved_id = _resolve_object_id(
+            object_id, enum_set_contract_id, legacy_name="enum_set_contract_id"
+        )
         return _semantic_write_request(
             client,
             "PUT",
-            f"/semantic/enum-sets/{enum_set_contract_id}",
+            f"/semantic/enum-sets/{resolved_id}",
             display_name=display_name,
             description=description,
             versions=versions,
@@ -879,35 +1075,51 @@ def register_tools(
 
     @server.tool()
     @_tool_metadata("POST", "/semantic/enum-sets/{enum_set_contract_id}/validate")
-    def validate_enum_set(enum_set_contract_id: str) -> dict[str, object]:
+    def validate_enum_set(
+        object_id: str | None = None,
+        enum_set_contract_id: str | None = None,
+    ) -> dict[str, object]:
         """Validate one enum set via POST /semantic/enum-sets/{enum_set_contract_id}/validate without changing stored lifecycle state."""
-        return _semantic_action_request(
-            client, f"/semantic/enum-sets/{enum_set_contract_id}/validate"
+        resolved_id = _resolve_object_id(
+            object_id, enum_set_contract_id, legacy_name="enum_set_contract_id"
         )
+        return _semantic_action_request(client, f"/semantic/enum-sets/{resolved_id}/validate")
 
     @server.tool()
     @_tool_metadata("POST", "/semantic/enum-sets/{enum_set_contract_id}/activate")
-    def activate_enum_set(enum_set_contract_id: str) -> dict[str, object]:
+    def activate_enum_set(
+        object_id: str | None = None,
+        enum_set_contract_id: str | None = None,
+    ) -> dict[str, object]:
         """Activate one enum set via POST /semantic/enum-sets/{enum_set_contract_id}/activate; activation adds it to the formal catalog but does not imply ready."""
-        return _semantic_action_request(
-            client, f"/semantic/enum-sets/{enum_set_contract_id}/activate"
+        resolved_id = _resolve_object_id(
+            object_id, enum_set_contract_id, legacy_name="enum_set_contract_id"
         )
+        return _semantic_action_request(client, f"/semantic/enum-sets/{resolved_id}/activate")
 
     @server.tool()
     @_tool_metadata("POST", "/semantic/enum-sets/{enum_set_contract_id}/deprecate")
-    def deprecate_enum_set(enum_set_contract_id: str) -> dict[str, object]:
+    def deprecate_enum_set(
+        object_id: str | None = None,
+        enum_set_contract_id: str | None = None,
+    ) -> dict[str, object]:
         """Deprecate one enum set via POST /semantic/enum-sets/{enum_set_contract_id}/deprecate."""
-        return _semantic_action_request(
-            client, f"/semantic/enum-sets/{enum_set_contract_id}/deprecate"
+        resolved_id = _resolve_object_id(
+            object_id, enum_set_contract_id, legacy_name="enum_set_contract_id"
         )
+        return _semantic_action_request(client, f"/semantic/enum-sets/{resolved_id}/deprecate")
 
     @server.tool()
     @_tool_metadata("POST", "/semantic/enum-sets/{enum_set_contract_id}/publish")
-    def publish_enum_set(enum_set_contract_id: str) -> dict[str, object]:
+    def publish_enum_set(
+        object_id: str | None = None,
+        enum_set_contract_id: str | None = None,
+    ) -> dict[str, object]:
         """Compatibility alias for activate_enum_set via POST /semantic/enum-sets/{enum_set_contract_id}/publish."""
-        return _semantic_publish_request(
-            client, f"/semantic/enum-sets/{enum_set_contract_id}/publish"
+        resolved_id = _resolve_object_id(
+            object_id, enum_set_contract_id, legacy_name="enum_set_contract_id"
         )
+        return _semantic_publish_request(client, f"/semantic/enum-sets/{resolved_id}/publish")
 
     @server.tool()
     @_tool_metadata("POST", "/semantic/bindings")
@@ -926,29 +1138,46 @@ def register_tools(
 
     @server.tool()
     @_tool_metadata("GET", "/semantic/bindings")
-    def list_bindings(status: str | None = None, detail: bool | None = None) -> dict[str, object]:
-        """List bindings via GET /semantic/bindings with the canonical status/detail filters."""
-        return _semantic_read_request(client, "/semantic/bindings", status=status, detail=detail)
+    def list_bindings(
+        status: str | None = None,
+        lifecycle_status: str | None = None,
+        readiness_status: str | None = None,
+        detail: bool | None = None,
+    ) -> dict[str, object]:
+        """List bindings via GET /semantic/bindings; prefer lifecycle_status/readiness_status over legacy status."""
+        return _semantic_read_request(
+            client,
+            "/semantic/bindings",
+            status=status,
+            lifecycle_status=lifecycle_status,
+            readiness_status=readiness_status,
+            detail=detail,
+        )
 
     @server.tool()
     @_tool_metadata("GET", "/semantic/bindings/{binding_id}")
-    def get_binding(binding_id: str) -> dict[str, object]:
-        """Read one binding via GET /semantic/bindings/{binding_id}."""
-        return _semantic_read_request(client, f"/semantic/bindings/{binding_id}")
+    def get_binding(
+        object_id: str | None = None, binding_id: str | None = None
+    ) -> dict[str, object]:
+        """Read one binding via GET /semantic/bindings/{binding_id}; prefer object_id over the legacy binding_id name."""
+        resolved_id = _resolve_object_id(object_id, binding_id, legacy_name="binding_id")
+        return _semantic_read_request(client, f"/semantic/bindings/{resolved_id}")
 
     @server.tool()
     @_tool_metadata("PUT", "/semantic/bindings/{binding_id}")
     def update_binding(
-        binding_id: str,
+        object_id: str | None = None,
+        binding_id: str | None = None,
         display_name: str | None = None,
         description: str | None = None,
         interface_contract: dict[str, object] | None = None,
     ) -> dict[str, object]:
         """Update one draft binding via PUT /semantic/bindings/{binding_id} using the canonical TypedBindingUpdateRequest fields."""
+        resolved_id = _resolve_object_id(object_id, binding_id, legacy_name="binding_id")
         return _semantic_write_request(
             client,
             "PUT",
-            f"/semantic/bindings/{binding_id}",
+            f"/semantic/bindings/{resolved_id}",
             display_name=display_name,
             description=description,
             interface_contract=interface_contract,
@@ -956,27 +1185,39 @@ def register_tools(
 
     @server.tool()
     @_tool_metadata("POST", "/semantic/bindings/{binding_id}/validate")
-    def validate_binding(binding_id: str) -> dict[str, object]:
+    def validate_binding(
+        object_id: str | None = None, binding_id: str | None = None
+    ) -> dict[str, object]:
         """Validate one binding via POST /semantic/bindings/{binding_id}/validate without changing stored lifecycle state."""
-        return _semantic_action_request(client, f"/semantic/bindings/{binding_id}/validate")
+        resolved_id = _resolve_object_id(object_id, binding_id, legacy_name="binding_id")
+        return _semantic_action_request(client, f"/semantic/bindings/{resolved_id}/validate")
 
     @server.tool()
     @_tool_metadata("POST", "/semantic/bindings/{binding_id}/activate")
-    def activate_binding(binding_id: str) -> dict[str, object]:
+    def activate_binding(
+        object_id: str | None = None, binding_id: str | None = None
+    ) -> dict[str, object]:
         """Activate one binding via POST /semantic/bindings/{binding_id}/activate; activation adds it to the formal catalog but does not imply ready."""
-        return _semantic_action_request(client, f"/semantic/bindings/{binding_id}/activate")
+        resolved_id = _resolve_object_id(object_id, binding_id, legacy_name="binding_id")
+        return _semantic_action_request(client, f"/semantic/bindings/{resolved_id}/activate")
 
     @server.tool()
     @_tool_metadata("POST", "/semantic/bindings/{binding_id}/deprecate")
-    def deprecate_binding(binding_id: str) -> dict[str, object]:
+    def deprecate_binding(
+        object_id: str | None = None, binding_id: str | None = None
+    ) -> dict[str, object]:
         """Deprecate one binding via POST /semantic/bindings/{binding_id}/deprecate."""
-        return _semantic_action_request(client, f"/semantic/bindings/{binding_id}/deprecate")
+        resolved_id = _resolve_object_id(object_id, binding_id, legacy_name="binding_id")
+        return _semantic_action_request(client, f"/semantic/bindings/{resolved_id}/deprecate")
 
     @server.tool()
     @_tool_metadata("POST", "/semantic/bindings/{binding_id}/publish")
-    def publish_binding(binding_id: str) -> dict[str, object]:
+    def publish_binding(
+        object_id: str | None = None, binding_id: str | None = None
+    ) -> dict[str, object]:
         """Compatibility alias for activate_binding via POST /semantic/bindings/{binding_id}/publish."""
-        return _semantic_publish_request(client, f"/semantic/bindings/{binding_id}/publish")
+        resolved_id = _resolve_object_id(object_id, binding_id, legacy_name="binding_id")
+        return _semantic_publish_request(client, f"/semantic/bindings/{resolved_id}/publish")
 
     @server.tool()
     @_tool_metadata("POST", "/compiler/compatibility-profiles")
@@ -1006,65 +1247,95 @@ def register_tools(
     @server.tool()
     @_tool_metadata("GET", "/compiler/compatibility-profiles")
     def list_compatibility_profiles(
-        status: str | None = None, detail: bool | None = None
+        status: str | None = None,
+        lifecycle_status: str | None = None,
+        readiness_status: str | None = None,
+        detail: bool | None = None,
     ) -> dict[str, object]:
-        """List compatibility profiles via GET /compiler/compatibility-profiles with the canonical status/detail filters."""
+        """List compatibility profiles via GET /compiler/compatibility-profiles; prefer lifecycle_status/readiness_status over legacy status."""
         return _semantic_read_request(
-            client, "/compiler/compatibility-profiles", status=status, detail=detail
+            client,
+            "/compiler/compatibility-profiles",
+            status=status,
+            lifecycle_status=lifecycle_status,
+            readiness_status=readiness_status,
+            detail=detail,
         )
 
     @server.tool()
     @_tool_metadata("GET", "/compiler/compatibility-profiles/{profile_id}")
-    def get_compatibility_profile(profile_id: str) -> dict[str, object]:
-        """Read one compatibility profile via GET /compiler/compatibility-profiles/{profile_id}."""
-        return _semantic_read_request(client, f"/compiler/compatibility-profiles/{profile_id}")
+    def get_compatibility_profile(
+        object_id: str | None = None,
+        profile_id: str | None = None,
+    ) -> dict[str, object]:
+        """Read one compatibility profile via GET /compiler/compatibility-profiles/{profile_id}; prefer object_id over the legacy profile_id name."""
+        resolved_id = _resolve_object_id(object_id, profile_id, legacy_name="profile_id")
+        return _semantic_read_request(client, f"/compiler/compatibility-profiles/{resolved_id}")
 
     @server.tool()
     @_tool_metadata("PUT", "/compiler/compatibility-profiles/{profile_id}")
     def update_compatibility_profile(
-        profile_id: str,
+        object_id: str | None = None,
+        profile_id: str | None = None,
         requirement: dict[str, object] | None = None,
         capability: dict[str, object] | None = None,
     ) -> dict[str, object]:
         """Update one draft compatibility profile via PUT /compiler/compatibility-profiles/{profile_id} using the canonical CompatibilityProfileUpdateRequest fields."""
+        resolved_id = _resolve_object_id(object_id, profile_id, legacy_name="profile_id")
         return _semantic_write_request(
             client,
             "PUT",
-            f"/compiler/compatibility-profiles/{profile_id}",
+            f"/compiler/compatibility-profiles/{resolved_id}",
             requirement=requirement,
             capability=capability,
         )
 
     @server.tool()
     @_tool_metadata("POST", "/compiler/compatibility-profiles/{profile_id}/validate")
-    def validate_compatibility_profile(profile_id: str) -> dict[str, object]:
+    def validate_compatibility_profile(
+        object_id: str | None = None,
+        profile_id: str | None = None,
+    ) -> dict[str, object]:
         """Validate one compatibility profile via POST /compiler/compatibility-profiles/{profile_id}/validate without changing stored lifecycle state."""
+        resolved_id = _resolve_object_id(object_id, profile_id, legacy_name="profile_id")
         return _semantic_action_request(
-            client, f"/compiler/compatibility-profiles/{profile_id}/validate"
+            client, f"/compiler/compatibility-profiles/{resolved_id}/validate"
         )
 
     @server.tool()
     @_tool_metadata("POST", "/compiler/compatibility-profiles/{profile_id}/activate")
-    def activate_compatibility_profile(profile_id: str) -> dict[str, object]:
+    def activate_compatibility_profile(
+        object_id: str | None = None,
+        profile_id: str | None = None,
+    ) -> dict[str, object]:
         """Activate one compatibility profile via POST /compiler/compatibility-profiles/{profile_id}/activate; activation adds it to the formal catalog but does not imply ready."""
+        resolved_id = _resolve_object_id(object_id, profile_id, legacy_name="profile_id")
         return _semantic_action_request(
-            client, f"/compiler/compatibility-profiles/{profile_id}/activate"
+            client, f"/compiler/compatibility-profiles/{resolved_id}/activate"
         )
 
     @server.tool()
     @_tool_metadata("POST", "/compiler/compatibility-profiles/{profile_id}/deprecate")
-    def deprecate_compatibility_profile(profile_id: str) -> dict[str, object]:
+    def deprecate_compatibility_profile(
+        object_id: str | None = None,
+        profile_id: str | None = None,
+    ) -> dict[str, object]:
         """Deprecate one compatibility profile via POST /compiler/compatibility-profiles/{profile_id}/deprecate."""
+        resolved_id = _resolve_object_id(object_id, profile_id, legacy_name="profile_id")
         return _semantic_action_request(
-            client, f"/compiler/compatibility-profiles/{profile_id}/deprecate"
+            client, f"/compiler/compatibility-profiles/{resolved_id}/deprecate"
         )
 
     @server.tool()
     @_tool_metadata("POST", "/compiler/compatibility-profiles/{profile_id}/publish")
-    def publish_compatibility_profile(profile_id: str) -> dict[str, object]:
+    def publish_compatibility_profile(
+        object_id: str | None = None,
+        profile_id: str | None = None,
+    ) -> dict[str, object]:
         """Compatibility alias for activate_compatibility_profile via POST /compiler/compatibility-profiles/{profile_id}/publish."""
+        resolved_id = _resolve_object_id(object_id, profile_id, legacy_name="profile_id")
         return _semantic_publish_request(
-            client, f"/compiler/compatibility-profiles/{profile_id}/publish"
+            client, f"/compiler/compatibility-profiles/{resolved_id}/publish"
         )
 
     @server.tool()
@@ -1180,12 +1451,19 @@ def _semantic_read_request(
     path: str,
     *,
     status: str | None = None,
+    lifecycle_status: str | None = None,
+    readiness_status: str | None = None,
     detail: bool | None = None,
 ) -> dict[str, object]:
     return client.request_envelope(
         "GET",
         path,
-        params=_compact_params(status=status, detail=detail),
+        params=_compact_params(
+            status=status,
+            lifecycle_status=lifecycle_status,
+            readiness_status=readiness_status,
+            detail=detail,
+        ),
     ).model_dump()
 
 
@@ -1214,6 +1492,22 @@ def _semantic_publish_request(
     path: str,
 ) -> dict[str, object]:
     return _semantic_action_request(client, path)
+
+
+def _resolve_object_id(
+    object_id: str | None,
+    legacy_id: str | None,
+    *,
+    legacy_name: str,
+) -> str:
+    if object_id and legacy_id and object_id != legacy_id:
+        raise ValueError(
+            f"object_id and {legacy_name} both provided but differ: {object_id!r} != {legacy_id!r}"
+        )
+    resolved = object_id or legacy_id
+    if not resolved:
+        raise ValueError(f"Missing required object identifier. Provide object_id or {legacy_name}.")
+    return resolved
 
 
 def _openapi_cached_request(

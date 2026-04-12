@@ -229,6 +229,10 @@ class BlockingRequirement(BaseModel):
         default=None,
         description="Optional dependency ref associated with the blocker.",
     )
+    details: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Optional structured remediation or coverage details associated with the blocker.",
+    )
 
 
 class ObjectListItemBase(BaseModel):
