@@ -606,21 +606,142 @@ class SemanticLayerService:
             return None
 
     def resolve_metric_sql(self, metric_name: str) -> str | None:
-        """Look up a published metric's definition_sql from semantic runtime."""
+        """Look up a published metric's definition_sql or compile from typed payload."""
         resolved = self._resolve_runtime_metric_contract(metric_name)
         if resolved is None:
             return None
-        payload = resolved.semantic_object.get("payload") or {}
+        semantic_object = resolved.semantic_object
+        header = semantic_object.get("header") or {}
+        payload = semantic_object.get("payload") or {}
+
+        # Legacy: definition_sql in payload
         definition_sql = payload.get("definition_sql")
-        return str(definition_sql) if definition_sql is not None else None
+        if definition_sql is not None:
+            return str(definition_sql)
+
+        # Typed metric: compile SQL from metric_family + binding
+        metric_family = header.get("metric_family")
+        metric_ref = header.get("metric_ref")
+        if metric_family and metric_ref:
+            return self._compile_typed_metric_sql(metric_name, metric_family, payload, metric_ref)
+
+        return None
+
+    def _compile_typed_metric_sql(
+        self,
+        metric_name: str,
+        metric_family: str,
+        payload: dict[str, Any],
+        metric_ref: str,
+    ) -> str | None:
+        """Compile SQL expression from typed metric payload and binding."""
+        # Get binding to find the physical field for metric_input
+        bindings = list(self._published_bindings_for_object_ref(metric_ref))
+        if not bindings:
+            return None
+
+        # Find the metric_input field binding
+        interface_contract = dict(bindings[0].semantic_object.get("interface_contract") or {})
+        field_bindings = list(interface_contract.get("field_bindings") or [])
+
+        # Map target_key -> physical_name
+        input_field_map: dict[str, str] = {}
+        for fb in field_bindings:
+            target = fb.get("target") or {}
+            if target.get("target_kind") == "metric_input":
+                target_key = target.get("target_key")
+                surface_ref = fb.get("surface_ref")
+                # surface_ref format: "field.column_name" -> extract column_name
+                if target_key and surface_ref:
+                    physical_name = (
+                        surface_ref.split(".", 1)[-1] if "." in surface_ref else surface_ref
+                    )
+                    input_field_map[target_key] = physical_name
+
+        # Compile SQL based on metric_family
+        if metric_family == "count_metric":
+            count_target = payload.get("count_target") or {}
+            aggregation = str(count_target.get("aggregation") or "count")
+            field_name = input_field_map.get("count_target")
+            if aggregation == "count_distinct" and field_name:
+                return f"COUNT(DISTINCT {field_name})"
+            elif aggregation == "count" and field_name:
+                return f"COUNT({field_name})"
+            elif aggregation == "count":
+                return "COUNT(*)"
+
+        elif metric_family == "sum_metric":
+            measure = payload.get("measure") or {}
+            aggregation = str(measure.get("aggregation") or "sum")
+            field_name = input_field_map.get("measure")
+            if field_name:
+                return f"SUM({field_name})"
+
+        elif metric_family == "average_metric" or metric_family == "rate_metric":
+            numerator = payload.get("numerator") or {}
+            denominator = payload.get("denominator") or {}
+            num_agg = str(numerator.get("aggregation") or "sum")
+            den_agg = str(denominator.get("aggregation") or "count")
+            num_field = input_field_map.get("numerator")
+            den_field = input_field_map.get("denominator")
+            if num_field and den_field:
+                num_expr = (
+                    f"{num_agg.upper()}({num_field})"
+                    if num_agg != "count"
+                    else f"COUNT({num_field})"
+                )
+                den_expr = (
+                    f"{den_agg.upper()}({den_field})"
+                    if den_agg != "count"
+                    else f"COUNT({den_field})"
+                )
+                return f"{num_expr} / {den_expr}"
+
+        return None
 
     def resolve_metric_dimensions(self, metric_name: str) -> list[str] | None:
-        """Look up a published metric's dimensions from semantic runtime."""
+        """Look up a published metric's dimensions from semantic runtime or entity binding."""
         resolved = self._resolve_runtime_metric_contract(metric_name)
         if resolved is None:
             return None
-        payload = resolved.semantic_object.get("payload") or {}
-        return [str(dimension) for dimension in list(payload.get("dimensions") or [])]
+        semantic_object = resolved.semantic_object
+        header = semantic_object.get("header") or {}
+        payload = semantic_object.get("payload") or {}
+
+        # Legacy: dimensions in payload
+        legacy_dims = payload.get("dimensions")
+        if legacy_dims is not None:
+            return [str(dimension) for dimension in list(legacy_dims)]
+
+        # Typed metric: get dimensions from observed_entity's binding stable_descriptors
+        observed_entity_ref = header.get("observed_entity_ref")
+        if observed_entity_ref:
+            entity_dims = self._resolve_entity_dimensions(observed_entity_ref)
+            if entity_dims is not None:
+                return entity_dims
+
+        # Default: return empty list (typed metrics may not need dimensions for scalar queries)
+        return []
+
+    def _resolve_entity_dimensions(self, entity_ref: str) -> list[str] | None:
+        """Get dimensions from entity binding's stable_descriptors."""
+        bindings = list(self._published_bindings_for_object_ref(entity_ref))
+        if not bindings:
+            return None
+
+        dimensions: list[str] = []
+        for binding in bindings:
+            interface_contract = dict(binding.semantic_object.get("interface_contract") or {})
+            field_bindings = list(interface_contract.get("field_bindings") or [])
+            for fb in field_bindings:
+                target = fb.get("target") or {}
+                if target.get("target_kind") == "stable_descriptor":
+                    semantic_ref = fb.get("semantic_ref")
+                    if semantic_ref:
+                        # semantic_ref format: "dimension.xxx" -> add to list
+                        dimensions.append(str(semantic_ref))
+
+        return dimensions
 
     def build_metric_query(
         self,
