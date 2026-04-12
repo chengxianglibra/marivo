@@ -241,6 +241,9 @@ class SemanticMetricRouteTests(unittest.TestCase):
         self.assertEqual(resp.json()["readiness_status"], "not_ready")
         self.assertEqual(resp.json()["blocking_requirements"][0]["code"], "METRIC_BINDING_MISSING")
         self.assertEqual(
+            resp.json()["blocking_requirements"][0]["details"]["required_binding_scope"], "metric"
+        )
+        self.assertEqual(
             resp.json()["capabilities"],
             {
                 "supports_observe": True,
@@ -266,6 +269,22 @@ class SemanticMetricRouteTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertIn("payload", resp.json()["items"][0])
         self.assertIn("dependency_refs", resp.json()["items"][0])
+
+        resp = self.client.get("/semantic/metrics?lifecycle_status=active")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertTrue(all(item["lifecycle_status"] == "active" for item in resp.json()["items"]))
+
+        resp = self.client.get(
+            "/semantic/metrics?lifecycle_status=active&readiness_status=not_ready"
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertTrue(
+            all(item["readiness_status"] == "not_ready" for item in resp.json()["items"])
+        )
+
+        resp = self.client.get("/semantic/metrics?status=draft&lifecycle_status=active")
+        self.assertEqual(resp.status_code, 422, resp.text)
+        self.assertIn("filters conflict", resp.json()["detail"])
 
         resp = self.client.put(
             f"/semantic/metrics/{metric_id}",

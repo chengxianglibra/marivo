@@ -90,10 +90,19 @@ class SemanticService:
         return self._invoke(lambda: self.typed_objects.get_typed_entity(entity_contract_id))
 
     def list_typed_entities(
-        self, status: str | None = None, detail: bool = False
+        self,
+        status: str | None = None,
+        lifecycle_status: str | None = None,
+        readiness_status: str | None = None,
+        detail: bool = False,
     ) -> dict[str, Any]:
         return self._invoke(
-            lambda: self.typed_objects.list_typed_entities(status=status, detail=detail)
+            lambda: self.typed_objects.list_typed_entities(
+                status=status,
+                lifecycle_status=lifecycle_status,
+                readiness_status=readiness_status,
+                detail=detail,
+            )
         )
 
     def update_typed_entity(
@@ -123,9 +132,20 @@ class SemanticService:
     def get_typed_metric(self, metric_contract_id: str) -> dict[str, Any]:
         return self._invoke(lambda: self.typed_objects.get_typed_metric(metric_contract_id))
 
-    def list_typed_metrics(self, status: str | None = None, detail: bool = False) -> dict[str, Any]:
+    def list_typed_metrics(
+        self,
+        status: str | None = None,
+        lifecycle_status: str | None = None,
+        readiness_status: str | None = None,
+        detail: bool = False,
+    ) -> dict[str, Any]:
         return self._invoke(
-            lambda: self.typed_objects.list_typed_metrics(status=status, detail=detail)
+            lambda: self.typed_objects.list_typed_metrics(
+                status=status,
+                lifecycle_status=lifecycle_status,
+                readiness_status=readiness_status,
+                detail=detail,
+            )
         )
 
     def update_typed_metric(
@@ -156,10 +176,19 @@ class SemanticService:
         return self._invoke(lambda: self.typed_objects.get_process_object(process_contract_id))
 
     def list_process_objects(
-        self, status: str | None = None, detail: bool = False
+        self,
+        status: str | None = None,
+        lifecycle_status: str | None = None,
+        readiness_status: str | None = None,
+        detail: bool = False,
     ) -> dict[str, Any]:
         return self._invoke(
-            lambda: self.typed_objects.list_process_objects(status=status, detail=detail)
+            lambda: self.typed_objects.list_process_objects(
+                status=status,
+                lifecycle_status=lifecycle_status,
+                readiness_status=readiness_status,
+                detail=detail,
+            )
         )
 
     def update_process_object(
@@ -191,9 +220,20 @@ class SemanticService:
     def get_dimension(self, dimension_contract_id: str) -> dict[str, Any]:
         return self._invoke(lambda: self.typed_objects.get_dimension(dimension_contract_id))
 
-    def list_dimensions(self, status: str | None = None, detail: bool = False) -> dict[str, Any]:
+    def list_dimensions(
+        self,
+        status: str | None = None,
+        lifecycle_status: str | None = None,
+        readiness_status: str | None = None,
+        detail: bool = False,
+    ) -> dict[str, Any]:
         return self._invoke(
-            lambda: self.typed_objects.list_dimensions(status=status, detail=detail)
+            lambda: self.typed_objects.list_dimensions(
+                status=status,
+                lifecycle_status=lifecycle_status,
+                readiness_status=readiness_status,
+                detail=detail,
+            )
         )
 
     def update_dimension(
@@ -224,10 +264,19 @@ class SemanticService:
         return self._invoke(lambda: self.typed_objects.get_time_semantic(time_contract_id))
 
     def list_time_semantics(
-        self, status: str | None = None, detail: bool = False
+        self,
+        status: str | None = None,
+        lifecycle_status: str | None = None,
+        readiness_status: str | None = None,
+        detail: bool = False,
     ) -> dict[str, Any]:
         return self._invoke(
-            lambda: self.typed_objects.list_time_semantics(status=status, detail=detail)
+            lambda: self.typed_objects.list_time_semantics(
+                status=status,
+                lifecycle_status=lifecycle_status,
+                readiness_status=readiness_status,
+                detail=detail,
+            )
         )
 
     def update_time_semantic(
@@ -257,8 +306,21 @@ class SemanticService:
     def get_enum_set(self, enum_set_contract_id: str) -> dict[str, Any]:
         return self._invoke(lambda: self.typed_objects.get_enum_set(enum_set_contract_id))
 
-    def list_enum_sets(self, status: str | None = None, detail: bool = False) -> dict[str, Any]:
-        return self._invoke(lambda: self.typed_objects.list_enum_sets(status=status, detail=detail))
+    def list_enum_sets(
+        self,
+        status: str | None = None,
+        lifecycle_status: str | None = None,
+        readiness_status: str | None = None,
+        detail: bool = False,
+    ) -> dict[str, Any]:
+        return self._invoke(
+            lambda: self.typed_objects.list_enum_sets(
+                status=status,
+                lifecycle_status=lifecycle_status,
+                readiness_status=readiness_status,
+                detail=detail,
+            )
+        )
 
     def update_enum_set(
         self, enum_set_contract_id: str, payload: EnumSetUpdateRequest
@@ -288,9 +350,20 @@ class SemanticService:
         return self._invoke(lambda: self.bindings.get_typed_binding(binding_id))
 
     def list_typed_bindings(
-        self, status: str | None = None, detail: bool = False
+        self,
+        status: str | None = None,
+        lifecycle_status: str | None = None,
+        readiness_status: str | None = None,
+        detail: bool = False,
     ) -> dict[str, Any]:
-        return self._invoke(lambda: self.bindings.list_typed_bindings(status=status, detail=detail))
+        return self._invoke(
+            lambda: self.bindings.list_typed_bindings(
+                status=status,
+                lifecycle_status=lifecycle_status,
+                readiness_status=readiness_status,
+                detail=detail,
+            )
+        )
 
     def update_typed_binding(
         self, binding_id: str, payload: TypedBindingUpdateRequest
@@ -324,11 +397,18 @@ class SemanticService:
         )
 
     def list_compatibility_profiles(
-        self, status: str | None = None, detail: bool = False
+        self,
+        status: str | None = None,
+        lifecycle_status: str | None = None,
+        readiness_status: str | None = None,
+        detail: bool = False,
     ) -> dict[str, Any]:
         return self._invoke(
             lambda: self.compatibility_profiles.list_compatibility_profiles(
-                status=status, detail=detail
+                status=status,
+                lifecycle_status=lifecycle_status,
+                readiness_status=readiness_status,
+                detail=detail,
             )
         )
 

@@ -67,6 +67,59 @@ class SemanticServiceSupport:
         )
         return result.contract_payload()
 
+    def _resolve_semantic_filters(
+        self,
+        *,
+        status: str | None,
+        lifecycle_status: str | None,
+    ) -> str | None:
+        if lifecycle_status is None:
+            return status
+        lifecycle_to_status = {
+            "draft": "draft",
+            "active": "published",
+            "deprecated": "deprecated",
+        }
+        resolved_status = lifecycle_to_status.get(lifecycle_status)
+        if resolved_status is None:
+            raise self._validation_error(
+                "Unsupported lifecycle_status filter. Expected one of: draft, active, deprecated."
+            )
+        if status is not None and status != resolved_status:
+            raise self._validation_error(
+                "status and lifecycle_status filters conflict. "
+                f"status={status!r} maps differently than lifecycle_status={lifecycle_status!r}."
+            )
+        return resolved_status
+
+    @staticmethod
+    def _matches_readiness_filter(
+        item: dict[str, Any],
+        *,
+        readiness_status: str | None,
+    ) -> bool:
+        if readiness_status is None:
+            return True
+        return str(item.get("readiness_status") or "") == readiness_status
+
+    @staticmethod
+    def _required_metric_binding_slots(
+        header: dict[str, Any], payload: dict[str, Any]
+    ) -> list[str]:
+        metric_family = str(
+            header.get("metric_family") or payload.get("metric_family") or ""
+        ).strip()
+        payload_key_map: dict[str, list[str]] = {
+            "count_metric": ["count_target"],
+            "sum_metric": ["measure"],
+            "rate_metric": ["numerator", "denominator"],
+            "average_metric": ["numerator", "denominator"],
+            "distribution_metric": ["value_component"],
+            "score_metric": ["score_source"],
+            "survival_metric": [],
+        }
+        return payload_key_map.get(metric_family, [])
+
     def _augment_object_with_readiness(
         self,
         base: dict[str, Any],
@@ -1080,7 +1133,20 @@ class SemanticServiceSupport:
                 )
             if not target_key:
                 raise self._validation_error("metric_input target_key must not be empty")
+            if target_key.startswith("metric_input."):
+                raise self._validation_error(
+                    "metric_input target_key must be the metric family slot name "
+                    "(for example count_target, measure, numerator, denominator), "
+                    f"not a semantic ref: {target_key}"
+                )
             return
+
+        if target_kind == "measure":
+            raise self._validation_error(
+                "Unsupported target_kind: 'measure'. measure.* is a metric payload ref, not a "
+                "binding target_kind. Bind physical fields through target_kind='metric_input' "
+                "and use the metric family slot name as target_key."
+            )
 
         raise self._validation_error(f"Unsupported target_kind: {target_kind}")
 
@@ -1250,6 +1316,7 @@ class SemanticServiceSupport:
 
         if binding_scope == "metric":
             header = bound_object["header"]
+            payload = bound_object["payload"]
             allowed_target_kinds = {"population_subject", "primary_time", "metric_input"}
             unexpected = target_kinds - allowed_target_kinds
             if unexpected:
@@ -1278,16 +1345,25 @@ class SemanticServiceSupport:
                 for field_binding in field_bindings
                 if field_binding["target"]["target_kind"] == "metric_input"
             }
-            if not metric_input_keys:
+            required_metric_input_keys = set(self._required_metric_binding_slots(header, payload))
+            if required_metric_input_keys and not metric_input_keys:
                 raise self._validation_error(
                     "Metric binding must map at least one metric_input target"
                 )
-            if header["metric_family"] == "rate_metric" and not {
-                "numerator",
-                "denominator",
-            }.issubset(metric_input_keys):
+            unexpected_metric_input_keys = metric_input_keys - required_metric_input_keys
+            if unexpected_metric_input_keys:
                 raise self._validation_error(
-                    "rate_metric binding must map both 'numerator' and 'denominator' metric_input targets"
+                    "Metric binding uses unsupported metric_input target_key values for "
+                    f"{header['metric_family']}: {sorted(unexpected_metric_input_keys)}. "
+                    f"Expected subset of {sorted(required_metric_input_keys)}."
+                )
+            if header["metric_family"] == "rate_metric" and not required_metric_input_keys.issubset(
+                metric_input_keys
+            ):
+                missing_metric_input_keys = sorted(required_metric_input_keys - metric_input_keys)
+                raise self._validation_error(
+                    "rate_metric binding must map both 'numerator' and 'denominator' "
+                    f"metric_input targets; missing {missing_metric_input_keys}"
                 )
             if header["metric_family"] == "survival_metric" and primary_time_ref is None:
                 raise self._validation_error(

@@ -52,7 +52,9 @@ contract:
 - Headers are included but heavy payloads (interface_contract, payload) are omitted
 
 During the current migration phase, `status=published` maps to `lifecycle_status=active`.
-Readiness is evaluated separately from lifecycle.
+Readiness is evaluated separately from lifecycle. List routes accept `lifecycle_status` as the
+canonical lifecycle filter and `readiness_status` as the usability filter; `status` remains a
+storage compatibility filter.
 
 **Migration notes:**
 
@@ -325,13 +327,15 @@ Response:
 
 Validation notes:
 
+- `field_surfaces` are binding-local declarations; they do not require pre-registration.
 - `field_bindings[*].surface_ref` must exist on the referenced `carrier_binding_key`.
 - Entity bindings must cover all declared identity keys, plus `primary_time_ref` / stable
   descriptors when the bound entity declares them.
 - Process bindings must satisfy process-specific targets such as `population_subject`,
   experiment `process_context`, and required join relations for multi-carrier contracts.
-- Metric bindings must provide at least one `metric_input`; `rate_metric` bindings must expose
-  both `numerator` and `denominator`.
+- Metric bindings must map family slot names through `target.target_kind = "metric_input"`.
+  Valid `target.target_key` values are `count_target`, `measure`, `numerator`, `denominator`,
+  `value_component`, and `score_source` depending on the metric family.
 - `POST /semantic/bindings/{binding_id}/publish` additionally requires:
   - the bound semantic object and imported bindings are already `published`
   - referenced `time.*` / `dimension.*` dependencies are already `published`
@@ -343,7 +347,7 @@ OpenAPI notes:
   request schemas in `components/schemas`.
 - `GET /openapi/schemas/TypedEntityCreateRequest` returns the canonical create-body fragment.
 - Validation failures now keep the legacy `detail` array and add guided `error` / `guidance`
-  fields with contract links and minimal payload examples.
+  fields with contract links and layered payload examples.
 
 Across the semantic layer, create and update routes publish explicit request-body schemas instead of
 opaque `object` payloads. The main component names are:
@@ -537,7 +541,7 @@ Create a typed binding against the synced source object:
       },
       {
         "carrier_binding_key": "primary",
-        "target": {"target_kind": "metric_input", "target_key": "metric_input.active_users"},
+        "target": {"target_kind": "metric_input", "target_key": "count_target"},
         "semantic_ref": "metric_input.active_users",
         "surface_ref": "field.user_id"
       }
@@ -1110,7 +1114,8 @@ Request-body validation errors may additionally include:
 - `guidance.docs_url`
 - `guidance.contract_url`
 - `guidance.schema_url` when the endpoint has a dedicated request schema
-- `guidance.examples` with minimal valid payloads for typed semantic create/update routes
+- `guidance.examples` with layered valid payloads for typed semantic create/update routes
+- `guidance.next_action` with the recommended repair order for agents
 
 Recommended remediation order for typed semantic `422` responses:
 

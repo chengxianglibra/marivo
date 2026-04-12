@@ -127,7 +127,8 @@ Semantic object HTTP responses may expose derived lifecycle/readiness contract f
 legacy storage `status`; preserve backward compatibility unless a task explicitly removes old fields.
 Lifecycle actions should use `validate`, `activate`, and `deprecate` as the primary public verbs;
 `publish` is a compatibility alias for `activate`, and `activate` must never be presented as a
-proxy for readiness.
+proxy for readiness. For semantic list filters, prefer `lifecycle_status` and
+`readiness_status`; `status` remains a storage compatibility filter only.
 Direct dependency information may also be exposed via `dependency_refs` on semantic object read
 surfaces when a task needs catalog/debug visibility.
 Runtime/catalog defaults should treat readiness as the availability gate. For entity/metric/process,

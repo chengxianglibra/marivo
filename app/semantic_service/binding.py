@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Literal, cast
+from typing import Any, Literal
 from uuid import uuid4
 
 from app.api.models.binding import TypedBindingCreateRequest, TypedBindingUpdateRequest
@@ -53,8 +53,13 @@ class TypedBindingService(SemanticServiceSupport):
         return self._row_to_typed_binding(row)
 
     def list_typed_bindings(
-        self, status: str | None = None, detail: bool = False
+        self,
+        status: str | None = None,
+        lifecycle_status: str | None = None,
+        readiness_status: str | None = None,
+        detail: bool = False,
     ) -> dict[str, Any]:
+        status = self._resolve_semantic_filters(status=status, lifecycle_status=lifecycle_status)
         if status is None:
             rows = self.metadata.query_rows("SELECT * FROM typed_bindings ORDER BY binding_ref")
         else:
@@ -62,9 +67,14 @@ class TypedBindingService(SemanticServiceSupport):
                 "SELECT * FROM typed_bindings WHERE status = ? ORDER BY binding_ref",
                 [status],
             )
-        mode = cast("Literal['list', 'detail']", "detail" if detail else "list")
+        mode: Literal["list", "detail"] = "detail" if detail else "list"
         items = [
-            self._row_to_typed_binding(row, mode=mode, include_dependents=detail) for row in rows
+            item
+            for row in rows
+            if self._matches_readiness_filter(
+                item := self._row_to_typed_binding(row, mode=mode, include_dependents=detail),
+                readiness_status=readiness_status,
+            )
         ]
         return {"items": items, "total": len(items)}
 

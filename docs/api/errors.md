@@ -40,11 +40,12 @@ For Pydantic validation errors (422):
   },
   "guidance": {
     "docs_url": "docs/api/semantic.md",
-    "contract_url": "/openapi/paths/L3NlbWFudGljL2VudGl0aWVz?operation=post&expand=request,schemas&depth=2",
-    "schema_url": "/openapi/schemas/TypedEntityCreateRequest?depth=2",
+    "contract_url": "/openapi/paths/L3NlbWFudGljL2VudGl0aWVz?operation=post&expand=request,schemas&depth=6",
+    "schema_url": "/openapi/schemas/TypedEntityCreateRequest?depth=6",
     "examples": [
       {
         "summary": "Minimal typed entity create payload",
+        "complexity": "minimal",
         "payload": {
           "header": {
             "entity_ref": "entity.user",
@@ -60,7 +61,8 @@ For Pydantic validation errors (422):
           }
         }
       }
-    ]
+    ],
+    "next_action": "Start with guidance.examples, then read guidance.schema_url for the exact request model."
   }
 }
 ```
@@ -93,7 +95,8 @@ Common typed semantic `422` patterns:
 | metric create is missing `payload` or mismatches metric family | include `payload` and keep `header.metric_family` equal to `payload.metric_family` |
 | dimension create is missing `value_domain` | place it at `interface_contract.value_domain` |
 | time create sends `interface_contract` | remove it; `/semantic/time` is header-only |
-| binding create omits grounding structure | include `interface_contract.carrier_bindings` and `interface_contract.field_bindings` |
+| binding create omits grounding structure | include `interface_contract.carrier_bindings`, declare `field_surfaces`, then reference them from `field_bindings[*].surface_ref` |
+| binding uses `target_kind=measure` | use `target_kind=metric_input`; `measure.*` is a metric payload ref, not a binding target kind |
 
 ## Step Submission Semantic Context
 

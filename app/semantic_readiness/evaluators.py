@@ -943,11 +943,25 @@ def _evaluate_subject_bindings(
         and derive_lifecycle_status(str(binding.get("status") or "draft")) == "active"
     ]
     if not bindings:
+        blocker_details: dict[str, Any] = {
+            "required_binding_scope": expected_scope,
+            "bound_object_ref": snapshot.ref,
+            "missing_targets": [
+                {"target_kind": target_kind, "target_key": target_key}
+                for target_kind, target_key, _semantic_ref in required_targets
+            ],
+        }
+        if expected_scope == "metric":
+            blocker_details["remediation"] = {
+                "tool": "create_binding",
+                "message": "Create a typed binding with header.binding_scope='metric' for this metric.",
+            }
         blockers.append(
             _blocker(
                 code=missing_binding_code,
                 message=f"{snapshot.ref} requires at least one active {expected_scope} binding.",
                 subject_ref=snapshot.ref,
+                details=blocker_details,
             )
         )
         trace.append(
@@ -1050,6 +1064,10 @@ def _check_binding_readiness(
                 message=f"Binding is missing required {target_kind} coverage for {target_key}.",
                 subject_ref=subject_ref,
                 dependency_ref=binding_ref,
+                details={
+                    "required_binding_scope": expected_scope_from_subject_ref(subject_ref),
+                    "missing_targets": [{"target_kind": target_kind, "target_key": target_key}],
+                },
             )
         )
     trace.append(
@@ -1070,13 +1088,25 @@ def _blocker(
     message: str,
     subject_ref: str,
     dependency_ref: str | None = None,
+    details: dict[str, Any] | None = None,
 ) -> BlockingRequirementPayload:
     return BlockingRequirementPayload(
         code=code,
         message=message,
         subject_ref=subject_ref,
         dependency_ref=dependency_ref,
+        details=details,
     )
+
+
+def expected_scope_from_subject_ref(subject_ref: str) -> str:
+    if subject_ref.startswith("entity."):
+        return "entity"
+    if subject_ref.startswith("metric."):
+        return "metric"
+    if subject_ref.startswith("process."):
+        return "process_object"
+    return "unknown"
 
 
 def _optional_str(value: Any) -> str | None:

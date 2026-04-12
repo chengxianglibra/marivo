@@ -74,13 +74,20 @@ def create_entity(
 def list_entities(
     request: Request,
     status: str | None = Query(default=None),
+    lifecycle_status: str | None = Query(default=None),
+    readiness_status: str | None = Query(default=None),
     detail: bool = Query(
         default=False, description="Return full detail instead of lightweight format."
     ),
 ) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
     return _run_route_action(
-        lambda: semantic_service.list_typed_entities(status=status, detail=detail)
+        lambda: semantic_service.list_typed_entities(
+            status=status,
+            lifecycle_status=lifecycle_status,
+            readiness_status=readiness_status,
+            detail=detail,
+        )
     )
 
 
@@ -153,13 +160,20 @@ def create_metric(
 def list_metrics(
     request: Request,
     status: str | None = Query(default=None),
+    lifecycle_status: str | None = Query(default=None),
+    readiness_status: str | None = Query(default=None),
     detail: bool = Query(
         default=False, description="Return full detail instead of lightweight format."
     ),
 ) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
     return _run_route_action(
-        lambda: semantic_service.list_typed_metrics(status=status, detail=detail)
+        lambda: semantic_service.list_typed_metrics(
+            status=status,
+            lifecycle_status=lifecycle_status,
+            readiness_status=readiness_status,
+            detail=detail,
+        )
     )
 
 
@@ -232,13 +246,20 @@ def create_process_object(
 def list_process_objects(
     request: Request,
     status: str | None = Query(default=None),
+    lifecycle_status: str | None = Query(default=None),
+    readiness_status: str | None = Query(default=None),
     detail: bool = Query(
         default=False, description="Return full detail instead of lightweight format."
     ),
 ) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
     return _run_route_action(
-        lambda: semantic_service.list_process_objects(status=status, detail=detail)
+        lambda: semantic_service.list_process_objects(
+            status=status,
+            lifecycle_status=lifecycle_status,
+            readiness_status=readiness_status,
+            detail=detail,
+        )
     )
 
 
@@ -317,12 +338,21 @@ def create_dimension(
 def list_dimensions(
     request: Request,
     status: str | None = Query(default=None),
+    lifecycle_status: str | None = Query(default=None),
+    readiness_status: str | None = Query(default=None),
     detail: bool = Query(
         default=False, description="Return full detail instead of lightweight format."
     ),
 ) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
-    return _run_route_action(lambda: semantic_service.list_dimensions(status=status, detail=detail))
+    return _run_route_action(
+        lambda: semantic_service.list_dimensions(
+            status=status,
+            lifecycle_status=lifecycle_status,
+            readiness_status=readiness_status,
+            detail=detail,
+        )
+    )
 
 
 @router.get("/semantic/dimensions/{dimension_contract_id}", response_model=DimensionResponse)
@@ -398,13 +428,20 @@ def create_time_semantic(
 def list_time_semantics(
     request: Request,
     status: str | None = Query(default=None),
+    lifecycle_status: str | None = Query(default=None),
+    readiness_status: str | None = Query(default=None),
     detail: bool = Query(
         default=False, description="Return full detail instead of lightweight format."
     ),
 ) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
     return _run_route_action(
-        lambda: semantic_service.list_time_semantics(status=status, detail=detail)
+        lambda: semantic_service.list_time_semantics(
+            status=status,
+            lifecycle_status=lifecycle_status,
+            readiness_status=readiness_status,
+            detail=detail,
+        )
     )
 
 
@@ -474,12 +511,21 @@ def create_enum_set(request: Request, payload: EnumSetCreateRequest = Body(...))
 def list_enum_sets(
     request: Request,
     status: str | None = Query(default=None),
+    lifecycle_status: str | None = Query(default=None),
+    readiness_status: str | None = Query(default=None),
     detail: bool = Query(
         default=False, description="Return full detail instead of lightweight format."
     ),
 ) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
-    return _run_route_action(lambda: semantic_service.list_enum_sets(status=status, detail=detail))
+    return _run_route_action(
+        lambda: semantic_service.list_enum_sets(
+            status=status,
+            lifecycle_status=lifecycle_status,
+            readiness_status=readiness_status,
+            detail=detail,
+        )
+    )
 
 
 @router.get("/semantic/enum-sets/{enum_set_contract_id}", response_model=EnumSetResponse)
@@ -551,13 +597,18 @@ def create_typed_binding(
 def list_typed_bindings(
     request: Request,
     status: str | None = Query(default=None),
+    lifecycle_status: str | None = Query(default=None),
+    readiness_status: str | None = Query(default=None),
     detail: bool = Query(
         default=False, description="Return full detail instead of lightweight format."
     ),
 ) -> dict[str, Any]:
     return _run_route_action(
         lambda: get_services(request).semantic_service.list_typed_bindings(
-            status=status, detail=detail
+            status=status,
+            lifecycle_status=lifecycle_status,
+            readiness_status=readiness_status,
+            detail=detail,
         )
     )
 
@@ -625,13 +676,18 @@ def create_compatibility_profile(
 def list_compatibility_profiles(
     request: Request,
     status: str | None = Query(default=None),
+    lifecycle_status: str | None = Query(default=None),
+    readiness_status: str | None = Query(default=None),
     detail: bool = Query(
         default=False, description="Return full detail instead of lightweight format."
     ),
 ) -> dict[str, Any]:
     return _run_route_action(
         lambda: get_services(request).semantic_service.list_compatibility_profiles(
-            status=status, detail=detail
+            status=status,
+            lifecycle_status=lifecycle_status,
+            readiness_status=readiness_status,
+            detail=detail,
         )
     )
 
