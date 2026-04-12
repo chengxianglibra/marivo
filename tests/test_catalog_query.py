@@ -89,6 +89,19 @@ class CatalogQueryTests(unittest.TestCase):
         resp = self.client.get("/catalog/search?q=watch")
         self.assertEqual(resp.status_code, 200)
         results = resp.json()
+        self.assertFalse(any(r["ref"] == "metric.watch_time" for r in results))
+
+    def test_search_by_type_filter(self) -> None:
+        resp = self.client.get("/catalog/search?q=watch&type=metric")
+        self.assertEqual(resp.status_code, 200)
+        results = resp.json()
+        self.assertTrue(all(r["object_kind"] == "metric" for r in results))
+        self.assertEqual(results, [])
+
+    def test_search_by_readiness_filter_returns_not_ready_metrics(self) -> None:
+        resp = self.client.get("/catalog/search?q=watch&type=metric&readiness=not_ready")
+        self.assertEqual(resp.status_code, 200)
+        results = resp.json()
         self.assertTrue(
             any(
                 r["name"] == "watch_time"
@@ -96,15 +109,11 @@ class CatalogQueryTests(unittest.TestCase):
                 and r["ref"] == "metric.watch_time"
                 and r["detail_path"] == f"/catalog/objects/metric/{self.watch_metric_id}"
                 and r["resolve_path"] == "/semantic/resolve/metric.watch_time"
+                and r["lifecycle_status"] == "active"
+                and r["readiness_status"] == "not_ready"
                 for r in results
             )
         )
-
-    def test_search_by_type_filter(self) -> None:
-        resp = self.client.get("/catalog/search?q=watch&type=metric")
-        self.assertEqual(resp.status_code, 200)
-        results = resp.json()
-        self.assertTrue(all(r["object_kind"] == "metric" for r in results))
 
     def test_search_entity(self) -> None:
         resp = self.client.get("/catalog/search?q=user&type=entity")
@@ -131,20 +140,25 @@ class CatalogQueryTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 400)
         self.assertIn("Unsupported catalog object type filter", resp.json()["detail"])
 
+    def test_search_rejects_invalid_readiness_filter(self) -> None:
+        resp = self.client.get("/catalog/search?q=watch&readiness=blocked")
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("Unsupported catalog readiness filter", resp.json()["detail"])
+
     def test_resolve_metric(self) -> None:
         resp = self.client.get("/semantic/resolve/metric.watch_time")
-        self.assertEqual(resp.status_code, 200)
-        result = resp.json()
-        self.assertEqual(result["object_kind"], "metric")
-        self.assertEqual(result["ref"], "metric.watch_time")
-        self.assertEqual(result["object_id"], self.watch_metric_id)
-        self.assertEqual(result["semantic_object"]["header"]["metric_ref"], "metric.watch_time")
-        self.assertEqual(result["semantic_object"]["header"]["observed_entity_ref"], "entity.user")
-        self.assertIsInstance(result["semantic_object"]["payload"], dict)
-        self.assertEqual(result["status"], "published")
-        self.assertNotIn("resolved_type", result)
-        self.assertNotIn("mappings", result)
-        self.assertNotIn("physical_assets", result)
+        self.assertEqual(resp.status_code, 409)
+        detail = resp.json()["detail"]
+        self.assertEqual(detail["code"], "semantic_not_ready")
+        self.assertEqual(detail["category"], "readiness")
+        self.assertEqual(detail["subject_ref"], "metric.watch_time")
+        self.assertEqual(detail["lifecycle_status"], "active")
+        self.assertEqual(detail["readiness_status"], "not_ready")
+        self.assertEqual(
+            detail["blocking_requirements"][0]["code"],
+            "METRIC_INPUT_COVERAGE_MISSING",
+        )
+        self.assertIn("entity.user", detail["dependency_refs"])
 
     def test_resolve_entity(self) -> None:
         resp = self.client.get("/semantic/resolve/entity.user")
@@ -159,7 +173,7 @@ class CatalogQueryTests(unittest.TestCase):
         )
 
     def test_catalog_detail_round_trip_for_metric(self) -> None:
-        search_resp = self.client.get("/catalog/search?q=watch&type=metric")
+        search_resp = self.client.get("/catalog/search?q=watch&type=metric&readiness=not_ready")
         self.assertEqual(search_resp.status_code, 200, search_resp.text)
         summary = next(
             item for item in search_resp.json() if item["object_id"] == self.watch_metric_id
@@ -177,6 +191,9 @@ class CatalogQueryTests(unittest.TestCase):
             detail["semantic_object"]["blocking_requirements"][0]["code"],
             "METRIC_INPUT_COVERAGE_MISSING",
         )
+        self.assertIn("entity.user", detail["semantic_object"]["dependency_refs"])
+        self.assertIn("time.event_date", detail["semantic_object"]["dependency_refs"])
+        self.assertEqual(detail["semantic_object"]["dependent_refs"], [])
         self.assertEqual(detail["semantic_object"]["header"]["metric_ref"], "metric.watch_time")
 
     def test_catalog_detail_round_trip_for_asset(self) -> None:
@@ -219,14 +236,9 @@ class CatalogQueryTests(unittest.TestCase):
         self.assertIn("entities", ctx)
         self.assertIn("available_step_types", ctx)
         self.assertIn("metric_query", ctx["available_step_types"])
-        watch_metric = next(
-            metric
-            for metric in ctx["metrics"]
-            if metric["header"]["metric_ref"] == "metric.watch_time"
+        self.assertFalse(
+            any(metric["header"]["metric_ref"] == "metric.watch_time" for metric in ctx["metrics"])
         )
-        self.assertEqual(watch_metric["header"]["metric_family"], "average_metric")
-        self.assertEqual(watch_metric["header"]["observation_grain_ref"], "grain.session")
-        self.assertNotIn("legacy", watch_metric)
         user_entity = next(
             entity for entity in ctx["entities"] if entity["header"]["entity_ref"] == "entity.user"
         )

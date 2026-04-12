@@ -7,6 +7,7 @@ from app.semantic_runtime.resolution import (
     ResolvedEntity,
     ResolvedMetric,
     ResolvedSemanticObject,
+    RuntimeSemanticAvailability,
     SemanticResolver,
 )
 from app.storage.metadata import MetadataStore
@@ -28,6 +29,9 @@ class SemanticRuntimeRepository:
 
     def resolve_ref(self, semantic_ref: str) -> ResolvedSemanticObject:
         return self.resolver.resolve_ref(semantic_ref)
+
+    def inspect_ref(self, semantic_ref: str) -> RuntimeSemanticAvailability:
+        return self.resolver.inspect_ref(semantic_ref)
 
     def resolve_entity_ref(self, entity_ref: str) -> ResolvedSemanticObject:
         return self.resolver.resolve_entity_ref(entity_ref)

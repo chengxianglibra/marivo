@@ -4,6 +4,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
 
+from .base import LifecycleStatus, ReadinessStatus
 from .entity import TypedEntityResponse
 from .metric import TypedMetricResponse
 
@@ -35,6 +36,8 @@ class CatalogSearchResultBase(BaseModel):
 class CatalogSemanticSearchResult(CatalogSearchResultBase):
     object_kind: Literal["entity", "metric", "process", "dimension", "time", "binding"]
     contract_version: str
+    lifecycle_status: LifecycleStatus
+    readiness_status: ReadinessStatus
     revision: int
     created_at: str
     updated_at: str

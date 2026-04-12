@@ -8,7 +8,9 @@ Semantic lifecycle is shared across objects:
 - `published`
 - `deprecated`
 
-Only `published` objects are available to runtime resolution and intent execution.
+Runtime/catalog surfaces default to `active + ready` semantic objects. `published` remains the
+storage status that maps to `lifecycle_status=active`, but callers must not assume `published`
+implies runtime availability.
 
 Semantic object responses expose both the legacy storage status and a derived lifecycle/readiness
 contract:
@@ -68,7 +70,7 @@ The minimal end-to-end semantic closure is:
 1. read synced source metadata from `/sources/{source_id}/objects`
 2. create typed semantic objects and typed bindings in dependency order while they are in `draft`
 3. publish the referenced objects and bindings
-4. resolve only `published` refs through runtime/catalog surfaces
+4. resolve only ready refs through runtime/catalog surfaces
 5. compile typed intent inputs into IR and compile metadata
 6. persist the step semantic snapshot for evidence/runtime consumers
 
@@ -938,12 +940,14 @@ Notes:
 
 ## Runtime Catalog Discovery
 
-Runtime catalog discovery exposes only `published` typed semantic contracts.
+Runtime catalog discovery defaults to ready semantic objects and exposes explicit readiness filters
+for modeling/admin callers.
 
-`GET /catalog/search?q=...&type=...`
+`GET /catalog/search?q=...&type=...&readiness=...`
 
 - Supported semantic `type` filters: `entity`, `metric`, `process`, `dimension`, `time`, `binding`
 - `asset` remains available as a source-object discovery filter and is not a semantic object kind
+- `readiness` supports `ready` (default), `not_ready`, `stale`, and `all`
 - Semantic results use a unified summary envelope:
   - `object_kind`
   - `object_id`
@@ -952,6 +956,8 @@ Runtime catalog discovery exposes only `published` typed semantic contracts.
   - `display_name`
   - `description`
   - `status`
+  - `lifecycle_status`
+  - `readiness_status`
   - `revision`
   - `created_at`
   - `updated_at`
@@ -967,6 +973,7 @@ Runtime catalog discovery exposes only `published` typed semantic contracts.
 
 - Canonical follow-up detail read for catalog search results
 - Semantic object kinds return the same typed detail envelope shape used by runtime resolution
+- Catalog detail remains available for explicit inspection even when an object is `active + not_ready`
 - `asset` returns:
   - `object_kind`
   - `object_id`
@@ -980,6 +987,7 @@ Runtime catalog discovery exposes only `published` typed semantic contracts.
 - Runtime resolution is typed-ref first: `entity.*`, `metric.*`, `process.*`, `dimension.*`,
   `time.*`, `binding.*`
 - Bare-name aliases remain supported only for `entity` and `metric`
+- Default resolution returns only ready semantic objects
 - The response is a typed detail envelope:
   - `object_kind`
   - `object_id`
@@ -991,10 +999,21 @@ Runtime catalog discovery exposes only `published` typed semantic contracts.
   - `updated_at`
 - Resolve responses no longer expose legacy `mappings`, `physical_assets`, or legacy object payloads
   derived from legacy mapping tables
+- When a typed ref is active but not ready, resolve returns `409` with structured readiness detail:
+  - `message`
+  - `code`
+  - `category`
+  - `subject_ref`
+  - `object_kind`
+  - `lifecycle_status`
+  - `readiness_status`
+  - `blocking_requirements`
+  - `capabilities`
+  - `dependency_refs`
 
 `GET /sessions/{session_id}/planner-context`
 
-- Planner context reads only `published` typed metric/entity contracts
+- Planner context reads only ready typed metric/entity contracts
 - `metrics[*]` and `entities[*]` are returned as typed semantic objects
 - Planner context no longer exposes `legacy` compatibility blocks derived from legacy tables
 
@@ -1013,6 +1032,7 @@ consumers recover semantic meaning from typed step metadata and compiler snapsho
 
 - `400`: invalid catalog type filter or invalid typed semantic ref
 - `404`: object not found
+- `409`: typed semantic ref exists and is active, but is not ready for runtime use
 - `422`: request validation failed or service rejected the request as invalid
 
 Validation errors use FastAPI/Pydantic `detail` arrays. Service-level validation errors use string `detail` values.

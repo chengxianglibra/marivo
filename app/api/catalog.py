@@ -7,6 +7,7 @@ from app.api.models import CatalogObjectDetail, CatalogSearchResult
 from app.semantic_runtime import (
     SemanticRuntimeInvalidRefError,
     SemanticRuntimeNotFoundError,
+    SemanticRuntimeNotReadyError,
     SemanticRuntimeUnpublishedError,
 )
 
@@ -18,9 +19,12 @@ def catalog_search(
     request: Request,
     q: str = Query(..., min_length=1),
     type: str | None = Query(default=None),
+    readiness: str = Query(default="ready"),
 ) -> list[dict[str, object]]:
     try:
-        return get_services(request).catalog_runtime.search(q, object_type=type)
+        return get_services(request).catalog_runtime.search(
+            q, object_type=type, readiness=readiness
+        )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
@@ -51,6 +55,8 @@ def resolve_term(name: str, request: Request) -> dict[str, object]:
         return get_services(request).catalog_runtime.resolve(name)
     except SemanticRuntimeInvalidRefError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+    except SemanticRuntimeNotReadyError as error:
+        raise HTTPException(status_code=409, detail=error.detail_payload()) from error
     except (SemanticRuntimeNotFoundError, SemanticRuntimeUnpublishedError, KeyError) as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
 

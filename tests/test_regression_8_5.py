@@ -110,12 +110,25 @@ def _seed_metadata(meta: SQLiteMetadataStore, db_path: Path | None = None) -> No
         definition_sql="SUM(value)",
         measure_type="sum",
     )
-    ensure_published_typed_metric_binding(
+    binding_ref = ensure_published_typed_metric_binding(
         meta,
         metric_name=_METRIC,
         carrier_locator=f"analytics.{_TABLE}",
         source_object_ref=obj_id,
     )
+    binding_row = meta.query_one(
+        "SELECT binding_id FROM typed_bindings WHERE binding_ref = ?",
+        [binding_ref],
+    )
+    if binding_row is not None:
+        meta.execute(
+            """
+            UPDATE field_bindings
+            SET target_key = ?, semantic_ref = ?
+            WHERE binding_id = ? AND target_kind = 'metric_input'
+            """,
+            ["measure", "metric_input.measure", binding_row["binding_id"]],
+        )
     meta.execute(
         "INSERT OR IGNORE INTO engines "
         "(engine_id, engine_type, display_name, connection_json, capabilities_json, "
