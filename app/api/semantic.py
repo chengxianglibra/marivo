@@ -23,6 +23,7 @@ from app.api.models import (
     ProcessObjectListResponse,
     ProcessObjectResponse,
     ProcessObjectUpdateRequest,
+    SemanticValidateActionResponse,
     TimeCreateRequest,
     TimeListResponse,
     TimeResponse,
@@ -117,6 +118,35 @@ def publish_entity(entity_id: str, request: Request) -> dict[str, Any]:
     )
 
 
+@router.post(
+    "/semantic/entities/{entity_id}/validate", response_model=SemanticValidateActionResponse
+)
+def validate_entity(entity_id: str, request: Request) -> dict[str, Any]:
+    semantic_service = get_services(request).semantic_service
+    return _run_route_action(
+        lambda: semantic_service.validate_typed_entity(entity_id),
+        structured_value_error=True,
+    )
+
+
+@router.post("/semantic/entities/{entity_id}/activate", response_model=TypedEntityResponse)
+def activate_entity(entity_id: str, request: Request) -> dict[str, Any]:
+    semantic_service = get_services(request).semantic_service
+    return _run_route_action(
+        lambda: semantic_service.activate_typed_entity(entity_id),
+        structured_value_error=True,
+    )
+
+
+@router.post("/semantic/entities/{entity_id}/deprecate", response_model=TypedEntityResponse)
+def deprecate_entity(entity_id: str, request: Request) -> dict[str, Any]:
+    semantic_service = get_services(request).semantic_service
+    return _run_route_action(
+        lambda: semantic_service.deprecate_typed_entity(entity_id),
+        structured_value_error=True,
+    )
+
+
 @router.post("/semantic/metrics", response_model=TypedMetricResponse)
 def create_metric(
     request: Request, payload: TypedMetricCreateRequest = Body(...)
@@ -167,6 +197,35 @@ def publish_metric(metric_id: str, request: Request) -> dict[str, Any]:
     )
 
 
+@router.post(
+    "/semantic/metrics/{metric_id}/validate", response_model=SemanticValidateActionResponse
+)
+def validate_metric(metric_id: str, request: Request) -> dict[str, Any]:
+    semantic_service = get_services(request).semantic_service
+    return _run_route_action(
+        lambda: semantic_service.validate_typed_metric(metric_id),
+        structured_value_error=True,
+    )
+
+
+@router.post("/semantic/metrics/{metric_id}/activate", response_model=TypedMetricResponse)
+def activate_metric(metric_id: str, request: Request) -> dict[str, Any]:
+    semantic_service = get_services(request).semantic_service
+    return _run_route_action(
+        lambda: semantic_service.activate_typed_metric(metric_id),
+        structured_value_error=True,
+    )
+
+
+@router.post("/semantic/metrics/{metric_id}/deprecate", response_model=TypedMetricResponse)
+def deprecate_metric(metric_id: str, request: Request) -> dict[str, Any]:
+    semantic_service = get_services(request).semantic_service
+    return _run_route_action(
+        lambda: semantic_service.deprecate_typed_metric(metric_id),
+        structured_value_error=True,
+    )
+
+
 @router.post("/semantic/process-objects", response_model=ProcessObjectResponse)
 def create_process_object(
     request: Request, payload: ProcessObjectCreateRequest = Body(...)
@@ -210,6 +269,42 @@ def publish_process_object(process_contract_id: str, request: Request) -> dict[s
     )
 
 
+@router.post(
+    "/semantic/process-objects/{process_contract_id}/validate",
+    response_model=SemanticValidateActionResponse,
+)
+def validate_process_object(process_contract_id: str, request: Request) -> dict[str, Any]:
+    semantic_service = get_services(request).semantic_service
+    return _run_route_action(
+        lambda: semantic_service.validate_process_object(process_contract_id),
+        structured_value_error=True,
+    )
+
+
+@router.post(
+    "/semantic/process-objects/{process_contract_id}/activate",
+    response_model=ProcessObjectResponse,
+)
+def activate_process_object(process_contract_id: str, request: Request) -> dict[str, Any]:
+    semantic_service = get_services(request).semantic_service
+    return _run_route_action(
+        lambda: semantic_service.activate_process_object(process_contract_id),
+        structured_value_error=True,
+    )
+
+
+@router.post(
+    "/semantic/process-objects/{process_contract_id}/deprecate",
+    response_model=ProcessObjectResponse,
+)
+def deprecate_process_object(process_contract_id: str, request: Request) -> dict[str, Any]:
+    semantic_service = get_services(request).semantic_service
+    return _run_route_action(
+        lambda: semantic_service.deprecate_process_object(process_contract_id),
+        structured_value_error=True,
+    )
+
+
 @router.post("/semantic/dimensions", response_model=DimensionResponse)
 def create_dimension(
     request: Request, payload: DimensionCreateRequest = Body(...)
@@ -247,6 +342,40 @@ def publish_dimension(dimension_contract_id: str, request: Request) -> dict[str,
     semantic_service = get_services(request).semantic_service
     return _run_route_action(
         lambda: semantic_service.publish_dimension(dimension_contract_id),
+        structured_value_error=True,
+    )
+
+
+@router.post(
+    "/semantic/dimensions/{dimension_contract_id}/validate",
+    response_model=SemanticValidateActionResponse,
+)
+def validate_dimension(dimension_contract_id: str, request: Request) -> dict[str, Any]:
+    semantic_service = get_services(request).semantic_service
+    return _run_route_action(
+        lambda: semantic_service.validate_dimension(dimension_contract_id),
+        structured_value_error=True,
+    )
+
+
+@router.post(
+    "/semantic/dimensions/{dimension_contract_id}/activate", response_model=DimensionResponse
+)
+def activate_dimension(dimension_contract_id: str, request: Request) -> dict[str, Any]:
+    semantic_service = get_services(request).semantic_service
+    return _run_route_action(
+        lambda: semantic_service.activate_dimension(dimension_contract_id),
+        structured_value_error=True,
+    )
+
+
+@router.post(
+    "/semantic/dimensions/{dimension_contract_id}/deprecate", response_model=DimensionResponse
+)
+def deprecate_dimension(dimension_contract_id: str, request: Request) -> dict[str, Any]:
+    semantic_service = get_services(request).semantic_service
+    return _run_route_action(
+        lambda: semantic_service.deprecate_dimension(dimension_contract_id),
         structured_value_error=True,
     )
 
@@ -294,6 +423,35 @@ def publish_time_semantic(time_contract_id: str, request: Request) -> dict[str, 
     )
 
 
+@router.post(
+    "/semantic/time/{time_contract_id}/validate", response_model=SemanticValidateActionResponse
+)
+def validate_time_semantic(time_contract_id: str, request: Request) -> dict[str, Any]:
+    semantic_service = get_services(request).semantic_service
+    return _run_route_action(
+        lambda: semantic_service.validate_time_semantic(time_contract_id),
+        structured_value_error=True,
+    )
+
+
+@router.post("/semantic/time/{time_contract_id}/activate", response_model=TimeResponse)
+def activate_time_semantic(time_contract_id: str, request: Request) -> dict[str, Any]:
+    semantic_service = get_services(request).semantic_service
+    return _run_route_action(
+        lambda: semantic_service.activate_time_semantic(time_contract_id),
+        structured_value_error=True,
+    )
+
+
+@router.post("/semantic/time/{time_contract_id}/deprecate", response_model=TimeResponse)
+def deprecate_time_semantic(time_contract_id: str, request: Request) -> dict[str, Any]:
+    semantic_service = get_services(request).semantic_service
+    return _run_route_action(
+        lambda: semantic_service.deprecate_time_semantic(time_contract_id),
+        structured_value_error=True,
+    )
+
+
 @router.post("/semantic/enum-sets", response_model=EnumSetResponse)
 def create_enum_set(request: Request, payload: EnumSetCreateRequest = Body(...)) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
@@ -329,6 +487,36 @@ def publish_enum_set(enum_set_contract_id: str, request: Request) -> dict[str, A
     semantic_service = get_services(request).semantic_service
     return _run_route_action(
         lambda: semantic_service.publish_enum_set(enum_set_contract_id),
+        structured_value_error=True,
+    )
+
+
+@router.post(
+    "/semantic/enum-sets/{enum_set_contract_id}/validate",
+    response_model=SemanticValidateActionResponse,
+)
+def validate_enum_set(enum_set_contract_id: str, request: Request) -> dict[str, Any]:
+    semantic_service = get_services(request).semantic_service
+    return _run_route_action(
+        lambda: semantic_service.validate_enum_set(enum_set_contract_id),
+        structured_value_error=True,
+    )
+
+
+@router.post("/semantic/enum-sets/{enum_set_contract_id}/activate", response_model=EnumSetResponse)
+def activate_enum_set(enum_set_contract_id: str, request: Request) -> dict[str, Any]:
+    semantic_service = get_services(request).semantic_service
+    return _run_route_action(
+        lambda: semantic_service.activate_enum_set(enum_set_contract_id),
+        structured_value_error=True,
+    )
+
+
+@router.post("/semantic/enum-sets/{enum_set_contract_id}/deprecate", response_model=EnumSetResponse)
+def deprecate_enum_set(enum_set_contract_id: str, request: Request) -> dict[str, Any]:
+    semantic_service = get_services(request).semantic_service
+    return _run_route_action(
+        lambda: semantic_service.deprecate_enum_set(enum_set_contract_id),
         structured_value_error=True,
     )
 
@@ -371,6 +559,32 @@ def update_typed_binding(
 def publish_typed_binding(binding_id: str, request: Request) -> dict[str, Any]:
     return _run_route_action(
         lambda: get_services(request).semantic_service.publish_typed_binding(binding_id),
+        structured_value_error=True,
+    )
+
+
+@router.post(
+    "/semantic/bindings/{binding_id}/validate", response_model=SemanticValidateActionResponse
+)
+def validate_typed_binding(binding_id: str, request: Request) -> dict[str, Any]:
+    return _run_route_action(
+        lambda: get_services(request).semantic_service.validate_typed_binding(binding_id),
+        structured_value_error=True,
+    )
+
+
+@router.post("/semantic/bindings/{binding_id}/activate", response_model=TypedBindingResponse)
+def activate_typed_binding(binding_id: str, request: Request) -> dict[str, Any]:
+    return _run_route_action(
+        lambda: get_services(request).semantic_service.activate_typed_binding(binding_id),
+        structured_value_error=True,
+    )
+
+
+@router.post("/semantic/bindings/{binding_id}/deprecate", response_model=TypedBindingResponse)
+def deprecate_typed_binding(binding_id: str, request: Request) -> dict[str, Any]:
+    return _run_route_action(
+        lambda: get_services(request).semantic_service.deprecate_typed_binding(binding_id),
         structured_value_error=True,
     )
 
@@ -419,5 +633,38 @@ def update_compatibility_profile(
 def publish_compatibility_profile(profile_id: str, request: Request) -> dict[str, Any]:
     return _run_route_action(
         lambda: get_services(request).semantic_service.publish_compatibility_profile(profile_id),
+        structured_value_error=True,
+    )
+
+
+@router.post(
+    "/compiler/compatibility-profiles/{profile_id}/validate",
+    response_model=SemanticValidateActionResponse,
+)
+def validate_compatibility_profile(profile_id: str, request: Request) -> dict[str, Any]:
+    return _run_route_action(
+        lambda: get_services(request).semantic_service.validate_compatibility_profile(profile_id),
+        structured_value_error=True,
+    )
+
+
+@router.post(
+    "/compiler/compatibility-profiles/{profile_id}/activate",
+    response_model=CompatibilityProfileResponse,
+)
+def activate_compatibility_profile(profile_id: str, request: Request) -> dict[str, Any]:
+    return _run_route_action(
+        lambda: get_services(request).semantic_service.activate_compatibility_profile(profile_id),
+        structured_value_error=True,
+    )
+
+
+@router.post(
+    "/compiler/compatibility-profiles/{profile_id}/deprecate",
+    response_model=CompatibilityProfileResponse,
+)
+def deprecate_compatibility_profile(profile_id: str, request: Request) -> dict[str, Any]:
+    return _run_route_action(
+        lambda: get_services(request).semantic_service.deprecate_compatibility_profile(profile_id),
         structured_value_error=True,
     )

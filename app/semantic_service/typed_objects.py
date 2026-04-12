@@ -109,7 +109,12 @@ class TypedObjectService(SemanticServiceSupport):
         self, entity_contract_id: str, payload: TypedEntityUpdateRequest
     ) -> dict[str, Any]:
         current = self.get_typed_entity(entity_contract_id)
-        self._require_draft_status(current["status"], "Typed entity", entity_contract_id)
+        self._require_lifecycle_action_status(
+            action="activate",
+            status=current["status"],
+            object_label="Typed entity",
+            object_id=entity_contract_id,
+        )
         updates: list[str] = []
         params: list[Any] = []
         if payload.display_name is not None:
@@ -164,9 +169,21 @@ class TypedObjectService(SemanticServiceSupport):
         )
         return self.get_typed_entity(entity_contract_id)
 
-    def publish_typed_entity(self, entity_contract_id: str) -> dict[str, Any]:
+    def validate_typed_entity(self, entity_contract_id: str) -> dict[str, Any]:
         current = self.get_typed_entity(entity_contract_id)
-        self._publish_record(
+        self._validate_record(
+            object_id=entity_contract_id,
+            object_label="Typed entity",
+            status=current["status"],
+            reference_validator=lambda: self._validate_published_entity_contract_refs(
+                current["interface_contract"]
+            ),
+        )
+        return self.get_typed_entity(entity_contract_id)
+
+    def activate_typed_entity(self, entity_contract_id: str) -> dict[str, Any]:
+        current = self.get_typed_entity(entity_contract_id)
+        self._activate_record(
             table_name="semantic_entity_contracts",
             id_column="entity_contract_id",
             object_id=entity_contract_id,
@@ -177,6 +194,20 @@ class TypedObjectService(SemanticServiceSupport):
             ),
         )
         return self.get_typed_entity(entity_contract_id)
+
+    def deprecate_typed_entity(self, entity_contract_id: str) -> dict[str, Any]:
+        current = self.get_typed_entity(entity_contract_id)
+        self._deprecate_record(
+            table_name="semantic_entity_contracts",
+            id_column="entity_contract_id",
+            object_id=entity_contract_id,
+            object_label="Typed entity",
+            status=current["status"],
+        )
+        return self.get_typed_entity(entity_contract_id)
+
+    def publish_typed_entity(self, entity_contract_id: str) -> dict[str, Any]:
+        return self.activate_typed_entity(entity_contract_id)
 
     def create_typed_metric(self, payload: TypedMetricCreateRequest) -> dict[str, Any]:
         metric_contract_id = f"metc_{uuid4().hex[:12]}"
@@ -240,7 +271,12 @@ class TypedObjectService(SemanticServiceSupport):
         self, metric_contract_id: str, payload: TypedMetricUpdateRequest
     ) -> dict[str, Any]:
         current = self.get_typed_metric(metric_contract_id)
-        self._require_draft_status(current["status"], "Typed metric", metric_contract_id)
+        self._require_lifecycle_action_status(
+            action="activate",
+            status=current["status"],
+            object_label="Typed metric",
+            object_id=metric_contract_id,
+        )
         updates: list[str] = []
         params: list[Any] = []
         if payload.display_name is not None:
@@ -268,9 +304,21 @@ class TypedObjectService(SemanticServiceSupport):
         )
         return self.get_typed_metric(metric_contract_id)
 
-    def publish_typed_metric(self, metric_contract_id: str) -> dict[str, Any]:
+    def validate_typed_metric(self, metric_contract_id: str) -> dict[str, Any]:
         current = self.get_typed_metric(metric_contract_id)
-        self._publish_record(
+        self._validate_record(
+            object_id=metric_contract_id,
+            object_label="Typed metric",
+            status=current["status"],
+            reference_validator=lambda: self._validate_published_metric_header_refs(
+                current["header"]
+            ),
+        )
+        return self.get_typed_metric(metric_contract_id)
+
+    def activate_typed_metric(self, metric_contract_id: str) -> dict[str, Any]:
+        current = self.get_typed_metric(metric_contract_id)
+        self._activate_record(
             table_name="semantic_metric_contracts",
             id_column="metric_contract_id",
             object_id=metric_contract_id,
@@ -281,6 +329,20 @@ class TypedObjectService(SemanticServiceSupport):
             ),
         )
         return self.get_typed_metric(metric_contract_id)
+
+    def deprecate_typed_metric(self, metric_contract_id: str) -> dict[str, Any]:
+        current = self.get_typed_metric(metric_contract_id)
+        self._deprecate_record(
+            table_name="semantic_metric_contracts",
+            id_column="metric_contract_id",
+            object_id=metric_contract_id,
+            object_label="Typed metric",
+            status=current["status"],
+        )
+        return self.get_typed_metric(metric_contract_id)
+
+    def publish_typed_metric(self, metric_contract_id: str) -> dict[str, Any]:
+        return self.activate_typed_metric(metric_contract_id)
 
     def create_process_object(self, payload: ProcessObjectCreateRequest) -> dict[str, Any]:
         interface_contract = payload.interface_contract.model_dump(mode="json")
@@ -349,7 +411,12 @@ class TypedObjectService(SemanticServiceSupport):
         self, process_contract_id: str, payload: ProcessObjectUpdateRequest
     ) -> dict[str, Any]:
         current = self.get_process_object(process_contract_id)
-        self._require_draft_status(current["status"], "Process object", process_contract_id)
+        self._require_lifecycle_action_status(
+            action="activate",
+            status=current["status"],
+            object_label="Process object",
+            object_id=process_contract_id,
+        )
         updates: list[str] = []
         params: list[Any] = []
         interface_contract = payload.interface_contract
@@ -422,9 +489,21 @@ class TypedObjectService(SemanticServiceSupport):
         )
         return self.get_process_object(process_contract_id)
 
-    def publish_process_object(self, process_contract_id: str) -> dict[str, Any]:
+    def validate_process_object(self, process_contract_id: str) -> dict[str, Any]:
         current = self.get_process_object(process_contract_id)
-        self._publish_record(
+        self._validate_record(
+            object_id=process_contract_id,
+            object_label="Process object",
+            status=current["status"],
+            reference_validator=lambda: self._validate_published_process_refs(
+                current["interface_contract"], current["payload"]
+            ),
+        )
+        return self.get_process_object(process_contract_id)
+
+    def activate_process_object(self, process_contract_id: str) -> dict[str, Any]:
+        current = self.get_process_object(process_contract_id)
+        self._activate_record(
             table_name="semantic_process_objects",
             id_column="process_contract_id",
             object_id=process_contract_id,
@@ -435,6 +514,20 @@ class TypedObjectService(SemanticServiceSupport):
             ),
         )
         return self.get_process_object(process_contract_id)
+
+    def deprecate_process_object(self, process_contract_id: str) -> dict[str, Any]:
+        current = self.get_process_object(process_contract_id)
+        self._deprecate_record(
+            table_name="semantic_process_objects",
+            id_column="process_contract_id",
+            object_id=process_contract_id,
+            object_label="Process object",
+            status=current["status"],
+        )
+        return self.get_process_object(process_contract_id)
+
+    def publish_process_object(self, process_contract_id: str) -> dict[str, Any]:
+        return self.activate_process_object(process_contract_id)
 
     def create_dimension(self, payload: DimensionCreateRequest) -> dict[str, Any]:
         interface_contract = payload.interface_contract.model_dump(mode="json")
@@ -513,7 +606,12 @@ class TypedObjectService(SemanticServiceSupport):
         self, dimension_contract_id: str, payload: DimensionUpdateRequest
     ) -> dict[str, Any]:
         current = self.get_dimension(dimension_contract_id)
-        self._require_draft_status(current["status"], "Dimension", dimension_contract_id)
+        self._require_lifecycle_action_status(
+            action="activate",
+            status=current["status"],
+            object_label="Dimension",
+            object_id=dimension_contract_id,
+        )
         updates: list[str] = []
         params: list[Any] = []
         if payload.display_name is not None:
@@ -577,9 +675,21 @@ class TypedObjectService(SemanticServiceSupport):
         )
         return self.get_dimension(dimension_contract_id)
 
-    def publish_dimension(self, dimension_contract_id: str) -> dict[str, Any]:
+    def validate_dimension(self, dimension_contract_id: str) -> dict[str, Any]:
         current = self.get_dimension(dimension_contract_id)
-        self._publish_record(
+        self._validate_record(
+            object_id=dimension_contract_id,
+            object_label="Dimension",
+            status=current["status"],
+            reference_validator=lambda: self._validate_published_dimension_contract_refs(
+                current["interface_contract"]
+            ),
+        )
+        return self.get_dimension(dimension_contract_id)
+
+    def activate_dimension(self, dimension_contract_id: str) -> dict[str, Any]:
+        current = self.get_dimension(dimension_contract_id)
+        self._activate_record(
             table_name="semantic_dimension_contracts",
             id_column="dimension_contract_id",
             object_id=dimension_contract_id,
@@ -590,6 +700,20 @@ class TypedObjectService(SemanticServiceSupport):
             ),
         )
         return self.get_dimension(dimension_contract_id)
+
+    def deprecate_dimension(self, dimension_contract_id: str) -> dict[str, Any]:
+        current = self.get_dimension(dimension_contract_id)
+        self._deprecate_record(
+            table_name="semantic_dimension_contracts",
+            id_column="dimension_contract_id",
+            object_id=dimension_contract_id,
+            object_label="Dimension",
+            status=current["status"],
+        )
+        return self.get_dimension(dimension_contract_id)
+
+    def publish_dimension(self, dimension_contract_id: str) -> dict[str, Any]:
+        return self.activate_dimension(dimension_contract_id)
 
     def create_time_semantic(self, payload: TimeCreateRequest) -> dict[str, Any]:
         time_contract_id = f"timec_{uuid4().hex[:24]}"
@@ -647,7 +771,12 @@ class TypedObjectService(SemanticServiceSupport):
         self, time_contract_id: str, payload: TimeUpdateRequest
     ) -> dict[str, Any]:
         current = self.get_time_semantic(time_contract_id)
-        self._require_draft_status(current["status"], "Time semantic", time_contract_id)
+        self._require_lifecycle_action_status(
+            action="activate",
+            status=current["status"],
+            object_label="Time semantic",
+            object_id=time_contract_id,
+        )
         updates: list[str] = []
         params: list[Any] = []
         if payload.display_name is not None:
@@ -682,9 +811,18 @@ class TypedObjectService(SemanticServiceSupport):
         )
         return self.get_time_semantic(time_contract_id)
 
-    def publish_time_semantic(self, time_contract_id: str) -> dict[str, Any]:
+    def validate_time_semantic(self, time_contract_id: str) -> dict[str, Any]:
         current = self.get_time_semantic(time_contract_id)
-        self._publish_record(
+        self._validate_record(
+            object_id=time_contract_id,
+            object_label="Time semantic",
+            status=current["status"],
+        )
+        return self.get_time_semantic(time_contract_id)
+
+    def activate_time_semantic(self, time_contract_id: str) -> dict[str, Any]:
+        current = self.get_time_semantic(time_contract_id)
+        self._activate_record(
             table_name="semantic_time_objects",
             id_column="time_contract_id",
             object_id=time_contract_id,
@@ -692,6 +830,20 @@ class TypedObjectService(SemanticServiceSupport):
             status=current["status"],
         )
         return self.get_time_semantic(time_contract_id)
+
+    def deprecate_time_semantic(self, time_contract_id: str) -> dict[str, Any]:
+        current = self.get_time_semantic(time_contract_id)
+        self._deprecate_record(
+            table_name="semantic_time_objects",
+            id_column="time_contract_id",
+            object_id=time_contract_id,
+            object_label="Time semantic",
+            status=current["status"],
+        )
+        return self.get_time_semantic(time_contract_id)
+
+    def publish_time_semantic(self, time_contract_id: str) -> dict[str, Any]:
+        return self.activate_time_semantic(time_contract_id)
 
     def create_enum_set(self, payload: EnumSetCreateRequest) -> dict[str, Any]:
         enum_set_contract_id = f"enumc_{uuid4().hex[:24]}"
@@ -745,7 +897,12 @@ class TypedObjectService(SemanticServiceSupport):
         self, enum_set_contract_id: str, payload: EnumSetUpdateRequest
     ) -> dict[str, Any]:
         current = self.get_enum_set(enum_set_contract_id)
-        self._require_draft_status(current["status"], "Enum set", enum_set_contract_id)
+        self._require_lifecycle_action_status(
+            action="activate",
+            status=current["status"],
+            object_label="Enum set",
+            object_id=enum_set_contract_id,
+        )
         updates: list[str] = []
         params: list[Any] = []
         if payload.display_name is not None:
@@ -779,9 +936,18 @@ class TypedObjectService(SemanticServiceSupport):
         )
         return self.get_enum_set(enum_set_contract_id)
 
-    def publish_enum_set(self, enum_set_contract_id: str) -> dict[str, Any]:
+    def validate_enum_set(self, enum_set_contract_id: str) -> dict[str, Any]:
         current = self.get_enum_set(enum_set_contract_id)
-        self._publish_record(
+        self._validate_record(
+            object_id=enum_set_contract_id,
+            object_label="Enum set",
+            status=current["status"],
+        )
+        return self.get_enum_set(enum_set_contract_id)
+
+    def activate_enum_set(self, enum_set_contract_id: str) -> dict[str, Any]:
+        current = self.get_enum_set(enum_set_contract_id)
+        self._activate_record(
             table_name="semantic_enum_sets",
             id_column="enum_set_contract_id",
             object_id=enum_set_contract_id,
@@ -789,3 +955,17 @@ class TypedObjectService(SemanticServiceSupport):
             status=current["status"],
         )
         return self.get_enum_set(enum_set_contract_id)
+
+    def deprecate_enum_set(self, enum_set_contract_id: str) -> dict[str, Any]:
+        current = self.get_enum_set(enum_set_contract_id)
+        self._deprecate_record(
+            table_name="semantic_enum_sets",
+            id_column="enum_set_contract_id",
+            object_id=enum_set_contract_id,
+            object_label="Enum set",
+            status=current["status"],
+        )
+        return self.get_enum_set(enum_set_contract_id)
+
+    def publish_enum_set(self, enum_set_contract_id: str) -> dict[str, Any]:
+        return self.activate_enum_set(enum_set_contract_id)

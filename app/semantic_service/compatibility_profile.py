@@ -80,7 +80,12 @@ class CompatibilityProfileService(SemanticServiceSupport):
         self, profile_id: str, payload: CompatibilityProfileUpdateRequest
     ) -> dict[str, Any]:
         current = self.get_compatibility_profile(profile_id)
-        self._require_draft_status(current["status"], "Compatibility profile", profile_id)
+        self._require_lifecycle_action_status(
+            action="activate",
+            status=current["status"],
+            object_label="Compatibility profile",
+            object_id=profile_id,
+        )
         updates: list[str] = []
         params: list[Any] = []
         if payload.requirement is not None:
@@ -116,9 +121,28 @@ class CompatibilityProfileService(SemanticServiceSupport):
         )
         return self.get_compatibility_profile(profile_id)
 
-    def publish_compatibility_profile(self, profile_id: str) -> dict[str, Any]:
+    def validate_compatibility_profile(self, profile_id: str) -> dict[str, Any]:
         current = self.get_compatibility_profile(profile_id)
-        self._require_draft_status(current["status"], "Compatibility profile", profile_id)
+        self._validate_record(
+            object_id=profile_id,
+            object_label="Compatibility profile",
+            status=current["status"],
+            compatibility_validator=lambda: self._validate_profile_subject_ref(
+                current["subject_kind"],
+                current["subject_ref"],
+                require_published=True,
+            ),
+        )
+        return self.get_compatibility_profile(profile_id)
+
+    def activate_compatibility_profile(self, profile_id: str) -> dict[str, Any]:
+        current = self.get_compatibility_profile(profile_id)
+        self._require_lifecycle_action_status(
+            action="activate",
+            status=current["status"],
+            object_label="Compatibility profile",
+            object_id=profile_id,
+        )
         self._run_publish_compatibility_validation(
             lambda: self._validate_profile_subject_ref(
                 current["subject_kind"],
@@ -142,6 +166,20 @@ class CompatibilityProfileService(SemanticServiceSupport):
             [subject_revision, now_iso(), profile_id],
         )
         return self.get_compatibility_profile(profile_id)
+
+    def deprecate_compatibility_profile(self, profile_id: str) -> dict[str, Any]:
+        current = self.get_compatibility_profile(profile_id)
+        self._deprecate_record(
+            table_name="compiler_compatibility_profiles",
+            id_column="profile_id",
+            object_id=profile_id,
+            object_label="Compatibility profile",
+            status=current["status"],
+        )
+        return self.get_compatibility_profile(profile_id)
+
+    def publish_compatibility_profile(self, profile_id: str) -> dict[str, Any]:
+        return self.activate_compatibility_profile(profile_id)
 
     def _validate_profile_kind_subject_kind(self, profile_kind: str, subject_kind: str) -> None:
         valid_subjects = self._VALID_SUBJECT_KIND_FOR_PROFILE_KIND.get(profile_kind)

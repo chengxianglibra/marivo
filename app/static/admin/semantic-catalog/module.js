@@ -146,6 +146,9 @@ export function createSemanticCatalogModule(ctx) {
         get: (objectId) => ctx.adminApi.getSemanticEntity(objectId),
         create: (payload) => ctx.adminApi.createSemanticEntity(payload),
         update: (objectId, payload) => ctx.adminApi.updateSemanticEntity(objectId, payload),
+        validate: (objectId) => ctx.adminApi.validateSemanticEntity(objectId),
+        activate: (objectId) => ctx.adminApi.activateSemanticEntity(objectId),
+        deprecate: (objectId) => ctx.adminApi.deprecateSemanticEntity(objectId),
         publish: (objectId) => ctx.adminApi.publishSemanticEntity(objectId),
       },
       metrics: {
@@ -153,6 +156,9 @@ export function createSemanticCatalogModule(ctx) {
         get: (objectId) => ctx.adminApi.getSemanticMetric(objectId),
         create: (payload) => ctx.adminApi.createSemanticMetric(payload),
         update: (objectId, payload) => ctx.adminApi.updateSemanticMetric(objectId, payload),
+        validate: (objectId) => ctx.adminApi.validateSemanticMetric(objectId),
+        activate: (objectId) => ctx.adminApi.activateSemanticMetric(objectId),
+        deprecate: (objectId) => ctx.adminApi.deprecateSemanticMetric(objectId),
         publish: (objectId) => ctx.adminApi.publishSemanticMetric(objectId),
       },
       "process-objects": {
@@ -160,6 +166,9 @@ export function createSemanticCatalogModule(ctx) {
         get: (objectId) => ctx.adminApi.getSemanticProcessObject(objectId),
         create: (payload) => ctx.adminApi.createSemanticProcessObject(payload),
         update: (objectId, payload) => ctx.adminApi.updateSemanticProcessObject(objectId, payload),
+        validate: (objectId) => ctx.adminApi.validateSemanticProcessObject(objectId),
+        activate: (objectId) => ctx.adminApi.activateSemanticProcessObject(objectId),
+        deprecate: (objectId) => ctx.adminApi.deprecateSemanticProcessObject(objectId),
         publish: (objectId) => ctx.adminApi.publishSemanticProcessObject(objectId),
       },
       dimensions: {
@@ -167,6 +176,9 @@ export function createSemanticCatalogModule(ctx) {
         get: (objectId) => ctx.adminApi.getSemanticDimension(objectId),
         create: (payload) => ctx.adminApi.createSemanticDimension(payload),
         update: (objectId, payload) => ctx.adminApi.updateSemanticDimension(objectId, payload),
+        validate: (objectId) => ctx.adminApi.validateSemanticDimension(objectId),
+        activate: (objectId) => ctx.adminApi.activateSemanticDimension(objectId),
+        deprecate: (objectId) => ctx.adminApi.deprecateSemanticDimension(objectId),
         publish: (objectId) => ctx.adminApi.publishSemanticDimension(objectId),
       },
       time: {
@@ -174,6 +186,9 @@ export function createSemanticCatalogModule(ctx) {
         get: (objectId) => ctx.adminApi.getSemanticTime(objectId),
         create: (payload) => ctx.adminApi.createSemanticTime(payload),
         update: (objectId, payload) => ctx.adminApi.updateSemanticTime(objectId, payload),
+        validate: (objectId) => ctx.adminApi.validateSemanticTime(objectId),
+        activate: (objectId) => ctx.adminApi.activateSemanticTime(objectId),
+        deprecate: (objectId) => ctx.adminApi.deprecateSemanticTime(objectId),
         publish: (objectId) => ctx.adminApi.publishSemanticTime(objectId),
       },
       "enum-sets": {
@@ -181,6 +196,9 @@ export function createSemanticCatalogModule(ctx) {
         get: (objectId) => ctx.adminApi.getSemanticEnumSet(objectId),
         create: (payload) => ctx.adminApi.createSemanticEnumSet(payload),
         update: (objectId, payload) => ctx.adminApi.updateSemanticEnumSet(objectId, payload),
+        validate: (objectId) => ctx.adminApi.validateSemanticEnumSet(objectId),
+        activate: (objectId) => ctx.adminApi.activateSemanticEnumSet(objectId),
+        deprecate: (objectId) => ctx.adminApi.deprecateSemanticEnumSet(objectId),
         publish: (objectId) => ctx.adminApi.publishSemanticEnumSet(objectId),
       },
       "typed-bindings": {
@@ -188,6 +206,9 @@ export function createSemanticCatalogModule(ctx) {
         get: (objectId) => ctx.adminApi.getTypedSemanticBinding(objectId),
         create: (payload) => ctx.adminApi.createTypedSemanticBinding(payload),
         update: (objectId, payload) => ctx.adminApi.updateTypedSemanticBinding(objectId, payload),
+        validate: (objectId) => ctx.adminApi.validateTypedSemanticBinding(objectId),
+        activate: (objectId) => ctx.adminApi.activateTypedSemanticBinding(objectId),
+        deprecate: (objectId) => ctx.adminApi.deprecateTypedSemanticBinding(objectId),
         publish: (objectId) => ctx.adminApi.publishTypedSemanticBinding(objectId),
       },
       "compatibility-profiles": {
@@ -195,6 +216,9 @@ export function createSemanticCatalogModule(ctx) {
         get: (objectId) => ctx.adminApi.getCompatibilityProfile(objectId),
         create: (payload) => ctx.adminApi.createCompatibilityProfile(payload),
         update: (objectId, payload) => ctx.adminApi.updateCompatibilityProfile(objectId, payload),
+        validate: (objectId) => ctx.adminApi.validateCompatibilityProfile(objectId),
+        activate: (objectId) => ctx.adminApi.activateCompatibilityProfile(objectId),
+        deprecate: (objectId) => ctx.adminApi.deprecateCompatibilityProfile(objectId),
         publish: (objectId) => ctx.adminApi.publishCompatibilityProfile(objectId),
       },
     };
@@ -585,17 +609,18 @@ export function createSemanticCatalogModule(ctx) {
       return renderAdminDetailCard({
         title: "Lifecycle",
         statusHtml: '<span class="shell-chip">no object selected</span>',
-        note: "Select an object to inspect storage status, derived lifecycle, and publish guardrails.",
-        bodyHtml: renderEmptyState("Select a semantic object to inspect lifecycle and publish controls."),
+        note: "Select an object to inspect storage status, derived lifecycle, and lifecycle actions.",
+        bodyHtml: renderEmptyState("Select a semantic object to inspect lifecycle and action controls."),
       });
     }
     const isPublished = String(selectedItem.status || "").toLowerCase() === "published";
+    const isDeprecated = String(selectedItem.status || "").toLowerCase() === "deprecated";
     return renderAdminDetailCard({
       title: "Lifecycle",
       statusHtml: statusBadge(selectedItem.lifecycle_status || selectedItem.status),
       note: isPublished
-        ? "Published storage state maps to lifecycle active, but readiness still decides whether the object is actually usable."
-        : "Draft objects can publish through the shared confirmation flow. Publish failures render structured error details instead of raw transport text.",
+        ? "Published storage state maps to lifecycle active, but activation still does not guarantee readiness."
+        : "Validate runs check-only guardrails. Activate adds the object to the formal catalog without implying ready.",
       bodyHtml: `
         ${renderDetailList([
           { label: "status", valueHtml: statusBadge(selectedItem.status) },
@@ -607,14 +632,18 @@ export function createSemanticCatalogModule(ctx) {
           { label: "updated_at", value: formatMaybeDate(selectedItem.updated_at) },
           {
             label: "freeze_rule",
-            value: isPublished ? "published objects are read-only" : "draft objects remain editable in the shared form shell",
+            value: isPublished || isDeprecated
+              ? "active and deprecated revisions are read-only"
+              : "draft objects remain editable in the shared form shell",
           },
         ])}
         <div class="detail-actions">
-          <button type="button" class="btn btn-danger" data-action="publish-semantic-object" ${isPublished ? "disabled" : ""}>Publish</button>
+          <button type="button" class="btn btn-sm" data-action="validate-semantic-object" ${isDeprecated ? "disabled" : ""}>Validate</button>
+          <button type="button" class="btn btn-danger" data-action="activate-semantic-object" ${isPublished || isDeprecated ? "disabled" : ""}>Activate</button>
+          <button type="button" class="btn btn-sm" data-action="deprecate-semantic-object" ${!isPublished ? "disabled" : ""}>Deprecate</button>
         </div>
-        ${publishError ? renderStructuredError(publishError, "Publish failed.") : ""}
-        <p class="panel-note">${esc(`Publish ${config.singularLabel} uses the shared confirmation flow and keeps publish failure detail structured.`)}</p>
+        ${publishError ? renderStructuredError(publishError, "Lifecycle action failed.") : ""}
+        <p class="panel-note">${esc(`Activate ${config.singularLabel} enters the formal catalog, but ready still depends on bindings, dependencies, and profiles.`)}</p>
       `,
     });
   }
@@ -861,8 +890,10 @@ export function createSemanticCatalogModule(ctx) {
   function renderSemanticFormShellCard(viewModel) {
     const mode = semanticFormModeForSubtab(viewModel.route.subtab);
     const selectedItem = viewModel.selectedItem;
-    const isPublished = String(selectedItem?.status || "").toLowerCase() === "published";
-    const editDisabled = !selectedItem || isPublished;
+    const objectStatus = String(selectedItem?.status || "").toLowerCase();
+    const isPublished = objectStatus === "published";
+    const isDeprecated = objectStatus === "deprecated";
+    const editDisabled = !selectedItem || isPublished || isDeprecated;
     const formFields = viewModel.config.formFields(selectedItem, mode);
     const jsonFields = viewModel.config.jsonFields(selectedItem, mode);
     const formError = semanticFormError(viewModel.route.subtab, mode, viewModel.selectedObjectId);
@@ -877,7 +908,12 @@ export function createSemanticCatalogModule(ctx) {
           { label: "subtab", value: viewModel.config.label },
           { label: "form_mode", value: mode },
           { label: "selected_object", value: selectedItem ? semanticObjectId(viewModel.config, selectedItem) : "-" },
-          { label: "freeze_rule", value: isPublished ? "published revision freeze" : "draft objects can create, save, and publish" },
+          {
+            label: "freeze_rule",
+            value: isPublished || isDeprecated
+              ? "active and deprecated revision freeze"
+              : "draft objects can create, save, validate, and activate",
+          },
         ])}
         <div class="detail-actions">
           <button type="button" class="btn btn-sm btn-primary" data-action="open-semantic-form" data-form-mode="create">Create</button>
@@ -887,7 +923,7 @@ export function createSemanticCatalogModule(ctx) {
           <form class="source-form-grid" data-role="semantic-form">
             ${formFields.map((field) => renderSemanticFieldInput(field, readOnly)).join("")}
             ${jsonFields.map((field) => renderSemanticJsonInput(field, readOnly)).join("")}
-            ${readOnly ? '<p class="panel-note">Published revision freeze keeps edit fields read-only until a new draft is created server-side.</p>' : ""}
+            ${readOnly ? '<p class="panel-note">Active and deprecated revision freeze keeps edit fields read-only until a new draft is created server-side.</p>' : ""}
             ${formError ? renderStructuredError(formError, `${title} failed.`) : ""}
             <div class="detail-actions">
               <button type="submit" class="btn btn-primary" data-role="submit-semantic-form" ${readOnly ? "disabled" : ""}>${esc(mode === "edit" ? "Save Changes" : `Create ${viewModel.config.singularLabel}`)}</button>
@@ -1024,34 +1060,92 @@ export function createSemanticCatalogModule(ctx) {
     ctx.applyAdminRoute({ ...ctx.getCurrentRoute(), tab: "semantic-catalog", subtab: targetSubtab, objectId: "", bindingId: "" }, "push");
   }
 
-  function handlePublishSemanticObject(route, viewModel) {
+  async function handleValidateSemanticObject(route, viewModel) {
     const selectedItem = viewModel.selectedItem;
     if (!selectedItem) {
-      toast("Select an object before publishing.", "error");
+      toast("Select an object before validating.", "error");
+      return;
+    }
+    const objectId = semanticObjectId(viewModel.config, selectedItem);
+    try {
+      setSemanticPublishError(route.subtab, objectId, null);
+      const result = await semanticEndpointForSubtab(route.subtab).validate(objectId);
+      if (result?.validation?.blocking_requirements?.length) {
+        toast("Validation completed with blockers.", "error");
+      } else {
+        toast("Validation passed.", "success");
+      }
+      await refreshCurrentSemanticCatalog();
+    } catch (error) {
+      const normalized = normalizeApiError(error, "Validate failed.");
+      setSemanticPublishError(route.subtab, objectId, normalized);
+      toast(normalized.message, "error");
+      ctx.renderCurrentRoute();
+    }
+  }
+
+  function handleActivateSemanticObject(route, viewModel) {
+    const selectedItem = viewModel.selectedItem;
+    if (!selectedItem) {
+      toast("Select an object before activating.", "error");
       return;
     }
     const objectId = semanticObjectId(viewModel.config, selectedItem);
     const stableRef = semanticStableRef(viewModel.config, selectedItem);
     openDangerConfirm({
-      title: `Publish ${viewModel.config.singularLabel}`,
+      title: `Activate ${viewModel.config.singularLabel}`,
       objectLabel: objectId,
-      impactScope: "Promotes the current draft into the published semantic catalog and freezes further edits for this revision.",
+      impactScope: "Promotes the current draft into the formal semantic catalog without implying readiness.",
       reversible: "No",
-      confirmLabel: "Publish",
+      confirmLabel: "Activate",
       detailsHtml: renderDetailList([
         { label: "object_id", value: objectId },
         { label: "stable_ref", value: stableRef || "-" },
         { label: "status", value: selectedItem.status || "-" },
-        { label: "warning", value: "Publish failures surface structured validation or compatibility errors." },
+        { label: "warning", value: "Activation failures surface structured validation or compatibility errors." },
       ]),
       onConfirm: async () => {
         try {
           setSemanticPublishError(route.subtab, objectId, null);
-          await semanticEndpointForSubtab(route.subtab).publish(objectId);
-          toast("Semantic object published.", "success");
+          await semanticEndpointForSubtab(route.subtab).activate(objectId);
+          toast("Semantic object activated.", "success");
           await refreshCurrentSemanticCatalog();
         } catch (error) {
-          const normalized = normalizeApiError(error, "Publish failed.");
+          const normalized = normalizeApiError(error, "Activate failed.");
+          setSemanticPublishError(route.subtab, objectId, normalized);
+          toast(normalized.message, "error");
+          ctx.renderCurrentRoute();
+        }
+      },
+    });
+  }
+
+  function handleDeprecateSemanticObject(route, viewModel) {
+    const selectedItem = viewModel.selectedItem;
+    if (!selectedItem) {
+      toast("Select an object before deprecating.", "error");
+      return;
+    }
+    const objectId = semanticObjectId(viewModel.config, selectedItem);
+    openDangerConfirm({
+      title: `Deprecate ${viewModel.config.singularLabel}`,
+      objectLabel: objectId,
+      impactScope: "Moves the active catalog object into deprecated storage status and removes it from the active catalog.",
+      reversible: "No",
+      confirmLabel: "Deprecate",
+      detailsHtml: renderDetailList([
+        { label: "object_id", value: objectId },
+        { label: "status", value: selectedItem.status || "-" },
+        { label: "warning", value: "Deprecation changes lifecycle only; it does not repair readiness blockers." },
+      ]),
+      onConfirm: async () => {
+        try {
+          setSemanticPublishError(route.subtab, objectId, null);
+          await semanticEndpointForSubtab(route.subtab).deprecate(objectId);
+          toast("Semantic object deprecated.", "success");
+          await refreshCurrentSemanticCatalog();
+        } catch (error) {
+          const normalized = normalizeApiError(error, "Deprecate failed.");
           setSemanticPublishError(route.subtab, objectId, normalized);
           toast(normalized.message, "error");
           ctx.renderCurrentRoute();
@@ -1123,9 +1217,21 @@ export function createSemanticCatalogModule(ctx) {
       });
     });
 
-    panel.querySelectorAll('[data-action="publish-semantic-object"]').forEach((button) => {
+    panel.querySelectorAll('[data-action="validate-semantic-object"]').forEach((button) => {
+      button.addEventListener("click", async () => {
+        await handleValidateSemanticObject(viewModel.route, viewModel);
+      });
+    });
+
+    panel.querySelectorAll('[data-action="activate-semantic-object"]').forEach((button) => {
       button.addEventListener("click", () => {
-        handlePublishSemanticObject(viewModel.route, viewModel);
+        handleActivateSemanticObject(viewModel.route, viewModel);
+      });
+    });
+
+    panel.querySelectorAll('[data-action="deprecate-semantic-object"]').forEach((button) => {
+      button.addEventListener("click", () => {
+        handleDeprecateSemanticObject(viewModel.route, viewModel);
       });
     });
 

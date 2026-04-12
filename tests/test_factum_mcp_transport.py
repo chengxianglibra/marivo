@@ -324,41 +324,65 @@ def test_registers_t4_discovery_and_catalog_tools() -> None:
         "list_entities",
         "get_entity",
         "update_entity",
+        "validate_entity",
+        "activate_entity",
+        "deprecate_entity",
         "publish_entity",
         "create_metric",
         "list_metrics",
         "get_metric",
         "update_metric",
+        "validate_metric",
+        "activate_metric",
+        "deprecate_metric",
         "publish_metric",
         "create_process_object",
         "list_process_objects",
         "get_process_object",
         "update_process_object",
+        "validate_process_object",
+        "activate_process_object",
+        "deprecate_process_object",
         "publish_process_object",
         "create_dimension",
         "list_dimensions",
         "get_dimension",
         "update_dimension",
+        "validate_dimension",
+        "activate_dimension",
+        "deprecate_dimension",
         "publish_dimension",
         "create_time_semantic",
         "list_time_semantics",
         "get_time_semantic",
         "update_time_semantic",
+        "validate_time_semantic",
+        "activate_time_semantic",
+        "deprecate_time_semantic",
         "publish_time_semantic",
         "create_enum_set",
         "list_enum_sets",
         "get_enum_set",
         "update_enum_set",
+        "validate_enum_set",
+        "activate_enum_set",
+        "deprecate_enum_set",
         "publish_enum_set",
         "create_binding",
         "list_bindings",
         "get_binding",
         "update_binding",
+        "validate_binding",
+        "activate_binding",
+        "deprecate_binding",
         "publish_binding",
         "create_compatibility_profile",
         "list_compatibility_profiles",
         "get_compatibility_profile",
         "update_compatibility_profile",
+        "validate_compatibility_profile",
+        "activate_compatibility_profile",
+        "deprecate_compatibility_profile",
         "publish_compatibility_profile",
     }
     assert set(server.tools) >= {
@@ -1545,6 +1569,56 @@ def test_semantic_publish_tools_use_canonical_publish_paths() -> None:
 
         assert result["ok"] is True
         assert result["data"] == {"status": "published"}
+        assert result["meta"]["factum_path"] == expected_path
+
+
+def test_semantic_lifecycle_tools_use_canonical_validate_activate_and_deprecate_paths() -> None:
+    cases = [
+        ("validate_entity", "/semantic/entities/ent_123/validate", {"entity_id": "ent_123"}),
+        ("activate_metric", "/semantic/metrics/met_123/activate", {"metric_id": "met_123"}),
+        (
+            "deprecate_process_object",
+            "/semantic/process-objects/proc_123/deprecate",
+            {"process_contract_id": "proc_123"},
+        ),
+        (
+            "validate_dimension",
+            "/semantic/dimensions/dim_123/validate",
+            {"dimension_contract_id": "dim_123"},
+        ),
+        (
+            "activate_time_semantic",
+            "/semantic/time/time_123/activate",
+            {"time_contract_id": "time_123"},
+        ),
+        (
+            "deprecate_enum_set",
+            "/semantic/enum-sets/enum_123/deprecate",
+            {"enum_set_contract_id": "enum_123"},
+        ),
+        ("validate_binding", "/semantic/bindings/bind_123/validate", {"binding_id": "bind_123"}),
+        (
+            "activate_compatibility_profile",
+            "/compiler/compatibility-profiles/cprof_123/activate",
+            {"profile_id": "cprof_123"},
+        ),
+    ]
+
+    for tool_name, expected_path, tool_kwargs in cases:
+
+        def handler(
+            request: httpx.Request,
+            expected_path: str = expected_path,
+        ) -> httpx.Response:
+            assert request.method == "POST"
+            assert request.url.path == expected_path
+            assert request.read() == b""
+            return httpx.Response(200, json={"path": expected_path}, request=request)
+
+        result = _invoke_registered_tool(tool_name, handler, **tool_kwargs)
+
+        assert result["ok"] is True
+        assert result["data"] == {"path": expected_path}
         assert result["meta"]["factum_path"] == expected_path
 
 

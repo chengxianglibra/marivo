@@ -128,9 +128,18 @@ class SemanticTypedApiTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertEqual(resp.json()["header"]["description"], "Updated description")
 
-        resp = self.client.post(f"/semantic/entities/{entity_id}/publish")
+        validate_resp = self.client.post(f"/semantic/entities/{entity_id}/validate")
+        self.assertEqual(validate_resp.status_code, 200, validate_resp.text)
+        self.assertTrue(validate_resp.json()["ok"])
+        self.assertEqual(validate_resp.json()["action"], "validate")
+        self.assertEqual(validate_resp.json()["semantic_object"]["status"], "draft")
+
+        resp = self.client.post(f"/semantic/entities/{entity_id}/activate")
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertEqual(resp.json()["status"], "published")
+
+        publish_alias_resp = self.client.post(f"/semantic/entities/{entity_id}/publish")
+        self.assertEqual(publish_alias_resp.status_code, 422, publish_alias_resp.text)
 
         resp = self.client.get("/semantic/entities")
         self.assertEqual(resp.status_code, 200, resp.text)
@@ -182,6 +191,11 @@ class SemanticTypedApiTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertEqual(resp.json()["payload"]["count_target"]["name"], "active_users")
 
+        validate_resp = self.client.post(f"/semantic/metrics/{metric_id}/validate")
+        self.assertEqual(validate_resp.status_code, 200, validate_resp.text)
+        self.assertEqual(validate_resp.json()["action"], "validate")
+        self.assertTrue(validate_resp.json()["ok"])
+
         resp = self.client.post(f"/semantic/metrics/{metric_id}/publish")
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertEqual(resp.json()["status"], "published")
@@ -210,6 +224,35 @@ class SemanticTypedApiTests(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 422, resp.text)
         self.assertIsInstance(resp.json()["detail"], list)
+
+    def test_entity_can_be_deprecated_after_activation(self) -> None:
+        create_resp = self.client.post(
+            "/semantic/entities",
+            json={
+                "header": {
+                    "entity_ref": "entity.deprecation_case",
+                    "display_name": "Deprecation Case",
+                    "entity_contract_version": "entity.v4",
+                },
+                "interface_contract": {
+                    "identity": {
+                        "key_refs": ["key.case_id"],
+                        "uniqueness_scope": "global",
+                        "id_stability": "stable",
+                    }
+                },
+            },
+        )
+        self.assertEqual(create_resp.status_code, 200, create_resp.text)
+        entity_id = create_resp.json()["entity_contract_id"]
+
+        activate_resp = self.client.post(f"/semantic/entities/{entity_id}/activate")
+        self.assertEqual(activate_resp.status_code, 200, activate_resp.text)
+        self.assertEqual(activate_resp.json()["status"], "published")
+
+        deprecate_resp = self.client.post(f"/semantic/entities/{entity_id}/deprecate")
+        self.assertEqual(deprecate_resp.status_code, 200, deprecate_resp.text)
+        self.assertEqual(deprecate_resp.json()["status"], "deprecated")
 
     def test_typed_binding_and_profile_lifecycle(self) -> None:
         entity_resp = self.client.post(
@@ -1289,7 +1332,7 @@ class SemanticTypedApiTests(unittest.TestCase):
         ]:
             resp = self.client.put(path, json={"description": "Should fail after publish"})
             self.assertEqual(resp.status_code, 422, resp.text)
-            self.assertIn("not in draft status", resp.json()["detail"])
+            self.assertIn("cannot activate from status=published", resp.json()["detail"])
 
         for path in [
             f"/semantic/time/{time_contract_id}/publish",
@@ -1301,9 +1344,9 @@ class SemanticTypedApiTests(unittest.TestCase):
             self.assertEqual(resp.status_code, 422, resp.text)
             self._assert_publish_error(
                 resp,
-                code="publish_state_error",
+                code="activate_state_error",
                 category="state",
-                message_substring="not in draft status",
+                message_substring="expected draft",
             )
 
         for path in [

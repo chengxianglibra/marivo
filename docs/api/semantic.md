@@ -49,6 +49,16 @@ contract:
 During the current migration phase, `status=published` maps to `lifecycle_status=active`.
 Readiness is evaluated separately from lifecycle.
 
+Lifecycle actions are now shared across public semantic object families:
+
+- `POST .../validate`: check-only guardrail pass; does not persist `validated`
+- `POST .../activate`: promote a draft object into storage `published` / public lifecycle `active`
+- `POST .../deprecate`: move an active object into storage/public `deprecated`
+- `POST .../publish`: compatibility alias for `activate`
+
+`activate` does not imply `ready`. Callers must still inspect `readiness_status`,
+`blocking_requirements`, and `capabilities`.
+
 **Backward compatibility:**
 
 - Use `detail=true` query parameter on list endpoints to return full object payloads
@@ -132,7 +142,10 @@ Related design docs:
 | `GET` | `/semantic/entities` | List typed entities |
 | `GET` | `/semantic/entities/{entity_id}` | Get a typed entity |
 | `PUT` | `/semantic/entities/{entity_id}` | Update a typed entity |
-| `POST` | `/semantic/entities/{entity_id}/publish` | Publish a typed entity |
+| `POST` | `/semantic/entities/{entity_id}/validate` | Validate a typed entity without persisting lifecycle changes |
+| `POST` | `/semantic/entities/{entity_id}/activate` | Activate a typed entity |
+| `POST` | `/semantic/entities/{entity_id}/deprecate` | Deprecate a typed entity |
+| `POST` | `/semantic/entities/{entity_id}/publish` | Compatibility alias for activate |
 
 ### Metrics
 
@@ -142,7 +155,10 @@ Related design docs:
 | `GET` | `/semantic/metrics` | List typed metrics |
 | `GET` | `/semantic/metrics/{metric_id}` | Get a typed metric |
 | `PUT` | `/semantic/metrics/{metric_id}` | Update a typed metric |
-| `POST` | `/semantic/metrics/{metric_id}/publish` | Publish a typed metric |
+| `POST` | `/semantic/metrics/{metric_id}/validate` | Validate a typed metric without persisting lifecycle changes |
+| `POST` | `/semantic/metrics/{metric_id}/activate` | Activate a typed metric |
+| `POST` | `/semantic/metrics/{metric_id}/deprecate` | Deprecate a typed metric |
+| `POST` | `/semantic/metrics/{metric_id}/publish` | Compatibility alias for activate |
 
 ### Process Objects
 
@@ -152,7 +168,10 @@ Related design docs:
 | `GET` | `/semantic/process-objects` | List process objects |
 | `GET` | `/semantic/process-objects/{process_contract_id}` | Get a process object |
 | `PUT` | `/semantic/process-objects/{process_contract_id}` | Update a process object |
-| `POST` | `/semantic/process-objects/{process_contract_id}/publish` | Publish a process object |
+| `POST` | `/semantic/process-objects/{process_contract_id}/validate` | Validate a process object without persisting lifecycle changes |
+| `POST` | `/semantic/process-objects/{process_contract_id}/activate` | Activate a process object |
+| `POST` | `/semantic/process-objects/{process_contract_id}/deprecate` | Deprecate a process object |
+| `POST` | `/semantic/process-objects/{process_contract_id}/publish` | Compatibility alias for activate |
 
 ### Dimensions
 
@@ -162,7 +181,10 @@ Related design docs:
 | `GET` | `/semantic/dimensions` | List dimensions |
 | `GET` | `/semantic/dimensions/{dimension_contract_id}` | Get a dimension |
 | `PUT` | `/semantic/dimensions/{dimension_contract_id}` | Update a dimension |
-| `POST` | `/semantic/dimensions/{dimension_contract_id}/publish` | Publish a dimension |
+| `POST` | `/semantic/dimensions/{dimension_contract_id}/validate` | Validate a dimension without persisting lifecycle changes |
+| `POST` | `/semantic/dimensions/{dimension_contract_id}/activate` | Activate a dimension |
+| `POST` | `/semantic/dimensions/{dimension_contract_id}/deprecate` | Deprecate a dimension |
+| `POST` | `/semantic/dimensions/{dimension_contract_id}/publish` | Compatibility alias for activate |
 
 ### Time Semantics
 
@@ -172,7 +194,10 @@ Related design docs:
 | `GET` | `/semantic/time` | List time semantics |
 | `GET` | `/semantic/time/{time_contract_id}` | Get a time semantic |
 | `PUT` | `/semantic/time/{time_contract_id}` | Update a time semantic |
-| `POST` | `/semantic/time/{time_contract_id}/publish` | Publish a time semantic |
+| `POST` | `/semantic/time/{time_contract_id}/validate` | Validate a time semantic without persisting lifecycle changes |
+| `POST` | `/semantic/time/{time_contract_id}/activate` | Activate a time semantic |
+| `POST` | `/semantic/time/{time_contract_id}/deprecate` | Deprecate a time semantic |
+| `POST` | `/semantic/time/{time_contract_id}/publish` | Compatibility alias for activate |
 
 ### Enum Sets
 
@@ -182,7 +207,10 @@ Related design docs:
 | `GET` | `/semantic/enum-sets` | List enum sets |
 | `GET` | `/semantic/enum-sets/{enum_set_contract_id}` | Get an enum set |
 | `PUT` | `/semantic/enum-sets/{enum_set_contract_id}` | Update an enum set |
-| `POST` | `/semantic/enum-sets/{enum_set_contract_id}/publish` | Publish an enum set |
+| `POST` | `/semantic/enum-sets/{enum_set_contract_id}/validate` | Validate an enum set without persisting lifecycle changes |
+| `POST` | `/semantic/enum-sets/{enum_set_contract_id}/activate` | Activate an enum set |
+| `POST` | `/semantic/enum-sets/{enum_set_contract_id}/deprecate` | Deprecate an enum set |
+| `POST` | `/semantic/enum-sets/{enum_set_contract_id}/publish` | Compatibility alias for activate |
 
 ### Bindings
 
@@ -192,7 +220,10 @@ Related design docs:
 | `GET` | `/semantic/bindings` | List typed bindings |
 | `GET` | `/semantic/bindings/{binding_id}` | Get a typed binding |
 | `PUT` | `/semantic/bindings/{binding_id}` | Update a typed binding |
-| `POST` | `/semantic/bindings/{binding_id}/publish` | Publish a typed binding |
+| `POST` | `/semantic/bindings/{binding_id}/validate` | Validate a typed binding without persisting lifecycle changes |
+| `POST` | `/semantic/bindings/{binding_id}/activate` | Activate a typed binding |
+| `POST` | `/semantic/bindings/{binding_id}/deprecate` | Deprecate a typed binding |
+| `POST` | `/semantic/bindings/{binding_id}/publish` | Compatibility alias for activate |
 
 ### Compiler Compatibility Profiles
 
@@ -202,7 +233,10 @@ Related design docs:
 | `GET` | `/compiler/compatibility-profiles` | List compatibility profiles |
 | `GET` | `/compiler/compatibility-profiles/{profile_id}` | Get a compatibility profile |
 | `PUT` | `/compiler/compatibility-profiles/{profile_id}` | Update a compatibility profile |
-| `POST` | `/compiler/compatibility-profiles/{profile_id}/publish` | Publish a compatibility profile |
+| `POST` | `/compiler/compatibility-profiles/{profile_id}/validate` | Validate a compatibility profile without persisting lifecycle changes |
+| `POST` | `/compiler/compatibility-profiles/{profile_id}/activate` | Activate a compatibility profile |
+| `POST` | `/compiler/compatibility-profiles/{profile_id}/deprecate` | Deprecate a compatibility profile |
+| `POST` | `/compiler/compatibility-profiles/{profile_id}/publish` | Compatibility alias for activate |
 
 ## Entity Contract
 

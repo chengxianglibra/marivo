@@ -494,11 +494,13 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertIn("publishTypedSemanticBinding", api_resp.text)
         self.assertIn("publishCompatibilityProfile", api_resp.text)
 
-    def test_admin_semantic_catalog_declares_publish_freeze_and_helper_http_contracts(self) -> None:
+    def test_admin_semantic_catalog_declares_lifecycle_actions_and_helper_http_contracts(
+        self,
+    ) -> None:
         module_resp = self.client.get("/static/admin/semantic-catalog/module.js")
         core_resp = self.client.get("/static/admin/semantic-catalog/core-config.js")
-        self.assertIn("Published storage state maps to lifecycle active", module_resp.text)
-        self.assertIn("Publish failures render structured error details", module_resp.text)
+        self.assertIn("activation still does not guarantee readiness", module_resp.text)
+        self.assertIn("Validate runs check-only guardrails", module_resp.text)
         self.assertIn("GET /semantic/bindings", core_resp.text)
         self.assertIn("POST /semantic/bindings", core_resp.text)
         self.assertIn("PUT /semantic/bindings/{binding_id}", core_resp.text)
@@ -511,7 +513,7 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertIn("Catalog Graph", module_resp.text)
         self.assertIn("Resolve Result", module_resp.text)
         self.assertIn("Bound Semantic Object", core_resp.text)
-        self.assertIn("published revision freeze", module_resp.text)
+        self.assertIn("active and deprecated revision freeze", module_resp.text)
         self.assertIn("Execution Binding Contract", core_resp.text)
         self.assertIn("stale needs operator review", module_resp.text)
         self.assertIn("Why-not-ready is front-loaded here", module_resp.text)
@@ -533,7 +535,9 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertIn("runSemanticPlannerContext", semantic_resp.text)
         self.assertIn("handleSemanticFormSubmit", semantic_resp.text)
         self.assertIn("handleJumpSemanticRef", semantic_resp.text)
-        self.assertIn("handlePublishSemanticObject", semantic_resp.text)
+        self.assertIn("handleValidateSemanticObject", semantic_resp.text)
+        self.assertIn("handleActivateSemanticObject", semantic_resp.text)
+        self.assertIn("handleDeprecateSemanticObject", semantic_resp.text)
         self.assertIn("relatedBindingsFilter", semantic_resp.text)
         self.assertIn("set-semantic-filter", semantic_resp.text)
         self.assertIn("detail: false", semantic_resp.text)
@@ -541,6 +545,9 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertIn("listCompatibilityProfiles", api_resp.text)
         self.assertIn("createCompatibilityProfile", api_resp.text)
         self.assertIn("updateCompatibilityProfile", api_resp.text)
+        self.assertIn("validateCompatibilityProfile", api_resp.text)
+        self.assertIn("activateCompatibilityProfile", api_resp.text)
+        self.assertIn("deprecateCompatibilityProfile", api_resp.text)
         self.assertIn("publishCompatibilityProfile", api_resp.text)
         self.assertIn("GET /sessions/{session_id}/planner-context", semantic_resp.text)
 

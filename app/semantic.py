@@ -71,6 +71,18 @@ class SemanticService:
                 category=error.category,
             ) from error
 
+    @staticmethod
+    def _validate_action_response(semantic_object: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "action": "validate",
+            "ok": True,
+            "semantic_object": semantic_object,
+            "validation": {
+                "blocking_requirements": semantic_object.get("blocking_requirements", []),
+                "capabilities": semantic_object.get("capabilities", {}),
+            },
+        }
+
     def create_typed_entity(self, payload: TypedEntityCreateRequest) -> dict[str, Any]:
         return self._invoke(lambda: self.typed_objects.create_typed_entity(payload))
 
@@ -94,6 +106,17 @@ class SemanticService:
     def publish_typed_entity(self, entity_contract_id: str) -> dict[str, Any]:
         return self._invoke(lambda: self.typed_objects.publish_typed_entity(entity_contract_id))
 
+    def validate_typed_entity(self, entity_contract_id: str) -> dict[str, Any]:
+        return self._validate_action_response(
+            self._invoke(lambda: self.typed_objects.validate_typed_entity(entity_contract_id))
+        )
+
+    def activate_typed_entity(self, entity_contract_id: str) -> dict[str, Any]:
+        return self._invoke(lambda: self.typed_objects.activate_typed_entity(entity_contract_id))
+
+    def deprecate_typed_entity(self, entity_contract_id: str) -> dict[str, Any]:
+        return self._invoke(lambda: self.typed_objects.deprecate_typed_entity(entity_contract_id))
+
     def create_typed_metric(self, payload: TypedMetricCreateRequest) -> dict[str, Any]:
         return self._invoke(lambda: self.typed_objects.create_typed_metric(payload))
 
@@ -115,6 +138,17 @@ class SemanticService:
     def publish_typed_metric(self, metric_contract_id: str) -> dict[str, Any]:
         return self._invoke(lambda: self.typed_objects.publish_typed_metric(metric_contract_id))
 
+    def validate_typed_metric(self, metric_contract_id: str) -> dict[str, Any]:
+        return self._validate_action_response(
+            self._invoke(lambda: self.typed_objects.validate_typed_metric(metric_contract_id))
+        )
+
+    def activate_typed_metric(self, metric_contract_id: str) -> dict[str, Any]:
+        return self._invoke(lambda: self.typed_objects.activate_typed_metric(metric_contract_id))
+
+    def deprecate_typed_metric(self, metric_contract_id: str) -> dict[str, Any]:
+        return self._invoke(lambda: self.typed_objects.deprecate_typed_metric(metric_contract_id))
+
     def create_process_object(self, payload: ProcessObjectCreateRequest) -> dict[str, Any]:
         return self._invoke(lambda: self.typed_objects.create_process_object(payload))
 
@@ -133,6 +167,19 @@ class SemanticService:
 
     def publish_process_object(self, process_contract_id: str) -> dict[str, Any]:
         return self._invoke(lambda: self.typed_objects.publish_process_object(process_contract_id))
+
+    def validate_process_object(self, process_contract_id: str) -> dict[str, Any]:
+        return self._validate_action_response(
+            self._invoke(lambda: self.typed_objects.validate_process_object(process_contract_id))
+        )
+
+    def activate_process_object(self, process_contract_id: str) -> dict[str, Any]:
+        return self._invoke(lambda: self.typed_objects.activate_process_object(process_contract_id))
+
+    def deprecate_process_object(self, process_contract_id: str) -> dict[str, Any]:
+        return self._invoke(
+            lambda: self.typed_objects.deprecate_process_object(process_contract_id)
+        )
 
     def create_dimension(self, payload: DimensionCreateRequest) -> dict[str, Any]:
         return self._invoke(lambda: self.typed_objects.create_dimension(payload))
@@ -153,6 +200,17 @@ class SemanticService:
     def publish_dimension(self, dimension_contract_id: str) -> dict[str, Any]:
         return self._invoke(lambda: self.typed_objects.publish_dimension(dimension_contract_id))
 
+    def validate_dimension(self, dimension_contract_id: str) -> dict[str, Any]:
+        return self._validate_action_response(
+            self._invoke(lambda: self.typed_objects.validate_dimension(dimension_contract_id))
+        )
+
+    def activate_dimension(self, dimension_contract_id: str) -> dict[str, Any]:
+        return self._invoke(lambda: self.typed_objects.activate_dimension(dimension_contract_id))
+
+    def deprecate_dimension(self, dimension_contract_id: str) -> dict[str, Any]:
+        return self._invoke(lambda: self.typed_objects.deprecate_dimension(dimension_contract_id))
+
     def create_time_semantic(self, payload: TimeCreateRequest) -> dict[str, Any]:
         return self._invoke(lambda: self.typed_objects.create_time_semantic(payload))
 
@@ -171,6 +229,17 @@ class SemanticService:
 
     def publish_time_semantic(self, time_contract_id: str) -> dict[str, Any]:
         return self._invoke(lambda: self.typed_objects.publish_time_semantic(time_contract_id))
+
+    def validate_time_semantic(self, time_contract_id: str) -> dict[str, Any]:
+        return self._validate_action_response(
+            self._invoke(lambda: self.typed_objects.validate_time_semantic(time_contract_id))
+        )
+
+    def activate_time_semantic(self, time_contract_id: str) -> dict[str, Any]:
+        return self._invoke(lambda: self.typed_objects.activate_time_semantic(time_contract_id))
+
+    def deprecate_time_semantic(self, time_contract_id: str) -> dict[str, Any]:
+        return self._invoke(lambda: self.typed_objects.deprecate_time_semantic(time_contract_id))
 
     def create_enum_set(self, payload: EnumSetCreateRequest) -> dict[str, Any]:
         return self._invoke(lambda: self.typed_objects.create_enum_set(payload))
@@ -191,6 +260,17 @@ class SemanticService:
     def publish_enum_set(self, enum_set_contract_id: str) -> dict[str, Any]:
         return self._invoke(lambda: self.typed_objects.publish_enum_set(enum_set_contract_id))
 
+    def validate_enum_set(self, enum_set_contract_id: str) -> dict[str, Any]:
+        return self._validate_action_response(
+            self._invoke(lambda: self.typed_objects.validate_enum_set(enum_set_contract_id))
+        )
+
+    def activate_enum_set(self, enum_set_contract_id: str) -> dict[str, Any]:
+        return self._invoke(lambda: self.typed_objects.activate_enum_set(enum_set_contract_id))
+
+    def deprecate_enum_set(self, enum_set_contract_id: str) -> dict[str, Any]:
+        return self._invoke(lambda: self.typed_objects.deprecate_enum_set(enum_set_contract_id))
+
     def create_typed_binding(self, payload: TypedBindingCreateRequest) -> dict[str, Any]:
         return self._invoke(lambda: self.bindings.create_typed_binding(payload))
 
@@ -207,6 +287,17 @@ class SemanticService:
 
     def publish_typed_binding(self, binding_id: str) -> dict[str, Any]:
         return self._invoke(lambda: self.bindings.publish_typed_binding(binding_id))
+
+    def validate_typed_binding(self, binding_id: str) -> dict[str, Any]:
+        return self._validate_action_response(
+            self._invoke(lambda: self.bindings.validate_typed_binding(binding_id))
+        )
+
+    def activate_typed_binding(self, binding_id: str) -> dict[str, Any]:
+        return self._invoke(lambda: self.bindings.activate_typed_binding(binding_id))
+
+    def deprecate_typed_binding(self, binding_id: str) -> dict[str, Any]:
+        return self._invoke(lambda: self.bindings.deprecate_typed_binding(binding_id))
 
     def create_compatibility_profile(
         self, payload: CompatibilityProfileCreateRequest
@@ -235,4 +326,21 @@ class SemanticService:
     def publish_compatibility_profile(self, profile_id: str) -> dict[str, Any]:
         return self._invoke(
             lambda: self.compatibility_profiles.publish_compatibility_profile(profile_id)
+        )
+
+    def validate_compatibility_profile(self, profile_id: str) -> dict[str, Any]:
+        return self._validate_action_response(
+            self._invoke(
+                lambda: self.compatibility_profiles.validate_compatibility_profile(profile_id)
+            )
+        )
+
+    def activate_compatibility_profile(self, profile_id: str) -> dict[str, Any]:
+        return self._invoke(
+            lambda: self.compatibility_profiles.activate_compatibility_profile(profile_id)
+        )
+
+    def deprecate_compatibility_profile(self, profile_id: str) -> dict[str, Any]:
+        return self._invoke(
+            lambda: self.compatibility_profiles.deprecate_compatibility_profile(profile_id)
         )
