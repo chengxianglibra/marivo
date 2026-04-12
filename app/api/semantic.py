@@ -8,28 +8,22 @@ from fastapi import APIRouter, Body, HTTPException, Query, Request
 from app.api.deps import get_services
 from app.api.models import (
     CompatibilityProfileCreateRequest,
-    CompatibilityProfileListResponse,
     CompatibilityProfileResponse,
     CompatibilityProfileUpdateRequest,
     DimensionCreateRequest,
-    DimensionListResponse,
     DimensionResponse,
     DimensionUpdateRequest,
     EnumSetCreateRequest,
-    EnumSetListResponse,
     EnumSetResponse,
     EnumSetUpdateRequest,
     ProcessObjectCreateRequest,
-    ProcessObjectListResponse,
     ProcessObjectResponse,
     ProcessObjectUpdateRequest,
     SemanticValidateActionResponse,
     TimeCreateRequest,
-    TimeListResponse,
     TimeResponse,
     TimeUpdateRequest,
     TypedBindingCreateRequest,
-    TypedBindingListResponse,
     TypedBindingResponse,
     TypedBindingUpdateRequest,
     TypedEntityCreateRequest,
@@ -234,12 +228,18 @@ def create_process_object(
     return _run_route_action(lambda: semantic_service.create_process_object(payload))
 
 
-@router.get("/semantic/process-objects", response_model=ProcessObjectListResponse)
+@router.get("/semantic/process-objects")
 def list_process_objects(
-    request: Request, status: str | None = Query(default=None)
+    request: Request,
+    status: str | None = Query(default=None),
+    detail: bool = Query(
+        default=False, description="Return full detail instead of lightweight format."
+    ),
 ) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
-    return _run_route_action(lambda: semantic_service.list_process_objects(status=status))
+    return _run_route_action(
+        lambda: semantic_service.list_process_objects(status=status, detail=detail)
+    )
 
 
 @router.get("/semantic/process-objects/{process_contract_id}", response_model=ProcessObjectResponse)
@@ -313,10 +313,16 @@ def create_dimension(
     return _run_route_action(lambda: semantic_service.create_dimension(payload))
 
 
-@router.get("/semantic/dimensions", response_model=DimensionListResponse)
-def list_dimensions(request: Request, status: str | None = Query(default=None)) -> dict[str, Any]:
+@router.get("/semantic/dimensions")
+def list_dimensions(
+    request: Request,
+    status: str | None = Query(default=None),
+    detail: bool = Query(
+        default=False, description="Return full detail instead of lightweight format."
+    ),
+) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
-    return _run_route_action(lambda: semantic_service.list_dimensions(status=status))
+    return _run_route_action(lambda: semantic_service.list_dimensions(status=status, detail=detail))
 
 
 @router.get("/semantic/dimensions/{dimension_contract_id}", response_model=DimensionResponse)
@@ -388,12 +394,18 @@ def create_time_semantic(
     return _run_route_action(lambda: semantic_service.create_time_semantic(payload))
 
 
-@router.get("/semantic/time", response_model=TimeListResponse)
+@router.get("/semantic/time")
 def list_time_semantics(
-    request: Request, status: str | None = Query(default=None)
+    request: Request,
+    status: str | None = Query(default=None),
+    detail: bool = Query(
+        default=False, description="Return full detail instead of lightweight format."
+    ),
 ) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
-    return _run_route_action(lambda: semantic_service.list_time_semantics(status=status))
+    return _run_route_action(
+        lambda: semantic_service.list_time_semantics(status=status, detail=detail)
+    )
 
 
 @router.get("/semantic/time/{time_contract_id}", response_model=TimeResponse)
@@ -458,10 +470,16 @@ def create_enum_set(request: Request, payload: EnumSetCreateRequest = Body(...))
     return _run_route_action(lambda: semantic_service.create_enum_set(payload))
 
 
-@router.get("/semantic/enum-sets", response_model=EnumSetListResponse)
-def list_enum_sets(request: Request, status: str | None = Query(default=None)) -> dict[str, Any]:
+@router.get("/semantic/enum-sets")
+def list_enum_sets(
+    request: Request,
+    status: str | None = Query(default=None),
+    detail: bool = Query(
+        default=False, description="Return full detail instead of lightweight format."
+    ),
+) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
-    return _run_route_action(lambda: semantic_service.list_enum_sets(status=status))
+    return _run_route_action(lambda: semantic_service.list_enum_sets(status=status, detail=detail))
 
 
 @router.get("/semantic/enum-sets/{enum_set_contract_id}", response_model=EnumSetResponse)
@@ -529,12 +547,18 @@ def create_typed_binding(
     return _run_route_action(lambda: semantic_service.create_typed_binding(payload))
 
 
-@router.get("/semantic/bindings", response_model=TypedBindingListResponse)
+@router.get("/semantic/bindings")
 def list_typed_bindings(
-    request: Request, status: str | None = Query(default=None)
+    request: Request,
+    status: str | None = Query(default=None),
+    detail: bool = Query(
+        default=False, description="Return full detail instead of lightweight format."
+    ),
 ) -> dict[str, Any]:
     return _run_route_action(
-        lambda: get_services(request).semantic_service.list_typed_bindings(status=status)
+        lambda: get_services(request).semantic_service.list_typed_bindings(
+            status=status, detail=detail
+        )
     )
 
 
@@ -597,12 +621,18 @@ def create_compatibility_profile(
     return _run_route_action(lambda: semantic_service.create_compatibility_profile(payload))
 
 
-@router.get("/compiler/compatibility-profiles", response_model=CompatibilityProfileListResponse)
+@router.get("/compiler/compatibility-profiles")
 def list_compatibility_profiles(
-    request: Request, status: str | None = Query(default=None)
+    request: Request,
+    status: str | None = Query(default=None),
+    detail: bool = Query(
+        default=False, description="Return full detail instead of lightweight format."
+    ),
 ) -> dict[str, Any]:
     return _run_route_action(
-        lambda: get_services(request).semantic_service.list_compatibility_profiles(status=status)
+        lambda: get_services(request).semantic_service.list_compatibility_profiles(
+            status=status, detail=detail
+        )
     )
 
 

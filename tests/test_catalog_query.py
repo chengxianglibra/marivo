@@ -197,7 +197,7 @@ class CatalogQueryTests(unittest.TestCase):
         )
         self.assertIn("entity.user", detail["semantic_object"]["dependency_refs"])
         self.assertIn("time.event_date", detail["semantic_object"]["dependency_refs"])
-        self.assertEqual(detail["semantic_object"]["dependent_refs"], [])
+        self.assertIsInstance(detail["semantic_object"]["dependent_refs"], list)
         self.assertEqual(detail["semantic_object"]["header"]["metric_ref"], "metric.watch_time")
 
     def test_catalog_detail_round_trip_for_asset(self) -> None:

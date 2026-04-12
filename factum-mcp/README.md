@@ -24,6 +24,9 @@ Validated P0 scope provides:
 Semantic lifecycle tools now expose `validate_*`, `activate_*`, and `deprecate_*` for each public
 semantic object family. Legacy `publish_*` tools remain available as compatibility aliases for
 `activate_*`.
+Activation only changes public lifecycle into `active`; MCP callers must still inspect
+`readiness_status`, `blocking_requirements`, and `capabilities` before assuming a semantic object is
+usable for default runtime resolution.
 
 Implemented but non-P0 surfaces remain available for source admin and routing
 workflows:

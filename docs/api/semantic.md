@@ -2,11 +2,16 @@
 
 The semantic layer exposes typed semantic objects over HTTP. Entity and metric routes now use the target-state typed contract only; legacy payloads and `?surface=typed` are no longer supported on those endpoints.
 
-Semantic lifecycle is shared across objects:
+Semantic storage lifecycle is still shared across objects during the current migration phase:
 
 - `draft`
 - `published`
 - `deprecated`
+
+Public semantic lifecycle/readiness is exposed separately:
+
+- `lifecycle_status`: `draft`, `active`, `deprecated`
+- `readiness_status`: `not_ready`, `ready`, `stale`
 
 Runtime/catalog surfaces default to `active + ready` semantic objects. `published` remains the
 storage status that maps to `lifecycle_status=active`, but callers must not assume `published`
@@ -49,6 +54,15 @@ contract:
 During the current migration phase, `status=published` maps to `lifecycle_status=active`.
 Readiness is evaluated separately from lifecycle.
 
+**Migration notes:**
+
+- **Phase A:** storage continues using `draft`, `published`, and `deprecated`; `validated` remains
+  reserved in public type definitions and validate routes, but it is not persisted.
+- **Phase B:** whether `validated` becomes a persisted lifecycle state is deferred to a later
+  migration and is intentionally out of scope for the current HTTP contract.
+- Callers should migrate availability checks to `lifecycle_status` plus `readiness_status` instead
+  of inferring usability from `status`.
+
 Lifecycle actions are now shared across public semantic object families:
 
 - `POST .../validate`: check-only guardrail pass; does not persist `validated`
@@ -81,13 +95,15 @@ Current compatibility policy for read routes:
 Unknown storage status values will raise `ValueError` at the service layer to catch data integrity
 issues early, rather than silently falling back to a default status.
 
-Typed semantic object contract updates are draft-only. After `publish`, the public contract is frozen; a second publish attempt or any later update returns a validation error from the service layer.
+Typed semantic object contract updates are draft-only. After `activate` (or the compatibility alias
+`publish`), the public contract is frozen; a second activation attempt or any later update returns a
+validation error from the service layer.
 
 The minimal end-to-end semantic closure is:
 
 1. read synced source metadata from `/sources/{source_id}/objects`
 2. create typed semantic objects and typed bindings in dependency order while they are in `draft`
-3. publish the referenced objects and bindings
+3. activate the referenced objects and bindings (`publish` remains a compatibility alias)
 4. resolve only ready refs through runtime/catalog surfaces
 5. compile typed intent inputs into IR and compile metadata
 6. persist the step semantic snapshot for evidence/runtime consumers

@@ -60,10 +60,14 @@ Fields that store structured data are represented as JSON objects in responses. 
 | Resource | Status values |
 |----------|---------------|
 | Session | `open`, `closed`, `aborted` |
-| Semantic entity / metric | `draft` → `published` → `deprecated` |
+| Semantic objects | Storage `status`: `draft` → `published` → `deprecated`; public `lifecycle_status`: `draft` → `active` → `deprecated`; public `readiness_status`: `not_ready` / `ready` / `stale` |
 | Job | `pending` → `running` → `completed` / `failed` / `cancelled` |
 | Approval request | `pending` → `approved` / `rejected` |
 | Sync job | `pending` → `running` → `completed` / `failed` |
+
+For the semantic layer, callers must treat `status` as a storage compatibility field only.
+Runtime/catalog availability is gated by `lifecycle_status` and `readiness_status`, so
+`status=published` does not imply the object is ready for default resolution or execution.
 
 ## API Domains
 
