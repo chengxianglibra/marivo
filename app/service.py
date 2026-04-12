@@ -41,6 +41,12 @@ from app.intents.observe import run_observe_intent
 from app.intents.test import run_test_intent
 from app.intents.validate import run_validate_intent
 from app.semantic_runtime import SemanticRuntimeRepository
+from app.semantic_runtime.errors import (
+    SemanticRuntimeInvalidRefError,
+    SemanticRuntimeNotFoundError,
+    SemanticRuntimeNotReadyError,
+    SemanticRuntimeUnpublishedError,
+)
 from app.semantic_runtime.resolution import ResolvedSemanticObject
 from app.session import SessionManager
 from app.storage.analytics import AnalyticsEngine
@@ -453,13 +459,32 @@ class SemanticLayerService:
         resolved = self.semantic_resolver.resolve_metric(metric_name)
         return resolved.desired_direction if resolved else None
 
+    def _resolve_runtime_metric_contract(self, metric_name: str) -> ResolvedSemanticObject | None:
+        try:
+            return self.semantic_repository.resolve_metric_ref(f"metric.{metric_name}")
+        except (
+            SemanticRuntimeInvalidRefError,
+            SemanticRuntimeNotFoundError,
+            SemanticRuntimeUnpublishedError,
+        ):
+            return None
+
     def resolve_metric_sql(self, metric_name: str) -> str | None:
         """Look up a published metric's definition_sql from semantic runtime."""
-        return self.semantic_repository.resolve_metric_sql(metric_name)
+        resolved = self._resolve_runtime_metric_contract(metric_name)
+        if resolved is None:
+            return None
+        payload = resolved.semantic_object.get("payload") or {}
+        definition_sql = payload.get("definition_sql")
+        return str(definition_sql) if definition_sql is not None else None
 
     def resolve_metric_dimensions(self, metric_name: str) -> list[str] | None:
         """Look up a published metric's dimensions from semantic runtime."""
-        return self.semantic_repository.resolve_metric_dimensions(metric_name)
+        resolved = self._resolve_runtime_metric_contract(metric_name)
+        if resolved is None:
+            return None
+        payload = resolved.semantic_object.get("payload") or {}
+        return [str(dimension) for dimension in list(payload.get("dimensions") or [])]
 
     def build_metric_query(
         self,
@@ -526,7 +551,7 @@ class SemanticLayerService:
                 engine_type=engine_type,
                 semantic_context=effective_semantic_context,
             )
-        except ValueError as error:
+        except (SemanticRuntimeNotReadyError, ValueError) as error:
             raise compile_failure_from_error(
                 step,
                 error,

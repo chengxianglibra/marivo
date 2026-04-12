@@ -83,6 +83,7 @@ class SemanticRuntimeTests(unittest.TestCase):
             metric_ref="metric.watch_time",
             object_id=cls.watch_events_object_id,
             carrier_locator=cls.watch_events_fqn,
+            metric_input_target_keys=["numerator"],
         )
 
     @classmethod

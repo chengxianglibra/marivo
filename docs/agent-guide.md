@@ -130,6 +130,8 @@ surfaces when a task needs catalog/debug visibility.
 Runtime/catalog defaults should treat readiness as the availability gate. For entity/metric/process,
 do not assume `published` implies `ready`; readiness may be blocked by dependencies, bindings, or
 profile mismatches.
+Compiler and intent execution entrypoints should enforce the same object-level readiness gate and
+surface structured readiness failures instead of collapsing them into generic compile errors.
 List endpoints return lightweight items by default (header, status, blocker_count, capabilities_summary);
 use `detail=true` query parameter for backward-compatible full payload. Detail endpoints return
 full objects including `dependency_refs` and stubbed `dependent_refs` (empty list, deferred implementation).

@@ -446,6 +446,7 @@ def ensure_published_typed_metric_binding(
     source_object_ref: str | None = None,
     surface_name: str = "value",
     dimension_names: Sequence[str] | None = None,
+    metric_input_target_keys: Sequence[str] | None = None,
 ) -> str:
     binding_ref = f"binding.{metric_name}_primary"
     existing = metadata.query_one(
@@ -485,32 +486,29 @@ def ensure_published_typed_metric_binding(
             "surface_ref": "field.event_date",
         }
     ]
-    if metric_family == "rate_metric":
-        field_bindings.extend(
-            [
-                {
-                    "carrier_binding_key": "primary",
-                    "target": {"target_kind": "metric_input", "target_key": "numerator"},
-                    "semantic_ref": "metric_input.numerator",
-                    "surface_ref": f"field.{surface_name}",
-                },
-                {
-                    "carrier_binding_key": "primary",
-                    "target": {"target_kind": "metric_input", "target_key": "denominator"},
-                    "semantic_ref": "metric_input.denominator",
-                    "surface_ref": f"field.{surface_name}",
-                },
-            ]
-        )
+    metric_input_keys: list[str]
+    if metric_input_target_keys is not None:
+        metric_input_keys = [str(target_key) for target_key in metric_input_target_keys]
+    elif metric_family in {"rate_metric", "average_metric"}:
+        metric_input_keys = ["numerator", "denominator"]
+    elif metric_family == "sum_metric":
+        metric_input_keys = ["measure"]
+    elif metric_family == "distribution_metric":
+        metric_input_keys = ["value_component"]
+    elif metric_family == "score_metric":
+        metric_input_keys = ["score_source"]
     else:
+        metric_input_keys = ["count_target"]
+
+    for target_key in metric_input_keys:
         field_bindings.append(
             {
                 "carrier_binding_key": "primary",
                 "target": {
                     "target_kind": "metric_input",
-                    "target_key": f"metric_input.{surface_name}",
+                    "target_key": target_key,
                 },
-                "semantic_ref": f"metric_input.{surface_name}",
+                "semantic_ref": f"metric_input.{target_key}",
                 "surface_ref": f"field.{surface_name}",
             }
         )
@@ -565,6 +563,7 @@ def create_typed_metric_binding(
     object_id: str,
     carrier_locator: str,
     mapping_type: str | None = None,
+    metric_input_target_keys: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     _ = mapping_type
     metadata_store = _metadata_store_from_client(client)
@@ -574,6 +573,7 @@ def create_typed_metric_binding(
         metric_name=metric_name,
         carrier_locator=carrier_locator,
         source_object_ref=object_id,
+        metric_input_target_keys=metric_input_target_keys,
     )
     row = metadata_store.query_one(
         "SELECT binding_id FROM typed_bindings WHERE binding_ref = ?",
