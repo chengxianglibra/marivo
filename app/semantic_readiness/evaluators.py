@@ -79,32 +79,39 @@ class EntityReadinessEvaluator:
         if lifecycle_status != "active":
             readiness_status = "not_ready"
         else:
+            had_active_bindings = False
             if context.require_physical_grounding:
-                grounding_blockers, grounding_trace, _grounded = _evaluate_subject_bindings(
-                    context=context,
-                    expected_scope="entity",
-                    required_targets=[
-                        *[("identity_key", key_ref, key_ref) for key_ref in key_refs],
-                        *_optional_required_target(
-                            "primary_time",
-                            interface_contract.get("primary_time_ref"),
-                        ),
-                        *[
-                            (
-                                "stable_descriptor",
-                                descriptor["dimension_ref"],
-                                descriptor["dimension_ref"],
-                            )
-                            for descriptor in interface_contract.get("stable_descriptors") or []
-                            if isinstance(descriptor, dict) and descriptor.get("dimension_ref")
+                grounding_blockers, grounding_trace, _grounded, had_active_bindings = (
+                    _evaluate_subject_bindings(
+                        context=context,
+                        expected_scope="entity",
+                        required_targets=[
+                            *[("identity_key", key_ref, key_ref) for key_ref in key_refs],
+                            *_optional_required_target(
+                                "primary_time",
+                                interface_contract.get("primary_time_ref"),
+                            ),
+                            *[
+                                (
+                                    "stable_descriptor",
+                                    descriptor["dimension_ref"],
+                                    descriptor["dimension_ref"],
+                                )
+                                for descriptor in interface_contract.get("stable_descriptors") or []
+                                if isinstance(descriptor, dict) and descriptor.get("dimension_ref")
+                            ],
                         ],
-                    ],
-                    missing_binding_code="ENTITY_GROUNDING_MISSING",
-                    coverage_code="ENTITY_BINDING_COVERAGE_MISSING",
+                        missing_binding_code="ENTITY_GROUNDING_MISSING",
+                        coverage_code="ENTITY_BINDING_COVERAGE_MISSING",
+                    )
                 )
                 blockers.extend(grounding_blockers)
                 trace.extend(grounding_trace)
-            readiness_status = "ready" if not blockers else "not_ready"
+            readiness_status = _classify_active_readiness(
+                blockers,
+                stale_codes={"ENTITY_BINDING_IMPORT_MISSING", "ENTITY_CARRIER_SOURCE_MISSING"},
+                allow_stale=had_active_bindings,
+            )
         return ReadinessResult(
             lifecycle_status=lifecycle_status,
             readiness_status=readiness_status,
@@ -153,6 +160,7 @@ class MetricReadinessEvaluator:
             )
 
         if lifecycle_status == "active":
+            had_active_bindings = False
             for dependency_ref in _metric_dependency_refs(header, payload):
                 dependency = context.load_dependency_snapshot(dependency_ref)
                 if dependency is None or derive_lifecycle_status(dependency.status) != "active":
@@ -173,31 +181,40 @@ class MetricReadinessEvaluator:
                             dependency_ref=dependency_ref,
                         )
                     )
-            grounding_blockers, grounding_trace, _grounded = _evaluate_subject_bindings(
-                context=context,
-                expected_scope="metric",
-                required_targets=[
-                    *[
-                        ("metric_input", target_key, None)
-                        for target_key in _required_metric_inputs(header, payload)
+            grounding_blockers, grounding_trace, _grounded, had_active_bindings = (
+                _evaluate_subject_bindings(
+                    context=context,
+                    expected_scope="metric",
+                    required_targets=[
+                        *[
+                            ("metric_input", target_key, None)
+                            for target_key in _required_metric_inputs(header, payload)
+                        ],
+                        *_optional_required_target("primary_time", header.get("primary_time_ref")),
+                        *_optional_required_target(
+                            "population_subject",
+                            header.get("population_subject_ref"),
+                        ),
                     ],
-                    *_optional_required_target("primary_time", header.get("primary_time_ref")),
-                    *_optional_required_target(
-                        "population_subject",
-                        header.get("population_subject_ref"),
-                    ),
-                ],
-                missing_binding_code="METRIC_BINDING_MISSING",
-                coverage_code_map={
-                    "metric_input": "METRIC_INPUT_COVERAGE_MISSING",
-                    "primary_time": "METRIC_REQUIREMENT_COVERAGE_MISSING",
-                    "population_subject": "METRIC_REQUIREMENT_COVERAGE_MISSING",
-                },
+                    missing_binding_code="METRIC_BINDING_MISSING",
+                    coverage_code_map={
+                        "metric_input": "METRIC_INPUT_COVERAGE_MISSING",
+                        "primary_time": "METRIC_REQUIREMENT_COVERAGE_MISSING",
+                        "population_subject": "METRIC_REQUIREMENT_COVERAGE_MISSING",
+                    },
+                )
             )
             blockers.extend(grounding_blockers)
             trace.extend(grounding_trace)
-
-        readiness_status = "ready" if lifecycle_status == "active" and not blockers else "not_ready"
+        readiness_status = (
+            _classify_active_readiness(
+                blockers,
+                stale_codes={"METRIC_BINDING_IMPORT_MISSING", "METRIC_CARRIER_SOURCE_MISSING"},
+                allow_stale=had_active_bindings,
+            )
+            if lifecycle_status == "active"
+            else "not_ready"
+        )
         return ReadinessResult(
             lifecycle_status=lifecycle_status,
             readiness_status=readiness_status,
@@ -243,24 +260,28 @@ class ProcessReadinessEvaluator:
             )
 
         if lifecycle_status == "active" and context.require_physical_grounding:
-            grounding_blockers, grounding_trace, _grounded = _evaluate_subject_bindings(
-                context=context,
-                expected_scope="process_object",
-                required_targets=[
-                    *_optional_required_target(
-                        "population_subject",
-                        interface_contract.get("population_subject_ref"),
-                    ),
-                    *_optional_required_target(
-                        "analysis_window_anchor",
-                        interface_contract.get("anchor_time_ref"),
-                    ),
-                ],
-                missing_binding_code="PROCESS_BINDING_MISSING",
-                coverage_code="PROCESS_BINDING_COVERAGE_MISSING",
+            grounding_blockers, grounding_trace, _grounded, had_active_bindings = (
+                _evaluate_subject_bindings(
+                    context=context,
+                    expected_scope="process_object",
+                    required_targets=[
+                        *_optional_required_target(
+                            "population_subject",
+                            interface_contract.get("population_subject_ref"),
+                        ),
+                        *_optional_required_target(
+                            "analysis_window_anchor",
+                            interface_contract.get("anchor_time_ref"),
+                        ),
+                    ],
+                    missing_binding_code="PROCESS_BINDING_MISSING",
+                    coverage_code="PROCESS_BINDING_COVERAGE_MISSING",
+                )
             )
             blockers.extend(grounding_blockers)
             trace.extend(grounding_trace)
+        else:
+            had_active_bindings = False
 
         profiles = context.load_profiles("process", snapshot.ref)
         capability_profile = next(
@@ -324,11 +345,22 @@ class ProcessReadinessEvaluator:
                     )
                 )
 
-        readiness_status = (
-            "ready"
-            if lifecycle_status == "active" and not _contains_basic_process_blockers(blockers)
-            else "not_ready"
-        )
+        if lifecycle_status != "active":
+            readiness_status = "not_ready"
+        elif not blockers:
+            readiness_status = "ready"
+        elif _all_blockers_in(blockers, {"PROCESS_PROFILE_MISMATCH"}) or (
+            _all_blockers_in(
+                blockers,
+                {"PROCESS_BINDING_IMPORT_MISSING", "PROCESS_CARRIER_SOURCE_MISSING"},
+            )
+            and had_active_bindings
+        ):
+            readiness_status = "stale"
+        elif not _contains_basic_process_blockers(blockers):
+            readiness_status = "ready"
+        else:
+            readiness_status = "not_ready"
         return ReadinessResult(
             lifecycle_status=lifecycle_status,
             readiness_status=readiness_status,
@@ -604,7 +636,19 @@ class BindingReadinessEvaluator:
                 blockers.extend(coverage_blockers)
                 capabilities["covers_required_targets"] = not coverage_blockers
 
-        readiness_status = "ready" if lifecycle_status == "active" and not blockers else "not_ready"
+        readiness_status = (
+            _classify_active_readiness(
+                blockers,
+                stale_codes={
+                    "BINDING_SUBJECT_INACTIVE",
+                    "BINDING_IMPORT_INACTIVE",
+                    "BINDING_CARRIER_SOURCE_MISSING",
+                },
+                allow_stale=True,
+            )
+            if lifecycle_status == "active"
+            else "not_ready"
+        )
         return ReadinessResult(
             lifecycle_status=lifecycle_status,
             readiness_status=readiness_status,
@@ -683,10 +727,12 @@ class CompilerProfileReadinessEvaluator:
                 capabilities["matches_subject_revision"] = True
         if lifecycle_status != "active":
             readiness_status = "not_ready"
-        elif any(blocker.code == "PROFILE_SUBJECT_REVISION_MISMATCH" for blocker in blockers):
-            readiness_status = "stale"
         else:
-            readiness_status = "ready" if not blockers else "not_ready"
+            readiness_status = _classify_active_readiness(
+                blockers,
+                stale_codes={"PROFILE_SUBJECT_REVISION_MISMATCH"},
+                allow_stale=True,
+            )
         return ReadinessResult(
             lifecycle_status=lifecycle_status,
             readiness_status=readiness_status,
@@ -885,7 +931,7 @@ def _evaluate_subject_bindings(
     missing_binding_code: str,
     coverage_code: str | None = None,
     coverage_code_map: dict[str, str] | None = None,
-) -> tuple[list[BlockingRequirementPayload], list[ReadinessTraceItem], bool]:
+) -> tuple[list[BlockingRequirementPayload], list[ReadinessTraceItem], bool, bool]:
     snapshot = context.snapshot
     blockers: list[BlockingRequirementPayload] = []
     trace: list[ReadinessTraceItem] = []
@@ -912,7 +958,7 @@ def _evaluate_subject_bindings(
                 subject_ref=snapshot.ref,
             )
         )
-        return blockers, trace, False
+        return blockers, trace, False, False
 
     ready_binding_found = False
     for binding in bindings:
@@ -939,7 +985,7 @@ def _evaluate_subject_bindings(
                 dependency_ref=binding_ref,
             )
         )
-    return _dedupe_blockers(blockers), trace, ready_binding_found
+    return _dedupe_blockers(blockers), trace, ready_binding_found, True
 
 
 def _check_binding_readiness(
@@ -1050,3 +1096,24 @@ def _dedupe_blockers(
         seen.add(key)
         deduped.append(blocker)
     return deduped
+
+
+def _all_blockers_in(
+    blockers: Iterable[BlockingRequirementPayload],
+    allowed_codes: set[str],
+) -> bool:
+    blocker_list = list(blockers)
+    return bool(blocker_list) and all(blocker.code in allowed_codes for blocker in blocker_list)
+
+
+def _classify_active_readiness(
+    blockers: list[BlockingRequirementPayload],
+    *,
+    stale_codes: set[str],
+    allow_stale: bool,
+) -> str:
+    if not blockers:
+        return "ready"
+    if allow_stale and _all_blockers_in(blockers, stale_codes):
+        return "stale"
+    return "not_ready"

@@ -396,7 +396,7 @@ class TestLiteralTypes(unittest.TestCase):
         status = "deprecated"
 
     def test_readiness_status(self):
-        """Type includes reserved 'stale' for Phase B; Phase A never produces it."""
+        """Type includes `stale` for dependency-drift readiness surfaces."""
         status: ReadinessStatus = "not_ready"
         status = "ready"
-        status = "stale"  # reserved, not produced by current derivation
+        status = "stale"

@@ -1928,7 +1928,7 @@ class SemanticTypedApiTests(unittest.TestCase):
 
         binding_detail_resp = self.client.get(f"/semantic/bindings/{binding_id}")
         self.assertEqual(binding_detail_resp.status_code, 200, binding_detail_resp.text)
-        self.assertEqual(binding_detail_resp.json()["readiness_status"], "not_ready")
+        self.assertEqual(binding_detail_resp.json()["readiness_status"], "stale")
         self.assertEqual(
             binding_detail_resp.json()["dependency_refs"],
             [

@@ -130,6 +130,9 @@ surfaces when a task needs catalog/debug visibility.
 Runtime/catalog defaults should treat readiness as the availability gate. For entity/metric/process,
 do not assume `published` implies `ready`; readiness may be blocked by dependencies, bindings, or
 profile mismatches.
+Treat `stale` as a proven dependency-drift state, not a generic synonym for `not_ready`; if the
+current metadata cannot show that an object was previously aligned and then drifted, prefer
+`not_ready`.
 Request-level incompatibility must stay separate from object readiness. Do not write request-specific
 dimension/process/intent mismatches back into semantic object readiness fields.
 Compiler and intent execution entrypoints should enforce the same object-level readiness gate and

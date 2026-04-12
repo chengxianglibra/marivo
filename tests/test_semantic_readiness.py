@@ -136,12 +136,56 @@ class EntityReadinessEvaluatorTests(unittest.TestCase):
             {"ENTITY_BINDING_COVERAGE_MISSING"},
         )
 
+    def test_active_entity_with_drifted_binding_is_stale(self) -> None:
+        result = self._evaluate(
+            semantic_object={
+                "header": {"entity_ref": "entity.user"},
+                "interface_contract": {
+                    "identity": {
+                        "key_refs": ["key.user_id"],
+                        "uniqueness_scope": "global",
+                        "id_stability": "stable",
+                    },
+                    "primary_time_ref": "time.signup_date",
+                    "stable_descriptors": [{"dimension_ref": "dimension.country"}],
+                },
+            },
+            require_physical_grounding=True,
+            subject_bindings=[
+                self._binding(
+                    binding_ref="binding.user_identity",
+                    binding_scope="entity",
+                    field_bindings=[
+                        self._field_binding("identity_key", "key.user_id", "key.user_id"),
+                        self._field_binding(
+                            "primary_time",
+                            "time.signup_date",
+                            "time.signup_date",
+                        ),
+                        self._field_binding(
+                            "stable_descriptor",
+                            "dimension.country",
+                            "dimension.country",
+                        ),
+                    ],
+                )
+            ],
+            carrier_source_object_loader=lambda _carrier: None,
+        )
+
+        self.assertEqual(result.readiness_status, "stale")
+        self.assertEqual(
+            {item.code for item in result.blocking_requirements},
+            {"ENTITY_CARRIER_SOURCE_MISSING"},
+        )
+
     def _evaluate(
         self,
         *,
         semantic_object: dict[str, object],
         require_physical_grounding: bool = False,
         subject_bindings: list[dict[str, object]] | None = None,
+        carrier_source_object_loader=None,
     ):
         snapshot = build_snapshot(
             object_kind="entity",
@@ -155,7 +199,8 @@ class EntityReadinessEvaluatorTests(unittest.TestCase):
             snapshot=snapshot,
             require_physical_grounding=require_physical_grounding,
             subject_bindings_loader=lambda _ref: list(subject_bindings or []),
-            carrier_source_object_loader=lambda _carrier: {"object_id": "src_123"},
+            carrier_source_object_loader=carrier_source_object_loader
+            or (lambda _carrier: {"object_id": "src_123"}),
         )
         return self.registry.evaluator_for("entity").evaluate(context)
 
@@ -260,12 +305,33 @@ class MetricReadinessEvaluatorTests(unittest.TestCase):
         self.assertEqual(result.readiness_status, "ready")
         self.assertEqual(result.blocking_requirements, [])
 
+    def test_metric_with_drifted_binding_is_stale(self) -> None:
+        result = self._evaluate(
+            subject_bindings=[
+                self._binding(
+                    field_bindings=[
+                        self._field_binding("metric_input", "numerator", "metric_input.converted"),
+                        self._field_binding("metric_input", "denominator", "metric_input.eligible"),
+                        self._field_binding("primary_time", "time.event_date", "time.event_date"),
+                    ]
+                )
+            ],
+            carrier_source_object_loader=lambda _carrier: None,
+        )
+
+        self.assertEqual(result.readiness_status, "stale")
+        self.assertEqual(
+            {item.code for item in result.blocking_requirements},
+            {"METRIC_CARRIER_SOURCE_MISSING"},
+        )
+
     def _evaluate(
         self,
         *,
         dependency_statuses: dict[str, str] | None = None,
         subject_bindings: list[dict[str, object]] | None = None,
         binding_import_statuses: dict[str, str] | None = None,
+        carrier_source_object_loader=None,
     ):
         semantic_object = {
             "header": {
@@ -328,7 +394,8 @@ class MetricReadinessEvaluatorTests(unittest.TestCase):
             snapshot=snapshot,
             dependency_snapshot_loader=dependency_loader,
             subject_bindings_loader=lambda _ref: list(subject_bindings or []),
-            carrier_source_object_loader=lambda _carrier: {"object_id": "src_123"},
+            carrier_source_object_loader=carrier_source_object_loader
+            or (lambda _carrier: {"object_id": "src_123"}),
         )
         return self.registry.evaluator_for("metric").evaluate(context)
 
@@ -388,11 +455,11 @@ class MetricReadinessEvaluatorTests(unittest.TestCase):
                 )
             ],
         )
-        self.assertEqual(result.readiness_status, "not_ready")
+        self.assertEqual(result.readiness_status, "stale")
         blocker_codes = {item.code for item in result.blocking_requirements}
         self.assertIn("METRIC_BINDING_IMPORT_MISSING", blocker_codes)
 
-    def test_metric_binding_with_inactive_import_is_not_ready(self) -> None:
+    def test_metric_binding_with_inactive_import_is_stale(self) -> None:
         """Binding with inactive (draft) import should be blocked."""
         result = self._evaluate(
             binding_import_statuses={"binding.draft_dependency": "draft"},
@@ -407,7 +474,7 @@ class MetricReadinessEvaluatorTests(unittest.TestCase):
                 )
             ],
         )
-        self.assertEqual(result.readiness_status, "not_ready")
+        self.assertEqual(result.readiness_status, "stale")
         blocker_codes = {item.code for item in result.blocking_requirements}
         self.assertIn("METRIC_BINDING_IMPORT_MISSING", blocker_codes)
 
@@ -424,7 +491,7 @@ class ProcessReadinessEvaluatorTests(unittest.TestCase):
         self.assertEqual(result.capabilities["inferential_ready"], False)
         self.assertEqual(result.blocking_requirements[0].code, "PROCESS_PROFILE_MISSING")
 
-    def test_process_profile_revision_mismatch_does_not_flip_basic_readiness(self) -> None:
+    def test_process_profile_revision_mismatch_is_stale(self) -> None:
         result = self._evaluate(
             profiles=[
                 {
@@ -436,7 +503,7 @@ class ProcessReadinessEvaluatorTests(unittest.TestCase):
             ]
         )
 
-        self.assertEqual(result.readiness_status, "ready")
+        self.assertEqual(result.readiness_status, "stale")
         self.assertEqual(result.capabilities["inferential_ready"], False)
         self.assertEqual(result.blocking_requirements[0].code, "PROCESS_PROFILE_MISMATCH")
 
@@ -498,12 +565,66 @@ class ProcessReadinessEvaluatorTests(unittest.TestCase):
         self.assertEqual(result.blocking_requirements, [])
         self.assertEqual(result.capabilities["inferential_ready"], True)
 
+    def test_process_with_drifted_grounding_is_stale(self) -> None:
+        result = self._evaluate(
+            require_physical_grounding=True,
+            carrier_source_object_loader=lambda _carrier: None,
+            subject_bindings=[
+                {
+                    "binding_ref": "binding.exp_assignment",
+                    "binding_scope": "process_object",
+                    "bound_object_ref": "process.experiment_assignment",
+                    "status": "published",
+                    "interface_contract": {
+                        "imports": [],
+                        "carrier_bindings": [
+                            {
+                                "binding_key": "assignment",
+                                "carrier_locator": "warehouse.exp_assignment",
+                            }
+                        ],
+                        "field_bindings": [
+                            {
+                                "target": {
+                                    "target_kind": "population_subject",
+                                    "target_key": "subject.user",
+                                },
+                                "semantic_ref": "subject.user",
+                            },
+                            {
+                                "target": {
+                                    "target_kind": "analysis_window_anchor",
+                                    "target_key": "time.assignment_date",
+                                },
+                                "semantic_ref": "time.assignment_date",
+                            },
+                        ],
+                    },
+                }
+            ],
+            profiles=[
+                {
+                    "profile_kind": "capability",
+                    "profile_ref": "compiler_profile.exp_capability",
+                    "subject_revision": 3,
+                    "capability": {"inferential_ready": True},
+                }
+            ],
+        )
+
+        self.assertEqual(result.readiness_status, "stale")
+        self.assertEqual(
+            {item.code for item in result.blocking_requirements},
+            {"PROCESS_CARRIER_SOURCE_MISSING"},
+        )
+
     def _evaluate(
         self,
         *,
         require_physical_grounding: bool = False,
         subject_bindings: list[dict[str, object]] | None = None,
         profiles: list[dict[str, object]] | None = None,
+        carrier_source_object_loader=None,
     ):
         snapshot = build_snapshot(
             object_kind="process",
@@ -530,7 +651,8 @@ class ProcessReadinessEvaluatorTests(unittest.TestCase):
             require_physical_grounding=require_physical_grounding,
             subject_bindings_loader=lambda _ref: list(subject_bindings or []),
             profiles_loader=lambda _kind, _ref: list(profiles or []),
-            carrier_source_object_loader=lambda _carrier: {"object_id": "src_123"},
+            carrier_source_object_loader=carrier_source_object_loader
+            or (lambda _carrier: {"object_id": "src_123"}),
         )
         return self.registry.evaluator_for("process").evaluate(context)
 
@@ -729,12 +851,29 @@ class BindingReadinessEvaluatorTests(unittest.TestCase):
     def setUp(self) -> None:
         self.registry = build_default_registry()
 
-    def test_binding_missing_synced_carrier_is_not_ready(self) -> None:
+    def test_binding_missing_synced_carrier_is_stale(self) -> None:
         result = self._evaluate(
+            field_bindings=[
+                {
+                    "carrier_binding_key": "primary",
+                    "target": {"target_kind": "metric_input", "target_key": "numerator"},
+                    "semantic_ref": "metric_input.converted",
+                },
+                {
+                    "carrier_binding_key": "primary",
+                    "target": {"target_kind": "metric_input", "target_key": "denominator"},
+                    "semantic_ref": "metric_input.eligible",
+                },
+                {
+                    "carrier_binding_key": "primary",
+                    "target": {"target_kind": "primary_time", "target_key": "time.event_date"},
+                    "semantic_ref": "time.event_date",
+                },
+            ],
             carrier_source_object_loader=lambda _carrier: None,
         )
 
-        self.assertEqual(result.readiness_status, "not_ready")
+        self.assertEqual(result.readiness_status, "stale")
         self.assertIn(
             "BINDING_CARRIER_SOURCE_MISSING",
             {item.code for item in result.blocking_requirements},
@@ -871,28 +1010,28 @@ class BindingReadinessEvaluatorTests(unittest.TestCase):
             {item.code for item in result.blocking_requirements},
         )
 
-    def test_binding_with_inactive_import_is_not_ready(self) -> None:
+    def test_binding_with_inactive_import_is_stale(self) -> None:
         result = self._evaluate_with_import(import_status="draft")
 
-        self.assertEqual(result.readiness_status, "not_ready")
+        self.assertEqual(result.readiness_status, "stale")
         self.assertIn(
             "BINDING_IMPORT_INACTIVE",
             {item.code for item in result.blocking_requirements},
         )
 
-    def test_binding_with_missing_import_is_not_ready(self) -> None:
+    def test_binding_with_missing_import_is_stale(self) -> None:
         result = self._evaluate_with_import(import_status="missing")
 
-        self.assertEqual(result.readiness_status, "not_ready")
+        self.assertEqual(result.readiness_status, "stale")
         self.assertIn(
             "BINDING_IMPORT_INACTIVE",
             {item.code for item in result.blocking_requirements},
         )
 
-    def test_binding_with_inactive_subject_is_not_ready(self) -> None:
+    def test_binding_with_inactive_subject_is_stale(self) -> None:
         result = self._evaluate_with_subject_status(subject_status="draft")
 
-        self.assertEqual(result.readiness_status, "not_ready")
+        self.assertEqual(result.readiness_status, "stale")
         self.assertIn(
             "BINDING_SUBJECT_INACTIVE",
             {item.code for item in result.blocking_requirements},
@@ -1017,7 +1156,26 @@ class BindingReadinessEvaluatorTests(unittest.TestCase):
                     "carrier_bindings": [
                         {"binding_key": "primary", "carrier_locator": "warehouse.metric_fact"}
                     ],
-                    "field_bindings": [],
+                    "field_bindings": [
+                        {
+                            "carrier_binding_key": "primary",
+                            "target": {"target_kind": "metric_input", "target_key": "numerator"},
+                            "semantic_ref": "metric_input.converted",
+                        },
+                        {
+                            "carrier_binding_key": "primary",
+                            "target": {"target_kind": "metric_input", "target_key": "denominator"},
+                            "semantic_ref": "metric_input.eligible",
+                        },
+                        {
+                            "carrier_binding_key": "primary",
+                            "target": {
+                                "target_kind": "primary_time",
+                                "target_key": "time.event_date",
+                            },
+                            "semantic_ref": "time.event_date",
+                        },
+                    ],
                 },
             },
         )

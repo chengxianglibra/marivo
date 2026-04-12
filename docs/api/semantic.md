@@ -23,9 +23,13 @@ contract:
     become a persisted state in Phase B when a validation step is introduced between draft and active.
 - `readiness_status`: derived readiness (`not_ready`, `ready`, `stale`)
   - `published` no longer implies `ready` for entity, metric, or process objects.
-  - `stale` is currently produced for published compatibility profiles whose pinned
-    `subject_revision` no longer matches the active subject revision.
+  - `stale` is produced when the current metadata can prove an object was aligned and then drifted
+    out of readiness, such as a published compatibility profile whose pinned `subject_revision`
+    no longer matches the active subject revision, or a published binding/grounded object whose
+    carrier or imported binding has drifted away.
 - `blocking_requirements`: structured blockers for why an object is not currently ready
+  - For `stale` objects, these same blockers are also the explicit stale reasons; there is no
+    separate top-level `stale_reason` field.
   - Entity, metric, process, dimension, time, enum set, binding, and compatibility profile routes
     now return object-specific blockers.
 - `capabilities`: object-family-specific capability payload
