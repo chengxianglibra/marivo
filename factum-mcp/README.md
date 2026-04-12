@@ -80,6 +80,55 @@ pip install -e .
 tool schemas. Keep the repository root package importable in the same
 environment as the MCP adapter.
 
+## Client Setup
+
+After installing the package, you can register Factum with an MCP client in one
+of two ways.
+
+Local `stdio` MCP:
+
+```json
+{
+  "mcpServers": {
+    "factum": {
+      "command": "/absolute/path/to/factum/factum-mcp/.venv/bin/factum-mcp",
+      "env": {
+        "FACTUM_BASE_URL": "http://127.0.0.1:8000"
+      }
+    }
+  }
+}
+```
+
+This starts `factum-mcp` as a local subprocess and uses the default `stdio`
+transport.
+
+Streamable HTTP MCP (`streamable-http`, sometimes called `http-stream`):
+
+1. Start the MCP HTTP server:
+
+```bash
+cd factum-mcp
+FACTUM_BASE_URL=http://127.0.0.1:8000 \
+.venv/bin/factum-mcp-http
+```
+
+2. Point the MCP client at the server URL:
+
+```json
+{
+  "mcpServers": {
+    "factum": {
+      "url": "http://127.0.0.1:8000/mcp"
+    }
+  }
+}
+```
+
+If you need a different bind host, port, or path, set
+`FACTUM_MCP_HOST`, `FACTUM_MCP_PORT`, and `FACTUM_MCP_STREAMABLE_HTTP_PATH`
+before starting the HTTP transport.
+
 ## Run
 
 ```bash

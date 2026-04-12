@@ -332,6 +332,25 @@ class SemanticTypedApiTests(unittest.TestCase):
         resp = self.client.post(f"/semantic/bindings/{binding_id}/publish")
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertEqual(resp.json()["status"], "published")
+        published_binding_readiness = resp.json()["readiness_status"]
+
+        binding_detail_resp = self.client.get(f"/semantic/bindings/{binding_id}")
+        self.assertEqual(binding_detail_resp.status_code, 200, binding_detail_resp.text)
+        self.assertEqual(
+            binding_detail_resp.json()["readiness_status"], published_binding_readiness
+        )
+
+        binding_list_resp = self.client.get("/semantic/bindings?status=published")
+        self.assertEqual(binding_list_resp.status_code, 200, binding_list_resp.text)
+        binding_list_item = next(
+            item for item in binding_list_resp.json()["items"] if item["binding_id"] == binding_id
+        )
+        self.assertEqual(binding_list_item["readiness_status"], published_binding_readiness)
+        self.assertEqual(
+            binding_list_item["blocker_count"],
+            len(binding_detail_resp.json()["blocking_requirements"]),
+        )
+        self.assertNotIn("interface_contract", binding_list_item)
 
         metric_resp = self.client.post(
             "/semantic/metrics",
@@ -2106,7 +2125,15 @@ class SemanticTypedApiTests(unittest.TestCase):
 
         binding_list_resp = self.client.get("/semantic/bindings?status=published")
         self.assertEqual(binding_list_resp.status_code, 200, binding_list_resp.text)
-        self.assertNotIn("interface_contract", binding_list_resp.json()["items"][0])
+        binding_summary_item = next(
+            item for item in binding_list_resp.json()["items"] if item["binding_id"] == binding_id
+        )
+        self.assertEqual(binding_summary_item["readiness_status"], "stale")
+        self.assertEqual(
+            binding_summary_item["blocker_count"],
+            len(binding_detail_resp.json()["blocking_requirements"]),
+        )
+        self.assertNotIn("interface_contract", binding_summary_item)
 
         binding_list_detail_resp = self.client.get(
             "/semantic/bindings?status=published&detail=true"
