@@ -3,7 +3,11 @@ from __future__ import annotations
 import unittest
 
 from app.analysis_core.capability_profiles import derive_compiler_state
-from app.analysis_core.compiler import compile_step
+from app.analysis_core.compiler import (
+    SemanticCompilerError,
+    SemanticRequestCompatibilityError,
+    compile_step,
+)
 from app.analysis_core.ir import AnalysisStepIR
 from app.analysis_core.typed_resolution import (
     normalize_step_request,
@@ -245,6 +249,14 @@ class _TimeAnchoredDimensionRepository(_FakeSemanticRepository):
             "time_derived_requirement": {"required_time_anchor_ref": "time.other_anchor"},
         }
         return resolved
+
+
+class _MissingTimeAnchoredDimensionRepository(_TimeAnchoredDimensionRepository):
+    def resolve_time_ref(self, time_ref: str) -> ResolvedSemanticObject:
+        raise SemanticRuntimeNotFoundError(
+            f"Unknown time ref: {time_ref}",
+            semantic_ref=time_ref,
+        )
 
 
 class _IncompatibleProcessRepository(_FakeSemanticRepository):
@@ -563,7 +575,7 @@ class CompilerTypedResolutionTests(unittest.TestCase):
         self.assertIn(("process", "process.right"), repository.calls)
 
     def test_compile_step_fails_for_unresolved_typed_dimension_ref(self) -> None:
-        with self.assertRaisesRegex(ValueError, "COMPILER_DIMENSION_UNRESOLVED"):
+        with self.assertRaises(SemanticRequestCompatibilityError) as ctx:
             compile_step(
                 AnalysisStepIR(
                     index=0,
@@ -593,6 +605,11 @@ class CompilerTypedResolutionTests(unittest.TestCase):
                     "binding_reader": _binding_reader,
                 },
             )
+
+        self.assertEqual(
+            ctx.exception.detail["issues"][0]["code"],
+            "COMPILER_DIMENSION_UNRESOLVED",
+        )
 
     def test_validate_compiler_inputs_requires_process_capability_profile_for_validate(
         self,
@@ -914,7 +931,9 @@ class CompilerTypedResolutionTests(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertIn("COMPILER_BINDING_INVALID", [issue.code for issue in result.issues])
 
-    def test_validate_compiler_inputs_rejects_dimension_without_grouping_support(self) -> None:
+    def test_validate_compiler_inputs_does_not_treat_grouping_support_as_request_compatibility(
+        self,
+    ) -> None:
         normalized = normalize_step_request(
             AnalysisStepIR(
                 index=0,
@@ -945,8 +964,8 @@ class CompilerTypedResolutionTests(unittest.TestCase):
             derived_state=derived,
         )
 
-        self.assertFalse(result.ok)
-        self.assertIn("COMPILER_DIMENSION_UNSUPPORTED", [issue.code for issue in result.issues])
+        self.assertTrue(result.ok)
+        self.assertNotIn("COMPILER_DIMENSION_UNSUPPORTED", [issue.code for issue in result.issues])
 
     def test_validate_compiler_inputs_rejects_dimension_time_anchor_mismatch(self) -> None:
         normalized = normalize_step_request(
@@ -983,6 +1002,77 @@ class CompilerTypedResolutionTests(unittest.TestCase):
         self.assertIn(
             "COMPILER_DIMENSION_TIME_ANCHOR_MISMATCH",
             [issue.code for issue in result.issues],
+        )
+        issue = next(
+            issue
+            for issue in result.issues
+            if issue.code == "COMPILER_DIMENSION_TIME_ANCHOR_MISMATCH"
+        )
+        self.assertEqual(issue.category, "compatibility")
+
+    def test_compile_step_raises_structured_request_compatibility_error(self) -> None:
+        with self.assertRaises(SemanticRequestCompatibilityError) as ctx:
+            compile_step(
+                AnalysisStepIR(
+                    index=0,
+                    step_type="metric_query",
+                    params={
+                        "metric": "watch_time",
+                        "table": "analytics.watch_events",
+                        "dimensions": ["dimension.country"],
+                    },
+                ),
+                engine_type="duckdb",
+                semantic_context={
+                    "semantic_repository": _TimeAnchoredDimensionRepository(),
+                    "binding_reader": _binding_reader,
+                },
+            )
+
+        detail = ctx.exception.detail
+        self.assertEqual(detail["code"], "semantic_request_incompatible")
+        self.assertEqual(detail["category"], "compatibility")
+        self.assertEqual(detail["subject_ref"], "dimension.country")
+        self.assertEqual(
+            detail["issues"][0]["code"],
+            "COMPILER_DIMENSION_TIME_ANCHOR_MISMATCH",
+        )
+
+    def test_compile_step_prefers_non_compatibility_error_when_mixed_with_compatibility(
+        self,
+    ) -> None:
+        with self.assertRaises(SemanticCompilerError) as ctx:
+            compile_step(
+                AnalysisStepIR(
+                    index=0,
+                    step_type="metric_query",
+                    params={
+                        "metric": "watch_time",
+                        "table": "analytics.watch_events",
+                        "dimensions": ["dimension.country"],
+                        "time_scope": {
+                            "mode": "single_window",
+                            "grain": "day",
+                            "current": {"start": "2026-03-10", "end": "2026-03-17"},
+                        },
+                        "scoped_query": {
+                            "mode": "single_window",
+                            "analysis_time_expr": "event_date",
+                            "analysis_time_kind": "date_field",
+                            "current": {"start": "2026-03-10", "end": "2026-03-17"},
+                        },
+                    },
+                ),
+                engine_type="duckdb",
+                semantic_context={
+                    "semantic_repository": _MissingTimeAnchoredDimensionRepository(),
+                    "binding_reader": _binding_reader,
+                },
+            )
+
+        self.assertEqual(
+            ctx.exception.compile_error["error_code"],
+            "COMPILER_TIME_REF_UNRESOLVED",
         )
 
 

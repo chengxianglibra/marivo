@@ -172,6 +172,16 @@ same readiness payload used by `GET /semantic/resolve/{typed_ref}`:
 - `capabilities`
 - `dependency_refs`
 
+When compilation passes object readiness but the current request is incompatible with the resolved
+semantic objects, the endpoint also returns `409`, but with a distinct compatibility payload:
+
+- `message`
+- `code`: `semantic_request_incompatible`
+- `category`: `compatibility`
+- `subject_ref`
+- `issues`: structured compiler compatibility issues
+- `request_context`
+
 ## Atomic Intents
 
 ### `POST /sessions/{session_id}/intents/observe`

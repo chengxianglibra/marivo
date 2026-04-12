@@ -64,6 +64,14 @@ class SemanticCompilerError(ValueError):
         self.compile_error = compile_error
 
 
+class SemanticRequestCompatibilityError(ValueError):
+    """Structured request-level compatibility failure."""
+
+    def __init__(self, detail: dict[str, Any]) -> None:
+        super().__init__(str(detail["message"]))
+        self.detail = detail
+
+
 @dataclass(slots=True)
 class _ScopedQueryParts:
     cte_sql: str
@@ -651,7 +659,7 @@ _VALIDATION_GATE_ORDER: tuple[
 
 
 def _build_compile_error(validation_message: str, validation_result: Any) -> SemanticCompileError:
-    first_error = next(issue for issue in validation_result.issues if issue.severity == "error")
+    first_error = validation_result.primary_error_issue()
     compile_error: SemanticCompileError = {
         "error_code": first_error.code,
         "failed_gate": first_error.gate,
@@ -662,6 +670,35 @@ def _build_compile_error(validation_message: str, validation_result: Any) -> Sem
     if first_error.details:
         compile_error["details"] = dict(first_error.details)
     return compile_error
+
+
+def _build_request_compatibility_error(
+    *,
+    step_type: str,
+    normalized_request: Any,
+    resolved_inputs: Any,
+    validation_result: Any,
+) -> dict[str, Any]:
+    issues = validation_result.issues_for_category("compatibility")
+    primary_issue = issues[0]
+    request_context = {
+        "step_type": step_type,
+        "intent_kind": normalized_request.intent_kind,
+        "metric_ref": normalized_request.metric_ref,
+        "process_ref": normalized_request.process_ref,
+        "dimension_refs": list(normalized_request.request_dimensions),
+    }
+    request_context = {
+        key: value for key, value in request_context.items() if value not in (None, [])
+    }
+    return {
+        "message": "Request is incompatible with resolved semantic objects",
+        "code": "semantic_request_incompatible",
+        "category": "compatibility",
+        "subject_ref": primary_issue.subject_ref,
+        "issues": [issue.to_dict() for issue in issues],
+        "request_context": request_context,
+    }
 
 
 def _build_validation_trace(validation_result: Any) -> list[ValidationRecord]:
@@ -1116,6 +1153,19 @@ def compile_step(
         derived_state=derived_state,
     )
     if not validation_result.ok:
+        compatibility_issues = validation_result.issues_for_category("compatibility")
+        non_compatibility_issues = [
+            issue for issue in validation_result.error_issues() if issue.category != "compatibility"
+        ]
+        if compatibility_issues and not non_compatibility_issues:
+            raise SemanticRequestCompatibilityError(
+                _build_request_compatibility_error(
+                    step_type=step.step_type,
+                    normalized_request=normalized_request,
+                    resolved_inputs=resolved_inputs,
+                    validation_result=validation_result,
+                )
+            )
         raise SemanticCompilerError(
             _build_compile_error(validation_error_message(validation_result), validation_result)
         )
