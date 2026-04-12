@@ -115,12 +115,8 @@ def run_observe_intent(
         else "day"
     )
 
-    table = svc._resolve_metric_table(metric_name)
-    if table is None:
-        raise ValueError(
-            f"Metric '{metric_name}' is not published or has no source table mapping. "
-            "Ensure the metric exists in the semantic layer and is mapped to a source object."
-        )
+    execution_context = svc._resolve_metric_execution_context(metric_name)
+    table = execution_context.table_name
 
     scope_raw = p.get("scope")
     mq_params: dict[str, Any] = {

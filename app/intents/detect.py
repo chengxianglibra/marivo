@@ -121,12 +121,8 @@ def run_detect_intent(
     scope_raw = p.get("scope") or None
 
     # ── Resolve metric ─────────────────────────────────────────────────────────
-    table = svc._resolve_metric_table(metric_name)
-    if table is None:
-        raise ValueError(
-            f"Metric '{metric_name}' is not published or has no source table mapping. "
-            "Ensure the metric exists in the semantic layer and is mapped to a source object."
-        )
+    execution_context = svc._resolve_metric_execution_context(metric_name)
+    table = execution_context.table_name
 
     metric_sql = svc.resolve_metric_sql(metric_name)
     all_dimensions = svc.resolve_metric_dimensions(metric_name)

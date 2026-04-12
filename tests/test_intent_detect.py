@@ -101,6 +101,9 @@ def _seed_metadata(
     metric_name: str = "detect_event_count",
     table_fqn: str = "analytics.detect_events",
     native_name: str = "detect_events",
+    binding_role: str = "primary",
+    metric_input_target_keys: list[str] | None = None,
+    measure_type: str | None = None,
 ) -> str:
     """Insert minimal metadata records so detect can resolve metric → table."""
     now = datetime.now(UTC).isoformat()
@@ -125,12 +128,15 @@ def _seed_metadata(
         grain="day",
         dimensions=["event_date"],
         definition_sql="COUNT(*)",
+        measure_type=measure_type,
     )
     ensure_published_typed_metric_binding(
         meta,
         metric_name=metric_name,
         carrier_locator=table_fqn,
         source_object_ref=obj_id,
+        binding_role=binding_role,
+        metric_input_target_keys=metric_input_target_keys,
     )
     return metric_name
 
@@ -558,6 +564,56 @@ class DetectIntentEndpointTests(unittest.TestCase):
             },
         )
         self.assertEqual(r.status_code, 422)
+
+    def test_detect_not_ready_metric_returns_409_with_structured_readiness_error(self) -> None:
+        metadata = self.client.app.state.service.metadata
+        metric_name = _seed_metadata(
+            metadata,
+            src_suffix="http_not_ready",
+            metric_name="http_detect_not_ready_metric",
+            table_fqn="analytics.watch_events",
+            native_name="watch_events",
+            metric_input_target_keys=["numerator"],
+            measure_type="average",
+        )
+
+        response = self.client.post(
+            f"/sessions/{self.session_id}/intents/detect",
+            json={
+                "metric": metric_name,
+                "time_scope": self._time_scope(),
+            },
+        )
+
+        self.assertEqual(response.status_code, 409, response.text)
+        detail = response.json()["detail"]
+        self.assertEqual(detail["code"], "semantic_not_ready")
+        self.assertEqual(detail["category"], "readiness")
+        self.assertEqual(detail["subject_ref"], "metric.http_detect_not_ready_metric")
+        self.assertEqual(detail["readiness_status"], "not_ready")
+
+    def test_detect_ready_metric_with_auxiliary_binding_returns_200(self) -> None:
+        metadata = self.client.app.state.service.metadata
+        metric_name = _seed_metadata(
+            metadata,
+            src_suffix="http_aux",
+            metric_name="http_detect_aux_metric",
+            table_fqn="analytics.watch_events",
+            native_name="watch_events",
+            binding_role="auxiliary",
+        )
+
+        response = self.client.post(
+            f"/sessions/{self.session_id}/intents/detect",
+            json={
+                "metric": metric_name,
+                "time_scope": self._time_scope(),
+                "sensitivity": "balanced",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["artifact_type"], "anomaly_candidates")
 
     def test_detect_invalid_time_scope_returns_422(self) -> None:
         """start >= end is rejected with 422."""
