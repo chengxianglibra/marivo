@@ -1168,8 +1168,7 @@ class SemanticLayerService:
                 f"Metric '{metric_name}' not found, not published, or missing typed execution metadata"
             )
 
-        short_name = resolved.table.split(".")[-1]
-        engine, engine_type, qualified = self._resolve_engine([short_name])
+        engine, engine_type, qualified = self._resolve_engine([resolved.table])
         self._resolve_windowed_query_time_axis(
             resolved,
             engine_type=engine_type,
@@ -1200,7 +1199,7 @@ class SemanticLayerService:
             )
         limit = resolved.limit or 10
 
-        qualified_table = qualified.get(short_name, resolved.table)
+        qualified_table = qualified.get(resolved.table, resolved.table)
         current_len = self._window_length(resolved, "current")
         baseline_len: int | None = None
         window_size_mismatch = False
@@ -1353,8 +1352,8 @@ class SemanticLayerService:
         step_id = self._new_step_id()
 
         short_name = table_name.split(".")[-1]
-        engine, engine_type, qualified = self._resolve_engine([short_name])
-        qualified_table = qualified.get(short_name, table_name)
+        engine, engine_type, qualified = self._resolve_engine([table_name])
+        qualified_table = qualified.get(table_name, table_name)
 
         row_count_query = self._compile_step_with_feedback(
             AnalysisStepIR(
@@ -1542,8 +1541,8 @@ class SemanticLayerService:
 
         limit = int(params.get("limit", 10))
         short_name = table_name.split(".")[-1]
-        engine, engine_type, qualified = self._resolve_engine([short_name])
-        qualified_table = qualified.get(short_name, table_name)
+        engine, engine_type, qualified = self._resolve_engine([table_name])
+        qualified_table = qualified.get(table_name, table_name)
 
         # Build compiler params with filter/columns passthrough
         compiler_params: dict[str, Any] = {"table_name": qualified_table, "limit": limit}
@@ -1643,14 +1642,14 @@ class SemanticLayerService:
         step_type = "aggregate_query"
         step_id = self._new_step_id()
         short_name = table_name.split(".")[-1]
-        engine, engine_type, qualified = self._resolve_engine([short_name])
+        engine, engine_type, qualified = self._resolve_engine([table_name])
         self._resolve_windowed_query_time_axis(
             resolved,
             engine_type=engine_type,
             fallback_columns=list(resolved.grouping),
         )
         scoped_query = self._build_scoped_query(session_id, resolved)
-        qualified_table = qualified.get(short_name, table_name)
+        qualified_table = qualified.get(table_name, table_name)
 
         measures = (
             resolved.value_spec.measures
@@ -1775,9 +1774,10 @@ class SemanticLayerService:
         constraints_filter = self._session_constraints_to_filter(session_id)
         merged_where = self._merge_filters(user_where, constraints_filter)
 
-        short_name = str(table_name).split(".")[-1]
-        engine, engine_type, qualified = self._resolve_engine([short_name])
-        qualified_table = qualified.get(short_name, str(table_name))
+        table_name_str = str(table_name)
+        short_name = table_name_str.split(".")[-1]
+        engine, engine_type, qualified = self._resolve_engine([table_name_str])
+        qualified_table = qualified.get(table_name_str, table_name_str)
 
         try:
             row = engine.query_rows(

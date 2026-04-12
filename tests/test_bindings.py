@@ -375,27 +375,27 @@ class QueryRouterTests(unittest.TestCase):
         _get_table_schema looks up parent hierarchy which exists for synced tables)."""
         # Tables synced from the local adapter have a parent schema 'analytics'.
         # With empty namespace, qualify_table_name should return 'analytics.watch_events'.
+        table_source_object = self.router._resolve_table_source_object("watch_events")
         qualified = self.router.qualify_table_name(
-            "watch_events",
-            self.source["source_id"],
+            table_source_object,
             {"namespace": {}},
         )
         self.assertEqual(qualified, "analytics.watch_events")
 
     def test_qualify_table_name_with_catalog(self) -> None:
         """Namespace with catalog → catalog.schema.table."""
+        table_source_object = self.router._resolve_table_source_object("watch_events")
         qualified = self.router.qualify_table_name(
-            "watch_events",
-            self.source["source_id"],
+            table_source_object,
             {"namespace": {"catalog": "hive"}},
         )
         self.assertEqual(qualified, "hive.analytics.watch_events")
 
     def test_qualify_table_name_with_catalog_and_schema_override(self) -> None:
         """Namespace with catalog and schema override → catalog.override.table."""
+        table_source_object = self.router._resolve_table_source_object("watch_events")
         qualified = self.router.qualify_table_name(
-            "watch_events",
-            self.source["source_id"],
+            table_source_object,
             {"namespace": {"catalog": "hive", "schema": "prod"}},
         )
         self.assertEqual(qualified, "hive.prod.watch_events")
@@ -416,11 +416,8 @@ class QueryRouterTests(unittest.TestCase):
             [obj_id, self.source["source_id"], "orphan_table", "demo.orphan_table", now, now],
         )
 
-        qualified = self.router.qualify_table_name(
-            "orphan_table",
-            self.source["source_id"],
-            {"namespace": {}},
-        )
+        table_source_object = self.router._resolve_table_source_object("orphan_table")
+        qualified = self.router.qualify_table_name(table_source_object, {"namespace": {}})
         self.assertEqual(qualified, "orphan_table")
 
     def test_resolve_tables_returns_resolved_route(self) -> None:
@@ -432,6 +429,66 @@ class QueryRouterTests(unittest.TestCase):
         # With empty namespace, tables get schema from parent
         self.assertIn("watch_events", route.qualified_names)
         self.assertEqual(route.qualified_names["watch_events"], "analytics.watch_events")
+
+    def test_resolve_tables_accepts_full_fqn(self) -> None:
+        route = self.router.resolve_tables(["duckdb.analytics.watch_events"])
+        self.assertEqual(route.engine_id, self.engine["engine_id"])
+        self.assertEqual(
+            route.qualified_names["duckdb.analytics.watch_events"],
+            "analytics.watch_events",
+        )
+
+    def test_resolve_tables_short_name_is_ambiguous_across_sources(self) -> None:
+        src2 = self.source_service.register_source("duckdb", "Router Source Ambiguous", {})
+        self.binding_service.create_binding(
+            src2["source_id"],
+            self.engine["engine_id"],
+            priority=3,
+        )
+
+        from datetime import datetime
+        from uuid import uuid4
+
+        now = datetime.now(UTC).isoformat()
+        schema_id = f"obj_{uuid4().hex[:12]}"
+        self.metadata.execute(
+            """
+            INSERT INTO source_objects
+                (object_id, source_id, object_type, native_name, fqn, properties_json, created_at, updated_at)
+            VALUES (?, ?, 'schema', 'other_schema', 'duckdb.other_schema', '{}', ?, ?)
+            """,
+            [schema_id, src2["source_id"], now, now],
+        )
+        table_id = f"obj_{uuid4().hex[:12]}"
+        self.metadata.execute(
+            """
+            INSERT INTO source_objects
+                (object_id, source_id, object_type, parent_id, native_name, fqn, properties_json, created_at, updated_at)
+            VALUES (?, ?, 'table', ?, 'watch_events', 'duckdb.other_schema.watch_events', '{}', ?, ?)
+            """,
+            [table_id, src2["source_id"], schema_id, now, now],
+        )
+
+        with self.assertRaisesRegex(ValueError, "Ambiguous table name"):
+            self.router.resolve_tables(["watch_events"])
+
+    def test_resolve_tables_full_fqn_disambiguates_duplicate_short_name(self) -> None:
+        src2 = self.source_service.register_source(
+            "duckdb", "Router Source Duplicate", {"path": str(self.local_duckdb_path)}
+        )
+        adapter2 = self.source_service.get_adapter(src2["source_id"])
+        self.sync_engine.trigger_sync(src2["source_id"], adapter2)
+        self.binding_service.create_binding(
+            src2["source_id"],
+            self.engine["engine_id"],
+            priority=3,
+        )
+
+        route = self.router.resolve_tables(["duckdb.analytics.watch_events"])
+        self.assertEqual(
+            route.qualified_names["duckdb.analytics.watch_events"],
+            "analytics.watch_events",
+        )
 
     def test_resolve_tables_with_namespace_binding(self) -> None:
         """resolve_tables() uses the binding's namespace for qualification."""
@@ -894,6 +951,143 @@ class BindingAPITests(unittest.TestCase):
         self.assertEqual(
             result["qualified_names"]["qn_unique_table"], "hive.qn_schema.qn_unique_table"
         )
+
+    def test_routing_resolve_accepts_full_fqn(self) -> None:
+        from datetime import datetime
+        from uuid import uuid4
+
+        resp = self.client.post(
+            "/sources",
+            json={
+                "source_type": "duckdb",
+                "display_name": "FQN Routing Src",
+                "connection": {"path": str(self.db_path)},
+            },
+        )
+        source_id = resp.json()["source_id"]
+
+        resp = self.client.post(
+            "/engines",
+            json={
+                "engine_type": "duckdb",
+                "display_name": "FQN Routing Eng",
+                "connection": {"path": "/tmp/fqn_routing.duckdb"},
+            },
+        )
+        engine_id = resp.json()["engine_id"]
+
+        self.client.post(
+            "/bindings",
+            json={
+                "source_id": source_id,
+                "engine_id": engine_id,
+                "priority": 5,
+                "namespace": {"catalog": "hive"},
+            },
+        )
+
+        metadata_store = self.client.app.state.metadata_store
+        now = datetime.now(UTC).isoformat()
+        schema_id = f"obj_{uuid4().hex[:12]}"
+        metadata_store.execute(
+            """INSERT INTO source_objects
+                (object_id, source_id, object_type, native_name, fqn, properties_json, created_at, updated_at)
+            VALUES (?, ?, 'schema', 'fqn_schema', 'duckdb.fqn_schema', '{}', ?, ?)""",
+            [schema_id, source_id, now, now],
+        )
+        table_id = f"obj_{uuid4().hex[:12]}"
+        table_fqn = "duckdb.fqn_schema.fqn_unique_table"
+        metadata_store.execute(
+            """INSERT INTO source_objects
+                (object_id, source_id, object_type, parent_id, native_name, fqn, properties_json, created_at, updated_at)
+            VALUES (?, ?, 'table', ?, 'fqn_unique_table', ?, '{}', ?, ?)""",
+            [table_id, source_id, schema_id, table_fqn, now, now],
+        )
+
+        resp = self.client.post(
+            "/routing/resolve",
+            json={"table_names": [table_fqn]},
+        )
+        self.assertEqual(resp.status_code, 200)
+        result = resp.json()
+        self.assertEqual(result["engine"]["engine_id"], engine_id)
+        self.assertEqual(
+            result["qualified_names"][table_fqn],
+            "hive.fqn_schema.fqn_unique_table",
+        )
+
+    def test_routing_resolve_short_name_reports_ambiguity(self) -> None:
+        resp = self.client.post(
+            "/sources",
+            json={
+                "source_type": "duckdb",
+                "display_name": "Ambiguous Routing Src A",
+                "connection": {"path": str(self.db_path)},
+            },
+        )
+        source_a_id = resp.json()["source_id"]
+        resp = self.client.post(
+            "/sources",
+            json={
+                "source_type": "duckdb",
+                "display_name": "Ambiguous Routing Src B",
+                "connection": {"path": str(self.db_path)},
+            },
+        )
+        source_b_id = resp.json()["source_id"]
+
+        for source_id, engine_path in (
+            (source_a_id, "/tmp/ambiguous_routing_a.duckdb"),
+            (source_b_id, "/tmp/ambiguous_routing_b.duckdb"),
+        ):
+            resp = self.client.post(
+                "/engines",
+                json={
+                    "engine_type": "duckdb",
+                    "display_name": f"Engine {source_id}",
+                    "connection": {"path": engine_path},
+                },
+            )
+            engine_id = resp.json()["engine_id"]
+            self.client.post(
+                "/bindings",
+                json={
+                    "source_id": source_id,
+                    "engine_id": engine_id,
+                    "priority": 5,
+                },
+            )
+
+        metadata_store = self.client.app.state.metadata_store
+        from datetime import datetime
+        from uuid import uuid4
+
+        now = datetime.now(UTC).isoformat()
+        for source_id, schema_name in (
+            (source_a_id, "schema_a"),
+            (source_b_id, "schema_b"),
+        ):
+            schema_id = f"obj_{uuid4().hex[:12]}"
+            metadata_store.execute(
+                """INSERT INTO source_objects
+                    (object_id, source_id, object_type, native_name, fqn, properties_json, created_at, updated_at)
+                VALUES (?, ?, 'schema', ?, ?, '{}', ?, ?)""",
+                [schema_id, source_id, schema_name, f"duckdb.{schema_name}", now, now],
+            )
+            table_id = f"obj_{uuid4().hex[:12]}"
+            metadata_store.execute(
+                """INSERT INTO source_objects
+                    (object_id, source_id, object_type, parent_id, native_name, fqn, properties_json, created_at, updated_at)
+                VALUES (?, ?, 'table', ?, 'shared_table', ?, '{}', ?, ?)""",
+                [table_id, source_id, schema_id, f"duckdb.{schema_name}.shared_table", now, now],
+            )
+
+        resp = self.client.post(
+            "/routing/resolve",
+            json={"table_names": ["shared_table"]},
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("Ambiguous table name", resp.json()["detail"])
 
     def test_routing_resolve_accepts_semantic_intent(self) -> None:
         from datetime import datetime

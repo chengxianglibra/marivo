@@ -130,8 +130,7 @@ def run_detect_intent(
         raise ValueError(f"Metric '{metric_name}' not found or not published")
 
     # ── Build time-series query ────────────────────────────────────────────────
-    short_name = table.split(".")[-1]
-    engine, engine_type, qualified = svc._resolve_engine([short_name])
+    engine, engine_type, qualified = svc._resolve_engine([table])
 
     mq_params: dict[str, Any] = {
         "table": table,
@@ -153,7 +152,7 @@ def run_detect_intent(
         fallback_columns=all_dimensions,
     )
     scoped_query = svc._build_scoped_query(session_id, resolved)
-    qualified_table = qualified.get(short_name, table)
+    qualified_table = qualified.get(table, table)
 
     time_col = resolved.resolved_time_axis.analysis_time_expr
     bucket_expr = f"DATE_TRUNC('{grain}', {time_col})"
