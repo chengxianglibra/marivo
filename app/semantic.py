@@ -155,8 +155,12 @@ class SemanticService:
     def get_process_object(self, process_contract_id: str) -> dict[str, Any]:
         return self._invoke(lambda: self.typed_objects.get_process_object(process_contract_id))
 
-    def list_process_objects(self, status: str | None = None) -> dict[str, Any]:
-        return self._invoke(lambda: self.typed_objects.list_process_objects(status=status))
+    def list_process_objects(
+        self, status: str | None = None, detail: bool = False
+    ) -> dict[str, Any]:
+        return self._invoke(
+            lambda: self.typed_objects.list_process_objects(status=status, detail=detail)
+        )
 
     def update_process_object(
         self, process_contract_id: str, payload: ProcessObjectUpdateRequest
@@ -187,8 +191,10 @@ class SemanticService:
     def get_dimension(self, dimension_contract_id: str) -> dict[str, Any]:
         return self._invoke(lambda: self.typed_objects.get_dimension(dimension_contract_id))
 
-    def list_dimensions(self, status: str | None = None) -> dict[str, Any]:
-        return self._invoke(lambda: self.typed_objects.list_dimensions(status=status))
+    def list_dimensions(self, status: str | None = None, detail: bool = False) -> dict[str, Any]:
+        return self._invoke(
+            lambda: self.typed_objects.list_dimensions(status=status, detail=detail)
+        )
 
     def update_dimension(
         self, dimension_contract_id: str, payload: DimensionUpdateRequest
@@ -217,8 +223,12 @@ class SemanticService:
     def get_time_semantic(self, time_contract_id: str) -> dict[str, Any]:
         return self._invoke(lambda: self.typed_objects.get_time_semantic(time_contract_id))
 
-    def list_time_semantics(self, status: str | None = None) -> dict[str, Any]:
-        return self._invoke(lambda: self.typed_objects.list_time_semantics(status=status))
+    def list_time_semantics(
+        self, status: str | None = None, detail: bool = False
+    ) -> dict[str, Any]:
+        return self._invoke(
+            lambda: self.typed_objects.list_time_semantics(status=status, detail=detail)
+        )
 
     def update_time_semantic(
         self, time_contract_id: str, payload: TimeUpdateRequest
@@ -247,8 +257,8 @@ class SemanticService:
     def get_enum_set(self, enum_set_contract_id: str) -> dict[str, Any]:
         return self._invoke(lambda: self.typed_objects.get_enum_set(enum_set_contract_id))
 
-    def list_enum_sets(self, status: str | None = None) -> dict[str, Any]:
-        return self._invoke(lambda: self.typed_objects.list_enum_sets(status=status))
+    def list_enum_sets(self, status: str | None = None, detail: bool = False) -> dict[str, Any]:
+        return self._invoke(lambda: self.typed_objects.list_enum_sets(status=status, detail=detail))
 
     def update_enum_set(
         self, enum_set_contract_id: str, payload: EnumSetUpdateRequest
@@ -277,8 +287,10 @@ class SemanticService:
     def get_typed_binding(self, binding_id: str) -> dict[str, Any]:
         return self._invoke(lambda: self.bindings.get_typed_binding(binding_id))
 
-    def list_typed_bindings(self, status: str | None = None) -> dict[str, Any]:
-        return self._invoke(lambda: self.bindings.list_typed_bindings(status=status))
+    def list_typed_bindings(
+        self, status: str | None = None, detail: bool = False
+    ) -> dict[str, Any]:
+        return self._invoke(lambda: self.bindings.list_typed_bindings(status=status, detail=detail))
 
     def update_typed_binding(
         self, binding_id: str, payload: TypedBindingUpdateRequest
@@ -311,9 +323,13 @@ class SemanticService:
             lambda: self.compatibility_profiles.get_compatibility_profile(profile_id)
         )
 
-    def list_compatibility_profiles(self, status: str | None = None) -> dict[str, Any]:
+    def list_compatibility_profiles(
+        self, status: str | None = None, detail: bool = False
+    ) -> dict[str, Any]:
         return self._invoke(
-            lambda: self.compatibility_profiles.list_compatibility_profiles(status=status)
+            lambda: self.compatibility_profiles.list_compatibility_profiles(
+                status=status, detail=detail
+            )
         )
 
     def update_compatibility_profile(

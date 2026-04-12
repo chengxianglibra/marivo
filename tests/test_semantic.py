@@ -52,7 +52,7 @@ class SemanticEntityRouteTests(unittest.TestCase):
         self.assertEqual(entity["blocking_requirements"], [])
         self.assertEqual(entity["capabilities"], {})
         self.assertEqual(entity["dependency_refs"], [])
-        self.assertEqual(entity["dependent_refs"], [])  # Stubbed - deferred implementation
+        self.assertEqual(entity["dependent_refs"], [])
         self.assertEqual(entity["revision"], 1)
 
         resp = self.client.get(f"/semantic/entities/{entity_id}")
@@ -83,11 +83,16 @@ class SemanticEntityRouteTests(unittest.TestCase):
             json={"description": "Should fail after publish"},
         )
         self.assertEqual(resp.status_code, 422, resp.text)
-        self.assertIn("not in draft status", resp.json()["detail"])
+        self.assertIn(
+            "cannot activate from status=published; expected draft", resp.json()["detail"]
+        )
 
         resp = self.client.post(f"/semantic/entities/{entity_id}/publish")
         self.assertEqual(resp.status_code, 422, resp.text)
-        self.assertIn("not in draft status", resp.json()["detail"]["message"])
+        self.assertIn(
+            "cannot activate from status=published; expected draft",
+            resp.json()["detail"]["message"],
+        )
 
     def test_entity_routes_reject_legacy_contract_and_missing_object(self) -> None:
         resp = self.client.post(
@@ -276,11 +281,16 @@ class SemanticMetricRouteTests(unittest.TestCase):
             },
         )
         self.assertEqual(resp.status_code, 422, resp.text)
-        self.assertIn("not in draft status", resp.json()["detail"])
+        self.assertIn(
+            "cannot activate from status=published; expected draft", resp.json()["detail"]
+        )
 
         resp = self.client.post(f"/semantic/metrics/{metric_id}/publish")
         self.assertEqual(resp.status_code, 422, resp.text)
-        self.assertIn("not in draft status", resp.json()["detail"]["message"])
+        self.assertIn(
+            "cannot activate from status=published; expected draft",
+            resp.json()["detail"]["message"],
+        )
 
     def test_metric_routes_reject_legacy_contract_and_missing_object(self) -> None:
         resp = self.client.post(

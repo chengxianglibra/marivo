@@ -2387,7 +2387,7 @@ function renderGroundingSearchResults() {
   }
   if (groundingViewState.searchResults.length === 0) {
     if (!groundingViewState.searchQuery) {
-      return '<div class="detail-empty">Search the ready-first published catalog to inspect typed refs, synced assets, and readiness blockers when you explicitly include unavailable objects.</div>';
+      return '<div class="detail-empty">Search the ready-first semantic catalog to inspect typed refs, synced assets, and readiness blockers when you explicitly include unavailable objects.</div>';
     }
     return '<div class="detail-empty">No catalog objects matched the current query.</div>';
   }
@@ -2813,7 +2813,7 @@ function renderGroundingPage() {
   panel.innerHTML = `
     <div class="page-intro">
       <h2>Grounding</h2>
-      <p>Use catalog and semantic helper views to understand published objects, resolve behavior, and session planner grounding. This page is read-only and secondary to State / Context for analysis outcomes.</p>
+      <p>Use catalog and semantic helper views to understand active versus ready objects, resolve behavior, and session planner grounding. This page is read-only and secondary to State / Context for analysis outcomes.</p>
     </div>
     <div class="grounding-layout">
       <div class="grounding-sidebar">

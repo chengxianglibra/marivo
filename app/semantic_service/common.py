@@ -76,6 +76,7 @@ class SemanticServiceSupport:
         id_field: str,
         ref: str,
         mode: Literal["list", "detail"] = "detail",
+        include_dependents: bool = True,
     ) -> dict[str, Any]:
         """Augment a semantic object dict with computed readiness fields.
 
@@ -121,8 +122,74 @@ class SemanticServiceSupport:
             base["dependency_refs"] = self._dependency_refs_for_object(
                 object_kind=object_kind, obj=base
             )
-            base["dependent_refs"] = []  # Stubbed - deferred implementation
+            base["dependent_refs"] = self._dependent_refs_for_ref(ref) if include_dependents else []
         return base
+
+    def _dependent_refs_for_ref(self, ref: str) -> list[str]:
+        dependents: list[str] = []
+        seen: set[str] = set()
+        for (
+            object_kind,
+            candidate_ref,
+            candidate,
+        ) in self._iter_semantic_objects_for_dependency_scan():
+            if candidate_ref == ref:
+                continue
+            dependency_refs = self._dependency_refs_for_object(
+                object_kind=object_kind, obj=candidate
+            )
+            if ref not in dependency_refs or candidate_ref in seen:
+                continue
+            seen.add(candidate_ref)
+            dependents.append(candidate_ref)
+        return dependents
+
+    def _iter_semantic_objects_for_dependency_scan(
+        self,
+    ) -> list[tuple[ObjectKind, str, dict[str, Any]]]:
+        objects: list[tuple[ObjectKind, str, dict[str, Any]]] = []
+
+        entity_rows = self.metadata.query_rows("SELECT * FROM semantic_entity_contracts")
+        for row in entity_rows:
+            entity = self._row_to_typed_entity(row, include_dependents=False)
+            objects.append(("entity", str(row["entity_ref"]), entity))
+
+        metric_rows = self.metadata.query_rows("SELECT * FROM semantic_metric_contracts")
+        for row in metric_rows:
+            metric = self._row_to_typed_metric(row, include_dependents=False)
+            objects.append(("metric", str(row["metric_ref"]), metric))
+
+        process_rows = self.metadata.query_rows("SELECT * FROM semantic_process_objects")
+        for row in process_rows:
+            process = self._row_to_process_object(row, include_dependents=False)
+            objects.append(("process", str(row["process_ref"]), process))
+
+        dimension_rows = self.metadata.query_rows("SELECT * FROM semantic_dimension_contracts")
+        for row in dimension_rows:
+            dimension = self._row_to_dimension(row, include_dependents=False)
+            objects.append(("dimension", str(row["dimension_ref"]), dimension))
+
+        time_rows = self.metadata.query_rows("SELECT * FROM semantic_time_objects")
+        for row in time_rows:
+            time_semantic = self._row_to_time_semantic(row, include_dependents=False)
+            objects.append(("time", str(row["time_ref"]), time_semantic))
+
+        enum_rows = self.metadata.query_rows("SELECT * FROM semantic_enum_sets")
+        for row in enum_rows:
+            enum_set = self._row_to_enum_set(row, include_dependents=False)
+            objects.append(("enum", str(row["enum_set_ref"]), enum_set))
+
+        binding_rows = self.metadata.query_rows("SELECT * FROM typed_bindings")
+        for row in binding_rows:
+            binding = self._row_to_typed_binding(row, include_dependents=False)
+            objects.append(("binding", str(row["binding_ref"]), binding))
+
+        profile_rows = self.metadata.query_rows("SELECT * FROM compiler_compatibility_profiles")
+        for row in profile_rows:
+            profile = self._row_to_compatibility_profile(row, include_dependents=False)
+            objects.append(("compiler_profile", str(row["profile_ref"]), profile))
+
+        return objects
 
     @classmethod
     def _append_dependency_ref(
@@ -1786,7 +1853,11 @@ class SemanticServiceSupport:
         }
 
     def _row_to_typed_entity(
-        self, row: dict[str, Any], mode: Literal["list", "detail"] = "detail"
+        self,
+        row: dict[str, Any],
+        mode: Literal["list", "detail"] = "detail",
+        *,
+        include_dependents: bool = True,
     ) -> dict[str, Any]:
         key_rows = self.metadata.query_rows(
             """
@@ -1853,10 +1924,15 @@ class SemanticServiceSupport:
             id_field="entity_contract_id",
             ref=str(row["entity_ref"]),
             mode=mode,
+            include_dependents=include_dependents,
         )
 
     def _row_to_typed_metric(
-        self, row: dict[str, Any], mode: Literal["list", "detail"] = "detail"
+        self,
+        row: dict[str, Any],
+        mode: Literal["list", "detail"] = "detail",
+        *,
+        include_dependents: bool = True,
     ) -> dict[str, Any]:
         metric = {
             "metric_contract_id": row["metric_contract_id"],
@@ -1889,9 +1965,16 @@ class SemanticServiceSupport:
             id_field="metric_contract_id",
             ref=str(row["metric_ref"]),
             mode=mode,
+            include_dependents=include_dependents,
         )
 
-    def _row_to_process_object(self, row: dict[str, Any]) -> dict[str, Any]:
+    def _row_to_process_object(
+        self,
+        row: dict[str, Any],
+        mode: Literal["list", "detail"] = "detail",
+        *,
+        include_dependents: bool = True,
+    ) -> dict[str, Any]:
         exported_dimension_rows = self.metadata.query_rows(
             """
             SELECT dimension_ref
@@ -1926,22 +2009,31 @@ class SemanticServiceSupport:
                 "process_type": row["process_type"],
                 "process_contract_version": row["process_contract_version"],
             },
-            "interface_contract": interface_contract,
-            "payload": json.loads(row["process_payload_json"]),
             "status": row["status"],
             "revision": row["revision"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
+        if mode == "detail":
+            process_object["interface_contract"] = interface_contract
+            process_object["payload"] = json.loads(row["process_payload_json"])
         return self._augment_object_with_readiness(
             process_object,
             object_kind="process",
             row=row,
             id_field="process_contract_id",
             ref=str(row["process_ref"]),
+            mode=mode,
+            include_dependents=include_dependents,
         )
 
-    def _row_to_dimension(self, row: dict[str, Any]) -> dict[str, Any]:
+    def _row_to_dimension(
+        self,
+        row: dict[str, Any],
+        mode: Literal["list", "detail"] = "detail",
+        *,
+        include_dependents: bool = True,
+    ) -> dict[str, Any]:
         value_domain: dict[str, Any] = {
             "structure_kind": row["structure_kind"],
             "semantic_role": row["semantic_role"],
@@ -1969,21 +2061,30 @@ class SemanticServiceSupport:
                 "description": row["description"],
                 "dimension_contract_version": row["dimension_contract_version"],
             },
-            "interface_contract": interface_contract,
             "status": row["status"],
             "revision": row["revision"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
+        if mode == "detail":
+            dimension["interface_contract"] = interface_contract
         return self._augment_object_with_readiness(
             dimension,
             object_kind="dimension",
             row=row,
             id_field="dimension_contract_id",
             ref=str(row["dimension_ref"]),
+            mode=mode,
+            include_dependents=include_dependents,
         )
 
-    def _row_to_time_semantic(self, row: dict[str, Any]) -> dict[str, Any]:
+    def _row_to_time_semantic(
+        self,
+        row: dict[str, Any],
+        mode: Literal["list", "detail"] = "detail",
+        *,
+        include_dependents: bool = True,
+    ) -> dict[str, Any]:
         semantic_roles: list[str] = []
         if row["business_anchor"]:
             semantic_roles.append("business_anchor")
@@ -2011,9 +2112,17 @@ class SemanticServiceSupport:
             row=row,
             id_field="time_contract_id",
             ref=str(row["time_ref"]),
+            mode=mode,
+            include_dependents=include_dependents,
         )
 
-    def _row_to_enum_set(self, row: dict[str, Any]) -> dict[str, Any]:
+    def _row_to_enum_set(
+        self,
+        row: dict[str, Any],
+        mode: Literal["list", "detail"] = "detail",
+        *,
+        include_dependents: bool = True,
+    ) -> dict[str, Any]:
         version_rows = self.metadata.query_rows(
             """
             SELECT enum_set_version_id, enum_version
@@ -2054,23 +2163,32 @@ class SemanticServiceSupport:
                 "enum_set_ref": row["enum_set_ref"],
                 "value_type": row["value_type"],
             },
-            "display_name": row["display_name"],
-            "description": row["description"],
-            "versions": versions,
             "status": row["status"],
             "revision": row["revision"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
+        if mode == "detail":
+            enum_set["display_name"] = row["display_name"]
+            enum_set["description"] = row["description"]
+            enum_set["versions"] = versions
         return self._augment_object_with_readiness(
             enum_set,
             object_kind="enum",
             row=row,
             id_field="enum_set_contract_id",
             ref=str(row["enum_set_ref"]),
+            mode=mode,
+            include_dependents=include_dependents,
         )
 
-    def _row_to_typed_binding(self, row: dict[str, Any]) -> dict[str, Any]:
+    def _row_to_typed_binding(
+        self,
+        row: dict[str, Any],
+        mode: Literal["list", "detail"] = "detail",
+        *,
+        include_dependents: bool = True,
+    ) -> dict[str, Any]:
         import_rows = self.metadata.query_rows(
             """
             SELECT import_key, imported_binding_ref, required_ref_prefixes_json
@@ -2168,7 +2286,13 @@ class SemanticServiceSupport:
                 "bound_object_ref": row["bound_object_ref"],
                 "binding_contract_version": row["binding_contract_version"],
             },
-            "interface_contract": {
+            "status": row["status"],
+            "revision": row["revision"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+        if mode == "detail":
+            binding["interface_contract"] = {
                 "imports": [
                     {
                         "import_key": import_row["import_key"],
@@ -2224,42 +2348,48 @@ class SemanticServiceSupport:
                     }
                     for policy_row in policy_rows
                 ],
-            },
-            "status": row["status"],
-            "revision": row["revision"],
-            "created_at": row["created_at"],
-            "updated_at": row["updated_at"],
-        }
+            }
         return self._augment_object_with_readiness(
             binding,
             object_kind="binding",
             row=row,
             id_field="binding_id",
             ref=str(row["binding_ref"]),
+            mode=mode,
+            include_dependents=include_dependents,
         )
 
-    def _row_to_compatibility_profile(self, row: dict[str, Any]) -> dict[str, Any]:
+    def _row_to_compatibility_profile(
+        self,
+        row: dict[str, Any],
+        mode: Literal["list", "detail"] = "detail",
+        *,
+        include_dependents: bool = True,
+    ) -> dict[str, Any]:
         requirement = json.loads(row["requirement_json"])
         capability = json.loads(row["capability_json"])
         profile = {
             "profile_id": row["profile_id"],
             "profile_ref": row["profile_ref"],
-            "profile_kind": row["profile_kind"],
-            "schema_version": row["schema_version"],
             "subject_kind": row["subject_kind"],
             "subject_ref": row["subject_ref"],
-            "subject_revision": row["subject_revision"],
-            "requirement": requirement or None,
-            "capability": capability or None,
             "status": row["status"],
             "revision": row["revision"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
+        if mode == "detail":
+            profile["profile_kind"] = row["profile_kind"]
+            profile["schema_version"] = row["schema_version"]
+            profile["subject_revision"] = row["subject_revision"]
+            profile["requirement"] = requirement or None
+            profile["capability"] = capability or None
         return self._augment_object_with_readiness(
             profile,
             object_kind="compiler_profile",
             row=row,
             id_field="profile_id",
             ref=str(row["profile_ref"]),
+            mode=mode,
+            include_dependents=include_dependents,
         )

@@ -1984,6 +1984,13 @@ class SemanticTypedApiTests(unittest.TestCase):
             {item["code"] for item in binding_detail_resp.json()["blocking_requirements"]},
         )
 
+        entity_detail_resp = self.client.get(f"/semantic/entities/{entity_id}")
+        self.assertEqual(entity_detail_resp.status_code, 200, entity_detail_resp.text)
+        self.assertIn(binding_ref, entity_detail_resp.json()["dependent_refs"])
+        self.assertIn(
+            metric_resp.json()["header"]["metric_ref"], entity_detail_resp.json()["dependent_refs"]
+        )
+
         profile_detail_resp = self.client.get(f"/compiler/compatibility-profiles/{profile_id}")
         self.assertEqual(profile_detail_resp.status_code, 200, profile_detail_resp.text)
         self.assertEqual(profile_detail_resp.json()["readiness_status"], "stale")
@@ -1995,6 +2002,45 @@ class SemanticTypedApiTests(unittest.TestCase):
             "PROFILE_SUBJECT_REVISION_MISMATCH",
             {item["code"] for item in profile_detail_resp.json()["blocking_requirements"]},
         )
+
+        metric_detail_resp = self.client.get(f"/semantic/metrics/{metric_id}")
+        self.assertEqual(metric_detail_resp.status_code, 200, metric_detail_resp.text)
+        self.assertIn(
+            f"compiler_profile.readiness_case_{suffix}",
+            metric_detail_resp.json()["dependent_refs"],
+        )
+
+        binding_list_resp = self.client.get("/semantic/bindings?status=published")
+        self.assertEqual(binding_list_resp.status_code, 200, binding_list_resp.text)
+        self.assertNotIn("interface_contract", binding_list_resp.json()["items"][0])
+
+        binding_list_detail_resp = self.client.get(
+            "/semantic/bindings?status=published&detail=true"
+        )
+        self.assertEqual(binding_list_detail_resp.status_code, 200, binding_list_detail_resp.text)
+        binding_item = next(
+            item
+            for item in binding_list_detail_resp.json()["items"]
+            if item["binding_id"] == binding_id
+        )
+        self.assertIn("interface_contract", binding_item)
+        self.assertIn("dependent_refs", binding_item)
+
+        profile_list_resp = self.client.get("/compiler/compatibility-profiles?status=published")
+        self.assertEqual(profile_list_resp.status_code, 200, profile_list_resp.text)
+        self.assertNotIn("requirement", profile_list_resp.json()["items"][0])
+
+        profile_list_detail_resp = self.client.get(
+            "/compiler/compatibility-profiles?status=published&detail=true"
+        )
+        self.assertEqual(profile_list_detail_resp.status_code, 200, profile_list_detail_resp.text)
+        profile_item = next(
+            item
+            for item in profile_list_detail_resp.json()["items"]
+            if item["profile_id"] == profile_id
+        )
+        self.assertIn("requirement", profile_item)
+        self.assertIn("dependent_refs", profile_item)
 
     def test_enum_set_update_rejects_raw_value_type_mismatch(self) -> None:
         """Updating enum set versions must reject raw_values that don't match
