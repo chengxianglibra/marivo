@@ -135,9 +135,8 @@ def run_decompose_intent(
         raise ValueError(f"decompose: metric '{metric_name}' has no source table mapping")
 
     # ── Engine resolution ─────────────────────────────────────────────────────
-    short_name = table.split(".")[-1]
-    engine, engine_type, qualified = svc._resolve_engine([short_name])
-    qualified_table = qualified.get(short_name, table)
+    engine, engine_type, qualified = svc._resolve_engine([table])
+    qualified_table = qualified.get(table, table)
 
     # ── Fetch artifact IDs for canonical refs ─────────────────────────────────
     compare_artifact_id: str | None = svc._resolve_artifact_id_for_step(session_id, compare_step_id)

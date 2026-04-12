@@ -248,6 +248,9 @@ POST /routing/resolve
 Resolves a set of table names to a single engine capable of querying all of them. This endpoint is useful for debugging routing decisions or for agents that want to understand which engine will be used before submitting a step.
 
 The router selects the highest-priority engine that has active bindings to sources containing all the specified tables.
+Routing accepts either a synced table's full `source_objects.fqn` or its short `native_name`.
+When both could match, full FQN wins; if a short name matches multiple synced tables, the request
+fails and the caller must retry with a full FQN.
 
 ### Request Body
 
@@ -267,7 +270,7 @@ The router selects the highest-priority engine that has active bindings to sourc
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `table_names` | array[string] | yes | Table names to resolve (fully qualified or catalog-resolvable) |
+| `table_names` | array[string] | yes | Table names to resolve. Use synced full FQNs when available; short native names remain supported only when unambiguous. |
 | `routing_intent` | object | no | Hints to guide engine selection |
 
 **Routing intent fields:**

@@ -659,7 +659,7 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         self.service._resolve_engine = lambda table_names: (
             _FakeEngine(),
             "duckdb",
-            {table_names[0]: f"analytics.{table_names[0]}"},
+            {table_names[0]: table_names[0]},
         )
 
         def fake_compile(step, *, engine_type, semantic_context=None):
@@ -768,7 +768,7 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         self.service._resolve_engine = lambda table_names: (
             _FakeEngine(),
             "duckdb",
-            {table_names[0]: f"analytics.{table_names[0]}"},
+            {table_names[0]: table_names[0]},
         )
 
         def fake_compile(step, *, engine_type, semantic_context=None):
@@ -813,7 +813,7 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         self.service._resolve_engine = lambda table_names: (
             _FakeEngine(),
             "duckdb",
-            {table_names[0]: f"analytics.{table_names[0]}"},
+            {table_names[0]: table_names[0]},
         )
 
         def fake_compile(step, *, engine_type, semantic_context=None):
@@ -872,7 +872,7 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         self.service._resolve_engine = lambda table_names: (
             _FakeEngine(),
             "duckdb",
-            {table_names[0]: f"analytics.{table_names[0]}"},
+            {table_names[0]: table_names[0]},
         )
 
         def fake_compile(step, *, engine_type, semantic_context=None):
@@ -937,6 +937,49 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         self.assertEqual(scoped_query["session_raw_filter"], "country = 'US'")
         self.assertEqual(scoped_query["scope_constraints_filter"], "region = 'us-east'")
         self.assertEqual(scoped_query["scope_predicate_filter"], "device_type = 'phone'")
+
+    def test_aggregate_query_service_passes_full_fqn_to_routing(self) -> None:
+        captured: dict[str, object] = {}
+        original_compile = self.service._compile_step_with_feedback
+        original_execute = service_module.execute_compiled
+        original_resolve_engine = self.service._resolve_engine
+
+        def fake_resolve_engine(table_names):
+            captured["table_names"] = list(table_names)
+            return (_FakeEngine(), "duckdb", {table_names[0]: "analytics.watch_events"})
+
+        def fake_compile(step, *, engine_type, semantic_context=None):
+            captured["params"] = dict(step.params)
+            return CompiledQuery(sql="SELECT 1", params=[])
+
+        class _Result:
+            rows = [{"platform": "android", "query_count": 10}]
+
+        self.service._resolve_engine = fake_resolve_engine
+        self.service._compile_step_with_feedback = fake_compile
+        service_module.execute_compiled = lambda engine, compiled: _Result()
+        try:
+            self.service._run_aggregate_query(
+                self.session_id,
+                {
+                    "table": "duckdb.analytics.watch_events",
+                    "group_by": ["platform"],
+                    "measures": [{"expr": "COUNT(*)", "as": "query_count"}],
+                    "time_scope": {
+                        "mode": "single_window",
+                        "grain": "day",
+                        "current": {"start": "2026-03-10", "end": "2026-03-17"},
+                    },
+                    "time_axis": {"analysis_time": {"column": "event_date"}},
+                },
+            )
+        finally:
+            self.service._compile_step_with_feedback = original_compile
+            service_module.execute_compiled = original_execute
+            self.service._resolve_engine = original_resolve_engine
+
+        self.assertEqual(captured["table_names"], ["duckdb.analytics.watch_events"])
+        self.assertEqual(captured["params"]["table"], "analytics.watch_events")
 
     def test_metric_query_service_passes_mixed_layout_pruning_to_trino_scoped_query(self) -> None:
         captured: dict[str, object] = {}

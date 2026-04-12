@@ -139,8 +139,7 @@ def run_observe_intent(
     if metric_sql is None or all_dimensions is None:
         raise ValueError(f"Metric '{metric_name}' not found or not published")
 
-    short_name = resolved.table.split(".")[-1]
-    engine, engine_type, qualified = svc._resolve_engine([short_name])
+    engine, engine_type, qualified = svc._resolve_engine([resolved.table])
     svc._resolve_windowed_query_time_axis(
         resolved,
         engine_type=engine_type,
@@ -148,7 +147,7 @@ def run_observe_intent(
         fallback_columns=all_dimensions,
     )
     scoped_query = svc._build_scoped_query(session_id, resolved)
-    qualified_table = qualified.get(short_name, resolved.table)
+    qualified_table = qualified.get(resolved.table, resolved.table)
     step_id = svc._new_step_id()
     now = datetime.now(UTC).isoformat()
 

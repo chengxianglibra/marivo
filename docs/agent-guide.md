@@ -123,6 +123,9 @@ DuckDB/Trino engines.
 
 Client → FastAPI → `app/api/` → service → semantic/routing/execution → SQLite + engines.
 Metadata reads use synced `source_objects`, not live catalogs.
+Bindings must use the synced source object's full `source_objects.fqn` as `carrier_locator`;
+routing and execution may accept short table names, but they must normalize them against synced
+`source_objects` and prefer full-FQN matches.
 Semantic object HTTP responses may expose derived lifecycle/readiness contract fields in addition to
 legacy storage `status`; preserve backward compatibility unless a task explicitly removes old fields.
 Lifecycle actions should use `validate`, `activate`, and `deprecate` as the primary public verbs;

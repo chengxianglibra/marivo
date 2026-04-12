@@ -86,18 +86,12 @@ class QueryRouter:
             raise ValueError("No table names provided")
 
         # Step 1: resolve each table to its source_id
-        source_ids_per_table: dict[str, str] = {}
+        resolved_tables: dict[str, dict[str, Any]] = {}
         for table_name in table_names:
-            row = self.metadata.query_one(
-                "SELECT source_id FROM source_objects WHERE object_type = 'table' AND native_name = ?",
-                [table_name],
-            )
-            if row is None:
-                raise KeyError(f"Table not found in source_objects: {table_name}")
-            source_ids_per_table[table_name] = row["source_id"]
+            resolved_tables[table_name] = self._resolve_table_source_object(table_name)
 
         # Step 2: for each unique source, get candidate engine_ids and binding info
-        unique_sources = set(source_ids_per_table.values())
+        unique_sources = {str(table["source_id"]) for table in resolved_tables.values()}
         engine_sets: dict[str, set[str]] = {}
         engine_priorities: dict[str, dict[str, int]] = {}  # engine_id -> source_id -> priority
         # Track binding details: (source_id, engine_id) -> binding dict
@@ -219,11 +213,11 @@ class QueryRouter:
         # Step 5: build qualified names using binding namespace
         qualified_names: dict[str, str] = {}
         for table_name in table_names:
-            source_id = source_ids_per_table[table_name]
+            resolved_table = resolved_tables[table_name]
+            source_id = str(resolved_table["source_id"])
             binding = binding_details.get((source_id, best_engine_id), {})
             qualified_names[table_name] = self.qualify_table_name(
-                table_name,
-                source_id,
+                resolved_table,
                 binding,
             )
 
@@ -283,8 +277,7 @@ class QueryRouter:
 
     def qualify_table_name(
         self,
-        table_native_name: str,
-        source_id: str,
+        table_source_object: dict[str, Any],
         binding: dict[str, Any],
     ) -> str:
         """Build an engine-qualified table reference using binding namespace."""
@@ -297,21 +290,52 @@ class QueryRouter:
         # Resolve schema: explicit override from namespace, or look up from source_objects hierarchy
         schema = ns.get("schema")  # explicit override
         if schema is None:
-            schema = self._get_table_schema(table_native_name, source_id)
+            schema = self._get_table_schema(table_source_object)
         if schema is not None:
             parts.append(schema)
 
-        parts.append(table_native_name)
+        parts.append(str(table_source_object["native_name"]))
         return ".".join(parts)
 
-    def _get_table_schema(self, table_native_name: str, source_id: str) -> str | None:
-        """Find the parent schema name for a table in source_objects."""
-        row = self.metadata.query_one(
-            """SELECT so_parent.native_name
-               FROM source_objects so
-               JOIN source_objects so_parent ON so.parent_id = so_parent.object_id
-               WHERE so.source_id = ? AND so.native_name = ? AND so.object_type = 'table'
+    def _resolve_table_source_object(self, table_name: str) -> dict[str, Any]:
+        short_name = table_name.split(".")[-1]
+        rows = self.metadata.query_rows(
+            """
+            SELECT object_id, source_id, parent_id, native_name, fqn, updated_at
+            FROM source_objects
+            WHERE object_type = 'table' AND (fqn = ? OR native_name = ?)
+            ORDER BY CASE WHEN fqn = ? THEN 0 ELSE 1 END, updated_at DESC, object_id
             """,
-            [source_id, table_native_name],
+            [table_name, short_name, table_name],
+        )
+        if not rows:
+            raise KeyError(f"Table not found in source_objects: {table_name}")
+
+        matched_fqn_rows = [dict(row) for row in rows if str(row["fqn"]) == table_name]
+        if matched_fqn_rows:
+            return matched_fqn_rows[0]
+
+        if len(rows) > 1:
+            if len({str(row["fqn"]) for row in rows}) == 1:
+                return dict(rows[0])
+            matching_fqns = ", ".join(str(row["fqn"]) for row in rows)
+            raise ValueError(
+                "Ambiguous table name in source_objects; use full FQN: "
+                f"{table_name} -> {matching_fqns}"
+            )
+
+        return dict(rows[0])
+
+    def _get_table_schema(self, table_source_object: dict[str, Any]) -> str | None:
+        """Find the parent schema name for a table in source_objects."""
+        parent_id = table_source_object.get("parent_id")
+        if parent_id is None:
+            return None
+        row = self.metadata.query_one(
+            """SELECT native_name
+               FROM source_objects
+               WHERE object_id = ?
+            """,
+            [parent_id],
         )
         return row["native_name"] if row else None
