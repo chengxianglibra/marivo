@@ -50,6 +50,8 @@ contract:
 - `blocker_count`: count of blocking requirements for quick filtering
 - `capabilities_summary`: summary of key capability flags (boolean only)
 - Headers are included but heavy payloads (interface_contract, payload) are omitted
+- Readiness is computed from the same full semantic contract used by detail reads; the list surface
+  is lightweight in shape only
 
 During the current migration phase, `status=published` maps to `lifecycle_status=active`.
 For list-route backward compatibility, `status=active` is also accepted as an alias and is

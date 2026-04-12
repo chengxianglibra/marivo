@@ -144,8 +144,10 @@ dimension/process/intent mismatches back into semantic object readiness fields.
 Compiler and intent execution entrypoints should enforce the same object-level readiness gate and
 surface structured readiness failures instead of collapsing them into generic compile errors.
 List endpoints return lightweight items by default (header, status, blocker_count, capabilities_summary);
-use `detail=true` query parameter for backward-compatible full payload. Detail endpoints return
-full objects including `dependency_refs` and stubbed `dependent_refs` (empty list, deferred implementation).
+use `detail=true` query parameter for backward-compatible full payload. Lightweight list responses
+must still derive readiness from the same full semantic contract used by detail reads. Detail
+endpoints return full objects including `dependency_refs` and stubbed `dependent_refs` (empty
+list, deferred implementation).
 Admin semantic catalog views should treat `lifecycle_status` and `readiness_status` as the primary
 operator-facing state, with blockers shown before helper/debug actions so `published` is never
 presented as a proxy for usability.

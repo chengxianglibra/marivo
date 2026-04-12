@@ -2368,9 +2368,8 @@ class SemanticServiceSupport:
             "revision": row["revision"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
-        }
-        if mode == "detail":
-            binding["interface_contract"] = {
+            # Readiness evaluation needs the full contract even for lightweight list items.
+            "interface_contract": {
                 "imports": [
                     {
                         "import_key": import_row["import_key"],
@@ -2426,8 +2425,9 @@ class SemanticServiceSupport:
                     }
                     for policy_row in policy_rows
                 ],
-            }
-        return self._augment_object_with_readiness(
+            },
+        }
+        binding = self._augment_object_with_readiness(
             binding,
             object_kind="binding",
             row=row,
@@ -2436,6 +2436,9 @@ class SemanticServiceSupport:
             mode=mode,
             include_dependents=include_dependents,
         )
+        if mode == "list":
+            binding.pop("interface_contract", None)
+        return binding
 
     def _row_to_compatibility_profile(
         self,
