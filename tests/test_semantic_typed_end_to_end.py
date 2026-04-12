@@ -221,9 +221,9 @@ class TypedSemanticEndToEndTests(unittest.TestCase):
                             "carrier_binding_key": "primary",
                             "target": {
                                 "target_kind": "metric_input",
-                                "target_key": "metric_input.value",
+                                "target_key": "measure",
                             },
-                            "semantic_ref": "metric_input.value",
+                            "semantic_ref": "metric_input.measure",
                             "surface_ref": "field.value",
                         },
                     ],

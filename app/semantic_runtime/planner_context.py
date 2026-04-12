@@ -7,6 +7,7 @@ from typing import Any
 from app.semantic_runtime.errors import (
     SemanticRuntimeInvalidRefError,
     SemanticRuntimeNotFoundError,
+    SemanticRuntimeNotReadyError,
     SemanticRuntimeUnpublishedError,
 )
 from app.semantic_runtime.resolution import SemanticResolver
@@ -72,7 +73,8 @@ class PlannerContextProvider:
             except (
                 SemanticRuntimeInvalidRefError,
                 SemanticRuntimeNotFoundError,
+                SemanticRuntimeNotReadyError,
                 SemanticRuntimeUnpublishedError,
             ) as e:
-                logger.warning("Skipping invalid semantic ref %s: %s", row["semantic_ref"], e)
+                logger.warning("Skipping unavailable semantic ref %s: %s", row["semantic_ref"], e)
         return contexts

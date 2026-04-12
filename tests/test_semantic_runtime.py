@@ -11,6 +11,7 @@ from app.main import create_app
 from app.semantic_runtime import (
     CatalogRuntimeService,
     SemanticRuntimeInvalidRefError,
+    SemanticRuntimeNotReadyError,
     SemanticRuntimeUnpublishedError,
 )
 from tests.semantic_test_helpers import (
@@ -89,29 +90,11 @@ class SemanticRuntimeTests(unittest.TestCase):
         cls.client.close()
         cls.temp_dir.cleanup()
 
-    def test_semantic_resolver_resolves_published_metric(self) -> None:
+    def test_semantic_resolver_hides_not_ready_metric(self) -> None:
         service = self.client.app.state.service
 
         resolved = service.semantic_resolver.resolve_metric("watch_time")
-
-        self.assertIsNotNone(resolved)
-        assert resolved is not None
-        self.assertEqual(resolved.metric_ref, "metric.watch_time")
-        self.assertEqual(resolved.observed_entity_ref, "entity.user")
-        self.assertEqual(resolved.observation_grain_ref, "grain.session")
-        self.assertEqual(resolved.definition_sql, "avg(play_duration_seconds)")
-        self.assertEqual(
-            resolved.dimensions,
-            ["platform", "app_version", "network_type", "content_type"],
-        )
-        self.assertEqual(resolved.grain, "session")
-        self.assertEqual(resolved.measure_type, "average")
-        self.assertEqual(
-            resolved.allowed_dimensions,
-            ["platform", "network_type", "content_type"],
-        )
-        self.assertEqual(resolved.quality_expectations, {"min_group_size": 100})
-        self.assertEqual(resolved.metadata["display_name"], "Watch Time")
+        self.assertIsNone(resolved)
 
     def test_semantic_repository_resolves_runtime_objects(self) -> None:
         repository = self.client.app.state.service.semantic_repository
@@ -119,13 +102,9 @@ class SemanticRuntimeTests(unittest.TestCase):
         resolved_metric = repository.resolve_metric("watch_time")
         resolved_entity = repository.resolve_entity("user")
 
-        self.assertIsNotNone(resolved_metric)
+        self.assertIsNone(resolved_metric)
         self.assertIsNotNone(resolved_entity)
-        assert resolved_metric is not None
         assert resolved_entity is not None
-        self.assertEqual(resolved_metric.metric_ref, "metric.watch_time")
-        self.assertEqual(resolved_metric.observation_grain_ref, "grain.session")
-        self.assertEqual(resolved_metric.grain, "session")
         self.assertEqual(resolved_entity.entity_ref, "entity.user")
         self.assertEqual(resolved_entity.key_refs, ["key.user_id"])
 
@@ -316,6 +295,7 @@ class SemanticRuntimeTests(unittest.TestCase):
                     "carrier_bindings": [
                         {
                             "binding_key": "primary",
+                            "source_object_ref": self.watch_events_object_id,
                             "carrier_kind": "table",
                             "carrier_locator": self.watch_events_fqn,
                             "binding_role": "primary",
@@ -379,13 +359,11 @@ class SemanticRuntimeTests(unittest.TestCase):
 
         repository = self.client.app.state.service.semantic_repository
 
-        resolved_metric = repository.resolve_metric_ref(metric_ref)
-        self.assertEqual(resolved_metric.object_kind, "metric")
-        self.assertEqual(resolved_metric.ref, metric_ref)
-        self.assertEqual(
-            resolved_metric.semantic_object["header"]["observed_entity_ref"],
-            entity_ref,
-        )
+        metric_availability = repository.inspect_ref(metric_ref)
+        self.assertEqual(metric_availability.lifecycle_status, "active")
+        self.assertEqual(metric_availability.readiness_status, "not_ready")
+        with self.assertRaises(SemanticRuntimeNotReadyError):
+            repository.resolve_metric_ref(metric_ref)
 
         resolved_entity = repository.resolve_entity_ref(entity_ref)
         self.assertEqual(resolved_entity.object_kind, "entity")
@@ -394,6 +372,9 @@ class SemanticRuntimeTests(unittest.TestCase):
             time_ref,
         )
 
+        process_availability = repository.inspect_ref(process_ref)
+        self.assertEqual(process_availability.lifecycle_status, "active")
+        self.assertEqual(process_availability.readiness_status, "ready")
         resolved_process = repository.resolve_process_ref(process_ref)
         self.assertEqual(resolved_process.object_kind, "process")
         self.assertEqual(
@@ -425,7 +406,8 @@ class SemanticRuntimeTests(unittest.TestCase):
             ],
             self.watch_events_fqn,
         )
-        self.assertEqual(repository.resolve_ref(metric_ref).object_kind, "metric")
+        with self.assertRaises(SemanticRuntimeNotReadyError):
+            repository.resolve_ref(metric_ref)
 
         runtime = CatalogRuntimeService(
             self.metadata_store,
@@ -440,16 +422,9 @@ class SemanticRuntimeTests(unittest.TestCase):
         ):
             search_results = runtime.search(suffix, object_type=object_type)
             self.assertTrue(any(result["ref"] == expected_ref for result in search_results))
-
         resolved_process_detail = runtime.resolve(process_ref)
         self.assertEqual(resolved_process_detail["object_kind"], "process")
         self.assertEqual(resolved_process_detail["ref"], process_ref)
-        self.assertEqual(
-            resolved_process_detail["semantic_object"]["interface_contract"][
-                "exported_dimension_refs"
-            ],
-            [dimension_ref],
-        )
 
     def test_typed_repository_rejects_invalid_and_unpublished_refs(self) -> None:
         repository = self.client.app.state.service.semantic_repository
@@ -638,19 +613,12 @@ class SemanticRuntimeTests(unittest.TestCase):
         self.assertIn("session", context)
         self.assertEqual(context["session"]["session_id"], session["session_id"])
         self.assertEqual(context["session"]["goal"], "Semantic runtime test")
-        metric = next(
-            metric
-            for metric in context["metrics"]
-            if metric["header"]["metric_ref"] == "metric.watch_time"
+        self.assertFalse(
+            any(
+                metric["header"]["metric_ref"] == "metric.watch_time"
+                for metric in context["metrics"]
+            )
         )
-        self.assertEqual(metric["header"]["metric_family"], "average_metric")
-        self.assertEqual(metric["header"]["observed_entity_ref"], "entity.user")
-        self.assertEqual(metric["header"]["observation_grain_ref"], "grain.session")
-        self.assertEqual(
-            metric["payload"]["allowed_dimensions"],
-            ["platform", "network_type", "content_type"],
-        )
-        self.assertNotIn("legacy", metric)
         entity = next(
             entity
             for entity in context["entities"]
@@ -672,14 +640,12 @@ class SemanticRuntimeTests(unittest.TestCase):
         context = repository.build_planner_context(session["session_id"])
 
         self.assertEqual(context["session"]["session_id"], session["session_id"])
-        metric = next(
-            metric
-            for metric in context["metrics"]
-            if metric["header"]["metric_ref"] == "metric.watch_time"
+        self.assertFalse(
+            any(
+                metric["header"]["metric_ref"] == "metric.watch_time"
+                for metric in context["metrics"]
+            )
         )
-        self.assertEqual(metric["header"]["observation_grain_ref"], "grain.session")
-        self.assertEqual(metric["header"]["metric_family"], "average_metric")
-        self.assertNotIn("legacy", metric)
 
     def test_semantic_resolver_resolves_published_entity(self) -> None:
         service = self.client.app.state.service
@@ -721,54 +687,36 @@ class SemanticRuntimeTests(unittest.TestCase):
         runtime = CatalogRuntimeService(self.metadata_store, self.binding_service)
 
         results = runtime.search("watch", object_type="metric")
+        self.assertFalse(any(result["name"] == "watch_time" for result in results))
 
+        results = runtime.search("watch", object_type="metric", readiness="not_ready")
         metric = next(result for result in results if result["name"] == "watch_time")
         self.assertEqual(metric["object_kind"], "metric")
         self.assertEqual(metric["ref"], "metric.watch_time")
         self.assertEqual(metric["object_id"], self.metric_id)
+        self.assertEqual(metric["lifecycle_status"], "active")
+        self.assertEqual(metric["readiness_status"], "not_ready")
 
-    def test_catalog_runtime_resolve_returns_typed_detail(self) -> None:
+    def test_catalog_runtime_resolve_raises_not_ready_for_non_ready_metric(self) -> None:
         runtime = CatalogRuntimeService(self.metadata_store, self.binding_service)
 
-        resolved = runtime.resolve("metric.watch_time")
+        with self.assertRaises(SemanticRuntimeNotReadyError) as ctx:
+            runtime.resolve("metric.watch_time")
 
-        self.assertEqual(resolved["object_kind"], "metric")
-        self.assertEqual(resolved["object_id"], self.metric_id)
-        self.assertEqual(resolved["ref"], "metric.watch_time")
-        self.assertEqual(resolved["semantic_object"]["lifecycle_status"], "active")
-        self.assertEqual(resolved["semantic_object"]["readiness_status"], "not_ready")
-        self.assertEqual(
-            resolved["semantic_object"]["blocking_requirements"][0]["code"],
-            "METRIC_INPUT_COVERAGE_MISSING",
-        )
-        self.assertEqual(
-            resolved["semantic_object"]["capabilities"],
-            {
-                "supports_observe": True,
-                "supports_attribute": True,
-                "supports_diagnose": True,
-                "supports_detect": True,
-                "supports_validate": False,
-                "supports_decompose": False,
-            },
-        )
-        self.assertEqual(resolved["semantic_object"]["header"]["metric_ref"], "metric.watch_time")
-        self.assertEqual(
-            resolved["semantic_object"]["header"]["observed_entity_ref"],
-            "entity.user",
-        )
-        self.assertIsInstance(resolved["semantic_object"]["payload"], dict)
-        self.assertNotIn("physical_assets", resolved)
-        self.assertNotIn("mappings", resolved)
+        error = ctx.exception
+        self.assertEqual(error.semantic_ref, "metric.watch_time")
+        self.assertEqual(error.lifecycle_status, "active")
+        self.assertEqual(error.readiness_status, "not_ready")
+        self.assertEqual(error.blocking_requirements[0]["code"], "METRIC_INPUT_COVERAGE_MISSING")
 
     def test_catalog_runtime_resolve_requires_explicit_typed_refs(self) -> None:
         runtime = CatalogRuntimeService(self.metadata_store, self.binding_service)
 
-        metric_resolved = runtime.resolve("metric.watch_time")
         entity_resolved = runtime.resolve("entity.user")
 
-        self.assertEqual(metric_resolved["ref"], "metric.watch_time")
         self.assertEqual(entity_resolved["ref"], "entity.user")
+        with self.assertRaises(SemanticRuntimeNotReadyError):
+            runtime.resolve("metric.watch_time")
         with self.assertRaisesRegex(KeyError, "requires an explicit typed ref"):
             runtime.resolve("runtime_session")
 
@@ -792,6 +740,12 @@ class SemanticRuntimeTests(unittest.TestCase):
 
         self.assertEqual(context["session_id"], session["session_id"])
         self.assertIn("metric_query", context["available_step_types"])
+        self.assertFalse(
+            any(
+                metric["header"]["metric_ref"] == "metric.watch_time"
+                for metric in context["metrics"]
+            )
+        )
         entity = next(
             entity
             for entity in context["entities"]

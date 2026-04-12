@@ -127,8 +127,9 @@ Semantic object HTTP responses may expose derived lifecycle/readiness contract f
 legacy storage `status`; preserve backward compatibility unless a task explicitly removes old fields.
 Direct dependency information may also be exposed via `dependency_refs` on semantic object read
 surfaces when a task needs catalog/debug visibility.
-For entity/metric/process, do not assume `published` implies `ready`; readiness may be blocked by
-dependencies, bindings, or profile mismatches.
+Runtime/catalog defaults should treat readiness as the availability gate. For entity/metric/process,
+do not assume `published` implies `ready`; readiness may be blocked by dependencies, bindings, or
+profile mismatches.
 List endpoints return lightweight items by default (header, status, blocker_count, capabilities_summary);
 use `detail=true` query parameter for backward-compatible full payload. Detail endpoints return
 full objects including `dependency_refs` and stubbed `dependent_refs` (empty list, deferred implementation).

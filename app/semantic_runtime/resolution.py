@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from typing import Any, ClassVar
+from typing import Any, ClassVar, cast
 
+from app.semantic_readiness import ObjectKind, SemanticReadinessService
 from app.semantic_runtime.errors import (
     SemanticRuntimeInvalidRefError,
     SemanticRuntimeNotFoundError,
+    SemanticRuntimeNotReadyError,
     SemanticRuntimeUnpublishedError,
 )
 from app.semantic_runtime.semantic_metadata import runtime_ref_kind
@@ -76,6 +78,24 @@ class ResolvedEntity:
     lineage: list[str] = field(default_factory=list)
     quality_expectations: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class RuntimeSemanticAvailability:
+    resolved: ResolvedSemanticObject
+    lifecycle_status: str
+    readiness_status: str
+    blocking_requirements: list[dict[str, Any]] = field(default_factory=list)
+    capabilities: dict[str, Any] = field(default_factory=dict)
+    dependency_refs: list[str] = field(default_factory=list)
+
+    @property
+    def is_active(self) -> bool:
+        return self.lifecycle_status == "active"
+
+    @property
+    def is_ready(self) -> bool:
+        return self.readiness_status == "ready"
 
 
 class SemanticRuntimeMetadataReader:
@@ -484,8 +504,29 @@ class SemanticResolver:
     def __init__(self, metadata: MetadataStore) -> None:
         self.metadata = metadata
         self.loader = SemanticRuntimeMetadataReader(metadata)
+        self.readiness_service = SemanticReadinessService(metadata)
 
     def resolve_ref(self, semantic_ref: str) -> ResolvedSemanticObject:
+        availability = self.inspect_ref(semantic_ref)
+        if not availability.is_active:
+            raise SemanticRuntimeUnpublishedError(
+                f"Semantic ref is not active: {semantic_ref}",
+                semantic_ref=semantic_ref,
+            )
+        if not availability.is_ready:
+            raise SemanticRuntimeNotReadyError(
+                f"Semantic ref is not ready: {semantic_ref}",
+                semantic_ref=semantic_ref,
+                object_kind=availability.resolved.object_kind,
+                lifecycle_status=availability.lifecycle_status,
+                readiness_status=availability.readiness_status,
+                blocking_requirements=availability.blocking_requirements,
+                capabilities=availability.capabilities,
+                dependency_refs=availability.dependency_refs,
+            )
+        return availability.resolved
+
+    def inspect_ref(self, semantic_ref: str) -> RuntimeSemanticAvailability:
         object_kind = runtime_ref_kind(semantic_ref)
         if object_kind is None:
             raise SemanticRuntimeInvalidRefError(
@@ -493,20 +534,32 @@ class SemanticResolver:
                 semantic_ref=semantic_ref,
             )
 
-        loaded = self.loader.load_by_ref(semantic_ref, published_only=True)
+        loaded = self.loader.load_by_ref(semantic_ref, published_only=False)
         if loaded is None:
-            existing = self.loader.load_by_ref(semantic_ref, published_only=False)
-            if existing is None:
-                raise SemanticRuntimeNotFoundError(
-                    f"Unknown semantic ref: {semantic_ref}",
-                    semantic_ref=semantic_ref,
-                )
-            raise SemanticRuntimeUnpublishedError(
-                f"Semantic ref is not published: {semantic_ref}",
+            raise SemanticRuntimeNotFoundError(
+                f"Unknown semantic ref: {semantic_ref}",
                 semantic_ref=semantic_ref,
             )
-
-        return self._build_resolved_object(*loaded)
+        resolved = self._build_resolved_object(*loaded)
+        readiness = self.readiness_service.evaluate_snapshot(
+            object_kind=cast("ObjectKind", resolved.object_kind),
+            object_id=resolved.object_id,
+            ref=resolved.ref,
+            status=resolved.status,
+            revision=resolved.revision,
+            semantic_object=dict(resolved.semantic_object),
+        )
+        return RuntimeSemanticAvailability(
+            resolved=resolved,
+            lifecycle_status=readiness.lifecycle_status,
+            readiness_status=readiness.readiness_status,
+            blocking_requirements=[item.to_dict() for item in readiness.blocking_requirements],
+            capabilities=dict(readiness.capabilities),
+            dependency_refs=_dependency_refs_for_object(
+                object_kind=cast("ObjectKind", resolved.object_kind),
+                semantic_object=resolved.semantic_object,
+            ),
+        )
 
     def resolve_entity_ref(self, entity_ref: str) -> ResolvedSemanticObject:
         return self._resolve_ref_of_kind(entity_ref, expected_kind="entity")
@@ -532,6 +585,7 @@ class SemanticResolver:
         except (
             SemanticRuntimeInvalidRefError,
             SemanticRuntimeNotFoundError,
+            SemanticRuntimeNotReadyError,
             SemanticRuntimeUnpublishedError,
         ):
             return None
@@ -582,6 +636,7 @@ class SemanticResolver:
         except (
             SemanticRuntimeInvalidRefError,
             SemanticRuntimeNotFoundError,
+            SemanticRuntimeNotReadyError,
             SemanticRuntimeUnpublishedError,
         ):
             return None
@@ -652,3 +707,112 @@ class SemanticResolver:
             created_at=str(semantic_object["created_at"]),
             updated_at=str(semantic_object["updated_at"]),
         )
+
+
+_DEPENDENCY_PREFIXES = (
+    "entity.",
+    "metric.",
+    "process.",
+    "dimension.",
+    "time.",
+    "enum.",
+    "binding.",
+    "compiler_profile.",
+    "subject.",
+    "source_object.",
+)
+
+
+def _dependency_refs_for_object(
+    *, object_kind: ObjectKind, semantic_object: dict[str, Any]
+) -> list[str]:
+    refs: list[str] = []
+    seen: set[str] = set()
+    if object_kind == "entity":
+        interface_contract = semantic_object.get("interface_contract") or {}
+        hierarchy = interface_contract.get("hierarchy") or {}
+        _append_dependency_ref(refs, seen, hierarchy.get("parent_entity_ref"))
+        _append_dependency_ref(refs, seen, interface_contract.get("primary_time_ref"))
+        for descriptor in interface_contract.get("stable_descriptors") or []:
+            _append_dependency_ref(refs, seen, descriptor.get("dimension_ref"))
+        return refs
+    if object_kind == "metric":
+        header = semantic_object.get("header") or {}
+        payload = semantic_object.get("payload") or {}
+        for value in (
+            header.get("population_subject_ref"),
+            header.get("observed_entity_ref"),
+            header.get("primary_time_ref"),
+        ):
+            _append_dependency_ref(refs, seen, value)
+        _collect_dependency_refs(payload, refs, seen)
+        return refs
+    if object_kind == "process":
+        header = semantic_object.get("header") or {}
+        interface_contract = semantic_object.get("interface_contract") or {}
+        _collect_dependency_refs(interface_contract, refs, seen)
+        _collect_dependency_refs(semantic_object.get("payload") or {}, refs, seen)
+        return [ref for ref in refs if ref != header.get("process_ref")]
+    if object_kind == "dimension":
+        _collect_dependency_refs(semantic_object.get("interface_contract") or {}, refs, seen)
+        return refs
+    if object_kind in {"time", "enum"}:
+        return refs
+    if object_kind == "binding":
+        header = semantic_object.get("header") or {}
+        interface_contract = semantic_object.get("interface_contract") or {}
+        _append_dependency_ref(refs, seen, header.get("bound_object_ref"))
+        for binding_import in interface_contract.get("imports") or []:
+            _append_dependency_ref(refs, seen, binding_import.get("binding_ref"))
+        for carrier in interface_contract.get("carrier_bindings") or []:
+            _append_dependency_ref(refs, seen, carrier.get("primary_entity_ref"))
+            _append_dependency_ref(refs, seen, carrier.get("source_object_ref"))
+            _append_dependency_ref(refs, seen, carrier.get("carrier_locator"), allow_locator=True)
+        for field_binding in interface_contract.get("field_bindings") or []:
+            _append_dependency_ref(refs, seen, field_binding.get("semantic_ref"))
+            target = field_binding.get("target") or {}
+            _append_dependency_ref(refs, seen, target.get("target_key"))
+            _append_dependency_ref(refs, seen, target.get("context_ref"))
+        for join_relation in interface_contract.get("join_relations") or []:
+            for key_pair in join_relation.get("key_ref_pairs") or []:
+                _collect_dependency_refs(key_pair, refs, seen)
+        for policy in interface_contract.get("consumption_policies") or []:
+            _append_dependency_ref(refs, seen, policy.get("anchor_ref"))
+            _append_dependency_ref(refs, seen, policy.get("grace_period_ref"))
+        return refs
+    return refs
+
+
+def _append_dependency_ref(
+    refs: list[str],
+    seen: set[str],
+    value: str | None,
+    *,
+    allow_locator: bool = False,
+) -> None:
+    if value is None:
+        return
+    ref = str(value).strip()
+    if not ref:
+        return
+    if not allow_locator and not ref.startswith(_DEPENDENCY_PREFIXES):
+        return
+    if ref in seen:
+        return
+    seen.add(ref)
+    refs.append(ref)
+
+
+def _collect_dependency_refs(
+    value: Any, refs: list[str], seen: set[str], *, allow_locator: bool = False
+) -> None:
+    if isinstance(value, str):
+        _append_dependency_ref(refs, seen, value, allow_locator=allow_locator)
+        return
+    if isinstance(value, dict):
+        for nested in value.values():
+            _collect_dependency_refs(nested, refs, seen, allow_locator=allow_locator)
+        return
+    if isinstance(value, list):
+        for item in value:
+            _collect_dependency_refs(item, refs, seen, allow_locator=allow_locator)

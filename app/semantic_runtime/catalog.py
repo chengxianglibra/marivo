@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from app.analysis_core import SUPPORTED_STEP_TYPES
-from app.semantic_readiness import ObjectKind, SemanticReadinessService
+from app.semantic_runtime.errors import (
+    SemanticRuntimeNotReadyError,
+    SemanticRuntimeUnpublishedError,
+)
 from app.semantic_runtime.repository import SemanticRuntimeRepository
+from app.semantic_runtime.resolution import RuntimeSemanticAvailability
 from app.semantic_runtime.semantic_metadata import runtime_ref_kind
 from app.storage.metadata import MetadataStore
 
@@ -66,10 +70,15 @@ class CatalogRuntimeService:
         self.metadata = metadata
         self.binding_service = binding_service
         self.semantic_repository = semantic_repository or SemanticRuntimeRepository(metadata)
-        self.readiness_service = SemanticReadinessService(metadata)
 
-    def search(self, query: str, object_type: str | None = None) -> list[dict[str, Any]]:
+    def search(
+        self,
+        query: str,
+        object_type: str | None = None,
+        readiness: str = "ready",
+    ) -> list[dict[str, Any]]:
         normalized_type = self._normalize_object_type_filter(object_type)
+        normalized_readiness = self._normalize_readiness_filter(readiness)
         results: list[dict[str, Any]] = []
         pattern = f"%{query}%"
 
@@ -99,7 +108,15 @@ class CatalogRuntimeService:
                 """,
                 [pattern, pattern, pattern],
             )
-            results.extend(self._semantic_search_row_to_summary(object_kind, row) for row in rows)
+            for row in rows:
+                availability = self.semantic_repository.inspect_ref(str(row["ref"]))
+                if not self._matches_readiness_filter(
+                    lifecycle_status=availability.lifecycle_status,
+                    readiness_status=availability.readiness_status,
+                    readiness_filter=normalized_readiness,
+                ):
+                    continue
+                results.append(self._semantic_search_row_to_summary(object_kind, row, availability))
 
         if normalized_type is None or normalized_type == "asset":
             rows = self.metadata.query_rows(
@@ -130,8 +147,8 @@ class CatalogRuntimeService:
         )
         if row is None:
             raise KeyError(f"Catalog object {object_id!r} not found for kind {normalized_kind!r}")
-        resolved = self.semantic_repository.resolve_ref(str(row["ref"]))
-        detail = self._resolved_object_to_detail(resolved)
+        availability = self.semantic_repository.inspect_ref(str(row["ref"]))
+        detail = self._availability_to_detail(availability)
         detail["detail_path"] = self._catalog_detail_path(normalized_kind, object_id)
         return detail
 
@@ -146,8 +163,24 @@ class CatalogRuntimeService:
                 f"{normalized_name}. Semantic resolve requires an explicit typed ref."
             )
 
-        resolved = self.semantic_repository.resolve_ref(normalized_name)
-        return self._resolved_object_to_detail(resolved)
+        availability = self.semantic_repository.inspect_ref(normalized_name)
+        if availability.lifecycle_status != "active":
+            raise SemanticRuntimeUnpublishedError(
+                f"Semantic ref is not active: {normalized_name}",
+                semantic_ref=normalized_name,
+            )
+        if availability.readiness_status != "ready":
+            raise SemanticRuntimeNotReadyError(
+                f"Semantic ref is not ready: {normalized_name}",
+                semantic_ref=normalized_name,
+                object_kind=availability.resolved.object_kind,
+                lifecycle_status=availability.lifecycle_status,
+                readiness_status=availability.readiness_status,
+                blocking_requirements=availability.blocking_requirements,
+                capabilities=availability.capabilities,
+                dependency_refs=availability.dependency_refs,
+            )
+        return self._availability_to_detail(availability)
 
     def planner_context(self, session_id: str) -> dict[str, Any]:
         context = self.semantic_repository.build_planner_context(session_id)
@@ -250,8 +283,26 @@ class CatalogRuntimeService:
             )
         return normalized
 
+    def _normalize_readiness_filter(self, readiness: str | None) -> str:
+        normalized = (readiness or "ready").strip().lower()
+        if normalized not in {"ready", "not_ready", "stale", "all"}:
+            raise ValueError(
+                "Unsupported catalog readiness filter: "
+                f"{readiness}. Expected one of ['all', 'not_ready', 'ready', 'stale']."
+            )
+        return normalized
+
+    def _matches_readiness_filter(
+        self, *, lifecycle_status: str, readiness_status: str, readiness_filter: str
+    ) -> bool:
+        if lifecycle_status != "active":
+            return False
+        if readiness_filter == "all":
+            return True
+        return readiness_status == readiness_filter
+
     def _semantic_search_row_to_summary(
-        self, object_kind: str, row: dict[str, Any]
+        self, object_kind: str, row: dict[str, Any], availability: RuntimeSemanticAvailability
     ) -> dict[str, Any]:
         ref = str(row["ref"])
         object_id = str(row["object_id"])
@@ -264,6 +315,8 @@ class CatalogRuntimeService:
             "description": row["description"],
             "contract_version": row["contract_version"],
             "status": row["status"],
+            "lifecycle_status": availability.lifecycle_status,
+            "readiness_status": availability.readiness_status,
             "revision": row["revision"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
@@ -289,17 +342,19 @@ class CatalogRuntimeService:
             "source_object_path": f"/sources/{source_id}/objects/{object_id}",
         }
 
-    def _resolved_object_to_detail(self, resolved: Any) -> dict[str, Any]:
+    def _availability_to_detail(self, availability: RuntimeSemanticAvailability) -> dict[str, Any]:
+        resolved = availability.resolved
         semantic_object = dict(resolved.semantic_object)
-        readiness = self.readiness_service.evaluate_snapshot(
-            object_kind=cast("ObjectKind", resolved.object_kind),
-            object_id=resolved.object_id,
-            ref=resolved.ref,
-            status=resolved.status,
-            revision=resolved.revision,
-            semantic_object=semantic_object,
+        semantic_object.update(
+            {
+                "lifecycle_status": availability.lifecycle_status,
+                "readiness_status": availability.readiness_status,
+                "blocking_requirements": list(availability.blocking_requirements),
+                "capabilities": dict(availability.capabilities),
+                "dependency_refs": list(availability.dependency_refs),
+                "dependent_refs": [],
+            }
         )
-        semantic_object.update(readiness.contract_payload())
         return {
             "object_kind": resolved.object_kind,
             "object_id": resolved.object_id,

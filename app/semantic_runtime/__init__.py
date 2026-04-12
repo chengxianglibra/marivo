@@ -5,6 +5,7 @@ from app.semantic_runtime.errors import (
     SemanticRuntimeError,
     SemanticRuntimeInvalidRefError,
     SemanticRuntimeNotFoundError,
+    SemanticRuntimeNotReadyError,
     SemanticRuntimeUnpublishedError,
 )
 from app.semantic_runtime.planner_context import PlannerContextProvider
@@ -26,6 +27,7 @@ __all__ = [
     "SemanticRuntimeError",
     "SemanticRuntimeInvalidRefError",
     "SemanticRuntimeNotFoundError",
+    "SemanticRuntimeNotReadyError",
     "SemanticRuntimeRepository",
     "SemanticRuntimeUnpublishedError",
 ]
