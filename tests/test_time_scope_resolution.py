@@ -359,7 +359,11 @@ class TimeAxisResolverTests(unittest.TestCase):
             available_columns=["log_date", "resource_group"],
         ).resolve()
         self.assertEqual(resolved.analysis_time_kind, "date_field")
-        self.assertEqual(resolved.analysis_time_expr, "log_date")
+        # log_date defaults to yyyymmdd format, so analysis_time_expr should be a CAST expression
+        self.assertEqual(
+            resolved.analysis_time_expr,
+            "CAST(CONCAT(SUBSTR(CAST(log_date AS VARCHAR), 1, 4), '-', SUBSTR(CAST(log_date AS VARCHAR), 5, 2), '-', SUBSTR(CAST(log_date AS VARCHAR), 7, 2)) AS DATE)",
+        )
         self.assertEqual(
             resolved.partition_pruning_predicate,
             "log_date >= '20260324' AND log_date < '20260326'",
@@ -382,7 +386,11 @@ class TimeAxisResolverTests(unittest.TestCase):
             },
         ).resolve()
         self.assertEqual(resolved.analysis_time_kind, "date_field")
-        self.assertEqual(resolved.analysis_time_expr, "ds")
+        # yyyymmdd format requires CAST expression for DATE_TRUNC compatibility
+        self.assertEqual(
+            resolved.analysis_time_expr,
+            "CAST(CONCAT(SUBSTR(CAST(ds AS VARCHAR), 1, 4), '-', SUBSTR(CAST(ds AS VARCHAR), 5, 2), '-', SUBSTR(CAST(ds AS VARCHAR), 7, 2)) AS DATE)",
+        )
         self.assertEqual(resolved.analysis_time_format, "yyyymmdd")
         self.assertEqual(
             resolved.partition_pruning_predicate,
@@ -858,7 +866,8 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         self.assertEqual(captured["params"]["table"], "analytics.watch_events")
         scoped_query = captured["params"]["scoped_query"]
         self.assertEqual(scoped_query["analysis_time_kind"], "date_field")
-        self.assertEqual(scoped_query["analysis_time_expr"], "event_date")
+        # For date_field with unknown format, CAST is applied for DATE_TRUNC compatibility
+        self.assertEqual(scoped_query["analysis_time_expr"], "CAST(event_date AS DATE)")
         self.assertIsNone(scoped_query["analysis_time_format"])
         self.assertEqual(scoped_query["current"]["start"], "2026-03-10")
         self.assertEqual(scoped_query["current"]["end"], "2026-03-17")
@@ -1146,7 +1155,8 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         self.assertEqual(captured["params"]["order"], "query_count_delta_pct DESC")
         scoped_query = captured["params"]["scoped_query"]
         self.assertEqual(scoped_query["analysis_time_kind"], "date_field")
-        self.assertEqual(scoped_query["analysis_time_expr"], "event_date")
+        # For date_field with unknown format, CAST is applied for DATE_TRUNC compatibility
+        self.assertEqual(scoped_query["analysis_time_expr"], "CAST(event_date AS DATE)")
         self.assertIsNone(scoped_query["analysis_time_format"])
         self.assertEqual(scoped_query["current"]["start"], "2026-03-10")
         self.assertEqual(scoped_query["current"]["end"], "2026-03-17")
@@ -1437,7 +1447,8 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
             client.close()
 
         self.assertEqual(request.resolved_time_axis.analysis_time_kind, "date_field")
-        self.assertEqual(request.resolved_time_axis.analysis_time_expr, "event_date")
+        # For date_field with unknown format, CAST is applied for DATE_TRUNC compatibility
+        self.assertEqual(request.resolved_time_axis.analysis_time_expr, "CAST(event_date AS DATE)")
         self.assertIsNone(request.resolved_time_axis.analysis_time_format)
         self.assertEqual(
             request.resolved_time_axis.partition_pruning_predicate,

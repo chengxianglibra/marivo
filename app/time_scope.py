@@ -385,12 +385,13 @@ class TimeAxisResolver:
                     "provide a timestamp column or rely on partition date/hour metadata"
                 )
             if _looks_like_day_column(override):
+                date_format = self._analysis_date_format(metadata_chain, override)
                 return _AnalysisAxis(
                     kind="date_field",
-                    expr=override,
+                    expr=self._date_field_analysis_expr(override, date_format),
                     column=override,
                     date_column=override,
-                    date_format=self._analysis_date_format(metadata_chain, override),
+                    date_format=date_format,
                 )
             return _AnalysisAxis(kind="timestamp", expr=override, column=override)
 
@@ -440,25 +441,25 @@ class TimeAxisResolver:
                     columns,
                     "time_capabilities.analysis_time.fallback_date_column",
                 )
+                date_format = self._analysis_date_format(metadata_chain, caps.fallback_date_column)
                 return _AnalysisAxis(
                     kind="date_field",
-                    expr=caps.fallback_date_column,
+                    expr=self._date_field_analysis_expr(caps.fallback_date_column, date_format),
                     column=caps.fallback_date_column,
                     date_column=caps.fallback_date_column,
-                    date_format=self._analysis_date_format(
-                        metadata_chain, caps.fallback_date_column
-                    ),
+                    date_format=date_format,
                 )
 
         if not columns and self.request.time_scope.grain == "day":
             day_column = self._first_candidate(columns, _EMPTY_SCHEMA_DAY_CANDIDATES)
             if day_column is not None:
+                date_format = self._analysis_date_format(metadata_chain, day_column)
                 return _AnalysisAxis(
                     kind="date_field",
-                    expr=day_column,
+                    expr=self._date_field_analysis_expr(day_column, date_format),
                     column=day_column,
                     date_column=day_column,
-                    date_format=self._analysis_date_format(metadata_chain, day_column),
+                    date_format=date_format,
                 )
 
         timestamp_column = self._first_candidate(columns, _TIMESTAMP_CANDIDATES)
@@ -486,12 +487,13 @@ class TimeAxisResolver:
                 "provide time_axis override or metadata-backed timestamp/date+hour columns"
             )
         if day_column is not None:
+            date_format = self._analysis_date_format(metadata_chain, day_column)
             return _AnalysisAxis(
                 kind="date_field",
-                expr=day_column,
+                expr=self._date_field_analysis_expr(day_column, date_format),
                 column=day_column,
                 date_column=day_column,
-                date_format=self._analysis_date_format(metadata_chain, day_column),
+                date_format=date_format,
             )
         raise ValueError(
             f"could not resolve a time axis for {self.request.table}; provide time_axis override or metadata"
@@ -681,6 +683,13 @@ class TimeAxisResolver:
             hour_text_expr,
             engine_type=self.engine_type,
         )
+
+    def _date_field_analysis_expr(self, date_column: str, date_format: str | None) -> str:
+        """Build a DATE expression for analysis time axis from a date column.
+
+        Handles yyyymmdd format by converting to ISO format before casting to DATE.
+        """
+        return _date_field_expr(date_column, date_format, engine_type=self.engine_type)
 
     def _format_partition_date_literal(self, value: date, date_format: str | None) -> str:
         return _format_partition_date(value, date_format, engine_type=self.engine_type)
@@ -889,6 +898,20 @@ def _partition_date_text_expr(column: str, date_format: str | None, *, engine_ty
     if date_format == "yyyymmdd":
         return f"CONCAT(SUBSTR({raw}, 1, 4), '-', SUBSTR({raw}, 5, 2), '-', SUBSTR({raw}, 7, 2))"
     return raw
+
+
+def _date_field_expr(column: str, date_format: str | None, *, engine_type: str) -> str:
+    """Build a DATE expression suitable for DATE_TRUNC from a date column.
+
+    For yyyymmdd format (e.g., "20260410"), converts to ISO date format and casts to DATE.
+    For ISO format or unknown format, casts the column directly to DATE.
+    """
+    if date_format == "yyyymmdd":
+        # yyyymmdd format needs conversion to ISO format before casting
+        text_expr = _partition_date_text_expr(column, date_format, engine_type=engine_type)
+        return f"CAST({text_expr} AS DATE)"
+    # For ISO format or unknown format, cast directly to DATE
+    return f"CAST({column} AS DATE)"
 
 
 def _partition_hour_text_expr(column: str, *, engine_type: str) -> str:
