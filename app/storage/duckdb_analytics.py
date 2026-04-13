@@ -64,11 +64,17 @@ class DuckDBAnalyticsEngine(AnalyticsEngine):
     """DuckDB-backed analytics engine for tests and local development."""
 
     def __init__(self, db_path: str | Path) -> None:
-        self.db_path = Path(db_path)
+        # Support in-memory DuckDB via ":memory:" string
+        self._is_memory = str(db_path) == ":memory:"
+        if self._is_memory:
+            self.db_path = db_path  # Keep as string for :memory:
+        else:
+            self.db_path = Path(db_path)
 
     @contextmanager
     def _connect(self) -> Iterator[duckdb.DuckDBPyConnection]:
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        if not self._is_memory:
+            Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         con = duckdb.connect(str(self.db_path))
         try:
             yield con

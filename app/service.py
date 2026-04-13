@@ -6,7 +6,6 @@ import logging
 import time
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 from uuid import uuid4
 
@@ -3207,10 +3206,6 @@ class SemanticLayerService:
 
     def _new_step_id(self) -> str:
         return f"step_{uuid4().hex[:12]}"
-
-
-def default_db_path() -> Path:
-    return Path(__file__).resolve().parents[1] / "data" / "mvp.duckdb"
 
 
 class _ServiceWorkflowStepExecutor:
