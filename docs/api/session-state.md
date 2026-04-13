@@ -136,7 +136,8 @@ Canonical payload invariants still follow the analysis contracts:
 - `backing_findings`, `blocking_gaps`, and `artifact_refs` must never contain members belonging only to propositions excluded by paging
 - the response must reflect only externally visible proposition-local bundles; it must not expose a partially refreshed combination such as a new `latest_assessment` with an old proposal closure
 - runtime attempt, claim, retry, backlog, or migration-blocked status does not belong to this payload
-- this surface must not expose semantic-layer refs such as `metric_ref`, `process_ref`, `dimension.*`, `time.*`, or `binding.*`
+- this surface must not expose semantic-ref-specific fields such as `metric_ref`, `process_ref`, `dimension_ref`, `time_ref`, `binding_ref`, or `semantic_ref`
+- embedded canonical subject payloads may still carry typed semantic identifiers such as `metric.*` and `dimension.*` inside ordinary business fields like `subject_json.metric` or `subject_json.slice`
 - `artifact_refs` remain canonical provenance handles only; they must not be expanded into semantic identity payloads
 - semantic meaning may be recovered internally through step lineage metadata, but that recovery must not change this payload's canonical-only shape
 
