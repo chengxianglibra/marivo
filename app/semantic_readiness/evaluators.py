@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable
 from typing import Any
 
@@ -601,6 +602,14 @@ class BindingReadinessEvaluator:
                             dependency_ref=str(carrier.get("binding_key") or snapshot.ref),
                         )
                     )
+            blockers.extend(
+                _binding_time_binding_blockers(
+                    subject_ref=snapshot.ref,
+                    carrier_bindings=carrier_bindings,
+                    time_bindings=list(interface_contract.get("time_bindings") or []),
+                    context=context,
+                )
+            )
             capabilities["resolves_synced_source"] = carriers_resolve
             if not field_bindings:
                 blockers.append(
@@ -916,6 +925,87 @@ def _binding_target_coverage_blockers(
     return blockers
 
 
+def _binding_time_binding_blockers(
+    *,
+    subject_ref: str,
+    carrier_bindings: list[dict[str, Any]],
+    time_bindings: list[dict[str, Any]],
+    context: ReadinessEvaluationContext,
+) -> list[BlockingRequirementPayload]:
+    carrier_index = {str(carrier.get("binding_key") or ""): carrier for carrier in carrier_bindings}
+    blockers: list[BlockingRequirementPayload] = []
+    for time_binding in time_bindings:
+        if str(time_binding.get("resolution_kind") or "") != "timestamp_column":
+            continue
+        carrier_binding_key = str(time_binding.get("carrier_binding_key") or "")
+        carrier = carrier_index.get(carrier_binding_key)
+        if carrier is None:
+            continue
+        source_object = context.load_carrier_source_object(carrier)
+        if source_object is None:
+            continue
+        timestamp_surface_ref = _optional_str(time_binding.get("timestamp_surface_ref"))
+        timestamp_format = _optional_str(time_binding.get("timestamp_format")) or "native"
+        if timestamp_surface_ref is None:
+            continue
+        physical_name = _carrier_surface_physical_name(carrier, timestamp_surface_ref)
+        if physical_name is None:
+            continue
+        column_type = _source_object_column_type(source_object, physical_name)
+        if timestamp_format == "native":
+            if column_type is None:
+                blockers.append(
+                    _blocker(
+                        code="TIME_BINDING_TIMESTAMP_FORMAT_MISSING",
+                        message=(
+                            "Native timestamp_column bindings require a source column type or an "
+                            "explicit timestamp_format for string-backed columns."
+                        ),
+                        subject_ref=subject_ref,
+                        dependency_ref=physical_name,
+                        details={
+                            "carrier_binding_key": carrier_binding_key,
+                            "timestamp_surface_ref": timestamp_surface_ref,
+                            "physical_name": physical_name,
+                        },
+                    )
+                )
+            elif not _is_native_timestamp_type(column_type):
+                blockers.append(
+                    _blocker(
+                        code="TIME_BINDING_TIMESTAMP_NATIVE_TYPE_MISMATCH",
+                        message=(
+                            "timestamp_column with timestamp_format='native' must bind to a "
+                            "timestamp-like physical column."
+                        ),
+                        subject_ref=subject_ref,
+                        dependency_ref=physical_name,
+                        details={
+                            "carrier_binding_key": carrier_binding_key,
+                            "timestamp_surface_ref": timestamp_surface_ref,
+                            "physical_name": physical_name,
+                            "column_type": column_type,
+                        },
+                    )
+                )
+        elif timestamp_format not in {"iso8601_t_naive"}:
+            blockers.append(
+                _blocker(
+                    code="TIME_BINDING_TIMESTAMP_FORMAT_UNSUPPORTED",
+                    message="timestamp_column uses an unsupported timestamp_format.",
+                    subject_ref=subject_ref,
+                    dependency_ref=physical_name,
+                    details={
+                        "carrier_binding_key": carrier_binding_key,
+                        "timestamp_surface_ref": timestamp_surface_ref,
+                        "physical_name": physical_name,
+                        "timestamp_format": timestamp_format,
+                    },
+                )
+            )
+    return blockers
+
+
 def _evaluate_subject_bindings(
     *,
     context: ReadinessEvaluationContext,
@@ -1107,6 +1197,39 @@ def expected_scope_from_subject_ref(subject_ref: str) -> str:
 def _optional_str(value: Any) -> str | None:
     text = str(value or "").strip()
     return text or None
+
+
+def _carrier_surface_physical_name(
+    carrier_binding: dict[str, Any],
+    surface_ref: str,
+) -> str | None:
+    for field_surface in carrier_binding.get("field_surfaces") or []:
+        if str(field_surface.get("surface_ref") or "") == surface_ref:
+            return _optional_str(field_surface.get("physical_name"))
+    return None
+
+
+def _source_object_column_type(source_object: dict[str, Any], physical_name: str) -> str | None:
+    raw_properties = source_object.get("properties_json")
+    properties: dict[str, Any] = {}
+    if isinstance(raw_properties, str) and raw_properties:
+        try:
+            decoded = json.loads(raw_properties)
+        except json.JSONDecodeError:
+            decoded = {}
+        if isinstance(decoded, dict):
+            properties = decoded
+    elif isinstance(raw_properties, dict):
+        properties = raw_properties
+    for column in properties.get("columns") or []:
+        if str(column.get("name") or "") == physical_name:
+            return _optional_str(column.get("type"))
+    return None
+
+
+def _is_native_timestamp_type(column_type: str) -> bool:
+    normalized = column_type.strip().lower()
+    return "timestamp" in normalized or normalized == "datetime"
 
 
 def _dedupe_blockers(

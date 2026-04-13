@@ -1195,6 +1195,7 @@ class SemanticServiceSupport:
         timestamp_surface_ref = _optional_str(time_binding.get("timestamp_surface_ref"))
         date_surface_ref = _optional_str(time_binding.get("date_surface_ref"))
         hour_surface_ref = _optional_str(time_binding.get("hour_surface_ref"))
+        timestamp_format = _optional_str(time_binding.get("timestamp_format"))
         date_format = _optional_str(time_binding.get("date_format"))
         hour_format = _optional_str(time_binding.get("hour_format"))
         timezone_strategy = _optional_str(time_binding.get("timezone_strategy"))
@@ -1224,6 +1225,11 @@ class SemanticServiceSupport:
                 raise self._validation_error(
                     "time_binding timestamp_column resolution requires timestamp_surface_ref"
                 )
+            if timestamp_format not in {None, "native", "iso8601_t_naive"}:
+                raise self._validation_error(
+                    "time_binding timestamp_column resolution timestamp_format must be "
+                    "'native' or 'iso8601_t_naive'"
+                )
             if any(
                 value is not None
                 for value in (date_surface_ref, date_format, hour_surface_ref, hour_format)
@@ -1236,9 +1242,14 @@ class SemanticServiceSupport:
                 raise self._validation_error(
                     "time_binding date_column resolution requires date_surface_ref"
                 )
-            if timestamp_surface_ref is not None or hour_surface_ref is not None:
+            if (
+                timestamp_surface_ref is not None
+                or timestamp_format is not None
+                or hour_surface_ref is not None
+            ):
                 raise self._validation_error(
-                    "time_binding date_column resolution cannot include timestamp/hour surfaces"
+                    "time_binding date_column resolution cannot include timestamp/hour surfaces "
+                    "or timestamp_format"
                 )
             if hour_format is not None:
                 raise self._validation_error(
@@ -1251,9 +1262,10 @@ class SemanticServiceSupport:
                 raise self._validation_error(
                     "time_binding date_hour_columns resolution requires date_surface_ref and hour_surface_ref"
                 )
-            if timestamp_surface_ref is not None:
+            if timestamp_surface_ref is not None or timestamp_format is not None:
                 raise self._validation_error(
-                    "time_binding date_hour_columns resolution cannot include timestamp_surface_ref"
+                    "time_binding date_hour_columns resolution cannot include "
+                    "timestamp_surface_ref or timestamp_format"
                 )
             if date_format is not None and _normalize_date_format(date_format) is None:
                 raise self._validation_error(f"Unsupported time_binding date_format: {date_format}")
@@ -1955,9 +1967,10 @@ class SemanticServiceSupport:
                 INSERT INTO time_bindings (
                     time_binding_id, binding_id, carrier_binding_key, target_kind, target_key,
                     context_ref, semantic_ref, resolution_kind, timestamp_surface_ref,
+                    timestamp_format,
                     date_surface_ref, date_format, hour_surface_ref, hour_format,
                     timezone_strategy, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     f"tbind_{uuid4().hex[:24]}",
@@ -1969,6 +1982,7 @@ class SemanticServiceSupport:
                     time_binding["semantic_ref"],
                     time_binding["resolution_kind"],
                     time_binding.get("timestamp_surface_ref"),
+                    time_binding.get("timestamp_format"),
                     time_binding.get("date_surface_ref"),
                     _normalize_date_format(time_binding.get("date_format")),
                     time_binding.get("hour_surface_ref"),
@@ -2506,7 +2520,8 @@ class SemanticServiceSupport:
         time_binding_rows = self.metadata.query_rows(
             """
             SELECT carrier_binding_key, target_kind, target_key, context_ref, semantic_ref,
-                   resolution_kind, timestamp_surface_ref, date_surface_ref, date_format,
+                   resolution_kind, timestamp_surface_ref, timestamp_format,
+                   date_surface_ref, date_format,
                    hour_surface_ref, hour_format, timezone_strategy
             FROM time_bindings
             WHERE binding_id = ?
@@ -2589,6 +2604,7 @@ class SemanticServiceSupport:
                         "semantic_ref": time_binding_row["semantic_ref"],
                         "resolution_kind": time_binding_row["resolution_kind"],
                         "timestamp_surface_ref": time_binding_row["timestamp_surface_ref"],
+                        "timestamp_format": time_binding_row["timestamp_format"],
                         "date_surface_ref": time_binding_row["date_surface_ref"],
                         "date_format": time_binding_row["date_format"],
                         "hour_surface_ref": time_binding_row["hour_surface_ref"],

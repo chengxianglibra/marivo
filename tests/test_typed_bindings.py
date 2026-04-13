@@ -562,6 +562,7 @@ class TimeBindingsTableTests(TypedBindingDDLTests):
             "semantic_ref": "time.event_time",
             "resolution_kind": "timestamp_column",
             "timestamp_surface_ref": "field.event_time",
+            "timestamp_format": None,
             "date_surface_ref": None,
             "date_format": None,
             "hour_surface_ref": None,
@@ -574,11 +575,13 @@ class TimeBindingsTableTests(TypedBindingDDLTests):
             INSERT INTO time_bindings (
                 time_binding_id, binding_id, carrier_binding_key, target_kind, target_key,
                 context_ref, semantic_ref, resolution_kind, timestamp_surface_ref,
+                timestamp_format,
                 date_surface_ref, date_format, hour_surface_ref, hour_format,
                 timezone_strategy
             ) VALUES (
                 :time_binding_id, :binding_id, :carrier_binding_key, :target_kind, :target_key,
                 :context_ref, :semantic_ref, :resolution_kind, :timestamp_surface_ref,
+                :timestamp_format,
                 :date_surface_ref, :date_format, :hour_surface_ref, :hour_format,
                 :timezone_strategy
             )
@@ -614,6 +617,19 @@ class TimeBindingsTableTests(TypedBindingDDLTests):
                 timezone_strategy="utc",
                 target_key="time.utc_test",
                 semantic_ref="time.utc_test",
+            )
+
+    def test_timestamp_format_constraint(self) -> None:
+        binding_id = self._insert_binding(binding_ref="binding.time_binding_timestamp_format")
+        self.assertIsNotNone(
+            self._insert_time_binding(binding_id, timestamp_format="iso8601_t_naive")
+        )
+        with self.assertRaises(sqlite3.IntegrityError):
+            self._insert_time_binding(
+                binding_id,
+                target_key="time.invalid_timestamp_format",
+                semantic_ref="time.invalid_timestamp_format",
+                timestamp_format="invalid_format",
             )
 
     def test_target_kind_constraint(self) -> None:

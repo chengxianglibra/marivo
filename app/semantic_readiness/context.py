@@ -516,7 +516,8 @@ class ReadinessEvaluationContext:
         time_binding_rows = self.metadata.query_rows(
             """
             SELECT carrier_binding_key, target_kind, target_key, context_ref, semantic_ref,
-                   resolution_kind, timestamp_surface_ref, date_surface_ref, date_format,
+                   resolution_kind, timestamp_surface_ref, timestamp_format,
+                   date_surface_ref, date_format,
                    hour_surface_ref, hour_format, timezone_strategy
             FROM time_bindings
             WHERE binding_id = ?
@@ -575,6 +576,7 @@ class ReadinessEvaluationContext:
                         "semantic_ref": time_binding_row["semantic_ref"],
                         "resolution_kind": time_binding_row["resolution_kind"],
                         "timestamp_surface_ref": time_binding_row["timestamp_surface_ref"],
+                        "timestamp_format": time_binding_row["timestamp_format"],
                         "date_surface_ref": time_binding_row["date_surface_ref"],
                         "date_format": time_binding_row["date_format"],
                         "hour_surface_ref": time_binding_row["hour_surface_ref"],

@@ -265,6 +265,13 @@ class TimeBindingSpec(BaseModel):
     timestamp_surface_ref: str | None = Field(
         default=None, description="Field surface for timestamp_column resolution."
     )
+    timestamp_format: str | None = Field(
+        default=None,
+        description=(
+            "Optional timestamp encoding for timestamp_column resolution. "
+            "Supported values: native, iso8601_t_naive."
+        ),
+    )
     date_surface_ref: str | None = Field(
         default=None, description="Field surface for date_column/date_hour_columns resolution."
     )
@@ -311,6 +318,11 @@ class TimeBindingSpec(BaseModel):
         if self.resolution_kind == "timestamp_column":
             if self.timestamp_surface_ref is None:
                 raise ValueError("timestamp_column resolution requires timestamp_surface_ref")
+            if self.timestamp_format not in {None, "native", "iso8601_t_naive"}:
+                raise ValueError(
+                    "timestamp_column resolution timestamp_format must be "
+                    "'native' or 'iso8601_t_naive'"
+                )
             if any(
                 value is not None
                 for value in (
@@ -326,9 +338,14 @@ class TimeBindingSpec(BaseModel):
         elif self.resolution_kind == "date_column":
             if self.date_surface_ref is None:
                 raise ValueError("date_column resolution requires date_surface_ref")
-            if self.timestamp_surface_ref is not None or self.hour_surface_ref is not None:
+            if (
+                self.timestamp_surface_ref is not None
+                or self.timestamp_format is not None
+                or self.hour_surface_ref is not None
+            ):
                 raise ValueError(
-                    "date_column resolution cannot include timestamp_surface_ref or hour_surface_ref"
+                    "date_column resolution cannot include timestamp_surface_ref, "
+                    "timestamp_format, or hour_surface_ref"
                 )
             if self.hour_format is not None:
                 raise ValueError("date_column resolution cannot include hour_format")
@@ -337,9 +354,10 @@ class TimeBindingSpec(BaseModel):
                 raise ValueError(
                     "date_hour_columns resolution requires date_surface_ref and hour_surface_ref"
                 )
-            if self.timestamp_surface_ref is not None:
+            if self.timestamp_surface_ref is not None or self.timestamp_format is not None:
                 raise ValueError(
-                    "date_hour_columns resolution cannot include timestamp_surface_ref"
+                    "date_hour_columns resolution cannot include timestamp_surface_ref "
+                    "or timestamp_format"
                 )
 
         if self.timezone_strategy not in {None, "session_consistent_naive"}:

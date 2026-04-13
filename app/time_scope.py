@@ -291,6 +291,7 @@ class TimeScopeResolver:
 @dataclass(slots=True)
 class _TimeCapabilities:
     timestamp_column: str | None = None
+    timestamp_format: str | None = None
     fallback_date_column: str | None = None
     fallback_hour_column: str | None = None
     partition_date_column: str | None = None
@@ -312,6 +313,7 @@ class _TimeCapabilities:
             partition_time = {}
         return cls(
             timestamp_column=_optional_str(analysis_time.get("timestamp_column")),
+            timestamp_format=_normalize_timestamp_format(analysis_time.get("timestamp_format")),
             fallback_date_column=_optional_str(analysis_time.get("fallback_date_column")),
             fallback_hour_column=_optional_str(analysis_time.get("fallback_hour_column")),
             partition_date_column=_optional_str(partition_time.get("date_column")),
@@ -402,8 +404,15 @@ class TimeAxisResolver:
                     columns,
                     "time_capabilities.analysis_time.timestamp_column",
                 )
+                timestamp_expr = _timestamp_field_expr(
+                    caps.timestamp_column,
+                    caps.timestamp_format,
+                    engine_type=self.engine_type,
+                )
                 return _AnalysisAxis(
-                    kind="timestamp", expr=caps.timestamp_column, column=caps.timestamp_column
+                    kind="timestamp",
+                    expr=timestamp_expr,
+                    column=caps.timestamp_column,
                 )
 
         for caps in metadata_chain:
@@ -876,6 +885,15 @@ def _normalize_hour_format(value: Any) -> str | None:
     return lowered
 
 
+def _normalize_timestamp_format(value: Any) -> str | None:
+    normalized = _optional_str(value)
+    if normalized is None:
+        return None
+    if normalized not in {"native", "iso8601_t_naive"}:
+        raise ValueError("timestamp_format must be 'native' or 'iso8601_t_naive'")
+    return normalized
+
+
 def _default_date_format_for_column(column: str | None) -> str | None:
     if column in {"log_date", "dt"}:
         return "yyyymmdd"
@@ -916,6 +934,19 @@ def _date_field_expr(column: str, date_format: str | None, *, engine_type: str) 
 
 def _partition_hour_text_expr(column: str, *, engine_type: str) -> str:
     return f"LPAD({_varchar_cast_expr(column, engine_type=engine_type)}, 2, '0')"
+
+
+def _timestamp_field_expr(
+    column: str,
+    timestamp_format: str | None,
+    *,
+    engine_type: str,
+) -> str:
+    if timestamp_format in {None, "native"}:
+        return column
+    if timestamp_format == "iso8601_t_naive":
+        return f"CAST(REPLACE({_varchar_cast_expr(column, engine_type=engine_type)}, 'T', ' ') AS TIMESTAMP)"
+    raise ValueError(f"Unsupported timestamp_format: {timestamp_format}")
 
 
 def _partition_hour_timestamp_expr(

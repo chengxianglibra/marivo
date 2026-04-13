@@ -457,9 +457,15 @@ class TimeAxisMetadataProvider:
             timestamp_column = field_name("timestamp_surface_ref")
             if timestamp_column is None:
                 raise ValueError("time_binding timestamp surface is not grounded")
+            timestamp_format = _normalize_timestamp_format(time_binding.get("timestamp_format"))
             return (
                 normalize_time_capabilities(
-                    {"analysis_time": {"timestamp_column": timestamp_column}}
+                    {
+                        "analysis_time": {
+                            "timestamp_column": timestamp_column,
+                            "timestamp_format": timestamp_format,
+                        }
+                    }
                 )
                 or {}
             )
@@ -622,7 +628,8 @@ class TimeAxisMetadataProvider:
         time_binding_rows = self.metadata.query_rows(
             """
             SELECT carrier_binding_key, target_kind, target_key, context_ref, semantic_ref,
-                   resolution_kind, timestamp_surface_ref, date_surface_ref, date_format,
+                   resolution_kind, timestamp_surface_ref, timestamp_format,
+                   date_surface_ref, date_format,
                    hour_surface_ref, hour_format, timezone_strategy
             FROM time_bindings
             WHERE binding_id = ?
@@ -677,6 +684,7 @@ class TimeAxisMetadataProvider:
                         "semantic_ref": time_binding_row["semantic_ref"],
                         "resolution_kind": time_binding_row["resolution_kind"],
                         "timestamp_surface_ref": time_binding_row["timestamp_surface_ref"],
+                        "timestamp_format": time_binding_row["timestamp_format"],
                         "date_surface_ref": time_binding_row["date_surface_ref"],
                         "date_format": time_binding_row["date_format"],
                         "hour_surface_ref": time_binding_row["hour_surface_ref"],
@@ -696,10 +704,12 @@ def _normalize_analysis_time_section(
 ) -> dict[str, str]:
     if not payload:
         return {}
+    timestamp_format = _normalize_timestamp_format(payload.get("timestamp_format"))
     normalized = {
         key: value
         for key, value in {
             "timestamp_column": _optional_str(payload.get("timestamp_column")),
+            "timestamp_format": timestamp_format,
             "fallback_date_column": _optional_str(payload.get("fallback_date_column")),
             "fallback_hour_column": _optional_str(payload.get("fallback_hour_column")),
         }.items()
@@ -729,6 +739,15 @@ def _normalize_partition_time_section(
     }
     if normalized.get("hour_column") and not normalized.get("date_column"):
         raise ValueError(f"{label}.hour_column requires date_column")
+    return normalized
+
+
+def _normalize_timestamp_format(value: Any) -> str | None:
+    normalized = _optional_str(value)
+    if normalized is None:
+        return None
+    if normalized not in {"native", "iso8601_t_naive"}:
+        raise ValueError("analysis_time.timestamp_format must be 'native' or 'iso8601_t_naive'")
     return normalized
 
 
