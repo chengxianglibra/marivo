@@ -455,7 +455,7 @@ def _run_segmented_query(
         metric_name=metric_name,
         fallback_columns=all_dimensions,
     )
-    scoped_query = svc._build_scoped_query(session_id, resolved)
+    scoped_query = svc._build_scoped_query(session_id, resolved, engine_type=engine_type)
     compiled_query = svc._compile_step_with_feedback(
         AnalysisStepIR(
             index=0,

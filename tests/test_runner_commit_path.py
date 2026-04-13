@@ -107,6 +107,66 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         result = self._run_scalar(svc)
         self.assertEqual(result["artifact_id"], _FAKE_ARTIFACT_ID)
 
+    def test_observe_hour_granularity_rejects_date_only_range(self) -> None:
+        from app.intents.observe import run_observe_intent
+
+        svc = _make_svc()
+        with self.assertRaisesRegex(ValueError, "granularity='hour' requires"):
+            run_observe_intent(
+                svc,
+                _SESSION,
+                {
+                    "metric": "m1",
+                    "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-02"},
+                    "granularity": "hour",
+                },
+            )
+
+    def test_observe_hour_granularity_uses_hour_internal_grain(self) -> None:
+        from app.intents.observe import run_observe_intent
+
+        svc = _make_svc()
+        captured: dict[str, Any] = {}
+        svc.normalize_intent_metric_ref.side_effect = lambda metric: metric
+        svc.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
+        svc._resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
+        svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
+        svc.resolve_metric_dimensions.return_value = []
+        svc._resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
+        svc._resolve_windowed_query_time_axis.return_value = None
+
+        def _capture_scoped_query(
+            session_id: str, resolved: Any, *, engine_type: str
+        ) -> dict[str, Any]:
+            captured["grain"] = resolved.time_scope.grain
+            return {
+                "mode": resolved.time_scope.mode,
+                "engine_type": engine_type,
+                "analysis_time_expr": "event_time",
+                "current": {
+                    "start": resolved.time_scope.current.start,
+                    "end": resolved.time_scope.current.end,
+                },
+            }
+
+        svc._build_scoped_query.side_effect = _capture_scoped_query
+        svc._compile_step_with_feedback.return_value = _make_compiled_mock()
+
+        params = {
+            "metric": "metric.m1",
+            "time_scope": {
+                "kind": "range",
+                "start": "2024-01-01T00:00:00",
+                "end": "2024-01-01T02:00:00",
+            },
+            "granularity": "hour",
+        }
+        with patch("app.intents.observe.execute_compiled") as mock_exec:
+            mock_exec.return_value.rows = []
+            run_observe_intent(svc, _SESSION, params)
+
+        self.assertEqual(captured["grain"], "hour")
+
     def _run_numeric_summary(self, svc: MagicMock) -> dict[str, Any]:
         from app.intents.observe import run_observe_intent
 

@@ -197,6 +197,11 @@ def _build_scoped_query_parts(
 
 def _format_scoped_bound(scoped_query: Mapping[str, Any], value: str) -> str:
     analysis_time_kind = str(scoped_query.get("analysis_time_kind") or "").strip()
+    engine_type = str(scoped_query.get("engine_type") or "").strip().lower()
+    if analysis_time_kind == "timestamp":
+        if engine_type == "trino":
+            return value.replace("T", " ")
+        return value
     if analysis_time_kind != "date_field":
         return value
     return _format_scoped_day_value(

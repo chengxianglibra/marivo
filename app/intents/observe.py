@@ -14,6 +14,19 @@ if TYPE_CHECKING:
 _VALID_GRANULARITIES: frozenset[str] = frozenset({"hour", "day", "week", "month"})
 
 
+def _looks_like_datetime_boundary(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    normalized = value.strip()
+    if "T" not in normalized and " " not in normalized:
+        return False
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return False
+    return parsed.tzinfo is None
+
+
 def run_observe_intent(
     svc: SemanticLayerService, session_id: str, params: dict[str, Any] | None
 ) -> dict[str, Any]:
@@ -110,12 +123,29 @@ def run_observe_intent(
             f"observe: granularity is not allowed with time_scope.kind='{kind}'. "
             "granularity is only valid with kind='range'."
         )
+    if (
+        kind == "range"
+        and granularity == "hour"
+        and (
+            not _looks_like_datetime_boundary(time_scope_raw.get("start"))
+            or not _looks_like_datetime_boundary(time_scope_raw.get("end"))
+        )
+    ):
+        raise ValueError(
+            "observe: granularity='hour' requires time_scope.start and time_scope.end "
+            "to be naive datetime strings"
+        )
 
-    grain = (
-        "hour"
-        if ("T" in start_str or (" " in start_str and ":" in start_str.split(" ", 1)[-1]))
-        else "day"
-    )
+    if granularity == "hour":
+        grain = "hour"
+    elif granularity is not None:
+        grain = "day"
+    else:
+        grain = (
+            "hour"
+            if ("T" in start_str or (" " in start_str and ":" in start_str.split(" ", 1)[-1]))
+            else "day"
+        )
 
     execution_context = svc._resolve_metric_execution_context(metric_ref)
     table = execution_context.table_name
@@ -148,7 +178,7 @@ def run_observe_intent(
         metric_name=metric_ref,
         fallback_columns=all_dimensions,
     )
-    scoped_query = svc._build_scoped_query(session_id, resolved)
+    scoped_query = svc._build_scoped_query(session_id, resolved, engine_type=engine_type)
     qualified_table = qualified.get(resolved.table, resolved.table)
     step_id = svc._new_step_id()
     now = datetime.now(UTC).isoformat()

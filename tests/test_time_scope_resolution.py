@@ -1296,6 +1296,7 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
 
         self.assertEqual(captured["engine_type"], "trino")
         scoped_query = captured["params"]["scoped_query"]
+        self.assertEqual(scoped_query["engine_type"], "trino")
         self.assertEqual(scoped_query["analysis_time_kind"], "timestamp")
         self.assertEqual(scoped_query["analysis_time_expr"], "event_time")
         self.assertEqual(

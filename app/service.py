@@ -1331,6 +1331,8 @@ class SemanticLayerService:
         self,
         session_id: str,
         request: ResolvedWindowedQueryRequest,
+        *,
+        engine_type: str,
     ) -> dict[str, Any]:
         analysis_time_expr = request.resolved_time_axis.analysis_time_expr
         if not analysis_time_expr:
@@ -1340,6 +1342,7 @@ class SemanticLayerService:
             metric_ref = request.value_spec.metric
         return {
             "mode": request.time_scope.mode,
+            "engine_type": engine_type,
             "analysis_time_kind": request.resolved_time_axis.analysis_time_kind,
             "analysis_time_expr": analysis_time_expr,
             "analysis_time_format": request.resolved_time_axis.analysis_time_format,
@@ -1675,7 +1678,7 @@ class SemanticLayerService:
             metric_name=metric_name,
             fallback_columns=all_dimensions,
         )
-        scoped_query = self._build_scoped_query(session_id, resolved)
+        scoped_query = self._build_scoped_query(session_id, resolved, engine_type=engine_type)
         comparison_time_column = self._comparison_time_dimension_column(resolved, all_dimensions)
 
         # Allow caller to select a subset of dimensions for grouping
@@ -2145,7 +2148,7 @@ class SemanticLayerService:
             engine_type=engine_type,
             fallback_columns=list(resolved.grouping),
         )
-        scoped_query = self._build_scoped_query(session_id, resolved)
+        scoped_query = self._build_scoped_query(session_id, resolved, engine_type=engine_type)
         qualified_table = qualified.get(table_name, table_name)
 
         measures = (
