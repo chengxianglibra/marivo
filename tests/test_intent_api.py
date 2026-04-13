@@ -13,6 +13,7 @@ Covers:
 
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -1886,6 +1887,94 @@ class ObserveTypedArtifactTests(unittest.TestCase):
         self.assertEqual(response.status_code, 409, response.text)
         self.assertIn("METRIC_INPUT_COVERAGE_MISSING", response.text)
         self.assertIn("missing required metric_input coverage", response.text)
+
+    def test_observe_distribution_metric_uses_bound_value_component(self) -> None:
+        metadata = self.client.app.state.service.metadata
+        metric_name = f"observe_distribution_metric_{uuid4().hex[:8]}"
+        metric_ref = _metric_ref(metric_name)
+        ensure_published_typed_metric(
+            metadata,
+            metric_name=metric_name,
+            display_name="Observe Distribution Metric",
+            grain="day",
+            dimensions=["event_date"],
+            measure_type="percentile",
+        )
+        _create_metric_binding(
+            self.client,
+            binding_ref=f"binding.{metric_name}_primary",
+            metric_ref=metric_ref,
+            source_object_ref=self.watch_events_object_id,
+            carrier_locator=self.watch_events_fqn,
+            binding_role="primary",
+            metric_input_target_keys=["value_component"],
+            surface_name="play_duration_seconds",
+        )
+
+        response = self.client.post(
+            f"/sessions/{self.session_id}/intents/observe",
+            json={
+                "metric": metric_ref,
+                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        payload = response.json()
+        self.assertEqual(payload["observation_type"], "scalar")
+        self.assertEqual(payload["metric"], metric_name)
+
+    def test_observe_distribution_histogram_ready_returns_unsupported_operation(self) -> None:
+        metadata = self.client.app.state.service.metadata
+        metric_name = f"observe_distribution_histogram_{uuid4().hex[:8]}"
+        metric_ref = _metric_ref(metric_name)
+        ensure_published_typed_metric(
+            metadata,
+            metric_name=metric_name,
+            display_name="Observe Distribution Histogram",
+            grain="day",
+            dimensions=["event_date"],
+            measure_type="percentile",
+        )
+        metric_row = metadata.query_one(
+            """
+            SELECT metric_contract_id, family_payload_json
+            FROM semantic_metric_contracts
+            WHERE metric_ref = ?
+            """,
+            [metric_ref],
+        )
+        assert metric_row is not None
+        family_payload = json.loads(metric_row["family_payload_json"] or "{}")
+        family_payload["distribution_spec"] = {"kind": "histogram_ready"}
+        metadata.execute(
+            """
+            UPDATE semantic_metric_contracts
+            SET family_payload_json = ?
+            WHERE metric_contract_id = ?
+            """,
+            [json.dumps(family_payload), metric_row["metric_contract_id"]],
+        )
+        _create_metric_binding(
+            self.client,
+            binding_ref=f"binding.{metric_name}_primary",
+            metric_ref=metric_ref,
+            source_object_ref=self.watch_events_object_id,
+            carrier_locator=self.watch_events_fqn,
+            binding_role="primary",
+            metric_input_target_keys=["value_component"],
+            surface_name="play_duration_seconds",
+        )
+
+        response = self.client.post(
+            f"/sessions/{self.session_id}/intents/observe",
+            json={
+                "metric": metric_ref,
+                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+            },
+        )
+        self.assertEqual(response.status_code, 422, response.text)
+        self.assertIn("UNSUPPORTED_OPERATION", response.text)
+        self.assertNotIn("missing required metric_input coverage", response.text)
 
 
 class ArtifactLifecycleTests(unittest.TestCase):

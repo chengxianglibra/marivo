@@ -420,9 +420,59 @@ Boundary notes:
   `entity -> {identity_key, primary_time, stable_descriptor}`,
   `metric -> {population_subject, primary_time, metric_input}`,
   `process_object -> {population_subject, primary_time, analysis_window_anchor, process_context}`
+- `create_binding()` and `update_binding()` accept the canonical binding payload, including
+  `interface_contract.time_bindings[]`; there is no separate `create_time_binding` MCP tool because
+  HTTP does not expose time bindings as an independent object family
 - `time.semantic_roles` are time-object capability labels, not a 1:1 binding target map; only
   `primary_time` and `analysis_window_anchor` are direct binding target kinds today
 - on publish failures, inspect `error.code`, `error.message`, and the preserved `error.detail` object before falling back to raw OpenAPI discovery
+
+Minimal binding payload with `time_bindings[]`:
+
+```json
+{
+  "header": {
+    "binding_ref": "binding.metric.user_events",
+    "display_name": "User Events Metric Binding",
+    "binding_scope": "metric",
+    "bound_object_ref": "metric.daily_active_users",
+    "binding_contract_version": "binding.v1"
+  },
+  "interface_contract": {
+    "carrier_bindings": [
+      {
+        "binding_key": "primary",
+        "source_object_ref": "obj_user_events",
+        "carrier_kind": "table",
+        "carrier_locator": "trino.analytics.user_events",
+        "binding_role": "primary",
+        "field_surfaces": [
+          {"surface_ref": "field.user_id", "physical_name": "user_id"},
+          {"surface_ref": "field.event_date", "physical_name": "event_date"}
+        ]
+      }
+    ],
+    "field_bindings": [
+      {
+        "carrier_binding_key": "primary",
+        "target": {"target_kind": "population_subject", "target_key": "key.user_id"},
+        "semantic_ref": "key.user_id",
+        "surface_ref": "field.user_id"
+      }
+    ],
+    "time_bindings": [
+      {
+        "carrier_binding_key": "primary",
+        "target": {"target_kind": "primary_time", "target_key": "time.event_date"},
+        "semantic_ref": "time.event_date",
+        "resolution_kind": "date_column",
+        "date_surface_ref": "field.event_date",
+        "timezone_strategy": "session_consistent_naive"
+      }
+    ]
+  }
+}
+```
 
 ## T8 Tools
 

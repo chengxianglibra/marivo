@@ -29,7 +29,7 @@ class FactumMcpConfig(BaseModel):
     base_url: str = Field(min_length=1)
     api_token: str | None = None
     transport: str = Field(default="stdio", pattern="^(stdio|streamable-http)$")
-    timeout_ms: int = Field(default=10_000, gt=0)
+    timeout_ms: int = Field(default=600_000, gt=0)
     openapi_cache_ttl_sec: int = Field(default=300, ge=0)
     default_source_id: str | None = None
     http: HttpTransportConfig = Field(default_factory=HttpTransportConfig)
@@ -44,7 +44,7 @@ def load_config_from_env() -> FactumMcpConfig:
             "Set it to the Factum HTTP base URL, for example http://127.0.0.1:8000."
         )
 
-    raw_timeout_ms = os.environ.get("FACTUM_TIMEOUT_MS", "10000")
+    raw_timeout_ms = os.environ.get("FACTUM_TIMEOUT_MS", "600000")
     raw_openapi_cache_ttl_sec = os.environ.get("FACTUM_OPENAPI_CACHE_TTL_SEC", "300")
 
     try:

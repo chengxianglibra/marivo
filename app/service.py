@@ -44,6 +44,7 @@ from app.intents.forecast import run_forecast_intent
 from app.intents.observe import run_observe_intent
 from app.intents.test import run_test_intent
 from app.intents.validate import run_validate_intent
+from app.metric_inputs import required_metric_input_slots
 from app.semantic_runtime import SemanticRuntimeRepository
 from app.semantic_runtime.dimensions import resolve_entity_binding_dimensions
 from app.semantic_runtime.errors import (
@@ -646,13 +647,7 @@ class SemanticLayerService:
         return _optional_str(header.get("metric_family"))
 
     def _required_metric_input_slots(self, metric_family: str) -> tuple[str, ...]:
-        if metric_family == "count_metric":
-            return ("count_target",)
-        if metric_family == "sum_metric":
-            return ("measure",)
-        if metric_family in {"average_metric", "rate_metric"}:
-            return ("numerator", "denominator")
-        return ()
+        return required_metric_input_slots(metric_family)
 
     def _metric_input_field_map_from_binding(
         self, binding: ResolvedSemanticObject
@@ -854,6 +849,7 @@ class SemanticLayerService:
         metric_ref: str,
         *,
         input_field_map: dict[str, str] | None = None,
+        engine_type: str | None = None,
     ) -> str | None:
         """Compile an aggregate SQL expression from a typed metric contract."""
         input_field_map = input_field_map or self._metric_input_field_map(metric_ref)
@@ -888,6 +884,45 @@ class SemanticLayerService:
             den_field = input_field_map.get("denominator")
             if num_field and den_field:
                 return f"SUM({num_field}) / NULLIF(SUM({den_field}), 0)"
+
+        if metric_family == "distribution_metric":
+            value_field = input_field_map.get("value_component")
+            if value_field is None:
+                return None
+            distribution_spec = payload.get("distribution_spec") or {}
+            kind = _optional_str(distribution_spec.get("kind"))
+            if kind in {"percentile", "quantile"}:
+                percentile = distribution_spec.get("percentile")
+                if percentile is None:
+                    raise ValueError(
+                        f"Metric '{_metric_name_from_ref(metric_ref)}' is missing "
+                        "distribution_spec.percentile for distribution_metric compilation"
+                    )
+                try:
+                    percentile_value = float(percentile)
+                except (TypeError, ValueError) as error:
+                    raise ValueError(
+                        f"Metric '{_metric_name_from_ref(metric_ref)}' has a non-numeric "
+                        "distribution_spec.percentile"
+                    ) from error
+                if engine_type == "trino":
+                    return f"APPROX_PERCENTILE({value_field}, {percentile_value})"
+                if engine_type == "duckdb":
+                    return f"QUANTILE_CONT({value_field}, {percentile_value})"
+                raise ValueError(
+                    f"Metric '{_metric_name_from_ref(metric_ref)}' requires an engine-specific "
+                    f"distribution kernel, unsupported engine_type='{engine_type}'"
+                )
+            if kind == "histogram_ready":
+                raise ValueError(
+                    f"observe: UNSUPPORTED_OPERATION - metric '{_metric_name_from_ref(metric_ref)}' "
+                    "uses distribution_spec.kind='histogram_ready', which standard observe does "
+                    "not compile in v1"
+                )
+            raise ValueError(
+                f"observe: UNSUPPORTED_OPERATION - metric '{_metric_name_from_ref(metric_ref)}' "
+                f"uses unsupported distribution_spec.kind='{kind}'"
+            )
 
         return None
 
@@ -935,6 +970,8 @@ class SemanticLayerService:
         self,
         metric_ref: str,
         execution_context: MetricExecutionContext | None = None,
+        *,
+        engine_type: str | None = None,
     ) -> str:
         metric_ref = _coerce_metric_ref(metric_ref)
         metric_name = _metric_name_from_ref(metric_ref)
@@ -960,6 +997,7 @@ class SemanticLayerService:
             payload,
             typed_metric_ref,
             input_field_map=input_field_map,
+            engine_type=engine_type,
         )
         if sql is None:
             required_slots = ", ".join(self._required_metric_input_slots(metric_family))

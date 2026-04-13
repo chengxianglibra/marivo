@@ -32,6 +32,19 @@ def _metadata_store_from_client(client: TestClient) -> MetadataStore:
 
 def _metric_payload_for_measure_type(metric_name: str, measure_type: str | None) -> dict[str, Any]:
     kind = str(measure_type or "count").strip().lower()
+    if kind in {"percentile", "quantile"}:
+        return {
+            "metric_family": "distribution_metric",
+            "value_component": {
+                "name": metric_name,
+                "semantics": f"Distribution value component for {metric_name}",
+                "aggregation": "sum",
+            },
+            "distribution_spec": {
+                "kind": "percentile",
+                "percentile": 0.95,
+            },
+        }
     if kind in {"ratio", "rate"}:
         return {
             "metric_family": "rate_metric",
@@ -81,6 +94,8 @@ def _metric_payload_for_measure_type(metric_name: str, measure_type: str | None)
 
 def _metric_header_axes(measure_type: str | None) -> tuple[str, str, str, str]:
     kind = str(measure_type or "count").strip().lower()
+    if kind in {"percentile", "quantile"}:
+        return ("distribution_metric", "numeric", "distribution_statistic", "non_additive")
     if kind in {"ratio", "rate"}:
         return ("rate_metric", "rate", "ratio", "non_additive")
     if kind in {"average", "mean"}:

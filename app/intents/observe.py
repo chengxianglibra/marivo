@@ -166,12 +166,15 @@ def run_observe_intent(
         mq_params["dimensions"] = dimensions
 
     resolved = normalize_metric_query_request(mq_params)
-    metric_sql = svc.resolve_metric_sql_for_execution(metric_ref, execution_context)
     all_dimensions = svc.resolve_metric_dimensions(metric_ref)
-    if metric_sql is None or all_dimensions is None:
-        raise ValueError(f"Metric '{metric_name}' not found or not published")
-
     engine, engine_type, qualified = svc._resolve_engine([resolved.table])
+    metric_sql = svc.resolve_metric_sql_for_execution(
+        metric_ref,
+        execution_context,
+        engine_type=engine_type,
+    )
+    if all_dimensions is None:
+        raise ValueError(f"Metric '{metric_name}' not found or not published")
     svc._resolve_windowed_query_time_axis(
         resolved,
         engine_type=engine_type,

@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
+from app.metric_inputs import required_metric_input_slots
+
 from .binding_utils import binding_contract_target_exists
 from .context import ReadinessEvaluationContext
 from .types import (
@@ -805,16 +807,7 @@ def _collect_semantic_refs(values: list[Any]) -> set[str]:
 
 def _required_metric_inputs(header: dict[str, Any], payload: dict[str, Any]) -> list[str]:
     metric_family = str(header.get("metric_family") or payload.get("metric_family") or "").strip()
-    payload_key_map: dict[str, list[str]] = {
-        "count_metric": ["count_target"],
-        "sum_metric": ["measure"],
-        "rate_metric": ["numerator", "denominator"],
-        "average_metric": ["numerator", "denominator"],
-        "distribution_metric": ["value_component"],
-        "score_metric": ["score_source"],
-        "survival_metric": [],
-    }
-    return payload_key_map.get(metric_family, [])
+    return list(required_metric_input_slots(metric_family))
 
 
 def _optional_required_target(

@@ -215,6 +215,9 @@ Invalid combinations include:
 - metrics without a per-row value expression for sample-summary modes; typed metrics may support
   `standard` observation while still rejecting `numeric_sample_summary` or `rate_sample_summary`
   when their contract only compiles to aggregate SQL
+- `distribution_metric` standard observation depends on the routed engine's supported percentile
+  kernel; percentile/quantile metrics compile through engine-specific SQL, while
+  `distribution_spec.kind="histogram_ready"` is not supported by standard `observe` in v1
 
 Success returns `ObserveResponse`, a union of the five canonical observation artifact types. All success payloads include `step_ref`, `artifact_id`, resolved `time_scope`, normalized `scope`, and analytical / execution metadata.
 
