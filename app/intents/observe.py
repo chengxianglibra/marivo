@@ -136,7 +136,7 @@ def run_observe_intent(
         mq_params["dimensions"] = dimensions
 
     resolved = normalize_metric_query_request(mq_params)
-    metric_sql = svc.resolve_metric_sql(metric_ref)
+    metric_sql = svc.resolve_metric_sql_for_execution(metric_ref, execution_context)
     all_dimensions = svc.resolve_metric_dimensions(metric_ref)
     if metric_sql is None or all_dimensions is None:
         raise ValueError(f"Metric '{metric_name}' not found or not published")
@@ -155,7 +155,7 @@ def run_observe_intent(
 
     if result_mode == "numeric_sample_summary":
         # --- Numeric Sample Summary mode ---
-        metric_value_sql = svc.resolve_metric_value_sql(metric_ref)
+        metric_value_sql = svc.resolve_metric_value_sql_for_execution(metric_ref, execution_context)
         if metric_value_sql is None:
             raise ValueError(
                 f"Metric '{metric_name}' cannot produce a per-row numeric value expression"
@@ -286,7 +286,7 @@ def run_observe_intent(
 
     if result_mode == "rate_sample_summary":
         # --- Rate Sample Summary mode ---
-        metric_value_sql = svc.resolve_metric_value_sql(metric_ref)
+        metric_value_sql = svc.resolve_metric_value_sql_for_execution(metric_ref, execution_context)
         if metric_value_sql is None:
             raise ValueError(
                 f"Metric '{metric_name}' cannot produce a per-row rate value expression"

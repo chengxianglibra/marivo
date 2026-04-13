@@ -149,6 +149,9 @@ surface structured readiness failures instead of collapsing them into generic co
 Intent metric preflight must resolve execution bindings from the same semantic runtime inspection
 used for readiness; do not reintroduce separate published/table-mapping checks that can disagree
 with `readiness_status`.
+Typed metric SQL compilation must use the runtime-selected execution binding, including carrier
+selection and `metric_input` slot coverage checks; do not assume the first published binding row is
+the executable binding.
 Typed metric execution uses two SQL contracts: aggregate expressions for standard metric queries and
 per-row value expressions for sample-summary modes. Do not assume one SQL fragment is valid for
 both.
