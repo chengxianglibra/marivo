@@ -135,3 +135,15 @@ Factum emits structured JSON logs when configured with the JSON formatter. Log e
 ```
 
 Log levels: `DEBUG`, `INFO`, `WARNING`, `ERROR`
+
+Execution logging defaults to an `INFO` event for each SQL statement sent to the analytics engine.
+The execution log includes the rendered SQL text plus execution metadata such as:
+
+- `sql`
+- `param_count`
+- `engine_type`
+- `engine_id`
+- `stage_id`
+- `source_tables`
+- `execution_mode`
+- `execution_purpose`

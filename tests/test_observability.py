@@ -124,6 +124,23 @@ class JSONFormatterTests(unittest.TestCase):
             correlation_planner_id.reset(planner_token)
             correlation_execution_stage.reset(stage_token)
 
+    def test_format_includes_extra_fields(self) -> None:
+        formatter = JSONFormatter()
+        record = logging.LogRecord(
+            name="factum.execution",
+            level=logging.INFO,
+            pathname="test.py",
+            lineno=1,
+            msg="SQL execution",
+            args=(),
+            exc_info=None,
+        )
+        record.sql = "SELECT 1"
+        record.param_count = 0
+        output = formatter.format(record)
+        self.assertIn('"sql": "SELECT 1"', output)
+        self.assertIn('"param_count": 0', output)
+
 
 class ObservabilityAPITests(unittest.TestCase):
     """Integration tests for /metrics endpoint and timing middleware."""
