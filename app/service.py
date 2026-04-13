@@ -964,6 +964,135 @@ class SemanticLayerService:
         return constraints, raw_filter
 
     @staticmethod
+    def _table_name_matches_locator(table_name: str, locator: str | None) -> bool:
+        normalized_table = table_name.strip()
+        normalized_locator = str(locator or "").strip()
+        if not normalized_table or not normalized_locator:
+            return False
+        if normalized_table == normalized_locator:
+            return True
+        return normalized_locator.endswith(f".{normalized_table}") or normalized_table.endswith(
+            f".{normalized_locator}"
+        )
+
+    def _binding_matches_table(self, binding: ResolvedSemanticObject, table_name: str) -> bool:
+        interface_contract = dict(binding.semantic_object.get("interface_contract") or {})
+        carrier_bindings = list(interface_contract.get("carrier_bindings") or [])
+        if not carrier_bindings:
+            return False
+        return any(
+            self._table_name_matches_locator(
+                table_name,
+                _optional_str(carrier_binding.get("carrier_locator"))
+                or _optional_str(carrier_binding.get("source_object_ref")),
+            )
+            for carrier_binding in carrier_bindings
+        )
+
+    @staticmethod
+    def _binding_dimension_sources(binding: ResolvedSemanticObject) -> dict[str, set[str]]:
+        interface_contract = dict(binding.semantic_object.get("interface_contract") or {})
+        carrier_surfaces: dict[tuple[str, str], str] = {}
+        for carrier_binding in interface_contract.get("carrier_bindings") or []:
+            binding_key = _optional_str(carrier_binding.get("binding_key"))
+            if binding_key is None:
+                continue
+            for field_surface in carrier_binding.get("field_surfaces") or []:
+                surface_ref = _optional_str(field_surface.get("surface_ref"))
+                physical_name = _optional_str(field_surface.get("physical_name"))
+                if surface_ref is None or physical_name is None:
+                    continue
+                carrier_surfaces[(binding_key, surface_ref)] = physical_name
+
+        dimension_sources: dict[str, set[str]] = {}
+        for field_binding in interface_contract.get("field_bindings") or []:
+            target = dict(field_binding.get("target") or {})
+            if _optional_str(target.get("target_kind")) != "stable_descriptor":
+                continue
+            dimension_ref = _optional_str(field_binding.get("semantic_ref"))
+            carrier_binding_key = _optional_str(field_binding.get("carrier_binding_key"))
+            surface_ref = _optional_str(field_binding.get("surface_ref"))
+            if (
+                dimension_ref is None
+                or not dimension_ref.startswith("dimension.")
+                or carrier_binding_key is None
+                or surface_ref is None
+            ):
+                continue
+            physical_name = carrier_surfaces.get((carrier_binding_key, surface_ref))
+            if physical_name is None:
+                continue
+            dimension_sources.setdefault(dimension_ref, set()).add(physical_name)
+        return dimension_sources
+
+    def _metric_scope_dimension_sources(
+        self,
+        metric_ref: str,
+        table_name: str,
+    ) -> dict[str, set[str]]:
+        metric_ref = _coerce_metric_ref(metric_ref)
+        metric_bindings = list(self._published_bindings_for_object_ref(metric_ref))
+        matching_bindings = [
+            binding
+            for binding in metric_bindings
+            if self._binding_matches_table(binding, table_name)
+        ]
+        candidate_bindings = matching_bindings or metric_bindings
+        dimension_sources: dict[str, set[str]] = {}
+
+        for binding in candidate_bindings:
+            for dimension_ref, physical_names in self._binding_dimension_sources(binding).items():
+                dimension_sources.setdefault(dimension_ref, set()).update(physical_names)
+
+            interface_contract = dict(binding.semantic_object.get("interface_contract") or {})
+            for binding_import in interface_contract.get("imports") or []:
+                imported_binding_ref = _optional_str(
+                    binding_import.get("binding_ref") or binding_import.get("imported_binding_ref")
+                )
+                if imported_binding_ref is None:
+                    continue
+                imported_binding = self.semantic_repository.resolve_binding_ref(
+                    imported_binding_ref
+                )
+                for dimension_ref, physical_names in self._binding_dimension_sources(
+                    imported_binding
+                ).items():
+                    dimension_sources.setdefault(dimension_ref, set()).update(physical_names)
+
+        return dimension_sources
+
+    def _resolve_scope_constraint_column(
+        self,
+        constraint_key: str,
+        *,
+        metric_ref: str | None,
+        table_name: str | None,
+    ) -> str:
+        if "." not in constraint_key:
+            return constraint_key
+        if not constraint_key.startswith("dimension."):
+            raise ValueError(
+                f"scope.constraints key '{constraint_key}' must be a physical column or "
+                "a canonical dimension ref like 'dimension.cluster'"
+            )
+        if metric_ref is None or table_name is None:
+            raise ValueError(
+                f"scope.constraints key '{constraint_key}' requires a semantic metric scope"
+            )
+
+        dimension_sources = self._metric_scope_dimension_sources(metric_ref, table_name)
+        physical_names = sorted(dimension_sources.get(constraint_key) or [])
+        if not physical_names:
+            raise ValueError(
+                f"scope.constraints key '{constraint_key}' is not available in metric semantic scope"
+            )
+        if len(physical_names) > 1:
+            raise ValueError(
+                f"scope.constraints key '{constraint_key}' does not resolve to a unique physical column"
+            )
+        return physical_names[0]
+
+    @staticmethod
     def _merge_filters(*filters: str | None) -> str | None:
         """AND-merge multiple filter expressions, ignoring None values."""
         parts = [f for f in filters if f]
@@ -971,13 +1100,26 @@ class SemanticLayerService:
             return None
         return " AND ".join(f"({p})" for p in parts)
 
-    @staticmethod
-    def _constraints_dict_to_filter(constraints: dict[str, Any]) -> str | None:
+    def _constraints_dict_to_filter(
+        self,
+        constraints: dict[str, Any],
+        *,
+        resolve_semantic_refs: bool = False,
+        metric_ref: str | None = None,
+        table_name: str | None = None,
+    ) -> str | None:
         parts: list[str] = []
         for key, value in constraints.items():
             if isinstance(value, (dict, list)):
                 continue
-            parts.append(f"{key} = '{value}'")
+            column_name = key
+            if resolve_semantic_refs:
+                column_name = self._resolve_scope_constraint_column(
+                    key,
+                    metric_ref=metric_ref,
+                    table_name=table_name,
+                )
+            parts.append(f"{column_name} = '{value}'")
         return " AND ".join(parts) if parts else None
 
     def _session_filter_parts(self, session_id: str) -> tuple[str | None, str | None]:
@@ -992,7 +1134,15 @@ class SemanticLayerService:
         request: ResolvedWindowedQueryRequest,
     ) -> str | None:
         session_constraints_filter, session_raw_filter = self._session_filter_parts(session_id)
-        scope_constraints = self._constraints_dict_to_filter(request.scope.constraints)
+        metric_ref = None
+        if isinstance(request.value_spec, SemanticMetricValueSpec):
+            metric_ref = request.value_spec.metric
+        scope_constraints = self._constraints_dict_to_filter(
+            request.scope.constraints,
+            resolve_semantic_refs=True,
+            metric_ref=metric_ref,
+            table_name=request.table,
+        )
         return self._merge_filters(
             session_constraints_filter,
             session_raw_filter,
@@ -1009,6 +1159,9 @@ class SemanticLayerService:
         if not analysis_time_expr:
             raise ValueError("windowed execution requires resolved_time_axis.analysis_time_expr")
         session_constraints_filter, session_raw_filter = self._session_filter_parts(session_id)
+        metric_ref = None
+        if isinstance(request.value_spec, SemanticMetricValueSpec):
+            metric_ref = request.value_spec.metric
         return {
             "mode": request.time_scope.mode,
             "analysis_time_kind": request.resolved_time_axis.analysis_time_kind,
@@ -1029,7 +1182,12 @@ class SemanticLayerService:
             ),
             "session_constraints_filter": session_constraints_filter,
             "session_raw_filter": session_raw_filter,
-            "scope_constraints_filter": self._constraints_dict_to_filter(request.scope.constraints),
+            "scope_constraints_filter": self._constraints_dict_to_filter(
+                request.scope.constraints,
+                resolve_semantic_refs=True,
+                metric_ref=metric_ref,
+                table_name=request.table,
+            ),
             "scope_predicate_filter": request.scope.predicate,
         }
 

@@ -202,7 +202,9 @@ v1 支持：
 - `time_scope` 是唯一时间窗口契约；时间条件不得写入 `scope`
 - `scope.constraints` 用于标量实体或行级约束
 - `scope.predicate` 只允许承载非时间条件
-- 被引用字段必须属于该 metric 的 semantic scope，而不是物理列名
+- `scope.constraints` 应优先使用 semantic ref key，例如 `dimension.cluster`；执行层会通过已发布 binding 自动映射到物理列名
+- bare physical column key 仅作为兼容路径保留；新调用方不应依赖它表达 semantic scope
+- 被引用字段必须属于该 metric 的 semantic scope，而不是未声明的物理列名
 - 非法或语义上不支持的字段应抛出 `INVALID_FILTER`
 
 响应中的 `scope` 必须返回归一化后的结构，而不是 `null`：
