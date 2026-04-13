@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from typing import Any, Literal
 from uuid import uuid4
 
+from app.metric_inputs import required_metric_input_slots
 from app.semantic_readiness import (
     ObjectKind,
     SemanticReadinessService,
@@ -123,16 +124,7 @@ class SemanticServiceSupport:
         metric_family = str(
             header.get("metric_family") or payload.get("metric_family") or ""
         ).strip()
-        payload_key_map: dict[str, list[str]] = {
-            "count_metric": ["count_target"],
-            "sum_metric": ["measure"],
-            "rate_metric": ["numerator", "denominator"],
-            "average_metric": ["numerator", "denominator"],
-            "distribution_metric": ["value_component"],
-            "score_metric": ["score_source"],
-            "survival_metric": [],
-        }
-        return payload_key_map.get(metric_family, [])
+        return list(required_metric_input_slots(metric_family))
 
     def _augment_object_with_readiness(
         self,

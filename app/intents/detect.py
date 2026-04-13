@@ -126,14 +126,17 @@ def run_detect_intent(
     execution_context = svc._resolve_metric_execution_context(metric_ref)
     table = execution_context.table_name
 
-    metric_sql = svc.resolve_metric_sql_for_execution(metric_ref, execution_context)
     all_dimensions = svc.resolve_metric_dimensions(metric_ref)
-    if metric_sql is None or all_dimensions is None:
+    engine, engine_type, qualified = svc._resolve_engine([table])
+    metric_sql = svc.resolve_metric_sql_for_execution(
+        metric_ref,
+        execution_context,
+        engine_type=engine_type,
+    )
+    if all_dimensions is None:
         raise ValueError(f"Metric '{metric_name}' not found or not published")
 
     # ── Build time-series query ────────────────────────────────────────────────
-    engine, engine_type, qualified = svc._resolve_engine([table])
-
     mq_params: dict[str, Any] = {
         "table": table,
         "metric": metric_ref,

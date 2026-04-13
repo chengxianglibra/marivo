@@ -129,7 +129,6 @@ def run_decompose_intent(
 
     all_dimensions = list(runtime_dimensions or resolved_metric.dimensions)
     grain = resolved_metric.grain or "day"
-    metric_sql = svc.resolve_metric_sql_for_execution(metric_name)
 
     table = svc._resolve_metric_table(metric_name)
     if table is None:
@@ -137,6 +136,7 @@ def run_decompose_intent(
 
     # ── Engine resolution ─────────────────────────────────────────────────────
     engine, engine_type, qualified = svc._resolve_engine([table])
+    metric_sql = svc.resolve_metric_sql_for_execution(metric_name, engine_type=engine_type)
     qualified_table = qualified.get(table, table)
 
     # ── Fetch artifact IDs for canonical refs ─────────────────────────────────

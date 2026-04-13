@@ -597,6 +597,12 @@ class TypedMetricSqlCompilationTests(unittest.TestCase):
                 ["numerator", "denominator"],
                 {"numerator": "field.numerator", "denominator": "field.denominator"},
             ),
+            (
+                "typed_p95_value",
+                "percentile",
+                ["value_component"],
+                {"value_component": "field.value"},
+            ),
         ]
 
         for metric_name, measure_type, input_keys, surface_map in typed_metrics:
@@ -686,6 +692,17 @@ class TypedMetricSqlCompilationTests(unittest.TestCase):
             "SUM(numerator) / NULLIF(SUM(denominator), 0)",
         )
         self.assertIsNone(self.service.resolve_metric_value_sql("metric.typed_rate_value"))
+
+    def test_distribution_metric_compiles_to_duckdb_quantile_for_execution(self) -> None:
+        execution_context = self.service._resolve_metric_execution_context("metric.typed_p95_value")
+        self.assertEqual(
+            self.service.resolve_metric_sql_for_execution(
+                "metric.typed_p95_value",
+                execution_context,
+                engine_type="duckdb",
+            ),
+            "QUANTILE_CONT(value, 0.95)",
+        )
 
 
 # ---------------------------------------------------------------------------
