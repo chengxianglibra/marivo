@@ -1043,11 +1043,138 @@ class BindingReadinessEvaluatorTests(unittest.TestCase):
         self.assertEqual(result.readiness_status, "ready")
         self.assertEqual(result.capabilities["covers_required_targets"], True)
 
+    def test_binding_native_timestamp_column_requires_timestamp_like_type(self) -> None:
+        result = self._evaluate(
+            field_bindings=[
+                {
+                    "carrier_binding_key": "primary",
+                    "target": {"target_kind": "metric_input", "target_key": "numerator"},
+                    "semantic_ref": "metric_input.converted",
+                },
+                {
+                    "carrier_binding_key": "primary",
+                    "target": {"target_kind": "metric_input", "target_key": "denominator"},
+                    "semantic_ref": "metric_input.eligible",
+                },
+            ],
+            time_bindings=[
+                {
+                    "carrier_binding_key": "primary",
+                    "target": {"target_kind": "primary_time", "target_key": "time.event_date"},
+                    "semantic_ref": "time.event_date",
+                    "resolution_kind": "timestamp_column",
+                    "timestamp_surface_ref": "field.create_time",
+                }
+            ],
+            carrier_bindings=[
+                {
+                    "binding_key": "primary",
+                    "carrier_locator": "warehouse.metric_fact",
+                    "field_surfaces": [
+                        {"surface_ref": "field.create_time", "physical_name": "create_time"}
+                    ],
+                }
+            ],
+            carrier_source_object_loader=lambda _carrier: {
+                "object_id": "src_123",
+                "properties_json": '{"columns":[{"name":"create_time","type":"varchar"}]}',
+            },
+        )
+
+        self.assertEqual(result.readiness_status, "not_ready")
+        self.assertIn(
+            "TIME_BINDING_TIMESTAMP_NATIVE_TYPE_MISMATCH",
+            {item.code for item in result.blocking_requirements},
+        )
+
+    def test_binding_string_timestamp_column_requires_explicit_format(self) -> None:
+        result = self._evaluate(
+            field_bindings=[
+                {
+                    "carrier_binding_key": "primary",
+                    "target": {"target_kind": "metric_input", "target_key": "numerator"},
+                    "semantic_ref": "metric_input.converted",
+                },
+                {
+                    "carrier_binding_key": "primary",
+                    "target": {"target_kind": "metric_input", "target_key": "denominator"},
+                    "semantic_ref": "metric_input.eligible",
+                },
+            ],
+            time_bindings=[
+                {
+                    "carrier_binding_key": "primary",
+                    "target": {"target_kind": "primary_time", "target_key": "time.event_date"},
+                    "semantic_ref": "time.event_date",
+                    "resolution_kind": "timestamp_column",
+                    "timestamp_surface_ref": "field.create_time",
+                }
+            ],
+            carrier_bindings=[
+                {
+                    "binding_key": "primary",
+                    "carrier_locator": "warehouse.metric_fact",
+                    "field_surfaces": [
+                        {"surface_ref": "field.create_time", "physical_name": "create_time"}
+                    ],
+                }
+            ],
+            carrier_source_object_loader=lambda _carrier: {"object_id": "src_123"},
+        )
+
+        self.assertEqual(result.readiness_status, "not_ready")
+        self.assertIn(
+            "TIME_BINDING_TIMESTAMP_FORMAT_MISSING",
+            {item.code for item in result.blocking_requirements},
+        )
+
+    def test_binding_iso8601_naive_timestamp_column_is_ready(self) -> None:
+        result = self._evaluate(
+            field_bindings=[
+                {
+                    "carrier_binding_key": "primary",
+                    "target": {"target_kind": "metric_input", "target_key": "numerator"},
+                    "semantic_ref": "metric_input.converted",
+                },
+                {
+                    "carrier_binding_key": "primary",
+                    "target": {"target_kind": "metric_input", "target_key": "denominator"},
+                    "semantic_ref": "metric_input.eligible",
+                },
+            ],
+            time_bindings=[
+                {
+                    "carrier_binding_key": "primary",
+                    "target": {"target_kind": "primary_time", "target_key": "time.event_date"},
+                    "semantic_ref": "time.event_date",
+                    "resolution_kind": "timestamp_column",
+                    "timestamp_surface_ref": "field.create_time",
+                    "timestamp_format": "iso8601_t_naive",
+                }
+            ],
+            carrier_bindings=[
+                {
+                    "binding_key": "primary",
+                    "carrier_locator": "warehouse.metric_fact",
+                    "field_surfaces": [
+                        {"surface_ref": "field.create_time", "physical_name": "create_time"}
+                    ],
+                }
+            ],
+            carrier_source_object_loader=lambda _carrier: {
+                "object_id": "src_123",
+                "properties_json": '{"columns":[{"name":"create_time","type":"varchar"}]}',
+            },
+        )
+
+        self.assertEqual(result.readiness_status, "ready")
+
     def _evaluate(
         self,
         *,
         status: str = "published",
         field_bindings: list[dict[str, object]] | None = None,
+        time_bindings: list[dict[str, object]] | None = None,
         carrier_bindings: list[dict[str, object]] | None = None,
         carrier_source_object_loader=None,
     ):
@@ -1069,6 +1196,7 @@ class BindingReadinessEvaluatorTests(unittest.TestCase):
                     if carrier_bindings is not None
                     else [{"binding_key": "primary", "carrier_locator": "warehouse.metric_fact"}],
                     "field_bindings": field_bindings if field_bindings is not None else [],
+                    "time_bindings": time_bindings if time_bindings is not None else [],
                 },
             },
         )

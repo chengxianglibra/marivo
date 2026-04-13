@@ -175,6 +175,9 @@ while bare physical column keys remain compatibility-only input.
 Windowed typed execution must resolve analysis-time and partition-pruning metadata from published
 typed bindings. Do not rely on entity/source `time_capabilities` as the runtime source of truth;
 request-level `time_axis` overrides remain the only non-binding override path.
+For `time_bindings` with `resolution_kind="timestamp_column"`, do not assume string-backed
+columns are executable as native timestamps. Binding contracts must declare the parse strategy
+explicitly (for example `timestamp_format="iso8601_t_naive"`) or readiness should block them.
 Session root requests must not carry execution filters such as `constraints` or `raw_filter`;
 descriptive session context belongs in `goal`, while bounded execution scope belongs in typed step
 requests only.

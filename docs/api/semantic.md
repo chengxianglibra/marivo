@@ -350,6 +350,9 @@ Validation notes:
 - Grouped semantic requests such as `observe(..., dimensions=["dimension.cluster"])` only work when
   each requested `dimension.*` is already consumable by the metric, either from the metric's own
   exported dimension set or from an imported entity binding bridge.
+- `time_bindings[*].resolution_kind = "timestamp_column"` may additionally declare
+  `timestamp_format`. Use `native` for physical timestamp columns and `iso8601_t_naive` for
+  string-backed timestamps such as `YYYY-MM-DDTHH:MM:SS`.
 - The imported bridge path is strict: the imported binding must be `entity` scope, must match the
   metric's entity anchor, and only contributes `stable_descriptor -> dimension.*` public targets.
 - If a grouped request returns `COMPILER_DIMENSION_IMPORT_MISSING`, the usual fix is:

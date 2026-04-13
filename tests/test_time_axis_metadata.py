@@ -29,6 +29,7 @@ class TimeCapabilitiesSchemaTests(unittest.TestCase):
             {
                 "analysis_time": {
                     "timestamp_column": "event_time",
+                    "timestamp_format": "native",
                     "fallback_date_column": "log_date",
                     "fallback_hour_column": "log_hour",
                 },
@@ -46,6 +47,7 @@ class TimeCapabilitiesSchemaTests(unittest.TestCase):
             {
                 "analysis_time": {
                     "timestamp_column": "event_time",
+                    "timestamp_format": "native",
                     "fallback_date_column": "log_date",
                     "fallback_hour_column": "log_hour",
                 },
@@ -80,6 +82,25 @@ class TimeCapabilitiesSchemaTests(unittest.TestCase):
                     },
                 }
             )
+
+    def test_normalize_time_capabilities_accepts_timestamp_format(self) -> None:
+        normalized = normalize_time_capabilities(
+            {
+                "analysis_time": {
+                    "timestamp_column": "create_time",
+                    "timestamp_format": "iso8601_t_naive",
+                }
+            }
+        )
+        self.assertEqual(
+            normalized,
+            {
+                "analysis_time": {
+                    "timestamp_column": "create_time",
+                    "timestamp_format": "iso8601_t_naive",
+                }
+            },
+        )
 
 
 class TimeAxisMetadataProviderTests(unittest.TestCase):

@@ -27,6 +27,17 @@ class SQLiteMetadataStore(MetadataStore):
         with self.connect() as con:
             for ddl in METADATA_DDL:
                 con.execute(ddl)
+            columns = {
+                str(row["name"])
+                for row in con.execute("PRAGMA table_info(time_bindings)").fetchall()
+            }
+            if "timestamp_format" not in columns:
+                con.execute(
+                    "ALTER TABLE time_bindings "
+                    "ADD COLUMN timestamp_format TEXT "
+                    "CHECK (timestamp_format IS NULL OR "
+                    "timestamp_format IN ('native', 'iso8601_t_naive'))"
+                )
             con.commit()
 
     @contextmanager
