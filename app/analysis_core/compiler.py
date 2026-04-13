@@ -99,17 +99,31 @@ def _build_scoped_query_parts(
         raise ValueError("scoped_query requires 'analysis_time_expr'")
 
     mode = _require_scoped_query_mode(scoped_query)
+    analysis_time_kind = str(scoped_query.get("analysis_time_kind") or "").strip()
+
     current = dict(scoped_query.get("current") or {})
     current_start = str(current.get("start") or "").strip()
     current_end = str(current.get("end") or "").strip()
     if not current_start or not current_end:
         raise ValueError("scoped_query requires current.start and current.end")
-    current_start = _format_scoped_bound(scoped_query, current_start)
-    current_end = _format_scoped_bound(scoped_query, current_end)
 
-    current_predicate = f"{analysis_time_expr} >= ? AND {analysis_time_expr} < ?"
-    filters: list[str] = [f"({current_predicate})"]
-    params: list[Any] = []
+    # For date_field with CAST expression, skip the CAST-based predicate
+    # and rely on partition_pruning_predicate for time filtering.
+    # The CAST expression is still used for SELECT/GROUP BY (DATE_TRUNC).
+    filters: list[str]
+    params: list[Any]
+    if analysis_time_kind == "date_field" and "CAST(" in analysis_time_expr:
+        # Don't add CAST-based predicate; partition_pruning_predicate handles filtering
+        filters = []
+        params = []
+        current_start = ""
+        current_end = ""
+    else:
+        current_start = _format_scoped_bound(scoped_query, current_start)
+        current_end = _format_scoped_bound(scoped_query, current_end)
+        current_predicate = f"{analysis_time_expr} >= ? AND {analysis_time_expr} < ?"
+        filters = [f"({current_predicate})"]
+        params = []
 
     if include_period:
         select_prefix = ["'current' AS _period"] if mode == "single_window" else []
@@ -117,11 +131,21 @@ def _build_scoped_query_parts(
         select_prefix = []
 
     if mode == "compare":
+        # Compare mode also needs to handle CAST expression case
         baseline = dict(scoped_query.get("baseline") or {})
         baseline_start = str(baseline.get("start") or "").strip()
         baseline_end = str(baseline.get("end") or "").strip()
         if not baseline_start or not baseline_end:
             raise ValueError("scoped_query compare mode requires baseline.start and baseline.end")
+
+        if analysis_time_kind == "date_field" and "CAST(" in analysis_time_expr:
+            # For CAST expression, compare mode cannot work without time predicates
+            # This is a limitation; partition_pruning_predicate covers one window only
+            raise ValueError(
+                "compare mode is not supported for date_field with CAST expression; "
+                "the time axis must be resolved to a native date column or timestamp"
+            )
+
         baseline_start = _format_scoped_bound(scoped_query, baseline_start)
         baseline_end = _format_scoped_bound(scoped_query, baseline_end)
         baseline_predicate = f"{analysis_time_expr} >= ? AND {analysis_time_expr} < ?"
@@ -135,7 +159,8 @@ def _build_scoped_query_parts(
             params.extend([current_start, current_end, baseline_start, baseline_end])
         filters = [f"(({current_predicate}) OR ({baseline_predicate}))"]
         params.extend([current_start, current_end, baseline_start, baseline_end])
-    else:
+    elif current_start and current_end:
+        # Only add params if we have a valid predicate (non-empty bounds)
         params.extend([current_start, current_end])
 
     filter_fields = (
