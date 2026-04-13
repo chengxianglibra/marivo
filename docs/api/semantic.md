@@ -53,12 +53,12 @@ contract:
 - Readiness is computed from the same full semantic contract used by detail reads; the list surface
   is lightweight in shape only
 
-During the current migration phase, `status=published` maps to `lifecycle_status=active`.
-For list-route backward compatibility, `status=active` is also accepted as an alias and is
-normalized to storage `published`. Readiness is evaluated separately from lifecycle. List routes
+Storage `status=published` maps to `lifecycle_status=active`.
+Readiness is evaluated separately from lifecycle. List routes
 accept `lifecycle_status` as the canonical lifecycle filter and `readiness_status` as the
 usability filter; `status` remains a compatibility filter and callers should prefer
-`lifecycle_status`.
+`lifecycle_status`. The `status` filter only accepts storage values: `draft`, `published`, and
+`deprecated`.
 
 **Migration notes:**
 
@@ -66,6 +66,8 @@ usability filter; `status` remains a compatibility filter and callers should pre
   reserved in public type definitions and validate routes, but it is not persisted.
 - **Phase B:** whether `validated` becomes a persisted lifecycle state is deferred to a later
   migration and is intentionally out of scope for the current HTTP contract.
+- If an older metadata sqlite still contains semantic `status='active'`, run
+  `scripts/migrate-semantic-status-active-to-published.sh` before starting the service.
 - Callers should migrate availability checks to `lifecycle_status` plus `readiness_status` instead
   of inferring usability from `status`.
 

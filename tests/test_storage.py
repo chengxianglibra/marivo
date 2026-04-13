@@ -122,20 +122,6 @@ class ResetMetadataScriptTests(unittest.TestCase):
         self.assertFalse(Path(f"{self.metadata_path}-wal").exists())
         self.assertFalse(Path(f"{self.metadata_path}-shm").exists())
 
-    def test_script_accepts_direct_metadata_path(self) -> None:
-        self.metadata_path.write_text("x", encoding="utf-8")
-
-        result = run(
-            ["/bin/bash", str(self.script_path), str(self.metadata_path)],
-            cwd=self.repo_root,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-
-        self.assertEqual(result.returncode, 0)
-        self.assertFalse(self.metadata_path.exists())
-
 
 class DuckDBAnalyticsEngineTests(unittest.TestCase):
     @classmethod

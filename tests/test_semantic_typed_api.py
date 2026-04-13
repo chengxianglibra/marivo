@@ -2148,15 +2148,8 @@ class SemanticTypedApiTests(unittest.TestCase):
         self.assertIn("dependent_refs", binding_item)
 
         binding_list_active_resp = self.client.get("/semantic/bindings?status=active&detail=true")
-        self.assertEqual(binding_list_active_resp.status_code, 200, binding_list_active_resp.text)
-        binding_active_item = next(
-            item
-            for item in binding_list_active_resp.json()["items"]
-            if item["binding_id"] == binding_id
-        )
-        self.assertEqual(binding_active_item["status"], "published")
-        self.assertEqual(binding_active_item["lifecycle_status"], "active")
-        self.assertIn("interface_contract", binding_active_item)
+        self.assertEqual(binding_list_active_resp.status_code, 422, binding_list_active_resp.text)
+        self.assertIn("Unsupported status filter", binding_list_active_resp.text)
 
         profile_list_resp = self.client.get("/compiler/compatibility-profiles?status=published")
         self.assertEqual(profile_list_resp.status_code, 200, profile_list_resp.text)
@@ -2177,15 +2170,8 @@ class SemanticTypedApiTests(unittest.TestCase):
         profile_list_active_resp = self.client.get(
             "/compiler/compatibility-profiles?status=active&detail=true"
         )
-        self.assertEqual(profile_list_active_resp.status_code, 200, profile_list_active_resp.text)
-        profile_active_item = next(
-            item
-            for item in profile_list_active_resp.json()["items"]
-            if item["profile_id"] == profile_id
-        )
-        self.assertEqual(profile_active_item["status"], "published")
-        self.assertEqual(profile_active_item["lifecycle_status"], "active")
-        self.assertIn("requirement", profile_active_item)
+        self.assertEqual(profile_list_active_resp.status_code, 422, profile_list_active_resp.text)
+        self.assertIn("Unsupported status filter", profile_list_active_resp.text)
 
     def test_enum_set_update_rejects_raw_value_type_mismatch(self) -> None:
         """Updating enum set versions must reject raw_values that don't match
