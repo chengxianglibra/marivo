@@ -181,6 +181,14 @@ class ObserveRequestModelTests(unittest.TestCase):
                 granularity="day",
             )
 
+    def test_hour_granularity_requires_datetime_range_boundaries(self) -> None:
+        with self.assertRaises(Exception):
+            ObserveRequest(
+                metric=_metric_ref("dau"),
+                time_scope={"kind": "range", "start": "2024-01-01", "end": "2024-01-02"},
+                granularity="hour",
+            )
+
 
 class CompareRequestModelTests(unittest.TestCase):
     def _ref(self, session_id: str = "sess_a", step_id: str = "step_1") -> ObservationRef:
@@ -1610,6 +1618,17 @@ class ObserveTypedArtifactTests(unittest.TestCase):
                 "metric": _metric_ref("observe_test_dau"),
                 "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
                 "granularity": "quarter",
+            },
+        )
+        self.assertIn(r.status_code, (400, 422))
+
+    def test_observe_hour_granularity_rejects_date_only_range(self) -> None:
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/observe",
+            json={
+                "metric": _metric_ref("observe_test_dau"),
+                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-02"},
+                "granularity": "hour",
             },
         )
         self.assertIn(r.status_code, (400, 422))

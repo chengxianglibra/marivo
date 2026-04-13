@@ -709,6 +709,14 @@ class ObserveRequest(BaseModel):
         kind = self.time_scope.kind if hasattr(self.time_scope, "kind") else None
         if kind in {"snapshot_now", "latest_available", "as_of"} and self.granularity is not None:
             raise ValueError(f"granularity is not valid when time_scope.kind='{kind}'")
+        if self.granularity == "hour" and isinstance(self.time_scope, ObserveTimeScopeRange):
+            start_is_datetime = "T" in self.time_scope.start or " " in self.time_scope.start
+            end_is_datetime = "T" in self.time_scope.end or " " in self.time_scope.end
+            if not start_is_datetime or not end_is_datetime:
+                raise ValueError(
+                    "granularity='hour' requires time_scope.start and time_scope.end "
+                    "to be datetime strings"
+                )
         if self.dimensions == []:
             self.dimensions = None
         return self

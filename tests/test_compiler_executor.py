@@ -159,6 +159,35 @@ class CompilerTests(unittest.TestCase):
         self.assertNotIn("delta_pct", compiled.sql)
         self.assertEqual(compiled.params, ["2026-03-25T10:00:00", "2026-03-25T14:00:00"])
 
+    def test_compile_metric_query_single_window_trino_timestamp_scoped_query_formats_params(
+        self,
+    ) -> None:
+        compiled = compile_step(
+            AnalysisStepIR(
+                index=0,
+                step_type="metric_query",
+                params={
+                    "metric": "watch_time",
+                    "table": "analytics.watch_events",
+                    "order": "CURRENT_VALUE DESC",
+                    "scoped_query": {
+                        "mode": "single_window",
+                        "engine_type": "trino",
+                        "analysis_time_kind": "timestamp",
+                        "analysis_time_expr": "event_time",
+                        "current": {"start": "2026-03-25T10:00:00", "end": "2026-03-25T14:00:00"},
+                    },
+                },
+            ),
+            engine_type="trino",
+            semantic_context={
+                "metric_sql": "avg(play_duration_seconds)",
+                "dimensions": ["platform", "app_version"],
+            },
+        )
+
+        self.assertEqual(compiled.params, ["2026-03-25 10:00:00", "2026-03-25 14:00:00"])
+
     def test_compile_metric_query_scoped_query_requires_valid_mode(self) -> None:
         with self.assertRaisesRegex(ValueError, "scoped_query.mode must be"):
             compile_step(

@@ -153,7 +153,7 @@ def run_detect_intent(
         metric_name=metric_ref,
         fallback_columns=all_dimensions,
     )
-    scoped_query = svc._build_scoped_query(session_id, resolved)
+    scoped_query = svc._build_scoped_query(session_id, resolved, engine_type=engine_type)
     qualified_table = qualified.get(table, table)
 
     time_col = resolved.resolved_time_axis.analysis_time_expr
