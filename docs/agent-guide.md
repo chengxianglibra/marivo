@@ -117,8 +117,9 @@ make format
 ```
 
 Tests: `make test` or `.venv/bin/pytest`. Requires Python 3.12+. SQLite metadata,
-DuckDB/Trino engines. Tests pass explicit db_path, no `DUCKDB_MVP_DB` needed.
-App startup uses in-memory databases by default; set `DUCKDB_MVP_DB` for persistence.
+DuckDB/Trino engines. Tests pass explicit db_path and metadata store/file paths directly.
+App startup requires `factum.yaml` metadata config with `metadata.engine=sqlite` and
+`metadata.path=<sqlite-file>`.
 
 ## Architecture
 

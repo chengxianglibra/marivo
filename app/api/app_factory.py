@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import importlib
 import logging
-import os
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import cast
@@ -21,7 +20,7 @@ from app.api.errors import (
 from app.api.router import include_api_routers
 from app.approvals import ApprovalService
 from app.bindings import BindingService
-from app.config import FactumConfig, load_config
+from app.config import FactumConfig, load_config, resolve_config_path
 from app.engines import EngineService
 from app.governance import GovernanceService
 from app.jobs import JobService
@@ -61,24 +60,29 @@ def _resolve_storage(
     db_path: str | Path | None,
     metadata_store: MetadataStore | None,
     analytics_engine: AnalyticsEngine | None,
+    config: FactumConfig,
+    config_path: Path,
+    config_path_explicit: bool,
 ) -> tuple[Path | str, MetadataStore, AnalyticsEngine]:
-    # Use in-memory databases when no path is configured
-    use_memory = False
     if db_path is not None:
         resolved_path: Path | str = Path(db_path)
     else:
-        env_path = os.getenv("DUCKDB_MVP_DB")
-        if env_path:
-            resolved_path = Path(env_path)
-        else:
-            resolved_path = ":memory:"
-            use_memory = True
+        resolved_path = ":memory:"
     created_analytics_engine = analytics_engine is None
     if metadata_store is None:
-        if use_memory:
-            metadata_store = SQLiteMetadataStore(":memory:")
-        else:
+        metadata_config = config.metadata
+        if db_path is not None and not config_path_explicit:
             metadata_store = SQLiteMetadataStore(Path(resolved_path).with_suffix(".meta.sqlite"))
+        elif metadata_config is not None and metadata_config.path.strip():
+            metadata_path = Path(metadata_config.path)
+            if not metadata_path.is_absolute():
+                metadata_path = config_path.parent / metadata_path
+            metadata_store = SQLiteMetadataStore(metadata_path)
+        else:
+            raise RuntimeError(
+                "Factum config must define metadata.engine=sqlite and metadata.path when "
+                "metadata_store is not provided"
+            )
     if analytics_engine is None:
         analytics_engine = DuckDBAnalyticsEngine(resolved_path)
     metadata_store.initialize()
@@ -227,7 +231,7 @@ def _register_configured_governance(
 
 def _build_services(
     *,
-    resolved_path: Path | str,  # Path for file-based, str ":memory:" for in-memory
+    resolved_path: Path | str,  # Analytics path; str ":memory:" means in-memory DuckDB.
     metadata_store: MetadataStore,
     analytics_engine: AnalyticsEngine,
     config: FactumConfig,
@@ -323,11 +327,20 @@ def create_app(
     analytics_engine: AnalyticsEngine | None = None,
     config_path: str | Path | None = None,
 ) -> FastAPI:
-    resolved_path, metadata_store, analytics_engine = _resolve_storage(
-        db_path, metadata_store, analytics_engine
+    explicit_config_path = config_path is not None
+    resolved_config_path = resolve_config_path(
+        Path(config_path) if config_path is not None else None
     )
-    config = load_config(Path(config_path) if config_path is not None else None)
+    config = load_config(resolved_config_path)
     _require_runtime_dependencies(config)
+    resolved_path, metadata_store, analytics_engine = _resolve_storage(
+        db_path,
+        metadata_store,
+        analytics_engine,
+        config,
+        resolved_config_path,
+        explicit_config_path,
+    )
     services = _build_services(
         resolved_path=resolved_path,
         metadata_store=metadata_store,

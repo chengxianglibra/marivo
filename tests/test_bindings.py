@@ -686,9 +686,14 @@ class BindingAPITests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.temp_dir = tempfile.TemporaryDirectory()
         cls.db_path = Path(cls.temp_dir.name) / "test_binding_api.duckdb"
+        cls.metadata = SQLiteMetadataStore(Path(cls.temp_dir.name) / "test_binding_api.meta.sqlite")
         get_seeded_duckdb_path(cls.db_path)
         cls.client = TestClient(
-            create_app(cls.db_path, config_path=Path(cls.temp_dir.name) / "none.yaml")
+            create_app(
+                cls.db_path,
+                metadata_store=cls.metadata,
+                config_path=Path(cls.temp_dir.name) / "none.yaml",
+            )
         )
 
     @classmethod
