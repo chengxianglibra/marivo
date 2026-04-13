@@ -1,12 +1,12 @@
 """Helpers for enforcing semantic-vs-canonical ref boundaries.
 
-Semantic refs identify stable semantic-layer contracts such as
-``metric.foo`` or ``dimension.country``.
+Semantic refs identify stable semantic-layer contracts such as explicit
+``metric_ref`` / ``dimension_ref`` fields or ``semantic_ref`` bindings.
 
 Canonical refs identify session-local evidence objects and provenance handles
 such as ``finding_ref`` / ``proposition_ref`` / ``artifact_refs`` / ``step_ref``.
-The two families may be associated, but they must not appear in each other's
-surface contracts.
+The two families may be associated, but explicit ref fields from one family
+must not appear in the other's surface contracts.
 """
 
 from __future__ import annotations
@@ -125,14 +125,6 @@ def _find_semantic_refs_in_canonical_payload(
                         path=child_path,
                         reason="uses semantic ref field",
                         value=key_text,
-                    )
-                )
-            if is_semantic_ref(value):
-                violations.append(
-                    RefBoundaryViolation(
-                        path=child_path,
-                        reason="contains semantic ref value",
-                        value=value,
                     )
                 )
             violations.extend(_find_semantic_refs_in_canonical_payload(value, path=child_path))

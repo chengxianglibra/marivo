@@ -133,7 +133,8 @@ Inclusion boundaries are fixed:
 - the set is de-duplicated
 - the field carries lookup handles only, not expanded provenance payloads
 - assessment dependencies do not expand `artifact_refs` by themselves
-- this surface must not expose semantic-layer refs such as `metric_ref`, `process_ref`, `dimension.*`, `time.*`, or `binding.*`
+- this surface must not expose semantic-ref-specific fields such as `metric_ref`, `process_ref`, `dimension_ref`, `time_ref`, `binding_ref`, or `semantic_ref`
+- embedded canonical subject payloads may still carry typed semantic identifiers such as `metric.*` and `dimension.*` inside ordinary business fields like `subject_json.metric` or `subject_json.slice`
 - if a caller needs semantic meaning, it must derive that from canonical findings / propositions, step lineage metadata, and the semantic contracts, not by adding semantic refs to this payload
 
 ## Ordering

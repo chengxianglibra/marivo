@@ -77,8 +77,6 @@ _CANONICAL_EVIDENCE_FIELDS = frozenset(
     }
 )
 
-_SEMANTIC_REF_PREFIXES = ("metric.", "entity.", "process.", "dimension.", "time.", "binding.")
-
 
 def _walk_strings(payload: Any) -> list[str]:
     strings: list[str] = []
@@ -139,8 +137,10 @@ def _insert_finding(
     session_id: str,
     finding_id: str,
     artifact_id: str,
+    *,
+    subject: dict[str, Any] | None = None,
 ) -> None:
-    subject = {
+    subject_payload = subject or {
         "metric": "dau",
         "entity": None,
         "slice": {},
@@ -178,7 +178,7 @@ def _insert_finding(
             json.dumps(step_ref),
             "delta",
             finding_id,
-            json.dumps(subject),
+            json.dumps(subject_payload),
             json.dumps({"kind": "range", "start": "2024-01-08", "end": "2024-01-14"}),
             json.dumps(quality),
             json.dumps(provenance),
@@ -194,6 +194,7 @@ def _insert_proposition(
     proposition_id: str,
     *,
     externally_visible_assessment_id: str | None = None,
+    subject: dict[str, Any] | None = None,
 ) -> None:
     store.execute(
         """INSERT INTO propositions
@@ -205,7 +206,7 @@ def _insert_proposition(
             proposition_id,
             session_id,
             "change_assessment",
-            json.dumps({"metric": "dau", "entity": None, "slice": {}, "grain": "day"}),
+            json.dumps(subject or {"metric": "dau", "entity": None, "slice": {}, "grain": "day"}),
             json.dumps({"kind": "system_seeded"}),
             json.dumps({"assessment_type": "change_assessment"}),
             json.dumps({"source_artifact_lineages": [], "source_step_refs": []}),
@@ -899,7 +900,7 @@ class TestStateClosureCorrectness(unittest.TestCase):
         )
 
 
-class TestCanonicalReadSurfacesDoNotExposeSemanticRefs(unittest.TestCase):
+class TestCanonicalReadSurfacesExcludeExplicitSemanticRefFields(unittest.TestCase):
     def setUp(self) -> None:
         self.store = _make_store()
         self.session_id = f"sess_{uuid4().hex[:12]}"
@@ -925,7 +926,7 @@ class TestCanonicalReadSurfacesDoNotExposeSemanticRefs(unittest.TestCase):
             [json.dumps([self.finding_id]), self.assessment_id],
         )
 
-    def test_state_view_contains_no_semantic_ref_field_names_or_values(self) -> None:
+    def test_state_view_contains_no_explicit_semantic_ref_fields(self) -> None:
         from app.evidence_engine.state_view import materialize_session_state_view
         from app.storage.evidence_repositories import (
             ActionProposalRepository,
@@ -951,9 +952,8 @@ class TestCanonicalReadSurfacesDoNotExposeSemanticRefs(unittest.TestCase):
         self.assertFalse(
             any(text in {"metric_ref", "semantic_ref", "subject_ref"} for text in strings)
         )
-        self.assertFalse(any(text.startswith(_SEMANTIC_REF_PREFIXES) for text in strings))
 
-    def test_context_view_contains_no_semantic_ref_field_names_or_values(self) -> None:
+    def test_context_view_contains_no_explicit_semantic_ref_fields(self) -> None:
         from app.evidence_engine.context_view import materialize_proposition_context_view
         from app.storage.evidence_repositories import (
             ActionProposalRepository,
@@ -979,7 +979,62 @@ class TestCanonicalReadSurfacesDoNotExposeSemanticRefs(unittest.TestCase):
         self.assertFalse(
             any(text in {"metric_ref", "semantic_ref", "subject_ref"} for text in strings)
         )
-        self.assertFalse(any(text.startswith(_SEMANTIC_REF_PREFIXES) for text in strings))
+
+    def test_state_and_context_allow_typed_semantic_subject_content(self) -> None:
+        from app.evidence_engine.context_view import materialize_proposition_context_view
+        from app.evidence_engine.state_view import materialize_session_state_view
+        from app.storage.evidence_repositories import (
+            ActionProposalRepository,
+            AssessmentRepository,
+            EvidenceGapRepository,
+            FindingRepository,
+            InferenceRecordRepository,
+            PropositionRepository,
+        )
+
+        typed_subject = {
+            "metric": "metric.trino_query_count",
+            "entity": None,
+            "slice": {"dimension.trino_cluster": "k8soneservice-oneservice"},
+            "grain": "day",
+            "analysis_axis": "scalar",
+        }
+        self.store.execute(
+            "UPDATE findings SET subject_json = ? WHERE finding_id = ?",
+            [json.dumps(typed_subject), self.finding_id],
+        )
+        self.store.execute(
+            "UPDATE propositions SET subject_json = ? WHERE proposition_id = ?",
+            [json.dumps(typed_subject), self.proposition_id],
+        )
+
+        repos = {
+            "finding_repo": FindingRepository(self.store),
+            "proposition_repo": PropositionRepository(self.store),
+            "assessment_repo": AssessmentRepository(self.store),
+            "gap_repo": EvidenceGapRepository(self.store),
+            "inference_record_repo": InferenceRecordRepository(self.store),
+            "proposal_repo": ActionProposalRepository(self.store),
+        }
+        state_view = materialize_session_state_view(
+            session_id=self.session_id,
+            query={},
+            **repos,
+        )
+        context_view = materialize_proposition_context_view(
+            session_id=self.session_id,
+            proposition_id=self.proposition_id,
+            **repos,
+        )
+
+        self.assertEqual(
+            state_view["active_propositions"][0]["proposition"]["subject_json"]["metric"],
+            typed_subject["metric"],
+        )
+        self.assertEqual(
+            context_view["proposition"]["subject_json"]["slice"],
+            typed_subject["slice"],
+        )
 
 
 if __name__ == "__main__":

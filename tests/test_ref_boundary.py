@@ -29,7 +29,7 @@ class TestRefBoundaryHelpers(unittest.TestCase):
         self.assertTrue(is_canonical_ref_mapping({"artifact_id": "art_1"}))
         self.assertFalse(is_canonical_ref_mapping({"metric_ref": "metric.watch_time"}))
 
-    def test_canonical_payload_rejects_semantic_ref_fields_and_values(self) -> None:
+    def test_canonical_payload_rejects_semantic_ref_fields(self) -> None:
         payload = {
             "artifact_refs": [{"artifact_id": "art_1", "step_ref": {"session_id": "sess_1"}}],
             "metric_ref": "metric.watch_time",
@@ -39,6 +39,20 @@ class TestRefBoundaryHelpers(unittest.TestCase):
             assert_no_semantic_refs_in_canonical_payload(payload, surface="state_view")
 
         self.assertIn("metric_ref", str(error.exception))
+
+    def test_canonical_payload_allows_typed_semantic_identifiers_inside_subject_payload(
+        self,
+    ) -> None:
+        payload = {
+            "proposition": {
+                "subject_json": {
+                    "metric": "metric.watch_time",
+                    "slice": {"dimension.country": "US"},
+                }
+            }
+        }
+
+        assert_no_semantic_refs_in_canonical_payload(payload, surface="state_view")
 
     def test_semantic_payload_rejects_canonical_ref_fields(self) -> None:
         payload = {
