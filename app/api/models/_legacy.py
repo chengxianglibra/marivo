@@ -30,6 +30,8 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.api.models.base import validate_ref_prefix
+
 # =============================================================================
 # DEPRECATED: Legacy semantic models (for backward compatibility with semantic.py)
 # These will be removed when semantic.py is updated to use typed models.
@@ -684,7 +686,7 @@ class ObserveScope(BaseModel):
 class ObserveRequest(BaseModel):
     """Atomic intent: read a typed observation for a semantic metric."""
 
-    metric: str = Field(description="Published semantic metric name.")
+    metric: str = Field(description="Canonical semantic metric ref (e.g., 'metric.watch_time').")
     result_mode: Literal["standard", "numeric_sample_summary", "rate_sample_summary"] = Field(
         default="standard",
         description=(
@@ -703,6 +705,11 @@ class ObserveRequest(BaseModel):
         default=None,
         description="Semantic dimensions for segmented output.  Only valid when result_mode='standard'.",
     )
+
+    @field_validator("metric")
+    @classmethod
+    def _validate_metric_ref(cls, value: str) -> str:
+        return validate_ref_prefix(value, "metric", "metric")
 
     @model_validator(mode="after")
     def _validate_mode_combinations(self) -> ObserveRequest:
@@ -794,7 +801,9 @@ class DetectTimeScope(BaseModel):
 class DetectRequest(BaseModel):
     """Atomic intent: scan a metric time range for anomaly candidates."""
 
-    metric: str = Field(description="Published semantic metric name to scan.")
+    metric: str = Field(
+        description="Canonical semantic metric ref to scan (e.g., 'metric.watch_time')."
+    )
     time_scope: DetectTimeScope
     scope: ObserveScope | None = Field(default=None)
     split_by: str | None = Field(
@@ -819,6 +828,11 @@ class DetectRequest(BaseModel):
         ge=1,
         description="Maximum number of series to scan when split_by is set.",
     )
+
+    @field_validator("metric")
+    @classmethod
+    def _validate_metric_ref(cls, value: str) -> str:
+        return validate_ref_prefix(value, "metric", "metric")
 
 
 class HypothesisContract(BaseModel):
@@ -905,7 +919,9 @@ class AttributeObservationInput(BaseModel):
 class AttributeRequest(BaseModel):
     """Derived intent: attribute a metric change (expands to observe+observe+compare+decompose)."""
 
-    metric: str = Field(description="Published semantic metric to attribute.")
+    metric: str = Field(
+        description="Canonical semantic metric ref to attribute (e.g., 'metric.watch_time')."
+    )
     left: AttributeObservationInput = Field(
         description="Current / treatment side observation scope."
     )
@@ -919,11 +935,18 @@ class AttributeRequest(BaseModel):
     decomposition_method: Literal["delta_share"] = Field(default="delta_share")
     decomposition_limit: int = Field(default=5, ge=1)
 
+    @field_validator("metric")
+    @classmethod
+    def _validate_metric_ref(cls, value: str) -> str:
+        return validate_ref_prefix(value, "metric", "metric")
+
 
 class DiagnoseRequest(BaseModel):
     """Derived intent: diagnose anomalies (expands to detect+compare+decompose on top-K)."""
 
-    metric: str = Field(description="Published semantic metric to diagnose.")
+    metric: str = Field(
+        description="Canonical semantic metric ref to diagnose (e.g., 'metric.watch_time')."
+    )
     time_scope: DetectTimeScope
     scope: ObserveScope | None = Field(default=None)
     detect_split_by: str | None = Field(
@@ -958,6 +981,11 @@ class DiagnoseRequest(BaseModel):
         description="Maximum driver rows per dimension per candidate.",
     )
 
+    @field_validator("metric")
+    @classmethod
+    def _validate_metric_ref(cls, value: str) -> str:
+        return validate_ref_prefix(value, "metric", "metric")
+
 
 class ValidateObservationInput(BaseModel):
     """One side (left/right) of a validate intent: time scope + optional non-time scope."""
@@ -978,7 +1006,9 @@ class ValidateHypothesis(BaseModel):
 class ValidateRequest(BaseModel):
     """Derived intent: validate a hypothesis (expands to observe×2 + test)."""
 
-    metric: str = Field(description="Published semantic metric to validate.")
+    metric: str = Field(
+        description="Canonical semantic metric ref to validate (e.g., 'metric.watch_time')."
+    )
     left: ValidateObservationInput = Field(description="Primary / treatment population.")
     right: ValidateObservationInput = Field(description="Comparison / control population.")
     sample_kind: Literal["auto", "numeric", "rate"] | None = Field(
@@ -989,6 +1019,11 @@ class ValidateRequest(BaseModel):
     )
     hypothesis: ValidateHypothesis | None = Field(default=None)
     method: Literal["auto", "welch_t", "two_proportion_z"] | None = Field(default=None)
+
+    @field_validator("metric")
+    @classmethod
+    def _validate_metric_ref(cls, value: str) -> str:
+        return validate_ref_prefix(value, "metric", "metric")
 
 
 class SessionStateQueryRequest(BaseModel):

@@ -39,6 +39,11 @@ from tests.semantic_test_helpers import (
     ensure_published_typed_metric_binding,
 )
 
+
+def _metric_ref(name: str) -> str:
+    return f"metric.{name}"
+
+
 # ── Constants ──────────────────────────────────────────────────────────────────
 
 _METRIC = "diag_revenue"
@@ -482,7 +487,7 @@ class DiagnoseHTTPTests(unittest.TestCase):
         resp = self.client.post(
             f"/sessions/{self.session_id}/intents/diagnose",
             json={
-                "metric": _METRIC,
+                "metric": _metric_ref(_METRIC),
                 "time_scope": {
                     "mode": "single_window",
                     "grain": "day",
@@ -501,7 +506,7 @@ class DiagnoseHTTPTests(unittest.TestCase):
         resp = self.client.post(
             f"/sessions/{self.session_id}/intents/diagnose",
             json={
-                "metric": _METRIC,
+                "metric": _metric_ref(_METRIC),
                 "time_scope": {
                     "mode": "single_window",
                     "grain": "day",
@@ -517,7 +522,7 @@ class DiagnoseHTTPTests(unittest.TestCase):
         resp = self.client.post(
             "/sessions/sess_nonexistent/intents/diagnose",
             json={
-                "metric": _METRIC,
+                "metric": _metric_ref(_METRIC),
                 "time_scope": {
                     "mode": "single_window",
                     "grain": "day",

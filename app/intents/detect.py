@@ -39,9 +39,11 @@ def run_detect_intent(
     """
     p = params or {}
 
-    metric_name: str = p.get("metric") or ""
-    if not metric_name:
+    metric_ref: str = p.get("metric") or ""
+    if not metric_ref:
         raise ValueError("detect intent requires 'metric'")
+    metric_ref = svc.normalize_intent_metric_ref(metric_ref)
+    metric_name = svc.metric_name_from_ref(metric_ref)
 
     time_scope_raw = p.get("time_scope")
     if not isinstance(time_scope_raw, dict):
@@ -121,11 +123,11 @@ def run_detect_intent(
     scope_raw = p.get("scope") or None
 
     # ── Resolve metric ─────────────────────────────────────────────────────────
-    execution_context = svc._resolve_metric_execution_context(metric_name)
+    execution_context = svc._resolve_metric_execution_context(metric_ref)
     table = execution_context.table_name
 
-    metric_sql = svc.resolve_metric_sql(metric_name)
-    all_dimensions = svc.resolve_metric_dimensions(metric_name)
+    metric_sql = svc.resolve_metric_sql(metric_ref)
+    all_dimensions = svc.resolve_metric_dimensions(metric_ref)
     if metric_sql is None or all_dimensions is None:
         raise ValueError(f"Metric '{metric_name}' not found or not published")
 
@@ -134,7 +136,7 @@ def run_detect_intent(
 
     mq_params: dict[str, Any] = {
         "table": table,
-        "metric": metric_name,
+        "metric": metric_ref,
         "time_scope": {
             "mode": "single_window",
             "grain": grain,
@@ -148,7 +150,7 @@ def run_detect_intent(
     svc._resolve_windowed_query_time_axis(
         resolved,
         engine_type=engine_type,
-        metric_name=metric_name,
+        metric_name=metric_ref,
         fallback_columns=all_dimensions,
     )
     scoped_query = svc._build_scoped_query(session_id, resolved)
@@ -360,7 +362,7 @@ def run_detect_intent(
                 "step_type": "detect",
                 "artifact_id": None,  # patched after _insert_artifact
             },
-            "source_metric_ref": metric_name,
+            "source_metric_ref": metric_ref,
             "detector_version": "1.0",
             "projection_ref": None,
         },

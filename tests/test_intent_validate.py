@@ -45,6 +45,11 @@ from tests.semantic_test_helpers import (
     ensure_published_typed_metric_binding,
 )
 
+
+def _metric_ref(name: str) -> str:
+    return f"metric.{name}"
+
+
 # ── Constants ──────────────────────────────────────────────────────────────────
 
 _METRIC_NUMERIC = "val_numeric"
@@ -487,7 +492,7 @@ class ValidateHTTPTests(unittest.TestCase):
         resp = self.client.post(
             f"/sessions/{self.session_id}/intents/validate",
             json={
-                "metric": _METRIC_NUMERIC,
+                "metric": _metric_ref(_METRIC_NUMERIC),
                 "left": {
                     "time_scope": {"kind": "range", "start": _WINDOW_A_START, "end": _WINDOW_A_END}
                 },
@@ -506,7 +511,7 @@ class ValidateHTTPTests(unittest.TestCase):
         resp = self.client.post(
             f"/sessions/{self.session_id}/intents/validate",
             json={
-                "metric": _METRIC_NUMERIC,
+                "metric": _metric_ref(_METRIC_NUMERIC),
                 "right": {
                     "time_scope": {"kind": "range", "start": _WINDOW_B_START, "end": _WINDOW_B_END}
                 },
@@ -520,7 +525,7 @@ class ValidateHTTPTests(unittest.TestCase):
         resp = self.client.post(
             "/sessions/sess_nonexistent/intents/validate",
             json={
-                "metric": _METRIC_NUMERIC,
+                "metric": _metric_ref(_METRIC_NUMERIC),
                 "left": {
                     "time_scope": {"kind": "range", "start": _WINDOW_A_START, "end": _WINDOW_A_END}
                 },
@@ -537,7 +542,7 @@ class ValidateHTTPTests(unittest.TestCase):
         resp = self.client.post(
             f"/sessions/{self.session_id}/intents/validate",
             json={
-                "metric": _METRIC_NUMERIC,
+                "metric": _metric_ref(_METRIC_NUMERIC),
                 "left": {
                     "time_scope": {"kind": "range", "start": _WINDOW_A_START, "end": _WINDOW_A_END}
                 },

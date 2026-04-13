@@ -38,6 +38,11 @@ from tests.semantic_test_helpers import (
     ensure_published_typed_metric_binding,
 )
 
+
+def _metric_ref(name: str) -> str:
+    return f"metric.{name}"
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
@@ -198,7 +203,7 @@ class DetectRunnerServiceTests(unittest.TestCase):
         **extra: object,
     ) -> dict:
         params: dict = {
-            "metric": metric,
+            "metric": _metric_ref(metric),
             "time_scope": {
                 "mode": "single_window",
                 "grain": "day",
@@ -468,7 +473,7 @@ class DetectRunnerServiceTests(unittest.TestCase):
                 session_id,
                 "detect",
                 {
-                    "metric": "nonexistent_metric_xyz_abc",
+                    "metric": _metric_ref("nonexistent_metric_xyz_abc"),
                     "time_scope": {
                         "mode": "single_window",
                         "grain": "day",
@@ -551,7 +556,7 @@ class DetectIntentEndpointTests(unittest.TestCase):
     def test_detect_missing_time_scope_returns_422(self) -> None:
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/detect",
-            json={"metric": "http_detect_metric"},
+            json={"metric": _metric_ref("http_detect_metric")},
         )
         self.assertEqual(r.status_code, 422)
 
@@ -559,7 +564,7 @@ class DetectIntentEndpointTests(unittest.TestCase):
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/detect",
             json={
-                "metric": "metric_that_does_not_exist_xyz",
+                "metric": _metric_ref("metric_that_does_not_exist_xyz"),
                 "time_scope": self._time_scope(),
             },
         )
@@ -580,7 +585,7 @@ class DetectIntentEndpointTests(unittest.TestCase):
         response = self.client.post(
             f"/sessions/{self.session_id}/intents/detect",
             json={
-                "metric": metric_name,
+                "metric": _metric_ref(metric_name),
                 "time_scope": self._time_scope(),
             },
         )
@@ -606,7 +611,7 @@ class DetectIntentEndpointTests(unittest.TestCase):
         response = self.client.post(
             f"/sessions/{self.session_id}/intents/detect",
             json={
-                "metric": metric_name,
+                "metric": _metric_ref(metric_name),
                 "time_scope": self._time_scope(),
                 "sensitivity": "balanced",
             },
@@ -620,7 +625,7 @@ class DetectIntentEndpointTests(unittest.TestCase):
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/detect",
             json={
-                "metric": "http_detect_metric",
+                "metric": _metric_ref("http_detect_metric"),
                 "time_scope": self._time_scope(start="2026-02-21", end="2026-02-07"),
             },
         )
@@ -631,7 +636,7 @@ class DetectIntentEndpointTests(unittest.TestCase):
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/detect",
             json={
-                "metric": "http_detect_metric",
+                "metric": _metric_ref("http_detect_metric"),
                 "time_scope": {
                     "mode": "compare",
                     "grain": "day",
@@ -646,7 +651,7 @@ class DetectIntentEndpointTests(unittest.TestCase):
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/detect",
             json={
-                "metric": "http_detect_metric",
+                "metric": _metric_ref("http_detect_metric"),
                 "time_scope": {
                     "mode": "single_window",
                     "grain": "week",
@@ -661,7 +666,7 @@ class DetectIntentEndpointTests(unittest.TestCase):
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/detect",
             json={
-                "metric": "http_detect_metric",
+                "metric": _metric_ref("http_detect_metric"),
                 # Seeded data covers 2026-02-07 to 2026-03-07
                 "time_scope": self._time_scope(),
                 "sensitivity": "balanced",
@@ -678,7 +683,7 @@ class DetectIntentEndpointTests(unittest.TestCase):
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/detect",
             json={
-                "metric": "http_detect_metric",
+                "metric": _metric_ref("http_detect_metric"),
                 "time_scope": self._time_scope(),
                 "sensitivity": "balanced",
             },
@@ -692,7 +697,7 @@ class DetectIntentEndpointTests(unittest.TestCase):
         r = self.client.post(
             "/sessions/sess_does_not_exist/intents/detect",
             json={
-                "metric": "http_detect_metric",
+                "metric": _metric_ref("http_detect_metric"),
                 "time_scope": self._time_scope(),
             },
         )

@@ -42,6 +42,11 @@ from tests.semantic_test_helpers import (
     ensure_published_typed_metric_binding,
 )
 
+
+def _metric_ref(name: str) -> str:
+    return f"metric.{name}"
+
+
 # ── Constants ──────────────────────────────────────────────────────────────────
 
 _METRIC = "attr_revenue"
@@ -600,7 +605,7 @@ class AttributeEndpointTests(unittest.TestCase):
         resp = self.client.post(
             f"/sessions/{self.session_id}/intents/attribute",
             json={
-                "metric": _METRIC,
+                "metric": _metric_ref(_METRIC),
                 "left": {
                     "time_scope": {
                         "kind": "range",
@@ -630,7 +635,7 @@ class AttributeEndpointTests(unittest.TestCase):
         resp = self.client.post(
             f"/sessions/{self.session_id}/intents/attribute",
             json={
-                "metric": _METRIC,
+                "metric": _metric_ref(_METRIC),
                 "left": {
                     "time_scope": {"kind": "range", "start": _CURRENT_START, "end": _CURRENT_END}
                 },
@@ -646,7 +651,7 @@ class AttributeEndpointTests(unittest.TestCase):
         resp = self.client.post(
             "/sessions/sess_nonexistent/intents/attribute",
             json={
-                "metric": _METRIC,
+                "metric": _metric_ref(_METRIC),
                 "left": {
                     "time_scope": {"kind": "range", "start": _CURRENT_START, "end": _CURRENT_END}
                 },

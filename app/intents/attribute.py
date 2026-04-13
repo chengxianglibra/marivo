@@ -52,9 +52,11 @@ def run_attribute_intent(
     p = params or {}
 
     # ── Input validation ───────────────────────────────────────────────────────
-    metric: str = (p.get("metric") or "").strip()
-    if not metric:
+    metric_ref: str = (p.get("metric") or "").strip()
+    if not metric_ref:
         raise ValueError("attribute: INVALID_ARGUMENT - metric is required")
+    metric_ref = svc.normalize_intent_metric_ref(metric_ref)
+    metric_name = svc.metric_name_from_ref(metric_ref)
 
     left_input: dict[str, Any] = p.get("left") or {}
     right_input: dict[str, Any] = p.get("right") or {}
@@ -131,7 +133,7 @@ def run_attribute_intent(
             svc,
             session_id,
             {
-                "metric": metric,
+                "metric": metric_ref,
                 "time_scope": current_time_scope,
                 "scope": left_scope,
                 # no granularity, no dimensions → scalar mode
@@ -153,7 +155,7 @@ def run_attribute_intent(
             svc,
             session_id,
             {
-                "metric": metric,
+                "metric": metric_ref,
                 "time_scope": baseline_time_scope,
                 "scope": right_scope,
             },
@@ -381,7 +383,7 @@ def run_attribute_intent(
         "result_type": "attribute_bundle",
         "intent_type": "attribute",
         "step_type": "attribute",
-        "metric": metric,
+        "metric": metric_ref,
         "left": left_resolved,
         "right": right_resolved,
         "dimensions": dimensions,
@@ -412,7 +414,7 @@ def run_attribute_intent(
     # ── Step 9: persist bundle as attribute_bundle artifact ───────────────────
     step_id = svc._new_step_id()
     artifact_id = svc._insert_artifact(
-        session_id, step_id, "attribute_bundle", f"{metric}_attribute_bundle", bundle
+        session_id, step_id, "attribute_bundle", f"{metric_name}_attribute_bundle", bundle
     )
     bundle["step_ref"] = {
         "session_id": session_id,
@@ -422,7 +424,7 @@ def run_attribute_intent(
     bundle["artifact_id"] = artifact_id
 
     summary = (
-        f"attribute {metric}: {validation_status} "
+        f"attribute {metric_name}: {validation_status} "
         f"({len(dimensions)} dimension(s), "
         f"Δ {compare_result.get('absolute_delta') if compare_result.get('absolute_delta') is not None else 'n/a'})"
     )
