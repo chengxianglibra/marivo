@@ -155,6 +155,12 @@ both.
 Typed metric dimension discovery should prefer explicit legacy `dimensions` when present; otherwise
 derive dimension refs from the observed entity's published binding targets where
 `stable_descriptor -> dimension.*`.
+For grouped typed requests, a requested `dimension.*` must still be consumable by the metric: either
+directly from the metric's own dimension set or through a metric-binding import of a matching
+published entity binding that exposes the dimension as `stable_descriptor -> dimension.*`.
+For typed metric windowed requests, `scope.constraints` should also prefer canonical
+`dimension.*` keys; runtime resolves them through published binding lineage before generating SQL,
+while bare physical column keys remain compatibility-only input.
 List endpoints return lightweight items by default (header, status, blocker_count, capabilities_summary);
 use `detail=true` query parameter for backward-compatible full payload. Lightweight list responses
 must still derive readiness from the same full semantic contract used by detail reads. Detail

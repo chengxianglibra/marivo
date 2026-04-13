@@ -20,7 +20,7 @@ from app.time_scope import (
 from tests.semantic_test_helpers import (
     create_typed_entity,
     create_typed_metric,
-    create_typed_metric_binding,
+    ensure_published_typed_dimension,
     patch_typed_entity_properties,
     publish_typed_entity,
     publish_typed_metric,
@@ -607,34 +607,182 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
     def setUp(self) -> None:
         client = self._client()
         try:
+            suffix = str(id(self))
             entity = create_typed_entity(
                 client,
-                name=f"session_tsu02_{id(self)}",
+                name=f"session_tsu02_{suffix}",
                 display_name="Session",
                 keys=["session_id"],
             )
             self.entity_id = entity["entity_contract_id"]
             publish_typed_entity(client, self.entity_id)
+            entity_ref = f"entity.session_tsu02_{suffix}"
 
             metric = create_typed_metric(
                 client,
-                name=f"watch_time_tsu02_{id(self)}",
+                name=f"watch_time_tsu02_{suffix}",
                 display_name="Watch Time",
                 definition_sql="avg(play_duration_seconds)",
                 dimensions=["platform", "event_date"],
-                entity_ref=f"entity.session_tsu02_{id(self)}",
+                entity_ref=entity_ref,
             )
             metric_id = metric["metric_contract_id"]
             publish_typed_metric(client, metric_id)
-            create_typed_metric_binding(
-                client,
-                metric_ref=f"metric.watch_time_tsu02_{id(self)}",
-                object_id=self.watch_events_object_id,
-                carrier_locator=self.watch_events_fqn,
-                metric_input_target_keys=["count_target"],
+            ensure_published_typed_dimension(self.service.metadata, dimension_name="cluster")
+
+            entity_binding_resp = client.post(
+                "/semantic/bindings",
+                json={
+                    "header": {
+                        "binding_ref": f"binding.session_tsu02_{suffix}_entity",
+                        "display_name": "TSU-02 Entity Binding",
+                        "binding_scope": "entity",
+                        "bound_object_ref": entity_ref,
+                        "binding_contract_version": "binding.v1",
+                    },
+                    "interface_contract": {
+                        "carrier_bindings": [
+                            {
+                                "binding_key": "primary",
+                                "source_object_ref": self.watch_events_object_id,
+                                "carrier_kind": "table",
+                                "carrier_locator": self.watch_events_fqn,
+                                "binding_role": "primary",
+                                "field_surfaces": [
+                                    {
+                                        "surface_ref": "field.event_date",
+                                        "physical_name": "event_date",
+                                    },
+                                    {
+                                        "surface_ref": "field.session_id",
+                                        "physical_name": "session_id",
+                                    },
+                                    {
+                                        "surface_ref": "field.cluster",
+                                        "physical_name": "cluster",
+                                    },
+                                ],
+                            }
+                        ],
+                        "field_bindings": [
+                            {
+                                "carrier_binding_key": "primary",
+                                "target": {
+                                    "target_kind": "identity_key",
+                                    "target_key": "key.session_id",
+                                },
+                                "semantic_ref": "key.session_id",
+                                "surface_ref": "field.session_id",
+                            },
+                            {
+                                "carrier_binding_key": "primary",
+                                "target": {
+                                    "target_kind": "primary_time",
+                                    "target_key": "time.event_date",
+                                },
+                                "semantic_ref": "time.event_date",
+                                "surface_ref": "field.event_date",
+                            },
+                            {
+                                "carrier_binding_key": "primary",
+                                "target": {
+                                    "target_kind": "stable_descriptor",
+                                    "target_key": "dimension.cluster",
+                                },
+                                "semantic_ref": "dimension.cluster",
+                                "surface_ref": "field.cluster",
+                            },
+                        ],
+                    },
+                },
+            )
+            self.assertEqual(entity_binding_resp.status_code, 200, entity_binding_resp.text)
+            entity_binding_id = entity_binding_resp.json()["binding_id"]
+            publish_entity_binding_resp = client.post(
+                f"/semantic/bindings/{entity_binding_id}/publish"
+            )
+            self.assertEqual(
+                publish_entity_binding_resp.status_code,
+                200,
+                publish_entity_binding_resp.text,
             )
 
-            self.metric_name = f"watch_time_tsu02_{id(self)}"
+            metric_binding_resp = client.post(
+                "/semantic/bindings",
+                json={
+                    "header": {
+                        "binding_ref": f"binding.watch_time_tsu02_{suffix}_primary",
+                        "display_name": "TSU-02 Metric Binding",
+                        "binding_scope": "metric",
+                        "bound_object_ref": f"metric.watch_time_tsu02_{suffix}",
+                        "binding_contract_version": "binding.v1",
+                    },
+                    "interface_contract": {
+                        "imports": [
+                            {
+                                "import_key": "entity_bridge",
+                                "binding_ref": f"binding.session_tsu02_{suffix}_entity",
+                                "required_ref_prefixes": ["dimension."],
+                            }
+                        ],
+                        "carrier_bindings": [
+                            {
+                                "binding_key": "primary",
+                                "source_object_ref": self.watch_events_object_id,
+                                "carrier_kind": "table",
+                                "carrier_locator": self.watch_events_fqn,
+                                "binding_role": "primary",
+                                "field_surfaces": [
+                                    {
+                                        "surface_ref": "field.event_date",
+                                        "physical_name": "event_date",
+                                    },
+                                    {
+                                        "surface_ref": "field.value",
+                                        "physical_name": "play_duration_seconds",
+                                    },
+                                    {
+                                        "surface_ref": "field.platform",
+                                        "physical_name": "platform",
+                                    },
+                                ],
+                            }
+                        ],
+                        "field_bindings": [
+                            {
+                                "carrier_binding_key": "primary",
+                                "target": {
+                                    "target_kind": "primary_time",
+                                    "target_key": "time.event_date",
+                                },
+                                "semantic_ref": "time.event_date",
+                                "surface_ref": "field.event_date",
+                            },
+                            {
+                                "carrier_binding_key": "primary",
+                                "target": {
+                                    "target_kind": "metric_input",
+                                    "target_key": "count_target",
+                                },
+                                "semantic_ref": "metric_input.count_target",
+                                "surface_ref": "field.value",
+                            },
+                        ],
+                    },
+                },
+            )
+            self.assertEqual(metric_binding_resp.status_code, 200, metric_binding_resp.text)
+            metric_binding_id = metric_binding_resp.json()["binding_id"]
+            publish_metric_binding_resp = client.post(
+                f"/semantic/bindings/{metric_binding_id}/publish"
+            )
+            self.assertEqual(
+                publish_metric_binding_resp.status_code,
+                200,
+                publish_metric_binding_resp.text,
+            )
+
+            self.metric_name = f"watch_time_tsu02_{suffix}"
             self.session_id = client.post(
                 "/sessions",
                 json={
@@ -720,6 +868,77 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         self.assertEqual(scoped_query["session_raw_filter"], "country = 'US'")
         self.assertEqual(scoped_query["scope_constraints_filter"], "region = 'us-east'")
         self.assertEqual(scoped_query["scope_predicate_filter"], "device_type = 'phone'")
+
+    def test_metric_query_scope_constraints_map_semantic_dimension_ref(self) -> None:
+        captured: dict[str, object] = {}
+        original_compile = self.service._compile_step_with_feedback
+        original_execute = service_module.execute_compiled
+        original_resolve_engine = self.service._resolve_engine
+        self.service._resolve_engine = lambda table_names: (
+            _FakeEngine(),
+            "duckdb",
+            {table_names[0]: table_names[0]},
+        )
+
+        def fake_compile(step, *, engine_type, semantic_context=None):
+            captured["params"] = dict(step.params)
+            return CompiledQuery(sql="SELECT 1", params=[])
+
+        class _Result:
+            rows = [
+                {
+                    "platform": "android",
+                    "current_value": 10.0,
+                    "baseline_value": 5.0,
+                    "delta_pct": 100.0,
+                    "current_sessions": 10,
+                    "baseline_sessions": 8,
+                }
+            ]
+
+        self.service._compile_step_with_feedback = fake_compile
+        service_module.execute_compiled = lambda engine, compiled: _Result()
+        try:
+            self.service._run_metric_query(
+                self.session_id,
+                {
+                    "table": "analytics.watch_events",
+                    "metric": self.metric_name,
+                    "dimensions": ["platform"],
+                    "time_scope": {
+                        "mode": "compare",
+                        "grain": "day",
+                        "current": {"start": "2026-03-10", "end": "2026-03-17"},
+                        "baseline": {"start": "2026-03-03", "end": "2026-03-10"},
+                    },
+                    "scope": {"constraints": {"dimension.cluster": "k8sbi-bi1"}},
+                },
+            )
+        finally:
+            self.service._compile_step_with_feedback = original_compile
+            service_module.execute_compiled = original_execute
+            self.service._resolve_engine = original_resolve_engine
+
+        scoped_query = captured["params"]["scoped_query"]
+        self.assertEqual(scoped_query["scope_constraints_filter"], "cluster = 'k8sbi-bi1'")
+
+    def test_metric_query_scope_constraints_reject_unmapped_semantic_dimension_ref(self) -> None:
+        with self.assertRaisesRegex(ValueError, "not available in metric semantic scope"):
+            self.service._run_metric_query(
+                self.session_id,
+                {
+                    "table": "analytics.watch_events",
+                    "metric": self.metric_name,
+                    "dimensions": ["platform"],
+                    "time_scope": {
+                        "mode": "compare",
+                        "grain": "day",
+                        "current": {"start": "2026-03-10", "end": "2026-03-17"},
+                        "baseline": {"start": "2026-03-03", "end": "2026-03-10"},
+                    },
+                    "scope": {"constraints": {"dimension.region": "us-east"}},
+                },
+            )
 
     def test_metric_query_single_window_row_contract_accepts_current_only_fields(self) -> None:
         normalized = self.service._normalize_metric_rows(
@@ -937,6 +1156,25 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         self.assertEqual(scoped_query["session_raw_filter"], "country = 'US'")
         self.assertEqual(scoped_query["scope_constraints_filter"], "region = 'us-east'")
         self.assertEqual(scoped_query["scope_predicate_filter"], "device_type = 'phone'")
+
+    def test_aggregate_query_scope_constraints_reject_semantic_dimension_ref(self) -> None:
+        with self.assertRaisesRegex(ValueError, "requires a semantic metric scope"):
+            self.service._run_aggregate_query(
+                self.session_id,
+                {
+                    "table": "analytics.watch_events",
+                    "group_by": ["platform"],
+                    "measures": [{"expr": "COUNT(*)", "as": "query_count"}],
+                    "time_scope": {
+                        "mode": "compare",
+                        "grain": "day",
+                        "current": {"start": "2026-03-10", "end": "2026-03-17"},
+                        "baseline": {"start": "2026-03-03", "end": "2026-03-10"},
+                    },
+                    "scope": {"constraints": {"dimension.cluster": "k8sbi-bi1"}},
+                    "time_axis": {"analysis_time": {"column": "event_date"}},
+                },
+            )
 
     def test_aggregate_query_service_passes_full_fqn_to_routing(self) -> None:
         captured: dict[str, object] = {}

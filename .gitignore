@@ -28,9 +28,7 @@ coverage.xml
 .mypy_cache/
 
 # Data files (generated at runtime)
-data/*.duckdb
-data/*.sqlite
-data/mvp.meta.sqlite
+data/
 
 # IDE
 .idea/

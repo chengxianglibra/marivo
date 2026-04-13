@@ -345,6 +345,15 @@ Validation notes:
 - A metric may consume imported entity stable descriptors by declaring `imports` against the
   matching published entity binding. In the first bridge stage, only imported
   `stable_descriptor -> dimension.*` public contract targets are eligible.
+- Grouped semantic requests such as `observe(..., dimensions=["dimension.cluster"])` only work when
+  each requested `dimension.*` is already consumable by the metric, either from the metric's own
+  exported dimension set or from an imported entity binding bridge.
+- The imported bridge path is strict: the imported binding must be `entity` scope, must match the
+  metric's entity anchor, and only contributes `stable_descriptor -> dimension.*` public targets.
+- If a grouped request returns `COMPILER_DIMENSION_IMPORT_MISSING`, the usual fix is:
+  1. declare the dimension on the entity as a stable descriptor
+  2. publish an entity binding that maps it via `target_kind = "stable_descriptor"`
+  3. import that binding from the metric binding through `interface_contract.imports[]`
 - `POST /semantic/bindings/{binding_id}/publish` additionally requires:
   - the bound semantic object and imported bindings are already `published`
   - referenced `time.*` / `dimension.*` dependencies are already `published`
