@@ -211,6 +211,9 @@ Invalid combinations include:
 - non-`standard` `result_mode` with `granularity` or `dimensions`
 - time conditions inside `scope`
 - unsupported metric capability for the requested observation mode
+- metrics without a per-row value expression for sample-summary modes; typed metrics may support
+  `standard` observation while still rejecting `numeric_sample_summary` or `rate_sample_summary`
+  when their contract only compiles to aggregate SQL
 
 Success returns `ObserveResponse`, a union of the five canonical observation artifact types. All success payloads include `step_ref`, `artifact_id`, resolved `time_scope`, normalized `scope`, and analytical / execution metadata.
 

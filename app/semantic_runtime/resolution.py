@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any, ClassVar, cast
 
 from app.semantic_readiness import ObjectKind, SemanticReadinessService
+from app.semantic_runtime.dimensions import resolve_entity_binding_dimensions
 from app.semantic_runtime.errors import (
     SemanticRuntimeInvalidRefError,
     SemanticRuntimeNotFoundError,
@@ -612,7 +613,11 @@ class SemanticResolver:
             metric_contract_version=str(header["metric_contract_version"]),
             family_payload=family_payload,
             definition_sql=family_payload.get("definition_sql"),
-            dimensions=list(family_payload.get("dimensions") or []),
+            dimensions=_metric_dimensions(
+                self.metadata,
+                header=header,
+                family_payload=family_payload,
+            ),
             grain=family_payload.get("grain"),
             measure_type=family_payload.get("measure_type"),
             allowed_dimensions=list(family_payload.get("allowed_dimensions") or []),
@@ -816,3 +821,19 @@ def _collect_dependency_refs(
     if isinstance(value, list):
         for item in value:
             _collect_dependency_refs(item, refs, seen, allow_locator=allow_locator)
+
+
+def _metric_dimensions(
+    metadata: MetadataStore,
+    *,
+    header: dict[str, Any],
+    family_payload: dict[str, Any],
+) -> list[str]:
+    explicit_dimensions = family_payload.get("dimensions")
+    if explicit_dimensions is not None:
+        return [str(dimension) for dimension in list(explicit_dimensions)]
+
+    observed_entity_ref = str(header.get("observed_entity_ref") or "").strip()
+    if not observed_entity_ref:
+        return []
+    return resolve_entity_binding_dimensions(metadata, observed_entity_ref)

@@ -60,7 +60,10 @@ def _seed_duckdb(db_path: Path) -> None:
             CREATE TABLE IF NOT EXISTS analytics.reg_events (
                 event_date DATE    NOT NULL,
                 region     VARCHAR NOT NULL,
-                value      DOUBLE  NOT NULL
+                user_id     VARCHAR NOT NULL,
+                value      DOUBLE  NOT NULL,
+                numerator  DOUBLE  NOT NULL,
+                denominator DOUBLE NOT NULL
             )
             """
         )
@@ -68,9 +71,9 @@ def _seed_duckdb(db_path: Path) -> None:
         base = datetime(2026, 3, 1).date()
         for i in range(7):
             d = (base + timedelta(days=i)).isoformat()
-            rows.append((d, "us", float(100 + i * 10)))
-            rows.append((d, "eu", float(80 + i * 5)))
-        con.executemany("INSERT INTO analytics.reg_events VALUES (?, ?, ?)", rows)
+            rows.append((d, "us", f"us_{i}", float(100 + i * 10), 1.0, 1.0))
+            rows.append((d, "eu", f"eu_{i}", float(80 + i * 5), 0.0, 1.0))
+        con.executemany("INSERT INTO analytics.reg_events VALUES (?, ?, ?, ?, ?, ?)", rows)
     finally:
         con.close()
 
@@ -551,6 +554,138 @@ class SemanticLayerRegressionTests(unittest.TestCase):
         assert resolved is not None
         self.assertEqual(resolved.definition_sql, "SUM(value)")
         self.assertIn("region", resolved.dimensions)
+
+
+class TypedMetricSqlCompilationTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        db_path = Path(cls.temp_dir.name) / "typed_metric_sql.duckdb"
+        meta_path = Path(cls.temp_dir.name) / "typed_metric_sql.meta.sqlite"
+        cls.analytics = DuckDBAnalyticsEngine(str(db_path))
+        cls.metadata = SQLiteMetadataStore(str(meta_path))
+        cls.metadata.initialize()
+        cls.analytics.initialize()
+        _seed_duckdb(db_path)
+
+        now = datetime.now(UTC).isoformat()
+        cls.metadata.execute(
+            "INSERT OR IGNORE INTO sources "
+            "(source_id, source_type, display_name, connection_json, capabilities_json, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ["src_typed_sql", "duckdb", "Typed SQL Source", "{}", "{}", now, now],
+        )
+        cls.metadata.execute(
+            "INSERT OR IGNORE INTO source_objects "
+            "(object_id, source_id, object_type, native_name, fqn, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ["obj_typed_sql", "src_typed_sql", "table", _TABLE, f"analytics.{_TABLE}", now, now],
+        )
+
+        typed_metrics = [
+            ("typed_count_distinct", "count", ["count_target"], {"count_target": "field.user_id"}),
+            ("typed_sum_value", "sum", ["measure"], {"measure": "field.value"}),
+            (
+                "typed_average_value",
+                "average",
+                ["numerator", "denominator"],
+                {"numerator": "field.value", "denominator": "field.user_id"},
+            ),
+            (
+                "typed_rate_value",
+                "rate",
+                ["numerator", "denominator"],
+                {"numerator": "field.numerator", "denominator": "field.denominator"},
+            ),
+        ]
+
+        for metric_name, measure_type, input_keys, surface_map in typed_metrics:
+            ensure_published_typed_metric(
+                cls.metadata,
+                metric_name=metric_name,
+                display_name=metric_name,
+                grain="day",
+                dimensions=["region"],
+                measure_type=measure_type,
+            )
+            binding_ref = ensure_published_typed_metric_binding(
+                cls.metadata,
+                metric_name=metric_name,
+                carrier_locator=f"analytics.{_TABLE}",
+                source_object_ref="obj_typed_sql",
+                metric_input_target_keys=input_keys,
+            )
+            binding_row = cls.metadata.query_one(
+                "SELECT binding_id FROM typed_bindings WHERE binding_ref = ?",
+                [binding_ref],
+            )
+            assert binding_row is not None
+            for target_key, surface_ref in surface_map.items():
+                cls.metadata.execute(
+                    """
+                    UPDATE field_bindings
+                    SET surface_ref = ?, semantic_ref = ?
+                    WHERE binding_id = ? AND target_kind = 'metric_input' AND target_key = ?
+                    """,
+                    [
+                        surface_ref,
+                        f"metric_input.{target_key}",
+                        binding_row["binding_id"],
+                        target_key,
+                    ],
+                )
+            if metric_name == "typed_count_distinct":
+                metric_row = cls.metadata.query_one(
+                    """
+                    SELECT metric_contract_id, family_payload_json
+                    FROM semantic_metric_contracts
+                    WHERE metric_ref = ?
+                    """,
+                    [f"metric.{metric_name}"],
+                )
+                assert metric_row is not None
+                family_payload = json.loads(metric_row["family_payload_json"] or "{}")
+                family_payload["count_target"]["aggregation"] = "count_distinct"
+                cls.metadata.execute(
+                    """
+                    UPDATE semantic_metric_contracts
+                    SET family_payload_json = ?
+                    WHERE metric_contract_id = ?
+                    """,
+                    [json.dumps(family_payload), metric_row["metric_contract_id"]],
+                )
+
+        cls.service = SemanticLayerService(cls.metadata, cls.analytics)
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.temp_dir.cleanup()
+
+    def test_count_metric_compiles_to_count_distinct(self) -> None:
+        self.assertEqual(
+            self.service.resolve_metric_sql("metric.typed_count_distinct"),
+            "COUNT(DISTINCT user_id)",
+        )
+
+    def test_sum_metric_compiles_to_sum(self) -> None:
+        self.assertEqual(self.service.resolve_metric_sql("metric.typed_sum_value"), "SUM(value)")
+        self.assertEqual(self.service.resolve_metric_value_sql("metric.typed_sum_value"), "value")
+
+    def test_average_metric_compiles_to_safe_ratio(self) -> None:
+        self.assertEqual(
+            self.service.resolve_metric_sql("metric.typed_average_value"),
+            "SUM(value) / NULLIF(COUNT(user_id), 0)",
+        )
+        self.assertEqual(
+            self.service.resolve_metric_value_sql("metric.typed_average_value"), "value"
+        )
+
+    def test_rate_metric_compiles_to_safe_ratio(self) -> None:
+        self.assertEqual(
+            self.service.resolve_metric_sql("metric.typed_rate_value"),
+            "SUM(numerator) / NULLIF(SUM(denominator), 0)",
+        )
+        self.assertIsNone(self.service.resolve_metric_value_sql("metric.typed_rate_value"))
 
 
 # ---------------------------------------------------------------------------

@@ -699,6 +699,16 @@ Notes:
 
 - Legacy metric payloads such as `definition_sql`, `dimensions`, `grain`, and `measure_type` are rejected on the HTTP route.
 - Family-specific payload shape is determined by `header.metric_family` and `payload.metric_family`.
+- Runtime aggregate SQL for typed metrics is compiled from the metric family and metric-input bindings:
+  `count_metric -> COUNT(field)` or `COUNT(DISTINCT field)`, `sum_metric -> SUM(field)`,
+  `average_metric -> SUM(numerator_field) / NULLIF(COUNT(denominator_field), 0)`, and
+  `rate_metric -> SUM(numerator_field) / NULLIF(SUM(denominator_field), 0)`.
+- When a typed metric has no legacy `dimensions` payload, runtime dimension discovery falls back to
+  the metric's `observed_entity_ref` and reads `stable_descriptor -> dimension.*` mappings from the
+  published entity bindings for that entity.
+- Sample-summary execution uses a separate per-row value-expression contract. Typed metrics that
+  only define aggregate semantics are rejected for `numeric_sample_summary` or `rate_sample_summary`
+  instead of being coerced into nested aggregates.
 
 ## Process / Dimension / Time / Enum Set Contracts
 

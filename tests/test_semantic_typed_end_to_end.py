@@ -14,9 +14,11 @@ from app.analysis_core.compiler import compile_step
 from app.analysis_core.ir import AnalysisStepIR
 from app.evidence_engine.ref_boundary import assert_no_canonical_refs_in_semantic_payload
 from app.main import create_app
+from tests.shared_fixtures import get_seeded_duckdb_path
 
 
 def _seed_val_events_table(db_path: Path) -> None:
+    get_seeded_duckdb_path(db_path)
     con = duckdb.connect(str(db_path))
     try:
         con.execute("CREATE SCHEMA IF NOT EXISTS analytics")

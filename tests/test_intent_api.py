@@ -33,6 +33,8 @@ from tests.semantic_test_helpers import (
     create_typed_entity,
     create_typed_metric,
     create_typed_metric_binding,
+    ensure_published_typed_metric,
+    ensure_published_typed_metric_binding,
     ensure_published_typed_time,
     publish_typed_entity,
     publish_typed_metric,
@@ -1351,6 +1353,8 @@ class ObserveTypedArtifactTests(unittest.TestCase):
             """,
             [obj_id, source_id, now, now],
         )
+        cls.watch_events_object_id = obj_id
+        cls.watch_events_fqn = "analytics.watch_events"
 
         # Create and publish a semantic metric backed by watch_events
         metric = create_typed_metric(
@@ -1371,7 +1375,7 @@ class ObserveTypedArtifactTests(unittest.TestCase):
             cls.client,
             metric_ref="metric.observe_test_dau",
             object_id=obj_id,
-            carrier_locator="analytics.watch_events",
+            carrier_locator=cls.watch_events_fqn,
         )
 
     def test_observe_returns_typed_artifact_shape(self) -> None:
@@ -1572,6 +1576,64 @@ class ObserveTypedArtifactTests(unittest.TestCase):
         )
         # DuckDB rejects nested aggregates — returned as 502 (execution error)
         self.assertNotEqual(r.status_code, 200)
+
+    def test_observe_typed_rate_metric_standard_mode_uses_aggregate_sql(self) -> None:
+        metadata = self.client.app.state.service.metadata
+        ensure_published_typed_metric(
+            metadata,
+            metric_name="observe_typed_rate",
+            display_name="Observe Typed Rate",
+            grain="day",
+            dimensions=["event_date"],
+            measure_type="rate",
+        )
+        ensure_published_typed_metric_binding(
+            metadata,
+            metric_name="observe_typed_rate",
+            carrier_locator=self.watch_events_fqn,
+            source_object_ref=self.watch_events_object_id,
+            metric_input_target_keys=["numerator", "denominator"],
+            surface_name="play_duration_seconds",
+        )
+
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/observe",
+            json={
+                "metric": _metric_ref("observe_typed_rate"),
+                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+            },
+        )
+        self.assertEqual(r.status_code, 200, r.text)
+
+    def test_observe_typed_rate_metric_rate_summary_returns_422(self) -> None:
+        metadata = self.client.app.state.service.metadata
+        ensure_published_typed_metric(
+            metadata,
+            metric_name="observe_typed_rate_summary",
+            display_name="Observe Typed Rate Summary",
+            grain="day",
+            dimensions=["event_date"],
+            measure_type="rate",
+        )
+        ensure_published_typed_metric_binding(
+            metadata,
+            metric_name="observe_typed_rate_summary",
+            carrier_locator=self.watch_events_fqn,
+            source_object_ref=self.watch_events_object_id,
+            metric_input_target_keys=["numerator", "denominator"],
+            surface_name="play_duration_seconds",
+        )
+
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/observe",
+            json={
+                "metric": _metric_ref("observe_typed_rate_summary"),
+                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+                "result_mode": "rate_sample_summary",
+            },
+        )
+        self.assertEqual(r.status_code, 422, r.text)
+        self.assertIn("per-row rate value expression", r.text)
 
 
 class ArtifactLifecycleTests(unittest.TestCase):

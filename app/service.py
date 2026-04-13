@@ -23,7 +23,6 @@ from app.analysis_core.compiler import (
 from app.analysis_core.compiler import build_metric_query as compile_metric_query
 from app.analysis_core.executor import execute_compiled
 from app.analysis_core.ir import AnalysisStepIR
-from app.api.models.base import validate_ref_prefix
 from app.evidence_engine.canonical_finding import StepRef
 from app.evidence_engine.canonical_pipeline_runtime import run_canonical_downstream
 from app.evidence_engine.finding_extractor_registry import (
@@ -47,6 +46,7 @@ from app.intents.observe import run_observe_intent
 from app.intents.test import run_test_intent
 from app.intents.validate import run_validate_intent
 from app.semantic_runtime import SemanticRuntimeRepository
+from app.semantic_runtime.dimensions import resolve_entity_binding_dimensions
 from app.semantic_runtime.errors import (
     SemanticRuntimeInvalidRefError,
     SemanticRuntimeNotFoundError,
@@ -110,13 +110,11 @@ def _require_metric_ref(value: str, *, field_name: str = "metric") -> str:
     normalized = value.strip()
     if not normalized:
         raise ValueError(f"'{field_name}' is required")
-    try:
-        return validate_ref_prefix(normalized, "metric", field_name)
-    except ValueError as exc:
-        raise ValueError(
-            f"'{field_name}' must be a canonical metric ref like 'metric.watch_time', got: "
-            f"{normalized}"
-        ) from exc
+    if normalized.startswith("metric.") and len(normalized) > len("metric."):
+        return normalized
+    raise ValueError(
+        f"'{field_name}' must be a canonical metric ref like 'metric.watch_time', got: {normalized}"
+    )
 
 
 def _metric_name_from_ref(metric_ref: str) -> str:
@@ -644,7 +642,7 @@ class SemanticLayerService:
             return None
 
     def resolve_metric_sql(self, metric_ref: str) -> str | None:
-        """Look up a published metric's definition_sql or compile from typed payload."""
+        """Resolve an aggregate SQL expression for a published metric."""
         metric_ref = _coerce_metric_ref(metric_ref)
         resolved = self._resolve_runtime_metric_contract(metric_ref)
         if resolved is None:
@@ -658,93 +656,20 @@ class SemanticLayerService:
         if definition_sql is not None:
             return str(definition_sql)
 
-        # Typed metric: compile SQL from metric_family + binding
-        metric_family = header.get("metric_family")
-        typed_metric_ref = header.get("metric_ref")
-        if metric_family and typed_metric_ref:
+        metric_family = _optional_str(header.get("metric_family"))
+        typed_metric_ref = _optional_str(header.get("metric_ref"))
+        if metric_family is not None and typed_metric_ref is not None:
             return self._compile_typed_metric_sql(
-                _metric_name_from_ref(metric_ref),
                 metric_family,
                 payload,
-                str(typed_metric_ref),
+                typed_metric_ref,
             )
 
         return None
 
-    def _compile_typed_metric_sql(
-        self,
-        metric_name: str,
-        metric_family: str,
-        payload: dict[str, Any],
-        metric_ref: str,
-    ) -> str | None:
-        """Compile SQL expression from typed metric payload and binding."""
-        # Get binding to find the physical field for metric_input
-        bindings = list(self._published_bindings_for_object_ref(metric_ref))
-        if not bindings:
-            return None
-
-        # Find the metric_input field binding
-        interface_contract = dict(bindings[0].semantic_object.get("interface_contract") or {})
-        field_bindings = list(interface_contract.get("field_bindings") or [])
-
-        # Map target_key -> physical_name
-        input_field_map: dict[str, str] = {}
-        for fb in field_bindings:
-            target = fb.get("target") or {}
-            if target.get("target_kind") == "metric_input":
-                target_key = target.get("target_key")
-                surface_ref = fb.get("surface_ref")
-                # surface_ref format: "field.column_name" -> extract column_name
-                if target_key and surface_ref:
-                    physical_name = (
-                        surface_ref.split(".", 1)[-1] if "." in surface_ref else surface_ref
-                    )
-                    input_field_map[target_key] = physical_name
-
-        # Compile SQL based on metric_family
-        if metric_family == "count_metric":
-            count_target = payload.get("count_target") or {}
-            aggregation = str(count_target.get("aggregation") or "count")
-            field_name = input_field_map.get("count_target")
-            if aggregation == "count_distinct" and field_name:
-                return f"COUNT(DISTINCT {field_name})"
-            elif aggregation == "count" and field_name:
-                return f"COUNT({field_name})"
-            elif aggregation == "count":
-                return "COUNT(*)"
-
-        elif metric_family == "sum_metric":
-            measure = payload.get("measure") or {}
-            aggregation = str(measure.get("aggregation") or "sum")
-            field_name = input_field_map.get("measure")
-            if field_name:
-                return f"SUM({field_name})"
-
-        elif metric_family == "average_metric" or metric_family == "rate_metric":
-            numerator = payload.get("numerator") or {}
-            denominator = payload.get("denominator") or {}
-            num_agg = str(numerator.get("aggregation") or "sum")
-            den_agg = str(denominator.get("aggregation") or "count")
-            num_field = input_field_map.get("numerator")
-            den_field = input_field_map.get("denominator")
-            if num_field and den_field:
-                num_expr = (
-                    f"{num_agg.upper()}({num_field})"
-                    if num_agg != "count"
-                    else f"COUNT({num_field})"
-                )
-                den_expr = (
-                    f"{den_agg.upper()}({den_field})"
-                    if den_agg != "count"
-                    else f"COUNT({den_field})"
-                )
-                return f"{num_expr} / {den_expr}"
-
-        return None
-
-    def resolve_metric_dimensions(self, metric_ref: str) -> list[str] | None:
-        """Look up a published metric's dimensions from semantic runtime or entity binding."""
+    def resolve_metric_value_sql(self, metric_ref: str) -> str | None:
+        """Resolve a per-row value expression for sample-summary style execution."""
+        metric_ref = _coerce_metric_ref(metric_ref)
         resolved = self._resolve_runtime_metric_contract(metric_ref)
         if resolved is None:
             return None
@@ -752,40 +677,132 @@ class SemanticLayerService:
         header = semantic_object.get("header") or {}
         payload = semantic_object.get("payload") or {}
 
-        # Legacy: dimensions in payload
+        definition_sql = payload.get("definition_sql")
+        if definition_sql is not None:
+            return str(definition_sql)
+
+        metric_family = _optional_str(header.get("metric_family"))
+        typed_metric_ref = _optional_str(header.get("metric_ref"))
+        if metric_family is not None and typed_metric_ref is not None:
+            return self._compile_typed_metric_value_sql(
+                metric_family,
+                payload,
+                typed_metric_ref,
+            )
+
+        return None
+
+    def _compile_typed_metric_sql(
+        self,
+        metric_family: str,
+        payload: dict[str, Any],
+        metric_ref: str,
+    ) -> str | None:
+        """Compile an aggregate SQL expression from a typed metric contract."""
+        input_field_map = self._metric_input_field_map(metric_ref)
+        if input_field_map is None:
+            return None
+
+        if metric_family == "count_metric":
+            count_target = payload.get("count_target") or {}
+            aggregation = _optional_str(count_target.get("aggregation")) or "count"
+            field_name = input_field_map.get("count_target")
+            if aggregation == "count_distinct" and field_name:
+                return f"COUNT(DISTINCT {field_name})"
+            if aggregation == "count" and field_name:
+                return f"COUNT({field_name})"
+            return None
+
+        if metric_family == "sum_metric":
+            field_name = input_field_map.get("measure")
+            if field_name:
+                return f"SUM({field_name})"
+            return None
+
+        if metric_family == "average_metric":
+            num_field = input_field_map.get("numerator")
+            den_field = input_field_map.get("denominator")
+            if num_field and den_field:
+                return f"SUM({num_field}) / NULLIF(COUNT({den_field}), 0)"
+            return None
+
+        if metric_family == "rate_metric":
+            num_field = input_field_map.get("numerator")
+            den_field = input_field_map.get("denominator")
+            if num_field and den_field:
+                return f"SUM({num_field}) / NULLIF(SUM({den_field}), 0)"
+
+        return None
+
+    def _compile_typed_metric_value_sql(
+        self,
+        metric_family: str,
+        payload: dict[str, Any],
+        metric_ref: str,
+    ) -> str | None:
+        """Compile a per-row value expression from a typed metric contract."""
+        input_field_map = self._metric_input_field_map(metric_ref)
+        if input_field_map is None:
+            return None
+
+        if metric_family == "sum_metric":
+            return input_field_map.get("measure")
+
+        if metric_family == "average_metric":
+            numerator = payload.get("numerator") or {}
+            denominator = payload.get("denominator") or {}
+            if (_optional_str(numerator.get("aggregation")) or "sum") == "sum" and (
+                _optional_str(denominator.get("aggregation")) or "count"
+            ) == "count":
+                return input_field_map.get("numerator")
+
+        return None
+
+    def _metric_input_field_map(self, metric_ref: str) -> dict[str, str] | None:
+        """Resolve metric_input slot names to physical field names from the published binding."""
+        bindings = list(self._published_bindings_for_object_ref(metric_ref))
+        if not bindings:
+            return None
+
+        interface_contract = dict(bindings[0].semantic_object.get("interface_contract") or {})
+        field_bindings = list(interface_contract.get("field_bindings") or [])
+        input_field_map: dict[str, str] = {}
+        for field_binding in field_bindings:
+            target = field_binding.get("target") or {}
+            if target.get("target_kind") != "metric_input":
+                continue
+            target_key = _optional_str(target.get("target_key"))
+            surface_ref = _optional_str(field_binding.get("surface_ref"))
+            if target_key is None or surface_ref is None:
+                continue
+            physical_name = surface_ref.split(".", 1)[-1] if "." in surface_ref else surface_ref
+            input_field_map[target_key] = physical_name
+
+        return input_field_map or None
+
+    def resolve_metric_dimensions(self, metric_ref: str) -> list[str] | None:
+        """Look up a published metric's dimensions from semantic runtime or entity binding."""
+        metric_ref = _coerce_metric_ref(metric_ref)
+        resolved = self._resolve_runtime_metric_contract(metric_ref)
+        if resolved is None:
+            return None
+        semantic_object = resolved.semantic_object
+        header = semantic_object.get("header") or {}
+        payload = semantic_object.get("payload") or {}
+
         legacy_dims = payload.get("dimensions")
         if legacy_dims is not None:
             return [str(dimension) for dimension in list(legacy_dims)]
 
-        # Typed metric: get dimensions from observed_entity's binding stable_descriptors
-        observed_entity_ref = header.get("observed_entity_ref")
-        if observed_entity_ref:
-            entity_dims = self._resolve_entity_dimensions(observed_entity_ref)
-            if entity_dims is not None:
-                return entity_dims
+        observed_entity_ref = _optional_str(header.get("observed_entity_ref"))
+        if observed_entity_ref is not None:
+            return self._resolve_entity_dimensions(observed_entity_ref)
 
-        # Default: return empty list (typed metrics may not need dimensions for scalar queries)
         return []
 
-    def _resolve_entity_dimensions(self, entity_ref: str) -> list[str] | None:
-        """Get dimensions from entity binding's stable_descriptors."""
-        bindings = list(self._published_bindings_for_object_ref(entity_ref))
-        if not bindings:
-            return None
-
-        dimensions: list[str] = []
-        for binding in bindings:
-            interface_contract = dict(binding.semantic_object.get("interface_contract") or {})
-            field_bindings = list(interface_contract.get("field_bindings") or [])
-            for fb in field_bindings:
-                target = fb.get("target") or {}
-                if target.get("target_kind") == "stable_descriptor":
-                    semantic_ref = fb.get("semantic_ref")
-                    if semantic_ref:
-                        # semantic_ref format: "dimension.xxx" -> add to list
-                        dimensions.append(str(semantic_ref))
-
-        return dimensions
+    def _resolve_entity_dimensions(self, entity_ref: str) -> list[str]:
+        """Get canonical dimensions exposed by published entity bindings."""
+        return resolve_entity_binding_dimensions(self.metadata, entity_ref)
 
     def build_metric_query(
         self,
