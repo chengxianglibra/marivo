@@ -791,14 +791,7 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
             )
 
             self.metric_name = f"watch_time_tsu02_{suffix}"
-            self.session_id = client.post(
-                "/sessions",
-                json={
-                    "goal": "TSU-02",
-                    "constraints": {"platform": "android"},
-                    "raw_filter": "country = 'US'",
-                },
-            ).json()["session_id"]
+            self.session_id = client.post("/sessions", json={"goal": "TSU-02"}).json()["session_id"]
         finally:
             client.close()
 
@@ -873,8 +866,8 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         self.assertEqual(scoped_query["current"]["end"], "2026-03-17")
         self.assertEqual(scoped_query["baseline"]["start"], "2026-03-03")
         self.assertEqual(scoped_query["baseline"]["end"], "2026-03-10")
-        self.assertIn("platform = 'android'", scoped_query["session_constraints_filter"])
-        self.assertEqual(scoped_query["session_raw_filter"], "country = 'US'")
+        self.assertIsNone(scoped_query["session_constraints_filter"])
+        self.assertIsNone(scoped_query["session_raw_filter"])
         self.assertEqual(scoped_query["scope_constraints_filter"], "region = 'us-east'")
         self.assertEqual(scoped_query["scope_predicate_filter"], "device_type = 'phone'")
 
@@ -1162,8 +1155,8 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         self.assertEqual(scoped_query["current"]["end"], "2026-03-17")
         self.assertEqual(scoped_query["baseline"]["start"], "2026-03-03")
         self.assertEqual(scoped_query["baseline"]["end"], "2026-03-10")
-        self.assertIn("platform = 'android'", scoped_query["session_constraints_filter"])
-        self.assertEqual(scoped_query["session_raw_filter"], "country = 'US'")
+        self.assertIsNone(scoped_query["session_constraints_filter"])
+        self.assertIsNone(scoped_query["session_raw_filter"])
         self.assertEqual(scoped_query["scope_constraints_filter"], "region = 'us-east'")
         self.assertEqual(scoped_query["scope_predicate_filter"], "device_type = 'phone'")
 

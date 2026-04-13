@@ -265,8 +265,9 @@ class TestDecomposeRunnerCommitPath(unittest.TestCase):
         resolved_metric.allowed_dimensions = ["dim1"]
         resolved_metric.dimensions = ["dim1"]
         resolved_metric.grain = "day"
-        resolved_metric.definition_sql = "SUM(val)"
         svc.semantic_repository.resolve_metric.return_value = resolved_metric
+        svc.resolve_metric_dimensions.return_value = ["dim1"]
+        svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
 
         svc._resolve_metric_table.return_value = "src.metrics"
         svc._resolve_engine.return_value = (

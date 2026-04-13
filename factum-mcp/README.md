@@ -294,7 +294,7 @@ OpenAPI discovery responses are cached inside the MCP adapter using
 
 Current session / state / context coverage:
 
-- `create_session(goal, constraints=None, raw_filter=None, budget=None, policy=None)` -> `POST /sessions`
+- `create_session(goal, budget=None, policy=None)` -> `POST /sessions`
 - `get_session(session_id)` -> `GET /sessions/{session_id}`
 - `get_session_state(session_id, metric=None, entity=None, proposition_type=None, origin_kind=None, assessment_presence=None, assessment_status=None, has_blocking_gaps=None, limit=None, page_token=None)` -> `GET /sessions/{session_id}/state`
 - `query_session_state(session_id, metric=None, entity=None, slice=None, proposition_types=None, origin_kinds=None, assessment_presence=None, assessment_statuses=None, has_blocking_gaps=None, limit=None, page_token=None)` -> `POST /sessions/{session_id}/state/query`
@@ -302,6 +302,8 @@ Current session / state / context coverage:
 
 Boundary notes:
 
+- `create_session()` only accepts canonical session-root fields; execution filters belong in typed
+  intent requests such as `scope.constraints` or `scope.predicate`
 - `get_session_state()` mirrors the `GET /state` query contract and intentionally does not support `slice`
 - use `query_session_state()` when `slice` or a structured state query body is required
 - `get_proposition_context()` reads canonical proposition closure, not runtime status

@@ -161,6 +161,10 @@ class SessionManagerTests(unittest.TestCase):
         session = self.manager.create_session("Policy test", {}, {}, {"aggregate_only": True})
         self.assertIsNone(session["governance"]["policy_refs"])
 
+    def test_create_session_preserves_legacy_constraints_only_for_read_compat(self) -> None:
+        session = self.manager.create_session("Legacy compat", {"region": "all"}, {}, {})
+        self.assertEqual(session["scope"]["constraints"], {"region": "all"})
+
     def test_policy_refs_list_policy(self) -> None:
         """List-typed policy with policy_id/policy_version entries is surfaced as-is."""
         policy = [{"policy_id": "pol_agg", "policy_version": "1"}]

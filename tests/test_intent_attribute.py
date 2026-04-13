@@ -591,7 +591,7 @@ class AttributeEndpointTests(unittest.TestCase):
         # Create a persistent session for HTTP tests
         resp = cls.client.post(
             "/sessions",
-            json={"goal": "http attr test", "governance": {}, "constraints": {}, "metadata": {}},
+            json={"goal": "http attr test", "budget": {}, "policy": {}},
         )
         resp.raise_for_status()
         cls.session_id = resp.json()["session_id"]

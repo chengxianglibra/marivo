@@ -1268,7 +1268,6 @@ class IntentEndpointWithSemanticLayerTests(unittest.TestCase):
             "/sessions",
             json={
                 "goal": "Observe semantic metric test",
-                "constraints": {},
                 "budget": {},
                 "policy": {},
             },
@@ -1367,7 +1366,6 @@ class ObserveTypedArtifactTests(unittest.TestCase):
             "/sessions",
             json={
                 "goal": "observe typed artifact test",
-                "constraints": {},
                 "budget": {},
                 "policy": {},
             },

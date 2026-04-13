@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import httpx
+import pytest
 
 from app.api.models._legacy import (
     DetectTimeScope,
@@ -688,24 +689,14 @@ def test_search_catalog_forwards_query_and_type_filter() -> None:
     assert result["data"] == [{"object_kind": "metric", "ref": "metric.watch_time"}]
 
 
-def test_search_catalog_preserves_http_400_for_invalid_type_filter() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            400,
-            json={"detail": "Unsupported catalog object type filter: profile"},
-            request=request,
+def test_search_catalog_rejects_invalid_type_filter_before_http_request() -> None:
+    with pytest.raises(ValueError, match="search_catalog type must be one of"):
+        _invoke_registered_tool(
+            "search_catalog",
+            lambda request: httpx.Response(200, json=[], request=request),
+            q="watch",
+            type="profile",
         )
-
-    result = _invoke_registered_tool(
-        "search_catalog",
-        handler,
-        q="watch",
-        type="profile",
-    )
-
-    assert result["ok"] is False
-    assert result["status_code"] == 400
-    assert result["error"]["message"] == "Unsupported catalog object type filter: profile"
 
 
 def test_resolve_typed_ref_uses_explicit_ref_path() -> None:
@@ -762,8 +753,7 @@ def test_create_session_uses_canonical_session_root_request_fields() -> None:
         assert request.method == "POST"
         assert request.url.path == "/sessions"
         assert request.read() == (
-            b'{"goal":"Investigate watch time","constraints":{"region":"us"},'
-            b'"raw_filter":"device = \\"mobile\\"","budget":{"max_latency_sec":30},'
+            b'{"goal":"Investigate watch time","budget":{"max_latency_sec":30},'
             b'"policy":{"aggregate_only":true}}'
         )
         return httpx.Response(200, json={"session_id": "sess_123"}, request=request)
@@ -772,8 +762,6 @@ def test_create_session_uses_canonical_session_root_request_fields() -> None:
         "create_session",
         handler,
         goal="Investigate watch time",
-        constraints={"region": "us"},
-        raw_filter='device = "mobile"',
         budget={"max_latency_sec": 30},
         policy={"aggregate_only": True},
     )

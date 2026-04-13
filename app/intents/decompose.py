@@ -115,7 +115,10 @@ def run_decompose_intent(
             f"'{measure_type}'; only additive metrics are supported in v1"
         )
 
-    valid_dimensions = resolved_metric.allowed_dimensions or list(resolved_metric.dimensions)
+    runtime_dimensions = svc.resolve_metric_dimensions(metric_name) or []
+    valid_dimensions = (
+        runtime_dimensions or resolved_metric.allowed_dimensions or list(resolved_metric.dimensions)
+    )
     if not valid_dimensions:
         raise ValueError(f"decompose: metric '{metric_name}' declares no dimensions")
     if dimension not in valid_dimensions:
@@ -124,11 +127,9 @@ def run_decompose_intent(
             f"metric '{metric_name}'. Available: {sorted(valid_dimensions)}"
         )
 
-    all_dimensions = list(resolved_metric.dimensions)
+    all_dimensions = list(runtime_dimensions or resolved_metric.dimensions)
     grain = resolved_metric.grain or "day"
-    metric_sql = resolved_metric.definition_sql
-    if not metric_sql:
-        raise ValueError(f"decompose: metric '{metric_name}' has no definition_sql")
+    metric_sql = svc.resolve_metric_sql_for_execution(metric_name)
 
     table = svc._resolve_metric_table(metric_name)
     if table is None:

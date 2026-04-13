@@ -254,14 +254,13 @@ class SemanticLayerService:
     def create_session(
         self,
         goal: str,
-        constraints: dict[str, Any],
-        budget: dict[str, Any],
-        policy: dict[str, Any],
+        constraints: dict[str, Any] | None = None,
+        budget: dict[str, Any] | None = None,
+        policy: dict[str, Any] | list[dict[str, Any]] | None = None,
         raw_filter: str | None = None,
     ) -> dict[str, Any]:
-        return self.session_manager.create_session(
-            goal, constraints, budget, policy, raw_filter=raw_filter
-        )
+        del constraints, raw_filter
+        return self.session_manager.create_session(goal, budget=budget or {}, policy=policy or {})
 
     def list_sessions(
         self,
@@ -1150,40 +1149,6 @@ class SemanticLayerService:
             )
         return profiles
 
-    def _session_constraints_to_filter(self, session_id: str) -> str | None:
-        """Convert session constraints and raw_filter to a SQL filter expression.
-
-        Non-scalar constraints (dicts, lists) are silently ignored.
-        raw_filter is appended as-is (AND-merged) after scalar constraints.
-        Returns None when no constraints exist.
-        """
-        constraints, raw_filter = self._fetch_session_constraints(session_id)
-        parts: list[str] = []
-        if constraints and isinstance(constraints, dict):
-            for key, value in constraints.items():
-                if isinstance(value, (dict, list)):
-                    continue
-                parts.append(f"{key} = '{value}'")
-        if raw_filter:
-            parts.append(raw_filter)
-        return " AND ".join(parts) if parts else None
-
-    def _fetch_session_constraints(self, session_id: str) -> tuple[dict[str, Any], str | None]:
-        """Return (constraints_dict, raw_filter) for the given session.
-
-        Reads directly from the narrow columns to avoid depending on the
-        canonical AnalysisSession shape returned by SessionManager.
-        """
-        row = self.metadata.query_one(
-            "SELECT constraints_json, raw_filter FROM sessions WHERE session_id = ?",
-            [session_id],
-        )
-        constraints: dict[str, Any] = (
-            json.loads(row["constraints_json"]) if row and row.get("constraints_json") else {}
-        )
-        raw_filter: str | None = row.get("raw_filter") if row else None
-        return constraints, raw_filter
-
     @staticmethod
     def _table_name_matches_locator(table_name: str, locator: str | None) -> bool:
         normalized_table = table_name.strip()
@@ -1343,18 +1308,11 @@ class SemanticLayerService:
             parts.append(f"{column_name} = '{value}'")
         return " AND ".join(parts) if parts else None
 
-    def _session_filter_parts(self, session_id: str) -> tuple[str | None, str | None]:
-        constraints, raw_filter_raw = self._fetch_session_constraints(session_id)
-        constraints_filter = self._constraints_dict_to_filter(constraints)
-        raw_filter = str(raw_filter_raw or "").strip() or None
-        return constraints_filter, raw_filter
-
     def _resolved_scope_filter(
         self,
         session_id: str,
         request: ResolvedWindowedQueryRequest,
     ) -> str | None:
-        session_constraints_filter, session_raw_filter = self._session_filter_parts(session_id)
         metric_ref = None
         if isinstance(request.value_spec, SemanticMetricValueSpec):
             metric_ref = request.value_spec.metric
@@ -1365,8 +1323,6 @@ class SemanticLayerService:
             table_name=request.table,
         )
         return self._merge_filters(
-            session_constraints_filter,
-            session_raw_filter,
             scope_constraints,
             request.scope.predicate,
         )
@@ -1379,7 +1335,6 @@ class SemanticLayerService:
         analysis_time_expr = request.resolved_time_axis.analysis_time_expr
         if not analysis_time_expr:
             raise ValueError("windowed execution requires resolved_time_axis.analysis_time_expr")
-        session_constraints_filter, session_raw_filter = self._session_filter_parts(session_id)
         metric_ref = None
         if isinstance(request.value_spec, SemanticMetricValueSpec):
             metric_ref = request.value_spec.metric
@@ -1401,8 +1356,8 @@ class SemanticLayerService:
                 if request.time_scope.baseline is not None
                 else None
             ),
-            "session_constraints_filter": session_constraints_filter,
-            "session_raw_filter": session_raw_filter,
+            "session_constraints_filter": None,
+            "session_raw_filter": None,
             "scope_constraints_filter": self._constraints_dict_to_filter(
                 request.scope.constraints,
                 resolve_semantic_refs=True,
@@ -1688,24 +1643,8 @@ class SemanticLayerService:
     }
 
     def _build_constraints_applied(self, session_id: str, step_type: str) -> dict[str, Any]:
-        constraints, raw_filter = self._fetch_session_constraints(session_id)
-
-        descriptors: list[str] = []
-        if constraints and isinstance(constraints, dict):
-            for key, value in constraints.items():
-                if not isinstance(value, (dict, list)):
-                    descriptors.append(f"constraint: {key} = '{value}'")
-        if raw_filter:
-            descriptors.append(f"raw_filter: {raw_filter}")
-
-        if not descriptors:
-            return {"applied": [], "skipped": [], "note": None}
-
-        if step_type in self._CONSTRAINT_APPLYING_STEPS:
-            return {"applied": descriptors, "skipped": [], "note": None}
-        else:
-            note = self._CONSTRAINT_SKIP_REASONS.get(step_type)
-            return {"applied": [], "skipped": descriptors, "note": note}
+        del session_id, step_type
+        return {"applied": [], "skipped": [], "note": None}
 
     def _run_metric_query(self, session_id: str, params: dict[str, Any]) -> dict[str, Any]:
         """Generic metric comparison step driven by semantic metric definitions.
@@ -2090,12 +2029,9 @@ class SemanticLayerService:
         if not table_name:
             raise ValueError("sample_rows requires 'table_name' param")
 
-        # Merge session constraints into filter
-        constraints_filter = self._session_constraints_to_filter(session_id)
         user_filter = params.get("filter")
-        merged_filter = self._merge_filters(user_filter, constraints_filter)
-        if merged_filter:
-            params = {**params, "filter": merged_filter}
+        if user_filter:
+            params = {**params, "filter": user_filter}
 
         step_type = "sample_rows"
         step_id = self._new_step_id()
@@ -2332,8 +2268,7 @@ class SemanticLayerService:
         query_limit = max(top_k, int(params.get("limit", 1000)))
 
         user_where = params.get("where") or params.get("filter")
-        constraints_filter = self._session_constraints_to_filter(session_id)
-        merged_where = self._merge_filters(user_where, constraints_filter)
+        merged_where = user_where
 
         table_name_str = str(table_name)
         short_name = table_name_str.split(".")[-1]
