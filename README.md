@@ -66,6 +66,9 @@ curl -s http://127.0.0.1:8000/sessions/<id>/intents/detect -X POST \
   -d '{"metric": "metric.watch_time",
        "time_scope": {"kind": "range", "start": "2026-03-01", "end": "2026-03-08"}}'
 
+# Typed intent metric params use canonical refs only
+# Example: "metric.watch_time" (not "watch_time")
+
 # Read canonical session state
 curl -s http://127.0.0.1:8000/sessions/<id>/state | python3 -m json.tool
 ```

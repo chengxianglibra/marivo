@@ -64,9 +64,11 @@ def run_diagnose_intent(
     p = params or {}
 
     # ── Input validation ───────────────────────────────────────────────────────
-    metric: str = (p.get("metric") or "").strip()
-    if not metric:
+    metric_ref: str = (p.get("metric") or "").strip()
+    if not metric_ref:
         raise ValueError("diagnose: INVALID_ARGUMENT - metric is required")
+    metric_ref = svc.normalize_intent_metric_ref(metric_ref)
+    metric_name = svc.metric_name_from_ref(metric_ref)
 
     time_scope_raw = p.get("time_scope")
     if not isinstance(time_scope_raw, dict):
@@ -160,7 +162,7 @@ def run_diagnose_intent(
 
     # ── Step 1: detect ─────────────────────────────────────────────────────────
     detect_params: dict[str, Any] = {
-        "metric": metric,
+        "metric": metric_ref,
         "time_scope": time_scope_raw,
         "sensitivity": sensitivity,
         "profile": profile,
@@ -217,7 +219,7 @@ def run_diagnose_intent(
             svc=svc,
             session_id=session_id,
             candidate=cand,
-            metric=metric,
+            metric_ref=metric_ref,
             base_scope=scope,
             dimensions=dimensions,
             decomposition_limit=decomposition_limit,
@@ -274,7 +276,7 @@ def run_diagnose_intent(
         "intent_type": "diagnose",
         "step_type": "diagnose",
         "artifact_schema_version": "v1",
-        "metric": metric,
+        "metric": metric_ref,
         "time_scope": resolved_time_scope,
         "scope": scope,
         "detect_split_by": detect_split_by,
@@ -308,10 +310,10 @@ def run_diagnose_intent(
     }
 
     # ── Step 6: persist bundle ─────────────────────────────────────────────────
-    artifact_name = f"{metric}_diagnosis_bundle"
+    artifact_name = f"{metric_name}_diagnosis_bundle"
     diagnosed_count = sum(1 for d in diagnoses if d.get("status") == "diagnosed")
     summary_str = (
-        f"diagnose {metric}: {validation_status} "
+        f"diagnose {metric_name}: {validation_status} "
         f"({followed_candidate_count} followed, {diagnosed_count} diagnosed, "
         f"{len(dimensions)} dimension(s))"
     )
@@ -347,7 +349,7 @@ def _follow_up_candidate(
     svc: SemanticLayerService,
     session_id: str,
     candidate: dict[str, Any],
-    metric: str,
+    metric_ref: str,
     base_scope: dict[str, Any] | None,
     dimensions: list[str],
     decomposition_limit: int,
@@ -445,7 +447,7 @@ def _follow_up_candidate(
             svc,
             session_id,
             {
-                "metric": metric,
+                "metric": metric_ref,
                 "time_scope": {"kind": "range", "start": current_start_str, "end": current_end_str},
                 "scope": combined_scope,
             },
@@ -477,7 +479,7 @@ def _follow_up_candidate(
             svc,
             session_id,
             {
-                "metric": metric,
+                "metric": metric_ref,
                 "time_scope": {
                     "kind": "range",
                     "start": baseline_start_str,

@@ -39,13 +39,18 @@ from tests.semantic_test_helpers import (
 )
 from tests.shared_fixtures import get_seeded_duckdb_path
 
+
+def _metric_ref(name: str) -> str:
+    return f"metric.{name}"
+
+
 # ── Model-level validation tests (no HTTP) ───────────────────────────────────
 
 
 class ObserveRequestModelTests(unittest.TestCase):
     def _make(self, **kwargs):
         base = {
-            "metric": "dau",
+            "metric": _metric_ref("dau"),
             "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
         }
         base.update(kwargs)
@@ -83,14 +88,14 @@ class ObserveRequestModelTests(unittest.TestCase):
 
     def test_snapshot_now_time_scope(self) -> None:
         r = ObserveRequest(
-            metric="dau",
+            metric=_metric_ref("dau"),
             time_scope={"kind": "snapshot_now"},
         )
         self.assertEqual(r.time_scope.kind, "snapshot_now")
 
     def test_as_of_time_scope(self) -> None:
         r = ObserveRequest(
-            metric="dau",
+            metric=_metric_ref("dau"),
             time_scope={"kind": "as_of", "at": "2024-06-01T00:00:00"},
         )
         self.assertEqual(r.time_scope.kind, "as_of")
@@ -98,7 +103,7 @@ class ObserveRequestModelTests(unittest.TestCase):
     def test_snapshot_now_rejects_granularity(self) -> None:
         with self.assertRaises(Exception):
             ObserveRequest(
-                metric="dau",
+                metric=_metric_ref("dau"),
                 time_scope={"kind": "snapshot_now"},
                 granularity="day",
             )
@@ -557,7 +562,7 @@ class IntentEndpointTests(unittest.TestCase):
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/observe",
             json={
-                "metric": "dau",
+                "metric": _metric_ref("dau"),
                 "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
                 "granularity": "day",
                 "dimensions": ["region"],
@@ -569,7 +574,7 @@ class IntentEndpointTests(unittest.TestCase):
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/observe",
             json={
-                "metric": "non_existent_metric_xyz",
+                "metric": _metric_ref("non_existent_metric_xyz"),
                 "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
             },
         )
@@ -580,7 +585,7 @@ class IntentEndpointTests(unittest.TestCase):
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/observe",
             json={
-                "metric": "non_existent_metric_xyz",
+                "metric": _metric_ref("non_existent_metric_xyz"),
                 "time_scope": {"kind": "snapshot_now"},
             },
         )
@@ -609,7 +614,7 @@ class IntentEndpointTests(unittest.TestCase):
         response = self.client.post(
             f"/sessions/{self.session_id}/intents/observe",
             json={
-                "metric": "intent_not_ready_metric",
+                "metric": _metric_ref("intent_not_ready_metric"),
                 "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
             },
         )
@@ -643,7 +648,7 @@ class IntentEndpointTests(unittest.TestCase):
         response = self.client.post(
             f"/sessions/{self.session_id}/intents/observe",
             json={
-                "metric": "intent_aux_binding_metric",
+                "metric": _metric_ref("intent_aux_binding_metric"),
                 "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
             },
         )
@@ -675,7 +680,7 @@ class IntentEndpointTests(unittest.TestCase):
             response = self.client.post(
                 f"/sessions/{self.session_id}/intents/observe",
                 json={
-                    "metric": "intent_preflight_failure_metric",
+                    "metric": _metric_ref("intent_preflight_failure_metric"),
                     "time_scope": {
                         "kind": "range",
                         "start": "2024-01-01",
@@ -765,7 +770,7 @@ class IntentEndpointTests(unittest.TestCase):
         response = self.client.post(
             f"/sessions/{self.session_id}/intents/observe",
             json={
-                "metric": "intent_compatible_metric",
+                "metric": _metric_ref("intent_compatible_metric"),
                 "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
                 "dimensions": ["dimension.intent_signup_week"],
             },
@@ -787,7 +792,7 @@ class IntentEndpointTests(unittest.TestCase):
         response = self.client.post(
             f"/sessions/{self.session_id}/intents/observe",
             json={
-                "metric": metric_name,
+                "metric": _metric_ref(metric_name),
                 "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-04"},
                 "dimensions": ["dimension.cluster"],
             },
@@ -807,7 +812,7 @@ class IntentEndpointTests(unittest.TestCase):
         response = self.client.post(
             f"/sessions/{self.session_id}/intents/observe",
             json={
-                "metric": metric_name,
+                "metric": _metric_ref(metric_name),
                 "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-04"},
                 "dimensions": ["dimension.cluster"],
             },
@@ -825,7 +830,7 @@ class IntentEndpointTests(unittest.TestCase):
         response = self.client.post(
             f"/sessions/{self.session_id}/intents/observe",
             json={
-                "metric": metric_name,
+                "metric": _metric_ref(metric_name),
                 "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-04"},
                 "dimensions": ["dimension.cluster"],
             },
@@ -931,7 +936,7 @@ class IntentEndpointTests(unittest.TestCase):
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/detect",
             json={
-                "metric": "dau",
+                "metric": _metric_ref("dau"),
                 "time_scope": {
                     "mode": "single_window",
                     "grain": "day",
@@ -1026,7 +1031,7 @@ class IntentEndpointTests(unittest.TestCase):
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/attribute",
             json={
-                "metric": "dau",
+                "metric": _metric_ref("dau"),
                 "left": {
                     "time_scope": {
                         "kind": "range",
@@ -1051,7 +1056,7 @@ class IntentEndpointTests(unittest.TestCase):
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/diagnose",
             json={
-                "metric": "dau",
+                "metric": _metric_ref("dau"),
                 "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
             },
         )
@@ -1062,7 +1067,7 @@ class IntentEndpointTests(unittest.TestCase):
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/validate",
             json={
-                "metric": "dau",
+                "metric": _metric_ref("dau"),
                 # no left, no right — required fields missing
             },
         )
@@ -1074,7 +1079,7 @@ class IntentEndpointTests(unittest.TestCase):
         r = self.client.post(
             "/sessions/sess_nonexistent/intents/observe",
             json={
-                "metric": "dau",
+                "metric": _metric_ref("dau"),
                 "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
             },
         )
@@ -1103,7 +1108,7 @@ class ClosedSessionWriteGuardTests(unittest.TestCase):
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/observe",
             json={
-                "metric": "dau",
+                "metric": _metric_ref("dau"),
                 "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
             },
         )
@@ -1114,7 +1119,7 @@ class ClosedSessionWriteGuardTests(unittest.TestCase):
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/detect",
             json={
-                "metric": "dau",
+                "metric": _metric_ref("dau"),
                 "time_scope": {
                     "mode": "single_window",
                     "grain": "day",
@@ -1129,7 +1134,7 @@ class ClosedSessionWriteGuardTests(unittest.TestCase):
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/attribute",
             json={
-                "metric": "dau",
+                "metric": _metric_ref("dau"),
                 "left": {
                     "time_scope": {"kind": "range", "start": "2024-01-08", "end": "2024-01-15"}
                 },
@@ -1146,7 +1151,7 @@ class ClosedSessionWriteGuardTests(unittest.TestCase):
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/diagnose",
             json={
-                "metric": "dau",
+                "metric": _metric_ref("dau"),
                 "time_scope": {
                     "mode": "single_window",
                     "grain": "day",
@@ -1162,7 +1167,7 @@ class ClosedSessionWriteGuardTests(unittest.TestCase):
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/validate",
             json={
-                "metric": "dau",
+                "metric": _metric_ref("dau"),
                 "sample_kind": "rate",
                 "left": {
                     "time_scope": {"kind": "range", "start": "2024-01-08", "end": "2024-01-15"}
@@ -1256,7 +1261,7 @@ class IntentEndpointWithSemanticLayerTests(unittest.TestCase):
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/observe",
             json={
-                "metric": "test_observe_metric",
+                "metric": _metric_ref("test_observe_metric"),
                 "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
             },
         )
@@ -1264,6 +1269,8 @@ class IntentEndpointWithSemanticLayerTests(unittest.TestCase):
         self.assertIn(r.status_code, {200, 422})
         if r.status_code == 422:
             self.assertIn("metric", r.json()["detail"].lower())
+            return
+        self.assertEqual(r.json()["metric"], "test_observe_metric")
 
 
 class ObserveTypedArtifactTests(unittest.TestCase):
@@ -1371,7 +1378,7 @@ class ObserveTypedArtifactTests(unittest.TestCase):
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/observe",
             json={
-                "metric": "observe_test_dau",
+                "metric": _metric_ref("observe_test_dau"),
                 "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
             },
         )
@@ -1398,7 +1405,7 @@ class ObserveTypedArtifactTests(unittest.TestCase):
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/observe",
             json={
-                "metric": "observe_test_dau",
+                "metric": _metric_ref("observe_test_dau"),
                 "time_scope": {"kind": "range", "start": "2024-01-08", "end": "2024-01-15"},
             },
         )
@@ -1422,7 +1429,7 @@ class ObserveTypedArtifactTests(unittest.TestCase):
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/observe",
             json={
-                "metric": "observe_test_dau",
+                "metric": _metric_ref("observe_test_dau"),
                 "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
                 "granularity": "day",
             },
@@ -1447,7 +1454,7 @@ class ObserveTypedArtifactTests(unittest.TestCase):
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/observe",
             json={
-                "metric": "observe_test_dau",
+                "metric": _metric_ref("observe_test_dau"),
                 "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
                 "dimensions": ["platform"],
             },
@@ -1466,7 +1473,7 @@ class ObserveTypedArtifactTests(unittest.TestCase):
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/observe",
             json={
-                "metric": "observe_test_dau",
+                "metric": _metric_ref("observe_test_dau"),
                 "time_scope": {"kind": "snapshot_now"},
             },
         )
@@ -1483,7 +1490,7 @@ class ObserveTypedArtifactTests(unittest.TestCase):
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/observe",
             json={
-                "metric": "observe_test_dau",
+                "metric": _metric_ref("observe_test_dau"),
                 "time_scope": {"kind": "as_of", "at": "2024-01-07T00:00:00"},
             },
         )
@@ -1500,7 +1507,7 @@ class ObserveTypedArtifactTests(unittest.TestCase):
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/observe",
             json={
-                "metric": "observe_test_dau",
+                "metric": _metric_ref("observe_test_dau"),
                 "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
                 "granularity": "day",
                 "dimensions": ["platform"],
@@ -1513,7 +1520,7 @@ class ObserveTypedArtifactTests(unittest.TestCase):
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/observe",
             json={
-                "metric": "observe_test_dau",
+                "metric": _metric_ref("observe_test_dau"),
                 "time_scope": {"kind": "snapshot_now"},
                 "granularity": "day",
             },
@@ -1525,7 +1532,7 @@ class ObserveTypedArtifactTests(unittest.TestCase):
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/observe",
             json={
-                "metric": "observe_test_dau",
+                "metric": _metric_ref("observe_test_dau"),
                 "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
                 "granularity": "quarter",
             },
@@ -1537,7 +1544,7 @@ class ObserveTypedArtifactTests(unittest.TestCase):
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/observe",
             json={
-                "metric": "observe_test_dau",
+                "metric": _metric_ref("observe_test_dau"),
                 "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
                 "dimensions": ["platform"],
             },
@@ -1558,7 +1565,7 @@ class ObserveTypedArtifactTests(unittest.TestCase):
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/observe",
             json={
-                "metric": "observe_test_dau",
+                "metric": _metric_ref("observe_test_dau"),
                 "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
                 "result_mode": "numeric_sample_summary",
             },
@@ -1756,7 +1763,7 @@ class CompareIntentTests(unittest.TestCase):
             resp = cls.client.post(
                 f"/sessions/{session_id}/intents/observe",
                 json={
-                    "metric": "compare_test_dau",
+                    "metric": _metric_ref("compare_test_dau"),
                     "time_scope": {"kind": "range", "start": start, "end": end},
                 },
             )
@@ -1768,7 +1775,7 @@ class CompareIntentTests(unittest.TestCase):
             resp = cls.client.post(
                 f"/sessions/{session_id}/intents/observe",
                 json={
-                    "metric": "compare_test_dau",
+                    "metric": _metric_ref("compare_test_dau"),
                     "time_scope": {"kind": "range", "start": start, "end": end},
                     "dimensions": ["platform"],
                 },
@@ -1789,7 +1796,7 @@ class CompareIntentTests(unittest.TestCase):
             resp = cls.client.post(
                 f"/sessions/{cls.session_id}/intents/observe",
                 json={
-                    "metric": "compare_test_other",
+                    "metric": _metric_ref("compare_test_other"),
                     "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
                 },
             )
@@ -2191,7 +2198,7 @@ class DecomposeIntentTests(unittest.TestCase):
             resp = cls.client.post(
                 f"/sessions/{cls.session_id}/intents/observe",
                 json={
-                    "metric": "decompose_test_dau",
+                    "metric": _metric_ref("decompose_test_dau"),
                     "time_scope": {"kind": "range", "start": start, "end": end},
                 },
             )
@@ -2201,7 +2208,7 @@ class DecomposeIntentTests(unittest.TestCase):
             resp = cls.client.post(
                 f"/sessions/{cls.session_id}/intents/observe",
                 json={
-                    "metric": "decompose_test_dau",
+                    "metric": _metric_ref("decompose_test_dau"),
                     "time_scope": {"kind": "range", "start": start, "end": end},
                     "dimensions": ["platform"],
                 },

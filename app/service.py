@@ -23,6 +23,7 @@ from app.analysis_core.compiler import (
 from app.analysis_core.compiler import build_metric_query as compile_metric_query
 from app.analysis_core.executor import execute_compiled
 from app.analysis_core.ir import AnalysisStepIR
+from app.api.models.base import validate_ref_prefix
 from app.evidence_engine.canonical_finding import StepRef
 from app.evidence_engine.canonical_pipeline_runtime import run_canonical_downstream
 from app.evidence_engine.finding_extractor_registry import (
@@ -103,6 +104,32 @@ def _optional_str(value: Any) -> str | None:
         normalized = value.strip()
         return normalized or None
     return None
+
+
+def _require_metric_ref(value: str, *, field_name: str = "metric") -> str:
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError(f"'{field_name}' is required")
+    try:
+        return validate_ref_prefix(normalized, "metric", field_name)
+    except ValueError as exc:
+        raise ValueError(
+            f"'{field_name}' must be a canonical metric ref like 'metric.watch_time', got: "
+            f"{normalized}"
+        ) from exc
+
+
+def _metric_name_from_ref(metric_ref: str) -> str:
+    return metric_ref.removeprefix("metric.")
+
+
+def _coerce_metric_ref(value: str) -> str:
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError("'metric' is required")
+    if normalized.startswith("metric."):
+        return normalized
+    return f"metric.{normalized}"
 
 
 def _make_stub_runner(intent_type: str) -> Any:
@@ -457,15 +484,24 @@ class SemanticLayerService:
         except KeyError:
             raise ValueError(f"Unknown intent type: '{intent_type}'") from None
 
-    def _resolve_metric_table(self, metric_name: str) -> str | None:
+    def normalize_intent_metric_ref(self, metric_ref: str) -> str:
+        """Normalize a typed-intent metric parameter to canonical ref form for runtime use."""
+        return _coerce_metric_ref(metric_ref)
+
+    def metric_name_from_ref(self, metric_ref: str) -> str:
+        """Return the short metric name for display or legacy internals."""
+        return _metric_name_from_ref(_coerce_metric_ref(metric_ref))
+
+    def _resolve_metric_table(self, metric_ref: str) -> str | None:
         """Resolve an execution-ready table for a metric, if one can be derived."""
         try:
-            return self._resolve_metric_execution_context(metric_name).table_name
+            return self._resolve_metric_execution_context(metric_ref).table_name
         except (SemanticRuntimeNotReadyError, ValueError):
             return None
 
-    def _resolve_metric_execution_context(self, metric_name: str) -> MetricExecutionContext:
-        metric_ref = f"metric.{metric_name}"
+    def _resolve_metric_execution_context(self, metric_ref: str) -> MetricExecutionContext:
+        metric_ref = _coerce_metric_ref(metric_ref)
+        metric_name = _metric_name_from_ref(metric_ref)
         try:
             availability = self.semantic_repository.inspect_ref(metric_ref)
         except (SemanticRuntimeInvalidRefError, SemanticRuntimeNotFoundError):
@@ -590,14 +626,16 @@ class SemanticLayerService:
 
     # ── Metric resolution ────────────────────────────────────────────
 
-    def _resolve_metric_direction(self, metric_name: str) -> str | None:
+    def _resolve_metric_direction(self, metric_ref: str) -> str | None:
         """Look up a published metric's desired_direction for recommendation policy."""
-        resolved = self.semantic_resolver.resolve_metric(metric_name)
+        metric_ref = _coerce_metric_ref(metric_ref)
+        resolved = self.semantic_resolver.resolve_metric(_metric_name_from_ref(metric_ref))
         return resolved.desired_direction if resolved else None
 
-    def _resolve_runtime_metric_contract(self, metric_name: str) -> ResolvedSemanticObject | None:
+    def _resolve_runtime_metric_contract(self, metric_ref: str) -> ResolvedSemanticObject | None:
+        metric_ref = _coerce_metric_ref(metric_ref)
         try:
-            return self.semantic_repository.resolve_metric_ref(f"metric.{metric_name}")
+            return self.semantic_repository.resolve_metric_ref(metric_ref)
         except (
             SemanticRuntimeInvalidRefError,
             SemanticRuntimeNotFoundError,
@@ -605,9 +643,10 @@ class SemanticLayerService:
         ):
             return None
 
-    def resolve_metric_sql(self, metric_name: str) -> str | None:
+    def resolve_metric_sql(self, metric_ref: str) -> str | None:
         """Look up a published metric's definition_sql or compile from typed payload."""
-        resolved = self._resolve_runtime_metric_contract(metric_name)
+        metric_ref = _coerce_metric_ref(metric_ref)
+        resolved = self._resolve_runtime_metric_contract(metric_ref)
         if resolved is None:
             return None
         semantic_object = resolved.semantic_object
@@ -621,9 +660,14 @@ class SemanticLayerService:
 
         # Typed metric: compile SQL from metric_family + binding
         metric_family = header.get("metric_family")
-        metric_ref = header.get("metric_ref")
-        if metric_family and metric_ref:
-            return self._compile_typed_metric_sql(metric_name, metric_family, payload, metric_ref)
+        typed_metric_ref = header.get("metric_ref")
+        if metric_family and typed_metric_ref:
+            return self._compile_typed_metric_sql(
+                _metric_name_from_ref(metric_ref),
+                metric_family,
+                payload,
+                str(typed_metric_ref),
+            )
 
         return None
 
@@ -699,9 +743,9 @@ class SemanticLayerService:
 
         return None
 
-    def resolve_metric_dimensions(self, metric_name: str) -> list[str] | None:
+    def resolve_metric_dimensions(self, metric_ref: str) -> list[str] | None:
         """Look up a published metric's dimensions from semantic runtime or entity binding."""
-        resolved = self._resolve_runtime_metric_contract(metric_name)
+        resolved = self._resolve_runtime_metric_contract(metric_ref)
         if resolved is None:
             return None
         semantic_object = resolved.semantic_object
@@ -1408,14 +1452,14 @@ class SemanticLayerService:
         )
         return result
 
-    def _resolve_metric_unit_note(self, metric_name: str) -> str | None:
+    def _resolve_metric_unit_note(self, metric_ref: str) -> str | None:
         """G-5e: Return a concise unit note for a metric if one is available.
 
         Returns field-level units from the published entity properties, or None.
         """
         try:
             # Priority 1: published entity field-level units (properties.fields.<col>.unit)
-            entity = self._resolve_entity_for_metric(metric_name)
+            entity = self._resolve_entity_for_metric(metric_ref)
             if entity:
                 fields = entity.get("properties", {}).get("fields", {})
                 field_units = {
@@ -2110,14 +2154,18 @@ class SemanticLayerService:
             return [dict(r) for r in content]
         return [dict(content)]
 
-    def _resolve_entity_for_metric(self, metric_name: str) -> dict[str, Any] | None:
+    def _resolve_entity_for_metric(self, metric_ref: str) -> dict[str, Any] | None:
         """Return the published entity linked to the given metric name, or None."""
         try:
-            resolved_metric = self.semantic_repository.resolve_metric(metric_name)
-            if resolved_metric is None or not resolved_metric.observed_entity_ref:
+            metric_ref = _coerce_metric_ref(metric_ref)
+            resolved_metric = self.semantic_repository.resolve_metric_ref(metric_ref)
+            observed_entity_ref = resolved_metric.semantic_object.get("header", {}).get(
+                "observed_entity_ref"
+            )
+            if not observed_entity_ref:
                 return None
             resolved_entity = self.semantic_repository.resolve_entity(
-                resolved_metric.observed_entity_ref.removeprefix("entity.")
+                str(observed_entity_ref).removeprefix("entity.")
             )
             if resolved_entity is None:
                 return None

@@ -61,9 +61,11 @@ def run_validate_intent(
     p = params or {}
 
     # ── Input validation ───────────────────────────────────────────────────────
-    metric: str = (p.get("metric") or "").strip()
-    if not metric:
+    metric_ref: str = (p.get("metric") or "").strip()
+    if not metric_ref:
         raise ValueError("validate: INVALID_ARGUMENT - metric is required")
+    metric_ref = svc.normalize_intent_metric_ref(metric_ref)
+    metric_name = svc.metric_name_from_ref(metric_ref)
 
     left_input: dict[str, Any] = p.get("left") or {}
     right_input: dict[str, Any] = p.get("right") or {}
@@ -143,7 +145,7 @@ def run_validate_intent(
             svc,
             session_id,
             {
-                "metric": metric,
+                "metric": metric_ref,
                 "time_scope": left_time_scope,
                 "scope": left_scope,
                 "result_mode": result_mode,
@@ -163,7 +165,7 @@ def run_validate_intent(
             svc,
             session_id,
             {
-                "metric": metric,
+                "metric": metric_ref,
                 "time_scope": right_time_scope,
                 "scope": right_scope,
                 "result_mode": result_mode,
@@ -300,7 +302,7 @@ def run_validate_intent(
         "step_type": "validate",
         "artifact_schema_version": "v1",
         "derivation_version": _DERIVED_LOGIC_VERSION,
-        "metric": metric,
+        "metric": metric_ref,
         "left": left_resolved,
         "right": right_resolved,
         "sample_kind": resolved_sample_kind,
@@ -335,10 +337,10 @@ def run_validate_intent(
     }
 
     # ── Step 8: persist bundle ────────────────────────────────────────────────
-    artifact_name = f"{metric}_validation_bundle"
+    artifact_name = f"{metric_name}_validation_bundle"
     decision_label = decision_str.replace("_", "-")
     summary = (
-        f"validate {metric} [{resolved_method}] {alternative} α={alpha}: "
+        f"validate {metric_name} [{resolved_method}] {alternative} α={alpha}: "
         f"{decision_label} (sample_kind={resolved_sample_kind})"
     )
 

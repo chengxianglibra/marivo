@@ -326,6 +326,7 @@ Boundary notes:
 
 - these are path-discriminated intent tools; do not add an extra `intent` or `step_type` field to the request body
 - MCP parameter names intentionally reuse the canonical HTTP request field names
+- typed intent `metric` parameters must use canonical semantic refs such as `metric.watch_time`; bare names like `watch_time` are rejected
 - nested MCP input schemas now reuse Factum's canonical request models, so
   discriminators such as `time_scope.kind`, nested required fields, and enums
   such as `grain` are exposed directly in the tool contract

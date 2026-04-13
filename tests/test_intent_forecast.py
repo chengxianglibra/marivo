@@ -48,6 +48,11 @@ from tests.semantic_test_helpers import (
     ensure_published_typed_metric_binding,
 )
 
+
+def _metric_ref(name: str) -> str:
+    return f"metric.{name}"
+
+
 # ── Constants ──────────────────────────────────────────────────────────────────
 
 _METRIC = "forecast_dau"
@@ -585,7 +590,7 @@ class ForecastIntentEndpointTests(unittest.TestCase):
         r_obs = cls.client.post(
             f"/sessions/{cls.session_id}/intents/observe",
             json={
-                "metric": "http_forecast_dau",
+                "metric": _metric_ref("http_forecast_dau"),
                 "granularity": "day",
                 "time_scope": {"kind": "range", "start": _SERIES_START, "end": _SERIES_END},
             },

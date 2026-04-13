@@ -39,6 +39,11 @@ from tests.semantic_test_helpers import (
     ensure_published_typed_metric_binding,
 )
 
+
+def _metric_ref(name: str) -> str:
+    return f"metric.{name}"
+
+
 # ── Constants ──────────────────────────────────────────────────────────────────
 
 _TIME_START = "2026-01-01"
@@ -923,7 +928,7 @@ class TestIntentEndpointTests(unittest.TestCase):
         r_a = cls.client.post(
             f"/sessions/{cls.session_id}/intents/observe",
             json={
-                "metric": "http_test_num_a",
+                "metric": _metric_ref("http_test_num_a"),
                 "result_mode": "numeric_sample_summary",
                 "time_scope": time_scope,
             },
@@ -935,7 +940,7 @@ class TestIntentEndpointTests(unittest.TestCase):
         r_b = cls.client.post(
             f"/sessions/{cls.session_id}/intents/observe",
             json={
-                "metric": "http_test_num_b",
+                "metric": _metric_ref("http_test_num_b"),
                 "result_mode": "numeric_sample_summary",
                 "time_scope": time_scope,
             },
