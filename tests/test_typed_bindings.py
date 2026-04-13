@@ -510,6 +510,122 @@ class FieldBindingsTableTests(TypedBindingDDLTests):
                 binding_id, target_key="key.invalid", nullability_policy="invalid"
             )
 
+
+class TimeBindingsTableTests(TypedBindingDDLTests):
+    """Tests for time_bindings table."""
+
+    def _insert_field_binding(self, binding_id: str, **overrides) -> str:
+        import uuid
+
+        field_binding_id = f"fldb_{uuid.uuid4().hex[:24]}"
+        defaults = {
+            "field_binding_id": field_binding_id,
+            "binding_id": binding_id,
+            "carrier_binding_key": "primary",
+            "target_kind": "identity_key",
+            "target_key": "key.user_id",
+            "context_ref": None,
+            "semantic_ref": "key.user_id",
+            "surface_ref": "field.user_id",
+            "field_type_ref": None,
+            "nullability_policy": None,
+            "repeated_value_policy": None,
+        }
+        defaults.update(overrides)
+        self.metadata.execute(
+            """
+            INSERT INTO field_bindings (
+                field_binding_id, binding_id, carrier_binding_key, target_kind,
+                target_key, context_ref, semantic_ref, surface_ref, field_type_ref,
+                nullability_policy, repeated_value_policy
+            ) VALUES (
+                :field_binding_id, :binding_id, :carrier_binding_key, :target_kind,
+                :target_key, :context_ref, :semantic_ref, :surface_ref, :field_type_ref,
+                :nullability_policy, :repeated_value_policy
+            )
+            """,
+            defaults,
+        )
+        return field_binding_id
+
+    def _insert_time_binding(self, binding_id: str, **overrides) -> str:
+        import uuid
+
+        time_binding_id = f"tbind_{uuid.uuid4().hex[:24]}"
+        defaults = {
+            "time_binding_id": time_binding_id,
+            "binding_id": binding_id,
+            "carrier_binding_key": "primary",
+            "target_kind": "primary_time",
+            "target_key": "time.event_time",
+            "context_ref": None,
+            "semantic_ref": "time.event_time",
+            "resolution_kind": "timestamp_column",
+            "timestamp_surface_ref": "field.event_time",
+            "date_surface_ref": None,
+            "date_format": None,
+            "hour_surface_ref": None,
+            "hour_format": None,
+            "timezone_strategy": "session_consistent_naive",
+        }
+        defaults.update(overrides)
+        self.metadata.execute(
+            """
+            INSERT INTO time_bindings (
+                time_binding_id, binding_id, carrier_binding_key, target_kind, target_key,
+                context_ref, semantic_ref, resolution_kind, timestamp_surface_ref,
+                date_surface_ref, date_format, hour_surface_ref, hour_format,
+                timezone_strategy
+            ) VALUES (
+                :time_binding_id, :binding_id, :carrier_binding_key, :target_kind, :target_key,
+                :context_ref, :semantic_ref, :resolution_kind, :timestamp_surface_ref,
+                :date_surface_ref, :date_format, :hour_surface_ref, :hour_format,
+                :timezone_strategy
+            )
+            """,
+            defaults,
+        )
+        return time_binding_id
+
+    def test_table_exists(self) -> None:
+        result = self.metadata.query_one(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='time_bindings'"
+        )
+        self.assertIsNotNone(result)
+        self.assertEqual(result["name"], "time_bindings")
+
+    def test_resolution_kind_enum_constraint(self) -> None:
+        binding_id = self._insert_binding(binding_ref="binding.time_binding_resolution")
+        time_binding_id = self._insert_time_binding(binding_id, resolution_kind="date_column")
+        self.assertIsNotNone(time_binding_id)
+        with self.assertRaises(sqlite3.IntegrityError):
+            self._insert_time_binding(
+                binding_id,
+                resolution_kind="invalid_resolution",
+                target_key="time.invalid_resolution",
+                semantic_ref="time.invalid_resolution",
+            )
+
+    def test_timezone_strategy_constraint(self) -> None:
+        binding_id = self._insert_binding(binding_ref="binding.time_binding_timezone")
+        with self.assertRaises(sqlite3.IntegrityError):
+            self._insert_time_binding(
+                binding_id,
+                timezone_strategy="utc",
+                target_key="time.utc_test",
+                semantic_ref="time.utc_test",
+            )
+
+    def test_target_kind_constraint(self) -> None:
+        binding_id = self._insert_binding(binding_ref="binding.time_binding_target")
+        with self.assertRaises(sqlite3.IntegrityError):
+            self._insert_time_binding(
+                binding_id,
+                target_kind="identity_key",
+                target_key="key.user_id",
+                semantic_ref="time.event_time",
+            )
+
     def test_repeated_value_policy_enum_constraint(self) -> None:
         """repeated_value_policy must be one of the allowed values."""
         binding_id = self._insert_binding(binding_ref="binding.repeat_policy_test")

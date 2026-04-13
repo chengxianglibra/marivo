@@ -1394,9 +1394,7 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         self.assertIn("current_window", result["debug"])
         self.assertIn("baseline_window", result["debug"])
 
-    def test_service_resolver_prefers_entity_time_capabilities_over_source_time_capabilities(
-        self,
-    ) -> None:
+    def test_service_resolver_ignores_legacy_time_capabilities_when_binding_exists(self) -> None:
         client = self._client()
         try:
             table_row = self.service.metadata.query_one(
@@ -1416,7 +1414,7 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
             patch_typed_entity_properties(
                 client,
                 self.entity_id,
-                {"time_capabilities": {"analysis_time": {"fallback_date_column": "event_date"}}},
+                {"time_capabilities": {"analysis_time": {"fallback_date_column": "platform"}}},
             )
 
             request = normalize_metric_query_request(
@@ -1441,7 +1439,6 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
             client.close()
 
         self.assertEqual(request.resolved_time_axis.analysis_time_kind, "date_field")
-        # For date_field with unknown format, CAST is applied for DATE_TRUNC compatibility
         self.assertEqual(request.resolved_time_axis.analysis_time_expr, "CAST(event_date AS DATE)")
         self.assertIsNone(request.resolved_time_axis.analysis_time_format)
         self.assertEqual(

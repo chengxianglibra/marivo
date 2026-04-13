@@ -448,6 +448,53 @@ class FieldBinding(TypedDict):
 - binding 不直接绑定裸 physical path，而是绑定 `surface_ref`
 - carrier 的 field_surfaces 提供可用字段列表
 
+### TimeBindingSpec
+
+`FieldBinding` 适合表达“单个物理字段服务哪个 contract target”，但不足以稳定表达：
+
+- 单列 timestamp 时间
+- 单列 date 时间
+- `date + hour` 复合时间
+- 明确的 date/hour 编码格式
+
+因此 binding contract 需要单独的 `TimeBindingSpec`：
+
+```python
+from typing import Literal, NotRequired, TypedDict
+
+
+class TimeBindingSpec(TypedDict):
+    carrier_binding_key: str
+    target: BindingTarget
+    semantic_ref: str  # 必须是 time.*
+    resolution_kind: Literal[
+        "timestamp_column",
+        "date_column",
+        "date_hour_columns",
+    ]
+    timestamp_surface_ref: NotRequired[str | None]
+    date_surface_ref: NotRequired[str | None]
+    date_format: NotRequired[str | None]
+    hour_surface_ref: NotRequired[str | None]
+    hour_format: NotRequired[str | None]
+    timezone_strategy: NotRequired[str | None]
+```
+
+约束：
+
+- `target.target_kind` 仅允许 `primary_time` 或 `analysis_window_anchor`
+- `timestamp_column` 只能提供 `timestamp_surface_ref`
+- `date_column` 只能提供 `date_surface_ref`
+- `date_hour_columns` 必须同时提供 `date_surface_ref` 与 `hour_surface_ref`
+- `*_surface_ref` 必须引用当前 carrier 已声明的 `field_surfaces`
+- `semantic_ref` 必须是 `time.*`
+- `timezone_strategy` 在 Phase 1 仅支持 `session_consistent_naive`
+
+运行时约定：
+
+- windowed query 的 analysis time 与 partition pruning 都从 published `time_bindings` 推导
+- 旧的单列时间 `field_bindings` 仅作为兼容读取路径，不支持复合列或格式声明
+
 ### JoinRelation
 
 ```python
@@ -505,6 +552,7 @@ class BindingInterfaceContract(TypedDict):
     imports: list[BindingImport]
     carrier_bindings: list[CarrierBinding]
     field_bindings: list[FieldBinding]
+    time_bindings: list[TimeBindingSpec]
     join_relations: list[JoinRelation]
     consumption_policies: list[ConsumptionPolicySpec]
 ```

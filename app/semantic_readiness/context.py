@@ -513,6 +513,17 @@ class ReadinessEvaluationContext:
             """,
             [row["binding_id"]],
         )
+        time_binding_rows = self.metadata.query_rows(
+            """
+            SELECT carrier_binding_key, target_kind, target_key, context_ref, semantic_ref,
+                   resolution_kind, timestamp_surface_ref, date_surface_ref, date_format,
+                   hour_surface_ref, hour_format, timezone_strategy
+            FROM time_bindings
+            WHERE binding_id = ?
+            ORDER BY carrier_binding_key, target_kind, target_key, semantic_ref
+            """,
+            [row["binding_id"]],
+        )
         return {
             "binding_id": row["binding_id"],
             "binding_ref": row["binding_ref"],
@@ -552,6 +563,25 @@ class ReadinessEvaluationContext:
                         "repeated_value_policy": field_binding_row["repeated_value_policy"],
                     }
                     for field_binding_row in field_binding_rows
+                ],
+                "time_bindings": [
+                    {
+                        "carrier_binding_key": time_binding_row["carrier_binding_key"],
+                        "target": {
+                            "target_kind": time_binding_row["target_kind"],
+                            "target_key": time_binding_row["target_key"],
+                            "context_ref": time_binding_row["context_ref"],
+                        },
+                        "semantic_ref": time_binding_row["semantic_ref"],
+                        "resolution_kind": time_binding_row["resolution_kind"],
+                        "timestamp_surface_ref": time_binding_row["timestamp_surface_ref"],
+                        "date_surface_ref": time_binding_row["date_surface_ref"],
+                        "date_format": time_binding_row["date_format"],
+                        "hour_surface_ref": time_binding_row["hour_surface_ref"],
+                        "hour_format": time_binding_row["hour_format"],
+                        "timezone_strategy": time_binding_row["timezone_strategy"],
+                    }
+                    for time_binding_row in time_binding_rows
                 ],
             },
         }

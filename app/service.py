@@ -65,7 +65,7 @@ from app.storage.evidence_repositories import (
 )
 from app.storage.metadata import MetadataStore
 from app.storage.step_metadata_repository import StepMetadataRepository
-from app.time_axis_metadata import TimeAxisMetadataProvider
+from app.time_axis_metadata import TimeAxisMetadataContext, TimeAxisMetadataProvider
 from app.time_scope import (
     AdHocAggregateValueSpec,
     ResolvedWindowedQueryRequest,
@@ -1578,10 +1578,26 @@ class SemanticLayerService:
         metric_name: str | None = None,
         fallback_columns: list[str] | None = None,
     ) -> None:
-        metadata_context = self.time_axis_metadata_provider.load_for_windowed_query(
-            table_name=request.table,
-            metric_name=metric_name,
+        has_explicit_override = any(
+            (
+                request.resolved_time_axis.override_analysis_time_column,
+                request.resolved_time_axis.override_partition_date_column,
+                request.resolved_time_axis.override_partition_hour_column,
+            )
         )
+        try:
+            metadata_context = self.time_axis_metadata_provider.load_for_windowed_query(
+                table_name=request.table,
+                metric_name=metric_name,
+            )
+        except ValueError:
+            if not has_explicit_override:
+                raise
+            metadata_context = TimeAxisMetadataContext(
+                available_columns=self.time_axis_metadata_provider.load_available_columns(
+                    request.table
+                )
+            )
 
         available_columns = list(metadata_context.available_columns)
         if available_columns:
@@ -1597,22 +1613,7 @@ class SemanticLayerService:
             entity_time_capabilities=metadata_context.entity_time_capabilities,
             source_time_capabilities=metadata_context.source_time_capabilities,
         )
-        has_explicit_override = any(
-            (
-                request.resolved_time_axis.override_analysis_time_column,
-                request.resolved_time_axis.override_partition_date_column,
-                request.resolved_time_axis.override_partition_hour_column,
-            )
-        )
-        try:
-            request.resolved_time_axis = resolver.resolve()
-        except ValueError:
-            if (
-                has_explicit_override
-                or metadata_context.entity_time_capabilities
-                or metadata_context.source_time_capabilities
-            ):
-                raise
+        request.resolved_time_axis = resolver.resolve()
 
     @classmethod
     def _normalize_metric_query_order(cls, order: str | None, *, mode: str) -> str | None:
