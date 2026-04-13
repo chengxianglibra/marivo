@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 
 from app.analysis_core.compiler import CompiledQuery
@@ -7,6 +8,7 @@ from app.analysis_core.executor import execute_compiled
 from app.execution.errors import ExecutionError
 from app.execution.federation import FederationPlanner, FederationRuntime
 from app.execution.translation import DefaultQueryTranslator, request_from_compiled_query
+from app.observability import JSONFormatter
 
 
 class FakeEngine:
@@ -122,6 +124,19 @@ class FederationRuntimeTests(unittest.TestCase):
         self.assertEqual(error.exception.code, "federation_not_implemented")
         self.assertEqual(error.exception.category, "federation")
         self.assertEqual(error.exception.detail["plan"]["mode"], "staged_handoff")
+
+    def test_federation_runtime_logs_executed_sql(self) -> None:
+        runtime = FederationRuntime()
+        engine = FakeEngine()
+
+        with self.assertLogs("factum.execution", level="INFO") as captured:
+            runtime.execute(engine, translated_sql="SELECT 1")
+
+        self.assertEqual(engine.last_sql, "SELECT 1")
+        payload = json.loads(JSONFormatter().format(captured.records[0]))
+        self.assertEqual(payload["message"], "SQL execution")
+        self.assertEqual(payload["sql"], "SELECT 1")
+        self.assertEqual(payload["execution_mode"], "single_engine")
 
 
 if __name__ == "__main__":

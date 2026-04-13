@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from app.execution.feedback import federation_failure_from_plan
 from app.storage.analytics import AnalyticsEngine
+
+logger = logging.getLogger("factum.execution")
 
 
 def _optional_str(value: Any) -> str | None:
@@ -260,7 +263,22 @@ class FederationRuntime:
             raise federation_failure_from_plan(effective_plan)
 
         stage = effective_plan.stages[0]
-        rows = engine.query_rows(stage.sql or translated_sql, stage.params or list(params or []))
+        executed_sql = stage.sql or translated_sql
+        executed_params = stage.params or list(params or [])
+        logger.info(
+            "SQL execution",
+            extra={
+                "sql": executed_sql,
+                "param_count": len(executed_params),
+                "engine_type": stage.engine_type,
+                "engine_id": stage.engine_id,
+                "stage_id": stage.stage_id,
+                "source_tables": list(stage.source_tables),
+                "execution_mode": effective_plan.mode,
+                "execution_purpose": stage.purpose,
+            },
+        )
+        rows = engine.query_rows(executed_sql, executed_params)
         return FederatedExecutionResult(
             rows=rows,
             plan=effective_plan,

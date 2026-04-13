@@ -8,7 +8,7 @@ import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar, Token
-from typing import Any
+from typing import Any, ClassVar
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -66,6 +66,32 @@ def observability_context(
 class JSONFormatter(logging.Formatter):
     """Emit log records as single-line JSON with correlation IDs."""
 
+    _reserved_record_fields: ClassVar[set[str]] = {
+        "args",
+        "asctime",
+        "created",
+        "exc_info",
+        "exc_text",
+        "filename",
+        "funcName",
+        "levelname",
+        "levelno",
+        "lineno",
+        "module",
+        "msecs",
+        "message",
+        "msg",
+        "name",
+        "pathname",
+        "process",
+        "processName",
+        "relativeCreated",
+        "stack_info",
+        "thread",
+        "threadName",
+        "taskName",
+    }
+
     def format(self, record: logging.LogRecord) -> str:
         entry: dict[str, Any] = {
             "timestamp": self.formatTime(record),
@@ -97,6 +123,10 @@ class JSONFormatter(logging.Formatter):
         governance_scope = correlation_governance_scope.get("")
         if governance_scope:
             entry["governance_scope"] = governance_scope
+        for key, value in record.__dict__.items():
+            if key in self._reserved_record_fields or key.startswith("_"):
+                continue
+            entry[key] = value
         if record.exc_info and record.exc_info[1]:
             entry["exception"] = str(record.exc_info[1])
         return json.dumps(entry, default=str)
