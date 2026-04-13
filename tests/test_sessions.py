@@ -100,6 +100,17 @@ class SessionAPITests(unittest.TestCase):
         self.assertNotIn("status", data)
         self.assertNotIn("constraints", data)
 
+    def test_create_session_rejects_step_level_execution_constraints(self) -> None:
+        resp = self.client.post(
+            "/sessions",
+            json={
+                "goal": "Reject session execution scope",
+                "constraints": {"region": "us"},
+                "raw_filter": "device = 'mobile'",
+            },
+        )
+        self.assertEqual(resp.status_code, 422)
+
     def test_get_session_not_found(self) -> None:
         """GET /sessions/{id} with unknown ID should 404."""
         resp = self.client.get("/sessions/sess_nonexistent")

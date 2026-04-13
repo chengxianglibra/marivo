@@ -35,10 +35,8 @@ router = APIRouter()
 def create_session(payload: SessionCreateRequest, request: Request) -> dict[str, object]:
     return get_services(request).service.create_session(
         goal=payload.goal,
-        constraints=payload.constraints,
         budget=payload.budget,
         policy=payload.policy,
-        raw_filter=payload.raw_filter,
     )
 
 

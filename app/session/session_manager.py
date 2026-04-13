@@ -26,12 +26,15 @@ class SessionManager:
     def create_session(
         self,
         goal: str,
-        constraints: dict[str, Any],
-        budget: dict[str, Any],
-        policy: dict[str, Any],
+        constraints: dict[str, Any] | None = None,
+        budget: dict[str, Any] | None = None,
+        policy: dict[str, Any] | list[dict[str, Any]] | None = None,
         raw_filter: str | None = None,
     ) -> dict[str, Any]:
         session_id = f"sess_{uuid4().hex[:12]}"
+        legacy_constraints = constraints or {}
+        budget_payload = budget or {}
+        policy_payload: dict[str, Any] | list[dict[str, Any]] = policy or {}
         self.metadata.execute(
             """
             INSERT INTO sessions (session_id, goal, constraints_json, budget_json, policy_json, status, raw_filter)
@@ -40,9 +43,9 @@ class SessionManager:
             [
                 session_id,
                 goal,
-                self._dump(constraints),
-                self._dump(budget),
-                self._dump(policy),
+                self._dump(legacy_constraints),
+                self._dump(budget_payload),
+                self._dump(policy_payload),
                 raw_filter,
             ],
         )

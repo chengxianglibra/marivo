@@ -26,6 +26,9 @@ from factum_mcp.sdk import FastMcpServer
 _ParamScalar = str | int | float | bool | None
 _ParamList = list[_ParamScalar]
 _ParamValue = _ParamScalar | _ParamList
+_CATALOG_SEARCH_TYPES = frozenset(
+    {"asset", "binding", "dimension", "entity", "metric", "process", "time"}
+)
 
 
 def _tool_metadata(
@@ -55,8 +58,6 @@ def register_tools(
     @_tool_metadata("POST", "/sessions")
     def create_session(
         goal: str,
-        constraints: dict[str, object] | None = None,
-        raw_filter: str | None = None,
         budget: dict[str, object] | None = None,
         policy: dict[str, object] | None = None,
     ) -> dict[str, object]:
@@ -66,8 +67,6 @@ def register_tools(
             "/sessions",
             json_body=_compact_body(
                 goal=goal,
-                constraints=constraints,
-                raw_filter=raw_filter,
                 budget=budget,
                 policy=policy,
             ),
@@ -460,6 +459,12 @@ def register_tools(
     @_tool_metadata("GET", "/catalog/search")
     def search_catalog(q: str, type: str | None = None) -> dict[str, object]:
         """Search published semantic objects and synced assets via GET /catalog/search using the HTTP query contract directly."""
+        if type is not None and type not in _CATALOG_SEARCH_TYPES:
+            supported_types = ", ".join(sorted(_CATALOG_SEARCH_TYPES))
+            raise ValueError(
+                f"search_catalog type must be one of: {supported_types}. "
+                "Run separate searches instead of using a catch-all value like 'all'."
+            )
         return client.request_envelope(
             "GET",
             "/catalog/search",

@@ -204,10 +204,7 @@ class TestSessionStateAPI(unittest.TestCase):
         cls.temp_dir.cleanup()
 
     def _create_session(self) -> str:
-        resp = self.client.post(
-            "/sessions",
-            json={"goal": "Phase 5b state test", "constraints": {}, "budget": {}},
-        )
+        resp = self.client.post("/sessions", json={"goal": "Phase 5b state test", "budget": {}})
         self.assertEqual(resp.status_code, 200)
         return resp.json()["session_id"]
 

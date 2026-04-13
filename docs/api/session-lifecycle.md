@@ -172,7 +172,7 @@ Returns the canonical session root payload for a single session.
 This endpoint is the root read baseline for:
 
 - descriptive task context
-- canonical session scope via `scope.constraints`
+- compatibility-only session scope reflection via `scope.constraints`; execution does not read session-level filters
 - governance boundary
 - lifecycle state
 - entry to the canonical state surface via `state_summary.state_view_ref`

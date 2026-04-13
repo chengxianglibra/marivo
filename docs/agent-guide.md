@@ -168,6 +168,9 @@ published entity binding that exposes the dimension as `stable_descriptor -> dim
 For typed metric windowed requests, `scope.constraints` should also prefer canonical
 `dimension.*` keys; runtime resolves them through published binding lineage before generating SQL,
 while bare physical column keys remain compatibility-only input.
+Session root requests must not carry execution filters such as `constraints` or `raw_filter`;
+descriptive session context belongs in `goal`, while bounded execution scope belongs in typed step
+requests only.
 List endpoints return lightweight items by default (header, status, blocker_count, capabilities_summary);
 use `detail=true` query parameter for backward-compatible full payload. Lightweight list responses
 must still derive readiness from the same full semantic contract used by detail reads. Detail
