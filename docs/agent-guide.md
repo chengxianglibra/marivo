@@ -169,6 +169,9 @@ published entity binding that exposes the dimension as `stable_descriptor -> dim
 For typed metric windowed requests, `scope.constraints` should also prefer canonical
 `dimension.*` keys; runtime resolves them through published binding lineage before generating SQL,
 while bare physical column keys remain compatibility-only input.
+Windowed typed execution must resolve analysis-time and partition-pruning metadata from published
+typed bindings. Do not rely on entity/source `time_capabilities` as the runtime source of truth;
+request-level `time_axis` overrides remain the only non-binding override path.
 Session root requests must not carry execution filters such as `constraints` or `raw_filter`;
 descriptive session context belongs in `goal`, while bounded execution scope belongs in typed step
 requests only.

@@ -15,6 +15,7 @@ from app.semantic_runtime.semantic_metadata import (
     metric_runtime_metadata,
 )
 from app.storage.metadata import MetadataStore
+from app.time_scope import _normalize_date_format, _normalize_hour_format
 
 from .errors import (
     SemanticCompatibilityError,
@@ -26,6 +27,13 @@ from .errors import (
 
 def now_iso() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _optional_str(value: Any) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None
 
 
 class SemanticServiceSupport:
@@ -1156,6 +1164,114 @@ class SemanticServiceSupport:
 
         raise self._validation_error(f"Unsupported target_kind: {target_kind}")
 
+    def _validate_time_binding_target(
+        self,
+        time_binding: dict[str, Any],
+        *,
+        carrier_field_surfaces: dict[str, set[str]],
+        require_published_refs: bool,
+    ) -> None:
+        carrier_binding_key = str(time_binding.get("carrier_binding_key") or "")
+        if carrier_binding_key not in carrier_field_surfaces:
+            raise self._validation_error(
+                f"Unknown carrier_binding_key in time binding: {carrier_binding_key}"
+            )
+
+        target = dict(time_binding.get("target") or {})
+        target_kind = str(target.get("target_kind") or "")
+        target_key = str(target.get("target_key") or "")
+        semantic_ref = str(time_binding.get("semantic_ref") or "")
+        if target_kind not in {"primary_time", "analysis_window_anchor"}:
+            raise self._validation_error(
+                "time_binding target_kind must be 'primary_time' or 'analysis_window_anchor'"
+            )
+        if not semantic_ref.startswith("time."):
+            raise self._validation_error(
+                f"time_binding semantic_ref must use 'time.' prefix, got: {semantic_ref}"
+            )
+        if target_kind == "primary_time" and target_key and semantic_ref != target_key:
+            raise self._validation_error(
+                "primary_time semantic_ref must match target_key when target_key is provided: "
+                f"{semantic_ref} != {target_key}"
+            )
+        if require_published_refs:
+            self._validate_published_time_ref(semantic_ref)
+        else:
+            self._validate_time_ref(semantic_ref)
+
+        resolution_kind = str(time_binding.get("resolution_kind") or "")
+        timestamp_surface_ref = _optional_str(time_binding.get("timestamp_surface_ref"))
+        date_surface_ref = _optional_str(time_binding.get("date_surface_ref"))
+        hour_surface_ref = _optional_str(time_binding.get("hour_surface_ref"))
+        date_format = _optional_str(time_binding.get("date_format"))
+        hour_format = _optional_str(time_binding.get("hour_format"))
+        timezone_strategy = _optional_str(time_binding.get("timezone_strategy"))
+
+        if timezone_strategy not in {None, "session_consistent_naive"}:
+            raise self._validation_error(
+                "time_binding timezone_strategy must be 'session_consistent_naive' when provided"
+            )
+
+        surface_refs = carrier_field_surfaces[carrier_binding_key]
+
+        def ensure_surface_exists(label: str, surface_ref: str | None) -> None:
+            if surface_ref is None:
+                return
+            if surface_ref not in surface_refs:
+                raise self._validation_error(
+                    f"time_binding {label} does not exist on carrier "
+                    f"'{carrier_binding_key}': {surface_ref}"
+                )
+
+        ensure_surface_exists("timestamp_surface_ref", timestamp_surface_ref)
+        ensure_surface_exists("date_surface_ref", date_surface_ref)
+        ensure_surface_exists("hour_surface_ref", hour_surface_ref)
+
+        if resolution_kind == "timestamp_column":
+            if timestamp_surface_ref is None:
+                raise self._validation_error(
+                    "time_binding timestamp_column resolution requires timestamp_surface_ref"
+                )
+            if any(
+                value is not None
+                for value in (date_surface_ref, date_format, hour_surface_ref, hour_format)
+            ):
+                raise self._validation_error(
+                    "time_binding timestamp_column resolution cannot include date/hour surfaces or formats"
+                )
+        elif resolution_kind == "date_column":
+            if date_surface_ref is None:
+                raise self._validation_error(
+                    "time_binding date_column resolution requires date_surface_ref"
+                )
+            if timestamp_surface_ref is not None or hour_surface_ref is not None:
+                raise self._validation_error(
+                    "time_binding date_column resolution cannot include timestamp/hour surfaces"
+                )
+            if hour_format is not None:
+                raise self._validation_error(
+                    "time_binding date_column resolution cannot include hour_format"
+                )
+            if date_format is not None and _normalize_date_format(date_format) is None:
+                raise self._validation_error(f"Unsupported time_binding date_format: {date_format}")
+        elif resolution_kind == "date_hour_columns":
+            if date_surface_ref is None or hour_surface_ref is None:
+                raise self._validation_error(
+                    "time_binding date_hour_columns resolution requires date_surface_ref and hour_surface_ref"
+                )
+            if timestamp_surface_ref is not None:
+                raise self._validation_error(
+                    "time_binding date_hour_columns resolution cannot include timestamp_surface_ref"
+                )
+            if date_format is not None and _normalize_date_format(date_format) is None:
+                raise self._validation_error(f"Unsupported time_binding date_format: {date_format}")
+            if hour_format is not None and _normalize_hour_format(hour_format) is None:
+                raise self._validation_error(f"Unsupported time_binding hour_format: {hour_format}")
+        else:
+            raise self._validation_error(
+                f"Unsupported time_binding resolution_kind: {resolution_kind}"
+            )
+
     def _validate_process_dimension_anchor_requirements(
         self,
         process_object: dict[str, Any],
@@ -1199,11 +1315,15 @@ class SemanticServiceSupport:
         binding_scope: str,
         bound_object: dict[str, Any],
         field_bindings: list[dict[str, Any]],
+        time_bindings: list[dict[str, Any]],
         carrier_bindings: list[dict[str, Any]],
         join_relations: list[dict[str, Any]],
         require_published_refs: bool,
     ) -> None:
-        target_kinds = {field_binding["target"]["target_kind"] for field_binding in field_bindings}
+        target_kinds = {
+            binding["target"]["target_kind"] for binding in [*field_bindings, *time_bindings]
+        }
+        time_target_bindings = field_bindings + time_bindings
 
         if binding_scope == "entity":
             entity_ref = bound_object["header"]["entity_ref"]
@@ -1226,7 +1346,7 @@ class SemanticServiceSupport:
                     )
             primary_time_ref = interface_contract.get("primary_time_ref")
             if primary_time_ref is not None and not binding_contract_target_exists(
-                field_bindings,
+                time_target_bindings,
                 target_kind="primary_time",
                 semantic_ref=primary_time_ref,
             ):
@@ -1276,10 +1396,9 @@ class SemanticServiceSupport:
                 )
             anchor_time_ref = interface_contract.get("anchor_time_ref")
             if anchor_time_ref is not None and not any(
-                field_binding["semantic_ref"] == anchor_time_ref
-                and field_binding["target"]["target_kind"]
-                in {"primary_time", "analysis_window_anchor"}
-                for field_binding in field_bindings
+                binding["semantic_ref"] == anchor_time_ref
+                and binding["target"]["target_kind"] in {"primary_time", "analysis_window_anchor"}
+                for binding in time_target_bindings
             ):
                 raise self._validation_error(
                     "Process binding must map its anchor_time_ref via primary_time or "
@@ -1302,8 +1421,8 @@ class SemanticServiceSupport:
                         "analysis_window_anchor"
                     )
                 has_anchor_binding = any(
-                    field_binding["target"]["target_kind"] == "analysis_window_anchor"
-                    for field_binding in field_bindings
+                    binding["target"]["target_kind"] == "analysis_window_anchor"
+                    for binding in time_target_bindings
                 )
                 if has_anchor_binding and bound_object["payload"].get("analysis_window") is None:
                     raise self._validation_error(
@@ -1339,7 +1458,7 @@ class SemanticServiceSupport:
                 )
             primary_time_ref = header.get("primary_time_ref")
             if primary_time_ref is not None and not binding_contract_target_exists(
-                field_bindings,
+                time_target_bindings,
                 target_kind="primary_time",
                 semantic_ref=primary_time_ref,
             ):
@@ -1408,13 +1527,16 @@ class SemanticServiceSupport:
         imports = interface_contract.get("imports") or []
         carrier_bindings = interface_contract.get("carrier_bindings") or []
         field_bindings = interface_contract.get("field_bindings") or []
+        time_bindings = interface_contract.get("time_bindings") or []
         join_relations = interface_contract.get("join_relations") or []
         consumption_policies = interface_contract.get("consumption_policies") or []
 
         if not carrier_bindings:
             raise self._validation_error("Binding interface_contract must include carrier_bindings")
-        if not field_bindings:
-            raise self._validation_error("Binding interface_contract must include field_bindings")
+        if not field_bindings and not time_bindings:
+            raise self._validation_error(
+                "Binding interface_contract must include field_bindings or time_bindings"
+            )
 
         import_keys: set[str] = set()
         for binding_import in imports:
@@ -1483,6 +1605,26 @@ class SemanticServiceSupport:
                 field_binding,
                 require_published_refs=require_published_dependencies,
             )
+
+        seen_time_targets: set[tuple[str, str, str]] = set()
+        for time_binding in time_bindings:
+            self._validate_time_binding_target(
+                time_binding,
+                carrier_field_surfaces=carrier_field_surfaces,
+                require_published_refs=require_published_dependencies,
+            )
+            target = dict(time_binding.get("target") or {})
+            dedupe_key = (
+                str(time_binding.get("carrier_binding_key") or ""),
+                str(target.get("target_kind") or ""),
+                str(time_binding.get("semantic_ref") or ""),
+            )
+            if dedupe_key in seen_time_targets:
+                raise self._validation_error(
+                    "Duplicate time binding target on carrier "
+                    f"'{dedupe_key[0]}' for semantic ref '{dedupe_key[2]}'"
+                )
+            seen_time_targets.add(dedupe_key)
 
         field_bindings_by_carrier: dict[str, list[dict[str, Any]]] = {}
         for field_binding in field_bindings:
@@ -1558,6 +1700,7 @@ class SemanticServiceSupport:
             binding_scope=binding_scope,
             bound_object=bound_object,
             field_bindings=field_bindings,
+            time_bindings=time_bindings,
             carrier_bindings=carrier_bindings,
             join_relations=join_relations,
             require_published_refs=require_published_dependencies,
@@ -1700,6 +1843,7 @@ class SemanticServiceSupport:
                 [carrier_binding_id],
             )
         self.metadata.execute("DELETE FROM field_bindings WHERE binding_id = ?", [binding_id])
+        self.metadata.execute("DELETE FROM time_bindings WHERE binding_id = ?", [binding_id])
         self.metadata.execute("DELETE FROM join_relations WHERE binding_id = ?", [binding_id])
         self.metadata.execute("DELETE FROM consumption_policies WHERE binding_id = ?", [binding_id])
         self.metadata.execute("DELETE FROM binding_imports WHERE binding_id = ?", [binding_id])
@@ -1808,6 +1952,36 @@ class SemanticServiceSupport:
                     field_binding.get("field_type_ref"),
                     field_binding.get("nullability_policy"),
                     field_binding.get("repeated_value_policy"),
+                    created_at,
+                ],
+            )
+
+        for time_binding in interface_contract.get("time_bindings", []):
+            target = time_binding["target"]
+            self.metadata.execute(
+                """
+                INSERT INTO time_bindings (
+                    time_binding_id, binding_id, carrier_binding_key, target_kind, target_key,
+                    context_ref, semantic_ref, resolution_kind, timestamp_surface_ref,
+                    date_surface_ref, date_format, hour_surface_ref, hour_format,
+                    timezone_strategy, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    f"tbind_{uuid4().hex[:24]}",
+                    binding_id,
+                    time_binding["carrier_binding_key"],
+                    target["target_kind"],
+                    target.get("target_key") or "",
+                    target.get("context_ref"),
+                    time_binding["semantic_ref"],
+                    time_binding["resolution_kind"],
+                    time_binding.get("timestamp_surface_ref"),
+                    time_binding.get("date_surface_ref"),
+                    _normalize_date_format(time_binding.get("date_format")),
+                    time_binding.get("hour_surface_ref"),
+                    _normalize_hour_format(time_binding.get("hour_format")),
+                    time_binding.get("timezone_strategy"),
                     created_at,
                 ],
             )
@@ -2337,6 +2511,17 @@ class SemanticServiceSupport:
             """,
             [row["binding_id"]],
         )
+        time_binding_rows = self.metadata.query_rows(
+            """
+            SELECT carrier_binding_key, target_kind, target_key, context_ref, semantic_ref,
+                   resolution_kind, timestamp_surface_ref, date_surface_ref, date_format,
+                   hour_surface_ref, hour_format, timezone_strategy
+            FROM time_bindings
+            WHERE binding_id = ?
+            ORDER BY carrier_binding_key, target_kind, target_key, semantic_ref
+            """,
+            [row["binding_id"]],
+        )
         join_rows = self.metadata.query_rows(
             """
             SELECT relation_key, left_binding_key, right_binding_key, join_kind,
@@ -2400,6 +2585,25 @@ class SemanticServiceSupport:
                         "repeated_value_policy": field_binding_row["repeated_value_policy"],
                     }
                     for field_binding_row in field_binding_rows
+                ],
+                "time_bindings": [
+                    {
+                        "carrier_binding_key": time_binding_row["carrier_binding_key"],
+                        "target": {
+                            "target_kind": time_binding_row["target_kind"],
+                            "target_key": time_binding_row["target_key"],
+                            "context_ref": time_binding_row["context_ref"],
+                        },
+                        "semantic_ref": time_binding_row["semantic_ref"],
+                        "resolution_kind": time_binding_row["resolution_kind"],
+                        "timestamp_surface_ref": time_binding_row["timestamp_surface_ref"],
+                        "date_surface_ref": time_binding_row["date_surface_ref"],
+                        "date_format": time_binding_row["date_format"],
+                        "hour_surface_ref": time_binding_row["hour_surface_ref"],
+                        "hour_format": time_binding_row["hour_format"],
+                        "timezone_strategy": time_binding_row["timezone_strategy"],
+                    }
+                    for time_binding_row in time_binding_rows
                 ],
                 "join_relations": [
                     {

@@ -629,7 +629,7 @@ class BindingReadinessEvaluator:
                 )
             else:
                 coverage_blockers = _binding_target_coverage_blockers(
-                    field_bindings=field_bindings,
+                    bindings=field_bindings + list(interface_contract.get("time_bindings") or []),
                     required_targets=required_targets,
                     subject_ref=snapshot.ref,
                 )
@@ -900,14 +900,14 @@ def _binding_import_blockers(
 
 def _binding_target_coverage_blockers(
     *,
-    field_bindings: list[dict[str, Any]],
+    bindings: list[dict[str, Any]],
     required_targets: list[tuple[str, str, str | None]],
     subject_ref: str,
 ) -> list[BlockingRequirementPayload]:
     blockers: list[BlockingRequirementPayload] = []
     for target_kind, target_key, semantic_ref in required_targets:
         if binding_contract_target_exists(
-            field_bindings,
+            bindings,
             target_kind=target_kind,
             target_key=target_key,
             semantic_ref=semantic_ref,
@@ -1047,10 +1047,12 @@ def _check_binding_readiness(
                     dependency_ref=binding_ref,
                 )
             )
-    field_bindings = list(interface_contract.get("field_bindings") or [])
+    time_target_bindings = list(interface_contract.get("field_bindings") or []) + list(
+        interface_contract.get("time_bindings") or []
+    )
     for target_kind, target_key, semantic_ref in required_targets:
         if binding_contract_target_exists(
-            field_bindings,
+            time_target_bindings,
             target_kind=target_kind,
             target_key=target_key,
             semantic_ref=semantic_ref,

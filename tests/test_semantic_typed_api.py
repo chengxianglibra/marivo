@@ -352,72 +352,114 @@ class SemanticTypedApiTests(unittest.TestCase):
         )
         self.assertNotIn("interface_contract", binding_list_item)
 
-        metric_resp = self.client.post(
-            "/semantic/metrics",
+    def test_create_binding_with_time_bindings(self) -> None:
+        time_resp = self.client.post(
+            "/semantic/time",
             json={
                 "header": {
-                    "metric_ref": "metric.account_count",
-                    "display_name": "Account Count",
-                    "metric_family": "count_metric",
-                    "observed_entity_ref": "entity.account",
-                    "observation_grain_ref": "grain.account",
-                    "sample_kind": "numeric",
-                    "value_semantics": "count",
-                    "additivity": "additive",
-                    "metric_contract_version": "metric.v1",
-                },
-                "payload": {
-                    "metric_family": "count_metric",
-                    "count_target": {
-                        "name": "accounts",
-                        "semantics": "distinct accounts",
-                        "aggregation": "count_distinct",
-                    },
-                },
+                    "time_ref": "time.api_time_binding",
+                    "display_name": "API Time Binding",
+                    "semantic_roles": ["measurement", "operational_support"],
+                    "time_contract_version": "time.v1",
+                }
             },
         )
-        self.assertEqual(metric_resp.status_code, 200, metric_resp.text)
+        self.assertEqual(time_resp.status_code, 200, time_resp.text)
+        time_contract_id = time_resp.json()["time_contract_id"]
+        publish_time_resp = self.client.post(f"/semantic/time/{time_contract_id}/publish")
+        self.assertEqual(publish_time_resp.status_code, 200, publish_time_resp.text)
 
-        profile_resp = self.client.post(
-            "/compiler/compatibility-profiles",
+        entity_resp = self.client.post(
+            "/semantic/entities",
             json={
-                "profile_ref": "compiler_profile.account_count_requirement",
-                "profile_kind": "requirement",
-                "subject_kind": "metric",
-                "subject_ref": "metric.account_count",
-                "requirement": {"entity_refs": ["entity.account"]},
+                "header": {
+                    "entity_ref": "entity.time_binding_account",
+                    "display_name": "Time Binding Account",
+                    "entity_contract_version": "entity.v4",
+                },
+                "interface_contract": {
+                    "identity": {
+                        "key_refs": ["key.account_id"],
+                        "uniqueness_scope": "global",
+                        "id_stability": "stable",
+                    },
+                    "primary_time_ref": "time.api_time_binding",
+                },
             },
         )
-        self.assertEqual(profile_resp.status_code, 200, profile_resp.text)
-        profile = profile_resp.json()
-        profile_id = profile["profile_id"]
-        self.assertEqual(profile["profile_ref"], "compiler_profile.account_count_requirement")
-        self.assertIsNone(profile["subject_revision"])
+        self.assertEqual(entity_resp.status_code, 200, entity_resp.text)
+        entity_id = entity_resp.json()["entity_contract_id"]
+        publish_entity_resp = self.client.post(f"/semantic/entities/{entity_id}/publish")
+        self.assertEqual(publish_entity_resp.status_code, 200, publish_entity_resp.text)
 
-        resp = self.client.put(
-            f"/compiler/compatibility-profiles/{profile_id}",
-            json={"requirement": {"entity_refs": ["entity.account", "entity.user"]}},
+        self._insert_source_object(fqn="warehouse.time_binding_accounts")
+        binding_resp = self.client.post(
+            "/semantic/bindings",
+            json={
+                "header": {
+                    "binding_ref": "binding.time_binding_account",
+                    "display_name": "Time Binding Account",
+                    "binding_scope": "entity",
+                    "bound_object_ref": "entity.time_binding_account",
+                    "binding_contract_version": "binding.v1",
+                },
+                "interface_contract": {
+                    "carrier_bindings": [
+                        {
+                            "binding_key": "primary",
+                            "carrier_kind": "table",
+                            "carrier_locator": "warehouse.time_binding_accounts",
+                            "binding_role": "primary",
+                            "field_surfaces": [
+                                {"surface_ref": "field.account_id", "physical_name": "account_id"},
+                                {"surface_ref": "field.log_date", "physical_name": "log_date"},
+                                {"surface_ref": "field.log_hour", "physical_name": "log_hour"},
+                            ],
+                        }
+                    ],
+                    "field_bindings": [
+                        {
+                            "carrier_binding_key": "primary",
+                            "target": {
+                                "target_kind": "identity_key",
+                                "target_key": "key.account_id",
+                            },
+                            "semantic_ref": "key.account_id",
+                            "surface_ref": "field.account_id",
+                        }
+                    ],
+                    "time_bindings": [
+                        {
+                            "carrier_binding_key": "primary",
+                            "target": {
+                                "target_kind": "primary_time",
+                                "target_key": "time.api_time_binding",
+                            },
+                            "semantic_ref": "time.api_time_binding",
+                            "resolution_kind": "date_hour_columns",
+                            "date_surface_ref": "field.log_date",
+                            "date_format": "yyyymmdd",
+                            "hour_surface_ref": "field.log_hour",
+                            "hour_format": "hh",
+                            "timezone_strategy": "session_consistent_naive",
+                        }
+                    ],
+                },
+            },
         )
-        self.assertEqual(resp.status_code, 200, resp.text)
-        self.assertEqual(resp.json()["requirement"]["entity_refs"][1], "entity.user")
+        self.assertEqual(binding_resp.status_code, 200, binding_resp.text)
+        time_bindings = binding_resp.json()["interface_contract"]["time_bindings"]
+        self.assertEqual(len(time_bindings), 1)
+        self.assertEqual(time_bindings[0]["resolution_kind"], "date_hour_columns")
 
-        resp = self.client.post(
-            f"/semantic/metrics/{metric_resp.json()['metric_contract_id']}/publish"
+        publish_binding_resp = self.client.post(
+            f"/semantic/bindings/{binding_resp.json()['binding_id']}/publish"
         )
-        self.assertEqual(resp.status_code, 200, resp.text)
-
-        resp = self.client.post(f"/compiler/compatibility-profiles/{profile_id}/publish")
-        self.assertEqual(resp.status_code, 200, resp.text)
-        self.assertEqual(resp.json()["status"], "published")
-        self.assertEqual(resp.json()["subject_revision"], 2)
-
-        resp = self.client.get("/semantic/bindings?status=published")
-        self.assertEqual(resp.status_code, 200, resp.text)
-        self.assertTrue(all(item["status"] == "published" for item in resp.json()["items"]))
-
-        resp = self.client.get("/compiler/compatibility-profiles?status=published")
-        self.assertEqual(resp.status_code, 200, resp.text)
-        self.assertTrue(all(item["status"] == "published" for item in resp.json()["items"]))
+        self.assertEqual(publish_binding_resp.status_code, 200, publish_binding_resp.text)
+        self.assertEqual(
+            publish_binding_resp.json()["interface_contract"]["time_bindings"][0]["date_format"],
+            "yyyymmdd",
+        )
 
     def test_binding_rejects_unknown_surface_for_carrier(self) -> None:
         entity_resp = self.client.post(

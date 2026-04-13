@@ -9,6 +9,8 @@ to their physical carriers (tables, views) with typed field mappings.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .base import (
@@ -241,6 +243,111 @@ class FieldBinding(BaseModel):
 
 
 # =============================================================================
+# Time Binding
+# =============================================================================
+
+
+class TimeBindingSpec(BaseModel):
+    """Binding of semantic time targets to physical field surfaces.
+
+    Unlike field_bindings, time_bindings can express composite date+hour layouts
+    and explicit encoding formats used by runtime time-axis resolution.
+    """
+
+    carrier_binding_key: str = Field(
+        description="Key of the carrier binding that provides this time mapping."
+    )
+    target: BindingTarget = Field(description="Typed time target for this binding.")
+    semantic_ref: str = Field(description="Semantic time reference (time.*).")
+    resolution_kind: Literal["timestamp_column", "date_column", "date_hour_columns"] = Field(
+        description="How the semantic time is physically represented."
+    )
+    timestamp_surface_ref: str | None = Field(
+        default=None, description="Field surface for timestamp_column resolution."
+    )
+    date_surface_ref: str | None = Field(
+        default=None, description="Field surface for date_column/date_hour_columns resolution."
+    )
+    date_format: str | None = Field(
+        default=None, description="Optional date encoding (for example yyyymmdd)."
+    )
+    hour_surface_ref: str | None = Field(
+        default=None, description="Field surface for date_hour_columns resolution."
+    )
+    hour_format: str | None = Field(
+        default=None, description="Optional hour encoding (for example hh or int)."
+    )
+    timezone_strategy: str | None = Field(
+        default=None,
+        description="Timezone handling strategy. Phase 1 supports session_consistent_naive only.",
+    )
+
+    @field_validator("timestamp_surface_ref", "date_surface_ref", "hour_surface_ref")
+    @classmethod
+    def validate_surface_ref_prefix_or_none(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        return validate_ref_prefix(v, "field", "surface_ref")
+
+    @model_validator(mode="after")
+    def validate_resolution_shape(self) -> TimeBindingSpec:
+        if not self.semantic_ref.startswith("time."):
+            raise ValueError("semantic_ref must start with 'time.'")
+        target_kind = self.target.target_kind
+        if target_kind not in {"primary_time", "analysis_window_anchor"}:
+            raise ValueError(
+                "time_bindings target.target_kind must be 'primary_time' or "
+                "'analysis_window_anchor'"
+            )
+        if (
+            target_kind == "primary_time"
+            and self.target.target_key
+            and self.target.target_key != self.semantic_ref
+        ):
+            raise ValueError(
+                "primary_time semantic_ref must match target_key when target_key is provided"
+            )
+
+        if self.resolution_kind == "timestamp_column":
+            if self.timestamp_surface_ref is None:
+                raise ValueError("timestamp_column resolution requires timestamp_surface_ref")
+            if any(
+                value is not None
+                for value in (
+                    self.date_surface_ref,
+                    self.date_format,
+                    self.hour_surface_ref,
+                    self.hour_format,
+                )
+            ):
+                raise ValueError(
+                    "timestamp_column resolution cannot include date/hour surfaces or formats"
+                )
+        elif self.resolution_kind == "date_column":
+            if self.date_surface_ref is None:
+                raise ValueError("date_column resolution requires date_surface_ref")
+            if self.timestamp_surface_ref is not None or self.hour_surface_ref is not None:
+                raise ValueError(
+                    "date_column resolution cannot include timestamp_surface_ref or hour_surface_ref"
+                )
+            if self.hour_format is not None:
+                raise ValueError("date_column resolution cannot include hour_format")
+        else:
+            if self.date_surface_ref is None or self.hour_surface_ref is None:
+                raise ValueError(
+                    "date_hour_columns resolution requires date_surface_ref and hour_surface_ref"
+                )
+            if self.timestamp_surface_ref is not None:
+                raise ValueError(
+                    "date_hour_columns resolution cannot include timestamp_surface_ref"
+                )
+
+        if self.timezone_strategy not in {None, "session_consistent_naive"}:
+            raise ValueError("timezone_strategy must be 'session_consistent_naive' when provided")
+        return self
+
+
+# =============================================================================
 # Join Relation
 # =============================================================================
 
@@ -320,6 +427,9 @@ class BindingInterfaceContract(BaseModel):
     )
     field_bindings: list[FieldBinding] = Field(
         default_factory=list, description="List of field bindings."
+    )
+    time_bindings: list[TimeBindingSpec] = Field(
+        default_factory=list, description="List of time bindings."
     )
     join_relations: list[JoinRelation] = Field(
         default_factory=list, description="List of join relations between carriers."
