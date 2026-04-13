@@ -23,7 +23,7 @@ class TrinoCatalogAdapter(CatalogAdapter):
         client_tags: list[str] | None = None,
         source: str | None = None,
         http_headers: dict[str, str] | None = None,
-        request_timeout: float = 30.0,
+        request_timeout: float = 600.0,
     ) -> None:
         self._host = host
         self._port = port
