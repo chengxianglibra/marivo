@@ -3,14 +3,17 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-default_duckdb_path="$repo_root/data/mvp.duckdb"
 
 if [[ $# -gt 1 ]]; then
   echo "usage: $0 [duckdb_path_or_metadata_path]" >&2
   exit 2
 fi
 
-target_input="${1:-$default_duckdb_path}"
+target_input="${1:-${DUCKDB_MVP_DB:-}}"
+if [[ -z "$target_input" ]]; then
+  echo "error: database path required. Pass argument or set DUCKDB_MVP_DB" >&2
+  exit 1
+fi
 if [[ "$target_input" == *.meta.sqlite ]]; then
   metadata_path="$target_input"
 else

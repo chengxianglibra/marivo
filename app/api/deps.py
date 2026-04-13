@@ -26,7 +26,7 @@ from app.sync import SyncEngine
 
 @dataclass(slots=True)
 class AppServices:
-    resolved_path: Path
+    resolved_path: Path | str  # Path for file-based, str ":memory:" for in-memory
     config: FactumConfig
     service: SemanticLayerService
     source_service: SourceService

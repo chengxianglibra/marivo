@@ -29,7 +29,7 @@ from app.observability import MetricsCollector, TimingMiddleware, setup_logging
 from app.routing import QueryRouter
 from app.semantic import SemanticService
 from app.semantic_runtime import CatalogRuntimeService
-from app.service import SemanticLayerService, default_db_path
+from app.service import SemanticLayerService
 from app.sources import SourceService
 from app.storage.analytics import AnalyticsEngine
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
@@ -61,15 +61,24 @@ def _resolve_storage(
     db_path: str | Path | None,
     metadata_store: MetadataStore | None,
     analytics_engine: AnalyticsEngine | None,
-) -> tuple[Path, MetadataStore, AnalyticsEngine]:
-    resolved_path = (
-        Path(db_path)
-        if db_path is not None
-        else Path(os.getenv("DUCKDB_MVP_DB", default_db_path()))
-    )
+) -> tuple[Path | str, MetadataStore, AnalyticsEngine]:
+    # Use in-memory databases when no path is configured
+    use_memory = False
+    if db_path is not None:
+        resolved_path: Path | str = Path(db_path)
+    else:
+        env_path = os.getenv("DUCKDB_MVP_DB")
+        if env_path:
+            resolved_path = Path(env_path)
+        else:
+            resolved_path = ":memory:"
+            use_memory = True
     created_analytics_engine = analytics_engine is None
     if metadata_store is None:
-        metadata_store = SQLiteMetadataStore(resolved_path.with_suffix(".meta.sqlite"))
+        if use_memory:
+            metadata_store = SQLiteMetadataStore(":memory:")
+        else:
+            metadata_store = SQLiteMetadataStore(Path(resolved_path).with_suffix(".meta.sqlite"))
     if analytics_engine is None:
         analytics_engine = DuckDBAnalyticsEngine(resolved_path)
     metadata_store.initialize()
@@ -218,7 +227,7 @@ def _register_configured_governance(
 
 def _build_services(
     *,
-    resolved_path: Path,
+    resolved_path: Path | str,  # Path for file-based, str ":memory:" for in-memory
     metadata_store: MetadataStore,
     analytics_engine: AnalyticsEngine,
     config: FactumConfig,
