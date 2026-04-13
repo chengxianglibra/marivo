@@ -97,6 +97,18 @@ class MetricExecutionContext:
     carrier_binding_key: str | None = None
     source_object_ref: str | None = None
     carrier_locator: str | None = None
+    input_field_map: dict[str, str] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class MetricBindingResolution:
+    metric_ref: str
+    binding_ref: str
+    carrier_binding_key: str | None
+    source_object_ref: str | None
+    carrier_locator: str | None
+    table_name: str | None
+    input_field_map: dict[str, str]
 
 
 def _optional_str(value: Any) -> str | None:
@@ -519,43 +531,43 @@ class SemanticLayerService:
                 dependency_refs=availability.dependency_refs,
             )
 
-        binding_candidates: list[dict[str, Any]] = []
-        for binding in self._published_bindings_for_object_ref(metric_ref):
-            interface_contract = dict(binding.semantic_object.get("interface_contract") or {})
-            carriers = list(interface_contract.get("carrier_bindings") or [])
-            ordered_carriers = sorted(
-                carriers,
-                key=lambda carrier: str(carrier.get("binding_role") or "") != "primary",
+        metric_family = self._metric_family_for_ref(metric_ref)
+        if metric_family is None:
+            raise ValueError(f"Metric '{metric_name}' is missing metric_family metadata")
+        required_slots = self._required_metric_input_slots(metric_family)
+        resolution = self._select_metric_binding_resolution(
+            metric_ref,
+            required_slots=required_slots,
+        )
+        if resolution is not None and resolution.table_name is not None:
+            return MetricExecutionContext(
+                metric_ref=metric_ref,
+                table_name=resolution.table_name,
+                binding_ref=resolution.binding_ref,
+                carrier_binding_key=resolution.carrier_binding_key,
+                source_object_ref=resolution.source_object_ref,
+                carrier_locator=resolution.carrier_locator,
+                input_field_map=dict(resolution.input_field_map),
             )
-            for carrier in ordered_carriers:
-                source_row = self._resolve_metric_carrier_source_object(carrier)
-                runtime_table_name = _optional_str(carrier.get("carrier_locator")) or (
-                    str(source_row["fqn"]) if source_row is not None else None
-                )
-                binding_candidates.append(
-                    {
-                        "binding_ref": binding.ref,
-                        "carrier_binding_key": carrier.get("binding_key"),
-                        "binding_role": carrier.get("binding_role"),
-                        "source_object_ref": carrier.get("source_object_ref"),
-                        "carrier_locator": carrier.get("carrier_locator"),
-                        "resolved_source_object_ref": (
-                            str(source_row["object_id"]) if source_row is not None else None
-                        ),
-                        "resolved_table_name": runtime_table_name,
-                        "failure_stage": None if source_row is not None else "source_object_lookup",
-                    }
-                )
-                if source_row is None or runtime_table_name is None:
-                    continue
-                return MetricExecutionContext(
-                    metric_ref=metric_ref,
-                    table_name=runtime_table_name,
-                    binding_ref=binding.ref,
-                    carrier_binding_key=_optional_str(carrier.get("binding_key")),
-                    source_object_ref=_optional_str(carrier.get("source_object_ref")),
-                    carrier_locator=_optional_str(carrier.get("carrier_locator")),
-                )
+        candidate_bindings = self._metric_binding_candidates(metric_ref)
+        metric_input_failures = [
+            candidate
+            for candidate in candidate_bindings
+            if candidate.get("failure_stage") == "metric_input_coverage"
+        ]
+        if metric_input_failures:
+            missing_slots = sorted(
+                {
+                    str(slot)
+                    for candidate in metric_input_failures
+                    for slot in list(candidate.get("missing_metric_input_slots") or [])
+                    if str(slot).strip()
+                }
+            )
+            raise ValueError(
+                f"Metric execution binding for '{metric_name}' is missing required metric_input "
+                f"coverage ({', '.join(missing_slots)})"
+            )
 
         raise SemanticRuntimeNotReadyError(
             f"Metric execution preflight failed: {metric_ref}",
@@ -573,13 +585,158 @@ class SemanticLayerService:
                     "subject_ref": metric_ref,
                     "details": {
                         "failure_stage": "metric_execution_preflight",
-                        "candidate_bindings": binding_candidates,
+                        "candidate_bindings": candidate_bindings,
                     },
                 }
             ],
             capabilities=availability.capabilities,
             dependency_refs=availability.dependency_refs,
         )
+
+    def _metric_binding_candidates(self, metric_ref: str) -> list[dict[str, Any]]:
+        metric_ref = _coerce_metric_ref(metric_ref)
+        metric_family = self._metric_family_for_ref(metric_ref)
+        required_slots = self._required_metric_input_slots(metric_family) if metric_family else ()
+        candidates: list[dict[str, Any]] = []
+        for binding in self._published_bindings_for_object_ref(metric_ref):
+            interface_contract = dict(binding.semantic_object.get("interface_contract") or {})
+            carriers = list(interface_contract.get("carrier_bindings") or [])
+            input_field_map = self._metric_input_field_map_from_binding(binding)
+            missing_slots = [
+                required_slot
+                for required_slot in required_slots
+                if input_field_map.get(required_slot) is None
+            ]
+            ordered_carriers = sorted(
+                carriers,
+                key=lambda carrier: str(carrier.get("binding_role") or "") != "primary",
+            )
+            for carrier in ordered_carriers:
+                source_row = self._resolve_metric_carrier_source_object(carrier)
+                runtime_table_name = _optional_str(carrier.get("carrier_locator")) or (
+                    str(source_row["fqn"]) if source_row is not None else None
+                )
+                candidates.append(
+                    {
+                        "binding_ref": binding.ref,
+                        "carrier_binding_key": carrier.get("binding_key"),
+                        "binding_role": carrier.get("binding_role"),
+                        "source_object_ref": carrier.get("source_object_ref"),
+                        "carrier_locator": carrier.get("carrier_locator"),
+                        "resolved_source_object_ref": (
+                            str(source_row["object_id"]) if source_row is not None else None
+                        ),
+                        "resolved_table_name": runtime_table_name,
+                        "metric_input_slots": dict(input_field_map),
+                        "missing_metric_input_slots": missing_slots,
+                        "failure_stage": (
+                            "metric_input_coverage"
+                            if missing_slots
+                            else "source_object_lookup"
+                            if source_row is None
+                            else None
+                        ),
+                    }
+                )
+        return candidates
+
+    def _metric_family_for_ref(self, metric_ref: str) -> str | None:
+        resolved = self._resolve_runtime_metric_contract(metric_ref)
+        if resolved is None:
+            return None
+        header = resolved.semantic_object.get("header") or {}
+        return _optional_str(header.get("metric_family"))
+
+    def _required_metric_input_slots(self, metric_family: str) -> tuple[str, ...]:
+        if metric_family == "count_metric":
+            return ("count_target",)
+        if metric_family == "sum_metric":
+            return ("measure",)
+        if metric_family in {"average_metric", "rate_metric"}:
+            return ("numerator", "denominator")
+        return ()
+
+    def _metric_input_field_map_from_binding(
+        self, binding: ResolvedSemanticObject
+    ) -> dict[str, str]:
+        interface_contract = dict(binding.semantic_object.get("interface_contract") or {})
+        field_bindings = list(interface_contract.get("field_bindings") or [])
+        input_field_map: dict[str, str] = {}
+        for field_binding in field_bindings:
+            target = field_binding.get("target") or {}
+            if target.get("target_kind") != "metric_input":
+                continue
+            target_key = _optional_str(target.get("target_key"))
+            surface_ref = _optional_str(field_binding.get("surface_ref"))
+            if target_key is None or surface_ref is None:
+                continue
+            physical_name = surface_ref.split(".", 1)[-1] if "." in surface_ref else surface_ref
+            input_field_map[target_key] = physical_name
+        return input_field_map
+
+    def _select_metric_binding_resolution(
+        self,
+        metric_ref: str,
+        *,
+        required_slots: tuple[str, ...] = (),
+    ) -> MetricBindingResolution | None:
+        metric_ref = _coerce_metric_ref(metric_ref)
+        viable_resolutions: list[MetricBindingResolution] = []
+        ambiguous_resolutions: list[MetricBindingResolution] = []
+        preferred_order_seen = False
+        for binding in self._published_bindings_for_object_ref(metric_ref):
+            if binding.object_kind != "binding":
+                continue
+            binding_header = dict(binding.semantic_object.get("header") or {})
+            if _optional_str(binding_header.get("binding_scope")) != "metric":
+                continue
+            if _optional_str(binding_header.get("bound_object_ref")) != metric_ref:
+                continue
+            input_field_map = self._metric_input_field_map_from_binding(binding)
+            if any(input_field_map.get(required_slot) is None for required_slot in required_slots):
+                continue
+            interface_contract = dict(binding.semantic_object.get("interface_contract") or {})
+            carriers = sorted(
+                interface_contract.get("carrier_bindings") or [],
+                key=lambda carrier: str(carrier.get("binding_role") or "") != "primary",
+            )
+            for carrier in carriers:
+                source_row = self._resolve_metric_carrier_source_object(carrier)
+                runtime_table_name = _optional_str(carrier.get("carrier_locator")) or (
+                    str(source_row["fqn"]) if source_row is not None else None
+                )
+                if source_row is None or runtime_table_name is None:
+                    continue
+                resolution = MetricBindingResolution(
+                    metric_ref=metric_ref,
+                    binding_ref=binding.ref,
+                    carrier_binding_key=_optional_str(carrier.get("binding_key")),
+                    source_object_ref=_optional_str(carrier.get("source_object_ref")),
+                    carrier_locator=_optional_str(carrier.get("carrier_locator")),
+                    table_name=runtime_table_name,
+                    input_field_map=input_field_map,
+                )
+                is_primary = _optional_str(carrier.get("binding_role")) == "primary"
+                if is_primary:
+                    if not preferred_order_seen:
+                        viable_resolutions.clear()
+                        preferred_order_seen = True
+                    ambiguous_resolutions.append(resolution)
+                elif not preferred_order_seen:
+                    viable_resolutions.append(resolution)
+                break
+
+        selected_pool = ambiguous_resolutions if preferred_order_seen else viable_resolutions
+        if not selected_pool:
+            return None
+        if len(selected_pool) > 1:
+            binding_refs = sorted({resolution.binding_ref for resolution in selected_pool})
+            raise ValueError(
+                "Metric execution binding is ambiguous for "
+                f"{metric_ref}: multiple published bindings satisfy typed execution "
+                f"requirements ({', '.join(binding_refs)})"
+            )
+        return selected_pool[0]
 
     def _resolve_metric_carrier_source_object(
         self, carrier_binding: dict[str, Any]
@@ -697,9 +854,11 @@ class SemanticLayerService:
         metric_family: str,
         payload: dict[str, Any],
         metric_ref: str,
+        *,
+        input_field_map: dict[str, str] | None = None,
     ) -> str | None:
         """Compile an aggregate SQL expression from a typed metric contract."""
-        input_field_map = self._metric_input_field_map(metric_ref)
+        input_field_map = input_field_map or self._metric_input_field_map(metric_ref)
         if input_field_map is None:
             return None
 
@@ -739,9 +898,11 @@ class SemanticLayerService:
         metric_family: str,
         payload: dict[str, Any],
         metric_ref: str,
+        *,
+        input_field_map: dict[str, str] | None = None,
     ) -> str | None:
         """Compile a per-row value expression from a typed metric contract."""
-        input_field_map = self._metric_input_field_map(metric_ref)
+        input_field_map = input_field_map or self._metric_input_field_map(metric_ref)
         if input_field_map is None:
             return None
 
@@ -759,26 +920,87 @@ class SemanticLayerService:
         return None
 
     def _metric_input_field_map(self, metric_ref: str) -> dict[str, str] | None:
-        """Resolve metric_input slot names to physical field names from the published binding."""
-        bindings = list(self._published_bindings_for_object_ref(metric_ref))
-        if not bindings:
+        """Resolve metric_input slot names from the execution binding chosen for the metric."""
+        metric_ref = _coerce_metric_ref(metric_ref)
+        metric_family = self._metric_family_for_ref(metric_ref)
+        if metric_family is None:
             return None
+        resolution = self._select_metric_binding_resolution(
+            metric_ref,
+            required_slots=self._required_metric_input_slots(metric_family),
+        )
+        if resolution is None:
+            return None
+        return dict(resolution.input_field_map)
 
-        interface_contract = dict(bindings[0].semantic_object.get("interface_contract") or {})
-        field_bindings = list(interface_contract.get("field_bindings") or [])
-        input_field_map: dict[str, str] = {}
-        for field_binding in field_bindings:
-            target = field_binding.get("target") or {}
-            if target.get("target_kind") != "metric_input":
-                continue
-            target_key = _optional_str(target.get("target_key"))
-            surface_ref = _optional_str(field_binding.get("surface_ref"))
-            if target_key is None or surface_ref is None:
-                continue
-            physical_name = surface_ref.split(".", 1)[-1] if "." in surface_ref else surface_ref
-            input_field_map[target_key] = physical_name
+    def resolve_metric_sql_for_execution(
+        self,
+        metric_ref: str,
+        execution_context: MetricExecutionContext | None = None,
+    ) -> str:
+        metric_ref = _coerce_metric_ref(metric_ref)
+        metric_name = _metric_name_from_ref(metric_ref)
+        resolved = self._resolve_runtime_metric_contract(metric_ref)
+        if resolved is None:
+            raise ValueError(f"Metric '{metric_name}' not found or not published")
+        header = resolved.semantic_object.get("header") or {}
+        payload = resolved.semantic_object.get("payload") or {}
+        definition_sql = payload.get("definition_sql")
+        if definition_sql is not None:
+            return str(definition_sql)
+        metric_family = _optional_str(header.get("metric_family"))
+        typed_metric_ref = _optional_str(header.get("metric_ref"))
+        if metric_family is None or typed_metric_ref is None:
+            raise ValueError(f"Metric '{metric_name}' is missing typed metric metadata")
+        input_field_map = (
+            dict(execution_context.input_field_map)
+            if execution_context is not None and execution_context.input_field_map is not None
+            else self._metric_input_field_map(metric_ref)
+        )
+        sql = self._compile_typed_metric_sql(
+            metric_family,
+            payload,
+            typed_metric_ref,
+            input_field_map=input_field_map,
+        )
+        if sql is None:
+            required_slots = ", ".join(self._required_metric_input_slots(metric_family))
+            raise ValueError(
+                f"Metric execution binding for '{metric_name}' is missing required metric_input "
+                f"coverage ({required_slots})"
+            )
+        return sql
 
-        return input_field_map or None
+    def resolve_metric_value_sql_for_execution(
+        self,
+        metric_ref: str,
+        execution_context: MetricExecutionContext | None = None,
+    ) -> str | None:
+        metric_ref = _coerce_metric_ref(metric_ref)
+        metric_name = _metric_name_from_ref(metric_ref)
+        resolved = self._resolve_runtime_metric_contract(metric_ref)
+        if resolved is None:
+            raise ValueError(f"Metric '{metric_name}' not found or not published")
+        header = resolved.semantic_object.get("header") or {}
+        payload = resolved.semantic_object.get("payload") or {}
+        definition_sql = payload.get("definition_sql")
+        if definition_sql is not None:
+            return str(definition_sql)
+        metric_family = _optional_str(header.get("metric_family"))
+        typed_metric_ref = _optional_str(header.get("metric_ref"))
+        if metric_family is None or typed_metric_ref is None:
+            raise ValueError(f"Metric '{metric_name}' is missing typed metric metadata")
+        input_field_map = (
+            dict(execution_context.input_field_map)
+            if execution_context is not None and execution_context.input_field_map is not None
+            else self._metric_input_field_map(metric_ref)
+        )
+        return self._compile_typed_metric_value_sql(
+            metric_family,
+            payload,
+            typed_metric_ref,
+            input_field_map=input_field_map,
+        )
 
     def resolve_metric_dimensions(self, metric_ref: str) -> list[str] | None:
         """Look up a published metric's dimensions from semantic runtime or entity binding."""

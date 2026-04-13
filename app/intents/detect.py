@@ -126,7 +126,7 @@ def run_detect_intent(
     execution_context = svc._resolve_metric_execution_context(metric_ref)
     table = execution_context.table_name
 
-    metric_sql = svc.resolve_metric_sql(metric_ref)
+    metric_sql = svc.resolve_metric_sql_for_execution(metric_ref, execution_context)
     all_dimensions = svc.resolve_metric_dimensions(metric_ref)
     if metric_sql is None or all_dimensions is None:
         raise ValueError(f"Metric '{metric_name}' not found or not published")

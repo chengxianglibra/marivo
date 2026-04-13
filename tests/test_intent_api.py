@@ -46,6 +46,77 @@ def _metric_ref(name: str) -> str:
     return f"metric.{name}"
 
 
+def _create_metric_binding(
+    client: TestClient,
+    *,
+    binding_ref: str,
+    metric_ref: str,
+    source_object_ref: str,
+    carrier_locator: str,
+    binding_role: str = "primary",
+    metric_input_target_keys: list[str] | None = None,
+    surface_name: str = "value",
+) -> str:
+    metric_input_keys = metric_input_target_keys or ["measure"]
+    field_surfaces = [
+        {"surface_ref": "field.event_date", "physical_name": "event_date"},
+        {"surface_ref": f"field.{surface_name}", "physical_name": surface_name},
+    ]
+    field_bindings = [
+        {
+            "carrier_binding_key": "primary",
+            "target": {
+                "target_kind": "primary_time",
+                "target_key": "time.event_date",
+            },
+            "semantic_ref": "time.event_date",
+            "surface_ref": "field.event_date",
+        }
+    ]
+    for target_key in metric_input_keys:
+        field_bindings.append(
+            {
+                "carrier_binding_key": "primary",
+                "target": {
+                    "target_kind": "metric_input",
+                    "target_key": target_key,
+                },
+                "semantic_ref": f"metric_input.{target_key}",
+                "surface_ref": f"field.{surface_name}",
+            }
+        )
+    resp = client.post(
+        "/semantic/bindings",
+        json={
+            "header": {
+                "binding_ref": binding_ref,
+                "display_name": binding_ref,
+                "binding_scope": "metric",
+                "bound_object_ref": metric_ref,
+                "binding_contract_version": "binding.v1",
+            },
+            "interface_contract": {
+                "carrier_bindings": [
+                    {
+                        "binding_key": "primary",
+                        "source_object_ref": source_object_ref,
+                        "carrier_kind": "table",
+                        "carrier_locator": carrier_locator,
+                        "binding_role": binding_role,
+                        "field_surfaces": field_surfaces,
+                    }
+                ],
+                "field_bindings": field_bindings,
+            },
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    binding_id = resp.json()["binding_id"]
+    publish_resp = client.post(f"/semantic/bindings/{binding_id}/publish")
+    assert publish_resp.status_code == 200, publish_resp.text
+    return binding_id
+
+
 # ── Model-level validation tests (no HTTP) ───────────────────────────────────
 
 
@@ -1287,6 +1358,7 @@ class ObserveTypedArtifactTests(unittest.TestCase):
 
         cls.temp_dir = tempfile.TemporaryDirectory()
         db_path = Path(cls.temp_dir.name) / "observe_artifact.duckdb"
+        cls.db_path = db_path
         get_seeded_duckdb_path(db_path)
         cls.app = create_app(db_path)
         cls.client = TestClient(cls.app)
@@ -1324,6 +1396,7 @@ class ObserveTypedArtifactTests(unittest.TestCase):
             },
         )
         source_id = r.json()["source_id"]
+        cls.source_id = source_id
 
         # Register the seeded DuckDB as an engine (same file the analytics engine uses)
         r = cls.client.post(
@@ -1634,6 +1707,168 @@ class ObserveTypedArtifactTests(unittest.TestCase):
         )
         self.assertEqual(r.status_code, 422, r.text)
         self.assertIn("per-row rate value expression", r.text)
+
+    def test_observe_uses_viable_binding_instead_of_first_binding_row(self) -> None:
+        metadata = self.client.app.state.service.metadata
+        metric_name = f"observe_binding_fallback_{uuid4().hex[:8]}"
+        metric_ref = _metric_ref(metric_name)
+        ensure_published_typed_metric(
+            metadata,
+            metric_name=metric_name,
+            display_name="Observe Binding Fallback",
+            grain="day",
+            dimensions=["event_date"],
+            measure_type="sum",
+        )
+        aux_table = f"observe_aux_binding_{uuid4().hex[:8]}"
+        aux_fqn = f"analytics.{aux_table}"
+        con = duckdb.connect(str(self.db_path))
+        try:
+            con.execute("CREATE SCHEMA IF NOT EXISTS analytics")
+            con.execute(
+                f"""
+                CREATE TABLE {aux_fqn} (
+                    event_date DATE NOT NULL,
+                    aux_value DOUBLE NOT NULL
+                )
+                """
+            )
+            con.executemany(
+                f"INSERT INTO {aux_fqn} VALUES (?, ?)",
+                [("2024-01-01", 1.0), ("2024-01-02", 2.0), ("2024-01-03", 3.0)],
+            )
+        finally:
+            con.close()
+        aux_object_id = f"obj_{uuid4().hex[:12]}"
+        metadata.execute(
+            """
+            INSERT INTO source_objects
+                (object_id, source_id, object_type, native_name, fqn,
+                 properties_json, created_at, updated_at)
+            VALUES (?, ?, 'table', ?, ?, '{}', ?, ?)
+            """,
+            [
+                aux_object_id,
+                self.source_id,
+                aux_table,
+                aux_fqn,
+                "2026-01-01T00:00:00",
+                "2026-01-01T00:00:00",
+            ],
+        )
+        _create_metric_binding(
+            self.client,
+            binding_ref=f"binding.aaa_{metric_name}_incomplete",
+            metric_ref=metric_ref,
+            source_object_ref=aux_object_id,
+            carrier_locator=aux_fqn,
+            binding_role="auxiliary",
+            metric_input_target_keys=["measure"],
+            surface_name="aux_value",
+        )
+        _create_metric_binding(
+            self.client,
+            binding_ref=f"binding.zzz_{metric_name}_complete",
+            metric_ref=metric_ref,
+            source_object_ref=self.watch_events_object_id,
+            carrier_locator=self.watch_events_fqn,
+            binding_role="primary",
+            metric_input_target_keys=["measure"],
+            surface_name="play_duration_seconds",
+        )
+
+        response = self.client.post(
+            f"/sessions/{self.session_id}/intents/observe",
+            json={
+                "metric": metric_ref,
+                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+
+    def test_observe_returns_binding_ambiguity_error_for_multiple_primary_bindings(self) -> None:
+        metadata = self.client.app.state.service.metadata
+        metric_name = f"observe_binding_ambiguous_{uuid4().hex[:8]}"
+        metric_ref = _metric_ref(metric_name)
+        ensure_published_typed_metric(
+            metadata,
+            metric_name=metric_name,
+            display_name="Observe Binding Ambiguous",
+            grain="day",
+            dimensions=["event_date"],
+            measure_type="sum",
+        )
+        _create_metric_binding(
+            self.client,
+            binding_ref=f"binding.aaa_{metric_name}",
+            metric_ref=metric_ref,
+            source_object_ref=self.watch_events_object_id,
+            carrier_locator=self.watch_events_fqn,
+            binding_role="primary",
+            metric_input_target_keys=["measure"],
+        )
+        _create_metric_binding(
+            self.client,
+            binding_ref=f"binding.bbb_{metric_name}",
+            metric_ref=metric_ref,
+            source_object_ref=self.watch_events_object_id,
+            carrier_locator=self.watch_events_fqn,
+            binding_role="primary",
+            metric_input_target_keys=["measure"],
+        )
+
+        response = self.client.post(
+            f"/sessions/{self.session_id}/intents/observe",
+            json={
+                "metric": metric_ref,
+                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+            },
+        )
+        self.assertEqual(response.status_code, 422, response.text)
+        self.assertIn("ambiguous", response.text)
+        self.assertIn(f"binding.aaa_{metric_name}", response.text)
+        self.assertIn(f"binding.bbb_{metric_name}", response.text)
+
+    def test_observe_returns_metric_input_coverage_error(self) -> None:
+        metadata = self.client.app.state.service.metadata
+        metric_name = f"observe_binding_missing_slot_{uuid4().hex[:8]}"
+        metric_ref = _metric_ref(metric_name)
+        ensure_published_typed_metric(
+            metadata,
+            metric_name=metric_name,
+            display_name="Observe Binding Missing Slot",
+            grain="day",
+            dimensions=["event_date"],
+            measure_type="sum",
+        )
+        binding_id = _create_metric_binding(
+            self.client,
+            binding_ref=f"binding.{metric_name}_missing_measure",
+            metric_ref=metric_ref,
+            source_object_ref=self.watch_events_object_id,
+            carrier_locator=self.watch_events_fqn,
+            binding_role="primary",
+            metric_input_target_keys=["measure"],
+        )
+        metadata.execute(
+            """
+            UPDATE field_bindings
+            SET target_key = ?, semantic_ref = ?
+            WHERE binding_id = ? AND target_kind = 'metric_input'
+            """,
+            ["count_target", "metric_input.count_target", binding_id],
+        )
+
+        response = self.client.post(
+            f"/sessions/{self.session_id}/intents/observe",
+            json={
+                "metric": metric_ref,
+                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+            },
+        )
+        self.assertEqual(response.status_code, 409, response.text)
+        self.assertIn("METRIC_INPUT_COVERAGE_MISSING", response.text)
+        self.assertIn("missing required metric_input coverage", response.text)
 
 
 class ArtifactLifecycleTests(unittest.TestCase):
