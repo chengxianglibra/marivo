@@ -35,6 +35,16 @@ class TestStatusDerivation(unittest.TestCase):
     def test_derive_readiness_status_deprecated(self):
         self.assertEqual(derive_readiness_status("deprecated"), "not_ready")
 
+    def test_derive_lifecycle_status_active_raises(self):
+        with self.assertRaises(ValueError) as ctx:
+            derive_lifecycle_status("active")
+        self.assertIn("Unknown storage status", str(ctx.exception))
+
+    def test_derive_readiness_status_active_raises(self):
+        with self.assertRaises(ValueError) as ctx:
+            derive_readiness_status("active")
+        self.assertIn("Unknown storage status", str(ctx.exception))
+
     def test_derive_readiness_status_unknown_raises(self):
         with self.assertRaises(ValueError) as ctx:
             derive_readiness_status("archived")

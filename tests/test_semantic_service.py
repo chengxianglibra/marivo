@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -62,6 +63,37 @@ class SemanticServiceFacadeTests(unittest.TestCase):
         self.assertEqual(entity["header"]["entity_ref"], "entity.user")
         listed = self.service.list_typed_entities()
         self.assertEqual(listed["total"], 1)
+
+    def test_typed_entity_legacy_active_status_requires_migration(self) -> None:
+        entity = self.service.create_typed_entity(
+            TypedEntityCreateRequest.model_validate(
+                {
+                    "header": {
+                        "entity_ref": "entity.legacy_user",
+                        "display_name": "Legacy User",
+                        "entity_contract_version": "entity.v1",
+                    },
+                    "interface_contract": {
+                        "identity": {
+                            "key_refs": ["key.legacy_user_id"],
+                            "uniqueness_scope": "global",
+                            "id_stability": "stable",
+                        }
+                    },
+                }
+            )
+        )
+        with sqlite3.connect(str(self.metadata.db_path)) as con:
+            con.execute("PRAGMA ignore_check_constraints = true")
+            con.execute(
+                "UPDATE semantic_entity_contracts SET status = ? WHERE entity_contract_id = ?",
+                ["active", entity["entity_contract_id"]],
+            )
+            con.commit()
+
+        with self.assertRaises(ValueError) as ctx:
+            self.service.list_typed_entities()
+        self.assertIn("Unknown storage status", str(ctx.exception))
 
     def test_typed_entity_revision_increments_on_update_and_publish(self) -> None:
         entity = self.service.create_typed_entity(

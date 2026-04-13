@@ -275,18 +275,8 @@ class SemanticMetricRouteTests(unittest.TestCase):
         self.assertTrue(all(item["lifecycle_status"] == "active" for item in resp.json()["items"]))
 
         resp = self.client.get("/semantic/metrics?status=active")
-        self.assertEqual(resp.status_code, 200, resp.text)
-        self.assertTrue(all(item["status"] == "published" for item in resp.json()["items"]))
-        self.assertTrue(all(item["lifecycle_status"] == "active" for item in resp.json()["items"]))
-
-        resp = self.client.get("/semantic/metrics?status=active&detail=true")
-        self.assertEqual(resp.status_code, 200, resp.text)
-        self.assertIn("payload", resp.json()["items"][0])
-        self.assertIn("dependency_refs", resp.json()["items"][0])
-
-        resp = self.client.get("/semantic/metrics?status=active&lifecycle_status=active")
-        self.assertEqual(resp.status_code, 200, resp.text)
-        self.assertTrue(all(item["lifecycle_status"] == "active" for item in resp.json()["items"]))
+        self.assertEqual(resp.status_code, 422, resp.text)
+        self.assertIn("Unsupported status filter", resp.text)
 
         resp = self.client.get(
             "/semantic/metrics?lifecycle_status=active&readiness_status=not_ready"
