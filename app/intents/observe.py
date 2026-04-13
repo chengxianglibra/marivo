@@ -155,8 +155,13 @@ def run_observe_intent(
 
     if result_mode == "numeric_sample_summary":
         # --- Numeric Sample Summary mode ---
-        # metric_sql is used as a per-row value expression (not an outer aggregate).
-        # Requires metric definition_sql to be a raw column reference or simple expression.
+        metric_value_sql = svc.resolve_metric_value_sql(metric_ref)
+        if metric_value_sql is None:
+            raise ValueError(
+                f"Metric '{metric_name}' cannot produce a per-row numeric value expression"
+            )
+
+        # metric_value_sql is used as a per-row value expression (not an outer aggregate).
         compiled_query = svc._compile_step_with_feedback(
             AnalysisStepIR(
                 index=0,
@@ -165,11 +170,11 @@ def run_observe_intent(
                     "table": qualified_table,
                     "select": [
                         "COUNT(*) AS n",
-                        f"AVG({metric_sql}) AS mean",
-                        f"VARIANCE({metric_sql}) AS variance",
-                        f"STDDEV_SAMP({metric_sql}) AS std",
-                        f"MIN({metric_sql}) AS min_val",
-                        f"MAX({metric_sql}) AS max_val",
+                        f"AVG({metric_value_sql}) AS mean",
+                        f"VARIANCE({metric_value_sql}) AS variance",
+                        f"STDDEV_SAMP({metric_value_sql}) AS std",
+                        f"MIN({metric_value_sql}) AS min_val",
+                        f"MAX({metric_value_sql}) AS max_val",
                     ],
                     "group_by": [],
                     "scoped_query": scoped_query,
@@ -281,7 +286,13 @@ def run_observe_intent(
 
     if result_mode == "rate_sample_summary":
         # --- Rate Sample Summary mode ---
-        # metric_sql is treated as a per-row 0/1 binary expression (rate numerator).
+        metric_value_sql = svc.resolve_metric_value_sql(metric_ref)
+        if metric_value_sql is None:
+            raise ValueError(
+                f"Metric '{metric_name}' cannot produce a per-row rate value expression"
+            )
+
+        # metric_value_sql is treated as a per-row 0/1 binary expression (rate numerator).
         compiled_query = svc._compile_step_with_feedback(
             AnalysisStepIR(
                 index=0,
@@ -290,7 +301,7 @@ def run_observe_intent(
                     "table": qualified_table,
                     "select": [
                         "COUNT(*) AS n",
-                        f"SUM(CAST(({metric_sql}) AS DOUBLE)) AS k",
+                        f"SUM(CAST(({metric_value_sql}) AS DOUBLE)) AS k",
                     ],
                     "group_by": [],
                     "scoped_query": scoped_query,

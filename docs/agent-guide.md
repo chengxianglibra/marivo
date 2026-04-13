@@ -149,6 +149,12 @@ surface structured readiness failures instead of collapsing them into generic co
 Intent metric preflight must resolve execution bindings from the same semantic runtime inspection
 used for readiness; do not reintroduce separate published/table-mapping checks that can disagree
 with `readiness_status`.
+Typed metric execution uses two SQL contracts: aggregate expressions for standard metric queries and
+per-row value expressions for sample-summary modes. Do not assume one SQL fragment is valid for
+both.
+Typed metric dimension discovery should prefer explicit legacy `dimensions` when present; otherwise
+derive dimension refs from the observed entity's published binding targets where
+`stable_descriptor -> dimension.*`.
 List endpoints return lightweight items by default (header, status, blocker_count, capabilities_summary);
 use `detail=true` query parameter for backward-compatible full payload. Lightweight list responses
 must still derive readiness from the same full semantic contract used by detail reads. Detail
