@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from app.main import create_app
+from app.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 
@@ -17,7 +18,9 @@ class UIBothEnabledTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.tmp = tempfile.TemporaryDirectory()
         config_path = Path(cls.tmp.name) / "factum.yaml"
-        config_path.write_text("ui:\n  enabled: true\n")
+        config_path.write_text(
+            "metadata:\n  engine: sqlite\n  path: ui.meta.sqlite\nui:\n  enabled: true\n"
+        )
         db_path = Path(cls.tmp.name) / "test.duckdb"
         get_seeded_duckdb_path(db_path)
         cls.app = create_app(db_path=db_path, config_path=config_path)
@@ -1016,8 +1019,9 @@ class UIBothDisabledTests(unittest.TestCase):
         cls.tmp = tempfile.TemporaryDirectory()
         db_path = Path(cls.tmp.name) / "test.duckdb"
         config_path = Path(cls.tmp.name) / "nonexistent.yaml"
+        metadata = SQLiteMetadataStore(Path(cls.tmp.name) / "ui-disabled.meta.sqlite")
         get_seeded_duckdb_path(db_path)
-        cls.app = create_app(db_path=db_path, config_path=config_path)
+        cls.app = create_app(db_path=db_path, metadata_store=metadata, config_path=config_path)
         cls.client = TestClient(cls.app)
 
     @classmethod
@@ -1045,7 +1049,14 @@ class UIAdminOnlyTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.tmp = tempfile.TemporaryDirectory()
         config_path = Path(cls.tmp.name) / "factum.yaml"
-        config_path.write_text("ui:\n  admin_enabled: true\n  user_enabled: false\n")
+        config_path.write_text(
+            "metadata:\n"
+            "  engine: sqlite\n"
+            "  path: ui-admin.meta.sqlite\n"
+            "ui:\n"
+            "  admin_enabled: true\n"
+            "  user_enabled: false\n"
+        )
         db_path = Path(cls.tmp.name) / "test.duckdb"
         get_seeded_duckdb_path(db_path)
         cls.app = create_app(db_path=db_path, config_path=config_path)
@@ -1074,7 +1085,14 @@ class UIUserOnlyTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.tmp = tempfile.TemporaryDirectory()
         config_path = Path(cls.tmp.name) / "factum.yaml"
-        config_path.write_text("ui:\n  user_enabled: true\n  admin_enabled: false\n")
+        config_path.write_text(
+            "metadata:\n"
+            "  engine: sqlite\n"
+            "  path: ui-user.meta.sqlite\n"
+            "ui:\n"
+            "  user_enabled: true\n"
+            "  admin_enabled: false\n"
+        )
         db_path = Path(cls.tmp.name) / "test.duckdb"
         get_seeded_duckdb_path(db_path)
         cls.app = create_app(db_path=db_path, config_path=config_path)

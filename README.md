@@ -16,14 +16,18 @@ Stateful sessions, semantic discovery, typed analysis steps, deterministic evide
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
-uvicorn app.main:app --reload  # Uses in-memory databases
+uvicorn app.main:app --reload
 ```
 
-For persistent storage, set `DUCKDB_MVP_DB=/path/to/your.duckdb`.
+`factum.yaml` must declare the metadata SQLite file path.
 
 ## Configuration
 
 ```yaml
+metadata:
+  engine: sqlite
+  path: data/factum.meta.sqlite
+
 sources:
   - name: "Local Demo"
     type: duckdb

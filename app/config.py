@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, Field
@@ -67,7 +67,13 @@ class ObservabilityConfig(BaseModel):
     metrics_enabled: bool = True
 
 
+class MetadataConfig(BaseModel):
+    engine: Literal["sqlite"]
+    path: str
+
+
 class FactumConfig(BaseModel):
+    metadata: MetadataConfig | None = None
     sources: list[SourceConfig] = Field(default_factory=list)
     engines: list[EngineConfig] = Field(default_factory=list)
     bindings: list[BindingConfig] = Field(default_factory=list)
@@ -78,6 +84,13 @@ class FactumConfig(BaseModel):
 
 # Backward-compatible alias
 OmniDBConfig = FactumConfig
+
+
+def resolve_config_path(path: Path | None = None) -> Path:
+    if path is not None:
+        return path
+    env = os.getenv("FACTUM_CONFIG")
+    return Path(env) if env else Path("factum.yaml")
 
 
 def load_config(path: Path | None = None) -> FactumConfig:
@@ -91,9 +104,7 @@ def load_config(path: Path | None = None) -> FactumConfig:
     Returns an empty config (no sources) when the file does not exist,
     so the application boots normally without a config file.
     """
-    if path is None:
-        env = os.getenv("FACTUM_CONFIG")
-        path = Path(env) if env else Path("factum.yaml")
+    path = resolve_config_path(path)
 
     if not path.is_file():
         logger.debug("Config file not found at %s — using defaults", path)

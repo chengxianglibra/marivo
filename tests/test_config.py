@@ -17,6 +17,16 @@ from tests.shared_fixtures import get_seeded_duckdb_path
 
 
 class LoadConfigTests(unittest.TestCase):
+    def test_load_metadata_config(self) -> None:
+        with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
+            f.write("metadata:\n  engine: sqlite\n  path: data/factum.meta.sqlite\n")
+            f.flush()
+            cfg = load_config(Path(f.name))
+
+        assert cfg.metadata is not None
+        self.assertEqual(cfg.metadata.engine, "sqlite")
+        self.assertEqual(cfg.metadata.path, "data/factum.meta.sqlite")
+
     def test_load_valid_yaml(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
             f.write('sources:\n  - name: "Demo"\n    type: duckdb\n')
@@ -205,6 +215,41 @@ class StartupWithConfigTests(unittest.TestCase):
             self.assertEqual(resp.status_code, 200)
             self.assertEqual(resp.json(), [])
 
+            client.close()
+
+    def test_startup_requires_metadata_config_when_store_not_provided(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / "factum.yaml"
+            config_path.write_text("ui:\n  enabled: true\n")
+
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "Factum config must define metadata.engine=sqlite and metadata.path",
+            ):
+                create_app(
+                    db_path=Path(tmp) / "test.duckdb",
+                    analytics_engine=self.shared_analytics,
+                    config_path=config_path,
+                )
+
+    def test_startup_builds_metadata_store_from_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / "factum.yaml"
+            config_path.write_text(
+                "metadata:\n  engine: sqlite\n  path: test.meta.sqlite\nui:\n  enabled: true\n"
+            )
+
+            app = create_app(
+                db_path=Path(tmp) / "test.duckdb",
+                analytics_engine=self.shared_analytics,
+                config_path=config_path,
+            )
+            client = TestClient(app)
+
+            self.assertTrue((Path(tmp) / "test.meta.sqlite").exists())
+            resp = client.get("/sources")
+            self.assertEqual(resp.status_code, 200)
+            self.assertEqual(resp.json(), [])
             client.close()
 
     def test_startup_requires_trino_dependency_when_config_uses_trino_source(self) -> None:
