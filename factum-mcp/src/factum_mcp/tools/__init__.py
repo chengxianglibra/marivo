@@ -30,6 +30,8 @@ _CATALOG_SEARCH_TYPES = frozenset(
     {"asset", "binding", "dimension", "entity", "metric", "process", "time"}
 )
 
+_CATALOG_SEARCH_READINESS = frozenset({"all", "not_ready", "ready", "stale"})
+
 
 def _tool_metadata(
     method: str, path: str
@@ -457,18 +459,26 @@ def register_tools(
 
     @server.tool()
     @_tool_metadata("GET", "/catalog/search")
-    def search_catalog(q: str, type: str | None = None) -> dict[str, object]:
-        """Search published semantic objects and synced assets via GET /catalog/search using the HTTP query contract directly."""
+    def search_catalog(
+        q: str, type: str | None = None, readiness: str | None = None
+    ) -> dict[str, object]:
+        """Search catalog objects via GET /catalog/search; `q` is required, `type` narrows object families, and `readiness` defaults to ready semantic objects when omitted."""
         if type is not None and type not in _CATALOG_SEARCH_TYPES:
             supported_types = ", ".join(sorted(_CATALOG_SEARCH_TYPES))
             raise ValueError(
                 f"search_catalog type must be one of: {supported_types}. "
                 "Run separate searches instead of using a catch-all value like 'all'."
             )
+        if readiness is not None and readiness not in _CATALOG_SEARCH_READINESS:
+            supported_readiness = ", ".join(sorted(_CATALOG_SEARCH_READINESS))
+            raise ValueError(
+                f"search_catalog readiness must be one of: {supported_readiness}. "
+                "Omit it to use the HTTP default of 'ready'."
+            )
         return client.request_envelope(
             "GET",
             "/catalog/search",
-            params=_compact_params(q=q, type=type),
+            params=_compact_params(q=q, type=type, readiness=readiness),
         ).model_dump()
 
     @server.tool()

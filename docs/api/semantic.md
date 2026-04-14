@@ -1044,6 +1044,8 @@ for modeling/admin callers.
 - Supported semantic `type` filters: `entity`, `metric`, `process`, `dimension`, `time`, `binding`
 - `asset` remains available as a source-object discovery filter and is not a semantic object kind
 - `readiness` supports `ready` (default), `not_ready`, `stale`, and `all`
+- MCP `search_catalog(q, type=None, readiness=None)` forwards the same query parameters; omit
+  `readiness` to preserve the HTTP default of `ready`
 - Semantic results use a unified summary envelope:
   - `object_kind`
   - `object_id`
