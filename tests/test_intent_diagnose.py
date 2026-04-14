@@ -271,6 +271,27 @@ class DiagnoseRunnerServiceTests(unittest.TestCase):
         self.assertEqual(bundle["detect_summary"]["followed_candidate_count"], 0)
         self.assertIsNotNone(bundle["artifact_id"])
 
+    def test_detect_insufficient_points_adds_validation_guidance(self) -> None:
+        sid = self._make_session()
+        bundle = self.service.run_intent(
+            sid,
+            "diagnose",
+            {
+                "metric": _METRIC,
+                "time_scope": {
+                    "mode": "single_window",
+                    "grain": "day",
+                    "current": {"start": "2024-03-01", "end": "2024-03-03"},
+                },
+                "candidate_dimensions": ["channel"],
+            },
+        )
+        self.assertEqual(bundle["validation"]["status"], "diagnosable")
+        self.assertEqual(bundle["diagnoses"], [])
+        guidance = bundle["validation"]["guidance"]
+        self.assertEqual(guidance["reason"], "insufficient_points")
+        self.assertEqual(guidance["minimum_points_required"], 3)
+
     def test_baseline_derivation_correct_for_single_day_candidate(self) -> None:
         """baseline_window = previous adjacent equal-length day for a 1-day candidate."""
         sid = self._make_session()

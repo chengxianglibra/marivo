@@ -17,13 +17,13 @@ Design contract: docs/analysis/intents/derived/diagnose.md
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from datetime import date as _date
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from app.intents.compare import run_compare_intent
 from app.intents.decompose import run_decompose_intent
 from app.intents.detect import run_detect_intent
 from app.intents.observe import run_observe_intent
+from app.time_contracts import TimeGrain, normalize_hour_boundary, previous_adjacent_window
 
 if TYPE_CHECKING:
     from app.service import SemanticLayerService
@@ -84,11 +84,23 @@ def run_diagnose_intent(
             f"diagnose: INVALID_ARGUMENT - time_scope.grain must be one of "
             f"'hour', 'day', 'week', 'month', got '{ts_grain}'"
         )
+    ts_grain_typed = cast("TimeGrain", ts_grain)
     ts_current = time_scope_raw.get("current")
     if not isinstance(ts_current, dict) or not ts_current.get("start") or not ts_current.get("end"):
         raise ValueError(
             "diagnose: INVALID_ARGUMENT - time_scope.current must have 'start' and 'end'"
         )
+    if ts_grain_typed == "hour":
+        ts_current = {
+            "start": normalize_hour_boundary(
+                str(ts_current.get("start") or ""),
+                label="time_scope.current.start",
+            ),
+            "end": normalize_hour_boundary(
+                str(ts_current.get("end") or ""),
+                label="time_scope.current.end",
+            ),
+        }
 
     scope: dict[str, Any] | None = p.get("scope") or None
     detect_split_by: str | None = (p.get("detect_split_by") or "").strip() or None
@@ -191,6 +203,7 @@ def run_diagnose_intent(
 
     top_level_issues: list[dict[str, Any]] = []
     detectability: dict[str, Any] = detect_result.get("detectability") or {}
+    validation_guidance = detectability.get("guidance")
     if detectability.get("status") == "needs_attention":
         for iss in detectability.get("issues") or []:
             top_level_issues.append(
@@ -223,6 +236,7 @@ def run_diagnose_intent(
             base_scope=scope,
             dimensions=dimensions,
             decomposition_limit=decomposition_limit,
+            grain=ts_grain_typed,
         )
         diagnoses.append(cand_result)
         # Propagate candidate-level error issues to top-level
@@ -251,6 +265,8 @@ def run_diagnose_intent(
         "status": validation_status,
         "issues": top_level_issues,
     }
+    if validation_guidance is not None:
+        validation["guidance"] = validation_guidance
 
     # ── Step 4: build detect_summary ───────────────────────────────────────────
     detect_summary: dict[str, Any] = {
@@ -353,6 +369,7 @@ def _follow_up_candidate(
     base_scope: dict[str, Any] | None,
     dimensions: list[str],
     decomposition_limit: int,
+    grain: TimeGrain,
 ) -> dict[str, Any]:
     """Expand a single detect candidate into observe+compare+decompose×D.
 
@@ -388,18 +405,13 @@ def _follow_up_candidate(
     baseline_ok = False
 
     try:
-        cand_start_date = _date.fromisoformat(current_start_str[:10])
-        cand_end_date = _date.fromisoformat(current_end_str[:10])
-        duration = cand_end_date - cand_start_date
-        if duration.days <= 0:
-            raise ValueError(
-                f"candidate window duration is non-positive: "
-                f"start={current_start_str}, end={current_end_str}"
-            )
-        baseline_start_date = cand_start_date - duration
-        baseline_end_date = cand_start_date
-        baseline_start_str = baseline_start_date.isoformat()
-        baseline_end_str = baseline_end_date.isoformat()
+        baseline_window = previous_adjacent_window(
+            current_start_str,
+            current_end_str,
+            grain=grain,
+        )
+        baseline_start_str = baseline_window["start"]
+        baseline_end_str = baseline_window["end"]
         baseline_derivation = {
             "policy": "previous_adjacent_equal_length",
             "current_window": {"start": current_start_str, "end": current_end_str},

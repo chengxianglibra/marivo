@@ -6,10 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from app.storage.metadata import MetadataStore
-
-# Semantic conventions for timestamp_format: built-in handling, not custom format strings.
-# This constant is also defined in app/time_scope.py; both modules need it for validation.
-SEMANTIC_TIMESTAMP_CONVENTIONS: frozenset[str] = frozenset({"native", "iso8601_t_naive"})
+from app.time_contracts import normalize_timestamp_format, optional_str
 
 TimeGrain = Literal["day", "hour"]
 
@@ -747,19 +744,7 @@ def _normalize_partition_time_section(
 
 
 def _normalize_timestamp_format(value: Any) -> str | None:
-    """Normalize timestamp_format to semantic convention or custom format string.
-
-    Semantic conventions ('native', 'iso8601_t_naive') have built-in handling.
-    Any other string is treated as a custom strftime-style format (e.g., '%Y%m%d %H:%M:%S').
-    """
-    normalized = _optional_str(value)
-    if normalized is None:
-        return None
-    # Semantic conventions pass directly
-    if normalized in SEMANTIC_TIMESTAMP_CONVENTIONS:
-        return normalized
-    # Custom format strings: accept any non-empty value
-    return normalized
+    return normalize_timestamp_format(value)
 
 
 def _decode_properties_json(raw: Any) -> dict[str, Any]:
@@ -773,10 +758,7 @@ def _decode_properties_json(raw: Any) -> dict[str, Any]:
 
 
 def _optional_str(value: Any) -> str | None:
-    if value is None:
-        return None
-    normalized = str(value).strip()
-    return normalized or None
+    return optional_str(value)
 
 
 def _looks_like_day_column_name(column: str) -> bool:

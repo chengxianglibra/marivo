@@ -7,6 +7,7 @@ from datetime import date, datetime, time, timedelta
 from typing import Any, Literal, cast
 
 from app.time_axis_metadata import normalize_time_capabilities
+from app.time_contracts import normalize_hour_boundary, normalize_timestamp_format
 
 CompareKind = Literal["semantic_metric", "ad_hoc_aggregate"]
 TimeScopeMode = Literal["single_window", "compare"]
@@ -126,9 +127,6 @@ _TIMESTAMP_CANDIDATES = ("event_time", "timestamp", "created_at", "updated_at", 
 _DAY_CANDIDATES = ("log_date", "event_date", "dt", "date", "day")
 _HOUR_CANDIDATES = ("log_hour", "event_hour", "hour", "dt_hour")
 _EMPTY_SCHEMA_DAY_CANDIDATES = ("event_date", "date", "day", "dt", "log_date")
-
-# Semantic conventions for timestamp_format: built-in handling, not custom format strings.
-SEMANTIC_TIMESTAMP_CONVENTIONS: frozenset[str] = frozenset({"native", "iso8601_t_naive"})
 
 
 def normalize_metric_query_request(params: Mapping[str, Any]) -> ResolvedWindowedQueryRequest:
@@ -270,15 +268,7 @@ class TimeScopeResolver:
             except ValueError as exc:
                 raise ValueError(f"{label} must be a date or datetime string") from exc
 
-        if "T" not in normalized and " " not in normalized:
-            raise ValueError(f"{label} must be a datetime string for hour grain")
-        try:
-            parsed = datetime.fromisoformat(normalized)
-        except ValueError as exc:
-            raise ValueError(f"{label} must be a datetime string for hour grain") from exc
-        if parsed.tzinfo is not None:
-            raise ValueError(f"{label} must be a naive datetime string without timezone")
-        return parsed.replace(microsecond=0).isoformat(timespec="seconds")
+        return normalize_hour_boundary(normalized, label=label)
 
     @staticmethod
     def _window_duration(window: ResolvedTimeWindow, grain: TimeScopeGrain) -> int:
@@ -889,19 +879,7 @@ def _normalize_hour_format(value: Any) -> str | None:
 
 
 def _normalize_timestamp_format(value: Any) -> str | None:
-    """Normalize timestamp_format to semantic convention or custom format string.
-
-    Semantic conventions ('native', 'iso8601_t_naive') have built-in handling.
-    Any other string is treated as a custom strftime-style format (e.g., '%Y%m%d %H:%M:%S').
-    """
-    normalized = _optional_str(value)
-    if normalized is None:
-        return None
-    # Semantic conventions pass directly
-    if normalized in SEMANTIC_TIMESTAMP_CONVENTIONS:
-        return normalized
-    # Custom format strings: accept any non-empty value
-    return normalized
+    return normalize_timestamp_format(value)
 
 
 def _default_date_format_for_column(column: str | None) -> str | None:
@@ -964,16 +942,16 @@ _STRFTIME_TO_DUCKDB: dict[str, str] = {
 }
 
 _STRFTIME_TO_TRINO: dict[str, str] = {
-    "%Y": "yyyy",  # Year (4 digits)
-    "%y": "yy",  # Year (2 digits)
-    "%m": "MM",  # Month (01-12)
-    "%d": "dd",  # Day (01-31)
-    "%H": "HH",  # Hour 24-hour (00-23)
-    "%I": "hh",  # Hour 12-hour (01-12)
-    "%M": "mm",  # Minute (00-59)
-    "%S": "ss",  # Second (00-59)
-    "%p": "a",  # AM/PM marker
-    "%f": "SSSSSS",  # Microseconds (Trino uses SSSSSS)
+    "%Y": "%Y",  # Year (4 digits)
+    "%y": "%y",  # Year (2 digits)
+    "%m": "%m",  # Month (01-12)
+    "%d": "%d",  # Day (01-31)
+    "%H": "%H",  # Hour 24-hour (00-23)
+    "%I": "%h",  # Hour 12-hour (01-12)
+    "%M": "%i",  # Minute (00-59)
+    "%S": "%s",  # Second (00-59)
+    "%p": "%p",  # AM/PM marker
+    "%f": "%f",  # Fractional seconds
 }
 
 
@@ -989,10 +967,7 @@ def _translate_format_for_duckdb(strftime_format: str) -> str:
 
 
 def _translate_format_for_trino(strftime_format: str) -> str:
-    """Translate strftime-style format to Trino UNIX_TIMESTAMP format.
-
-    Trino uses Java SimpleDateFormat syntax, which differs from strftime.
-    """
+    """Translate strftime-style format to Trino DATE_PARSE format."""
     result = strftime_format
     for strftime_spec, trino_spec in _STRFTIME_TO_TRINO.items():
         result = result.replace(strftime_spec, trino_spec)

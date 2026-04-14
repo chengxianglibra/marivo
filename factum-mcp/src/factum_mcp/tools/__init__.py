@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from collections.abc import Callable
 from copy import deepcopy
 
@@ -43,6 +44,11 @@ def _tool_metadata(
         return func
 
     return decorator
+
+
+def _encode_openapi_path(path: str) -> str:
+    """Encode an OpenAPI path to unpadded base64url for the path fragment endpoint."""
+    return base64.urlsafe_b64encode(path.encode("utf-8")).decode("ascii").rstrip("=")
 
 
 def register_tools(
@@ -438,11 +444,12 @@ def register_tools(
     @server.tool()
     @_tool_metadata("GET", "/openapi/paths/{encoded_path}")
     def get_openapi_path_fragment(
-        encoded_path: str,
+        path: str,
         expand: list[str] | None = None,
         depth: int = 1,
     ) -> dict[str, object]:
-        """Read one canonical OpenAPI path item via GET /openapi/paths/{encoded_path}; use this to follow guidance.contract_url."""
+        """Read one canonical OpenAPI path item via GET /openapi/paths/{encoded_path}. Accepts the raw path (e.g., '/sessions'); the tool automatically encodes it as unpadded base64url. Use list_openapi_paths to discover available paths and their encoded forms."""
+        encoded_path = _encode_openapi_path(path)
         normalized_expand = _normalize_string_multi_param(expand)
         request_expand = _normalize_multi_param(expand)
         return _openapi_cached_request(
@@ -450,7 +457,7 @@ def register_tools(
             discovery_cache,
             (
                 "openapi_path_fragment",
-                encoded_path,
+                path,
                 tuple(sorted(normalized_expand or [])),
                 depth,
             ),

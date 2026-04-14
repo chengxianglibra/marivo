@@ -2,12 +2,17 @@ from __future__ import annotations
 
 import contextlib
 import math
-from datetime import UTC, datetime, timedelta
-from datetime import date as _date
-from typing import TYPE_CHECKING, Any
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any, cast
 
 from app.analysis_core.executor import execute_compiled
 from app.analysis_core.ir import AnalysisStepIR
+from app.time_contracts import (
+    TimeGrain,
+    bucket_window,
+    normalize_hour_boundary,
+    recommended_minimum_window,
+)
 from app.time_scope import normalize_metric_query_request
 
 if TYPE_CHECKING:
@@ -62,6 +67,7 @@ def run_detect_intent(
             f"detect: INVALID_ARGUMENT - time_scope.grain must be one of "
             f"'hour', 'day', 'week', 'month', got '{grain}'"
         )
+    grain_typed = cast("TimeGrain", grain)
 
     current = time_scope_raw.get("current")
     if not isinstance(current, dict):
@@ -70,7 +76,15 @@ def run_detect_intent(
     end_str: str = str(current.get("end") or "").strip()
     if not start_str or not end_str:
         raise ValueError("detect: time_scope.current requires 'start' and 'end'")
-    if start_str >= end_str:
+    if grain_typed == "hour":
+        start_str = normalize_hour_boundary(start_str, label="time_scope.current.start")
+        end_str = normalize_hour_boundary(end_str, label="time_scope.current.end")
+        if datetime.fromisoformat(start_str) >= datetime.fromisoformat(end_str):
+            raise ValueError(
+                f"detect: INVALID_ARGUMENT - time_scope.current.start ('{start_str}') "
+                f"must be before end ('{end_str}')"
+            )
+    elif start_str >= end_str:
         raise ValueError(
             f"detect: INVALID_ARGUMENT - time_scope.current.start ('{start_str}') "
             f"must be before end ('{end_str}')"
@@ -200,29 +214,12 @@ def run_detect_intent(
                 val = float(raw_value)
         if bucket_raw is None:
             continue
-        bucket_str = str(bucket_raw)[:10]
         try:
-            bucket_date = _date.fromisoformat(bucket_str)
-            if grain == "hour":
-                bucket_end = (
-                    datetime.fromisoformat(str(bucket_raw)) + timedelta(hours=1)
-                ).isoformat()
-            elif grain == "day":
-                bucket_end = (bucket_date + timedelta(days=1)).isoformat()
-            elif grain == "week":
-                bucket_end = (bucket_date + timedelta(weeks=1)).isoformat()
-            elif grain == "month":
-                if bucket_date.month == 12:
-                    bucket_end = bucket_date.replace(
-                        year=bucket_date.year + 1, month=1, day=1
-                    ).isoformat()
-                else:
-                    bucket_end = bucket_date.replace(month=bucket_date.month + 1, day=1).isoformat()
-            else:
-                bucket_end = (bucket_date + timedelta(days=1)).isoformat()
+            window = bucket_window(bucket_raw, grain_typed)
         except (ValueError, TypeError):
-            bucket_end = bucket_str
-        series.append({"window": {"start": bucket_str, "end": bucket_end}, "value": val})
+            bucket_str = str(bucket_raw)
+            window = {"start": bucket_str, "end": bucket_str}
+        series.append({"window": window, "value": val})
 
     # ── Detectability assessment ───────────────────────────────────────────────
     detectability_issues: list[dict[str, Any]] = []
@@ -230,6 +227,23 @@ def run_detect_intent(
     n_points = len(numeric_values)
 
     if n_points < _MIN_POINTS_FOR_DETECTION:
+        guidance = {
+            "reason": "insufficient_points",
+            "observed_points": n_points,
+            "minimum_points_required": _MIN_POINTS_FOR_DETECTION,
+            "minimum_window_buckets": _MIN_POINTS_FOR_DETECTION,
+            "recommended_next_action": "expand_scan_window",
+            "recommended_current_window": recommended_minimum_window(
+                end_str, grain=grain_typed, bucket_count=_MIN_POINTS_FOR_DETECTION
+            ),
+            "fallback_path": {
+                "kind": "compare_plus_decompose",
+                "message": (
+                    "If you already have a suspected abnormal window, run observe(current) + "
+                    "observe(previous_adjacent_equal_length) + compare + decompose."
+                ),
+            },
+        }
         detectability_issues.append(
             {
                 "code": "insufficient_points",
@@ -242,6 +256,7 @@ def run_detect_intent(
         )
         detectability_status = "needs_attention"
     else:
+        guidance = None
         detectability_status = "detectable"
 
     # ── Z-score detection ──────────────────────────────────────────────────────
@@ -340,6 +355,7 @@ def run_detect_intent(
         "detectability": {
             "status": detectability_status,
             "issues": detectability_issues,
+            "guidance": guidance,
         },
         "scan_summary": {
             "scanned_series_count": 1,
