@@ -7,6 +7,10 @@ from typing import Any, Literal
 
 from app.storage.metadata import MetadataStore
 
+# Semantic conventions for timestamp_format: built-in handling, not custom format strings.
+# This constant is also defined in app/time_scope.py; both modules need it for validation.
+SEMANTIC_TIMESTAMP_CONVENTIONS: frozenset[str] = frozenset({"native", "iso8601_t_naive"})
+
 TimeGrain = Literal["day", "hour"]
 
 PHASE1_TIMEZONE_STRATEGY = "session_consistent_naive"
@@ -743,14 +747,18 @@ def _normalize_partition_time_section(
 
 
 def _normalize_timestamp_format(value: Any) -> str | None:
+    """Normalize timestamp_format to semantic convention or custom format string.
+
+    Semantic conventions ('native', 'iso8601_t_naive') have built-in handling.
+    Any other string is treated as a custom strftime-style format (e.g., '%Y%m%d %H:%M:%S').
+    """
     normalized = _optional_str(value)
     if normalized is None:
         return None
-    if normalized not in {"native", "iso8601_t_naive", "YYYYMMDD hh:mm:ss"}:
-        raise ValueError(
-            "analysis_time.timestamp_format must be 'native', "
-            "'iso8601_t_naive', or 'YYYYMMDD hh:mm:ss'"
-        )
+    # Semantic conventions pass directly
+    if normalized in SEMANTIC_TIMESTAMP_CONVENTIONS:
+        return normalized
+    # Custom format strings: accept any non-empty value
     return normalized
 
 

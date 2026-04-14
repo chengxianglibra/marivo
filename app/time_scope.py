@@ -127,6 +127,9 @@ _DAY_CANDIDATES = ("log_date", "event_date", "dt", "date", "day")
 _HOUR_CANDIDATES = ("log_hour", "event_hour", "hour", "dt_hour")
 _EMPTY_SCHEMA_DAY_CANDIDATES = ("event_date", "date", "day", "dt", "log_date")
 
+# Semantic conventions for timestamp_format: built-in handling, not custom format strings.
+SEMANTIC_TIMESTAMP_CONVENTIONS: frozenset[str] = frozenset({"native", "iso8601_t_naive"})
+
 
 def normalize_metric_query_request(params: Mapping[str, Any]) -> ResolvedWindowedQueryRequest:
     _reject_legacy_fields(params, _METRIC_QUERY_LEGACY_FIELDS, "metric_query")
@@ -886,13 +889,18 @@ def _normalize_hour_format(value: Any) -> str | None:
 
 
 def _normalize_timestamp_format(value: Any) -> str | None:
+    """Normalize timestamp_format to semantic convention or custom format string.
+
+    Semantic conventions ('native', 'iso8601_t_naive') have built-in handling.
+    Any other string is treated as a custom strftime-style format (e.g., '%Y%m%d %H:%M:%S').
+    """
     normalized = _optional_str(value)
     if normalized is None:
         return None
-    if normalized not in {"native", "iso8601_t_naive", "YYYYMMDD hh:mm:ss"}:
-        raise ValueError(
-            "timestamp_format must be 'native', 'iso8601_t_naive', or 'YYYYMMDD hh:mm:ss'"
-        )
+    # Semantic conventions pass directly
+    if normalized in SEMANTIC_TIMESTAMP_CONVENTIONS:
+        return normalized
+    # Custom format strings: accept any non-empty value
     return normalized
 
 
@@ -938,24 +946,118 @@ def _partition_hour_text_expr(column: str, *, engine_type: str) -> str:
     return f"LPAD({_varchar_cast_expr(column, engine_type=engine_type)}, 2, '0')"
 
 
+# Format translation tables for custom timestamp formats.
+# Users provide strftime-style format strings (e.g., '%Y%m%d %H:%M:%S').
+# Engines have different syntax requirements.
+
+_STRFTIME_TO_DUCKDB: dict[str, str] = {
+    "%Y": "%Y",  # Year (4 digits)
+    "%y": "%y",  # Year (2 digits)
+    "%m": "%m",  # Month (01-12)
+    "%d": "%d",  # Day (01-31)
+    "%H": "%H",  # Hour 24-hour (00-23)
+    "%I": "%I",  # Hour 12-hour (01-12)
+    "%M": "%M",  # Minute (00-59)
+    "%S": "%S",  # Second (00-59)
+    "%p": "%p",  # AM/PM
+    "%f": "%f",  # Microseconds
+}
+
+_STRFTIME_TO_TRINO: dict[str, str] = {
+    "%Y": "yyyy",  # Year (4 digits)
+    "%y": "yy",  # Year (2 digits)
+    "%m": "MM",  # Month (01-12)
+    "%d": "dd",  # Day (01-31)
+    "%H": "HH",  # Hour 24-hour (00-23)
+    "%I": "hh",  # Hour 12-hour (01-12)
+    "%M": "mm",  # Minute (00-59)
+    "%S": "ss",  # Second (00-59)
+    "%p": "a",  # AM/PM marker
+    "%f": "SSSSSS",  # Microseconds (Trino uses SSSSSS)
+}
+
+
+def _translate_format_for_duckdb(strftime_format: str) -> str:
+    """Translate strftime-style format to DuckDB STRPTIME format.
+
+    DuckDB's STRPTIME uses strftime-like specifiers, so most pass through.
+    """
+    result = strftime_format
+    for strftime_spec, duckdb_spec in _STRFTIME_TO_DUCKDB.items():
+        result = result.replace(strftime_spec, duckdb_spec)
+    return result
+
+
+def _translate_format_for_trino(strftime_format: str) -> str:
+    """Translate strftime-style format to Trino UNIX_TIMESTAMP format.
+
+    Trino uses Java SimpleDateFormat syntax, which differs from strftime.
+    """
+    result = strftime_format
+    for strftime_spec, trino_spec in _STRFTIME_TO_TRINO.items():
+        result = result.replace(strftime_spec, trino_spec)
+    return result
+
+
+def _custom_format_timestamp_expr(
+    column: str,
+    format_string: str,
+    *,
+    engine_type: str,
+) -> str:
+    """Build SQL expression for parsing custom timestamp format.
+
+    Args:
+        column: Physical column name.
+        format_string: strftime-style format string (e.g., '%Y%m%d %H:%M:%S').
+        engine_type: 'duckdb' or 'trino'.
+
+    Returns:
+        SQL expression that produces a TIMESTAMP value.
+    """
+    varchar_expr = _varchar_cast_expr(column, engine_type=engine_type)
+
+    if engine_type == "duckdb":
+        duckdb_format = _translate_format_for_duckdb(format_string)
+        return f"STRPTIME({varchar_expr}, '{duckdb_format}')"
+
+    if engine_type == "trino":
+        trino_format = _translate_format_for_trino(format_string)
+        # Trino: use date_parse which directly returns TIMESTAMP
+        return f"DATE_PARSE({varchar_expr}, '{trino_format}')"
+
+    raise ValueError(f"Unsupported engine_type for custom timestamp format: {engine_type}")
+
+
 def _timestamp_field_expr(
     column: str,
     timestamp_format: str | None,
     *,
     engine_type: str,
 ) -> str:
+    """Build SQL expression for a timestamp column with optional format parsing.
+
+    Args:
+        column: Physical column name.
+        timestamp_format: Either a semantic convention ('native', 'iso8601_t_naive')
+                          or a custom strftime-style format string.
+        engine_type: 'duckdb' or 'trino'.
+
+    Returns:
+        SQL expression that produces a TIMESTAMP value.
+    """
+    # Semantic convention: native (timestamp-like column, no conversion)
     if timestamp_format in {None, "native"}:
         return column
+
+    # Semantic convention: iso8601_t_naive (YYYY-MM-DDTHH:MM:SS format)
     if timestamp_format == "iso8601_t_naive":
         return f"CAST(REPLACE({_varchar_cast_expr(column, engine_type=engine_type)}, 'T', ' ') AS TIMESTAMP)"
-    if timestamp_format == "YYYYMMDD hh:mm:ss":
-        raw = _varchar_cast_expr(column, engine_type=engine_type)
-        iso_text = (
-            f"CONCAT(SUBSTR({raw}, 1, 4), '-', SUBSTR({raw}, 5, 2), '-', "
-            f"SUBSTR({raw}, 7, 2), SUBSTR({raw}, 9))"
-        )
-        return f"CAST({iso_text} AS TIMESTAMP)"
-    raise ValueError(f"Unsupported timestamp_format: {timestamp_format}")
+
+    # Custom format: use STRPTIME family for parsing
+    # At this point timestamp_format is guaranteed to be a non-None string
+    assert timestamp_format is not None
+    return _custom_format_timestamp_expr(column, timestamp_format, engine_type=engine_type)
 
 
 def _partition_hour_timestamp_expr(

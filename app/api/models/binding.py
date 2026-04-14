@@ -268,8 +268,9 @@ class TimeBindingSpec(BaseModel):
     timestamp_format: str | None = Field(
         default=None,
         description=(
-            "Optional timestamp encoding for timestamp_column resolution. "
-            "Supported values: native, iso8601_t_naive, YYYYMMDD hh:mm:ss."
+            "Timestamp encoding for timestamp_column resolution. "
+            "Semantic conventions: 'native' (timestamp-like column), 'iso8601_t_naive' (YYYY-MM-DDTHH:MM:SS). "
+            "Custom formats: strftime-style strings like '%Y%m%d %H:%M:%S'."
         ),
     )
     date_surface_ref: str | None = Field(
@@ -318,16 +319,8 @@ class TimeBindingSpec(BaseModel):
         if self.resolution_kind == "timestamp_column":
             if self.timestamp_surface_ref is None:
                 raise ValueError("timestamp_column resolution requires timestamp_surface_ref")
-            if self.timestamp_format not in {
-                None,
-                "native",
-                "iso8601_t_naive",
-                "YYYYMMDD hh:mm:ss",
-            }:
-                raise ValueError(
-                    "timestamp_column resolution timestamp_format must be "
-                    "'native', 'iso8601_t_naive', or 'YYYYMMDD hh:mm:ss'"
-                )
+            # timestamp_format: semantic conventions ('native', 'iso8601_t_naive') or custom format
+            # Custom formats are accepted as-is; validation happens at runtime.
             if any(
                 value is not None
                 for value in (

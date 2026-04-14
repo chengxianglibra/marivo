@@ -988,21 +988,8 @@ def _binding_time_binding_blockers(
                         },
                     )
                 )
-        elif timestamp_format not in {"iso8601_t_naive", "YYYYMMDD hh:mm:ss"}:
-            blockers.append(
-                _blocker(
-                    code="TIME_BINDING_TIMESTAMP_FORMAT_UNSUPPORTED",
-                    message="timestamp_column uses an unsupported timestamp_format.",
-                    subject_ref=subject_ref,
-                    dependency_ref=physical_name,
-                    details={
-                        "carrier_binding_key": carrier_binding_key,
-                        "timestamp_surface_ref": timestamp_surface_ref,
-                        "physical_name": physical_name,
-                        "timestamp_format": timestamp_format,
-                    },
-                )
-            )
+        # iso8601_t_naive and custom format strings are accepted without
+        # additional validation; runtime will handle format parsing.
     return blockers
 
 

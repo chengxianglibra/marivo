@@ -619,26 +619,38 @@ class TimeBindingsTableTests(TypedBindingDDLTests):
                 semantic_ref="time.utc_test",
             )
 
-    def test_timestamp_format_constraint(self) -> None:
+    def test_timestamp_format_accepts_custom_formats(self) -> None:
+        """timestamp_format now accepts semantic conventions and custom format strings."""
         binding_id = self._insert_binding(binding_ref="binding.time_binding_timestamp_format")
+        # Semantic conventions
         self.assertIsNotNone(
             self._insert_time_binding(binding_id, timestamp_format="iso8601_t_naive")
         )
         self.assertIsNotNone(
             self._insert_time_binding(
                 binding_id,
-                target_key="time.compact_timestamp_format",
-                semantic_ref="time.compact_timestamp_format",
-                timestamp_format="YYYYMMDD hh:mm:ss",
+                target_key="time.native_timestamp",
+                semantic_ref="time.native_timestamp",
+                timestamp_format="native",
             )
         )
-        with self.assertRaises(sqlite3.IntegrityError):
+        # Custom format strings (strftime-style)
+        self.assertIsNotNone(
             self._insert_time_binding(
                 binding_id,
-                target_key="time.invalid_timestamp_format",
-                semantic_ref="time.invalid_timestamp_format",
-                timestamp_format="invalid_format",
+                target_key="time.custom_format",
+                semantic_ref="time.custom_format",
+                timestamp_format="%Y%m%d %H:%M:%S",
             )
+        )
+        self.assertIsNotNone(
+            self._insert_time_binding(
+                binding_id,
+                target_key="time.another_format",
+                semantic_ref="time.another_format",
+                timestamp_format="%Y-%m-%d %H:%M:%S",
+            )
+        )
 
     def test_target_kind_constraint(self) -> None:
         binding_id = self._insert_binding(binding_ref="binding.time_binding_target")

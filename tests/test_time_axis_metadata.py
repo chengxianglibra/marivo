@@ -83,12 +83,13 @@ class TimeCapabilitiesSchemaTests(unittest.TestCase):
                 }
             )
 
-    def test_normalize_time_capabilities_accepts_timestamp_format(self) -> None:
+    def test_normalize_time_capabilities_accepts_custom_timestamp_format(self) -> None:
+        """Custom strftime format strings are accepted."""
         normalized = normalize_time_capabilities(
             {
                 "analysis_time": {
                     "timestamp_column": "create_time",
-                    "timestamp_format": "YYYYMMDD hh:mm:ss",
+                    "timestamp_format": "%Y%m%d %H:%M:%S",
                 }
             }
         )
@@ -97,7 +98,7 @@ class TimeCapabilitiesSchemaTests(unittest.TestCase):
             {
                 "analysis_time": {
                     "timestamp_column": "create_time",
-                    "timestamp_format": "YYYYMMDD hh:mm:ss",
+                    "timestamp_format": "%Y%m%d %H:%M:%S",
                 }
             },
         )
