@@ -26,6 +26,7 @@ import tempfile
 import unittest
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import duckdb
 from fastapi.testclient import TestClient
@@ -729,6 +730,142 @@ class DiagnoseValidationBoundaryTests(unittest.TestCase):
                 "decompose_needs_attention",
                 msg="Truncation must not emit decompose_needs_attention issue",
             )
+
+
+class DiagnoseHourFollowupRegressionTests(unittest.TestCase):
+    def test_hour_candidate_followup_reaches_driver_rows_even_if_metric_grain_is_day(self) -> None:
+        from app.intents.diagnose import run_diagnose_intent
+
+        svc = MagicMock()
+        svc.normalize_intent_metric_ref.side_effect = lambda metric: f"metric.{metric}"
+        svc.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
+        svc._new_step_id.return_value = "step_diag_hour_bundle"
+        svc._insert_artifact.return_value = "art_diag_hour_bundle"
+        svc._insert_step.return_value = None
+
+        detect_result = {
+            "step_ref": {
+                "session_id": "sess_diag_hour",
+                "step_id": "step_detect_hour",
+                "step_type": "detect",
+            },
+            "artifact_id": "art_detect_hour",
+            "detectability": {"status": "ready", "issues": []},
+            "scan_summary": {"total_candidate_count": 1},
+            "candidates": [
+                {
+                    "candidate_ref": {
+                        "session_id": "sess_diag_hour",
+                        "step_id": "step_detect_hour",
+                        "step_type": "detect",
+                        "artifact_id": "art_detect_hour",
+                        "item_ref": {"collection": "candidates", "key": "2026-04-09T14:00:00"},
+                    },
+                    "window": {
+                        "start": "2026-04-09T14:00:00",
+                        "end": "2026-04-09T15:00:00",
+                    },
+                    "observed_value": 29.39,
+                    "expected_value": 2.14,
+                    "deviation_abs": 27.25,
+                    "deviation_pct": 12.7,
+                    "candidate_score": 99.0,
+                    "flag_level": "high",
+                    "direction": "up",
+                }
+            ],
+        }
+        observe_results = [
+            {
+                "step_ref": {
+                    "session_id": "sess_diag_hour",
+                    "step_id": "step_obs_current",
+                    "step_type": "observe",
+                },
+                "artifact_id": "art_obs_current",
+            },
+            {
+                "step_ref": {
+                    "session_id": "sess_diag_hour",
+                    "step_id": "step_obs_baseline",
+                    "step_type": "observe",
+                },
+                "artifact_id": "art_obs_baseline",
+            },
+        ]
+        compare_result = {
+            "step_ref": {
+                "session_id": "sess_diag_hour",
+                "step_id": "step_compare_hour",
+                "step_type": "compare",
+            },
+            "artifact_id": "art_compare_hour",
+            "left_value": 29.39,
+            "right_value": 3.09,
+            "absolute_delta": 26.3,
+            "relative_delta": 8.51,
+            "direction": "up",
+            "comparability": {"status": "comparable", "issues": []},
+        }
+        decompose_result = {
+            "step_ref": {
+                "session_id": "sess_diag_hour",
+                "step_id": "step_decompose_hour",
+                "step_type": "decompose",
+            },
+            "artifact_id": "art_decompose_hour",
+            "attribution": {"status": "attributable", "issues": []},
+            "rows": [
+                {
+                    "key": "global.oneservice.oneservice",
+                    "left_value": 1657,
+                    "right_value": 69,
+                    "absolute_contribution": 1588,
+                    "contribution_share": 0.94,
+                    "direction": "up",
+                    "presence": "both",
+                }
+            ],
+            "scope_absolute_delta": 1688,
+            "unexplained_absolute_delta": 100,
+            "unexplained_share": 0.06,
+            "unexplained_reason": None,
+        }
+
+        with (
+            patch("app.intents.diagnose.run_detect_intent", return_value=detect_result),
+            patch("app.intents.diagnose.run_observe_intent", side_effect=observe_results),
+            patch("app.intents.diagnose.run_compare_intent", return_value=compare_result),
+            patch("app.intents.diagnose.run_decompose_intent", return_value=decompose_result),
+        ):
+            bundle = run_diagnose_intent(
+                svc,
+                "sess_diag_hour",
+                {
+                    "metric": "trino_elapsed_seconds_p95",
+                    "time_scope": {
+                        "mode": "single_window",
+                        "grain": "hour",
+                        "current": {
+                            "start": "2026-04-09T00:00:00",
+                            "end": "2026-04-10T00:00:00",
+                        },
+                    },
+                    "candidate_dimensions": ["trino_resource_group"],
+                    "followup_limit": 1,
+                },
+            )
+
+        self.assertEqual(bundle["validation"]["status"], "diagnosable")
+        self.assertEqual(bundle["diagnoses"][0]["status"], "diagnosed")
+        self.assertEqual(len(bundle["diagnoses"][0]["drivers"]), 1)
+        self.assertEqual(
+            bundle["diagnoses"][0]["baseline_derivation"]["baseline_window"],
+            {
+                "start": "2026-04-09T13:00:00",
+                "end": "2026-04-09T14:00:00",
+            },
+        )
 
 
 # ── _combine_scope unit tests ──────────────────────────────────────────────────

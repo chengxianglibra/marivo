@@ -4,10 +4,38 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from app.intents.decompose import _extract_date_range, _run_segmented_query
+from app.intents.decompose import _extract_date_range, _infer_compare_grain, _run_segmented_query
 
 
 class DecomposeHourWindowTests(unittest.TestCase):
+    def test_infer_compare_grain_prefers_hour_for_datetime_windows_over_metric_day(self) -> None:
+        self.assertEqual(
+            _infer_compare_grain(
+                left_time_scope={
+                    "kind": "range",
+                    "start": "2024-01-01T01:00:00",
+                    "end": "2024-01-01T03:00:00",
+                },
+                right_time_scope={
+                    "kind": "range",
+                    "start": "2024-01-01T00:00:00",
+                    "end": "2024-01-01T01:00:00",
+                },
+                fallback_grain="day",
+            ),
+            "hour",
+        )
+
+    def test_infer_compare_grain_falls_back_to_metric_grain_for_date_windows(self) -> None:
+        self.assertEqual(
+            _infer_compare_grain(
+                left_time_scope={"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+                right_time_scope={"kind": "range", "start": "2023-12-25", "end": "2024-01-01"},
+                fallback_grain="day",
+            ),
+            "day",
+        )
+
     def test_extract_date_range_preserves_hour_boundaries(self) -> None:
         self.assertEqual(
             _extract_date_range(
