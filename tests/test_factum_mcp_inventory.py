@@ -120,16 +120,19 @@ def test_observe_tool_time_scope_annotation_exposes_discriminator_schema() -> No
     register_tools(server, _build_config())
 
     observe = server.tools["observe"]
-    time_scope_type = get_type_hints(observe, include_extras=True)["time_scope"]
-    schema = TypeAdapter(time_scope_type).json_schema()
+    request_type = get_type_hints(observe, include_extras=True)["request"]
+    schema = TypeAdapter(request_type).json_schema()
+    time_scope_schema = schema["properties"]["time_scope"]
 
-    assert schema["discriminator"]["propertyName"] == "kind"
-    assert {item["$ref"] for item in schema["oneOf"]} == {
+    assert schema["properties"]["session_id"]["type"] == "string"
+    assert time_scope_schema["discriminator"]["propertyName"] == "kind"
+    assert {item["$ref"] for item in time_scope_schema["oneOf"]} == {
         "#/$defs/ObserveTimeScopeRange",
         "#/$defs/ObserveTimeScopeSnapshotNow",
         "#/$defs/ObserveTimeScopeLatestAvailable",
         "#/$defs/ObserveTimeScopeAsOf",
     }
+    assert schema["properties"]["scope"]["anyOf"][0]["$ref"] == "#/$defs/ObserveScope"
 
 
 def test_detect_and_diagnose_time_scope_annotations_expose_grain_enum() -> None:
@@ -139,24 +142,44 @@ def test_detect_and_diagnose_time_scope_annotations_expose_grain_enum() -> None:
     detect = server.tools["detect"]
     diagnose = server.tools["diagnose"]
 
-    detect_schema = get_type_hints(detect)["time_scope"].model_json_schema()
-    diagnose_schema = get_type_hints(diagnose)["time_scope"].model_json_schema()
+    detect_schema = get_type_hints(detect)["request"].model_json_schema()
+    diagnose_schema = get_type_hints(diagnose)["request"].model_json_schema()
+    detect_time_scope = detect_schema["$defs"]["DetectTimeScope"]
+    diagnose_time_scope = diagnose_schema["$defs"]["DetectTimeScope"]
 
     expected_grains = ["hour", "day", "week", "month"]
-    assert detect_schema["properties"]["grain"]["enum"] == expected_grains
-    assert diagnose_schema["properties"]["grain"]["enum"] == expected_grains
+    assert detect_time_scope["properties"]["grain"]["enum"] == expected_grains
+    assert diagnose_time_scope["properties"]["grain"]["enum"] == expected_grains
 
 
 def test_t6_tools_use_strongly_typed_nested_models_instead_of_raw_dicts() -> None:
     server = cast("Any", _FakeServer())
     register_tools(server, _build_config())
 
+    observe_hints = get_type_hints(server.tools["observe"])
+    detect_hints = get_type_hints(server.tools["detect"])
+    diagnose_hints = get_type_hints(server.tools["diagnose"])
     compare_hints = get_type_hints(server.tools["compare"])
     test_hints = get_type_hints(server.tools["test_intent"])
     validate_hints = get_type_hints(server.tools["validate"])
 
+    assert observe_hints["request"].__name__ == "ObserveToolRequest"
+    assert detect_hints["request"].__name__ == "DetectToolRequest"
+    assert diagnose_hints["request"].__name__ == "DiagnoseToolRequest"
     assert compare_hints["left_ref"].__name__ == "ObservationRef"
     assert compare_hints["right_ref"].__name__ == "ObservationRef"
     assert test_hints["hypothesis"].__name__ == "HypothesisContract"
-    assert validate_hints["left"].__name__ == "ValidateObservationInput"
-    assert validate_hints["right"].__name__ == "ValidateObservationInput"
+    assert validate_hints["request"].__name__ == "ValidateToolRequest"
+
+
+def test_validate_tool_request_schema_keeps_nested_left_right_objects() -> None:
+    server = cast("Any", _FakeServer())
+    register_tools(server, _build_config())
+
+    validate = server.tools["validate"]
+    schema = get_type_hints(validate)["request"].model_json_schema()
+
+    assert schema["properties"]["left"]["$ref"] == "#/$defs/ValidateObservationInput"
+    assert schema["properties"]["right"]["$ref"] == "#/$defs/ValidateObservationInput"
+    nested_time_scope = schema["$defs"]["ValidateObservationInput"]["properties"]["time_scope"]
+    assert nested_time_scope["discriminator"]["propertyName"] == "kind"

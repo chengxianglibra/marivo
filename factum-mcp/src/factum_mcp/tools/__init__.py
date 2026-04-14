@@ -4,20 +4,19 @@ import base64
 from collections.abc import Callable
 from copy import deepcopy
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.api.models._legacy import (
     ArtifactRef,
     AttributeObservationInput,
     CorrelateObservationRef,
-    DetectTimeScope,
+    DetectRequest,
+    DiagnoseRequest,
     HypothesisContract,
     ObservationRef,
-    ObserveScope,
-    ObserveTimeScope,
+    ObserveRequest,
     TestObservationRef,
-    ValidateHypothesis,
-    ValidateObservationInput,
+    ValidateRequest,
 )
 from factum_mcp.config import FactumMcpConfig
 from factum_mcp.http_client import FactumHttpClient
@@ -33,6 +32,30 @@ _CATALOG_SEARCH_TYPES = frozenset(
 _CATALOG_SEARCH_READINESS = frozenset({"all", "not_ready", "ready", "stale"})
 
 _CATALOG_SEARCH_READINESS = frozenset({"all", "not_ready", "ready", "stale"})
+
+
+class ObserveToolRequest(ObserveRequest):
+    """MCP wrapper for observe with an explicit owning session id."""
+
+    session_id: str = Field(description="Owning analysis session id.")
+
+
+class DetectToolRequest(DetectRequest):
+    """MCP wrapper for detect with an explicit owning session id."""
+
+    session_id: str = Field(description="Owning analysis session id.")
+
+
+class DiagnoseToolRequest(DiagnoseRequest):
+    """MCP wrapper for diagnose with an explicit owning session id."""
+
+    session_id: str = Field(description="Owning analysis session id.")
+
+
+class ValidateToolRequest(ValidateRequest):
+    """MCP wrapper for validate with an explicit owning session id."""
+
+    session_id: str = Field(description="Owning analysis session id.")
 
 
 def _tool_metadata(
@@ -162,26 +185,13 @@ def register_tools(
 
     @server.tool()
     @_tool_metadata("POST", "/sessions/{session_id}/intents/observe")
-    def observe(
-        session_id: str,
-        metric: str,
-        time_scope: ObserveTimeScope,
-        result_mode: str = "standard",
-        scope: ObserveScope | None = None,
-        granularity: str | None = None,
-        dimensions: list[str] | None = None,
-    ) -> dict[str, object]:
+    def observe(request: ObserveToolRequest) -> dict[str, object]:
         """Submit POST /sessions/{session_id}/intents/observe using the canonical ObserveRequest body; this path selects the intent, so do not add an extra intent field. On 422, follow error.guidance.contract_url, schema_url, and examples."""
         return _intent_request(
             client,
-            session_id,
+            request.session_id,
             "observe",
-            metric=metric,
-            time_scope=time_scope,
-            result_mode=result_mode,
-            scope=scope,
-            granularity=granularity,
-            dimensions=dimensions,
+            **_model_json_body(request, exclude={"session_id"}),
         )
 
     @server.tool()
@@ -242,30 +252,13 @@ def register_tools(
 
     @server.tool()
     @_tool_metadata("POST", "/sessions/{session_id}/intents/detect")
-    def detect(
-        session_id: str,
-        metric: str,
-        time_scope: DetectTimeScope,
-        scope: ObserveScope | None = None,
-        split_by: str | None = None,
-        profile: str = "auto",
-        sensitivity: str = "balanced",
-        limit: int | None = None,
-        max_series: int | None = None,
-    ) -> dict[str, object]:
+    def detect(request: DetectToolRequest) -> dict[str, object]:
         """Submit POST /sessions/{session_id}/intents/detect using the canonical DetectRequest body; this path selects the intent, so do not add an extra intent field. On 422, follow error.guidance.contract_url, schema_url, and examples."""
         return _intent_request(
             client,
-            session_id,
+            request.session_id,
             "detect",
-            metric=metric,
-            time_scope=time_scope,
-            scope=scope,
-            split_by=split_by,
-            profile=profile,
-            sensitivity=sensitivity,
-            limit=limit,
-            max_series=max_series,
+            **_model_json_body(request, exclude={"session_id"}),
         )
 
     @server.tool()
@@ -334,58 +327,24 @@ def register_tools(
 
     @server.tool()
     @_tool_metadata("POST", "/sessions/{session_id}/intents/diagnose")
-    def diagnose(
-        session_id: str,
-        metric: str,
-        time_scope: DetectTimeScope,
-        candidate_dimensions: list[str],
-        scope: ObserveScope | None = None,
-        detect_split_by: str | None = None,
-        profile: str = "auto",
-        sensitivity: str = "balanced",
-        candidate_limit: int | None = None,
-        followup_limit: int = 3,
-        decomposition_limit: int | None = None,
-    ) -> dict[str, object]:
+    def diagnose(request: DiagnoseToolRequest) -> dict[str, object]:
         """Submit POST /sessions/{session_id}/intents/diagnose using the canonical DiagnoseRequest body; this path selects the intent, so do not add an extra intent field. On 422, follow error.guidance.contract_url, schema_url, and examples."""
         return _intent_request(
             client,
-            session_id,
+            request.session_id,
             "diagnose",
-            metric=metric,
-            time_scope=time_scope,
-            candidate_dimensions=candidate_dimensions,
-            scope=scope,
-            detect_split_by=detect_split_by,
-            profile=profile,
-            sensitivity=sensitivity,
-            candidate_limit=candidate_limit,
-            followup_limit=followup_limit,
-            decomposition_limit=decomposition_limit,
+            **_model_json_body(request, exclude={"session_id"}),
         )
 
     @server.tool()
     @_tool_metadata("POST", "/sessions/{session_id}/intents/validate")
-    def validate(
-        session_id: str,
-        metric: str,
-        left: ValidateObservationInput,
-        right: ValidateObservationInput,
-        sample_kind: str | None = None,
-        hypothesis: ValidateHypothesis | None = None,
-        method: str | None = None,
-    ) -> dict[str, object]:
+    def validate(request: ValidateToolRequest) -> dict[str, object]:
         """Submit POST /sessions/{session_id}/intents/validate using the canonical ValidateRequest body; this path selects the intent, so do not add an extra intent field. On 422, follow error.guidance.contract_url, schema_url, and examples."""
         return _intent_request(
             client,
-            session_id,
+            request.session_id,
             "validate",
-            metric=metric,
-            left=left,
-            right=right,
-            sample_kind=sample_kind,
-            hypothesis=hypothesis,
-            method=method,
+            **_model_json_body(request, exclude={"session_id"}),
         )
 
     @server.tool()
@@ -1484,6 +1443,14 @@ def _compact_params(
 
 def _compact_body(**params: object) -> dict[str, object]:
     return {key: _normalize_json_value(value) for key, value in params.items() if value is not None}
+
+
+def _model_json_body(
+    value: BaseModel,
+    *,
+    exclude: set[str] | None = None,
+) -> dict[str, object]:
+    return value.model_dump(mode="json", by_alias=True, exclude_none=True, exclude=exclude or set())
 
 
 def _normalize_json_value(value: object) -> object:

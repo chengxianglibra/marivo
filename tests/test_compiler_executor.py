@@ -186,7 +186,46 @@ class CompilerTests(unittest.TestCase):
             },
         )
 
-        self.assertEqual(compiled.params, ["2026-03-25 10:00:00", "2026-03-25 14:00:00"])
+        self.assertEqual(compiled.params, [])
+        self.assertIn("event_time >= TIMESTAMP '2026-03-25 10:00:00'", compiled.sql)
+        self.assertIn("event_time < TIMESTAMP '2026-03-25 14:00:00'", compiled.sql)
+
+    def test_compile_aggregate_query_single_window_trino_partition_fields_scoped_query_inlines_literals(
+        self,
+    ) -> None:
+        compiled = compile_step(
+            AnalysisStepIR(
+                index=0,
+                step_type="aggregate_query",
+                params={
+                    "table": "analytics.watch_events",
+                    "select": [
+                        "DATE_TRUNC('hour', CAST(CONCAT(log_date, ' ', log_hour, ':00:00') AS TIMESTAMP)) AS bucket_start",
+                        "COUNT(*) AS value",
+                    ],
+                    "group_by": ["bucket_start"],
+                    "order_by": "bucket_start",
+                    "scoped_query": {
+                        "mode": "single_window",
+                        "engine_type": "trino",
+                        "analysis_time_kind": "partition_fields",
+                        "analysis_time_expr": "CAST(CONCAT(log_date, ' ', log_hour, ':00:00') AS TIMESTAMP)",
+                        "current": {"start": "2026-03-25T10:00:00", "end": "2026-03-25T14:00:00"},
+                    },
+                },
+            ),
+            engine_type="trino",
+        )
+
+        self.assertEqual(compiled.params, [])
+        self.assertIn(
+            "CAST(CONCAT(log_date, ' ', log_hour, ':00:00') AS TIMESTAMP) >= TIMESTAMP '2026-03-25 10:00:00'",
+            compiled.sql,
+        )
+        self.assertIn(
+            "CAST(CONCAT(log_date, ' ', log_hour, ':00:00') AS TIMESTAMP) < TIMESTAMP '2026-03-25 14:00:00'",
+            compiled.sql,
+        )
 
     def test_compile_metric_query_scoped_query_requires_valid_mode(self) -> None:
         with self.assertRaisesRegex(ValueError, "scoped_query.mode must be"):

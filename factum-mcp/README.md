@@ -313,21 +313,22 @@ Boundary notes:
 
 Current typed intent coverage:
 
-- `observe(session_id, metric, time_scope, result_mode="standard", scope=None, granularity=None, dimensions=None)` -> `POST /sessions/{session_id}/intents/observe`
+- `observe(request)` -> `POST /sessions/{session_id}/intents/observe`
 - `compare(session_id, left_ref, right_ref, mode="auto")` -> `POST /sessions/{session_id}/intents/compare`
 - `decompose(session_id, compare_ref, dimension, method="delta_share")` -> `POST /sessions/{session_id}/intents/decompose`
 - `correlate(session_id, left_ref, right_ref, method="spearman", min_pairs=5)` -> `POST /sessions/{session_id}/intents/correlate`
-- `detect(session_id, metric, time_scope, scope=None, split_by=None, profile="auto", sensitivity="balanced", limit=None, max_series=None)` -> `POST /sessions/{session_id}/intents/detect`
+- `detect(request)` -> `POST /sessions/{session_id}/intents/detect`
 - `test_intent(session_id, left_ref, right_ref, hypothesis, method="auto")` -> `POST /sessions/{session_id}/intents/test`
 - `forecast(session_id, source_ref, horizon, profile="auto", interval_level=None)` -> `POST /sessions/{session_id}/intents/forecast`
 - `attribute(session_id, metric, left, right, dimensions, decomposition_method="delta_share", decomposition_limit=5)` -> `POST /sessions/{session_id}/intents/attribute`
-- `diagnose(session_id, metric, time_scope, candidate_dimensions, scope=None, detect_split_by=None, profile="auto", sensitivity="balanced", candidate_limit=None, followup_limit=3, decomposition_limit=None)` -> `POST /sessions/{session_id}/intents/diagnose`
-- `validate(session_id, metric, left, right, sample_kind=None, hypothesis=None, method=None)` -> `POST /sessions/{session_id}/intents/validate`
+- `diagnose(request)` -> `POST /sessions/{session_id}/intents/diagnose`
+- `validate(request)` -> `POST /sessions/{session_id}/intents/validate`
 
 Boundary notes:
 
 - these are path-discriminated intent tools; do not add an extra `intent` or `step_type` field to the request body
 - MCP parameter names intentionally reuse the canonical HTTP request field names
+- `observe` / `detect` / `diagnose` / `validate` expose one explicit `request` object so nested fields such as `time_scope`, `scope`, `left`, and `right` keep their canonical object schema instead of relying on SDK argument flattening
 - typed intent `metric` parameters must use canonical semantic refs such as `metric.watch_time`; bare names like `watch_time` are rejected
 - nested MCP input schemas now reuse Factum's canonical request models, so
   discriminators such as `time_scope.kind`, nested required fields, and enums
@@ -615,12 +616,14 @@ Observe:
 
 ```json
 {
-  "session_id": "sess_123",
-  "metric": "metric.watch_time",
-  "time_scope": {
-    "kind": "range",
-    "start": "2025-03-01",
-    "end": "2025-03-08"
+  "request": {
+    "session_id": "sess_123",
+    "metric": "metric.watch_time",
+    "time_scope": {
+      "kind": "range",
+      "start": "2025-03-01",
+      "end": "2025-03-08"
+    }
   }
 }
 ```
@@ -674,14 +677,16 @@ Detect:
 
 ```json
 {
-  "session_id": "sess_123",
-  "metric": "metric.watch_time",
-  "time_scope": {
-    "mode": "single_window",
-    "grain": "day",
-    "current": {
-      "start": "2025-03-01",
-      "end": "2025-03-08"
+  "request": {
+    "session_id": "sess_123",
+    "metric": "metric.watch_time",
+    "time_scope": {
+      "mode": "single_window",
+      "grain": "day",
+      "current": {
+        "start": "2025-03-01",
+        "end": "2025-03-08"
+      }
     }
   }
 }
@@ -749,17 +754,19 @@ Diagnose:
 
 ```json
 {
-  "session_id": "sess_123",
-  "metric": "metric.watch_time",
-  "time_scope": {
-    "mode": "single_window",
-    "grain": "day",
-    "current": {
-      "start": "2025-03-01",
-      "end": "2025-03-08"
-    }
-  },
-  "candidate_dimensions": ["dimension.country"]
+  "request": {
+    "session_id": "sess_123",
+    "metric": "metric.watch_time",
+    "time_scope": {
+      "mode": "single_window",
+      "grain": "day",
+      "current": {
+        "start": "2025-03-01",
+        "end": "2025-03-08"
+      }
+    },
+    "candidate_dimensions": ["dimension.country"]
+  }
 }
 ```
 
@@ -767,20 +774,22 @@ Validate:
 
 ```json
 {
-  "session_id": "sess_123",
-  "metric": "metric.conversion_rate",
-  "left": {
-    "time_scope": {
-      "kind": "range",
-      "start": "2025-03-01",
-      "end": "2025-03-08"
-    }
-  },
-  "right": {
-    "time_scope": {
-      "kind": "range",
-      "start": "2025-02-22",
-      "end": "2025-03-01"
+  "request": {
+    "session_id": "sess_123",
+    "metric": "metric.conversion_rate",
+    "left": {
+      "time_scope": {
+        "kind": "range",
+        "start": "2025-03-01",
+        "end": "2025-03-08"
+      }
+    },
+    "right": {
+      "time_scope": {
+        "kind": "range",
+        "start": "2025-02-22",
+        "end": "2025-03-01"
+      }
     }
   }
 }
@@ -856,6 +865,6 @@ Common failure examples:
 - `get_session({"session_id":"sess_missing"})` -> `404` with `error.category = "not_found"`
 - `query_session_state(...)` with an invalid body field or enum -> `422` with canonical `detail` preserved under `error.detail`
 - `get_proposition_context(...)` for a missing or cross-session proposition -> `404` with the original Factum error message
-- `observe(...)` with an invalid or incomplete body -> `422` with canonical `guidance` preserved under `error.guidance`; start with `error.guidance.examples`, then inspect `error.guidance.schema_url` or `error.guidance.contract_url`
+- `observe(request=...)` with an invalid or incomplete body -> `422` with canonical `guidance` preserved under `error.guidance`; start with `error.guidance.examples`, then inspect `error.guidance.schema_url` or `error.guidance.contract_url`
 - `publish_entity(...)` after the object is already published -> `422` with structured `error.detail`, `error.code = "publish_state_error"`, and a message explaining the draft-state violation
 - `publish_binding(...)` before required semantic imports are published -> `422` with structured `error.detail` and a publish-specific validation code such as `reference_validation_error`

@@ -593,6 +593,14 @@ SURFACE_SPECS: tuple[McpSurfaceSpec, ...] = (
     ),
     McpSurfaceSpec("list_sources", "tool", "p1", True, "GET", ("/sources",)),
     McpSurfaceSpec("register_source", "tool", "p1", True, "POST", ("/sources",)),
+    McpSurfaceSpec(
+        "preview_source_table",
+        "tool",
+        "p1",
+        True,
+        "GET",
+        ("/sources/{source_id}/catalog/preview",),
+    ),
     McpSurfaceSpec("get_source", "tool", "p1", False, "GET", ("/sources/{source_id}",)),
     McpSurfaceSpec(
         "get_source_objects",
