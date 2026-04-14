@@ -29,6 +29,7 @@ _ParamValue = _ParamScalar | _ParamList
 _CATALOG_SEARCH_TYPES = frozenset(
     {"asset", "binding", "dimension", "entity", "metric", "process", "time"}
 )
+_CATALOG_SEARCH_READINESS = frozenset({"all", "not_ready", "ready", "stale"})
 
 _CATALOG_SEARCH_READINESS = frozenset({"all", "not_ready", "ready", "stale"})
 
@@ -1399,6 +1400,33 @@ def register_tools(
     def sync_source(source_id: str) -> dict[str, object]:
         """Trigger synced metadata refresh via POST /sources/{source_id}/sync; this operates on stored source metadata, not live catalog browse endpoints."""
         return client.request_envelope("POST", f"/sources/{source_id}/sync").model_dump()
+
+    @server.tool()
+    @_tool_metadata("GET", "/sources/{source_id}/catalog/preview")
+    def preview_source_table(
+        source_id: str,
+        schema: str,
+        table: str,
+        limit: int = 100,
+        columns: str | None = None,
+    ) -> dict[str, object]:
+        """Preview sample rows from a source table via GET /sources/{source_id}/catalog/preview.
+
+        Use this to inspect actual data values when configuring semantic bindings,
+        especially for determining timestamp formats and column data types.
+
+        Args:
+            source_id: Registered source identifier
+            schema: Schema name containing the table
+            table: Table name to preview
+            limit: Max rows (default 100, max 1000)
+            columns: Comma-separated column names (optional)
+        """
+        return client.request_envelope(
+            "GET",
+            f"/sources/{source_id}/catalog/preview",
+            params=_compact_params(schema=schema, table=table, limit=limit, columns=columns),
+        ).model_dump()
 
     @server.tool()
     @_tool_metadata("GET", "/sources/{source_id}/objects")

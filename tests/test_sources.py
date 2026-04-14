@@ -868,5 +868,166 @@ class ColumnPropertiesTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 400)
 
 
+class TablePreviewTests(unittest.TestCase):
+    """Tests for the table preview endpoint."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        cls.db_path = Path(cls.temp_dir.name) / "preview_test.duckdb"
+        get_seeded_duckdb_path(cls.db_path)
+        cls.client = TestClient(create_app(cls.db_path))
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.client.close()
+        cls.temp_dir.cleanup()
+
+    def _create_source(self, name: str) -> dict:
+        resp = self.client.post(
+            "/sources",
+            json={
+                "source_type": "duckdb",
+                "display_name": name,
+                "connection": {"path": str(self.db_path)},
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        return resp.json()
+
+    def test_preview_table_basic(self) -> None:
+        """Preview returns sample rows with columns metadata."""
+        source = self._create_source("Preview Basic")
+        resp = self.client.get(
+            f"/sources/{source['source_id']}/catalog/preview",
+            params={"schema": "analytics", "table": "watch_events", "limit": 10},
+        )
+        self.assertEqual(resp.status_code, 200)
+        result = resp.json()
+        self.assertEqual(result["schema_name"], "analytics")
+        self.assertEqual(result["table_name"], "watch_events")
+        self.assertLessEqual(result["row_count"], 10)
+        self.assertTrue(len(result["columns"]) > 0)
+        self.assertTrue(len(result["rows"]) > 0)
+        # Check columns have name and type
+        for col in result["columns"]:
+            self.assertIn("name", col)
+            self.assertIn("type", col)
+
+    def test_preview_table_with_columns(self) -> None:
+        """Preview with column selection returns only selected columns."""
+        source = self._create_source("Preview Columns")
+        resp = self.client.get(
+            f"/sources/{source['source_id']}/catalog/preview",
+            params={
+                "schema": "analytics",
+                "table": "watch_events",
+                "columns": "user_id,event_date",
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        result = resp.json()
+        self.assertEqual(len(result["columns"]), 2)
+        col_names = {c["name"] for c in result["columns"]}
+        self.assertEqual(col_names, {"user_id", "event_date"})
+        # Rows should only have those keys
+        for row in result["rows"]:
+            self.assertEqual(set(row.keys()), col_names)
+
+    def test_preview_table_not_found(self) -> None:
+        """Preview returns 404 for missing table."""
+        source = self._create_source("Preview Missing")
+        resp = self.client.get(
+            f"/sources/{source['source_id']}/catalog/preview",
+            params={"schema": "analytics", "table": "nonexistent_table"},
+        )
+        self.assertEqual(resp.status_code, 404)
+
+    def test_preview_invalid_column(self) -> None:
+        """Preview returns 400 for invalid column names."""
+        source = self._create_source("Preview Invalid Col")
+        resp = self.client.get(
+            f"/sources/{source['source_id']}/catalog/preview",
+            params={
+                "schema": "analytics",
+                "table": "watch_events",
+                "columns": "invalid_column_name",
+            },
+        )
+        self.assertEqual(resp.status_code, 400)
+
+    def test_preview_limit_clamped(self) -> None:
+        """Preview clamps limit to max 1000."""
+        source = self._create_source("Preview Limit")
+        resp = self.client.get(
+            f"/sources/{source['source_id']}/catalog/preview",
+            params={"schema": "analytics", "table": "watch_events", "limit": 5000},
+        )
+        self.assertEqual(resp.status_code, 200)
+        result = resp.json()
+        self.assertEqual(result["limit_applied"], 1000)
+
+    def test_preview_source_not_found(self) -> None:
+        """Preview returns 404 for missing source."""
+        resp = self.client.get(
+            "/sources/src_nonexistent/catalog/preview",
+            params={"schema": "analytics", "table": "watch_events"},
+        )
+        self.assertEqual(resp.status_code, 404)
+
+    def test_preview_truncated_flag(self) -> None:
+        """Preview sets truncated=True when more rows exist beyond limit."""
+        source = self._create_source("Preview Truncated")
+        # watch_events has more than 1 row, so truncated should be True
+        resp = self.client.get(
+            f"/sources/{source['source_id']}/catalog/preview",
+            params={"schema": "analytics", "table": "watch_events", "limit": 1},
+        )
+        self.assertEqual(resp.status_code, 200)
+        result = resp.json()
+        self.assertEqual(result["row_count"], 1)
+        self.assertTrue(result["truncated"])
+
+    def test_preview_truncated_false_when_fewer_rows(self) -> None:
+        """Preview sets truncated=False when table has fewer rows than limit."""
+        source = self._create_source("Preview Fewer Rows")
+        # Request a large limit (within bounds)
+        resp = self.client.get(
+            f"/sources/{source['source_id']}/catalog/preview",
+            params={"schema": "analytics", "table": "watch_events", "limit": 500},
+        )
+        self.assertEqual(resp.status_code, 200)
+        result = resp.json()
+        # If row_count < limit, truncated should be False
+        if result["row_count"] < 500:
+            self.assertFalse(result["truncated"])
+        # If row_count == limit, we can't tell without knowing actual table size
+        # But the logic ensures truncated=False when fewer rows exist
+
+    def test_preview_empty_columns_treated_as_all(self) -> None:
+        """Preview treats empty columns=, as all columns (not SELECT FROM error)."""
+        source = self._create_source("Preview Empty Columns")
+        resp = self.client.get(
+            f"/sources/{source['source_id']}/catalog/preview",
+            params={"schema": "analytics", "table": "watch_events", "columns": ","},
+        )
+        self.assertEqual(resp.status_code, 200)
+        result = resp.json()
+        # Should return all columns, not fail
+        self.assertTrue(len(result["columns"]) > 0)
+
+    def test_preview_default_limit(self) -> None:
+        """Preview uses default limit of 100 when not specified."""
+        source = self._create_source("Preview Default")
+        resp = self.client.get(
+            f"/sources/{source['source_id']}/catalog/preview",
+            params={"schema": "analytics", "table": "watch_events"},
+        )
+        self.assertEqual(resp.status_code, 200)
+        result = resp.json()
+        self.assertEqual(result["limit_requested"], 100)
+        self.assertEqual(result["limit_applied"], 100)
+
+
 if __name__ == "__main__":
     unittest.main()

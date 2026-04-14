@@ -169,6 +169,40 @@ def browse_catalog_tables(
         raise HTTPException(status_code=404, detail=str(error)) from error
 
 
+@router.get("/sources/{source_id}/catalog/preview")
+def preview_table(
+    source_id: str,
+    request: Request,
+    schema: str = Query(..., description="Schema name"),
+    table: str = Query(..., description="Table name"),
+    limit: int = Query(default=100, ge=1, description="Max rows to return"),
+    columns: str | None = Query(default=None, description="Comma-separated column names"),
+) -> dict[str, object]:
+    """Preview sample rows from a source table (live query, no persistence).
+
+    The limit is clamped to a maximum of 1000 rows at the adapter level.
+    """
+    services = get_services(request)
+    column_list = None
+    if columns:
+        column_list = [c.strip() for c in columns.split(",") if c.strip()]
+        # Treat empty column list as None (all columns) to avoid "SELECT  FROM ..."
+        if not column_list:
+            column_list = None
+    try:
+        return services.source_service.preview_table(
+            source_id=source_id,
+            schema_name=schema,
+            table_name=table,
+            limit=limit,
+            columns=column_list,
+        )
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
 @router.patch("/sources/{source_id}/objects/{object_id}/properties")
 def patch_column_properties(
     source_id: str, object_id: str, payload: ColumnPropertiesUpdateRequest, request: Request
