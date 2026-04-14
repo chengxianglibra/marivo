@@ -209,7 +209,7 @@ Invalid combinations include:
 
 - `granularity` and `dimensions` together
 - non-`standard` `result_mode` with `granularity` or `dimensions`
-- `granularity = "hour"` with date-only or timezone-aware `time_scope.kind = "range"` boundaries; hour grain requires naive datetime strings
+- `granularity = "hour"` with date-only or timezone-aware `time_scope.kind = "range"` boundaries; hour grain requires naive datetime strings such as `2026-04-09 00:00:00`
 - time conditions inside `scope`
 - unsupported metric capability for the requested observation mode
 - metrics without a per-row value expression for sample-summary modes; typed metrics may support

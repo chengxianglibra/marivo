@@ -100,6 +100,7 @@ def _build_scoped_query_parts(
 
     mode = _require_scoped_query_mode(scoped_query)
     analysis_time_kind = str(scoped_query.get("analysis_time_kind") or "").strip()
+    engine_type = str(scoped_query.get("engine_type") or "").strip().lower()
 
     current = dict(scoped_query.get("current") or {})
     current_start = str(current.get("start") or "").strip()
@@ -121,9 +122,15 @@ def _build_scoped_query_parts(
     else:
         current_start = _format_scoped_bound(scoped_query, current_start)
         current_end = _format_scoped_bound(scoped_query, current_end)
-        current_predicate = f"{analysis_time_expr} >= ? AND {analysis_time_expr} < ?"
+        current_predicate, current_params = _build_scoped_time_predicate(
+            analysis_time_expr,
+            current_start,
+            current_end,
+            analysis_time_kind=analysis_time_kind,
+            engine_type=engine_type,
+        )
         filters = [f"({current_predicate})"]
-        params = []
+        params = list(current_params)
 
     if include_period:
         select_prefix = ["'current' AS _period"] if mode == "single_window" else []
@@ -148,7 +155,13 @@ def _build_scoped_query_parts(
 
         baseline_start = _format_scoped_bound(scoped_query, baseline_start)
         baseline_end = _format_scoped_bound(scoped_query, baseline_end)
-        baseline_predicate = f"{analysis_time_expr} >= ? AND {analysis_time_expr} < ?"
+        baseline_predicate, baseline_params = _build_scoped_time_predicate(
+            analysis_time_expr,
+            baseline_start,
+            baseline_end,
+            analysis_time_kind=analysis_time_kind,
+            engine_type=engine_type,
+        )
         if include_period:
             select_prefix = [
                 "CASE",
@@ -156,12 +169,15 @@ def _build_scoped_query_parts(
                 f"                    WHEN {baseline_predicate} THEN 'baseline'",
                 "                END AS _period",
             ]
-            params.extend([current_start, current_end, baseline_start, baseline_end])
+            params = [
+                *current_params,
+                *baseline_params,
+                *current_params,
+                *baseline_params,
+            ]
         filters = [f"(({current_predicate}) OR ({baseline_predicate}))"]
-        params.extend([current_start, current_end, baseline_start, baseline_end])
-    elif current_start and current_end:
-        # Only add params if we have a valid predicate (non-empty bounds)
-        params.extend([current_start, current_end])
+        if not include_period:
+            params = [*current_params, *baseline_params]
 
     filter_fields = (
         "partition_pruning_predicate",
@@ -193,6 +209,29 @@ def _build_scoped_query_parts(
         )
     """
     return _ScopedQueryParts(cte_sql=cte_sql, params=params)
+
+
+def _build_scoped_time_predicate(
+    analysis_time_expr: str,
+    start: str,
+    end: str,
+    *,
+    analysis_time_kind: str,
+    engine_type: str,
+) -> tuple[str, list[Any]]:
+    if analysis_time_kind in {"timestamp", "partition_fields"} and engine_type == "trino":
+        start_literal = _trino_timestamp_literal(start)
+        end_literal = _trino_timestamp_literal(end)
+        return (
+            f"{analysis_time_expr} >= {start_literal} AND {analysis_time_expr} < {end_literal}",
+            [],
+        )
+    return f"{analysis_time_expr} >= ? AND {analysis_time_expr} < ?", [start, end]
+
+
+def _trino_timestamp_literal(value: str) -> str:
+    parsed = datetime.fromisoformat(value.replace(" ", "T"))
+    return f"TIMESTAMP '{parsed.strftime('%Y-%m-%d %H:%M:%S')}'"
 
 
 def _format_scoped_bound(scoped_query: Mapping[str, Any], value: str) -> str:

@@ -179,7 +179,9 @@ class TimeScopeNormalizationTests(unittest.TestCase):
         self.assertEqual(resolved.current.end, "2026-03-25T14:00:00")
 
     def test_hour_grain_rejects_date_only_boundaries(self) -> None:
-        with self.assertRaisesRegex(ValueError, "datetime string for hour grain"):
+        with self.assertRaisesRegex(
+            ValueError, r"naive datetime string for hour grain .*2026-04-09 00:00:00"
+        ):
             TimeScopeResolver(step_type="metric_query").resolve(
                 {
                     "mode": "single_window",
@@ -189,7 +191,9 @@ class TimeScopeNormalizationTests(unittest.TestCase):
             )
 
     def test_hour_grain_rejects_timezone_aware_boundaries(self) -> None:
-        with self.assertRaisesRegex(ValueError, "naive datetime"):
+        with self.assertRaisesRegex(
+            ValueError, r"naive datetime string without timezone .*2026-04-09 00:00:00"
+        ):
             TimeScopeResolver(step_type="metric_query").resolve(
                 {
                     "mode": "single_window",

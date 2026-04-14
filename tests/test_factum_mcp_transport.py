@@ -7,6 +7,7 @@ from typing import Any, cast
 
 import httpx
 import pytest
+from pydantic import BaseModel
 
 from app.api.models._legacy import (
     DetectTimeScope,
@@ -32,6 +33,10 @@ HttpTransportConfig = config_module.HttpTransportConfig
 FactumHttpClient = http_client_module.FactumHttpClient
 register_tools = tools_module.register_tools
 OpenApiResponseCache = openapi_cache_module.OpenApiResponseCache
+ObserveToolRequest = tools_module.ObserveToolRequest
+DetectToolRequest = tools_module.DetectToolRequest
+DiagnoseToolRequest = tools_module.DiagnoseToolRequest
+ValidateToolRequest = tools_module.ValidateToolRequest
 
 
 class _FakeServerSettings:
@@ -1043,21 +1048,22 @@ def test_observe_uses_canonical_observe_request_body() -> None:
         assert request.method == "POST"
         assert request.url.path == "/sessions/sess_123/intents/observe"
         assert request.read() == (
-            b'{"metric":"metric.watch_time","time_scope":{"kind":"range","start":"2025-03-01",'
-            b'"end":"2025-03-08"},"result_mode":"standard","scope":{"dimension_filters":'
-            b'{"country":"US"}},"granularity":"day","dimensions":["device_type"]}'
+            b'{"metric":"metric.watch_time","result_mode":"standard","time_scope":{"kind":"range",'
+            b'"start":"2025-03-01","end":"2025-03-08"},"scope":{"constraints":'
+            b'{"dimension.country":"US"}},"dimensions":["dimension.device_type"]}'
         )
         return httpx.Response(200, json={"artifact_id": "obs_123"}, request=request)
 
     result = _invoke_registered_tool(
         "observe",
         handler,
-        session_id="sess_123",
-        metric="metric.watch_time",
-        time_scope={"kind": "range", "start": "2025-03-01", "end": "2025-03-08"},
-        scope={"dimension_filters": {"country": "US"}},
-        granularity="day",
-        dimensions=["device_type"],
+        request=ObserveToolRequest(
+            session_id="sess_123",
+            metric="metric.watch_time",
+            time_scope={"kind": "range", "start": "2025-03-01", "end": "2025-03-08"},
+            scope={"constraints": {"dimension.country": "US"}},
+            dimensions=["dimension.device_type"],
+        ),
     )
 
     assert result["ok"] is True
@@ -1147,13 +1153,15 @@ def test_detect_omits_null_optional_fields() -> None:
     result = _invoke_registered_tool(
         "detect",
         handler,
-        session_id="sess_123",
-        metric="metric.watch_time",
-        time_scope={
-            "mode": "single_window",
-            "grain": "day",
-            "current": {"start": "2025-03-01", "end": "2025-03-08"},
-        },
+        request=DetectToolRequest(
+            session_id="sess_123",
+            metric="metric.watch_time",
+            time_scope={
+                "mode": "single_window",
+                "grain": "day",
+                "current": {"start": "2025-03-01", "end": "2025-03-08"},
+            },
+        ),
     )
 
     assert result["ok"] is True
@@ -1240,21 +1248,23 @@ def test_diagnose_uses_default_followup_limit_and_path_discriminated_body() -> N
             b'{"metric":"metric.watch_time","time_scope":{"mode":"single_window","grain":"day",'
             b'"current":{"start":"2025-03-01","end":"2025-03-08"}},'
             b'"candidate_dimensions":["dimension.country"],"profile":"auto",'
-            b'"sensitivity":"balanced","followup_limit":3}'
+            b'"sensitivity":"balanced","followup_limit":3,"decomposition_limit":5}'
         )
         return httpx.Response(200, json={"artifact_id": "diagnose_123"}, request=request)
 
     result = _invoke_registered_tool(
         "diagnose",
         handler,
-        session_id="sess_123",
-        metric="metric.watch_time",
-        time_scope={
-            "mode": "single_window",
-            "grain": "day",
-            "current": {"start": "2025-03-01", "end": "2025-03-08"},
-        },
-        candidate_dimensions=["dimension.country"],
+        request=DiagnoseToolRequest(
+            session_id="sess_123",
+            metric="metric.watch_time",
+            time_scope={
+                "mode": "single_window",
+                "grain": "day",
+                "current": {"start": "2025-03-01", "end": "2025-03-08"},
+            },
+            candidate_dimensions=["dimension.country"],
+        ),
     )
 
     assert result["ok"] is True
@@ -1274,10 +1284,12 @@ def test_validate_omits_null_optional_fields() -> None:
     result = _invoke_registered_tool(
         "validate",
         handler,
-        session_id="sess_123",
-        metric="metric.conversion_rate",
-        left={"time_scope": {"kind": "range", "start": "2025-03-01", "end": "2025-03-08"}},
-        right={"time_scope": {"kind": "range", "start": "2025-02-22", "end": "2025-03-01"}},
+        request=ValidateToolRequest(
+            session_id="sess_123",
+            metric="metric.conversion_rate",
+            left={"time_scope": {"kind": "range", "start": "2025-03-01", "end": "2025-03-08"}},
+            right={"time_scope": {"kind": "range", "start": "2025-02-22", "end": "2025-03-01"}},
+        ),
     )
 
     assert result["ok"] is True
@@ -1288,17 +1300,19 @@ def test_observe_accepts_pydantic_time_scope_models_and_serializes_canonical_bod
         assert request.method == "POST"
         assert request.url.path == "/sessions/sess_123/intents/observe"
         assert request.read() == (
-            b'{"metric":"metric.watch_time","time_scope":{"kind":"as_of","at":"2025-03-08T00:00:00"},'
-            b'"result_mode":"standard"}'
+            b'{"metric":"metric.watch_time","result_mode":"standard","time_scope":{"kind":"as_of",'
+            b'"at":"2025-03-08T00:00:00"}}'
         )
         return httpx.Response(200, json={"artifact_id": "obs_123"}, request=request)
 
     result = _invoke_registered_tool(
         "observe",
         handler,
-        session_id="sess_123",
-        metric="metric.watch_time",
-        time_scope=ObserveTimeScopeAsOf(kind="as_of", at="2025-03-08T00:00:00"),
+        request=ObserveToolRequest(
+            session_id="sess_123",
+            metric="metric.watch_time",
+            time_scope=ObserveTimeScopeAsOf(kind="as_of", at="2025-03-08T00:00:00"),
+        ),
     )
 
     assert result["ok"] is True
@@ -1318,12 +1332,14 @@ def test_detect_accepts_pydantic_time_scope_models_and_serializes_canonical_body
     result = _invoke_registered_tool(
         "detect",
         handler,
-        session_id="sess_123",
-        metric="metric.watch_time",
-        time_scope=DetectTimeScope(
-            mode="single_window",
-            grain="day",
-            current=DetectTimeScopeCurrentWindow(start="2025-03-01", end="2025-03-08"),
+        request=DetectToolRequest(
+            session_id="sess_123",
+            metric="metric.watch_time",
+            time_scope=DetectTimeScope(
+                mode="single_window",
+                grain="day",
+                current=DetectTimeScopeCurrentWindow(start="2025-03-01", end="2025-03-08"),
+            ),
         ),
     )
 
@@ -1345,19 +1361,21 @@ def test_validate_accepts_pydantic_nested_models_and_serializes_canonical_body()
     result = _invoke_registered_tool(
         "validate",
         handler,
-        session_id="sess_123",
-        metric="metric.conversion_rate",
-        left=ValidateObservationInput(
-            time_scope=ObserveTimeScopeRange(kind="range", start="2025-03-01", end="2025-03-08")
-        ),
-        right=ValidateObservationInput(
-            time_scope=ObserveTimeScopeRange(kind="range", start="2025-02-22", end="2025-03-01")
-        ),
-        hypothesis=ValidateHypothesis(
-            family="difference",
-            alternative="greater",
-            alpha=0.1,
-            label="lift",
+        request=ValidateToolRequest(
+            session_id="sess_123",
+            metric="metric.conversion_rate",
+            left=ValidateObservationInput(
+                time_scope=ObserveTimeScopeRange(kind="range", start="2025-03-01", end="2025-03-08")
+            ),
+            right=ValidateObservationInput(
+                time_scope=ObserveTimeScopeRange(kind="range", start="2025-02-22", end="2025-03-01")
+            ),
+            hypothesis=ValidateHypothesis(
+                family="difference",
+                alternative="greater",
+                alpha=0.1,
+                label="lift",
+            ),
         ),
     )
 
@@ -1404,6 +1422,11 @@ def test_test_intent_accepts_pydantic_nested_models_and_serializes_canonical_bod
 
 
 def test_intent_tools_preserve_422_guidance_from_factum() -> None:
+    class _InvalidObserveToolRequest(BaseModel):
+        session_id: str
+        metric: str
+        time_scope: dict[str, str]
+
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/sessions/sess_123/intents/observe"
         return httpx.Response(
@@ -1434,9 +1457,11 @@ def test_intent_tools_preserve_422_guidance_from_factum() -> None:
     result = _invoke_registered_tool(
         "observe",
         handler,
-        session_id="sess_123",
-        metric="metric.watch_time",
-        time_scope={},
+        request=_InvalidObserveToolRequest(
+            session_id="sess_123",
+            metric="metric.watch_time",
+            time_scope={"kind": "range", "start": "2025-03-01"},
+        ),
     )
 
     assert result["ok"] is False
