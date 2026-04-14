@@ -1225,16 +1225,8 @@ class SemanticServiceSupport:
                 raise self._validation_error(
                     "time_binding timestamp_column resolution requires timestamp_surface_ref"
                 )
-            if timestamp_format not in {
-                None,
-                "native",
-                "iso8601_t_naive",
-                "YYYYMMDD hh:mm:ss",
-            }:
-                raise self._validation_error(
-                    "time_binding timestamp_column resolution timestamp_format must be "
-                    "'native', 'iso8601_t_naive', or 'YYYYMMDD hh:mm:ss'"
-                )
+            # timestamp_format: semantic conventions ('native', 'iso8601_t_naive') or custom format
+            # Custom formats are accepted as-is; validation happens at runtime.
             if any(
                 value is not None
                 for value in (date_surface_ref, date_format, hour_surface_ref, hour_format)

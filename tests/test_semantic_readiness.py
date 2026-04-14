@@ -1169,7 +1169,8 @@ class BindingReadinessEvaluatorTests(unittest.TestCase):
 
         self.assertEqual(result.readiness_status, "ready")
 
-    def test_binding_compact_naive_timestamp_column_is_ready(self) -> None:
+    def test_binding_custom_format_timestamp_column_is_ready(self) -> None:
+        """Custom strftime format strings are accepted for timestamp columns."""
         result = self._evaluate(
             field_bindings=[
                 {
@@ -1190,7 +1191,7 @@ class BindingReadinessEvaluatorTests(unittest.TestCase):
                     "semantic_ref": "time.event_date",
                     "resolution_kind": "timestamp_column",
                     "timestamp_surface_ref": "field.create_time",
-                    "timestamp_format": "YYYYMMDD hh:mm:ss",
+                    "timestamp_format": "%Y%m%d %H:%M:%S",
                 }
             ],
             carrier_bindings=[

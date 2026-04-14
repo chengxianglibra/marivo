@@ -566,7 +566,8 @@ class TimeAxisResolverTests(unittest.TestCase):
             "CAST(REPLACE(CAST(create_time AS VARCHAR), 'T', ' ') AS TIMESTAMP)",
         )
 
-    def test_resolver_parses_compact_naive_timestamp_columns(self) -> None:
+    def test_resolver_parses_custom_format_timestamp_columns(self) -> None:
+        """Custom strftime format strings are parsed via STRPTIME family."""
         request = self._compare_request()
         resolved = TimeAxisResolver(
             request=request,
@@ -575,7 +576,7 @@ class TimeAxisResolverTests(unittest.TestCase):
             source_time_capabilities={
                 "analysis_time": {
                     "timestamp_column": "create_time",
-                    "timestamp_format": "YYYYMMDD hh:mm:ss",
+                    "timestamp_format": "%Y%m%d %H:%M:%S",
                 },
                 "partition_time": {
                     "date_column": "log_date",
@@ -584,12 +585,10 @@ class TimeAxisResolverTests(unittest.TestCase):
             },
         ).resolve()
         self.assertEqual(resolved.analysis_time_kind, "timestamp")
+        # Trino uses DATE_PARSE(col, format) for custom formats
         self.assertEqual(
             resolved.analysis_time_expr,
-            "CAST(CONCAT(SUBSTR(CAST(create_time AS VARCHAR), 1, 4), '-', "
-            "SUBSTR(CAST(create_time AS VARCHAR), 5, 2), '-', "
-            "SUBSTR(CAST(create_time AS VARCHAR), 7, 2), "
-            "SUBSTR(CAST(create_time AS VARCHAR), 9)) AS TIMESTAMP)",
+            "DATE_PARSE(CAST(create_time AS VARCHAR), 'yyyyMMdd HH:mm:ss')",
         )
 
     def test_resolver_request_override_beats_metadata(self) -> None:

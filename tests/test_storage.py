@@ -70,7 +70,8 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
         rows = self.store.query_rows("SELECT * FROM sessions")
         self.assertEqual(len(rows), 2)
 
-    def test_initialize_migrates_time_bindings_timestamp_format_constraint(self) -> None:
+    def test_initialize_migrates_time_bindings_timestamp_format_no_constraint(self) -> None:
+        """Migration removes timestamp_format CHECK constraint, allowing custom formats."""
         legacy_path = Path(self.temp_dir.name) / "legacy.sqlite"
         legacy_store = SQLiteMetadataStore(legacy_path)
         with legacy_store.connect() as con:
@@ -128,6 +129,7 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
             """,
             ["bind_1", "binding.test", "entity", "entity.test", "binding.v1", "draft"],
         )
+        # After migration, CHECK constraint is removed, so custom formats are accepted
         migrated_store.execute(
             """
             INSERT INTO time_bindings (
@@ -147,7 +149,7 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
                 "time.test",
                 "timestamp_column",
                 "field.create_time",
-                "YYYYMMDD hh:mm:ss",
+                "%Y%m%d %H:%M:%S",
                 None,
                 None,
                 None,
@@ -159,7 +161,7 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
             "SELECT timestamp_format FROM time_bindings WHERE time_binding_id = ?",
             ["tb_1"],
         )
-        self.assertEqual(row["timestamp_format"], "YYYYMMDD hh:mm:ss")
+        self.assertEqual(row["timestamp_format"], "%Y%m%d %H:%M:%S")
 
     def test_new_tables_exist(self) -> None:
         for table in [
