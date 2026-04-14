@@ -29,10 +29,12 @@ import tempfile
 import unittest
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from unittest.mock import patch
 
 import duckdb
 from fastapi.testclient import TestClient
 
+from app.intents.attribute import run_attribute_intent
 from app.main import create_app
 from app.service import SemanticLayerService
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
@@ -565,6 +567,150 @@ class AttributeRunnerServiceTests(unittest.TestCase):
                 allowed_codes,
                 f"Validation issue code '{issue['code']}' is not in AttributeIssue schema enum",
             )
+
+
+class AttributeHourWindowTests(unittest.TestCase):
+    def test_attribute_forwards_hour_boundaries_to_observe_and_preserves_them_in_bundle(
+        self,
+    ) -> None:
+        class _FakeService:
+            def __init__(self) -> None:
+                self._step_counter = 0
+
+            @staticmethod
+            def normalize_intent_metric_ref(metric_ref: str) -> str:
+                return metric_ref
+
+            @staticmethod
+            def metric_name_from_ref(metric_ref: str) -> str:
+                return metric_ref.removeprefix("metric.")
+
+            def _new_step_id(self) -> str:
+                self._step_counter += 1
+                return f"step_{self._step_counter}"
+
+            @staticmethod
+            def _insert_artifact(
+                session_id: str,
+                step_id: str,
+                artifact_type: str,
+                artifact_name: str,
+                payload: dict,
+            ) -> str:
+                _ = (session_id, step_id, artifact_type, artifact_name, payload)
+                return "artifact_attribute_hour"
+
+            @staticmethod
+            def _insert_step(
+                step_id: str,
+                session_id: str,
+                step_type: str,
+                summary: str,
+                result: dict,
+                provenance: dict | None = None,
+            ) -> None:
+                _ = (step_id, session_id, step_type, summary, result, provenance)
+
+        left_time_scope = {
+            "kind": "range",
+            "start": "2024-01-01 01:00:00",
+            "end": "2024-01-01 03:00:00",
+        }
+        right_time_scope = {
+            "kind": "range",
+            "start": "2024-01-01T03:00:00",
+            "end": "2024-01-01T05:00:00",
+        }
+        observe_results = [
+            {
+                "step_ref": {"step_id": "step_left_obs", "step_type": "observe"},
+                "artifact_id": "artifact_left_obs",
+                "observation_type": "scalar",
+                "time_scope": {
+                    "kind": "range",
+                    "start": "2024-01-01T01:00:00",
+                    "end": "2024-01-01T03:00:00",
+                },
+            },
+            {
+                "step_ref": {"step_id": "step_right_obs", "step_type": "observe"},
+                "artifact_id": "artifact_right_obs",
+                "observation_type": "scalar",
+                "time_scope": {
+                    "kind": "range",
+                    "start": "2024-01-01T03:00:00",
+                    "end": "2024-01-01T05:00:00",
+                },
+            },
+        ]
+        compare_result = {
+            "step_ref": {"step_id": "step_compare", "step_type": "compare"},
+            "artifact_id": "artifact_compare",
+            "comparability": {"status": "comparable", "issues": []},
+            "left_value": 10.0,
+            "right_value": 8.0,
+            "absolute_delta": 2.0,
+            "relative_delta": 0.25,
+            "direction": "increase",
+        }
+        decompose_result = {
+            "step_ref": {"step_id": "step_decompose", "step_type": "decompose"},
+            "artifact_id": "artifact_decompose",
+            "attribution": {"status": "attributable", "issues": []},
+            "rows": [
+                {
+                    "key": "A",
+                    "left_value": 10.0,
+                    "right_value": 8.0,
+                    "absolute_contribution": 2.0,
+                    "contribution_share": 1.0,
+                    "direction": "increase",
+                    "presence": "both",
+                }
+            ],
+            "scope_absolute_delta": 2.0,
+            "unexplained_absolute_delta": 0.0,
+            "unexplained_share": 0.0,
+            "unexplained_reason": None,
+        }
+
+        with (
+            patch(
+                "app.intents.attribute.run_observe_intent",
+                side_effect=observe_results,
+            ) as observe_mock,
+            patch(
+                "app.intents.attribute.run_compare_intent",
+                return_value=compare_result,
+            ),
+            patch(
+                "app.intents.attribute.run_decompose_intent",
+                return_value=decompose_result,
+            ),
+        ):
+            bundle = run_attribute_intent(
+                _FakeService(),
+                "sess_hour_attr",
+                {
+                    "metric": "metric.attr_hourly",
+                    "left": {"time_scope": left_time_scope},
+                    "right": {"time_scope": right_time_scope},
+                    "dimensions": ["channel"],
+                },
+            )
+
+        self.assertEqual(observe_mock.call_count, 2)
+        self.assertEqual(observe_mock.call_args_list[0].args[2]["time_scope"], left_time_scope)
+        self.assertEqual(observe_mock.call_args_list[1].args[2]["time_scope"], right_time_scope)
+        self.assertEqual(
+            bundle["left"]["time_scope"],
+            {"kind": "range", "start": "2024-01-01T01:00:00", "end": "2024-01-01T03:00:00"},
+        )
+        self.assertEqual(
+            bundle["right"]["time_scope"],
+            {"kind": "range", "start": "2024-01-01T03:00:00", "end": "2024-01-01T05:00:00"},
+        )
+        self.assertEqual(bundle["validation"]["status"], "attributable")
 
 
 # ── HTTP endpoint tests ────────────────────────────────────────────────────────
