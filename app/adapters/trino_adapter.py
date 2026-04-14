@@ -5,7 +5,13 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from app.adapters.base import CatalogAdapter, CatalogCapabilities, PhysicalObject
+from app.adapters.base import (
+    MAX_PREVIEW_ROWS,
+    CatalogAdapter,
+    CatalogCapabilities,
+    PhysicalObject,
+    PreviewResult,
+)
 
 
 class TrinoCatalogAdapter(CatalogAdapter):
@@ -99,6 +105,7 @@ class TrinoCatalogAdapter(CatalogAdapter):
             supports_access_control=False,
             supports_column_comments=True,
             supports_table_properties=True,
+            supports_table_preview=True,
         )
 
     def test_connection(self) -> bool:
@@ -308,3 +315,58 @@ class TrinoCatalogAdapter(CatalogAdapter):
                     "high_value": r.get("high_value"),
                 }
         return stats
+
+    def preview_table(
+        self,
+        schema_name: str,
+        table_name: str,
+        limit: int = 100,
+        columns: list[str] | None = None,
+    ) -> PreviewResult:
+        """Preview sample rows from a Trino table."""
+        effective_limit = min(max(1, limit), MAX_PREVIEW_ROWS)
+
+        # 1. Get column metadata and verify table exists
+        col_rows = self._query(
+            "SELECT column_name, data_type FROM information_schema.columns "
+            "WHERE table_catalog = ? AND table_schema = ? AND table_name = ? "
+            "ORDER BY ordinal_position",
+            [self._catalog, schema_name, table_name],
+        )
+        if not col_rows:
+            raise KeyError(f"Table {schema_name}.{table_name} not found")
+
+        all_columns = {r["column_name"]: r["data_type"] for r in col_rows}
+
+        # 2. Validate column selection
+        if columns is not None:
+            invalid = [c for c in columns if c not in all_columns]
+            if invalid:
+                raise ValueError(f"Unknown columns: {invalid}")
+            selected_columns = columns
+        else:
+            selected_columns = list(all_columns.keys())
+
+        # 3. Build safe SELECT with quoted identifiers
+        quoted_cols = ", ".join(self._quote_identifier(c) for c in selected_columns)
+        quoted_schema = self._quote_identifier(schema_name)
+        quoted_table = self._quote_identifier(table_name)
+        # Fetch limit+1 rows to accurately detect truncation
+        sql = (
+            f"SELECT {quoted_cols} FROM {quoted_schema}.{quoted_table} LIMIT {effective_limit + 1}"
+        )
+
+        # 4. Execute via _query helper
+        rows = self._query(sql)
+
+        # 5. Determine truncation and trim to actual limit
+        truncated = len(rows) > effective_limit
+        if truncated:
+            rows = rows[:effective_limit]
+
+        return PreviewResult(
+            columns=[{"name": c, "type": all_columns[c]} for c in selected_columns],
+            rows=rows,
+            row_count=len(rows),
+            truncated=truncated,
+        )

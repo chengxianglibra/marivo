@@ -4,7 +4,13 @@ from pathlib import Path
 
 import duckdb
 
-from app.adapters.base import CatalogAdapter, CatalogCapabilities, PhysicalObject
+from app.adapters.base import (
+    MAX_PREVIEW_ROWS,
+    CatalogAdapter,
+    CatalogCapabilities,
+    PhysicalObject,
+    PreviewResult,
+)
 
 
 class DuckDBCatalogAdapter(CatalogAdapter):
@@ -24,6 +30,7 @@ class DuckDBCatalogAdapter(CatalogAdapter):
             supports_lineage=False,
             supports_tags=False,
             supports_access_control=False,
+            supports_table_preview=True,
         )
 
     def test_connection(self) -> bool:
@@ -33,6 +40,13 @@ class DuckDBCatalogAdapter(CatalogAdapter):
             return True
         except Exception:
             return False
+
+    def _quote_identifier(self, identifier: str) -> str:
+        """Quote and escape a DuckDB identifier.
+
+        Double quotes inside identifiers are escaped by doubling them.
+        """
+        return '"' + identifier.replace('"', '""') + '"'
 
     def list_schemas(self, catalog_name: str | None = None) -> list[PhysicalObject]:
         con = duckdb.connect(str(self._path), read_only=True)
@@ -131,5 +145,68 @@ class DuckDBCatalogAdapter(CatalogAdapter):
                 )
                 for row in rows
             ]
+        finally:
+            con.close()
+
+    def preview_table(
+        self,
+        schema_name: str,
+        table_name: str,
+        limit: int = 100,
+        columns: list[str] | None = None,
+    ) -> PreviewResult:
+        """Preview sample rows from a DuckDB table."""
+        effective_limit = min(max(1, limit), MAX_PREVIEW_ROWS)
+
+        con = duckdb.connect(str(self._path), read_only=True)
+        try:
+            # 1. Verify table exists
+            exists_row = con.execute(
+                "SELECT COUNT(*) FROM information_schema.tables "
+                "WHERE table_schema = ? AND table_name = ?",
+                [schema_name, table_name],
+            ).fetchone()
+            if not exists_row or exists_row[0] == 0:
+                raise KeyError(f"Table {schema_name}.{table_name} not found")
+
+            # 2. Get column metadata for type info
+            col_rows = con.execute(
+                "SELECT column_name, data_type FROM information_schema.columns "
+                "WHERE table_schema = ? AND table_name = ? ORDER BY ordinal_position",
+                [schema_name, table_name],
+            ).fetchall()
+            all_columns = {row[0]: row[1] for row in col_rows}
+
+            # 3. Validate column selection if provided
+            if columns is not None:
+                invalid = [c for c in columns if c not in all_columns]
+                if invalid:
+                    raise ValueError(f"Unknown columns: {invalid}")
+                selected_columns = columns
+            else:
+                selected_columns = list(all_columns.keys())
+
+            # 4. Build safe SELECT query with properly escaped identifiers
+            quoted_cols = ", ".join(self._quote_identifier(c) for c in selected_columns)
+            quoted_schema = self._quote_identifier(schema_name)
+            quoted_table = self._quote_identifier(table_name)
+            # Fetch limit+1 rows to accurately detect truncation
+            sql = f"SELECT {quoted_cols} FROM {quoted_schema}.{quoted_table} LIMIT {effective_limit + 1}"
+
+            # 5. Execute query
+            rows = con.execute(sql).fetchall()
+
+            # 6. Determine truncation and trim to actual limit
+            truncated = len(rows) > effective_limit
+            if truncated:
+                rows = rows[:effective_limit]
+
+            # 7. Build result
+            return PreviewResult(
+                columns=[{"name": c, "type": all_columns[c]} for c in selected_columns],
+                rows=[dict(zip(selected_columns, row, strict=True)) for row in rows],
+                row_count=len(rows),
+                truncated=truncated,
+            )
         finally:
             con.close()

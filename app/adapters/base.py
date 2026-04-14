@@ -4,6 +4,9 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
 
+MAX_PREVIEW_ROWS = 1000
+DEFAULT_PREVIEW_ROWS = 100
+
 
 @dataclass
 class CatalogCapabilities:
@@ -15,6 +18,7 @@ class CatalogCapabilities:
     supports_access_control: bool = False
     supports_column_comments: bool = False
     supports_table_properties: bool = False
+    supports_table_preview: bool = True
 
 
 @dataclass
@@ -24,6 +28,16 @@ class PhysicalObject:
     object_type: str  # 'catalog', 'schema', 'table', 'column', 'partition'
     parent_path: str | None  # dot-separated parent path
     properties: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class PreviewResult:
+    """Data preview result from a table query."""
+
+    columns: list[dict[str, Any]]  # [{"name": str, "type": str}]
+    rows: list[dict[str, Any]]  # Each row as dict keyed by column name
+    row_count: int
+    truncated: bool  # True if result hit the limit cap
 
 
 class CatalogAdapter(ABC):
@@ -53,3 +67,27 @@ class CatalogAdapter(ABC):
 
     def list_partitions(self, schema_name: str, table_name: str) -> list[PhysicalObject]:
         raise NotImplementedError("This adapter does not support partitions.")
+
+    def preview_table(
+        self,
+        schema_name: str,
+        table_name: str,
+        limit: int = DEFAULT_PREVIEW_ROWS,
+        columns: list[str] | None = None,
+    ) -> PreviewResult:
+        """Preview sample rows from a table.
+
+        Args:
+            schema_name: Schema containing the table
+            table_name: Table to preview
+            limit: Maximum rows to return (capped at MAX_PREVIEW_ROWS)
+            columns: Optional list of column names to select; None = all columns
+
+        Returns:
+            PreviewResult with columns metadata and sample rows
+
+        Raises:
+            KeyError: Table not found
+            ValueError: Invalid column names
+        """
+        raise NotImplementedError("This adapter does not support table preview.")

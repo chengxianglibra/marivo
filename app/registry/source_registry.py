@@ -4,7 +4,7 @@ import json
 from typing import Any
 from uuid import uuid4
 
-from app.adapters.base import CatalogAdapter
+from app.adapters.base import MAX_PREVIEW_ROWS, CatalogAdapter
 from app.registry.common import now_iso
 from app.registry.factories import build_catalog_adapter
 from app.storage.metadata import MetadataStore
@@ -304,6 +304,34 @@ class SourceRegistry:
             {"name": table.native_name, "schema": schema_name, "properties": table.properties}
             for table in tables
         ]
+
+    def preview_table(
+        self,
+        source_id: str,
+        schema_name: str,
+        table_name: str,
+        limit: int = 100,
+        columns: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Preview sample rows from a source table (live query, no persistence)."""
+        adapter = self.get_adapter(source_id)
+        result = adapter.preview_table(
+            schema_name=schema_name,
+            table_name=table_name,
+            limit=limit,
+            columns=columns,
+        )
+        return {
+            "source_id": source_id,
+            "schema_name": schema_name,
+            "table_name": table_name,
+            "columns": result.columns,
+            "rows": result.rows,
+            "row_count": result.row_count,
+            "truncated": result.truncated,
+            "limit_requested": limit,
+            "limit_applied": min(limit, MAX_PREVIEW_ROWS),
+        }
 
     def _row_to_source(self, row: dict[str, Any]) -> dict[str, Any]:
         return {

@@ -341,6 +341,54 @@ the currently selected schema.
 
 ---
 
+## Preview Table (Live)
+
+```
+GET /sources/{source_id}/catalog/preview
+```
+
+Queries the external source directly to preview sample rows from a table.
+Useful for inspecting actual data values when configuring semantic bindings,
+especially for determining timestamp formats and column data types.
+
+### Query Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `schema` | string | yes | Schema name |
+| `table` | string | yes | Table name |
+| `limit` | integer | no | Max rows to return (default 100, max 1000) |
+| `columns` | string | no | Comma-separated column names to select |
+
+### Response
+
+```json
+{
+  "source_id": "src_...",
+  "schema_name": "events",
+  "table_name": "user_sessions",
+  "columns": [
+    {"name": "user_id", "type": "VARCHAR"},
+    {"name": "event_time", "type": "TIMESTAMP"}
+  ],
+  "rows": [
+    {"user_id": "user_001", "event_time": "2024-01-15T10:30:00"},
+    {"user_id": "user_002", "event_time": "2024-01-15T11:45:00"}
+  ],
+  "row_count": 2,
+  "truncated": false,
+  "limit_requested": 100,
+  "limit_applied": 100
+}
+```
+
+### Error Responses
+
+- **404**: Source or table not found
+- **400**: Invalid column names or limit value
+
+---
+
 ## List Source Objects
 
 ```
