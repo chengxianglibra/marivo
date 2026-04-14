@@ -274,7 +274,7 @@ Current discovery / health / catalog coverage:
 - `get_openapi_schema(schema_name, depth=1)` -> `GET /openapi/schemas/{schema_name}`
 - `get_openapi_fragment(path, operation=None, expand=None, depth=1)` -> `GET /openapi/fragment`
 - `get_openapi_path_fragment(encoded_path, expand=None, depth=1)` -> `GET /openapi/paths/{encoded_path}`
-- `search_catalog(q, type=None)` -> `GET /catalog/search`
+- `search_catalog(q, type=None, readiness=None)` -> `GET /catalog/search`
 - `resolve_typed_ref(ref)` -> `GET /semantic/resolve/{ref}`
 
 These tools are adapters over the canonical HTTP contract. They do not publish a
