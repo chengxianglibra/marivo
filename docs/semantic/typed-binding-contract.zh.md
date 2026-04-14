@@ -473,7 +473,9 @@ class TimeBindingSpec(TypedDict):
         "date_hour_columns",
     ]
     timestamp_surface_ref: NotRequired[str | None]
-    timestamp_format: NotRequired[Literal["native", "iso8601_t_naive"] | None]
+    timestamp_format: NotRequired[
+        Literal["native", "iso8601_t_naive", "YYYYMMDD hh:mm:ss"] | None
+    ]
     date_surface_ref: NotRequired[str | None]
     date_format: NotRequired[str | None]
     hour_surface_ref: NotRequired[str | None]
@@ -488,6 +490,7 @@ class TimeBindingSpec(TypedDict):
 - `timestamp_column` 可额外提供 `timestamp_format`
   - `native`：物理列本身就是 timestamp-like
   - `iso8601_t_naive`：物理列是无时区字符串，形如 `YYYY-MM-DDTHH:MM:SS`
+  - `YYYYMMDD hh:mm:ss`：物理列是紧凑无时区字符串，形如 `20260414 09:30:15`
 - `date_column` 只能提供 `date_surface_ref`
 - `date_hour_columns` 必须同时提供 `date_surface_ref` 与 `hour_surface_ref`
 - `*_surface_ref` 必须引用当前 carrier 已声明的 `field_surfaces`

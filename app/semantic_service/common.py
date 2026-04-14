@@ -1225,10 +1225,15 @@ class SemanticServiceSupport:
                 raise self._validation_error(
                     "time_binding timestamp_column resolution requires timestamp_surface_ref"
                 )
-            if timestamp_format not in {None, "native", "iso8601_t_naive"}:
+            if timestamp_format not in {
+                None,
+                "native",
+                "iso8601_t_naive",
+                "YYYYMMDD hh:mm:ss",
+            }:
                 raise self._validation_error(
                     "time_binding timestamp_column resolution timestamp_format must be "
-                    "'native' or 'iso8601_t_naive'"
+                    "'native', 'iso8601_t_naive', or 'YYYYMMDD hh:mm:ss'"
                 )
             if any(
                 value is not None

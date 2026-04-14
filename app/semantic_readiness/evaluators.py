@@ -988,7 +988,7 @@ def _binding_time_binding_blockers(
                         },
                     )
                 )
-        elif timestamp_format not in {"iso8601_t_naive"}:
+        elif timestamp_format not in {"iso8601_t_naive", "YYYYMMDD hh:mm:ss"}:
             blockers.append(
                 _blocker(
                     code="TIME_BINDING_TIMESTAMP_FORMAT_UNSUPPORTED",

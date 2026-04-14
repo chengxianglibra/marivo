@@ -889,8 +889,10 @@ def _normalize_timestamp_format(value: Any) -> str | None:
     normalized = _optional_str(value)
     if normalized is None:
         return None
-    if normalized not in {"native", "iso8601_t_naive"}:
-        raise ValueError("timestamp_format must be 'native' or 'iso8601_t_naive'")
+    if normalized not in {"native", "iso8601_t_naive", "YYYYMMDD hh:mm:ss"}:
+        raise ValueError(
+            "timestamp_format must be 'native', 'iso8601_t_naive', or 'YYYYMMDD hh:mm:ss'"
+        )
     return normalized
 
 
@@ -946,6 +948,13 @@ def _timestamp_field_expr(
         return column
     if timestamp_format == "iso8601_t_naive":
         return f"CAST(REPLACE({_varchar_cast_expr(column, engine_type=engine_type)}, 'T', ' ') AS TIMESTAMP)"
+    if timestamp_format == "YYYYMMDD hh:mm:ss":
+        raw = _varchar_cast_expr(column, engine_type=engine_type)
+        iso_text = (
+            f"CONCAT(SUBSTR({raw}, 1, 4), '-', SUBSTR({raw}, 5, 2), '-', "
+            f"SUBSTR({raw}, 7, 2), SUBSTR({raw}, 9))"
+        )
+        return f"CAST({iso_text} AS TIMESTAMP)"
     raise ValueError(f"Unsupported timestamp_format: {timestamp_format}")
 
 

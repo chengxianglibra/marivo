@@ -549,7 +549,7 @@ class SemanticTypedApiTests(unittest.TestCase):
                             "semantic_ref": "time.api_timestamp_binding",
                             "resolution_kind": "timestamp_column",
                             "timestamp_surface_ref": "field.create_time",
-                            "timestamp_format": "iso8601_t_naive",
+                            "timestamp_format": "YYYYMMDD hh:mm:ss",
                         }
                     ],
                 },
@@ -558,7 +558,7 @@ class SemanticTypedApiTests(unittest.TestCase):
         self.assertEqual(binding_resp.status_code, 200, binding_resp.text)
         self.assertEqual(
             binding_resp.json()["interface_contract"]["time_bindings"][0]["timestamp_format"],
-            "iso8601_t_naive",
+            "YYYYMMDD hh:mm:ss",
         )
 
     def test_binding_rejects_unknown_surface_for_carrier(self) -> None:

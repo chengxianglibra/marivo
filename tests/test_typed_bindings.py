@@ -624,6 +624,14 @@ class TimeBindingsTableTests(TypedBindingDDLTests):
         self.assertIsNotNone(
             self._insert_time_binding(binding_id, timestamp_format="iso8601_t_naive")
         )
+        self.assertIsNotNone(
+            self._insert_time_binding(
+                binding_id,
+                target_key="time.compact_timestamp_format",
+                semantic_ref="time.compact_timestamp_format",
+                timestamp_format="YYYYMMDD hh:mm:ss",
+            )
+        )
         with self.assertRaises(sqlite3.IntegrityError):
             self._insert_time_binding(
                 binding_id,
