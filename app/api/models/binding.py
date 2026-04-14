@@ -13,6 +13,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.time_contracts import normalize_timestamp_format
+
 from .base import (
     BindingRole,
     BindingScope,
@@ -319,8 +321,8 @@ class TimeBindingSpec(BaseModel):
         if self.resolution_kind == "timestamp_column":
             if self.timestamp_surface_ref is None:
                 raise ValueError("timestamp_column resolution requires timestamp_surface_ref")
-            # timestamp_format: semantic conventions ('native', 'iso8601_t_naive') or custom format
-            # Custom formats are accepted as-is; validation happens at runtime.
+            if self.timestamp_format is not None:
+                self.timestamp_format = normalize_timestamp_format(self.timestamp_format)
             if any(
                 value is not None
                 for value in (

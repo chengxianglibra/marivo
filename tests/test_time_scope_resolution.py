@@ -588,7 +588,7 @@ class TimeAxisResolverTests(unittest.TestCase):
         # Trino uses DATE_PARSE(col, format) for custom formats
         self.assertEqual(
             resolved.analysis_time_expr,
-            "DATE_PARSE(CAST(create_time AS VARCHAR), 'yyyyMMdd HH:mm:ss')",
+            "DATE_PARSE(CAST(create_time AS VARCHAR), '%Y%m%d %H:%i:%s')",
         )
 
     def test_resolver_request_override_beats_metadata(self) -> None:

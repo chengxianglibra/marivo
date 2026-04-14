@@ -31,6 +31,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.api.models.base import validate_ref_prefix
+from app.time_contracts import normalize_hour_boundary
 
 # =============================================================================
 # DEPRECATED: Legacy semantic models (for backward compatibility with semantic.py)
@@ -309,8 +310,7 @@ class TimeScope(BaseModel):
             if not _is_date_or_datetime_string(value):
                 raise ValueError("day-grain boundaries must be date or datetime strings")
             return
-        if not _is_datetime_string(value):
-            raise ValueError("hour-grain boundaries must be datetime-compatible strings")
+        normalize_hour_boundary(value, label="time_scope boundary")
 
 
 class Scope(BaseModel):
@@ -710,13 +710,8 @@ class ObserveRequest(BaseModel):
         if kind in {"snapshot_now", "latest_available", "as_of"} and self.granularity is not None:
             raise ValueError(f"granularity is not valid when time_scope.kind='{kind}'")
         if self.granularity == "hour" and isinstance(self.time_scope, ObserveTimeScopeRange):
-            start_is_datetime = "T" in self.time_scope.start or " " in self.time_scope.start
-            end_is_datetime = "T" in self.time_scope.end or " " in self.time_scope.end
-            if not start_is_datetime or not end_is_datetime:
-                raise ValueError(
-                    "granularity='hour' requires time_scope.start and time_scope.end "
-                    "to be datetime strings"
-                )
+            normalize_hour_boundary(self.time_scope.start, label="time_scope.start")
+            normalize_hour_boundary(self.time_scope.end, label="time_scope.end")
         if self.dimensions == []:
             self.dimensions = None
         return self
@@ -790,6 +785,13 @@ class DetectTimeScope(BaseModel):
     mode: Literal["single_window"]
     grain: Literal["hour", "day", "week", "month"]
     current: DetectTimeScopeCurrentWindow
+
+    @model_validator(mode="after")
+    def _validate_current_window(self) -> DetectTimeScope:
+        if self.grain == "hour":
+            normalize_hour_boundary(self.current.start, label="time_scope.current.start")
+            normalize_hour_boundary(self.current.end, label="time_scope.current.end")
+        return self
 
 
 class DetectRequest(BaseModel):

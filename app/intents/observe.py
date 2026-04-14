@@ -2,29 +2,17 @@ from __future__ import annotations
 
 import contextlib
 from datetime import UTC, date, datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from app.analysis_core.executor import execute_compiled
 from app.analysis_core.ir import AnalysisStepIR
+from app.time_contracts import TimeGrain, bucket_window, normalize_hour_boundary
 from app.time_scope import normalize_metric_query_request
 
 if TYPE_CHECKING:
     from app.service import SemanticLayerService
 
 _VALID_GRANULARITIES: frozenset[str] = frozenset({"hour", "day", "week", "month"})
-
-
-def _looks_like_datetime_boundary(value: object) -> bool:
-    if not isinstance(value, str):
-        return False
-    normalized = value.strip()
-    if "T" not in normalized and " " not in normalized:
-        return False
-    try:
-        parsed = datetime.fromisoformat(normalized)
-    except ValueError:
-        return False
-    return parsed.tzinfo is None
 
 
 def run_observe_intent(
@@ -123,18 +111,9 @@ def run_observe_intent(
             f"observe: granularity is not allowed with time_scope.kind='{kind}'. "
             "granularity is only valid with kind='range'."
         )
-    if (
-        kind == "range"
-        and granularity == "hour"
-        and (
-            not _looks_like_datetime_boundary(time_scope_raw.get("start"))
-            or not _looks_like_datetime_boundary(time_scope_raw.get("end"))
-        )
-    ):
-        raise ValueError(
-            "observe: granularity='hour' requires time_scope.start and time_scope.end "
-            "to be naive datetime strings"
-        )
+    if kind == "range" and granularity == "hour":
+        normalize_hour_boundary(str(time_scope_raw.get("start") or ""), label="time_scope.start")
+        normalize_hour_boundary(str(time_scope_raw.get("end") or ""), label="time_scope.end")
 
     if granularity == "hour":
         grain = "hour"
@@ -428,6 +407,7 @@ def run_observe_intent(
         return result_rs
 
     if granularity is not None:
+        granularity_typed = cast("TimeGrain", granularity)
         # --- Time-series mode ---
         # Use aggregate_query select path: bucket alias is reliable across engines.
         time_col = resolved.resolved_time_axis.analysis_time_expr
@@ -465,33 +445,12 @@ def run_observe_intent(
                 if raw_value is not None:
                     series_value = float(raw_value)
             if bucket_raw is not None:
-                bucket_str = str(bucket_raw)[:10]  # truncate to date
                 try:
-                    bucket_date = date.fromisoformat(bucket_str)
-                    if granularity == "hour":
-                        bucket_end = (
-                            datetime.fromisoformat(str(bucket_raw)) + timedelta(hours=1)
-                        ).isoformat()
-                    elif granularity == "day":
-                        bucket_end = (bucket_date + timedelta(days=1)).isoformat()
-                    elif granularity == "week":
-                        bucket_end = (bucket_date + timedelta(weeks=1)).isoformat()
-                    elif granularity == "month":
-                        if bucket_date.month == 12:
-                            bucket_end = bucket_date.replace(
-                                year=bucket_date.year + 1, month=1, day=1
-                            ).isoformat()
-                        else:
-                            bucket_end = bucket_date.replace(
-                                month=bucket_date.month + 1, day=1
-                            ).isoformat()
-                    else:
-                        bucket_end = (bucket_date + timedelta(days=1)).isoformat()
+                    window = bucket_window(bucket_raw, granularity_typed)
                 except (ValueError, TypeError):
-                    bucket_end = bucket_str
-                series.append(
-                    {"window": {"start": bucket_str, "end": bucket_end}, "value": series_value}
-                )
+                    bucket_str = str(bucket_raw)
+                    window = {"start": bucket_str, "end": bucket_str}
+                series.append({"window": window, "value": series_value})
 
         quality_status = "ready" if rows else "not_ready"
         observation: dict[str, Any] = {

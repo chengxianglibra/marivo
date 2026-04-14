@@ -178,7 +178,7 @@ request-level `time_axis` overrides remain the only non-binding override path.
 For `time_bindings` with `resolution_kind="timestamp_column"`, do not assume string-backed
 columns are executable as native timestamps. Binding contracts must declare the parse strategy
 explicitly (for example `timestamp_format="iso8601_t_naive"` or
-`timestamp_format="YYYYMMDD hh:mm:ss"`) or readiness should block them.
+`timestamp_format="%Y%m%d %H:%M:%S"`) or readiness should block them.
 Session root requests must not carry execution filters such as `constraints` or `raw_filter`;
 descriptive session context belongs in `goal`, while bounded execution scope belongs in typed step
 requests only.

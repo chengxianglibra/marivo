@@ -505,7 +505,7 @@ def test_get_openapi_fragment_preserves_http_400_for_missing_operation_when_requ
     assert result["error"]["category"] == "server_error"
 
 
-def test_get_openapi_path_fragment_uses_encoded_path_endpoint() -> None:
+def test_get_openapi_path_fragment_encodes_raw_path() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/openapi/paths/L3Nlc3Npb25z"
         assert request.url.params.get_list("expand") == ["schemas"]
@@ -515,7 +515,7 @@ def test_get_openapi_path_fragment_uses_encoded_path_endpoint() -> None:
     result = _invoke_registered_tool(
         "get_openapi_path_fragment",
         handler,
-        encoded_path="L3Nlc3Npb25z",
+        path="/sessions",
         expand=["schemas"],
     )
 
@@ -523,26 +523,24 @@ def test_get_openapi_path_fragment_uses_encoded_path_endpoint() -> None:
     assert result["data"] == {"path": "/sessions"}
 
 
-def test_get_openapi_path_fragment_preserves_http_400_for_invalid_encoded_path() -> None:
+def test_get_openapi_path_fragment_preserves_http_400_for_invalid_path() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             400,
-            json={
-                "detail": "Invalid encoded path. Use unpadded base64url for the raw OpenAPI path."
-            },
+            json={"detail": "Invalid encoded path. Decoded OpenAPI paths must start with '/'."},
             request=request,
         )
 
     result = _invoke_registered_tool(
         "get_openapi_path_fragment",
         handler,
-        encoded_path="not-valid@@@",
+        path="sessions",
     )
 
     assert result["ok"] is False
     assert result["status_code"] == 400
     assert result["error"]["message"] == (
-        "Invalid encoded path. Use unpadded base64url for the raw OpenAPI path."
+        "Invalid encoded path. Decoded OpenAPI paths must start with '/'."
     )
 
 

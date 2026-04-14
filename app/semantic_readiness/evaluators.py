@@ -7,6 +7,7 @@ from collections.abc import Iterable
 from typing import Any
 
 from app.metric_inputs import required_metric_input_slots
+from app.time_contracts import normalize_timestamp_format
 
 from .binding_utils import binding_contract_target_exists
 from .context import ReadinessEvaluationContext
@@ -988,8 +989,24 @@ def _binding_time_binding_blockers(
                         },
                     )
                 )
-        # iso8601_t_naive and custom format strings are accepted without
-        # additional validation; runtime will handle format parsing.
+        else:
+            try:
+                normalize_timestamp_format(timestamp_format)
+            except ValueError as exc:
+                blockers.append(
+                    _blocker(
+                        code="TIME_BINDING_TIMESTAMP_FORMAT_INVALID",
+                        message=str(exc),
+                        subject_ref=subject_ref,
+                        dependency_ref=physical_name,
+                        details={
+                            "carrier_binding_key": carrier_binding_key,
+                            "timestamp_surface_ref": timestamp_surface_ref,
+                            "physical_name": physical_name,
+                            "timestamp_format": timestamp_format,
+                        },
+                    )
+                )
     return blockers
 
 

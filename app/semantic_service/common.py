@@ -16,6 +16,7 @@ from app.semantic_runtime.semantic_metadata import (
     metric_runtime_metadata,
 )
 from app.storage.metadata import MetadataStore
+from app.time_contracts import normalize_timestamp_format
 from app.time_scope import _normalize_date_format, _normalize_hour_format
 
 from .errors import (
@@ -1225,8 +1226,11 @@ class SemanticServiceSupport:
                 raise self._validation_error(
                     "time_binding timestamp_column resolution requires timestamp_surface_ref"
                 )
-            # timestamp_format: semantic conventions ('native', 'iso8601_t_naive') or custom format
-            # Custom formats are accepted as-is; validation happens at runtime.
+            if timestamp_format is not None:
+                try:
+                    normalize_timestamp_format(timestamp_format)
+                except ValueError as exc:
+                    raise self._validation_error(str(exc)) from exc
             if any(
                 value is not None
                 for value in (date_surface_ref, date_format, hour_surface_ref, hour_format)

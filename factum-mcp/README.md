@@ -273,7 +273,7 @@ Current discovery / health / catalog coverage:
 - `list_openapi_paths()` -> `GET /openapi/index`
 - `get_openapi_schema(schema_name, depth=1)` -> `GET /openapi/schemas/{schema_name}`
 - `get_openapi_fragment(path, operation=None, expand=None, depth=1)` -> `GET /openapi/fragment`
-- `get_openapi_path_fragment(encoded_path, expand=None, depth=1)` -> `GET /openapi/paths/{encoded_path}`
+- `get_openapi_path_fragment(path, expand=None, depth=1)` -> `GET /openapi/paths/{encoded_path}` (tool auto-encodes raw path as base64url)
 - `search_catalog(q, type=None, readiness=None)` -> `GET /catalog/search`
 - `resolve_typed_ref(ref)` -> `GET /semantic/resolve/{ref}`
 

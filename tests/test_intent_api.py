@@ -26,6 +26,7 @@ from app.api.models import (
     ArtifactRef,
     CompareRequest,
     DecomposeRequest,
+    DetectRequest,
     ObservationRef,
     ObserveRequest,
 )
@@ -188,6 +189,42 @@ class ObserveRequestModelTests(unittest.TestCase):
                 metric=_metric_ref("dau"),
                 time_scope={"kind": "range", "start": "2024-01-01", "end": "2024-01-02"},
                 granularity="hour",
+            )
+
+    def test_hour_granularity_accepts_space_separated_datetimes(self) -> None:
+        r = ObserveRequest(
+            metric=_metric_ref("dau"),
+            time_scope={
+                "kind": "range",
+                "start": "2024-01-01 00:00:00",
+                "end": "2024-01-01 02:00:00",
+            },
+            granularity="hour",
+        )
+        self.assertEqual(r.granularity, "hour")
+
+
+class DetectRequestModelTests(unittest.TestCase):
+    def test_hour_detect_accepts_datetime_boundaries(self) -> None:
+        r = DetectRequest(
+            metric=_metric_ref("dau"),
+            time_scope={
+                "mode": "single_window",
+                "grain": "hour",
+                "current": {"start": "2024-01-01T00:00:00", "end": "2024-01-01 03:00:00"},
+            },
+        )
+        self.assertEqual(r.time_scope.grain, "hour")
+
+    def test_hour_detect_rejects_date_only_boundaries(self) -> None:
+        with self.assertRaises(Exception):
+            DetectRequest(
+                metric=_metric_ref("dau"),
+                time_scope={
+                    "mode": "single_window",
+                    "grain": "hour",
+                    "current": {"start": "2024-01-01", "end": "2024-01-02"},
+                },
             )
 
 

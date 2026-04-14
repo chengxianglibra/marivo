@@ -446,6 +446,14 @@ class DetectRunnerServiceTests(unittest.TestCase):
         self.assertEqual(result["detectability"]["status"], "needs_attention")
         issues = result["detectability"]["issues"]
         self.assertTrue(any(i["code"] == "insufficient_points" for i in issues))
+        guidance = result["detectability"]["guidance"]
+        self.assertEqual(guidance["reason"], "insufficient_points")
+        self.assertEqual(guidance["minimum_points_required"], 3)
+        self.assertEqual(guidance["recommended_next_action"], "expand_scan_window")
+        self.assertEqual(
+            guidance["recommended_current_window"],
+            {"start": "2025-12-31", "end": "2026-01-03"},
+        )
         self.assertEqual(result["scan_summary"]["total_candidate_count"], 0)
 
     # ── Candidate ref ──────────────────────────────────────────────────────────
