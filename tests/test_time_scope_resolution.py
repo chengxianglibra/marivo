@@ -566,6 +566,32 @@ class TimeAxisResolverTests(unittest.TestCase):
             "CAST(REPLACE(CAST(create_time AS VARCHAR), 'T', ' ') AS TIMESTAMP)",
         )
 
+    def test_resolver_parses_compact_naive_timestamp_columns(self) -> None:
+        request = self._compare_request()
+        resolved = TimeAxisResolver(
+            request=request,
+            engine_type="trino",
+            available_columns=["create_time", "log_date"],
+            source_time_capabilities={
+                "analysis_time": {
+                    "timestamp_column": "create_time",
+                    "timestamp_format": "YYYYMMDD hh:mm:ss",
+                },
+                "partition_time": {
+                    "date_column": "log_date",
+                    "date_format": "yyyymmdd",
+                },
+            },
+        ).resolve()
+        self.assertEqual(resolved.analysis_time_kind, "timestamp")
+        self.assertEqual(
+            resolved.analysis_time_expr,
+            "CAST(CONCAT(SUBSTR(CAST(create_time AS VARCHAR), 1, 4), '-', "
+            "SUBSTR(CAST(create_time AS VARCHAR), 5, 2), '-', "
+            "SUBSTR(CAST(create_time AS VARCHAR), 7, 2), "
+            "SUBSTR(CAST(create_time AS VARCHAR), 9)) AS TIMESTAMP)",
+        )
+
     def test_resolver_request_override_beats_metadata(self) -> None:
         request = self._compare_request(time_axis={"analysis_time": {"column": "created_at"}})
         resolved = TimeAxisResolver(

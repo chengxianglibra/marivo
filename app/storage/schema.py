@@ -587,7 +587,11 @@ METADATA_DDL: list[str] = [
             timestamp_surface_ref IS NULL OR substr(timestamp_surface_ref, 1, 6) = 'field.'
         ),
         timestamp_format    TEXT CHECK (
-            timestamp_format IS NULL OR timestamp_format IN ('native', 'iso8601_t_naive')
+            timestamp_format IS NULL OR timestamp_format IN (
+                'native',
+                'iso8601_t_naive',
+                'YYYYMMDD hh:mm:ss'
+            )
         ),
         date_surface_ref   TEXT CHECK (
             date_surface_ref IS NULL OR substr(date_surface_ref, 1, 6) = 'field.'

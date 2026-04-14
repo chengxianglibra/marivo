@@ -1169,6 +1169,47 @@ class BindingReadinessEvaluatorTests(unittest.TestCase):
 
         self.assertEqual(result.readiness_status, "ready")
 
+    def test_binding_compact_naive_timestamp_column_is_ready(self) -> None:
+        result = self._evaluate(
+            field_bindings=[
+                {
+                    "carrier_binding_key": "primary",
+                    "target": {"target_kind": "metric_input", "target_key": "numerator"},
+                    "semantic_ref": "metric_input.converted",
+                },
+                {
+                    "carrier_binding_key": "primary",
+                    "target": {"target_kind": "metric_input", "target_key": "denominator"},
+                    "semantic_ref": "metric_input.eligible",
+                },
+            ],
+            time_bindings=[
+                {
+                    "carrier_binding_key": "primary",
+                    "target": {"target_kind": "primary_time", "target_key": "time.event_date"},
+                    "semantic_ref": "time.event_date",
+                    "resolution_kind": "timestamp_column",
+                    "timestamp_surface_ref": "field.create_time",
+                    "timestamp_format": "YYYYMMDD hh:mm:ss",
+                }
+            ],
+            carrier_bindings=[
+                {
+                    "binding_key": "primary",
+                    "carrier_locator": "warehouse.metric_fact",
+                    "field_surfaces": [
+                        {"surface_ref": "field.create_time", "physical_name": "create_time"}
+                    ],
+                }
+            ],
+            carrier_source_object_loader=lambda _carrier: {
+                "object_id": "src_123",
+                "properties_json": '{"columns":[{"name":"create_time","type":"varchar"}]}',
+            },
+        )
+
+        self.assertEqual(result.readiness_status, "ready")
+
     def _evaluate(
         self,
         *,

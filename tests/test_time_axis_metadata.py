@@ -88,7 +88,7 @@ class TimeCapabilitiesSchemaTests(unittest.TestCase):
             {
                 "analysis_time": {
                     "timestamp_column": "create_time",
-                    "timestamp_format": "iso8601_t_naive",
+                    "timestamp_format": "YYYYMMDD hh:mm:ss",
                 }
             }
         )
@@ -97,7 +97,7 @@ class TimeCapabilitiesSchemaTests(unittest.TestCase):
             {
                 "analysis_time": {
                     "timestamp_column": "create_time",
-                    "timestamp_format": "iso8601_t_naive",
+                    "timestamp_format": "YYYYMMDD hh:mm:ss",
                 }
             },
         )

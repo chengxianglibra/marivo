@@ -746,8 +746,11 @@ def _normalize_timestamp_format(value: Any) -> str | None:
     normalized = _optional_str(value)
     if normalized is None:
         return None
-    if normalized not in {"native", "iso8601_t_naive"}:
-        raise ValueError("analysis_time.timestamp_format must be 'native' or 'iso8601_t_naive'")
+    if normalized not in {"native", "iso8601_t_naive", "YYYYMMDD hh:mm:ss"}:
+        raise ValueError(
+            "analysis_time.timestamp_format must be 'native', "
+            "'iso8601_t_naive', or 'YYYYMMDD hh:mm:ss'"
+        )
     return normalized
 
 
