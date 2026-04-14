@@ -128,7 +128,11 @@ def run_decompose_intent(
         )
 
     all_dimensions = list(runtime_dimensions or resolved_metric.dimensions)
-    grain = resolved_metric.grain or "day"
+    compare_grain = _infer_compare_grain(
+        left_time_scope=left_time_scope,
+        right_time_scope=right_time_scope,
+        fallback_grain=resolved_metric.grain,
+    )
 
     table = svc._resolve_metric_table(metric_name)
     if table is None:
@@ -161,7 +165,7 @@ def run_decompose_intent(
         left_scope,
         engine,
         engine_type,
-        grain,
+        compare_grain,
     )
     right_rows, _ = _run_segmented_query(
         svc,
@@ -175,7 +179,7 @@ def run_decompose_intent(
         right_scope,
         engine,
         engine_type,
-        grain,
+        compare_grain,
     )
 
     now = datetime.now(UTC).isoformat()
@@ -473,6 +477,50 @@ def _run_segmented_query(
     sql = result.metadata.get("translated_sql") or ""
     query_hash: str | None = hashlib.md5(sql.encode()).hexdigest() if sql else None
     return list(result.rows), query_hash
+
+
+def _infer_compare_grain(
+    *,
+    left_time_scope: dict[str, Any],
+    right_time_scope: dict[str, Any],
+    fallback_grain: str | None,
+) -> str:
+    """Infer the effective compare grain from upstream observation windows.
+
+    Decompose must preserve the actual compare/observe window semantics instead of
+    blindly falling back to the metric contract grain. This avoids collapsing
+    hour-level ranges like 2026-04-09T14:00:00..15:00:00 into a day-level empty
+    window during follow-up metric_query normalization.
+    """
+
+    explicit_grain = _time_scope_grain(left_time_scope) or _time_scope_grain(right_time_scope)
+    if explicit_grain is not None:
+        return explicit_grain
+
+    if _time_scope_has_datetime_boundary(left_time_scope) or _time_scope_has_datetime_boundary(
+        right_time_scope
+    ):
+        return "hour"
+
+    if fallback_grain in {"hour", "day", "week", "month"}:
+        return fallback_grain
+
+    return "day"
+
+
+def _time_scope_grain(time_scope: dict[str, Any]) -> str | None:
+    grain = time_scope.get("grain")
+    if grain in {"hour", "day", "week", "month"}:
+        return str(grain)
+    return None
+
+
+def _time_scope_has_datetime_boundary(time_scope: dict[str, Any]) -> bool:
+    for key in ("start", "end", "at"):
+        value = time_scope.get(key)
+        if isinstance(value, str) and ("T" in value or " " in value):
+            return True
+    return False
 
 
 def _extract_date_range(time_scope: dict[str, Any]) -> tuple[str, str]:
