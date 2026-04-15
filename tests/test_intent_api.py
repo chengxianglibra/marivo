@@ -277,6 +277,17 @@ class IntentEndpointTests(unittest.TestCase):
             },
         ).json()
         cls.source_id = source["source_id"]
+        cls.client.post(
+            f"/sources/{cls.source_id}/sync/selections",
+            json={
+                "selections": [
+                    {"schema_name": "analytics", "table_name": "watch_events"},
+                    {"schema_name": "analytics", "table_name": "player_qoe"},
+                    {"schema_name": "analytics", "table_name": "ad_events"},
+                    {"schema_name": "analytics", "table_name": "recommendation_events"},
+                ]
+            },
+        )
         cls.client.post(f"/sources/{cls.source_id}/sync")
         source_objects = cls.client.get(f"/sources/{cls.source_id}/objects?type=table").json()
         watch_events = next(obj for obj in source_objects if obj["native_name"] == "watch_events")
@@ -1355,9 +1366,6 @@ class IntentEndpointWithSemanticLayerTests(unittest.TestCase):
             "/bindings",
             json={"source_id": cls.source_id, "engine_id": cls.engine_id, "priority": 0},
         )
-
-        # Sync a table so we have a source_object
-        cls.client.post(f"/sources/{cls.source_id}/sync")
 
         # Create a semantic metric (uses watch_events table from demo data)
         metric = create_typed_metric(

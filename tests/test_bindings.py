@@ -251,7 +251,16 @@ class QueryRouterTests(unittest.TestCase):
             "duckdb", "Router Source", {"path": str(cls.local_duckdb_path)}
         )
         adapter = cls.source_service.get_adapter(cls.source["source_id"])
-        cls.sync_engine.trigger_sync(cls.source["source_id"], adapter)
+        cls.sync_engine.trigger_sync(
+            cls.source["source_id"],
+            adapter,
+            selections=[
+                {"schema_name": "analytics", "table_name": "watch_events"},
+                {"schema_name": "analytics", "table_name": "player_qoe"},
+                {"schema_name": "analytics", "table_name": "ad_events"},
+                {"schema_name": "analytics", "table_name": "recommendation_events"},
+            ],
+        )
 
         # Register an engine and bind it
         cls.engine = cls.engine_service.register_engine(
@@ -285,7 +294,16 @@ class QueryRouterTests(unittest.TestCase):
             "duckdb", "Router Source 2", {"path": str(self.local_duckdb_path)}
         )
         adapter2 = self.source_service.get_adapter(src2["source_id"])
-        self.sync_engine.trigger_sync(src2["source_id"], adapter2)
+        self.sync_engine.trigger_sync(
+            src2["source_id"],
+            adapter2,
+            selections=[
+                {"schema_name": "analytics", "table_name": "watch_events"},
+                {"schema_name": "analytics", "table_name": "player_qoe"},
+                {"schema_name": "analytics", "table_name": "ad_events"},
+                {"schema_name": "analytics", "table_name": "recommendation_events"},
+            ],
+        )
 
         self.binding_service.create_binding(
             src2["source_id"],
@@ -477,7 +495,16 @@ class QueryRouterTests(unittest.TestCase):
             "duckdb", "Router Source Duplicate", {"path": str(self.local_duckdb_path)}
         )
         adapter2 = self.source_service.get_adapter(src2["source_id"])
-        self.sync_engine.trigger_sync(src2["source_id"], adapter2)
+        self.sync_engine.trigger_sync(
+            src2["source_id"],
+            adapter2,
+            selections=[
+                {"schema_name": "analytics", "table_name": "watch_events"},
+                {"schema_name": "analytics", "table_name": "player_qoe"},
+                {"schema_name": "analytics", "table_name": "ad_events"},
+                {"schema_name": "analytics", "table_name": "recommendation_events"},
+            ],
+        )
         self.binding_service.create_binding(
             src2["source_id"],
             self.engine["engine_id"],
@@ -497,7 +524,16 @@ class QueryRouterTests(unittest.TestCase):
             "duckdb", "NS Resolve Src", {"path": str(self.local_duckdb_path)}
         )
         adapter = self.source_service.get_adapter(src["source_id"])
-        self.sync_engine.trigger_sync(src["source_id"], adapter)
+        self.sync_engine.trigger_sync(
+            src["source_id"],
+            adapter,
+            selections=[
+                {"schema_name": "analytics", "table_name": "watch_events"},
+                {"schema_name": "analytics", "table_name": "player_qoe"},
+                {"schema_name": "analytics", "table_name": "ad_events"},
+                {"schema_name": "analytics", "table_name": "recommendation_events"},
+            ],
+        )
 
         eng = self.engine_service.register_engine(
             "duckdb", "NS Resolve Eng", {"path": "/tmp/ns_resolve.duckdb"}
@@ -548,7 +584,16 @@ class QueryRouterTests(unittest.TestCase):
             "duckdb", "Capability Tie Src", {"path": str(self.local_duckdb_path)}
         )
         adapter = self.source_service.get_adapter(src["source_id"])
-        self.sync_engine.trigger_sync(src["source_id"], adapter)
+        self.sync_engine.trigger_sync(
+            src["source_id"],
+            adapter,
+            selections=[
+                {"schema_name": "analytics", "table_name": "watch_events"},
+                {"schema_name": "analytics", "table_name": "player_qoe"},
+                {"schema_name": "analytics", "table_name": "ad_events"},
+                {"schema_name": "analytics", "table_name": "recommendation_events"},
+            ],
+        )
 
         duck = self.engine_service.register_engine(
             "duckdb",
@@ -815,6 +860,18 @@ class BindingAPITests(unittest.TestCase):
         )
         source_id = resp.json()["source_id"]
 
+        # Add sync selections before syncing
+        self.client.post(
+            f"/sources/{source_id}/sync/selections",
+            json={
+                "selections": [
+                    {"schema_name": "analytics", "table_name": "watch_events"},
+                    {"schema_name": "analytics", "table_name": "player_qoe"},
+                    {"schema_name": "analytics", "table_name": "ad_events"},
+                    {"schema_name": "analytics", "table_name": "recommendation_events"},
+                ]
+            },
+        )
         # Sync to populate source_objects
         self.client.post(f"/sources/{source_id}/sync")
 

@@ -146,7 +146,7 @@ export function createDataSourcesModule(ctx) {
         { label: 'source_id', value: source.source_id },
         { label: 'display_name', value: source.display_name || '-' },
         { label: 'source_type', value: source.source_type || '-' },
-        { label: 'sync_mode', value: source.sync_mode || 'all' },
+        { label: 'sync_mode', value: source.sync_mode || 'by_select' },
         { label: 'enabled/status', valueHtml: statusBadge(source.status) },
         { label: 'connection/config', value: summarizeConnection(source.connection) },
       ]),
@@ -183,7 +183,7 @@ export function createDataSourcesModule(ctx) {
       : '<span class="shell-chip">not started in current session</span>';
     const bodyParts = [
       renderDetailList([
-        { label: 'sync_mode', value: source.sync_mode || 'all' },
+        { label: 'sync_mode', value: source.sync_mode || 'by_select' },
         { label: 'recent job id', value: recentJob?.job_id || '-' },
         {
           label: 'recent job status',
@@ -399,7 +399,6 @@ export function createDataSourcesModule(ctx) {
             <label>
               Sync Mode
               <select name="sync_mode">
-                <option value="all">all</option>
                 <option value="by_select">by_select</option>
                 <option value="none">none</option>
               </select>
@@ -797,7 +796,7 @@ export function createDataSourcesModule(ctx) {
     sourceTypeInput.value = source?.source_type || 'duckdb';
     sourceTypeInput.disabled = mode === 'edit';
     displayNameInput.value = source?.display_name || '';
-    syncModeInput.value = source?.sync_mode || 'all';
+    syncModeInput.value = source?.sync_mode || 'by_select';
     connectionInput.value = JSON.stringify(source?.connection || { path: '/tmp/demo.duckdb' }, null, 2);
     submit.textContent = mode === 'edit' ? 'Save Changes' : 'Create Source';
 

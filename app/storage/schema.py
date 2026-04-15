@@ -64,7 +64,7 @@ METADATA_DDL: list[str] = [
         display_name    TEXT NOT NULL,
         connection_json TEXT NOT NULL,
         capabilities_json TEXT NOT NULL,
-        sync_mode       TEXT NOT NULL DEFAULT 'all',
+        sync_mode       TEXT NOT NULL DEFAULT 'by_select',
         status          TEXT NOT NULL DEFAULT 'active',
         created_at      TEXT NOT NULL,
         updated_at      TEXT NOT NULL

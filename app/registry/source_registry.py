@@ -30,7 +30,7 @@ class SourceRegistry:
         display_name: str,
         connection: dict[str, Any],
         capabilities: dict[str, Any] | None = None,
-        sync_mode: str = "all",
+        sync_mode: str = "by_select",
     ) -> dict[str, Any]:
         source_id = f"src_{uuid4().hex[:12]}"
         now = now_iso()
@@ -78,7 +78,7 @@ class SourceRegistry:
         source_type: str,
         display_name: str,
         connection: dict[str, Any],
-        sync_mode: str = "all",
+        sync_mode: str = "by_select",
     ) -> dict[str, Any]:
         existing = self.metadata.query_one(
             "SELECT * FROM sources WHERE display_name = ?",
@@ -230,7 +230,7 @@ class SourceRegistry:
         )
         if row is None:
             raise KeyError(f"Unknown source: {source_id}")
-        return str(row.get("sync_mode", "all"))
+        return str(row.get("sync_mode", "by_select"))
 
     def add_sync_selection(
         self, source_id: str, schema_name: str, table_name: str
@@ -340,7 +340,7 @@ class SourceRegistry:
             "display_name": row["display_name"],
             "connection": json.loads(row["connection_json"]),
             "capabilities": json.loads(row["capabilities_json"]),
-            "sync_mode": row.get("sync_mode", "all"),
+            "sync_mode": row.get("sync_mode", "by_select"),
             "status": row["status"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],

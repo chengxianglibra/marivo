@@ -27,6 +27,22 @@ class SourceRegistryTests(unittest.TestCase):
     def _local_connection(self) -> dict:
         return {"path": str(self.db_path)}
 
+    def _sync_all_tables(self, source_id: str) -> dict:
+        """Helper to add sync selections for all tables and trigger sync."""
+        self.client.post(
+            f"/sources/{source_id}/sync/selections",
+            json={
+                "selections": [
+                    {"schema_name": "analytics", "table_name": "watch_events"},
+                    {"schema_name": "analytics", "table_name": "player_qoe"},
+                    {"schema_name": "analytics", "table_name": "ad_events"},
+                    {"schema_name": "analytics", "table_name": "recommendation_events"},
+                ]
+            },
+        )
+        resp = self.client.post(f"/sources/{source_id}/sync")
+        return resp.json()
+
     def test_register_and_list_sources(self) -> None:
         resp = self.client.post(
             "/sources",
@@ -75,9 +91,7 @@ class SourceRegistryTests(unittest.TestCase):
         )
         source_id = resp.json()["source_id"]
 
-        resp = self.client.post(f"/sources/{source_id}/sync")
-        self.assertEqual(resp.status_code, 200)
-        sync_result = resp.json()
+        sync_result = self._sync_all_tables(source_id)
         self.assertEqual(sync_result["status"], "succeeded")
 
         # Check sync job status
@@ -114,8 +128,8 @@ class SourceRegistryTests(unittest.TestCase):
         source_id = resp.json()["source_id"]
 
         # Sync twice
-        self.client.post(f"/sources/{source_id}/sync")
-        self.client.post(f"/sources/{source_id}/sync")
+        self._sync_all_tables(source_id)
+        self._sync_all_tables(source_id)
 
         resp = self.client.get(f"/sources/{source_id}/objects?type=table")
         tables = resp.json()
@@ -131,7 +145,7 @@ class SourceRegistryTests(unittest.TestCase):
             },
         )
         source_id = resp.json()["source_id"]
-        self.client.post(f"/sources/{source_id}/sync")
+        self._sync_all_tables(source_id)
 
         list_resp = self.client.get(f"/sources/{source_id}/objects?type=table")
         self.assertEqual(list_resp.status_code, 200)
@@ -151,7 +165,7 @@ class SourceRegistryTests(unittest.TestCase):
             },
         )
         source_id = resp.json()["source_id"]
-        self.client.post(f"/sources/{source_id}/sync")
+        self._sync_all_tables(source_id)
 
         list_resp = self.client.get(f"/sources/{source_id}/objects?type=column")
         self.assertEqual(list_resp.status_code, 200)
@@ -175,7 +189,7 @@ class SourceRegistryTests(unittest.TestCase):
             },
         )
         source_id = resp.json()["source_id"]
-        self.client.post(f"/sources/{source_id}/sync")
+        self._sync_all_tables(source_id)
 
         detail_resp = self.client.get(f"/sources/{source_id}/objects/obj_missing")
         self.assertEqual(detail_resp.status_code, 404)
@@ -190,7 +204,7 @@ class SourceRegistryTests(unittest.TestCase):
             },
         )
         first_source_id = first_resp.json()["source_id"]
-        self.client.post(f"/sources/{first_source_id}/sync")
+        self._sync_all_tables(first_source_id)
         first_object = self.client.get(f"/sources/{first_source_id}/objects?type=table").json()[0]
 
         second_resp = self.client.post(
@@ -202,7 +216,7 @@ class SourceRegistryTests(unittest.TestCase):
             },
         )
         second_source_id = second_resp.json()["source_id"]
-        self.client.post(f"/sources/{second_source_id}/sync")
+        self._sync_all_tables(second_source_id)
 
         detail_resp = self.client.get(
             f"/sources/{second_source_id}/objects/{first_object['object_id']}"
@@ -324,7 +338,7 @@ class SourceRegistryTests(unittest.TestCase):
         )
         source_id = resp.json()["source_id"]
         # Sync to get source_objects
-        self.client.post(f"/sources/{source_id}/sync")
+        self._sync_all_tables(source_id)
         objects = self.client.get(f"/sources/{source_id}/objects?type=table").json()
         object_id = objects[0]["object_id"]
         metric = create_typed_metric(
@@ -461,18 +475,6 @@ class SyncModeTests(unittest.TestCase):
         tables = resp.json()
         self.assertEqual(len(tables), 1)
         self.assertEqual(tables[0]["native_name"], "watch_events")
-
-    def test_full_sync_still_works(self) -> None:
-        """mode=all (default) still syncs everything."""
-        source = self._create_source("Full Sync Check")
-        source_id = source["source_id"]
-
-        resp = self.client.post(f"/sources/{source_id}/sync")
-        self.assertEqual(resp.status_code, 200)
-
-        resp = self.client.get(f"/sources/{source_id}/objects?type=table")
-        tables = resp.json()
-        self.assertEqual(len(tables), 4)
 
     def test_browse_catalog_schemas(self) -> None:
         """Browse live catalog schemas without persisting."""
@@ -805,6 +807,18 @@ class ColumnPropertiesTests(unittest.TestCase):
             },
         )
         cls.source_id = resp.json()["source_id"]
+        # Add sync selections for all tables and sync
+        cls.client.post(
+            f"/sources/{cls.source_id}/sync/selections",
+            json={
+                "selections": [
+                    {"schema_name": "analytics", "table_name": "watch_events"},
+                    {"schema_name": "analytics", "table_name": "player_qoe"},
+                    {"schema_name": "analytics", "table_name": "ad_events"},
+                    {"schema_name": "analytics", "table_name": "recommendation_events"},
+                ]
+            },
+        )
         cls.client.post(f"/sources/{cls.source_id}/sync")
 
     @classmethod
@@ -843,7 +857,7 @@ class ColumnPropertiesTests(unittest.TestCase):
             f"/sources/{self.source_id}/objects/{object_id}/properties",
             json={"unit": "bytes"},
         )
-        # Re-sync
+        # Re-sync (selections already set in setUpClass)
         self.client.post(f"/sources/{self.source_id}/sync")
         # Check unit survives
         resp = self.client.get(f"/sources/{self.source_id}/objects", params={"type": "column"})

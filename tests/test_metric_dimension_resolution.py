@@ -35,6 +35,14 @@ class TypedMetricDimensionResolutionTests(unittest.TestCase):
             },
         ).json()
         cls.source_id = source["source_id"]
+        cls.client.post(
+            f"/sources/{cls.source_id}/sync/selections",
+            json={
+                "selections": [
+                    {"schema_name": "analytics", "table_name": "metric_dimension_events"},
+                ]
+            },
+        )
         cls.client.post(f"/sources/{cls.source_id}/sync")
         source_object = cls.metadata_store.query_one(
             """

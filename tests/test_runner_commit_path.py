@@ -111,7 +111,9 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         from app.intents.observe import run_observe_intent
 
         svc = _make_svc()
-        with self.assertRaisesRegex(ValueError, "granularity='hour' requires"):
+        with self.assertRaisesRegex(
+            ValueError, "time_scope.start must be a naive datetime string for hour grain"
+        ):
             run_observe_intent(
                 svc,
                 _SESSION,

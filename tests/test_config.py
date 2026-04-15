@@ -95,14 +95,14 @@ class LoadConfigTests(unittest.TestCase):
         self.assertIsInstance(cfg.ui, UIConfig)
         self.assertFalse(cfg.ui.enabled)
 
-    def test_sync_mode_defaults_to_all(self) -> None:
+    def test_sync_mode_defaults_to_by_select(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
             f.write('sources:\n  - name: "Demo"\n    type: duckdb\n')
             f.flush()
             cfg = load_config(Path(f.name))
 
         self.assertEqual(len(cfg.sources), 1)
-        self.assertEqual(cfg.sources[0].sync.mode, "all")
+        self.assertEqual(cfg.sources[0].sync.mode, "by_select")
 
 
 class EnsureSourceTests(unittest.TestCase):
@@ -173,6 +173,8 @@ class StartupWithConfigTests(unittest.TestCase):
                 "sources:\n"
                 '  - name: "Config Demo"\n'
                 "    type: duckdb\n"
+                "    sync:\n"
+                "      mode: by_select\n"
                 "    connection:\n"
                 f"      path: {Path(self.class_tmp.name) / 'shared.duckdb'}\n"
             )
@@ -192,6 +194,18 @@ class StartupWithConfigTests(unittest.TestCase):
             self.assertIn("Config Demo", names)
 
             source_id = next(s["source_id"] for s in sources if s["display_name"] == "Config Demo")
+
+            # Add sync selections and trigger sync
+            client.post(
+                f"/sources/{source_id}/sync/selections",
+                json={
+                    "selections": [
+                        {"schema_name": "analytics", "table_name": "watch_events"},
+                    ]
+                },
+            )
+            client.post(f"/sources/{source_id}/sync")
+
             resp = client.get(f"/sources/{source_id}/objects?type=table")
             self.assertEqual(resp.status_code, 200)
             tables = resp.json()
@@ -345,6 +359,8 @@ class StartupWithConfigTests(unittest.TestCase):
                 "sources:\n"
                 '  - name: "Local Demo"\n'
                 "    type: duckdb\n"
+                "    sync:\n"
+                "      mode: by_select\n"
                 "    connection:\n"
                 f"      path: {Path(self.class_tmp.name) / 'shared.duckdb'}\n"
             )
@@ -363,7 +379,7 @@ class StartupWithConfigTests(unittest.TestCase):
                     "Local Demo",
                     '{"path": "/tmp/old.duckdb"}',
                     "{}",
-                    "all",
+                    "by_select",
                 ],
             )
 
@@ -383,6 +399,17 @@ class StartupWithConfigTests(unittest.TestCase):
             self.assertEqual(
                 sources[0]["connection"]["path"], str(Path(self.class_tmp.name) / "shared.duckdb")
             )
+
+            # Add sync selections and trigger sync to verify source is configured correctly
+            client.post(
+                "/sources/src_existingdemo/sync/selections",
+                json={
+                    "selections": [
+                        {"schema_name": "analytics", "table_name": "watch_events"},
+                    ]
+                },
+            )
+            client.post("/sources/src_existingdemo/sync")
 
             resp = client.get("/sources/src_existingdemo/objects?type=table")
             self.assertEqual(resp.status_code, 200)

@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 class SyncConfig(BaseModel):
-    mode: str = "all"  # "all" | "by_select" | "none"
+    mode: str = "by_select"  # "by_select" | "none"
 
 
 class SourceConfig(BaseModel):
