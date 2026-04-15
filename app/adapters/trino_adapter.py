@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from decimal import Decimal
 from typing import Any
 
 from app.adapters.base import (
@@ -164,16 +165,22 @@ class TrinoCatalogAdapter(CatalogAdapter):
         if not table_rows:
             return []
 
-        column_rows = self._query(
-            "SELECT table_name, COUNT(column_name) AS column_count "
-            "FROM information_schema.columns "
-            "WHERE table_catalog = ? AND table_schema = ? "
-            "GROUP BY table_name",
-            [self._catalog, schema_name],
-        )
-        column_counts = {
-            str(row["table_name"]): int(row.get("column_count", 0) or 0) for row in column_rows
-        }
+        try:
+            column_rows = self._query(
+                "SELECT table_name, COUNT(column_name) AS column_count "
+                "FROM information_schema.columns "
+                "WHERE table_catalog = ? AND table_schema = ? "
+                "GROUP BY table_name",
+                [self._catalog, schema_name],
+            )
+            column_counts = {
+                str(row["table_name"]): int(row.get("column_count", 0) or 0) for row in column_rows
+            }
+        except Exception:
+            column_counts = {
+                str(row["Table"]): len(self._get_columns_metadata(schema_name, str(row["Table"])))
+                for row in table_rows
+            }
         return [
             PhysicalObject(
                 native_name=str(r["Table"]),
@@ -201,17 +208,170 @@ class TrinoCatalogAdapter(CatalogAdapter):
             # If SHOW COLUMNS fails (e.g., permission issue), return empty
             return {}
 
-    def _get_table_properties(self, schema_name: str, table_name: str) -> dict[str, Any]:
-        """Retrieve table properties (e.g., Iceberg table$properties).
+    def _get_columns_metadata(self, schema_name: str, table_name: str) -> list[dict[str, Any]]:
+        """Retrieve ordered column metadata, preferring information_schema with SHOW fallback."""
+        try:
+            rows = self._query(
+                "SELECT column_name, data_type, ordinal_position, is_nullable "
+                "FROM information_schema.columns "
+                "WHERE table_catalog = ? AND table_schema = ? AND table_name = ? "
+                "ORDER BY ordinal_position",
+                [self._catalog, schema_name, table_name],
+            )
+        except Exception:
+            rows = []
+        if rows:
+            return rows
 
-        Returns a dict of key-value pairs, or empty dict if unavailable.
+        show_rows = self._query(f'SHOW COLUMNS FROM "{schema_name}"."{table_name}"')
+        return [
+            {
+                "column_name": row["Column"],
+                "data_type": row["Type"],
+                "ordinal_position": position,
+                "is_nullable": "YES",
+            }
+            for position, row in enumerate(show_rows, start=1)
+        ]
+
+    def _get_table_properties(self, schema_name: str, table_name: str) -> dict[str, Any]:
+        """Retrieve table properties from Trino hidden metadata tables.
+
+        Iceberg exposes ``table$properties`` as ``key`` / ``value`` rows. Hive exposes the same
+        hidden table as a single wide row with one column per property. Support both shapes.
         """
         try:
             rows = self._query(f'SELECT key, value FROM "{schema_name}"."{table_name}$properties"')
             return {r["key"]: r["value"] for r in rows}
         except Exception:
-            # If query fails (non-Iceberg table, permission, etc.), return empty
+            try:
+                rows = self._query(f'SELECT * FROM "{schema_name}"."{table_name}$properties"')
+            except Exception:
+                # If both metadata paths fail (permissions, connector limitations, etc.), return
+                # empty so sync/detail can continue.
+                return {}
+            if not rows:
+                return {}
+            return {k: v for k, v in rows[0].items() if v is not None}
+
+    def _split_top_level(self, value: str) -> list[str]:
+        parts: list[str] = []
+        current: list[str] = []
+        paren_depth = 0
+        bracket_depth = 0
+        in_quote = False
+        i = 0
+        while i < len(value):
+            char = value[i]
+            if char == "'":
+                current.append(char)
+                if in_quote and i + 1 < len(value) and value[i + 1] == "'":
+                    current.append(value[i + 1])
+                    i += 2
+                    continue
+                in_quote = not in_quote
+                i += 1
+                continue
+            if not in_quote:
+                if char == "(":
+                    paren_depth += 1
+                elif char == ")":
+                    paren_depth -= 1
+                elif char == "[":
+                    bracket_depth += 1
+                elif char == "]":
+                    bracket_depth -= 1
+                elif char == "," and paren_depth == 0 and bracket_depth == 0:
+                    part = "".join(current).strip()
+                    if part:
+                        parts.append(part)
+                    current = []
+                    i += 1
+                    continue
+            current.append(char)
+            i += 1
+        tail = "".join(current).strip()
+        if tail:
+            parts.append(tail)
+        return parts
+
+    def _parse_show_create_value(self, raw_value: str) -> Any:
+        value = raw_value.strip()
+        upper_value = value.upper()
+        if upper_value == "NULL":
+            return None
+        if upper_value == "TRUE":
+            return True
+        if upper_value == "FALSE":
+            return False
+        if value.startswith("'") and value.endswith("'"):
+            return value[1:-1].replace("''", "'")
+        if upper_value.startswith("ARRAY[") and value.endswith("]"):
+            inner = value[value.find("[") + 1 : -1].strip()
+            if not inner:
+                return []
+            return [self._parse_show_create_value(item) for item in self._split_top_level(inner)]
+        try:
+            number = Decimal(value)
+        except Exception:
+            return value
+        if number == number.to_integral_value():
+            return int(number)
+        return float(number)
+
+    def _extract_with_clause(self, create_sql: str) -> str | None:
+        marker = "WITH ("
+        upper_sql = create_sql.upper()
+        start = upper_sql.find(marker)
+        if start < 0:
+            return None
+        i = start + len(marker)
+        depth = 1
+        in_quote = False
+        content: list[str] = []
+        while i < len(create_sql):
+            char = create_sql[i]
+            if char == "'":
+                content.append(char)
+                if in_quote and i + 1 < len(create_sql) and create_sql[i + 1] == "'":
+                    content.append(create_sql[i + 1])
+                    i += 2
+                    continue
+                in_quote = not in_quote
+                i += 1
+                continue
+            if not in_quote:
+                if char == "(":
+                    depth += 1
+                elif char == ")":
+                    depth -= 1
+                    if depth == 0:
+                        return "".join(content).strip()
+            content.append(char)
+            i += 1
+        return None
+
+    def _get_show_create_properties(self, schema_name: str, table_name: str) -> dict[str, Any]:
+        """Parse explicit WITH (...) properties from SHOW CREATE TABLE output."""
+        try:
+            rows = self._query(f'SHOW CREATE TABLE "{schema_name}"."{table_name}"')
+        except Exception:
             return {}
+        if not rows:
+            return {}
+        create_sql = next(iter(rows[0].values()), None)
+        if not isinstance(create_sql, str):
+            return {}
+        with_clause = self._extract_with_clause(create_sql)
+        if with_clause is None:
+            return {}
+        properties: dict[str, Any] = {}
+        for assignment in self._split_top_level(with_clause):
+            key, sep, raw_value = assignment.partition("=")
+            if not sep:
+                continue
+            properties[key.strip()] = self._parse_show_create_value(raw_value)
+        return properties
 
     def get_table_detail(self, schema_name: str, table_name: str) -> PhysicalObject:
         # Verify table exists
@@ -223,17 +383,14 @@ class TrinoCatalogAdapter(CatalogAdapter):
         if not table_rows:
             raise KeyError(f"Table not found: {schema_name}.{table_name}")
 
-        col_rows = self._query(
-            "SELECT column_name, data_type, ordinal_position, is_nullable "
-            "FROM information_schema.columns "
-            "WHERE table_catalog = ? AND table_schema = ? AND table_name = ? "
-            "ORDER BY ordinal_position",
-            [self._catalog, schema_name, table_name],
-        )
+        col_rows = self._get_columns_metadata(schema_name, table_name)
 
         # Fetch column comments and table properties
         comments = self._get_column_comments(schema_name, table_name)
-        table_props = self._get_table_properties(schema_name, table_name)
+        raw_table_props = self._get_table_properties(schema_name, table_name)
+        show_create_props = self._get_show_create_properties(schema_name, table_name)
+        table_props = dict(raw_table_props)
+        table_props.update(show_create_props)
 
         columns = [
             {
@@ -255,6 +412,8 @@ class TrinoCatalogAdapter(CatalogAdapter):
         # Add table properties if available
         if table_props:
             properties["table_properties"] = table_props
+            if raw_table_props and show_create_props:
+                properties["raw_table_properties"] = raw_table_props
             # Extract commonly-used properties as top-level for convenience
             if "comment" in table_props:
                 properties["comment"] = table_props["comment"]
@@ -270,13 +429,7 @@ class TrinoCatalogAdapter(CatalogAdapter):
         )
 
     def list_columns(self, schema_name: str, table_name: str) -> list[PhysicalObject]:
-        rows = self._query(
-            "SELECT column_name, data_type, ordinal_position, is_nullable "
-            "FROM information_schema.columns "
-            "WHERE table_catalog = ? AND table_schema = ? AND table_name = ? "
-            "ORDER BY ordinal_position",
-            [self._catalog, schema_name, table_name],
-        )
+        rows = self._get_columns_metadata(schema_name, table_name)
 
         # Fetch column comments
         comments = self._get_column_comments(schema_name, table_name)
@@ -327,16 +480,11 @@ class TrinoCatalogAdapter(CatalogAdapter):
         effective_limit = min(max(1, limit), MAX_PREVIEW_ROWS)
 
         # 1. Get column metadata and verify table exists
-        col_rows = self._query(
-            "SELECT column_name, data_type FROM information_schema.columns "
-            "WHERE table_catalog = ? AND table_schema = ? AND table_name = ? "
-            "ORDER BY ordinal_position",
-            [self._catalog, schema_name, table_name],
-        )
+        col_rows = self._get_columns_metadata(schema_name, table_name)
         if not col_rows:
             raise KeyError(f"Table {schema_name}.{table_name} not found")
 
-        all_columns = {r["column_name"]: r["data_type"] for r in col_rows}
+        all_columns = {str(r["column_name"]): r["data_type"] for r in col_rows}
 
         # 2. Validate column selection
         if columns is not None:

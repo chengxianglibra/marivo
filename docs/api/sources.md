@@ -174,6 +174,11 @@ Triggers a catalog sync job. The job snapshots schemas, tables, and columns from
 
 If `sync_mode` is `by_select`, only tables listed in sync selections are synced.
 
+For Trino sources, table detail sync also attempts to capture table properties. Factum reads both
+connector hidden metadata tables such as `"table$properties"` and explicit `WITH (...)` properties
+from `SHOW CREATE TABLE` when available, so Hive and Iceberg-backed tables can both surface table
+property metadata in synced `source_objects`.
+
 ### Response
 
 ```json
