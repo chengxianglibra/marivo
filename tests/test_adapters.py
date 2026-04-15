@@ -191,6 +191,21 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
         self.assertEqual(tables[1].properties["column_count"], 3)
 
     @patch("app.adapters.trino_adapter.TrinoCatalogAdapter._query")
+    def test_list_tables_falls_back_to_show_columns_for_counts(self, mock_query) -> None:
+        mock_query.side_effect = [
+            [{"Table": "events"}, {"Table": "users"}],
+            Exception("Not an Iceberg table"),
+            [
+                {"Column": "id", "Type": "integer", "Extra": "", "Comment": ""},
+                {"Column": "name", "Type": "varchar", "Extra": "", "Comment": ""},
+            ],
+            [{"Column": "user_id", "Type": "bigint", "Extra": "", "Comment": ""}],
+        ]
+        tables = self.adapter.list_tables("analytics")
+        self.assertEqual(tables[0].properties["column_count"], 2)
+        self.assertEqual(tables[1].properties["column_count"], 1)
+
+    @patch("app.adapters.trino_adapter.TrinoCatalogAdapter._query")
     def test_list_tables_empty_schema(self, mock_query) -> None:
         mock_query.return_value = []
         tables = self.adapter.list_tables("missing_schema")
@@ -227,6 +242,18 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
                 {"key": "comment", "value": "Events table"},
                 {"key": "owner", "value": "analytics_team"},
             ],
+            # SHOW CREATE TABLE
+            [
+                {
+                    "Create Table": (
+                        "CREATE TABLE hive.analytics.events (\n"
+                        "   id integer,\n"
+                        "   name varchar\n"
+                        ")\n"
+                        "WITH (format = 'ORC')"
+                    )
+                }
+            ],
         ]
         detail = self.adapter.get_table_detail("analytics", "events")
         self.assertEqual(detail.native_name, "events")
@@ -239,12 +266,57 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
         self.assertIn("table_properties", detail.properties)
         self.assertEqual(detail.properties["comment"], "Events table")
         self.assertEqual(detail.properties["owner"], "analytics_team")
+        self.assertEqual(detail.properties["table_properties"]["format"], "ORC")
 
     @patch("app.adapters.trino_adapter.TrinoCatalogAdapter._query")
     def test_get_table_detail_not_found(self, mock_query) -> None:
         mock_query.return_value = []
         with self.assertRaises(KeyError):
             self.adapter.get_table_detail("analytics", "nonexistent")
+
+    @patch("app.adapters.trino_adapter.TrinoCatalogAdapter._query")
+    def test_get_table_detail_reads_hive_hidden_table_properties(self, mock_query) -> None:
+        mock_query.side_effect = [
+            [{"table_name": "events", "table_type": "TABLE"}],
+            [
+                {
+                    "column_name": "id",
+                    "data_type": "integer",
+                    "ordinal_position": 1,
+                    "is_nullable": "NO",
+                }
+            ],
+            [{"Column": "id", "Type": "integer", "Extra": "", "Comment": ""}],
+            Exception("Column 'key' cannot be resolved"),
+            [
+                {
+                    "comment": "Hive events table",
+                    "external_location": "s3://bucket/events",
+                    "format": "PARQUET",
+                    "partitioned_by": ["ds"],
+                }
+            ],
+            [
+                {
+                    "Create Table": (
+                        "CREATE TABLE hive.analytics.events (\n"
+                        "   id integer\n"
+                        ")\n"
+                        "WITH (format = 'PARQUET', partitioned_by = ARRAY['ds'])"
+                    )
+                }
+            ],
+        ]
+
+        detail = self.adapter.get_table_detail("analytics", "events")
+
+        self.assertEqual(detail.properties["comment"], "Hive events table")
+        self.assertEqual(
+            detail.properties["table_properties"]["external_location"], "s3://bucket/events"
+        )
+        self.assertEqual(detail.properties["table_properties"]["format"], "PARQUET")
+        self.assertEqual(detail.properties["table_properties"]["partitioned_by"], ["ds"])
+        self.assertIn("raw_table_properties", detail.properties)
 
     @patch("app.adapters.trino_adapter.TrinoCatalogAdapter._query")
     def test_list_columns(self, mock_query) -> None:
@@ -277,6 +349,24 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
         self.assertEqual(columns[0].properties["comment"], "ID column")
         self.assertFalse(columns[0].properties["nullable"])
         self.assertEqual(columns[0].parent_path, "analytics.events")
+
+    @patch("app.adapters.trino_adapter.TrinoCatalogAdapter._query")
+    def test_list_columns_falls_back_to_show_columns(self, mock_query) -> None:
+        mock_query.side_effect = [
+            Exception("Not an Iceberg table"),
+            [
+                {"Column": "id", "Type": "integer", "Extra": "", "Comment": "ID column"},
+                {"Column": "ts", "Type": "timestamp", "Extra": "", "Comment": "Timestamp"},
+            ],
+            [
+                {"Column": "id", "Type": "integer", "Extra": "", "Comment": "ID column"},
+                {"Column": "ts", "Type": "timestamp", "Extra": "", "Comment": "Timestamp"},
+            ],
+        ]
+        columns = self.adapter.list_columns("analytics", "events")
+        self.assertEqual(len(columns), 2)
+        self.assertEqual(columns[0].properties["comment"], "ID column")
+        self.assertTrue(columns[0].properties["nullable"])
 
     @patch("app.adapters.trino_adapter.TrinoCatalogAdapter._query")
     def test_get_table_stats(self, mock_query) -> None:
@@ -367,7 +457,11 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
             ],
             # SHOW COLUMNS fails
             Exception("Permission denied"),
-            # table$properties fails (non-Iceberg table)
+            # key/value hidden table path fails
+            Exception("Table not found"),
+            # wide hidden table path also fails
+            Exception("Table not found"),
+            # SHOW CREATE TABLE also fails
             Exception("Table not found"),
         ]
         detail = self.adapter.get_table_detail("analytics", "events")

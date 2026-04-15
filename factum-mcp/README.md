@@ -306,6 +306,8 @@ Boundary notes:
   intent requests such as `scope.constraints` or `scope.predicate`
 - `get_session_state()` mirrors the `GET /state` query contract and intentionally does not support `slice`
 - use `query_session_state()` when `slice` or a structured state query body is required
+- `get_session_state()` is proposition-centered canonical state, not a session step or artifact inventory
+- a successful `observe` may still leave `get_session_state()` empty when no externally visible proposition has been seeded yet; keep following the returned artifact or typed refs instead of treating empty state as execution failure
 - `get_proposition_context()` reads canonical proposition closure, not runtime status
 - tool `data` remains the raw Factum canonical body; the MCP adapter only wraps it in the shared envelope
 
@@ -313,22 +315,24 @@ Boundary notes:
 
 Current typed intent coverage:
 
-- `observe(request)` -> `POST /sessions/{session_id}/intents/observe`
+- `observe(session_id, metric, time_scope, result_mode="standard", scope=None, granularity=None, dimensions=None)` -> `POST /sessions/{session_id}/intents/observe`
 - `compare(session_id, left_ref, right_ref, mode="auto")` -> `POST /sessions/{session_id}/intents/compare`
 - `decompose(session_id, compare_ref, dimension, method="delta_share")` -> `POST /sessions/{session_id}/intents/decompose`
 - `correlate(session_id, left_ref, right_ref, method="spearman", min_pairs=5)` -> `POST /sessions/{session_id}/intents/correlate`
-- `detect(request)` -> `POST /sessions/{session_id}/intents/detect`
+- `detect(session_id, metric, time_scope, scope=None, split_by=None, profile="auto", sensitivity="balanced", limit=None, max_series=None)` -> `POST /sessions/{session_id}/intents/detect`
 - `test_intent(session_id, left_ref, right_ref, hypothesis, method="auto")` -> `POST /sessions/{session_id}/intents/test`
 - `forecast(session_id, source_ref, horizon, profile="auto", interval_level=None)` -> `POST /sessions/{session_id}/intents/forecast`
 - `attribute(session_id, metric, left, right, dimensions, decomposition_method="delta_share", decomposition_limit=5)` -> `POST /sessions/{session_id}/intents/attribute`
-- `diagnose(request)` -> `POST /sessions/{session_id}/intents/diagnose`
-- `validate(request)` -> `POST /sessions/{session_id}/intents/validate`
+- `diagnose(session_id, metric, time_scope, candidate_dimensions, scope=None, detect_split_by=None, profile="auto", sensitivity="balanced", candidate_limit=None, followup_limit=3, decomposition_limit=5)` -> `POST /sessions/{session_id}/intents/diagnose`
+- `validate(session_id, metric, left, right, sample_kind=None, hypothesis=None, method=None)` -> `POST /sessions/{session_id}/intents/validate`
 
 Boundary notes:
 
 - these are path-discriminated intent tools; do not add an extra `intent` or `step_type` field to the request body
 - MCP parameter names intentionally reuse the canonical HTTP request field names
-- `observe` / `detect` / `diagnose` / `validate` expose one explicit `request` object so nested fields such as `time_scope`, `scope`, `left`, and `right` keep their canonical object schema instead of relying on SDK argument flattening
+- every typed intent tool exposes a top-level `session_id` used to fill the canonical HTTP path, while the remaining MCP parameters map directly to the canonical HTTP request body fields
+- nested MCP input schemas still reuse Factum's canonical request models; object fields such as `time_scope`, `left`, and `right` remain typed objects, not JSON-encoded strings
+- `observe` keeps canonical guardrails from `ObserveRequest`: `granularity` and `dimensions` are mutually exclusive, and both are only valid when `result_mode="standard"`
 - typed intent `metric` parameters must use canonical semantic refs such as `metric.watch_time`; bare names like `watch_time` are rejected
 - nested MCP input schemas now reuse Factum's canonical request models, so
   discriminators such as `time_scope.kind`, nested required fields, and enums

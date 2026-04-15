@@ -120,11 +120,9 @@ def test_observe_tool_time_scope_annotation_exposes_discriminator_schema() -> No
     register_tools(server, _build_config())
 
     observe = server.tools["observe"]
-    request_type = get_type_hints(observe, include_extras=True)["request"]
-    schema = TypeAdapter(request_type).json_schema()
-    time_scope_schema = schema["properties"]["time_scope"]
+    hints = get_type_hints(observe, include_extras=True)
+    time_scope_schema = TypeAdapter(hints["time_scope"]).json_schema()
 
-    assert schema["properties"]["session_id"]["type"] == "string"
     assert time_scope_schema["discriminator"]["propertyName"] == "kind"
     assert {item["$ref"] for item in time_scope_schema["oneOf"]} == {
         "#/$defs/ObserveTimeScopeRange",
@@ -132,7 +130,31 @@ def test_observe_tool_time_scope_annotation_exposes_discriminator_schema() -> No
         "#/$defs/ObserveTimeScopeLatestAvailable",
         "#/$defs/ObserveTimeScopeAsOf",
     }
-    assert schema["properties"]["scope"]["anyOf"][0]["$ref"] == "#/$defs/ObserveScope"
+    scope_schema = TypeAdapter(hints["scope"]).json_schema()
+    assert scope_schema["anyOf"][0]["$ref"] == "#/$defs/ObserveScope"
+
+
+def test_typed_intent_tools_expose_top_level_session_id() -> None:
+    server = cast("Any", _FakeServer())
+    register_tools(server, _build_config())
+
+    typed_intent_names = [
+        "observe",
+        "compare",
+        "decompose",
+        "correlate",
+        "detect",
+        "test_intent",
+        "forecast",
+        "attribute",
+        "diagnose",
+        "validate",
+    ]
+
+    for tool_name in typed_intent_names:
+        hints = get_type_hints(server.tools[tool_name])
+        assert hints["session_id"] is str
+        assert "request" not in hints
 
 
 def test_detect_and_diagnose_time_scope_annotations_expose_grain_enum() -> None:
@@ -142,10 +164,8 @@ def test_detect_and_diagnose_time_scope_annotations_expose_grain_enum() -> None:
     detect = server.tools["detect"]
     diagnose = server.tools["diagnose"]
 
-    detect_schema = get_type_hints(detect)["request"].model_json_schema()
-    diagnose_schema = get_type_hints(diagnose)["request"].model_json_schema()
-    detect_time_scope = detect_schema["$defs"]["DetectTimeScope"]
-    diagnose_time_scope = diagnose_schema["$defs"]["DetectTimeScope"]
+    detect_time_scope = TypeAdapter(get_type_hints(detect)["time_scope"]).json_schema()
+    diagnose_time_scope = TypeAdapter(get_type_hints(diagnose)["time_scope"]).json_schema()
 
     expected_grains = ["hour", "day", "week", "month"]
     assert detect_time_scope["properties"]["grain"]["enum"] == expected_grains
@@ -163,23 +183,57 @@ def test_t6_tools_use_strongly_typed_nested_models_instead_of_raw_dicts() -> Non
     test_hints = get_type_hints(server.tools["test_intent"])
     validate_hints = get_type_hints(server.tools["validate"])
 
-    assert observe_hints["request"].__name__ == "ObserveToolRequest"
-    assert detect_hints["request"].__name__ == "DetectToolRequest"
-    assert diagnose_hints["request"].__name__ == "DiagnoseToolRequest"
+    observe_time_scope_schema = TypeAdapter(observe_hints["time_scope"]).json_schema()
+    assert {item["$ref"] for item in observe_time_scope_schema["anyOf"]} == {
+        "#/$defs/ObserveTimeScopeRange",
+        "#/$defs/ObserveTimeScopeSnapshotNow",
+        "#/$defs/ObserveTimeScopeLatestAvailable",
+        "#/$defs/ObserveTimeScopeAsOf",
+    }
+    assert TypeAdapter(detect_hints["time_scope"]).json_schema()["properties"]["mode"]["const"] == (
+        "single_window"
+    )
+    assert TypeAdapter(diagnose_hints["time_scope"]).json_schema()["properties"]["mode"][
+        "const"
+    ] == ("single_window")
     assert compare_hints["left_ref"].__name__ == "ObservationRef"
     assert compare_hints["right_ref"].__name__ == "ObservationRef"
     assert test_hints["hypothesis"].__name__ == "HypothesisContract"
-    assert validate_hints["request"].__name__ == "ValidateToolRequest"
+    assert validate_hints["left"].__name__ == "ValidateObservationInput"
+    assert validate_hints["right"].__name__ == "ValidateObservationInput"
 
 
-def test_validate_tool_request_schema_keeps_nested_left_right_objects() -> None:
+def test_validate_tool_schema_keeps_nested_left_right_objects() -> None:
     server = cast("Any", _FakeServer())
     register_tools(server, _build_config())
 
     validate = server.tools["validate"]
-    schema = get_type_hints(validate)["request"].model_json_schema()
+    hints = get_type_hints(validate)
+    left_schema = TypeAdapter(hints["left"]).json_schema()
+    right_schema = TypeAdapter(hints["right"]).json_schema()
 
-    assert schema["properties"]["left"]["$ref"] == "#/$defs/ValidateObservationInput"
-    assert schema["properties"]["right"]["$ref"] == "#/$defs/ValidateObservationInput"
-    nested_time_scope = schema["$defs"]["ValidateObservationInput"]["properties"]["time_scope"]
-    assert nested_time_scope["discriminator"]["propertyName"] == "kind"
+    assert left_schema["properties"]["time_scope"]["discriminator"]["propertyName"] == "kind"
+    assert right_schema["properties"]["time_scope"]["discriminator"]["propertyName"] == "kind"
+
+
+def test_attribute_tool_schema_keeps_nested_left_right_objects() -> None:
+    server = cast("Any", _FakeServer())
+    register_tools(server, _build_config())
+
+    attribute = server.tools["attribute"]
+    hints = get_type_hints(attribute)
+    left_schema = TypeAdapter(hints["left"]).json_schema()
+    right_schema = TypeAdapter(hints["right"]).json_schema()
+
+    assert left_schema["properties"]["time_scope"]["discriminator"]["propertyName"] == "kind"
+    assert right_schema["properties"]["time_scope"]["discriminator"]["propertyName"] == "kind"
+
+
+def test_attribute_tool_uses_strongly_typed_nested_models() -> None:
+    server = cast("Any", _FakeServer())
+    register_tools(server, _build_config())
+
+    attribute_hints = get_type_hints(server.tools["attribute"])
+
+    assert attribute_hints["left"].__name__ == "AttributeObservationInput"
+    assert attribute_hints["right"].__name__ == "AttributeObservationInput"
