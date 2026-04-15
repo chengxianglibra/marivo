@@ -125,9 +125,11 @@ def _register_configured_sources(
                         source_config.name,
                     )
             else:
-                adapter = source_service.get_adapter(source["source_id"])
-                sync_engine.trigger_sync(source["source_id"], adapter)
-                logger.info("Config source '%s' registered and synced", source_config.name)
+                logger.warning(
+                    "Config source '%s' has unknown sync_mode '%s'; skipping sync",
+                    source_config.name,
+                    sync_mode,
+                )
         except Exception:
             logger.exception("Failed to register/sync config source '%s'", source_config.name)
 

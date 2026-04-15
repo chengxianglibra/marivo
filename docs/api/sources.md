@@ -81,7 +81,7 @@ Registers a new data source. The source type determines which catalog adapter is
   "display_name": "Analytics DuckDB",
   "connection": {"db_path": "/data/analytics.duckdb"},
   "capabilities": {"supports_partitions": false},
-  "sync_mode": "all",
+  "sync_mode": "by_select",
   "status": "active",
   "created_at": "2024-01-15T10:00:00+00:00",
   "updated_at": "2024-01-15T10:00:00+00:00"
@@ -92,8 +92,7 @@ Registers a new data source. The source type determines which catalog adapter is
 
 | Value | Description |
 |-------|-------------|
-| `all` | Sync all schemas and tables |
-| `by_select` | Sync only tables listed in sync selections |
+| `by_select` | Sync only tables listed in sync selections (default) |
 | `none` | Disable automatic sync |
 
 ---
@@ -144,7 +143,7 @@ All fields are optional; only provided fields are updated.
 |-------|------|-------------|
 | `display_name` | string | New display name |
 | `connection` | object | Updated connection parameters |
-| `sync_mode` | string | `"all"`, `"by_select"`, or `"none"` |
+| `sync_mode` | string | `"by_select"` or `"none"` |
 
 ---
 

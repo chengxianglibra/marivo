@@ -37,6 +37,17 @@ class CatalogQueryTests(unittest.TestCase):
             },
         )
         cls.source_id = resp.json()["source_id"]
+        cls.client.post(
+            f"/sources/{cls.source_id}/sync/selections",
+            json={
+                "selections": [
+                    {"schema_name": "analytics", "table_name": "watch_events"},
+                    {"schema_name": "analytics", "table_name": "player_qoe"},
+                    {"schema_name": "analytics", "table_name": "ad_events"},
+                    {"schema_name": "analytics", "table_name": "recommendation_events"},
+                ]
+            },
+        )
         cls.client.post(f"/sources/{cls.source_id}/sync")
 
         # Get synced table objects

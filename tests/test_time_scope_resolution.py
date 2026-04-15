@@ -652,6 +652,17 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
                     "connection": {"path": str(db_path)},
                 },
             ).json()["source_id"]
+            client.post(
+                f"/sources/{source_id}/sync/selections",
+                json={
+                    "selections": [
+                        {"schema_name": "analytics", "table_name": "watch_events"},
+                        {"schema_name": "analytics", "table_name": "player_qoe"},
+                        {"schema_name": "analytics", "table_name": "ad_events"},
+                        {"schema_name": "analytics", "table_name": "recommendation_events"},
+                    ]
+                },
+            )
             client.post(f"/sources/{source_id}/sync")
             table_objects = {
                 table["native_name"]: table

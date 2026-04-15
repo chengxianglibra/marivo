@@ -69,6 +69,17 @@ class SemanticRuntimeTests(unittest.TestCase):
             },
         ).json()
         cls.source_id = source["source_id"]
+        cls.client.post(
+            f"/sources/{cls.source_id}/sync/selections",
+            json={
+                "selections": [
+                    {"schema_name": "analytics", "table_name": "watch_events"},
+                    {"schema_name": "analytics", "table_name": "player_qoe"},
+                    {"schema_name": "analytics", "table_name": "ad_events"},
+                    {"schema_name": "analytics", "table_name": "recommendation_events"},
+                ]
+            },
+        )
         cls.client.post(f"/sources/{cls.source_id}/sync")
 
         table_objects = {
