@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from app.intents.calendar_alignment_metadata import normalize_resolved_policy_summary
+from app.intents.calendar_alignment_metadata import resolve_calendar_alignment_reuse_for_intent
 
 if TYPE_CHECKING:
     from app.service import SemanticLayerService
@@ -131,7 +131,8 @@ def run_compare_intent(
         )
         fatal = True
 
-    calendar_alignment_summary = _resolve_calendar_alignment_reuse(
+    calendar_alignment_summary = resolve_calendar_alignment_reuse_for_intent(
+        intent_name="compare",
         left_resolved_policy_summary=left_artifact.get("resolved_policy_summary"),
         right_resolved_policy_summary=right_artifact.get("resolved_policy_summary"),
     )
@@ -389,141 +390,3 @@ def _compute_direction(
     if relative_delta is not None and abs(relative_delta) <= flat_tolerance_relative:
         return "flat"
     return "increase" if absolute_delta > 0 else "decrease"
-
-
-def _resolve_calendar_alignment_reuse(
-    *,
-    left_resolved_policy_summary: Any,
-    right_resolved_policy_summary: Any,
-) -> dict[str, Any]:
-    left_summary = _normalize_resolved_policy_summary(left_resolved_policy_summary)
-    right_summary = _normalize_resolved_policy_summary(right_resolved_policy_summary)
-    if left_summary is None and right_summary is None:
-        return {"issues": [], "fatal_message": None, "reuse_summary": None}
-    if left_summary is None or right_summary is None:
-        return {
-            "issues": [
-                {
-                    "code": "calendar_alignment_metadata_mismatch",
-                    "severity": "error",
-                    "message": (
-                        "calendar alignment metadata must be present on both observations when "
-                        "either side freezes a resolved policy summary"
-                    ),
-                }
-            ],
-            "fatal_message": (
-                "calendar alignment metadata must be present on both observations when either "
-                "side freezes a resolved policy summary"
-            ),
-            "reuse_summary": None,
-        }
-
-    mismatch = _calendar_alignment_mismatch(left_summary=left_summary, right_summary=right_summary)
-    if mismatch is not None:
-        return {
-            "issues": [mismatch],
-            "fatal_message": str(mismatch["message"]),
-            "reuse_summary": None,
-        }
-
-    issues: list[dict[str, Any]] = []
-    warnings = sorted(
-        {
-            *left_summary["comparability_warnings"],
-            *right_summary["comparability_warnings"],
-        }
-    )
-    for warning_code in warnings:
-        issues.append(
-            {
-                "code": warning_code,
-                "severity": "warning",
-                "message": f"upstream observation froze calendar alignment warning '{warning_code}'",
-            }
-        )
-
-    min_aligned_ratio = min(
-        left_summary["coverage_summary"]["aligned_ratio"],
-        right_summary["coverage_summary"]["aligned_ratio"],
-    )
-    max_unpaired_bucket_count = max(
-        left_summary["coverage_summary"]["unpaired_bucket_count"],
-        right_summary["coverage_summary"]["unpaired_bucket_count"],
-    )
-    if min_aligned_ratio < 1.0 or max_unpaired_bucket_count > 0:
-        issues.append(
-            {
-                "code": "alignment_coverage_insufficient",
-                "severity": "warning",
-                "message": (
-                    "upstream observation froze incomplete calendar bucket alignment coverage"
-                ),
-                "details": {
-                    "left_coverage_summary": left_summary["coverage_summary"],
-                    "right_coverage_summary": right_summary["coverage_summary"],
-                },
-            }
-        )
-
-    return {
-        "issues": issues,
-        "fatal_message": None,
-        "reuse_summary": {
-            "reuse_source": "observation_resolved_policy_summary",
-            "policy_ref": left_summary["policy_ref"],
-            "comparison_basis": left_summary["comparison_basis"],
-            "resolved_calendar_source": left_summary["resolved_calendar_source"],
-            "resolved_calendar_version": left_summary["resolved_calendar_version"],
-            "comparability_warnings": warnings,
-            "left_coverage_summary": left_summary["coverage_summary"],
-            "right_coverage_summary": right_summary["coverage_summary"],
-            "effective_coverage_summary": {
-                "aligned_bucket_count": min(
-                    left_summary["coverage_summary"]["aligned_bucket_count"],
-                    right_summary["coverage_summary"]["aligned_bucket_count"],
-                ),
-                "unpaired_bucket_count": max_unpaired_bucket_count,
-                "aligned_ratio": min_aligned_ratio,
-            },
-        },
-    }
-
-
-def _normalize_resolved_policy_summary(value: Any) -> dict[str, Any] | None:
-    if value is None:
-        return None
-    try:
-        return normalize_resolved_policy_summary(
-            value,
-            error_factory=lambda: ValueError(
-                "compare: INVALID_ARGUMENT - malformed resolved calendar alignment metadata"
-            ),
-        )
-    except ValueError as error:
-        raise error from None
-
-
-def _calendar_alignment_mismatch(
-    *,
-    left_summary: dict[str, Any],
-    right_summary: dict[str, Any],
-) -> dict[str, Any] | None:
-    mismatch_fields = (
-        ("policy_ref", "calendar_policy_mismatch"),
-        ("comparison_basis", "calendar_comparison_basis_mismatch"),
-        ("resolved_calendar_source", "calendar_source_mismatch"),
-        ("resolved_calendar_version", "calendar_version_mismatch"),
-    )
-    for field_name, code in mismatch_fields:
-        left_value = left_summary[field_name]
-        right_value = right_summary[field_name]
-        if left_value != right_value:
-            return {
-                "code": code,
-                "severity": "error",
-                "message": (
-                    f"left {field_name} '{left_value}' != right {field_name} '{right_value}'"
-                ),
-            }
-    return None

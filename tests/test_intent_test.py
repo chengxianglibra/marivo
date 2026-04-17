@@ -21,9 +21,11 @@ Covers:
 
 from __future__ import annotations
 
+import json
 import random
 import tempfile
 import unittest
+from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -49,6 +51,53 @@ def _metric_ref(name: str) -> str:
 _TIME_START = "2026-01-01"
 _TIME_END = "2026-02-01"
 _DATE = "2026-01-15"  # single date row for per-row data
+
+
+def _resolved_policy_summary(
+    *,
+    policy_ref: str = "calendar_policy.weekday_yoy",
+    comparison_basis: str = "yoy",
+    resolved_calendar_source: str = "calendar.cn_public_holidays",
+    resolved_calendar_version: str = "2026.01",
+    comparability_warnings: list[str] | None = None,
+    aligned_bucket_count: int = 31,
+    unpaired_bucket_count: int = 0,
+) -> dict[str, object]:
+    total_bucket_count = aligned_bucket_count + unpaired_bucket_count
+    aligned_ratio = (
+        float(aligned_bucket_count) / float(total_bucket_count) if total_bucket_count else 0.0
+    )
+    return {
+        "policy_ref": policy_ref,
+        "comparison_basis": comparison_basis,
+        "resolved_calendar_source": resolved_calendar_source,
+        "resolved_calendar_version": resolved_calendar_version,
+        "resolved_baseline_generation_rule": {
+            "strategy": "offset",
+            "offset_value": -1,
+            "offset_unit": "year",
+            "fixed_start": None,
+            "fixed_end": None,
+            "named_window_ref": None,
+        },
+        "current_window": {"start": _TIME_START, "end": _TIME_END},
+        "baseline_window": {"start": "2025-01-01", "end": "2025-02-01"},
+        "bucket_pairing": [
+            {
+                "current_bucket_start": _TIME_START,
+                "baseline_bucket_start": "2025-01-01",
+                "pairing_reason": "same_weekday_nearest",
+                "shift_days": -364,
+                "issues": [],
+            }
+        ],
+        "coverage_summary": {
+            "aligned_bucket_count": aligned_bucket_count,
+            "unpaired_bucket_count": unpaired_bucket_count,
+            "aligned_ratio": aligned_ratio,
+        },
+        "comparability_warnings": list(comparability_warnings or []),
+    }
 
 
 # ── Seeding helpers ───────────────────────────────────────────────────────────
@@ -276,6 +325,55 @@ class TestRunnerServiceTests(unittest.TestCase):
             },
         )
 
+    def _patch_observe_artifact(
+        self,
+        session_id: str,
+        step_id: str,
+        *,
+        resolved_policy_summary: dict[str, object] | None,
+    ) -> None:
+        artifact_result = self.service._resolve_artifact_with_id(session_id, step_id)
+        self.assertIsNotNone(artifact_result)
+        artifact_id, artifact = artifact_result
+        artifact_payload = deepcopy(artifact)
+        artifact_payload["resolved_policy_summary"] = resolved_policy_summary
+        self.metadata.execute(
+            "UPDATE artifacts SET content_json = ? WHERE artifact_id = ?",
+            [json.dumps(artifact_payload), artifact_id],
+        )
+
+    def _assert_calendar_alignment_mismatch_raises(
+        self,
+        *,
+        field_name: str,
+        right_value: str,
+        expected_message: str,
+    ) -> None:
+        session_id = self._make_session()
+        obs_a = self._observe_numeric(session_id, self.metric_num_a)
+        obs_b = self._observe_numeric(session_id, self.metric_num_b)
+        self._patch_observe_artifact(
+            session_id,
+            obs_a["step_ref"]["step_id"],
+            resolved_policy_summary=_resolved_policy_summary(),
+        )
+        right_summary = _resolved_policy_summary()
+        right_summary[field_name] = right_value
+        self._patch_observe_artifact(
+            session_id,
+            obs_b["step_ref"]["step_id"],
+            resolved_policy_summary=right_summary,
+        )
+
+        with self.assertRaisesRegex(ValueError, expected_message):
+            self._run_test(
+                session_id,
+                obs_a["artifact_id"],
+                obs_a["step_ref"]["step_id"],
+                obs_b["artifact_id"],
+                obs_b["step_ref"]["step_id"],
+            )
+
     # ── Welch's t-test ─────────────────────────────────────────────────────────
 
     def test_numeric_welch_t_rejects_null_for_large_diff(self) -> None:
@@ -465,6 +563,123 @@ class TestRunnerServiceTests(unittest.TestCase):
         # Statistical result is still computed despite the warning
         self.assertIn("reject_null", result["decision"])
         self.assertIsNotNone(result["p_value"])
+
+    def test_calendar_alignment_metadata_mismatch_raises(self) -> None:
+        """Single-sided frozen alignment metadata must fail test comparability reuse."""
+        session_id = self._make_session()
+        obs_a = self._observe_numeric(session_id, self.metric_num_a)
+        obs_b = self._observe_numeric(session_id, self.metric_num_b)
+        self._patch_observe_artifact(
+            session_id,
+            obs_a["step_ref"]["step_id"],
+            resolved_policy_summary=_resolved_policy_summary(),
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "test: NOT_COMPARABLE - calendar alignment metadata must be present on both observations",
+        ):
+            self._run_test(
+                session_id,
+                obs_a["artifact_id"],
+                obs_a["step_ref"]["step_id"],
+                obs_b["artifact_id"],
+                obs_b["step_ref"]["step_id"],
+            )
+
+    def test_calendar_alignment_version_mismatch_raises(self) -> None:
+        """Mismatched frozen calendar version must fail test comparability reuse."""
+        self._assert_calendar_alignment_mismatch_raises(
+            field_name="resolved_calendar_version",
+            right_value="2026.02",
+            expected_message=(
+                "test: NOT_COMPARABLE - left resolved_calendar_version '2026.01' != "
+                "right resolved_calendar_version '2026.02'"
+            ),
+        )
+
+    def test_calendar_alignment_policy_mismatch_raises(self) -> None:
+        """Mismatched frozen calendar policy ref must fail test comparability reuse."""
+        self._assert_calendar_alignment_mismatch_raises(
+            field_name="policy_ref",
+            right_value="calendar_policy.holiday_yoy",
+            expected_message=(
+                "test: NOT_COMPARABLE - left policy_ref 'calendar_policy.weekday_yoy' != "
+                "right policy_ref 'calendar_policy.holiday_yoy'"
+            ),
+        )
+
+    def test_calendar_alignment_comparison_basis_mismatch_raises(self) -> None:
+        """Mismatched frozen comparison basis must fail test comparability reuse."""
+        self._assert_calendar_alignment_mismatch_raises(
+            field_name="comparison_basis",
+            right_value="mom",
+            expected_message=(
+                "test: NOT_COMPARABLE - left comparison_basis 'yoy' != right comparison_basis 'mom'"
+            ),
+        )
+
+    def test_calendar_alignment_source_mismatch_raises(self) -> None:
+        """Mismatched frozen calendar source must fail test comparability reuse."""
+        self._assert_calendar_alignment_mismatch_raises(
+            field_name="resolved_calendar_source",
+            right_value="calendar.business_events",
+            expected_message=(
+                "test: NOT_COMPARABLE - left resolved_calendar_source "
+                "'calendar.cn_public_holidays' != right resolved_calendar_source "
+                "'calendar.business_events'"
+            ),
+        )
+
+    def test_calendar_alignment_warnings_flow_into_validation_issues(self) -> None:
+        """Frozen alignment warnings should be surfaced through the test validation issues."""
+        session_id = self._make_session()
+        obs_a = self._observe_numeric(session_id, self.metric_num_a)
+        obs_b = self._observe_numeric(session_id, self.metric_num_b)
+        warning_summary = _resolved_policy_summary(
+            comparability_warnings=["fallback_applied"],
+            aligned_bucket_count=30,
+            unpaired_bucket_count=1,
+        )
+        self._patch_observe_artifact(
+            session_id,
+            obs_a["step_ref"]["step_id"],
+            resolved_policy_summary=warning_summary,
+        )
+        self._patch_observe_artifact(
+            session_id,
+            obs_b["step_ref"]["step_id"],
+            resolved_policy_summary=warning_summary,
+        )
+
+        result = self._run_test(
+            session_id,
+            obs_a["artifact_id"],
+            obs_a["step_ref"]["step_id"],
+            obs_b["artifact_id"],
+            obs_b["step_ref"]["step_id"],
+        )
+
+        self.assertEqual(result["validation"]["status"], "needs_attention")
+        codes = [issue["code"] for issue in result["validation"]["issues"]]
+        self.assertIn("fallback_applied", codes)
+        self.assertIn("alignment_coverage_insufficient", codes)
+        self.assertEqual(
+            result["source_lineage"]["calendar_alignment"]["reuse_source"],
+            "observation_resolved_policy_summary",
+        )
+        self.assertEqual(
+            result["source_lineage"]["calendar_alignment"]["policy_ref"],
+            "calendar_policy.weekday_yoy",
+        )
+        self.assertEqual(
+            result["source_lineage"]["calendar_alignment"]["effective_coverage_summary"],
+            {
+                "aligned_bucket_count": 30,
+                "unpaired_bucket_count": 1,
+                "aligned_ratio": 30 / 31,
+            },
+        )
 
     # ── Validation error cases ─────────────────────────────────────────────────
 

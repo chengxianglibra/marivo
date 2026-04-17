@@ -151,6 +151,7 @@ v1 支持的输入形态如下：
 - `hypothesis.family` 必须为 `"difference"`
 - `hypothesis.alpha` 必须在 `(0, 1)` 内
 - 选择的方法必须与 observation type 兼容
+- 若任一输入 observation 冻结了 `resolved_policy_summary`，另一侧也必须冻结兼容的同一份 calendar alignment metadata；`test` 只能复用该 frozen summary，不得重建第二套 holiday / weekday / event pairing 逻辑
 
 输出类型：`hypothesis_test`
 
@@ -248,6 +249,7 @@ v1 每次请求只支持一种方法：
 
 - 相同 observation type
 - 相同 metric，或显式允许 cross-group compare 的 metric family
+- 若存在 calendar alignment freeze，则两侧 `policy_ref`、`comparison_basis`、`resolved_calendar_source`、`resolved_calendar_version` 必须兼容
 - 样本量足够
 - 所需 summary statistics 存在
 - 两边都是完整 artifact

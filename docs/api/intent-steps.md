@@ -477,6 +477,8 @@ Unsupported inputs include:
 
 Success returns `AttributeResponse`, the canonical `attribute_bundle`. The payload includes normalized left/right scopes, observation refs, compare ref, comparison summary, ordered driver sets, validation issues, and projection metadata including the normalized `decomposition_limit`.
 
+`attribute` does not accept `calendar_policy_ref`. If either side requires calendar alignment semantics, the two internal `observe` steps freeze that metadata in `resolved_policy_summary`, and the derived intent reuses it only through the internal `compare(mode = "scalar")` step. `attribute` must not rebuild holiday / weekday / event pairing on its own.
+
 Recommended semantic error codes:
 
 - `INVALID_ARGUMENT`
@@ -564,6 +566,8 @@ Unsupported inputs include:
 - planner-style sample preparation beyond the declared contract
 
 Success returns `ValidateResponse`, the canonical `validation_bundle`. The payload includes normalized left/right scopes, resolved `sample_kind`, normalized hypothesis, method, derived refs, validation issues, provenance, and the packaged inferential result.
+
+`validate` does not accept `calendar_policy_ref`. If either side requires calendar alignment semantics, the two internal `observe` steps freeze that metadata in `resolved_policy_summary`, and the derived intent reuses it only through the internal `test(left_ref, right_ref, ...)` step. `validate` must not rebuild holiday / weekday / event pairing or reselect calendar versions on its own.
 
 Recommended semantic error codes:
 

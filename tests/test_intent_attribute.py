@@ -29,6 +29,7 @@ import tempfile
 import unittest
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import duckdb
@@ -64,6 +65,46 @@ _BASELINE_END = "2026-02-04"  # exclusive, so 3 days: Feb 1–3
 # Total current: 720, total baseline: 540, delta: +180
 
 _CHANNELS = [("A", 100.0, 70.0), ("B", 80.0, 60.0), ("C", 60.0, 50.0)]
+
+
+def _resolved_policy_summary(
+    *,
+    policy_ref: str = "calendar_policy.weekday_yoy",
+    comparison_basis: str = "yoy",
+    resolved_calendar_source: str = "calendar.cn_public_holidays",
+    resolved_calendar_version: str = "2026.01",
+) -> dict[str, object]:
+    return {
+        "policy_ref": policy_ref,
+        "comparison_basis": comparison_basis,
+        "resolved_calendar_source": resolved_calendar_source,
+        "resolved_calendar_version": resolved_calendar_version,
+        "resolved_baseline_generation_rule": {
+            "strategy": "offset",
+            "offset_value": -1,
+            "offset_unit": "year",
+            "fixed_start": None,
+            "fixed_end": None,
+            "named_window_ref": None,
+        },
+        "current_window": {"start": _CURRENT_START, "end": _CURRENT_END},
+        "baseline_window": {"start": "2025-03-01", "end": "2025-03-04"},
+        "bucket_pairing": [
+            {
+                "current_bucket_start": _CURRENT_START,
+                "baseline_bucket_start": "2025-03-01",
+                "pairing_reason": "same_weekday_nearest",
+                "shift_days": -364,
+                "issues": [],
+            }
+        ],
+        "coverage_summary": {
+            "aligned_bucket_count": 3,
+            "unpaired_bucket_count": 0,
+            "aligned_ratio": 1.0,
+        },
+        "comparability_warnings": [],
+    }
 
 
 # ── Seeding helpers ────────────────────────────────────────────────────────────
@@ -280,6 +321,88 @@ class AttributeRunnerServiceTests(unittest.TestCase):
         self.assertAlmostEqual(comparison["relative_delta"], 180.0 / 540.0, places=4)
         self.assertEqual(comparison["direction"], "increase")
         self.assertEqual(comparison["comparability_status"], "comparable")
+
+    def test_reuses_calendar_alignment_through_internal_compare(self) -> None:
+        """attribute should inherit frozen alignment metadata through its internal compare step."""
+        sid = self._make_session()
+        summary = _resolved_policy_summary()
+        original_commit_artifact = self.service._commit_artifact_with_extraction
+
+        def _commit_artifact_with_alignment(
+            session_id: str,
+            step_id: str,
+            artifact_type: str,
+            name: str,
+            content: Any,
+            **kwargs: Any,
+        ) -> str:
+            if artifact_type == "observation":
+                content_payload = dict(content)
+                content_payload["resolved_policy_summary"] = summary
+                content = content_payload
+            return original_commit_artifact(
+                session_id, step_id, artifact_type, name, content, **kwargs
+            )
+
+        with patch.object(
+            self.service,
+            "_commit_artifact_with_extraction",
+            side_effect=_commit_artifact_with_alignment,
+        ):
+            bundle = self._attribute(sid)
+
+        compare_step_id = bundle["compare_ref"]["step_id"]
+        compare_artifact = self.service._resolve_artifact_for_ref(sid, compare_step_id)
+        self.assertIsNotNone(compare_artifact)
+        self.assertEqual(bundle["validation"]["status"], "attributable")
+        self.assertEqual(
+            compare_artifact["resolved_input_summary"]["calendar_alignment"]["reuse_source"],
+            "observation_resolved_policy_summary",
+        )
+        self.assertEqual(
+            compare_artifact["resolved_input_summary"]["calendar_alignment"]["policy_ref"],
+            "calendar_policy.weekday_yoy",
+        )
+
+    def test_calendar_alignment_mismatch_fails_through_internal_compare(self) -> None:
+        """attribute should fail when its internal compare sees mismatched frozen metadata."""
+        sid = self._make_session()
+        summaries = [
+            _resolved_policy_summary(),
+            _resolved_policy_summary(resolved_calendar_source="calendar.business_events"),
+        ]
+        original_commit_artifact = self.service._commit_artifact_with_extraction
+
+        def _commit_artifact_with_alignment(
+            session_id: str,
+            step_id: str,
+            artifact_type: str,
+            name: str,
+            content: Any,
+            **kwargs: Any,
+        ) -> str:
+            if artifact_type == "observation":
+                content_payload = dict(content)
+                content_payload["resolved_policy_summary"] = summaries.pop(0)
+                content = content_payload
+            return original_commit_artifact(
+                session_id, step_id, artifact_type, name, content, **kwargs
+            )
+
+        with (
+            patch.object(
+                self.service,
+                "_commit_artifact_with_extraction",
+                side_effect=_commit_artifact_with_alignment,
+            ),
+            self.assertRaisesRegex(
+                ValueError,
+                "attribute: COMPARE_FAILED - comparison failed: compare: NOT_COMPARABLE - "
+                "left resolved_calendar_source 'calendar.cn_public_holidays' != "
+                "right resolved_calendar_source 'calendar.business_events'",
+            ),
+        ):
+            self._attribute(sid)
 
     def test_drivers_length_matches_dimensions(self) -> None:
         """drivers array length equals len(dimensions)."""
