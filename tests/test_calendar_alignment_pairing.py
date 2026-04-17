@@ -4,6 +4,7 @@ import unittest
 from datetime import date
 
 from app.analysis_core.calendar_alignment_pairing import (
+    _nearest_same_weekday,
     build_calendar_annotation_rows,
     resolve_calendar_bucket_pairing,
 )
@@ -30,6 +31,32 @@ def _annotation(
 
 
 class CalendarAlignmentPairingTests(unittest.TestCase):
+    def test_nearest_same_weekday_picks_closest_candidate_within_max_shift(self) -> None:
+        target_day = date(2025, 4, 9)
+
+        candidate = _nearest_same_weekday(
+            target_day=target_day,
+            baseline_window=(date(2025, 4, 2), date(2025, 4, 11)),
+            weekday=3,
+            tie_breaker="prefer_backward",
+            max_shift_days=7,
+        )
+
+        self.assertEqual(candidate, date(2025, 4, 9))
+
+    def test_nearest_same_weekday_accepts_candidate_at_max_shift_boundary(self) -> None:
+        target_day = date(2025, 4, 9)
+
+        candidate = _nearest_same_weekday(
+            target_day=target_day,
+            baseline_window=(date(2025, 4, 2), date(2025, 4, 3)),
+            weekday=3,
+            tie_breaker="prefer_backward",
+            max_shift_days=7,
+        )
+
+        self.assertEqual(candidate, date(2025, 4, 2))
+
     def test_natural_policy_uses_natural_date_shift(self) -> None:
         current_window = (date(2026, 4, 10), date(2026, 4, 13))
         baseline_window = (date(2025, 4, 10), date(2025, 4, 13))
@@ -299,6 +326,77 @@ class CalendarAlignmentPairingTests(unittest.TestCase):
         self.assertEqual(
             [bucket["pairing_reason"] for bucket in resolution.bucket_pairing],
             ["year_relative_event_key", "year_relative_event_key"],
+        )
+
+    def test_weekday_policy_falls_back_to_natural_shift_when_same_weekday_match_exceeds_max_shift(
+        self,
+    ) -> None:
+        current_window = (date(2026, 4, 1), date(2026, 4, 2))
+        baseline_window = (date(2025, 4, 5), date(2025, 4, 6))
+        policy = get_calendar_policy("calendar_policy.weekday_yoy")
+
+        resolution = resolve_calendar_bucket_pairing(
+            current_window=current_window,
+            baseline_window=baseline_window,
+            matching_strategy=policy.matching_strategy,
+            fallback_strategy=policy.fallback_strategy,
+            annotation_rows=build_calendar_annotation_rows(
+                current_window=current_window,
+                baseline_window=baseline_window,
+                raw_rows=None,
+            ),
+        )
+
+        self.assertEqual(resolution.bucket_pairing[0]["pairing_reason"], "natural_date_shift")
+        self.assertEqual(resolution.bucket_pairing[0]["baseline_bucket_start"], "2025-04-05")
+        self.assertEqual(resolution.bucket_pairing[0]["issues"], [])
+
+    def test_weekday_wow_leaves_bucket_unpaired_when_max_shift_blocks_match(self) -> None:
+        current_window = (date(2026, 4, 7), date(2026, 4, 8))
+        baseline_window = (date(2026, 4, 3), date(2026, 4, 10))
+        policy = get_calendar_policy("calendar_policy.weekday_wow")
+
+        resolution = resolve_calendar_bucket_pairing(
+            current_window=current_window,
+            baseline_window=baseline_window,
+            matching_strategy=policy.matching_strategy,
+            fallback_strategy=policy.fallback_strategy,
+            annotation_rows=build_calendar_annotation_rows(
+                current_window=current_window,
+                baseline_window=baseline_window,
+                raw_rows=None,
+            ),
+        )
+
+        self.assertIsNone(resolution.bucket_pairing[0]["baseline_bucket_start"])
+        self.assertEqual(
+            resolution.bucket_pairing[0]["issues"],
+            ["alignment_coverage_insufficient"],
+        )
+
+    def test_holiday_policy_uses_natural_fallback_when_weekday_match_exceeds_max_shift(
+        self,
+    ) -> None:
+        current_window = (date(2026, 4, 1), date(2026, 4, 2))
+        baseline_window = (date(2025, 4, 5), date(2025, 4, 6))
+        policy = get_calendar_policy("calendar_policy.holiday_yoy")
+
+        resolution = resolve_calendar_bucket_pairing(
+            current_window=current_window,
+            baseline_window=baseline_window,
+            matching_strategy=policy.matching_strategy,
+            fallback_strategy=policy.fallback_strategy,
+            annotation_rows=build_calendar_annotation_rows(
+                current_window=current_window,
+                baseline_window=baseline_window,
+                raw_rows=[_annotation("2026-04-01", holiday_group_id="qingming")],
+            ),
+        )
+
+        self.assertEqual(resolution.bucket_pairing[0]["pairing_reason"], "natural_date_shift")
+        self.assertEqual(
+            resolution.bucket_pairing[0]["issues"],
+            ["holiday_cluster_unmapped", "fallback_applied"],
         )
 
     def test_unpaired_bucket_records_coverage_issue(self) -> None:

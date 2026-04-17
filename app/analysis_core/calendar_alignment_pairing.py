@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any
 
-from app.analysis_core.calendar_policy import CalendarMatchingStep
+from app.analysis_core.calendar_policy import CalendarMatchingStep, CalendarTieBreaker
 
 
 @dataclass(frozen=True, slots=True)
@@ -174,7 +174,7 @@ class _CalendarPairingResolver:
 
         for step_index, step in enumerate(self.matching_strategy):
             baseline_day, step_issues = self._apply_matcher(
-                matcher=step.matcher,
+                step=step,
                 current_row=current_row,
                 offset=offset,
             )
@@ -204,10 +204,11 @@ class _CalendarPairingResolver:
     def _apply_matcher(
         self,
         *,
-        matcher: str,
+        step: CalendarMatchingStep,
         current_row: CalendarAnnotationRow,
         offset: int,
     ) -> tuple[date | None, list[str]]:
+        matcher = step.matcher
         if matcher == "holiday_cluster":
             if current_row.holiday_group_id is None:
                 return None, []
@@ -246,6 +247,8 @@ class _CalendarPairingResolver:
                 target_day=target_day,
                 baseline_window=self.baseline_window,
                 weekday=current_row.weekday,
+                tie_breaker=step.tie_breaker,
+                max_shift_days=step.max_shift_days,
             )
             return candidate, []
         if matcher == "natural_date_shift":
@@ -304,11 +307,16 @@ def _nearest_same_weekday(
     target_day: date,
     baseline_window: tuple[date, date],
     weekday: int,
+    tie_breaker: CalendarTieBreaker | None,
+    max_shift_days: int | None,
 ) -> date | None:
     candidates: list[date] = []
     cursor = baseline_window[0]
     while cursor < baseline_window[1]:
-        if cursor.weekday() + 1 == weekday:
+        shift_days = (cursor - target_day).days
+        if cursor.weekday() + 1 == weekday and (
+            max_shift_days is None or abs(shift_days) <= max_shift_days
+        ):
             candidates.append(cursor)
         cursor += timedelta(days=1)
     if not candidates:
@@ -317,7 +325,6 @@ def _nearest_same_weekday(
         candidates,
         key=lambda candidate: (
             abs((candidate - target_day).days),
-            candidate > target_day,
             candidate,
         ),
     )
