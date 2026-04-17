@@ -15,6 +15,8 @@ import math
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from app.intents.calendar_alignment_metadata import resolve_calendar_alignment_reuse_for_intent
+
 if TYPE_CHECKING:
     from app.service import SemanticLayerService
 
@@ -295,6 +297,15 @@ def run_test_intent(
             }
         )
 
+    calendar_alignment_summary = resolve_calendar_alignment_reuse_for_intent(
+        intent_name="test",
+        left_resolved_policy_summary=left_artifact.get("resolved_policy_summary"),
+        right_resolved_policy_summary=right_artifact.get("resolved_policy_summary"),
+    )
+    issues.extend(calendar_alignment_summary["issues"])
+    if calendar_alignment_summary["fatal_message"] is not None:
+        raise ValueError(f"test: NOT_COMPARABLE - {calendar_alignment_summary['fatal_message']}")
+
     # distribution_check: "unchecked" when applicable but not performed (welch_t);
     # None when the current method makes it not applicable (two_proportion_z).
     distribution_check: str | None = "unchecked" if resolved_method == "welch_t" else None
@@ -459,6 +470,19 @@ def run_test_intent(
         "observation_type": right_obs_type,
     }
 
+    source_lineage: dict[str, Any] = {
+        "left_source": {
+            "step_ref": dict(left_ref_out),
+            "source_schema_version": str(left_artifact.get("schema_version") or "1.0"),
+        },
+        "right_source": {
+            "step_ref": dict(right_ref_out),
+            "source_schema_version": str(right_artifact.get("schema_version") or "1.0"),
+        },
+    }
+    if calendar_alignment_summary["reuse_summary"] is not None:
+        source_lineage["calendar_alignment"] = calendar_alignment_summary["reuse_summary"]
+
     artifact: dict[str, Any] = {
         "artifact_schema_version": "v1",
         "result_type": "hypothesis_test",
@@ -466,16 +490,7 @@ def run_test_intent(
         "schema_version": "1.0",
         "left_ref": left_ref_out,
         "right_ref": right_ref_out,
-        "source_lineage": {
-            "left_source": {
-                "step_ref": dict(left_ref_out),
-                "source_schema_version": str(left_artifact.get("schema_version") or "1.0"),
-            },
-            "right_source": {
-                "step_ref": dict(right_ref_out),
-                "source_schema_version": str(right_artifact.get("schema_version") or "1.0"),
-            },
-        },
+        "source_lineage": source_lineage,
         "sample_kind": sample_kind,
         "hypothesis": {
             "family": family,

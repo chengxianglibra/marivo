@@ -32,6 +32,8 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
+from unittest.mock import patch
 
 import duckdb
 from fastapi.testclient import TestClient
@@ -73,6 +75,46 @@ _WINDOW_B_BINARY = [0.0, 0.0, 0.0, 0.0, 1.0]
 
 _DATES_A = ["2024-01-01", "2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"]
 _DATES_B = ["2024-02-01", "2024-02-02", "2024-02-03", "2024-02-04", "2024-02-05"]
+
+
+def _resolved_policy_summary(
+    *,
+    policy_ref: str = "calendar_policy.weekday_yoy",
+    comparison_basis: str = "yoy",
+    resolved_calendar_source: str = "calendar.cn_public_holidays",
+    resolved_calendar_version: str = "2026.01",
+) -> dict[str, object]:
+    return {
+        "policy_ref": policy_ref,
+        "comparison_basis": comparison_basis,
+        "resolved_calendar_source": resolved_calendar_source,
+        "resolved_calendar_version": resolved_calendar_version,
+        "resolved_baseline_generation_rule": {
+            "strategy": "offset",
+            "offset_value": -1,
+            "offset_unit": "year",
+            "fixed_start": None,
+            "fixed_end": None,
+            "named_window_ref": None,
+        },
+        "current_window": {"start": _WINDOW_A_START, "end": _WINDOW_A_END},
+        "baseline_window": {"start": "2023-01-01", "end": "2023-01-06"},
+        "bucket_pairing": [
+            {
+                "current_bucket_start": _WINDOW_A_START,
+                "baseline_bucket_start": "2023-01-01",
+                "pairing_reason": "same_weekday_nearest",
+                "shift_days": -364,
+                "issues": [],
+            }
+        ],
+        "coverage_summary": {
+            "aligned_bucket_count": 5,
+            "unpaired_bucket_count": 0,
+            "aligned_ratio": 1.0,
+        },
+        "comparability_warnings": [],
+    }
 
 
 # ── Seeding helpers ────────────────────────────────────────────────────────────
@@ -264,6 +306,88 @@ class ValidateRunnerServiceTests(unittest.TestCase):
         sid = self._make_session()
         bundle = self._validate_numeric(sid)
         self.assertEqual(bundle["result_type"], "validation_bundle")
+
+    def test_reuses_calendar_alignment_through_internal_test(self) -> None:
+        """validate should inherit frozen alignment metadata through its internal test step."""
+        sid = self._make_session()
+        summary = _resolved_policy_summary()
+        original_commit_artifact = self.service._commit_artifact_with_extraction
+
+        def _commit_artifact_with_alignment(
+            session_id: str,
+            step_id: str,
+            artifact_type: str,
+            name: str,
+            content: Any,
+            **kwargs: Any,
+        ) -> str:
+            if artifact_type == "observation":
+                content_payload = dict(content)
+                content_payload["resolved_policy_summary"] = summary
+                content = content_payload
+            return original_commit_artifact(
+                session_id, step_id, artifact_type, name, content, **kwargs
+            )
+
+        with patch.object(
+            self.service,
+            "_commit_artifact_with_extraction",
+            side_effect=_commit_artifact_with_alignment,
+        ):
+            bundle = self._validate_numeric(sid)
+
+        test_step_id = bundle["refs"]["test_ref"]["step_id"]
+        test_artifact = self.service._resolve_artifact_for_ref(sid, test_step_id)
+        self.assertIsNotNone(test_artifact)
+        self.assertEqual(bundle["validation"]["status"], "validated")
+        self.assertEqual(
+            test_artifact["source_lineage"]["calendar_alignment"]["reuse_source"],
+            "observation_resolved_policy_summary",
+        )
+        self.assertEqual(
+            test_artifact["source_lineage"]["calendar_alignment"]["policy_ref"],
+            "calendar_policy.weekday_yoy",
+        )
+
+    def test_calendar_alignment_mismatch_fails_through_internal_test(self) -> None:
+        """validate should fail when its internal test sees mismatched frozen metadata."""
+        sid = self._make_session()
+        summaries = [
+            _resolved_policy_summary(),
+            _resolved_policy_summary(policy_ref="calendar_policy.holiday_yoy"),
+        ]
+        original_commit_artifact = self.service._commit_artifact_with_extraction
+
+        def _commit_artifact_with_alignment(
+            session_id: str,
+            step_id: str,
+            artifact_type: str,
+            name: str,
+            content: Any,
+            **kwargs: Any,
+        ) -> str:
+            if artifact_type == "observation":
+                content_payload = dict(content)
+                content_payload["resolved_policy_summary"] = summaries.pop(0)
+                content = content_payload
+            return original_commit_artifact(
+                session_id, step_id, artifact_type, name, content, **kwargs
+            )
+
+        with (
+            patch.object(
+                self.service,
+                "_commit_artifact_with_extraction",
+                side_effect=_commit_artifact_with_alignment,
+            ),
+            self.assertRaisesRegex(
+                ValueError,
+                "validate: TEST_FAILED - hypothesis test failed: test: NOT_COMPARABLE - "
+                "left policy_ref 'calendar_policy.weekday_yoy' != "
+                "right policy_ref 'calendar_policy.holiday_yoy'",
+            ),
+        ):
+            self._validate_numeric(sid)
 
     def test_reject_null_for_clearly_different_groups(self) -> None:
         """result.decision = 'reject_null' when window A (mean=100) vs window B (mean=10)."""

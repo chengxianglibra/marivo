@@ -157,6 +157,8 @@ v1 支持的输入形态如下：
 
 `validate` 自身不重复暴露 `calendar_policy_ref`。若比较语义依赖节假日 / weekday / 活动窗对齐，应复用上游 `observe` 已冻结的 resolved alignment metadata，而不是在 `validate` 请求中再提交一份平行 policy 输入。
 
+该复用必须只通过内部 `test(left_ref, right_ref, ...)` 完成；`validate` 自身不得重建 holiday / weekday / event pairing，也不得重选 calendar version。
+
 ## v1 不支持的输入
 
 - 只给一侧 scope 再让系统自动推导另一侧
