@@ -135,6 +135,23 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
         conn.cursor.return_value = cursor
         return conn
 
+    def _mock_view_property_row(self) -> dict[str, object]:
+        return {
+            "comment": "OTT user profile view",
+            "spark.sql.sources.schema.part.0": (
+                '{"type":"struct","fields":['
+                '{"name":"buvid","type":"string","nullable":true,"metadata":{"comment":"BUVID"}},'
+                '{"name":"predict_age_range","type":"long","nullable":true,"metadata":{"comment":"Predicted age bucket"}},'
+                '{"name":"age","type":"string","nullable":false,"metadata":{"comment":"Age label"}},'
+                '{"name":"sex","type":"string","nullable":false,"metadata":{"comment":"Gender label"}}'
+                "]}"
+            ),
+            "view.query.out.numcols": "3",
+            "view.query.out.col.0": "buvid",
+            "view.query.out.col.1": "age",
+            "view.query.out.col.2": "sex",
+        }
+
     def test_source_type(self) -> None:
         self.assertEqual(self.adapter.source_type(), "trino")
 
@@ -217,6 +234,23 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
         mock_query.side_effect = [
             # table existence check
             [{"table_name": "events", "table_type": "TABLE"}],
+            # table$properties
+            [
+                {"key": "comment", "value": "Events table"},
+                {"key": "owner", "value": "analytics_team"},
+            ],
+            # SHOW CREATE TABLE
+            [
+                {
+                    "Create Table": (
+                        "CREATE TABLE hive.analytics.events (\n"
+                        "   id integer,\n"
+                        "   name varchar\n"
+                        ")\n"
+                        "WITH (format = 'ORC')"
+                    )
+                }
+            ],
             # columns
             [
                 {
@@ -236,23 +270,6 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
             [
                 {"Column": "id", "Type": "integer", "Extra": "", "Comment": "Primary key"},
                 {"Column": "name", "Type": "varchar", "Extra": "", "Comment": "User name"},
-            ],
-            # table$properties
-            [
-                {"key": "comment", "value": "Events table"},
-                {"key": "owner", "value": "analytics_team"},
-            ],
-            # SHOW CREATE TABLE
-            [
-                {
-                    "Create Table": (
-                        "CREATE TABLE hive.analytics.events (\n"
-                        "   id integer,\n"
-                        "   name varchar\n"
-                        ")\n"
-                        "WITH (format = 'ORC')"
-                    )
-                }
             ],
         ]
         detail = self.adapter.get_table_detail("analytics", "events")
@@ -278,15 +295,6 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
     def test_get_table_detail_reads_hive_hidden_table_properties(self, mock_query) -> None:
         mock_query.side_effect = [
             [{"table_name": "events", "table_type": "TABLE"}],
-            [
-                {
-                    "column_name": "id",
-                    "data_type": "integer",
-                    "ordinal_position": 1,
-                    "is_nullable": "NO",
-                }
-            ],
-            [{"Column": "id", "Type": "integer", "Extra": "", "Comment": ""}],
             Exception("Column 'key' cannot be resolved"),
             [
                 {
@@ -306,6 +314,15 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
                     )
                 }
             ],
+            [
+                {
+                    "column_name": "id",
+                    "data_type": "integer",
+                    "ordinal_position": 1,
+                    "is_nullable": "NO",
+                }
+            ],
+            [{"Column": "id", "Type": "integer", "Extra": "", "Comment": ""}],
         ]
 
         detail = self.adapter.get_table_detail("analytics", "events")
@@ -405,6 +422,198 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
         self.assertEqual(stats["columns"]["id"]["distinct_count"], 50)
         self.assertEqual(stats["columns"]["name"]["nulls_fraction"], 0.1)
 
+    @patch("app.adapters.trino_adapter.TrinoCatalogAdapter._query")
+    def test_get_table_detail_expands_view_columns_from_table_properties(self, mock_query) -> None:
+        mock_query.side_effect = [
+            [{"table_name": "v_profiles", "table_type": "VIEW"}],
+            Exception("Column 'key' cannot be resolved"),
+            [self._mock_view_property_row()],
+            [],
+            [
+                {
+                    "column_name": "buvid",
+                    "data_type": "varchar",
+                    "ordinal_position": 1,
+                    "is_nullable": "YES",
+                },
+                {
+                    "column_name": "predict_age_range",
+                    "data_type": "bigint",
+                    "ordinal_position": 2,
+                    "is_nullable": "YES",
+                },
+            ],
+            [
+                {"Column": "buvid", "Type": "varchar", "Extra": "", "Comment": ""},
+                {
+                    "Column": "predict_age_range",
+                    "Type": "bigint",
+                    "Extra": "",
+                    "Comment": "",
+                },
+            ],
+        ]
+
+        detail = self.adapter.get_table_detail("analytics", "v_profiles")
+
+        self.assertEqual(detail.properties["column_count"], 3)
+        self.assertEqual(
+            [column["name"] for column in detail.properties["columns"]],
+            ["buvid", "age", "sex"],
+        )
+        self.assertEqual(detail.properties["table_type"], "VIEW")
+        self.assertEqual(detail.properties["columns"][1]["type"], "varchar")
+        self.assertEqual(detail.properties["columns"][1]["comment"], "Age label")
+        self.assertFalse(detail.properties["columns"][2]["nullable"])
+
+    @patch("app.adapters.trino_adapter.TrinoCatalogAdapter._query")
+    def test_get_table_detail_corrects_base_table_to_view_from_view_properties(
+        self, mock_query
+    ) -> None:
+        mock_query.side_effect = [
+            [{"table_name": "v_profiles", "table_type": "BASE TABLE"}],
+            Exception("Column 'key' cannot be resolved"),
+            [self._mock_view_property_row()],
+            [],
+            [
+                {
+                    "column_name": "buvid",
+                    "data_type": "varchar",
+                    "ordinal_position": 1,
+                    "is_nullable": "YES",
+                }
+            ],
+            [{"Column": "buvid", "Type": "varchar", "Extra": "", "Comment": ""}],
+        ]
+
+        detail = self.adapter.get_table_detail("analytics", "v_profiles")
+
+        self.assertEqual(detail.properties["table_type"], "VIEW")
+
+    @patch("app.adapters.trino_adapter.TrinoCatalogAdapter._query")
+    def test_list_columns_expands_view_columns_from_table_properties(self, mock_query) -> None:
+        mock_query.side_effect = [
+            [
+                {
+                    "column_name": "buvid",
+                    "data_type": "varchar",
+                    "ordinal_position": 1,
+                    "is_nullable": "YES",
+                },
+                {
+                    "column_name": "predict_age_range",
+                    "data_type": "bigint",
+                    "ordinal_position": 2,
+                    "is_nullable": "YES",
+                },
+            ],
+            [
+                {"Column": "buvid", "Type": "varchar", "Extra": "", "Comment": ""},
+                {
+                    "Column": "predict_age_range",
+                    "Type": "bigint",
+                    "Extra": "",
+                    "Comment": "",
+                },
+            ],
+            Exception("Column 'key' cannot be resolved"),
+            [self._mock_view_property_row()],
+        ]
+
+        columns = self.adapter.list_columns("analytics", "v_profiles")
+
+        self.assertEqual([column.native_name for column in columns], ["buvid", "age", "sex"])
+        self.assertEqual(columns[1].properties["data_type"], "varchar")
+        self.assertEqual(columns[1].properties["comment"], "Age label")
+
+    @patch("app.adapters.trino_adapter.TrinoCatalogAdapter._query")
+    def test_list_columns_applies_view_schema_metadata_when_names_already_match(
+        self, mock_query
+    ) -> None:
+        mock_query.side_effect = [
+            [
+                {
+                    "column_name": "buvid",
+                    "data_type": "varchar",
+                    "ordinal_position": 1,
+                    "is_nullable": "YES",
+                },
+                {
+                    "column_name": "age",
+                    "data_type": "varchar",
+                    "ordinal_position": 2,
+                    "is_nullable": "YES",
+                },
+                {
+                    "column_name": "sex",
+                    "data_type": "varchar",
+                    "ordinal_position": 3,
+                    "is_nullable": "YES",
+                },
+            ],
+            [
+                {"Column": "buvid", "Type": "varchar", "Extra": "", "Comment": ""},
+                {"Column": "age", "Type": "varchar", "Extra": "", "Comment": ""},
+                {"Column": "sex", "Type": "varchar", "Extra": "", "Comment": ""},
+            ],
+            Exception("Column 'key' cannot be resolved"),
+            [
+                {
+                    **self._mock_view_property_row(),
+                    "view.query.out.col.1": "age",
+                    "view.query.out.col.2": "sex",
+                }
+            ],
+        ]
+
+        columns = self.adapter.list_columns("analytics", "v_profiles")
+
+        self.assertEqual([column.native_name for column in columns], ["buvid", "age", "sex"])
+        self.assertEqual(columns[1].properties["comment"], "Age label")
+        self.assertFalse(columns[1].properties["nullable"])
+        self.assertFalse(columns[2].properties["nullable"])
+
+    @patch("app.adapters.trino_adapter.TrinoCatalogAdapter._query")
+    def test_preview_table_uses_expanded_view_output_columns(self, mock_query) -> None:
+        mock_query.side_effect = [
+            Exception("Column 'key' cannot be resolved"),
+            [self._mock_view_property_row()],
+            [],
+            [
+                {
+                    "column_name": "buvid",
+                    "data_type": "varchar",
+                    "ordinal_position": 1,
+                    "is_nullable": "YES",
+                },
+                {
+                    "column_name": "predict_age_range",
+                    "data_type": "bigint",
+                    "ordinal_position": 2,
+                    "is_nullable": "YES",
+                },
+            ],
+            [
+                {"Column": "buvid", "Type": "varchar", "Extra": "", "Comment": ""},
+                {
+                    "Column": "predict_age_range",
+                    "Type": "bigint",
+                    "Extra": "",
+                    "Comment": "",
+                },
+            ],
+            [{"buvid": "b1", "age": "25-30", "sex": "男"}],
+        ]
+
+        preview = self.adapter.preview_table("analytics", "v_profiles", limit=5)
+
+        self.assertEqual(
+            [column["name"] for column in preview.columns],
+            ["buvid", "age", "sex"],
+        )
+        self.assertEqual(preview.rows[0]["age"], "25-30")
+        self.assertFalse(preview.truncated)
+
     def test_source_type_registered_in_factory(self) -> None:
         """Verify 'trino' source type is handled by the adapter factory."""
         from app.adapters.trino_adapter import TrinoCatalogAdapter
@@ -446,6 +655,12 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
         mock_query.side_effect = [
             # table existence check
             [{"table_name": "events", "table_type": "TABLE"}],
+            # key/value hidden table path fails
+            Exception("Table not found"),
+            # wide hidden table path also fails
+            Exception("Table not found"),
+            # SHOW CREATE TABLE also fails
+            Exception("Table not found"),
             # columns
             [
                 {
@@ -457,12 +672,6 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
             ],
             # SHOW COLUMNS fails
             Exception("Permission denied"),
-            # key/value hidden table path fails
-            Exception("Table not found"),
-            # wide hidden table path also fails
-            Exception("Table not found"),
-            # SHOW CREATE TABLE also fails
-            Exception("Table not found"),
         ]
         detail = self.adapter.get_table_detail("analytics", "events")
         self.assertNotIn("table_properties", detail.properties)

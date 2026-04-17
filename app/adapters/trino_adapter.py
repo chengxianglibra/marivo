@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from decimal import Decimal
 from typing import Any
@@ -254,6 +255,150 @@ class TrinoCatalogAdapter(CatalogAdapter):
                 return {}
             return {k: v for k, v in rows[0].items() if v is not None}
 
+    def _spark_type_to_trino_type(self, spark_type: str) -> str:
+        normalized = spark_type.strip().lower()
+        primitives = {
+            "string": "varchar",
+            "long": "bigint",
+            "integer": "integer",
+            "int": "integer",
+            "short": "smallint",
+            "byte": "tinyint",
+            "double": "double",
+            "float": "real",
+            "boolean": "boolean",
+            "date": "date",
+            "timestamp": "timestamp",
+            "binary": "varbinary",
+        }
+        return primitives.get(normalized, spark_type)
+
+    def _parse_view_schema_fields(self, table_props: dict[str, Any]) -> list[dict[str, Any]]:
+        schema_parts = [
+            (key, value)
+            for key, value in table_props.items()
+            if key.startswith("spark.sql.sources.schema.part.")
+        ]
+        if not schema_parts:
+            return []
+        ordered_parts = [
+            str(value)
+            for key, value in sorted(
+                schema_parts,
+                key=lambda item: int(item[0].rsplit(".", 1)[1]),
+            )
+        ]
+        try:
+            payload = json.loads("".join(ordered_parts))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return []
+        fields = payload.get("fields")
+        return list(fields) if isinstance(fields, list) else []
+
+    def _parse_view_output_names(self, table_props: dict[str, Any]) -> list[str]:
+        raw_count = table_props.get("view.query.out.numcols")
+        if raw_count is None:
+            return []
+        try:
+            count = int(str(raw_count))
+        except ValueError:
+            return []
+        output_names: list[str] = []
+        for position in range(count):
+            key = f"view.query.out.col.{position}"
+            value = table_props.get(key)
+            if not isinstance(value, str) or not value.strip():
+                return []
+            output_names.append(value.strip())
+        return output_names
+
+    @staticmethod
+    def _looks_like_view_properties(table_props: dict[str, Any]) -> bool:
+        return any(
+            key.startswith("view.query.out.") or key.startswith("view.catalogandnamespace.")
+            for key in table_props
+        )
+
+    def _expand_view_column_rows(
+        self,
+        col_rows: list[dict[str, Any]],
+        table_props: dict[str, Any],
+        comments: dict[str, str],
+    ) -> list[dict[str, Any]]:
+        output_names = self._parse_view_output_names(table_props)
+        schema_fields = self._parse_view_schema_fields(table_props)
+        if not output_names or not schema_fields:
+            return col_rows
+
+        schema_by_name = {
+            str(field.get("name")): field
+            for field in schema_fields
+            if field.get("name") is not None
+        }
+        rows_by_name = {str(row["column_name"]): row for row in col_rows}
+        expanded_rows: list[dict[str, Any]] = []
+        for position, column_name in enumerate(output_names, start=1):
+            field = schema_by_name.get(column_name)
+            if field is not None:
+                metadata = dict(field.get("metadata") or {})
+                expanded_rows.append(
+                    {
+                        "column_name": column_name,
+                        "data_type": self._spark_type_to_trino_type(str(field.get("type") or "")),
+                        "ordinal_position": position,
+                        "is_nullable": "YES" if bool(field.get("nullable", True)) else "NO",
+                        "comment": str(metadata.get("comment") or comments.get(column_name) or ""),
+                    }
+                )
+                continue
+
+            existing = rows_by_name.get(column_name)
+            if existing is not None:
+                expanded_rows.append(
+                    {
+                        **existing,
+                        "ordinal_position": position,
+                        "comment": comments.get(column_name, ""),
+                    }
+                )
+                continue
+
+            expanded_rows.append(
+                {
+                    "column_name": column_name,
+                    "data_type": "unknown",
+                    "ordinal_position": position,
+                    "is_nullable": "YES",
+                    "comment": comments.get(column_name, ""),
+                }
+            )
+        return expanded_rows
+
+    def _effective_column_rows(
+        self,
+        schema_name: str,
+        table_name: str,
+        *,
+        table_props: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        col_rows = self._get_columns_metadata(schema_name, table_name)
+        if not col_rows:
+            return []
+        comments = self._get_column_comments(schema_name, table_name)
+        effective_table_props = (
+            table_props
+            if table_props is not None
+            else self._get_table_properties(schema_name, table_name)
+        )
+        expanded_rows = self._expand_view_column_rows(col_rows, effective_table_props, comments)
+        return [
+            {
+                **row,
+                "comment": str(row.get("comment", "") or comments.get(str(row["column_name"]), "")),
+            }
+            for row in expanded_rows
+        ]
+
     def _split_top_level(self, value: str) -> list[str]:
         parts: list[str] = []
         current: list[str] = []
@@ -383,14 +528,18 @@ class TrinoCatalogAdapter(CatalogAdapter):
         if not table_rows:
             raise KeyError(f"Table not found: {schema_name}.{table_name}")
 
-        col_rows = self._get_columns_metadata(schema_name, table_name)
-
-        # Fetch column comments and table properties
-        comments = self._get_column_comments(schema_name, table_name)
         raw_table_props = self._get_table_properties(schema_name, table_name)
         show_create_props = self._get_show_create_properties(schema_name, table_name)
         table_props = dict(raw_table_props)
         table_props.update(show_create_props)
+        col_rows = self._effective_column_rows(schema_name, table_name, table_props=table_props)
+        raw_table_type = str(table_rows[0].get("table_type", "") or "")
+        table_type = (
+            "VIEW"
+            if raw_table_type.upper() == "BASE TABLE"
+            and self._looks_like_view_properties(table_props)
+            else raw_table_type
+        )
 
         columns = [
             {
@@ -398,7 +547,7 @@ class TrinoCatalogAdapter(CatalogAdapter):
                 "type": r["data_type"],
                 "position": r["ordinal_position"],
                 "nullable": r["is_nullable"] == "YES",
-                "comment": comments.get(r["column_name"], ""),
+                "comment": str(r.get("comment", "") or ""),
             }
             for r in col_rows
         ]
@@ -406,7 +555,7 @@ class TrinoCatalogAdapter(CatalogAdapter):
         properties: dict[str, Any] = {
             "columns": columns,
             "column_count": len(columns),
-            "table_type": table_rows[0].get("table_type", ""),
+            "table_type": table_type,
         }
 
         # Add table properties if available
@@ -429,10 +578,7 @@ class TrinoCatalogAdapter(CatalogAdapter):
         )
 
     def list_columns(self, schema_name: str, table_name: str) -> list[PhysicalObject]:
-        rows = self._get_columns_metadata(schema_name, table_name)
-
-        # Fetch column comments
-        comments = self._get_column_comments(schema_name, table_name)
+        rows = self._effective_column_rows(schema_name, table_name)
 
         return [
             PhysicalObject(
@@ -443,7 +589,7 @@ class TrinoCatalogAdapter(CatalogAdapter):
                 properties={
                     "data_type": r["data_type"],
                     "nullable": r["is_nullable"] == "YES",
-                    "comment": comments.get(r["column_name"], ""),
+                    "comment": str(r.get("comment", "") or ""),
                 },
             )
             for r in rows
@@ -480,7 +626,11 @@ class TrinoCatalogAdapter(CatalogAdapter):
         effective_limit = min(max(1, limit), MAX_PREVIEW_ROWS)
 
         # 1. Get column metadata and verify table exists
-        col_rows = self._get_columns_metadata(schema_name, table_name)
+        raw_table_props = self._get_table_properties(schema_name, table_name)
+        show_create_props = self._get_show_create_properties(schema_name, table_name)
+        table_props = dict(raw_table_props)
+        table_props.update(show_create_props)
+        col_rows = self._effective_column_rows(schema_name, table_name, table_props=table_props)
         if not col_rows:
             raise KeyError(f"Table {schema_name}.{table_name} not found")
 

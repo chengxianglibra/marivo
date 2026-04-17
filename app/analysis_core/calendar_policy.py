@@ -1,0 +1,345 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Literal
+
+CalendarComparisonBasis = Literal["yoy", "mom", "wow"]
+CalendarPolicyRef = Literal[
+    "calendar_policy.natural_yoy",
+    "calendar_policy.weekday_yoy",
+    "calendar_policy.holiday_yoy",
+    "calendar_policy.event_yoy",
+    "calendar_policy.natural_mom",
+    "calendar_policy.weekday_mom",
+    "calendar_policy.event_mom",
+    "calendar_policy.weekday_wow",
+]
+ResolutionSource = Literal["explicit_request", "injected_binding", "planner_candidate"]
+
+
+@dataclass(frozen=True, slots=True)
+class CalendarBaselineGenerationRule:
+    strategy: Literal["previous_year", "previous_period"]
+    offset_value: int | None = None
+    offset_unit: Literal["day", "week", "month", "quarter", "year"] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CalendarMatchingStep:
+    matcher: Literal[
+        "holiday_cluster",
+        "year_relative_holiday_key",
+        "event_cluster",
+        "year_relative_event_key",
+        "same_weekday_nearest",
+        "natural_date_shift",
+    ]
+    requires_annotation: bool
+
+
+@dataclass(frozen=True, slots=True)
+class CalendarPolicyDefinition:
+    policy_ref: CalendarPolicyRef
+    comparison_basis: CalendarComparisonBasis
+    window_tags: tuple[str, ...]
+    use_when: tuple[str, ...]
+    avoid_when: tuple[str, ...]
+    resolved_calendar_source: str
+    resolved_alignment_mode: str
+    resolved_baseline_generation_rule: CalendarBaselineGenerationRule
+    matching_strategy: tuple[CalendarMatchingStep, ...]
+    fallback_strategy: tuple[str, ...]
+    coverage_behavior: str
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedCalendarPolicyBinding:
+    policy: CalendarPolicyDefinition
+    resolution_source: ResolutionSource
+
+
+class CalendarPolicyResolutionError(ValueError):
+    def __init__(
+        self, message: str, *, code: str, details: dict[str, object] | None = None
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.details = details or {}
+
+
+_POLICIES: tuple[CalendarPolicyDefinition, ...] = (
+    CalendarPolicyDefinition(
+        policy_ref="calendar_policy.natural_yoy",
+        comparison_basis="yoy",
+        window_tags=("natural_date",),
+        use_when=("普通同比", "未提节假日", "未提活动窗口"),
+        avoid_when=("明确要求周几对周几", "明确要求节假日口径", "明确要求活动口径"),
+        resolved_calendar_source="calendar_data.v1",
+        resolved_alignment_mode="natural_date",
+        resolved_baseline_generation_rule=CalendarBaselineGenerationRule(
+            strategy="previous_year",
+            offset_value=1,
+            offset_unit="year",
+        ),
+        matching_strategy=(CalendarMatchingStep("natural_date_shift", requires_annotation=False),),
+        fallback_strategy=(),
+        coverage_behavior="require_full_natural_date_pairing",
+    ),
+    CalendarPolicyDefinition(
+        policy_ref="calendar_policy.weekday_yoy",
+        comparison_basis="yoy",
+        window_tags=("same_weekday",),
+        use_when=("工作日效应强", "周一对周一", "周末对周末"),
+        avoid_when=("明确要求节假日窗口", "明确要求活动窗口"),
+        resolved_calendar_source="calendar_data.v1",
+        resolved_alignment_mode="same_weekday",
+        resolved_baseline_generation_rule=CalendarBaselineGenerationRule(
+            strategy="previous_year",
+            offset_value=1,
+            offset_unit="year",
+        ),
+        matching_strategy=(
+            CalendarMatchingStep("same_weekday_nearest", requires_annotation=False),
+            CalendarMatchingStep("natural_date_shift", requires_annotation=False),
+        ),
+        fallback_strategy=("natural_date_shift",),
+        coverage_behavior="warn_when_weekday_fallback_used",
+    ),
+    CalendarPolicyDefinition(
+        policy_ref="calendar_policy.holiday_yoy",
+        comparison_basis="yoy",
+        window_tags=("holiday_cluster", "same_weekday_fallback"),
+        use_when=("春节", "清明", "国庆", "法定节假日"),
+        avoid_when=("业务活动窗口优先",),
+        resolved_calendar_source="calendar_data.v1",
+        resolved_alignment_mode="holiday_cluster",
+        resolved_baseline_generation_rule=CalendarBaselineGenerationRule(
+            strategy="previous_year",
+            offset_value=1,
+            offset_unit="year",
+        ),
+        matching_strategy=(
+            CalendarMatchingStep("holiday_cluster", requires_annotation=True),
+            CalendarMatchingStep("year_relative_holiday_key", requires_annotation=True),
+            CalendarMatchingStep("same_weekday_nearest", requires_annotation=False),
+            CalendarMatchingStep("natural_date_shift", requires_annotation=False),
+        ),
+        fallback_strategy=("same_weekday_nearest", "natural_date_shift"),
+        coverage_behavior="warn_when_holiday_annotation_missing_or_fallback_used",
+    ),
+    CalendarPolicyDefinition(
+        policy_ref="calendar_policy.event_yoy",
+        comparison_basis="yoy",
+        window_tags=("event_cluster",),
+        use_when=("618", "双11", "会员日", "大促"),
+        avoid_when=("普通自然月同比", "仅法定节假日口径"),
+        resolved_calendar_source="calendar_data.v1",
+        resolved_alignment_mode="event_cluster",
+        resolved_baseline_generation_rule=CalendarBaselineGenerationRule(
+            strategy="previous_year",
+            offset_value=1,
+            offset_unit="year",
+        ),
+        matching_strategy=(
+            CalendarMatchingStep("event_cluster", requires_annotation=True),
+            CalendarMatchingStep("year_relative_event_key", requires_annotation=True),
+            CalendarMatchingStep("same_weekday_nearest", requires_annotation=False),
+            CalendarMatchingStep("natural_date_shift", requires_annotation=False),
+        ),
+        fallback_strategy=("same_weekday_nearest", "natural_date_shift"),
+        coverage_behavior="warn_when_event_annotation_missing_or_fallback_used",
+    ),
+    CalendarPolicyDefinition(
+        policy_ref="calendar_policy.natural_mom",
+        comparison_basis="mom",
+        window_tags=("natural_date",),
+        use_when=("普通月环比", "上月对本月", "未提活动窗口"),
+        avoid_when=("明确要求周几对齐", "明确要求活动窗口"),
+        resolved_calendar_source="calendar_data.v1",
+        resolved_alignment_mode="natural_date",
+        resolved_baseline_generation_rule=CalendarBaselineGenerationRule(
+            strategy="previous_period",
+        ),
+        matching_strategy=(CalendarMatchingStep("natural_date_shift", requires_annotation=False),),
+        fallback_strategy=(),
+        coverage_behavior="require_full_natural_date_pairing",
+    ),
+    CalendarPolicyDefinition(
+        policy_ref="calendar_policy.weekday_mom",
+        comparison_basis="mom",
+        window_tags=("same_weekday",),
+        use_when=("周几对齐月环比", "工作日效应强"),
+        avoid_when=("明确要求活动窗口",),
+        resolved_calendar_source="calendar_data.v1",
+        resolved_alignment_mode="same_weekday",
+        resolved_baseline_generation_rule=CalendarBaselineGenerationRule(
+            strategy="previous_period",
+        ),
+        matching_strategy=(
+            CalendarMatchingStep("same_weekday_nearest", requires_annotation=False),
+            CalendarMatchingStep("natural_date_shift", requires_annotation=False),
+        ),
+        fallback_strategy=("natural_date_shift",),
+        coverage_behavior="warn_when_weekday_fallback_used",
+    ),
+    CalendarPolicyDefinition(
+        policy_ref="calendar_policy.event_mom",
+        comparison_basis="mom",
+        window_tags=("event_cluster",),
+        use_when=("活动期月环比", "活动窗口对活动窗口"),
+        avoid_when=("普通自然月环比", "仅法定节假日口径"),
+        resolved_calendar_source="calendar_data.v1",
+        resolved_alignment_mode="event_cluster",
+        resolved_baseline_generation_rule=CalendarBaselineGenerationRule(
+            strategy="previous_period",
+        ),
+        matching_strategy=(
+            CalendarMatchingStep("event_cluster", requires_annotation=True),
+            CalendarMatchingStep("year_relative_event_key", requires_annotation=True),
+            CalendarMatchingStep("same_weekday_nearest", requires_annotation=False),
+            CalendarMatchingStep("natural_date_shift", requires_annotation=False),
+        ),
+        fallback_strategy=("same_weekday_nearest", "natural_date_shift"),
+        coverage_behavior="warn_when_event_annotation_missing_or_fallback_used",
+    ),
+    CalendarPolicyDefinition(
+        policy_ref="calendar_policy.weekday_wow",
+        comparison_basis="wow",
+        window_tags=("same_weekday", "weekly_period"),
+        use_when=("周环比", "上周同周几", "工作日/周末结构需稳定"),
+        avoid_when=("月环比", "同比", "活动窗口优先"),
+        resolved_calendar_source="calendar_data.v1",
+        resolved_alignment_mode="same_weekday",
+        resolved_baseline_generation_rule=CalendarBaselineGenerationRule(
+            strategy="previous_period",
+            offset_value=1,
+            offset_unit="week",
+        ),
+        matching_strategy=(
+            CalendarMatchingStep("same_weekday_nearest", requires_annotation=False),
+        ),
+        fallback_strategy=(),
+        coverage_behavior="require_same_weekday_pairing",
+    ),
+)
+
+_POLICY_BY_REF: dict[str, CalendarPolicyDefinition] = {
+    policy.policy_ref: policy for policy in _POLICIES
+}
+
+
+def list_calendar_policies() -> tuple[CalendarPolicyDefinition, ...]:
+    return _POLICIES
+
+
+def get_calendar_policy(policy_ref: str) -> CalendarPolicyDefinition:
+    policy = _POLICY_BY_REF.get(policy_ref)
+    if policy is None:
+        raise CalendarPolicyResolutionError(
+            f"Unknown calendar_policy_ref '{policy_ref}'",
+            code="calendar_policy_unknown",
+            details={
+                "policy_ref": policy_ref,
+                "allowed_policy_refs": sorted(_POLICY_BY_REF),
+            },
+        )
+    return policy
+
+
+def validate_calendar_policy_ref(
+    policy_ref: str | None,
+    *,
+    comparison_basis: CalendarComparisonBasis | None = None,
+) -> str | None:
+    if policy_ref is None:
+        return None
+    policy = get_calendar_policy(policy_ref)
+    if comparison_basis is not None and policy.comparison_basis != comparison_basis:
+        raise CalendarPolicyResolutionError(
+            (
+                f"calendar_policy_ref '{policy_ref}' is not valid for comparison_basis "
+                f"'{comparison_basis}'"
+            ),
+            code="calendar_policy_basis_mismatch",
+            details={
+                "policy_ref": policy_ref,
+                "comparison_basis": comparison_basis,
+                "policy_comparison_basis": policy.comparison_basis,
+            },
+        )
+    return policy.policy_ref
+
+
+def policy_registry_summary(
+    *,
+    comparison_basis: CalendarComparisonBasis | None = None,
+) -> list[dict[str, object]]:
+    policies = _POLICIES
+    if comparison_basis is not None:
+        policies = tuple(
+            policy for policy in policies if policy.comparison_basis == comparison_basis
+        )
+    return [
+        {
+            "policy_ref": policy.policy_ref,
+            "comparison_basis": policy.comparison_basis,
+            "window_tags": list(policy.window_tags),
+            "use_when": list(policy.use_when),
+            "avoid_when": list(policy.avoid_when),
+        }
+        for policy in policies
+    ]
+
+
+def resolve_calendar_policy(
+    *,
+    explicit_policy_ref: str | None = None,
+    injected_policy_ref: str | None = None,
+    planner_candidate_refs: list[str] | None = None,
+    comparison_basis: CalendarComparisonBasis | None = None,
+    required: bool = False,
+) -> ResolvedCalendarPolicyBinding | None:
+    explicit = validate_calendar_policy_ref(explicit_policy_ref, comparison_basis=comparison_basis)
+    if explicit is not None:
+        return ResolvedCalendarPolicyBinding(
+            policy=get_calendar_policy(explicit),
+            resolution_source="explicit_request",
+        )
+
+    injected = validate_calendar_policy_ref(injected_policy_ref, comparison_basis=comparison_basis)
+    if injected is not None:
+        return ResolvedCalendarPolicyBinding(
+            policy=get_calendar_policy(injected),
+            resolution_source="injected_binding",
+        )
+
+    unique_candidates: list[str] = []
+    for candidate in planner_candidate_refs or []:
+        normalized_candidate = validate_calendar_policy_ref(
+            candidate,
+            comparison_basis=comparison_basis,
+        )
+        if normalized_candidate is not None and normalized_candidate not in unique_candidates:
+            unique_candidates.append(normalized_candidate)
+
+    if len(unique_candidates) == 1:
+        return ResolvedCalendarPolicyBinding(
+            policy=get_calendar_policy(unique_candidates[0]),
+            resolution_source="planner_candidate",
+        )
+    if len(unique_candidates) > 1:
+        raise CalendarPolicyResolutionError(
+            "Multiple planner calendar policy candidates are equally valid",
+            code="calendar_policy_ambiguous",
+            details={
+                "comparison_basis": comparison_basis,
+                "candidate_policy_refs": unique_candidates,
+            },
+        )
+    if required:
+        raise CalendarPolicyResolutionError(
+            "A calendar policy is required but none could be resolved",
+            code="calendar_policy_missing",
+            details={"comparison_basis": comparison_basis},
+        )
+    return None

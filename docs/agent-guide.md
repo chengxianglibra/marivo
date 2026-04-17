@@ -161,6 +161,9 @@ coverage and engine-specific SQL kernels, update all three surfaces together.
 Typed metric execution uses two SQL contracts: aggregate expressions for standard metric queries and
 per-row value expressions for sample-summary modes. Do not assume one SQL fragment is valid for
 both.
+Calendar alignment policy refs are compiler-owned fixed catalog entries. Only `observe` may accept
+`calendar_policy_ref`; downstream compare-like intents must reuse the frozen observation metadata
+instead of taking a parallel policy input.
 SQL sent to the execution engine is observed through default structured INFO logs; do not add SQL
 payload persistence to metadata surfaces unless a task explicitly requires it.
 Typed metric dimension discovery should prefer explicit legacy `dimensions` when present; otherwise

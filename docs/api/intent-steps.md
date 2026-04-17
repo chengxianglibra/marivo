@@ -193,6 +193,7 @@ Request body fields:
 - `metric`: published semantic metric name
 - `result_mode`: `standard`, `numeric_sample_summary`, or `rate_sample_summary`; defaults to `standard`
 - `time_scope`: required canonical time scope
+- `calendar_policy_ref`: optional fixed calendar alignment policy ref; only accepted on `observe`
 - `scope`: optional non-time scope
 - `granularity`: allowed only for `standard` time-series observations
 - `dimensions`: allowed only for `standard` segmented observations
@@ -210,6 +211,7 @@ Invalid combinations include:
 - `granularity` and `dimensions` together
 - non-`standard` `result_mode` with `granularity` or `dimensions`
 - `granularity = "hour"` with date-only or timezone-aware `time_scope.kind = "range"` boundaries; hour grain requires naive datetime strings such as `2026-04-09 00:00:00`
+- `calendar_policy_ref` with an hour-grain observe window; calendar alignment policies only support day/week/month windows in v1
 - time conditions inside `scope`
 - unsupported metric capability for the requested observation mode
 - metrics without a per-row value expression for sample-summary modes; typed metrics may support
@@ -220,6 +222,10 @@ Invalid combinations include:
   `distribution_spec.kind="histogram_ready"` is not supported by standard `observe` in v1
 
 Success returns `ObserveResponse`, a union of the five canonical observation artifact types. All success payloads include `step_ref`, `artifact_id`, resolved `time_scope`, normalized `scope`, and analytical / execution metadata.
+
+`calendar_policy_ref` is an observe-only input boundary in v1. Downstream typed-ref intents such as `compare`, `attribute`, and `validate` must reuse the upstream frozen alignment metadata instead of accepting a second policy input.
+
+When `calendar_policy_ref` is present on a `week` or `month` observation, the request granularity still controls the returned observation shape, but the compiler resolves calendar alignment at day granularity for comparability metadata. `calendar_policy.weekday_wow` specifically means "day-aligned within the compared weeks", not "whole-week black-box to whole-week black-box".
 
 Recommended semantic error codes:
 
@@ -236,6 +242,8 @@ Request body fields:
 - `left_ref`: required `observe` ref
 - `right_ref`: required `observe` ref
 - `mode`: `auto`, `scalar`, or `segmented`; defaults to `auto`
+
+`compare` does not accept `calendar_policy_ref`; any calendar alignment semantics must come from the referenced upstream observations.
 
 Supported comparisons:
 

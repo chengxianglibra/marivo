@@ -1064,6 +1064,30 @@ def test_observe_uses_canonical_observe_request_body() -> None:
     assert result["meta"]["factum_path"] == "/sessions/sess_123/intents/observe"
 
 
+def test_observe_forwards_calendar_policy_ref_in_canonical_body() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"
+        assert request.url.path == "/sessions/sess_123/intents/observe"
+        assert request.read() == (
+            b'{"metric":"metric.watch_time","result_mode":"standard","time_scope":{"kind":"range",'
+            b'"start":"2025-10-01","end":"2025-10-08"},"calendar_policy_ref":'
+            b'"calendar_policy.holiday_yoy"}'
+        )
+        return httpx.Response(200, json={"artifact_id": "obs_456"}, request=request)
+
+    result = _invoke_registered_tool(
+        "observe",
+        handler,
+        session_id="sess_123",
+        metric="metric.watch_time",
+        time_scope={"kind": "range", "start": "2025-10-01", "end": "2025-10-08"},
+        calendar_policy_ref="calendar_policy.holiday_yoy",
+    )
+
+    assert result["ok"] is True
+    assert result["data"] == {"artifact_id": "obs_456"}
+
+
 def test_compare_uses_path_discriminated_contract_and_default_mode() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "POST"

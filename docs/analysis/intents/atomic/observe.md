@@ -28,6 +28,7 @@
     "start": "2024-03-01T00:00:00",
     "end": "2024-03-08T00:00:00"
   },
+  "calendar_policy_ref": "calendar_policy.holiday_yoy",
   "scope": {
     "predicate": {
       "op": "and",
@@ -50,6 +51,7 @@ type ObserveRequest = {
   metric: string;
   result_mode?: "standard" | "numeric_sample_summary" | "rate_sample_summary";
   time_scope: TimeScope;
+  calendar_policy_ref?: string | null;
   scope?: Scope | null;
   granularity?: TimeGranularity | null;
   dimensions?: string[] | null;
@@ -192,6 +194,32 @@ v1 支持：
 - `as_of`：截至指定时间点的快照
 
 响应必须返回 resolved time scope，而不是仅返回请求原文。
+
+### calendar_policy_ref
+
+`calendar_policy_ref` 是可选字段，用于在 `observe` 阶段显式选择固定的 calendar alignment policy。
+
+v1 边界：
+
+- 只接受 compiler-owned fixed catalog refs
+- registry / resolution 顺序固定为：显式 request > 上游注入 binding > planner/agent 候选
+- 若 planner/agent 候选同时存在多个同样合法的 policy，必须返回结构化歧义，而不是静默猜测
+- 不接受开放式 policy payload、自定义 authoring schema 或临时 holiday matching 规则
+- 下游 `compare`、`attribute`、`validate` 等 typed-ref intent 不重复接收该字段，而是复用 `observe` 已冻结的 resolved alignment metadata
+- `hour` 粒度不支持 `calendar_policy_ref`
+- `week` / `month` 观察可使用 `calendar_policy_ref`，但 compiler 内部仍按 `day` 生成 alignment pairing；请求粒度只决定 observation 的展示聚合形状
+- `calendar_policy.weekday_wow` 表示“周内逐日 weekday 对齐后再聚合”，不是“整周黑盒对整周”
+
+v1 固定 ref 集：
+
+- `calendar_policy.natural_yoy`
+- `calendar_policy.weekday_yoy`
+- `calendar_policy.holiday_yoy`
+- `calendar_policy.event_yoy`
+- `calendar_policy.natural_mom`
+- `calendar_policy.weekday_mom`
+- `calendar_policy.event_mom`
+- `calendar_policy.weekday_wow`
 
 ### scope
 

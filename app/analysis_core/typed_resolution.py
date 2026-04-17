@@ -4,6 +4,10 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, cast
 
+from app.analysis_core.calendar_policy import (
+    CalendarPolicyResolutionError,
+    validate_calendar_policy_ref,
+)
 from app.semantic_runtime.errors import (
     SemanticRuntimeError,
     SemanticRuntimeNotReadyError,
@@ -38,6 +42,7 @@ class NormalizedCompilerRequest:
     request_time_scope: dict[str, Any] | None = None
     request_dimensions: list[str] = field(default_factory=list)
     request_result_mode: str | None = None
+    request_calendar_policy_ref: str | None = None
     request_options: dict[str, Any] = field(default_factory=dict)
 
 
@@ -83,6 +88,19 @@ def normalize_step_request(
     semantic_context: Mapping[str, Any] | None = None,
 ) -> NormalizedCompilerRequest:
     semantic_context = semantic_context or {}
+    raw_calendar_policy_ref = step.params.get("calendar_policy_ref")
+    if raw_calendar_policy_ref is not None and not isinstance(raw_calendar_policy_ref, str):
+        raise ValueError("calendar_policy_ref must be a string when provided")
+    if raw_calendar_policy_ref is not None and step.step_type not in {
+        "observe",
+        "metric_query",
+        "aggregate_query",
+    }:
+        raise ValueError("calendar_policy_ref is only supported for observe steps")
+    try:
+        request_calendar_policy_ref = validate_calendar_policy_ref(raw_calendar_policy_ref)
+    except CalendarPolicyResolutionError as error:
+        raise ValueError(str(error)) from error
     if step.step_type == "metric_query":
         table_name: str | None
         request_scope: dict[str, Any] | None
@@ -130,6 +148,7 @@ def normalize_step_request(
             request_scope=request_scope,
             request_time_scope=request_time_scope,
             request_dimensions=request_dimensions,
+            request_calendar_policy_ref=request_calendar_policy_ref,
             request_options=request_options,
         )
 
@@ -143,6 +162,7 @@ def normalize_step_request(
                 request_scope=asdict(normalized.scope),
                 request_time_scope=asdict(normalized.time_scope),
                 request_dimensions=_normalize_dimension_refs(normalized.grouping),
+                request_calendar_policy_ref=request_calendar_policy_ref,
                 request_options=_request_options_from_windowed_request(normalized),
             )
 
@@ -152,6 +172,7 @@ def normalize_step_request(
             table_name=step.table_name(),
             request_time_scope=_mapping_dict(step.params.get("scoped_query")),
             request_dimensions=_normalize_dimension_refs(_string_list(step.params.get("group_by"))),
+            request_calendar_policy_ref=request_calendar_policy_ref,
             request_options=_filter_none_dict(
                 order=str(step.params.get("order") or step.params.get("order_by") or "").strip()
                 or None,
@@ -168,6 +189,7 @@ def normalize_step_request(
             request_class="root_metric_process",
             table_name=step.table_name(),
             request_options={"step_type": step.step_type},
+            request_calendar_policy_ref=request_calendar_policy_ref,
         )
 
     if step.step_type == "profile_table_column_profile":
@@ -179,6 +201,7 @@ def normalize_step_request(
                 "step_type": step.step_type,
                 "column_name": str(step.params.get("column_name") or "").strip() or None,
             },
+            request_calendar_policy_ref=request_calendar_policy_ref,
         )
 
     metric_name = (
@@ -197,6 +220,7 @@ def normalize_step_request(
         table_name=step.table_name(),
         metric_ref=_normalize_metric_ref(metric_name) if metric_name else None,
         request_dimensions=request_dimensions,
+        request_calendar_policy_ref=request_calendar_policy_ref,
         request_options={"step_type": step.step_type},
     )
 

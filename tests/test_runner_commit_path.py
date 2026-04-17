@@ -124,6 +124,65 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
                 },
             )
 
+    def test_observe_rejects_unknown_calendar_policy_ref(self) -> None:
+        from app.intents.observe import run_observe_intent
+
+        svc = _make_svc()
+        with self.assertRaisesRegex(
+            ValueError,
+            "observe: INVALID_ARGUMENT - Unknown calendar_policy_ref",
+        ):
+            run_observe_intent(
+                svc,
+                _SESSION,
+                {
+                    "metric": "m1",
+                    "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+                    "calendar_policy_ref": "calendar_policy.not_real",
+                },
+            )
+
+    def test_observe_forwards_calendar_policy_ref_to_internal_compile_step(self) -> None:
+        from app.intents.observe import run_observe_intent
+
+        svc = _make_svc()
+        captured: dict[str, Any] = {}
+        svc.normalize_intent_metric_ref.side_effect = lambda metric: metric
+        svc.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
+        svc._resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
+        svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
+        svc.resolve_metric_dimensions.return_value = []
+        svc._resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
+        svc._resolve_windowed_query_time_axis.return_value = None
+        svc._build_scoped_query.return_value = {
+            "mode": "single_window",
+            "analysis_time_expr": "event_date",
+            "analysis_time_kind": "date_field",
+            "current": {"start": "2024-01-01", "end": "2024-01-08"},
+        }
+
+        def _capture_compile(step: Any, *, engine_type: str, semantic_context: Any) -> MagicMock:
+            captured["calendar_policy_ref"] = step.params.get("calendar_policy_ref")
+            captured["time_scope"] = step.params.get("time_scope")
+            return _make_compiled_mock()
+
+        svc._compile_step_with_feedback.side_effect = _capture_compile
+
+        with patch("app.intents.observe.execute_compiled") as mock_exec:
+            mock_exec.return_value.rows = []
+            run_observe_intent(
+                svc,
+                _SESSION,
+                {
+                    "metric": "metric.m1",
+                    "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+                    "calendar_policy_ref": "calendar_policy.weekday_yoy",
+                },
+            )
+
+        self.assertEqual(captured["calendar_policy_ref"], "calendar_policy.weekday_yoy")
+        self.assertEqual(captured["time_scope"]["grain"], "day")
+
     def test_observe_hour_granularity_uses_hour_internal_grain(self) -> None:
         from app.intents.observe import run_observe_intent
 

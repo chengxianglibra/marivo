@@ -57,6 +57,12 @@ process schema ----/--/
 | 文档 | 主要主题 | 解决的核心问题 |
 | --- | --- | --- |
 | [`time-schema-contract.zh.md`](./time-schema-contract.zh.md) | `time.*` 的统一语义 contract | 时间语义引用、窗口本体与消费策略三层模型，角色组合而非排斥 |
+| [`calendar-alignment-policy.zh.md`](./calendar-alignment-policy.zh.md) | 节假日 / weekday / 交易日对齐策略 contract | 可比期如何生成、bucket 如何配对、calendar data 与 policy 如何分层 |
+| [`calendar-data-contract.zh.md`](./calendar-data-contract.zh.md) | `calendar data` 逻辑输入契约 | resolver 依赖哪些稳定字段、唯一性约束、weekday/workday/annotation 如何表达 |
+| [`calendar-data-v1-source-note.zh.md`](./calendar-data-v1-source-note.zh.md) | `calendar data` v1 source 与 version 冻结 | `CN` 节假日和业务活动各自从哪里来、如何冻结版本、为何不能用 runtime latest |
+| [`calendar-version-freeze-policy.zh.md`](./calendar-version-freeze-policy.zh.md) | `calendar version` 冻结与发布流程 | 哪些 snapshot 允许被 resolver 使用、如何发布、如何回滚且不漂移历史 artifact |
+| [`calendar-annotation-generation-policy.zh.md`](./calendar-annotation-generation-policy.zh.md) | holiday / event 注释生成规则 | `group_id` 与 relative key 如何生成、哪些窗口必须稳定标注 |
+| [`calendar-annotation-failure-policy.zh.md`](./calendar-annotation-failure-policy.zh.md) | annotation 缺失处理规则 | 何时 fail、何时 warning、何时允许 fallback |
 | [`metric-process-contract.zh.md`](./metric-process-contract.zh.md) | `metric` 与 `process object` 的总分工 | 为什么要把过程语义从 metric 中拆出来、三层对象如何分工、compiler/IR 应如何承接 |
 | [`metric-v2-schema.zh.md`](./metric-v2-schema.zh.md) | `metric` 的目标 schema | metric 应承载哪些 measurement semantics，哪些 capability 应由 compiler 推导 |
 | [`process-object-schema.zh.md`](./process-object-schema.zh.md) | `process object` 的目标 schema | 过程对象如何声明稳定接口、subtype 如何建模、哪些 capability 应保留 vs 推导 |
@@ -93,7 +99,13 @@ process schema ----/--/
 3. [`entity-schema-contract.zh.md`](./entity-schema-contract.zh.md)
 4. [`dimension-schema-contract.zh.md`](./dimension-schema-contract.zh.md)
 5. [`time-schema-contract.zh.md`](./time-schema-contract.zh.md)
-6. [`enum-set-schema-contract.zh.md`](./enum-set-schema-contract.zh.md)
+6. [`calendar-alignment-policy.zh.md`](./calendar-alignment-policy.zh.md)
+7. [`calendar-data-contract.zh.md`](./calendar-data-contract.zh.md)
+8. [`calendar-data-v1-source-note.zh.md`](./calendar-data-v1-source-note.zh.md)
+9. [`calendar-version-freeze-policy.zh.md`](./calendar-version-freeze-policy.zh.md)
+10. [`calendar-annotation-generation-policy.zh.md`](./calendar-annotation-generation-policy.zh.md)
+11. [`calendar-annotation-failure-policy.zh.md`](./calendar-annotation-failure-policy.zh.md)
+12. [`enum-set-schema-contract.zh.md`](./enum-set-schema-contract.zh.md)
 
 前五篇定义 semantic layer 中最核心的五类对象，第六篇补充 `dimension` 在 enumerated domain 下依赖的值域契约：
 
@@ -102,6 +114,11 @@ process schema ----/--/
 - `entity`：稳定业务身份与引用锚点
 - `dimension`：共享分析轴与值治理 contract
 - `time`：共享时间语义与时间锚点 contract
+- `calendar alignment policy`：可比期生成、holiday/weekday 对齐与 bucket pairing contract
+- `calendar data` logical contract：resolver 实际依赖的日粒度注释字段与 source/version 边界
+- `calendar version freeze policy`：哪些 calendar snapshot 可被 runtime 消费、如何冻结到 lineage、如何发布与回滚
+- `calendar annotation generation policy`：holiday/event stable ID 与 relative key 如何离线生成
+- `calendar annotation failure policy`：annotation 缺失时如何 fail、warning 与 fallback 分层
 - `enum set`：被 `dimension.enum_set_ref` 引用的受治理值域 contract（不是新的顶层对象层）
 
 其中：
@@ -112,6 +129,7 @@ process schema ----/--/
 - 如果你关心“`dimension.*` 为什么不能继续只是 metric 上的字符串数组”，优先看 `dimension-schema-contract`
 - 如果你关心“`enum_set_ref` / `enum_version` 到底引用什么，以及为什么它需要独立文档但不是新的顶层对象”，优先看 `enum-set-schema-contract`
 - 如果你关心“`time_scope`、`primary_time_ref`、`anchor_time_ref`、late arrival / freshness 应分别落在哪层”，优先看 `time-schema-contract`
+- 如果你关心“同比不按自然日，而按节假日或周几对齐该落在哪层”，优先看 `calendar-alignment-policy`
 
 ### 3. 再看对象如何落地
 
