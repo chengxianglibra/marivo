@@ -333,6 +333,7 @@ class TypedSemanticEndToEndTests(unittest.TestCase):
             compiled.metadata["ir_plan_id"],
             persisted_snapshot["compile_context"]["ir_plan_ids"],
         )
+        self.assertIsNone(persisted_snapshot["compile_context"]["calendar_policy_binding"])
         assert_no_canonical_refs_in_semantic_payload(
             persisted_snapshot,
             surface="persisted_step_semantic_metadata",

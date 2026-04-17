@@ -167,6 +167,10 @@ instead of taking a parallel policy input.
 Calendar alignment runtime data must come from the config-backed calendar snapshot registry and
 resolved source/version lineage; do not reintroduce compiler-time injected annotation snapshots or
 dynamic `latest` calendar reads.
+When a step resolves calendar alignment, persist the lineage/metadata binding in
+`step_metadata.typed_semantic_snapshot.compile_context.calendar_policy_binding`; this summary is the
+operator-facing provenance surface for the final policy ref and resolved calendar version, while the
+observation artifact's `resolved_policy_summary` remains the downstream reuse surface.
 Calendar alignment pairing must run as per-bucket ordered matching over the policy-declared matcher
 chain; do not collapse holiday/event/weekday semantics into a single window-level fallback choice.
 SQL sent to the execution engine is observed through default structured INFO logs; do not add SQL

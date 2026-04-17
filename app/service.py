@@ -2820,6 +2820,66 @@ class SemanticLayerService:
             merged.append(value)
         return merged
 
+    @staticmethod
+    def _build_calendar_policy_binding(
+        resolved_calendar_alignments: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        if not resolved_calendar_alignments:
+            return None
+
+        def require_string(alignment: dict[str, Any], field: str) -> str:
+            value = alignment.get(field)
+            if not isinstance(value, str) or not value:
+                raise ValueError(f"resolved_calendar_alignment missing {field}")
+            return value
+
+        def require_source_lineage(alignment: dict[str, Any]) -> dict[str, dict[str, str]]:
+            source_lineage = alignment.get("source_lineage")
+            if not isinstance(source_lineage, dict) or not source_lineage:
+                raise ValueError("resolved_calendar_alignment missing source_lineage metadata")
+
+            normalized: dict[str, dict[str, str]] = {}
+            for source_key, source_metadata in source_lineage.items():
+                if not isinstance(source_key, str) or not source_key:
+                    raise ValueError("resolved_calendar_alignment has invalid source_lineage key")
+                if not isinstance(source_metadata, dict):
+                    raise ValueError(
+                        "resolved_calendar_alignment has invalid source_lineage metadata"
+                    )
+                normalized_source: dict[str, str] = {}
+                for field in ("source_id", "source_name", "table_fqn", "calendar_version"):
+                    value = source_metadata.get(field)
+                    if not isinstance(value, str) or not value:
+                        raise ValueError(
+                            f"resolved_calendar_alignment source_lineage.{source_key} "
+                            f"missing {field}"
+                        )
+                    normalized_source[field] = value
+                normalized[source_key] = normalized_source
+            return normalized
+
+        bindings: list[dict[str, Any]] = []
+        for alignment in resolved_calendar_alignments:
+            bindings.append(
+                {
+                    "policy_ref": require_string(alignment, "policy_ref"),
+                    "comparison_basis": require_string(alignment, "comparison_basis"),
+                    "resolved_calendar_source": require_string(
+                        alignment, "resolved_calendar_source"
+                    ),
+                    "resolved_calendar_version": require_string(
+                        alignment, "resolved_calendar_version"
+                    ),
+                    "source_lineage": require_source_lineage(alignment),
+                }
+            )
+
+        first_binding = bindings[0]
+        for binding in bindings[1:]:
+            if binding != first_binding:
+                raise ValueError("conflicting calendar policy bindings in compiled step metadata")
+        return first_binding
+
     def build_step_semantic_metadata(
         self,
         compiled_queries: CompiledQuery | list[CompiledQuery],
@@ -2933,6 +2993,7 @@ class SemanticLayerService:
                 for compiled in compiled_list
             ]
         )
+        calendar_policy_binding = self._build_calendar_policy_binding(resolved_calendar_alignments)
 
         if not any(
             (
@@ -2949,6 +3010,7 @@ class SemanticLayerService:
                 imported_dimension_conflicts,
                 imported_dimension_sources,
                 metric_entity_anchor_refs,
+                calendar_policy_binding,
             )
         ):
             return None
@@ -2974,6 +3036,7 @@ class SemanticLayerService:
                 "imported_dimension_lineage": imported_dimension_lineage,
                 "imported_dimension_conflicts": imported_dimension_conflicts,
                 "imported_dimension_sources": imported_dimension_sources,
+                "calendar_policy_binding": calendar_policy_binding,
             },
         }
         assert_no_canonical_refs_in_semantic_payload(snapshot, surface="step_semantic_metadata")
