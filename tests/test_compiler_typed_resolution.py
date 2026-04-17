@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from datetime import date
 
 from app.analysis_core.capability_profiles import derive_compiler_state
 from app.analysis_core.compiler import (
@@ -16,7 +17,10 @@ from app.analysis_core.typed_resolution import (
 from app.analysis_core.validator import validate_compiler_inputs
 from app.evidence_engine.ref_boundary import assert_no_canonical_refs_in_semantic_payload
 from app.semantic_runtime import SemanticRuntimeRepository
-from app.semantic_runtime.errors import SemanticRuntimeNotFoundError, SemanticRuntimeNotReadyError
+from app.semantic_runtime.errors import (
+    SemanticRuntimeNotFoundError,
+    SemanticRuntimeNotReadyError,
+)
 from app.semantic_runtime.resolution import ResolvedSemanticObject
 
 
@@ -195,6 +199,25 @@ def _profile_reader(subject_ref: str) -> list[dict[str, object]]:
             }
         ]
     return []
+
+
+def _calendar_annotation(
+    day: str,
+    *,
+    holiday_group_id: str | None = None,
+    year_relative_holiday_key: str | None = None,
+    event_group_id: str | None = None,
+    year_relative_event_key: str | None = None,
+) -> dict[str, object]:
+    day_value = date.fromisoformat(day)
+    return {
+        "calendar_date": day,
+        "weekday": day_value.weekday() + 1,
+        "holiday_group_id": holiday_group_id,
+        "year_relative_holiday_key": year_relative_holiday_key,
+        "event_group_id": event_group_id,
+        "year_relative_event_key": year_relative_event_key,
+    }
 
 
 class _FakeSemanticRepository(SemanticRuntimeRepository):
@@ -1075,6 +1098,48 @@ class CompilerTypedResolutionTests(unittest.TestCase):
                 "semantic_repository": _FakeSemanticRepository(),
                 "binding_reader": _binding_reader,
                 "compatibility_profile_reader": _profile_reader,
+                "calendar_annotation_snapshot": [
+                    _calendar_annotation(
+                        "2026-04-01",
+                        holiday_group_id="qingming",
+                        year_relative_holiday_key="qingming_d-3",
+                    ),
+                    _calendar_annotation(
+                        "2026-04-02",
+                        holiday_group_id="qingming",
+                        year_relative_holiday_key="qingming_d-2",
+                    ),
+                    _calendar_annotation(
+                        "2026-04-03",
+                        holiday_group_id="qingming",
+                        year_relative_holiday_key="qingming_d-1",
+                    ),
+                    _calendar_annotation(
+                        "2026-04-04",
+                        holiday_group_id="qingming",
+                        year_relative_holiday_key="qingming_d+0",
+                    ),
+                    _calendar_annotation(
+                        "2025-04-01",
+                        holiday_group_id="qingming",
+                        year_relative_holiday_key="qingming_d-3",
+                    ),
+                    _calendar_annotation(
+                        "2025-04-02",
+                        holiday_group_id="qingming",
+                        year_relative_holiday_key="qingming_d-2",
+                    ),
+                    _calendar_annotation(
+                        "2025-04-03",
+                        holiday_group_id="qingming",
+                        year_relative_holiday_key="qingming_d-1",
+                    ),
+                    _calendar_annotation(
+                        "2025-04-04",
+                        holiday_group_id="qingming",
+                        year_relative_holiday_key="qingming_d+0",
+                    ),
+                ],
             },
         )
 
@@ -1089,7 +1154,11 @@ class CompilerTypedResolutionTests(unittest.TestCase):
             {"start": "2025-04-01", "end": "2025-05-01"},
         )
         self.assertEqual(len(alignment["bucket_pairing"]), 30)
-        self.assertEqual(alignment["bucket_pairing"][0]["pairing_reason"], "same_weekday_nearest")
+        self.assertEqual(
+            alignment["bucket_pairing"][0]["pairing_reason"], "year_relative_holiday_key"
+        )
+        self.assertEqual(alignment["bucket_pairing"][0]["baseline_bucket_start"], "2025-04-01")
+        self.assertEqual(alignment["bucket_pairing"][0]["issues"], [])
         self.assertEqual(alignment["comparability_warnings"], ["fallback_applied"])
         assert compiled.ir_bundle is not None
         self.assertEqual(
