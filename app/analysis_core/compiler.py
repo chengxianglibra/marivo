@@ -2,14 +2,18 @@ from __future__ import annotations
 
 import hashlib
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from typing import Any, Literal, cast
 
 from app.analysis_core.calendar_alignment_baseline import resolve_calendar_baseline_window
+from app.analysis_core.calendar_alignment_pairing import (
+    CalendarAnnotationRow,
+    build_calendar_annotation_rows,
+    resolve_calendar_bucket_pairing,
+)
 from app.analysis_core.calendar_policy import (
-    CalendarMatchingStep,
     get_calendar_policy,
 )
 from app.analysis_core.capability_profiles import derive_compiler_state
@@ -1047,7 +1051,10 @@ def _build_lowering_requirements(
 
 def _resolve_calendar_alignment_plan(
     normalized_request: NormalizedCompilerRequest,
+    *,
+    semantic_context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any] | None:
+    semantic_context = semantic_context or {}
     policy_ref = normalized_request.request_calendar_policy_ref
     if policy_ref is None:
         return None
@@ -1093,13 +1100,20 @@ def _resolve_calendar_alignment_plan(
         current_window=current_window,
         rule=policy.resolved_baseline_generation_rule,
     )
-    bucket_pairing, comparability_warnings = _build_calendar_bucket_pairing(
+    annotation_rows = _build_calendar_alignment_annotation_rows(
+        current_window=current_window,
+        baseline_window=baseline_window,
+        semantic_context=semantic_context,
+    )
+    pairing_resolution = resolve_calendar_bucket_pairing(
         current_window=current_window,
         baseline_window=baseline_window,
         matching_strategy=policy.matching_strategy,
         fallback_strategy=policy.fallback_strategy,
-        alignment_mode=policy.resolved_alignment_mode,
+        annotation_rows=annotation_rows,
     )
+    bucket_pairing = pairing_resolution.bucket_pairing
+    comparability_warnings = pairing_resolution.comparability_warnings
     coverage_summary = _build_calendar_alignment_coverage(bucket_pairing)
     return {
         "policy_ref": policy.policy_ref,
@@ -1141,95 +1155,19 @@ def _parse_date_like(value: str) -> date:
         return date.fromisoformat(value[:10])
 
 
-def _build_calendar_bucket_pairing(
+def _build_calendar_alignment_annotation_rows(
     *,
     current_window: tuple[date, date],
     baseline_window: tuple[date, date],
-    matching_strategy: tuple[CalendarMatchingStep, ...],
-    fallback_strategy: tuple[str, ...],
-    alignment_mode: str,
-) -> tuple[list[dict[str, Any]], list[str]]:
-    current_start, current_end = current_window
-    baseline_start, baseline_end = baseline_window
-    pairings: list[dict[str, Any]] = []
-    comparability_warnings: list[str] = []
-
-    effective_matcher = _primary_calendar_matcher(
-        matching_strategy=matching_strategy,
-        fallback_strategy=fallback_strategy,
-    )
-    if alignment_mode in {"holiday_cluster", "event_cluster"}:
-        comparability_warnings.append("fallback_applied")
-
-    index = 0
-    current_day = current_start
-    while current_day < current_end:
-        issues: list[str] = []
-        baseline_day: date | None
-        pairing_reason = effective_matcher
-        if effective_matcher == "same_weekday_nearest":
-            baseline_day = _nearest_same_weekday(
-                target_day=baseline_start + timedelta(days=index),
-                baseline_window=baseline_window,
-                weekday=current_day.weekday(),
-            )
-        else:
-            baseline_day = baseline_start + timedelta(days=index)
-            if baseline_day >= baseline_end:
-                baseline_day = None
-        if baseline_day is None:
-            issues.append("alignment_coverage_insufficient")
-        pairings.append(
-            {
-                "current_bucket_start": current_day.isoformat(),
-                "baseline_bucket_start": baseline_day.isoformat() if baseline_day else None,
-                "pairing_reason": pairing_reason,
-                "shift_days": (current_day - baseline_day).days
-                if baseline_day is not None
-                else None,
-                "issues": issues,
-            }
-        )
-        index += 1
-        current_day += timedelta(days=1)
-    return pairings, comparability_warnings
-
-
-def _primary_calendar_matcher(
-    *,
-    matching_strategy: tuple[CalendarMatchingStep, ...],
-    fallback_strategy: tuple[str, ...],
-) -> str:
-    for step in matching_strategy:
-        if not step.requires_annotation:
-            return step.matcher
-    if fallback_strategy:
-        return fallback_strategy[0]
-    return matching_strategy[0].matcher
-
-
-def _nearest_same_weekday(
-    *,
-    target_day: date,
-    baseline_window: tuple[date, date],
-    weekday: int,
-) -> date | None:
-    baseline_start, baseline_end = baseline_window
-    candidates: list[date] = []
-    cursor = baseline_start
-    while cursor < baseline_end:
-        if cursor.weekday() == weekday:
-            candidates.append(cursor)
-        cursor += timedelta(days=1)
-    if not candidates:
-        return None
-    return min(
-        candidates,
-        key=lambda candidate: (
-            abs((candidate - target_day).days),
-            candidate > target_day,
-            candidate,
-        ),
+    semantic_context: Mapping[str, Any],
+) -> list[CalendarAnnotationRow]:
+    raw_rows = semantic_context.get("calendar_annotation_snapshot")
+    if raw_rows is not None and not isinstance(raw_rows, Sequence):
+        raise ValueError("semantic_context.calendar_annotation_snapshot must be a sequence")
+    return build_calendar_annotation_rows(
+        current_window=current_window,
+        baseline_window=baseline_window,
+        raw_rows=cast("Sequence[Mapping[str, Any]] | None", raw_rows),
     )
 
 
@@ -1493,6 +1431,7 @@ def _build_ir_bundle(
     resolved_inputs: ResolvedCompilerInputs,
     validation_result: Any,
     derived_state: Any,
+    semantic_context: Mapping[str, Any] | None = None,
 ) -> IrBundle:
     plan_id = _stable_plan_id(step, normalized_request)
     artifact_id = f"artifact:{plan_id}:output"
@@ -1565,7 +1504,10 @@ def _build_ir_bundle(
         intent_node_id=intent_node["node_id"],
     )
     validation_trace = _build_validation_trace(validation_result)
-    resolved_calendar_alignment = _resolve_calendar_alignment_plan(normalized_request)
+    resolved_calendar_alignment = _resolve_calendar_alignment_plan(
+        normalized_request,
+        semantic_context=semantic_context,
+    )
     compile_report: CompileReport = {
         "validation_trace": validation_trace,
         "validation_summary": _build_validation_summary(validation_result, validation_trace),
@@ -1696,6 +1638,7 @@ def compile_step(
         resolved_inputs=resolved_inputs,
         validation_result=validation_result,
         derived_state=derived_state,
+        semantic_context=semantic_context,
     )
     assert_no_canonical_refs_in_semantic_payload(ir_bundle, surface="compiler_ir_bundle")
     params = dict(step.params)

@@ -147,7 +147,7 @@ v1 在 calendar annotation 缺失相关场景只使用以下结构化 issue：
 对应失败策略：
 
 - 若窗口中的某日没有 holiday membership，允许继续尝试下一层
-- 若已有 `holiday_group_id` 但缺失或无法映射 `year_relative_holiday_key`，记 `holiday_cluster_unmapped`
+- 若已有 `holiday_group_id` 但 baseline 中无可映射 cluster，或缺失 / 无法映射 `year_relative_holiday_key`，记 `holiday_cluster_unmapped`
 - 当 resolver 从 holiday path 降级到 `same_weekday_nearest` 或其他 fallback path 时，必须记 `fallback_applied`
 - 不允许凭 `holiday_name` 或自然语言解释补造 holiday key
 
@@ -163,7 +163,7 @@ v1 在 calendar annotation 缺失相关场景只使用以下结构化 issue：
 对应失败策略：
 
 - 若窗口中的某日没有 event membership，允许继续尝试下一层
-- 若已有 `event_group_id` 但缺失或无法映射 `year_relative_event_key`，记 `event_cluster_unmapped`
+- 若已有 `event_group_id` 但 baseline 中无可映射 cluster，或缺失 / 无法映射 `year_relative_event_key`，记 `event_cluster_unmapped`
 - 当 resolver 从 event path 降级到 weekday / natural fallback 时，必须记 `fallback_applied`
 - 不允许从 prompt、营销文案或活动标题临场恢复 event key
 
@@ -211,8 +211,8 @@ v1 的分层边界固定如下：
 | 无 stable calendar version | `calendar_data_missing` | 立即 fail | 不生成 resolved plan |
 | `weekday` 缺失或非法 | `calendar_data_missing` | 立即 fail | 不生成 resolved plan |
 | holiday policy 下该日无 holiday membership | 无或 `fallback_applied` | 尝试下一层 | 由 coverage 决定是否可比 |
-| holiday policy 下已有 group 但缺 relative key | `holiday_cluster_unmapped` | 尝试下一层 | warning，可继续 |
-| event policy 下已有 group 但缺 relative key | `event_cluster_unmapped` | 尝试下一层 | warning，可继续 |
+| holiday policy 下已有 group，但 baseline 无可映射 cluster 或缺 relative key | `holiday_cluster_unmapped` | 尝试下一层 | warning，可继续 |
+| event policy 下已有 group，但 baseline 无可映射 cluster 或缺 relative key | `event_cluster_unmapped` | 尝试下一层 | warning，可继续 |
 | 已触发 registry 声明的 fallback | `fallback_applied` | 继续 pairing | warning，供 comparability 复用 |
 | fallback 后 coverage 不足 | `alignment_coverage_insufficient` | plan 已生成 | comparability gate 决定 warning / blocking |
 

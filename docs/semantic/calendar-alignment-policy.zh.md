@@ -426,6 +426,7 @@ type ResolvedCalendarAlignmentPlan = {
 要求：
 
 - resolver 不得发明未在固定 catalog entry 中声明的 pairing / fallback 逻辑
+- resolver 必须按 policy 声明顺序逐 bucket 执行 ordered matching，而不是为整窗只选一个全局 matcher
 - resolver 不得在 `calendar_version` 未固定时生成“latest as of now”式 plan
 - 若 calendar annotations 缺失，必须按 `fallback_rule` 行为处理
 - 所有 bucket pairing 都应可重放、可解释

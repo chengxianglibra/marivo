@@ -164,6 +164,8 @@ both.
 Calendar alignment policy refs are compiler-owned fixed catalog entries. Only `observe` may accept
 `calendar_policy_ref`; downstream compare-like intents must reuse the frozen observation metadata
 instead of taking a parallel policy input.
+Calendar alignment pairing must run as per-bucket ordered matching over the policy-declared matcher
+chain; do not collapse holiday/event/weekday semantics into a single window-level fallback choice.
 SQL sent to the execution engine is observed through default structured INFO logs; do not add SQL
 payload persistence to metadata surfaces unless a task explicitly requires it.
 Typed metric dimension discovery should prefer explicit legacy `dimensions` when present; otherwise
