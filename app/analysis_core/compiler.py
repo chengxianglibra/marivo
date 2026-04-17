@@ -7,8 +7,8 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from typing import Any, Literal, cast
 
+from app.analysis_core.calendar_alignment_baseline import resolve_calendar_baseline_window
 from app.analysis_core.calendar_policy import (
-    CalendarBaselineGenerationRule,
     CalendarMatchingStep,
     get_calendar_policy,
 )
@@ -1089,7 +1089,7 @@ def _resolve_calendar_alignment_plan(
 
     current_window = _date_window_from_time_scope(request_time_scope)
     policy = get_calendar_policy(policy_ref)
-    baseline_window = _resolve_calendar_baseline_window(
+    baseline_window = resolve_calendar_baseline_window(
         current_window=current_window,
         rule=policy.resolved_baseline_generation_rule,
     )
@@ -1139,38 +1139,6 @@ def _parse_date_like(value: str) -> date:
         return datetime.fromisoformat(with_datetime).date()
     except ValueError:
         return date.fromisoformat(value[:10])
-
-
-def _resolve_calendar_baseline_window(
-    *,
-    current_window: tuple[date, date],
-    rule: CalendarBaselineGenerationRule,
-) -> tuple[date, date]:
-    current_start, current_end = current_window
-    if rule.strategy == "previous_year":
-        shift_years = -(rule.offset_value or 1)
-        return (
-            _shift_calendar_date(current_start, years=shift_years),
-            _shift_calendar_date(current_end, years=shift_years),
-        )
-    if rule.strategy == "previous_period":
-        if rule.offset_unit == "week":
-            shift_days = 7 * (rule.offset_value or 1)
-            delta = timedelta(days=shift_days)
-            return current_start - delta, current_end - delta
-        period_days = current_end - current_start
-        return current_start - period_days, current_end - period_days
-    raise ValueError(f"Unsupported calendar baseline strategy '{rule.strategy}'")
-
-
-def _shift_calendar_date(d: date, *, months: int = 0, years: int = 0) -> date:
-    from calendar import monthrange
-
-    target_month = d.month + months
-    target_year = d.year + years + (target_month - 1) // 12
-    target_month = (target_month - 1) % 12 + 1
-    target_day = min(d.day, monthrange(target_year, target_month)[1])
-    return date(target_year, target_month, target_day)
 
 
 def _build_calendar_bucket_pairing(
