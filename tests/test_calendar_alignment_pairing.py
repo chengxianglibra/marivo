@@ -211,6 +211,53 @@ class CalendarAlignmentPairingTests(unittest.TestCase):
             ["holiday_cluster_unmapped", "fallback_applied"],
         )
 
+    def test_holiday_policy_marks_fallback_only_for_buckets_that_downgrade(self) -> None:
+        current_window = (date(2026, 4, 1), date(2026, 4, 3))
+        baseline_window = (date(2025, 4, 1), date(2025, 4, 3))
+        policy = get_calendar_policy("calendar_policy.holiday_yoy")
+
+        resolution = resolve_calendar_bucket_pairing(
+            current_window=current_window,
+            baseline_window=baseline_window,
+            matching_strategy=policy.matching_strategy,
+            fallback_strategy=policy.fallback_strategy,
+            annotation_rows=build_calendar_annotation_rows(
+                current_window=current_window,
+                baseline_window=baseline_window,
+                raw_rows=[
+                    _annotation(
+                        "2026-04-01",
+                        holiday_group_id="qingming",
+                    ),
+                    _annotation(
+                        "2026-04-02",
+                        holiday_group_id="labour_day",
+                        year_relative_holiday_key="labour_day_d-2",
+                    ),
+                    _annotation(
+                        "2025-04-01",
+                        holiday_group_id="other_holiday",
+                        year_relative_holiday_key="other_holiday_d-3",
+                    ),
+                    _annotation(
+                        "2025-04-02",
+                        holiday_group_id="labour_day",
+                        year_relative_holiday_key="labour_day_d-2",
+                    ),
+                ],
+            ),
+        )
+
+        self.assertEqual(
+            resolution.bucket_pairing[0]["issues"],
+            ["holiday_cluster_unmapped", "fallback_applied"],
+        )
+        self.assertEqual(resolution.bucket_pairing[1]["issues"], [])
+        self.assertEqual(
+            resolution.comparability_warnings,
+            ["holiday_cluster_unmapped", "fallback_applied"],
+        )
+
     def test_event_policy_uses_event_relative_key(self) -> None:
         current_window = (date(2026, 6, 15), date(2026, 6, 17))
         baseline_window = (date(2026, 5, 15), date(2026, 5, 17))

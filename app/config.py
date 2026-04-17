@@ -72,11 +72,33 @@ class MetadataConfig(BaseModel):
     path: str
 
 
+class CalendarSourceBindingConfig(BaseModel):
+    source_name: str
+    table_fqn: str
+    calendar_version: str
+
+
+class CalendarSnapshotConfig(BaseModel):
+    resolved_calendar_source: str
+    resolved_calendar_version: str
+    region_code: str = "CN"
+    effective_start: str
+    effective_end: str
+    holiday_source: CalendarSourceBindingConfig
+    event_source: CalendarSourceBindingConfig | None = None
+
+
+class CalendarConfig(BaseModel):
+    default_region_code: str = "CN"
+    snapshots: list[CalendarSnapshotConfig] = Field(default_factory=list)
+
+
 class FactumConfig(BaseModel):
     metadata: MetadataConfig | None = None
     sources: list[SourceConfig] = Field(default_factory=list)
     engines: list[EngineConfig] = Field(default_factory=list)
     bindings: list[BindingConfig] = Field(default_factory=list)
+    calendar: CalendarConfig = Field(default_factory=CalendarConfig)
     ui: UIConfig = Field(default_factory=UIConfig)
     governance: GovernanceConfig = Field(default_factory=GovernanceConfig)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)

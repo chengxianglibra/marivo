@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any
@@ -63,18 +63,21 @@ def build_calendar_annotation_rows(
         rows_by_date[row.calendar_date] = row
 
     all_rows: list[CalendarAnnotationRow] = []
+    seen_dates: set[date] = set()
     for window in (baseline_window, current_window):
         cursor = window[0]
         while cursor < window[1]:
-            all_rows.append(
-                rows_by_date.get(
-                    cursor,
-                    CalendarAnnotationRow(
-                        calendar_date=cursor,
-                        weekday=cursor.weekday() + 1,
-                    ),
+            if cursor not in seen_dates:
+                seen_dates.add(cursor)
+                all_rows.append(
+                    rows_by_date.get(
+                        cursor,
+                        CalendarAnnotationRow(
+                            calendar_date=cursor,
+                            weekday=cursor.weekday() + 1,
+                        ),
+                    )
                 )
-            )
             cursor += timedelta(days=1)
     return all_rows
 
@@ -279,7 +282,7 @@ class _CalendarPairingResolver:
     def _index_unique(
         rows: Sequence[CalendarAnnotationRow],
         *,
-        key_fn: Any,
+        key_fn: Callable[[CalendarAnnotationRow], str | None],
     ) -> tuple[dict[str, date], set[str]]:
         indexed: dict[str, date] = {}
         duplicates: set[str] = set()

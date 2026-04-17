@@ -2,16 +2,19 @@ from __future__ import annotations
 
 import hashlib
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any, Literal, cast
 
 from app.analysis_core.calendar_alignment_baseline import resolve_calendar_baseline_window
 from app.analysis_core.calendar_alignment_pairing import (
-    CalendarAnnotationRow,
-    build_calendar_annotation_rows,
     resolve_calendar_bucket_pairing,
+)
+from app.analysis_core.calendar_data_runtime import (
+    CalendarDataReaderLike,
+    CalendarDataReadResult,
+    CalendarDataResolutionError,
 )
 from app.analysis_core.calendar_policy import (
     get_calendar_policy,
@@ -92,7 +95,6 @@ class _ScopedQueryParts:
 
 
 _CALENDAR_ALIGNMENT_SUPPORTED_GRAINS = frozenset({"day", "week", "month"})
-_DEFAULT_RESOLVED_CALENDAR_VERSION = "calendar_data.v1.default"
 
 
 def _build_scoped_query_parts(
@@ -1100,7 +1102,7 @@ def _resolve_calendar_alignment_plan(
         current_window=current_window,
         rule=policy.resolved_baseline_generation_rule,
     )
-    annotation_rows = _build_calendar_alignment_annotation_rows(
+    calendar_data = _read_calendar_alignment_data(
         current_window=current_window,
         baseline_window=baseline_window,
         semantic_context=semantic_context,
@@ -1110,7 +1112,7 @@ def _resolve_calendar_alignment_plan(
         baseline_window=baseline_window,
         matching_strategy=policy.matching_strategy,
         fallback_strategy=policy.fallback_strategy,
-        annotation_rows=annotation_rows,
+        annotation_rows=calendar_data.annotation_rows,
     )
     bucket_pairing = pairing_resolution.bucket_pairing
     comparability_warnings = pairing_resolution.comparability_warnings
@@ -1118,8 +1120,8 @@ def _resolve_calendar_alignment_plan(
     return {
         "policy_ref": policy.policy_ref,
         "comparison_basis": policy.comparison_basis,
-        "resolved_calendar_source": policy.resolved_calendar_source,
-        "resolved_calendar_version": _DEFAULT_RESOLVED_CALENDAR_VERSION,
+        "resolved_calendar_source": calendar_data.resolved_calendar_source,
+        "resolved_calendar_version": calendar_data.resolved_calendar_version,
         "resolved_baseline_generation_rule": {
             "strategy": policy.resolved_baseline_generation_rule.strategy,
             "offset_value": policy.resolved_baseline_generation_rule.offset_value,
@@ -1133,6 +1135,7 @@ def _resolve_calendar_alignment_plan(
         "bucket_pairing": bucket_pairing,
         "coverage_summary": coverage_summary,
         "comparability_warnings": comparability_warnings,
+        "source_lineage": calendar_data.source_lineage,
     }
 
 
@@ -1155,20 +1158,59 @@ def _parse_date_like(value: str) -> date:
         return date.fromisoformat(value[:10])
 
 
-def _build_calendar_alignment_annotation_rows(
+def _read_calendar_alignment_data(
     *,
     current_window: tuple[date, date],
     baseline_window: tuple[date, date],
     semantic_context: Mapping[str, Any],
-) -> list[CalendarAnnotationRow]:
-    raw_rows = semantic_context.get("calendar_annotation_snapshot")
-    if raw_rows is not None and not isinstance(raw_rows, Sequence):
-        raise ValueError("semantic_context.calendar_annotation_snapshot must be a sequence")
-    return build_calendar_annotation_rows(
-        current_window=current_window,
-        baseline_window=baseline_window,
-        raw_rows=cast("Sequence[Mapping[str, Any]] | None", raw_rows),
-    )
+) -> CalendarDataReadResult:
+    reader = semantic_context.get("calendar_data_reader")
+    if not isinstance(reader, CalendarDataReaderLike):
+        raise SemanticRequestCompatibilityError(
+            {
+                "message": "Calendar alignment requires a configured calendar data reader",
+                "code": "calendar_data_missing",
+                "category": "compatibility",
+                "issues": [
+                    {
+                        "code": "calendar_data_missing",
+                        "message": (
+                            "calendar_policy_ref requires a configured calendar snapshot reader; "
+                            "temporary annotation snapshot injection is no longer supported"
+                        ),
+                        "details": {},
+                    }
+                ],
+                "request_context": {
+                    "current_window": _serialize_calendar_window(current_window),
+                    "baseline_window": _serialize_calendar_window(baseline_window),
+                },
+            }
+        )
+    try:
+        return reader.read_for_alignment(
+            current_window=current_window,
+            baseline_window=baseline_window,
+        )
+    except CalendarDataResolutionError as error:
+        raise SemanticRequestCompatibilityError(
+            {
+                "message": str(error),
+                "code": "calendar_data_missing",
+                "category": "compatibility",
+                "issues": [
+                    {
+                        "code": "calendar_data_missing",
+                        "message": str(error),
+                        "details": dict(error.details),
+                    }
+                ],
+                "request_context": {
+                    "current_window": _serialize_calendar_window(current_window),
+                    "baseline_window": _serialize_calendar_window(baseline_window),
+                },
+            }
+        ) from error
 
 
 def _build_calendar_alignment_coverage(bucket_pairing: list[dict[str, Any]]) -> dict[str, Any]:

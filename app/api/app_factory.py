@@ -249,6 +249,7 @@ def _build_services(
     service = SemanticLayerService(
         metadata_store,
         analytics_engine,
+        config=config,
         governance=governance_service,
         metrics=metrics_collector,
         approvals=approval_service,
