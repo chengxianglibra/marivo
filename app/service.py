@@ -14,6 +14,7 @@ from app.analysis_core import (
     IntentRunnerRegistry,
     build_service_step_registry,
 )
+from app.analysis_core.calendar_data_runtime import CalendarDataReader
 from app.analysis_core.compiler import (
     CompiledQuery,
     SemanticRequestCompatibilityError,
@@ -22,6 +23,7 @@ from app.analysis_core.compiler import (
 from app.analysis_core.compiler import build_metric_query as compile_metric_query
 from app.analysis_core.executor import execute_compiled
 from app.analysis_core.ir import AnalysisStepIR
+from app.config import FactumConfig
 from app.evidence_engine.canonical_finding import StepRef
 from app.evidence_engine.canonical_pipeline_runtime import run_canonical_downstream
 from app.evidence_engine.finding_extractor_registry import (
@@ -190,13 +192,16 @@ class SemanticLayerService:
         metadata_store: MetadataStore,
         analytics_engine: AnalyticsEngine,
         query_router: QueryRouter | None = None,
+        config: FactumConfig | None = None,
         governance: GovernanceService | None = None,
         metrics: MetricsCollector | None = None,
         approvals: ApprovalService | None = None,
     ) -> None:
         self.metadata = metadata_store
         self.analytics = analytics_engine
+        self.config = config or FactumConfig()
         self._query_router = query_router
+        self.calendar_data_reader: CalendarDataReader | None = None
         self.governance = governance
         self.metrics = metrics
         self.approvals = approvals
@@ -242,6 +247,7 @@ class SemanticLayerService:
             step_executor=_ServiceWorkflowStepExecutor(self),
             approval_service=self.approvals,
         )
+        self._refresh_calendar_data_reader()
 
     @property
     def query_router(self) -> QueryRouter | None:
@@ -251,6 +257,17 @@ class SemanticLayerService:
     def query_router(self, router: QueryRouter | None) -> None:
         self._query_router = router
         self.routing_runtime.query_router = router
+        self._refresh_calendar_data_reader()
+
+    def _refresh_calendar_data_reader(self) -> None:
+        if self._query_router is None or not self.config.calendar.snapshots:
+            self.calendar_data_reader = None
+            return
+        self.calendar_data_reader = CalendarDataReader(
+            metadata=self.metadata,
+            query_router=self._query_router,
+            config=self.config.calendar,
+        )
 
     def create_session(
         self,
@@ -1121,6 +1138,8 @@ class SemanticLayerService:
             "compatibility_profile_reader",
             self._published_compatibility_profiles_for_subject_ref,
         )
+        if self.calendar_data_reader is not None:
+            effective_semantic_context.setdefault("calendar_data_reader", self.calendar_data_reader)
         try:
             return compile_step(
                 step,

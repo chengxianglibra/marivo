@@ -3,6 +3,11 @@ from __future__ import annotations
 import unittest
 from datetime import date
 
+from app.analysis_core.calendar_alignment_pairing import CalendarAnnotationRow
+from app.analysis_core.calendar_data_runtime import (
+    CalendarDataReadResult,
+    CalendarDataResolutionError,
+)
 from app.analysis_core.capability_profiles import derive_compiler_state
 from app.analysis_core.compiler import (
     SemanticCompilerError,
@@ -218,6 +223,87 @@ def _calendar_annotation(
         "event_group_id": event_group_id,
         "year_relative_event_key": year_relative_event_key,
     }
+
+
+class _FakeCalendarDataReader:
+    def __init__(
+        self,
+        rows: list[dict[str, object]],
+        *,
+        resolved_calendar_source: str = "calendar_data_cn_assembled",
+        resolved_calendar_version: str = "calendar_data_cn_2026q2_v1",
+    ) -> None:
+        self.rows = rows
+        self.resolved_calendar_source = resolved_calendar_source
+        self.resolved_calendar_version = resolved_calendar_version
+
+    def read_for_alignment(
+        self,
+        *,
+        current_window: tuple[date, date],
+        baseline_window: tuple[date, date],
+        region_code: str | None = None,
+    ) -> CalendarDataReadResult:
+        _ = (current_window, baseline_window, region_code)
+        return CalendarDataReadResult(
+            annotation_rows=[
+                CalendarAnnotationRow(
+                    calendar_date=date.fromisoformat(str(row["calendar_date"])),
+                    weekday=int(row["weekday"]),
+                    holiday_group_id=(
+                        str(row["holiday_group_id"])
+                        if row.get("holiday_group_id") is not None
+                        else None
+                    ),
+                    year_relative_holiday_key=(
+                        str(row["year_relative_holiday_key"])
+                        if row.get("year_relative_holiday_key") is not None
+                        else None
+                    ),
+                    event_group_id=(
+                        str(row["event_group_id"])
+                        if row.get("event_group_id") is not None
+                        else None
+                    ),
+                    year_relative_event_key=(
+                        str(row["year_relative_event_key"])
+                        if row.get("year_relative_event_key") is not None
+                        else None
+                    ),
+                )
+                for row in self.rows
+            ],
+            resolved_calendar_source=self.resolved_calendar_source,
+            resolved_calendar_version=self.resolved_calendar_version,
+            source_lineage={
+                "holiday_source": {
+                    "source_id": "src_holiday",
+                    "source_name": "CN Holiday",
+                    "table_fqn": "analytics.cn_public_holiday",
+                    "calendar_version": "cn_public_holiday_2026_v1",
+                },
+                "event_source": {
+                    "source_id": "src_event",
+                    "source_name": "Campaign Calendar",
+                    "table_fqn": "analytics.campaign_calendar",
+                    "calendar_version": "campaign_calendar_2026_q2_v3",
+                },
+            },
+        )
+
+
+class _FailingCalendarDataReader:
+    def read_for_alignment(
+        self,
+        *,
+        current_window: tuple[date, date],
+        baseline_window: tuple[date, date],
+        region_code: str | None = None,
+    ) -> CalendarDataReadResult:
+        _ = (current_window, baseline_window, region_code)
+        raise CalendarDataResolutionError(
+            "no published calendar snapshot covers the requested alignment window"
+        )
 
 
 class _FakeSemanticRepository(SemanticRuntimeRepository):
@@ -1015,6 +1101,7 @@ class CompilerTypedResolutionTests(unittest.TestCase):
                 "semantic_repository": _FakeSemanticRepository(),
                 "binding_reader": _binding_reader,
                 "compatibility_profile_reader": _profile_reader,
+                "calendar_data_reader": _FakeCalendarDataReader([]),
             },
         )
 
@@ -1098,48 +1185,50 @@ class CompilerTypedResolutionTests(unittest.TestCase):
                 "semantic_repository": _FakeSemanticRepository(),
                 "binding_reader": _binding_reader,
                 "compatibility_profile_reader": _profile_reader,
-                "calendar_annotation_snapshot": [
-                    _calendar_annotation(
-                        "2026-04-01",
-                        holiday_group_id="qingming",
-                        year_relative_holiday_key="qingming_d-3",
-                    ),
-                    _calendar_annotation(
-                        "2026-04-02",
-                        holiday_group_id="qingming",
-                        year_relative_holiday_key="qingming_d-2",
-                    ),
-                    _calendar_annotation(
-                        "2026-04-03",
-                        holiday_group_id="qingming",
-                        year_relative_holiday_key="qingming_d-1",
-                    ),
-                    _calendar_annotation(
-                        "2026-04-04",
-                        holiday_group_id="qingming",
-                        year_relative_holiday_key="qingming_d+0",
-                    ),
-                    _calendar_annotation(
-                        "2025-04-01",
-                        holiday_group_id="qingming",
-                        year_relative_holiday_key="qingming_d-3",
-                    ),
-                    _calendar_annotation(
-                        "2025-04-02",
-                        holiday_group_id="qingming",
-                        year_relative_holiday_key="qingming_d-2",
-                    ),
-                    _calendar_annotation(
-                        "2025-04-03",
-                        holiday_group_id="qingming",
-                        year_relative_holiday_key="qingming_d-1",
-                    ),
-                    _calendar_annotation(
-                        "2025-04-04",
-                        holiday_group_id="qingming",
-                        year_relative_holiday_key="qingming_d+0",
-                    ),
-                ],
+                "calendar_data_reader": _FakeCalendarDataReader(
+                    [
+                        _calendar_annotation(
+                            "2026-04-01",
+                            holiday_group_id="qingming",
+                            year_relative_holiday_key="qingming_d-3",
+                        ),
+                        _calendar_annotation(
+                            "2026-04-02",
+                            holiday_group_id="qingming",
+                            year_relative_holiday_key="qingming_d-2",
+                        ),
+                        _calendar_annotation(
+                            "2026-04-03",
+                            holiday_group_id="qingming",
+                            year_relative_holiday_key="qingming_d-1",
+                        ),
+                        _calendar_annotation(
+                            "2026-04-04",
+                            holiday_group_id="qingming",
+                            year_relative_holiday_key="qingming_d+0",
+                        ),
+                        _calendar_annotation(
+                            "2025-04-01",
+                            holiday_group_id="qingming",
+                            year_relative_holiday_key="qingming_d-3",
+                        ),
+                        _calendar_annotation(
+                            "2025-04-02",
+                            holiday_group_id="qingming",
+                            year_relative_holiday_key="qingming_d-2",
+                        ),
+                        _calendar_annotation(
+                            "2025-04-03",
+                            holiday_group_id="qingming",
+                            year_relative_holiday_key="qingming_d-1",
+                        ),
+                        _calendar_annotation(
+                            "2025-04-04",
+                            holiday_group_id="qingming",
+                            year_relative_holiday_key="qingming_d+0",
+                        ),
+                    ]
+                ),
             },
         )
 
@@ -1147,8 +1236,12 @@ class CompilerTypedResolutionTests(unittest.TestCase):
         assert isinstance(alignment, dict)
         self.assertEqual(alignment["policy_ref"], "calendar_policy.holiday_yoy")
         self.assertEqual(alignment["comparison_basis"], "yoy")
-        self.assertEqual(alignment["resolved_calendar_source"], "calendar_data.v1")
-        self.assertEqual(alignment["resolved_calendar_version"], "calendar_data.v1.default")
+        self.assertEqual(alignment["resolved_calendar_source"], "calendar_data_cn_assembled")
+        self.assertEqual(alignment["resolved_calendar_version"], "calendar_data_cn_2026q2_v1")
+        self.assertEqual(
+            alignment["source_lineage"]["holiday_source"]["calendar_version"],
+            "cn_public_holiday_2026_v1",
+        )
         self.assertEqual(
             alignment["baseline_window"],
             {"start": "2025-04-01", "end": "2025-05-01"},
@@ -1199,6 +1292,7 @@ class CompilerTypedResolutionTests(unittest.TestCase):
                 "semantic_repository": _FakeSemanticRepository(),
                 "binding_reader": _binding_reader,
                 "compatibility_profile_reader": _profile_reader,
+                "calendar_data_reader": _FakeCalendarDataReader([]),
             },
         )
 
@@ -1258,6 +1352,75 @@ class CompilerTypedResolutionTests(unittest.TestCase):
             )
 
         self.assertEqual(ctx.exception.detail["code"], "calendar_policy_hour_grain_unsupported")
+
+    def test_compile_step_requires_calendar_data_reader_for_calendar_alignment(self) -> None:
+        with self.assertRaises(SemanticRequestCompatibilityError) as ctx:
+            compile_step(
+                AnalysisStepIR(
+                    index=0,
+                    step_type="metric_query",
+                    params={
+                        "metric": "watch_time",
+                        "table": "analytics.watch_events",
+                        "calendar_policy_ref": "calendar_policy.holiday_yoy",
+                        "time_scope": {
+                            "mode": "single_window",
+                            "grain": "month",
+                            "current": {"start": "2026-04-01", "end": "2026-05-01"},
+                        },
+                        "scoped_query": {
+                            "mode": "single_window",
+                            "analysis_time_expr": "event_date",
+                            "analysis_time_kind": "date_field",
+                            "current": {"start": "2026-04-01", "end": "2026-05-01"},
+                        },
+                    },
+                ),
+                engine_type="duckdb",
+                semantic_context={
+                    "metric_sql": "avg(play_duration_seconds)",
+                    "dimensions": ["platform"],
+                    "semantic_repository": _FakeSemanticRepository(),
+                    "binding_reader": _binding_reader,
+                    "compatibility_profile_reader": _profile_reader,
+                },
+            )
+        self.assertEqual(ctx.exception.detail["code"], "calendar_data_missing")
+
+    def test_compile_step_surfaces_calendar_data_reader_failures(self) -> None:
+        with self.assertRaises(SemanticRequestCompatibilityError) as ctx:
+            compile_step(
+                AnalysisStepIR(
+                    index=0,
+                    step_type="metric_query",
+                    params={
+                        "metric": "watch_time",
+                        "table": "analytics.watch_events",
+                        "calendar_policy_ref": "calendar_policy.holiday_yoy",
+                        "time_scope": {
+                            "mode": "single_window",
+                            "grain": "month",
+                            "current": {"start": "2026-04-01", "end": "2026-05-01"},
+                        },
+                        "scoped_query": {
+                            "mode": "single_window",
+                            "analysis_time_expr": "event_date",
+                            "analysis_time_kind": "date_field",
+                            "current": {"start": "2026-04-01", "end": "2026-05-01"},
+                        },
+                    },
+                ),
+                engine_type="duckdb",
+                semantic_context={
+                    "metric_sql": "avg(play_duration_seconds)",
+                    "dimensions": ["platform"],
+                    "semantic_repository": _FakeSemanticRepository(),
+                    "binding_reader": _binding_reader,
+                    "compatibility_profile_reader": _profile_reader,
+                    "calendar_data_reader": _FailingCalendarDataReader(),
+                },
+            )
+        self.assertEqual(ctx.exception.detail["code"], "calendar_data_missing")
 
     def test_compile_step_propagates_not_ready_metric_error(self) -> None:
         with self.assertRaises(SemanticRuntimeNotReadyError) as ctx:
