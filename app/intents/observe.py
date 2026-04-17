@@ -10,6 +10,7 @@ from app.analysis_core.calendar_policy import (
 )
 from app.analysis_core.executor import execute_compiled
 from app.analysis_core.ir import AnalysisStepIR
+from app.intents.calendar_alignment_metadata import normalize_resolved_policy_summary
 from app.time_contracts import TimeGrain, bucket_window, normalize_hour_boundary
 from app.time_scope import normalize_metric_query_request
 
@@ -17,97 +18,10 @@ if TYPE_CHECKING:
     from app.service import SemanticLayerService
 
 _VALID_GRANULARITIES: frozenset[str] = frozenset({"hour", "day", "week", "month"})
-_VALID_COMPARISON_BASES: frozenset[str] = frozenset({"yoy", "mom", "wow"})
-_BASELINE_RULE_FIELDS: tuple[str, ...] = (
-    "strategy",
-    "offset_value",
-    "offset_unit",
-    "fixed_start",
-    "fixed_end",
-    "named_window_ref",
-)
-_BUCKET_PAIRING_FIELDS: tuple[str, ...] = (
-    "current_bucket_start",
-    "baseline_bucket_start",
-    "pairing_reason",
-    "shift_days",
-    "issues",
-)
-_COVERAGE_SUMMARY_FIELDS: tuple[str, ...] = (
-    "aligned_bucket_count",
-    "unpaired_bucket_count",
-    "aligned_ratio",
-)
 
 
 def _malformed_resolved_policy_summary() -> ValueError:
     return ValueError("observe: INVALID_ARGUMENT - malformed resolved calendar alignment metadata")
-
-
-def _require_string(value: Any) -> str:
-    if not isinstance(value, str):
-        raise _malformed_resolved_policy_summary()
-    return value
-
-
-def _normalize_window(value: Any) -> dict[str, str]:
-    if not isinstance(value, dict):
-        raise _malformed_resolved_policy_summary()
-    return {
-        "start": _require_string(value.get("start")),
-        "end": _require_string(value.get("end")),
-    }
-
-
-def _normalize_baseline_rule(value: Any) -> dict[str, Any]:
-    if not isinstance(value, dict) or any(field not in value for field in _BASELINE_RULE_FIELDS):
-        raise _malformed_resolved_policy_summary()
-    return {field: value[field] for field in _BASELINE_RULE_FIELDS}
-
-
-def _normalize_bucket_pairing(value: Any) -> list[dict[str, Any]]:
-    if not isinstance(value, list):
-        raise _malformed_resolved_policy_summary()
-    pairings: list[dict[str, Any]] = []
-    for item in value:
-        if not isinstance(item, dict) or any(field not in item for field in _BUCKET_PAIRING_FIELDS):
-            raise _malformed_resolved_policy_summary()
-        current_bucket_start = item["current_bucket_start"]
-        baseline_bucket_start = item["baseline_bucket_start"]
-        pairing_reason = item["pairing_reason"]
-        shift_days = item["shift_days"]
-        issues = item["issues"]
-        if not isinstance(current_bucket_start, str):
-            raise _malformed_resolved_policy_summary()
-        if baseline_bucket_start is not None and not isinstance(baseline_bucket_start, str):
-            raise _malformed_resolved_policy_summary()
-        if not isinstance(pairing_reason, str):
-            raise _malformed_resolved_policy_summary()
-        if shift_days is not None and not isinstance(shift_days, int):
-            raise _malformed_resolved_policy_summary()
-        if not isinstance(issues, list) or not all(isinstance(issue, str) for issue in issues):
-            raise _malformed_resolved_policy_summary()
-        pairings.append({field: item[field] for field in _BUCKET_PAIRING_FIELDS})
-    return pairings
-
-
-def _normalize_coverage_summary(value: Any) -> dict[str, Any]:
-    if not isinstance(value, dict) or set(value) != set(_COVERAGE_SUMMARY_FIELDS):
-        raise _malformed_resolved_policy_summary()
-    aligned_bucket_count = value["aligned_bucket_count"]
-    unpaired_bucket_count = value["unpaired_bucket_count"]
-    aligned_ratio = value["aligned_ratio"]
-    if not isinstance(aligned_bucket_count, int):
-        raise _malformed_resolved_policy_summary()
-    if not isinstance(unpaired_bucket_count, int):
-        raise _malformed_resolved_policy_summary()
-    if not isinstance(aligned_ratio, int | float):
-        raise _malformed_resolved_policy_summary()
-    return {
-        "aligned_bucket_count": aligned_bucket_count,
-        "unpaired_bucket_count": unpaired_bucket_count,
-        "aligned_ratio": float(aligned_ratio),
-    }
 
 
 def _resolved_policy_summary_from_compiled(compiled_query: Any) -> dict[str, Any] | None:
@@ -117,41 +31,10 @@ def _resolved_policy_summary_from_compiled(compiled_query: Any) -> dict[str, Any
     resolved_calendar_alignment = metadata.get("resolved_calendar_alignment")
     if resolved_calendar_alignment is None:
         return None
-    if not isinstance(resolved_calendar_alignment, dict):
-        raise _malformed_resolved_policy_summary()
-
-    policy_ref = _require_string(resolved_calendar_alignment.get("policy_ref"))
-    comparison_basis = _require_string(resolved_calendar_alignment.get("comparison_basis"))
-    if comparison_basis not in _VALID_COMPARISON_BASES:
-        raise _malformed_resolved_policy_summary()
-    comparability_warnings = resolved_calendar_alignment.get("comparability_warnings")
-    if not isinstance(comparability_warnings, list) or not all(
-        isinstance(warning, str) for warning in comparability_warnings
-    ):
-        raise _malformed_resolved_policy_summary()
-
-    return {
-        "policy_ref": policy_ref,
-        "comparison_basis": comparison_basis,
-        "resolved_calendar_source": _require_string(
-            resolved_calendar_alignment.get("resolved_calendar_source")
-        ),
-        "resolved_calendar_version": _require_string(
-            resolved_calendar_alignment.get("resolved_calendar_version")
-        ),
-        "resolved_baseline_generation_rule": _normalize_baseline_rule(
-            resolved_calendar_alignment.get("resolved_baseline_generation_rule")
-        ),
-        "current_window": _normalize_window(resolved_calendar_alignment.get("current_window")),
-        "baseline_window": _normalize_window(resolved_calendar_alignment.get("baseline_window")),
-        "bucket_pairing": _normalize_bucket_pairing(
-            resolved_calendar_alignment.get("bucket_pairing")
-        ),
-        "coverage_summary": _normalize_coverage_summary(
-            resolved_calendar_alignment.get("coverage_summary")
-        ),
-        "comparability_warnings": list(comparability_warnings),
-    }
+    return normalize_resolved_policy_summary(
+        resolved_calendar_alignment,
+        error_factory=_malformed_resolved_policy_summary,
+    )
 
 
 def run_observe_intent(
