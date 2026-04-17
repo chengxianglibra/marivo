@@ -95,6 +95,50 @@ def _scalar_observation(metric: str = "m1") -> dict[str, Any]:
     }
 
 
+def _resolved_policy_summary(
+    *,
+    policy_ref: str = "calendar_policy.weekday_yoy",
+    comparison_basis: str = "yoy",
+    resolved_calendar_source: str = "calendar_data_cn_assembled",
+    resolved_calendar_version: str = "calendar_data_cn_2026q2_v1",
+    aligned_bucket_count: int = 7,
+    unpaired_bucket_count: int = 0,
+    aligned_ratio: float = 1.0,
+    comparability_warnings: list[str] | None = None,
+) -> dict[str, Any]:
+    return {
+        "policy_ref": policy_ref,
+        "comparison_basis": comparison_basis,
+        "resolved_calendar_source": resolved_calendar_source,
+        "resolved_calendar_version": resolved_calendar_version,
+        "resolved_baseline_generation_rule": {
+            "strategy": "previous_year",
+            "offset_value": 1,
+            "offset_unit": "year",
+            "fixed_start": None,
+            "fixed_end": None,
+            "named_window_ref": None,
+        },
+        "current_window": {"start": "2026-04-01", "end": "2026-04-08"},
+        "baseline_window": {"start": "2025-04-01", "end": "2025-04-08"},
+        "bucket_pairing": [
+            {
+                "current_bucket_start": "2026-04-01",
+                "baseline_bucket_start": "2025-04-02",
+                "pairing_reason": "same_weekday_nearest",
+                "shift_days": 1,
+                "issues": [],
+            }
+        ],
+        "coverage_summary": {
+            "aligned_bucket_count": aligned_bucket_count,
+            "unpaired_bucket_count": unpaired_bucket_count,
+            "aligned_ratio": aligned_ratio,
+        },
+        "comparability_warnings": list(comparability_warnings or []),
+    }
+
+
 # ── observe ───────────────────────────────────────────────────────────────────
 
 
@@ -429,6 +473,46 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
                 },
             )
 
+    def test_observe_rejects_malformed_resolved_policy_summary_inconsistent_coverage(self) -> None:
+        from app.intents.observe import run_observe_intent
+
+        svc = _make_svc()
+        svc.normalize_intent_metric_ref.side_effect = lambda metric: metric
+        svc.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
+        svc._resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
+        svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
+        svc.resolve_metric_dimensions.return_value = []
+        svc._resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
+        svc._resolve_windowed_query_time_axis.return_value = None
+        svc._build_scoped_query.return_value = {
+            "mode": "single_window",
+            "analysis_time_expr": "event_date",
+            "analysis_time_kind": "date_field",
+            "current": {"start": "2026-04-01", "end": "2026-04-08"},
+        }
+        compiled = _make_compiled_mock_with_calendar_alignment()
+        compiled.metadata["resolved_calendar_alignment"]["coverage_summary"] = {
+            "aligned_bucket_count": 1,
+            "unpaired_bucket_count": 1,
+            "aligned_ratio": 1.0,
+        }
+        svc._compile_step_with_feedback.return_value = compiled
+
+        with (
+            patch("app.intents.observe.execute_compiled") as mock_exec,
+            self.assertRaisesRegex(ValueError, "malformed resolved calendar alignment metadata"),
+        ):
+            mock_exec.return_value.rows = [{"current_value": 42.0}]
+            run_observe_intent(
+                svc,
+                _SESSION,
+                {
+                    "metric": "metric.m1",
+                    "time_scope": {"kind": "range", "start": "2026-04-01", "end": "2026-04-08"},
+                    "calendar_policy_ref": "calendar_policy.weekday_yoy",
+                },
+            )
+
     def test_observe_hour_granularity_uses_hour_internal_grain(self) -> None:
         from app.intents.observe import run_observe_intent
 
@@ -702,6 +786,360 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
         self._run_scalar_compare(svc)
         args, _ = svc._commit_artifact_with_extraction.call_args
         self.assertEqual(args[2], "compare_artifact")
+
+    def test_compare_reuses_frozen_calendar_alignment_summary(self) -> None:
+        from app.intents.compare import run_compare_intent
+
+        svc = _make_svc()
+        left = _scalar_observation("m1")
+        right = _scalar_observation("m1")
+        left["resolved_policy_summary"] = _resolved_policy_summary()
+        right["resolved_policy_summary"] = _resolved_policy_summary()
+        svc._resolve_artifact_for_ref.side_effect = [left, right]
+
+        result = run_compare_intent(
+            svc,
+            _SESSION,
+            {
+                "left_ref": {
+                    "step_id": "step_left",
+                    "session_id": _SESSION,
+                    "step_type": "observe",
+                },
+                "right_ref": {
+                    "step_id": "step_right",
+                    "session_id": _SESSION,
+                    "step_type": "observe",
+                },
+            },
+        )
+
+        self.assertEqual(result["comparability"]["status"], "comparable")
+        self.assertEqual(result["comparability"]["issues"], [])
+        self.assertEqual(
+            result["resolved_input_summary"]["calendar_alignment"]["reuse_source"],
+            "observation_resolved_policy_summary",
+        )
+        self.assertEqual(
+            result["resolved_input_summary"]["calendar_alignment"]["policy_ref"],
+            "calendar_policy.weekday_yoy",
+        )
+        self.assertEqual(
+            result["resolved_input_summary"]["calendar_alignment"]["effective_coverage_summary"],
+            {
+                "aligned_bucket_count": 7,
+                "unpaired_bucket_count": 0,
+                "aligned_ratio": 1.0,
+            },
+        )
+
+    def test_compare_requires_alignment_metadata_on_both_sides(self) -> None:
+        from app.intents.compare import run_compare_intent
+
+        svc = _make_svc()
+        left = _scalar_observation("m1")
+        right = _scalar_observation("m1")
+        left["resolved_policy_summary"] = _resolved_policy_summary()
+        svc._resolve_artifact_for_ref.side_effect = [left, right]
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "calendar alignment metadata must be present on both observations",
+        ):
+            run_compare_intent(
+                svc,
+                _SESSION,
+                {
+                    "left_ref": {
+                        "step_id": "step_left",
+                        "session_id": _SESSION,
+                        "step_type": "observe",
+                    },
+                    "right_ref": {
+                        "step_id": "step_right",
+                        "session_id": _SESSION,
+                        "step_type": "observe",
+                    },
+                },
+            )
+
+    def test_compare_rejects_calendar_version_mismatch(self) -> None:
+        from app.intents.compare import run_compare_intent
+
+        svc = _make_svc()
+        left = _scalar_observation("m1")
+        right = _scalar_observation("m1")
+        left["resolved_policy_summary"] = _resolved_policy_summary()
+        right["resolved_policy_summary"] = _resolved_policy_summary(
+            resolved_calendar_version="calendar_data_cn_2026q2_v2"
+        )
+        svc._resolve_artifact_for_ref.side_effect = [left, right]
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "left resolved_calendar_version 'calendar_data_cn_2026q2_v1' !=",
+        ):
+            run_compare_intent(
+                svc,
+                _SESSION,
+                {
+                    "left_ref": {
+                        "step_id": "step_left",
+                        "session_id": _SESSION,
+                        "step_type": "observe",
+                    },
+                    "right_ref": {
+                        "step_id": "step_right",
+                        "session_id": _SESSION,
+                        "step_type": "observe",
+                    },
+                },
+            )
+
+    def test_compare_marks_needs_attention_for_upstream_calendar_warnings(self) -> None:
+        from app.intents.compare import run_compare_intent
+
+        svc = _make_svc()
+        left = _scalar_observation("m1")
+        right = _scalar_observation("m1")
+        left["resolved_policy_summary"] = _resolved_policy_summary(
+            comparability_warnings=["fallback_applied"]
+        )
+        right["resolved_policy_summary"] = _resolved_policy_summary()
+        svc._resolve_artifact_for_ref.side_effect = [left, right]
+
+        result = run_compare_intent(
+            svc,
+            _SESSION,
+            {
+                "left_ref": {
+                    "step_id": "step_left",
+                    "session_id": _SESSION,
+                    "step_type": "observe",
+                },
+                "right_ref": {
+                    "step_id": "step_right",
+                    "session_id": _SESSION,
+                    "step_type": "observe",
+                },
+            },
+        )
+
+        self.assertEqual(result["comparability"]["status"], "needs_attention")
+        self.assertEqual(result["comparability"]["issues"][0]["code"], "fallback_applied")
+        self.assertEqual(result["comparability"]["issues"][0]["severity"], "warning")
+
+    def test_compare_marks_needs_attention_for_incomplete_calendar_coverage(self) -> None:
+        from app.intents.compare import run_compare_intent
+
+        svc = _make_svc()
+        left = _scalar_observation("m1")
+        right = _scalar_observation("m1")
+        left["resolved_policy_summary"] = _resolved_policy_summary(
+            aligned_bucket_count=6,
+            unpaired_bucket_count=1,
+            aligned_ratio=6 / 7,
+        )
+        right["resolved_policy_summary"] = _resolved_policy_summary()
+        svc._resolve_artifact_for_ref.side_effect = [left, right]
+
+        result = run_compare_intent(
+            svc,
+            _SESSION,
+            {
+                "left_ref": {
+                    "step_id": "step_left",
+                    "session_id": _SESSION,
+                    "step_type": "observe",
+                },
+                "right_ref": {
+                    "step_id": "step_right",
+                    "session_id": _SESSION,
+                    "step_type": "observe",
+                },
+            },
+        )
+
+        self.assertEqual(result["comparability"]["status"], "needs_attention")
+        self.assertEqual(
+            result["comparability"]["issues"][-1]["code"],
+            "alignment_coverage_insufficient",
+        )
+        self.assertEqual(
+            result["resolved_input_summary"]["calendar_alignment"]["effective_coverage_summary"],
+            {
+                "aligned_bucket_count": 6,
+                "unpaired_bucket_count": 1,
+                "aligned_ratio": 6 / 7,
+            },
+        )
+
+    def test_compare_rejects_non_dict_resolved_policy_summary(self) -> None:
+        from app.intents.compare import run_compare_intent
+
+        svc = _make_svc()
+        left = _scalar_observation("m1")
+        right = _scalar_observation("m1")
+        left["resolved_policy_summary"] = "not-an-object"
+        right["resolved_policy_summary"] = _resolved_policy_summary()
+        svc._resolve_artifact_for_ref.side_effect = [left, right]
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "compare: INVALID_ARGUMENT - malformed resolved calendar alignment metadata",
+        ):
+            run_compare_intent(
+                svc,
+                _SESSION,
+                {
+                    "left_ref": {
+                        "step_id": "step_left",
+                        "session_id": _SESSION,
+                        "step_type": "observe",
+                    },
+                    "right_ref": {
+                        "step_id": "step_right",
+                        "session_id": _SESSION,
+                        "step_type": "observe",
+                    },
+                },
+            )
+
+    def test_compare_rejects_missing_coverage_summary(self) -> None:
+        from app.intents.compare import run_compare_intent
+
+        svc = _make_svc()
+        left = _scalar_observation("m1")
+        right = _scalar_observation("m1")
+        malformed = _resolved_policy_summary()
+        del malformed["coverage_summary"]
+        left["resolved_policy_summary"] = malformed
+        right["resolved_policy_summary"] = _resolved_policy_summary()
+        svc._resolve_artifact_for_ref.side_effect = [left, right]
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "compare: INVALID_ARGUMENT - malformed resolved calendar alignment metadata",
+        ):
+            run_compare_intent(
+                svc,
+                _SESSION,
+                {
+                    "left_ref": {
+                        "step_id": "step_left",
+                        "session_id": _SESSION,
+                        "step_type": "observe",
+                    },
+                    "right_ref": {
+                        "step_id": "step_right",
+                        "session_id": _SESSION,
+                        "step_type": "observe",
+                    },
+                },
+            )
+
+    def test_compare_rejects_non_string_warning_entry(self) -> None:
+        from app.intents.compare import run_compare_intent
+
+        svc = _make_svc()
+        left = _scalar_observation("m1")
+        right = _scalar_observation("m1")
+        malformed = _resolved_policy_summary()
+        malformed["comparability_warnings"] = ["fallback_applied", 1]
+        left["resolved_policy_summary"] = malformed
+        right["resolved_policy_summary"] = _resolved_policy_summary()
+        svc._resolve_artifact_for_ref.side_effect = [left, right]
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "compare: INVALID_ARGUMENT - malformed resolved calendar alignment metadata",
+        ):
+            run_compare_intent(
+                svc,
+                _SESSION,
+                {
+                    "left_ref": {
+                        "step_id": "step_left",
+                        "session_id": _SESSION,
+                        "step_type": "observe",
+                    },
+                    "right_ref": {
+                        "step_id": "step_right",
+                        "session_id": _SESSION,
+                        "step_type": "observe",
+                    },
+                },
+            )
+
+    def test_compare_rejects_negative_bucket_counts(self) -> None:
+        from app.intents.compare import run_compare_intent
+
+        svc = _make_svc()
+        left = _scalar_observation("m1")
+        right = _scalar_observation("m1")
+        left["resolved_policy_summary"] = _resolved_policy_summary(
+            aligned_bucket_count=-1,
+            unpaired_bucket_count=0,
+            aligned_ratio=0.0,
+        )
+        right["resolved_policy_summary"] = _resolved_policy_summary()
+        svc._resolve_artifact_for_ref.side_effect = [left, right]
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "compare: INVALID_ARGUMENT - malformed resolved calendar alignment metadata",
+        ):
+            run_compare_intent(
+                svc,
+                _SESSION,
+                {
+                    "left_ref": {
+                        "step_id": "step_left",
+                        "session_id": _SESSION,
+                        "step_type": "observe",
+                    },
+                    "right_ref": {
+                        "step_id": "step_right",
+                        "session_id": _SESSION,
+                        "step_type": "observe",
+                    },
+                },
+            )
+
+    def test_compare_rejects_inconsistent_coverage_summary(self) -> None:
+        from app.intents.compare import run_compare_intent
+
+        svc = _make_svc()
+        left = _scalar_observation("m1")
+        right = _scalar_observation("m1")
+        left["resolved_policy_summary"] = _resolved_policy_summary(
+            aligned_bucket_count=7,
+            unpaired_bucket_count=1,
+            aligned_ratio=1.0,
+        )
+        right["resolved_policy_summary"] = _resolved_policy_summary()
+        svc._resolve_artifact_for_ref.side_effect = [left, right]
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "compare: INVALID_ARGUMENT - malformed resolved calendar alignment metadata",
+        ):
+            run_compare_intent(
+                svc,
+                _SESSION,
+                {
+                    "left_ref": {
+                        "step_id": "step_left",
+                        "session_id": _SESSION,
+                        "step_type": "observe",
+                    },
+                    "right_ref": {
+                        "step_id": "step_right",
+                        "session_id": _SESSION,
+                        "step_type": "observe",
+                    },
+                },
+            )
 
 
 # ── decompose ─────────────────────────────────────────────────────────────────
