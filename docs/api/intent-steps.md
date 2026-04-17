@@ -221,9 +221,11 @@ Invalid combinations include:
   kernel; percentile/quantile metrics compile through engine-specific SQL, while
   `distribution_spec.kind="histogram_ready"` is not supported by standard `observe` in v1
 
-Success returns `ObserveResponse`, a union of the five canonical observation artifact types. All success payloads include `step_ref`, `artifact_id`, resolved `time_scope`, normalized `scope`, and analytical / execution metadata.
+Success returns `ObserveResponse`, a union of the five canonical observation artifact types. All success payloads include `step_ref`, `artifact_id`, resolved `time_scope`, normalized `scope`, `resolved_policy_summary`, and analytical / execution metadata. `resolved_policy_summary` is `null` when no calendar alignment policy was resolved.
 
 `calendar_policy_ref` is an observe-only input boundary in v1. Downstream typed-ref intents such as `compare`, `attribute`, and `validate` must reuse the upstream frozen alignment metadata instead of accepting a second policy input.
+
+When `calendar_policy_ref` is present, the returned observation artifact freezes the compiler-resolved alignment plan in `resolved_policy_summary`, including the final policy ref, calendar source/version, baseline window, bucket pairing, coverage summary, and comparability warnings. Downstream intents must treat this field as the artifact-level reuse surface rather than reconstructing policy semantics from the original request.
 
 When `calendar_policy_ref` is present on a `week` or `month` observation, the request granularity still controls the returned observation shape, but the compiler resolves calendar alignment at day granularity for comparability metadata. `calendar_policy.weekday_wow` specifically means "day-aligned within the compared weeks", not "whole-week black-box to whole-week black-box".
 

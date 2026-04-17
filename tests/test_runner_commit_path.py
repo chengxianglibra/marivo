@@ -36,6 +36,45 @@ def _make_compiled_mock() -> MagicMock:
     m = MagicMock()
     m.sql = "SELECT 1"
     m.params = []
+    m.metadata = {}
+    return m
+
+
+def _make_compiled_mock_with_calendar_alignment() -> MagicMock:
+    m = _make_compiled_mock()
+    m.metadata = {
+        "resolved_calendar_alignment": {
+            "policy_ref": "calendar_policy.weekday_yoy",
+            "comparison_basis": "yoy",
+            "resolved_calendar_source": "calendar_data_cn_assembled",
+            "resolved_calendar_version": "calendar_data_cn_2026q2_v1",
+            "resolved_baseline_generation_rule": {
+                "strategy": "previous_year",
+                "offset_value": 1,
+                "offset_unit": "year",
+                "fixed_start": None,
+                "fixed_end": None,
+                "named_window_ref": None,
+            },
+            "current_window": {"start": "2026-04-01", "end": "2026-04-08"},
+            "baseline_window": {"start": "2025-04-01", "end": "2025-04-08"},
+            "bucket_pairing": [
+                {
+                    "current_bucket_start": "2026-04-01",
+                    "baseline_bucket_start": "2025-04-02",
+                    "pairing_reason": "same_weekday_nearest",
+                    "shift_days": 1,
+                    "issues": [],
+                }
+            ],
+            "coverage_summary": {
+                "aligned_bucket_count": 1,
+                "unpaired_bucket_count": 0,
+                "aligned_ratio": 1.0,
+            },
+            "comparability_warnings": [],
+        }
+    }
     return m
 
 
@@ -106,6 +145,14 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         svc = _make_svc()
         result = self._run_scalar(svc)
         self.assertEqual(result["artifact_id"], _FAKE_ARTIFACT_ID)
+
+    def test_observe_includes_null_resolved_policy_summary_without_alignment(self) -> None:
+        svc = _make_svc()
+        result = self._run_scalar(svc)
+        args, _ = svc._commit_artifact_with_extraction.call_args
+        artifact_payload = args[4]
+        self.assertIsNone(result["resolved_policy_summary"])
+        self.assertIsNone(artifact_payload["resolved_policy_summary"])
 
     def test_observe_hour_granularity_rejects_date_only_range(self) -> None:
         from app.intents.observe import run_observe_intent
@@ -183,6 +230,205 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         self.assertEqual(captured["calendar_policy_ref"], "calendar_policy.weekday_yoy")
         self.assertEqual(captured["time_scope"]["grain"], "day")
 
+    def test_observe_freezes_resolved_policy_summary_in_artifact(self) -> None:
+        from app.intents.observe import run_observe_intent
+
+        svc = _make_svc()
+        svc.normalize_intent_metric_ref.side_effect = lambda metric: metric
+        svc.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
+        svc._resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
+        svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
+        svc.resolve_metric_dimensions.return_value = []
+        svc._resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
+        svc._resolve_windowed_query_time_axis.return_value = None
+        svc._build_scoped_query.return_value = {
+            "mode": "single_window",
+            "analysis_time_expr": "event_date",
+            "analysis_time_kind": "date_field",
+            "current": {"start": "2026-04-01", "end": "2026-04-08"},
+        }
+        svc._compile_step_with_feedback.return_value = _make_compiled_mock_with_calendar_alignment()
+
+        with patch("app.intents.observe.execute_compiled") as mock_exec:
+            mock_exec.return_value.rows = [{"current_value": 42.0}]
+            result = run_observe_intent(
+                svc,
+                _SESSION,
+                {
+                    "metric": "metric.m1",
+                    "time_scope": {"kind": "range", "start": "2026-04-01", "end": "2026-04-08"},
+                    "calendar_policy_ref": "calendar_policy.weekday_yoy",
+                },
+            )
+
+        args, _ = svc._commit_artifact_with_extraction.call_args
+        artifact_payload = args[4]
+        self.assertEqual(
+            result["resolved_policy_summary"],
+            artifact_payload["resolved_policy_summary"],
+        )
+        self.assertEqual(
+            result["resolved_policy_summary"]["policy_ref"],
+            "calendar_policy.weekday_yoy",
+        )
+        self.assertEqual(result["resolved_policy_summary"]["comparison_basis"], "yoy")
+        self.assertEqual(
+            result["resolved_policy_summary"]["resolved_calendar_source"],
+            "calendar_data_cn_assembled",
+        )
+        self.assertEqual(
+            result["resolved_policy_summary"]["resolved_calendar_version"],
+            "calendar_data_cn_2026q2_v1",
+        )
+        self.assertEqual(
+            result["resolved_policy_summary"]["resolved_baseline_generation_rule"],
+            {
+                "strategy": "previous_year",
+                "offset_value": 1,
+                "offset_unit": "year",
+                "fixed_start": None,
+                "fixed_end": None,
+                "named_window_ref": None,
+            },
+        )
+        self.assertEqual(
+            result["resolved_policy_summary"]["current_window"],
+            {"start": "2026-04-01", "end": "2026-04-08"},
+        )
+        self.assertEqual(
+            result["resolved_policy_summary"]["baseline_window"],
+            {"start": "2025-04-01", "end": "2025-04-08"},
+        )
+        self.assertEqual(
+            result["resolved_policy_summary"]["coverage_summary"],
+            {
+                "aligned_bucket_count": 1,
+                "unpaired_bucket_count": 0,
+                "aligned_ratio": 1.0,
+            },
+        )
+        self.assertEqual(
+            result["resolved_policy_summary"]["bucket_pairing"][0],
+            {
+                "current_bucket_start": "2026-04-01",
+                "baseline_bucket_start": "2025-04-02",
+                "pairing_reason": "same_weekday_nearest",
+                "shift_days": 1,
+                "issues": [],
+            },
+        )
+        self.assertEqual(result["resolved_policy_summary"]["comparability_warnings"], [])
+
+    def test_observe_rejects_malformed_resolved_policy_summary_missing_field(self) -> None:
+        from app.intents.observe import run_observe_intent
+
+        svc = _make_svc()
+        svc.normalize_intent_metric_ref.side_effect = lambda metric: metric
+        svc.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
+        svc._resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
+        svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
+        svc.resolve_metric_dimensions.return_value = []
+        svc._resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
+        svc._resolve_windowed_query_time_axis.return_value = None
+        svc._build_scoped_query.return_value = {
+            "mode": "single_window",
+            "analysis_time_expr": "event_date",
+            "analysis_time_kind": "date_field",
+            "current": {"start": "2026-04-01", "end": "2026-04-08"},
+        }
+        compiled = _make_compiled_mock_with_calendar_alignment()
+        del compiled.metadata["resolved_calendar_alignment"]["comparison_basis"]
+        svc._compile_step_with_feedback.return_value = compiled
+
+        with (
+            patch("app.intents.observe.execute_compiled") as mock_exec,
+            self.assertRaisesRegex(ValueError, "malformed resolved calendar alignment metadata"),
+        ):
+            mock_exec.return_value.rows = [{"current_value": 42.0}]
+            run_observe_intent(
+                svc,
+                _SESSION,
+                {
+                    "metric": "metric.m1",
+                    "time_scope": {"kind": "range", "start": "2026-04-01", "end": "2026-04-08"},
+                    "calendar_policy_ref": "calendar_policy.weekday_yoy",
+                },
+            )
+
+    def test_observe_rejects_malformed_resolved_policy_summary_extra_coverage_field(self) -> None:
+        from app.intents.observe import run_observe_intent
+
+        svc = _make_svc()
+        svc.normalize_intent_metric_ref.side_effect = lambda metric: metric
+        svc.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
+        svc._resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
+        svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
+        svc.resolve_metric_dimensions.return_value = []
+        svc._resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
+        svc._resolve_windowed_query_time_axis.return_value = None
+        svc._build_scoped_query.return_value = {
+            "mode": "single_window",
+            "analysis_time_expr": "event_date",
+            "analysis_time_kind": "date_field",
+            "current": {"start": "2026-04-01", "end": "2026-04-08"},
+        }
+        compiled = _make_compiled_mock_with_calendar_alignment()
+        compiled.metadata["resolved_calendar_alignment"]["coverage_summary"][
+            "total_bucket_count"
+        ] = 1
+        svc._compile_step_with_feedback.return_value = compiled
+
+        with (
+            patch("app.intents.observe.execute_compiled") as mock_exec,
+            self.assertRaisesRegex(ValueError, "malformed resolved calendar alignment metadata"),
+        ):
+            mock_exec.return_value.rows = [{"current_value": 42.0}]
+            run_observe_intent(
+                svc,
+                _SESSION,
+                {
+                    "metric": "metric.m1",
+                    "time_scope": {"kind": "range", "start": "2026-04-01", "end": "2026-04-08"},
+                    "calendar_policy_ref": "calendar_policy.weekday_yoy",
+                },
+            )
+
+    def test_observe_rejects_malformed_resolved_policy_summary_bucket_pairing(self) -> None:
+        from app.intents.observe import run_observe_intent
+
+        svc = _make_svc()
+        svc.normalize_intent_metric_ref.side_effect = lambda metric: metric
+        svc.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
+        svc._resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
+        svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
+        svc.resolve_metric_dimensions.return_value = []
+        svc._resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
+        svc._resolve_windowed_query_time_axis.return_value = None
+        svc._build_scoped_query.return_value = {
+            "mode": "single_window",
+            "analysis_time_expr": "event_date",
+            "analysis_time_kind": "date_field",
+            "current": {"start": "2026-04-01", "end": "2026-04-08"},
+        }
+        compiled = _make_compiled_mock_with_calendar_alignment()
+        del compiled.metadata["resolved_calendar_alignment"]["bucket_pairing"][0]["issues"]
+        svc._compile_step_with_feedback.return_value = compiled
+
+        with (
+            patch("app.intents.observe.execute_compiled") as mock_exec,
+            self.assertRaisesRegex(ValueError, "malformed resolved calendar alignment metadata"),
+        ):
+            mock_exec.return_value.rows = [{"current_value": 42.0}]
+            run_observe_intent(
+                svc,
+                _SESSION,
+                {
+                    "metric": "metric.m1",
+                    "time_scope": {"kind": "range", "start": "2026-04-01", "end": "2026-04-08"},
+                    "calendar_policy_ref": "calendar_policy.weekday_yoy",
+                },
+            )
+
     def test_observe_hour_granularity_uses_hour_internal_grain(self) -> None:
         from app.intents.observe import run_observe_intent
 
@@ -231,8 +477,11 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
     def _run_numeric_summary(self, svc: MagicMock) -> dict[str, Any]:
         from app.intents.observe import run_observe_intent
 
-        svc._resolve_metric_table.return_value = "src.metrics"
-        svc.resolve_metric_sql.return_value = "SUM(val)"
+        svc.normalize_intent_metric_ref.side_effect = lambda metric: metric
+        svc.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
+        svc._resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
+        svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
+        svc.resolve_metric_value_sql_for_execution.return_value = "val"
         svc.resolve_metric_dimensions.return_value = []
         svc._resolve_engine.return_value = (
             MagicMock(),
@@ -270,11 +519,67 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         args, _ = svc._commit_artifact_with_extraction.call_args
         self.assertEqual(args[2], "observation")
 
+    def test_observe_numeric_summary_forwards_and_freezes_calendar_policy(self) -> None:
+        from app.intents.observe import run_observe_intent
+
+        svc = _make_svc()
+        captured: dict[str, Any] = {}
+        svc.normalize_intent_metric_ref.side_effect = lambda metric: metric
+        svc.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
+        svc._resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
+        svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
+        svc.resolve_metric_value_sql_for_execution.return_value = "val"
+        svc.resolve_metric_dimensions.return_value = []
+        svc._resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
+        svc._resolve_windowed_query_time_axis.return_value = None
+        svc._build_scoped_query.return_value = {
+            "mode": "single_window",
+            "analysis_time_expr": "event_date",
+            "analysis_time_kind": "date_field",
+            "current": {"start": "2026-04-01", "end": "2026-04-08"},
+        }
+
+        def _capture_compile(step: Any, *, engine_type: str, semantic_context: Any) -> MagicMock:
+            captured["calendar_policy_ref"] = step.params.get("calendar_policy_ref")
+            return _make_compiled_mock_with_calendar_alignment()
+
+        svc._compile_step_with_feedback.side_effect = _capture_compile
+
+        with patch("app.intents.observe.execute_compiled") as mock_exec:
+            mock_exec.return_value.rows = [
+                {"n": 5, "mean": 10.0, "variance": 1.0, "std": 1.0, "min_val": 8.0, "max_val": 12.0}
+            ]
+            result = run_observe_intent(
+                svc,
+                _SESSION,
+                {
+                    "metric": "metric.m1",
+                    "time_scope": {"kind": "range", "start": "2026-04-01", "end": "2026-04-08"},
+                    "result_mode": "numeric_sample_summary",
+                    "calendar_policy_ref": "calendar_policy.weekday_yoy",
+                },
+            )
+
+        args, _ = svc._commit_artifact_with_extraction.call_args
+        artifact_payload = args[4]
+        self.assertEqual(captured["calendar_policy_ref"], "calendar_policy.weekday_yoy")
+        self.assertEqual(
+            result["resolved_policy_summary"],
+            artifact_payload["resolved_policy_summary"],
+        )
+        self.assertEqual(
+            result["resolved_policy_summary"]["policy_ref"],
+            "calendar_policy.weekday_yoy",
+        )
+
     def _run_rate_summary(self, svc: MagicMock) -> dict[str, Any]:
         from app.intents.observe import run_observe_intent
 
-        svc._resolve_metric_table.return_value = "src.metrics"
-        svc.resolve_metric_sql.return_value = "SUM(val)"
+        svc.normalize_intent_metric_ref.side_effect = lambda metric: metric
+        svc.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
+        svc._resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
+        svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
+        svc.resolve_metric_value_sql_for_execution.return_value = "is_success"
         svc.resolve_metric_dimensions.return_value = []
         svc._resolve_engine.return_value = (
             MagicMock(),
@@ -309,6 +614,57 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         self._run_rate_summary(svc)
         args, _ = svc._commit_artifact_with_extraction.call_args
         self.assertEqual(args[2], "observation")
+
+    def test_observe_rate_summary_forwards_and_freezes_calendar_policy(self) -> None:
+        from app.intents.observe import run_observe_intent
+
+        svc = _make_svc()
+        captured: dict[str, Any] = {}
+        svc.normalize_intent_metric_ref.side_effect = lambda metric: metric
+        svc.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
+        svc._resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
+        svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
+        svc.resolve_metric_value_sql_for_execution.return_value = "is_success"
+        svc.resolve_metric_dimensions.return_value = []
+        svc._resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
+        svc._resolve_windowed_query_time_axis.return_value = None
+        svc._build_scoped_query.return_value = {
+            "mode": "single_window",
+            "analysis_time_expr": "event_date",
+            "analysis_time_kind": "date_field",
+            "current": {"start": "2026-04-01", "end": "2026-04-08"},
+        }
+
+        def _capture_compile(step: Any, *, engine_type: str, semantic_context: Any) -> MagicMock:
+            captured["calendar_policy_ref"] = step.params.get("calendar_policy_ref")
+            return _make_compiled_mock_with_calendar_alignment()
+
+        svc._compile_step_with_feedback.side_effect = _capture_compile
+
+        with patch("app.intents.observe.execute_compiled") as mock_exec:
+            mock_exec.return_value.rows = [{"n": 100, "k": 50.0}]
+            result = run_observe_intent(
+                svc,
+                _SESSION,
+                {
+                    "metric": "metric.m1",
+                    "time_scope": {"kind": "range", "start": "2026-04-01", "end": "2026-04-08"},
+                    "result_mode": "rate_sample_summary",
+                    "calendar_policy_ref": "calendar_policy.weekday_yoy",
+                },
+            )
+
+        args, _ = svc._commit_artifact_with_extraction.call_args
+        artifact_payload = args[4]
+        self.assertEqual(captured["calendar_policy_ref"], "calendar_policy.weekday_yoy")
+        self.assertEqual(
+            result["resolved_policy_summary"],
+            artifact_payload["resolved_policy_summary"],
+        )
+        self.assertEqual(
+            result["resolved_policy_summary"]["policy_ref"],
+            "calendar_policy.weekday_yoy",
+        )
 
 
 # ── compare ───────────────────────────────────────────────────────────────────

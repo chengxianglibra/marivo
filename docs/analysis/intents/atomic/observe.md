@@ -313,6 +313,7 @@ type ObservationBase = {
   time_scope: ResolvedTimeScope;
   scope: Scope;
   unit: string | null;
+  resolved_policy_summary: ResolvedPolicySummary | null;
   analytical_metadata: AnalyticalMetadata;
   execution_metadata: ExecutionMetadata;
 };
@@ -338,6 +339,45 @@ type ExecutionMetadata = {
   query_hash: string;
   engine: string;
   executed_at: string;
+};
+
+type ResolvedPolicySummary = {
+  policy_ref: string;
+  comparison_basis: "yoy" | "mom" | "wow";
+  resolved_calendar_source: string;
+  resolved_calendar_version: string;
+  resolved_baseline_generation_rule: {
+    strategy:
+      | "previous_year"
+      | "previous_period";
+    offset_value: number | null;
+    offset_unit: "day" | "week" | "month" | "quarter" | "year" | null;
+    fixed_start: string | null;
+    fixed_end: string | null;
+    named_window_ref: string | null;
+  };
+  current_window: { start: string; end: string };
+  baseline_window: { start: string; end: string };
+  bucket_pairing: Array<{
+    current_bucket_start: string;
+    baseline_bucket_start: string | null;
+    pairing_reason:
+      | "holiday_cluster"
+      | "year_relative_holiday_key"
+      | "event_cluster"
+      | "year_relative_event_key"
+      | "same_weekday_nearest"
+      | "natural_date_shift"
+      | "fallback";
+    shift_days: number | null;
+    issues: string[];
+  }>;
+  coverage_summary: {
+    aligned_bucket_count: number;
+    unpaired_bucket_count: number;
+    aligned_ratio: number;
+  };
+  comparability_warnings: string[];
 };
 
 type ScalarObservation = ObservationBase & {
