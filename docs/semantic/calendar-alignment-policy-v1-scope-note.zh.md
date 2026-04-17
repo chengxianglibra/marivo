@@ -124,7 +124,7 @@ v1 起步 issue taxonomy 固定如下：
 | `calendar_data_missing` | policy 所需 calendar annotation / source / version 缺失 | calendar data / resolver | 修复 calendar source 或阻断该 policy 执行 |
 | `holiday_cluster_unmapped` | holiday policy 需要的 holiday cluster / relative key 无法映射 | resolver / comparability | 记录 warning 或按固定 policy 失败，不允许 runtime 猜测 |
 | `event_cluster_unmapped` | event policy 需要的 event cluster / relative key 无法映射 | resolver / comparability | 补齐活动日历或回退到显式 fallback |
-| `weekday_pairing_tie` | `same_weekday_nearest` 出现等距候选且 tie-breaker 不能静默决策 | resolver / comparability | 输出结构化歧义，必要时 fail |
+| `weekday_pairing_tie` | `same_weekday_nearest` 出现等距候选且 policy 未显式提供 tie-breaker | resolver / comparability | 输出结构化歧义，必要时 fail；v1 默认 catalog 已固定 tie-breaker，因此正常不触发 |
 | `alignment_coverage_insufficient` | `aligned_ratio` 低于 policy / gate 要求 | comparability gate | 标为 warning 或 blocking issue，阻止不可靠 compare |
 | `fallback_applied` | resolver 触发了 policy 内声明的 fallback path | resolver / diagnostics | 显式记录 fallback reason，供下游继续判断是否可比 |
 

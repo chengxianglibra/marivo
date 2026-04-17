@@ -15,6 +15,7 @@ CalendarPolicyRef = Literal[
     "calendar_policy.weekday_wow",
 ]
 ResolutionSource = Literal["explicit_request", "injected_binding", "planner_candidate"]
+CalendarTieBreaker = Literal["prefer_backward", "prefer_forward"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,6 +36,8 @@ class CalendarMatchingStep:
         "natural_date_shift",
     ]
     requires_annotation: bool
+    tie_breaker: CalendarTieBreaker | None = None
+    max_shift_days: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,7 +102,12 @@ _POLICIES: tuple[CalendarPolicyDefinition, ...] = (
             offset_unit="year",
         ),
         matching_strategy=(
-            CalendarMatchingStep("same_weekday_nearest", requires_annotation=False),
+            CalendarMatchingStep(
+                "same_weekday_nearest",
+                requires_annotation=False,
+                tie_breaker="prefer_backward",
+                max_shift_days=3,
+            ),
             CalendarMatchingStep("natural_date_shift", requires_annotation=False),
         ),
         fallback_strategy=("natural_date_shift",),
@@ -121,7 +129,12 @@ _POLICIES: tuple[CalendarPolicyDefinition, ...] = (
         matching_strategy=(
             CalendarMatchingStep("holiday_cluster", requires_annotation=True),
             CalendarMatchingStep("year_relative_holiday_key", requires_annotation=True),
-            CalendarMatchingStep("same_weekday_nearest", requires_annotation=False),
+            CalendarMatchingStep(
+                "same_weekday_nearest",
+                requires_annotation=False,
+                tie_breaker="prefer_backward",
+                max_shift_days=3,
+            ),
             CalendarMatchingStep("natural_date_shift", requires_annotation=False),
         ),
         fallback_strategy=("same_weekday_nearest", "natural_date_shift"),
@@ -143,7 +156,12 @@ _POLICIES: tuple[CalendarPolicyDefinition, ...] = (
         matching_strategy=(
             CalendarMatchingStep("event_cluster", requires_annotation=True),
             CalendarMatchingStep("year_relative_event_key", requires_annotation=True),
-            CalendarMatchingStep("same_weekday_nearest", requires_annotation=False),
+            CalendarMatchingStep(
+                "same_weekday_nearest",
+                requires_annotation=False,
+                tie_breaker="prefer_backward",
+                max_shift_days=3,
+            ),
             CalendarMatchingStep("natural_date_shift", requires_annotation=False),
         ),
         fallback_strategy=("same_weekday_nearest", "natural_date_shift"),
@@ -176,7 +194,12 @@ _POLICIES: tuple[CalendarPolicyDefinition, ...] = (
             strategy="previous_period",
         ),
         matching_strategy=(
-            CalendarMatchingStep("same_weekday_nearest", requires_annotation=False),
+            CalendarMatchingStep(
+                "same_weekday_nearest",
+                requires_annotation=False,
+                tie_breaker="prefer_backward",
+                max_shift_days=3,
+            ),
             CalendarMatchingStep("natural_date_shift", requires_annotation=False),
         ),
         fallback_strategy=("natural_date_shift",),
@@ -196,7 +219,12 @@ _POLICIES: tuple[CalendarPolicyDefinition, ...] = (
         matching_strategy=(
             CalendarMatchingStep("event_cluster", requires_annotation=True),
             CalendarMatchingStep("year_relative_event_key", requires_annotation=True),
-            CalendarMatchingStep("same_weekday_nearest", requires_annotation=False),
+            CalendarMatchingStep(
+                "same_weekday_nearest",
+                requires_annotation=False,
+                tie_breaker="prefer_backward",
+                max_shift_days=3,
+            ),
             CalendarMatchingStep("natural_date_shift", requires_annotation=False),
         ),
         fallback_strategy=("same_weekday_nearest", "natural_date_shift"),
@@ -216,7 +244,12 @@ _POLICIES: tuple[CalendarPolicyDefinition, ...] = (
             offset_unit="week",
         ),
         matching_strategy=(
-            CalendarMatchingStep("same_weekday_nearest", requires_annotation=False),
+            CalendarMatchingStep(
+                "same_weekday_nearest",
+                requires_annotation=False,
+                tie_breaker="prefer_backward",
+                max_shift_days=3,
+            ),
         ),
         fallback_strategy=(),
         coverage_behavior="require_same_weekday_pairing",

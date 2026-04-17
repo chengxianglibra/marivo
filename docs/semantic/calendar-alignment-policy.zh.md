@@ -115,6 +115,8 @@
 - `max_shift_days = 3`
 
 这样不同业务才能稳定复用或差异化治理。
+当前 v1 fixed policy catalog 中，所有使用 `same_weekday_nearest` 的内置 policy 都显式冻结为
+`tie_breaker = "prefer_backward"`、`max_shift_days = 3`。其中 `max_shift_days = 3` 表示允许候选日与目标日相差最多 3 天，包含恰好 3 天的边界情况。
 
 ### 5. compiler / resolver 负责展开，intent 只负责引用
 
@@ -453,6 +455,9 @@ type ResolvedCalendarAlignmentPlan = {
 - `weekday_pairing_tie`
 - `alignment_coverage_insufficient`
 - `fallback_applied`
+
+当前 v1 默认 policy 已通过显式 `tie_breaker` 消除 `same_weekday_nearest` 的等距歧义，因此
+`weekday_pairing_tie` 作为 taxonomy 预留项保留，但默认 catalog 不应触发它。
 
 每个 issue 在 v1 都应至少有：
 

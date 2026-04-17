@@ -12,6 +12,7 @@ from app.analysis_core.capability_profiles import derive_compiler_state
 from app.analysis_core.compiler import (
     SemanticCompilerError,
     SemanticRequestCompatibilityError,
+    _build_calendar_alignment_coverage,
     compile_step,
 )
 from app.analysis_core.ir import AnalysisStepIR
@@ -1311,6 +1312,121 @@ class CompilerTypedResolutionTests(unittest.TestCase):
         )
         self.assertEqual(alignment["coverage_summary"]["aligned_bucket_count"], 7)
         self.assertEqual(alignment["comparability_warnings"], [])
+
+    def test_compile_step_falls_back_when_weekday_yoy_match_exceeds_max_shift(
+        self,
+    ) -> None:
+        compiled = compile_step(
+            AnalysisStepIR(
+                index=0,
+                step_type="metric_query",
+                params={
+                    "metric": "watch_time",
+                    "table": "analytics.watch_events",
+                    "calendar_policy_ref": "calendar_policy.weekday_yoy",
+                    "time_scope": {
+                        "mode": "single_window",
+                        "grain": "day",
+                        "current": {"start": "2026-04-01", "end": "2026-04-02"},
+                    },
+                    "scoped_query": {
+                        "mode": "single_window",
+                        "analysis_time_expr": "event_date",
+                        "analysis_time_kind": "date_field",
+                        "current": {"start": "2026-04-01", "end": "2026-04-02"},
+                    },
+                },
+            ),
+            engine_type="duckdb",
+            semantic_context={
+                "metric_sql": "avg(play_duration_seconds)",
+                "dimensions": ["platform"],
+                "semantic_repository": _FakeSemanticRepository(),
+                "binding_reader": _binding_reader,
+                "compatibility_profile_reader": _profile_reader,
+                "calendar_data_reader": _FakeCalendarDataReader(
+                    [
+                        _calendar_annotation("2026-04-01"),
+                        _calendar_annotation("2025-03-29"),
+                        _calendar_annotation("2025-03-30"),
+                        _calendar_annotation("2025-03-31"),
+                        _calendar_annotation("2025-04-01"),
+                        _calendar_annotation("2025-04-02"),
+                        _calendar_annotation("2025-04-03"),
+                    ]
+                ),
+            },
+        )
+
+        alignment = compiled.metadata["resolved_calendar_alignment"]
+        assert isinstance(alignment, dict)
+        self.assertEqual(alignment["coverage_summary"]["aligned_bucket_count"], 1)
+        self.assertEqual(alignment["bucket_pairing"][0]["pairing_reason"], "natural_date_shift")
+        self.assertEqual(alignment["bucket_pairing"][0]["baseline_bucket_start"], "2025-04-01")
+        self.assertEqual(alignment["bucket_pairing"][0]["issues"], [])
+
+    def test_compile_step_records_partial_alignment_coverage_summary(self) -> None:
+        compiled = compile_step(
+            AnalysisStepIR(
+                index=0,
+                step_type="metric_query",
+                params={
+                    "metric": "watch_time",
+                    "table": "analytics.watch_events",
+                    "calendar_policy_ref": "calendar_policy.natural_yoy",
+                    "time_scope": {
+                        "mode": "single_window",
+                        "grain": "day",
+                        "current": {"start": "2024-02-28", "end": "2024-03-02"},
+                    },
+                    "scoped_query": {
+                        "mode": "single_window",
+                        "analysis_time_expr": "event_date",
+                        "analysis_time_kind": "date_field",
+                        "current": {"start": "2024-02-28", "end": "2024-03-02"},
+                    },
+                },
+            ),
+            engine_type="duckdb",
+            semantic_context={
+                "metric_sql": "avg(play_duration_seconds)",
+                "dimensions": ["platform"],
+                "semantic_repository": _FakeSemanticRepository(),
+                "binding_reader": _binding_reader,
+                "compatibility_profile_reader": _profile_reader,
+                "calendar_data_reader": _FakeCalendarDataReader(
+                    [],
+                    resolved_calendar_version="calendar_data_cn_2025q2_v1",
+                ),
+            },
+        )
+
+        alignment = compiled.metadata["resolved_calendar_alignment"]
+        assert isinstance(alignment, dict)
+        self.assertEqual(
+            alignment["coverage_summary"],
+            {
+                "aligned_bucket_count": 2,
+                "unpaired_bucket_count": 1,
+                "aligned_ratio": 2 / 3,
+            },
+        )
+        self.assertIsNone(alignment["bucket_pairing"][-1]["baseline_bucket_start"])
+        self.assertEqual(
+            alignment["bucket_pairing"][-1]["issues"],
+            ["alignment_coverage_insufficient"],
+        )
+        self.assertEqual(alignment["comparability_warnings"], [])
+
+    def test_build_calendar_alignment_coverage_returns_zero_ratio_for_empty_pairing(self) -> None:
+        self.assertEqual(
+            _build_calendar_alignment_coverage([]),
+            {
+                "aligned_bucket_count": 0,
+                "unpaired_bucket_count": 0,
+                "aligned_ratio": 0.0,
+            },
+        )
 
     def test_compile_step_rejects_hour_grain_calendar_alignment(self) -> None:
         with self.assertRaises(SemanticRequestCompatibilityError) as ctx:

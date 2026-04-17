@@ -37,6 +37,14 @@ class CalendarPolicyRegistryTests(unittest.TestCase):
             ],
         )
         self.assertEqual(policy.fallback_strategy, ("same_weekday_nearest", "natural_date_shift"))
+        self.assertEqual(policy.matching_strategy[2].tie_breaker, "prefer_backward")
+        self.assertEqual(policy.matching_strategy[2].max_shift_days, 3)
+
+    def test_natural_policy_does_not_expose_weekday_matcher_options(self) -> None:
+        policy = get_calendar_policy("calendar_policy.natural_yoy")
+
+        self.assertIsNone(policy.matching_strategy[0].tie_breaker)
+        self.assertIsNone(policy.matching_strategy[0].max_shift_days)
 
     def test_validate_calendar_policy_ref_rejects_unknown_ref(self) -> None:
         with self.assertRaises(CalendarPolicyResolutionError) as ctx:
