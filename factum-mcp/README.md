@@ -315,7 +315,7 @@ Boundary notes:
 
 Current typed intent coverage:
 
-- `observe(session_id, metric, time_scope, result_mode="standard", scope=None, granularity=None, dimensions=None)` -> `POST /sessions/{session_id}/intents/observe`
+- `observe(session_id, metric, time_scope, result_mode="standard", calendar_policy_ref=None, scope=None, granularity=None, dimensions=None)` -> `POST /sessions/{session_id}/intents/observe`
 - `compare(session_id, left_ref, right_ref, mode="auto")` -> `POST /sessions/{session_id}/intents/compare`
 - `decompose(session_id, compare_ref, dimension, method="delta_share")` -> `POST /sessions/{session_id}/intents/decompose`
 - `correlate(session_id, left_ref, right_ref, method="spearman", min_pairs=5)` -> `POST /sessions/{session_id}/intents/correlate`

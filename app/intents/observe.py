@@ -4,6 +4,10 @@ import contextlib
 from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
+from app.analysis_core.calendar_policy import (
+    CalendarPolicyResolutionError,
+    validate_calendar_policy_ref,
+)
 from app.analysis_core.executor import execute_compiled
 from app.analysis_core.ir import AnalysisStepIR
 from app.time_contracts import TimeGrain, bucket_window, normalize_hour_boundary
@@ -47,11 +51,18 @@ def run_observe_intent(
         raise ValueError("observe intent requires 'time_scope'")
 
     result_mode: str = p.get("result_mode") or "standard"
+    calendar_policy_ref = p.get("calendar_policy_ref")
     if result_mode not in {"standard", "numeric_sample_summary", "rate_sample_summary"}:
         raise ValueError(
             f"observe result_mode='{result_mode}' is not valid. "
             "Must be one of: 'standard', 'numeric_sample_summary', 'rate_sample_summary'."
         )
+    if calendar_policy_ref is not None and not isinstance(calendar_policy_ref, str):
+        raise ValueError("observe: INVALID_ARGUMENT - calendar_policy_ref must be a string")
+    try:
+        normalized_calendar_policy_ref = validate_calendar_policy_ref(calendar_policy_ref)
+    except CalendarPolicyResolutionError as error:
+        raise ValueError(f"observe: INVALID_ARGUMENT - {error}") from error
 
     granularity: str | None = p.get("granularity") or None
     dimensions: list[str] | None = p.get("dimensions") or None
@@ -143,6 +154,8 @@ def run_observe_intent(
         mq_params["scope"] = scope_raw
     if dimensions:
         mq_params["dimensions"] = dimensions
+    if normalized_calendar_policy_ref is not None:
+        mq_params["calendar_policy_ref"] = normalized_calendar_policy_ref
 
     resolved = normalize_metric_query_request(mq_params)
     all_dimensions = svc.resolve_metric_dimensions(metric_ref)
@@ -180,6 +193,8 @@ def run_observe_intent(
                 step_type="aggregate_query",
                 params={
                     "table": qualified_table,
+                    "time_scope": mq_params["time_scope"],
+                    "calendar_policy_ref": normalized_calendar_policy_ref,
                     "select": [
                         "COUNT(*) AS n",
                         f"AVG({metric_value_sql}) AS mean",
@@ -236,6 +251,7 @@ def run_observe_intent(
             "observation_type": "numeric_sample_summary",
             "metric": metric_name,
             "time_scope": resolved_time_scope,
+            "calendar_policy_ref": normalized_calendar_policy_ref,
             "scope": scope_raw or {},
             "unit": None,
             "sample_summary": {
@@ -311,6 +327,8 @@ def run_observe_intent(
                 step_type="aggregate_query",
                 params={
                     "table": qualified_table,
+                    "time_scope": mq_params["time_scope"],
+                    "calendar_policy_ref": normalized_calendar_policy_ref,
                     "select": [
                         "COUNT(*) AS n",
                         f"SUM(CAST(({metric_value_sql}) AS DOUBLE)) AS k",
@@ -348,6 +366,7 @@ def run_observe_intent(
             "observation_type": "rate_sample_summary",
             "metric": metric_name,
             "time_scope": resolved_time_scope,
+            "calendar_policy_ref": normalized_calendar_policy_ref,
             "scope": scope_raw or {},
             "unit": None,
             "sample_summary": {
@@ -418,6 +437,8 @@ def run_observe_intent(
                 step_type="aggregate_query",
                 params={
                     "table": qualified_table,
+                    "time_scope": mq_params["time_scope"],
+                    "calendar_policy_ref": normalized_calendar_policy_ref,
                     "select": [
                         f"{bucket_expr} AS bucket_start",
                         f"{metric_sql} AS value",
@@ -460,6 +481,7 @@ def run_observe_intent(
             "observation_type": "time_series",
             "metric": metric_name,
             "time_scope": resolved_time_scope,
+            "calendar_policy_ref": normalized_calendar_policy_ref,
             "scope": scope_raw or {},
             "unit": None,
             "granularity": granularity,
@@ -496,6 +518,8 @@ def run_observe_intent(
                 params={
                     "table": qualified_table,
                     "metric": metric_name,
+                    "time_scope": mq_params["time_scope"],
+                    "calendar_policy_ref": normalized_calendar_policy_ref,
                     "scoped_query": scoped_query,
                 },
             ),
@@ -531,6 +555,7 @@ def run_observe_intent(
             "observation_type": "segmented",
             "metric": metric_name,
             "time_scope": resolved_time_scope,
+            "calendar_policy_ref": normalized_calendar_policy_ref,
             "scope": scope_raw or {},
             "unit": None,
             "dimensions": dimensions,
@@ -566,6 +591,8 @@ def run_observe_intent(
                 params={
                     "table": qualified_table,
                     "metric": metric_name,
+                    "time_scope": mq_params["time_scope"],
+                    "calendar_policy_ref": normalized_calendar_policy_ref,
                     "scoped_query": scoped_query,
                 },
             ),
@@ -598,6 +625,7 @@ def run_observe_intent(
             "observation_type": "scalar",
             "metric": metric_name,
             "time_scope": resolved_time_scope,
+            "calendar_policy_ref": normalized_calendar_policy_ref,
             "scope": scope_raw or {},
             "unit": None,
             "analytical_metadata": {

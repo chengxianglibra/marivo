@@ -30,6 +30,10 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.analysis_core.calendar_policy import (
+    CalendarPolicyResolutionError,
+    validate_calendar_policy_ref,
+)
 from app.api.models.base import validate_ref_prefix
 from app.time_contracts import normalize_hour_boundary
 
@@ -682,6 +686,17 @@ class ObserveRequest(BaseModel):
         ),
     )
     time_scope: ObserveTimeScope
+    calendar_policy_ref: str | None = Field(
+        default=None,
+        description=(
+            "Optional fixed calendar alignment policy ref. v1 only accepts compiler-owned "
+            "catalog refs such as 'calendar_policy.natural_yoy', "
+            "'calendar_policy.weekday_yoy', 'calendar_policy.holiday_yoy', "
+            "'calendar_policy.event_yoy', 'calendar_policy.natural_mom', "
+            "'calendar_policy.weekday_mom', 'calendar_policy.event_mom', or "
+            "'calendar_policy.weekday_wow'."
+        ),
+    )
     scope: ObserveScope | None = Field(default=None)
     granularity: Literal["hour", "day", "week", "month"] | None = Field(
         default=None,
@@ -696,6 +711,16 @@ class ObserveRequest(BaseModel):
     @classmethod
     def _validate_metric_ref(cls, value: str) -> str:
         return validate_ref_prefix(value, "metric", "metric")
+
+    @field_validator("calendar_policy_ref")
+    @classmethod
+    def _validate_calendar_policy_ref(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        try:
+            return validate_calendar_policy_ref(value)
+        except CalendarPolicyResolutionError as error:
+            raise ValueError(str(error)) from error
 
     @model_validator(mode="after")
     def _validate_mode_combinations(self) -> ObserveRequest:

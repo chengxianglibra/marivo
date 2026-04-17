@@ -168,6 +168,7 @@ def register_tools(
         result_mode: Literal["standard", "numeric_sample_summary", "rate_sample_summary"] = (
             "standard"
         ),
+        calendar_policy_ref: str | None = None,
         scope: ObserveScope | None = None,
         granularity: Literal["hour", "day", "week", "month"] | None = None,
         dimensions: list[str] | None = None,
@@ -180,6 +181,7 @@ def register_tools(
             metric=metric,
             result_mode=result_mode,
             time_scope=time_scope,
+            calendar_policy_ref=calendar_policy_ref,
             scope=scope,
             granularity=granularity,
             dimensions=dimensions,

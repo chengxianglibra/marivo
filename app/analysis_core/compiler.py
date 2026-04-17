@@ -4,9 +4,14 @@ import hashlib
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any, Literal, cast
 
+from app.analysis_core.calendar_policy import (
+    CalendarBaselineGenerationRule,
+    CalendarMatchingStep,
+    get_calendar_policy,
+)
 from app.analysis_core.capability_profiles import derive_compiler_state
 from app.analysis_core.ir import (
     STEP_ARTIFACT_KINDS,
@@ -80,6 +85,10 @@ class SemanticRequestCompatibilityError(ValueError):
 class _ScopedQueryParts:
     cte_sql: str
     params: list[Any]
+
+
+_CALENDAR_ALIGNMENT_SUPPORTED_GRAINS = frozenset({"day", "week", "month"})
+_DEFAULT_RESOLVED_CALENDAR_VERSION = "calendar_data.v1.default"
 
 
 def _build_scoped_query_parts(
@@ -1036,6 +1045,249 @@ def _build_lowering_requirements(
     return requirements
 
 
+def _resolve_calendar_alignment_plan(
+    normalized_request: NormalizedCompilerRequest,
+) -> dict[str, Any] | None:
+    policy_ref = normalized_request.request_calendar_policy_ref
+    if policy_ref is None:
+        return None
+    request_time_scope = normalized_request.request_time_scope or {}
+    if not request_time_scope:
+        return None
+    mode = str(request_time_scope.get("mode") or "").strip()
+    if mode != "single_window":
+        return None
+    grain = str(request_time_scope.get("grain") or "").strip()
+    if grain == "hour":
+        raise SemanticRequestCompatibilityError(
+            {
+                "message": "Calendar alignment policies do not support hour-grain observe windows",
+                "code": "calendar_policy_hour_grain_unsupported",
+                "category": "compatibility",
+                "issues": [
+                    {
+                        "code": "calendar_policy_hour_grain_unsupported",
+                        "message": (
+                            "calendar_policy_ref requires a day/week/month window; "
+                            "hour-grain observe requests are not supported"
+                        ),
+                        "details": {
+                            "policy_ref": policy_ref,
+                            "request_grain": grain,
+                        },
+                    }
+                ],
+                "request_context": {
+                    "intent_kind": normalized_request.intent_kind,
+                    "calendar_policy_ref": policy_ref,
+                    "request_grain": grain,
+                },
+            }
+        )
+    if grain not in _CALENDAR_ALIGNMENT_SUPPORTED_GRAINS:
+        return None
+
+    current_window = _date_window_from_time_scope(request_time_scope)
+    policy = get_calendar_policy(policy_ref)
+    baseline_window = _resolve_calendar_baseline_window(
+        current_window=current_window,
+        rule=policy.resolved_baseline_generation_rule,
+    )
+    bucket_pairing, comparability_warnings = _build_calendar_bucket_pairing(
+        current_window=current_window,
+        baseline_window=baseline_window,
+        matching_strategy=policy.matching_strategy,
+        fallback_strategy=policy.fallback_strategy,
+        alignment_mode=policy.resolved_alignment_mode,
+    )
+    coverage_summary = _build_calendar_alignment_coverage(bucket_pairing)
+    return {
+        "policy_ref": policy.policy_ref,
+        "comparison_basis": policy.comparison_basis,
+        "resolved_calendar_source": policy.resolved_calendar_source,
+        "resolved_calendar_version": _DEFAULT_RESOLVED_CALENDAR_VERSION,
+        "resolved_baseline_generation_rule": {
+            "strategy": policy.resolved_baseline_generation_rule.strategy,
+            "offset_value": policy.resolved_baseline_generation_rule.offset_value,
+            "offset_unit": policy.resolved_baseline_generation_rule.offset_unit,
+            "fixed_start": None,
+            "fixed_end": None,
+            "named_window_ref": None,
+        },
+        "current_window": _serialize_calendar_window(current_window),
+        "baseline_window": _serialize_calendar_window(baseline_window),
+        "bucket_pairing": bucket_pairing,
+        "coverage_summary": coverage_summary,
+        "comparability_warnings": comparability_warnings,
+    }
+
+
+def _date_window_from_time_scope(time_scope: Mapping[str, Any]) -> tuple[date, date]:
+    current = dict(time_scope.get("current") or {})
+    start = _parse_date_like(str(current.get("start") or ""))
+    end = _parse_date_like(str(current.get("end") or ""))
+    if start >= end:
+        raise ValueError("calendar alignment requires time_scope.current.start < end")
+    return start, end
+
+
+def _parse_date_like(value: str) -> date:
+    if not value:
+        raise ValueError("calendar alignment requires date window boundaries")
+    with_datetime = value.replace(" ", "T")
+    try:
+        return datetime.fromisoformat(with_datetime).date()
+    except ValueError:
+        return date.fromisoformat(value[:10])
+
+
+def _resolve_calendar_baseline_window(
+    *,
+    current_window: tuple[date, date],
+    rule: CalendarBaselineGenerationRule,
+) -> tuple[date, date]:
+    current_start, current_end = current_window
+    if rule.strategy == "previous_year":
+        shift_years = -(rule.offset_value or 1)
+        return (
+            _shift_calendar_date(current_start, years=shift_years),
+            _shift_calendar_date(current_end, years=shift_years),
+        )
+    if rule.strategy == "previous_period":
+        if rule.offset_unit == "week":
+            shift_days = 7 * (rule.offset_value or 1)
+            delta = timedelta(days=shift_days)
+            return current_start - delta, current_end - delta
+        period_days = current_end - current_start
+        return current_start - period_days, current_end - period_days
+    raise ValueError(f"Unsupported calendar baseline strategy '{rule.strategy}'")
+
+
+def _shift_calendar_date(d: date, *, months: int = 0, years: int = 0) -> date:
+    from calendar import monthrange
+
+    target_month = d.month + months
+    target_year = d.year + years + (target_month - 1) // 12
+    target_month = (target_month - 1) % 12 + 1
+    target_day = min(d.day, monthrange(target_year, target_month)[1])
+    return date(target_year, target_month, target_day)
+
+
+def _build_calendar_bucket_pairing(
+    *,
+    current_window: tuple[date, date],
+    baseline_window: tuple[date, date],
+    matching_strategy: tuple[CalendarMatchingStep, ...],
+    fallback_strategy: tuple[str, ...],
+    alignment_mode: str,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    current_start, current_end = current_window
+    baseline_start, baseline_end = baseline_window
+    pairings: list[dict[str, Any]] = []
+    comparability_warnings: list[str] = []
+
+    effective_matcher = _primary_calendar_matcher(
+        matching_strategy=matching_strategy,
+        fallback_strategy=fallback_strategy,
+    )
+    if alignment_mode in {"holiday_cluster", "event_cluster"}:
+        comparability_warnings.append("fallback_applied")
+
+    index = 0
+    current_day = current_start
+    while current_day < current_end:
+        issues: list[str] = []
+        baseline_day: date | None
+        pairing_reason = effective_matcher
+        if effective_matcher == "same_weekday_nearest":
+            baseline_day = _nearest_same_weekday(
+                target_day=baseline_start + timedelta(days=index),
+                baseline_window=baseline_window,
+                weekday=current_day.weekday(),
+            )
+        else:
+            baseline_day = baseline_start + timedelta(days=index)
+            if baseline_day >= baseline_end:
+                baseline_day = None
+        if baseline_day is None:
+            issues.append("alignment_coverage_insufficient")
+        pairings.append(
+            {
+                "current_bucket_start": current_day.isoformat(),
+                "baseline_bucket_start": baseline_day.isoformat() if baseline_day else None,
+                "pairing_reason": pairing_reason,
+                "shift_days": (current_day - baseline_day).days
+                if baseline_day is not None
+                else None,
+                "issues": issues,
+            }
+        )
+        index += 1
+        current_day += timedelta(days=1)
+    return pairings, comparability_warnings
+
+
+def _primary_calendar_matcher(
+    *,
+    matching_strategy: tuple[CalendarMatchingStep, ...],
+    fallback_strategy: tuple[str, ...],
+) -> str:
+    for step in matching_strategy:
+        if not step.requires_annotation:
+            return step.matcher
+    if fallback_strategy:
+        return fallback_strategy[0]
+    return matching_strategy[0].matcher
+
+
+def _nearest_same_weekday(
+    *,
+    target_day: date,
+    baseline_window: tuple[date, date],
+    weekday: int,
+) -> date | None:
+    baseline_start, baseline_end = baseline_window
+    candidates: list[date] = []
+    cursor = baseline_start
+    while cursor < baseline_end:
+        if cursor.weekday() == weekday:
+            candidates.append(cursor)
+        cursor += timedelta(days=1)
+    if not candidates:
+        return None
+    return min(
+        candidates,
+        key=lambda candidate: (
+            abs((candidate - target_day).days),
+            candidate > target_day,
+            candidate,
+        ),
+    )
+
+
+def _build_calendar_alignment_coverage(bucket_pairing: list[dict[str, Any]]) -> dict[str, Any]:
+    aligned_bucket_count = sum(
+        1 for bucket in bucket_pairing if bucket.get("baseline_bucket_start") is not None
+    )
+    total_bucket_count = len(bucket_pairing)
+    unpaired_bucket_count = total_bucket_count - aligned_bucket_count
+    aligned_ratio = aligned_bucket_count / total_bucket_count if total_bucket_count else 0.0
+    return {
+        "aligned_bucket_count": aligned_bucket_count,
+        "unpaired_bucket_count": unpaired_bucket_count,
+        "aligned_ratio": aligned_ratio,
+    }
+
+
+def _serialize_calendar_window(window: tuple[date, date] | None) -> dict[str, str] | None:
+    if window is None:
+        return None
+    return {
+        "start": window[0].isoformat(),
+        "end": window[1].isoformat(),
+    }
+
+
 def _stable_plan_id(step: AnalysisStepIR, normalized_request: NormalizedCompilerRequest) -> str:
     raw = "|".join(
         [
@@ -1100,6 +1352,8 @@ def _intent_request_snapshot(
         snapshot["requested_dimensions"] = list(normalized_request.request_dimensions)
     if normalized_request.request_result_mode is not None:
         snapshot["requested_result_mode"] = normalized_request.request_result_mode
+    if normalized_request.request_calendar_policy_ref is not None:
+        snapshot["requested_calendar_policy_ref"] = normalized_request.request_calendar_policy_ref
     if resolved_inputs.resolved_filter_time is not None:
         snapshot["request_time_scope_ref"] = resolved_inputs.resolved_filter_time.ref
     if options:
@@ -1343,11 +1597,14 @@ def _build_ir_bundle(
         intent_node_id=intent_node["node_id"],
     )
     validation_trace = _build_validation_trace(validation_result)
+    resolved_calendar_alignment = _resolve_calendar_alignment_plan(normalized_request)
     compile_report: CompileReport = {
         "validation_trace": validation_trace,
         "validation_summary": _build_validation_summary(validation_result, validation_trace),
         "lowering_requirements": lowering_requirements,
     }
+    if resolved_calendar_alignment is not None:
+        compile_report["resolved_calendar_alignment"] = resolved_calendar_alignment
     profile_usage_trace = _build_profile_usage_trace(derived_state.profile_traces)
     if profile_usage_trace:
         compile_report["profile_usage_trace"] = profile_usage_trace
@@ -1514,6 +1771,9 @@ def compile_step(
         },
         "resolved_imported_dimension_sources": imported_dimension_sources,
         "compiler_summary": ir_bundle["compile_report"]["validation_summary"],
+        "resolved_calendar_alignment": ir_bundle["compile_report"].get(
+            "resolved_calendar_alignment"
+        ),
     }
     assert_no_canonical_refs_in_semantic_payload(metadata, surface="compiler_metadata")
     table_name: str | None = None

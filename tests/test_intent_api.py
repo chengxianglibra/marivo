@@ -141,6 +141,14 @@ class ObserveRequestModelTests(unittest.TestCase):
         r = self._make(granularity="day")
         self.assertEqual(r.granularity, "day")
 
+    def test_calendar_policy_ref_is_accepted(self) -> None:
+        r = self._make(calendar_policy_ref="calendar_policy.holiday_yoy")
+        self.assertEqual(r.calendar_policy_ref, "calendar_policy.holiday_yoy")
+
+    def test_calendar_policy_ref_rejects_unknown_ref(self) -> None:
+        with self.assertRaisesRegex(Exception, "Unknown calendar_policy_ref"):
+            self._make(calendar_policy_ref="calendar_policy.not_real")
+
     def test_segmented_mode(self) -> None:
         r = self._make(dimensions=["region"])
         self.assertEqual(r.dimensions, ["region"])

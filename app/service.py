@@ -2871,6 +2871,12 @@ class SemanticLayerService:
             for summary in [compiled.metadata.get("compiler_summary")]
             if isinstance(summary, dict)
         ]
+        resolved_calendar_alignments = [
+            dict(summary)
+            for compiled in compiled_list
+            for summary in [compiled.metadata.get("resolved_calendar_alignment")]
+            if isinstance(summary, dict)
+        ]
         imported_dimension_lineage = [
             dict(summary)
             for compiled in compiled_list
@@ -2919,6 +2925,7 @@ class SemanticLayerService:
                 ir_plan_ids,
                 request_classes,
                 compiler_summaries,
+                resolved_calendar_alignments,
                 imported_dimension_lineage,
                 imported_dimension_conflicts,
                 imported_dimension_sources,
@@ -2944,6 +2951,7 @@ class SemanticLayerService:
             "compile_context": {
                 "ir_plan_ids": ir_plan_ids,
                 "compiler_summaries": compiler_summaries,
+                "resolved_calendar_alignments": resolved_calendar_alignments,
                 "imported_dimension_lineage": imported_dimension_lineage,
                 "imported_dimension_conflicts": imported_dimension_conflicts,
                 "imported_dimension_sources": imported_dimension_sources,

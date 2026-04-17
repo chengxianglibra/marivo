@@ -67,7 +67,7 @@ type CompareRequest = {
 
 ## 输入规则
 
-`left_ref` 与 `right_ref` 必须指向先前 `observe` 步骤产出的观测工件（observation artifact）。`compare` 不接受重复描述 `metric`、`time_scope`、`scope` 或 filter 的平行输入。
+`left_ref` 与 `right_ref` 必须指向先前 `observe` 步骤产出的观测工件（observation artifact）。`compare` 不接受重复描述 `metric`、`time_scope`、`scope`、filter 或 `calendar_policy_ref` 的平行输入。
 
 v1 支持以下输入对：
 
@@ -131,6 +131,8 @@ v1 支持以下输入对：
 - 分段对比（segmented compare）下相同 dimension schema
 - 兼容的 temporal semantics
 - 除目标比较轴之外，其余已解析 `scope` 定义兼容
+
+若上游 observation 已冻结 calendar alignment metadata，`compare` 必须复用该冻结结果，而不是在 compare 阶段重建第二套 holiday / weekday / event 对齐逻辑。
 
 系统应返回以下之一：
 

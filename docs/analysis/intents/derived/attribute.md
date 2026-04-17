@@ -287,6 +287,7 @@ v1 支持的输入形态如下：
 - `metric` 必须解析到已发布的 semantic metric
 - `left` 与 `right` 复用 canonical `observe` 请求契约，且都必须能确定性展开为 `observe(..., dimensions = null, granularity = null)` 的 scalar observation
 - `left` / `right` 不得引入 `observe` scalar profile 之外的新字段
+- `left` / `right` 不重复接收 `calendar_policy_ref`；若需要 calendar alignment 语义，应复用上游 observation 已冻结的 resolved policy summary
 - `dimensions` 必须是非空的单维度名称列表，且去重后仍非空
 - `decomposition_method` 省略时默认为 `delta_share`
 - `decomposition_limit` 省略时使用系统默认上限；归一化后必须是正整数，且不得超过系统定义的最大有界输出阈值

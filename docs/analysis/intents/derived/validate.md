@@ -155,6 +155,8 @@ v1 支持的输入形态如下：
 
 输出类型：`validation_bundle`
 
+`validate` 自身不重复暴露 `calendar_policy_ref`。若比较语义依赖节假日 / weekday / 活动窗对齐，应复用上游 `observe` 已冻结的 resolved alignment metadata，而不是在 `validate` 请求中再提交一份平行 policy 输入。
+
 ## v1 不支持的输入
 
 - 只给一侧 scope 再让系统自动推导另一侧

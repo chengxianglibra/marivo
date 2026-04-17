@@ -614,6 +614,53 @@ class CompilerTypedResolutionTests(unittest.TestCase):
         self.assertEqual(normalized.request_time_scope["mode"], "compare")
         self.assertEqual(normalized.request_time_scope["current"]["start"], "2026-03-10")
 
+    def test_normalize_step_request_preserves_calendar_policy_ref(self) -> None:
+        normalized = normalize_step_request(
+            AnalysisStepIR(
+                index=0,
+                step_type="observe",
+                params={
+                    "metric": "watch_time",
+                    "calendar_policy_ref": "calendar_policy.weekday_yoy",
+                },
+            )
+        )
+
+        self.assertEqual(normalized.metric_ref, "metric.watch_time")
+        self.assertEqual(
+            normalized.request_calendar_policy_ref,
+            "calendar_policy.weekday_yoy",
+        )
+
+    def test_normalize_step_request_rejects_unknown_calendar_policy_ref(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Unknown calendar_policy_ref"):
+            normalize_step_request(
+                AnalysisStepIR(
+                    index=0,
+                    step_type="observe",
+                    params={
+                        "metric": "watch_time",
+                        "calendar_policy_ref": "calendar_policy.not_real",
+                    },
+                )
+            )
+
+    def test_normalize_step_request_rejects_calendar_policy_ref_outside_observe(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError,
+            "calendar_policy_ref is only supported for observe steps",
+        ):
+            normalize_step_request(
+                AnalysisStepIR(
+                    index=0,
+                    step_type="compare",
+                    params={
+                        "metric": "watch_time",
+                        "calendar_policy_ref": "calendar_policy.weekday_yoy",
+                    },
+                )
+            )
+
     def test_resolve_compiler_inputs_uses_runtime_repository(self) -> None:
         repository = _FakeSemanticRepository()
         normalized = normalize_step_request(
@@ -998,6 +1045,150 @@ class CompilerTypedResolutionTests(unittest.TestCase):
         )
         self.assertNotIn("artifact_refs", compiled.ir_bundle["compile_report"])
         self.assertNotIn("finding_ref", str(compiled.ir_bundle))
+
+    def test_compile_step_records_resolved_calendar_alignment_for_month_window(self) -> None:
+        compiled = compile_step(
+            AnalysisStepIR(
+                index=0,
+                step_type="metric_query",
+                params={
+                    "metric": "watch_time",
+                    "table": "analytics.watch_events",
+                    "calendar_policy_ref": "calendar_policy.holiday_yoy",
+                    "time_scope": {
+                        "mode": "single_window",
+                        "grain": "month",
+                        "current": {"start": "2026-04-01", "end": "2026-05-01"},
+                    },
+                    "scoped_query": {
+                        "mode": "single_window",
+                        "analysis_time_expr": "event_date",
+                        "analysis_time_kind": "date_field",
+                        "current": {"start": "2026-04-01", "end": "2026-05-01"},
+                    },
+                },
+            ),
+            engine_type="duckdb",
+            semantic_context={
+                "metric_sql": "avg(play_duration_seconds)",
+                "dimensions": ["platform"],
+                "semantic_repository": _FakeSemanticRepository(),
+                "binding_reader": _binding_reader,
+                "compatibility_profile_reader": _profile_reader,
+            },
+        )
+
+        alignment = compiled.metadata["resolved_calendar_alignment"]
+        assert isinstance(alignment, dict)
+        self.assertEqual(alignment["policy_ref"], "calendar_policy.holiday_yoy")
+        self.assertEqual(alignment["comparison_basis"], "yoy")
+        self.assertEqual(alignment["resolved_calendar_source"], "calendar_data.v1")
+        self.assertEqual(alignment["resolved_calendar_version"], "calendar_data.v1.default")
+        self.assertEqual(
+            alignment["baseline_window"],
+            {"start": "2025-04-01", "end": "2025-05-01"},
+        )
+        self.assertEqual(len(alignment["bucket_pairing"]), 30)
+        self.assertEqual(alignment["bucket_pairing"][0]["pairing_reason"], "same_weekday_nearest")
+        self.assertEqual(alignment["comparability_warnings"], ["fallback_applied"])
+        assert compiled.ir_bundle is not None
+        self.assertEqual(
+            compiled.ir_bundle["compile_report"]["resolved_calendar_alignment"],
+            alignment,
+        )
+        self.assertEqual(
+            compiled.ir_bundle["plan"]["inputs"]["intent_request"]["requested_calendar_policy_ref"],
+            "calendar_policy.holiday_yoy",
+        )
+
+    def test_compile_step_records_day_aligned_weekday_wow_for_week_window(self) -> None:
+        compiled = compile_step(
+            AnalysisStepIR(
+                index=0,
+                step_type="metric_query",
+                params={
+                    "metric": "watch_time",
+                    "table": "analytics.watch_events",
+                    "calendar_policy_ref": "calendar_policy.weekday_wow",
+                    "time_scope": {
+                        "mode": "single_window",
+                        "grain": "week",
+                        "current": {"start": "2026-04-06", "end": "2026-04-13"},
+                    },
+                    "scoped_query": {
+                        "mode": "single_window",
+                        "analysis_time_expr": "event_date",
+                        "analysis_time_kind": "date_field",
+                        "current": {"start": "2026-04-06", "end": "2026-04-13"},
+                    },
+                },
+            ),
+            engine_type="duckdb",
+            semantic_context={
+                "metric_sql": "avg(play_duration_seconds)",
+                "dimensions": ["platform"],
+                "semantic_repository": _FakeSemanticRepository(),
+                "binding_reader": _binding_reader,
+                "compatibility_profile_reader": _profile_reader,
+            },
+        )
+
+        alignment = compiled.metadata["resolved_calendar_alignment"]
+        assert isinstance(alignment, dict)
+        self.assertEqual(
+            alignment["baseline_window"],
+            {"start": "2026-03-30", "end": "2026-04-06"},
+        )
+        self.assertEqual(len(alignment["bucket_pairing"]), 7)
+        self.assertTrue(
+            all(
+                bucket["pairing_reason"] == "same_weekday_nearest"
+                for bucket in alignment["bucket_pairing"]
+            )
+        )
+        self.assertEqual(alignment["coverage_summary"]["aligned_bucket_count"], 7)
+        self.assertEqual(alignment["comparability_warnings"], [])
+
+    def test_compile_step_rejects_hour_grain_calendar_alignment(self) -> None:
+        with self.assertRaises(SemanticRequestCompatibilityError) as ctx:
+            compile_step(
+                AnalysisStepIR(
+                    index=0,
+                    step_type="metric_query",
+                    params={
+                        "metric": "watch_time",
+                        "table": "analytics.watch_events",
+                        "calendar_policy_ref": "calendar_policy.weekday_yoy",
+                        "time_scope": {
+                            "mode": "single_window",
+                            "grain": "hour",
+                            "current": {
+                                "start": "2026-04-01T00:00:00",
+                                "end": "2026-04-01T02:00:00",
+                            },
+                        },
+                        "scoped_query": {
+                            "mode": "single_window",
+                            "analysis_time_expr": "event_time",
+                            "analysis_time_kind": "timestamp",
+                            "current": {
+                                "start": "2026-04-01T00:00:00",
+                                "end": "2026-04-01T02:00:00",
+                            },
+                        },
+                    },
+                ),
+                engine_type="duckdb",
+                semantic_context={
+                    "metric_sql": "avg(play_duration_seconds)",
+                    "dimensions": ["platform"],
+                    "semantic_repository": _FakeSemanticRepository(),
+                    "binding_reader": _binding_reader,
+                    "compatibility_profile_reader": _profile_reader,
+                },
+            )
+
+        self.assertEqual(ctx.exception.detail["code"], "calendar_policy_hour_grain_unsupported")
 
     def test_compile_step_propagates_not_ready_metric_error(self) -> None:
         with self.assertRaises(SemanticRuntimeNotReadyError) as ctx:
