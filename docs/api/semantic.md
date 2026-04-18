@@ -192,6 +192,9 @@ canonical `metric.*` ref for detail reads. Write and lifecycle routes remain int
 
 ### Process Objects
 
+`GET /semantic/process-objects/{process_contract_id}` accepts either the internal
+`process_contract_id` or the canonical `process.*` ref for detail reads.
+
 | Method | Path | Description |
 | --- | --- | --- |
 | `POST` | `/semantic/process-objects` | Create a process object |
@@ -204,6 +207,9 @@ canonical `metric.*` ref for detail reads. Write and lifecycle routes remain int
 | `POST` | `/semantic/process-objects/{process_contract_id}/publish` | Compatibility alias for activate |
 
 ### Dimensions
+
+`GET /semantic/dimensions/{dimension_contract_id}` accepts either the internal
+`dimension_contract_id` or the canonical `dimension.*` ref for detail reads.
 
 | Method | Path | Description |
 | --- | --- | --- |
@@ -218,6 +224,9 @@ canonical `metric.*` ref for detail reads. Write and lifecycle routes remain int
 
 ### Time Semantics
 
+`GET /semantic/time/{time_contract_id}` accepts either the internal `time_contract_id` or the
+canonical `time.*` ref for detail reads.
+
 | Method | Path | Description |
 | --- | --- | --- |
 | `POST` | `/semantic/time` | Create a time semantic |
@@ -230,6 +239,9 @@ canonical `metric.*` ref for detail reads. Write and lifecycle routes remain int
 | `POST` | `/semantic/time/{time_contract_id}/publish` | Compatibility alias for activate |
 
 ### Enum Sets
+
+`GET /semantic/enum-sets/{enum_set_contract_id}` accepts either the internal
+`enum_set_contract_id` or the canonical `enum.*` ref for detail reads.
 
 | Method | Path | Description |
 | --- | --- | --- |
@@ -244,6 +256,9 @@ canonical `metric.*` ref for detail reads. Write and lifecycle routes remain int
 
 ### Bindings
 
+`GET /semantic/bindings/{binding_id}` accepts either the internal `binding_id` or the canonical
+`binding.*` ref for detail reads.
+
 | Method | Path | Description |
 | --- | --- | --- |
 | `POST` | `/semantic/bindings` | Create a typed binding |
@@ -256,6 +271,9 @@ canonical `metric.*` ref for detail reads. Write and lifecycle routes remain int
 | `POST` | `/semantic/bindings/{binding_id}/publish` | Compatibility alias for activate |
 
 ### Compiler Compatibility Profiles
+
+`GET /compiler/compatibility-profiles/{profile_id}` accepts either the internal `profile_id` or the
+canonical `compiler_profile.*` ref for detail reads.
 
 | Method | Path | Description |
 | --- | --- | --- |

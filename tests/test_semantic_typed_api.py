@@ -1959,6 +1959,316 @@ class SemanticTypedApiTests(unittest.TestCase):
         self.assertEqual(payload["error"]["code"], "request_validation_error")
         self.assertEqual(payload["guidance"]["docs_url"], "docs/api/semantic.md")
 
+    def test_detail_reads_accept_canonical_refs_for_all_typed_object_families(self) -> None:
+        suffix = uuid4().hex[:8]
+
+        time_resp = self.client.post(
+            "/semantic/time",
+            json={
+                "header": {
+                    "time_ref": f"time.signup_time_{suffix}",
+                    "display_name": "Signup Time",
+                    "semantic_roles": ["business_anchor"],
+                    "time_contract_version": "time.v1",
+                }
+            },
+        )
+        self.assertEqual(time_resp.status_code, 200, time_resp.text)
+        time_ref = time_resp.json()["header"]["time_ref"]
+        time_contract_id = time_resp.json()["time_contract_id"]
+        self.assertEqual(
+            self.client.post(f"/semantic/time/{time_contract_id}/publish").status_code,
+            200,
+        )
+
+        enum_resp = self.client.post(
+            "/semantic/enum-sets",
+            json={
+                "header": {
+                    "enum_set_ref": f"enum.signup_country_{suffix}",
+                    "value_type": "string",
+                },
+                "display_name": "Signup Country",
+                "versions": [
+                    {
+                        "enum_version": "v1",
+                        "values": [{"value_key": "CN", "raw_value": "CN", "label": "China"}],
+                    }
+                ],
+            },
+        )
+        self.assertEqual(enum_resp.status_code, 200, enum_resp.text)
+        enum_ref = enum_resp.json()["header"]["enum_set_ref"]
+        enum_contract_id = enum_resp.json()["enum_set_contract_id"]
+        self.assertEqual(
+            self.client.post(f"/semantic/enum-sets/{enum_contract_id}/publish").status_code,
+            200,
+        )
+
+        dimension_resp = self.client.post(
+            "/semantic/dimensions",
+            json={
+                "header": {
+                    "dimension_ref": f"dimension.signup_country_{suffix}",
+                    "display_name": "Signup Country",
+                    "dimension_contract_version": "dimension.v1",
+                },
+                "interface_contract": {
+                    "value_domain": {
+                        "structure_kind": "flat",
+                        "value_type": "string",
+                        "domain_kind": "enumerated",
+                        "enum_set_ref": enum_ref,
+                        "enum_version": "v1",
+                    },
+                    "grouping": {"supports_grouping": True},
+                },
+            },
+        )
+        self.assertEqual(dimension_resp.status_code, 200, dimension_resp.text)
+        dimension_ref = dimension_resp.json()["header"]["dimension_ref"]
+        dimension_contract_id = dimension_resp.json()["dimension_contract_id"]
+        self.assertEqual(
+            self.client.post(f"/semantic/dimensions/{dimension_contract_id}/publish").status_code,
+            200,
+        )
+
+        entity_resp = self.client.post(
+            "/semantic/entities",
+            json={
+                "header": {
+                    "entity_ref": f"entity.account_{suffix}",
+                    "display_name": "Account",
+                    "entity_contract_version": "entity.v4",
+                },
+                "interface_contract": {
+                    "identity": {
+                        "key_refs": [f"key.account_id_{suffix}"],
+                        "uniqueness_scope": "global",
+                        "id_stability": "stable",
+                    }
+                },
+            },
+        )
+        self.assertEqual(entity_resp.status_code, 200, entity_resp.text)
+        entity_ref = entity_resp.json()["header"]["entity_ref"]
+        entity_contract_id = entity_resp.json()["entity_contract_id"]
+        self.assertEqual(
+            self.client.post(f"/semantic/entities/{entity_contract_id}/publish").status_code,
+            200,
+        )
+
+        process_resp = self.client.post(
+            "/semantic/process-objects",
+            json={
+                "header": {
+                    "process_ref": f"process.new_user_cohort_{suffix}",
+                    "display_name": "New User Cohort",
+                    "process_type": "cohort_definition",
+                    "process_contract_version": "process.v2",
+                },
+                "interface_contract": {
+                    "contract_mode": "context_provider",
+                    "context_kind": "cohort_membership",
+                    "population_subject_ref": "subject.user",
+                    "membership_cardinality": "exclusive_one",
+                    "anchor_time_ref": time_ref,
+                    "exported_dimension_refs": [dimension_ref],
+                },
+                "payload": {
+                    "process_type": "cohort_definition",
+                    "cohort_key": "new_users",
+                    "entry_population": {"base_population_ref": "population.users"},
+                    "cohort_anchor_ref": time_ref,
+                },
+            },
+        )
+        self.assertEqual(process_resp.status_code, 200, process_resp.text)
+        process_ref = process_resp.json()["header"]["process_ref"]
+        process_contract_id = process_resp.json()["process_contract_id"]
+        self.assertEqual(
+            self.client.post(
+                f"/semantic/process-objects/{process_contract_id}/publish"
+            ).status_code,
+            200,
+        )
+
+        binding_source_fqn = f"warehouse.account_{suffix}"
+        binding_source_object_id = self._insert_source_object(fqn=binding_source_fqn)
+        binding_resp = self.client.post(
+            "/semantic/bindings",
+            json={
+                "header": {
+                    "binding_ref": f"binding.account_{suffix}",
+                    "display_name": "Account Binding",
+                    "binding_scope": "entity",
+                    "bound_object_ref": entity_ref,
+                    "binding_contract_version": "binding.v1",
+                },
+                "interface_contract": {
+                    "carrier_bindings": [
+                        {
+                            "binding_key": "primary",
+                            "carrier_kind": "table",
+                            "carrier_locator": binding_source_fqn,
+                            "source_object_ref": binding_source_object_id,
+                            "binding_role": "primary",
+                            "field_surfaces": [
+                                {
+                                    "surface_ref": "field.account_id",
+                                    "physical_name": "account_id",
+                                }
+                            ],
+                        }
+                    ],
+                    "field_bindings": [
+                        {
+                            "carrier_binding_key": "primary",
+                            "target": {
+                                "target_kind": "identity_key",
+                                "target_key": f"key.account_id_{suffix}",
+                            },
+                            "semantic_ref": f"key.account_id_{suffix}",
+                            "surface_ref": "field.account_id",
+                        }
+                    ],
+                },
+            },
+        )
+        self.assertEqual(binding_resp.status_code, 200, binding_resp.text)
+        binding_ref = binding_resp.json()["header"]["binding_ref"]
+        binding_id = binding_resp.json()["binding_id"]
+        self.assertEqual(
+            self.client.post(f"/semantic/bindings/{binding_id}/publish").status_code,
+            200,
+        )
+
+        metric_resp = self.client.post(
+            "/semantic/metrics",
+            json={
+                "header": {
+                    "metric_ref": f"metric.account_count_{suffix}",
+                    "display_name": "Account Count",
+                    "metric_family": "count_metric",
+                    "observed_entity_ref": entity_ref,
+                    "observation_grain_ref": "grain.account",
+                    "sample_kind": "numeric",
+                    "value_semantics": "count",
+                    "additivity": "additive",
+                    "metric_contract_version": "metric.v1",
+                },
+                "payload": {
+                    "metric_family": "count_metric",
+                    "count_target": {
+                        "name": "accounts",
+                        "semantics": "distinct accounts",
+                        "aggregation": "count_distinct",
+                    },
+                },
+            },
+        )
+        self.assertEqual(metric_resp.status_code, 200, metric_resp.text)
+        metric_ref = metric_resp.json()["header"]["metric_ref"]
+        metric_contract_id = metric_resp.json()["metric_contract_id"]
+        metric_source_fqn = f"warehouse.metric_account_{suffix}"
+        metric_source_object_id = self._insert_source_object(fqn=metric_source_fqn)
+        metric_binding_resp = self.client.post(
+            "/semantic/bindings",
+            json={
+                "header": {
+                    "binding_ref": f"binding.metric_account_count_{suffix}",
+                    "display_name": "Metric Binding",
+                    "binding_scope": "metric",
+                    "bound_object_ref": metric_ref,
+                    "binding_contract_version": "binding.v1",
+                },
+                "interface_contract": {
+                    "carrier_bindings": [
+                        {
+                            "binding_key": "primary",
+                            "carrier_kind": "table",
+                            "carrier_locator": metric_source_fqn,
+                            "source_object_ref": metric_source_object_id,
+                            "binding_role": "primary",
+                            "field_surfaces": [
+                                {"surface_ref": "field.event_date", "physical_name": "event_date"},
+                                {"surface_ref": "field.account_id", "physical_name": "account_id"},
+                            ],
+                        }
+                    ],
+                    "field_bindings": [
+                        {
+                            "carrier_binding_key": "primary",
+                            "target": {
+                                "target_kind": "metric_input",
+                                "target_key": "count_target",
+                            },
+                            "semantic_ref": "metric_input.count_target",
+                            "surface_ref": "field.account_id",
+                        }
+                    ],
+                    "time_bindings": [
+                        {
+                            "carrier_binding_key": "primary",
+                            "target": {"target_kind": "primary_time", "target_key": time_ref},
+                            "semantic_ref": time_ref,
+                            "resolution_kind": "date_column",
+                            "date_surface_ref": "field.event_date",
+                        }
+                    ],
+                },
+            },
+        )
+        self.assertEqual(metric_binding_resp.status_code, 200, metric_binding_resp.text)
+        self.assertEqual(
+            self.client.post(f"/semantic/metrics/{metric_contract_id}/publish").status_code,
+            200,
+        )
+        self.assertEqual(
+            self.client.post(
+                f"/semantic/bindings/{metric_binding_resp.json()['binding_id']}/publish"
+            ).status_code,
+            200,
+        )
+
+        profile_resp = self.client.post(
+            "/compiler/compatibility-profiles",
+            json={
+                "profile_ref": f"compiler_profile.account_count_{suffix}",
+                "profile_kind": "requirement",
+                "subject_kind": "metric",
+                "subject_ref": metric_ref,
+                "requirement": {"entity_refs": [entity_ref]},
+            },
+        )
+        self.assertEqual(profile_resp.status_code, 200, profile_resp.text)
+        profile_ref = profile_resp.json()["profile_ref"]
+        profile_id = profile_resp.json()["profile_id"]
+        self.assertEqual(
+            self.client.post(f"/compiler/compatibility-profiles/{profile_id}/publish").status_code,
+            200,
+        )
+
+        detail_reads = [
+            (f"/semantic/process-objects/{process_ref}", "header", "process_ref", process_ref),
+            (f"/semantic/dimensions/{dimension_ref}", "header", "dimension_ref", dimension_ref),
+            (f"/semantic/time/{time_ref}", "header", "time_ref", time_ref),
+            (f"/semantic/enum-sets/{enum_ref}", "header", "enum_set_ref", enum_ref),
+            (f"/semantic/bindings/{binding_ref}", "header", "binding_ref", binding_ref),
+            (
+                f"/compiler/compatibility-profiles/{profile_ref}",
+                None,
+                "profile_ref",
+                profile_ref,
+            ),
+        ]
+        for path, parent_key, field_name, expected in detail_reads:
+            resp = self.client.get(path)
+            self.assertEqual(resp.status_code, 200, resp.text)
+            payload = resp.json()
+            target = payload if parent_key is None else payload[parent_key]
+            self.assertEqual(target[field_name], expected)
+
     def test_metric_binding_rejects_measure_target_kind_with_guidance(self) -> None:
         entity_resp = self.client.post(
             "/semantic/entities",

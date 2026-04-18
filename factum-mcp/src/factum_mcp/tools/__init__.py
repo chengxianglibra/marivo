@@ -1200,7 +1200,7 @@ def register_tools(
     def get_binding(
         object_id: str | None = None, binding_id: str | None = None
     ) -> dict[str, object]:
-        """Read one binding via GET /semantic/bindings/{binding_id}; prefer object_id over the legacy binding_id name."""
+        """Read one binding via GET /semantic/bindings/{binding_id}; accepts an internal contract id or canonical binding ref, and prefers object_id over the legacy binding_id name."""
         resolved_id = _resolve_object_id(object_id, binding_id, legacy_name="binding_id")
         return _semantic_read_request(client, f"/semantic/bindings/{resolved_id}")
 
@@ -1309,7 +1309,7 @@ def register_tools(
         object_id: str | None = None,
         profile_id: str | None = None,
     ) -> dict[str, object]:
-        """Read one compatibility profile via GET /compiler/compatibility-profiles/{profile_id}; prefer object_id over the legacy profile_id name."""
+        """Read one compatibility profile via GET /compiler/compatibility-profiles/{profile_id}; accepts an internal profile id or canonical compiler_profile ref, and prefers object_id over the legacy profile_id name."""
         resolved_id = _resolve_object_id(object_id, profile_id, legacy_name="profile_id")
         return _semantic_read_request(client, f"/compiler/compatibility-profiles/{resolved_id}")
 

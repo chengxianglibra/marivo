@@ -43,6 +43,20 @@ class TypedBindingService(SemanticServiceSupport):
         self._replace_binding_contract(binding_id, interface_contract)
         return self.get_typed_binding(binding_id)
 
+    def read_typed_binding(self, binding_identifier: str) -> dict[str, Any]:
+        row = self.metadata.query_one(
+            "SELECT * FROM typed_bindings WHERE binding_id = ?",
+            [binding_identifier],
+        )
+        if row is None:
+            row = self.metadata.query_one(
+                "SELECT * FROM typed_bindings WHERE binding_ref = ?",
+                [binding_identifier],
+            )
+        if row is None:
+            raise self._not_found(f"Unknown typed binding: {binding_identifier}")
+        return self._row_to_typed_binding(row)
+
     def get_typed_binding(self, binding_id: str) -> dict[str, Any]:
         row = self.metadata.query_one(
             "SELECT * FROM typed_bindings WHERE binding_id = ?",

@@ -178,6 +178,9 @@ class SemanticService:
     def create_process_object(self, payload: ProcessObjectCreateRequest) -> dict[str, Any]:
         return self._invoke(lambda: self.typed_objects.create_process_object(payload))
 
+    def read_process_object(self, process_identifier: str) -> dict[str, Any]:
+        return self._invoke(lambda: self.typed_objects.read_process_object(process_identifier))
+
     def get_process_object(self, process_contract_id: str) -> dict[str, Any]:
         return self._invoke(lambda: self.typed_objects.get_process_object(process_contract_id))
 
@@ -223,6 +226,9 @@ class SemanticService:
     def create_dimension(self, payload: DimensionCreateRequest) -> dict[str, Any]:
         return self._invoke(lambda: self.typed_objects.create_dimension(payload))
 
+    def read_dimension(self, dimension_identifier: str) -> dict[str, Any]:
+        return self._invoke(lambda: self.typed_objects.read_dimension(dimension_identifier))
+
     def get_dimension(self, dimension_contract_id: str) -> dict[str, Any]:
         return self._invoke(lambda: self.typed_objects.get_dimension(dimension_contract_id))
 
@@ -265,6 +271,9 @@ class SemanticService:
 
     def create_time_semantic(self, payload: TimeCreateRequest) -> dict[str, Any]:
         return self._invoke(lambda: self.typed_objects.create_time_semantic(payload))
+
+    def read_time_semantic(self, time_identifier: str) -> dict[str, Any]:
+        return self._invoke(lambda: self.typed_objects.read_time_semantic(time_identifier))
 
     def get_time_semantic(self, time_contract_id: str) -> dict[str, Any]:
         return self._invoke(lambda: self.typed_objects.get_time_semantic(time_contract_id))
@@ -309,6 +318,9 @@ class SemanticService:
     def create_enum_set(self, payload: EnumSetCreateRequest) -> dict[str, Any]:
         return self._invoke(lambda: self.typed_objects.create_enum_set(payload))
 
+    def read_enum_set(self, enum_set_identifier: str) -> dict[str, Any]:
+        return self._invoke(lambda: self.typed_objects.read_enum_set(enum_set_identifier))
+
     def get_enum_set(self, enum_set_contract_id: str) -> dict[str, Any]:
         return self._invoke(lambda: self.typed_objects.get_enum_set(enum_set_contract_id))
 
@@ -351,6 +363,9 @@ class SemanticService:
 
     def create_typed_binding(self, payload: TypedBindingCreateRequest) -> dict[str, Any]:
         return self._invoke(lambda: self.bindings.create_typed_binding(payload))
+
+    def read_typed_binding(self, binding_identifier: str) -> dict[str, Any]:
+        return self._invoke(lambda: self.bindings.read_typed_binding(binding_identifier))
 
     def get_typed_binding(self, binding_id: str) -> dict[str, Any]:
         return self._invoke(lambda: self.bindings.get_typed_binding(binding_id))
@@ -395,6 +410,11 @@ class SemanticService:
     ) -> dict[str, Any]:
         return self._invoke(
             lambda: self.compatibility_profiles.create_compatibility_profile(payload)
+        )
+
+    def read_compatibility_profile(self, profile_identifier: str) -> dict[str, Any]:
+        return self._invoke(
+            lambda: self.compatibility_profiles.read_compatibility_profile(profile_identifier)
         )
 
     def get_compatibility_profile(self, profile_id: str) -> dict[str, Any]:
