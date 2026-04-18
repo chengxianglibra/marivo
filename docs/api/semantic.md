@@ -160,6 +160,9 @@ Related design docs:
 
 ### Entities
 
+`GET /semantic/entities/{entity_id}` accepts either the internal `entity_contract_id` or the
+canonical `entity.*` ref for detail reads. Write and lifecycle routes remain internal-id based.
+
 | Method | Path | Description |
 | --- | --- | --- |
 | `POST` | `/semantic/entities` | Create a typed entity |
@@ -172,6 +175,9 @@ Related design docs:
 | `POST` | `/semantic/entities/{entity_id}/publish` | Compatibility alias for activate |
 
 ### Metrics
+
+`GET /semantic/metrics/{metric_id}` accepts either the internal `metric_contract_id` or the
+canonical `metric.*` ref for detail reads. Write and lifecycle routes remain internal-id based.
 
 | Method | Path | Description |
 | --- | --- | --- |

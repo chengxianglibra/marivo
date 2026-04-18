@@ -80,6 +80,20 @@ class TypedObjectService(SemanticServiceSupport):
         )
         return self.get_typed_entity(entity_contract_id)
 
+    def read_typed_entity(self, entity_identifier: str) -> dict[str, Any]:
+        row = self.metadata.query_one(
+            "SELECT * FROM semantic_entity_contracts WHERE entity_contract_id = ?",
+            [entity_identifier],
+        )
+        if row is None:
+            row = self.metadata.query_one(
+                "SELECT * FROM semantic_entity_contracts WHERE entity_ref = ?",
+                [entity_identifier],
+            )
+        if row is None:
+            raise self._not_found(f"Unknown typed entity: {entity_identifier}")
+        return self._row_to_typed_entity(row)
+
     def get_typed_entity(self, entity_contract_id: str) -> dict[str, Any]:
         row = self.metadata.query_one(
             "SELECT * FROM semantic_entity_contracts WHERE entity_contract_id = ?",
@@ -255,6 +269,20 @@ class TypedObjectService(SemanticServiceSupport):
             ],
         )
         return self.get_typed_metric(metric_contract_id)
+
+    def read_typed_metric(self, metric_identifier: str) -> dict[str, Any]:
+        row = self.metadata.query_one(
+            "SELECT * FROM semantic_metric_contracts WHERE metric_contract_id = ?",
+            [metric_identifier],
+        )
+        if row is None:
+            row = self.metadata.query_one(
+                "SELECT * FROM semantic_metric_contracts WHERE metric_ref = ?",
+                [metric_identifier],
+            )
+        if row is None:
+            raise self._not_found(f"Unknown typed metric: {metric_identifier}")
+        return self._row_to_typed_metric(row)
 
     def get_typed_metric(self, metric_contract_id: str) -> dict[str, Any]:
         row = self.metadata.query_one(

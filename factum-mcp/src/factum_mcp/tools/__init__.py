@@ -534,7 +534,7 @@ def register_tools(
     @server.tool()
     @_tool_metadata("GET", "/semantic/entities/{entity_id}")
     def get_entity(object_id: str | None = None, entity_id: str | None = None) -> dict[str, object]:
-        """Read one entity via GET /semantic/entities/{entity_id}; prefer object_id over the legacy entity_id name."""
+        """Read one entity via GET /semantic/entities/{entity_id}; accepts an internal contract id or canonical entity ref, and prefers object_id over the legacy entity_id name."""
         resolved_id = _resolve_object_id(object_id, entity_id, legacy_name="entity_id")
         return _semantic_read_request(client, f"/semantic/entities/{resolved_id}")
 
@@ -630,7 +630,7 @@ def register_tools(
     @server.tool()
     @_tool_metadata("GET", "/semantic/metrics/{metric_id}")
     def get_metric(object_id: str | None = None, metric_id: str | None = None) -> dict[str, object]:
-        """Read one metric via GET /semantic/metrics/{metric_id}; prefer object_id over the legacy metric_id name."""
+        """Read one metric via GET /semantic/metrics/{metric_id}; accepts an internal contract id or canonical metric ref, and prefers object_id over the legacy metric_id name."""
         resolved_id = _resolve_object_id(object_id, metric_id, legacy_name="metric_id")
         return _semantic_read_request(client, f"/semantic/metrics/{resolved_id}")
 

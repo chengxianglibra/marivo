@@ -105,6 +105,30 @@ class SemanticEntityRouteTests(unittest.TestCase):
         resp = self.client.get("/semantic/entities/nonexistent")
         self.assertEqual(resp.status_code, 404)
 
+    def test_entity_detail_read_accepts_canonical_ref(self) -> None:
+        create_resp = self.client.post(
+            "/semantic/entities",
+            json={
+                "header": {
+                    "entity_ref": "entity.user_read_surface",
+                    "display_name": "User Read Surface",
+                    "entity_contract_version": "entity.v4",
+                },
+                "interface_contract": {
+                    "identity": {
+                        "key_refs": ["key.user_read_surface_id"],
+                        "uniqueness_scope": "global",
+                        "id_stability": "stable",
+                    }
+                },
+            },
+        )
+        self.assertEqual(create_resp.status_code, 200, create_resp.text)
+
+        resp = self.client.get("/semantic/entities/entity.user_read_surface")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(resp.json()["header"]["entity_ref"], "entity.user_read_surface")
+
     def test_entity_properties_patch_route_is_removed(self) -> None:
         entity = self.client.post(
             "/semantic/entities",
@@ -330,6 +354,60 @@ class SemanticMetricRouteTests(unittest.TestCase):
 
         resp = self.client.get("/semantic/metrics/nonexistent")
         self.assertEqual(resp.status_code, 404)
+
+    def test_metric_detail_read_accepts_canonical_ref(self) -> None:
+        entity_resp = self.client.post(
+            "/semantic/entities",
+            json={
+                "header": {
+                    "entity_ref": "entity.metric_read_subject",
+                    "display_name": "Metric Read Subject",
+                    "entity_contract_version": "entity.v4",
+                },
+                "interface_contract": {
+                    "identity": {
+                        "key_refs": ["key.metric_read_subject_id"],
+                        "uniqueness_scope": "global",
+                        "id_stability": "stable",
+                    }
+                },
+            },
+        )
+        self.assertEqual(entity_resp.status_code, 200, entity_resp.text)
+        publish_resp = self.client.post(
+            f"/semantic/entities/{entity_resp.json()['entity_contract_id']}/publish"
+        )
+        self.assertEqual(publish_resp.status_code, 200, publish_resp.text)
+
+        create_resp = self.client.post(
+            "/semantic/metrics",
+            json={
+                "header": {
+                    "metric_ref": "metric.watch_time_read_surface",
+                    "display_name": "Watch Time Read Surface",
+                    "metric_family": "count_metric",
+                    "observed_entity_ref": "entity.metric_read_subject",
+                    "observation_grain_ref": "grain.user",
+                    "sample_kind": "numeric",
+                    "value_semantics": "count",
+                    "additivity": "additive",
+                    "metric_contract_version": "metric.v1",
+                },
+                "payload": {
+                    "metric_family": "count_metric",
+                    "count_target": {
+                        "name": "watch_time_read_surface",
+                        "semantics": "Count target for read surface test",
+                        "aggregation": "count",
+                    },
+                },
+            },
+        )
+        self.assertEqual(create_resp.status_code, 200, create_resp.text)
+
+        resp = self.client.get("/semantic/metrics/metric.watch_time_read_surface")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(resp.json()["header"]["metric_ref"], "metric.watch_time_read_surface")
 
 
 class SemanticDimensionRouteTests(unittest.TestCase):

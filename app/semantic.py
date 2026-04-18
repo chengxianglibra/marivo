@@ -86,6 +86,9 @@ class SemanticService:
     def create_typed_entity(self, payload: TypedEntityCreateRequest) -> dict[str, Any]:
         return self._invoke(lambda: self.typed_objects.create_typed_entity(payload))
 
+    def read_typed_entity(self, entity_identifier: str) -> dict[str, Any]:
+        return self._invoke(lambda: self.typed_objects.read_typed_entity(entity_identifier))
+
     def get_typed_entity(self, entity_contract_id: str) -> dict[str, Any]:
         return self._invoke(lambda: self.typed_objects.get_typed_entity(entity_contract_id))
 
@@ -128,6 +131,9 @@ class SemanticService:
 
     def create_typed_metric(self, payload: TypedMetricCreateRequest) -> dict[str, Any]:
         return self._invoke(lambda: self.typed_objects.create_typed_metric(payload))
+
+    def read_typed_metric(self, metric_identifier: str) -> dict[str, Any]:
+        return self._invoke(lambda: self.typed_objects.read_typed_metric(metric_identifier))
 
     def get_typed_metric(self, metric_contract_id: str) -> dict[str, Any]:
         return self._invoke(lambda: self.typed_objects.get_typed_metric(metric_contract_id))
