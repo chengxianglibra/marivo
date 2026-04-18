@@ -2271,6 +2271,80 @@ class CompareIntentTests(unittest.TestCase):
         if self.skipped or self.left_step_id is None or self.right_step_id is None:
             self.skipTest("Semantic layer not fully wired or observe steps failed")
 
+    def _observe_scalar(self, *, start: str, end: str) -> str:
+        response = self.client.post(
+            f"/sessions/{self.session_id}/intents/observe",
+            json={
+                "metric": _metric_ref("compare_test_dau"),
+                "time_scope": {"kind": "range", "start": start, "end": end},
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        return response.json()["step_ref"]["step_id"]
+
+    def _update_observation_resolved_policy_summary(
+        self,
+        *,
+        step_id: str,
+        resolved_policy_summary: dict[str, object] | None,
+    ) -> None:
+        row = self.service.metadata.query_one(
+            "SELECT artifact_id, content_json FROM artifacts WHERE step_id = ? AND lifecycle = 'committed'",
+            [step_id],
+        )
+        self.assertIsNotNone(row)
+        assert row is not None
+        content = json.loads(row["content_json"])
+        content["resolved_policy_summary"] = resolved_policy_summary
+        self.service.metadata.execute(
+            "UPDATE artifacts SET content_json = ? WHERE artifact_id = ?",
+            [json.dumps(content), row["artifact_id"]],
+        )
+
+    @staticmethod
+    def _resolved_policy_summary(
+        *,
+        policy_ref: str = "calendar_policy.weekday_yoy",
+        comparison_basis: str = "yoy",
+        resolved_calendar_source: str = "calendar.test_fixture",
+        resolved_calendar_version: str = "calendar.test_fixture_v1",
+        aligned_bucket_count: int = 7,
+        unpaired_bucket_count: int = 0,
+        aligned_ratio: float = 1.0,
+        comparability_warnings: list[str] | None = None,
+    ) -> dict[str, object]:
+        return {
+            "policy_ref": policy_ref,
+            "comparison_basis": comparison_basis,
+            "resolved_calendar_source": resolved_calendar_source,
+            "resolved_calendar_version": resolved_calendar_version,
+            "resolved_baseline_generation_rule": {
+                "strategy": "previous_year",
+                "offset_value": 1,
+                "offset_unit": "year",
+                "fixed_start": None,
+                "fixed_end": None,
+                "named_window_ref": None,
+            },
+            "current_window": {"start": "2026-02-14", "end": "2026-02-21"},
+            "baseline_window": {"start": "2025-02-14", "end": "2025-02-21"},
+            "bucket_pairing": [
+                {
+                    "current_bucket_start": "2026-02-14",
+                    "baseline_bucket_start": "2025-02-14",
+                    "pairing_reason": "same_weekday_nearest",
+                    "shift_days": 365,
+                    "issues": [],
+                }
+            ],
+            "coverage_summary": {
+                "aligned_bucket_count": aligned_bucket_count,
+                "unpaired_bucket_count": unpaired_bucket_count,
+                "aligned_ratio": aligned_ratio,
+            },
+            "comparability_warnings": comparability_warnings or [],
+        }
+
     def test_scalar_compare_success(self) -> None:
         """compare two scalar observe artifacts returns 200 with correct shape."""
         self._skip_if_not_wired()
@@ -2356,6 +2430,143 @@ class CompareIntentTests(unittest.TestCase):
         self.assertEqual(lineage["left_source_ref"]["step_id"], self.left_step_id)
         self.assertEqual(lineage["right_source_ref"]["step_id"], self.right_step_id)
         self.assertEqual(lineage["derivation_version"], "1.0")
+
+    def test_compare_reuses_frozen_calendar_alignment_from_observation_artifacts(self) -> None:
+        left_step_id = self._observe_scalar(start="2026-02-21", end="2026-02-28")
+        right_step_id = self._observe_scalar(start="2026-02-14", end="2026-02-21")
+        summary = self._resolved_policy_summary(
+            resolved_calendar_source="calendar.patched_for_compare_reuse",
+            resolved_calendar_version="calendar.patched_for_compare_reuse_v3",
+            aligned_bucket_count=6,
+            unpaired_bucket_count=1,
+            aligned_ratio=6 / 7,
+        )
+        self._update_observation_resolved_policy_summary(
+            step_id=left_step_id,
+            resolved_policy_summary=summary,
+        )
+        self._update_observation_resolved_policy_summary(
+            step_id=right_step_id,
+            resolved_policy_summary=summary,
+        )
+
+        response = self.client.post(
+            f"/sessions/{self.session_id}/intents/compare",
+            json={
+                "left_ref": {
+                    "session_id": self.session_id,
+                    "step_id": left_step_id,
+                    "step_type": "observe",
+                },
+                "right_ref": {
+                    "session_id": self.session_id,
+                    "step_id": right_step_id,
+                    "step_type": "observe",
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        payload = response.json()
+        self.assertEqual(payload["comparability"]["status"], "needs_attention")
+        self.assertEqual(
+            payload["resolved_input_summary"]["calendar_alignment"]["reuse_source"],
+            "observation_resolved_policy_summary",
+        )
+        self.assertEqual(
+            payload["resolved_input_summary"]["calendar_alignment"]["resolved_calendar_source"],
+            "calendar.patched_for_compare_reuse",
+        )
+        self.assertEqual(
+            payload["resolved_input_summary"]["calendar_alignment"]["resolved_calendar_version"],
+            "calendar.patched_for_compare_reuse_v3",
+        )
+        self.assertEqual(
+            payload["resolved_input_summary"]["calendar_alignment"]["effective_coverage_summary"],
+            {
+                "aligned_bucket_count": 6,
+                "unpaired_bucket_count": 1,
+                "aligned_ratio": 6 / 7,
+            },
+        )
+        self.assertEqual(
+            payload["comparability"]["issues"][-1]["code"],
+            "alignment_coverage_insufficient",
+        )
+
+    def test_compare_fails_when_observation_frozen_alignment_metadata_mismatches(self) -> None:
+        left_step_id = self._observe_scalar(start="2026-02-21", end="2026-02-28")
+        right_step_id = self._observe_scalar(start="2026-02-14", end="2026-02-21")
+        self._update_observation_resolved_policy_summary(
+            step_id=left_step_id,
+            resolved_policy_summary=self._resolved_policy_summary(
+                resolved_calendar_source="calendar.left_only_source"
+            ),
+        )
+        self._update_observation_resolved_policy_summary(
+            step_id=right_step_id,
+            resolved_policy_summary=self._resolved_policy_summary(
+                resolved_calendar_source="calendar.right_only_source"
+            ),
+        )
+
+        response = self.client.post(
+            f"/sessions/{self.session_id}/intents/compare",
+            json={
+                "left_ref": {
+                    "session_id": self.session_id,
+                    "step_id": left_step_id,
+                    "step_type": "observe",
+                },
+                "right_ref": {
+                    "session_id": self.session_id,
+                    "step_id": right_step_id,
+                    "step_type": "observe",
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, 422, response.text)
+        self.assertIn("NOT_COMPARABLE", response.json()["detail"])
+        self.assertIn(
+            "left and right observations freeze different calendar sources",
+            response.json()["detail"],
+        )
+
+    def test_compare_rejects_weekday_pairing_tie_from_frozen_observation_metadata(self) -> None:
+        left_step_id = self._observe_scalar(start="2026-02-21", end="2026-02-28")
+        right_step_id = self._observe_scalar(start="2026-02-14", end="2026-02-21")
+        summary = self._resolved_policy_summary(comparability_warnings=["weekday_pairing_tie"])
+        self._update_observation_resolved_policy_summary(
+            step_id=left_step_id,
+            resolved_policy_summary=summary,
+        )
+        self._update_observation_resolved_policy_summary(
+            step_id=right_step_id,
+            resolved_policy_summary=summary,
+        )
+
+        response = self.client.post(
+            f"/sessions/{self.session_id}/intents/compare",
+            json={
+                "left_ref": {
+                    "session_id": self.session_id,
+                    "step_id": left_step_id,
+                    "step_type": "observe",
+                },
+                "right_ref": {
+                    "session_id": self.session_id,
+                    "step_id": right_step_id,
+                    "step_type": "observe",
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, 422, response.text)
+        self.assertIn(
+            "weekday alignment produced an unresolved tie",
+            response.json()["detail"],
+        )
 
     def test_segmented_compare_success(self) -> None:
         """compare two segmented observe artifacts returns segmented_delta with rows."""
