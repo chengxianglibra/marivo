@@ -266,7 +266,7 @@ def list_process_objects(
 @router.get("/semantic/process-objects/{process_contract_id}", response_model=ProcessObjectResponse)
 def get_process_object(process_contract_id: str, request: Request) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
-    return _run_route_action(lambda: semantic_service.get_process_object(process_contract_id))
+    return _run_route_action(lambda: semantic_service.read_process_object(process_contract_id))
 
 
 @router.put("/semantic/process-objects/{process_contract_id}", response_model=ProcessObjectResponse)
@@ -358,7 +358,7 @@ def list_dimensions(
 @router.get("/semantic/dimensions/{dimension_contract_id}", response_model=DimensionResponse)
 def get_dimension(dimension_contract_id: str, request: Request) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
-    return _run_route_action(lambda: semantic_service.get_dimension(dimension_contract_id))
+    return _run_route_action(lambda: semantic_service.read_dimension(dimension_contract_id))
 
 
 @router.put("/semantic/dimensions/{dimension_contract_id}", response_model=DimensionResponse)
@@ -448,7 +448,7 @@ def list_time_semantics(
 @router.get("/semantic/time/{time_contract_id}", response_model=TimeResponse)
 def get_time_semantic(time_contract_id: str, request: Request) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
-    return _run_route_action(lambda: semantic_service.get_time_semantic(time_contract_id))
+    return _run_route_action(lambda: semantic_service.read_time_semantic(time_contract_id))
 
 
 @router.put("/semantic/time/{time_contract_id}", response_model=TimeResponse)
@@ -531,7 +531,7 @@ def list_enum_sets(
 @router.get("/semantic/enum-sets/{enum_set_contract_id}", response_model=EnumSetResponse)
 def get_enum_set(enum_set_contract_id: str, request: Request) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
-    return _run_route_action(lambda: semantic_service.get_enum_set(enum_set_contract_id))
+    return _run_route_action(lambda: semantic_service.read_enum_set(enum_set_contract_id))
 
 
 @router.put("/semantic/enum-sets/{enum_set_contract_id}", response_model=EnumSetResponse)
@@ -616,7 +616,7 @@ def list_typed_bindings(
 @router.get("/semantic/bindings/{binding_id}", response_model=TypedBindingResponse)
 def get_typed_binding(binding_id: str, request: Request) -> dict[str, Any]:
     return _run_route_action(
-        lambda: get_services(request).semantic_service.get_typed_binding(binding_id)
+        lambda: get_services(request).semantic_service.read_typed_binding(binding_id)
     )
 
 
@@ -697,7 +697,7 @@ def list_compatibility_profiles(
 )
 def get_compatibility_profile(profile_id: str, request: Request) -> dict[str, Any]:
     return _run_route_action(
-        lambda: get_services(request).semantic_service.get_compatibility_profile(profile_id)
+        lambda: get_services(request).semantic_service.read_compatibility_profile(profile_id)
     )
 
 

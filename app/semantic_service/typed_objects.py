@@ -439,6 +439,20 @@ class TypedObjectService(SemanticServiceSupport):
         )
         return self.get_process_object(process_contract_id)
 
+    def read_process_object(self, process_identifier: str) -> dict[str, Any]:
+        row = self.metadata.query_one(
+            "SELECT * FROM semantic_process_objects WHERE process_contract_id = ?",
+            [process_identifier],
+        )
+        if row is None:
+            row = self.metadata.query_one(
+                "SELECT * FROM semantic_process_objects WHERE process_ref = ?",
+                [process_identifier],
+            )
+        if row is None:
+            raise self._not_found(f"Unknown process object: {process_identifier}")
+        return self._row_to_process_object(row)
+
     def get_process_object(self, process_contract_id: str) -> dict[str, Any]:
         row = self.metadata.query_one(
             "SELECT * FROM semantic_process_objects WHERE process_contract_id = ?",
@@ -759,6 +773,20 @@ class TypedObjectService(SemanticServiceSupport):
         )
         return self.get_dimension(dimension_contract_id)
 
+    def read_dimension(self, dimension_identifier: str) -> dict[str, Any]:
+        row = self.metadata.query_one(
+            "SELECT * FROM semantic_dimension_contracts WHERE dimension_contract_id = ?",
+            [dimension_identifier],
+        )
+        if row is None:
+            row = self.metadata.query_one(
+                "SELECT * FROM semantic_dimension_contracts WHERE dimension_ref = ?",
+                [dimension_identifier],
+            )
+        if row is None:
+            raise self._not_found(f"Unknown dimension: {dimension_identifier}")
+        return self._row_to_dimension(row)
+
     def validate_dimension(self, dimension_contract_id: str) -> dict[str, Any]:
         current = self.get_dimension(dimension_contract_id)
         self._validate_record(
@@ -830,6 +858,20 @@ class TypedObjectService(SemanticServiceSupport):
             ],
         )
         return self.get_time_semantic(time_contract_id)
+
+    def read_time_semantic(self, time_identifier: str) -> dict[str, Any]:
+        row = self.metadata.query_one(
+            "SELECT * FROM semantic_time_objects WHERE time_contract_id = ?",
+            [time_identifier],
+        )
+        if row is None:
+            row = self.metadata.query_one(
+                "SELECT * FROM semantic_time_objects WHERE time_ref = ?",
+                [time_identifier],
+            )
+        if row is None:
+            raise self._not_found(f"Unknown time semantic: {time_identifier}")
+        return self._row_to_time_semantic(row)
 
     def get_time_semantic(self, time_contract_id: str) -> dict[str, Any]:
         row = self.metadata.query_one(
@@ -969,6 +1011,20 @@ class TypedObjectService(SemanticServiceSupport):
             [version.model_dump(mode="json") for version in payload.versions],
         )
         return self.get_enum_set(enum_set_contract_id)
+
+    def read_enum_set(self, enum_set_identifier: str) -> dict[str, Any]:
+        row = self.metadata.query_one(
+            "SELECT * FROM semantic_enum_sets WHERE enum_set_contract_id = ?",
+            [enum_set_identifier],
+        )
+        if row is None:
+            row = self.metadata.query_one(
+                "SELECT * FROM semantic_enum_sets WHERE enum_set_ref = ?",
+                [enum_set_identifier],
+            )
+        if row is None:
+            raise self._not_found(f"Unknown enum set: {enum_set_identifier}")
+        return self._row_to_enum_set(row)
 
     def get_enum_set(self, enum_set_contract_id: str) -> dict[str, Any]:
         row = self.metadata.query_one(

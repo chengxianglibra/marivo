@@ -54,6 +54,20 @@ class CompatibilityProfileService(SemanticServiceSupport):
         )
         return self.get_compatibility_profile(profile_id)
 
+    def read_compatibility_profile(self, profile_identifier: str) -> dict[str, Any]:
+        row = self.metadata.query_one(
+            "SELECT * FROM compiler_compatibility_profiles WHERE profile_id = ?",
+            [profile_identifier],
+        )
+        if row is None:
+            row = self.metadata.query_one(
+                "SELECT * FROM compiler_compatibility_profiles WHERE profile_ref = ?",
+                [profile_identifier],
+            )
+        if row is None:
+            raise self._not_found(f"Unknown compatibility profile: {profile_identifier}")
+        return self._row_to_compatibility_profile(row)
+
     def get_compatibility_profile(self, profile_id: str) -> dict[str, Any]:
         row = self.metadata.query_one(
             "SELECT * FROM compiler_compatibility_profiles WHERE profile_id = ?",
