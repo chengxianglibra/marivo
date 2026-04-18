@@ -51,7 +51,9 @@ def _build_regression_8_5_template(db_path: Path) -> None:
         base = datetime(2026, 3, 1).date()
         for day_offset in range(7):
             event_day = (base + timedelta(days=day_offset)).isoformat()
-            rows.append((event_day, "us", f"us_{day_offset}", float(100 + day_offset * 10), 1.0, 1.0))
+            rows.append(
+                (event_day, "us", f"us_{day_offset}", float(100 + day_offset * 10), 1.0, 1.0)
+            )
             rows.append((event_day, "eu", f"eu_{day_offset}", float(80 + day_offset * 5), 0.0, 1.0))
         con.executemany("INSERT INTO analytics.reg_events VALUES (?, ?, ?, ?, ?, ?)", rows)
     finally:
