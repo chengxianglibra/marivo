@@ -1595,6 +1595,56 @@ class CompilerTypedResolutionTests(unittest.TestCase):
         )
         self.assertEqual(alignment["comparability_warnings"], [])
 
+    def test_compile_step_records_event_unmapped_warning_in_resolved_alignment(self) -> None:
+        compiled = compile_step(
+            AnalysisStepIR(
+                index=0,
+                step_type="metric_query",
+                params={
+                    "metric": "watch_time",
+                    "table": "analytics.watch_events",
+                    "calendar_policy_ref": "calendar_policy.event_mom",
+                    "time_scope": {
+                        "mode": "single_window",
+                        "grain": "day",
+                        "current": {"start": "2026-06-15", "end": "2026-06-16"},
+                    },
+                    "scoped_query": {
+                        "mode": "single_window",
+                        "analysis_time_expr": "event_date",
+                        "analysis_time_kind": "date_field",
+                        "current": {"start": "2026-06-15", "end": "2026-06-16"},
+                    },
+                },
+            ),
+            engine_type="duckdb",
+            semantic_context={
+                "metric_sql": "avg(play_duration_seconds)",
+                "dimensions": ["platform"],
+                "semantic_repository": _FakeSemanticRepository(),
+                "binding_reader": _binding_reader,
+                "compatibility_profile_reader": _profile_reader,
+                "calendar_data_reader": _FakeCalendarDataReader(
+                    [
+                        _calendar_annotation("2026-06-15", event_group_id="member_day"),
+                        _calendar_annotation("2026-05-15"),
+                    ]
+                ),
+            },
+        )
+
+        alignment = compiled.metadata["resolved_calendar_alignment"]
+        assert isinstance(alignment, dict)
+        self.assertEqual(alignment["bucket_pairing"][0]["pairing_reason"], "natural_date_shift")
+        self.assertEqual(
+            alignment["bucket_pairing"][0]["issues"],
+            ["event_cluster_unmapped", "fallback_applied"],
+        )
+        self.assertEqual(
+            alignment["comparability_warnings"],
+            ["event_cluster_unmapped", "fallback_applied"],
+        )
+
     def test_compile_step_falls_back_when_weekday_yoy_match_exceeds_max_shift(
         self,
     ) -> None:

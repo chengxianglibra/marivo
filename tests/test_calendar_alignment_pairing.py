@@ -328,6 +328,38 @@ class CalendarAlignmentPairingTests(unittest.TestCase):
             ["year_relative_event_key", "year_relative_event_key"],
         )
 
+    def test_event_policy_records_unmapped_and_fallback_when_event_key_is_missing(
+        self,
+    ) -> None:
+        current_window = (date(2026, 6, 15), date(2026, 6, 16))
+        baseline_window = (date(2026, 5, 15), date(2026, 5, 16))
+        policy = get_calendar_policy("calendar_policy.event_mom")
+
+        resolution = resolve_calendar_bucket_pairing(
+            current_window=current_window,
+            baseline_window=baseline_window,
+            matching_strategy=policy.matching_strategy,
+            fallback_strategy=policy.fallback_strategy,
+            annotation_rows=build_calendar_annotation_rows(
+                current_window=current_window,
+                baseline_window=baseline_window,
+                raw_rows=[
+                    _annotation("2026-06-15", event_group_id="member_day"),
+                    _annotation("2026-05-15"),
+                ],
+            ),
+        )
+
+        self.assertEqual(resolution.bucket_pairing[0]["pairing_reason"], "natural_date_shift")
+        self.assertEqual(
+            resolution.bucket_pairing[0]["issues"],
+            ["event_cluster_unmapped", "fallback_applied"],
+        )
+        self.assertEqual(
+            resolution.comparability_warnings,
+            ["event_cluster_unmapped", "fallback_applied"],
+        )
+
     def test_weekday_policy_falls_back_to_natural_shift_when_same_weekday_match_exceeds_max_shift(
         self,
     ) -> None:
