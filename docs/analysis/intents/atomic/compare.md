@@ -61,7 +61,7 @@ type CompareRequest = {
   step_type: "compare";
   left_ref: ObservationRef;
   right_ref: ObservationRef;
-  mode?: "auto" | "scalar" | "segmented";
+  mode?: "auto" | "scalar" | "segmented" | "time_series";
 };
 ```
 
@@ -86,15 +86,23 @@ v1 支持以下输入对：
 
 输出类型：`segmented_delta`
 
+### 时间序列 vs 时间序列（Time Series vs Time Series）
+
+- 两个 ref 都解析到 `observation_type = "time_series"` 的 `observe` 输出
+- 两边必须属于同一个 `metric`
+- 两边必须拥有完全相同的 `granularity`
+
+输出类型：`time_series_delta`
+
 ## v1 不支持的输入对
 
-- 时间序列（`time_series`）与任何类型对比
 - 标量（`scalar`）与分段（`segmented`）
 - 分段（`segmented`）与标量（`scalar`）
 - 来自不同 metric 的观测
 - `dimensions` 不一致的分段观测
+- `granularity` 不一致的时间序列观测
 
-未来可以扩展时间序列对比（time-series compare），但应使用独立结果契约，而不是给 v1 行为过载。
+下游 v1 派生动作仍保持原边界：`decompose`、`attribute`、`diagnose` 继续只消费 `scalar_delta`，不会把 `time_series_delta` 当作归因输入。
 
 ## 字段语义
 
@@ -115,6 +123,7 @@ v1 支持以下输入对：
 - `auto`：根据引用到的观测类型（observation type）自动推断
 - `scalar`：要求标量对比
 - `segmented`：要求分段对比
+- `time_series`：要求时间序列对比
 
 显式 mode 可用作调用方的防护栏（guardrail），但不改变上游观测（observation）的语义，也不用于重建输入 scope。
 
@@ -228,7 +237,7 @@ type CompareResolvedInputSummary = {
 type CompareBase = {
   artifact_type: "compare_artifact";
   schema_version: string;
-  comparison_type: "scalar_delta" | "segmented_delta";
+  comparison_type: "scalar_delta" | "segmented_delta" | "time_series_delta";
   metric: string;
   left_ref: ObservationRef;
   right_ref: ObservationRef;
@@ -314,6 +323,25 @@ type SegmentedDeltaArtifact = CompareBase & {
   scope_absolute_delta: number | null;
   scope_relative_delta: number | null;
   scope_direction: "increase" | "decrease" | "flat" | "undefined";
+};
+
+type TimeSeriesDeltaArtifact = CompareBase & {
+  comparison_type: "time_series_delta";
+  granularity: "hour" | "day" | "week" | "month";
+  rows: Array<{
+    window: { start: string; end: string };
+    left_value: number | null;
+    right_value: number | null;
+    absolute_delta: number | null;
+    relative_delta: number | null;
+    direction: "increase" | "decrease" | "flat" | "undefined";
+    presence: "both" | "left_only" | "right_only";
+  }>;
+  summary_left_value: number | null;
+  summary_right_value: number | null;
+  summary_absolute_delta: number | null;
+  summary_relative_delta: number | null;
+  summary_direction: "increase" | "decrease" | "flat" | "undefined";
 };
 ```
 
@@ -404,10 +432,12 @@ calendar alignment failure surface：
 - 两个观测必须属于同一个 `metric`
 - 标量对比（scalar compare）要求 unit 与 aggregation semantics 完全一致
 - 分段对比（segmented compare）额外要求 `dimensions` 完全一致
+- 时间序列对比（time_series compare）额外要求两边都携带非空 `granularity` 且完全一致
 - 任一侧缺失可用数值时，delta 字段应变为 `null`，不能自动补零
 - `relative_delta` 在分母为 `0` 或 `null` 时必须为 `null`
 - 分段对比（segmented compare）必须按完整 dimension key tuple 对齐
 - 仅出现在一侧的 segment 必须保留，并使用 `presence = “left_only”` 或 `presence = “right_only”` 标记
+- 时间序列对比（time_series compare）必须至少存在一个可解析 bucket；若两侧都没有 bucket，compare 必须以 `NOT_COMPARABLE` 失败，不能提交空 artifact
 
 对于单侧行（one-sided rows）：
 
@@ -428,6 +458,12 @@ calendar alignment failure surface：
 - 行级差值（delta）只能视为切片内局部变化（slice-local changes）
 - `sum(rows.absolute_delta)` 不应被期待等于 `scope_absolute_delta`
 - 下游如 `decompose` 不能假定这种对账关系天然成立
+
+## 时间序列差值约束（Time-Series Delta 约束）
+
+- 时间序列差值行必须按 bucket window 边界对齐，稳定 join key 为 `{window.start}|{window.end}`
+- 单侧 bucket 必须保留，并使用 `presence = "left_only"` 或 `presence = "right_only"` 标记
+- `summary_*` 字段表示 matched buckets 上的 aligned-window totals；它们只汇总同时出现在左右两侧且两边数值都非空的 bucket，不包含单侧 bucket
 
 ## 校验失败类别
 

@@ -31,6 +31,7 @@ from app.api.models import (
     ObserveRequest,
 )
 from app.main import create_app
+from app.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.semantic_test_helpers import (
     create_typed_entity,
     create_typed_metric,
@@ -46,6 +47,53 @@ from tests.shared_fixtures import get_seeded_duckdb_path
 
 def _metric_ref(name: str) -> str:
     return f"metric.{name}"
+
+
+def _seed_default_calendar_source_metadata(db_path: Path) -> None:
+    metadata = SQLiteMetadataStore(db_path.with_suffix(".meta.sqlite"))
+    metadata.initialize()
+    now = "2026-04-18T00:00:00+00:00"
+    metadata.execute(
+        """
+        INSERT OR IGNORE INTO sources (
+            source_id, source_type, display_name, connection_json,
+            capabilities_json, sync_mode, status, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            "src_test_calendar_duckdb",
+            "duckdb",
+            "DuckDB",
+            json.dumps({"path": str(db_path)}),
+            "{}",
+            "by_select",
+            "active",
+            now,
+            now,
+        ],
+    )
+    metadata.execute(
+        """
+        INSERT OR IGNORE INTO source_objects (
+            object_id, source_id, object_type, parent_id, native_name, native_id,
+            fqn, properties_json, sync_version, synced_at, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            "obj_test_calendar_holiday",
+            "src_test_calendar_duckdb",
+            "table",
+            None,
+            "cn_public_holiday",
+            None,
+            "duckdb.analytics.cn_public_holiday",
+            "{}",
+            "test_sync_v1",
+            now,
+            now,
+            now,
+        ],
+    )
 
 
 def _create_metric_binding(
@@ -244,6 +292,12 @@ class CompareRequestModelTests(unittest.TestCase):
         r = CompareRequest(left_ref=self._ref(), right_ref=self._ref("sess_a", "step_2"))
         self.assertEqual(r.mode, "auto")
 
+    def test_time_series_mode_allowed(self) -> None:
+        r = CompareRequest(
+            left_ref=self._ref(), right_ref=self._ref("sess_a", "step_2"), mode="time_series"
+        )
+        self.assertEqual(r.mode, "time_series")
+
     def test_observation_ref_step_type_locked_to_observe(self) -> None:
         with self.assertRaises(Exception):
             ObservationRef(session_id="sess_a", step_id="step_1", step_type="compare")
@@ -275,6 +329,7 @@ class IntentEndpointTests(unittest.TestCase):
         cls.temp_dir = tempfile.TemporaryDirectory()
         cls.db_path = Path(cls.temp_dir.name) / "intent_api.duckdb"
         get_seeded_duckdb_path(cls.db_path)
+        _seed_default_calendar_source_metadata(cls.db_path)
         cls.client = TestClient(create_app(cls.db_path))
         source = cls.client.post(
             "/sources",
@@ -1232,6 +1287,7 @@ class ClosedSessionWriteGuardTests(unittest.TestCase):
         cls.temp_dir = tempfile.TemporaryDirectory()
         db_path = Path(cls.temp_dir.name) / "closed_session.duckdb"
         get_seeded_duckdb_path(db_path)
+        _seed_default_calendar_source_metadata(db_path)
         cls.client = TestClient(create_app(db_path))
         r = cls.client.post("/sessions", json={"goal": "to be closed"})
         cls.session_id = r.json()["session_id"]
@@ -1327,6 +1383,7 @@ class IntentEndpointWithSemanticLayerTests(unittest.TestCase):
         cls.temp_dir = tempfile.TemporaryDirectory()
         db_path = Path(cls.temp_dir.name) / "intent_semantic.duckdb"
         get_seeded_duckdb_path(db_path)
+        _seed_default_calendar_source_metadata(db_path)
         cls.client = TestClient(create_app(db_path))
         cls._setup_semantic_layer()
         r = cls.client.post(
@@ -1421,6 +1478,7 @@ class ObserveTypedArtifactTests(unittest.TestCase):
         db_path = Path(cls.temp_dir.name) / "observe_artifact.duckdb"
         cls.db_path = db_path
         get_seeded_duckdb_path(db_path)
+        _seed_default_calendar_source_metadata(db_path)
         cls.app = create_app(db_path)
         cls.client = TestClient(cls.app)
         cls._setup_semantic_layer(db_path)
@@ -2044,6 +2102,7 @@ class ArtifactLifecycleTests(unittest.TestCase):
         cls.temp_dir = tempfile.TemporaryDirectory()
         db_path = Path(cls.temp_dir.name) / "lifecycle.duckdb"
         get_seeded_duckdb_path(db_path)
+        _seed_default_calendar_source_metadata(db_path)
         cls.app = create_app(db_path)
         cls.service = cls.app.state.service
 
@@ -2128,6 +2187,7 @@ class CompareIntentTests(unittest.TestCase):
         cls.temp_dir = tempfile.TemporaryDirectory()
         db_path = Path(cls.temp_dir.name) / "compare_intent.duckdb"
         get_seeded_duckdb_path(db_path)
+        _seed_default_calendar_source_metadata(db_path)
         cls.app = create_app(db_path)
         cls.client = TestClient(cls.app)
         cls.service = cls.app.state.service
@@ -2240,12 +2300,27 @@ class CompareIntentTests(unittest.TestCase):
                 return None
             return resp.json()["step_ref"]["step_id"]
 
+        def _time_series_observe(session_id: str, start: str, end: str) -> str | None:
+            resp = cls.client.post(
+                f"/sessions/{session_id}/intents/observe",
+                json={
+                    "metric": _metric_ref("compare_test_dau"),
+                    "time_scope": {"kind": "range", "start": start, "end": end},
+                    "granularity": "day",
+                },
+            )
+            if resp.status_code != 200:
+                return None
+            return resp.json()["step_ref"]["step_id"]
+
         cls.left_step_id = _scalar_observe(cls.session_id, "2024-01-08", "2024-01-15")
         cls.right_step_id = _scalar_observe(cls.session_id, "2024-01-01", "2024-01-08")
         # Use dates within the seeded data range (2026-02-07 to 2026-03-06) for segmented
         # so segments are non-empty and the compare can succeed.
         cls.left_seg_step_id = _seg_observe(cls.session_id, "2026-02-14", "2026-02-21")
         cls.right_seg_step_id = _seg_observe(cls.session_id, "2026-02-07", "2026-02-14")
+        cls.left_ts_step_id = _time_series_observe(cls.session_id, "2026-02-14", "2026-02-21")
+        cls.right_ts_step_id = _time_series_observe(cls.session_id, "2026-02-07", "2026-02-14")
 
         # Also prepare an observe for the "other" metric (for mismatch test)
         if cls.other_metric_id:
@@ -2277,6 +2352,18 @@ class CompareIntentTests(unittest.TestCase):
             json={
                 "metric": _metric_ref("compare_test_dau"),
                 "time_scope": {"kind": "range", "start": start, "end": end},
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        return response.json()["step_ref"]["step_id"]
+
+    def _observe_time_series(self, *, start: str, end: str) -> str:
+        response = self.client.post(
+            f"/sessions/{self.session_id}/intents/observe",
+            json={
+                "metric": _metric_ref("compare_test_dau"),
+                "time_scope": {"kind": "range", "start": start, "end": end},
+                "granularity": "day",
             },
         )
         self.assertEqual(response.status_code, 200, response.text)
@@ -2600,6 +2687,59 @@ class CompareIntentTests(unittest.TestCase):
             self.assertIn(row["direction"], {"increase", "decrease", "flat", "undefined"})
         self.assertIn("dimensions", data)
 
+    def test_time_series_compare_success(self) -> None:
+        if self.skipped or self.left_ts_step_id is None or self.right_ts_step_id is None:
+            self.skipTest("Time-series observe steps not available")
+        response = self.client.post(
+            f"/sessions/{self.session_id}/intents/compare",
+            json={
+                "left_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.left_ts_step_id,
+                    "step_type": "observe",
+                },
+                "right_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.right_ts_step_id,
+                    "step_type": "observe",
+                },
+                "mode": "time_series",
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()
+        self.assertEqual(data["comparison_type"], "time_series_delta")
+        self.assertEqual(data["granularity"], "day")
+        self.assertIn("rows", data)
+        self.assertTrue(len(data["rows"]) > 0)
+        self.assertIn("summary_absolute_delta", data)
+        self.assertIn("matched_bucket_count", data["analytical_metadata"])
+        for row in data["rows"]:
+            self.assertIn("window", row)
+            self.assertIn("presence", row)
+            self.assertIn("direction", row)
+
+    def test_compare_mode_time_series_guard(self) -> None:
+        self._skip_if_not_wired()
+        response = self.client.post(
+            f"/sessions/{self.session_id}/intents/compare",
+            json={
+                "left_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.left_step_id,
+                    "step_type": "observe",
+                },
+                "right_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.right_step_id,
+                    "step_type": "observe",
+                },
+                "mode": "time_series",
+            },
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("INVALID_ARGUMENT", response.json()["detail"])
+
     def test_compare_nonexistent_ref_returns_422(self) -> None:
         """compare with a non-existent step ref returns 422 (STEP_NOT_FOUND)."""
         r = self.client.post(
@@ -2794,6 +2934,7 @@ class DecomposeIntentTests(unittest.TestCase):
         cls.temp_dir = tempfile.TemporaryDirectory()
         db_path = Path(cls.temp_dir.name) / "decompose_intent.duckdb"
         get_seeded_duckdb_path(db_path)
+        _seed_default_calendar_source_metadata(db_path)
         cls.app = create_app(db_path)
         cls.client = TestClient(cls.app)
         cls.service = cls.app.state.service
@@ -3127,6 +3268,7 @@ class CorrelateIntentTests(unittest.TestCase):
         cls.temp_dir = tempfile.TemporaryDirectory()
         # Use a per-class temp DB to avoid cross-worker SQLite conflicts.
         db_path = Path(cls.temp_dir.name) / "correlate_intent.duckdb"
+        _seed_default_calendar_source_metadata(db_path)
         cls.app = create_app(db_path)
         cls.client = TestClient(cls.app)
         cls.service = cls.app.state.service

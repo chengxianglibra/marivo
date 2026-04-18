@@ -9,6 +9,37 @@ if TYPE_CHECKING:
     from app.service import SemanticLayerService
 
 
+_VALID_COMPARE_MODES = frozenset({"auto", "scalar", "segmented", "time_series"})
+
+
+def _normalize_window(window: dict[str, Any]) -> tuple[str, str]:
+    start = str(window.get("start") or "")
+    end = str(window.get("end") or start)
+    return start, end
+
+
+def _series_row_key(row: dict[str, Any]) -> str:
+    """Return the stable time-series bucket key as ``{start}|{end}``.
+
+    Compare aligns buckets by their resolved window boundaries, so the combined
+    start/end pair is the deterministic join key across left/right series.
+    """
+    window = row.get("window") or {}
+    start, end = _normalize_window(window)
+    if not start:
+        raise ValueError("compare: INVALID_ARGUMENT - time_series row missing window.start")
+    return f"{start}|{end}"
+
+
+def _coerce_numeric_or_none(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def run_compare_intent(
     svc: SemanticLayerService, session_id: str, params: dict[str, Any] | None
 ) -> dict[str, Any]:
@@ -29,6 +60,11 @@ def run_compare_intent(
     left_session_id: str = left_ref_raw.get("session_id") or session_id
     right_session_id: str = right_ref_raw.get("session_id") or session_id
     mode: str = p.get("mode") or "auto"
+    if mode not in _VALID_COMPARE_MODES:
+        raise ValueError(
+            "compare: INVALID_ARGUMENT - mode must be one of "
+            "'auto', 'scalar', 'segmented', 'time_series'"
+        )
 
     if not left_step_id or not right_step_id:
         raise ValueError("compare: both left_ref.step_id and right_ref.step_id are required")
@@ -60,12 +96,6 @@ def run_compare_intent(
     right_obs_type: str | None = right_artifact.get("observation_type")
     left_metric: str | None = left_artifact.get("metric")
     right_metric: str | None = right_artifact.get("metric")
-
-    # time_series unsupported in v1 (check before other comparability)
-    if left_obs_type == "time_series" or right_obs_type == "time_series":
-        raise ValueError(
-            "compare: UNSUPPORTED_COMPARISON - time_series comparisons are not supported in v1"
-        )
 
     # Collect comparability issues
     issues: list[dict[str, Any]] = []
@@ -100,6 +130,30 @@ def run_compare_intent(
                     "code": "dimension_mismatch",
                     "severity": "error",
                     "message": f"left dimensions {left_dims} != right dimensions {right_dims}",
+                }
+            )
+            fatal = True
+
+    if not fatal and left_obs_type == "time_series":
+        left_granularity = left_artifact.get("granularity")
+        right_granularity = right_artifact.get("granularity")
+        if left_granularity is None or right_granularity is None:
+            issues.append(
+                {
+                    "code": "granularity_mismatch",
+                    "severity": "error",
+                    "message": "time_series observations must include non-null granularity",
+                }
+            )
+            fatal = True
+        elif left_granularity != right_granularity:
+            issues.append(
+                {
+                    "code": "granularity_mismatch",
+                    "severity": "error",
+                    "message": (
+                        f"left granularity '{left_granularity}' != right '{right_granularity}'"
+                    ),
                 }
             )
             fatal = True
@@ -152,6 +206,11 @@ def run_compare_intent(
     if mode == "segmented" and left_obs_type != "segmented":
         raise ValueError(
             f"compare: INVALID_ARGUMENT - mode='segmented' but observation_type is '{left_obs_type}'"
+        )
+    if mode == "time_series" and left_obs_type != "time_series":
+        raise ValueError(
+            "compare: INVALID_ARGUMENT - mode='time_series' but observation_type is "
+            f"'{left_obs_type}'"
         )
 
     # Pre-flight null check for scalar: both null means all delta fields will be null.
@@ -254,19 +313,123 @@ def run_compare_intent(
             f"(Δ {abs_delta if abs_delta is not None else 'n/a'})"
         )
 
+    elif left_obs_type == "time_series":
+        granularity = left_artifact.get("granularity")
+        left_series: list[dict[str, Any]] = left_artifact.get("series") or []
+        right_series: list[dict[str, Any]] = right_artifact.get("series") or []
+
+        left_series_map = {_series_row_key(row): row for row in left_series}
+        right_series_map = {_series_row_key(row): row for row in right_series}
+        all_series_keys = sorted(set(left_series_map) | set(right_series_map))
+        if not all_series_keys:
+            raise ValueError(
+                "compare: NOT_COMPARABLE - no time-series buckets found in either observation"
+            )
+
+        time_series_rows: list[dict[str, Any]] = []
+        matched_left_values: list[float] = []
+        matched_right_values: list[float] = []
+
+        for key in all_series_keys:
+            left_row = left_series_map.get(key)
+            right_row = right_series_map.get(key)
+            anchor = left_row or right_row or {}
+            window = dict(anchor.get("window") or {})
+            if left_row and right_row:
+                presence = "both"
+                left_value = _coerce_numeric_or_none(left_row.get("value"))
+                right_value = _coerce_numeric_or_none(right_row.get("value"))
+                row_abs = _compute_absolute_delta(left_value, right_value)
+                row_rel = _compute_relative_delta(row_abs, right_value)
+                row_dir = _compute_direction(row_abs, row_rel, flat_tolerance_relative)
+                if left_value is not None and right_value is not None:
+                    matched_left_values.append(left_value)
+                    matched_right_values.append(right_value)
+            elif left_row:
+                presence = "left_only"
+                left_value = _coerce_numeric_or_none(left_row.get("value"))
+                right_value = None
+                row_abs = left_value
+                row_rel = None
+                row_dir = "undefined"
+            else:
+                presence = "right_only"
+                left_value = None
+                right_value = _coerce_numeric_or_none((right_row or {}).get("value"))
+                row_abs = -right_value if right_value is not None else None
+                row_rel = None
+                row_dir = "undefined"
+
+            time_series_rows.append(
+                {
+                    "window": window,
+                    "left_value": left_value,
+                    "right_value": right_value,
+                    "absolute_delta": row_abs,
+                    "relative_delta": row_rel,
+                    "direction": row_dir,
+                    "presence": presence,
+                }
+            )
+
+        summary_left_value = sum(matched_left_values) if matched_left_values else None
+        summary_right_value = sum(matched_right_values) if matched_right_values else None
+        summary_abs = _compute_absolute_delta(summary_left_value, summary_right_value)
+        summary_rel = _compute_relative_delta(summary_abs, summary_right_value)
+        summary_dir = _compute_direction(summary_abs, summary_rel, flat_tolerance_relative)
+
+        matched_windows = [
+            _normalize_window(left_series_map[key].get("window") or {})
+            for key in all_series_keys
+            if key in left_series_map and key in right_series_map
+        ]
+        matched_time_scope: dict[str, Any] | None = None
+        if matched_windows:
+            matched_time_scope = {
+                "kind": "range",
+                "start": matched_windows[0][0],
+                "end": matched_windows[-1][1],
+            }
+
+        analytical_metadata.update(
+            {
+                "left_bucket_count": len(left_series),
+                "right_bucket_count": len(right_series),
+                "matched_bucket_count": len(matched_left_values),
+                "dropped_left_buckets": len(left_series) - len(matched_left_values),
+                "dropped_right_buckets": len(right_series) - len(matched_right_values),
+                "pairing_rule": "intersection_by_time_bucket",
+                "matched_time_scope": matched_time_scope,
+            }
+        )
+
+        artifact = {
+            **base,
+            "comparison_type": "time_series_delta",
+            "granularity": granularity,
+            "rows": time_series_rows,
+            "summary_left_value": summary_left_value,
+            "summary_right_value": summary_right_value,
+            "summary_absolute_delta": summary_abs,
+            "summary_relative_delta": summary_rel,
+            "summary_direction": summary_dir,
+        }
+        artifact_name = f"{metric_name}_compare_time_series"
+        summary = f"compare {metric_name} time_series: {len(time_series_rows)} bucket deltas"
+
     else:
         # Segmented mode
         dims: list[str] = left_artifact.get("dimensions") or []
         left_segs: list[dict[str, Any]] = left_artifact.get("segments") or []
         right_segs: list[dict[str, Any]] = right_artifact.get("segments") or []
 
-        def _seg_key(seg: dict[str, Any]) -> tuple:  # type: ignore[type-arg]
+        def _seg_key(seg: dict[str, Any]) -> tuple[str, ...]:
             return tuple(str(seg.get("keys", {}).get(d)) for d in dims)
 
-        left_map = {_seg_key(s): s for s in left_segs}
-        right_map = {_seg_key(s): s for s in right_segs}
-        all_keys = set(left_map) | set(right_map)
-        if not all_keys:
+        left_segment_map = {_seg_key(s): s for s in left_segs}
+        right_segment_map = {_seg_key(s): s for s in right_segs}
+        all_segment_keys = set(left_segment_map) | set(right_segment_map)
+        if not all_segment_keys:
             comparability["issues"].append(
                 {
                     "code": "data_incomplete",
@@ -276,10 +439,10 @@ def run_compare_intent(
             )
             comparability["status"] = "needs_attention"
 
-        rows: list[dict[str, Any]] = []
-        for key in sorted(all_keys):
-            l_seg = left_map.get(key)
-            r_seg = right_map.get(key)
+        segmented_rows: list[dict[str, Any]] = []
+        for segment_key in sorted(all_segment_keys):
+            l_seg = left_segment_map.get(segment_key)
+            r_seg = right_segment_map.get(segment_key)
             if l_seg and r_seg:
                 presence = "both"
                 lv: float | None = l_seg.get("value")
@@ -304,7 +467,7 @@ def run_compare_intent(
                 row_abs = (-rv) if rv is not None else None  # absolute_delta = -right_value
                 row_rel = None
                 row_dir = "undefined"
-            rows.append(
+            segmented_rows.append(
                 {
                     "keys": keys_dict,
                     "left_value": lv,
@@ -326,7 +489,7 @@ def run_compare_intent(
             **base,
             "comparison_type": "segmented_delta",
             "dimensions": dims,
-            "rows": rows,
+            "rows": segmented_rows,
             "scope_left_value": scope_lv,
             "scope_right_value": scope_rv,
             "scope_absolute_delta": scope_abs,
@@ -334,7 +497,7 @@ def run_compare_intent(
             "scope_direction": scope_dir,
         }
         artifact_name = f"{metric_name}_compare_segmented"
-        summary = f"compare {metric_name} segmented: {len(rows)} delta rows"
+        summary = f"compare {metric_name} segmented: {len(segmented_rows)} delta rows"
 
     artifact_id = svc._commit_artifact_with_extraction(
         session_id,

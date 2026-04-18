@@ -166,11 +166,19 @@ def normalize_step_request(
                 request_options=_request_options_from_windowed_request(normalized),
             )
 
+        request_time_scope = None
+        if "time_scope" in step.params:
+            from app.time_scope import _normalize_time_scope
+
+            request_time_scope = asdict(
+                _normalize_time_scope(step.params.get("time_scope"), "aggregate_query")
+            )
+
         return NormalizedCompilerRequest(
             intent_kind="aggregate_query",
             request_class="root_metric_process",
             table_name=step.table_name(),
-            request_time_scope=_mapping_dict(step.params.get("scoped_query")),
+            request_time_scope=request_time_scope or _mapping_dict(step.params.get("scoped_query")),
             request_dimensions=_normalize_dimension_refs(_string_list(step.params.get("group_by"))),
             request_calendar_policy_ref=request_calendar_policy_ref,
             request_options=_filter_none_dict(

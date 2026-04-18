@@ -497,6 +497,10 @@ def _materialize_change_from_delta(
         change_kind = "scalar_change"
     elif delta_kind == "segmented_delta":
         change_kind = "segment_change"
+    elif delta_kind == "time_series_delta":
+        # v1 change propositions are scoped to scalar/segment deltas; bucket-level
+        # time-series deltas remain compare-only and do not seed propositions here.
+        return None
     else:
         return None
 

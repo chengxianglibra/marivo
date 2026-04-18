@@ -78,6 +78,12 @@ def _make_compiled_mock_with_calendar_alignment() -> MagicMock:
     return m
 
 
+def _make_time_series_compiled_mock_with_calendar_alignment() -> MagicMock:
+    m = _make_compiled_mock_with_calendar_alignment()
+    m.sql = "SELECT bucket_start, value FROM series"
+    return m
+
+
 def _scalar_observation(metric: str = "m1") -> dict[str, Any]:
     return {
         "observation_type": "scalar",
@@ -91,6 +97,40 @@ def _scalar_observation(metric: str = "m1") -> dict[str, Any]:
             "row_count": 10,
         },
         "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+        "scope": {},
+    }
+
+
+def _time_series_observation(
+    metric: str = "m1",
+    *,
+    granularity: str = "day",
+    series: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    if series is None:
+        series = [
+            {
+                "window": {"start": "2024-01-01", "end": "2024-01-02"},
+                "value": 10.0,
+            },
+            {
+                "window": {"start": "2024-01-02", "end": "2024-01-03"},
+                "value": 20.0,
+            },
+        ]
+    return {
+        "observation_type": "time_series",
+        "metric": metric,
+        "schema_version": "1.0",
+        "unit": None,
+        "granularity": granularity,
+        "series": series,
+        "analytical_metadata": {
+            "aggregation_semantics": "sum",
+            "metric_additivity": "additive",
+            "row_count": len(series),
+        },
+        "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-03"},
         "scope": {},
     }
 
@@ -512,6 +552,81 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
                     "calendar_policy_ref": "calendar_policy.weekday_yoy",
                 },
             )
+
+    def test_observe_time_series_returns_aligned_baseline_and_yoy_series_for_day_grain(
+        self,
+    ) -> None:
+        from app.intents.observe import run_observe_intent
+
+        svc = _make_svc()
+        svc.normalize_intent_metric_ref.side_effect = lambda metric: metric
+        svc.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
+        svc._resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
+        svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
+        svc.resolve_metric_dimensions.return_value = []
+        svc._resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
+        svc._resolve_windowed_query_time_axis.return_value = None
+        svc._build_scoped_query.return_value = {
+            "mode": "single_window",
+            "analysis_time_expr": "event_date",
+            "analysis_time_kind": "date_field",
+            "current": {"start": "2026-04-01", "end": "2026-04-08"},
+        }
+        svc._compile_step_with_feedback.side_effect = [
+            _make_time_series_compiled_mock_with_calendar_alignment(),
+            _make_compiled_mock(),
+        ]
+
+        with patch("app.intents.observe.execute_compiled") as mock_exec:
+            mock_exec.side_effect = [
+                MagicMock(
+                    rows=[
+                        {"bucket_start": "2026-04-01", "value": 120.0},
+                    ]
+                ),
+                MagicMock(
+                    rows=[
+                        {"bucket_start": "2025-04-02", "value": 100.0},
+                    ]
+                ),
+            ]
+            result = run_observe_intent(
+                svc,
+                _SESSION,
+                {
+                    "metric": "metric.m1",
+                    "time_scope": {"kind": "range", "start": "2026-04-01", "end": "2026-04-08"},
+                    "calendar_policy_ref": "calendar_policy.weekday_yoy",
+                    "granularity": "day",
+                },
+            )
+
+        self.assertEqual(
+            result["resolved_policy_summary"]["policy_ref"], "calendar_policy.weekday_yoy"
+        )
+        self.assertEqual(
+            result["aligned_baseline_series"],
+            [
+                {
+                    "window": {"start": "2026-04-01", "end": "2026-04-02"},
+                    "baseline_window": {"start": "2025-04-02", "end": "2025-04-03"},
+                    "value": 100.0,
+                }
+            ],
+        )
+        self.assertEqual(
+            result["yoy_series"],
+            [
+                {
+                    "window": {"start": "2026-04-01", "end": "2026-04-02"},
+                    "baseline_window": {"start": "2025-04-02", "end": "2025-04-03"},
+                    "current_value": 120.0,
+                    "baseline_value": 100.0,
+                    "absolute_delta": 20.0,
+                    "relative_delta": 0.2,
+                }
+            ],
+        )
 
     def test_observe_hour_granularity_uses_hour_internal_grain(self) -> None:
         from app.intents.observe import run_observe_intent
@@ -1234,6 +1349,140 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
                         "session_id": _SESSION,
                         "step_type": "observe",
                     },
+                },
+            )
+
+    def test_compare_time_series_commits_time_series_delta(self) -> None:
+        from app.intents.compare import run_compare_intent
+
+        svc = _make_svc()
+        svc._resolve_artifact_for_ref.side_effect = [
+            _time_series_observation("m1"),
+            _time_series_observation(
+                "m1",
+                series=[
+                    {
+                        "window": {"start": "2024-01-01", "end": "2024-01-02"},
+                        "value": 8.0,
+                    },
+                    {
+                        "window": {"start": "2024-01-02", "end": "2024-01-03"},
+                        "value": 15.0,
+                    },
+                ],
+            ),
+        ]
+
+        result = run_compare_intent(
+            svc,
+            _SESSION,
+            {
+                "left_ref": {
+                    "step_id": "step_left",
+                    "session_id": _SESSION,
+                    "step_type": "observe",
+                },
+                "right_ref": {
+                    "step_id": "step_right",
+                    "session_id": _SESSION,
+                    "step_type": "observe",
+                },
+                "mode": "time_series",
+            },
+        )
+
+        self.assertEqual(result["comparison_type"], "time_series_delta")
+        self.assertEqual(result["granularity"], "day")
+        self.assertEqual(len(result["rows"]), 2)
+        self.assertEqual(result["summary_left_value"], 30.0)
+        self.assertEqual(result["summary_right_value"], 23.0)
+
+    def test_compare_time_series_missing_granularity_fails(self) -> None:
+        from app.intents.compare import run_compare_intent
+
+        svc = _make_svc()
+        left = _time_series_observation("m1")
+        right = _time_series_observation("m1")
+        left["granularity"] = None
+        svc._resolve_artifact_for_ref.side_effect = [left, right]
+
+        with self.assertRaisesRegex(
+            ValueError, "compare: NOT_COMPARABLE - time_series observations must include"
+        ):
+            run_compare_intent(
+                svc,
+                _SESSION,
+                {
+                    "left_ref": {
+                        "step_id": "step_left",
+                        "session_id": _SESSION,
+                        "step_type": "observe",
+                    },
+                    "right_ref": {
+                        "step_id": "step_right",
+                        "session_id": _SESSION,
+                        "step_type": "observe",
+                    },
+                    "mode": "time_series",
+                },
+            )
+
+    def test_compare_time_series_empty_series_fails_before_commit(self) -> None:
+        from app.intents.compare import run_compare_intent
+
+        svc = _make_svc()
+        svc._resolve_artifact_for_ref.side_effect = [
+            _time_series_observation("m1", series=[]),
+            _time_series_observation("m1", series=[]),
+        ]
+
+        with self.assertRaisesRegex(
+            ValueError, "compare: NOT_COMPARABLE - no time-series buckets found"
+        ):
+            run_compare_intent(
+                svc,
+                _SESSION,
+                {
+                    "left_ref": {
+                        "step_id": "step_left",
+                        "session_id": _SESSION,
+                        "step_type": "observe",
+                    },
+                    "right_ref": {
+                        "step_id": "step_right",
+                        "session_id": _SESSION,
+                        "step_type": "observe",
+                    },
+                    "mode": "time_series",
+                },
+            )
+        svc._commit_artifact_with_extraction.assert_not_called()
+
+    def test_compare_time_series_mode_rejects_scalar_artifacts(self) -> None:
+        from app.intents.compare import run_compare_intent
+
+        svc = _make_svc()
+        svc._resolve_artifact_for_ref.side_effect = [
+            _scalar_observation("m1"),
+            _scalar_observation("m1"),
+        ]
+
+        with self.assertRaisesRegex(ValueError, "mode='time_series'"):
+            run_compare_intent(
+                svc,
+                _SESSION,
+                {
+                    "left_ref": {
+                        "step_id": "step_left",
+                        "session_id": _SESSION,
+                        "step_type": "observe",
+                    },
+                    "right_ref": {
+                        "step_id": "step_right",
+                        "session_id": _SESSION,
+                        "step_type": "observe",
+                    },
+                    "mode": "time_series",
                 },
             )
 

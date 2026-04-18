@@ -747,11 +747,11 @@ class CompareRequest(BaseModel):
 
     left_ref: ObservationRef = Field(description="Reference to the 'current' observe artifact.")
     right_ref: ObservationRef = Field(description="Reference to the 'baseline' observe artifact.")
-    mode: Literal["auto", "scalar", "segmented"] = Field(
+    mode: Literal["auto", "scalar", "segmented", "time_series"] = Field(
         default="auto",
         description=(
-            "'auto' selects scalar or segmented based on the input observation types. "
-            "'scalar' and 'segmented' enforce a specific delta type."
+            "'auto' selects scalar, segmented, or time_series based on the input observation "
+            "types. Explicit modes enforce a specific delta type."
         ),
     )
 

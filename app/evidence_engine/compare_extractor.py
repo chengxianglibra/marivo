@@ -5,10 +5,11 @@ Registered via ``_bootstrap_finding_extractors()`` in
 
 Artifact type: ``"compare_artifact"``   Schema version: ``"v1"``   Family: ``"compare"``
 
-Maps two ``comparison_type`` variants to :class:`DeltaFinding`:
+Maps compare ``comparison_type`` variants to :class:`DeltaFinding`:
 
 - ``scalar_delta``    → 1 finding (:class:`DeltaPayload`, ``delta_kind="scalar_delta"``)
 - ``segmented_delta`` → 1 finding per row (:class:`DeltaPayload`, ``delta_kind="segmented_delta"``)
+- ``time_series_delta`` → 1 finding per bucket row
 
 Empty semantics (D4):
 ---------------------
@@ -161,10 +162,12 @@ class CompareArtifactExtractor(FindingExtractor):
             findings = self._extract_scalar_delta(artifact_id, artifact_payload, step_ref)
         elif comparison_type == "segmented_delta":
             findings = self._extract_segmented_delta(artifact_id, artifact_payload, step_ref)
+        elif comparison_type == "time_series_delta":
+            findings = self._extract_time_series_delta(artifact_id, artifact_payload, step_ref)
         else:
             raise ValueError(
                 f"CompareArtifactExtractor: unknown comparison_type={comparison_type!r}. "
-                "Expected one of: scalar_delta, segmented_delta."
+                "Expected one of: scalar_delta, segmented_delta, time_series_delta."
             )
 
         return FindingExtractionResult(
@@ -319,6 +322,79 @@ class CompareArtifactExtractor(FindingExtractor):
                     analysis_axis="segment",
                 ),
                 observed_window=left_time_scope,
+                quality=_empty_quality(),
+                provenance=self._make_provenance(step_ref, canonical_item_key, item_ref),
+                payload=delta_payload,
+            )
+            findings.append(finding)
+
+        return findings
+
+    def _extract_time_series_delta(
+        self,
+        artifact_id: str,
+        payload: dict[str, Any],
+        step_ref: StepRef,
+    ) -> list[DeltaFinding]:
+        rows: list[dict[str, Any]] = payload.get("rows") or []
+        metric: str | None = payload.get("metric")
+        unit: str | None = payload.get("unit")
+        granularity: str | None = payload.get("granularity")
+        comparability_payload = _extract_comparability_payload(payload)
+
+        findings: list[DeltaFinding] = []
+        for row in rows:
+            window = row.get("window") or {}
+            bucket_start = str(window.get("start") or "")
+            bucket_end = str(window.get("end") or bucket_start)
+            if not bucket_start:
+                raise ValueError(
+                    "CompareArtifactExtractor: time_series_delta row is missing window.start"
+                )
+
+            canonical_item_key, item_ref = make_item_identity("buckets", key=bucket_start)
+            finding_id = make_finding_id(artifact_id, "delta", canonical_item_key)
+
+            direction_raw = row.get("direction") or "undefined"
+            direction = cast(
+                "DeltaDirection",
+                direction_raw if direction_raw in _VALID_DIRECTIONS else "undefined",
+            )
+
+            presence_raw = row.get("presence")
+            presence = presence_raw if presence_raw in _VALID_PRESENCES else None
+
+            _, bucket_item_ref = make_item_identity("buckets", key=bucket_start)
+            left_ref = ArtifactItemRefRef(artifact_id="", item_ref=bucket_item_ref)
+            right_ref = ArtifactItemRefRef(artifact_id="", item_ref=bucket_item_ref)
+
+            delta_payload = DeltaPayload(
+                delta_kind="time_series_delta",
+                left_ref=left_ref,
+                right_ref=right_ref,
+                left_value=_to_float_or_none(row.get("left_value")),
+                right_value=_to_float_or_none(row.get("right_value")),
+                absolute_delta=_to_float_or_none(row.get("absolute_delta")),
+                relative_delta=_to_float_or_none(row.get("relative_delta")),
+                direction=direction,
+                presence=presence,
+                unit=unit,
+            )
+            delta_payload = _attach_comparability_payload(delta_payload, comparability_payload)
+
+            finding = DeltaFinding(
+                finding_id=finding_id,
+                finding_type="delta",
+                artifact_id=artifact_id,
+                step_ref=step_ref,
+                subject=FindingSubject(
+                    metric=metric,
+                    entity=None,
+                    slice={},
+                    grain=cast("Any", granularity),
+                    analysis_axis="time",
+                ),
+                observed_window={"kind": "range", "start": bucket_start, "end": bucket_end},
                 quality=_empty_quality(),
                 provenance=self._make_provenance(step_ref, canonical_item_key, item_ref),
                 payload=delta_payload,

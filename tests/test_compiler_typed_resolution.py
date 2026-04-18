@@ -742,6 +742,34 @@ class CompilerTypedResolutionTests(unittest.TestCase):
             "calendar_policy.weekday_yoy",
         )
 
+    def test_normalize_aggregate_query_select_path_preserves_time_scope_and_calendar_policy(
+        self,
+    ) -> None:
+        normalized = normalize_step_request(
+            AnalysisStepIR(
+                index=0,
+                step_type="aggregate_query",
+                params={
+                    "table": "analytics.watch_events",
+                    "time_scope": {
+                        "mode": "single_window",
+                        "grain": "day",
+                        "current": {"start": "2026-04-01", "end": "2026-04-08"},
+                    },
+                    "calendar_policy_ref": "calendar_policy.holiday_yoy",
+                    "select": ["event_date AS bucket_start", "COUNT(*) AS value"],
+                    "group_by": ["bucket_start"],
+                },
+            )
+        )
+
+        self.assertEqual(normalized.intent_kind, "aggregate_query")
+        self.assertEqual(normalized.request_calendar_policy_ref, "calendar_policy.holiday_yoy")
+        assert normalized.request_time_scope is not None
+        self.assertEqual(normalized.request_time_scope["mode"], "single_window")
+        self.assertEqual(normalized.request_time_scope["grain"], "day")
+        self.assertEqual(normalized.request_time_scope["current"]["start"], "2026-04-01")
+
     def test_normalize_step_request_rejects_unknown_calendar_policy_ref(self) -> None:
         with self.assertRaisesRegex(ValueError, "Unknown calendar_policy_ref"):
             normalize_step_request(
