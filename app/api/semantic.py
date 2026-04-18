@@ -97,7 +97,7 @@ def get_entity(
     request: Request,
 ) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
-    return _run_route_action(lambda: semantic_service.get_typed_entity(entity_id))
+    return _run_route_action(lambda: semantic_service.read_typed_entity(entity_id))
 
 
 @router.put("/semantic/entities/{entity_id}", response_model=TypedEntityResponse)
@@ -183,7 +183,7 @@ def get_metric(
     request: Request,
 ) -> dict[str, Any]:
     semantic_service = get_services(request).semantic_service
-    return _run_route_action(lambda: semantic_service.get_typed_metric(metric_id))
+    return _run_route_action(lambda: semantic_service.read_typed_metric(metric_id))
 
 
 @router.put("/semantic/metrics/{metric_id}", response_model=TypedMetricResponse)
