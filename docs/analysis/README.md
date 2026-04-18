@@ -34,8 +34,9 @@ Evidence Engine 的目标态规范链路为：
 3. [Artifact -> Finding 生成规则](evidence-engine/artifact-finding-generation-rules.md)
 4. [Finding -> Proposition Seeding](evidence-engine/finding-proposition-seeding.md)
 5. [Inference And Gap Engine](evidence-engine/inference-and-gap-engine.md)
-6. [Graph And Reference Semantics](evidence-engine/graph-and-reference-semantics.md)
-7. [Evidence Engine Read Surfaces](evidence-engine/read-surfaces.md)
+6. [Evidence Engine Python DSL Proof Engine](evidence-engine/python-dsl-proof-engine.md)
+7. [Graph And Reference Semantics](evidence-engine/graph-and-reference-semantics.md)
+8. [Evidence Engine Read Surfaces](evidence-engine/read-surfaces.md)
 
 这些主线文档负责解释：
 
@@ -43,6 +44,7 @@ Evidence Engine 的目标态规范链路为：
 - runtime lifecycle、commit boundary、replay、seeding
 - seeding template、registration、identity normalization
 - assessment recompute、gap management、judgment policy、rule registry
+- judgment/proof 层如何通过 Python DSL 演进为显式 proof case / obligation / evaluation 模型
 - edge taxonomy、typed refs、closure integrity
 - session/state/context 读取面的主题关系
 
