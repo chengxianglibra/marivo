@@ -43,6 +43,30 @@ from app.storage.evidence_repositories import (
     InferenceRecordRepository,
 )
 
+_CALENDAR_ALIGNMENT_REQUIRED_STRING_FIELDS: tuple[str, ...] = (
+    "policy_ref",
+    "comparison_basis",
+    "resolved_calendar_source",
+    "resolved_calendar_version",
+    "resolved_baseline_generation_rule",
+)
+_CALENDAR_ALIGNMENT_REQUIRED_DICT_FIELDS: tuple[str, ...] = (
+    "current_window",
+    "baseline_window",
+    "coverage_summary",
+)
+_CALENDAR_ALIGNMENT_REQUIRED_LIST_FIELDS: tuple[str, ...] = (
+    "bucket_pairing",
+    "comparability_warnings",
+)
+_COVERAGE_INSUFFICIENT_CODES = frozenset({"alignment_coverage_insufficient"})
+_HOLIDAY_ALIGNMENT_FAILURE_CODES = frozenset({"holiday_cluster_unmapped"})
+_EVENT_ALIGNMENT_FAILURE_CODES = frozenset({"event_cluster_unmapped"})
+_WEEKDAY_TIE_FAILURE_CODES = frozenset({"weekday_pairing_tie"})
+# A weekday tie means both the pairing itself is unstable and the tie-breaker
+# failed to remove that ambiguity, so it intentionally fails both requirements.
+_TIE_BREAKER_FAILURE_CODES = frozenset({"weekday_pairing_tie", "alignment_tie_breaker_unresolved"})
+
 # ---------------------------------------------------------------------------
 # Public constants
 # ---------------------------------------------------------------------------
@@ -323,7 +347,9 @@ def _run_comparability_gate(
     ctx: AssessmentEvaluationContext,
     candidate_id: str,
     finding_repo: FindingRepository,
-) -> tuple[_GateOutput, dict[str, Any]]:
+    gap_repo: EvidenceGapRepository,
+    now: str,
+) -> tuple[_GateOutput, dict[str, Any], _GapManagementOutput]:
     """Consume frozen comparability/calendar alignment from finding payloads.
 
     The gate reads structured comparability summaries already frozen into canonical
@@ -341,6 +367,8 @@ def _run_comparability_gate(
     has_alignment_summary = False
     has_attention_signal = False
     has_error_signal = False
+    matched_requirement_keys_all: set[str] = set()
+    failed_requirement_keys: set[str] = set()
 
     for finding_id in ctx["candidate_finding_ids"]:
         finding = finding_repo.get(finding_id)
@@ -361,19 +389,31 @@ def _run_comparability_gate(
             has_attention_signal = True
 
         issues = comparability.get("issues") or []
+        issue_codes: set[str] = set()
+        error_issue_codes: set[str] = set()
         for issue in issues:
             if not isinstance(issue, dict):
                 continue
             severity = str(issue.get("severity") or "").lower()
             code = str(issue.get("code") or "")
+            if code:
+                issue_codes.add(code)
             if severity == "error":
                 has_error_signal = True
+                if code:
+                    error_issue_codes.add(code)
             if code == "alignment_coverage_insufficient":
                 has_attention_signal = True
 
         calendar_alignment = payload.get("calendar_alignment")
+        warning_codes: set[str] = set()
         if isinstance(calendar_alignment, dict):
             has_alignment_summary = True
+            warning_codes = {
+                str(code)
+                for code in calendar_alignment.get("comparability_warnings") or []
+                if isinstance(code, str) and code
+            }
             effective_coverage = calendar_alignment.get("effective_coverage_summary") or {}
             aligned_ratio = effective_coverage.get("aligned_ratio")
             unpaired_bucket_count = effective_coverage.get("unpaired_bucket_count")
@@ -381,6 +421,27 @@ def _run_comparability_gate(
                 isinstance(unpaired_bucket_count, (int, float)) and float(unpaired_bucket_count) > 0
             ):
                 has_attention_signal = True
+        else:
+            aligned_ratio = None
+            unpaired_bucket_count = None
+
+        requirement_eval = _evaluate_calendar_alignment_requirements(
+            comparability_status=status,
+            issue_codes=issue_codes,
+            error_issue_codes=error_issue_codes,
+            warning_codes=warning_codes,
+            calendar_alignment=calendar_alignment if isinstance(calendar_alignment, dict) else None,
+            aligned_ratio=aligned_ratio,
+            unpaired_bucket_count=unpaired_bucket_count,
+        )
+        matched_requirement_keys_all.update(requirement_eval["matched_requirement_keys"])
+        failed_requirement_keys.update(requirement_eval["failed_requirement_keys"])
+        if requirement_eval["has_attention_signal"]:
+            has_attention_signal = True
+        if requirement_eval["has_error_signal"]:
+            has_error_signal = True
+
+    matched_requirement_keys = matched_requirement_keys_all - failed_requirement_keys
 
     if not input_finding_ids:
         gate: _GateOutput = {
@@ -399,11 +460,12 @@ def _run_comparability_gate(
             "rule_id": rule_id,
             "result": "miss",
             "satisfied_tokens": [],
-            "unsatisfied_tokens": ["comparability_requirement:compare_input_comparable:failed"],
+            "unsatisfied_tokens": _requirement_tokens(failed_requirement_keys, "failed"),
             "data_quality_impact": "",
             "input_finding_ids": input_finding_ids,
         }
-        unmatched_conditions = ["comparability_requirement:compare_input_comparable:failed"]
+        matched_conditions = _requirement_tokens(matched_requirement_keys, "met")
+        unmatched_conditions = _requirement_tokens(failed_requirement_keys, "failed")
         if has_alignment_summary:
             matched_conditions.append("comparability_signal:window_alignment:needs_attention")
         irec_result = "miss"
@@ -411,12 +473,13 @@ def _run_comparability_gate(
         gate = {
             "rule_id": rule_id,
             "result": "hit",
-            "satisfied_tokens": ["comparability_requirement:compare_input_comparable:met"],
+            "satisfied_tokens": _requirement_tokens(matched_requirement_keys, "met"),
             "unsatisfied_tokens": [],
             "data_quality_impact": "",
             "input_finding_ids": input_finding_ids,
         }
-        matched_conditions = ["comparability_requirement:compare_input_comparable:met"]
+        matched_conditions = _requirement_tokens(matched_requirement_keys, "met")
+        unmatched_conditions = _requirement_tokens(failed_requirement_keys, "failed")
         if has_alignment_summary:
             matched_conditions.append(
                 "comparability_signal:window_alignment:needs_attention"
@@ -426,6 +489,17 @@ def _run_comparability_gate(
         elif has_attention_signal:
             notes.append("comparability needs attention without frozen calendar alignment summary")
         irec_result = "partial" if has_attention_signal else "hit"
+
+    compare_gap_out = _materialize_comparability_gap_state(
+        ctx=ctx,
+        candidate_id=candidate_id,
+        inference_record_id=irec_id,
+        now=now,
+        gap_repo=gap_repo,
+        failed_requirement_keys=failed_requirement_keys,
+        matched_requirement_keys=matched_requirement_keys,
+        blocking=irec_result == "miss",
+    )
 
     irec = {
         "inference_record_id": irec_id,
@@ -437,8 +511,8 @@ def _run_comparability_gate(
         "result": irec_result,
         "input_finding_ids_json": json.dumps(input_finding_ids),
         "input_assessment_ids_json": "[]",
-        "opened_gap_ids_json": "[]",
-        "resolved_gap_ids_json": "[]",
+        "opened_gap_ids_json": json.dumps(compare_gap_out["opened_gap_ids"]),
+        "resolved_gap_ids_json": json.dumps(compare_gap_out["resolved_gap_ids"]),
         "produced_status_transition_json": None,
         "confidence_contribution_json": json.dumps({"direction": "neutral", "magnitude": "small"}),
         "justification_json": json.dumps(
@@ -450,7 +524,237 @@ def _run_comparability_gate(
         ),
         "schema_version": "v1",
     }
-    return gate, irec
+    return gate, irec, compare_gap_out
+
+
+def _requirement_tokens(requirement_keys: set[str], status: str) -> list[str]:
+    return [f"comparability_requirement:{key}:{status}" for key in sorted(requirement_keys)]
+
+
+def _evaluate_calendar_alignment_requirements(
+    *,
+    comparability_status: str,
+    issue_codes: set[str],
+    error_issue_codes: set[str],
+    warning_codes: set[str],
+    calendar_alignment: dict[str, Any] | None,
+    aligned_ratio: Any,
+    unpaired_bucket_count: Any,
+) -> dict[str, Any]:
+    matched_requirement_keys: set[str] = set()
+    failed_requirement_keys: set[str] = set()
+    has_attention_signal = comparability_status == "needs_attention"
+    has_error_signal = False
+
+    if _has_complete_calendar_alignment_summary(calendar_alignment):
+        matched_requirement_keys.add("baseline_calendar_policy_resolved")
+    else:
+        failed_requirement_keys.add("baseline_calendar_policy_resolved")
+
+    if issue_codes & _HOLIDAY_ALIGNMENT_FAILURE_CODES:
+        failed_requirement_keys.add("holiday_cluster_alignment_complete")
+    else:
+        matched_requirement_keys.add("holiday_cluster_alignment_complete")
+
+    if issue_codes & _EVENT_ALIGNMENT_FAILURE_CODES:
+        failed_requirement_keys.add("event_cluster_alignment_complete")
+    else:
+        matched_requirement_keys.add("event_cluster_alignment_complete")
+
+    if issue_codes & _WEEKDAY_TIE_FAILURE_CODES:
+        failed_requirement_keys.add("weekday_pairing_compatible")
+    else:
+        matched_requirement_keys.add("weekday_pairing_compatible")
+
+    tie_breaker_failed = bool(issue_codes & _TIE_BREAKER_FAILURE_CODES)
+    if tie_breaker_failed:
+        failed_requirement_keys.add("alignment_tie_breaker_resolved")
+    else:
+        matched_requirement_keys.add("alignment_tie_breaker_resolved")
+
+    coverage_failed, coverage_attention = _evaluate_coverage_requirement(
+        calendar_alignment=calendar_alignment,
+        issue_codes=issue_codes,
+        warning_codes=warning_codes,
+        aligned_ratio=aligned_ratio,
+        unpaired_bucket_count=unpaired_bucket_count,
+    )
+    if coverage_failed:
+        failed_requirement_keys.add("calendar_coverage_sufficient")
+    else:
+        matched_requirement_keys.add("calendar_coverage_sufficient")
+
+    if error_issue_codes:
+        has_error_signal = True
+    if coverage_attention or tie_breaker_failed or warning_codes:
+        has_attention_signal = True
+
+    return {
+        "matched_requirement_keys": matched_requirement_keys,
+        "failed_requirement_keys": failed_requirement_keys,
+        "has_attention_signal": has_attention_signal,
+        "has_error_signal": has_error_signal,
+    }
+
+
+def _has_complete_calendar_alignment_summary(calendar_alignment: dict[str, Any] | None) -> bool:
+    if not isinstance(calendar_alignment, dict):
+        return False
+    for field in _CALENDAR_ALIGNMENT_REQUIRED_STRING_FIELDS:
+        value = calendar_alignment.get(field)
+        if not isinstance(value, str) or not value:
+            return False
+    for field in _CALENDAR_ALIGNMENT_REQUIRED_DICT_FIELDS:
+        if not isinstance(calendar_alignment.get(field), dict):
+            return False
+    for field in _CALENDAR_ALIGNMENT_REQUIRED_LIST_FIELDS:
+        if not isinstance(calendar_alignment.get(field), list):
+            return False
+    return True
+
+
+def _normalize_numeric(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
+
+
+def _evaluate_coverage_requirement(
+    *,
+    calendar_alignment: dict[str, Any] | None,
+    issue_codes: set[str],
+    warning_codes: set[str],
+    aligned_ratio: Any,
+    unpaired_bucket_count: Any,
+) -> tuple[bool, bool]:
+    coverage_failed = bool((issue_codes | warning_codes) & _COVERAGE_INSUFFICIENT_CODES)
+    if calendar_alignment is None:
+        return coverage_failed, coverage_failed
+
+    aligned_ratio_value = _normalize_numeric(aligned_ratio)
+    unpaired_bucket_count_value = _normalize_numeric(unpaired_bucket_count)
+    if aligned_ratio_value is None or unpaired_bucket_count_value is None:
+        return True, True
+    if aligned_ratio_value != 1.0 or unpaired_bucket_count_value != 0.0:
+        return True, True
+    return coverage_failed, coverage_failed
+
+
+def _find_open_gap_for_requirement(
+    ctx: AssessmentEvaluationContext,
+    gap_repo: EvidenceGapRepository,
+    requirement_key: str,
+) -> str | None:
+    for gap_id in ctx["open_gap_ids"]:
+        gap = gap_repo.get(gap_id)
+        if gap is None or gap.get("gap_kind") != "comparability_risk":
+            continue
+        requirement = gap.get("missing_requirement_json") or {}
+        if (
+            requirement.get("requirement_type") == "comparability_requirement"
+            and requirement.get("requirement_key") == requirement_key
+        ):
+            return gap_id
+    return None
+
+
+def _build_comparability_gap_row(
+    *,
+    session_id: str,
+    proposition_id: str,
+    requirement_key: str,
+    candidate_id: str,
+    inference_record_id: str,
+) -> dict[str, Any]:
+    gap_id = _make_gap_id(session_id, proposition_id, requirement_key, candidate_id)
+    return {
+        "gap_id": gap_id,
+        "session_id": session_id,
+        "proposition_id": proposition_id,
+        "gap_kind": "comparability_risk",
+        "title": f"Comparability risk: {requirement_key}",
+        "description": (
+            "Comparability gate detected an unresolved window alignment requirement "
+            f"for {requirement_key}."
+        ),
+        "status": "open",
+        "missing_requirement_json": json.dumps(
+            {
+                "requirement_type": "comparability_requirement",
+                "requirement_key": requirement_key,
+                "requirement_params": {
+                    "comparability_dimension": "window_alignment",
+                    "expected_relation": "calendar_alignment_requirement_met",
+                    "comparison_scope": "resolved_calendar_alignment",
+                },
+            }
+        ),
+        "satisfiable_by_json": json.dumps(
+            [{"kind": "analysis_step", "step_family": "observe", "suggested_subject": None}]
+        ),
+        "related_finding_ids_json": "[]",
+        "opened_by_inference_record_id": inference_record_id,
+        "schema_version": "v1",
+    }
+
+
+def _materialize_comparability_gap_state(
+    *,
+    ctx: AssessmentEvaluationContext,
+    candidate_id: str,
+    inference_record_id: str,
+    now: str,
+    gap_repo: EvidenceGapRepository,
+    failed_requirement_keys: set[str],
+    matched_requirement_keys: set[str],
+    blocking: bool,
+) -> _GapManagementOutput:
+    del now
+    session_id = ctx["session_id"]
+    proposition_id = ctx["proposition"]["proposition_id"]
+    gap_actions: list[_GapAction] = []
+    gap_memberships: list[dict[str, Any]] = []
+    opened_gap_ids: list[str] = []
+    resolved_gap_ids: list[str] = []
+    severity = "critical" if blocking else "medium"
+
+    for requirement_key in sorted(failed_requirement_keys):
+        existing_gap_id = _find_open_gap_for_requirement(ctx, gap_repo, requirement_key)
+        if existing_gap_id is not None:
+            gap_actions.append({"kind": "keep", "gap_id": existing_gap_id, "gap_row": None})
+            gap_id = existing_gap_id
+        else:
+            gap_row = _build_comparability_gap_row(
+                session_id=session_id,
+                proposition_id=proposition_id,
+                requirement_key=requirement_key,
+                candidate_id=candidate_id,
+                inference_record_id=inference_record_id,
+            )
+            gap_id = gap_row["gap_id"]
+            gap_actions.append({"kind": "open", "gap_id": gap_id, "gap_row": gap_row})
+            opened_gap_ids.append(gap_id)
+        gap_memberships.append(
+            {
+                "gap_ref": {"gap_id": gap_id, "proposition_id": proposition_id},
+                "blocking": blocking,
+                "severity": severity,
+            }
+        )
+
+    for requirement_key in sorted(matched_requirement_keys):
+        existing_gap_id = _find_open_gap_for_requirement(ctx, gap_repo, requirement_key)
+        if existing_gap_id is not None:
+            gap_actions.append({"kind": "resolve", "gap_id": existing_gap_id, "gap_row": None})
+            resolved_gap_ids.append(existing_gap_id)
+
+    return {
+        "rule_id": "comparability_gate.v1.baseline",
+        "gap_actions": gap_actions,
+        "gap_memberships": gap_memberships,
+        "opened_gap_ids": opened_gap_ids,
+        "resolved_gap_ids": resolved_gap_ids,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1095,7 +1399,9 @@ def recompute_proposition_assessment(
     # ------------------------------------------------------------------
     precond_gate, precond_irec = _run_precondition_gate(ctx, candidate_id, finding_repo)
     quality_gate, quality_irec = _run_quality_gate(ctx, candidate_id)
-    _compare_gate, compare_irec = _run_comparability_gate(ctx, candidate_id, finding_repo)
+    _compare_gate, compare_irec, compare_gap_out = _run_comparability_gate(
+        ctx, candidate_id, finding_repo, gap_repo, now
+    )
 
     # ------------------------------------------------------------------
     # Step 4–5 — Directional evidence
@@ -1148,7 +1454,10 @@ def recompute_proposition_assessment(
     candidate_confidence_rationale = confidence_out["confidence_rationale"]
     candidate_supporting_ids = resolution_out["supporting_finding_ids"]
     candidate_opposing_ids = resolution_out["opposing_finding_ids"]
-    candidate_gap_memberships = gap_out["gap_memberships"]
+    candidate_gap_memberships = sorted(
+        [*gap_out["gap_memberships"], *compare_gap_out["gap_memberships"]],
+        key=lambda membership: membership["gap_ref"]["gap_id"],
+    )
 
     # ------------------------------------------------------------------
     # Step 9b — Assessment transition / canonical diff
@@ -1272,13 +1581,17 @@ def recompute_proposition_assessment(
     for irec in all_irecs:
         inference_record_repo.create(irec)
 
-    for action in gap_out["gap_actions"]:
+    for action in [*gap_out["gap_actions"], *compare_gap_out["gap_actions"]]:
         if action["kind"] == "open" and action["gap_row"] is not None:
             gap_repo.create(action["gap_row"])
         elif action["kind"] == "resolve":
             gap_repo.resolve(
                 action["gap_id"],
-                resolved_by_inference_record_id=gap_irec["inference_record_id"],
+                resolved_by_inference_record_id=(
+                    gap_irec["inference_record_id"]
+                    if action["gap_id"] in gap_out["resolved_gap_ids"]
+                    else compare_irec["inference_record_id"]
+                ),
                 resolved_at=now,
             )
         # "keep" → no DB mutation

@@ -258,6 +258,38 @@ comparability gap identity 必须绑定：
 - 不推荐：`compare-check-01`
 - 不推荐：`grain-equals-day`
 
+对 calendar alignment comparability，v1 固定 requirement keys 为：
+
+- `baseline_calendar_policy_resolved`
+- `holiday_cluster_alignment_complete`
+- `event_cluster_alignment_complete`
+- `weekday_pairing_compatible`
+- `calendar_coverage_sufficient`
+- `alignment_tie_breaker_resolved`
+
+这些 key 在 v1 中都映射到 `comparability_dimension = "window_alignment"`，并消费 compare / test
+finding payload 中已冻结的 `calendar_alignment` 与 `comparability.issues` 字段。
+
+其中：
+
+- `baseline_calendar_policy_resolved` 以 task 1.4 冻结的最小 resolved alignment 字段集为准，不得只校验其中的字符串子集
+- `calendar_coverage_sufficient` 在 v1 采用严格满覆盖语义：`aligned_ratio = 1.0` 且 `unpaired_bucket_count = 0`
+- `weekday_pairing_tie` 可同时导致 `weekday_pairing_compatible` 与 `alignment_tie_breaker_resolved` 失败；这是同一歧义在两个 requirement 维度上的显式映射，不视为重复报错
+
+### 5. requirement token 必须显式输出
+
+`comparability_gate` 的 `InferenceRecord.justification_json` 必须显式记录 requirement-level tokens：
+
+- 满足：`comparability_requirement:<requirement_key>:met`
+- 不满足：`comparability_requirement:<requirement_key>:failed`
+
+当上游存在 calendar alignment frozen summary 时，还应补充窗口级摘要 signal：
+
+- `comparability_signal:window_alignment:comparable`
+- `comparability_signal:window_alignment:needs_attention`
+
+该摘要 signal 只用于审计和后续 family 消费，不能替代 requirement-level token。
+
 ## Record Mapping Contract
 
 ### `result` 判定
