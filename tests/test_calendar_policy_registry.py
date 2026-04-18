@@ -22,6 +22,33 @@ class CalendarPolicyRegistryTests(unittest.TestCase):
         self.assertIn("use_when", summary[0])
         self.assertIn("avoid_when", summary[0])
 
+    def test_registry_summary_filters_by_comparison_basis(self) -> None:
+        yoy_summary = policy_registry_summary(comparison_basis="yoy")
+        mom_summary = policy_registry_summary(comparison_basis="mom")
+        wow_summary = policy_registry_summary(comparison_basis="wow")
+
+        self.assertEqual(
+            [item["policy_ref"] for item in yoy_summary],
+            [
+                "calendar_policy.natural_yoy",
+                "calendar_policy.weekday_yoy",
+                "calendar_policy.holiday_yoy",
+                "calendar_policy.event_yoy",
+            ],
+        )
+        self.assertEqual(
+            [item["policy_ref"] for item in mom_summary],
+            [
+                "calendar_policy.natural_mom",
+                "calendar_policy.weekday_mom",
+                "calendar_policy.event_mom",
+            ],
+        )
+        self.assertEqual(
+            [item["policy_ref"] for item in wow_summary],
+            ["calendar_policy.weekday_wow"],
+        )
+
     def test_get_calendar_policy_returns_internal_strategy(self) -> None:
         policy = get_calendar_policy("calendar_policy.holiday_yoy")
 
@@ -95,6 +122,28 @@ class CalendarPolicyRegistryTests(unittest.TestCase):
             )
 
         self.assertEqual(ctx.exception.code, "calendar_policy_ambiguous")
+
+    def test_resolve_calendar_policy_accepts_unique_planner_candidate_after_dedup(self) -> None:
+        resolved = resolve_calendar_policy(
+            planner_candidate_refs=[
+                "calendar_policy.holiday_yoy",
+                "calendar_policy.holiday_yoy",
+            ],
+            comparison_basis="yoy",
+        )
+
+        assert resolved is not None
+        self.assertEqual(resolved.policy.policy_ref, "calendar_policy.holiday_yoy")
+        self.assertEqual(resolved.resolution_source, "planner_candidate")
+
+    def test_resolve_calendar_policy_rejects_planner_candidate_basis_mismatch(self) -> None:
+        with self.assertRaises(CalendarPolicyResolutionError) as ctx:
+            resolve_calendar_policy(
+                planner_candidate_refs=["calendar_policy.event_mom"],
+                comparison_basis="yoy",
+            )
+
+        self.assertEqual(ctx.exception.code, "calendar_policy_basis_mismatch")
 
     def test_resolve_calendar_policy_can_require_policy(self) -> None:
         with self.assertRaises(CalendarPolicyResolutionError) as ctx:
