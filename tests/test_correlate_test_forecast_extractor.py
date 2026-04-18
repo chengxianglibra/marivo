@@ -135,8 +135,10 @@ def _test_payload(
     p_value: float | None = 0.003,
     reject_null: bool | None = True,
     alpha: float = 0.05,
+    comparability: dict[str, Any] | None = None,
+    calendar_alignment: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    return {
+    payload: dict[str, Any] = {
         "artifact_schema_version": "v1",
         "result_type": "hypothesis_test",
         "left_ref": {
@@ -159,6 +161,34 @@ def _test_payload(
         "p_value": p_value,
         "decision": {"reject_null": reject_null},
         "hypothesis": {"family": "difference", "alternative": "two_sided", "alpha": alpha},
+    }
+    if comparability is not None:
+        payload["comparability"] = comparability
+    if calendar_alignment is not None:
+        payload["resolved_input_summary"] = {"calendar_alignment": calendar_alignment}
+    return payload
+
+
+def _calendar_alignment_summary(
+    *,
+    aligned_ratio: float = 1.0,
+    unpaired_bucket_count: int = 0,
+) -> dict[str, Any]:
+    coverage = {
+        "aligned_bucket_count": 7,
+        "unpaired_bucket_count": unpaired_bucket_count,
+        "aligned_ratio": aligned_ratio,
+    }
+    return {
+        "reuse_source": "observation_resolved_policy_summary",
+        "policy_ref": "calendar_policy.holiday_yoy",
+        "comparison_basis": "yoy",
+        "resolved_calendar_source": "calendar.cn_holidays",
+        "resolved_calendar_version": "2026.01",
+        "comparability_warnings": [],
+        "left_coverage_summary": dict(coverage),
+        "right_coverage_summary": dict(coverage),
+        "effective_coverage_summary": dict(coverage),
     }
 
 
@@ -392,6 +422,31 @@ class TestTestExtractor(unittest.TestCase):
     def test_validate_for_commit_passes(self) -> None:
         result = self._extract()
         validate_for_commit("test", result)
+
+    def test_comparability_and_calendar_alignment_propagated(self) -> None:
+        result = self._extract(
+            _test_payload(
+                comparability={
+                    "status": "needs_attention",
+                    "issues": [
+                        {
+                            "code": "alignment_coverage_insufficient",
+                            "severity": "warning",
+                            "message": "coverage warning",
+                        }
+                    ],
+                },
+                calendar_alignment=_calendar_alignment_summary(
+                    aligned_ratio=0.8, unpaired_bucket_count=1
+                ),
+            )
+        )
+        payload = result["findings"][0]["payload"]
+        self.assertEqual(payload["comparability"]["status"], "needs_attention")
+        self.assertEqual(
+            payload["comparability"]["issues"][0]["code"], "alignment_coverage_insufficient"
+        )
+        self.assertEqual(payload["calendar_alignment"]["policy_ref"], "calendar_policy.holiday_yoy")
 
     def test_registered_in_default_registry(self) -> None:
         extractor = default_finding_registry.find("hypothesis_test", "v1")

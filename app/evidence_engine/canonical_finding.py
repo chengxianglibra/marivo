@@ -258,7 +258,39 @@ DeltaDirection = Literal["increase", "decrease", "flat", "undefined"]
 DeltaPresence = Literal["both", "left_only", "right_only"]
 
 
-class DeltaPayload(TypedDict):
+class CalendarAlignmentCoverageSummary(TypedDict):
+    aligned_bucket_count: int
+    unpaired_bucket_count: int
+    aligned_ratio: float
+
+
+class CalendarAlignmentReuseSummary(TypedDict):
+    reuse_source: str
+    policy_ref: str
+    comparison_basis: str
+    resolved_calendar_source: str
+    resolved_calendar_version: str
+    comparability_warnings: list[str]
+    left_coverage_summary: CalendarAlignmentCoverageSummary
+    right_coverage_summary: CalendarAlignmentCoverageSummary
+    effective_coverage_summary: CalendarAlignmentCoverageSummary
+
+
+class ComparabilityIssue(TypedDict, total=False):
+    code: str
+    severity: str
+    message: str
+    details: dict[str, Any]
+
+
+class ComparabilitySummary(TypedDict):
+    status: str
+    issues: list[ComparabilityIssue]
+
+
+class DeltaPayloadBase(TypedDict):
+    """Required delta payload fields shared by all delta findings."""
+
     delta_kind: DeltaKind
     left_ref: ArtifactItemRefRef
     right_ref: ArtifactItemRefRef
@@ -269,6 +301,11 @@ class DeltaPayload(TypedDict):
     direction: DeltaDirection
     presence: DeltaPresence | None
     unit: str | None
+
+
+class DeltaPayload(DeltaPayloadBase, total=False):
+    comparability: ComparabilitySummary
+    calendar_alignment: CalendarAlignmentReuseSummary
 
 
 # ---------------------------------------------------------------------------
@@ -328,16 +365,21 @@ TestMethod = Literal["welch_t", "two_proportion_z"]
 StatisticName = Literal["t", "z"]
 
 
-class TestResultPayload(TypedDict):
+class TestResultPayloadBase(TypedDict):
     left_ref: ArtifactItemRefRef
     right_ref: ArtifactItemRefRef
-    method: TestMethod
+    method: str
     estimate_value: float | None
-    statistic_name: StatisticName
+    statistic_name: str
     statistic_value: float | None
     p_value: float | None
     reject_null: bool | None
     alpha: float
+
+
+class TestResultPayload(TestResultPayloadBase, total=False):
+    comparability: ComparabilitySummary
+    calendar_alignment: CalendarAlignmentReuseSummary
 
 
 # ---------------------------------------------------------------------------

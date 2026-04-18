@@ -320,22 +320,113 @@ def _run_quality_gate(
 
 
 def _run_comparability_gate(
-    ctx: AssessmentEvaluationContext, candidate_id: str
+    ctx: AssessmentEvaluationContext,
+    candidate_id: str,
+    finding_repo: FindingRepository,
 ) -> tuple[_GateOutput, dict[str, Any]]:
-    """v1 comparability gate: always passes (no comparability metadata in v1)."""
+    """Consume frozen comparability/calendar alignment from finding payloads.
+
+    The gate reads structured comparability summaries already frozen into canonical
+    compare/test findings and does not reconstruct holiday / weekday / event pairing logic.
+    """
     session_id = ctx["session_id"]
     proposition_id = ctx["proposition"]["proposition_id"]
     rule_id = "comparability_gate.v1.baseline"
     irec_id = _make_inference_record_id(session_id, proposition_id, candidate_id, rule_id)
 
-    gate: _GateOutput = {
-        "rule_id": rule_id,
-        "result": "hit",
-        "satisfied_tokens": ["comparability_baseline_passed"],
-        "unsatisfied_tokens": [],
-        "data_quality_impact": "",
-        "input_finding_ids": [],
-    }
+    input_finding_ids: list[str] = []
+    matched_conditions: list[str] = []
+    unmatched_conditions: list[str] = []
+    notes: list[str] = []
+    has_alignment_summary = False
+    has_attention_signal = False
+    has_error_signal = False
+
+    for finding_id in ctx["candidate_finding_ids"]:
+        finding = finding_repo.get(finding_id)
+        if finding is None:
+            continue
+        if finding.get("finding_type") not in {"delta", "test_result"}:
+            continue
+        payload = finding.get("payload_json")
+        if payload is None:
+            continue
+        comparability = payload.get("comparability")
+        if not isinstance(comparability, dict):
+            continue
+
+        input_finding_ids.append(finding_id)
+        status = str(comparability.get("status") or "needs_attention")
+        if status == "needs_attention":
+            has_attention_signal = True
+
+        issues = comparability.get("issues") or []
+        for issue in issues:
+            if not isinstance(issue, dict):
+                continue
+            severity = str(issue.get("severity") or "").lower()
+            code = str(issue.get("code") or "")
+            if severity == "error":
+                has_error_signal = True
+            if code == "alignment_coverage_insufficient":
+                has_attention_signal = True
+
+        calendar_alignment = payload.get("calendar_alignment")
+        if isinstance(calendar_alignment, dict):
+            has_alignment_summary = True
+            effective_coverage = calendar_alignment.get("effective_coverage_summary") or {}
+            aligned_ratio = effective_coverage.get("aligned_ratio")
+            unpaired_bucket_count = effective_coverage.get("unpaired_bucket_count")
+            if (isinstance(aligned_ratio, (int, float)) and float(aligned_ratio) < 0.9999) or (
+                isinstance(unpaired_bucket_count, (int, float)) and float(unpaired_bucket_count) > 0
+            ):
+                has_attention_signal = True
+
+    if not input_finding_ids:
+        gate: _GateOutput = {
+            "rule_id": rule_id,
+            "result": "hit",
+            "satisfied_tokens": ["comparability_baseline_passed"],
+            "unsatisfied_tokens": [],
+            "data_quality_impact": "",
+            "input_finding_ids": [],
+        }
+        matched_conditions = ["comparability_baseline_passed"]
+        notes = ["no comparability-bearing finding inputs"]
+        irec_result = "hit"
+    elif has_error_signal:
+        gate = {
+            "rule_id": rule_id,
+            "result": "miss",
+            "satisfied_tokens": [],
+            "unsatisfied_tokens": ["comparability_requirement:compare_input_comparable:failed"],
+            "data_quality_impact": "",
+            "input_finding_ids": input_finding_ids,
+        }
+        unmatched_conditions = ["comparability_requirement:compare_input_comparable:failed"]
+        if has_alignment_summary:
+            matched_conditions.append("comparability_signal:window_alignment:needs_attention")
+        irec_result = "miss"
+    else:
+        gate = {
+            "rule_id": rule_id,
+            "result": "hit",
+            "satisfied_tokens": ["comparability_requirement:compare_input_comparable:met"],
+            "unsatisfied_tokens": [],
+            "data_quality_impact": "",
+            "input_finding_ids": input_finding_ids,
+        }
+        matched_conditions = ["comparability_requirement:compare_input_comparable:met"]
+        if has_alignment_summary:
+            matched_conditions.append(
+                "comparability_signal:window_alignment:needs_attention"
+                if has_attention_signal
+                else "comparability_signal:window_alignment:comparable"
+            )
+        elif has_attention_signal:
+            notes.append("comparability needs attention without frozen calendar alignment summary")
+        irec_result = "partial" if has_attention_signal else "hit"
+
     irec = {
         "inference_record_id": irec_id,
         "session_id": session_id,
@@ -343,8 +434,8 @@ def _run_comparability_gate(
         "assessment_id": candidate_id,
         "rule_id": rule_id,
         "rule_version": "v1",
-        "result": "hit",
-        "input_finding_ids_json": "[]",
+        "result": irec_result,
+        "input_finding_ids_json": json.dumps(input_finding_ids),
         "input_assessment_ids_json": "[]",
         "opened_gap_ids_json": "[]",
         "resolved_gap_ids_json": "[]",
@@ -352,9 +443,9 @@ def _run_comparability_gate(
         "confidence_contribution_json": json.dumps({"direction": "neutral", "magnitude": "small"}),
         "justification_json": json.dumps(
             {
-                "matched_conditions": ["comparability_baseline_passed"],
-                "unmatched_conditions": [],
-                "notes": [],
+                "matched_conditions": matched_conditions,
+                "unmatched_conditions": unmatched_conditions,
+                "notes": notes,
             }
         ),
         "schema_version": "v1",
@@ -497,6 +588,7 @@ def _run_status_resolution(
     ctx: AssessmentEvaluationContext,
     candidate_id: str,
     precond_gate: _GateOutput,
+    comparability_gate: _GateOutput,
     support_out: _DirectionalOutput,
     oppose_out: _DirectionalOutput,
 ) -> tuple[_StatusResolutionOutput, dict[str, Any]]:
@@ -509,8 +601,8 @@ def _run_status_resolution(
     support_threshold_met = "has_directional_finding" in support_out["satisfied_tokens"]
     oppose_threshold_met = "has_oppose_finding" in oppose_out["satisfied_tokens"]
 
-    # Precondition gate failure is a guardrail: force insufficient
-    guardrail_blocked = precond_gate["result"] == "miss"
+    # Gate failures are guardrails: force insufficient
+    guardrail_blocked = precond_gate["result"] == "miss" or comparability_gate["result"] == "miss"
 
     if guardrail_blocked:
         status = "insufficient"
@@ -551,7 +643,10 @@ def _run_status_resolution(
     else:
         unmatched.append("oppose_threshold_met")
     if guardrail_blocked:
-        matched.append("precondition_guardrail_blocked")
+        if precond_gate["result"] == "miss":
+            matched.append("precondition_guardrail_blocked")
+        if comparability_gate["result"] == "miss":
+            matched.append("comparability_guardrail_blocked")
 
     irec = {
         "inference_record_id": irec_id,
@@ -1000,7 +1095,7 @@ def recompute_proposition_assessment(
     # ------------------------------------------------------------------
     precond_gate, precond_irec = _run_precondition_gate(ctx, candidate_id, finding_repo)
     quality_gate, quality_irec = _run_quality_gate(ctx, candidate_id)
-    _compare_gate, compare_irec = _run_comparability_gate(ctx, candidate_id)
+    _compare_gate, compare_irec = _run_comparability_gate(ctx, candidate_id, finding_repo)
 
     # ------------------------------------------------------------------
     # Step 4–5 — Directional evidence
@@ -1012,7 +1107,7 @@ def recompute_proposition_assessment(
     # Step 6 — Status resolution
     # ------------------------------------------------------------------
     resolution_out, resolution_irec = _run_status_resolution(
-        ctx, candidate_id, precond_gate, support_out, oppose_out
+        ctx, candidate_id, precond_gate, _compare_gate, support_out, oppose_out
     )
 
     # ------------------------------------------------------------------

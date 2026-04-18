@@ -95,6 +95,30 @@ def _scalar_delta_payload(
     }
 
 
+def _calendar_alignment_summary(
+    *,
+    aligned_ratio: float = 1.0,
+    unpaired_bucket_count: int = 0,
+    warnings: list[str] | None = None,
+) -> dict[str, Any]:
+    coverage = {
+        "aligned_bucket_count": 7,
+        "unpaired_bucket_count": unpaired_bucket_count,
+        "aligned_ratio": aligned_ratio,
+    }
+    return {
+        "reuse_source": "observation_resolved_policy_summary",
+        "policy_ref": "calendar_policy.holiday_yoy",
+        "comparison_basis": "yoy",
+        "resolved_calendar_source": "calendar.cn_holidays",
+        "resolved_calendar_version": "2026.01",
+        "comparability_warnings": list(warnings or []),
+        "left_coverage_summary": dict(coverage),
+        "right_coverage_summary": dict(coverage),
+        "effective_coverage_summary": dict(coverage),
+    }
+
+
 def _segmented_delta_payload(
     metric: str = "revenue",
     rows: list[dict[str, Any]] | None = None,
@@ -259,6 +283,36 @@ class TestCompareScalarDelta(unittest.TestCase):
             with self.subTest(direction=d):
                 result = self._extract(direction=d)
                 self.assertEqual(result["findings"][0]["payload"]["direction"], d)
+
+    def test_comparability_summary_propagated(self) -> None:
+        result = _COMPARE_EXTRACTOR.extract(
+            artifact_id=_ART_ID,
+            artifact_payload={
+                **_scalar_delta_payload(),
+                "comparability": {
+                    "status": "needs_attention",
+                    "issues": [
+                        {
+                            "code": "alignment_coverage_insufficient",
+                            "severity": "warning",
+                            "message": "coverage warning",
+                        }
+                    ],
+                },
+                "resolved_input_summary": {
+                    **_scalar_delta_payload()["resolved_input_summary"],
+                    "calendar_alignment": _calendar_alignment_summary(aligned_ratio=0.8),
+                },
+            },
+            step_ref=_STEP_REF,
+            session_id=_SESSION,
+        )
+        payload = result["findings"][0]["payload"]
+        self.assertEqual(payload["comparability"]["status"], "needs_attention")
+        self.assertEqual(
+            payload["comparability"]["issues"][0]["code"], "alignment_coverage_insufficient"
+        )
+        self.assertEqual(payload["calendar_alignment"]["policy_ref"], "calendar_policy.holiday_yoy")
 
     def test_invalid_direction_normalised_to_undefined(self) -> None:
         payload = _scalar_delta_payload(direction="unknown_dir")

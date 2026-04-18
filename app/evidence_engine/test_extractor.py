@@ -86,6 +86,35 @@ def _empty_quality() -> FindingQuality:
     )
 
 
+def _extract_comparability_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    comparability = payload.get("comparability")
+    resolved = payload.get("resolved_input_summary") or {}
+    calendar_alignment = resolved.get("calendar_alignment")
+
+    extracted: dict[str, Any] = {}
+    if isinstance(comparability, dict):
+        extracted["comparability"] = {
+            "status": comparability.get("status") or "needs_attention",
+            "issues": list(comparability.get("issues") or []),
+        }
+    if isinstance(calendar_alignment, dict):
+        extracted["calendar_alignment"] = dict(calendar_alignment)
+    return extracted
+
+
+def _attach_comparability_payload(
+    test_payload: TestResultPayload,
+    comparability_payload: dict[str, Any],
+) -> TestResultPayload:
+    comparability = comparability_payload.get("comparability")
+    if comparability is not None:
+        test_payload["comparability"] = comparability
+    calendar_alignment = comparability_payload.get("calendar_alignment")
+    if calendar_alignment is not None:
+        test_payload["calendar_alignment"] = calendar_alignment
+    return test_payload
+
+
 # ---------------------------------------------------------------------------
 # Extractor
 # ---------------------------------------------------------------------------
@@ -118,11 +147,9 @@ class TestArtifactExtractor(FindingExtractor):
         hypothesis: dict[str, Any] = artifact_payload.get("hypothesis") or {}
         decision: dict[str, Any] = artifact_payload.get("decision") or {}
 
-        method_raw: str = str(artifact_payload.get("method") or "")
-        method = method_raw
+        method = str(artifact_payload.get("method") or "")
 
-        stat_name_raw: str = str(statistic.get("name") or "")
-        stat_name = stat_name_raw
+        stat_name = str(statistic.get("name") or "")
 
         alpha_raw = hypothesis.get("alpha")
         try:
@@ -144,6 +171,7 @@ class TestArtifactExtractor(FindingExtractor):
             artifact_id=str(right_src.get("artifact_id") or ""),
             item_ref=right_obs_item_ref,
         )
+        comparability_payload = _extract_comparability_payload(artifact_payload)
 
         provenance = FindingProvenance(
             source_step_type=step_ref["step_type"],
@@ -154,6 +182,19 @@ class TestArtifactExtractor(FindingExtractor):
             artifact_item_ref=item_ref,
             projection_ref=None,
         )
+
+        test_payload = TestResultPayload(
+            left_ref=left_ref,
+            right_ref=right_ref,
+            method=method,
+            estimate_value=_to_float_or_none(estimate.get("value")),
+            statistic_name=stat_name,
+            statistic_value=_to_float_or_none(statistic.get("value")),
+            p_value=_to_float_or_none(artifact_payload.get("p_value")),
+            reject_null=_to_bool_or_none(decision.get("reject_null")),
+            alpha=alpha,
+        )
+        test_payload = _attach_comparability_payload(test_payload, comparability_payload)
 
         finding = TestResultFinding(
             finding_id=finding_id,
@@ -170,17 +211,7 @@ class TestArtifactExtractor(FindingExtractor):
             observed_window=None,
             quality=_empty_quality(),
             provenance=provenance,
-            payload=TestResultPayload(
-                left_ref=left_ref,
-                right_ref=right_ref,
-                method=method,  # type: ignore[typeddict-item]
-                estimate_value=_to_float_or_none(estimate.get("value")),
-                statistic_name=stat_name,  # type: ignore[typeddict-item]
-                statistic_value=_to_float_or_none(statistic.get("value")),
-                p_value=_to_float_or_none(artifact_payload.get("p_value")),
-                reject_null=_to_bool_or_none(decision.get("reject_null")),
-                alpha=alpha,
-            ),
+            payload=test_payload,
         )
 
         return FindingExtractionResult(
