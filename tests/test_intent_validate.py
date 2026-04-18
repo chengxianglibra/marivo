@@ -383,8 +383,9 @@ class ValidateRunnerServiceTests(unittest.TestCase):
             self.assertRaisesRegex(
                 ValueError,
                 "validate: TEST_FAILED - hypothesis test failed: test: NOT_COMPARABLE - "
-                "left policy_ref 'calendar_policy.weekday_yoy' != "
-                "right policy_ref 'calendar_policy.holiday_yoy'",
+                "left and right observations freeze different calendar policies, so the "
+                "comparison basis is not directly comparable. Re-run both observations "
+                "with the same calendar_policy_ref before comparing them.",
             ),
         ):
             self._validate_numeric(sid)
