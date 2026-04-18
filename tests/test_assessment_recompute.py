@@ -223,6 +223,8 @@ class _RecomputeBase(unittest.TestCase):
         include_calendar_alignment: bool = False,
         aligned_ratio: float = 1.0,
         unpaired_bucket_count: int = 0,
+        comparability_warnings: list[str] | None = None,
+        calendar_alignment_overrides: dict[str, Any] | None = None,
     ) -> None:
         row = _make_finding_row(finding_id, finding_type="delta", metric="dau")
         payload = {
@@ -250,17 +252,32 @@ class _RecomputeBase(unittest.TestCase):
                 "unpaired_bucket_count": unpaired_bucket_count,
                 "aligned_ratio": aligned_ratio,
             }
-            payload["calendar_alignment"] = {
+            bucket_pairing = [
+                {
+                    "current_bucket": "2026-04-01",
+                    "baseline_bucket": "2025-04-01",
+                    "pairing_reason": "holiday_cluster",
+                }
+            ]
+            calendar_alignment_payload: dict[str, Any] = {
                 "reuse_source": "observation_resolved_policy_summary",
                 "policy_ref": "calendar_policy.holiday_yoy",
                 "comparison_basis": "yoy",
                 "resolved_calendar_source": "calendar.cn_holidays",
                 "resolved_calendar_version": "2026.01",
-                "comparability_warnings": [],
+                "resolved_baseline_generation_rule": "previous_year",
+                "current_window": {"start": "2026-04-01", "end": "2026-04-07", "grain": "day"},
+                "baseline_window": {"start": "2025-04-01", "end": "2025-04-07", "grain": "day"},
+                "bucket_pairing": bucket_pairing,
+                "coverage_summary": dict(coverage),
+                "comparability_warnings": list(comparability_warnings or []),
                 "left_coverage_summary": dict(coverage),
                 "right_coverage_summary": dict(coverage),
                 "effective_coverage_summary": dict(coverage),
             }
+            if calendar_alignment_overrides:
+                calendar_alignment_payload.update(calendar_alignment_overrides)
+            payload["calendar_alignment"] = calendar_alignment_payload
         row["payload_json"] = json.dumps(payload)
         self.finding_repo.create(row)
 
@@ -273,6 +290,8 @@ class _RecomputeBase(unittest.TestCase):
         include_calendar_alignment: bool = False,
         aligned_ratio: float = 1.0,
         unpaired_bucket_count: int = 0,
+        comparability_warnings: list[str] | None = None,
+        calendar_alignment_overrides: dict[str, Any] | None = None,
         payload_is_none: bool = False,
     ) -> None:
         row = _make_finding_row(finding_id, finding_type="test_result", metric="dau")
@@ -305,17 +324,32 @@ class _RecomputeBase(unittest.TestCase):
                 "unpaired_bucket_count": unpaired_bucket_count,
                 "aligned_ratio": aligned_ratio,
             }
-            payload["calendar_alignment"] = {
+            bucket_pairing = [
+                {
+                    "current_bucket": "2026-04-01",
+                    "baseline_bucket": "2025-04-01",
+                    "pairing_reason": "holiday_cluster",
+                }
+            ]
+            calendar_alignment_payload: dict[str, Any] = {
                 "reuse_source": "observation_resolved_policy_summary",
                 "policy_ref": "calendar_policy.holiday_yoy",
                 "comparison_basis": "yoy",
                 "resolved_calendar_source": "calendar.cn_holidays",
                 "resolved_calendar_version": "2026.01",
-                "comparability_warnings": [],
+                "resolved_baseline_generation_rule": "previous_year",
+                "current_window": {"start": "2026-04-01", "end": "2026-04-07", "grain": "day"},
+                "baseline_window": {"start": "2025-04-01", "end": "2025-04-07", "grain": "day"},
+                "bucket_pairing": bucket_pairing,
+                "coverage_summary": dict(coverage),
+                "comparability_warnings": list(comparability_warnings or []),
                 "left_coverage_summary": dict(coverage),
                 "right_coverage_summary": dict(coverage),
                 "effective_coverage_summary": dict(coverage),
             }
+            if calendar_alignment_overrides:
+                calendar_alignment_payload.update(calendar_alignment_overrides)
+            payload["calendar_alignment"] = calendar_alignment_payload
         row["payload_json"] = json.dumps(payload)
         self.finding_repo.create(row)
 
@@ -1062,6 +1096,44 @@ class TestStatusResolutionDirectional(_RecomputeBase):
 class TestComparabilityGateIntegration(_RecomputeBase):
     """Comparability gate consumes finding-level comparability summaries."""
 
+    def _recompute_with_explicit_ctx(
+        self,
+        candidate_finding_ids: list[str],
+        open_gap_ids: list[str],
+        current_latest_assessment_id: str | None,
+        prior_assessment_ids: list[str],
+    ) -> AssessmentRecomputeResult:
+        from app.evidence_engine.assessment_evaluation_context import (
+            EVALUATION_CONTEXT_SCHEMA_VERSION,
+            AssessmentEvaluationContext,
+        )
+
+        prop = self.proposition_repo.get(self.PROP_ID)
+        assert prop is not None
+        candidate_id = make_assessment_id(
+            self.SESSION_ID, self.PROP_ID, self.assessment_repo.next_snapshot_seq(self.PROP_ID)
+        )
+        ctx: AssessmentEvaluationContext = {
+            "session_id": self.SESSION_ID,
+            "proposition": prop,
+            "assessment_type": prop["assessment_anchor_json"]["assessment_type"],
+            "candidate_assessment_id": candidate_id,
+            "current_latest_assessment_id": current_latest_assessment_id,
+            "prior_assessment_ids": prior_assessment_ids,
+            "open_gap_ids": open_gap_ids,
+            "resolved_seed_finding_ids": [],
+            "trigger_finding_ids": [],
+            "candidate_finding_ids": candidate_finding_ids,
+            "schema_version": EVALUATION_CONTEXT_SCHEMA_VERSION,
+        }
+        return recompute_proposition_assessment(
+            ctx=ctx,
+            assessment_repo=self.assessment_repo,
+            gap_repo=self.gap_repo,
+            inference_record_repo=self.ir_repo,
+            finding_repo=self.finding_repo,
+        )
+
     def test_needs_attention_alignment_records_partial_gate(self) -> None:
         self._insert_compare_delta_finding(
             "fnd_cmp_partial",
@@ -1088,8 +1160,18 @@ class TestComparabilityGateIntegration(_RecomputeBase):
         self.assertEqual(compare_irec["result"], "partial")
         self.assertEqual(compare_irec["input_finding_ids_json"], ["fnd_cmp_partial"])
         matched = compare_irec["justification_json"]["matched_conditions"]
-        self.assertIn("comparability_requirement:compare_input_comparable:met", matched)
+        self.assertIn("comparability_requirement:baseline_calendar_policy_resolved:met", matched)
+        self.assertIn("comparability_requirement:holiday_cluster_alignment_complete:met", matched)
+        self.assertIn("comparability_requirement:event_cluster_alignment_complete:met", matched)
+        self.assertIn("comparability_requirement:weekday_pairing_compatible:met", matched)
+        self.assertIn("comparability_requirement:alignment_tie_breaker_resolved:met", matched)
+        self.assertNotIn("comparability_requirement:calendar_coverage_sufficient:met", matched)
         self.assertIn("comparability_signal:window_alignment:needs_attention", matched)
+        unmatched = compare_irec["justification_json"]["unmatched_conditions"]
+        self.assertEqual(
+            unmatched,
+            ["comparability_requirement:calendar_coverage_sufficient:failed"],
+        )
 
     def test_comparability_error_blocks_supported_status(self) -> None:
         self._insert_compare_delta_finding(
@@ -1115,6 +1197,142 @@ class TestComparabilityGateIntegration(_RecomputeBase):
         self.assertIn(
             "comparability_guardrail_blocked",
             resolution_irec["justification_json"]["matched_conditions"],
+        )
+
+    def test_missing_calendar_alignment_summary_fails_baseline_requirement(self) -> None:
+        self._insert_compare_delta_finding(
+            "fnd_cmp_missing_alignment",
+            comparability_status="needs_attention",
+            issues=[],
+            include_calendar_alignment=False,
+        )
+        result = self._recompute(trigger_ids=["fnd_cmp_missing_alignment"])
+        row = self.assessment_repo.get(result["assessment_id"])
+        compare_irec_id = next(
+            irec_id
+            for irec_id in row["applied_inference_record_ids_json"]
+            if self.ir_repo.get(irec_id)["rule_id"] == "comparability_gate.v1.baseline"
+        )
+        compare_irec = self.ir_repo.get(compare_irec_id)
+        self.assertEqual(compare_irec["result"], "partial")
+        self.assertIn(
+            "comparability_requirement:baseline_calendar_policy_resolved:failed",
+            compare_irec["justification_json"]["unmatched_conditions"],
+        )
+
+    def test_missing_baseline_generation_rule_fails_baseline_requirement(self) -> None:
+        self._insert_compare_delta_finding(
+            "fnd_cmp_missing_generation_rule",
+            comparability_status="needs_attention",
+            issues=[],
+            include_calendar_alignment=True,
+            calendar_alignment_overrides={"resolved_baseline_generation_rule": None},
+        )
+        result = self._recompute(trigger_ids=["fnd_cmp_missing_generation_rule"])
+        row = self.assessment_repo.get(result["assessment_id"])
+        compare_irec_id = next(
+            irec_id
+            for irec_id in row["applied_inference_record_ids_json"]
+            if self.ir_repo.get(irec_id)["rule_id"] == "comparability_gate.v1.baseline"
+        )
+        compare_irec = self.ir_repo.get(compare_irec_id)
+        self.assertIn(
+            "comparability_requirement:baseline_calendar_policy_resolved:failed",
+            compare_irec["justification_json"]["unmatched_conditions"],
+        )
+
+    def test_holiday_cluster_unmapped_blocks_gate(self) -> None:
+        self._insert_compare_delta_finding(
+            "fnd_cmp_holiday_unmapped",
+            comparability_status="needs_attention",
+            issues=[
+                {
+                    "code": "holiday_cluster_unmapped",
+                    "severity": "error",
+                    "message": "holiday mapping missing",
+                }
+            ],
+            include_calendar_alignment=True,
+        )
+        result = self._recompute(trigger_ids=["fnd_cmp_holiday_unmapped"])
+        row = self.assessment_repo.get(result["assessment_id"])
+        compare_irec_id = next(
+            irec_id
+            for irec_id in row["applied_inference_record_ids_json"]
+            if self.ir_repo.get(irec_id)["rule_id"] == "comparability_gate.v1.baseline"
+        )
+        compare_irec = self.ir_repo.get(compare_irec_id)
+        self.assertEqual(compare_irec["result"], "miss")
+        self.assertIn(
+            "comparability_requirement:holiday_cluster_alignment_complete:failed",
+            compare_irec["justification_json"]["unmatched_conditions"],
+        )
+        self.assertEqual(len(row["gap_memberships_json"]), 1)
+        gap_id = row["gap_memberships_json"][0]["gap_ref"]["gap_id"]
+        gap = self.gap_repo.get(gap_id)
+        self.assertEqual(gap["gap_kind"], "comparability_risk")
+        self.assertEqual(
+            gap["missing_requirement_json"]["requirement_key"],
+            "holiday_cluster_alignment_complete",
+        )
+
+    def test_event_cluster_unmapped_blocks_gate(self) -> None:
+        self._insert_compare_delta_finding(
+            "fnd_cmp_event_unmapped",
+            comparability_status="needs_attention",
+            issues=[
+                {
+                    "code": "event_cluster_unmapped",
+                    "severity": "error",
+                    "message": "event mapping missing",
+                }
+            ],
+            include_calendar_alignment=True,
+        )
+        result = self._recompute(trigger_ids=["fnd_cmp_event_unmapped"])
+        row = self.assessment_repo.get(result["assessment_id"])
+        compare_irec_id = next(
+            irec_id
+            for irec_id in row["applied_inference_record_ids_json"]
+            if self.ir_repo.get(irec_id)["rule_id"] == "comparability_gate.v1.baseline"
+        )
+        compare_irec = self.ir_repo.get(compare_irec_id)
+        self.assertEqual(compare_irec["result"], "miss")
+        self.assertIn(
+            "comparability_requirement:event_cluster_alignment_complete:failed",
+            compare_irec["justification_json"]["unmatched_conditions"],
+        )
+
+    def test_weekday_pairing_tie_fails_weekday_and_tie_breaker_requirements(self) -> None:
+        self._insert_compare_delta_finding(
+            "fnd_cmp_weekday_tie",
+            comparability_status="needs_attention",
+            issues=[
+                {
+                    "code": "weekday_pairing_tie",
+                    "severity": "warning",
+                    "message": "weekday tie remained",
+                }
+            ],
+            include_calendar_alignment=True,
+        )
+        result = self._recompute(trigger_ids=["fnd_cmp_weekday_tie"])
+        row = self.assessment_repo.get(result["assessment_id"])
+        compare_irec_id = next(
+            irec_id
+            for irec_id in row["applied_inference_record_ids_json"]
+            if self.ir_repo.get(irec_id)["rule_id"] == "comparability_gate.v1.baseline"
+        )
+        compare_irec = self.ir_repo.get(compare_irec_id)
+        self.assertEqual(compare_irec["result"], "partial")
+        unmatched = compare_irec["justification_json"]["unmatched_conditions"]
+        self.assertIn(
+            "comparability_requirement:weekday_pairing_compatible:failed",
+            unmatched,
+        )
+        self.assertIn(
+            "comparability_requirement:alignment_tie_breaker_resolved:failed",
+            unmatched,
         )
 
     def test_test_result_finding_contributes_to_comparability_gate(self) -> None:
@@ -1148,6 +1366,37 @@ class TestComparabilityGateIntegration(_RecomputeBase):
         compare_irec = self.ir_repo.get(compare_irec_id)
         self.assertEqual(compare_irec["result"], "partial")
         self.assertEqual(compare_irec["input_finding_ids_json"], ["fnd_test_cmp_partial"])
+        self.assertIn(
+            "comparability_requirement:calendar_coverage_sufficient:failed",
+            compare_irec["justification_json"]["unmatched_conditions"],
+        )
+
+    def test_non_numeric_coverage_fails_requirement(self) -> None:
+        self._insert_compare_delta_finding(
+            "fnd_cmp_bad_coverage",
+            comparability_status="needs_attention",
+            issues=[],
+            include_calendar_alignment=True,
+            calendar_alignment_overrides={
+                "effective_coverage_summary": {
+                    "aligned_bucket_count": 7,
+                    "unpaired_bucket_count": 0,
+                    "aligned_ratio": "1.0",
+                }
+            },
+        )
+        result = self._recompute(trigger_ids=["fnd_cmp_bad_coverage"])
+        row = self.assessment_repo.get(result["assessment_id"])
+        compare_irec_id = next(
+            irec_id
+            for irec_id in row["applied_inference_record_ids_json"]
+            if self.ir_repo.get(irec_id)["rule_id"] == "comparability_gate.v1.baseline"
+        )
+        compare_irec = self.ir_repo.get(compare_irec_id)
+        self.assertIn(
+            "comparability_requirement:calendar_coverage_sufficient:failed",
+            compare_irec["justification_json"]["unmatched_conditions"],
+        )
 
     def test_needs_attention_with_empty_issues_partial_if_alignment_bad(self) -> None:
         self._insert_compare_delta_finding(
@@ -1171,6 +1420,83 @@ class TestComparabilityGateIntegration(_RecomputeBase):
             "comparability_signal:window_alignment:needs_attention",
             compare_irec["justification_json"]["matched_conditions"],
         )
+
+    def test_complete_calendar_alignment_records_hit_and_comparable_signal(self) -> None:
+        self._insert_compare_delta_finding(
+            "fnd_cmp_full_success",
+            comparability_status="comparable",
+            issues=[],
+            include_calendar_alignment=True,
+            aligned_ratio=1.0,
+            unpaired_bucket_count=0,
+        )
+        result = self._recompute(trigger_ids=["fnd_cmp_full_success"])
+        row = self.assessment_repo.get(result["assessment_id"])
+        compare_irec_id = next(
+            irec_id
+            for irec_id in row["applied_inference_record_ids_json"]
+            if self.ir_repo.get(irec_id)["rule_id"] == "comparability_gate.v1.baseline"
+        )
+        compare_irec = self.ir_repo.get(compare_irec_id)
+        self.assertEqual(compare_irec["result"], "hit")
+        matched = compare_irec["justification_json"]["matched_conditions"]
+        for requirement_key in (
+            "baseline_calendar_policy_resolved",
+            "holiday_cluster_alignment_complete",
+            "event_cluster_alignment_complete",
+            "weekday_pairing_compatible",
+            "calendar_coverage_sufficient",
+            "alignment_tie_breaker_resolved",
+        ):
+            self.assertIn(f"comparability_requirement:{requirement_key}:met", matched)
+        self.assertIn("comparability_signal:window_alignment:comparable", matched)
+        self.assertEqual(row["gap_memberships_json"], [])
+
+    def test_comparability_gap_resolves_when_requirement_recovers(self) -> None:
+        self._insert_compare_delta_finding(
+            "fnd_cmp_gap_open",
+            comparability_status="needs_attention",
+            issues=[],
+            include_calendar_alignment=True,
+            aligned_ratio=0.8,
+            unpaired_bucket_count=1,
+        )
+        first = self._recompute_with_explicit_ctx(
+            candidate_finding_ids=["fnd_cmp_gap_open"],
+            open_gap_ids=[],
+            current_latest_assessment_id=None,
+            prior_assessment_ids=[],
+        )
+        first_row = self.assessment_repo.get(first["assessment_id"])
+        self.assertEqual(len(first_row["gap_memberships_json"]), 1)
+        gap_id = first_row["gap_memberships_json"][0]["gap_ref"]["gap_id"]
+        gap = self.gap_repo.get(gap_id)
+        self.assertEqual(gap["status"], "open")
+
+        self._insert_compare_delta_finding(
+            "fnd_cmp_gap_resolve",
+            comparability_status="comparable",
+            issues=[],
+            include_calendar_alignment=True,
+            aligned_ratio=1.0,
+            unpaired_bucket_count=0,
+        )
+        second = self._recompute_with_explicit_ctx(
+            candidate_finding_ids=["fnd_cmp_gap_resolve"],
+            open_gap_ids=[gap_id],
+            current_latest_assessment_id=first["assessment_id"],
+            prior_assessment_ids=[first["assessment_id"]],
+        )
+        second_row = self.assessment_repo.get(second["assessment_id"])
+        compare_irec_id = next(
+            irec_id
+            for irec_id in second_row["applied_inference_record_ids_json"]
+            if self.ir_repo.get(irec_id)["rule_id"] == "comparability_gate.v1.baseline"
+        )
+        compare_irec = self.ir_repo.get(compare_irec_id)
+        self.assertIn(gap_id, compare_irec["resolved_gap_ids_json"])
+        self.assertEqual(self.gap_repo.get(gap_id)["status"], "resolved")
+        self.assertEqual(second_row["gap_memberships_json"], [])
 
     def test_missing_payload_json_is_skipped(self) -> None:
         self._insert_test_result_finding(

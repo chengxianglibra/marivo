@@ -437,7 +437,8 @@ type ResolvedCalendarAlignmentPlan = {
 
 `comparability_gate` 不应重新推导一套平行 holiday 逻辑，而应消费 resolver 已产出的结构化结果。
 
-建议新增或细化以下 requirement 语义：
+v1 已冻结并实现以下 requirement 语义；`comparability_gate` 应直接把它们映射到
+`resolved_policy_summary` / compare-like finding payload 中的结构化字段，而不是再发明一套并行规则：
 
 - `baseline_calendar_policy_resolved`
 - `holiday_cluster_alignment_complete`
@@ -445,6 +446,19 @@ type ResolvedCalendarAlignmentPlan = {
 - `weekday_pairing_compatible`
 - `calendar_coverage_sufficient`
 - `alignment_tie_breaker_resolved`
+
+推荐的 token 形态固定为：
+
+- 满足：`comparability_requirement:<requirement_key>:met`
+- 不满足：`comparability_requirement:<requirement_key>:failed`
+- 摘要信号：`comparability_signal:window_alignment:comparable|needs_attention`
+
+其中 v1 对 `calendar_coverage_sufficient` 采用严格满覆盖语义：
+
+- `effective_coverage_summary.aligned_ratio = 1.0`
+- `effective_coverage_summary.unpaired_bucket_count = 0`
+
+若 coverage 字段缺失、非数值或显式出现 `alignment_coverage_insufficient`，都应视为该 requirement 不满足。
 
 典型 comparability issue：
 
@@ -458,6 +472,11 @@ type ResolvedCalendarAlignmentPlan = {
 
 当前 v1 默认 policy 已通过显式 `tie_breaker` 消除 `same_weekday_nearest` 的等距歧义，因此
 `weekday_pairing_tie` 作为 taxonomy 预留项保留，但默认 catalog 不应触发它。
+
+若上游冻结 summary 中仍出现 `weekday_pairing_tie`，`comparability_gate` 应同时把它映射为：
+
+- `weekday_pairing_compatible:failed`
+- `alignment_tie_breaker_resolved:failed`
 
 每个 issue 在 v1 都应至少有：
 
