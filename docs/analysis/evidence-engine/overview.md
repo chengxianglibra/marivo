@@ -28,17 +28,18 @@ Evidence Engine 的目标态规范链路为：
 6. [`artifact-finding-generation-rules.md`](artifact-finding-generation-rules.md)
 7. [`finding-proposition-seeding.md`](finding-proposition-seeding.md)
 8. [`inference-and-gap-engine.md`](inference-and-gap-engine.md)
-9. [`assessment-evaluation-context.md`](assessment-evaluation-context.md)
-10. [`support-oppose-and-status-resolution.md`](support-oppose-and-status-resolution.md)
-11. [`gap-confidence-and-transition-materialization.md`](gap-confidence-and-transition-materialization.md)
-12. [`proposal-policy-engine.md`](proposal-policy-engine.md)
-13. [`graph-and-reference-semantics.md`](graph-and-reference-semantics.md)
-14. [`migration-and-invalidation.md`](migration-and-invalidation.md)
-15. [`read-surfaces.md`](read-surfaces.md)
-16. [`../finding.md`](schemas/finding.md)
-17. [`../proposition.md`](schemas/proposition.md)
-18. [`../assessment.md`](schemas/assessment.md)
-19. [`../action-proposal.md`](schemas/action-proposal.md)
+9. [`python-dsl-proof-engine.md`](python-dsl-proof-engine.md)
+10. [`assessment-evaluation-context.md`](assessment-evaluation-context.md)
+11. [`support-oppose-and-status-resolution.md`](support-oppose-and-status-resolution.md)
+12. [`gap-confidence-and-transition-materialization.md`](gap-confidence-and-transition-materialization.md)
+13. [`proposal-policy-engine.md`](proposal-policy-engine.md)
+14. [`graph-and-reference-semantics.md`](graph-and-reference-semantics.md)
+15. [`migration-and-invalidation.md`](migration-and-invalidation.md)
+16. [`read-surfaces.md`](read-surfaces.md)
+17. [`../finding.md`](schemas/finding.md)
+18. [`../proposition.md`](schemas/proposition.md)
+19. [`../assessment.md`](schemas/assessment.md)
+20. [`../action-proposal.md`](schemas/action-proposal.md)
 
 ## 主题边界
 
@@ -93,6 +94,7 @@ Evidence Engine 主题不覆盖：
 - [`artifact-finding-generation-rules.md`](artifact-finding-generation-rules.md)：artifact -> finding 的统一生成协议、identity 规则与 family-level 抽取提案
 - [`finding-proposition-seeding.md`](finding-proposition-seeding.md)：finding -> system-seeded proposition 的模板、registration、identity 与 replay contract
 - [`inference-and-gap-engine.md`](inference-and-gap-engine.md)：assessment recompute、rule families、gap management、judgment policy、rule registry
+- [`python-dsl-proof-engine.md`](python-dsl-proof-engine.md)：judgment/proof 层的 Python DSL 增强设计，解释如何把现有隐式 rule flow 提升为显式 proof case / obligation / evaluation 模型
 - [`assessment-evaluation-context.md`](assessment-evaluation-context.md)：assessment recompute 的 evaluation context、candidate finding set 与触发映射
 - [`support-oppose-and-status-resolution.md`](support-oppose-and-status-resolution.md)：support / oppose aggregation 与最终 status 决议
 - [`gap-confidence-and-transition-materialization.md`](gap-confidence-and-transition-materialization.md)：gap、confidence、transition 与 candidate output materialization
