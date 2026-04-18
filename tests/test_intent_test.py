@@ -62,6 +62,9 @@ def _resolved_policy_summary(
     comparability_warnings: list[str] | None = None,
     aligned_bucket_count: int = 31,
     unpaired_bucket_count: int = 0,
+    expected_bucket_count: int = 31,
+    present_bucket_count: int = 31,
+    missing_bucket_count: int = 0,
 ) -> dict[str, object]:
     total_bucket_count = aligned_bucket_count + unpaired_bucket_count
     aligned_ratio = (
@@ -95,6 +98,20 @@ def _resolved_policy_summary(
             "aligned_bucket_count": aligned_bucket_count,
             "unpaired_bucket_count": unpaired_bucket_count,
             "aligned_ratio": aligned_ratio,
+        },
+        "data_coverage_summary": {
+            "expected_bucket_count": expected_bucket_count,
+            "present_bucket_count": present_bucket_count,
+            "missing_bucket_count": missing_bucket_count,
+            "coverage_ratio": (
+                float(present_bucket_count) / float(expected_bucket_count)
+                if expected_bucket_count
+                else 0.0
+            ),
+            "aligned_expected_bucket_count": expected_bucket_count,
+            "aligned_present_current_bucket_count": present_bucket_count,
+            "aligned_present_baseline_bucket_count": present_bucket_count,
+            "aligned_present_both_bucket_count": present_bucket_count,
         },
         "comparability_warnings": list(comparability_warnings or []),
     }

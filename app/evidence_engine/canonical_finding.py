@@ -266,6 +266,17 @@ class CalendarAlignmentCoverageSummary(TypedDict):
     aligned_ratio: float
 
 
+class MetricDataCoverageSummary(TypedDict, total=False):
+    expected_bucket_count: int
+    present_bucket_count: int
+    missing_bucket_count: int
+    coverage_ratio: float
+    aligned_expected_bucket_count: int
+    aligned_present_current_bucket_count: int
+    aligned_present_baseline_bucket_count: int
+    aligned_present_both_bucket_count: int
+
+
 class CalendarAlignmentReuseSummary(TypedDict):
     reuse_source: str
     policy_ref: str
@@ -276,6 +287,9 @@ class CalendarAlignmentReuseSummary(TypedDict):
     left_coverage_summary: CalendarAlignmentCoverageSummary
     right_coverage_summary: CalendarAlignmentCoverageSummary
     effective_coverage_summary: CalendarAlignmentCoverageSummary
+    left_data_coverage_summary: MetricDataCoverageSummary | None
+    right_data_coverage_summary: MetricDataCoverageSummary | None
+    effective_data_coverage_summary: MetricDataCoverageSummary | None
 
 
 class ComparabilityIssue(TypedDict, total=False):

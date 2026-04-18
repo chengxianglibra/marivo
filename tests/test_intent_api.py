@@ -2398,6 +2398,10 @@ class CompareIntentTests(unittest.TestCase):
         aligned_bucket_count: int = 7,
         unpaired_bucket_count: int = 0,
         aligned_ratio: float = 1.0,
+        expected_bucket_count: int = 7,
+        present_bucket_count: int = 7,
+        missing_bucket_count: int = 0,
+        coverage_ratio: float = 1.0,
         comparability_warnings: list[str] | None = None,
     ) -> dict[str, object]:
         return {
@@ -2428,6 +2432,16 @@ class CompareIntentTests(unittest.TestCase):
                 "aligned_bucket_count": aligned_bucket_count,
                 "unpaired_bucket_count": unpaired_bucket_count,
                 "aligned_ratio": aligned_ratio,
+            },
+            "data_coverage_summary": {
+                "expected_bucket_count": expected_bucket_count,
+                "present_bucket_count": present_bucket_count,
+                "missing_bucket_count": missing_bucket_count,
+                "coverage_ratio": coverage_ratio,
+                "aligned_expected_bucket_count": expected_bucket_count,
+                "aligned_present_current_bucket_count": present_bucket_count,
+                "aligned_present_baseline_bucket_count": present_bucket_count,
+                "aligned_present_both_bucket_count": present_bucket_count,
             },
             "comparability_warnings": comparability_warnings or [],
         }

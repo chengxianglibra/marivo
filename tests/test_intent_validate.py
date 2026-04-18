@@ -113,6 +113,16 @@ def _resolved_policy_summary(
             "unpaired_bucket_count": 0,
             "aligned_ratio": 1.0,
         },
+        "data_coverage_summary": {
+            "expected_bucket_count": 5,
+            "present_bucket_count": 5,
+            "missing_bucket_count": 0,
+            "coverage_ratio": 1.0,
+            "aligned_expected_bucket_count": 5,
+            "aligned_present_current_bucket_count": 5,
+            "aligned_present_baseline_bucket_count": 5,
+            "aligned_present_both_bucket_count": 5,
+        },
         "comparability_warnings": [],
     }
 
