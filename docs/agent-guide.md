@@ -171,6 +171,11 @@ When a step resolves calendar alignment, persist the lineage/metadata binding in
 `step_metadata.typed_semantic_snapshot.compile_context.calendar_policy_binding`; this summary is the
 operator-facing provenance surface for the final policy ref and resolved calendar version, while the
 observation artifact's `resolved_policy_summary` remains the downstream reuse surface.
+`calendar_policy_binding.source_lineage` must keep required holiday lineage strict, but may omit
+optional sources such as `event_source` when the resolved snapshot does not configure them; only
+declared required lineage branches must carry full source metadata. Empty or partial optional
+`event_source` lineage is treated as not configured and must be omitted from the normalized binding
+rather than failing `holiday_yoy` execution.
 Calendar alignment pairing must run as per-bucket ordered matching over the policy-declared matcher
 chain; do not collapse holiday/event/weekday semantics into a single window-level fallback choice.
 Evidence-engine `comparability_gate` must consume the frozen comparability / calendar alignment

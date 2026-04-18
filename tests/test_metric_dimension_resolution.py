@@ -48,10 +48,10 @@ class TypedMetricDimensionResolutionTests(unittest.TestCase):
             """
             SELECT object_id, fqn
             FROM source_objects
-            WHERE source_id = ?
+            WHERE source_id = ? AND object_type = 'table' AND fqn LIKE ?
             ORDER BY object_id
             """,
-            [cls.source_id],
+            [cls.source_id, "%.metric_dimension_events"],
         )
         assert source_object is not None
         cls.object_id = str(source_object["object_id"])

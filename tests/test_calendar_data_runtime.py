@@ -230,6 +230,68 @@ class CalendarDataReaderTests(unittest.TestCase):
                 baseline_window=(date(2025, 4, 1), date(2025, 4, 3)),
             )
 
+    def test_read_for_alignment_omits_event_source_lineage_when_snapshot_has_no_event_source(
+        self,
+    ) -> None:
+        config = CalendarConfig.model_validate(
+            {
+                "default_region_code": "CN",
+                "snapshots": [
+                    {
+                        "resolved_calendar_source": "calendar_data_cn_assembled",
+                        "resolved_calendar_version": "calendar_data_cn_2026q2_v1",
+                        "region_code": "CN",
+                        "effective_start": "2025-01-01",
+                        "effective_end": "2026-12-31",
+                        "holiday_source": {
+                            "source_name": "CN Holiday",
+                            "table_fqn": "analytics.cn_public_holiday",
+                            "calendar_version": "cn_public_holiday_2026_v1",
+                        },
+                    }
+                ],
+            }
+        )
+        engine = _FakeEngine(
+            {
+                "analytics.cn_public_holiday": [
+                    _calendar_row(
+                        "2025-04-01",
+                        holiday_group_id="qingming",
+                        year_relative_holiday_key="qingming_d-3",
+                    ),
+                    _calendar_row(
+                        "2025-04-02",
+                        holiday_group_id="qingming",
+                        year_relative_holiday_key="qingming_d-2",
+                    ),
+                    _calendar_row(
+                        "2026-04-01",
+                        holiday_group_id="qingming",
+                        year_relative_holiday_key="qingming_d-3",
+                    ),
+                    _calendar_row(
+                        "2026-04-02",
+                        holiday_group_id="qingming",
+                        year_relative_holiday_key="qingming_d-2",
+                    ),
+                ],
+            }
+        )
+        reader = CalendarDataReader(
+            metadata=_metadata_store(),
+            query_router=_query_router(engine),
+            config=config,
+        )
+
+        result = reader.read_for_alignment(
+            current_window=(date(2026, 4, 1), date(2026, 4, 3)),
+            baseline_window=(date(2025, 4, 1), date(2025, 4, 3)),
+        )
+
+        self.assertIn("holiday_source", result.source_lineage)
+        self.assertNotIn("event_source", result.source_lineage)
+
     def test_read_for_alignment_rejects_missing_required_fields(self) -> None:
         config = CalendarConfig.model_validate(
             {

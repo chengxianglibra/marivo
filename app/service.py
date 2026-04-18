@@ -14,7 +14,7 @@ from app.analysis_core import (
     IntentRunnerRegistry,
     build_service_step_registry,
 )
-from app.analysis_core.calendar_data_runtime import CalendarDataReader
+from app.analysis_core.calendar_data_runtime import CalendarDataReader, CalendarDataResolutionError
 from app.analysis_core.compiler import (
     CompiledQuery,
     SemanticRequestCompatibilityError,
@@ -263,11 +263,15 @@ class SemanticLayerService:
         if self._query_router is None or not self.config.calendar.snapshots:
             self.calendar_data_reader = None
             return
-        self.calendar_data_reader = CalendarDataReader(
-            metadata=self.metadata,
-            query_router=self._query_router,
-            config=self.config.calendar,
-        )
+        try:
+            self.calendar_data_reader = CalendarDataReader(
+                metadata=self.metadata,
+                query_router=self._query_router,
+                config=self.config.calendar,
+            )
+        except CalendarDataResolutionError as error:
+            logger.warning("Calendar data reader unavailable: %s", error)
+            self.calendar_data_reader = None
 
     def create_session(
         self,
@@ -2833,29 +2837,65 @@ class SemanticLayerService:
                 raise ValueError(f"resolved_calendar_alignment missing {field}")
             return value
 
+        def normalize_source_metadata(
+            *,
+            source_key: str,
+            source_metadata: Any,
+            required: bool,
+        ) -> dict[str, str] | None:
+            if not isinstance(source_metadata, dict):
+                if required:
+                    raise ValueError(
+                        "resolved_calendar_alignment has invalid source_lineage metadata"
+                    )
+                return None
+
+            normalized_source: dict[str, str] = {}
+            for field in ("source_id", "source_name", "table_fqn", "calendar_version"):
+                value = source_metadata.get(field)
+                if not isinstance(value, str) or not value:
+                    if required:
+                        raise ValueError(
+                            f"resolved_calendar_alignment source_lineage.{source_key} "
+                            f"missing {field}"
+                        )
+                    return None
+                normalized_source[field] = value
+            return normalized_source
+
         def require_source_lineage(alignment: dict[str, Any]) -> dict[str, dict[str, str]]:
             source_lineage = alignment.get("source_lineage")
             if not isinstance(source_lineage, dict) or not source_lineage:
                 raise ValueError("resolved_calendar_alignment missing source_lineage metadata")
 
+            if "holiday_source" not in source_lineage:
+                raise ValueError(
+                    "resolved_calendar_alignment missing source_lineage.holiday_source"
+                )
+
             normalized: dict[str, dict[str, str]] = {}
             for source_key, source_metadata in source_lineage.items():
                 if not isinstance(source_key, str) or not source_key:
                     raise ValueError("resolved_calendar_alignment has invalid source_lineage key")
-                if not isinstance(source_metadata, dict):
-                    raise ValueError(
-                        "resolved_calendar_alignment has invalid source_lineage metadata"
+                if source_key == "holiday_source":
+                    normalized_source = normalize_source_metadata(
+                        source_key=source_key,
+                        source_metadata=source_metadata,
+                        required=True,
                     )
-                normalized_source: dict[str, str] = {}
-                for field in ("source_id", "source_name", "table_fqn", "calendar_version"):
-                    value = source_metadata.get(field)
-                    if not isinstance(value, str) or not value:
-                        raise ValueError(
-                            f"resolved_calendar_alignment source_lineage.{source_key} "
-                            f"missing {field}"
-                        )
-                    normalized_source[field] = value
-                normalized[source_key] = normalized_source
+                    assert normalized_source is not None
+                    normalized[source_key] = normalized_source
+                    continue
+                if source_key == "event_source":
+                    normalized_source = normalize_source_metadata(
+                        source_key=source_key,
+                        source_metadata=source_metadata,
+                        required=False,
+                    )
+                    if normalized_source is not None:
+                        normalized[source_key] = normalized_source
+                    continue
+                raise ValueError("resolved_calendar_alignment has invalid source_lineage key")
             return normalized
 
         bindings: list[dict[str, Any]] = []

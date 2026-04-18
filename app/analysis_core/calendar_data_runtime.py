@@ -130,10 +130,7 @@ class CalendarDataReader:
             annotation_rows=merged_rows,
             resolved_calendar_source=snapshot.resolved_calendar_source,
             resolved_calendar_version=snapshot.resolved_calendar_version,
-            source_lineage={
-                "holiday_source": self._serialize_source_binding(snapshot.holiday_source),
-                "event_source": self._serialize_source_binding(snapshot.event_source),
-            },
+            source_lineage=self._build_source_lineage(snapshot),
         )
 
     def _build_snapshot_binding(self, snapshot: CalendarSnapshotConfig) -> CalendarSnapshotBinding:
@@ -393,6 +390,15 @@ class CalendarDataReader:
             "table_fqn": binding.table_fqn,
             "calendar_version": binding.calendar_version,
         }
+
+    @classmethod
+    def _build_source_lineage(cls, snapshot: CalendarSnapshotBinding) -> dict[str, dict[str, str]]:
+        source_lineage = {
+            "holiday_source": cls._serialize_source_binding(snapshot.holiday_source),
+        }
+        if snapshot.event_source is not None:
+            source_lineage["event_source"] = cls._serialize_source_binding(snapshot.event_source)
+        return source_lineage
 
 
 def _parse_date(value: str, *, field_name: str) -> date:
