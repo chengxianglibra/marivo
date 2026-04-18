@@ -1366,6 +1366,152 @@ class CompilerTypedResolutionTests(unittest.TestCase):
         )
         self.assertEqual(alignment["comparability_warnings"], [])
 
+    def test_compile_step_resolves_weekday_yoy_alignment_successfully(self) -> None:
+        compiled = compile_step(
+            AnalysisStepIR(
+                index=0,
+                step_type="metric_query",
+                params={
+                    "metric": "watch_time",
+                    "table": "analytics.watch_events",
+                    "calendar_policy_ref": "calendar_policy.weekday_yoy",
+                    "time_scope": {
+                        "mode": "single_window",
+                        "grain": "day",
+                        "current": {"start": "2026-04-08", "end": "2026-04-15"},
+                    },
+                    "scoped_query": {
+                        "mode": "single_window",
+                        "analysis_time_expr": "event_date",
+                        "analysis_time_kind": "date_field",
+                        "current": {"start": "2026-04-08", "end": "2026-04-15"},
+                    },
+                },
+            ),
+            engine_type="duckdb",
+            semantic_context={
+                "metric_sql": "avg(play_duration_seconds)",
+                "dimensions": ["platform"],
+                "semantic_repository": _FakeSemanticRepository(),
+                "binding_reader": _binding_reader,
+                "compatibility_profile_reader": _profile_reader,
+                "calendar_data_reader": _FakeCalendarDataReader([]),
+            },
+        )
+
+        alignment = compiled.metadata["resolved_calendar_alignment"]
+        assert isinstance(alignment, dict)
+        self.assertEqual(
+            alignment["baseline_window"],
+            {"start": "2025-04-08", "end": "2025-04-15"},
+        )
+        self.assertEqual(
+            [bucket["pairing_reason"] for bucket in alignment["bucket_pairing"]],
+            [
+                "same_weekday_nearest",
+                "same_weekday_nearest",
+                "same_weekday_nearest",
+                "same_weekday_nearest",
+                "same_weekday_nearest",
+                "same_weekday_nearest",
+                "natural_date_shift",
+            ],
+        )
+        self.assertEqual(
+            [bucket["baseline_bucket_start"] for bucket in alignment["bucket_pairing"]],
+            [
+                "2025-04-09",
+                "2025-04-10",
+                "2025-04-11",
+                "2025-04-12",
+                "2025-04-13",
+                "2025-04-14",
+                "2025-04-14",
+            ],
+        )
+        self.assertEqual(
+            alignment["coverage_summary"],
+            {
+                "aligned_bucket_count": 7,
+                "unpaired_bucket_count": 0,
+                "aligned_ratio": 1.0,
+            },
+        )
+        self.assertEqual(alignment["comparability_warnings"], [])
+
+    def test_compile_step_resolves_natural_mom_alignment_successfully(self) -> None:
+        compiled = compile_step(
+            AnalysisStepIR(
+                index=0,
+                step_type="metric_query",
+                params={
+                    "metric": "watch_time",
+                    "table": "analytics.watch_events",
+                    "calendar_policy_ref": "calendar_policy.natural_mom",
+                    "time_scope": {
+                        "mode": "single_window",
+                        "grain": "day",
+                        "current": {"start": "2026-04-08", "end": "2026-04-15"},
+                    },
+                    "scoped_query": {
+                        "mode": "single_window",
+                        "analysis_time_expr": "event_date",
+                        "analysis_time_kind": "date_field",
+                        "current": {"start": "2026-04-08", "end": "2026-04-15"},
+                    },
+                },
+            ),
+            engine_type="duckdb",
+            semantic_context={
+                "metric_sql": "avg(play_duration_seconds)",
+                "dimensions": ["platform"],
+                "semantic_repository": _FakeSemanticRepository(),
+                "binding_reader": _binding_reader,
+                "compatibility_profile_reader": _profile_reader,
+                "calendar_data_reader": _FakeCalendarDataReader([]),
+            },
+        )
+
+        alignment = compiled.metadata["resolved_calendar_alignment"]
+        assert isinstance(alignment, dict)
+        self.assertEqual(
+            alignment["baseline_window"],
+            {"start": "2026-04-01", "end": "2026-04-08"},
+        )
+        self.assertEqual(
+            [bucket["pairing_reason"] for bucket in alignment["bucket_pairing"]],
+            [
+                "natural_date_shift",
+                "natural_date_shift",
+                "natural_date_shift",
+                "natural_date_shift",
+                "natural_date_shift",
+                "natural_date_shift",
+                "natural_date_shift",
+            ],
+        )
+        self.assertEqual(
+            [bucket["baseline_bucket_start"] for bucket in alignment["bucket_pairing"]],
+            [
+                "2026-04-01",
+                "2026-04-02",
+                "2026-04-03",
+                "2026-04-04",
+                "2026-04-05",
+                "2026-04-06",
+                "2026-04-07",
+            ],
+        )
+        self.assertEqual(
+            alignment["coverage_summary"],
+            {
+                "aligned_bucket_count": 7,
+                "unpaired_bucket_count": 0,
+                "aligned_ratio": 1.0,
+            },
+        )
+        self.assertEqual(alignment["comparability_warnings"], [])
+
     def test_compile_step_resolves_weekday_mom_alignment_successfully(self) -> None:
         compiled = compile_step(
             AnalysisStepIR(
@@ -1504,6 +1650,86 @@ class CompilerTypedResolutionTests(unittest.TestCase):
         self.assertEqual(
             [bucket["pairing_reason"] for bucket in alignment["bucket_pairing"]],
             ["year_relative_holiday_key", "year_relative_holiday_key"],
+        )
+        self.assertEqual(
+            alignment["coverage_summary"],
+            {
+                "aligned_bucket_count": 2,
+                "unpaired_bucket_count": 0,
+                "aligned_ratio": 1.0,
+            },
+        )
+        self.assertEqual(alignment["comparability_warnings"], [])
+
+    def test_compile_step_resolves_event_yoy_alignment_successfully(self) -> None:
+        compiled = compile_step(
+            AnalysisStepIR(
+                index=0,
+                step_type="metric_query",
+                params={
+                    "metric": "watch_time",
+                    "table": "analytics.watch_events",
+                    "calendar_policy_ref": "calendar_policy.event_yoy",
+                    "time_scope": {
+                        "mode": "single_window",
+                        "grain": "day",
+                        "current": {"start": "2026-06-15", "end": "2026-06-17"},
+                    },
+                    "scoped_query": {
+                        "mode": "single_window",
+                        "analysis_time_expr": "event_date",
+                        "analysis_time_kind": "date_field",
+                        "current": {"start": "2026-06-15", "end": "2026-06-17"},
+                    },
+                },
+            ),
+            engine_type="duckdb",
+            semantic_context={
+                "metric_sql": "avg(play_duration_seconds)",
+                "dimensions": ["platform"],
+                "semantic_repository": _FakeSemanticRepository(),
+                "binding_reader": _binding_reader,
+                "compatibility_profile_reader": _profile_reader,
+                "calendar_data_reader": _FakeCalendarDataReader(
+                    [
+                        _calendar_annotation(
+                            "2026-06-15",
+                            event_group_id="member_day",
+                            year_relative_event_key="member_day_d-1",
+                        ),
+                        _calendar_annotation(
+                            "2026-06-16",
+                            event_group_id="member_day",
+                            year_relative_event_key="member_day_d+0",
+                        ),
+                        _calendar_annotation(
+                            "2025-06-15",
+                            event_group_id="member_day",
+                            year_relative_event_key="member_day_d-1",
+                        ),
+                        _calendar_annotation(
+                            "2025-06-16",
+                            event_group_id="member_day",
+                            year_relative_event_key="member_day_d+0",
+                        ),
+                    ]
+                ),
+            },
+        )
+
+        alignment = compiled.metadata["resolved_calendar_alignment"]
+        assert isinstance(alignment, dict)
+        self.assertEqual(
+            alignment["baseline_window"],
+            {"start": "2025-06-15", "end": "2025-06-17"},
+        )
+        self.assertEqual(
+            [bucket["pairing_reason"] for bucket in alignment["bucket_pairing"]],
+            ["year_relative_event_key", "year_relative_event_key"],
+        )
+        self.assertEqual(
+            [bucket["baseline_bucket_start"] for bucket in alignment["bucket_pairing"]],
+            ["2025-06-15", "2025-06-16"],
         )
         self.assertEqual(
             alignment["coverage_summary"],
