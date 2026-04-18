@@ -4,7 +4,12 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from app.intents.decompose import _extract_date_range, _infer_compare_grain, _run_segmented_query
+from app.intents.decompose import (
+    _extract_date_range,
+    _infer_compare_grain,
+    _normalize_decompose_compare_input,
+    _run_segmented_query,
+)
 
 
 class DecomposeHourWindowTests(unittest.TestCase):
@@ -46,6 +51,56 @@ class DecomposeHourWindowTests(unittest.TestCase):
                 }
             ),
             ("2024-01-01T01:00:00", "2024-01-01T03:00:00"),
+        )
+
+    def test_time_series_compare_input_uses_matched_time_scope(self) -> None:
+        normalized = _normalize_decompose_compare_input(
+            {
+                "comparison_type": "time_series_delta",
+                "metric": "m1",
+                "summary_left_value": 30.0,
+                "summary_right_value": 23.0,
+                "summary_absolute_delta": 7.0,
+                "summary_relative_delta": 7.0 / 23.0,
+                "summary_direction": "increase",
+                "granularity": "day",
+                "resolved_input_summary": {
+                    "left_time_scope": {
+                        "kind": "range",
+                        "start": "2024-01-01",
+                        "end": "2024-01-08",
+                    },
+                    "right_time_scope": {
+                        "kind": "range",
+                        "start": "2023-01-01",
+                        "end": "2023-01-08",
+                    },
+                },
+                "analytical_metadata": {
+                    "matched_bucket_count": 2,
+                    "matched_time_scope": {
+                        "kind": "range",
+                        "start": "2024-01-02",
+                        "end": "2024-01-04",
+                    },
+                },
+            }
+        )
+
+        self.assertEqual(normalized["comparison_type"], "time_series_delta")
+        self.assertEqual(normalized["scope_absolute_delta"], 7.0)
+        self.assertEqual(normalized["source_observation_type"], "time_series")
+        self.assertEqual(
+            normalized["left_time_scope"],
+            {"kind": "range", "start": "2024-01-02", "end": "2024-01-04"},
+        )
+        self.assertEqual(
+            normalized["right_time_scope"],
+            {"kind": "range", "start": "2024-01-02", "end": "2024-01-04"},
+        )
+        self.assertEqual(
+            normalized["analytical_metadata"]["decomposition_source"],
+            "time_series_summary_delta",
         )
 
     def test_run_segmented_query_uses_hour_grain_with_datetime_boundaries(self) -> None:

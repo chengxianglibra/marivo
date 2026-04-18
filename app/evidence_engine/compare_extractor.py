@@ -343,6 +343,74 @@ class CompareArtifactExtractor(FindingExtractor):
         comparability_payload = _extract_comparability_payload(payload)
 
         findings: list[DeltaFinding] = []
+        has_summary_delta = any(
+            key in payload
+            for key in (
+                "summary_left_value",
+                "summary_right_value",
+                "summary_absolute_delta",
+                "summary_relative_delta",
+                "summary_direction",
+            )
+        )
+        if has_summary_delta:
+            summary_key, summary_item_ref = make_item_identity("summary")
+            summary_finding_id = make_finding_id(artifact_id, "delta", summary_key)
+            summary_direction_raw = payload.get("summary_direction") or "undefined"
+            summary_direction = cast(
+                "DeltaDirection",
+                summary_direction_raw
+                if summary_direction_raw in _VALID_DIRECTIONS
+                else "undefined",
+            )
+            left_ref = ArtifactItemRefRef(artifact_id="", item_ref=summary_item_ref)
+            right_ref = ArtifactItemRefRef(artifact_id="", item_ref=summary_item_ref)
+            summary_payload = DeltaPayload(
+                delta_kind="time_series_delta",
+                left_ref=left_ref,
+                right_ref=right_ref,
+                left_value=_to_float_or_none(payload.get("summary_left_value")),
+                right_value=_to_float_or_none(payload.get("summary_right_value")),
+                absolute_delta=_to_float_or_none(payload.get("summary_absolute_delta")),
+                relative_delta=_to_float_or_none(payload.get("summary_relative_delta")),
+                direction=summary_direction,
+                presence=None,
+                unit=unit,
+            )
+            summary_payload = _attach_comparability_payload(summary_payload, comparability_payload)
+            analytical = payload.get("analytical_metadata") or {}
+            matched_time_scope = analytical.get("matched_time_scope")
+            observed_window: dict[str, str] | None = (
+                {
+                    "kind": "range",
+                    "start": str(matched_time_scope["start"]),
+                    "end": str(matched_time_scope["end"]),
+                }
+                if isinstance(matched_time_scope, dict)
+                and matched_time_scope.get("start")
+                and matched_time_scope.get("end")
+                else None
+            )
+            findings.append(
+                DeltaFinding(
+                    finding_id=summary_finding_id,
+                    finding_type="delta",
+                    artifact_id=artifact_id,
+                    step_ref=step_ref,
+                    subject=FindingSubject(
+                        metric=metric,
+                        entity=None,
+                        slice={},
+                        grain=cast("Any", granularity),
+                        analysis_axis="time",
+                    ),
+                    observed_window=cast("Any", observed_window),
+                    quality=_empty_quality(),
+                    provenance=self._make_provenance(step_ref, summary_key, summary_item_ref),
+                    payload=summary_payload,
+                )
+            )
+
         for row in rows:
             window = row.get("window") or {}
             bucket_start = str(window.get("start") or "")

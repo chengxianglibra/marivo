@@ -72,7 +72,7 @@ type CompareArtifactRef = {
   session_id: string;
   step_id: string;
   artifact_id: string;
-  comparison_type: "scalar_delta";
+  comparison_type: "scalar_delta" | "time_series_delta";
 };
 
 type ObservationArtifactRef = {
@@ -80,14 +80,14 @@ type ObservationArtifactRef = {
   session_id: string;
   step_id: string;
   artifact_id: string;
-  observation_type: "scalar";
+  observation_type: "scalar" | "time_series";
 };
 ```
 
 引用约束：
 
 - `compare_ref` 必须指向已完成步骤产出的 canonical compare artifact
-- `compare_ref.comparison_type` 在 v1 中必须是 `scalar_delta`
+- `compare_ref.comparison_type` 在 v1 中必须是 `scalar_delta` 或 `time_series_delta`
 - 不允许 projection ref 充当 canonical source ref
 - v1 不允许跨 session ref
 - 引用图必须保持 DAG；`decompose` 不允许直接或间接回指依赖自己的对象
@@ -102,7 +102,7 @@ type ObservationArtifactRef = {
     "session_id": "sess_123",
     "step_id": "step_cmp_week_over_week",
     "artifact_id": "cmp_artifact_123",
-    "comparison_type": "scalar_delta"
+    "comparison_type": "time_series_delta"
   },
   "dimension": "country",
   "method": "delta_share"
@@ -125,7 +125,7 @@ type DecomposeRequest = {
 v1 支持的输入形态如下：
 
 - `compare_ref` 必须解析到已完成的 `compare` artifact
-- 被引用的 compare 输出必须是 `scalar_delta`
+- 被引用的 compare 输出必须是 `scalar_delta` 或 `time_series_delta`
 - 被比较的 metric 必须是 `additive`
 - 该 metric 必须声明自己可按所请求的 `dimension` 做分解
 - 请求的 method 必须受该 metric 支持
@@ -161,7 +161,9 @@ v1 支持的输入形态如下：
 
 `decompose` 不会重定义这个 delta，只负责解释它。
 
-v1 要求 `compare_ref` 解析到 `scalar_delta`，而不是 `segmented_delta`。
+v1 要求 `compare_ref` 解析到 `scalar_delta` 或 `time_series_delta`，而不是 `segmented_delta`。
+
+当上游是 `time_series_delta` 时，`decompose` 解释的是 compare 已对齐 bucket 之后的 summary delta，而不是为每个时间 bucket 单独生成一组 contribution rows。若 compare analytical metadata 提供 `matched_time_scope`，`decompose` 的 grouped 重算必须复用该 matched 范围，以保持与 summary delta 同一对账边界。
 
 原因：
 

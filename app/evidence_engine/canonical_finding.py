@@ -24,7 +24,9 @@ from typing import Any, Literal, Required, TypedDict, Union
 # ArtifactItemRef
 # ---------------------------------------------------------------------------
 
-ArtifactItemRefCollection = Literal["value", "rows", "buckets", "candidates", "points", "result"]
+ArtifactItemRefCollection = Literal[
+    "value", "rows", "buckets", "candidates", "points", "result", "summary"
+]
 
 
 class ArtifactItemRef(TypedDict):
