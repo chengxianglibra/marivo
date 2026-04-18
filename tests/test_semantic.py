@@ -332,5 +332,79 @@ class SemanticMetricRouteTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 404)
 
 
+class SemanticDimensionRouteTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        db_path = Path(cls.temp_dir.name) / "test_dimension_routes.duckdb"
+        get_seeded_duckdb_path(db_path)
+        cls.client = TestClient(create_app(db_path))
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.client.close()
+        cls.temp_dir.cleanup()
+
+    def test_ready_dimension_list_filter_matches_resolve_readiness(self) -> None:
+        create_resp = self.client.post(
+            "/semantic/dimensions",
+            json={
+                "header": {
+                    "dimension_ref": "dimension.discovery_channel",
+                    "display_name": "Discovery Channel",
+                    "dimension_contract_version": "dimension.v1",
+                },
+                "interface_contract": {
+                    "value_domain": {
+                        "structure_kind": "flat",
+                        "semantic_role": "category",
+                        "value_type": "string",
+                        "domain_kind": "open",
+                    },
+                    "grouping": {"supports_grouping": True},
+                },
+            },
+        )
+        self.assertEqual(create_resp.status_code, 200, create_resp.text)
+        dimension_id = create_resp.json()["dimension_contract_id"]
+
+        publish_resp = self.client.post(f"/semantic/dimensions/{dimension_id}/publish")
+        self.assertEqual(publish_resp.status_code, 200, publish_resp.text)
+        self.assertEqual(publish_resp.json()["lifecycle_status"], "active")
+        self.assertEqual(publish_resp.json()["readiness_status"], "ready")
+
+        list_resp = self.client.get(
+            "/semantic/dimensions?lifecycle_status=active&readiness_status=ready"
+        )
+        self.assertEqual(list_resp.status_code, 200, list_resp.text)
+        list_items = list_resp.json()["items"]
+        list_item = next(
+            item
+            for item in list_items
+            if item["header"]["dimension_ref"] == "dimension.discovery_channel"
+        )
+        self.assertEqual(list_item["lifecycle_status"], "active")
+        self.assertEqual(list_item["readiness_status"], "ready")
+        self.assertNotIn("interface_contract", list_item)
+
+        detail_list_resp = self.client.get(
+            "/semantic/dimensions?lifecycle_status=active&readiness_status=ready&detail=true"
+        )
+        self.assertEqual(detail_list_resp.status_code, 200, detail_list_resp.text)
+        detail_list_item = next(
+            item
+            for item in detail_list_resp.json()["items"]
+            if item["header"]["dimension_ref"] == "dimension.discovery_channel"
+        )
+        self.assertEqual(detail_list_item["readiness_status"], "ready")
+        self.assertIn("interface_contract", detail_list_item)
+
+        resolve_resp = self.client.get("/semantic/resolve/dimension.discovery_channel")
+        self.assertEqual(resolve_resp.status_code, 200, resolve_resp.text)
+        resolved_object = resolve_resp.json()["semantic_object"]
+        self.assertEqual(resolved_object["lifecycle_status"], list_item["lifecycle_status"])
+        self.assertEqual(resolved_object["readiness_status"], list_item["readiness_status"])
+
+
 if __name__ == "__main__":
     unittest.main()

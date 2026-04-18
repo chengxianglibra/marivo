@@ -2147,7 +2147,6 @@ class SemanticServiceSupport:
                 "cardinality_to_parent": row["cardinality_to_parent"],
                 "ownership_semantics": row["ownership_semantics"],
             }
-        # Build base entity - for list mode, skip interface_contract
         entity = {
             "entity_contract_id": row["entity_contract_id"],
             "header": {
@@ -2160,9 +2159,8 @@ class SemanticServiceSupport:
             "revision": row["revision"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
-        }
-        if mode == "detail":
-            entity["interface_contract"] = {
+            # Readiness evaluation needs the full contract even for lightweight list items.
+            "interface_contract": {
                 "identity": {
                     "key_refs": [key_row["key_ref"] for key_row in key_rows],
                     "uniqueness_scope": row["uniqueness_scope"],
@@ -2179,8 +2177,9 @@ class SemanticServiceSupport:
                     for descriptor_row in descriptor_rows
                 ]
                 or None,
-            }
-        return self._augment_object_with_readiness(
+            },
+        }
+        entity = self._augment_object_with_readiness(
             entity,
             object_kind="entity",
             row=row,
@@ -2189,6 +2188,9 @@ class SemanticServiceSupport:
             mode=mode,
             include_dependents=include_dependents,
         )
+        if mode == "list":
+            entity.pop("interface_contract", None)
+        return entity
 
     def _row_to_typed_metric(
         self,
@@ -2276,11 +2278,11 @@ class SemanticServiceSupport:
             "revision": row["revision"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
+            # Readiness evaluation needs the full contract even for lightweight list items.
+            "interface_contract": interface_contract,
+            "payload": json.loads(row["process_payload_json"]),
         }
-        if mode == "detail":
-            process_object["interface_contract"] = interface_contract
-            process_object["payload"] = json.loads(row["process_payload_json"])
-        return self._augment_object_with_readiness(
+        process_object = self._augment_object_with_readiness(
             process_object,
             object_kind="process",
             row=row,
@@ -2289,6 +2291,10 @@ class SemanticServiceSupport:
             mode=mode,
             include_dependents=include_dependents,
         )
+        if mode == "list":
+            process_object.pop("interface_contract", None)
+            process_object.pop("payload", None)
+        return process_object
 
     def _row_to_dimension(
         self,
@@ -2328,10 +2334,10 @@ class SemanticServiceSupport:
             "revision": row["revision"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
+            # Readiness evaluation needs the full contract even for lightweight list items.
+            "interface_contract": interface_contract,
         }
-        if mode == "detail":
-            dimension["interface_contract"] = interface_contract
-        return self._augment_object_with_readiness(
+        dimension = self._augment_object_with_readiness(
             dimension,
             object_kind="dimension",
             row=row,
@@ -2340,6 +2346,9 @@ class SemanticServiceSupport:
             mode=mode,
             include_dependents=include_dependents,
         )
+        if mode == "list":
+            dimension.pop("interface_contract", None)
+        return dimension
 
     def _row_to_time_semantic(
         self,
