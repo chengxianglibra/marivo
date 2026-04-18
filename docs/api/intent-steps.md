@@ -227,6 +227,8 @@ Success returns `ObserveResponse`, a union of the five canonical observation art
 
 When `calendar_policy_ref` is present, the returned observation artifact freezes the compiler-resolved alignment plan in `resolved_policy_summary`, including the final policy ref, calendar source/version, baseline window, bucket pairing, coverage summary, and comparability warnings. Downstream intents must treat this field as the artifact-level reuse surface rather than reconstructing policy semantics from the original request.
 
+In v1, `resolved_policy_summary.bucket_pairing` remains metadata on the observation artifact. Factum does not expose a separate bucket-pairing artifact id or typed ref.
+
 When `calendar_policy_ref` is present on a `week` or `month` observation, the request granularity still controls the returned observation shape, but the compiler resolves calendar alignment at day granularity for comparability metadata. `calendar_policy.weekday_wow` specifically means "day-aligned within the compared weeks", not "whole-week black-box to whole-week black-box".
 
 Recommended semantic error codes:

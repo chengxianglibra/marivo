@@ -701,8 +701,11 @@ agent 在 v1 中的 policy resolution 应尽量保守：
 
 以下问题仍待后续文档或实现阶段拍板：
 
-- time-series compare 未来是否需要把 bucket pairing plan 暴露为一等 artifact
 - holiday cluster 与 business campaign calendar 是否共用同一 source contract，还是拆成公共节假日与业务活动两类
+
+已冻结结论：
+
+- `bucket_pairing plan` 在 v1 只作为 observation artifact 的 `resolved_policy_summary` metadata 输出，不升格为可单独引用的一等 artifact；见 `docs/semantic/calendar-bucket-pairing-artifact-decision.zh.md`
 
 ## 总结
 
