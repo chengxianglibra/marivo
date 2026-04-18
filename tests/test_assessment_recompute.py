@@ -214,6 +214,111 @@ class _RecomputeBase(unittest.TestCase):
     def _insert_delta_finding(self, finding_id: str = "fnd_delta_001") -> None:
         self.finding_repo.create(_make_finding_row(finding_id, finding_type="delta", metric="dau"))
 
+    def _insert_compare_delta_finding(
+        self,
+        finding_id: str,
+        *,
+        comparability_status: str,
+        issues: list[dict[str, Any]],
+        include_calendar_alignment: bool = False,
+        aligned_ratio: float = 1.0,
+        unpaired_bucket_count: int = 0,
+    ) -> None:
+        row = _make_finding_row(finding_id, finding_type="delta", metric="dau")
+        payload = {
+            "delta_kind": "scalar_delta",
+            "left_ref": {
+                "artifact_id": "",
+                "item_ref": {"collection": "value", "index": None, "key": None},
+            },
+            "right_ref": {
+                "artifact_id": "",
+                "item_ref": {"collection": "value", "index": None, "key": None},
+            },
+            "left_value": 10.0,
+            "right_value": 8.0,
+            "absolute_delta": 2.0,
+            "relative_delta": 0.25,
+            "direction": "increase",
+            "presence": "both",
+            "unit": None,
+            "comparability": {"status": comparability_status, "issues": issues},
+        }
+        if include_calendar_alignment:
+            coverage = {
+                "aligned_bucket_count": 7,
+                "unpaired_bucket_count": unpaired_bucket_count,
+                "aligned_ratio": aligned_ratio,
+            }
+            payload["calendar_alignment"] = {
+                "reuse_source": "observation_resolved_policy_summary",
+                "policy_ref": "calendar_policy.holiday_yoy",
+                "comparison_basis": "yoy",
+                "resolved_calendar_source": "calendar.cn_holidays",
+                "resolved_calendar_version": "2026.01",
+                "comparability_warnings": [],
+                "left_coverage_summary": dict(coverage),
+                "right_coverage_summary": dict(coverage),
+                "effective_coverage_summary": dict(coverage),
+            }
+        row["payload_json"] = json.dumps(payload)
+        self.finding_repo.create(row)
+
+    def _insert_test_result_finding(
+        self,
+        finding_id: str,
+        *,
+        comparability_status: str,
+        issues: list[dict[str, Any]],
+        include_calendar_alignment: bool = False,
+        aligned_ratio: float = 1.0,
+        unpaired_bucket_count: int = 0,
+        payload_is_none: bool = False,
+    ) -> None:
+        row = _make_finding_row(finding_id, finding_type="test_result", metric="dau")
+        if payload_is_none:
+            row["payload_json"] = None
+            self.finding_repo.create(row)
+            return
+
+        payload = {
+            "left_ref": {
+                "artifact_id": "art_left",
+                "item_ref": {"collection": "result", "index": None, "key": None},
+            },
+            "right_ref": {
+                "artifact_id": "art_right",
+                "item_ref": {"collection": "result", "index": None, "key": None},
+            },
+            "method": "welch_t",
+            "estimate_value": 2.0,
+            "statistic_name": "t",
+            "statistic_value": 3.0,
+            "p_value": 0.01,
+            "reject_null": True,
+            "alpha": 0.05,
+            "comparability": {"status": comparability_status, "issues": issues},
+        }
+        if include_calendar_alignment:
+            coverage = {
+                "aligned_bucket_count": 7,
+                "unpaired_bucket_count": unpaired_bucket_count,
+                "aligned_ratio": aligned_ratio,
+            }
+            payload["calendar_alignment"] = {
+                "reuse_source": "observation_resolved_policy_summary",
+                "policy_ref": "calendar_policy.holiday_yoy",
+                "comparison_basis": "yoy",
+                "resolved_calendar_source": "calendar.cn_holidays",
+                "resolved_calendar_version": "2026.01",
+                "comparability_warnings": [],
+                "left_coverage_summary": dict(coverage),
+                "right_coverage_summary": dict(coverage),
+                "effective_coverage_summary": dict(coverage),
+            }
+        row["payload_json"] = json.dumps(payload)
+        self.finding_repo.create(row)
+
     def _recompute(
         self,
         *,
@@ -952,6 +1057,142 @@ class TestStatusResolutionDirectional(_RecomputeBase):
         r2 = self._recompute(trigger_ids=["fnd_delta_001"])
         row2 = self.assessment_repo.get(r2["assessment_id"])
         self.assertEqual(row2["gap_memberships_json"], [])
+
+
+class TestComparabilityGateIntegration(_RecomputeBase):
+    """Comparability gate consumes finding-level comparability summaries."""
+
+    def test_needs_attention_alignment_records_partial_gate(self) -> None:
+        self._insert_compare_delta_finding(
+            "fnd_cmp_partial",
+            comparability_status="needs_attention",
+            issues=[
+                {
+                    "code": "alignment_coverage_insufficient",
+                    "severity": "warning",
+                    "message": "coverage warning",
+                }
+            ],
+            include_calendar_alignment=True,
+            aligned_ratio=0.8,
+            unpaired_bucket_count=1,
+        )
+        result = self._recompute(trigger_ids=["fnd_cmp_partial"])
+        row = self.assessment_repo.get(result["assessment_id"])
+        compare_irec_id = next(
+            irec_id
+            for irec_id in row["applied_inference_record_ids_json"]
+            if self.ir_repo.get(irec_id)["rule_id"] == "comparability_gate.v1.baseline"
+        )
+        compare_irec = self.ir_repo.get(compare_irec_id)
+        self.assertEqual(compare_irec["result"], "partial")
+        self.assertEqual(compare_irec["input_finding_ids_json"], ["fnd_cmp_partial"])
+        matched = compare_irec["justification_json"]["matched_conditions"]
+        self.assertIn("comparability_requirement:compare_input_comparable:met", matched)
+        self.assertIn("comparability_signal:window_alignment:needs_attention", matched)
+
+    def test_comparability_error_blocks_supported_status(self) -> None:
+        self._insert_compare_delta_finding(
+            "fnd_cmp_error",
+            comparability_status="needs_attention",
+            issues=[
+                {
+                    "code": "calendar_policy_mismatch",
+                    "severity": "error",
+                    "message": "fatal mismatch",
+                }
+            ],
+        )
+        result = self._recompute(trigger_ids=["fnd_cmp_error"])
+        row = self.assessment_repo.get(result["assessment_id"])
+        self.assertEqual(result["status"], "insufficient")
+        resolution_irec_id = next(
+            irec_id
+            for irec_id in row["applied_inference_record_ids_json"]
+            if self.ir_repo.get(irec_id)["rule_id"] == "status_resolution.v1.threshold_algorithm"
+        )
+        resolution_irec = self.ir_repo.get(resolution_irec_id)
+        self.assertIn(
+            "comparability_guardrail_blocked",
+            resolution_irec["justification_json"]["matched_conditions"],
+        )
+
+    def test_test_result_finding_contributes_to_comparability_gate(self) -> None:
+        proposition_id = "prop_test_hypothesis_001"
+        _insert_proposition(
+            self.store,
+            proposition_id=proposition_id,
+            assessment_type="test_hypothesis_assessment",
+            proposition_type="test_hypothesis",
+            metric="dau",
+            identity_key="ik_test_hypothesis_001",
+        )
+        self._insert_test_result_finding(
+            "fnd_test_cmp_partial",
+            comparability_status="needs_attention",
+            issues=[],
+            include_calendar_alignment=True,
+            aligned_ratio=0.8,
+            unpaired_bucket_count=1,
+        )
+        result = self._recompute(
+            proposition_id=proposition_id,
+            trigger_ids=["fnd_test_cmp_partial"],
+        )
+        row = self.assessment_repo.get(result["assessment_id"])
+        compare_irec_id = next(
+            irec_id
+            for irec_id in row["applied_inference_record_ids_json"]
+            if self.ir_repo.get(irec_id)["rule_id"] == "comparability_gate.v1.baseline"
+        )
+        compare_irec = self.ir_repo.get(compare_irec_id)
+        self.assertEqual(compare_irec["result"], "partial")
+        self.assertEqual(compare_irec["input_finding_ids_json"], ["fnd_test_cmp_partial"])
+
+    def test_needs_attention_with_empty_issues_partial_if_alignment_bad(self) -> None:
+        self._insert_compare_delta_finding(
+            "fnd_cmp_empty_issues",
+            comparability_status="needs_attention",
+            issues=[],
+            include_calendar_alignment=True,
+            aligned_ratio=0.999,
+            unpaired_bucket_count=0,
+        )
+        result = self._recompute(trigger_ids=["fnd_cmp_empty_issues"])
+        row = self.assessment_repo.get(result["assessment_id"])
+        compare_irec_id = next(
+            irec_id
+            for irec_id in row["applied_inference_record_ids_json"]
+            if self.ir_repo.get(irec_id)["rule_id"] == "comparability_gate.v1.baseline"
+        )
+        compare_irec = self.ir_repo.get(compare_irec_id)
+        self.assertEqual(compare_irec["result"], "partial")
+        self.assertIn(
+            "comparability_signal:window_alignment:needs_attention",
+            compare_irec["justification_json"]["matched_conditions"],
+        )
+
+    def test_missing_payload_json_is_skipped(self) -> None:
+        self._insert_test_result_finding(
+            "fnd_test_no_payload",
+            comparability_status="needs_attention",
+            issues=[],
+            payload_is_none=True,
+        )
+        result = self._recompute(trigger_ids=["fnd_test_no_payload"])
+        row = self.assessment_repo.get(result["assessment_id"])
+        compare_irec_id = next(
+            irec_id
+            for irec_id in row["applied_inference_record_ids_json"]
+            if self.ir_repo.get(irec_id)["rule_id"] == "comparability_gate.v1.baseline"
+        )
+        compare_irec = self.ir_repo.get(compare_irec_id)
+        self.assertEqual(compare_irec["result"], "hit")
+        self.assertEqual(compare_irec["input_finding_ids_json"], [])
+        self.assertEqual(
+            compare_irec["justification_json"]["notes"],
+            ["no comparability-bearing finding inputs"],
+        )
 
 
 # ---------------------------------------------------------------------------

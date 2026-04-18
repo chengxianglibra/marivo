@@ -30,10 +30,11 @@ runner is updated to embed artifact IDs in its output refs.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from app.evidence_engine.canonical_finding import (
     ArtifactItemRefRef,
+    DeltaDirection,
     DeltaFinding,
     DeltaPayload,
     FindingExtractionResult,
@@ -77,6 +78,35 @@ def _empty_quality() -> FindingQuality:
         quality_status=None,
         quality_warnings=[],
     )
+
+
+def _extract_comparability_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    comparability = payload.get("comparability")
+    resolved = payload.get("resolved_input_summary") or {}
+    calendar_alignment = resolved.get("calendar_alignment")
+
+    extracted: dict[str, Any] = {}
+    if isinstance(comparability, dict):
+        extracted["comparability"] = {
+            "status": comparability.get("status") or "needs_attention",
+            "issues": list(comparability.get("issues") or []),
+        }
+    if isinstance(calendar_alignment, dict):
+        extracted["calendar_alignment"] = dict(calendar_alignment)
+    return extracted
+
+
+def _attach_comparability_payload(
+    delta_payload: DeltaPayload,
+    comparability_payload: dict[str, Any],
+) -> DeltaPayload:
+    comparability = comparability_payload.get("comparability")
+    if comparability is not None:
+        delta_payload["comparability"] = comparability
+    calendar_alignment = comparability_payload.get("calendar_alignment")
+    if calendar_alignment is not None:
+        delta_payload["calendar_alignment"] = calendar_alignment
+    return delta_payload
 
 
 def _escape_seg_component(s: str) -> str:
@@ -179,7 +209,10 @@ class CompareArtifactExtractor(FindingExtractor):
         left_time_scope = resolved.get("left_time_scope")
 
         direction_raw = payload.get("direction") or "undefined"
-        direction = direction_raw if direction_raw in _VALID_DIRECTIONS else "undefined"
+        direction = cast(
+            "DeltaDirection",
+            direction_raw if direction_raw in _VALID_DIRECTIONS else "undefined",
+        )
 
         # v1 limitation: obs artifact_ids are not embedded in compare_artifact payload.
         # Both left_ref and right_ref use artifact_id="" as placeholder (see module docstring).
@@ -187,6 +220,21 @@ class CompareArtifactExtractor(FindingExtractor):
         _, obs_item_ref = make_item_identity("value")
         left_ref = ArtifactItemRefRef(artifact_id="", item_ref=obs_item_ref)
         right_ref = ArtifactItemRefRef(artifact_id="", item_ref=obs_item_ref)
+        comparability_payload = _extract_comparability_payload(payload)
+
+        delta_payload = DeltaPayload(
+            delta_kind="scalar_delta",
+            left_ref=left_ref,
+            right_ref=right_ref,
+            left_value=_to_float_or_none(payload.get("left_value")),
+            right_value=_to_float_or_none(payload.get("right_value")),
+            absolute_delta=_to_float_or_none(payload.get("absolute_delta")),
+            relative_delta=_to_float_or_none(payload.get("relative_delta")),
+            direction=direction,
+            presence="both",  # scalar_delta always compares two defined scopes
+            unit=payload.get("unit"),
+        )
+        delta_payload = _attach_comparability_payload(delta_payload, comparability_payload)
 
         finding = DeltaFinding(
             finding_id=finding_id,
@@ -203,18 +251,7 @@ class CompareArtifactExtractor(FindingExtractor):
             observed_window=left_time_scope,
             quality=_empty_quality(),
             provenance=self._make_provenance(step_ref, canonical_item_key, item_ref),
-            payload=DeltaPayload(
-                delta_kind="scalar_delta",
-                left_ref=left_ref,
-                right_ref=right_ref,
-                left_value=_to_float_or_none(payload.get("left_value")),
-                right_value=_to_float_or_none(payload.get("right_value")),
-                absolute_delta=_to_float_or_none(payload.get("absolute_delta")),
-                relative_delta=_to_float_or_none(payload.get("relative_delta")),
-                direction=direction,  # type: ignore[typeddict-item]
-                presence="both",  # scalar_delta always compares two defined scopes
-                unit=payload.get("unit"),
-            ),
+            payload=delta_payload,
         )
         return [finding]
 
@@ -229,6 +266,7 @@ class CompareArtifactExtractor(FindingExtractor):
         unit: str | None = payload.get("unit")
         resolved = payload.get("resolved_input_summary") or {}
         left_time_scope = resolved.get("left_time_scope")
+        comparability_payload = _extract_comparability_payload(payload)
 
         findings: list[DeltaFinding] = []
         for row in rows:
@@ -239,7 +277,10 @@ class CompareArtifactExtractor(FindingExtractor):
             finding_id = make_finding_id(artifact_id, "delta", canonical_item_key)
 
             direction_raw = row.get("direction") or "undefined"
-            direction = direction_raw if direction_raw in _VALID_DIRECTIONS else "undefined"
+            direction = cast(
+                "DeltaDirection",
+                direction_raw if direction_raw in _VALID_DIRECTIONS else "undefined",
+            )
 
             presence_raw = row.get("presence")
             presence = presence_raw if presence_raw in _VALID_PRESENCES else None
@@ -250,6 +291,20 @@ class CompareArtifactExtractor(FindingExtractor):
             _, right_item_ref = make_item_identity("rows", key=stable_key)
             left_ref = ArtifactItemRefRef(artifact_id="", item_ref=left_item_ref)
             right_ref = ArtifactItemRefRef(artifact_id="", item_ref=right_item_ref)
+
+            delta_payload = DeltaPayload(
+                delta_kind="segmented_delta",
+                left_ref=left_ref,
+                right_ref=right_ref,
+                left_value=_to_float_or_none(row.get("left_value")),
+                right_value=_to_float_or_none(row.get("right_value")),
+                absolute_delta=_to_float_or_none(row.get("absolute_delta")),
+                relative_delta=_to_float_or_none(row.get("relative_delta")),
+                direction=direction,
+                presence=presence,
+                unit=unit,
+            )
+            delta_payload = _attach_comparability_payload(delta_payload, comparability_payload)
 
             finding = DeltaFinding(
                 finding_id=finding_id,
@@ -266,18 +321,7 @@ class CompareArtifactExtractor(FindingExtractor):
                 observed_window=left_time_scope,
                 quality=_empty_quality(),
                 provenance=self._make_provenance(step_ref, canonical_item_key, item_ref),
-                payload=DeltaPayload(
-                    delta_kind="segmented_delta",
-                    left_ref=left_ref,
-                    right_ref=right_ref,
-                    left_value=_to_float_or_none(row.get("left_value")),
-                    right_value=_to_float_or_none(row.get("right_value")),
-                    absolute_delta=_to_float_or_none(row.get("absolute_delta")),
-                    relative_delta=_to_float_or_none(row.get("relative_delta")),
-                    direction=direction,  # type: ignore[typeddict-item]
-                    presence=presence,
-                    unit=unit,
-                ),
+                payload=delta_payload,
             )
             findings.append(finding)
 
