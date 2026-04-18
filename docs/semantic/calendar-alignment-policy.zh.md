@@ -727,6 +727,7 @@ agent 在 v1 中的 policy resolution 应尽量保守：
 已冻结结论：
 
 - `bucket_pairing plan` 在 v1 只作为 observation artifact 的 `resolved_policy_summary` metadata 输出，不升格为可单独引用的一等 artifact；见 `docs/semantic/calendar-bucket-pairing-artifact-decision.zh.md`
+- 面向人工验收与回归核对的最小样例基线见 `docs/semantic/calendar-alignment-golden-cases.zh.md`
 
 ## 总结
 
