@@ -116,114 +116,17 @@ make lint
 make format
 ```
 
-Tests: `make test` or `.venv/bin/pytest`. Requires Python 3.12+. SQLite metadata,
+Tests: `make test` or `.venv/bin/pytest`. Use `make test TESTS='tests/test_file.py'`
+for targeted runs through the repository entrypoint. Requires Python 3.12+. SQLite metadata,
 DuckDB/Trino engines. Tests pass explicit db_path and metadata store/file paths directly.
 App startup requires `factum.yaml` metadata config with `metadata.engine=sqlite` and
 `metadata.path=<sqlite-file>`.
-
-## Architecture
-
-Client → FastAPI → `app/api/` → service → semantic/routing/execution → SQLite + engines.
-Metadata reads use synced `source_objects`, not live catalogs.
-Bindings must use the synced source object's full `source_objects.fqn` as `carrier_locator`;
-routing and execution may accept short table names, but they must normalize them against synced
-`source_objects` and prefer full-FQN matches.
-Semantic object HTTP responses may expose derived lifecycle/readiness contract fields in addition to
-legacy storage `status`; preserve backward compatibility unless a task explicitly removes old fields.
-Semantic detail `GET` reads may accept either internal contract ids or canonical refs for
-compatibility, but write and lifecycle routes remain internal-id based.
-Lifecycle actions should use `validate`, `activate`, and `deprecate` as the primary public verbs;
-`publish` is a compatibility alias for `activate`, and `activate` must never be presented as a
-proxy for readiness. For semantic list filters, prefer `lifecycle_status` and
-`readiness_status`; `status` remains a storage compatibility filter only and only accepts storage
-values (`draft`, `published`, `deprecated`). Use `lifecycle_status=active` for active semantic
-objects; if an old metadata sqlite still contains semantic `status='active'`, migrate it first with
-`scripts/migrate-semantic-status-active-to-published.sh`.
-Direct dependency information may also be exposed via `dependency_refs` on semantic object read
-surfaces when a task needs catalog/debug visibility.
-Runtime/catalog defaults should treat readiness as the availability gate. For entity/metric/process,
-do not assume `published` implies `ready`; readiness may be blocked by dependencies, bindings, or
-profile mismatches.
-Treat `stale` as a proven dependency-drift state, not a generic synonym for `not_ready`; if the
-current metadata cannot show that an object was previously aligned and then drifted, prefer
-`not_ready`.
-Request-level incompatibility must stay separate from object readiness. Do not write request-specific
-dimension/process/intent mismatches back into semantic object readiness fields.
-Compiler and intent execution entrypoints should enforce the same object-level readiness gate and
-surface structured readiness failures instead of collapsing them into generic compile errors.
-Intent metric preflight must resolve execution bindings from the same semantic runtime inspection
-used for readiness; do not reintroduce separate published/table-mapping checks that can disagree
-with `readiness_status`.
-Typed metric SQL compilation must use the runtime-selected execution binding, including carrier
-selection and `metric_input` slot coverage checks; do not assume the first published binding row is
-the executable binding.
-Typed metric family runtime rules must stay aligned across readiness, semantic-service validation,
-and execution preflight. When a family such as `distribution_metric` requires `metric_input`
-coverage and engine-specific SQL kernels, update all three surfaces together.
-Typed metric execution uses two SQL contracts: aggregate expressions for standard metric queries and
-per-row value expressions for sample-summary modes. Do not assume one SQL fragment is valid for
-both.
-Calendar alignment policy refs are compiler-owned fixed catalog entries. Only `observe` may accept
-`calendar_policy_ref`; downstream compare-like intents must reuse the frozen observation metadata
-instead of taking a parallel policy input.
-Calendar alignment runtime data must come from the config-backed calendar snapshot registry and
-resolved source/version lineage; do not reintroduce compiler-time injected annotation snapshots or
-dynamic `latest` calendar reads.
-When a step resolves calendar alignment, persist the lineage/metadata binding in
-`step_metadata.typed_semantic_snapshot.compile_context.calendar_policy_binding`; this summary is the
-operator-facing provenance surface for the final policy ref and resolved calendar version, while the
-observation artifact's `resolved_policy_summary` remains the downstream reuse surface.
-`calendar_policy_binding.source_lineage` must keep required holiday lineage strict, but may omit
-optional sources such as `event_source` when the resolved snapshot does not configure them; only
-declared required lineage branches must carry full source metadata. Empty or partial optional
-`event_source` lineage is treated as not configured and must be omitted from the normalized binding
-rather than failing `holiday_yoy` execution.
-Calendar alignment pairing must run as per-bucket ordered matching over the policy-declared matcher
-chain; do not collapse holiday/event/weekday semantics into a single window-level fallback choice.
-Evidence-engine `comparability_gate` must consume the frozen comparability / calendar alignment
-summary carried by canonical compare/test findings; do not rebuild holiday / weekday / event
-pairing logic inside the gate.
-Calendar alignment issue layering is fixed: single-sided completeness / quality failures belong to
-`quality_gate` or earlier request/compiler failure surfaces, while dual-sided frozen alignment
-mismatch, pairing instability, and coverage insufficiency belong to `comparability_gate`. Do not
-emit the same calendar issue code from both gates in the same compare-like evaluation.
-Compare-like user-facing calendar alignment failures must be rendered from the shared frozen
-metadata reuse layer so `compare` and `test` reuse the same stable message and structured details
-for the same issue code; do not fork separate wording or remediation logic per intent.
-`decompose` may consume `compare(time_series)` outputs in v1, but only to attribute the aligned
-summary delta. Do not treat bucket rows from `time_series_delta` as the canonical decomposition
-input contract.
-SQL sent to the execution engine is observed through default structured INFO logs; do not add SQL
-payload persistence to metadata surfaces unless a task explicitly requires it.
-Typed metric dimension discovery should prefer explicit legacy `dimensions` when present; otherwise
-derive dimension refs from the observed entity's published binding targets where
-`stable_descriptor -> dimension.*`.
-For grouped typed requests, a requested `dimension.*` must still be consumable by the metric: either
-directly from the metric's own dimension set or through a metric-binding import of a matching
-published entity binding that exposes the dimension as `stable_descriptor -> dimension.*`.
-For typed metric windowed requests, `scope.constraints` should also prefer canonical
-`dimension.*` keys; runtime resolves them through published binding lineage before generating SQL,
-while bare physical column keys remain compatibility-only input.
-Windowed typed execution must resolve analysis-time and partition-pruning metadata from published
-typed bindings. Do not rely on entity/source `time_capabilities` as the runtime source of truth;
-request-level `time_axis` overrides remain the only non-binding override path.
-For `time_bindings` with `resolution_kind="timestamp_column"`, do not assume string-backed
-columns are executable as native timestamps. Binding contracts must declare the parse strategy
-explicitly (for example `timestamp_format="iso8601_t_naive"` or
-`timestamp_format="%Y%m%d %H:%M:%S"`) or readiness should block them.
-Session root requests must not carry execution filters such as `constraints` or `raw_filter`;
-descriptive session context belongs in `goal`, while bounded execution scope belongs in typed step
-requests only.
-List endpoints return lightweight items by default (header, status, blocker_count, capabilities_summary);
-use `detail=true` query parameter for backward-compatible full payload. Lightweight list responses
-must still derive readiness from the same full semantic contract used by detail reads. Detail
-endpoints return full objects including `dependency_refs` and stubbed `dependent_refs` (empty
-list, deferred implementation).
-Admin semantic catalog views should treat `lifecycle_status` and `readiness_status` as the primary
-operator-facing state, with blockers shown before helper/debug actions so `published` is never
-presented as a proxy for usability.
-User-facing `/ui` grounding/discovery surfaces should default to ready semantic objects and only
-surface non-ready objects when the caller explicitly opts into blocker inspection.
+- Prefer `tests/shared_fixtures.py` named DuckDB templates for repeated test data. When multiple
+  test classes need the same seeded analytics tables, build them once as a deterministic named
+  template and copy that template into each temporary db path instead of re-seeding in every
+  `setUpClass`.
+- Bump a named template's version string when its seeded schema or rows change so cached `/tmp`
+  copies rebuild automatically.
 
 ## Docs layout:
 - `docs/api/`: external HTTP API docs only; target-state step submission is in `intent-steps.md`, and canonical read surfaces are split into `session-state.md` and `context-surface.md`

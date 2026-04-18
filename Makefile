@@ -7,7 +7,7 @@ VENV_RUFF := .venv/bin/ruff
 
 test:
 	@./scripts/require-venv.sh pytest
-	@$(VENV_PYTEST)
+	@$(VENV_PYTEST) $(TESTS)
 
 typecheck:
 	@./scripts/require-venv.sh mypy

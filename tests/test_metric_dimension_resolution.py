@@ -6,7 +6,6 @@ import unittest
 from pathlib import Path
 from uuid import uuid4
 
-import duckdb
 from fastapi.testclient import TestClient
 
 from app.main import create_app
@@ -15,6 +14,7 @@ from tests.semantic_test_helpers import (
     ensure_published_typed_dimension,
     ensure_published_typed_time,
 )
+from tests.shared_fixtures import get_named_seeded_duckdb_path
 
 
 class TypedMetricDimensionResolutionTests(unittest.TestCase):
@@ -22,7 +22,7 @@ class TypedMetricDimensionResolutionTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.temp_dir = tempfile.TemporaryDirectory()
         cls.db_path = Path(cls.temp_dir.name) / "metric_dimension_resolution.duckdb"
-        cls._seed_duckdb(cls.db_path)
+        get_named_seeded_duckdb_path(cls.db_path, "metric_dimension_resolution")
         cls.client = TestClient(create_app(cls.db_path))
         cls.metadata_store = cls.client.app.state.metadata_store
         cls.service = cls.client.app.state.service
@@ -62,32 +62,6 @@ class TypedMetricDimensionResolutionTests(unittest.TestCase):
     def tearDownClass(cls) -> None:
         cls.client.close()
         cls.temp_dir.cleanup()
-
-    @staticmethod
-    def _seed_duckdb(db_path: Path) -> None:
-        con = duckdb.connect(str(db_path))
-        try:
-            con.execute("CREATE SCHEMA IF NOT EXISTS analytics")
-            con.execute(
-                """
-                CREATE TABLE analytics.metric_dimension_events (
-                    event_date DATE NOT NULL,
-                    user_id VARCHAR NOT NULL,
-                    country VARCHAR NOT NULL,
-                    plan VARCHAR NOT NULL,
-                    value DOUBLE NOT NULL
-                )
-                """
-            )
-            con.executemany(
-                "INSERT INTO analytics.metric_dimension_events VALUES (?, ?, ?, ?, ?)",
-                [
-                    ("2026-04-01", "u1", "US", "free", 10.0),
-                    ("2026-04-01", "u2", "CA", "pro", 20.0),
-                ],
-            )
-        finally:
-            con.close()
 
     def _create_entity(self, *, suffix: str, stable_descriptors: list[str]) -> str:
         for dimension_ref in stable_descriptors:

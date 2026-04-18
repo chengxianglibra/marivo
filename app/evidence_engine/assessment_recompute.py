@@ -60,6 +60,7 @@ _CALENDAR_ALIGNMENT_REQUIRED_LIST_FIELDS: tuple[str, ...] = (
     "comparability_warnings",
 )
 _COVERAGE_INSUFFICIENT_CODES = frozenset({"alignment_coverage_insufficient"})
+_DATA_COVERAGE_INSUFFICIENT_CODES = frozenset({"metric_data_coverage_incomplete"})
 _HOLIDAY_ALIGNMENT_FAILURE_CODES = frozenset({"holiday_cluster_unmapped"})
 _EVENT_ALIGNMENT_FAILURE_CODES = frozenset({"event_cluster_unmapped"})
 _WEEKDAY_TIE_FAILURE_CODES = frozenset({"weekday_pairing_tie"})
@@ -407,12 +408,19 @@ def _run_comparability_gate(
 
         calendar_alignment = payload.get("calendar_alignment")
         warning_codes: set[str] = set()
+        data_warning_codes: set[str] = set()
         if isinstance(calendar_alignment, dict):
             has_alignment_summary = True
             warning_codes = {
                 str(code)
                 for code in calendar_alignment.get("comparability_warnings") or []
                 if isinstance(code, str) and code
+            }
+            data_warning_codes = {
+                str(issue.get("code") or "")
+                for issue in issues
+                if isinstance(issue, dict)
+                and str(issue.get("code") or "") in _DATA_COVERAGE_INSUFFICIENT_CODES
             }
             effective_coverage = calendar_alignment.get("effective_coverage_summary") or {}
             aligned_ratio = effective_coverage.get("aligned_ratio")
@@ -421,18 +429,30 @@ def _run_comparability_gate(
                 isinstance(unpaired_bucket_count, (int, float)) and float(unpaired_bucket_count) > 0
             ):
                 has_attention_signal = True
+            effective_data_coverage = (
+                calendar_alignment.get("effective_data_coverage_summary") or {}
+            )
+            data_coverage_ratio = effective_data_coverage.get("coverage_ratio")
+            if (
+                isinstance(data_coverage_ratio, (int, float))
+                and float(data_coverage_ratio) < 0.9999
+            ):
+                has_attention_signal = True
         else:
             aligned_ratio = None
             unpaired_bucket_count = None
+            data_coverage_ratio = None
 
         requirement_eval = _evaluate_calendar_alignment_requirements(
             comparability_status=status,
             issue_codes=issue_codes,
             error_issue_codes=error_issue_codes,
             warning_codes=warning_codes,
+            data_warning_codes=data_warning_codes,
             calendar_alignment=calendar_alignment if isinstance(calendar_alignment, dict) else None,
             aligned_ratio=aligned_ratio,
             unpaired_bucket_count=unpaired_bucket_count,
+            data_coverage_ratio=data_coverage_ratio,
         )
         matched_requirement_keys_all.update(requirement_eval["matched_requirement_keys"])
         failed_requirement_keys.update(requirement_eval["failed_requirement_keys"])
@@ -537,9 +557,11 @@ def _evaluate_calendar_alignment_requirements(
     issue_codes: set[str],
     error_issue_codes: set[str],
     warning_codes: set[str],
+    data_warning_codes: set[str],
     calendar_alignment: dict[str, Any] | None,
     aligned_ratio: Any,
     unpaired_bucket_count: Any,
+    data_coverage_ratio: Any,
 ) -> dict[str, Any]:
     matched_requirement_keys: set[str] = set()
     failed_requirement_keys: set[str] = set()
@@ -584,9 +606,19 @@ def _evaluate_calendar_alignment_requirements(
     else:
         matched_requirement_keys.add("calendar_coverage_sufficient")
 
+    data_coverage_failed = _evaluate_data_coverage_requirement(
+        issue_codes=issue_codes,
+        data_warning_codes=data_warning_codes,
+        data_coverage_ratio=data_coverage_ratio,
+    )
+    if data_coverage_failed:
+        failed_requirement_keys.add("metric_data_coverage_sufficient")
+    else:
+        matched_requirement_keys.add("metric_data_coverage_sufficient")
+
     if error_issue_codes:
         has_error_signal = True
-    if coverage_attention or tie_breaker_failed or warning_codes:
+    if coverage_attention or tie_breaker_failed or warning_codes or data_coverage_failed:
         has_attention_signal = True
 
     return {
@@ -638,6 +670,17 @@ def _evaluate_coverage_requirement(
     if aligned_ratio_value != 1.0 or unpaired_bucket_count_value != 0.0:
         return True, True
     return coverage_failed, coverage_failed
+
+
+def _evaluate_data_coverage_requirement(
+    *,
+    issue_codes: set[str],
+    data_warning_codes: set[str],
+    data_coverage_ratio: Any,
+) -> bool:
+    if (issue_codes | data_warning_codes) & _DATA_COVERAGE_INSUFFICIENT_CODES:
+        return True
+    return isinstance(data_coverage_ratio, (int, float)) and float(data_coverage_ratio) < 0.9999
 
 
 def _find_open_gap_for_requirement(

@@ -40,6 +40,15 @@ def _coerce_numeric_or_none(value: Any) -> float | None:
         return None
 
 
+def _coverage_ratio_value(summary: Any) -> float | None:
+    if not isinstance(summary, dict):
+        return None
+    value = summary.get("coverage_ratio")
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
+
+
 def run_compare_intent(
     svc: SemanticLayerService, session_id: str, params: dict[str, Any] | None
 ) -> dict[str, Any]:
@@ -335,28 +344,28 @@ def run_compare_intent(
             right_row = right_series_map.get(key)
             anchor = left_row or right_row or {}
             window = dict(anchor.get("window") or {})
-            if left_row and right_row:
+            left_value = _coerce_numeric_or_none(left_row.get("value")) if left_row else None
+            right_value = _coerce_numeric_or_none(right_row.get("value")) if right_row else None
+            if left_row and right_row and left_value is not None and right_value is not None:
                 presence = "both"
-                left_value = _coerce_numeric_or_none(left_row.get("value"))
-                right_value = _coerce_numeric_or_none(right_row.get("value"))
                 row_abs = _compute_absolute_delta(left_value, right_value)
                 row_rel = _compute_relative_delta(row_abs, right_value)
                 row_dir = _compute_direction(row_abs, row_rel, flat_tolerance_relative)
-                if left_value is not None and right_value is not None:
-                    matched_left_values.append(left_value)
-                    matched_right_values.append(right_value)
-            elif left_row:
+                matched_left_values.append(left_value)
+                matched_right_values.append(right_value)
+            elif left_value is not None:
                 presence = "left_only"
-                left_value = _coerce_numeric_or_none(left_row.get("value"))
-                right_value = None
                 row_abs = left_value
                 row_rel = None
                 row_dir = "undefined"
-            else:
+            elif right_value is not None:
                 presence = "right_only"
-                left_value = None
-                right_value = _coerce_numeric_or_none((right_row or {}).get("value"))
                 row_abs = -right_value if right_value is not None else None
+                row_rel = None
+                row_dir = "undefined"
+            else:
+                presence = "left_only" if left_row else "right_only"
+                row_abs = None
                 row_rel = None
                 row_dir = "undefined"
 
@@ -381,7 +390,12 @@ def run_compare_intent(
         matched_windows = [
             _normalize_window(left_series_map[key].get("window") or {})
             for key in all_series_keys
-            if key in left_series_map and key in right_series_map
+            if (
+                key in left_series_map
+                and key in right_series_map
+                and _coerce_numeric_or_none(left_series_map[key].get("value")) is not None
+                and _coerce_numeric_or_none(right_series_map[key].get("value")) is not None
+            )
         ]
         matched_time_scope: dict[str, Any] | None = None
         if matched_windows:
@@ -396,12 +410,59 @@ def run_compare_intent(
                 "left_bucket_count": len(left_series),
                 "right_bucket_count": len(right_series),
                 "matched_bucket_count": len(matched_left_values),
-                "dropped_left_buckets": len(left_series) - len(matched_left_values),
-                "dropped_right_buckets": len(right_series) - len(matched_right_values),
+                "dropped_left_buckets": sum(
+                    1 for row in left_series if _coerce_numeric_or_none(row.get("value")) is None
+                )
+                + max(
+                    0,
+                    len(left_series)
+                    - len(matched_left_values)
+                    - sum(
+                        1
+                        for row in left_series
+                        if _coerce_numeric_or_none(row.get("value")) is None
+                    ),
+                ),
+                "dropped_right_buckets": sum(
+                    1 for row in right_series if _coerce_numeric_or_none(row.get("value")) is None
+                )
+                + max(
+                    0,
+                    len(right_series)
+                    - len(matched_right_values)
+                    - sum(
+                        1
+                        for row in right_series
+                        if _coerce_numeric_or_none(row.get("value")) is None
+                    ),
+                ),
                 "pairing_rule": "intersection_by_time_bucket",
                 "matched_time_scope": matched_time_scope,
             }
         )
+
+        data_coverage_summary = None
+        calendar_alignment = resolved_input_summary.get("calendar_alignment")
+        if isinstance(calendar_alignment, dict):
+            data_coverage_summary = calendar_alignment.get("effective_data_coverage_summary")
+        coverage_ratio = _coverage_ratio_value(data_coverage_summary)
+        if coverage_ratio is not None and coverage_ratio < 0.9999:
+            comparability["status"] = "needs_attention"
+            if not any(
+                issue.get("code") == "metric_data_coverage_incomplete"
+                for issue in comparability["issues"]
+            ):
+                comparability["issues"].append(
+                    {
+                        "code": "metric_data_coverage_incomplete",
+                        "severity": "warning",
+                        "message": (
+                            "metric data coverage is incomplete, so one or more aligned or "
+                            "requested buckets do not have business metric values"
+                        ),
+                        "details": {"effective_data_coverage_summary": data_coverage_summary},
+                    }
+                )
 
         artifact = {
             **base,

@@ -424,6 +424,8 @@ calendar alignment failure surface：
 }
 ```
 
+当 calendar pairing 完整，但 observation 自身缺少部分业务 bucket 时，compare 应保留 calendar coverage 结论不变，并额外发出 `metric_data_coverage_incomplete` warning。该 issue 的 `details` 应暴露 `effective_data_coverage_summary`，不得复用 `alignment_coverage_insufficient` 误报 calendar pairing 不足。
+
 ## 校验规则
 
 - 两个 ref 都必须解析到已完成步骤

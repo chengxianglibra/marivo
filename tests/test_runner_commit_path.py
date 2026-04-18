@@ -74,6 +74,16 @@ def _make_compiled_mock_with_calendar_alignment() -> MagicMock:
                 "unpaired_bucket_count": 0,
                 "aligned_ratio": 1.0,
             },
+            "data_coverage_summary": {
+                "expected_bucket_count": 1,
+                "present_bucket_count": 1,
+                "missing_bucket_count": 0,
+                "coverage_ratio": 1.0,
+                "aligned_expected_bucket_count": 1,
+                "aligned_present_current_bucket_count": 1,
+                "aligned_present_baseline_bucket_count": 1,
+                "aligned_present_both_bucket_count": 1,
+            },
             "comparability_warnings": [],
         }
     }
@@ -163,6 +173,10 @@ def _resolved_policy_summary(
     aligned_bucket_count: int = 7,
     unpaired_bucket_count: int = 0,
     aligned_ratio: float = 1.0,
+    expected_bucket_count: int = 7,
+    present_bucket_count: int = 7,
+    missing_bucket_count: int = 0,
+    coverage_ratio: float = 1.0,
     comparability_warnings: list[str] | None = None,
 ) -> dict[str, Any]:
     return {
@@ -193,6 +207,16 @@ def _resolved_policy_summary(
             "aligned_bucket_count": aligned_bucket_count,
             "unpaired_bucket_count": unpaired_bucket_count,
             "aligned_ratio": aligned_ratio,
+        },
+        "data_coverage_summary": {
+            "expected_bucket_count": expected_bucket_count,
+            "present_bucket_count": present_bucket_count,
+            "missing_bucket_count": missing_bucket_count,
+            "coverage_ratio": coverage_ratio,
+            "aligned_expected_bucket_count": expected_bucket_count,
+            "aligned_present_current_bucket_count": present_bucket_count,
+            "aligned_present_baseline_bucket_count": present_bucket_count,
+            "aligned_present_both_bucket_count": present_bucket_count,
         },
         "comparability_warnings": list(comparability_warnings or []),
     }
@@ -710,6 +734,146 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
                     "relative_delta": 0.2,
                 }
             ],
+        )
+
+    def test_observe_time_series_rebuilds_baseline_scoped_query_for_partition_pruning(
+        self,
+    ) -> None:
+        from app.intents.observe import run_observe_intent
+
+        svc = _make_svc()
+        svc.normalize_intent_metric_ref.side_effect = lambda metric: metric
+        svc.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
+        svc._resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
+        svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
+        svc.resolve_metric_dimensions.return_value = []
+        svc._resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
+        svc._resolve_windowed_query_time_axis.return_value = None
+
+        scoped_queries: list[dict[str, Any]] = []
+
+        def _capture_scoped_query(
+            session_id: str, resolved: Any, *, engine_type: str
+        ) -> dict[str, Any]:
+            scoped_query = {
+                "mode": "single_window",
+                "analysis_time_expr": "CAST(log_date AS DATE)",
+                "analysis_time_kind": "date_field",
+                "current": {
+                    "start": resolved.time_scope.current.start,
+                    "end": resolved.time_scope.current.end,
+                },
+                "partition_pruning_predicate": (
+                    f"log_date >= '{resolved.time_scope.current.start}' "
+                    f"AND log_date < '{resolved.time_scope.current.end}'"
+                ),
+            }
+            scoped_queries.append(scoped_query)
+            return scoped_query
+
+        svc._build_scoped_query.side_effect = _capture_scoped_query
+        svc._compile_step_with_feedback.side_effect = [
+            _make_time_series_compiled_mock_with_calendar_alignment(),
+            _make_compiled_mock(),
+        ]
+
+        with patch("app.intents.observe.execute_compiled") as mock_exec:
+            mock_exec.side_effect = [
+                MagicMock(rows=[{"bucket_start": "2026-04-01", "value": 120.0}]),
+                MagicMock(rows=[{"bucket_start": "2025-04-02", "value": 100.0}]),
+            ]
+            result = run_observe_intent(
+                svc,
+                _SESSION,
+                {
+                    "metric": "metric.m1",
+                    "time_scope": {"kind": "range", "start": "2026-04-01", "end": "2026-04-08"},
+                    "calendar_policy_ref": "calendar_policy.weekday_yoy",
+                    "granularity": "day",
+                },
+            )
+
+        self.assertEqual(len(scoped_queries), 2)
+        self.assertEqual(
+            scoped_queries[0]["partition_pruning_predicate"],
+            "log_date >= '2026-04-01' AND log_date < '2026-04-08'",
+        )
+        self.assertEqual(
+            scoped_queries[1]["partition_pruning_predicate"],
+            "log_date >= '2025-04-01' AND log_date < '2025-04-08'",
+        )
+        baseline_step_params = svc._compile_step_with_feedback.call_args_list[1].args[0].params
+        self.assertEqual(
+            baseline_step_params["scoped_query"]["partition_pruning_predicate"],
+            "log_date >= '2025-04-01' AND log_date < '2025-04-08'",
+        )
+        self.assertEqual(result["aligned_baseline_series"][0]["value"], 100.0)
+        self.assertEqual(
+            result["resolved_policy_summary"]["data_coverage_summary"][
+                "aligned_present_baseline_bucket_count"
+            ],
+            1,
+        )
+
+    def test_observe_time_series_backfills_missing_requested_bucket_and_records_data_coverage(
+        self,
+    ) -> None:
+        from app.intents.observe import run_observe_intent
+
+        svc = _make_svc()
+        svc.normalize_intent_metric_ref.side_effect = lambda metric: metric
+        svc.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
+        svc._resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
+        svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
+        svc.resolve_metric_dimensions.return_value = []
+        svc._resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
+        svc._resolve_windowed_query_time_axis.return_value = None
+        svc._build_scoped_query.return_value = {
+            "mode": "single_window",
+            "analysis_time_expr": "event_date",
+            "analysis_time_kind": "date_field",
+            "current": {"start": "2026-04-01", "end": "2026-04-03"},
+        }
+        svc._compile_step_with_feedback.side_effect = [
+            _make_time_series_compiled_mock_with_calendar_alignment(),
+            _make_compiled_mock(),
+        ]
+
+        with patch("app.intents.observe.execute_compiled") as mock_exec:
+            mock_exec.side_effect = [
+                MagicMock(rows=[{"bucket_start": "2026-04-01", "value": 120.0}]),
+                MagicMock(rows=[{"bucket_start": "2025-04-02", "value": 100.0}]),
+            ]
+            result = run_observe_intent(
+                svc,
+                _SESSION,
+                {
+                    "metric": "metric.m1",
+                    "time_scope": {"kind": "range", "start": "2026-04-01", "end": "2026-04-03"},
+                    "calendar_policy_ref": "calendar_policy.weekday_yoy",
+                    "granularity": "day",
+                },
+            )
+
+        self.assertEqual(
+            result["series"],
+            [
+                {"window": {"start": "2026-04-01", "end": "2026-04-02"}, "value": 120.0},
+                {"window": {"start": "2026-04-02", "end": "2026-04-03"}, "value": None},
+            ],
+        )
+        self.assertEqual(
+            result["resolved_policy_summary"]["data_coverage_summary"],
+            {
+                "expected_bucket_count": 2,
+                "present_bucket_count": 1,
+                "missing_bucket_count": 1,
+                "coverage_ratio": 0.5,
+                "aligned_expected_bucket_count": 1,
+                "aligned_present_current_bucket_count": 1,
+                "aligned_present_baseline_bucket_count": 1,
+                "aligned_present_both_bucket_count": 1,
+            },
         )
 
     def test_observe_hour_granularity_uses_hour_internal_grain(self) -> None:
@@ -1233,6 +1397,83 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
                 "aligned_bucket_count": 6,
                 "unpaired_bucket_count": 1,
                 "aligned_ratio": 6 / 7,
+            },
+        )
+
+    def test_compare_warns_on_metric_data_coverage_without_relabeling_alignment_coverage(
+        self,
+    ) -> None:
+        from app.intents.compare import run_compare_intent
+
+        svc = _make_svc()
+        left = _time_series_observation(
+            "m1",
+            series=[
+                {"window": {"start": "2024-01-01", "end": "2024-01-02"}, "value": 10.0},
+                {"window": {"start": "2024-01-02", "end": "2024-01-03"}, "value": None},
+            ],
+        )
+        right = _time_series_observation(
+            "m1",
+            series=[
+                {"window": {"start": "2024-01-01", "end": "2024-01-02"}, "value": 8.0},
+                {"window": {"start": "2024-01-02", "end": "2024-01-03"}, "value": 9.0},
+            ],
+        )
+        left["resolved_policy_summary"] = _resolved_policy_summary(
+            expected_bucket_count=2,
+            present_bucket_count=1,
+            missing_bucket_count=1,
+            coverage_ratio=0.5,
+        )
+        right["resolved_policy_summary"] = _resolved_policy_summary(
+            expected_bucket_count=2,
+            present_bucket_count=2,
+            missing_bucket_count=0,
+            coverage_ratio=1.0,
+        )
+        svc._resolve_artifact_for_ref.side_effect = [left, right]
+
+        result = run_compare_intent(
+            svc,
+            _SESSION,
+            {
+                "left_ref": {
+                    "step_id": "step_left",
+                    "session_id": _SESSION,
+                    "step_type": "observe",
+                },
+                "right_ref": {
+                    "step_id": "step_right",
+                    "session_id": _SESSION,
+                    "step_type": "observe",
+                },
+                "mode": "time_series",
+            },
+        )
+
+        self.assertEqual(result["comparability"]["status"], "needs_attention")
+        self.assertIn(
+            "metric_data_coverage_incomplete",
+            [issue["code"] for issue in result["comparability"]["issues"]],
+        )
+        self.assertNotIn(
+            "alignment_coverage_insufficient",
+            [issue["code"] for issue in result["comparability"]["issues"]],
+        )
+        self.assertEqual(
+            result["resolved_input_summary"]["calendar_alignment"][
+                "effective_data_coverage_summary"
+            ],
+            {
+                "expected_bucket_count": 2,
+                "present_bucket_count": 1,
+                "missing_bucket_count": 1,
+                "coverage_ratio": 0.5,
+                "aligned_expected_bucket_count": 2,
+                "aligned_present_current_bucket_count": 1,
+                "aligned_present_baseline_bucket_count": 1,
+                "aligned_present_both_bucket_count": 1,
             },
         )
 

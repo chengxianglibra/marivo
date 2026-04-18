@@ -383,6 +383,16 @@ type ResolvedPolicySummary = {
     unpaired_bucket_count: number;
     aligned_ratio: number;
   };
+  data_coverage_summary?: {
+    expected_bucket_count: number;
+    present_bucket_count: number;
+    missing_bucket_count: number;
+    coverage_ratio: number;
+    aligned_expected_bucket_count?: number;
+    aligned_present_current_bucket_count?: number;
+    aligned_present_baseline_bucket_count?: number;
+    aligned_present_both_bucket_count?: number;
+  };
   comparability_warnings: string[];
 };
 
@@ -439,6 +449,9 @@ type RateSampleSummaryObservation = ObservationBase & {
 ## 响应说明
 
 - 时间序列 bucket 采用半开区间（half-open interval）语义：`[window.start, window.end)`
+- `resolved_policy_summary.coverage_summary` 只表示 calendar bucket pairing coverage，不表示业务数据已完整落库
+- `resolved_policy_summary.data_coverage_summary` 表示实际 metric bucket coverage；当请求窗口内某些 bucket 尚无业务数据时，必须通过该字段显式暴露
+- `time_series.series` 必须按请求窗口返回完整 bucket 序列；缺失 bucket 不得静默省略，应用 `value = null` 表达
 - `segmented` 的 `share` 表示该 segment 在当前 scope 中的占比
 - `segmented` artifact 必须返回完整 segment 集合，不得把 tail-folding 或 top-k 截断编码进 artifact
 - 样本摘要模式的核心输出是 `sample_summary`，不是业务汇总值

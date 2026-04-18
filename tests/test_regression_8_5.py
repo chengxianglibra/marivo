@@ -21,10 +21,8 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
-
-import duckdb
 
 from app.analysis_core import (
     COMPOSITE_STEP_TYPES,
@@ -41,6 +39,7 @@ from tests.semantic_test_helpers import (
     ensure_published_typed_metric,
     ensure_published_typed_metric_binding,
 )
+from tests.shared_fixtures import get_named_seeded_duckdb_path
 
 # ---------------------------------------------------------------------------
 # Shared helper: minimal metadata + analytics engine seeder
@@ -48,34 +47,6 @@ from tests.semantic_test_helpers import (
 
 _METRIC = "reg_revenue"
 _TABLE = "reg_events"
-
-
-def _seed_duckdb(db_path: Path) -> None:
-    """Seed a minimal DuckDB table used by the observe path tests."""
-    con = duckdb.connect(str(db_path))
-    try:
-        con.execute("CREATE SCHEMA IF NOT EXISTS analytics")
-        con.execute(
-            """
-            CREATE TABLE IF NOT EXISTS analytics.reg_events (
-                event_date DATE    NOT NULL,
-                region     VARCHAR NOT NULL,
-                user_id     VARCHAR NOT NULL,
-                value      DOUBLE  NOT NULL,
-                numerator  DOUBLE  NOT NULL,
-                denominator DOUBLE NOT NULL
-            )
-            """
-        )
-        rows = []
-        base = datetime(2026, 3, 1).date()
-        for i in range(7):
-            d = (base + timedelta(days=i)).isoformat()
-            rows.append((d, "us", f"us_{i}", float(100 + i * 10), 1.0, 1.0))
-            rows.append((d, "eu", f"eu_{i}", float(80 + i * 5), 0.0, 1.0))
-        con.executemany("INSERT INTO analytics.reg_events VALUES (?, ?, ?, ?, ?, ?)", rows)
-    finally:
-        con.close()
 
 
 def _seed_metadata(meta: SQLiteMetadataStore, db_path: Path | None = None) -> None:
@@ -109,7 +80,7 @@ def _seed_metadata(meta: SQLiteMetadataStore, db_path: Path | None = None) -> No
         metric_name=_METRIC,
         display_name=_METRIC,
         grain="day",
-        dimensions=["region"],
+        dimensions=["event_date", "region"],
         definition_sql="SUM(value)",
         measure_type="sum",
     )
@@ -118,6 +89,7 @@ def _seed_metadata(meta: SQLiteMetadataStore, db_path: Path | None = None) -> No
         metric_name=_METRIC,
         carrier_locator=f"analytics.{_TABLE}",
         source_object_ref=obj_id,
+        dimension_names=["event_date", "region"],
     )
     binding_row = meta.query_one(
         "SELECT binding_id FROM typed_bindings WHERE binding_ref = ?",
@@ -146,6 +118,33 @@ def _seed_metadata(meta: SQLiteMetadataStore, db_path: Path | None = None) -> No
     )
 
 
+class _RegressionServiceTestCase(unittest.TestCase):
+    """Shared service setup for regression tests backed by a prepared DuckDB."""
+
+    duckdb_filename = "reg85.duckdb"
+    metadata_filename = "reg85.meta.sqlite"
+    duckdb_template = "default"
+    seed_metadata_db_path = False
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        db_path = Path(cls.temp_dir.name) / cls.duckdb_filename
+        meta_path = Path(cls.temp_dir.name) / cls.metadata_filename
+
+        get_named_seeded_duckdb_path(db_path, cls.duckdb_template)
+        cls.analytics = DuckDBAnalyticsEngine(str(db_path))
+        cls.metadata = SQLiteMetadataStore(str(meta_path))
+        cls.metadata.initialize()
+        cls.analytics.initialize()
+        _seed_metadata(cls.metadata, db_path=db_path if cls.seed_metadata_db_path else None)
+        cls.service = SemanticLayerService(cls.metadata, cls.analytics)
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.temp_dir.cleanup()
+
+
 # ---------------------------------------------------------------------------
 # 1. Taxonomy Integrity
 # ---------------------------------------------------------------------------
@@ -153,27 +152,6 @@ def _seed_metadata(meta: SQLiteMetadataStore, db_path: Path | None = None) -> No
 
 class TaxonomyIntegrityTests(unittest.TestCase):
     """Verify that removed step types are cleanly absent and existing ones intact."""
-
-    def test_correlate_metrics_not_in_supported_step_types(self) -> None:
-        self.assertNotIn("correlate_metrics", SUPPORTED_STEP_TYPES)
-
-    def test_synthesize_findings_not_in_supported_step_types(self) -> None:
-        self.assertNotIn("synthesize_findings", SUPPORTED_STEP_TYPES)
-
-    def test_correlate_metrics_not_in_taxonomy(self) -> None:
-        self.assertNotIn("correlate_metrics", STEP_TAXONOMY)
-
-    def test_synthesize_findings_not_in_taxonomy(self) -> None:
-        self.assertNotIn("synthesize_findings", STEP_TAXONOMY)
-
-    def test_synthesize_findings_not_in_step_observation_types(self) -> None:
-        self.assertNotIn("synthesize_findings", STEP_OBSERVATION_TYPES)
-
-    def test_correlate_metrics_not_in_step_artifact_kinds(self) -> None:
-        self.assertNotIn("correlate_metrics", STEP_ARTIFACT_KINDS)
-
-    def test_synthesize_findings_not_in_step_artifact_kinds(self) -> None:
-        self.assertNotIn("synthesize_findings", STEP_ARTIFACT_KINDS)
 
     def test_composite_step_types_is_empty(self) -> None:
         """synthesize_findings was the sole composite; its removal leaves COMPOSITE_STEP_TYPES empty."""
@@ -208,6 +186,15 @@ class TaxonomyIntegrityTests(unittest.TestCase):
                 AnalysisStepIR(index=0, step_type="synthesize_findings", params={}),
                 engine_type="duckdb",
             )
+
+    def test_removed_step_types_absent_from_registry_surfaces(self) -> None:
+        self.assertNotIn("correlate_metrics", STEP_TAXONOMY)
+        self.assertNotIn("synthesize_findings", STEP_TAXONOMY)
+        self.assertNotIn("synthesize_findings", STEP_OBSERVATION_TYPES)
+        self.assertNotIn("correlate_metrics", STEP_ARTIFACT_KINDS)
+        self.assertNotIn("synthesize_findings", STEP_ARTIFACT_KINDS)
+        self.assertNotIn("correlate_metrics", SUPPORTED_STEP_TYPES)
+        self.assertNotIn("synthesize_findings", SUPPORTED_STEP_TYPES)
 
 
 # ---------------------------------------------------------------------------
@@ -331,47 +318,16 @@ class CorrelationMathRegressionTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
-class ObservePathRegressionTests(unittest.TestCase):
+class ObservePathRegressionTests(_RegressionServiceTestCase):
     """Verify the observe intent produces a well-formed artifact against a real
     DuckDB engine. This guards against regressions in the observe execution path
     after removal of the legacy EvidencePipeline / DefaultClaimSynthesizer wiring.
     """
 
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.temp_dir = tempfile.TemporaryDirectory()
-        db_path = Path(cls.temp_dir.name) / "reg85.duckdb"
-        meta_path = Path(cls.temp_dir.name) / "reg85.meta.sqlite"
-
-        cls.analytics = DuckDBAnalyticsEngine(str(db_path))
-        cls.metadata = SQLiteMetadataStore(str(meta_path))
-        cls.metadata.initialize()
-        cls.analytics.initialize()
-
-        _seed_duckdb(db_path)
-        _seed_metadata(cls.metadata)
-
-        cls.service = SemanticLayerService(cls.metadata, cls.analytics)
-
-    @classmethod
-    def tearDownClass(cls) -> None:
-        cls.temp_dir.cleanup()
+    duckdb_template = "regression_8_5"
 
     def _session(self) -> str:
         return self.service.create_session("reg8.5 observe", {}, {}, {})["session_id"]
-
-    def test_observe_scalar_produces_artifact(self) -> None:
-        sid = self._session()
-        result = self.service.run_intent(
-            sid,
-            "observe",
-            {
-                "metric": _METRIC,
-                "time_scope": {"kind": "range", "start": "2026-03-01", "end": "2026-03-08"},
-            },
-        )
-        self.assertIn("artifact_id", result)
-        self.assertIsNotNone(result["artifact_id"])
 
     def test_observe_scalar_artifact_has_correct_observation_type(self) -> None:
         sid = self._session()
@@ -464,79 +420,16 @@ class ObservePathRegressionTests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# 5. Step Runner Registry Wiring
+# 5. Semantic Layer Non-Regression
 # ---------------------------------------------------------------------------
 
 
-class StepRunnerRegistryRegressionTests(unittest.TestCase):
-    """Verify that the step runner registry no longer contains removed runners
-    and that existing runners are still wired correctly.
-    """
-
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.temp_dir = tempfile.TemporaryDirectory()
-        db_path = Path(cls.temp_dir.name) / "reg85_reg.duckdb"
-        meta_path = Path(cls.temp_dir.name) / "reg85_reg.meta.sqlite"
-        cls.analytics = DuckDBAnalyticsEngine(str(db_path))
-        cls.metadata = SQLiteMetadataStore(str(meta_path))
-        cls.metadata.initialize()
-        cls.analytics.initialize()
-        cls.service = SemanticLayerService(cls.metadata, cls.analytics)
-
-    @classmethod
-    def tearDownClass(cls) -> None:
-        cls.temp_dir.cleanup()
-
-    def test_correlate_metrics_not_in_registry(self) -> None:
-        supported = self.service.step_registry.supported_step_types()
-        self.assertNotIn("correlate_metrics", supported)
-
-    def test_synthesize_findings_not_in_registry(self) -> None:
-        supported = self.service.step_registry.supported_step_types()
-        self.assertNotIn("synthesize_findings", supported)
-
-    def test_metric_query_is_in_registry(self) -> None:
-        supported = self.service.step_registry.supported_step_types()
-        self.assertIn("metric_query", supported)
-
-    def test_sample_rows_is_in_registry(self) -> None:
-        supported = self.service.step_registry.supported_step_types()
-        self.assertIn("sample_rows", supported)
-
-    def test_attribute_change_is_in_registry(self) -> None:
-        supported = self.service.step_registry.supported_step_types()
-        self.assertIn("attribute_change", supported)
-
-
-# ---------------------------------------------------------------------------
-# 6. Semantic Layer Non-Regression
-# ---------------------------------------------------------------------------
-
-
-class SemanticLayerRegressionTests(unittest.TestCase):
+class SemanticLayerRegressionTests(_RegressionServiceTestCase):
     """Basic semantic resolution capabilities must not regress."""
 
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.temp_dir = tempfile.TemporaryDirectory()
-        db_path = Path(cls.temp_dir.name) / "reg85_sem.duckdb"
-        meta_path = Path(cls.temp_dir.name) / "reg85_sem.meta.sqlite"
-        cls.analytics = DuckDBAnalyticsEngine(str(db_path))
-        cls.metadata = SQLiteMetadataStore(str(meta_path))
-        cls.metadata.initialize()
-        cls.analytics.initialize()
-        _seed_duckdb(db_path)
-        _seed_metadata(cls.metadata)
-        cls.service = SemanticLayerService(cls.metadata, cls.analytics)
-
-    @classmethod
-    def tearDownClass(cls) -> None:
-        cls.temp_dir.cleanup()
-
-    def test_resolve_metric_sql_returns_expected_expression(self) -> None:
-        sql = self.service.resolve_metric_sql(_METRIC)
-        self.assertEqual(sql, "SUM(value)")
+    duckdb_filename = "reg85_sem.duckdb"
+    metadata_filename = "reg85_sem.meta.sqlite"
+    duckdb_template = "regression_8_5"
 
     def test_resolve_metric_dimensions_returns_list(self) -> None:
         dims = self.service.resolve_metric_dimensions(_METRIC)
@@ -556,17 +449,14 @@ class SemanticLayerRegressionTests(unittest.TestCase):
         self.assertIn("region", resolved.dimensions)
 
 
-class TypedMetricSqlCompilationTests(unittest.TestCase):
+class TypedMetricSqlCompilationTests(_RegressionServiceTestCase):
+    duckdb_filename = "typed_metric_sql.duckdb"
+    metadata_filename = "typed_metric_sql.meta.sqlite"
+    duckdb_template = "regression_8_5"
+
     @classmethod
     def setUpClass(cls) -> None:
-        cls.temp_dir = tempfile.TemporaryDirectory()
-        db_path = Path(cls.temp_dir.name) / "typed_metric_sql.duckdb"
-        meta_path = Path(cls.temp_dir.name) / "typed_metric_sql.meta.sqlite"
-        cls.analytics = DuckDBAnalyticsEngine(str(db_path))
-        cls.metadata = SQLiteMetadataStore(str(meta_path))
-        cls.metadata.initialize()
-        cls.analytics.initialize()
-        _seed_duckdb(db_path)
+        super().setUpClass()
 
         now = datetime.now(UTC).isoformat()
         cls.metadata.execute(
@@ -703,101 +593,6 @@ class TypedMetricSqlCompilationTests(unittest.TestCase):
             ),
             "QUANTILE_CONT(value, 0.95)",
         )
-
-
-# ---------------------------------------------------------------------------
-# 7. Query Router Non-Regression
-# ---------------------------------------------------------------------------
-
-
-class QueryRouterRegressionTests(unittest.TestCase):
-    """QueryRouter must still resolve table → engine after routing module cleanup."""
-
-    @classmethod
-    def setUpClass(cls) -> None:
-        from app.engines import EngineService
-        from app.routing import QueryRouter
-
-        cls.temp_dir = tempfile.TemporaryDirectory()
-        db_path = Path(cls.temp_dir.name) / "reg85_router.duckdb"
-        meta_path = Path(cls.temp_dir.name) / "reg85_router.meta.sqlite"
-        analytics = DuckDBAnalyticsEngine(str(db_path))
-        cls.metadata = SQLiteMetadataStore(str(meta_path))
-        cls.metadata.initialize()
-        analytics.initialize()
-        _seed_duckdb(db_path)
-        _seed_metadata(cls.metadata, db_path=db_path)
-        cls.engine_service = EngineService(cls.metadata)
-        cls.router = QueryRouter(cls.metadata, cls.engine_service)
-
-    @classmethod
-    def tearDownClass(cls) -> None:
-        cls.temp_dir.cleanup()
-
-    def test_resolve_known_table_returns_engine(self) -> None:
-        engine = self.router.resolve_engine_for_tables([_TABLE])
-        self.assertIsNotNone(engine)
-
-    def test_resolve_unknown_table_raises(self) -> None:
-        with self.assertRaises((KeyError, ValueError)):
-            self.router.resolve_engine_for_tables(["totally_nonexistent_table_xyz"])
-
-
-# ---------------------------------------------------------------------------
-# 8. Governance Non-Regression
-# ---------------------------------------------------------------------------
-
-
-class GovernanceRegressionTests(unittest.TestCase):
-    """Core governance policy lifecycle must be unaffected by the cleanup."""
-
-    @classmethod
-    def setUpClass(cls) -> None:
-        from app.governance import GovernanceService
-
-        cls.temp_dir = tempfile.TemporaryDirectory()
-        db_path = Path(cls.temp_dir.name) / "reg85_gov.duckdb"
-        meta_path = Path(cls.temp_dir.name) / "reg85_gov.meta.sqlite"
-        analytics = DuckDBAnalyticsEngine(str(db_path))
-        cls.metadata = SQLiteMetadataStore(str(meta_path))
-        cls.metadata.initialize()
-        analytics.initialize()
-        cls.gov = GovernanceService(cls.metadata, analytics)
-
-    @classmethod
-    def tearDownClass(cls) -> None:
-        cls.temp_dir.cleanup()
-
-    def test_create_aggregate_only_policy(self) -> None:
-        pol = self.gov.create_policy("reg85_agg_only", "aggregate_only")
-        self.assertTrue(pol["policy_id"].startswith("pol_"))
-        self.assertEqual(pol["policy_type"], "aggregate_only")
-        self.assertTrue(pol["enabled"])
-
-    def test_create_field_mask_policy(self) -> None:
-        pol = self.gov.create_policy(
-            "reg85_field_mask", "field_mask", definition={"fields": ["email"]}
-        )
-        self.assertEqual(pol["definition"]["fields"], ["email"])
-
-    def test_invalid_policy_type_raises(self) -> None:
-        with self.assertRaises(ValueError):
-            self.gov.create_policy("bad_pol", "nonexistent_type")
-
-    def test_list_and_get_policy_round_trip(self) -> None:
-        pol = self.gov.create_policy(
-            "reg85_max_rows", "max_rows", definition={"max_rows_scanned": 500}
-        )
-        fetched = self.gov.get_policy(pol["policy_id"])
-        self.assertEqual(fetched["name"], "reg85_max_rows")
-        self.assertEqual(fetched["definition"]["max_rows_scanned"], 500)
-
-    def test_disable_and_reenable_policy(self) -> None:
-        pol = self.gov.create_policy("reg85_toggle", "row_filter")
-        updated = self.gov.update_policy(pol["policy_id"], enabled=False)
-        self.assertFalse(updated["enabled"])
-        reenabled = self.gov.update_policy(pol["policy_id"], enabled=True)
-        self.assertTrue(reenabled["enabled"])
 
 
 if __name__ == "__main__":

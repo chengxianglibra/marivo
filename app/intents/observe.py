@@ -60,6 +60,98 @@ def _series_from_rows(
     return series
 
 
+def _coerce_numeric_or_none(value: Any) -> float | None:
+    with contextlib.suppress(TypeError, ValueError):
+        if value is not None:
+            return float(value)
+    return None
+
+
+def _window_start(point: Mapping[str, Any], *, label: str) -> str:
+    window = _require_mapping(point.get("window"), label=label)
+    start = window.get("start")
+    if not isinstance(start, str) or not start:
+        raise ValueError(f"observe: INVALID_ARGUMENT - {label}.start must be a string")
+    return start
+
+
+def _series_map(series: list[dict[str, Any]], *, label: str) -> dict[str, dict[str, Any]]:
+    by_start: dict[str, dict[str, Any]] = {}
+    for point in series:
+        by_start[_window_start(point, label=label)] = point
+    return by_start
+
+
+def _truncate_bucket_start(start: str, *, granularity: TimeGrain) -> str:
+    if granularity == "hour":
+        current_dt = datetime.fromisoformat(start).replace(minute=0, second=0, microsecond=0)
+        return current_dt.isoformat(timespec="seconds")
+
+    current_date = date.fromisoformat(start[:10])
+    if granularity == "week":
+        current_date = current_date - timedelta(days=current_date.weekday())
+    elif granularity == "month":
+        current_date = current_date.replace(day=1)
+    return current_date.isoformat()
+
+
+def _advance_bucket_start(start: str, *, granularity: TimeGrain) -> str:
+    if granularity == "hour":
+        current_dt = datetime.fromisoformat(start) + timedelta(hours=1)
+        return current_dt.isoformat(timespec="seconds")
+
+    current_date = date.fromisoformat(start[:10])
+    if granularity == "day":
+        current_date = current_date + timedelta(days=1)
+    elif granularity == "week":
+        current_date = current_date + timedelta(weeks=1)
+    else:
+        year = current_date.year + (1 if current_date.month == 12 else 0)
+        month = 1 if current_date.month == 12 else current_date.month + 1
+        current_date = date(year, month, 1)
+    return current_date.isoformat()
+
+
+def _expected_bucket_windows(
+    *, start: str, end: str, granularity: TimeGrain
+) -> list[dict[str, str]]:
+    current = _truncate_bucket_start(start, granularity=granularity)
+    windows: list[dict[str, str]] = []
+    if granularity == "hour":
+        end_boundary = datetime.fromisoformat(end)
+        while datetime.fromisoformat(current) < end_boundary:
+            windows.append(bucket_window(current, granularity))
+            current = _advance_bucket_start(current, granularity=granularity)
+        return windows
+
+    end_date_boundary = date.fromisoformat(end[:10])
+    while date.fromisoformat(current[:10]) < end_date_boundary:
+        windows.append(bucket_window(current, granularity))
+        current = _advance_bucket_start(current, granularity=granularity)
+    return windows
+
+
+def _build_dense_series(
+    *,
+    sparse_series: list[dict[str, Any]],
+    start: str,
+    end: str,
+    granularity: TimeGrain,
+) -> list[dict[str, Any]]:
+    sparse_by_start = _series_map(sparse_series, label="series.window")
+    dense_series: list[dict[str, Any]] = []
+    for window in _expected_bucket_windows(start=start, end=end, granularity=granularity):
+        start_key = str(window["start"])
+        point = sparse_by_start.get(start_key)
+        dense_series.append(
+            {
+                "window": dict(point.get("window") or window) if point is not None else window,
+                "value": _coerce_numeric_or_none(point.get("value")) if point is not None else None,
+            }
+        )
+    return dense_series
+
+
 def _require_mapping(value: Any, *, label: str) -> Mapping[str, Any]:
     if not isinstance(value, Mapping):
         raise ValueError(f"observe: INVALID_ARGUMENT - {label} must be an object")
@@ -84,19 +176,8 @@ def _build_aligned_time_series_payloads(
             "observe: INVALID_ARGUMENT - resolved_policy_summary.bucket_pairing must be a list"
         )
 
-    current_by_start: dict[str, dict[str, Any]] = {}
-    for point in current_series:
-        window = _require_mapping(point.get("window"), label="series.window")
-        start = window.get("start")
-        if isinstance(start, str) and start:
-            current_by_start[start] = point
-
-    baseline_by_start: dict[str, dict[str, Any]] = {}
-    for point in baseline_series:
-        window = _require_mapping(point.get("window"), label="baseline_series.window")
-        start = window.get("start")
-        if isinstance(start, str) and start:
-            baseline_by_start[start] = point
+    current_by_start = _series_map(current_series, label="series.window")
+    baseline_by_start = _series_map(baseline_series, label="baseline_series.window")
 
     aligned_baseline_series: list[dict[str, Any]] = []
     yoy_series: list[dict[str, Any]] = []
@@ -108,8 +189,6 @@ def _build_aligned_time_series_payloads(
                 "observe: INVALID_ARGUMENT - resolved_policy_summary.bucket_pairing[].current_bucket_start must be a string"
             )
         current_point = current_by_start.get(current_bucket_start)
-        if current_point is None:
-            continue
 
         baseline_bucket_start = pairing_map.get("baseline_bucket_start")
         baseline_point = (
@@ -117,20 +196,31 @@ def _build_aligned_time_series_payloads(
             if isinstance(baseline_bucket_start, str) and baseline_bucket_start
             else None
         )
-        current_window = dict(_require_mapping(current_point.get("window"), label="series.window"))
-        current_value = current_point.get("value")
-        baseline_value = baseline_point.get("value") if baseline_point is not None else None
-        baseline_value_float: float | None = None
-        if baseline_value is not None:
-            with contextlib.suppress(TypeError, ValueError):
-                baseline_value_float = float(baseline_value)
-        baseline_window = (
-            dict(_require_mapping(baseline_point.get("window"), label="baseline_series.window"))
+        current_window = (
+            dict(_require_mapping(current_point.get("window"), label="series.window"))
+            if current_point is not None
+            else bucket_window(current_bucket_start, "day")
+        )
+        current_value = (
+            _coerce_numeric_or_none(current_point.get("value")) if current_point else None
+        )
+        baseline_value = (
+            _coerce_numeric_or_none(baseline_point.get("value"))
             if baseline_point is not None
             else None
         )
+        baseline_value_float = baseline_value
+        baseline_window = (
+            dict(_require_mapping(baseline_point.get("window"), label="baseline_series.window"))
+            if baseline_point is not None
+            else (
+                bucket_window(baseline_bucket_start, "day")
+                if isinstance(baseline_bucket_start, str) and baseline_bucket_start
+                else None
+            )
+        )
         absolute_delta = (
-            float(current_value) - baseline_value_float
+            current_value - baseline_value_float
             if current_value is not None and baseline_value_float is not None
             else None
         )
@@ -162,6 +252,81 @@ def _build_aligned_time_series_payloads(
         "aligned_baseline_series": aligned_baseline_series,
         "yoy_series": yoy_series,
     }
+
+
+def _build_data_coverage_summary(
+    *,
+    series: list[dict[str, Any]],
+    aligned_yoy_series: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    expected_bucket_count = len(series)
+    present_bucket_count = sum(1 for point in series if point.get("value") is not None)
+    summary: dict[str, Any] = {
+        "expected_bucket_count": expected_bucket_count,
+        "present_bucket_count": present_bucket_count,
+        "missing_bucket_count": expected_bucket_count - present_bucket_count,
+        "coverage_ratio": (
+            present_bucket_count / expected_bucket_count if expected_bucket_count else 0.0
+        ),
+    }
+    if aligned_yoy_series is None:
+        return summary
+
+    aligned_expected_bucket_count = len(aligned_yoy_series)
+    aligned_present_current_bucket_count = sum(
+        1 for point in aligned_yoy_series if point.get("current_value") is not None
+    )
+    aligned_present_baseline_bucket_count = sum(
+        1 for point in aligned_yoy_series if point.get("baseline_value") is not None
+    )
+    aligned_present_both_bucket_count = sum(
+        1
+        for point in aligned_yoy_series
+        if point.get("current_value") is not None and point.get("baseline_value") is not None
+    )
+    summary.update(
+        {
+            "aligned_expected_bucket_count": aligned_expected_bucket_count,
+            "aligned_present_current_bucket_count": aligned_present_current_bucket_count,
+            "aligned_present_baseline_bucket_count": aligned_present_baseline_bucket_count,
+            "aligned_present_both_bucket_count": aligned_present_both_bucket_count,
+        }
+    )
+    return summary
+
+
+def _build_scoped_query_for_window(
+    svc: SemanticLayerService,
+    *,
+    session_id: str,
+    engine_type: str,
+    metric_ref: str,
+    table: str,
+    start: str,
+    end: str,
+    grain: str,
+    scope_raw: Any,
+    all_dimensions: list[str],
+) -> dict[str, Any]:
+    mq_params: dict[str, Any] = {
+        "table": table,
+        "metric": metric_ref,
+        "time_scope": {
+            "mode": "single_window",
+            "grain": grain,
+            "current": {"start": start, "end": end},
+        },
+    }
+    if scope_raw:
+        mq_params["scope"] = scope_raw
+    resolved = normalize_metric_query_request(mq_params)
+    svc._resolve_windowed_query_time_axis(
+        resolved,
+        engine_type=engine_type,
+        metric_name=metric_ref,
+        fallback_columns=all_dimensions,
+    )
+    return svc._build_scoped_query(session_id, resolved, engine_type=engine_type)
 
 
 def run_observe_intent(
@@ -312,13 +477,18 @@ def run_observe_intent(
     )
     if all_dimensions is None:
         raise ValueError(f"Metric '{metric_name}' not found or not published")
-    svc._resolve_windowed_query_time_axis(
-        resolved,
+    scoped_query = _build_scoped_query_for_window(
+        svc,
+        session_id=session_id,
         engine_type=engine_type,
-        metric_name=metric_ref,
-        fallback_columns=all_dimensions,
+        metric_ref=metric_ref,
+        table=table,
+        start=start_str,
+        end=end_str,
+        grain=grain,
+        scope_raw=scope_raw,
+        all_dimensions=all_dimensions,
     )
-    scoped_query = svc._build_scoped_query(session_id, resolved, engine_type=engine_type)
     qualified_table = qualified.get(resolved.table, resolved.table)
     step_id = svc._new_step_id()
     now = datetime.now(UTC).isoformat()
@@ -605,7 +775,13 @@ def run_observe_intent(
         provenance = svc._make_provenance(
             compiled_query.sql, compiled_query.params, engine_type=engine_type
         )
-        series = _series_from_rows(rows, granularity=granularity_typed)
+        sparse_series = _series_from_rows(rows, granularity=granularity_typed)
+        series = _build_dense_series(
+            sparse_series=sparse_series,
+            start=start_str,
+            end=end_str,
+            granularity=granularity_typed,
+        )
         resolved_policy_summary = _resolved_policy_summary_from_compiled(compiled_query)
         if normalized_calendar_policy_ref is not None and resolved_policy_summary is None:
             raise ValueError(
@@ -618,14 +794,28 @@ def run_observe_intent(
                 resolved_policy_summary.get("baseline_window"),
                 label="resolved_policy_summary.baseline_window",
             )
+            baseline_start = str(baseline_window.get("start") or "")
+            baseline_end = str(baseline_window.get("end") or "")
             baseline_time_scope = {
                 "mode": "single_window",
                 "grain": grain,
                 "current": {
-                    "start": baseline_window.get("start"),
-                    "end": baseline_window.get("end"),
+                    "start": baseline_start,
+                    "end": baseline_end,
                 },
             }
+            baseline_scoped_query = _build_scoped_query_for_window(
+                svc,
+                session_id=session_id,
+                engine_type=engine_type,
+                metric_ref=metric_ref,
+                table=table,
+                start=baseline_start,
+                end=baseline_end,
+                grain=grain,
+                scope_raw=scope_raw,
+                all_dimensions=all_dimensions,
+            )
             baseline_compiled_query = svc._compile_step_with_feedback(
                 AnalysisStepIR(
                     index=0,
@@ -639,13 +829,7 @@ def run_observe_intent(
                         ],
                         "group_by": ["bucket_start"],
                         "order_by": "bucket_start",
-                        "scoped_query": {
-                            **scoped_query,
-                            "current": {
-                                "start": baseline_window.get("start"),
-                                "end": baseline_window.get("end"),
-                            },
-                        },
+                        "scoped_query": baseline_scoped_query,
                         "limit": 1000,
                     },
                 ),
@@ -653,13 +837,27 @@ def run_observe_intent(
                 semantic_context={},
             )
             baseline_rows = list(execute_compiled(engine, baseline_compiled_query).rows)
-            baseline_series = _series_from_rows(baseline_rows, granularity=granularity_typed)
+            baseline_sparse_series = _series_from_rows(baseline_rows, granularity=granularity_typed)
+            baseline_series = _build_dense_series(
+                sparse_series=baseline_sparse_series,
+                start=baseline_start,
+                end=baseline_end,
+                granularity=granularity_typed,
+            )
             aligned_series_payload = _build_aligned_time_series_payloads(
                 current_series=series,
                 baseline_series=baseline_series,
                 resolved_policy_summary=resolved_policy_summary,
                 granularity=granularity,
             )
+        if resolved_policy_summary is not None:
+            resolved_policy_summary = {
+                **resolved_policy_summary,
+                "data_coverage_summary": _build_data_coverage_summary(
+                    series=series,
+                    aligned_yoy_series=aligned_series_payload.get("yoy_series"),
+                ),
+            }
 
         quality_status = "ready" if rows else "not_ready"
         observation: dict[str, Any] = {
@@ -841,7 +1039,10 @@ def run_observe_intent(
             f"{value if value is not None else 'no data'}"
         )
 
-    observation["resolved_policy_summary"] = _resolved_policy_summary_from_compiled(compiled_query)
+    if "resolved_policy_summary" not in observation:
+        observation["resolved_policy_summary"] = _resolved_policy_summary_from_compiled(
+            compiled_query
+        )
 
     artifact_id = svc._commit_artifact_with_extraction(
         session_id,

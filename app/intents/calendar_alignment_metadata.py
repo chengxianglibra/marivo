@@ -24,6 +24,18 @@ _COVERAGE_SUMMARY_FIELDS: tuple[str, ...] = (
     "unpaired_bucket_count",
     "aligned_ratio",
 )
+_DATA_COVERAGE_SUMMARY_REQUIRED_FIELDS: tuple[str, ...] = (
+    "expected_bucket_count",
+    "present_bucket_count",
+    "missing_bucket_count",
+    "coverage_ratio",
+)
+_DATA_COVERAGE_SUMMARY_OPTIONAL_FIELDS: tuple[str, ...] = (
+    "aligned_expected_bucket_count",
+    "aligned_present_current_bucket_count",
+    "aligned_present_baseline_bucket_count",
+    "aligned_present_both_bucket_count",
+)
 
 
 class _CalendarAlignmentIssuePolicy(TypedDict):
@@ -145,6 +157,19 @@ _CALENDAR_ALIGNMENT_ISSUE_POLICIES: dict[str, _CalendarAlignmentIssuePolicy] = {
             "comparison window."
         ),
     },
+    "metric_data_coverage_incomplete": {
+        "gate_family": "comparability_gate",
+        "severity": "warning",
+        "blocking": False,
+        "message_template": (
+            "metric data coverage is incomplete, so one or more aligned or requested buckets do "
+            "not have business metric values"
+        ),
+        "next_action_template": (
+            "Review data_coverage_summary, then wait for the missing data to land or shrink the "
+            "observation window."
+        ),
+    },
     "weekday_pairing_tie": {
         "gate_family": "comparability_gate",
         "severity": "error",
@@ -207,6 +232,10 @@ def normalize_resolved_policy_summary(
         ),
         "coverage_summary": _normalize_coverage_summary(
             value.get("coverage_summary"),
+            error_factory=error_factory,
+        ),
+        "data_coverage_summary": _normalize_optional_data_coverage_summary(
+            value.get("data_coverage_summary"),
             error_factory=error_factory,
         ),
         "comparability_warnings": list(comparability_warnings),
@@ -288,6 +317,23 @@ def resolve_calendar_alignment_reuse(
             )
         )
 
+    effective_data_coverage_summary = _effective_data_coverage_summary(
+        left_summary.get("data_coverage_summary"),
+        right_summary.get("data_coverage_summary"),
+    )
+    if _data_coverage_is_incomplete(effective_data_coverage_summary):
+        issues.append(
+            _build_issue(
+                "metric_data_coverage_incomplete",
+                details={
+                    "left_data_coverage_summary": left_summary.get("data_coverage_summary"),
+                    "right_data_coverage_summary": right_summary.get("data_coverage_summary"),
+                    "effective_data_coverage_summary": effective_data_coverage_summary,
+                    "next_action_hint": "wait_for_data_or_shrink_window",
+                },
+            )
+        )
+
     return {
         "issues": issues,
         "fatal_message": fatal_message,
@@ -308,6 +354,9 @@ def resolve_calendar_alignment_reuse(
                 "unpaired_bucket_count": max_unpaired_bucket_count,
                 "aligned_ratio": min_aligned_ratio,
             },
+            "left_data_coverage_summary": left_summary.get("data_coverage_summary"),
+            "right_data_coverage_summary": right_summary.get("data_coverage_summary"),
+            "effective_data_coverage_summary": effective_data_coverage_summary,
         },
     }
 
@@ -490,3 +539,137 @@ def _normalize_coverage_summary(
         "unpaired_bucket_count": unpaired_bucket_count,
         "aligned_ratio": aligned_ratio_float,
     }
+
+
+def _normalize_optional_data_coverage_summary(
+    value: Any,
+    *,
+    error_factory: Callable[[], ValueError],
+) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    return _normalize_data_coverage_summary(value, error_factory=error_factory)
+
+
+def _normalize_data_coverage_summary(
+    value: Any,
+    *,
+    error_factory: Callable[[], ValueError],
+) -> dict[str, Any]:
+    allowed_fields = set(_DATA_COVERAGE_SUMMARY_REQUIRED_FIELDS) | set(
+        _DATA_COVERAGE_SUMMARY_OPTIONAL_FIELDS
+    )
+    if not isinstance(value, dict) or not set(_DATA_COVERAGE_SUMMARY_REQUIRED_FIELDS).issubset(
+        value
+    ):
+        raise error_factory()
+    if not set(value).issubset(allowed_fields):
+        raise error_factory()
+
+    normalized: dict[str, Any] = {}
+    for field in _DATA_COVERAGE_SUMMARY_REQUIRED_FIELDS[:-1]:
+        field_value = value[field]
+        if not isinstance(field_value, int) or field_value < 0:
+            raise error_factory()
+        normalized[field] = field_value
+
+    coverage_ratio = value["coverage_ratio"]
+    if isinstance(coverage_ratio, bool) or not isinstance(coverage_ratio, (int, float)):
+        raise error_factory()
+    coverage_ratio_float = float(coverage_ratio)
+    if not 0.0 <= coverage_ratio_float <= 1.0:
+        raise error_factory()
+    expected_bucket_count = normalized["expected_bucket_count"]
+    present_bucket_count = normalized["present_bucket_count"]
+    missing_bucket_count = normalized["missing_bucket_count"]
+    if expected_bucket_count != present_bucket_count + missing_bucket_count:
+        raise error_factory()
+    if expected_bucket_count == 0:
+        if coverage_ratio_float != 0.0:
+            raise error_factory()
+    elif abs(coverage_ratio_float - (present_bucket_count / expected_bucket_count)) > 1e-9:
+        raise error_factory()
+    normalized["coverage_ratio"] = coverage_ratio_float
+
+    for field in _DATA_COVERAGE_SUMMARY_OPTIONAL_FIELDS:
+        if field not in value:
+            continue
+        field_value = value[field]
+        if not isinstance(field_value, int) or field_value < 0:
+            raise error_factory()
+        normalized[field] = field_value
+
+    aligned_expected_bucket_count = normalized.get("aligned_expected_bucket_count")
+    if aligned_expected_bucket_count is not None:
+        current_count = normalized.get("aligned_present_current_bucket_count")
+        baseline_count = normalized.get("aligned_present_baseline_bucket_count")
+        both_count = normalized.get("aligned_present_both_bucket_count")
+        if current_count is None or baseline_count is None or both_count is None:
+            raise error_factory()
+        if (
+            current_count > aligned_expected_bucket_count
+            or baseline_count > aligned_expected_bucket_count
+        ):
+            raise error_factory()
+        if both_count > current_count or both_count > baseline_count:
+            raise error_factory()
+
+    return normalized
+
+
+def _effective_data_coverage_summary(
+    left_summary: dict[str, Any] | None,
+    right_summary: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if left_summary is None and right_summary is None:
+        return None
+    if left_summary is None:
+        return dict(right_summary or {})
+    if right_summary is None:
+        return dict(left_summary)
+
+    expected_bucket_count = max(
+        left_summary["expected_bucket_count"],
+        right_summary["expected_bucket_count"],
+    )
+    present_bucket_count = min(
+        left_summary["present_bucket_count"],
+        right_summary["present_bucket_count"],
+    )
+    summary: dict[str, Any] = {
+        "expected_bucket_count": expected_bucket_count,
+        "present_bucket_count": present_bucket_count,
+        "missing_bucket_count": expected_bucket_count - present_bucket_count,
+        "coverage_ratio": (
+            present_bucket_count / expected_bucket_count if expected_bucket_count else 0.0
+        ),
+    }
+    aligned_expected_bucket_count = max(
+        left_summary.get("aligned_expected_bucket_count", 0),
+        right_summary.get("aligned_expected_bucket_count", 0),
+    )
+    if aligned_expected_bucket_count > 0:
+        summary.update(
+            {
+                "aligned_expected_bucket_count": aligned_expected_bucket_count,
+                "aligned_present_current_bucket_count": min(
+                    left_summary.get("aligned_present_current_bucket_count", 0),
+                    right_summary.get("aligned_present_current_bucket_count", 0),
+                ),
+                "aligned_present_baseline_bucket_count": min(
+                    left_summary.get("aligned_present_baseline_bucket_count", 0),
+                    right_summary.get("aligned_present_baseline_bucket_count", 0),
+                ),
+                "aligned_present_both_bucket_count": min(
+                    left_summary.get("aligned_present_both_bucket_count", 0),
+                    right_summary.get("aligned_present_both_bucket_count", 0),
+                ),
+            }
+        )
+    return summary
+
+
+def _data_coverage_is_incomplete(summary: dict[str, Any] | None) -> bool:
+    if summary is None:
+        return False
+    return bool(summary.get("missing_bucket_count", 0) > 0)
