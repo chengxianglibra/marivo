@@ -253,7 +253,7 @@ ObservationPayload = (
 # Delta payload
 # ---------------------------------------------------------------------------
 
-DeltaKind = Literal["scalar_delta", "segmented_delta"]
+DeltaKind = Literal["scalar_delta", "segmented_delta", "time_series_delta"]
 DeltaDirection = Literal["increase", "decrease", "flat", "undefined"]
 DeltaPresence = Literal["both", "left_only", "right_only"]
 

@@ -166,6 +166,54 @@ def _segmented_delta_payload(
     }
 
 
+def _time_series_delta_payload(
+    metric: str = "revenue",
+    rows: list[dict[str, Any]] | None = None,
+    unit: str | None = "usd",
+    granularity: str = "day",
+) -> dict[str, Any]:
+    if rows is None:
+        rows = [
+            {
+                "window": {"start": "2024-01-01", "end": "2024-01-02"},
+                "left_value": 100.0,
+                "right_value": 90.0,
+                "absolute_delta": 10.0,
+                "relative_delta": 10.0 / 90.0,
+                "direction": "increase",
+                "presence": "both",
+            },
+            {
+                "window": {"start": "2024-01-02", "end": "2024-01-03"},
+                "left_value": None,
+                "right_value": 30.0,
+                "absolute_delta": -30.0,
+                "relative_delta": None,
+                "direction": "undefined",
+                "presence": "right_only",
+            },
+        ]
+    return {
+        "artifact_type": "compare_artifact",
+        "schema_version": "1.0",
+        "comparison_type": "time_series_delta",
+        "metric": metric,
+        "left_ref": {"session_id": _SESSION, "step_id": "step_obs_left", "step_type": "observe"},
+        "right_ref": {"session_id": _SESSION, "step_id": "step_obs_right", "step_type": "observe"},
+        "granularity": granularity,
+        "unit": unit,
+        "rows": rows,
+        "resolved_input_summary": {
+            "left_scope": {},
+            "right_scope": {},
+            "left_time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-03"},
+            "right_time_scope": {"kind": "range", "start": "2023-12-25", "end": "2023-12-27"},
+        },
+        "comparability": {"status": "comparable", "issues": []},
+        "analytical_metadata": {},
+    }
+
+
 def _decompose_payload(
     metric: str = "daily_users",
     dimension: str = "platform",
@@ -555,6 +603,106 @@ class TestCompareSegmentedDelta(unittest.TestCase):
     def test_validate_for_commit_passes_nonempty(self) -> None:
         result = self._extract()
         validate_for_commit("compare", result)  # must not raise
+
+    def test_validate_for_commit_fails_empty_rows(self) -> None:
+        result = self._extract(rows=[])
+        with self.assertRaises(FamilyEmptyError):
+            validate_for_commit("compare", result)
+
+
+class TestCompareTimeSeriesDelta(unittest.TestCase):
+    def _extract(self, rows: list[dict[str, Any]] | None = None) -> Any:
+        return _COMPARE_EXTRACTOR.extract(
+            artifact_id=_ART_ID,
+            artifact_payload=_time_series_delta_payload(rows=rows),
+            step_ref=_STEP_REF,
+            session_id=_SESSION,
+        )
+
+    def test_two_rows_produce_two_findings(self) -> None:
+        result = self._extract()
+        self.assertEqual(result["finding_count"], 2)
+        self.assertEqual(len(result["findings"]), 2)
+
+    def test_delta_kind_is_time_series_delta(self) -> None:
+        result = self._extract()
+        for finding in result["findings"]:
+            self.assertEqual(finding["payload"]["delta_kind"], "time_series_delta")
+
+    def test_analysis_axis_is_time(self) -> None:
+        result = self._extract()
+        for finding in result["findings"]:
+            self.assertEqual(finding["subject"]["analysis_axis"], "time")
+
+    def test_grain_propagated(self) -> None:
+        result = self._extract()
+        for finding in result["findings"]:
+            self.assertEqual(finding["subject"]["grain"], "day")
+
+    def test_observed_window_comes_from_bucket_window(self) -> None:
+        result = self._extract()
+        self.assertEqual(
+            result["findings"][0]["observed_window"],
+            {"kind": "range", "start": "2024-01-01", "end": "2024-01-02"},
+        )
+
+    def test_presence_propagated(self) -> None:
+        result = self._extract()
+        self.assertEqual(result["findings"][1]["payload"]["presence"], "right_only")
+
+    def test_bucket_identity_uses_buckets_collection_everywhere(self) -> None:
+        result = self._extract()
+        finding = result["findings"][0]
+        self.assertEqual(finding["provenance"]["canonical_item_key"], "buckets:2024-01-01")
+        self.assertEqual(finding["provenance"]["artifact_item_ref"]["collection"], "buckets")
+        self.assertEqual(finding["payload"]["left_ref"]["item_ref"]["collection"], "buckets")
+        self.assertEqual(finding["payload"]["right_ref"]["item_ref"]["collection"], "buckets")
+        self.assertEqual(
+            finding["payload"]["left_ref"]["item_ref"]["key"],
+            finding["payload"]["right_ref"]["item_ref"]["key"],
+        )
+
+    def test_missing_window_start_raises(self) -> None:
+        rows = [
+            {
+                "window": {"end": "2024-01-02"},
+                "left_value": 100.0,
+                "right_value": 90.0,
+                "absolute_delta": 10.0,
+                "relative_delta": 10.0 / 90.0,
+                "direction": "increase",
+                "presence": "both",
+            }
+        ]
+        with self.assertRaises(ValueError, msg="window.start"):
+            self._extract(rows=rows)
+
+    def test_left_only_bucket_keeps_undefined_direction(self) -> None:
+        rows = [
+            {
+                "window": {"start": "2024-01-01", "end": "2024-01-02"},
+                "left_value": 12.0,
+                "right_value": None,
+                "absolute_delta": 12.0,
+                "relative_delta": None,
+                "direction": "undefined",
+                "presence": "left_only",
+            }
+        ]
+        result = self._extract(rows=rows)
+        finding = result["findings"][0]
+        self.assertEqual(finding["payload"]["presence"], "left_only")
+        self.assertEqual(finding["payload"]["direction"], "undefined")
+
+    def test_right_only_bucket_keeps_undefined_direction(self) -> None:
+        result = self._extract()
+        finding = result["findings"][1]
+        self.assertEqual(finding["payload"]["presence"], "right_only")
+        self.assertEqual(finding["payload"]["direction"], "undefined")
+
+    def test_validate_for_commit_passes_nonempty(self) -> None:
+        result = self._extract()
+        validate_for_commit("compare", result)
 
     def test_validate_for_commit_fails_empty_rows(self) -> None:
         result = self._extract(rows=[])

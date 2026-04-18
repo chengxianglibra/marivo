@@ -245,7 +245,7 @@ Request body fields:
 
 - `left_ref`: required `observe` ref
 - `right_ref`: required `observe` ref
-- `mode`: `auto`, `scalar`, or `segmented`; defaults to `auto`
+- `mode`: `auto`, `scalar`, `segmented`, or `time_series`; defaults to `auto`
 
 `compare` does not accept `calendar_policy_ref`; any calendar alignment semantics must come from the referenced upstream observations.
 
@@ -253,16 +253,19 @@ Supported comparisons:
 
 - scalar vs scalar -> `scalar_delta`
 - segmented vs segmented with identical dimensions -> `segmented_delta`
+- time_series vs time_series with identical granularity -> `time_series_delta`
 
 Unsupported comparisons include:
 
-- any `time_series` input
 - scalar vs segmented
 - segmented vs scalar
 - different metrics
 - segmented inputs with different dimensions
+- time_series inputs with different granularity
 
-Success returns `CompareResponse`, which is either `ScalarDeltaArtifact` or `SegmentedDeltaArtifact`. All success payloads include comparability metadata, resolved input summary, source lineage, and execution metadata.
+Success returns `CompareResponse`, which is one of `ScalarDeltaArtifact`, `SegmentedDeltaArtifact`, or `TimeSeriesDeltaArtifact`. All success payloads include comparability metadata, resolved input summary, source lineage, and execution metadata.
+
+`time_series_delta` returns ordered bucket-level delta rows plus aligned-window summary fields. This compare artifact is currently a compare-only output boundary: downstream v1 consumers such as `decompose`, `attribute`, and `diagnose` still only accept `scalar_delta`.
 
 Recommended semantic error codes:
 

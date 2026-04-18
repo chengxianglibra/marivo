@@ -208,6 +208,9 @@ v1 边界：
 - 下游 `compare`、`attribute`、`validate` 等 typed-ref intent 不重复接收该字段，而是复用 `observe` 已冻结的 resolved alignment metadata
 - `hour` 粒度不支持 `calendar_policy_ref`
 - `week` / `month` 观察可使用 `calendar_policy_ref`，但 compiler 内部仍按 `day` 生成 alignment pairing；请求粒度只决定 observation 的展示聚合形状
+- 当 `time_series` 请求带 `calendar_policy_ref` 且成功完成对齐时，响应与 artifact 中的 `resolved_policy_summary` 必须为非空
+- `day` 粒度的 aligned `time_series` 额外返回 `aligned_baseline_series` 与 `yoy_series`，供调用方直接绘制对齐 baseline 与 YoY 趋势
+- `week` / `month` 粒度当前仅冻结 `resolved_policy_summary`，不直接返回 `aligned_baseline_series` / `yoy_series`
 - `calendar_policy.weekday_wow` 表示“周内逐日 weekday 对齐后再聚合”，不是“整周黑盒对整周”
 
 v1 固定 ref 集：
