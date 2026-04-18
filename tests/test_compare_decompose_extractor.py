@@ -203,6 +203,11 @@ def _time_series_delta_payload(
         "granularity": granularity,
         "unit": unit,
         "rows": rows,
+        "summary_left_value": 100.0,
+        "summary_right_value": 90.0,
+        "summary_absolute_delta": 10.0,
+        "summary_relative_delta": 10.0 / 90.0,
+        "summary_direction": "increase",
         "resolved_input_summary": {
             "left_scope": {},
             "right_scope": {},
@@ -210,7 +215,9 @@ def _time_series_delta_payload(
             "right_time_scope": {"kind": "range", "start": "2023-12-25", "end": "2023-12-27"},
         },
         "comparability": {"status": "comparable", "issues": []},
-        "analytical_metadata": {},
+        "analytical_metadata": {
+            "matched_time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-03"}
+        },
     }
 
 
@@ -619,10 +626,34 @@ class TestCompareTimeSeriesDelta(unittest.TestCase):
             session_id=_SESSION,
         )
 
+    def _extract_without_summary(self, rows: list[dict[str, Any]] | None = None) -> Any:
+        payload = _time_series_delta_payload(rows=rows)
+        for key in (
+            "summary_left_value",
+            "summary_right_value",
+            "summary_absolute_delta",
+            "summary_relative_delta",
+            "summary_direction",
+        ):
+            payload.pop(key, None)
+        return _COMPARE_EXTRACTOR.extract(
+            artifact_id=_ART_ID,
+            artifact_payload=payload,
+            step_ref=_STEP_REF,
+            session_id=_SESSION,
+        )
+
     def test_two_rows_produce_two_findings(self) -> None:
         result = self._extract()
-        self.assertEqual(result["finding_count"], 2)
-        self.assertEqual(len(result["findings"]), 2)
+        self.assertEqual(result["finding_count"], 3)
+        self.assertEqual(len(result["findings"]), 3)
+
+    def test_summary_delta_finding_is_first(self) -> None:
+        result = self._extract()
+        finding = result["findings"][0]
+        self.assertEqual(finding["subject"]["analysis_axis"], "time")
+        self.assertEqual(finding["provenance"]["canonical_item_key"], "summary")
+        self.assertEqual(finding["payload"]["absolute_delta"], 10.0)
 
     def test_delta_kind_is_time_series_delta(self) -> None:
         result = self._extract()
@@ -631,7 +662,7 @@ class TestCompareTimeSeriesDelta(unittest.TestCase):
 
     def test_analysis_axis_is_time(self) -> None:
         result = self._extract()
-        for finding in result["findings"]:
+        for finding in result["findings"][1:]:
             self.assertEqual(finding["subject"]["analysis_axis"], "time")
 
     def test_grain_propagated(self) -> None:
@@ -642,17 +673,39 @@ class TestCompareTimeSeriesDelta(unittest.TestCase):
     def test_observed_window_comes_from_bucket_window(self) -> None:
         result = self._extract()
         self.assertEqual(
-            result["findings"][0]["observed_window"],
+            result["findings"][1]["observed_window"],
             {"kind": "range", "start": "2024-01-01", "end": "2024-01-02"},
         )
 
+    def test_summary_observed_window_uses_valid_matched_time_scope_only(self) -> None:
+        payload = _time_series_delta_payload()
+        payload["analytical_metadata"]["matched_time_scope"] = {
+            "kind": "range",
+            "start": "2024-01-01",
+            "end": "2024-01-03",
+        }
+        result = _COMPARE_EXTRACTOR.extract(_ART_ID, payload, _STEP_REF, _SESSION)
+        self.assertEqual(
+            result["findings"][0]["observed_window"],
+            {"kind": "range", "start": "2024-01-01", "end": "2024-01-03"},
+        )
+
+    def test_summary_observed_window_is_none_for_malformed_matched_time_scope(self) -> None:
+        payload = _time_series_delta_payload()
+        payload["analytical_metadata"]["matched_time_scope"] = {
+            "kind": "range",
+            "start": "2024-01-01",
+        }
+        result = _COMPARE_EXTRACTOR.extract(_ART_ID, payload, _STEP_REF, _SESSION)
+        self.assertIsNone(result["findings"][0]["observed_window"])
+
     def test_presence_propagated(self) -> None:
         result = self._extract()
-        self.assertEqual(result["findings"][1]["payload"]["presence"], "right_only")
+        self.assertEqual(result["findings"][2]["payload"]["presence"], "right_only")
 
     def test_bucket_identity_uses_buckets_collection_everywhere(self) -> None:
         result = self._extract()
-        finding = result["findings"][0]
+        finding = result["findings"][1]
         self.assertEqual(finding["provenance"]["canonical_item_key"], "buckets:2024-01-01")
         self.assertEqual(finding["provenance"]["artifact_item_ref"]["collection"], "buckets")
         self.assertEqual(finding["payload"]["left_ref"]["item_ref"]["collection"], "buckets")
@@ -690,13 +743,13 @@ class TestCompareTimeSeriesDelta(unittest.TestCase):
             }
         ]
         result = self._extract(rows=rows)
-        finding = result["findings"][0]
+        finding = result["findings"][1]
         self.assertEqual(finding["payload"]["presence"], "left_only")
         self.assertEqual(finding["payload"]["direction"], "undefined")
 
     def test_right_only_bucket_keeps_undefined_direction(self) -> None:
         result = self._extract()
-        finding = result["findings"][1]
+        finding = result["findings"][2]
         self.assertEqual(finding["payload"]["presence"], "right_only")
         self.assertEqual(finding["payload"]["direction"], "undefined")
 
@@ -704,8 +757,8 @@ class TestCompareTimeSeriesDelta(unittest.TestCase):
         result = self._extract()
         validate_for_commit("compare", result)
 
-    def test_validate_for_commit_fails_empty_rows(self) -> None:
-        result = self._extract(rows=[])
+    def test_validate_for_commit_fails_when_rows_and_summary_are_both_absent(self) -> None:
+        result = self._extract_without_summary(rows=[])
         with self.assertRaises(FamilyEmptyError):
             validate_for_commit("compare", result)
 
@@ -1034,6 +1087,21 @@ class TestDecomposeScopeDeltaRef(unittest.TestCase):
             _SESSION,
         )
         expected_key, _ = make_item_identity("result")
+        expected_fid = make_finding_id(compare_art_id, "delta", expected_key)
+        for f in result["findings"]:
+            self.assertEqual(f["payload"]["scope_delta_ref"]["finding_id"], expected_fid)
+
+    def test_time_series_scope_delta_ref_targets_summary_delta(self) -> None:
+        compare_art_id = "art_cmp_timeseries_001"
+        payload = _decompose_payload(compare_artifact_id=compare_art_id)
+        payload["compare_ref"]["comparison_type"] = "time_series_delta"
+        result = _DECOMPOSE_EXTRACTOR.extract(
+            _DECOMP_ART_ID,
+            payload,
+            _DECOMP_STEP_REF,
+            _SESSION,
+        )
+        expected_key, _ = make_item_identity("summary")
         expected_fid = make_finding_id(compare_art_id, "delta", expected_key)
         for f in result["findings"]:
             self.assertEqual(f["payload"]["scope_delta_ref"]["finding_id"], expected_fid)

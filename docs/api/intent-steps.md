@@ -268,7 +268,7 @@ Unsupported comparisons include:
 
 Success returns `CompareResponse`, which is one of `ScalarDeltaArtifact`, `SegmentedDeltaArtifact`, or `TimeSeriesDeltaArtifact`. All success payloads include comparability metadata, resolved input summary, source lineage, and execution metadata.
 
-`time_series_delta` returns ordered bucket-level delta rows plus aligned-window summary fields. This compare artifact is currently a compare-only output boundary: downstream v1 consumers such as `decompose`, `attribute`, and `diagnose` still only accept `scalar_delta`.
+`time_series_delta` returns ordered bucket-level delta rows plus aligned-window summary fields. In v1, `decompose` may consume this compare artifact and attribute the aligned summary delta, but downstream derived flows such as `attribute` and `diagnose` still only expand through internal `compare(mode = "scalar")`.
 
 Recommended semantic error codes:
 
@@ -289,9 +289,11 @@ Request body fields:
 
 Supported inputs:
 
-- `compare_ref` must resolve to `scalar_delta`
+- `compare_ref` must resolve to `scalar_delta` or `time_series_delta`
 - the metric must be additive
 - the metric must declare the requested dimension decomposable
+
+When `compare_ref` resolves to `time_series_delta`, `decompose` attributes the compare artifact's aligned-window summary delta (`summary_*` fields), not each bucket row independently. If `matched_time_scope` is present in compare analytical metadata, the grouped recomputation window must reuse that matched aligned range.
 
 Unsupported inputs include:
 

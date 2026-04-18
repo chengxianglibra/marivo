@@ -1577,29 +1577,40 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
 class TestDecomposeRunnerCommitPath(unittest.TestCase):
     """run_decompose_intent must call _commit_artifact_with_extraction(step_type='decompose')."""
 
-    def _run_decompose(self, svc: MagicMock) -> dict[str, Any]:
+    def _run_decompose(
+        self, svc: MagicMock, compare_artifact: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         from app.intents.decompose import run_decompose_intent
 
-        compare_artifact = {
-            "comparison_type": "scalar_delta",
-            "metric": "m1",
-            "unit": None,
-            "left_value": 100.0,
-            "right_value": 90.0,
-            "absolute_delta": 10.0,
-            "relative_delta": 0.111,
-            "direction": "increase",
-            "lineage": {
-                "left_source_ref": {"step_id": "step_obs_left", "session_id": _SESSION},
-                "right_source_ref": {"step_id": "step_obs_right", "session_id": _SESSION},
-            },
-            "resolved_input_summary": {
-                "left_time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
-                "right_time_scope": {"kind": "range", "start": "2023-12-25", "end": "2024-01-01"},
-                "left_scope": {},
-                "right_scope": {},
-            },
-        }
+        if compare_artifact is None:
+            compare_artifact = {
+                "comparison_type": "scalar_delta",
+                "metric": "m1",
+                "unit": None,
+                "left_value": 100.0,
+                "right_value": 90.0,
+                "absolute_delta": 10.0,
+                "relative_delta": 0.111,
+                "direction": "increase",
+                "lineage": {
+                    "left_source_ref": {"step_id": "step_obs_left", "session_id": _SESSION},
+                    "right_source_ref": {"step_id": "step_obs_right", "session_id": _SESSION},
+                },
+                "resolved_input_summary": {
+                    "left_time_scope": {
+                        "kind": "range",
+                        "start": "2024-01-01",
+                        "end": "2024-01-08",
+                    },
+                    "right_time_scope": {
+                        "kind": "range",
+                        "start": "2023-12-25",
+                        "end": "2024-01-01",
+                    },
+                    "left_scope": {},
+                    "right_scope": {},
+                },
+            }
         svc._resolve_artifact_for_ref.return_value = compare_artifact
         svc._resolve_artifact_id_for_step.return_value = "art_fake_ref001"
 
@@ -1653,6 +1664,61 @@ class TestDecomposeRunnerCommitPath(unittest.TestCase):
         self._run_decompose(svc)
         args, _ = svc._commit_artifact_with_extraction.call_args
         self.assertEqual(args[2], "delta_decomposition")
+
+    def test_decompose_time_series_delta_commits_summary_delta_decomposition(self) -> None:
+        svc = _make_svc()
+        result = self._run_decompose(
+            svc,
+            {
+                "comparison_type": "time_series_delta",
+                "metric": "m1",
+                "unit": None,
+                "granularity": "day",
+                "summary_left_value": 120.0,
+                "summary_right_value": 90.0,
+                "summary_absolute_delta": 30.0,
+                "summary_relative_delta": 0.333,
+                "summary_direction": "increase",
+                "lineage": {
+                    "left_source_ref": {"step_id": "step_obs_left", "session_id": _SESSION},
+                    "right_source_ref": {"step_id": "step_obs_right", "session_id": _SESSION},
+                },
+                "resolved_input_summary": {
+                    "left_time_scope": {
+                        "kind": "range",
+                        "start": "2024-01-01",
+                        "end": "2024-01-08",
+                    },
+                    "right_time_scope": {
+                        "kind": "range",
+                        "start": "2023-01-01",
+                        "end": "2023-01-08",
+                    },
+                    "left_scope": {},
+                    "right_scope": {},
+                },
+                "analytical_metadata": {
+                    "matched_bucket_count": 7,
+                    "dropped_left_buckets": 0,
+                    "dropped_right_buckets": 0,
+                    "matched_time_scope": {
+                        "kind": "range",
+                        "start": "2024-01-01",
+                        "end": "2024-01-08",
+                    },
+                },
+            },
+        )
+
+        self.assertEqual(result["compare_ref"]["comparison_type"], "time_series_delta")
+        self.assertEqual(result["left_ref"]["observation_type"], "time_series")
+        self.assertEqual(result["right_ref"]["observation_type"], "time_series")
+        self.assertEqual(result["scope_absolute_delta"], 30.0)
+        self.assertEqual(
+            result["analytical_metadata"]["decomposition_source"],
+            "time_series_summary_delta",
+        )
+        self.assertEqual(result["analytical_metadata"]["source_granularity"], "day")
 
 
 # ── detect ────────────────────────────────────────────────────────────────────

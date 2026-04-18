@@ -18,10 +18,10 @@ _FLAT_TOLERANCE_RELATIVE = 0.01
 def run_decompose_intent(
     svc: SemanticLayerService, session_id: str, params: dict[str, Any] | None
 ) -> dict[str, Any]:
-    """Execute a `decompose` intent: attribute a scalar delta across a dimension.
+    """Execute a `decompose` intent: attribute a compare delta across a dimension.
 
     Input:
-      compare_ref: ArtifactRef pointing to a committed scalar_delta compare artifact
+      compare_ref: ArtifactRef pointing to a committed scalar_delta or time_series_delta artifact
       dimension:   single semantic dimension to decompose over
       method:      "delta_share" (only v1 option)
 
@@ -69,21 +69,19 @@ def run_decompose_intent(
             f"decompose: STEP_NOT_FOUND - no committed artifact for step '{compare_step_id}'"
         )
 
-    comparison_type: str | None = compare_artifact.get("comparison_type")
-    if comparison_type != "scalar_delta":
-        raise ValueError(
-            f"decompose: INVALID_ARGUMENT - compare_ref must point to a scalar_delta artifact "
-            f"in v1, got '{comparison_type}'"
-        )
+    normalized_compare = _normalize_decompose_compare_input(compare_artifact)
+    comparison_type: str = normalized_compare["comparison_type"]
 
     # ── Extract metadata from compare artifact ────────────────────────────────
-    metric_name: str = compare_artifact.get("metric") or ""
-    unit: str | None = compare_artifact.get("unit")
-    scope_left_value: float | None = compare_artifact.get("left_value")
-    scope_right_value: float | None = compare_artifact.get("right_value")
-    scope_absolute_delta: float | None = compare_artifact.get("absolute_delta")
-    scope_relative_delta: float | None = compare_artifact.get("relative_delta")
-    scope_direction: str = compare_artifact.get("direction") or "undefined"
+    metric_name: str = normalized_compare["metric_name"]
+    unit: str | None = normalized_compare["unit"]
+    scope_left_value: float | None = normalized_compare["scope_left_value"]
+    scope_right_value: float | None = normalized_compare["scope_right_value"]
+    scope_absolute_delta: float | None = normalized_compare["scope_absolute_delta"]
+    scope_relative_delta: float | None = normalized_compare["scope_relative_delta"]
+    scope_direction: str = normalized_compare["scope_direction"]
+    source_observation_type: str = normalized_compare["source_observation_type"]
+    source_analytical_metadata: dict[str, Any] = normalized_compare["analytical_metadata"]
 
     lineage_info: dict[str, Any] = compare_artifact.get("lineage") or {}
     left_source_ref: dict[str, Any] = lineage_info.get("left_source_ref") or {}
@@ -98,8 +96,8 @@ def run_decompose_intent(
         )
 
     resolved_input: dict[str, Any] = compare_artifact.get("resolved_input_summary") or {}
-    left_time_scope: dict[str, Any] = resolved_input.get("left_time_scope") or {}
-    right_time_scope: dict[str, Any] = resolved_input.get("right_time_scope") or {}
+    left_time_scope: dict[str, Any] = normalized_compare["left_time_scope"]
+    right_time_scope: dict[str, Any] = normalized_compare["right_time_scope"]
     left_scope: dict[str, Any] = resolved_input.get("left_scope") or {}
     right_scope: dict[str, Any] = resolved_input.get("right_scope") or {}
 
@@ -316,21 +314,21 @@ def run_decompose_intent(
         "session_id": session_id,
         "step_id": left_obs_step_id,
         "artifact_id": left_obs_artifact_id,
-        "observation_type": "scalar",
+        "observation_type": source_observation_type,
     }
     right_ref_out: dict[str, Any] = {
         "step_type": "observe",
         "session_id": session_id,
         "step_id": right_obs_step_id,
         "artifact_id": right_obs_artifact_id,
-        "observation_type": "scalar",
+        "observation_type": source_observation_type,
     }
     compare_ref_out: dict[str, Any] = {
         "step_type": "compare",
         "session_id": session_id,
         "step_id": compare_step_id,
         "artifact_id": compare_artifact_id,
-        "comparison_type": "scalar_delta",
+        "comparison_type": comparison_type,
     }
 
     artifact: dict[str, Any] = {
@@ -367,6 +365,7 @@ def run_decompose_intent(
             "flat_tolerance_relative": _FLAT_TOLERANCE_RELATIVE,
             "left_row_count": len(left_rows),
             "right_row_count": len(right_rows),
+            **source_analytical_metadata,
         },
         "version_metadata": {
             "artifact_schema_version": "1.0",
@@ -417,6 +416,62 @@ def run_decompose_intent(
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+
+def _normalize_decompose_compare_input(compare_artifact: dict[str, Any]) -> dict[str, Any]:
+    comparison_type = compare_artifact.get("comparison_type")
+    if comparison_type == "scalar_delta":
+        resolved_input: dict[str, Any] = compare_artifact.get("resolved_input_summary") or {}
+        return {
+            "comparison_type": "scalar_delta",
+            "metric_name": compare_artifact.get("metric") or "",
+            "unit": compare_artifact.get("unit"),
+            "scope_left_value": _safe_float(compare_artifact.get("left_value")),
+            "scope_right_value": _safe_float(compare_artifact.get("right_value")),
+            "scope_absolute_delta": _safe_float(compare_artifact.get("absolute_delta")),
+            "scope_relative_delta": _safe_float(compare_artifact.get("relative_delta")),
+            "scope_direction": compare_artifact.get("direction") or "undefined",
+            "source_observation_type": "scalar",
+            "left_time_scope": dict(resolved_input.get("left_time_scope") or {}),
+            "right_time_scope": dict(resolved_input.get("right_time_scope") or {}),
+            "analytical_metadata": {"decomposition_source": "scalar_delta"},
+        }
+
+    if comparison_type == "time_series_delta":
+        resolved_input = compare_artifact.get("resolved_input_summary") or {}
+        analytical = compare_artifact.get("analytical_metadata") or {}
+        left_time_scope = dict(resolved_input.get("left_time_scope") or {})
+        right_time_scope = dict(resolved_input.get("right_time_scope") or {})
+        matched_time_scope = analytical.get("matched_time_scope")
+        if isinstance(matched_time_scope, dict) and matched_time_scope:
+            left_time_scope = dict(matched_time_scope)
+            right_time_scope = dict(matched_time_scope)
+
+        return {
+            "comparison_type": "time_series_delta",
+            "metric_name": compare_artifact.get("metric") or "",
+            "unit": compare_artifact.get("unit"),
+            "scope_left_value": _safe_float(compare_artifact.get("summary_left_value")),
+            "scope_right_value": _safe_float(compare_artifact.get("summary_right_value")),
+            "scope_absolute_delta": _safe_float(compare_artifact.get("summary_absolute_delta")),
+            "scope_relative_delta": _safe_float(compare_artifact.get("summary_relative_delta")),
+            "scope_direction": compare_artifact.get("summary_direction") or "undefined",
+            "source_observation_type": "time_series",
+            "left_time_scope": left_time_scope,
+            "right_time_scope": right_time_scope,
+            "analytical_metadata": {
+                "decomposition_source": "time_series_summary_delta",
+                "source_granularity": compare_artifact.get("granularity"),
+                "source_matched_bucket_count": analytical.get("matched_bucket_count"),
+                "source_dropped_left_buckets": analytical.get("dropped_left_buckets"),
+                "source_dropped_right_buckets": analytical.get("dropped_right_buckets"),
+            },
+        }
+
+    raise ValueError(
+        "decompose: INVALID_ARGUMENT - compare_ref must point to a scalar_delta or "
+        f"time_series_delta artifact, got '{comparison_type}'"
+    )
 
 
 def _run_segmented_query(

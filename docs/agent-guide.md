@@ -188,6 +188,9 @@ emit the same calendar issue code from both gates in the same compare-like evalu
 Compare-like user-facing calendar alignment failures must be rendered from the shared frozen
 metadata reuse layer so `compare` and `test` reuse the same stable message and structured details
 for the same issue code; do not fork separate wording or remediation logic per intent.
+`decompose` may consume `compare(time_series)` outputs in v1, but only to attribute the aligned
+summary delta. Do not treat bucket rows from `time_series_delta` as the canonical decomposition
+input contract.
 SQL sent to the execution engine is observed through default structured INFO logs; do not add SQL
 payload persistence to metadata surfaces unless a task explicitly requires it.
 Typed metric dimension discovery should prefer explicit legacy `dimensions` when present; otherwise

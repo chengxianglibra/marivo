@@ -29,10 +29,12 @@ The :class:`DecompositionItemPayload` requires a ``scope_delta_ref``
 (:class:`FindingRef`) pointing to the upstream ``delta`` finding that this
 decomposition item explains.
 
-The upstream delta is always a ``scalar_delta`` (the runner validates this) whose
-canonical item key is ``"result"``.  Its ``finding_id`` is therefore deterministic:
+For ``scalar_delta`` upstream compares, the canonical item key is ``"result"``.
+For ``time_series_delta`` upstream compares, ``decompose`` explains the aligned
+summary delta, whose canonical item key is ``"summary"``.  Its ``finding_id`` is
+therefore deterministic:
 
-    delta_finding_id = make_finding_id(compare_artifact_id, "delta", "result")
+    delta_finding_id = make_finding_id(compare_artifact_id, "delta", key)
 
 ``compare_artifact_id`` is taken from ``payload["compare_ref"]["artifact_id"]``.
 If this field is absent or empty, extraction fails with a ``ValueError`` because
@@ -47,7 +49,7 @@ The extractor assigns 1-based ``rank`` from this preserved sort order.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from app.evidence_engine.canonical_finding import (
     DecompositionItemFinding,
@@ -145,17 +147,19 @@ class DecomposeArtifactExtractor(FindingExtractor):
                 "scope_delta_ref.finding_id but is absent or empty in the artifact payload."
             )
 
-        # Guard: scope_delta_ref uses canonical_key="result" which only exists for scalar_delta.
-        # A segmented_delta compare_ref would derive a wrong finding_id.
         compare_type: str = compare_ref.get("comparison_type") or ""
-        if compare_type and compare_type != "scalar_delta":
+        delta_collection: str
+        if compare_type == "time_series_delta":
+            delta_collection = "summary"
+        elif compare_type in ("", "scalar_delta"):
+            delta_collection = "result"
+        else:
             raise ValueError(
-                f"DecomposeArtifactExtractor: compare_ref.comparison_type={compare_type!r} is not "
-                "'scalar_delta'. scope_delta_ref derivation requires a scalar_delta upstream compare."
+                "DecomposeArtifactExtractor: compare_ref.comparison_type="
+                f"{compare_type!r} is not supported for scope_delta_ref derivation."
             )
 
-        # scalar_delta canonical key is always "result"
-        delta_canonical_key, _ = make_item_identity("result")
+        delta_canonical_key, _ = make_item_identity(cast("Any", delta_collection))
         delta_finding_id = make_finding_id(compare_artifact_id, "delta", delta_canonical_key)
         scope_delta_ref = FindingRef(session_id=session_id, finding_id=delta_finding_id)
 

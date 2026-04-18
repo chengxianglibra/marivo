@@ -2940,6 +2940,7 @@ class DecomposeIntentTests(unittest.TestCase):
         cls.service = cls.app.state.service
         cls.skipped = False
         cls.compare_step_id: str | None = None
+        cls.time_series_compare_step_id: str | None = None
         cls.segmented_compare_step_id: str | None = None
 
         now = "2026-01-01T00:00:00"
@@ -3023,6 +3024,17 @@ class DecomposeIntentTests(unittest.TestCase):
             )
             return resp.json()["step_ref"]["step_id"] if resp.status_code == 200 else None
 
+        def _time_series_observe(start: str, end: str) -> str | None:
+            resp = cls.client.post(
+                f"/sessions/{cls.session_id}/intents/observe",
+                json={
+                    "metric": _metric_ref("decompose_test_dau"),
+                    "time_scope": {"kind": "range", "start": start, "end": end},
+                    "granularity": "day",
+                },
+            )
+            return resp.json()["step_ref"]["step_id"] if resp.status_code == 200 else None
+
         # Use dates inside seeded range so decompose queries return real data
         left_scalar = _scalar_observe("2026-02-21", "2026-03-07")
         right_scalar = _scalar_observe("2026-02-07", "2026-02-21")
@@ -3051,6 +3063,29 @@ class DecomposeIntentTests(unittest.TestCase):
             cls.skipped = True
             return
         cls.compare_step_id = r.json()["step_ref"]["step_id"]
+
+        # Produce a time_series_delta compare for summary-delta decompose support
+        left_ts = _time_series_observe("2026-02-21", "2026-03-07")
+        right_ts = _time_series_observe("2026-02-07", "2026-02-21")
+        if left_ts and right_ts:
+            r_ts = cls.client.post(
+                f"/sessions/{cls.session_id}/intents/compare",
+                json={
+                    "left_ref": {
+                        "session_id": cls.session_id,
+                        "step_id": left_ts,
+                        "step_type": "observe",
+                    },
+                    "right_ref": {
+                        "session_id": cls.session_id,
+                        "step_id": right_ts,
+                        "step_type": "observe",
+                    },
+                    "mode": "time_series",
+                },
+            )
+            if r_ts.status_code == 200:
+                cls.time_series_compare_step_id = r_ts.json()["step_ref"]["step_id"]
 
         # Produce a segmented_delta compare for rejection test
         left_seg = _seg_observe("2026-02-21", "2026-03-07")
@@ -3163,6 +3198,34 @@ class DecomposeIntentTests(unittest.TestCase):
         self.assertEqual(data["compare_ref"]["step_id"], self.compare_step_id)
         self.assertEqual(data["step_ref"]["step_type"], "decompose")
 
+    def test_decompose_time_series_delta_success(self) -> None:
+        """decompose accepts a time_series_delta compare and attributes its summary delta."""
+        if self.skipped or self.time_series_compare_step_id is None:
+            self.skipTest("Time-series compare not available")
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/decompose",
+            json={
+                "compare_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.time_series_compare_step_id,
+                    "step_type": "compare",
+                },
+                "dimension": "platform",
+            },
+        )
+        self.assertEqual(r.status_code, 200, r.text)
+        data = r.json()
+        self.assertEqual(data["decomposition_type"], "delta_decomposition")
+        self.assertEqual(data["compare_ref"]["comparison_type"], "time_series_delta")
+        self.assertEqual(data["left_ref"]["observation_type"], "time_series")
+        self.assertEqual(data["right_ref"]["observation_type"], "time_series")
+        self.assertEqual(
+            data["analytical_metadata"]["decomposition_source"],
+            "time_series_summary_delta",
+        )
+        self.assertEqual(data["analytical_metadata"]["source_granularity"], "day")
+        self.assertGreater(len(data["rows"]), 0)
+
     # ── Error cases ───────────────────────────────────────────────────────────
 
     def test_decompose_rejects_nonexistent_compare_ref(self) -> None:
@@ -3234,7 +3297,7 @@ class DecomposeIntentTests(unittest.TestCase):
         self.assertIn("UNSUPPORTED_DIMENSION", r.json()["detail"])
 
     def test_decompose_rejects_segmented_delta_compare(self) -> None:
-        """decompose rejects a segmented_delta compare artifact (v1 only supports scalar_delta)."""
+        """decompose rejects segmented_delta compare artifacts."""
         if self.skipped or self.segmented_compare_step_id is None:
             self.skipTest("Segmented compare not available")
         r = self.client.post(

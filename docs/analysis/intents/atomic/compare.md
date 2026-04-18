@@ -102,7 +102,7 @@ v1 支持以下输入对：
 - `dimensions` 不一致的分段观测
 - `granularity` 不一致的时间序列观测
 
-下游 v1 派生动作仍保持原边界：`decompose`、`attribute`、`diagnose` 继续只消费 `scalar_delta`，不会把 `time_series_delta` 当作归因输入。
+下游 v1 边界更新如下：原子 `decompose` 可以消费 `time_series_delta`，但只解释其 aligned summary delta；派生 `attribute`、`diagnose` 仍继续只消费 `scalar_delta`，不会直接把 `time_series_delta` 当作归因输入。
 
 ## 字段语义
 
