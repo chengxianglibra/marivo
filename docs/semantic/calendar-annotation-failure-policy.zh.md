@@ -216,6 +216,11 @@ v1 的分层边界固定如下：
 | 已触发 registry 声明的 fallback | `fallback_applied` | 继续 pairing | warning，供 comparability 复用 |
 | fallback 后 coverage 不足 | `alignment_coverage_insufficient` | plan 已生成 | comparability gate 决定 warning / blocking |
 
+补充分层约束：
+
+- `holiday_cluster_unmapped`、`event_cluster_unmapped`、`fallback_applied` 即使由 resolver 产生，也只作为 compare-like 下游 `comparability_gate` 的 warning 输入，不得在成功 artifact 中再被质量面重复报错。
+- `weekday_pairing_tie` 若进入 frozen summary，视为 unresolved comparability ambiguity，compare/test 必须按 blocking comparability issue 处理。
+
 ## 8. Explicit Non-Goals
 
 v1 明确不允许以下处理方式：

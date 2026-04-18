@@ -251,8 +251,20 @@ type ComparabilityIssue = {
     | "scope_divergence"
     | "aggregation_mismatch"
     | "sample_size_disparity"
-    | "data_incomplete";
+    | "data_incomplete"
+    | "calendar_alignment_metadata_mismatch"
+    | "calendar_policy_mismatch"
+    | "calendar_comparison_basis_mismatch"
+    | "calendar_source_mismatch"
+    | "calendar_version_mismatch"
+    | "holiday_cluster_unmapped"
+    | "event_cluster_unmapped"
+    | "fallback_applied"
+    | "alignment_coverage_insufficient"
+    | "weekday_pairing_tie";
   severity: "error" | "warning";
+  gate_family?: "comparability_gate";
+  blocking?: boolean;
   message: string;
 };
 
@@ -306,6 +318,13 @@ type SegmentedDeltaArtifact = CompareBase & {
 ```
 
 `resolved_input_summary` 是从上游观测工件（observation artifact）确定性派生出的只读溯源摘要，用于说明 compare 所比较的已解析上下文。它必须保留规范 `Scope` 的完整 shape（`constraints + predicate`），而不是只保留 predicate。它不是新的步骤级输入契约，也不替代 Factum 现有的 `time_scope` / `scope` 设计。
+
+calendar alignment 分层补充：
+
+- 单边 observation 的完整性或质量不可消费问题属于 `quality_gate`，不得在成功的 `compare` artifact 中以 calendar comparability issue 重复报错。
+- 双边 frozen alignment metadata 不兼容、coverage 不足、pairing tie 未解决，属于 `comparability_gate`。
+- `resolved_policy_summary.comparability_warnings` 是 observation 冻结的原始 warning 集；`compare.comparability.issues` 是 compare 阶段按 gate 语义重映射后的结构化结果。
+- `weekday_pairing_tie` 在 v1 是 blocking comparability issue；`holiday_cluster_unmapped`、`event_cluster_unmapped`、`fallback_applied`、`alignment_coverage_insufficient` 默认是 non-blocking comparability warnings。
 
 ## 校验规则
 

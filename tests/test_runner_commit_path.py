@@ -928,6 +928,11 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
         self.assertEqual(result["comparability"]["status"], "needs_attention")
         self.assertEqual(result["comparability"]["issues"][0]["code"], "fallback_applied")
         self.assertEqual(result["comparability"]["issues"][0]["severity"], "warning")
+        self.assertEqual(
+            result["comparability"]["issues"][0]["gate_family"],
+            "comparability_gate",
+        )
+        self.assertFalse(result["comparability"]["issues"][0]["blocking"])
 
     def test_compare_marks_needs_attention_for_incomplete_calendar_coverage(self) -> None:
         from app.intents.compare import run_compare_intent
@@ -966,6 +971,11 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
             "alignment_coverage_insufficient",
         )
         self.assertEqual(
+            result["comparability"]["issues"][-1]["gate_family"],
+            "comparability_gate",
+        )
+        self.assertFalse(result["comparability"]["issues"][-1]["blocking"])
+        self.assertEqual(
             result["resolved_input_summary"]["calendar_alignment"]["effective_coverage_summary"],
             {
                 "aligned_bucket_count": 6,
@@ -973,6 +983,39 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
                 "aligned_ratio": 6 / 7,
             },
         )
+
+    def test_compare_rejects_unresolved_weekday_pairing_tie(self) -> None:
+        from app.intents.compare import run_compare_intent
+
+        svc = _make_svc()
+        left = _scalar_observation("m1")
+        right = _scalar_observation("m1")
+        left["resolved_policy_summary"] = _resolved_policy_summary(
+            comparability_warnings=["weekday_pairing_tie"]
+        )
+        right["resolved_policy_summary"] = _resolved_policy_summary()
+        svc._resolve_artifact_for_ref.side_effect = [left, right]
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "compare: NOT_COMPARABLE - upstream observation froze unresolved calendar weekday pairing ambiguity",
+        ):
+            run_compare_intent(
+                svc,
+                _SESSION,
+                {
+                    "left_ref": {
+                        "step_id": "step_left",
+                        "session_id": _SESSION,
+                        "step_type": "observe",
+                    },
+                    "right_ref": {
+                        "step_id": "step_right",
+                        "session_id": _SESSION,
+                        "step_type": "observe",
+                    },
+                },
+            )
 
     def test_compare_rejects_non_dict_resolved_policy_summary(self) -> None:
         from app.intents.compare import run_compare_intent

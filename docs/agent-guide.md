@@ -176,6 +176,10 @@ chain; do not collapse holiday/event/weekday semantics into a single window-leve
 Evidence-engine `comparability_gate` must consume the frozen comparability / calendar alignment
 summary carried by canonical compare/test findings; do not rebuild holiday / weekday / event
 pairing logic inside the gate.
+Calendar alignment issue layering is fixed: single-sided completeness / quality failures belong to
+`quality_gate` or earlier request/compiler failure surfaces, while dual-sided frozen alignment
+mismatch, pairing instability, and coverage insufficiency belong to `comparability_gate`. Do not
+emit the same calendar issue code from both gates in the same compare-like evaluation.
 SQL sent to the execution engine is observed through default structured INFO logs; do not add SQL
 payload persistence to metadata surfaces unless a task explicitly requires it.
 Typed metric dimension discovery should prefer explicit legacy `dimensions` when present; otherwise
