@@ -319,8 +319,20 @@ type TestIssue = {
     | "data_incomplete"
     | "method_incompatible"
     | "alpha_invalid"
-    | "assumption_warning";
+    | "assumption_warning"
+    | "calendar_alignment_metadata_mismatch"
+    | "calendar_policy_mismatch"
+    | "calendar_comparison_basis_mismatch"
+    | "calendar_source_mismatch"
+    | "calendar_version_mismatch"
+    | "holiday_cluster_unmapped"
+    | "event_cluster_unmapped"
+    | "fallback_applied"
+    | "alignment_coverage_insufficient"
+    | "weekday_pairing_tie";
   severity: "error" | "warning";
+  gate_family?: "comparability_gate";
+  blocking?: boolean;
   message: string;
 };
 
@@ -328,6 +340,13 @@ type TestValidation = {
   status: "valid" | "needs_attention" | "invalid";
   issues: TestIssue[];
 };
+
+calendar alignment 分层补充：
+
+- 单边 sample summary 缺失、样本量不足、artifact 不完整属于 `quality_gate` 或更早阶段失败，不应在成功的 `test` artifact 中重报为 calendar comparability issue。
+- 双边 frozen alignment metadata 不兼容、coverage 不足、weekday pairing tie 未解决属于 `comparability_gate`。
+- `source_lineage.calendar_alignment.comparability_warnings` 保留 observation 上游冻结的原始 warning；`validation.issues` 表达 test 阶段的最终 blocking / non-blocking 判定。
+- `weekday_pairing_tie` 在 v1 直接导致 `test: NOT_COMPARABLE`；`fallback_applied`、`holiday_cluster_unmapped`、`event_cluster_unmapped`、`alignment_coverage_insufficient` 默认保留为 `needs_attention` warning。
 
 type TestAssumptions = {
   independence: "assumed";

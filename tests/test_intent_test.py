@@ -661,9 +661,17 @@ class TestRunnerServiceTests(unittest.TestCase):
         )
 
         self.assertEqual(result["validation"]["status"], "needs_attention")
-        codes = [issue["code"] for issue in result["validation"]["issues"]]
+        issues_by_code = {issue["code"]: issue for issue in result["validation"]["issues"]}
+        codes = list(issues_by_code)
         self.assertIn("fallback_applied", codes)
         self.assertIn("alignment_coverage_insufficient", codes)
+        self.assertEqual(issues_by_code["fallback_applied"]["gate_family"], "comparability_gate")
+        self.assertFalse(issues_by_code["fallback_applied"]["blocking"])
+        self.assertEqual(
+            issues_by_code["alignment_coverage_insufficient"]["gate_family"],
+            "comparability_gate",
+        )
+        self.assertFalse(issues_by_code["alignment_coverage_insufficient"]["blocking"])
         self.assertEqual(
             result["source_lineage"]["calendar_alignment"]["reuse_source"],
             "observation_resolved_policy_summary",
@@ -680,6 +688,37 @@ class TestRunnerServiceTests(unittest.TestCase):
                 "aligned_ratio": 30 / 31,
             },
         )
+
+    def test_calendar_alignment_weekday_pairing_tie_blocks_validation(self) -> None:
+        """Unresolved weekday tie must stay in comparability_gate and block test execution."""
+        session_id = self._make_session()
+        obs_a = self._observe_numeric(session_id, self.metric_num_a)
+        obs_b = self._observe_numeric(session_id, self.metric_num_b)
+        warning_summary = _resolved_policy_summary(
+            comparability_warnings=["weekday_pairing_tie"],
+        )
+        self._patch_observe_artifact(
+            session_id,
+            obs_a["step_ref"]["step_id"],
+            resolved_policy_summary=warning_summary,
+        )
+        self._patch_observe_artifact(
+            session_id,
+            obs_b["step_ref"]["step_id"],
+            resolved_policy_summary=warning_summary,
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "test: NOT_COMPARABLE - upstream observation froze unresolved calendar weekday pairing ambiguity",
+        ):
+            self._run_test(
+                session_id,
+                obs_a["artifact_id"],
+                obs_a["step_ref"]["step_id"],
+                obs_b["artifact_id"],
+                obs_b["step_ref"]["step_id"],
+            )
 
     # ── Validation error cases ─────────────────────────────────────────────────
 

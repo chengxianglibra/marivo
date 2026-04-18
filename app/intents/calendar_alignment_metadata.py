@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import Any, TypedDict
 
 _VALID_COMPARISON_BASES: frozenset[str] = frozenset({"yoy", "mom", "wow"})
 _BASELINE_RULE_FIELDS: tuple[str, ...] = (
@@ -24,6 +24,80 @@ _COVERAGE_SUMMARY_FIELDS: tuple[str, ...] = (
     "unpaired_bucket_count",
     "aligned_ratio",
 )
+
+
+class _CalendarAlignmentIssuePolicy(TypedDict):
+    gate_family: str
+    severity: str
+    blocking: bool
+    message_template: str
+
+
+_CALENDAR_ALIGNMENT_ISSUE_POLICIES: dict[str, _CalendarAlignmentIssuePolicy] = {
+    "calendar_alignment_metadata_mismatch": {
+        "gate_family": "comparability_gate",
+        "severity": "error",
+        "blocking": True,
+        "message_template": (
+            "calendar alignment metadata must be present on both observations when either side "
+            "freezes a resolved policy summary"
+        ),
+    },
+    "calendar_policy_mismatch": {
+        "gate_family": "comparability_gate",
+        "severity": "error",
+        "blocking": True,
+        "message_template": "",
+    },
+    "calendar_comparison_basis_mismatch": {
+        "gate_family": "comparability_gate",
+        "severity": "error",
+        "blocking": True,
+        "message_template": "",
+    },
+    "calendar_source_mismatch": {
+        "gate_family": "comparability_gate",
+        "severity": "error",
+        "blocking": True,
+        "message_template": "",
+    },
+    "calendar_version_mismatch": {
+        "gate_family": "comparability_gate",
+        "severity": "error",
+        "blocking": True,
+        "message_template": "",
+    },
+    "holiday_cluster_unmapped": {
+        "gate_family": "comparability_gate",
+        "severity": "warning",
+        "blocking": False,
+        "message_template": "upstream observation froze holiday alignment mapping gaps",
+    },
+    "event_cluster_unmapped": {
+        "gate_family": "comparability_gate",
+        "severity": "warning",
+        "blocking": False,
+        "message_template": "upstream observation froze event alignment mapping gaps",
+    },
+    "fallback_applied": {
+        "gate_family": "comparability_gate",
+        "severity": "warning",
+        "blocking": False,
+        "message_template": "upstream observation froze a calendar alignment fallback path",
+    },
+    "alignment_coverage_insufficient": {
+        "gate_family": "comparability_gate",
+        "severity": "warning",
+        "blocking": False,
+        "message_template": "upstream observation froze incomplete calendar bucket alignment coverage",
+    },
+    "weekday_pairing_tie": {
+        "gate_family": "comparability_gate",
+        "severity": "error",
+        "blocking": True,
+        "message_template": "upstream observation froze unresolved calendar weekday pairing ambiguity",
+    },
+}
 
 
 def normalize_resolved_policy_summary(
@@ -96,19 +170,10 @@ def resolve_calendar_alignment_reuse(
     if left_summary is None and right_summary is None:
         return {"issues": [], "fatal_message": None, "reuse_summary": None}
     if left_summary is None or right_summary is None:
-        fatal_message = (
-            "calendar alignment metadata must be present on both observations when either "
-            "side freezes a resolved policy summary"
-        )
+        issue = _build_issue("calendar_alignment_metadata_mismatch")
         return {
-            "issues": [
-                {
-                    "code": "calendar_alignment_metadata_mismatch",
-                    "severity": "error",
-                    "message": fatal_message,
-                }
-            ],
-            "fatal_message": fatal_message,
+            "issues": [issue],
+            "fatal_message": issue["message"],
             "reuse_summary": None,
         }
 
@@ -121,6 +186,7 @@ def resolve_calendar_alignment_reuse(
         }
 
     issues: list[dict[str, Any]] = []
+    fatal_message: str | None = None
     warnings = sorted(
         {
             *left_summary["comparability_warnings"],
@@ -128,13 +194,10 @@ def resolve_calendar_alignment_reuse(
         }
     )
     for warning_code in warnings:
-        issues.append(
-            {
-                "code": warning_code,
-                "severity": "warning",
-                "message": f"upstream observation froze calendar alignment warning '{warning_code}'",
-            }
-        )
+        issue = _build_issue(warning_code)
+        issues.append(issue)
+        if issue["blocking"] and fatal_message is None:
+            fatal_message = issue["message"]
 
     min_aligned_ratio = min(
         left_summary["coverage_summary"]["aligned_ratio"],
@@ -146,20 +209,18 @@ def resolve_calendar_alignment_reuse(
     )
     if min_aligned_ratio < 1.0 or max_unpaired_bucket_count > 0:
         issues.append(
-            {
-                "code": "alignment_coverage_insufficient",
-                "severity": "warning",
-                "message": "upstream observation froze incomplete calendar bucket alignment coverage",
-                "details": {
+            _build_issue(
+                "alignment_coverage_insufficient",
+                details={
                     "left_coverage_summary": left_summary["coverage_summary"],
                     "right_coverage_summary": right_summary["coverage_summary"],
                 },
-            }
+            )
         )
 
     return {
         "issues": issues,
-        "fatal_message": None,
+        "fatal_message": fatal_message,
         "reuse_summary": {
             "reuse_source": "observation_resolved_policy_summary",
             "policy_ref": left_summary["policy_ref"],
@@ -227,12 +288,38 @@ def _calendar_alignment_mismatch(
         left_value = left_summary[field_name]
         right_value = right_summary[field_name]
         if left_value != right_value:
-            return {
-                "code": code,
-                "severity": "error",
-                "message": f"left {field_name} '{left_value}' != right {field_name} '{right_value}'",
-            }
+            return _build_issue(
+                code,
+                message=f"left {field_name} '{left_value}' != right {field_name} '{right_value}'",
+            )
     return None
+
+
+def _build_issue(
+    code: str,
+    *,
+    message: str | None = None,
+    details: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    policy = _CALENDAR_ALIGNMENT_ISSUE_POLICIES.get(code)
+    if policy is None:
+        policy = {
+            "gate_family": "comparability_gate",
+            "severity": "warning",
+            "blocking": False,
+            "message_template": f"upstream observation froze calendar alignment warning '{code}'",
+        }
+
+    issue: dict[str, Any] = {
+        "code": code,
+        "severity": policy["severity"],
+        "message": message or policy["message_template"],
+        "gate_family": policy["gate_family"],
+        "blocking": policy["blocking"],
+    }
+    if details is not None:
+        issue["details"] = details
+    return issue
 
 
 def _normalize_window(value: Any, *, error_factory: Callable[[], ValueError]) -> dict[str, str]:

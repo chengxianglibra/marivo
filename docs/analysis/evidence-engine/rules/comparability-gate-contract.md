@@ -275,6 +275,8 @@ finding payload 中已冻结的 `calendar_alignment` 与 `comparability.issues` 
 - `baseline_calendar_policy_resolved` 以 task 1.4 冻结的最小 resolved alignment 字段集为准，不得只校验其中的字符串子集
 - `calendar_coverage_sufficient` 在 v1 采用严格满覆盖语义：`aligned_ratio = 1.0` 且 `unpaired_bucket_count = 0`
 - `weekday_pairing_tie` 可同时导致 `weekday_pairing_compatible` 与 `alignment_tie_breaker_resolved` 失败；这是同一歧义在两个 requirement 维度上的显式映射，不视为重复报错
+- compare/test 复用 frozen alignment metadata 时，产出的 calendar issues 必须显式标注 `gate_family = "comparability_gate"`；同一 code 不得再被 `quality_gate` 以平行 issue 重复报出
+- v1 compare-like 默认分层为：`weekday_pairing_tie` 与 frozen metadata mismatch 为 blocking comparability issues；`holiday_cluster_unmapped`、`event_cluster_unmapped`、`fallback_applied`、`alignment_coverage_insufficient` 为 non-blocking comparability warnings，除非后续 requirement contract 明确升级
 
 ### 5. requirement token 必须显式输出
 
