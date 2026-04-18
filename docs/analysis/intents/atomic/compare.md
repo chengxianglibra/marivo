@@ -326,6 +326,76 @@ calendar alignment 分层补充：
 - `resolved_policy_summary.comparability_warnings` 是 observation 冻结的原始 warning 集；`compare.comparability.issues` 是 compare 阶段按 gate 语义重映射后的结构化结果。
 - `weekday_pairing_tie` 在 v1 是 blocking comparability issue；`holiday_cluster_unmapped`、`event_cluster_unmapped`、`fallback_applied`、`alignment_coverage_insufficient` 默认是 non-blocking comparability warnings。
 
+calendar alignment failure surface：
+
+| code | blocking | 用户可读 message | 下一步 |
+| --- | --- | --- | --- |
+| `calendar_alignment_metadata_mismatch` | 是 | 一侧 observation 冻结了 `resolved_policy_summary`，另一侧缺失兼容的 calendar alignment metadata。 | 用同一条 calendar-aligned `observe` 链路重跑缺失的一侧。 |
+| `calendar_policy_mismatch` | 是 | 左右 observation 冻结了不同 `calendar_policy_ref`。 | 用同一 policy 重跑两侧 observation。 |
+| `calendar_comparison_basis_mismatch` | 是 | 左右 observation 冻结了不同 comparison basis（如 `yoy` / `mom` / `wow`）。 | 保证两侧来自同一 comparison basis。 |
+| `calendar_source_mismatch` | 是 | 左右 observation 绑定了不同 calendar source。 | 用同一 resolved calendar source 重跑。 |
+| `calendar_version_mismatch` | 是 | 左右 observation 冻结了不同 calendar version。 | 用同一冻结 version 重跑。 |
+| `weekday_pairing_tie` | 是 | weekday 对齐出现未解决的候选 tie，当前 pairing 不稳定。 | 调整 tie-breaker / max-shift 或缩小窗口后重跑。 |
+| `holiday_cluster_unmapped` | 否 | 节假日 cluster 无法完整映射到 baseline。 | 补齐 holiday annotation，或改用 `natural_*` / `weekday_*` policy。 |
+| `event_cluster_unmapped` | 否 | 活动 cluster 无法完整映射到 baseline。 | 补齐 event annotation，或改用非 `event_*` policy。 |
+| `fallback_applied` | 否 | 对齐过程已退化到 fallback matcher。 | 复核 fallback 是否可接受；不可接受时补齐 annotation 或改用更合适的 policy。 |
+| `alignment_coverage_insufficient` | 否 | bucket pairing coverage 不完整，部分 bucket 未配对。 | 查看 coverage summary，补齐映射或缩小 comparison window。 |
+
+当 `compare` 因 blocking calendar alignment issue 失败时，`detail` 必须直接复用上表对应的稳定用户文案；对于 mismatch 类问题，服务还应在结构化 `details` 中保留 `field_name`、`left_value`、`right_value` 以便排查。
+
+`alignment_coverage_insufficient.details` 至少包含：
+
+- `left_coverage_summary`
+- `right_coverage_summary`
+- `effective_coverage_summary`
+- `next_action_hint = "shrink_window_or_complete_mapping"`
+
+示例：
+
+```json
+{
+  "detail": "compare: NOT_COMPARABLE - left and right observations freeze different calendar versions, so the alignment metadata cannot be replayed safely. Re-run both observations with the same frozen calendar version.",
+  "code": "NOT_COMPARABLE",
+  "issues": [
+    {
+      "code": "calendar_version_mismatch",
+      "severity": "error",
+      "gate_family": "comparability_gate",
+      "blocking": true,
+      "message": "left and right observations freeze different calendar versions, so the alignment metadata cannot be replayed safely. Re-run both observations with the same frozen calendar version.",
+      "details": {
+        "field_name": "resolved_calendar_version",
+        "left_value": "calendar_data_cn_2026q2_v1",
+        "right_value": "calendar_data_cn_2026q2_v2"
+      }
+    }
+  ]
+}
+```
+
+```json
+{
+  "comparability": {
+    "status": "needs_attention",
+    "issues": [
+      {
+        "code": "alignment_coverage_insufficient",
+        "severity": "warning",
+        "gate_family": "comparability_gate",
+        "blocking": false,
+        "message": "calendar bucket pairing coverage is incomplete, so some buckets were left unpaired after alignment. Review the coverage summary, then fill in the missing mapping or shrink the comparison window.",
+        "details": {
+          "left_coverage_summary": {"aligned_bucket_count": 30, "unpaired_bucket_count": 1, "aligned_ratio": 0.9677419355},
+          "right_coverage_summary": {"aligned_bucket_count": 31, "unpaired_bucket_count": 0, "aligned_ratio": 1.0},
+          "effective_coverage_summary": {"aligned_bucket_count": 30, "unpaired_bucket_count": 1, "aligned_ratio": 0.9677419355},
+          "next_action_hint": "shrink_window_or_complete_mapping"
+        }
+      }
+    ]
+  }
+}
+```
+
 ## 校验规则
 
 - 两个 ref 都必须解析到已完成步骤

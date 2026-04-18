@@ -180,6 +180,9 @@ Calendar alignment issue layering is fixed: single-sided completeness / quality 
 `quality_gate` or earlier request/compiler failure surfaces, while dual-sided frozen alignment
 mismatch, pairing instability, and coverage insufficiency belong to `comparability_gate`. Do not
 emit the same calendar issue code from both gates in the same compare-like evaluation.
+Compare-like user-facing calendar alignment failures must be rendered from the shared frozen
+metadata reuse layer so `compare` and `test` reuse the same stable message and structured details
+for the same issue code; do not fork separate wording or remediation logic per intent.
 SQL sent to the execution engine is observed through default structured INFO logs; do not add SQL
 payload persistence to metadata surfaces unless a task explicitly requires it.
 Typed metric dimension discovery should prefer explicit legacy `dimensions` when present; otherwise

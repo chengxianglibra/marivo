@@ -844,7 +844,7 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
 
         with self.assertRaisesRegex(
             ValueError,
-            "calendar alignment metadata must be present on both observations",
+            "calendar alignment metadata is missing on one observation",
         ):
             run_compare_intent(
                 svc,
@@ -877,7 +877,7 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
 
         with self.assertRaisesRegex(
             ValueError,
-            "left resolved_calendar_version 'calendar_data_cn_2026q2_v1' !=",
+            "left and right observations freeze different calendar versions",
         ):
             run_compare_intent(
                 svc,
@@ -895,6 +895,31 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
                     },
                 },
             )
+
+    def test_calendar_version_mismatch_issue_keeps_structured_details(self) -> None:
+        from app.intents.calendar_alignment_metadata import (
+            resolve_calendar_alignment_reuse_for_intent,
+        )
+
+        summary = resolve_calendar_alignment_reuse_for_intent(
+            intent_name="compare",
+            left_resolved_policy_summary=_resolved_policy_summary(),
+            right_resolved_policy_summary=_resolved_policy_summary(
+                resolved_calendar_version="calendar_data_cn_2026q2_v2"
+            ),
+        )
+
+        self.assertIsNone(summary["reuse_summary"])
+        self.assertEqual(summary["fatal_message"], summary["issues"][0]["message"])
+        self.assertEqual(summary["issues"][0]["code"], "calendar_version_mismatch")
+        self.assertEqual(
+            summary["issues"][0]["details"],
+            {
+                "field_name": "resolved_calendar_version",
+                "left_value": "calendar_data_cn_2026q2_v1",
+                "right_value": "calendar_data_cn_2026q2_v2",
+            },
+        )
 
     def test_compare_marks_needs_attention_for_upstream_calendar_warnings(self) -> None:
         from app.intents.compare import run_compare_intent
@@ -933,6 +958,14 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
             "comparability_gate",
         )
         self.assertFalse(result["comparability"]["issues"][0]["blocking"])
+        self.assertIn(
+            "calendar alignment required a fallback matcher",
+            result["comparability"]["issues"][0]["message"],
+        )
+        self.assertIn(
+            "Review whether the fallback alignment is acceptable",
+            result["comparability"]["issues"][0]["message"],
+        )
 
     def test_compare_marks_needs_attention_for_incomplete_calendar_coverage(self) -> None:
         from app.intents.compare import run_compare_intent
@@ -975,6 +1008,26 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
             "comparability_gate",
         )
         self.assertFalse(result["comparability"]["issues"][-1]["blocking"])
+        self.assertIn(
+            "calendar bucket pairing coverage is incomplete",
+            result["comparability"]["issues"][-1]["message"],
+        )
+        self.assertIn(
+            "shrink the comparison window",
+            result["comparability"]["issues"][-1]["message"],
+        )
+        self.assertEqual(
+            result["comparability"]["issues"][-1]["details"]["effective_coverage_summary"],
+            {
+                "aligned_bucket_count": 6,
+                "unpaired_bucket_count": 1,
+                "aligned_ratio": 6 / 7,
+            },
+        )
+        self.assertEqual(
+            result["comparability"]["issues"][-1]["details"]["next_action_hint"],
+            "shrink_window_or_complete_mapping",
+        )
         self.assertEqual(
             result["resolved_input_summary"]["calendar_alignment"]["effective_coverage_summary"],
             {
@@ -998,7 +1051,7 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
 
         with self.assertRaisesRegex(
             ValueError,
-            "compare: NOT_COMPARABLE - upstream observation froze unresolved calendar weekday pairing ambiguity",
+            "compare: NOT_COMPARABLE - weekday alignment produced an unresolved tie",
         ):
             run_compare_intent(
                 svc,

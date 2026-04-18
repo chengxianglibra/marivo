@@ -348,6 +348,23 @@ calendar alignment 分层补充：
 - `source_lineage.calendar_alignment.comparability_warnings` 保留 observation 上游冻结的原始 warning；`validation.issues` 表达 test 阶段的最终 blocking / non-blocking 判定。
 - `weekday_pairing_tie` 在 v1 直接导致 `test: NOT_COMPARABLE`；`fallback_applied`、`holiday_cluster_unmapped`、`event_cluster_unmapped`、`alignment_coverage_insufficient` 默认保留为 `needs_attention` warning。
 
+calendar alignment failure surface 与 `compare` 保持同一套用户文案：
+
+| code | blocking | 用户可读 message | 下一步 |
+| --- | --- | --- | --- |
+| `calendar_alignment_metadata_mismatch` | 是 | 一侧 observation 冻结了 `resolved_policy_summary`，另一侧缺失兼容的 calendar alignment metadata。 | 用同一条 calendar-aligned `observe` 链路重跑缺失的一侧。 |
+| `calendar_policy_mismatch` | 是 | 左右 observation 冻结了不同 `calendar_policy_ref`。 | 用同一 policy 重跑两侧 observation。 |
+| `calendar_comparison_basis_mismatch` | 是 | 左右 observation 冻结了不同 comparison basis。 | 保证两侧来自同一 comparison basis。 |
+| `calendar_source_mismatch` | 是 | 左右 observation 绑定了不同 calendar source。 | 用同一 resolved calendar source 重跑。 |
+| `calendar_version_mismatch` | 是 | 左右 observation 冻结了不同 calendar version。 | 用同一冻结 version 重跑。 |
+| `weekday_pairing_tie` | 是 | weekday 对齐出现未解决的候选 tie，当前 pairing 不稳定。 | 调整 tie-breaker / max-shift 或缩小窗口后重跑。 |
+| `holiday_cluster_unmapped` | 否 | 节假日 cluster 无法完整映射到 baseline。 | 补齐 holiday annotation，或改用 `natural_*` / `weekday_*` policy。 |
+| `event_cluster_unmapped` | 否 | 活动 cluster 无法完整映射到 baseline。 | 补齐 event annotation，或改用非 `event_*` policy。 |
+| `fallback_applied` | 否 | 对齐过程已退化到 fallback matcher。 | 复核 fallback 是否可接受；不可接受时补齐 annotation 或改用更合适的 policy。 |
+| `alignment_coverage_insufficient` | 否 | bucket pairing coverage 不完整，部分 bucket 未配对。 | 查看 coverage summary，补齐映射或缩小 comparison window。 |
+
+对于 blocking issue，`test` 的 `NOT_COMPARABLE` 错误正文必须直接复用对应稳定 message。对于 warning issue，`validation.issues[*].message` 与 `compare.comparability.issues[*].message` 必须完全一致，不得在 `test` 链路再造一套不同措辞。
+
 type TestAssumptions = {
   independence: "assumed";
   distribution_check: "unchecked" | "acceptable" | "violated" | null;
