@@ -398,8 +398,9 @@ class AttributeRunnerServiceTests(unittest.TestCase):
             self.assertRaisesRegex(
                 ValueError,
                 "attribute: COMPARE_FAILED - comparison failed: compare: NOT_COMPARABLE - "
-                "left resolved_calendar_source 'calendar.cn_public_holidays' != "
-                "right resolved_calendar_source 'calendar.business_events'",
+                "left and right observations freeze different calendar sources, so the "
+                "alignment metadata is not comparable. Re-run both observations against "
+                "the same resolved calendar source.",
             ),
         ):
             self._attribute(sid)

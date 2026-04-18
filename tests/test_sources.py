@@ -691,12 +691,24 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
         adapter = TrinoCatalogAdapter(host="localhost", catalog="hive")
 
         table_cursor = self._make_cursor([("orders", "BASE TABLE")], ["table_name", "table_type"])
+        properties_cursor = self._make_cursor([], ["key", "value"])
+        show_create_cursor = self._make_cursor([], ["Create Table"])
         col_cursor = self._make_cursor(
             [("id", "integer", 1, "NO"), ("name", "varchar", 2, "YES")],
             ["column_name", "data_type", "ordinal_position", "is_nullable"],
         )
+        comment_cursor = self._make_cursor(
+            [("id", "integer", "", "primary key"), ("name", "varchar", "", "")],
+            ["Column", "Type", "Extra", "Comment"],
+        )
         call_count = [0]
-        cursors = [table_cursor, col_cursor]
+        cursors = [
+            table_cursor,
+            properties_cursor,
+            show_create_cursor,
+            col_cursor,
+            comment_cursor,
+        ]
 
         def side_effect():
             c = cursors[call_count[0]]
@@ -711,6 +723,7 @@ class TrinoCatalogAdapterTests(unittest.TestCase):
         cols = detail.properties["columns"]
         self.assertEqual(cols[0]["name"], "id")
         self.assertFalse(cols[0]["nullable"])
+        self.assertEqual(cols[0]["comment"], "primary key")
         self.assertTrue(cols[1]["nullable"])
 
     def test_list_columns(self) -> None:
