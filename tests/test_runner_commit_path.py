@@ -16,6 +16,8 @@ import unittest
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+from app.service import SemanticLayerService
+
 # ── helpers ──────────────────────────────────────────────────────────────────
 
 _SESSION = "sess_4c2_test"
@@ -75,6 +77,23 @@ def _make_compiled_mock_with_calendar_alignment() -> MagicMock:
             "comparability_warnings": [],
         }
     }
+    return m
+
+
+def _make_compiled_mock_with_holiday_only_calendar_alignment() -> MagicMock:
+    m = _make_compiled_mock_with_calendar_alignment()
+    m.metadata["resolved_calendar_alignment"]["policy_ref"] = "calendar_policy.holiday_yoy"
+    m.metadata["resolved_calendar_alignment"]["source_lineage"] = {
+        "holiday_source": {
+            "source_id": "src_holiday",
+            "source_name": "holiday_source",
+            "table_fqn": "calendar.public_holiday",
+            "calendar_version": "cn_public_holiday_2026_v1",
+        }
+    }
+    m.metadata["resolved_calendar_alignment"]["comparability_warnings"] = [
+        "holiday_annotation_missing_fallback_used"
+    ]
     return m
 
 
@@ -402,6 +421,71 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
             },
         )
         self.assertEqual(result["resolved_policy_summary"]["comparability_warnings"], [])
+
+    def test_observe_accepts_holiday_only_calendar_lineage(self) -> None:
+        from app.intents.observe import run_observe_intent
+
+        svc = _make_svc()
+        svc.normalize_intent_metric_ref.side_effect = lambda metric: metric
+        svc.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
+        svc._resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
+        svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
+        svc.resolve_metric_dimensions.return_value = []
+        svc._resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
+        svc._resolve_windowed_query_time_axis.return_value = None
+        svc._build_scoped_query.return_value = {
+            "mode": "single_window",
+            "analysis_time_expr": "event_date",
+            "analysis_time_kind": "date_field",
+            "current": {"start": "2026-04-01", "end": "2026-04-08"},
+        }
+        svc._compile_step_with_feedback.return_value = (
+            _make_compiled_mock_with_holiday_only_calendar_alignment()
+        )
+        svc.build_step_semantic_metadata.side_effect = (
+            SemanticLayerService.build_step_semantic_metadata.__get__(svc, SemanticLayerService)
+        )
+        svc._build_calendar_policy_binding.side_effect = (
+            SemanticLayerService._build_calendar_policy_binding
+        )
+
+        with patch("app.intents.observe.execute_compiled") as mock_exec:
+            mock_exec.return_value.rows = [{"current_value": 42.0}]
+            result = run_observe_intent(
+                svc,
+                _SESSION,
+                {
+                    "metric": "metric.m1",
+                    "time_scope": {"kind": "range", "start": "2026-04-01", "end": "2026-04-08"},
+                    "calendar_policy_ref": "calendar_policy.holiday_yoy",
+                },
+            )
+
+        args, kwargs = svc._commit_artifact_with_extraction.call_args
+        artifact_payload = args[4]
+        insert_step_args, insert_step_kwargs = svc._insert_step.call_args
+        semantic_metadata = insert_step_kwargs["semantic_metadata"]
+        self.assertEqual(
+            result["resolved_policy_summary"], artifact_payload["resolved_policy_summary"]
+        )
+        self.assertEqual(
+            result["resolved_policy_summary"]["policy_ref"], "calendar_policy.holiday_yoy"
+        )
+        self.assertEqual(
+            semantic_metadata["compile_context"]["calendar_policy_binding"]["source_lineage"],
+            {
+                "holiday_source": {
+                    "source_id": "src_holiday",
+                    "source_name": "holiday_source",
+                    "table_fqn": "calendar.public_holiday",
+                    "calendar_version": "cn_public_holiday_2026_v1",
+                }
+            },
+        )
+        self.assertEqual(
+            result["resolved_policy_summary"]["comparability_warnings"],
+            ["holiday_annotation_missing_fallback_used"],
+        )
 
     def test_observe_rejects_malformed_resolved_policy_summary_missing_field(self) -> None:
         from app.intents.observe import run_observe_intent
