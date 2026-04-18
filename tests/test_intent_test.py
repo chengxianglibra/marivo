@@ -577,7 +577,7 @@ class TestRunnerServiceTests(unittest.TestCase):
 
         with self.assertRaisesRegex(
             ValueError,
-            "test: NOT_COMPARABLE - calendar alignment metadata must be present on both observations",
+            "test: NOT_COMPARABLE - calendar alignment metadata is missing on one observation",
         ):
             self._run_test(
                 session_id,
@@ -593,8 +593,8 @@ class TestRunnerServiceTests(unittest.TestCase):
             field_name="resolved_calendar_version",
             right_value="2026.02",
             expected_message=(
-                "test: NOT_COMPARABLE - left resolved_calendar_version '2026.01' != "
-                "right resolved_calendar_version '2026.02'"
+                "test: NOT_COMPARABLE - left and right observations freeze different calendar "
+                "versions"
             ),
         )
 
@@ -604,8 +604,8 @@ class TestRunnerServiceTests(unittest.TestCase):
             field_name="policy_ref",
             right_value="calendar_policy.holiday_yoy",
             expected_message=(
-                "test: NOT_COMPARABLE - left policy_ref 'calendar_policy.weekday_yoy' != "
-                "right policy_ref 'calendar_policy.holiday_yoy'"
+                "test: NOT_COMPARABLE - left and right observations freeze different calendar "
+                "policies"
             ),
         )
 
@@ -615,7 +615,8 @@ class TestRunnerServiceTests(unittest.TestCase):
             field_name="comparison_basis",
             right_value="mom",
             expected_message=(
-                "test: NOT_COMPARABLE - left comparison_basis 'yoy' != right comparison_basis 'mom'"
+                "test: NOT_COMPARABLE - left and right observations freeze different calendar "
+                "comparison bases"
             ),
         )
 
@@ -625,9 +626,8 @@ class TestRunnerServiceTests(unittest.TestCase):
             field_name="resolved_calendar_source",
             right_value="calendar.business_events",
             expected_message=(
-                "test: NOT_COMPARABLE - left resolved_calendar_source "
-                "'calendar.cn_public_holidays' != right resolved_calendar_source "
-                "'calendar.business_events'"
+                "test: NOT_COMPARABLE - left and right observations freeze different calendar "
+                "sources"
             ),
         )
 
@@ -668,10 +668,40 @@ class TestRunnerServiceTests(unittest.TestCase):
         self.assertEqual(issues_by_code["fallback_applied"]["gate_family"], "comparability_gate")
         self.assertFalse(issues_by_code["fallback_applied"]["blocking"])
         self.assertEqual(
+            issues_by_code["fallback_applied"]["message"],
+            (
+                "calendar alignment required a fallback matcher, so the comparison is usable "
+                "but less strictly aligned than the primary policy path. Review whether the "
+                "fallback alignment is acceptable; otherwise fill in the missing annotations "
+                "or choose a policy that better matches this window."
+            ),
+        )
+        self.assertEqual(
             issues_by_code["alignment_coverage_insufficient"]["gate_family"],
             "comparability_gate",
         )
         self.assertFalse(issues_by_code["alignment_coverage_insufficient"]["blocking"])
+        self.assertEqual(
+            issues_by_code["alignment_coverage_insufficient"]["details"],
+            {
+                "left_coverage_summary": {
+                    "aligned_bucket_count": 30,
+                    "unpaired_bucket_count": 1,
+                    "aligned_ratio": 30 / 31,
+                },
+                "right_coverage_summary": {
+                    "aligned_bucket_count": 30,
+                    "unpaired_bucket_count": 1,
+                    "aligned_ratio": 30 / 31,
+                },
+                "effective_coverage_summary": {
+                    "aligned_bucket_count": 30,
+                    "unpaired_bucket_count": 1,
+                    "aligned_ratio": 30 / 31,
+                },
+                "next_action_hint": "shrink_window_or_complete_mapping",
+            },
+        )
         self.assertEqual(
             result["source_lineage"]["calendar_alignment"]["reuse_source"],
             "observation_resolved_policy_summary",
@@ -710,7 +740,7 @@ class TestRunnerServiceTests(unittest.TestCase):
 
         with self.assertRaisesRegex(
             ValueError,
-            "test: NOT_COMPARABLE - upstream observation froze unresolved calendar weekday pairing ambiguity",
+            "test: NOT_COMPARABLE - weekday alignment produced an unresolved tie",
         ):
             self._run_test(
                 session_id,

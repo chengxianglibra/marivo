@@ -124,6 +124,30 @@ Example:
 }
 ```
 
+Calendar alignment compare-like failures should keep the same operator-facing message in both
+`detail` and the typed issue payload. Example:
+
+```json
+{
+  "detail": "compare: NOT_COMPARABLE - left and right observations freeze different calendar versions, so the alignment metadata cannot be replayed safely. Re-run both observations with the same frozen calendar version.",
+  "code": "NOT_COMPARABLE",
+  "issues": [
+    {
+      "code": "calendar_version_mismatch",
+      "severity": "error",
+      "gate_family": "comparability_gate",
+      "blocking": true,
+      "message": "left and right observations freeze different calendar versions, so the alignment metadata cannot be replayed safely. Re-run both observations with the same frozen calendar version.",
+      "details": {
+        "field_name": "resolved_calendar_version",
+        "left_value": "calendar_data_cn_2026q2_v1",
+        "right_value": "calendar_data_cn_2026q2_v2"
+      }
+    }
+  ]
+}
+```
+
 Optional fields that may appear on step-submission errors:
 
 - `code` — stable semantic failure class such as `INVALID_ARGUMENT`, `INVALID_FILTER`, `STEP_NOT_FOUND`, `NOT_COMPARABLE`, or `INSUFFICIENT_HISTORY`
