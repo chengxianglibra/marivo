@@ -254,6 +254,43 @@ def _build_aligned_time_series_payloads(
     }
 
 
+def _sort_segment_payloads(
+    payloads: list[dict[str, Any]], *, dimensions: list[str], value_field: str
+) -> None:
+    payloads.sort(
+        key=lambda item: (
+            -(item[value_field] if item[value_field] is not None else float("-inf")),
+            *[str((item.get("keys") or {}).get(dimension, "")) for dimension in dimensions],
+        )
+    )
+
+
+def _build_segmented_yoy_payloads(
+    *,
+    rows: list[dict[str, Any]],
+    dimensions: list[str],
+    resolved_policy_summary: dict[str, Any] | None,
+) -> list[dict[str, Any]] | None:
+    if resolved_policy_summary is None:
+        return None
+
+    segmented_yoy: list[dict[str, Any]] = []
+    for row in rows:
+        keys = {dimension: row.get(dimension) for dimension in dimensions if dimension in row}
+        segmented_yoy.append(
+            {
+                "keys": keys,
+                "current_value": _coerce_numeric_or_none(row.get("current_value")),
+                "baseline_value": _coerce_numeric_or_none(row.get("baseline_value")),
+                "absolute_delta": _coerce_numeric_or_none(row.get("absolute_delta")),
+                "relative_delta": _coerce_numeric_or_none(row.get("relative_delta")),
+            }
+        )
+
+    _sort_segment_payloads(segmented_yoy, dimensions=dimensions, value_field="current_value")
+    return segmented_yoy
+
+
 def _build_data_coverage_summary(
     *,
     series: list[dict[str, Any]],
@@ -953,6 +990,11 @@ def run_observe_intent(
         provenance = svc._make_provenance(
             compiled_query.sql, compiled_query.params, engine_type=engine_type
         )
+        resolved_policy_summary = _resolved_policy_summary_from_compiled(compiled_query)
+        if normalized_calendar_policy_ref is not None and resolved_policy_summary is None:
+            raise ValueError(
+                "observe: INVALID_ARGUMENT - calendar_policy_ref did not resolve frozen calendar alignment metadata"
+            )
 
         segments: list[dict[str, Any]] = []
         for row in rows:
@@ -964,11 +1006,11 @@ def run_observe_intent(
             keys = {dim: row.get(dim) for dim in dimensions if dim in row}
             segments.append({"keys": keys, "value": seg_value, "share": None})
 
-        segments.sort(
-            key=lambda s: (
-                -(s["value"] if s["value"] is not None else float("-inf")),
-                *[str(s["keys"].get(d, "")) for d in dimensions],
-            )
+        _sort_segment_payloads(segments, dimensions=dimensions, value_field="value")
+        segmented_yoy = _build_segmented_yoy_payloads(
+            rows=rows,
+            dimensions=dimensions,
+            resolved_policy_summary=resolved_policy_summary,
         )
         quality_status = "ready" if rows else "not_ready"
         observation = {
@@ -979,6 +1021,7 @@ def run_observe_intent(
             "metric": metric_name,
             "time_scope": resolved_time_scope,
             "calendar_policy_ref": normalized_calendar_policy_ref,
+            "resolved_policy_summary": resolved_policy_summary,
             "scope": scope_raw or {},
             "unit": None,
             "dimensions": dimensions,
@@ -1000,6 +1043,8 @@ def run_observe_intent(
                 "executed_at": now,
             },
         }
+        if segmented_yoy is not None:
+            observation["segmented_yoy"] = segmented_yoy
         artifact_name = f"{metric_name}_observe_segmented"
         summary = (
             f"observe {metric_name} segmented [{start_str} → {end_str}]: {len(segments)} segments"

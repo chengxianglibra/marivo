@@ -25,9 +25,17 @@ _CATALOG_SEARCH_TYPES = frozenset(
 _CATALOG_SEARCH_READINESS = frozenset({"all", "not_ready", "ready", "stale"})
 _OBSERVE_TIME_SCOPE_CANONICAL_MESSAGE = (
     "observe.time_scope requires canonical object shape, not shorthand string. "
-    'Use {"kind":"range","start":"YYYY-MM-DD","end":"YYYY-MM-DD"}.'
+    'Use {"kind":"range","start":"YYYY-MM-DD","end":"YYYY-MM-DD"}. '
+    "Range is half-open [start, end) — end is EXCLUSIVE. "
+    "If you want inclusive YYYY-MM-DD, pass the next day as end."
 )
 _STRUCTURED_OBJECT_MESSAGE_SUFFIX = "Pass a structured object, not a JSON-encoded string."
+_ATTRIBUTE_OBSERVATION_INPUT_MESSAGE = (
+    "attribute left/right.time_scope requires canonical object shape. "
+    'Use {"kind":"range","start":"YYYY-MM-DD","end":"YYYY-MM-DD"}. '
+    "Range is half-open [start, end) — end is EXCLUSIVE. "
+    "If you want inclusive YYYY-MM-DD, pass the next day as end."
+)
 
 type JsonObject = dict[str, object]
 
@@ -55,8 +63,14 @@ type McpObserveTimeScope = Annotated[
     BeforeValidator(_reject_observe_time_scope_string),
     Field(
         description=(
-            "Canonical object only; shorthand strings are not accepted. "
-            'For a date range use {"kind":"range","start":"YYYY-MM-DD","end":"YYYY-MM-DD"}.'
+            "Canonical object only; shorthand strings are NOT accepted. "
+            "Range is half-open [start, end) — end is EXCLUSIVE. "
+            "Examples:\n"
+            '  CORRECT: {"kind":"range","start":"2024-03-01","end":"2024-04-01"} '
+            "(covers March 1-31 inclusive)\n"
+            '  WRONG: "2024-03-01~2024-03-31" (string rejected)\n'
+            '  WRONG: {"kind":"range","start":"2024-03-01","end":"2024-03-31"} '
+            "(misses March 31 — end is exclusive)."
         ),
     ),
 ]
@@ -220,7 +234,15 @@ def register_tools(
         granularity: Literal["hour", "day", "week", "month"] | None = None,
         dimensions: list[str] | None = None,
     ) -> dict[str, object]:
-        """Submit POST /sessions/{session_id}/intents/observe using the canonical ObserveRequest body; this path selects the intent, so do not add an extra intent field. On 422, follow error.guidance.contract_url, schema_url, and examples."""
+        """Submit POST /sessions/{session_id}/intents/observe using the canonical ObserveRequest body.
+
+        time_scope MUST be a structured object (strings rejected). Range is half-open [start, end).
+        Examples:
+          CORRECT: {"kind":"range","start":"2024-03-01","end":"2024-04-01"} (covers March 1-31)
+          WRONG: "2024-03-01~2024-03-31" (shorthand string rejected)
+          WRONG: {"kind":"range","start":"2024-03-01","end":"2024-03-31"} (misses March 31)
+
+        On 422, follow error.guidance.contract_url, schema_url, and examples."""
         _require_observe_time_scope_object(time_scope)
         return _intent_request(
             client,
@@ -380,7 +402,16 @@ def register_tools(
         decomposition_method: str = "delta_share",
         decomposition_limit: int = 5,
     ) -> dict[str, object]:
-        """Submit POST /sessions/{session_id}/intents/attribute using the canonical AttributeRequest body; this path selects the intent, so do not add an extra intent field. On 422, follow error.guidance.contract_url, schema_url, and examples."""
+        """Submit POST /sessions/{session_id}/intents/attribute using the canonical AttributeRequest body.
+
+        left/right MUST be structured objects containing time_scope. Range is half-open [start, end).
+        Examples:
+          CORRECT: {"time_scope":{"kind":"range","start":"2024-03-01","end":"2024-04-01"}}
+          WRONG: {"time_scope":"2024-03-01~2024-03-31"} (string rejected)
+          WRONG: {"time_scope":{"kind":"range","start":"2024-03-01","end":"2024-03-31"}}
+                  (misses March 31 — end is exclusive)
+
+        On 422, follow error.guidance.contract_url, schema_url, and examples."""
         _require_structured_object(left, field_name="left")
         _require_structured_object(right, field_name="right")
         return _intent_request(

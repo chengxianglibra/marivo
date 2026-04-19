@@ -192,11 +192,36 @@ Request body fields:
 
 - `metric`: published semantic metric name
 - `result_mode`: `standard`, `numeric_sample_summary`, or `rate_sample_summary`; defaults to `standard`
-- `time_scope`: required canonical time scope
+- `time_scope`: required canonical time scope object (strings rejected); see [Time Scope Contract](#time-scope-contract)
 - `calendar_policy_ref`: optional fixed calendar alignment policy ref; only accepted on `observe`
 - `scope`: optional non-time scope
 - `granularity`: allowed only for `standard` time-series observations
 - `dimensions`: allowed only for `standard` segmented observations
+
+#### Time Scope Contract
+
+`time_scope` must be a structured JSON object. Shorthand strings like `"2024-03-01~2024-03-31"` are rejected.
+
+The `range` kind uses half-open interval semantics: `[start, end)` where `end` is **exclusive**.
+
+```json
+// CORRECT: covers March 1-31 inclusive
+{ "kind": "range", "start": "2024-03-01", "end": "2024-04-01" }
+
+// WRONG: shorthand string rejected
+"2024-03-01~2024-03-31"
+
+// WRONG: misses March 31 (end is exclusive)
+{ "kind": "range", "start": "2024-03-01", "end": "2024-03-31" }
+```
+
+Rule: **If you want inclusive YYYY-MM-DD coverage, pass the next day as `end`.**
+
+Other supported `kind` values:
+
+- `snapshot_now`: point-in-time snapshot at query execution time
+- `latest_available`: latest stable data point in the source
+- `as_of`: historical snapshot as of a specified timestamp (requires `at` field)
 
 Supported `calendar_policy_ref` values are discoverable through `GET /catalog/search` with
 `type=calendar_policy` and through `GET /semantic/resolve/{ref}`. The fixed refs are
@@ -228,6 +253,8 @@ Invalid combinations include:
   `distribution_spec.kind="histogram_ready"` is not supported by standard `observe` in v1
 
 Success returns `ObserveResponse`, a union of the five canonical observation artifact types. All success payloads include `step_ref`, `artifact_id`, resolved `time_scope`, normalized `scope`, `resolved_policy_summary`, and analytical / execution metadata. `resolved_policy_summary` is `null` when no calendar alignment policy was resolved.
+
+For `observation_type="segmented"` with a resolved `calendar_policy_ref`, the response may also include `segmented_yoy`, a per-segment aligned YoY view containing `keys`, `current_value`, `baseline_value`, `absolute_delta`, and `relative_delta`. The legacy `segments` array remains unchanged and continues to represent current-window values only.
 
 `calendar_policy_ref` is an observe-only input boundary in v1. Downstream typed-ref intents such as `compare`, `attribute`, and `validate` must reuse the upstream frozen alignment metadata instead of accepting a second policy input.
 
@@ -470,11 +497,27 @@ Submits the `attribute` derived intent.
 Request body fields:
 
 - `metric`: required semantic metric
-- `left`: required scalar-observation input using the canonical `observe` subset
-- `right`: required scalar-observation input using the canonical `observe` subset
+- `left`: required scalar-observation input using the canonical `observe` subset; contains `time_scope`
+- `right`: required scalar-observation input using the canonical `observe` subset; contains `time_scope`
 - `dimensions`: required non-empty semantic dimension list
 - `decomposition_method`: optional; defaults to `delta_share`
 - `decomposition_limit`: optional bounded per-dimension row limit; omitted values normalize to a bounded system default
+
+#### `left` / `right` Time Scope
+
+The `time_scope` inside `left` and `right` must be a structured JSON object. Shorthand strings are rejected.
+
+```json
+// CORRECT: covers March 1-31 inclusive
+{
+  "time_scope": { "kind": "range", "start": "2024-03-01", "end": "2024-04-01" }
+}
+
+// WRONG: shorthand string rejected
+{ "time_scope": "2024-03-01~2024-03-31" }
+```
+
+Range uses half-open semantics `[start, end)` — `end` is **exclusive**. If you want inclusive YYYY-MM-DD coverage, pass the next day as `end`.
 
 Deterministic expansion:
 

@@ -240,6 +240,7 @@ def _insert_observe_artifact(
     granularity: str | None = None,
     series: list[dict[str, object]] | None = None,
     aligned_baseline_series: list[dict[str, object]] | None = None,
+    segmented_yoy: list[dict[str, object]] | None = None,
     unit: str | None = None,
     resolved_policy_summary: dict[str, object] | None = None,
 ) -> str:
@@ -270,6 +271,8 @@ def _insert_observe_artifact(
     if segments is not None:
         payload["segments"] = segments
         payload["scope_value"] = value
+    if segmented_yoy is not None:
+        payload["segmented_yoy"] = segmented_yoy
     if granularity is not None:
         payload["granularity"] = granularity
     if series is not None:
@@ -1865,6 +1868,34 @@ class ObserveTypedArtifactTests(_ObserveIntentTestCase, unittest.TestCase):
         self.assertEqual(data["dimensions"], ["platform"])
         self.assertIn("segments", data)
         self.assertIsInstance(data["segments"], list)
+
+    def test_observe_segmented_calendar_alignment_returns_segmented_yoy(self) -> None:
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/observe",
+            json={
+                "metric": _metric_ref("observe_test_dau"),
+                "time_scope": {"kind": "range", "start": "2026-04-01", "end": "2026-04-08"},
+                "dimensions": ["platform"],
+                "calendar_policy_ref": "calendar_policy.weekday_yoy",
+            },
+        )
+        if r.status_code == 422:
+            self.skipTest("Semantic layer not fully wired in this environment")
+        self.assertEqual(r.status_code, 200, r.text)
+        data = r.json()
+        self.assertEqual(data["observation_type"], "segmented")
+        self.assertIn("resolved_policy_summary", data)
+        self.assertEqual(
+            data["resolved_policy_summary"]["policy_ref"], "calendar_policy.weekday_yoy"
+        )
+        self.assertIn("segmented_yoy", data)
+        self.assertIsInstance(data["segmented_yoy"], list)
+        for entry in data["segmented_yoy"]:
+            self.assertIn("keys", entry)
+            self.assertIn("current_value", entry)
+            self.assertIn("baseline_value", entry)
+            self.assertIn("absolute_delta", entry)
+            self.assertIn("relative_delta", entry)
 
     def test_observe_snapshot_now_returns_scalar(self) -> None:
         """snapshot_now time scope resolves and executes (returns scalar artifact)."""

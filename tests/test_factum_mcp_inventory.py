@@ -124,10 +124,14 @@ def test_observe_tool_time_scope_annotation_exposes_discriminator_schema() -> No
     hints = get_type_hints(observe, include_extras=True)
     time_scope_schema = TypeAdapter(hints["time_scope"]).json_schema()
 
-    assert time_scope_schema["description"] == (
-        "Canonical object only; shorthand strings are not accepted. "
-        'For a date range use {"kind":"range","start":"YYYY-MM-DD","end":"YYYY-MM-DD"}.'
-    )
+    # Verify key content fragments (not exact match due to multi-line formatting)
+    desc = time_scope_schema["description"]
+    assert "Canonical object only" in desc
+    assert "shorthand strings are NOT accepted" in desc
+    assert "half-open [start, end)" in desc
+    assert "end is EXCLUSIVE" in desc
+    assert '{"kind":"range","start":"2024-03-01","end":"2024-04-01"}' in desc
+    assert "covers March 1-31 inclusive" in desc
     assert time_scope_schema["$ref"] == "#/$defs/JsonObject"
     assert time_scope_schema["$defs"]["JsonObject"]["type"] == "object"
     scope_schema = TypeAdapter(hints["scope"]).json_schema()
@@ -148,6 +152,8 @@ def test_observe_tool_time_scope_string_error_points_to_canonical_shape() -> Non
     message = str(exc_info.value)
     assert "observe.time_scope requires canonical object shape" in message
     assert '{"kind":"range","start":"YYYY-MM-DD","end":"YYYY-MM-DD"}' in message
+    assert "end is EXCLUSIVE" in message
+    assert "pass the next day as end" in message
 
 
 def test_typed_intent_tools_expose_top_level_session_id() -> None:

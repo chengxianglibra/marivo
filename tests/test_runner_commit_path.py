@@ -766,6 +766,118 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
             ],
         )
 
+    def test_observe_segmented_returns_segmented_yoy_for_calendar_alignment(self) -> None:
+        from app.intents.observe import run_observe_intent
+
+        svc = _make_svc()
+        svc.normalize_intent_metric_ref.side_effect = lambda metric: metric
+        svc.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
+        svc._resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
+        svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
+        svc.resolve_metric_dimensions.return_value = ["platform"]
+        svc._resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
+        _set_resolved_time_axis(svc, "event_date")
+        svc._build_scoped_query.return_value = {
+            "mode": "single_window",
+            "analysis_time_expr": "event_date",
+            "analysis_time_kind": "date_field",
+            "current": {"start": "2026-04-01", "end": "2026-04-08"},
+        }
+        svc._compile_step_with_feedback.return_value = _make_compiled_mock_with_calendar_alignment()
+
+        with patch("app.intents.observe.execute_compiled") as mock_exec:
+            mock_exec.return_value = MagicMock(
+                rows=[
+                    {
+                        "platform": "web",
+                        "current_value": 120.0,
+                        "baseline_value": 100.0,
+                        "absolute_delta": 20.0,
+                        "relative_delta": 0.2,
+                    },
+                    {
+                        "platform": "app",
+                        "current_value": 80.0,
+                        "baseline_value": 100.0,
+                        "absolute_delta": -20.0,
+                        "relative_delta": -0.2,
+                    },
+                ]
+            )
+            result = run_observe_intent(
+                svc,
+                _SESSION,
+                {
+                    "metric": "metric.m1",
+                    "time_scope": {"kind": "range", "start": "2026-04-01", "end": "2026-04-08"},
+                    "calendar_policy_ref": "calendar_policy.weekday_yoy",
+                    "dimensions": ["platform"],
+                },
+            )
+
+        self.assertEqual(
+            result["resolved_policy_summary"]["policy_ref"], "calendar_policy.weekday_yoy"
+        )
+        self.assertEqual(
+            result["segments"],
+            [
+                {"keys": {"platform": "web"}, "value": 120.0, "share": None},
+                {"keys": {"platform": "app"}, "value": 80.0, "share": None},
+            ],
+        )
+        self.assertEqual(
+            result["segmented_yoy"],
+            [
+                {
+                    "keys": {"platform": "web"},
+                    "current_value": 120.0,
+                    "baseline_value": 100.0,
+                    "absolute_delta": 20.0,
+                    "relative_delta": 0.2,
+                },
+                {
+                    "keys": {"platform": "app"},
+                    "current_value": 80.0,
+                    "baseline_value": 100.0,
+                    "absolute_delta": -20.0,
+                    "relative_delta": -0.2,
+                },
+            ],
+        )
+
+    def test_observe_segmented_omits_segmented_yoy_without_calendar_alignment(self) -> None:
+        from app.intents.observe import run_observe_intent
+
+        svc = _make_svc()
+        svc.normalize_intent_metric_ref.side_effect = lambda metric: metric
+        svc.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
+        svc._resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
+        svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
+        svc.resolve_metric_dimensions.return_value = ["platform"]
+        svc._resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
+        _set_resolved_time_axis(svc, "event_date")
+        svc._build_scoped_query.return_value = {
+            "mode": "single_window",
+            "analysis_time_expr": "event_date",
+            "analysis_time_kind": "date_field",
+            "current": {"start": "2026-04-01", "end": "2026-04-08"},
+        }
+        svc._compile_step_with_feedback.return_value = _make_compiled_mock()
+
+        with patch("app.intents.observe.execute_compiled") as mock_exec:
+            mock_exec.return_value = MagicMock(rows=[{"platform": "web", "current_value": 120.0}])
+            result = run_observe_intent(
+                svc,
+                _SESSION,
+                {
+                    "metric": "metric.m1",
+                    "time_scope": {"kind": "range", "start": "2026-04-01", "end": "2026-04-08"},
+                    "dimensions": ["platform"],
+                },
+            )
+
+        self.assertNotIn("segmented_yoy", result)
+
     def test_observe_time_series_rebuilds_baseline_scoped_query_for_partition_pruning(
         self,
     ) -> None:
