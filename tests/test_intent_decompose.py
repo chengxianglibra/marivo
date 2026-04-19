@@ -103,6 +103,64 @@ class DecomposeHourWindowTests(unittest.TestCase):
             "time_series_summary_delta",
         )
 
+    def test_time_series_compare_input_prefers_side_specific_matched_time_scopes(self) -> None:
+        normalized = _normalize_decompose_compare_input(
+            {
+                "comparison_type": "time_series_delta",
+                "metric": "m1",
+                "summary_left_value": 30.0,
+                "summary_right_value": 23.0,
+                "summary_absolute_delta": 7.0,
+                "summary_relative_delta": 7.0 / 23.0,
+                "summary_direction": "increase",
+                "granularity": "day",
+                "resolved_input_summary": {
+                    "left_time_scope": {
+                        "kind": "range",
+                        "start": "2024-01-01",
+                        "end": "2024-01-08",
+                    },
+                    "right_time_scope": {
+                        "kind": "range",
+                        "start": "2023-01-01",
+                        "end": "2023-01-08",
+                    },
+                },
+                "analytical_metadata": {
+                    "matched_bucket_count": 2,
+                    "pairing_basis": "calendar_aligned_observation_windows",
+                    "pairing_rule": "calendar_aligned_bucket_pairing",
+                    "matched_left_time_scope": {
+                        "kind": "range",
+                        "start": "2024-01-02",
+                        "end": "2024-01-04",
+                    },
+                    "matched_right_time_scope": {
+                        "kind": "range",
+                        "start": "2023-01-03",
+                        "end": "2023-01-05",
+                    },
+                },
+            }
+        )
+
+        self.assertEqual(
+            normalized["left_time_scope"],
+            {"kind": "range", "start": "2024-01-02", "end": "2024-01-04"},
+        )
+        self.assertEqual(
+            normalized["right_time_scope"],
+            {"kind": "range", "start": "2023-01-03", "end": "2023-01-05"},
+        )
+        self.assertEqual(
+            normalized["analytical_metadata"]["source_pairing_basis"],
+            "calendar_aligned_observation_windows",
+        )
+        self.assertEqual(
+            normalized["analytical_metadata"]["source_pairing_rule"],
+            "calendar_aligned_bucket_pairing",
+        )
+
     def test_run_segmented_query_uses_hour_grain_with_datetime_boundaries(self) -> None:
         captured: dict[str, object] = {}
 

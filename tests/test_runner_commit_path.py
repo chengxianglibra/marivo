@@ -149,6 +149,7 @@ def _time_series_observation(
     *,
     granularity: str = "day",
     series: list[dict[str, Any]] | None = None,
+    aligned_baseline_series: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     if series is None:
         series = [
@@ -184,6 +185,12 @@ def _resolved_policy_summary(
     comparison_basis: str = "yoy",
     resolved_calendar_source: str = "calendar_data_cn_assembled",
     resolved_calendar_version: str = "calendar_data_cn_2026q2_v1",
+    current_window_start: str = "2026-04-01",
+    current_window_end: str = "2026-04-08",
+    baseline_window_start: str = "2025-04-01",
+    baseline_window_end: str = "2025-04-08",
+    current_bucket_start: str = "2026-04-01",
+    baseline_bucket_start: str = "2025-04-02",
     aligned_bucket_count: int = 7,
     unpaired_bucket_count: int = 0,
     aligned_ratio: float = 1.0,
@@ -206,12 +213,12 @@ def _resolved_policy_summary(
             "fixed_end": None,
             "named_window_ref": None,
         },
-        "current_window": {"start": "2026-04-01", "end": "2026-04-08"},
-        "baseline_window": {"start": "2025-04-01", "end": "2025-04-08"},
+        "current_window": {"start": current_window_start, "end": current_window_end},
+        "baseline_window": {"start": baseline_window_start, "end": baseline_window_end},
         "bucket_pairing": [
             {
-                "current_bucket_start": "2026-04-01",
-                "baseline_bucket_start": "2025-04-02",
+                "current_bucket_start": current_bucket_start,
+                "baseline_bucket_start": baseline_bucket_start,
                 "pairing_reason": "same_weekday_nearest",
                 "shift_days": 1,
                 "issues": [],
@@ -1735,6 +1742,84 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
         self.assertEqual(len(result["rows"]), 2)
         self.assertEqual(result["summary_left_value"], 30.0)
         self.assertEqual(result["summary_right_value"], 23.0)
+        self.assertEqual(result["analytical_metadata"]["pairing_basis"], "observed_series")
+        self.assertEqual(
+            result["analytical_metadata"]["pairing_rule"], "intersection_by_time_bucket"
+        )
+
+    def test_compare_time_series_reuses_calendar_aligned_pairing_for_summary_basis(self) -> None:
+        from app.intents.compare import run_compare_intent
+
+        svc = _make_svc()
+        left = _time_series_observation(
+            "m1",
+            series=[
+                {"window": {"start": "2026-02-14", "end": "2026-02-15"}, "value": 10.0},
+                {"window": {"start": "2026-02-15", "end": "2026-02-16"}, "value": 12.0},
+            ],
+        )
+        right = _time_series_observation(
+            "m1",
+            series=[
+                {"window": {"start": "2025-02-14", "end": "2025-02-15"}, "value": 9.0},
+                {"window": {"start": "2025-02-15", "end": "2025-02-16"}, "value": 11.0},
+            ],
+        )
+        left["resolved_policy_summary"] = _resolved_policy_summary(
+            current_window_start="2026-02-14",
+            current_window_end="2026-02-21",
+            baseline_window_start="2025-02-14",
+            baseline_window_end="2025-02-21",
+            current_bucket_start="2026-02-14",
+            baseline_bucket_start="2025-02-14",
+        )
+        right["resolved_policy_summary"] = _resolved_policy_summary(
+            current_window_start="2026-02-14",
+            current_window_end="2026-02-21",
+            baseline_window_start="2025-02-14",
+            baseline_window_end="2025-02-21",
+            current_bucket_start="2026-02-14",
+            baseline_bucket_start="2025-02-14",
+        )
+        svc._resolve_artifact_for_ref.side_effect = [left, right]
+
+        result = run_compare_intent(
+            svc,
+            _SESSION,
+            {
+                "left_ref": {
+                    "step_id": "step_left",
+                    "session_id": _SESSION,
+                    "step_type": "observe",
+                },
+                "right_ref": {
+                    "step_id": "step_right",
+                    "session_id": _SESSION,
+                    "step_type": "observe",
+                },
+                "mode": "time_series",
+            },
+        )
+
+        self.assertEqual(
+            result["analytical_metadata"]["pairing_basis"], "calendar_aligned_observation_windows"
+        )
+        self.assertEqual(
+            result["analytical_metadata"]["pairing_rule"], "calendar_aligned_bucket_pairing"
+        )
+        self.assertEqual(result["summary_left_value"], 10.0)
+        self.assertEqual(result["summary_right_value"], 9.0)
+        self.assertEqual(result["summary_absolute_delta"], 1.0)
+        self.assertEqual(
+            result["analytical_metadata"]["matched_left_time_scope"],
+            {"kind": "range", "start": "2026-02-14", "end": "2026-02-15"},
+        )
+        self.assertEqual(
+            result["analytical_metadata"]["matched_right_time_scope"],
+            {"kind": "range", "start": "2025-02-14", "end": "2025-02-15"},
+        )
+        self.assertEqual(result["rows"][0]["left_value"], 10.0)
+        self.assertEqual(result["rows"][0]["right_value"], 9.0)
 
     def test_compare_time_series_missing_granularity_fails(self) -> None:
         from app.intents.compare import run_compare_intent
@@ -1953,6 +2038,8 @@ class TestDecomposeRunnerCommitPath(unittest.TestCase):
                     "right_scope": {},
                 },
                 "analytical_metadata": {
+                    "pairing_basis": "calendar_aligned_observation_windows",
+                    "pairing_rule": "calendar_aligned_bucket_pairing",
                     "matched_bucket_count": 7,
                     "dropped_left_buckets": 0,
                     "dropped_right_buckets": 0,
@@ -1960,6 +2047,16 @@ class TestDecomposeRunnerCommitPath(unittest.TestCase):
                         "kind": "range",
                         "start": "2024-01-01",
                         "end": "2024-01-08",
+                    },
+                    "matched_left_time_scope": {
+                        "kind": "range",
+                        "start": "2024-01-01",
+                        "end": "2024-01-08",
+                    },
+                    "matched_right_time_scope": {
+                        "kind": "range",
+                        "start": "2023-01-01",
+                        "end": "2023-01-08",
                     },
                 },
             },
@@ -1974,6 +2071,10 @@ class TestDecomposeRunnerCommitPath(unittest.TestCase):
             "time_series_summary_delta",
         )
         self.assertEqual(result["analytical_metadata"]["source_granularity"], "day")
+        self.assertEqual(
+            result["analytical_metadata"]["source_pairing_basis"],
+            "calendar_aligned_observation_windows",
+        )
 
 
 # ── detect ────────────────────────────────────────────────────────────────────

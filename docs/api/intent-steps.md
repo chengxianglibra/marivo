@@ -268,7 +268,7 @@ Unsupported comparisons include:
 
 Success returns `CompareResponse`, which is one of `ScalarDeltaArtifact`, `SegmentedDeltaArtifact`, or `TimeSeriesDeltaArtifact`. All success payloads include comparability metadata, resolved input summary, source lineage, and execution metadata.
 
-`time_series_delta` returns ordered bucket-level delta rows plus aligned-window summary fields. In v1, `decompose` may consume this compare artifact and attribute the aligned summary delta, but downstream derived flows such as `attribute` and `diagnose` still only expand through internal `compare(mode = "scalar")`.
+`time_series_delta` returns ordered bucket-level delta rows plus aligned-window summary fields. When both upstream observations freeze compatible calendar alignment metadata, compare reuses the frozen bucket pairing as its canonical current-vs-baseline basis and records that choice in analytical metadata. In v1, `decompose` may consume this compare artifact and attribute the aligned summary delta, but downstream derived flows such as `attribute` and `diagnose` still only expand through internal `compare(mode = "scalar")`.
 
 Recommended semantic error codes:
 
@@ -293,7 +293,7 @@ Supported inputs:
 - the metric must be additive
 - the metric must declare the requested dimension decomposable
 
-When `compare_ref` resolves to `time_series_delta`, `decompose` attributes the compare artifact's aligned-window summary delta (`summary_*` fields), not each bucket row independently. If `matched_time_scope` is present in compare analytical metadata, the grouped recomputation window must reuse that matched aligned range.
+When `compare_ref` resolves to `time_series_delta`, `decompose` attributes the compare artifact's aligned-window summary delta (`summary_*` fields), not each bucket row independently. If `matched_left_time_scope` / `matched_right_time_scope` are present in compare analytical metadata, the grouped recomputation windows must reuse those per-side matched ranges. For backward compatibility, `matched_time_scope` may still be used when the same aligned range applies to both sides.
 
 Unsupported inputs include:
 

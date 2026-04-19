@@ -289,6 +289,14 @@ type CompareAnalyticalMetadata = {
   flat_tolerance_relative: number;
   left_row_count: number | null;
   right_row_count: number | null;
+  pairing_basis?: "observed_series" | "calendar_aligned_observation_windows";
+  pairing_rule?: "intersection_by_time_bucket" | "calendar_aligned_bucket_pairing";
+  matched_bucket_count?: number;
+  dropped_left_buckets?: number;
+  dropped_right_buckets?: number;
+  matched_time_scope?: ResolvedTimeScope | null;
+  matched_left_time_scope?: ResolvedTimeScope | null;
+  matched_right_time_scope?: ResolvedTimeScope | null;
 };
 
 type ExecutionMetadata = {
@@ -346,6 +354,13 @@ type TimeSeriesDeltaArtifact = CompareBase & {
 ```
 
 `resolved_input_summary` 是从上游观测工件（observation artifact）确定性派生出的只读溯源摘要，用于说明 compare 所比较的已解析上下文。它必须保留规范 `Scope` 的完整 shape（`constraints + predicate`），而不是只保留 predicate。它不是新的步骤级输入契约，也不替代 Factum 现有的 `time_scope` / `scope` 设计。
+
+对于 `time_series_delta`：
+
+- 默认 `pairing_basis = "observed_series"`，`pairing_rule = "intersection_by_time_bucket"`
+- 若左右 observation 都冻结了兼容的 calendar alignment metadata，compare 应复用 `resolved_policy_summary.bucket_pairing` 生成 canonical 的 current-vs-baseline bucket pairing，此时 `pairing_basis = "calendar_aligned_observation_windows"`，`pairing_rule = "calendar_aligned_bucket_pairing"`
+- `summary_*`、`matched_bucket_count` 与 dropped bucket 统计必须全部基于同一 pairing basis
+- `matched_left_time_scope` / `matched_right_time_scope` 表示左右两侧真正参与 summary 对账的窗口；`matched_time_scope` 保留为向后兼容的摘要字段，并在两侧窗口一致时可直接复用
 
 calendar alignment 分层补充：
 

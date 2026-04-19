@@ -163,7 +163,7 @@ v1 支持的输入形态如下：
 
 v1 要求 `compare_ref` 解析到 `scalar_delta` 或 `time_series_delta`，而不是 `segmented_delta`。
 
-当上游是 `time_series_delta` 时，`decompose` 解释的是 compare 已对齐 bucket 之后的 summary delta，而不是为每个时间 bucket 单独生成一组 contribution rows。若 compare analytical metadata 提供 `matched_time_scope`，`decompose` 的 grouped 重算必须复用该 matched 范围，以保持与 summary delta 同一对账边界。
+当上游是 `time_series_delta` 时，`decompose` 解释的是 compare 已对齐 bucket 之后的 summary delta，而不是为每个时间 bucket 单独生成一组 contribution rows。若 compare analytical metadata 提供 `matched_left_time_scope` / `matched_right_time_scope`，`decompose` 的 grouped 重算必须分别复用左右两侧的 matched 范围；若只有兼容字段 `matched_time_scope`，则可继续将其同时视作两侧范围，以保持与 summary delta 同一对账边界。
 
 原因：
 
