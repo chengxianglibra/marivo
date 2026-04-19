@@ -1,14 +1,4 @@
 repos:
-  - repo: local
-    hooks:
-      - id: pytest
-        name: pytest
-        entry: .venv/bin/pytest
-        language: system
-        types: [python]
-        pass_filenames: false
-        args: [-x, -q]
-
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.8
     hooks:
@@ -35,3 +25,13 @@ repos:
       - id: check-merge-conflict
       - id: debug-statements
       - id: check-toml
+
+  - repo: local
+    hooks:
+      - id: pytest
+        name: pytest
+        entry: .venv/bin/pytest
+        language: system
+        types: [python]
+        pass_filenames: false
+        args: [-x, -q]
