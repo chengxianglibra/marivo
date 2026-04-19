@@ -206,6 +206,13 @@ class CompatibilityProfileListItem(ObjectListItemBase):
         description="Kind of subject: metric, process, or binding."
     )
     subject_ref: str = Field(description="Reference to the subject object.")
+    system_managed: bool = Field(
+        default=False, description="Whether the item is a builtin read-only compatibility surface."
+    )
+    catalog_source: str | None = Field(
+        default=None,
+        description="Optional discovery source identifier for builtin compatibility surfaces.",
+    )
 
 
 class CompatibilityProfileResponse(ObjectResponseBase):
@@ -231,6 +238,14 @@ class CompatibilityProfileResponse(ObjectResponseBase):
     )
     capability: ProcessCapability | None = Field(
         default=None, description="Capability payload, if profile_kind='capability'."
+    )
+    system_managed: bool = Field(
+        default=False,
+        description="Whether the profile is a builtin read-only compatibility surface.",
+    )
+    catalog_source: str | None = Field(
+        default=None,
+        description="Optional discovery source identifier for builtin compatibility surfaces.",
     )
 
 

@@ -150,6 +150,32 @@ class CatalogQueryTests(unittest.TestCase):
             )
         )
 
+    def test_search_calendar_policy(self) -> None:
+        resp = self.client.get("/catalog/search?q=holiday&type=calendar_policy")
+        self.assertEqual(resp.status_code, 200)
+        results = resp.json()
+        self.assertTrue(
+            any(
+                r["ref"] == "calendar_policy.holiday_yoy"
+                and r["object_kind"] == "calendar_policy"
+                and r["readiness_status"] == "ready"
+                and r["comparison_basis"] == "yoy"
+                for r in results
+            )
+        )
+
+    def test_resolve_calendar_policy(self) -> None:
+        resp = self.client.get("/semantic/resolve/calendar_policy.holiday_yoy")
+        self.assertEqual(resp.status_code, 200)
+        result = resp.json()
+        self.assertEqual(result["object_kind"], "calendar_policy")
+        self.assertEqual(result["ref"], "calendar_policy.holiday_yoy")
+        self.assertEqual(result["semantic_object"]["comparison_basis"], "yoy")
+        self.assertEqual(result["semantic_object"]["resolved_alignment_mode"], "holiday_cluster")
+        self.assertTrue(
+            result["semantic_object"]["capabilities"]["supports_observe_calendar_alignment"]
+        )
+
     def test_search_rejects_invalid_type_filter(self) -> None:
         resp = self.client.get("/catalog/search?q=watch&type=profile")
         self.assertEqual(resp.status_code, 400)
@@ -251,6 +277,12 @@ class CatalogQueryTests(unittest.TestCase):
         self.assertIn("entities", ctx)
         self.assertIn("available_step_types", ctx)
         self.assertIn("metric_query", ctx["available_step_types"])
+        self.assertTrue(
+            any(
+                policy["policy_ref"] == "calendar_policy.holiday_yoy"
+                for policy in ctx["calendar_policies"]
+            )
+        )
         self.assertFalse(
             any(metric["header"]["metric_ref"] == "metric.watch_time" for metric in ctx["metrics"])
         )

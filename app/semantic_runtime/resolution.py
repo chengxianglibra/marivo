@@ -4,6 +4,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, cast
 
+from app.analysis_core.calendar_policy import calendar_policy_catalog_entry
 from app.semantic_readiness import ObjectKind, SemanticReadinessService
 from app.semantic_runtime.dimensions import resolve_entity_binding_dimensions
 from app.semantic_runtime.errors import (
@@ -524,6 +525,7 @@ class SemanticResolver:
         "dimension": "dimension_contract_id",
         "time": "time_contract_id",
         "binding": "binding_id",
+        "calendar_policy": "policy_ref",
     }
     _REF_FIELDS: ClassVar[dict[str, str]] = {
         "entity": "entity_ref",
@@ -532,6 +534,7 @@ class SemanticResolver:
         "dimension": "dimension_ref",
         "time": "time_ref",
         "binding": "binding_ref",
+        "calendar_policy": "policy_ref",
     }
 
     def __init__(self, metadata: MetadataStore) -> None:
@@ -565,6 +568,45 @@ class SemanticResolver:
             raise SemanticRuntimeInvalidRefError(
                 f"Unsupported semantic ref: {semantic_ref}",
                 semantic_ref=semantic_ref,
+            )
+        if object_kind == "calendar_policy":
+            entry = calendar_policy_catalog_entry(semantic_ref)
+            resolved = ResolvedSemanticObject(
+                object_kind="calendar_policy",
+                object_id=entry.object_id,
+                ref=entry.policy_ref,
+                semantic_object={
+                    "policy_ref": entry.policy_ref,
+                    "display_name": entry.display_name,
+                    "description": entry.description,
+                    "comparison_basis": entry.comparison_basis,
+                    "resolved_alignment_mode": entry.resolved_alignment_mode,
+                    "resolved_calendar_source": entry.resolved_calendar_source,
+                    "window_tags": list(entry.window_tags),
+                    "use_when": list(entry.use_when),
+                    "avoid_when": list(entry.avoid_when),
+                    "matching_strategy_summary": list(entry.matching_strategy_summary),
+                    "fallback_strategy": list(entry.fallback_strategy),
+                    "coverage_behavior": entry.coverage_behavior,
+                    "system_managed": entry.system_managed,
+                    "catalog_source": entry.catalog_source,
+                    "status": entry.status,
+                    "revision": entry.revision,
+                    "created_at": entry.created_at,
+                    "updated_at": entry.updated_at,
+                },
+                status=entry.status,
+                revision=entry.revision,
+                created_at=entry.created_at,
+                updated_at=entry.updated_at,
+            )
+            return RuntimeSemanticAvailability(
+                resolved=resolved,
+                lifecycle_status=entry.lifecycle_status,
+                readiness_status=entry.readiness_status,
+                blocking_requirements=[],
+                capabilities={"supports_observe_calendar_alignment": True},
+                dependency_refs=[],
             )
 
         loaded = self.loader.load_by_ref(semantic_ref, published_only=False)
@@ -755,6 +797,7 @@ _DEPENDENCY_PREFIXES = (
     "enum.",
     "binding.",
     "compiler_profile.",
+    "calendar_policy.",
     "subject.",
     "source_object.",
 )

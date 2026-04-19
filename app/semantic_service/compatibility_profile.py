@@ -4,6 +4,7 @@ import json
 from typing import Any, ClassVar, Literal
 from uuid import uuid4
 
+from app.analysis_core.calendar_policy import list_calendar_policy_catalog_entries
 from app.api.models.compatibility_profile import (
     CompatibilityProfileCreateRequest,
     CompatibilityProfileUpdateRequest,
@@ -55,6 +56,9 @@ class CompatibilityProfileService(SemanticServiceSupport):
         return self.get_compatibility_profile(profile_id)
 
     def read_compatibility_profile(self, profile_identifier: str) -> dict[str, Any]:
+        builtin = self._builtin_calendar_policy_profile(profile_identifier)
+        if builtin is not None:
+            return builtin
         row = self.metadata.query_one(
             "SELECT * FROM compiler_compatibility_profiles WHERE profile_id = ?",
             [profile_identifier],
@@ -69,6 +73,9 @@ class CompatibilityProfileService(SemanticServiceSupport):
         return self._row_to_compatibility_profile(row)
 
     def get_compatibility_profile(self, profile_id: str) -> dict[str, Any]:
+        builtin = self._builtin_calendar_policy_profile(profile_id)
+        if builtin is not None:
+            return builtin
         row = self.metadata.query_one(
             "SELECT * FROM compiler_compatibility_profiles WHERE profile_id = ?",
             [profile_id],
@@ -105,11 +112,20 @@ class CompatibilityProfileService(SemanticServiceSupport):
                 readiness_status=readiness_status,
             )
         ]
+        if status in (None, "published"):
+            for entry in list_calendar_policy_catalog_entries():
+                builtin = self._builtin_calendar_policy_profile(entry.policy_ref, mode=mode)
+                if builtin is None:
+                    continue
+                if self._matches_readiness_filter(builtin, readiness_status=readiness_status):
+                    items.append(builtin)
+        items.sort(key=lambda item: str(item["profile_ref"]))
         return {"items": items, "total": len(items)}
 
     def update_compatibility_profile(
         self, profile_id: str, payload: CompatibilityProfileUpdateRequest
     ) -> dict[str, Any]:
+        self._reject_builtin_calendar_policy_action(profile_id, action="update")
         current = self.get_compatibility_profile(profile_id)
         self._require_lifecycle_action_status(
             action="activate",
@@ -153,6 +169,7 @@ class CompatibilityProfileService(SemanticServiceSupport):
         return self.get_compatibility_profile(profile_id)
 
     def validate_compatibility_profile(self, profile_id: str) -> dict[str, Any]:
+        self._reject_builtin_calendar_policy_action(profile_id, action="validate")
         current = self.get_compatibility_profile(profile_id)
         self._validate_record(
             object_id=profile_id,
@@ -167,6 +184,7 @@ class CompatibilityProfileService(SemanticServiceSupport):
         return self.get_compatibility_profile(profile_id)
 
     def activate_compatibility_profile(self, profile_id: str) -> dict[str, Any]:
+        self._reject_builtin_calendar_policy_action(profile_id, action="activate")
         current = self.get_compatibility_profile(profile_id)
         self._require_lifecycle_action_status(
             action="activate",
@@ -199,6 +217,7 @@ class CompatibilityProfileService(SemanticServiceSupport):
         return self.get_compatibility_profile(profile_id)
 
     def deprecate_compatibility_profile(self, profile_id: str) -> dict[str, Any]:
+        self._reject_builtin_calendar_policy_action(profile_id, action="deprecate")
         current = self.get_compatibility_profile(profile_id)
         self._deprecate_record(
             table_name="compiler_compatibility_profiles",
@@ -210,7 +229,62 @@ class CompatibilityProfileService(SemanticServiceSupport):
         return self.get_compatibility_profile(profile_id)
 
     def publish_compatibility_profile(self, profile_id: str) -> dict[str, Any]:
+        self._reject_builtin_calendar_policy_action(profile_id, action="publish")
         return self.activate_compatibility_profile(profile_id)
+
+    def _builtin_calendar_policy_profile(
+        self, identifier: str, mode: Literal["list", "detail"] = "detail"
+    ) -> dict[str, Any] | None:
+        for entry in list_calendar_policy_catalog_entries():
+            if identifier not in {entry.policy_ref, entry.object_id}:
+                continue
+            profile: dict[str, Any] = {
+                "profile_id": entry.object_id,
+                "profile_ref": entry.policy_ref,
+                "subject_kind": "binding",
+                "subject_ref": "binding.calendar_alignment",
+                "status": entry.status,
+                "revision": entry.revision,
+                "created_at": entry.created_at,
+                "updated_at": entry.updated_at,
+                "system_managed": True,
+                "catalog_source": entry.catalog_source,
+                "lifecycle_status": entry.lifecycle_status,
+                "readiness_status": entry.readiness_status,
+                "blocking_requirements": [],
+                "capabilities": {"supports_observe_calendar_alignment": True},
+                "dependency_refs": [],
+                "dependent_refs": [],
+            }
+            if mode == "detail":
+                profile["profile_kind"] = "capability"
+                profile["schema_version"] = "v1"
+                profile["subject_revision"] = 1
+                profile["requirement"] = None
+                profile["capability"] = {
+                    "inferential_ready": True,
+                    "supported_sample_summaries": [],
+                }
+                profile["semantic"] = {
+                    "comparison_basis": entry.comparison_basis,
+                    "resolved_alignment_mode": entry.resolved_alignment_mode,
+                    "resolved_calendar_source": entry.resolved_calendar_source,
+                    "use_when": list(entry.use_when),
+                    "avoid_when": list(entry.avoid_when),
+                    "matching_strategy_summary": list(entry.matching_strategy_summary),
+                    "fallback_strategy": list(entry.fallback_strategy),
+                    "coverage_behavior": entry.coverage_behavior,
+                }
+            return profile
+        return None
+
+    def _reject_builtin_calendar_policy_action(self, identifier: str, *, action: str) -> None:
+        if self._builtin_calendar_policy_profile(identifier, mode="list") is None:
+            return
+        raise self._validation_error(
+            f"Compatibility profile {identifier} is a system-managed builtin calendar policy and "
+            f"does not support {action}."
+        )
 
     def _validate_profile_kind_subject_kind(self, profile_kind: str, subject_kind: str) -> None:
         valid_subjects = self._VALID_SUBJECT_KIND_FOR_PROFILE_KIND.get(profile_kind)

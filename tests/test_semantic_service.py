@@ -41,6 +41,35 @@ class SemanticServiceFacadeTests(unittest.TestCase):
             CompatibilityProfileService,
         )
 
+    def test_compatibility_profile_list_includes_builtin_calendar_policies(self) -> None:
+        listed = self.service.list_compatibility_profiles(readiness_status="ready")
+
+        holiday = next(
+            item for item in listed["items"] if item["profile_ref"] == "calendar_policy.holiday_yoy"
+        )
+        self.assertEqual(holiday["status"], "published")
+        self.assertEqual(holiday["lifecycle_status"], "active")
+        self.assertEqual(holiday["readiness_status"], "ready")
+        self.assertTrue(holiday["system_managed"])
+        self.assertEqual(holiday["catalog_source"], "builtin_calendar_policy")
+
+    def test_builtin_calendar_policy_profile_is_read_only(self) -> None:
+        detail = self.service.read_compatibility_profile("calendar_policy.holiday_yoy")
+        self.assertEqual(detail["profile_ref"], "calendar_policy.holiday_yoy")
+        self.assertTrue(detail["system_managed"])
+        self.assertEqual(detail["semantic"]["resolved_alignment_mode"], "holiday_cluster")
+
+        with self.assertRaisesRegex(ValueError, "system-managed builtin calendar policy"):
+            self.service.update_compatibility_profile(
+                "calendar_policy.holiday_yoy",
+                CompatibilityProfileUpdateRequest.model_validate(
+                    {"capability": {"inferential_ready": True}}
+                ),
+            )
+
+        with self.assertRaisesRegex(ValueError, "system-managed builtin calendar policy"):
+            self.service.publish_compatibility_profile("calendar_policy.holiday_yoy")
+
     def test_facade_delegates_typed_entity_operations(self) -> None:
         entity = self.service.create_typed_entity(
             TypedEntityCreateRequest.model_validate(

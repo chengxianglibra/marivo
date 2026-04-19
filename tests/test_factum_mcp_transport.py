@@ -711,6 +711,40 @@ def test_search_catalog_forwards_readiness_filter() -> None:
     assert result["data"] == [{"object_kind": "metric", "ref": "metric.watch_time"}]
 
 
+def test_search_catalog_allows_calendar_policy_type_filter() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/catalog/search"
+        assert dict(request.url.params) == {
+            "q": "holiday",
+            "type": "calendar_policy",
+        }
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "object_kind": "calendar_policy",
+                    "ref": "calendar_policy.holiday_yoy",
+                }
+            ],
+            request=request,
+        )
+
+    result = _invoke_registered_tool(
+        "search_catalog",
+        handler,
+        q="holiday",
+        type="calendar_policy",
+    )
+
+    assert result["ok"] is True
+    assert result["data"] == [
+        {
+            "object_kind": "calendar_policy",
+            "ref": "calendar_policy.holiday_yoy",
+        }
+    ]
+
+
 def test_search_catalog_rejects_invalid_type_filter_before_http_request() -> None:
     with pytest.raises(ValueError, match="search_catalog type must be one of"):
         _invoke_registered_tool(

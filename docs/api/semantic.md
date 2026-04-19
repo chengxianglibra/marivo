@@ -1065,8 +1065,11 @@ for modeling/admin callers.
 
 `GET /catalog/search?q=...&type=...&readiness=...`
 
-- Supported semantic `type` filters: `entity`, `metric`, `process`, `dimension`, `time`, `binding`
+- Supported semantic `type` filters: `entity`, `metric`, `process`, `dimension`, `time`,
+  `binding`, `calendar_policy`
 - `asset` remains available as a source-object discovery filter and is not a semantic object kind
+- `calendar_policy.*` results are compiler-owned builtin catalog entries. They are discoverable and
+  resolvable but do not expose public CRUD or semantic-object lifecycle operations.
 - `readiness` supports `ready` (default), `not_ready`, `stale`, and `all`
 - MCP `search_catalog(q, type=None, readiness=None)` forwards the same query parameters; omit
   `readiness` to preserve the HTTP default of `ready`

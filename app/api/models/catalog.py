@@ -47,6 +47,23 @@ class CatalogSemanticSearchResult(CatalogSearchResultBase):
     resolve_path: str
 
 
+class CatalogCalendarPolicySearchResult(CatalogSearchResultBase):
+    object_kind: Literal["calendar_policy"]
+    lifecycle_status: LifecycleStatus
+    readiness_status: ReadinessStatus
+    blocker_count: int = 0
+    blocking_requirements_preview: list[BlockingRequirement] = Field(default_factory=list)
+    capabilities_summary: dict[str, bool] = Field(default_factory=dict)
+    revision: int
+    created_at: str
+    updated_at: str
+    resolve_path: str
+    comparison_basis: str
+    resolved_alignment_mode: str
+    system_managed: bool = True
+    catalog_source: str
+
+
 class CatalogAssetSearchResult(CatalogSearchResultBase):
     object_kind: Literal["asset"]
     object_type: str
@@ -56,7 +73,7 @@ class CatalogAssetSearchResult(CatalogSearchResultBase):
 
 
 CatalogSearchResult = Annotated[
-    CatalogSemanticSearchResult | CatalogAssetSearchResult,
+    CatalogSemanticSearchResult | CatalogCalendarPolicySearchResult | CatalogAssetSearchResult,
     Field(discriminator="object_kind"),
 ]
 
@@ -86,6 +103,11 @@ class CatalogGenericSemanticDetail(CatalogSemanticDetailBase):
     semantic_object: dict[str, object]
 
 
+class CatalogCalendarPolicyDetail(CatalogSemanticDetailBase):
+    object_kind: Literal["calendar_policy"]
+    semantic_object: dict[str, object]
+
+
 class CatalogAssetDetail(BaseModel):
     object_kind: Literal["asset"]
     object_id: str
@@ -94,6 +116,10 @@ class CatalogAssetDetail(BaseModel):
 
 
 CatalogObjectDetail = Annotated[
-    CatalogEntityDetail | CatalogMetricDetail | CatalogGenericSemanticDetail | CatalogAssetDetail,
+    CatalogEntityDetail
+    | CatalogMetricDetail
+    | CatalogGenericSemanticDetail
+    | CatalogCalendarPolicyDetail
+    | CatalogAssetDetail,
     Field(discriminator="object_kind"),
 ]
