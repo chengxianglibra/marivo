@@ -332,13 +332,11 @@ Boundary notes:
 - these are path-discriminated intent tools; do not add an extra `intent` or `step_type` field to the request body
 - MCP parameter names intentionally reuse the canonical HTTP request field names
 - every typed intent tool exposes a top-level `session_id` used to fill the canonical HTTP path, while the remaining MCP parameters map directly to the canonical HTTP request body fields
-- nested MCP input schemas still reuse Factum's canonical request models; object fields such as `time_scope`, `left`, and `right` remain typed objects, not JSON-encoded strings
+- nested MCP fields such as `time_scope`, `left_ref`, `right_ref`, `source_ref`, `left`, `right`, and `hypothesis` are structured objects in the MCP contract, not JSON-encoded strings
 - `observe.time_scope` must be a canonical object, not a shorthand string; for a range use `{"kind":"range","start":"YYYY-MM-DD","end":"YYYY-MM-DD"}`
 - `observe` keeps canonical guardrails from `ObserveRequest`: `granularity` and `dimensions` are mutually exclusive, and both are only valid when `result_mode="standard"`
 - typed intent `metric` parameters must use canonical semantic refs such as `metric.watch_time`; bare names like `watch_time` are rejected
-- nested MCP input schemas now reuse Factum's canonical request models, so
-  discriminators such as `time_scope.kind`, nested required fields, and enums
-  such as `grain` are exposed directly in the tool contract
+- the adapter still validates those structured objects with Factum's canonical request models before forwarding HTTP requests, so discriminators such as `time_scope.kind`, nested required fields, and enums such as `grain` keep canonical behavior
 - tool `data` remains the raw Factum success body; the adapter does not derive a new evidence summary
 - for `422` responses, use `error.guidance.contract_url`, `error.guidance.schema_url`, and `error.guidance.examples` to repair the payload
 
@@ -622,14 +620,12 @@ Observe:
 
 ```json
 {
-  "request": {
-    "session_id": "sess_123",
-    "metric": "metric.watch_time",
-    "time_scope": {
-      "kind": "range",
-      "start": "2025-03-01",
-      "end": "2025-03-08"
-    }
+  "session_id": "sess_123",
+  "metric": "metric.watch_time",
+  "time_scope": {
+    "kind": "range",
+    "start": "2025-03-01",
+    "end": "2025-03-08"
   }
 }
 ```
@@ -683,16 +679,14 @@ Detect:
 
 ```json
 {
-  "request": {
-    "session_id": "sess_123",
-    "metric": "metric.watch_time",
-    "time_scope": {
-      "mode": "single_window",
-      "grain": "day",
-      "current": {
-        "start": "2025-03-01",
-        "end": "2025-03-08"
-      }
+  "session_id": "sess_123",
+  "metric": "metric.watch_time",
+  "time_scope": {
+    "mode": "single_window",
+    "grain": "day",
+    "current": {
+      "start": "2025-03-01",
+      "end": "2025-03-08"
     }
   }
 }
@@ -760,19 +754,17 @@ Diagnose:
 
 ```json
 {
-  "request": {
-    "session_id": "sess_123",
-    "metric": "metric.watch_time",
-    "time_scope": {
-      "mode": "single_window",
-      "grain": "day",
-      "current": {
-        "start": "2025-03-01",
-        "end": "2025-03-08"
-      }
-    },
-    "candidate_dimensions": ["dimension.country"]
-  }
+  "session_id": "sess_123",
+  "metric": "metric.watch_time",
+  "time_scope": {
+    "mode": "single_window",
+    "grain": "day",
+    "current": {
+      "start": "2025-03-01",
+      "end": "2025-03-08"
+    }
+  },
+  "candidate_dimensions": ["dimension.country"]
 }
 ```
 
@@ -780,22 +772,20 @@ Validate:
 
 ```json
 {
-  "request": {
-    "session_id": "sess_123",
-    "metric": "metric.conversion_rate",
-    "left": {
-      "time_scope": {
-        "kind": "range",
-        "start": "2025-03-01",
-        "end": "2025-03-08"
-      }
-    },
-    "right": {
-      "time_scope": {
-        "kind": "range",
-        "start": "2025-02-22",
-        "end": "2025-03-01"
-      }
+  "session_id": "sess_123",
+  "metric": "metric.conversion_rate",
+  "left": {
+    "time_scope": {
+      "kind": "range",
+      "start": "2025-03-01",
+      "end": "2025-03-08"
+    }
+  },
+  "right": {
+    "time_scope": {
+      "kind": "range",
+      "start": "2025-02-22",
+      "end": "2025-03-01"
     }
   }
 }

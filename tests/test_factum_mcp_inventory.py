@@ -128,13 +128,8 @@ def test_observe_tool_time_scope_annotation_exposes_discriminator_schema() -> No
         "Canonical object only; shorthand strings are not accepted. "
         'For a date range use {"kind":"range","start":"YYYY-MM-DD","end":"YYYY-MM-DD"}.'
     )
-    assert time_scope_schema["discriminator"]["propertyName"] == "kind"
-    assert {item["$ref"] for item in time_scope_schema["oneOf"]} == {
-        "#/$defs/ObserveTimeScopeRange",
-        "#/$defs/ObserveTimeScopeSnapshotNow",
-        "#/$defs/ObserveTimeScopeLatestAvailable",
-        "#/$defs/ObserveTimeScopeAsOf",
-    }
+    assert time_scope_schema["$ref"] == "#/$defs/JsonObject"
+    assert time_scope_schema["$defs"]["JsonObject"]["type"] == "object"
     scope_schema = TypeAdapter(hints["scope"]).json_schema()
     assert scope_schema["anyOf"][0]["$ref"] == "#/$defs/ObserveScope"
 
@@ -188,9 +183,8 @@ def test_detect_and_diagnose_time_scope_annotations_expose_grain_enum() -> None:
     detect_time_scope = TypeAdapter(get_type_hints(detect)["time_scope"]).json_schema()
     diagnose_time_scope = TypeAdapter(get_type_hints(diagnose)["time_scope"]).json_schema()
 
-    expected_grains = ["hour", "day", "week", "month"]
-    assert detect_time_scope["properties"]["grain"]["enum"] == expected_grains
-    assert diagnose_time_scope["properties"]["grain"]["enum"] == expected_grains
+    assert detect_time_scope["$defs"]["JsonObject"]["type"] == "object"
+    assert diagnose_time_scope["$defs"]["JsonObject"]["type"] == "object"
 
 
 def test_t6_tools_use_strongly_typed_nested_models_instead_of_raw_dicts() -> None:
@@ -202,59 +196,98 @@ def test_t6_tools_use_strongly_typed_nested_models_instead_of_raw_dicts() -> Non
     diagnose_hints = get_type_hints(server.tools["diagnose"])
     compare_hints = get_type_hints(server.tools["compare"])
     test_hints = get_type_hints(server.tools["test_intent"])
+    forecast_hints = get_type_hints(server.tools["forecast"])
+    attribute_hints = get_type_hints(server.tools["attribute"])
     validate_hints = get_type_hints(server.tools["validate"])
 
     observe_time_scope_schema = TypeAdapter(observe_hints["time_scope"]).json_schema()
-    assert {item["$ref"] for item in observe_time_scope_schema["oneOf"]} == {
-        "#/$defs/ObserveTimeScopeRange",
-        "#/$defs/ObserveTimeScopeSnapshotNow",
-        "#/$defs/ObserveTimeScopeLatestAvailable",
-        "#/$defs/ObserveTimeScopeAsOf",
-    }
-    assert TypeAdapter(detect_hints["time_scope"]).json_schema()["properties"]["mode"]["const"] == (
-        "single_window"
+    assert observe_time_scope_schema["$defs"]["JsonObject"]["type"] == "object"
+    assert (
+        TypeAdapter(detect_hints["time_scope"]).json_schema()["$defs"]["JsonObject"]["type"]
+        == "object"
     )
-    assert TypeAdapter(diagnose_hints["time_scope"]).json_schema()["properties"]["mode"][
-        "const"
-    ] == ("single_window")
-    assert compare_hints["left_ref"].__name__ == "ObservationRef"
-    assert compare_hints["right_ref"].__name__ == "ObservationRef"
-    assert test_hints["hypothesis"].__name__ == "HypothesisContract"
-    assert validate_hints["left"].__name__ == "ValidateObservationInput"
-    assert validate_hints["right"].__name__ == "ValidateObservationInput"
+    assert (
+        TypeAdapter(diagnose_hints["time_scope"]).json_schema()["$defs"]["JsonObject"]["type"]
+        == "object"
+    )
+    assert (
+        TypeAdapter(compare_hints["left_ref"]).json_schema()["$defs"]["JsonObject"]["type"]
+        == "object"
+    )
+    assert (
+        TypeAdapter(compare_hints["right_ref"]).json_schema()["$defs"]["JsonObject"]["type"]
+        == "object"
+    )
+    assert (
+        TypeAdapter(test_hints["left_ref"]).json_schema()["$defs"]["JsonObject"]["type"] == "object"
+    )
+    assert (
+        TypeAdapter(test_hints["right_ref"]).json_schema()["$defs"]["JsonObject"]["type"]
+        == "object"
+    )
+    assert (
+        TypeAdapter(test_hints["hypothesis"]).json_schema()["$defs"]["JsonObject"]["type"]
+        == "object"
+    )
+    assert (
+        TypeAdapter(forecast_hints["source_ref"]).json_schema()["$defs"]["JsonObject"]["type"]
+        == "object"
+    )
+    assert (
+        TypeAdapter(attribute_hints["left"]).json_schema()["$defs"]["JsonObject"]["type"]
+        == "object"
+    )
+    assert (
+        TypeAdapter(attribute_hints["right"]).json_schema()["$defs"]["JsonObject"]["type"]
+        == "object"
+    )
+    assert (
+        TypeAdapter(validate_hints["left"]).json_schema()["$defs"]["JsonObject"]["type"] == "object"
+    )
+    assert (
+        TypeAdapter(validate_hints["right"]).json_schema()["$defs"]["JsonObject"]["type"]
+        == "object"
+    )
 
 
-def test_validate_tool_schema_keeps_nested_left_right_objects() -> None:
+def test_nested_object_params_still_validate_against_canonical_models() -> None:
     server = cast("Any", _FakeServer())
     register_tools(server, _build_config())
 
-    validate = server.tools["validate"]
-    hints = get_type_hints(validate)
-    left_schema = TypeAdapter(hints["left"]).json_schema()
-    right_schema = TypeAdapter(hints["right"]).json_schema()
+    tools_module_any = cast("Any", tools_module)
+    assert tools_module_any._require_observe_time_scope_object(
+        {"kind": "range", "start": "2026-04-01", "end": "2026-04-15"}
+    ) == {"kind": "range", "start": "2026-04-01", "end": "2026-04-15"}
+    assert tools_module_any._require_structured_object(
+        {"step_id": "step_123", "step_type": "observe"},
+        field_name="left_ref",
+    ) == {"step_id": "step_123", "step_type": "observe"}
 
-    assert left_schema["properties"]["time_scope"]["discriminator"]["propertyName"] == "kind"
-    assert right_schema["properties"]["time_scope"]["discriminator"]["propertyName"] == "kind"
+    with pytest.raises(ValueError, match=r"observe\.time_scope requires canonical object shape"):
+        tools_module_any._require_observe_time_scope_object('{"kind":"range"}')
+
+    with pytest.raises(ValueError, match="Pass a structured object, not a JSON-encoded string"):
+        tools_module_any._require_structured_object('{"step_id":"step_123"}', field_name="left_ref")
 
 
-def test_attribute_tool_schema_keeps_nested_left_right_objects() -> None:
-    server = cast("Any", _FakeServer())
+def test_typed_intent_tool_runtime_schema_uses_objects_not_strings() -> None:
+    mcp_module = pytest.importorskip("mcp.server.fastmcp")
+    server = mcp_module.FastMCP("test")
     register_tools(server, _build_config())
 
-    attribute = server.tools["attribute"]
-    hints = get_type_hints(attribute)
-    left_schema = TypeAdapter(hints["left"]).json_schema()
-    right_schema = TypeAdapter(hints["right"]).json_schema()
+    cases = {
+        "observe": "time_scope",
+        "compare": "left_ref",
+        "correlate": "left_ref",
+        "detect": "time_scope",
+        "test_intent": "hypothesis",
+        "forecast": "source_ref",
+        "attribute": "left",
+        "diagnose": "time_scope",
+        "validate": "left",
+    }
 
-    assert left_schema["properties"]["time_scope"]["discriminator"]["propertyName"] == "kind"
-    assert right_schema["properties"]["time_scope"]["discriminator"]["propertyName"] == "kind"
-
-
-def test_attribute_tool_uses_strongly_typed_nested_models() -> None:
-    server = cast("Any", _FakeServer())
-    register_tools(server, _build_config())
-
-    attribute_hints = get_type_hints(server.tools["attribute"])
-
-    assert attribute_hints["left"].__name__ == "AttributeObservationInput"
-    assert attribute_hints["right"].__name__ == "AttributeObservationInput"
+    for tool_name, field_name in cases.items():
+        tool = server._tool_manager.get_tool(tool_name)
+        assert tool is not None
+        assert tool.parameters["properties"][field_name]["type"] == "object"
