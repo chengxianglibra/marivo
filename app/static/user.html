@@ -1,0 +1,3583 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Factum Query Workbench</title>
+<link rel="stylesheet" href="/static/shared.css">
+<style>
+.page-intro {
+  margin-bottom: var(--space-xl);
+}
+
+.page-intro h2 {
+  margin-bottom: var(--space-sm);
+  font-size: var(--font-size-xl);
+}
+
+.page-intro p {
+  max-width: 760px;
+  color: var(--color-text-secondary);
+}
+
+.shell-grid {
+  display: grid;
+  gap: var(--space-lg);
+}
+
+.shell-card-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  margin-bottom: var(--space-lg);
+}
+
+.shell-card-title h3 {
+  margin: 0;
+  font-size: var(--font-size-md);
+}
+
+.shell-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: var(--radius-full);
+  background: var(--color-info-bg);
+  color: var(--color-info);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.shell-controls,
+.shell-results {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.shell-control {
+  padding: var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg);
+}
+
+.shell-control-label {
+  margin-bottom: 4px;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.shell-control-copy,
+.shell-results-copy {
+  color: var(--color-text-secondary);
+}
+
+.shell-status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-md);
+}
+
+.shell-status {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  padding: var(--space-md);
+}
+
+.shell-status strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: var(--font-size-sm);
+}
+
+.sessions-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(320px, 1fr);
+  gap: var(--space-lg);
+}
+
+.sessions-stack {
+  display: grid;
+  gap: var(--space-lg);
+}
+
+.sessions-filters {
+  display: grid;
+  grid-template-columns: minmax(160px, 220px) minmax(220px, 1fr) auto auto;
+  gap: var(--space-md);
+  align-items: end;
+}
+
+.sessions-table-wrap {
+  overflow-x: auto;
+}
+
+.sessions-table tr.is-selected td {
+  background: var(--color-primary-light);
+}
+
+.sessions-table td.actions-cell {
+  white-space: nowrap;
+}
+
+.sessions-table .btn {
+  margin-right: var(--space-xs);
+  margin-bottom: var(--space-xs);
+}
+
+.state-layout {
+  display: grid;
+  gap: var(--space-lg);
+}
+
+.state-filters {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-md);
+  align-items: end;
+}
+
+.state-summary-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(320px, 1fr);
+  gap: var(--space-lg);
+}
+
+.state-results-stack,
+.state-sidebar {
+  display: grid;
+  gap: var(--space-lg);
+}
+
+.state-sidebar-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+}
+
+.state-sidebar-tabs .btn.is-active {
+  border-color: var(--color-primary);
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+}
+
+.subject-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.subject-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  background: #ecfeff;
+  color: #155e75;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+}
+
+.state-meta-note {
+  margin-top: var(--space-sm);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.state-table-wrap {
+  overflow-x: auto;
+}
+
+.state-table td.actions-cell {
+  white-space: nowrap;
+}
+
+.state-table tr.is-selected td {
+  background: var(--color-primary-light);
+}
+
+.state-subject {
+  display: grid;
+  gap: 4px;
+}
+
+.state-subject-main {
+  font-weight: 600;
+}
+
+.state-subject-meta {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+.state-empty,
+.state-error {
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  background: var(--color-bg);
+  color: var(--color-text-secondary);
+}
+
+.state-error {
+  border-color: #fecaca;
+  background: var(--color-error-bg);
+  color: #991b1b;
+}
+
+.state-detail-list {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.state-detail-item {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-md);
+  background: var(--color-bg);
+}
+
+.state-detail-item h4 {
+  margin-bottom: var(--space-xs);
+  font-size: var(--font-size-sm);
+}
+
+.panel-note {
+  margin-top: var(--space-sm);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.inline-code {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background: #eef2ff;
+  color: #3730a3;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+}
+
+.detail-grid {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.detail-group {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-md);
+  background: var(--color-bg);
+}
+
+.detail-group h4 {
+  margin-bottom: var(--space-xs);
+  font-size: var(--font-size-sm);
+}
+
+.detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+}
+
+.detail-empty,
+.detail-error,
+.list-empty,
+.list-error {
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  background: var(--color-bg);
+  color: var(--color-text-secondary);
+}
+
+.detail-error,
+.list-error {
+  border-color: #fecaca;
+  background: var(--color-error-bg);
+  color: #991b1b;
+}
+
+.list-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
+}
+
+.results-count {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.session-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
+}
+
+.session-header h3 {
+  margin: 0;
+  font-size: var(--font-size-lg);
+}
+
+.session-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+}
+
+.json-pre {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.context-layout,
+.context-stack,
+.context-grid {
+  display: grid;
+  gap: var(--space-lg);
+}
+
+.context-grid {
+  grid-template-columns: minmax(0, 1.4fr) minmax(320px, 1fr);
+}
+
+.context-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+
+.context-header h3 {
+  margin: 0;
+  font-size: var(--font-size-lg);
+}
+
+.context-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+}
+
+.context-section-list {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.context-section-item {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-md);
+  background: var(--color-bg);
+}
+
+.context-section-item h4 {
+  margin-bottom: var(--space-xs);
+  font-size: var(--font-size-sm);
+}
+
+.context-inline-meta {
+  margin-top: var(--space-sm);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.runtime-layout,
+.runtime-stack,
+.runtime-grid {
+  display: grid;
+  gap: var(--space-lg);
+}
+
+.runtime-grid {
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 1fr);
+}
+
+.runtime-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-md);
+}
+
+.runtime-summary-card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-md);
+  background: var(--color-bg);
+}
+
+.runtime-summary-card h4 {
+  margin-bottom: var(--space-xs);
+  font-size: var(--font-size-sm);
+}
+
+.runtime-meta-grid {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.grounding-layout,
+.grounding-stack,
+.grounding-sidebar {
+  display: grid;
+  gap: var(--space-lg);
+}
+
+.grounding-layout {
+  grid-template-columns: minmax(320px, 380px) minmax(0, 1fr);
+}
+
+.grounding-search-form {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.grounding-search-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(140px, 180px);
+  gap: var(--space-md);
+  align-items: end;
+}
+
+.grounding-result-list {
+  display: grid;
+  gap: var(--space-sm);
+}
+
+.grounding-result-item {
+  width: 100%;
+  padding: var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg);
+  text-align: left;
+  cursor: pointer;
+}
+
+.grounding-result-item.is-selected {
+  border-color: var(--color-primary);
+  background: var(--color-primary-light);
+}
+
+.grounding-result-item h4 {
+  margin-bottom: var(--space-xs);
+  font-size: var(--font-size-sm);
+}
+
+.grounding-result-meta {
+  display: grid;
+  gap: 4px;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+.grounding-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+
+.grounding-card-header h3 {
+  margin: 0;
+  font-size: var(--font-size-md);
+}
+
+@media (max-width: 768px) {
+  .shell-card-title {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .sessions-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .state-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .context-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .runtime-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .grounding-layout,
+  .grounding-search-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .state-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .sessions-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .list-meta,
+  .session-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+</style>
+</head>
+<body>
+
+<div class="app-layout">
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      Factum
+      <small>Query Workbench</small>
+    </div>
+
+    <div class="sidebar-section">Read Surfaces</div>
+    <ul class="sidebar-nav">
+      <li class="active">
+        <button data-tab="sessions">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+            <polyline points="2 17 12 22 22 17"></polyline>
+            <polyline points="2 12 12 17 22 12"></polyline>
+          </svg>
+          <span class="nav-label">Sessions</span>
+        </button>
+      </li>
+      <li>
+        <button data-tab="state">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 19h16"></path>
+            <path d="M7 16V8"></path>
+            <path d="M12 16V5"></path>
+            <path d="M17 16v-3"></path>
+          </svg>
+          <span class="nav-label">State</span>
+        </button>
+      </li>
+      <li>
+        <button data-tab="context">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 18h6"></path>
+            <path d="M10 22h4"></path>
+            <path d="M12 2v8"></path>
+            <path d="m4.93 10.93 1.41 1.41"></path>
+            <path d="M2 18h2"></path>
+            <path d="M20 18h2"></path>
+            <path d="m19.07 10.93-1.41 1.41"></path>
+            <path d="M22 22H2"></path>
+          </svg>
+          <span class="nav-label">Context</span>
+        </button>
+      </li>
+      <li>
+        <button data-tab="runtime">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+          </svg>
+          <span class="nav-label">Runtime</span>
+        </button>
+      </li>
+      <li>
+        <button data-tab="grounding">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22a10 10 0 1 0-10-10"></path>
+            <path d="M12 8a4 4 0 1 1-4 4"></path>
+            <path d="M12 2v4"></path>
+            <path d="M2 12h4"></path>
+            <path d="m19 5-2.5 2.5"></path>
+            <path d="M22 22 12 12"></path>
+          </svg>
+          <span class="nav-label">Grounding</span>
+        </button>
+      </li>
+      <li>
+        <button data-tab="jobs">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="4" width="18" height="18" rx="2"></rect>
+            <path d="M16 2v4"></path>
+            <path d="M8 2v4"></path>
+            <path d="M3 10h18"></path>
+            <path d="M8 14h.01"></path>
+            <path d="M12 14h.01"></path>
+            <path d="M16 14h.01"></path>
+            <path d="M8 18h.01"></path>
+            <path d="M12 18h.01"></path>
+          </svg>
+          <span class="nav-label">Jobs</span>
+        </button>
+      </li>
+    </ul>
+
+    <div class="sidebar-footer">
+      <a href="/admin">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        </svg>
+        <span>Admin UI</span>
+      </a>
+    </div>
+  </aside>
+
+  <div class="content-area">
+    <div class="content-header">
+      <div class="breadcrumb">
+        <span>Query Workbench</span>
+        <span class="sep">/</span>
+        <span class="current">Sessions</span>
+      </div>
+    </div>
+
+    <div class="content-body">
+      <div class="panel active" id="panel-sessions"></div>
+      <div class="panel" id="panel-state"></div>
+      <div class="panel" id="panel-context"></div>
+      <div class="panel" id="panel-runtime"></div>
+      <div class="panel" id="panel-grounding"></div>
+      <div class="panel" id="panel-jobs"></div>
+    </div>
+  </div>
+</div>
+
+<script src="/static/shared.js"></script>
+<script>
+const SHELL_PAGE_CONFIG = {
+  sessions: {
+    title: 'Sessions',
+    summary: 'Browse existing analysis sessions and move into canonical or runtime read surfaces without creating or changing analysis state from this page.',
+    controls: [
+      ['Session Filters', 'Status and session lookup controls will land here in T3.'],
+      ['Navigation', 'Session-driven links into State, Runtime, Grounding, and Jobs will be added in T3.'],
+    ],
+    resultTitle: 'Session Query Surface',
+    resultCopy: 'This workbench is read-only. T3 will replace this placeholder with session list, detail, and drill-in views.',
+    statuses: [
+      ['Empty State', 'No analysis sessions are available to inspect yet.'],
+      ['Error State', 'Session listing and detail lookup failures will render here.'],
+    ],
+  },
+  state: {
+    title: 'State',
+    summary: 'Inspect externally visible canonical state for a selected session without mixing in runtime queue or retry details.',
+    controls: [
+      ['Canonical Filters', 'Metric, entity, assessment, origin, and limit controls will land here in T4.'],
+      ['Primary Result', 'Active propositions remain the main reading surface.'],
+    ],
+    resultTitle: 'Canonical State Surface',
+    resultCopy: 'T4 will attach focus subjects, proposition rows, findings references, and gap detail to this panel.',
+    statuses: [
+      ['Empty State', 'No externally visible propositions for the selected session.'],
+      ['Error State', 'State query validation and transport failures will render here.'],
+    ],
+  },
+  context: {
+    title: 'Context',
+    summary: 'Inspect one proposition at a time to understand canonical evidence, gaps, assessment state, and dependencies.',
+    controls: [
+      ['Locator', 'Session and proposition selectors will land here in T5.'],
+      ['Drill-in Boundary', 'This page stays focused on one proposition rather than broader runtime flow.'],
+    ],
+    resultTitle: 'Proposition Context Surface',
+    resultCopy: 'T5 will replace this placeholder with proposition details, findings, gaps, inference records, and artifact references.',
+    statuses: [
+      ['Empty State', 'Select a proposition to inspect canonical context.'],
+      ['Error State', 'Missing proposition references or lookup failures will render here.'],
+    ],
+  },
+  runtime: {
+    title: 'Runtime',
+    summary: 'Use runtime status views to explain missing, delayed, or blocked outputs without exposing control actions in the query workbench.',
+    controls: [
+      ['Runtime Scope', 'Session, proposition, and artifact runtime selectors will land here in T6.'],
+      ['Operational Filters', 'Runtime stage and status filters will be added once the runtime surface is wired.'],
+    ],
+    resultTitle: 'Runtime Status Surface',
+    resultCopy: 'T6 will attach stage summaries, failure signals, and runtime drill-ins to this area.',
+    statuses: [
+      ['Empty State', 'No runtime object is selected yet.'],
+      ['Error State', 'Runtime lookup failures will render here.'],
+    ],
+  },
+  grounding: {
+    title: 'Grounding',
+    summary: 'Open supporting catalog and semantic helper views that explain what the session referenced while keeping them secondary to the main read path.',
+    controls: [
+      ['Helper Views', 'Catalog search, semantic resolve, graph, and planner-context helpers will land here in T7.'],
+      ['Session Context', 'Grounding views may receive active session context from Sessions or State.'],
+    ],
+    resultTitle: 'Grounding Helper Surface',
+    resultCopy: 'T7 will replace this placeholder with supporting lookup tools for semantic and catalog grounding.',
+    statuses: [
+      ['Empty State', 'No helper query has been run yet.'],
+      ['Error State', 'Grounding helper lookup failures will render here.'],
+    ],
+  },
+  jobs: {
+    title: 'Jobs',
+    summary: 'Inspect background job status related to analysis sessions without exposing submit, cancel, or retry controls in the main UI.',
+    controls: [
+      ['Job Filters', 'Status and session filters will land here in T8.'],
+      ['Read-only Boundary', 'This page remains observational inside the query workbench.'],
+    ],
+    resultTitle: 'Job Status Surface',
+    resultCopy: 'T8 will replace this placeholder with job listings and read-only detail inspection.',
+    statuses: [
+      ['Empty State', 'No jobs are available for the current filter set.'],
+      ['Error State', 'Job listing and detail lookup failures will render here.'],
+    ],
+  },
+};
+
+const SESSION_PAGE_LIMIT = 25;
+const VALID_TABS = Object.keys(SHELL_PAGE_CONFIG);
+const DEFAULT_ROUTE = {
+  tab: 'sessions',
+  sessionId: '',
+  propositionId: '',
+  artifactId: '',
+  runtimeScope: '',
+  status: '',
+  sessionQuery: '',
+};
+const UI_EMPTY_COPY = {
+  sessions: '当前没有可查看的分析会话',
+  state: '当前 session 尚无对外可见 proposition',
+  filteredState: '当前筛选条件下无命中',
+  contextNoAssessment: '该 proposition 当前尚无 latest assessment，请查看 runtime',
+  jobs: '当前筛选条件下无相关后台任务',
+};
+const UI_ERROR_COPY = {
+  sessionNotFound: '404 session not found. Returned to session list.',
+  propositionNotFound: '404 proposition not found. Returned to State.',
+};
+
+let currentRoute = { ...DEFAULT_ROUTE };
+let sessionsViewState = {
+  loadingList: false,
+  listError: '',
+  items: [],
+  nextPageToken: null,
+  loadingDetail: false,
+  detailError: '',
+  selectedSession: null,
+};
+let stateViewState = {
+  loading: false,
+  error: '',
+  selectedDetailTab: 'findings',
+  result: null,
+  filters: {
+    metric: '',
+    entity: '',
+    assessmentPresence: '',
+    assessmentStatuses: '',
+    hasBlockingGaps: '',
+    originKinds: '',
+    propositionTypes: '',
+    limit: '50',
+  },
+};
+let contextViewState = {
+  loading: false,
+  error: '',
+  result: null,
+};
+let runtimeViewState = {
+  loading: false,
+  error: '',
+  result: null,
+};
+let groundingViewState = {
+  searchQuery: '',
+  searchType: '',
+  showUnavailable: false,
+  searchLoading: false,
+  searchError: '',
+  searchResults: [],
+  selectedObjectId: '',
+  selectedObjectKind: '',
+  selectedRef: '',
+  detailLoading: false,
+  detailError: '',
+  detailResult: null,
+  resolveLoading: false,
+  resolveError: '',
+  resolveWhyNotReady: null,
+  resolveResult: null,
+  graphLoading: false,
+  graphError: '',
+  graphResult: null,
+  graphDepth: '2',
+  plannerLoading: false,
+  plannerError: '',
+  plannerResult: null,
+};
+let jobsViewState = {
+  loadingList: false,
+  listError: '',
+  items: [],
+  selectedJobId: '',
+  loadingDetail: false,
+  detailError: '',
+  selectedJob: null,
+};
+let suppressTabSync = false;
+
+const uiApi = {
+  async fetchJson(path) {
+    const response = await fetch(path, {
+      headers: { 'Content-Type': 'application/json' },
+    });
+    let payload = null;
+    try {
+      payload = await response.json();
+    } catch (error) {
+      payload = null;
+    }
+    if (!response.ok) {
+      const detail = payload && Object.prototype.hasOwnProperty.call(payload, 'detail')
+        ? payload.detail
+        : payload;
+      const message = detail && typeof detail === 'object' && typeof detail.message === 'string'
+        ? detail.message
+        : (typeof detail === 'string' ? detail : `Request failed with status ${response.status}`);
+      const err = new Error(message);
+      err.status = response.status;
+      err.detail = detail;
+      throw err;
+    }
+    return payload;
+  },
+  listSessions(route, pageToken = null) {
+    const params = new URLSearchParams();
+    if (route.status) params.set('status', route.status);
+    if (route.sessionQuery) params.set('session_id', route.sessionQuery);
+    params.set('limit', String(SESSION_PAGE_LIMIT));
+    if (pageToken) params.set('page_token', pageToken);
+    return this.fetchJson(`/sessions?${params.toString()}`);
+  },
+  getSession(sessionId) {
+    return this.fetchJson(`/sessions/${encodeURIComponent(sessionId)}`);
+  },
+  getSessionState(sessionId, filters) {
+    const params = new URLSearchParams();
+    if (filters.metric) params.set('metric', filters.metric);
+    if (filters.entity) params.set('entity', filters.entity);
+    splitMultiValue(filters.propositionTypes).forEach((value) => {
+      params.append('proposition_type', value);
+    });
+    splitMultiValue(filters.originKinds).forEach((value) => {
+      params.append('origin_kind', value);
+    });
+    if (filters.assessmentPresence) params.set('assessment_presence', filters.assessmentPresence);
+    splitMultiValue(filters.assessmentStatuses).forEach((value) => {
+      params.append('assessment_status', value);
+    });
+    if (filters.hasBlockingGaps === 'true' || filters.hasBlockingGaps === 'false') {
+      params.set('has_blocking_gaps', filters.hasBlockingGaps);
+    }
+    const normalizedLimit = Number.parseInt(filters.limit || '50', 10);
+    if (!Number.isNaN(normalizedLimit) && normalizedLimit > 0) {
+      params.set('limit', String(normalizedLimit));
+    }
+    return this.fetchJson(`/sessions/${encodeURIComponent(sessionId)}/state?${params.toString()}`);
+  },
+  getPropositionContext(sessionId, propositionId) {
+    return this.fetchJson(
+      `/sessions/${encodeURIComponent(sessionId)}/propositions/${encodeURIComponent(propositionId)}/context`
+    );
+  },
+  getSessionRuntimeStatus(sessionId) {
+    return this.fetchJson(`/sessions/${encodeURIComponent(sessionId)}/runtime-status`);
+  },
+  getPropositionRuntimeStatus(sessionId, propositionId) {
+    return this.fetchJson(
+      `/sessions/${encodeURIComponent(sessionId)}/propositions/${encodeURIComponent(propositionId)}/runtime-status`
+    );
+  },
+  getArtifactRuntimeStatus(sessionId, artifactId) {
+    return this.fetchJson(
+      `/sessions/${encodeURIComponent(sessionId)}/artifacts/${encodeURIComponent(artifactId)}/runtime-status`
+    );
+  },
+  searchCatalog(query, objectType, readiness = 'ready') {
+    const params = new URLSearchParams();
+    params.set('q', query);
+    if (objectType) params.set('type', objectType);
+    if (readiness) params.set('readiness', readiness);
+    return this.fetchJson(`/catalog/search?${params.toString()}`);
+  },
+  getCatalogObjectDetail(objectKind, objectId) {
+    return this.fetchJson(
+      `/catalog/objects/${encodeURIComponent(objectKind)}/${encodeURIComponent(objectId)}`
+    );
+  },
+  resolveSemanticTerm(name) {
+    return this.fetchJson(`/semantic/resolve/${encodeURIComponent(name)}`);
+  },
+  getCatalogGraph(root, depth) {
+    const params = new URLSearchParams();
+    params.set('root', root);
+    params.set('depth', String(depth));
+    return this.fetchJson(`/catalog/graph?${params.toString()}`);
+  },
+  getPlannerContext(sessionId) {
+    return this.fetchJson(`/sessions/${encodeURIComponent(sessionId)}/planner-context`);
+  },
+  listJobs(filters) {
+    const params = new URLSearchParams();
+    if (filters.sessionId) params.set('session_id', filters.sessionId);
+    if (filters.status) params.set('status', filters.status);
+    const query = params.toString();
+    return this.fetchJson(query ? `/jobs?${query}` : '/jobs');
+  },
+  getJob(jobId) {
+    return this.fetchJson(`/jobs/${encodeURIComponent(jobId)}`);
+  },
+};
+
+function renderShellPlaceholder(tab) {
+  const panel = document.getElementById('panel-' + tab);
+  const config = SHELL_PAGE_CONFIG[tab];
+  if (!panel || !config) {
+    return;
+  }
+
+  panel.innerHTML = `
+    <div class="page-intro">
+      <h2>${esc(config.title)}</h2>
+      <p>${esc(config.summary)}</p>
+    </div>
+    <div class="shell-grid">
+      <div class="card">
+        <div class="shell-card-title">
+          <h3>Query / Filters</h3>
+          <span class="shell-chip">Read-only</span>
+        </div>
+        <div class="shell-controls">
+          ${config.controls.map(([label, copy]) => `
+            <div class="shell-control">
+              <div class="shell-control-label">${esc(label)}</div>
+              <div class="shell-control-copy">${esc(copy)}</div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+      <div class="card">
+        <div class="shell-card-title">
+          <h3>${esc(config.resultTitle)}</h3>
+          <span class="shell-chip">Placeholder</span>
+        </div>
+        <div class="shell-results">
+          <p class="shell-results-copy">${esc(config.resultCopy)}</p>
+        </div>
+      </div>
+      <div class="shell-status-grid">
+        ${config.statuses.map(([label, copy]) => `
+          <div class="shell-status">
+            <strong>${esc(label)}</strong>
+            <span>${esc(copy)}</span>
+          </div>
+        `).join('')}
+      </div>
+    </div>`;
+}
+
+function normalizeRoute(nextRoute) {
+  const route = {
+    tab: VALID_TABS.includes(nextRoute.tab) ? nextRoute.tab : DEFAULT_ROUTE.tab,
+    sessionId: nextRoute.sessionId || '',
+    propositionId: nextRoute.propositionId || '',
+    artifactId: nextRoute.artifactId || '',
+    runtimeScope: nextRoute.runtimeScope || '',
+    status: nextRoute.status || '',
+    sessionQuery: (nextRoute.sessionQuery || '').trim(),
+  };
+  if (!['session', 'proposition', 'artifact'].includes(route.runtimeScope)) {
+    route.runtimeScope = '';
+  }
+  if (route.tab !== 'runtime') {
+    route.runtimeScope = '';
+  }
+  if (route.runtimeScope !== 'artifact') {
+    route.artifactId = '';
+  }
+  return route;
+}
+
+function routeFromLocation() {
+  const params = new URLSearchParams(window.location.search);
+  return normalizeRoute({
+    tab: params.get('tab') || DEFAULT_ROUTE.tab,
+    sessionId: params.get('session_id') || '',
+    propositionId: params.get('proposition_id') || '',
+    artifactId: params.get('artifact_id') || '',
+    runtimeScope: params.get('runtime_scope') || '',
+    status: params.get('status') || '',
+    sessionQuery: params.get('session_query') || '',
+  });
+}
+
+function writeRoute(route, historyMode = 'push') {
+  const params = new URLSearchParams();
+  if (route.tab && route.tab !== DEFAULT_ROUTE.tab) params.set('tab', route.tab);
+  if (route.sessionId) params.set('session_id', route.sessionId);
+  if (route.propositionId) params.set('proposition_id', route.propositionId);
+  if (route.artifactId) params.set('artifact_id', route.artifactId);
+  if (route.runtimeScope) params.set('runtime_scope', route.runtimeScope);
+  if (route.status) params.set('status', route.status);
+  if (route.sessionQuery) params.set('session_query', route.sessionQuery);
+  const nextUrl = params.toString() ? `?${params.toString()}` : window.location.pathname;
+  const method = historyMode === 'replace' ? 'replaceState' : 'pushState';
+  window.history[method](null, '', nextUrl);
+}
+
+function goToSessions(sessionId = '', historyMode = 'push') {
+  applyRoute({ ...DEFAULT_ROUTE, tab: 'sessions', sessionId }, historyMode);
+}
+
+function goToState(sessionId, propositionId = '', historyMode = 'push') {
+  applyRoute(
+    {
+      ...DEFAULT_ROUTE,
+      tab: 'state',
+      sessionId: sessionId || '',
+      propositionId: propositionId || '',
+    },
+    historyMode
+  );
+}
+
+function goToContext(sessionId, propositionId, historyMode = 'push') {
+  applyRoute(
+    {
+      ...DEFAULT_ROUTE,
+      tab: 'context',
+      sessionId: sessionId || '',
+      propositionId: propositionId || '',
+    },
+    historyMode
+  );
+}
+
+function goToSessionRuntime(sessionId, historyMode = 'push') {
+  applyRoute(
+    {
+      ...DEFAULT_ROUTE,
+      tab: 'runtime',
+      sessionId: sessionId || '',
+      runtimeScope: 'session',
+    },
+    historyMode
+  );
+}
+
+function goToPropositionRuntime(sessionId, propositionId, historyMode = 'push') {
+  applyRoute(
+    {
+      ...DEFAULT_ROUTE,
+      tab: 'runtime',
+      sessionId: sessionId || '',
+      propositionId: propositionId || '',
+      runtimeScope: 'proposition',
+    },
+    historyMode
+  );
+}
+
+function goToArtifactRuntime(sessionId, artifactId, propositionId = '', historyMode = 'push') {
+  applyRoute(
+    {
+      ...DEFAULT_ROUTE,
+      tab: 'runtime',
+      sessionId: sessionId || '',
+      propositionId: propositionId || '',
+      artifactId: artifactId || '',
+      runtimeScope: 'artifact',
+    },
+    historyMode
+  );
+}
+
+function goToGrounding(sessionId = '', historyMode = 'push') {
+  applyRoute(
+    {
+      ...DEFAULT_ROUTE,
+      tab: 'grounding',
+      sessionId: sessionId || '',
+    },
+    historyMode
+  );
+}
+
+function goToJobs(sessionId = '', status = '', historyMode = 'push') {
+  applyRoute(
+    {
+      ...DEFAULT_ROUTE,
+      tab: 'jobs',
+      sessionId: sessionId || '',
+      status: status || '',
+    },
+    historyMode
+  );
+}
+
+function handleSessionNotFound(setError) {
+  setError(UI_ERROR_COPY.sessionNotFound);
+  toast(UI_ERROR_COPY.sessionNotFound, 'error');
+  goToSessions('', 'replace');
+}
+
+function handlePropositionNotFound(setError) {
+  setError(UI_ERROR_COPY.propositionNotFound);
+  toast(UI_ERROR_COPY.propositionNotFound, 'error');
+  goToState(currentRoute.sessionId, '', 'replace');
+}
+
+function formatPretty(value) {
+  if (value == null) return '<span class="empty">None</span>';
+  if (typeof value === 'string') return `<span>${esc(value)}</span>`;
+  return jsonPre(value);
+}
+
+function sessionStatus(session) {
+  return session?.lifecycle?.status || 'unknown';
+}
+
+function splitMultiValue(value) {
+  return String(value || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function formatSubjectSummary(subject) {
+  if (!subject || typeof subject !== 'object') {
+    return '<span class="empty">No subject</span>';
+  }
+  const titleParts = [subject.metric, subject.entity, subject.grain].filter(Boolean);
+  const sliceSummary = subject.slice && typeof subject.slice === 'object'
+    ? Object.entries(subject.slice).map(([key, value]) => `${key}=${value}`).join(', ')
+    : '';
+  return `
+    <div class="state-subject">
+      <div class="state-subject-main">${esc(titleParts.join(' / ') || 'Unspecified subject')}</div>
+      <div class="state-subject-meta">${esc(sliceSummary || 'No slice')}</div>
+    </div>
+  `;
+}
+
+function getPropositionSubject(proposition) {
+  return proposition?.subject_json || proposition?.subject || null;
+}
+
+function renderContextStructuredValue(value, emptyLabel = 'None') {
+  if (value == null) {
+    return `<span class="empty">${esc(emptyLabel)}</span>`;
+  }
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return `<span>${esc(String(value))}</span>`;
+  }
+  return jsonPre(value);
+}
+
+function renderContextCollection(title, items, renderItem, emptyCopy) {
+  const body = Array.isArray(items) && items.length > 0
+    ? items.map((item, index) => renderItem(item, index)).join('')
+    : `<div class="detail-empty">${esc(emptyCopy)}</div>`;
+  return `
+    <div class="card">
+      <div class="shell-card-title">
+        <h3>${esc(title)}</h3>
+        <span class="shell-chip">${esc(Array.isArray(items) ? `${items.length} item(s)` : 'None')}</span>
+      </div>
+      <div class="context-section-list">${body}</div>
+    </div>
+  `;
+}
+
+function renderContextArtifactRows(items) {
+  return renderContextCollection(
+    'Artifact Refs',
+    items,
+    (item) => `
+      <div class="context-section-item">
+        <h4>${esc(item.artifact_id || 'artifact')}</h4>
+        ${item.step_ref ? jsonPre(item.step_ref) : '<span class="empty">No step_ref</span>'}
+        <div class="detail-actions">
+          <button class="btn btn-sm context-open-artifact-runtime-btn" data-artifact-id="${attr(item.artifact_id || '')}">Artifact Runtime</button>
+        </div>
+      </div>
+    `,
+    '当前 proposition context 没有 artifact refs。'
+  );
+}
+
+function renderContextFindingRows(title, items, emptyCopy) {
+  return renderContextCollection(
+    title,
+    items,
+    (item) => `
+      <div class="context-section-item">
+        <h4>${esc(item.finding_id || item.seed_ref?.finding_id || 'finding')}</h4>
+        ${item.finding
+          ? formatSubjectSummary(item.finding.subject_json)
+          : item.subject_json
+            ? formatSubjectSummary(item.subject_json)
+            : '<span class="empty">No hydrated finding</span>'}
+        <div class="context-inline-meta">
+          artifact: ${esc(item.artifact_id || item.finding?.artifact_id || '-')}
+        </div>
+        ${item.seed_ref ? `<div class="context-inline-meta">seed_ref: ${jsonPre(item.seed_ref)}</div>` : ''}
+      </div>
+    `,
+    emptyCopy
+  );
+}
+
+function renderContextGenericRows(title, items, emptyCopy, keyName) {
+  return renderContextCollection(
+    title,
+    items,
+    (item, index) => `
+      <div class="context-section-item">
+        <h4>${esc(item?.[keyName] || `${title} ${index + 1}`)}</h4>
+        ${jsonPre(item)}
+      </div>
+    `,
+    emptyCopy
+  );
+}
+
+function renderFocusSubjects(subjects) {
+  if (!Array.isArray(subjects) || subjects.length === 0) {
+    return '<div class="state-empty">当前返回的 canonical closure 中没有 focus subjects。</div>';
+  }
+  return `
+    <div class="subject-chip-list">
+      ${subjects.map((subject) => `
+        <span class="subject-chip">${esc(
+          [subject.metric, subject.entity].filter(Boolean).join(' / ') || JSON.stringify(subject)
+        )}</span>
+      `).join('')}
+    </div>
+  `;
+}
+
+function renderStateCounts(entry) {
+  return String((entry.supporting_finding_refs || []).length + (entry.opposing_finding_refs || []).length);
+}
+
+function renderStateDetailItems(items, kind) {
+  if (!Array.isArray(items) || items.length === 0) {
+    const emptyCopy = {
+      findings: '当前查询结果没有 backing findings。',
+      gaps: '当前查询结果没有 blocking gaps。',
+      artifacts: '当前查询结果没有 artifact refs.',
+    };
+    return `<div class="state-empty">${esc(emptyCopy[kind] || 'No detail items.')}</div>`;
+  }
+
+  return `
+    <div class="state-detail-list">
+      ${items.map((item) => {
+        if (kind === 'findings') {
+          return `
+            <div class="state-detail-item">
+              <h4>${esc(item.finding_id || 'finding')}</h4>
+              ${formatSubjectSummary(item.subject_json)}
+              <div class="state-meta-note">artifact: ${esc(item.artifact_id || '-')}</div>
+            </div>
+          `;
+        }
+        if (kind === 'gaps') {
+          return `
+            <div class="state-detail-item">
+              <h4>${esc(item.gap_id || 'gap')}</h4>
+              <div>${esc(item.status || 'open')}</div>
+            </div>
+          `;
+        }
+        return `
+          <div class="state-detail-item">
+            <h4>${esc(item.artifact_id || 'artifact')}</h4>
+            ${item.step_ref ? jsonPre(item.step_ref) : '<span class="empty">No step_ref</span>'}
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+function renderStateSidebar() {
+  const result = stateViewState.result;
+  const detailTab = stateViewState.selectedDetailTab;
+  const tabMap = {
+    findings: { title: 'Backing Findings', items: result?.backing_findings || [], kind: 'findings' },
+    gaps: { title: 'Blocking Gaps', items: result?.blocking_gaps || [], kind: 'gaps' },
+    artifacts: { title: 'Artifact Refs', items: result?.artifact_refs || [], kind: 'artifacts' },
+  };
+  const detail = tabMap[detailTab] || tabMap.findings;
+
+  return `
+    <div class="card">
+      <div class="shell-card-title">
+        <h3>Canonical Detail Closure</h3>
+        <span class="shell-chip">${esc(detail.title)}</span>
+      </div>
+      <div class="state-sidebar-tabs">
+        <button class="btn btn-sm state-detail-tab ${detailTab === 'findings' ? 'is-active' : ''}" data-detail-tab="findings">Backing Findings</button>
+        <button class="btn btn-sm state-detail-tab ${detailTab === 'gaps' ? 'is-active' : ''}" data-detail-tab="gaps">Blocking Gaps</button>
+        <button class="btn btn-sm state-detail-tab ${detailTab === 'artifacts' ? 'is-active' : ''}" data-detail-tab="artifacts">Artifact Refs</button>
+      </div>
+      ${renderStateDetailItems(detail.items, detail.kind)}
+    </div>
+  `;
+}
+
+function renderStateRows(entries) {
+  if (stateViewState.loading) {
+    return loadingRow(7);
+  }
+  if (!Array.isArray(entries) || entries.length === 0) {
+    const hasFilters = Object.entries(stateViewState.filters)
+      .some(([key, value]) => key !== 'limit' && String(value || '').trim() !== '');
+    const emptyCopy = hasFilters ? UI_EMPTY_COPY.filteredState : UI_EMPTY_COPY.state;
+    return `<tr><td colspan="7" class="empty">${esc(emptyCopy)}</td></tr>`;
+  }
+
+  return entries.map((entry) => {
+    const proposition = entry.proposition || {};
+    const propositionId = proposition.proposition_id || '';
+    const assessment = entry.latest_assessment;
+    const blockingCount = Array.isArray(entry.blocking_gap_refs) ? entry.blocking_gap_refs.length : null;
+    const selectedClass = propositionId === currentRoute.propositionId ? 'is-selected' : '';
+    return `
+      <tr class="${selectedClass}">
+        <td><span class="inline-code">${esc(propositionId || '-')}</span></td>
+        <td>${esc(proposition.proposition_type || '-')}</td>
+        <td>${formatSubjectSummary(proposition.subject_json)}</td>
+        <td>${assessment ? statusBadge(assessment.status) : '<span class="empty">Unassessed</span>'}</td>
+        <td>${blockingCount == null ? '<span class="empty">-</span>' : esc(String(blockingCount))}</td>
+        <td>${esc(renderStateCounts(entry))}</td>
+        <td class="actions-cell">
+          <button class="btn btn-sm state-open-context-btn" data-proposition-id="${attr(propositionId)}">Open Context</button>
+          <button class="btn btn-sm state-open-runtime-btn" data-proposition-id="${attr(propositionId)}">Open Proposition Runtime</button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function bindStateEvents() {
+  const panel = document.getElementById('panel-state');
+  if (!panel) return;
+
+  panel.querySelector('[data-role="state-filters"]')?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    stateViewState.filters = {
+      metric: String(formData.get('metric') || '').trim(),
+      entity: String(formData.get('entity') || '').trim(),
+      assessmentPresence: String(formData.get('assessment_presence') || '').trim(),
+      assessmentStatuses: String(formData.get('assessment_status') || '').trim(),
+      hasBlockingGaps: String(formData.get('has_blocking_gaps') || '').trim(),
+      originKinds: String(formData.get('origin_kind') || '').trim(),
+      propositionTypes: String(formData.get('proposition_type') || '').trim(),
+      limit: String(formData.get('limit') || '50').trim() || '50',
+    };
+    void loadStateView();
+  });
+
+  panel.querySelector('[data-role="reset-state-filters"]')?.addEventListener('click', () => {
+    stateViewState.filters = {
+      metric: '',
+      entity: '',
+      assessmentPresence: '',
+      assessmentStatuses: '',
+      hasBlockingGaps: '',
+      originKinds: '',
+      propositionTypes: '',
+      limit: '50',
+    };
+    void loadStateView();
+  });
+
+  panel.querySelectorAll('.state-detail-tab').forEach((button) => {
+    button.addEventListener('click', () => {
+      stateViewState.selectedDetailTab = button.dataset.detailTab || 'findings';
+      renderStatePage();
+    });
+  });
+
+  panel.querySelectorAll('.state-open-context-btn').forEach((button) => {
+    button.addEventListener('click', () => {
+      goToContext(currentRoute.sessionId, button.dataset.propositionId || '');
+    });
+  });
+
+  panel.querySelectorAll('.state-open-runtime-btn').forEach((button) => {
+    button.addEventListener('click', () => {
+      goToPropositionRuntime(currentRoute.sessionId, button.dataset.propositionId || '');
+    });
+  });
+
+  panel.querySelector('[data-role="go-to-sessions"]')?.addEventListener('click', () => {
+    goToSessions();
+  });
+}
+
+function renderStatePage() {
+  const panel = document.getElementById('panel-state');
+  if (!panel) return;
+
+  const hasSession = Boolean(currentRoute.sessionId);
+  const result = stateViewState.result;
+  const truncationCopy = result?.truncation
+    ? `returned ${result.truncation.returned_count} of ${result.truncation.total_count} active_propositions`
+    : 'No canonical state loaded yet.';
+
+  panel.innerHTML = `
+    <div class="page-intro">
+      <h2>State</h2>
+      <p>Inspect externally visible canonical state for one session. This page stays on canonical truth only and does not expose runtime queue, claim, retry, or backlog fields.</p>
+    </div>
+    <div class="state-layout">
+      <div class="card">
+        <div class="shell-card-title">
+          <h3>Canonical Filters</h3>
+          <span class="shell-chip">Read-only</span>
+        </div>
+        <form class="state-filters" data-role="state-filters">
+          <div class="form-group">
+            <label for="state-session-id">Session</label>
+            <input id="state-session-id" type="text" value="${attr(currentRoute.sessionId)}" disabled />
+          </div>
+          <div class="form-group">
+            <label for="state-metric">metric</label>
+            <input id="state-metric" type="text" name="metric" value="${attr(stateViewState.filters.metric)}" placeholder="watch_time" />
+          </div>
+          <div class="form-group">
+            <label for="state-entity">entity</label>
+            <input id="state-entity" type="text" name="entity" value="${attr(stateViewState.filters.entity)}" placeholder="video" />
+          </div>
+          <div class="form-group">
+            <label for="state-assessment-presence">assessment_presence</label>
+            <select id="state-assessment-presence" name="assessment_presence">
+              <option value="">All</option>
+              <option value="assessed" ${stateViewState.filters.assessmentPresence === 'assessed' ? 'selected' : ''}>assessed</option>
+              <option value="unassessed" ${stateViewState.filters.assessmentPresence === 'unassessed' ? 'selected' : ''}>unassessed</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="state-assessment-status">assessment_status</label>
+            <input id="state-assessment-status" type="text" name="assessment_status" value="${attr(stateViewState.filters.assessmentStatuses)}" placeholder="supported, insufficient" />
+          </div>
+          <div class="form-group">
+            <label for="state-has-blocking-gaps">has_blocking_gaps</label>
+            <select id="state-has-blocking-gaps" name="has_blocking_gaps">
+              <option value="">All</option>
+              <option value="true" ${stateViewState.filters.hasBlockingGaps === 'true' ? 'selected' : ''}>true</option>
+              <option value="false" ${stateViewState.filters.hasBlockingGaps === 'false' ? 'selected' : ''}>false</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="state-origin-kind">origin_kind</label>
+            <input id="state-origin-kind" type="text" name="origin_kind" value="${attr(stateViewState.filters.originKinds)}" placeholder="system_seeded, agent_authored" />
+          </div>
+          <div class="form-group">
+            <label for="state-proposition-type">proposition_type</label>
+            <input id="state-proposition-type" type="text" name="proposition_type" value="${attr(stateViewState.filters.propositionTypes)}" placeholder="change, anomaly" />
+          </div>
+          <div class="form-group">
+            <label for="state-limit">limit</label>
+            <input id="state-limit" type="number" name="limit" min="1" value="${attr(stateViewState.filters.limit)}" />
+          </div>
+          <button class="btn btn-primary" type="submit">Run Query</button>
+          <button class="btn" type="button" data-role="reset-state-filters">Reset</button>
+        </form>
+        <p class="panel-note">State uses <span class="inline-code">GET /sessions/{session_id}/state</span>. Slice filters are intentionally excluded from this T4 UI.</p>
+      </div>
+      ${!hasSession ? `
+        <div class="state-empty">
+          先从 Sessions 选择一个 session，再查看 canonical state。
+          <div class="detail-actions">
+            <button class="btn btn-sm" type="button" data-role="go-to-sessions">Open Sessions</button>
+          </div>
+        </div>
+      ` : `
+        <div class="state-summary-grid">
+          <div class="state-results-stack">
+            <div class="card">
+              <div class="shell-card-title">
+                <h3>Focus Subjects</h3>
+                <span class="shell-chip">${esc(result?.focus_subjects?.length != null ? `${result.focus_subjects.length} subject(s)` : 'Idle')}</span>
+              </div>
+              ${stateViewState.error ? `<div class="state-error">${esc(stateViewState.error)}</div>` : renderFocusSubjects(result?.focus_subjects)}
+              <div class="state-meta-note">${esc(truncationCopy)}</div>
+            </div>
+            <div class="card">
+              <div class="shell-card-title">
+                <h3>Active Propositions</h3>
+                <span class="shell-chip">${stateViewState.loading ? 'Loading' : esc(`${result?.active_propositions?.length || 0} row(s)`)}</span>
+              </div>
+              ${stateViewState.error ? `<div class="state-error">${esc(stateViewState.error)}</div>` : `
+                <div class="state-table-wrap">
+                  <table class="sessions-table state-table">
+                    <thead>
+                      <tr>
+                        <th>proposition_id</th>
+                        <th>type</th>
+                        <th>subject</th>
+                        <th>assessment</th>
+                        <th>blocking_gaps</th>
+                        <th>findings</th>
+                        <th>actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>${renderStateRows(result?.active_propositions)}</tbody>
+                  </table>
+                </div>
+              `}
+            </div>
+          </div>
+          <div class="state-sidebar">
+            ${renderStateSidebar()}
+          </div>
+        </div>
+      `}
+    </div>
+  `;
+
+  bindStateEvents();
+}
+
+function bindContextEvents() {
+  const panel = document.getElementById('panel-context');
+  if (!panel) return;
+
+  panel.querySelector('[data-role="context-open-sessions"]')?.addEventListener('click', () => {
+    goToSessions(currentRoute.sessionId);
+  });
+
+  panel.querySelectorAll('[data-role="context-open-state"]').forEach((button) => {
+    button.addEventListener('click', () => {
+      goToState(currentRoute.sessionId, currentRoute.propositionId);
+    });
+  });
+
+  panel.querySelectorAll('[data-role="context-open-proposition-runtime"]').forEach((button) => {
+    button.addEventListener('click', () => {
+      goToPropositionRuntime(currentRoute.sessionId, currentRoute.propositionId);
+    });
+  });
+
+  panel.querySelectorAll('.context-open-artifact-runtime-btn').forEach((button) => {
+    button.addEventListener('click', () => {
+      const artifactId = button.dataset.artifactId || '';
+      if (artifactId) {
+        toast(`Opening Artifact Runtime for ${artifactId} in the Runtime workbench.`, 'info');
+      }
+      goToArtifactRuntime(currentRoute.sessionId, artifactId, currentRoute.propositionId);
+    });
+  });
+}
+
+function renderContextPage() {
+  const panel = document.getElementById('panel-context');
+  if (!panel) return;
+
+  const hasSession = Boolean(currentRoute.sessionId);
+  const hasProposition = Boolean(currentRoute.propositionId);
+  const result = contextViewState.result;
+  const proposition = result?.proposition || null;
+  const subject = getPropositionSubject(proposition);
+  const latestAssessment = result?.latest_assessment;
+
+  let mainContent = `
+    <div class="detail-empty">
+      先从 State 选择一个 proposition，再查看 proposition-level canonical closure。
+      <div class="detail-actions">
+        <button class="btn btn-sm" type="button" data-role="context-open-sessions">Open Sessions</button>
+        ${hasSession ? '<button class="btn btn-sm" type="button" data-role="context-open-state">Open State</button>' : ''}
+      </div>
+    </div>
+  `;
+
+  if (hasSession && hasProposition) {
+    if (contextViewState.loading) {
+      mainContent = '<div class="detail-empty">Loading proposition context...</div>';
+    } else if (contextViewState.error) {
+      mainContent = `
+        <div class="detail-error">${esc(contextViewState.error)}</div>
+        <div class="detail-actions">
+          <button class="btn btn-sm" type="button" data-role="context-open-state">Open State</button>
+          <button class="btn btn-sm" type="button" data-role="context-open-sessions">Open Sessions</button>
+        </div>
+      `;
+    } else if (result) {
+      mainContent = `
+        <div class="context-stack">
+          <div class="card">
+            <div class="context-header">
+              <div>
+                <h3>Proposition Context</h3>
+                <div class="context-meta">
+                  <span class="inline-code">${esc(currentRoute.sessionId)}</span>
+                  <span class="inline-code">${esc(currentRoute.propositionId)}</span>
+                  ${latestAssessment ? statusBadge(latestAssessment.status) : '<span class="empty">latest_assessment = null</span>'}
+                </div>
+              </div>
+              <div class="detail-actions">
+                <button class="btn btn-sm" type="button" data-role="context-open-state">Open State</button>
+                <button class="btn btn-sm" type="button" data-role="context-open-proposition-runtime">Check Proposition Runtime</button>
+              </div>
+            </div>
+            <div class="detail-grid">
+              <div class="detail-group">
+                <h4>Subject Summary</h4>
+                ${formatSubjectSummary(subject)}
+              </div>
+              <div class="detail-group">
+                <h4>Proposition</h4>
+                ${jsonPre(proposition)}
+              </div>
+              <div class="detail-group">
+                <h4>Latest Assessment</h4>
+                ${renderContextStructuredValue(latestAssessment, 'No externally visible assessment')}
+                ${!latestAssessment ? `<div class="context-inline-meta">${esc(UI_EMPTY_COPY.contextNoAssessment)} latest_assessment = null is a canonical result only. Use Runtime to distinguish untriggered, failed, or migration-blocked states.</div>` : ''}
+              </div>
+            </div>
+          </div>
+          <div class="context-grid">
+            <div class="context-stack">
+              ${renderContextFindingRows(
+                'Seed Entries',
+                result.seed_entries || [],
+                '当前 proposition 没有 seed entries。'
+              )}
+              ${renderContextFindingRows(
+                'Relevant Findings',
+                result.relevant_findings || [],
+                latestAssessment
+                  ? '当前 latest assessment 没有直接 relevant findings。'
+                  : 'latest_assessment = null 时，relevant_findings 按 canonical contract 为 [].'
+              )}
+              ${renderContextGenericRows(
+                'Applied Inference Records',
+                result.applied_inference_records,
+                latestAssessment
+                  ? '当前 latest assessment 没有 applied inference records。'
+                  : 'latest_assessment = null 时，applied_inference_records 按 canonical contract 为 null。',
+                'inference_record_id'
+              )}
+            </div>
+            <div class="context-stack">
+              ${renderContextGenericRows(
+                'Blocking Gaps',
+                result.blocking_gaps,
+                latestAssessment
+                  ? '当前 latest assessment 没有 blocking gaps。'
+                  : 'latest_assessment = null 时，blocking_gaps 按 canonical contract 为 null。',
+                'gap_id'
+              )}
+              ${renderContextGenericRows(
+                'Non-blocking Gaps',
+                result.non_blocking_gaps,
+                latestAssessment
+                  ? '当前 latest assessment 没有 non-blocking gaps。'
+                  : 'latest_assessment = null 时，non_blocking_gaps 按 canonical contract 为 null。',
+                'gap_id'
+              )}
+              ${renderContextGenericRows(
+                'Assessment Dependencies',
+                result.assessment_dependencies,
+                latestAssessment
+                  ? '当前 latest assessment 没有 assessment dependencies。'
+                  : 'latest_assessment = null 时，assessment_dependencies 按 canonical contract 为 null。',
+                'assessment_id'
+              )}
+              ${renderContextArtifactRows(result.artifact_refs || [])}
+            </div>
+          </div>
+        </div>
+      `;
+    }
+  }
+
+  panel.innerHTML = `
+    <div class="page-intro">
+      <h2>Context</h2>
+      <p>Inspect one proposition at a time to understand canonical seed hydration, findings, assessment closure, and provenance without mixing in runtime attempt or backlog details.</p>
+    </div>
+    <div class="context-layout">
+      <div class="card">
+        <div class="shell-card-title">
+          <h3>Context Locator</h3>
+          <span class="shell-chip">Read-only</span>
+        </div>
+        <div class="detail-grid">
+          <div class="detail-group">
+            <h4>session_id</h4>
+            ${renderContextStructuredValue(currentRoute.sessionId, 'Select from Sessions or State')}
+          </div>
+          <div class="detail-group">
+            <h4>proposition_id</h4>
+            ${renderContextStructuredValue(currentRoute.propositionId, 'Select from State')}
+          </div>
+          <div class="detail-group">
+            <h4>HTTP Contract</h4>
+            <span class="inline-code">GET /sessions/{session_id}/propositions/{proposition_id}/context</span>
+          </div>
+        </div>
+        <p class="panel-note">Context stays on canonical truth. It does not explain queue, retry, claim, attempt, or backlog state. Use Check Proposition Runtime for that boundary.</p>
+      </div>
+      ${mainContent}
+    </div>
+  `;
+
+  bindContextEvents();
+}
+
+function runtimeScopeLabel(scope) {
+  const labels = {
+    session: 'Session Runtime',
+    proposition: 'Proposition Runtime',
+    artifact: 'Artifact Runtime',
+  };
+  return labels[scope] || 'Runtime';
+}
+
+function runtimeLocatorCopy() {
+  if (currentRoute.runtimeScope === 'session') {
+    return currentRoute.sessionId
+      ? 'Session runtime explains overall progress, backlog, and blocking for the selected session.'
+      : 'Select a session from Sessions to inspect session runtime.';
+  }
+  if (currentRoute.runtimeScope === 'proposition') {
+    return currentRoute.propositionId
+      ? 'Proposition runtime explains whether assessment, proposal refresh, or publish visibility is pending.'
+      : 'Open Proposition Runtime from State or Context to inspect one proposition.';
+  }
+  if (currentRoute.runtimeScope === 'artifact') {
+    return currentRoute.artifactId
+      ? 'Artifact runtime explains extractor progress and seeding handoff for the selected artifact.'
+      : 'Open Artifact Runtime from Context artifact_refs to inspect one artifact.';
+  }
+  return 'Choose a runtime scope from linked canonical pages to inspect operator-facing runtime truth.';
+}
+
+function renderRuntimeStructuredValue(value, emptyLabel = 'None') {
+  if (value == null) {
+    return `<span class="empty">${esc(emptyLabel)}</span>`;
+  }
+  if (typeof value === 'string') {
+    return `<span>${esc(value)}</span>`;
+  }
+  return jsonPre(value);
+}
+
+function renderRuntimeSummaryCards(items) {
+  return `
+    <div class="runtime-summary-grid">
+      ${items.map(([label, value, kind]) => `
+        <div class="runtime-summary-card">
+          <h4>${esc(label)}</h4>
+          ${kind === 'status' && value ? statusBadge(value) : renderRuntimeStructuredValue(value)}
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function renderRuntimeMainContent() {
+  if (!currentRoute.runtimeScope) {
+    return `
+      <div class="detail-empty">
+        先从 Sessions、State 或 Context 进入具体 runtime 视图，再查看 operator-facing runtime truth。
+        <div class="detail-actions">
+          <button class="btn btn-sm" type="button" data-role="runtime-open-sessions">Open Sessions</button>
+        </div>
+      </div>
+    `;
+  }
+
+  const missingLocator = (
+    (currentRoute.runtimeScope === 'session' && !currentRoute.sessionId) ||
+    (currentRoute.runtimeScope === 'proposition' && (!currentRoute.sessionId || !currentRoute.propositionId)) ||
+    (currentRoute.runtimeScope === 'artifact' && (!currentRoute.sessionId || !currentRoute.artifactId))
+  );
+  if (missingLocator) {
+    return `
+      <div class="detail-empty">
+        当前 runtime locator 不完整，无法发起查询。
+        <div class="detail-actions">
+          <button class="btn btn-sm" type="button" data-role="runtime-open-sessions">Open Sessions</button>
+          ${currentRoute.sessionId ? '<button class="btn btn-sm" type="button" data-role="runtime-open-state">Open State</button>' : ''}
+          ${currentRoute.propositionId ? '<button class="btn btn-sm" type="button" data-role="runtime-open-context">Open Context</button>' : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  if (runtimeViewState.loading) {
+    return '<div class="detail-empty">Loading runtime status...</div>';
+  }
+
+  if (runtimeViewState.error) {
+    return `
+      <div class="detail-error">${esc(runtimeViewState.error)}</div>
+      <div class="detail-actions">
+        <button class="btn btn-sm" type="button" data-role="runtime-open-sessions">Open Session</button>
+        ${currentRoute.sessionId ? '<button class="btn btn-sm" type="button" data-role="runtime-open-state">Open State</button>' : ''}
+        ${currentRoute.propositionId ? '<button class="btn btn-sm" type="button" data-role="runtime-open-context">Open Context</button>' : ''}
+        ${currentRoute.sessionId ? '<button class="btn btn-sm" type="button" data-role="runtime-open-jobs">Open Jobs</button>' : ''}
+      </div>
+    `;
+  }
+
+  const result = runtimeViewState.result;
+  if (!result) {
+    return '<div class="detail-empty">No runtime status loaded yet.</div>';
+  }
+
+  const scope = currentRoute.runtimeScope;
+  let summaryCards = '';
+  let detailCards = '';
+  let linkButtons = `
+    <button class="btn btn-sm" type="button" data-role="runtime-open-sessions">Open Session</button>
+    ${currentRoute.sessionId ? '<button class="btn btn-sm" type="button" data-role="runtime-open-state">Open State</button>' : ''}
+    ${currentRoute.sessionId ? '<button class="btn btn-sm" type="button" data-role="runtime-open-jobs">Open Jobs</button>' : ''}
+  `;
+
+  if (scope === 'session') {
+    summaryCards = renderRuntimeSummaryCards([
+      ['overall_status', result.overall_status, 'status'],
+      ['last_successful_stage', result.last_successful_stage, 'text'],
+      ['blocked_reason', result.blocked_reason, 'text'],
+      ['updated_at', result.updated_at, 'text'],
+    ]);
+    detailCards = `
+      <div class="card">
+        <div class="shell-card-title">
+          <h3>Backlog Summary</h3>
+          <span class="shell-chip">Session Runtime</span>
+        </div>
+        ${renderRuntimeStructuredValue(result.backlog_summary, 'No backlog summary')}
+      </div>
+      <div class="card">
+        <div class="shell-card-title">
+          <h3>Runtime Boundary</h3>
+          <span class="shell-chip">Operator-facing</span>
+        </div>
+        <p class="panel-note">Session Runtime explains overall progress and backlog only. It does not restate canonical proposition assessments or findings.</p>
+      </div>
+    `;
+  } else if (scope === 'proposition') {
+    summaryCards = renderRuntimeSummaryCards([
+      ['current_stage', result.current_stage, 'status'],
+      ['last_successful_stage', result.last_successful_stage, 'text'],
+      ['current_assessment_id', result.current_assessment_id, 'text'],
+      ['backlog_state', result.backlog_state, 'text'],
+    ]);
+    detailCards = `
+      <div class="card">
+        <div class="shell-card-title">
+          <h3>Attempt / Failure</h3>
+          <span class="shell-chip">Proposition Runtime</span>
+        </div>
+        <div class="runtime-meta-grid">
+          <div class="runtime-summary-card">
+            <h4>current_attempt</h4>
+            ${renderRuntimeStructuredValue(result.current_attempt, 'No active attempt')}
+          </div>
+          <div class="runtime-summary-card">
+            <h4>last_failure_reason</h4>
+            ${renderRuntimeStructuredValue(result.last_failure_reason, 'none')}
+          </div>
+          <div class="runtime-summary-card">
+            <h4>last_failure_at</h4>
+            ${renderRuntimeStructuredValue(result.last_failure_at, 'None')}
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="shell-card-title">
+          <h3>Runtime Boundary</h3>
+          <span class="shell-chip">Canonical Separation</span>
+        </div>
+        <p class="panel-note">Use Proposition Runtime to distinguish queued, publish_ready, externally_visible, or failed execution states. Return to Context for canonical evidence closure.</p>
+      </div>
+    `;
+    linkButtons = `
+      <button class="btn btn-sm" type="button" data-role="runtime-open-sessions">Open Session</button>
+      <button class="btn btn-sm" type="button" data-role="runtime-open-state">Open State</button>
+      <button class="btn btn-sm" type="button" data-role="runtime-open-context">Open Context</button>
+    `;
+  } else if (scope === 'artifact') {
+    summaryCards = renderRuntimeSummaryCards([
+      ['artifact_stage', result.artifact_stage, 'status'],
+      ['correlation_id', result.correlation_id, 'text'],
+      ['attempt_id', result.attempt_id, 'text'],
+      ['last_failure_reason', result.last_failure_reason, 'text'],
+    ]);
+    detailCards = `
+      <div class="card">
+        <div class="shell-card-title">
+          <h3>Extractor / Failure</h3>
+          <span class="shell-chip">Artifact Runtime</span>
+        </div>
+        <div class="runtime-meta-grid">
+          <div class="runtime-summary-card">
+            <h4>extractor_key</h4>
+            ${renderRuntimeStructuredValue(result.extractor_key, 'No extractor key')}
+          </div>
+          <div class="runtime-summary-card">
+            <h4>last_failure_at</h4>
+            ${renderRuntimeStructuredValue(result.last_failure_at, 'None')}
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="shell-card-title">
+          <h3>Runtime Boundary</h3>
+          <span class="shell-chip">Artifact Flow</span>
+        </div>
+        <p class="panel-note">Artifact Runtime explains extractor progress and seeding handoff only. Return to Context or State for canonical proposition meaning.</p>
+      </div>
+    `;
+    linkButtons = `
+      <button class="btn btn-sm" type="button" data-role="runtime-open-sessions">Open Session</button>
+      ${currentRoute.propositionId ? '<button class="btn btn-sm" type="button" data-role="runtime-open-context">Open Context</button>' : ''}
+    `;
+  }
+
+  return `
+    <div class="runtime-stack">
+      <div class="card">
+        <div class="context-header">
+          <div>
+            <h3>${esc(runtimeScopeLabel(scope))}</h3>
+            <div class="context-meta">
+              <span class="inline-code">${esc(currentRoute.sessionId || 'session_id')}</span>
+              ${scope === 'proposition' ? `<span class="inline-code">${esc(currentRoute.propositionId || 'proposition_id')}</span>` : ''}
+              ${scope === 'artifact' ? `<span class="inline-code">${esc(currentRoute.artifactId || 'artifact_id')}</span>` : ''}
+            </div>
+          </div>
+          <div class="detail-actions">
+            ${linkButtons}
+          </div>
+        </div>
+        ${summaryCards}
+      </div>
+      <div class="runtime-grid">
+        <div class="runtime-stack">
+          ${detailCards}
+        </div>
+        <div class="runtime-stack">
+          <div class="card">
+            <div class="shell-card-title">
+              <h3>Raw Runtime Payload</h3>
+              <span class="shell-chip">${esc(result.schema_version || 'runtime')}</span>
+            </div>
+            ${jsonPre(result)}
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderGroundingStructuredValue(value, emptyLabel = 'None') {
+  if (value == null || value === '') {
+    return `<span class="empty">${esc(emptyLabel)}</span>`;
+  }
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return `<span>${esc(String(value))}</span>`;
+  }
+  return jsonPre(value);
+}
+
+function renderJobPayloadSummary(payload) {
+  if (!payload || typeof payload !== 'object') {
+    return '<span class="empty">No payload summary</span>';
+  }
+  const parts = [];
+  if (payload.step_type) {
+    parts.push(`step_type=${payload.step_type}`);
+  }
+  if (payload.params && typeof payload.params === 'object') {
+    parts.push(`params=${Object.keys(payload.params).length}`);
+  }
+  return `<span>${esc(parts.join(' | ') || 'Structured payload')}</span>`;
+}
+
+function renderJobsRows() {
+  if (jobsViewState.loadingList) {
+    return loadingRow(7);
+  }
+  if (jobsViewState.items.length === 0) {
+    return `<tr><td colspan="7" class="empty">${esc(UI_EMPTY_COPY.jobs)}</td></tr>`;
+  }
+  return jobsViewState.items.map((job) => {
+    const selectedClass = job.job_id === jobsViewState.selectedJobId ? 'is-selected' : '';
+    return `
+      <tr class="${selectedClass}">
+        <td><button class="btn btn-sm jobs-open-detail-btn" type="button" data-job-id="${attr(job.job_id)}">Open</button></td>
+        <td><span class="inline-code">${esc(job.job_id)}</span></td>
+        <td><span class="inline-code">${esc(job.session_id)}</span></td>
+        <td>${esc(job.job_type || '-')}</td>
+        <td>${statusBadge(job.status || 'unknown')}</td>
+        <td>${esc(fmtDate(job.created_at))}</td>
+        <td>${esc(fmtDate(job.updated_at))}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function renderJobsDetail() {
+  if (jobsViewState.loadingDetail) {
+    return '<div class="detail-empty">Loading job detail...</div>';
+  }
+  if (jobsViewState.detailError) {
+    return `<div class="detail-error">${esc(jobsViewState.detailError)}</div>`;
+  }
+  if (!jobsViewState.selectedJob) {
+    return '<div class="detail-empty">Select a job to inspect payload summary, linked session, and error detail.</div>';
+  }
+
+  const job = jobsViewState.selectedJob;
+  return `
+    <div class="context-header">
+      <div>
+        <h3>Job Detail</h3>
+        <div class="context-meta">
+          <span class="inline-code">${esc(job.job_id)}</span>
+          ${statusBadge(job.status || 'unknown')}
+          <span>${esc(job.job_type || '-')}</span>
+        </div>
+      </div>
+      <div class="detail-actions">
+        <button class="btn btn-sm" type="button" data-role="jobs-open-session" data-session-id="${attr(job.session_id || '')}">View Linked Session</button>
+      </div>
+    </div>
+    <div class="detail-grid">
+      <div class="detail-group">
+        <h4>session_id</h4>
+        ${renderGroundingStructuredValue(job.session_id, 'No session')}
+      </div>
+      <div class="detail-group">
+        <h4>payload summary</h4>
+        ${renderJobPayloadSummary(job.payload)}
+      </div>
+      <div class="detail-group">
+        <h4>created_at</h4>
+        ${renderGroundingStructuredValue(job.created_at, 'Unknown')}
+      </div>
+      <div class="detail-group">
+        <h4>updated_at</h4>
+        ${renderGroundingStructuredValue(job.updated_at, 'Unknown')}
+      </div>
+      <div class="detail-group">
+        <h4>error_message</h4>
+        ${renderGroundingStructuredValue(job.error_message, 'No error recorded')}
+      </div>
+    </div>
+    <div class="context-grid" style="margin-top: var(--space-md);">
+      <div class="card">
+        <div class="shell-card-title">
+          <h3>payload</h3>
+          <span class="shell-chip">${esc(job.job_type || 'job')}</span>
+        </div>
+        ${jsonPre(job.payload || {})}
+      </div>
+      <div class="card">
+        <div class="shell-card-title">
+          <h3>raw job payload</h3>
+          <span class="shell-chip">Read-only</span>
+        </div>
+        ${jsonPre(job)}
+      </div>
+    </div>
+  `;
+}
+
+function bindJobsEvents() {
+  const panel = document.getElementById('panel-jobs');
+  if (!panel) return;
+
+  panel.querySelector('[data-role="jobs-filter-form"]')?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    goToJobs(
+      String(formData.get('session_id') || '').trim(),
+      String(formData.get('status') || '').trim()
+    );
+  });
+
+  panel.querySelector('[data-role="jobs-reset-filters"]')?.addEventListener('click', () => {
+    goToJobs();
+  });
+
+  panel.querySelectorAll('.jobs-open-detail-btn').forEach((button) => {
+    button.addEventListener('click', () => {
+      jobsViewState.selectedJobId = button.dataset.jobId || '';
+      void loadJobDetail();
+    });
+  });
+
+  panel.querySelectorAll('[data-role="jobs-open-session"]').forEach((button) => {
+    button.addEventListener('click', () => {
+      goToSessions(button.dataset.sessionId || '');
+    });
+  });
+}
+
+function renderJobsPage() {
+  const panel = document.getElementById('panel-jobs');
+  if (!panel) return;
+
+  panel.innerHTML = `
+    <div class="page-intro">
+      <h2>Jobs</h2>
+      <p>Inspect background jobs related to analysis sessions. Jobs is an auxiliary troubleshooting surface and does not replace runtime status diagnosis for blocked work.</p>
+    </div>
+    <div class="sessions-layout">
+      <div class="sessions-stack">
+        <div class="card">
+          <div class="shell-card-title">
+            <h3>Job Filters</h3>
+            <span class="shell-chip">Read-only</span>
+          </div>
+          <form class="sessions-filters" data-role="jobs-filter-form">
+            <div class="form-group">
+              <label for="jobs-session-id-filter">Filter by session_id</label>
+              <input id="jobs-session-id-filter" type="text" name="session_id" value="${attr(currentRoute.sessionId)}" placeholder="sess_..." />
+            </div>
+            <div class="form-group">
+              <label for="jobs-status-filter">status</label>
+              <select id="jobs-status-filter" name="status">
+                <option value="">All statuses</option>
+                <option value="pending" ${currentRoute.status === 'pending' ? 'selected' : ''}>pending</option>
+                <option value="running" ${currentRoute.status === 'running' ? 'selected' : ''}>running</option>
+                <option value="completed" ${currentRoute.status === 'completed' ? 'selected' : ''}>completed</option>
+                <option value="failed" ${currentRoute.status === 'failed' ? 'selected' : ''}>failed</option>
+                <option value="cancelled" ${currentRoute.status === 'cancelled' ? 'selected' : ''}>cancelled</option>
+              </select>
+            </div>
+            <button class="btn btn-primary" type="submit">Filter</button>
+            <button class="btn" type="button" data-role="jobs-reset-filters">Reset</button>
+          </form>
+          <p class="panel-note">T8 aligns the read-only jobs view with created_at / updated_at while preserving detailed submitted_at / started_at / completed_at in the payload.</p>
+          <p class="panel-note"><span class="inline-code">GET /jobs</span> and <span class="inline-code">GET /jobs/{job_id}</span> drive this page. No submit, cancel, or retry controls exist on this page.</p>
+        </div>
+        <div class="card">
+          <div class="list-meta">
+            <div>
+              <h2>Job List</h2>
+              <div class="results-count">${jobsViewState.loadingList ? 'Loading jobs...' : `${jobsViewState.items.length} job(s)`}</div>
+            </div>
+          </div>
+          ${jobsViewState.listError ? `<div class="list-error">${esc(jobsViewState.listError)}</div>` : `
+            <div class="sessions-table-wrap">
+              <table class="sessions-table state-table">
+                <thead>
+                  <tr>
+                    <th>Detail</th>
+                    <th>job_id</th>
+                    <th>session_id</th>
+                    <th>job_type</th>
+                    <th>status</th>
+                    <th>created_at</th>
+                    <th>updated_at</th>
+                  </tr>
+                </thead>
+                <tbody>${renderJobsRows()}</tbody>
+              </table>
+            </div>
+          `}
+        </div>
+      </div>
+      <div class="card">
+        <div class="shell-card-title">
+          <h3>Job Detail</h3>
+          <span class="shell-chip">${jobsViewState.selectedJobId ? 'Selected' : 'Idle'}</span>
+        </div>
+        <p class="panel-note">Use this detail panel for payload summary, linked session, and error detail only. It must stay secondary to Runtime for execution diagnosis.</p>
+        <p class="panel-note">It does not replace runtime status diagnosis for blocked work.</p>
+        ${renderJobsDetail()}
+      </div>
+    </div>
+  `;
+
+  bindJobsEvents();
+}
+
+async function loadJobsList() {
+  jobsViewState.loadingList = true;
+  jobsViewState.listError = '';
+  jobsViewState.detailError = '';
+  jobsViewState.selectedJob = null;
+  renderJobsPage();
+  try {
+    const payload = await uiApi.listJobs(currentRoute);
+    jobsViewState.items = Array.isArray(payload) ? payload : [];
+    if (!jobsViewState.selectedJobId || !jobsViewState.items.some((job) => job.job_id === jobsViewState.selectedJobId)) {
+      jobsViewState.selectedJobId = jobsViewState.items[0]?.job_id || '';
+    }
+    if (!jobsViewState.selectedJobId) {
+      jobsViewState.selectedJob = null;
+    }
+  } catch (error) {
+    jobsViewState.items = [];
+    jobsViewState.selectedJobId = '';
+    jobsViewState.selectedJob = null;
+    jobsViewState.listError = error.message || 'Job listing failed.';
+  } finally {
+    jobsViewState.loadingList = false;
+    renderJobsPage();
+  }
+}
+
+async function loadJobDetail() {
+  if (!jobsViewState.selectedJobId) {
+    jobsViewState.loadingDetail = false;
+    jobsViewState.detailError = '';
+    jobsViewState.selectedJob = null;
+    renderJobsPage();
+    return;
+  }
+
+  jobsViewState.loadingDetail = true;
+  jobsViewState.detailError = '';
+  renderJobsPage();
+  try {
+    jobsViewState.selectedJob = await uiApi.getJob(jobsViewState.selectedJobId);
+  } catch (error) {
+    jobsViewState.selectedJob = null;
+    jobsViewState.detailError = error.status === 404
+      ? '404 job not found. Select another job from the list.'
+      : (error.message || 'Job detail lookup failed.');
+  } finally {
+    jobsViewState.loadingDetail = false;
+    renderJobsPage();
+  }
+}
+
+async function loadJobsView() {
+  renderJobsPage();
+  await loadJobsList();
+  await loadJobDetail();
+}
+
+function groundingSearchReadinessMode() {
+  return groundingViewState.showUnavailable ? 'all' : 'ready';
+}
+
+function isSemanticGroundingResult(item) {
+  return item && item.object_kind && item.object_kind !== 'asset';
+}
+
+function renderGroundingBadges(item) {
+  if (!isSemanticGroundingResult(item)) {
+    return statusBadge(item?.status || item?.object_type || 'unknown');
+  }
+  return `
+    ${statusBadge(item.lifecycle_status || item.status || 'unknown')}
+    ${statusBadge(item.readiness_status || 'unknown')}
+  `;
+}
+
+function summarizeGroundingBlockers(item) {
+  if (!isSemanticGroundingResult(item)) {
+    return '';
+  }
+  const blockers = Array.isArray(item.blocking_requirements_preview)
+    ? item.blocking_requirements_preview
+    : [];
+  if (blockers.length === 0) {
+    return item.readiness_status === 'ready'
+      ? 'Ready for default use.'
+      : 'Unavailable object without blocker detail.';
+  }
+  const preview = blockers
+    .map((blocker) => blocker?.message || blocker?.code || 'Unknown blocker')
+    .filter(Boolean)
+    .join(' | ');
+  const remaining = Math.max((item.blocker_count || 0) - blockers.length, 0);
+  return remaining > 0 ? `${preview} | +${remaining} more blocker(s)` : preview;
+}
+
+function summarizeGroundingCapabilities(item) {
+  if (!isSemanticGroundingResult(item)) {
+    return '';
+  }
+  const capabilities = item.capabilities_summary || {};
+  const limits = [];
+  if (item.object_kind === 'metric' && capabilities.supports_validate === false) {
+    limits.push('validate unavailable');
+  }
+  if (item.object_kind === 'process' && capabilities.inferential_ready === false) {
+    limits.push('inferential runtime unavailable');
+  }
+  if (limits.length > 0) {
+    return limits.join(' | ');
+  }
+  const enabled = Object.entries(capabilities)
+    .filter(([, value]) => value === true)
+    .slice(0, 2)
+    .map(([key]) => key);
+  return enabled.length > 0 ? `Capabilities: ${enabled.join(', ')}` : '';
+}
+
+function renderGroundingSemanticSummaryCard(title, content) {
+  return `
+    <div class="detail-group">
+      <h4>${esc(title)}</h4>
+      ${content}
+    </div>
+  `;
+}
+
+function renderGroundingBlockerList(blockers, emptyLabel) {
+  if (!Array.isArray(blockers) || blockers.length === 0) {
+    return `<div class="detail-empty">${esc(emptyLabel)}</div>`;
+  }
+  return `
+    <div class="state-detail-list">
+      ${blockers.map((blocker) => `
+        <div class="state-detail-item">
+          <h4>${esc(blocker.code || 'BLOCKER')}</h4>
+          <div>${esc(blocker.message || 'No blocker message')}</div>
+          ${blocker.subject_ref ? `<div class="panel-note">subject_ref: <span class="inline-code">${esc(blocker.subject_ref)}</span></div>` : ''}
+          ${blocker.dependency_ref ? `<div class="panel-note">dependency_ref: <span class="inline-code">${esc(blocker.dependency_ref)}</span></div>` : ''}
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function renderGroundingSearchResults() {
+  if (groundingViewState.searchLoading) {
+    return '<div class="detail-empty">Loading catalog search results...</div>';
+  }
+  if (groundingViewState.searchError) {
+    return `<div class="detail-error">${esc(groundingViewState.searchError)}</div>`;
+  }
+  if (groundingViewState.searchResults.length === 0) {
+    if (!groundingViewState.searchQuery) {
+      return '<div class="detail-empty">Search the ready-first semantic catalog to inspect typed refs, synced assets, and readiness blockers when you explicitly include unavailable objects.</div>';
+    }
+    return '<div class="detail-empty">No catalog objects matched the current query.</div>';
+  }
+
+  return `
+    <div class="grounding-result-list">
+      ${groundingViewState.searchResults.map((item) => `
+        <button
+          class="grounding-result-item ${item.object_id === groundingViewState.selectedObjectId ? 'is-selected' : ''}"
+          type="button"
+          data-role="grounding-select-result"
+          data-object-id="${attr(item.object_id || '')}"
+          data-object-kind="${attr(item.object_kind || '')}"
+          data-object-ref="${attr(item.ref || '')}"
+        >
+          <h4>${esc(item.display_name || item.name || item.ref || item.object_id || 'catalog object')}</h4>
+          <div class="grounding-result-meta">
+            <span>${esc(item.object_kind || 'object')}</span>
+            <span>${esc(item.ref || '-')}</span>
+            <span>${renderGroundingBadges(item)}</span>
+          </div>
+          ${isSemanticGroundingResult(item) ? `
+            <div class="panel-note">Blockers: ${esc(summarizeGroundingBlockers(item))}</div>
+            ${summarizeGroundingCapabilities(item)
+              ? `<div class="panel-note">Capability limits: ${esc(summarizeGroundingCapabilities(item))}</div>`
+              : ''
+            }
+          ` : ''}
+        </button>
+      `).join('')}
+    </div>
+  `;
+}
+
+function renderGroundingDetailCard() {
+  let body = '<div class="detail-empty">Select a catalog object to inspect readiness, dependencies, and typed payload details.</div>';
+  if (groundingViewState.detailLoading) {
+    body = '<div class="detail-empty">Loading catalog detail...</div>';
+  } else if (groundingViewState.detailError) {
+    body = `<div class="detail-error">${esc(groundingViewState.detailError)}</div>`;
+  } else if (groundingViewState.detailResult) {
+    const result = groundingViewState.detailResult;
+    if (result.object_kind === 'asset') {
+      body = `
+        <div class="detail-grid">
+          ${renderGroundingSemanticSummaryCard('ref', renderGroundingStructuredValue(result.ref))}
+          ${renderGroundingSemanticSummaryCard('object_kind', renderGroundingStructuredValue(result.object_kind))}
+          ${renderGroundingSemanticSummaryCard('object_id', renderGroundingStructuredValue(result.object_id))}
+          ${renderGroundingSemanticSummaryCard('source_id', renderGroundingStructuredValue(result.source_object?.source_id))}
+        </div>
+        <div class="panel-note">Assets do not participate in semantic readiness. They remain synced metadata helpers only.</div>
+        <div class="card" style="margin-top: var(--space-md);">
+          <div class="shell-card-title">
+            <h3>source_object</h3>
+            <span class="shell-chip">asset</span>
+          </div>
+          ${jsonPre(result.source_object)}
+        </div>
+      `;
+    } else {
+      const semanticObject = result.semantic_object || {};
+      const blockers = Array.isArray(semanticObject.blocking_requirements)
+        ? semanticObject.blocking_requirements
+        : [];
+      body = `
+        <div class="detail-grid">
+          ${renderGroundingSemanticSummaryCard('ref', renderGroundingStructuredValue(result.ref))}
+          ${renderGroundingSemanticSummaryCard('object_kind', renderGroundingStructuredValue(result.object_kind))}
+          ${renderGroundingSemanticSummaryCard('object_id', renderGroundingStructuredValue(result.object_id))}
+          ${renderGroundingSemanticSummaryCard('status / revision', renderGroundingStructuredValue(`${result.status || 'unknown'} / ${result.revision || '-'}`))}
+          ${renderGroundingSemanticSummaryCard('lifecycle', statusBadge(semanticObject.lifecycle_status || result.status || 'unknown'))}
+          ${renderGroundingSemanticSummaryCard('readiness', statusBadge(semanticObject.readiness_status || 'unknown'))}
+        </div>
+        <div class="context-grid" style="margin-top: var(--space-md);">
+          <div class="card">
+            <div class="shell-card-title">
+              <h3>Blocking Requirements</h3>
+              <span class="shell-chip">${esc(`${blockers.length} blocker(s)`)}</span>
+            </div>
+            ${renderGroundingBlockerList(blockers, 'No blocking requirements. Object is ready for default use.')}
+          </div>
+          <div class="card">
+            <div class="shell-card-title">
+              <h3>Capabilities</h3>
+              <span class="shell-chip">${esc(`${Object.keys(semanticObject.capabilities || {}).length} key(s)`)}</span>
+            </div>
+            ${renderGroundingStructuredValue(semanticObject.capabilities, 'No capability flags')}
+          </div>
+        </div>
+        <div class="context-grid" style="margin-top: var(--space-md);">
+          <div class="card">
+            <div class="shell-card-title">
+              <h3>Dependencies</h3>
+            </div>
+            ${renderGroundingStructuredValue(semanticObject.dependency_refs, 'No dependencies')}
+          </div>
+          <div class="card">
+            <div class="shell-card-title">
+              <h3>semantic_object</h3>
+              <span class="shell-chip">${esc(result.object_kind || 'typed')}</span>
+            </div>
+            ${jsonPre(semanticObject)}
+          </div>
+        </div>
+      `;
+    }
+  }
+
+  return `
+    <div class="card">
+      <div class="grounding-card-header">
+        <div>
+          <h3>Catalog Detail</h3>
+          <p class="panel-note">GET /catalog/objects/{object_kind}/{object_id}</p>
+        </div>
+        <span class="shell-chip">Ready-first</span>
+      </div>
+      ${body}
+    </div>
+  `;
+}
+
+function renderGroundingResolveCard() {
+  let body = '<div class="detail-empty">Select a typed semantic object from Catalog Search to inspect resolve details.</div>';
+  if (groundingViewState.resolveLoading) {
+    body = '<div class="detail-empty">Loading semantic resolve...</div>';
+  } else if (groundingViewState.resolveWhyNotReady) {
+    const detail = groundingViewState.resolveWhyNotReady;
+    body = `
+      <div class="detail-grid">
+        ${renderGroundingSemanticSummaryCard('subject_ref', renderGroundingStructuredValue(detail.subject_ref))}
+        ${renderGroundingSemanticSummaryCard('object_kind', renderGroundingStructuredValue(detail.object_kind))}
+        ${renderGroundingSemanticSummaryCard('lifecycle', statusBadge(detail.lifecycle_status || 'unknown'))}
+        ${renderGroundingSemanticSummaryCard('readiness', statusBadge(detail.readiness_status || 'unknown'))}
+      </div>
+      <div class="panel-note">Why-not-ready is shown directly here so users do not need to infer readiness from a generic runtime failure.</div>
+      <div class="context-grid" style="margin-top: var(--space-md);">
+        <div class="card">
+          <div class="shell-card-title">
+            <h3>Blocking Requirements</h3>
+            <span class="shell-chip">${esc(`${Array.isArray(detail.blocking_requirements) ? detail.blocking_requirements.length : 0} blocker(s)`)}</span>
+          </div>
+          ${renderGroundingBlockerList(detail.blocking_requirements, 'No blocker detail returned.')}
+        </div>
+        <div class="card">
+          <div class="shell-card-title">
+            <h3>Capabilities</h3>
+          </div>
+          ${renderGroundingStructuredValue(detail.capabilities, 'No capability flags')}
+        </div>
+      </div>
+      <div class="card" style="margin-top: var(--space-md);">
+        <div class="shell-card-title">
+          <h3>dependency_refs</h3>
+        </div>
+        ${renderGroundingStructuredValue(detail.dependency_refs, 'No dependency refs')}
+      </div>
+    `;
+  } else if (groundingViewState.resolveError) {
+    body = `<div class="detail-error">${esc(groundingViewState.resolveError)}</div>`;
+  } else if (groundingViewState.resolveResult) {
+    const result = groundingViewState.resolveResult;
+    body = `
+      <div class="detail-grid">
+        <div class="detail-group">
+          <h4>ref</h4>
+          ${renderGroundingStructuredValue(result.ref)}
+        </div>
+        <div class="detail-group">
+          <h4>object_kind</h4>
+          ${renderGroundingStructuredValue(result.object_kind)}
+        </div>
+        <div class="detail-group">
+          <h4>object_id</h4>
+          ${renderGroundingStructuredValue(result.object_id)}
+        </div>
+        <div class="detail-group">
+          <h4>status / revision</h4>
+          ${renderGroundingStructuredValue(`${result.status || 'unknown'} / ${result.revision || '-'}`)}
+        </div>
+      </div>
+      <div class="panel-note">Semantic resolve is descriptive only. It does not expose any Run Analysis or session creation action.</div>
+      <div class="card" style="margin-top: var(--space-md);">
+        <div class="shell-card-title">
+          <h3>semantic_object</h3>
+          <span class="shell-chip">${esc(result.object_kind || 'typed')}</span>
+        </div>
+        ${jsonPre(result.semantic_object)}
+      </div>
+    `;
+  } else if (groundingViewState.selectedObjectId) {
+    body = '<div class="detail-empty">The selected catalog object has no typed semantic ref. Asset rows only support graph lookup.</div>';
+  }
+
+  return `
+    <div class="card">
+      <div class="grounding-card-header">
+        <div>
+          <h3>Semantic Resolve</h3>
+          <p class="panel-note">GET /semantic/resolve/{name}</p>
+        </div>
+        <span class="shell-chip">Read-only</span>
+      </div>
+      ${body}
+    </div>
+  `;
+}
+
+function renderGroundingGraphCard() {
+  let body = '<div class="detail-empty">Select a catalog object to inspect graph edges and grounding paths.</div>';
+  if (groundingViewState.graphLoading) {
+    body = '<div class="detail-empty">Loading catalog graph...</div>';
+  } else if (groundingViewState.graphError) {
+    body = `<div class="detail-error">${esc(groundingViewState.graphError)}</div>`;
+  } else if (groundingViewState.graphResult) {
+    const result = groundingViewState.graphResult;
+    body = `
+      <div class="detail-grid">
+        <div class="detail-group">
+          <h4>root</h4>
+          ${renderGroundingStructuredValue(result.root)}
+        </div>
+        <div class="detail-group">
+          <h4>depth</h4>
+          ${renderGroundingStructuredValue(result.depth)}
+        </div>
+        <div class="detail-group">
+          <h4>nodes</h4>
+          ${renderGroundingStructuredValue(Array.isArray(result.nodes) ? result.nodes.length : 0)}
+        </div>
+        <div class="detail-group">
+          <h4>edges</h4>
+          ${renderGroundingStructuredValue(Array.isArray(result.edges) ? result.edges.length : 0)}
+        </div>
+      </div>
+      <div class="panel-note">Catalog Graph shows typed object and synced asset relationships only. It does not explain session result meaning.</div>
+      <div class="context-grid" style="margin-top: var(--space-md);">
+        <div class="card">
+          <div class="shell-card-title">
+            <h3>nodes</h3>
+            <span class="shell-chip">${esc(Array.isArray(result.nodes) ? `${result.nodes.length} node(s)` : '0 node(s)')}</span>
+          </div>
+          ${jsonPre(result.nodes)}
+        </div>
+        <div class="card">
+          <div class="shell-card-title">
+            <h3>edges</h3>
+            <span class="shell-chip">${esc(Array.isArray(result.edges) ? `${result.edges.length} edge(s)` : '0 edge(s)')}</span>
+          </div>
+          ${jsonPre(result.edges)}
+        </div>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="card">
+      <div class="grounding-card-header">
+        <div>
+          <h3>Catalog Graph</h3>
+          <p class="panel-note">GET /catalog/graph</p>
+        </div>
+        <span class="shell-chip">Read-only</span>
+      </div>
+      <div class="detail-actions">
+        <label class="form-group" for="grounding-graph-depth">
+          <span>depth</span>
+          <select id="grounding-graph-depth" data-role="grounding-graph-depth">
+            <option value="1" ${groundingViewState.graphDepth === '1' ? 'selected' : ''}>1</option>
+            <option value="2" ${groundingViewState.graphDepth === '2' ? 'selected' : ''}>2</option>
+            <option value="3" ${groundingViewState.graphDepth === '3' ? 'selected' : ''}>3</option>
+            <option value="4" ${groundingViewState.graphDepth === '4' ? 'selected' : ''}>4</option>
+            <option value="5" ${groundingViewState.graphDepth === '5' ? 'selected' : ''}>5</option>
+          </select>
+        </label>
+      </div>
+      ${body}
+    </div>
+  `;
+}
+
+function renderGroundingPlannerCard() {
+  let body = '<div class="detail-empty">Open Grounding Helper from Sessions to inspect planner context.</div>';
+  if (groundingViewState.plannerLoading) {
+    body = '<div class="detail-empty">Loading planner context...</div>';
+  } else if (groundingViewState.plannerError) {
+    body = `<div class="detail-error">${esc(groundingViewState.plannerError)}</div>`;
+  } else if (groundingViewState.plannerResult) {
+    const result = groundingViewState.plannerResult;
+    body = `
+      <div class="detail-grid">
+        <div class="detail-group">
+          <h4>session_id</h4>
+          ${renderGroundingStructuredValue(result.session_id)}
+        </div>
+        <div class="detail-group">
+          <h4>available_step_types</h4>
+          ${renderGroundingStructuredValue(result.available_step_types, 'No step types')}
+        </div>
+        <div class="detail-group">
+          <h4>metrics</h4>
+          ${renderGroundingStructuredValue(Array.isArray(result.metrics) ? `${result.metrics.length} metric(s)` : '0 metric(s)')}
+        </div>
+        <div class="detail-group">
+          <h4>entities</h4>
+          ${renderGroundingStructuredValue(Array.isArray(result.entities) ? `${result.entities.length} entity(s)` : '0 entity(s)')}
+        </div>
+      </div>
+      <div class="panel-note">Planner Context is session-scoped grounding only. It remains secondary to State / Context and does not interpret proposition outcomes.</div>
+      <div class="context-grid" style="margin-top: var(--space-md);">
+        <div class="card">
+          <div class="shell-card-title">
+            <h3>metrics</h3>
+            <span class="shell-chip">${esc(Array.isArray(result.metrics) ? `${result.metrics.length} metric(s)` : '0 metric(s)')}</span>
+          </div>
+          ${jsonPre(result.metrics)}
+        </div>
+        <div class="card">
+          <div class="shell-card-title">
+            <h3>entities</h3>
+            <span class="shell-chip">${esc(Array.isArray(result.entities) ? `${result.entities.length} entity(s)` : '0 entity(s)')}</span>
+          </div>
+          ${jsonPre(result.entities)}
+        </div>
+      </div>
+      <div class="card" style="margin-top: var(--space-md);">
+        <div class="shell-card-title">
+          <h3>policies</h3>
+          <span class="shell-chip">${esc(Array.isArray(result.policies) ? `${result.policies.length} policy item(s)` : '0 policy item(s)')}</span>
+        </div>
+        ${jsonPre(result.policies)}
+      </div>
+    `;
+  }
+
+  return `
+    <div class="card">
+      <div class="grounding-card-header">
+        <div>
+          <h3>Planner Context</h3>
+          <p class="panel-note">GET /sessions/{session_id}/planner-context</p>
+        </div>
+        <span class="shell-chip">Session-scoped</span>
+      </div>
+      ${body}
+    </div>
+  `;
+}
+
+function bindGroundingEvents() {
+  const panel = document.getElementById('panel-grounding');
+  if (!panel) return;
+
+  panel.querySelector('[data-role="grounding-search-form"]')?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    groundingViewState.searchQuery = String(formData.get('q') || '').trim();
+    groundingViewState.searchType = String(formData.get('type') || '').trim();
+    groundingViewState.showUnavailable = formData.get('show_unavailable') === 'on';
+    groundingViewState.selectedObjectId = '';
+    groundingViewState.selectedObjectKind = '';
+    groundingViewState.selectedRef = '';
+    groundingViewState.detailError = '';
+    groundingViewState.detailResult = null;
+    groundingViewState.resolveError = '';
+    groundingViewState.resolveWhyNotReady = null;
+    groundingViewState.resolveResult = null;
+    groundingViewState.graphError = '';
+    groundingViewState.graphResult = null;
+    void loadGroundingSearch();
+  });
+
+  panel.querySelector('[data-role="grounding-reset-search"]')?.addEventListener('click', () => {
+    groundingViewState.searchQuery = '';
+    groundingViewState.searchType = '';
+    groundingViewState.showUnavailable = false;
+    groundingViewState.searchError = '';
+    groundingViewState.searchResults = [];
+    groundingViewState.selectedObjectId = '';
+    groundingViewState.selectedObjectKind = '';
+    groundingViewState.selectedRef = '';
+    groundingViewState.detailError = '';
+    groundingViewState.detailResult = null;
+    groundingViewState.resolveError = '';
+    groundingViewState.resolveWhyNotReady = null;
+    groundingViewState.resolveResult = null;
+    groundingViewState.graphError = '';
+    groundingViewState.graphResult = null;
+    renderGroundingPage();
+  });
+
+  panel.querySelectorAll('[data-role="grounding-select-result"]').forEach((button) => {
+    button.addEventListener('click', () => {
+      groundingViewState.selectedObjectId = button.dataset.objectId || '';
+      groundingViewState.selectedObjectKind = button.dataset.objectKind || '';
+      groundingViewState.selectedRef = button.dataset.objectRef || '';
+      groundingViewState.detailError = '';
+      groundingViewState.detailResult = null;
+      groundingViewState.resolveError = '';
+      groundingViewState.resolveWhyNotReady = null;
+      groundingViewState.resolveResult = null;
+      groundingViewState.graphError = '';
+      groundingViewState.graphResult = null;
+      renderGroundingPage();
+      void Promise.all([loadGroundingDetail(), loadGroundingResolve(), loadGroundingGraph()]);
+    });
+  });
+
+  panel.querySelector('[data-role="grounding-graph-depth"]')?.addEventListener('change', (event) => {
+    groundingViewState.graphDepth = String(event.currentTarget.value || '2');
+    void loadGroundingGraph();
+  });
+
+  panel.querySelector('[data-role="grounding-open-sessions"]')?.addEventListener('click', () => {
+    goToSessions(currentRoute.sessionId);
+  });
+}
+
+function renderGroundingPage() {
+  const panel = document.getElementById('panel-grounding');
+  if (!panel) return;
+
+  panel.innerHTML = `
+    <div class="page-intro">
+      <h2>Grounding</h2>
+      <p>Use catalog and semantic helper views to understand active versus ready objects, resolve behavior, and session planner grounding. This page is read-only and secondary to State / Context for analysis outcomes.</p>
+    </div>
+    <div class="grounding-layout">
+      <div class="grounding-sidebar">
+        <div class="card">
+          <div class="shell-card-title">
+            <h3>Catalog Search</h3>
+            <span class="shell-chip">Read-only</span>
+          </div>
+          <form class="grounding-search-form" data-role="grounding-search-form">
+            <div class="grounding-search-grid">
+              <div class="form-group">
+                <label for="grounding-search-query">q</label>
+                <input id="grounding-search-query" type="text" name="q" value="${attr(groundingViewState.searchQuery)}" placeholder="watch, entity.user, source table..." />
+              </div>
+              <div class="form-group">
+                <label for="grounding-search-type">type</label>
+                <select id="grounding-search-type" name="type">
+                  <option value="" ${groundingViewState.searchType === '' ? 'selected' : ''}>all</option>
+                  <option value="metric" ${groundingViewState.searchType === 'metric' ? 'selected' : ''}>metric</option>
+                  <option value="entity" ${groundingViewState.searchType === 'entity' ? 'selected' : ''}>entity</option>
+                  <option value="process" ${groundingViewState.searchType === 'process' ? 'selected' : ''}>process</option>
+                  <option value="dimension" ${groundingViewState.searchType === 'dimension' ? 'selected' : ''}>dimension</option>
+                  <option value="time" ${groundingViewState.searchType === 'time' ? 'selected' : ''}>time</option>
+                  <option value="binding" ${groundingViewState.searchType === 'binding' ? 'selected' : ''}>binding</option>
+                  <option value="asset" ${groundingViewState.searchType === 'asset' ? 'selected' : ''}>asset</option>
+                </select>
+              </div>
+            </div>
+            <label class="panel-note" style="display: inline-flex; align-items: center; gap: var(--space-sm); margin-top: var(--space-sm);">
+              <input type="checkbox" name="show_unavailable" ${groundingViewState.showUnavailable ? 'checked' : ''} />
+              Show unavailable objects with blockers and capability limits
+            </label>
+            <div class="detail-actions">
+              <button class="btn btn-primary" type="submit">Search</button>
+              <button class="btn" type="button" data-role="grounding-reset-search">Reset</button>
+            </div>
+          </form>
+          <p class="panel-note"><span class="inline-code">GET /catalog/search</span> defaults to <span class="inline-code">readiness=ready</span>. Turn on Show unavailable objects to inspect non-ready blockers without implying that published means usable.</p>
+        </div>
+        <div class="card">
+          <div class="shell-card-title">
+            <h3>Search Results</h3>
+            <span class="shell-chip">${groundingViewState.searchLoading ? 'Loading' : esc(`${groundingViewState.searchResults.length} result(s)`)}</span>
+          </div>
+          ${renderGroundingSearchResults()}
+        </div>
+      </div>
+      <div class="grounding-stack">
+        <div class="card">
+          <div class="shell-card-title">
+            <h3>Grounding Locator</h3>
+            <span class="shell-chip">HTTP-only</span>
+          </div>
+          <div class="detail-grid">
+            <div class="detail-group">
+              <h4>session_id</h4>
+              ${renderGroundingStructuredValue(currentRoute.sessionId, 'Optional; set by Open Grounding Helper from Sessions')}
+            </div>
+            <div class="detail-group">
+              <h4>selected_ref</h4>
+              ${renderGroundingStructuredValue(groundingViewState.selectedRef, 'Select from Catalog Search')}
+            </div>
+            <div class="detail-group">
+              <h4>HTTP Contract</h4>
+              <div class="runtime-meta-grid">
+                <span class="inline-code">GET /catalog/search</span>
+                <span class="inline-code">GET /semantic/resolve/{name}</span>
+                <span class="inline-code">GET /catalog/graph</span>
+                <span class="inline-code">GET /sessions/{session_id}/planner-context</span>
+              </div>
+            </div>
+          </div>
+          <p class="panel-note">Grounding is a helper surface for semantic object discovery and session grounding. It should stay visually and conceptually below State / Context in the main read path.</p>
+          ${!currentRoute.sessionId ? `
+            <div class="detail-actions">
+              <button class="btn btn-sm" type="button" data-role="grounding-open-sessions">Open Sessions</button>
+            </div>
+          ` : ''}
+        </div>
+        ${renderGroundingDetailCard()}
+        ${renderGroundingResolveCard()}
+        ${renderGroundingGraphCard()}
+        ${renderGroundingPlannerCard()}
+      </div>
+    </div>
+  `;
+
+  bindGroundingEvents();
+}
+
+function bindRuntimeEvents() {
+  const panel = document.getElementById('panel-runtime');
+  if (!panel) return;
+
+  panel.querySelectorAll('[data-role="runtime-open-sessions"]').forEach((button) => {
+    button.addEventListener('click', () => {
+      goToSessions(currentRoute.sessionId);
+    });
+  });
+
+  panel.querySelectorAll('[data-role="runtime-open-state"]').forEach((button) => {
+    button.addEventListener('click', () => {
+      goToState(currentRoute.sessionId, currentRoute.propositionId);
+    });
+  });
+
+  panel.querySelectorAll('[data-role="runtime-open-context"]').forEach((button) => {
+    button.addEventListener('click', () => {
+      goToContext(currentRoute.sessionId, currentRoute.propositionId);
+    });
+  });
+
+  panel.querySelectorAll('[data-role="runtime-open-jobs"]').forEach((button) => {
+    button.addEventListener('click', () => {
+      goToJobs(currentRoute.sessionId);
+    });
+  });
+}
+
+function renderRuntimePage() {
+  const panel = document.getElementById('panel-runtime');
+  if (!panel) return;
+
+  panel.innerHTML = `
+    <div class="page-intro">
+      <h2>Runtime</h2>
+      <p>Inspect operator-facing runtime truth for sessions, propositions, and artifacts. This page explains queue, publish, failure, and backlog state without restating canonical evidence conclusions.</p>
+    </div>
+    <div class="runtime-layout">
+      <div class="card">
+        <div class="shell-card-title">
+          <h3>Runtime Locator</h3>
+          <span class="shell-chip">Read-only</span>
+        </div>
+        <div class="detail-grid">
+          <div class="detail-group">
+            <h4>runtime_scope</h4>
+            ${renderRuntimeStructuredValue(currentRoute.runtimeScope, 'Choose from linked pages')}
+          </div>
+          <div class="detail-group">
+            <h4>session_id</h4>
+            ${renderRuntimeStructuredValue(currentRoute.sessionId, 'Select from Sessions')}
+          </div>
+          <div class="detail-group">
+            <h4>proposition_id</h4>
+            ${renderRuntimeStructuredValue(currentRoute.propositionId, 'Open Proposition Runtime from State or Context')}
+          </div>
+          <div class="detail-group">
+            <h4>artifact_id</h4>
+            ${renderRuntimeStructuredValue(currentRoute.artifactId, 'Open Artifact Runtime from Context')}
+          </div>
+          <div class="detail-group">
+            <h4>HTTP Contract</h4>
+            <div class="runtime-meta-grid">
+              <span class="inline-code">GET /sessions/{session_id}/runtime-status</span>
+              <span class="inline-code">GET /sessions/{session_id}/propositions/{proposition_id}/runtime-status</span>
+              <span class="inline-code">GET /sessions/{session_id}/artifacts/{artifact_id}/runtime-status</span>
+            </div>
+          </div>
+        </div>
+        <p class="panel-note">${esc(runtimeLocatorCopy())}</p>
+        <p class="panel-note">Runtime stays on operator-facing runtime truth. Use State and Context for externally visible canonical truth. No retry, cancel, or terminate controls exist on this page.</p>
+        <p class="panel-note">URL contract is query-driven via <span class="inline-code">tab</span>, <span class="inline-code">session_id</span>, <span class="inline-code">proposition_id</span>, <span class="inline-code">artifact_id</span>, and <span class="inline-code">runtime_scope</span>. Runtime lookup failures stay on this page instead of forcing a jump away from the canonical chain.</p>
+      </div>
+      ${renderRuntimeMainContent()}
+    </div>
+  `;
+
+  bindRuntimeEvents();
+}
+
+function renderSessionActionButtons(sessionId) {
+  return `
+    <button class="btn btn-sm session-nav-btn" data-target-tab="state" data-session-id="${attr(sessionId)}">View State</button>
+    <button class="btn btn-sm session-nav-btn" data-target-tab="runtime" data-session-id="${attr(sessionId)}">View Runtime</button>
+    <button class="btn btn-sm session-nav-btn" data-target-tab="jobs" data-session-id="${attr(sessionId)}">View Jobs</button>
+    <button class="btn btn-sm session-nav-btn" data-target-tab="grounding" data-session-id="${attr(sessionId)}">Open Grounding Helper</button>
+  `;
+}
+
+function renderSessionRows() {
+  if (sessionsViewState.loadingList) {
+    return loadingRow(6);
+  }
+  if (sessionsViewState.items.length === 0) {
+    return `<tr><td colspan="7" class="empty">${esc(UI_EMPTY_COPY.sessions)}</td></tr>`;
+  }
+  return sessionsViewState.items.map((session) => {
+    const selectedClass = session.session_id === currentRoute.sessionId ? 'is-selected' : '';
+    return `
+      <tr class="${selectedClass}">
+        <td><button class="btn btn-sm session-select-btn" data-session-id="${attr(session.session_id)}">Open</button></td>
+        <td><span class="inline-code">${esc(session.session_id)}</span></td>
+        <td>${esc(session.goal?.question || '-')}</td>
+        <td>${statusBadge(sessionStatus(session))}</td>
+        <td>${esc(fmtDate(session.created_at))}</td>
+        <td>${esc(fmtDate(session.updated_at))}</td>
+        <td class="actions-cell">
+          ${renderSessionActionButtons(session.session_id)}
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function renderSessionsDetail() {
+  if (sessionsViewState.loadingDetail) {
+    return '<div class="detail-empty">Loading session detail...</div>';
+  }
+  if (sessionsViewState.detailError) {
+    return `<div class="detail-error">${esc(sessionsViewState.detailError)}</div>`;
+  }
+  const session = sessionsViewState.selectedSession;
+  if (!session) {
+    return '<div class="detail-empty">Select a session to inspect canonical session root details and drill into downstream read surfaces.</div>';
+  }
+  return `
+    <div class="session-header">
+      <div>
+        <h3>${esc(session.goal?.question || 'Untitled session')}</h3>
+        <div class="session-meta">
+          <span class="inline-code">${esc(session.session_id)}</span>
+          ${statusBadge(sessionStatus(session))}
+          <span>Created ${esc(fmtDate(session.created_at))}</span>
+          <span>Updated ${esc(fmtDate(session.updated_at))}</span>
+        </div>
+      </div>
+    </div>
+    <div class="detail-grid">
+      <div class="detail-group">
+        <h4>Constraints</h4>
+        ${formatPretty(session.scope?.constraints)}
+      </div>
+      <div class="detail-group">
+        <h4>Budget</h4>
+        ${formatPretty(session.governance?.budget)}
+      </div>
+      <div class="detail-group">
+        <h4>Policy</h4>
+        ${formatPretty(session.governance?.policy_refs)}
+      </div>
+      <div class="detail-group">
+        <h4>Terminal Reason</h4>
+        ${formatPretty(session.lifecycle?.terminal_reason)}
+      </div>
+      <div class="detail-group">
+        <h4>Rollover From Session</h4>
+        ${formatPretty(session.lifecycle?.rollover_from_session_id)}
+      </div>
+    </div>
+    <div class="detail-actions">
+      ${renderSessionActionButtons(session.session_id)}
+    </div>
+  `;
+}
+
+async function loadGroundingSearch() {
+  if (!groundingViewState.searchQuery) {
+    groundingViewState.searchLoading = false;
+    groundingViewState.searchError = '';
+    groundingViewState.searchResults = [];
+    renderGroundingPage();
+    return;
+  }
+
+  groundingViewState.searchLoading = true;
+  groundingViewState.searchError = '';
+  renderGroundingPage();
+  try {
+    const payload = await uiApi.searchCatalog(
+      groundingViewState.searchQuery,
+      groundingViewState.searchType,
+      groundingSearchReadinessMode()
+    );
+    groundingViewState.searchResults = Array.isArray(payload) ? payload : [];
+  } catch (error) {
+    groundingViewState.searchResults = [];
+    groundingViewState.searchError = error.message || 'Catalog search failed.';
+  } finally {
+    groundingViewState.searchLoading = false;
+    renderGroundingPage();
+  }
+}
+
+async function loadGroundingDetail() {
+  const objectId = groundingViewState.selectedObjectId;
+  const objectKind = groundingViewState.selectedObjectKind;
+  if (!objectId || !objectKind) {
+    groundingViewState.detailLoading = false;
+    groundingViewState.detailError = '';
+    groundingViewState.detailResult = null;
+    renderGroundingPage();
+    return;
+  }
+
+  groundingViewState.detailLoading = true;
+  groundingViewState.detailError = '';
+  renderGroundingPage();
+  try {
+    groundingViewState.detailResult = await uiApi.getCatalogObjectDetail(objectKind, objectId);
+  } catch (error) {
+    groundingViewState.detailResult = null;
+    groundingViewState.detailError = error.message || 'Catalog detail lookup failed.';
+  } finally {
+    groundingViewState.detailLoading = false;
+    renderGroundingPage();
+  }
+}
+
+async function loadGroundingResolve() {
+  const ref = groundingViewState.selectedRef;
+  if (!ref || groundingViewState.selectedObjectKind === 'asset') {
+    groundingViewState.resolveLoading = false;
+    groundingViewState.resolveError = '';
+    groundingViewState.resolveWhyNotReady = null;
+    groundingViewState.resolveResult = null;
+    renderGroundingPage();
+    return;
+  }
+
+  groundingViewState.resolveLoading = true;
+  groundingViewState.resolveError = '';
+  groundingViewState.resolveWhyNotReady = null;
+  renderGroundingPage();
+  try {
+    groundingViewState.resolveResult = await uiApi.resolveSemanticTerm(ref);
+  } catch (error) {
+    groundingViewState.resolveResult = null;
+    if (error.status === 409 && error.detail && error.detail.code === 'semantic_not_ready') {
+      groundingViewState.resolveWhyNotReady = error.detail;
+      groundingViewState.resolveError = '';
+    } else {
+      groundingViewState.resolveError = error.message || 'Semantic resolve failed.';
+    }
+  } finally {
+    groundingViewState.resolveLoading = false;
+    renderGroundingPage();
+  }
+}
+
+async function loadGroundingGraph() {
+  if (!groundingViewState.selectedObjectId) {
+    groundingViewState.graphLoading = false;
+    groundingViewState.graphError = '';
+    groundingViewState.graphResult = null;
+    renderGroundingPage();
+    return;
+  }
+
+  groundingViewState.graphLoading = true;
+  groundingViewState.graphError = '';
+  renderGroundingPage();
+  try {
+    const depth = Number.parseInt(groundingViewState.graphDepth || '2', 10);
+    groundingViewState.graphResult = await uiApi.getCatalogGraph(
+      groundingViewState.selectedObjectId,
+      Number.isNaN(depth) ? 2 : depth
+    );
+  } catch (error) {
+    groundingViewState.graphResult = null;
+    groundingViewState.graphError = error.message || 'Catalog graph lookup failed.';
+  } finally {
+    groundingViewState.graphLoading = false;
+    renderGroundingPage();
+  }
+}
+
+async function loadGroundingPlannerContext() {
+  if (!currentRoute.sessionId) {
+    groundingViewState.plannerLoading = false;
+    groundingViewState.plannerError = '';
+    groundingViewState.plannerResult = null;
+    renderGroundingPage();
+    return;
+  }
+
+  groundingViewState.plannerLoading = true;
+  groundingViewState.plannerError = '';
+  renderGroundingPage();
+  try {
+    groundingViewState.plannerResult = await uiApi.getPlannerContext(currentRoute.sessionId);
+  } catch (error) {
+    groundingViewState.plannerResult = null;
+    groundingViewState.plannerError = error.status === 404
+      ? '404 session not found for planner context.'
+      : (error.message || 'Planner context lookup failed.');
+  } finally {
+    groundingViewState.plannerLoading = false;
+    renderGroundingPage();
+  }
+}
+
+async function loadGroundingView() {
+  renderGroundingPage();
+  await loadGroundingPlannerContext();
+}
+
+function bindSessionsEvents() {
+  const panel = document.getElementById('panel-sessions');
+  if (!panel) return;
+
+  const filterForm = panel.querySelector('[data-role="session-filters"]');
+  if (filterForm) {
+    filterForm.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const formData = new FormData(filterForm);
+      applyRoute({
+        ...currentRoute,
+        tab: 'sessions',
+        status: String(formData.get('status') || ''),
+        sessionQuery: String(formData.get('session_query') || ''),
+        sessionId: '',
+        artifactId: '',
+      });
+    });
+  }
+
+  panel.querySelector('[data-role="reset-filters"]')?.addEventListener('click', () => {
+    goToSessions();
+  });
+
+  panel.querySelectorAll('.session-select-btn').forEach((button) => {
+    button.addEventListener('click', () => {
+      applyRoute({
+        ...currentRoute,
+        tab: 'sessions',
+        sessionId: button.dataset.sessionId || '',
+      });
+    });
+  });
+
+  panel.querySelectorAll('.session-nav-btn').forEach((button) => {
+    button.addEventListener('click', () => {
+      const targetTab = button.dataset.targetTab || 'sessions';
+      const sessionId = button.dataset.sessionId || '';
+      if (targetTab === 'state') {
+        goToState(sessionId);
+        return;
+      }
+      if (targetTab === 'runtime') {
+        goToSessionRuntime(sessionId);
+        return;
+      }
+      if (targetTab === 'jobs') {
+        goToJobs(sessionId);
+        return;
+      }
+      if (targetTab === 'grounding') {
+        goToGrounding(sessionId);
+        return;
+      }
+      goToSessions(sessionId);
+    });
+  });
+}
+
+function renderSessionsPage() {
+  const panel = document.getElementById('panel-sessions');
+  if (!panel) return;
+
+  panel.innerHTML = `
+    <div class="page-intro">
+      <h2>Sessions</h2>
+      <p>Browse existing analysis sessions, inspect canonical session root detail, and jump into State, Runtime, Jobs, or Grounding without exposing any write controls.</p>
+    </div>
+    <div class="sessions-layout">
+      <div class="sessions-stack">
+        <div class="card">
+          <div class="shell-card-title">
+            <h3>Session Filters</h3>
+            <span class="shell-chip">Read-only</span>
+          </div>
+          <form class="sessions-filters" data-role="session-filters">
+            <div class="form-group">
+              <label for="session-status-filter">Status</label>
+              <select id="session-status-filter" name="status">
+                <option value="">All statuses</option>
+                <option value="open" ${currentRoute.status === 'open' ? 'selected' : ''}>open</option>
+                <option value="closed" ${currentRoute.status === 'closed' ? 'selected' : ''}>closed</option>
+                <option value="aborted" ${currentRoute.status === 'aborted' ? 'selected' : ''}>aborted</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="session-id-filter">Search by session_id</label>
+              <input id="session-id-filter" type="text" name="session_query" value="${attr(currentRoute.sessionQuery)}" placeholder="sess_..." />
+            </div>
+            <button class="btn btn-primary" type="submit">Filter</button>
+            <button class="btn" type="button" data-role="reset-filters">Reset</button>
+          </form>
+          <p class="panel-note">Results use the canonical session root read surface. Filtering is limited to lifecycle status and session identifier lookup.</p>
+        </div>
+        <div class="card">
+          <div class="list-meta">
+            <div>
+              <h2>Recent Sessions</h2>
+              <div class="results-count">${sessionsViewState.loadingList ? 'Loading sessions...' : `${sessionsViewState.items.length} session(s)`}</div>
+            </div>
+          </div>
+          ${sessionsViewState.listError ? `<div class="list-error">${esc(sessionsViewState.listError)}</div>` : `
+            <div class="sessions-table-wrap">
+              <table class="sessions-table">
+                <thead>
+                  <tr>
+                    <th>Detail</th>
+                    <th>session_id</th>
+                    <th>goal</th>
+                    <th>status</th>
+                    <th>created_at</th>
+                    <th>updated_at</th>
+                    <th>actions</th>
+                  </tr>
+                </thead>
+                <tbody>${renderSessionRows()}</tbody>
+              </table>
+            </div>
+          `}
+        </div>
+      </div>
+      <div class="card">
+        <div class="shell-card-title">
+          <h3>Session Detail</h3>
+          <span class="shell-chip">${currentRoute.sessionId ? 'Selected' : 'Idle'}</span>
+        </div>
+        ${renderSessionsDetail()}
+      </div>
+    </div>
+  `;
+
+  bindSessionsEvents();
+}
+
+async function loadSessions() {
+  sessionsViewState.loadingList = true;
+  sessionsViewState.listError = '';
+  renderSessionsPage();
+  try {
+    const payload = await uiApi.listSessions(currentRoute);
+    sessionsViewState.items = Array.isArray(payload.items) ? payload.items : [];
+    sessionsViewState.nextPageToken = payload.next_page_token || null;
+  } catch (error) {
+    sessionsViewState.items = [];
+    sessionsViewState.nextPageToken = null;
+    sessionsViewState.listError = error.message || 'Failed to load sessions.';
+  } finally {
+    sessionsViewState.loadingList = false;
+    renderSessionsPage();
+  }
+}
+
+async function loadSessionDetail() {
+  if (!currentRoute.sessionId) {
+    sessionsViewState.selectedSession = null;
+    sessionsViewState.loadingDetail = false;
+    sessionsViewState.detailError = '';
+    renderSessionsPage();
+    return;
+  }
+
+  sessionsViewState.loadingDetail = true;
+  sessionsViewState.detailError = '';
+  renderSessionsPage();
+  try {
+    const session = await uiApi.getSession(currentRoute.sessionId);
+    sessionsViewState.selectedSession = session;
+  } catch (error) {
+    sessionsViewState.selectedSession = null;
+    if (error.status === 404) {
+      handleSessionNotFound((message) => {
+        sessionsViewState.detailError = message;
+      });
+      return;
+    }
+    sessionsViewState.detailError = error.message || 'Failed to load session detail.';
+  } finally {
+    sessionsViewState.loadingDetail = false;
+    renderSessionsPage();
+  }
+}
+
+async function loadStateView() {
+  if (!currentRoute.sessionId) {
+    stateViewState.loading = false;
+    stateViewState.error = '';
+    stateViewState.result = null;
+    renderStatePage();
+    return;
+  }
+
+  stateViewState.loading = true;
+  stateViewState.error = '';
+  renderStatePage();
+  try {
+    const payload = await uiApi.getSessionState(currentRoute.sessionId, stateViewState.filters);
+    stateViewState.result = payload;
+  } catch (error) {
+    stateViewState.result = null;
+    if (error.status === 404) {
+      handleSessionNotFound((message) => {
+        stateViewState.error = message;
+      });
+      return;
+    }
+    stateViewState.error = error.message || 'State query failed.';
+  } finally {
+    stateViewState.loading = false;
+    renderStatePage();
+  }
+}
+
+async function loadContextView() {
+  if (!currentRoute.sessionId || !currentRoute.propositionId) {
+    contextViewState.loading = false;
+    contextViewState.error = '';
+    contextViewState.result = null;
+    renderContextPage();
+    return;
+  }
+
+  contextViewState.loading = true;
+  contextViewState.error = '';
+  renderContextPage();
+  try {
+    const payload = await uiApi.getPropositionContext(
+      currentRoute.sessionId,
+      currentRoute.propositionId
+    );
+    contextViewState.result = payload;
+  } catch (error) {
+    contextViewState.result = null;
+    if (error.status === 404) {
+      handlePropositionNotFound((message) => {
+        contextViewState.error = message;
+      });
+      return;
+    }
+    contextViewState.error = error.message || 'Context lookup failed.';
+  } finally {
+    contextViewState.loading = false;
+    renderContextPage();
+  }
+}
+
+async function loadRuntimeView() {
+  const scope = currentRoute.runtimeScope;
+  const hasLocator = (
+    (scope === 'session' && currentRoute.sessionId) ||
+    (scope === 'proposition' && currentRoute.sessionId && currentRoute.propositionId) ||
+    (scope === 'artifact' && currentRoute.sessionId && currentRoute.artifactId)
+  );
+
+  if (!scope || !hasLocator) {
+    runtimeViewState.loading = false;
+    runtimeViewState.error = '';
+    runtimeViewState.result = null;
+    renderRuntimePage();
+    return;
+  }
+
+  runtimeViewState.loading = true;
+  runtimeViewState.error = '';
+  renderRuntimePage();
+  try {
+    let payload = null;
+    if (scope === 'session') {
+      payload = await uiApi.getSessionRuntimeStatus(currentRoute.sessionId);
+    } else if (scope === 'proposition') {
+      payload = await uiApi.getPropositionRuntimeStatus(
+        currentRoute.sessionId,
+        currentRoute.propositionId
+      );
+    } else {
+      payload = await uiApi.getArtifactRuntimeStatus(currentRoute.sessionId, currentRoute.artifactId);
+    }
+    runtimeViewState.result = payload;
+  } catch (error) {
+    runtimeViewState.result = null;
+    if (error.status === 404) {
+      const labels = {
+        session: '404 session runtime resource not found.',
+        proposition: '404 proposition runtime resource not found.',
+        artifact: '404 artifact runtime resource not found.',
+      };
+      runtimeViewState.error = labels[scope] || '404 runtime resource not found.';
+      toast(runtimeViewState.error, 'error');
+    } else {
+      runtimeViewState.error = error.message || 'Runtime lookup failed.';
+    }
+  } finally {
+    runtimeViewState.loading = false;
+    renderRuntimePage();
+  }
+}
+
+async function refreshForRoute() {
+  if (currentRoute.tab === 'sessions') {
+    renderSessionsPage();
+    await loadSessions();
+    await loadSessionDetail();
+    return;
+  }
+  if (currentRoute.tab === 'state') {
+    renderStatePage();
+    await loadStateView();
+    return;
+  }
+  if (currentRoute.tab === 'context') {
+    renderContextPage();
+    await loadContextView();
+    return;
+  }
+  if (currentRoute.tab === 'runtime') {
+    renderRuntimePage();
+    await loadRuntimeView();
+    return;
+  }
+  if (currentRoute.tab === 'grounding') {
+    renderGroundingPage();
+    await loadGroundingView();
+    return;
+  }
+  if (currentRoute.tab === 'jobs') {
+    renderJobsPage();
+    await loadJobsView();
+    return;
+  }
+  renderShellPlaceholder(currentRoute.tab);
+}
+
+function applyRoute(nextRoute, historyMode = 'push') {
+  currentRoute = normalizeRoute(nextRoute);
+  writeRoute(currentRoute, historyMode);
+  suppressTabSync = true;
+  setActiveTab(currentRoute.tab);
+  suppressTabSync = false;
+  void refreshForRoute();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  initSidebar();
+  Object.keys(SHELL_PAGE_CONFIG).forEach((tab) => {
+    if (tab !== 'sessions') renderShellPlaceholder(tab);
+  });
+  currentRoute = routeFromLocation();
+  window.addEventListener('tab-change', (event) => {
+    if (suppressTabSync) return;
+    const targetTab = event.detail?.tab || DEFAULT_ROUTE.tab;
+    applyRoute({
+      ...currentRoute,
+      tab: targetTab,
+      status: targetTab === currentRoute.tab ? currentRoute.status : '',
+    });
+  });
+  window.addEventListener('popstate', () => {
+    currentRoute = routeFromLocation();
+    suppressTabSync = true;
+    setActiveTab(currentRoute.tab);
+    suppressTabSync = false;
+    void refreshForRoute();
+  });
+  suppressTabSync = true;
+  setActiveTab(currentRoute.tab);
+  suppressTabSync = false;
+  void refreshForRoute();
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,270 @@
+from __future__ import annotations
+
+import sys
+from importlib import import_module
+from pathlib import Path
+from typing import Any, cast
+
+import httpx
+import pytest
+
+FACTUM_MCP_SRC = Path(__file__).resolve().parents[1] / "factum-mcp" / "src"
+sys.path.insert(0, str(FACTUM_MCP_SRC))
+
+resources_module = import_module("factum_mcp.resources")
+config_module = import_module("factum_mcp.config")
+http_client_module = import_module("factum_mcp.http_client")
+
+FactumMcpConfig = config_module.FactumMcpConfig
+HttpTransportConfig = config_module.HttpTransportConfig
+FactumHttpClient = http_client_module.FactumHttpClient
+FactumHttpClientError = http_client_module.FactumHttpClientError
+register_resources = resources_module.register_resources
+
+
+class _FakeServerSettings:
+    def __init__(self) -> None:
+        self.host = "127.0.0.1"
+        self.port = 8000
+        self.streamable_http_path = "/mcp"
+
+
+class _FakeServer:
+    def __init__(self) -> None:
+        self.settings = _FakeServerSettings()
+        self.resources: dict[str, Any] = {}
+
+    def tool(self) -> Any:
+        raise AssertionError("Unexpected tool registration")
+
+    def resource(self, uri: str) -> Any:
+        def decorator(func: Any) -> Any:
+            self.resources[uri] = func
+            return func
+
+        return decorator
+
+    def run(self, transport: str | None = None) -> None:
+        raise AssertionError(f"Unexpected run({transport!r}) during unit tests")
+
+
+def _build_config() -> Any:
+    return FactumMcpConfig(
+        base_url="http://factum.test",
+        api_token=None,
+        timeout_ms=1500,
+        openapi_cache_ttl_sec=300,
+        default_source_id=None,
+        transport="stdio",
+        http=HttpTransportConfig(),
+    )
+
+
+def test_registers_t9_resources_and_scaffold_config_resource() -> None:
+    server = cast("Any", _FakeServer())
+    register_resources(server, _build_config())
+
+    assert set(server.resources) == {
+        "factum://server/config",
+        "factum://catalog/summary",
+        "factum://sessions/{session_id}/state",
+        "factum://sessions/{session_id}/propositions/{proposition_id}/context",
+        "factum://semantic/{family}",
+        "factum://sources/{source_id}/objects",
+        "factum://sources/{source_id}/objects/{object_id}",
+    }
+
+
+def test_server_config_resource_exposes_non_secret_runtime_settings() -> None:
+    server = cast("Any", _FakeServer())
+    register_resources(server, _build_config())
+
+    payload = server.resources["factum://server/config"]()
+
+    assert "base_url=http://factum.test" in payload
+    assert "openapi_cache_ttl_sec=300" in payload
+    assert "default_source_id=" in payload
+
+
+def test_session_state_resource_mirrors_canonical_http_body() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert request.url.path == "/sessions/sess_123/state"
+        return httpx.Response(
+            200,
+            json={"schema_version": "session_state_view.v1", "items": []},
+            request=request,
+        )
+
+    result = _invoke_registered_resource(
+        "factum://sessions/{session_id}/state",
+        handler,
+        session_id="sess_123",
+    )
+
+    assert result == {"schema_version": "session_state_view.v1", "items": []}
+
+
+def test_proposition_context_resource_mirrors_canonical_http_body() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert request.url.path == "/sessions/sess_123/propositions/prop_456/context"
+        return httpx.Response(200, json={"proposition_id": "prop_456"}, request=request)
+
+    result = _invoke_registered_resource(
+        "factum://sessions/{session_id}/propositions/{proposition_id}/context",
+        handler,
+        session_id="sess_123",
+        proposition_id="prop_456",
+    )
+
+    assert result == {"proposition_id": "prop_456"}
+
+
+def test_semantic_family_resource_reads_one_canonical_family_surface() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert request.url.path == "/semantic/metrics"
+        assert dict(request.url.params) == {}
+        return httpx.Response(200, json=[{"metric_id": "met_123"}], request=request)
+
+    result = _invoke_registered_resource(
+        "factum://semantic/{family}",
+        handler,
+        family="metrics",
+    )
+
+    assert result == [{"metric_id": "met_123"}]
+
+
+def test_semantic_family_resource_rejects_unknown_families() -> None:
+    with pytest.raises(ValueError, match="Unsupported semantic family"):
+        _invoke_registered_resource(
+            "factum://semantic/{family}",
+            lambda request: httpx.Response(200, json={}, request=request),
+            family="keys",
+        )
+
+
+def test_source_objects_resource_reads_synced_metadata_listing() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert request.url.path == "/sources/src_123/objects"
+        assert dict(request.url.params) == {}
+        return httpx.Response(200, json=[{"object_id": "obj_123"}], request=request)
+
+    result = _invoke_registered_resource(
+        "factum://sources/{source_id}/objects",
+        handler,
+        source_id="src_123",
+    )
+
+    assert result == [{"object_id": "obj_123"}]
+
+
+def test_source_object_resource_reads_one_canonical_object_body() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert request.url.path == "/sources/src_123/objects/obj_456"
+        assert dict(request.url.params) == {}
+        return httpx.Response(200, json={"object_id": "obj_456"}, request=request)
+
+    result = _invoke_registered_resource(
+        "factum://sources/{source_id}/objects/{object_id}",
+        handler,
+        source_id="src_123",
+        object_id="obj_456",
+    )
+
+    assert result == {"object_id": "obj_456"}
+
+
+def test_catalog_summary_resource_aggregates_fixed_read_surfaces() -> None:
+    responses = {
+        "/openapi/index": {"revision": "rev_123", "paths": [{"path": "/sessions"}], "schemas": []},
+        "/sources": [{"source_id": "src_123"}],
+        "/semantic/entities": [{"entity_id": "ent_123"}],
+        "/semantic/metrics": [{"metric_id": "met_123"}],
+        "/semantic/process-objects": [{"process_contract_id": "proc_123"}],
+        "/semantic/dimensions": [{"dimension_contract_id": "dim_123"}],
+        "/semantic/time": [{"time_contract_id": "time_123"}],
+        "/semantic/enum-sets": [{"enum_set_contract_id": "enum_123"}],
+        "/semantic/bindings": [{"binding_id": "bind_123"}],
+        "/compiler/compatibility-profiles": [{"profile_id": "cprof_123"}],
+    }
+    seen_paths: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_paths.append(request.url.path)
+        return httpx.Response(200, json=responses[request.url.path], request=request)
+
+    result = _invoke_registered_resource("factum://catalog/summary", handler)
+
+    assert seen_paths == [
+        "/openapi/index",
+        "/sources",
+        "/semantic/entities",
+        "/semantic/metrics",
+        "/semantic/process-objects",
+        "/semantic/dimensions",
+        "/semantic/time",
+        "/semantic/enum-sets",
+        "/semantic/bindings",
+        "/compiler/compatibility-profiles",
+    ]
+    assert result == {
+        "openapi_index": responses["/openapi/index"],
+        "sources": responses["/sources"],
+        "semantic": {
+            "entities": responses["/semantic/entities"],
+            "metrics": responses["/semantic/metrics"],
+            "process-objects": responses["/semantic/process-objects"],
+            "dimensions": responses["/semantic/dimensions"],
+            "time": responses["/semantic/time"],
+            "enum-sets": responses["/semantic/enum-sets"],
+            "bindings": responses["/semantic/bindings"],
+            "compatibility-profiles": responses["/compiler/compatibility-profiles"],
+        },
+    }
+
+
+def test_resource_failures_raise_structured_http_client_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/sessions/sess_missing/state"
+        return httpx.Response(
+            404,
+            json={"detail": "Session 'sess_missing' not found"},
+            request=request,
+        )
+
+    with pytest.raises(FactumHttpClientError, match="Session 'sess_missing' not found") as error:
+        _invoke_registered_resource(
+            "factum://sessions/{session_id}/state",
+            handler,
+            session_id="sess_missing",
+        )
+
+    assert error.value.status_code == 404
+    assert error.value.category == "not_found"
+    assert error.value.path == "/sessions/sess_missing/state"
+
+
+def _invoke_registered_resource(
+    uri: str,
+    handler: Any,
+    /,
+    **resource_kwargs: Any,
+) -> object:
+    resources_module_any = cast("Any", resources_module)
+    original_client = resources_module_any.FactumHttpClient
+
+    def build_client(config: Any) -> Any:
+        return FactumHttpClient(config, transport=httpx.MockTransport(handler))
+
+    resources_module_any.FactumHttpClient = build_client
+    try:
+        server = cast("Any", _FakeServer())
+        register_resources(server, _build_config())
+        return server.resources[uri](**resource_kwargs)
+    finally:
+        resources_module_any.FactumHttpClient = original_client

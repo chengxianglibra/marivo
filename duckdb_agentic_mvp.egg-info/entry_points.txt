@@ -1,0 +1,2 @@
+[console_scripts]
+omnidb-mcp = app.mcp_server:main
