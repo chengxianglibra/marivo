@@ -9,17 +9,7 @@ from pydantic import BaseModel, BeforeValidator, Field
 from pydantic_core import PydanticCustomError
 
 from app.api.models._legacy import (
-    ArtifactRef,
-    AttributeObservationInput,
-    CorrelateObservationRef,
-    DetectTimeScope,
-    HypothesisContract,
-    ObservationRef,
     ObserveScope,
-    ObserveTimeScope,
-    TestObservationRef,
-    ValidateHypothesis,
-    ValidateObservationInput,
 )
 from factum_mcp.config import FactumMcpConfig
 from factum_mcp.http_client import FactumHttpClient
@@ -37,6 +27,9 @@ _OBSERVE_TIME_SCOPE_CANONICAL_MESSAGE = (
     "observe.time_scope requires canonical object shape, not shorthand string. "
     'Use {"kind":"range","start":"YYYY-MM-DD","end":"YYYY-MM-DD"}.'
 )
+_STRUCTURED_OBJECT_MESSAGE_SUFFIX = "Pass a structured object, not a JSON-encoded string."
+
+type JsonObject = dict[str, object]
 
 
 def _reject_observe_time_scope_string(value: object) -> object:
@@ -48,8 +41,17 @@ def _reject_observe_time_scope_string(value: object) -> object:
     return value
 
 
+def _reject_json_string(value: object) -> object:
+    if isinstance(value, str):
+        raise PydanticCustomError(
+            "mcp_structured_object_required",
+            _STRUCTURED_OBJECT_MESSAGE_SUFFIX,
+        )
+    return value
+
+
 type McpObserveTimeScope = Annotated[
-    ObserveTimeScope,
+    JsonObject,
     BeforeValidator(_reject_observe_time_scope_string),
     Field(
         description=(
@@ -57,6 +59,11 @@ type McpObserveTimeScope = Annotated[
             'For a date range use {"kind":"range","start":"YYYY-MM-DD","end":"YYYY-MM-DD"}.'
         ),
     ),
+]
+
+type McpStructuredObject = Annotated[
+    JsonObject,
+    BeforeValidator(_reject_json_string),
 ]
 
 
@@ -74,6 +81,20 @@ def _tool_metadata(
 def _encode_openapi_path(path: str) -> str:
     """Encode an OpenAPI path to unpadded base64url for the path fragment endpoint."""
     return base64.urlsafe_b64encode(path.encode("utf-8")).decode("ascii").rstrip("=")
+
+
+def _require_structured_object(value: object, *, field_name: str) -> object:
+    try:
+        return _reject_json_string(value)
+    except PydanticCustomError as error:
+        raise ValueError(f"{field_name}: {error.message()}") from error
+
+
+def _require_observe_time_scope_object(value: object) -> object:
+    try:
+        return _reject_observe_time_scope_string(value)
+    except PydanticCustomError as error:
+        raise ValueError(error.message()) from error
 
 
 def register_tools(
@@ -200,6 +221,7 @@ def register_tools(
         dimensions: list[str] | None = None,
     ) -> dict[str, object]:
         """Submit POST /sessions/{session_id}/intents/observe using the canonical ObserveRequest body; this path selects the intent, so do not add an extra intent field. On 422, follow error.guidance.contract_url, schema_url, and examples."""
+        _require_observe_time_scope_object(time_scope)
         return _intent_request(
             client,
             session_id,
@@ -217,11 +239,13 @@ def register_tools(
     @_tool_metadata("POST", "/sessions/{session_id}/intents/compare")
     def compare(
         session_id: str,
-        left_ref: ObservationRef,
-        right_ref: ObservationRef,
+        left_ref: McpStructuredObject,
+        right_ref: McpStructuredObject,
         mode: str = "auto",
     ) -> dict[str, object]:
         """Submit POST /sessions/{session_id}/intents/compare using the canonical CompareRequest body; this path selects the intent, so do not add an extra intent field. On 422, follow error.guidance.contract_url, schema_url, and examples."""
+        _require_structured_object(left_ref, field_name="left_ref")
+        _require_structured_object(right_ref, field_name="right_ref")
         return _intent_request(
             client,
             session_id,
@@ -235,11 +259,12 @@ def register_tools(
     @_tool_metadata("POST", "/sessions/{session_id}/intents/decompose")
     def decompose(
         session_id: str,
-        compare_ref: ArtifactRef,
+        compare_ref: McpStructuredObject,
         dimension: str,
         method: str = "delta_share",
     ) -> dict[str, object]:
         """Submit POST /sessions/{session_id}/intents/decompose using the canonical DecomposeRequest body; this path selects the intent, so do not add an extra intent field. On 422, follow error.guidance.contract_url, schema_url, and examples."""
+        _require_structured_object(compare_ref, field_name="compare_ref")
         return _intent_request(
             client,
             session_id,
@@ -253,12 +278,14 @@ def register_tools(
     @_tool_metadata("POST", "/sessions/{session_id}/intents/correlate")
     def correlate(
         session_id: str,
-        left_ref: CorrelateObservationRef,
-        right_ref: CorrelateObservationRef,
+        left_ref: McpStructuredObject,
+        right_ref: McpStructuredObject,
         method: str = "spearman",
         min_pairs: int = 5,
     ) -> dict[str, object]:
         """Submit POST /sessions/{session_id}/intents/correlate using the canonical CorrelateRequest body; this path selects the intent, so do not add an extra intent field. On 422, follow error.guidance.contract_url, schema_url, and examples."""
+        _require_structured_object(left_ref, field_name="left_ref")
+        _require_structured_object(right_ref, field_name="right_ref")
         return _intent_request(
             client,
             session_id,
@@ -274,7 +301,7 @@ def register_tools(
     def detect(
         session_id: str,
         metric: str,
-        time_scope: DetectTimeScope,
+        time_scope: McpStructuredObject,
         scope: ObserveScope | None = None,
         split_by: str | None = None,
         profile: Literal["auto", "spike_dip", "level_shift", "seasonal_residual"] = "auto",
@@ -283,6 +310,7 @@ def register_tools(
         max_series: int | None = None,
     ) -> dict[str, object]:
         """Submit POST /sessions/{session_id}/intents/detect using the canonical DetectRequest body; this path selects the intent, so do not add an extra intent field. On 422, follow error.guidance.contract_url, schema_url, and examples."""
+        _require_structured_object(time_scope, field_name="time_scope")
         return _intent_request(
             client,
             session_id,
@@ -301,12 +329,15 @@ def register_tools(
     @_tool_metadata("POST", "/sessions/{session_id}/intents/test")
     def test_intent(
         session_id: str,
-        left_ref: TestObservationRef,
-        right_ref: TestObservationRef,
-        hypothesis: HypothesisContract,
+        left_ref: McpStructuredObject,
+        right_ref: McpStructuredObject,
+        hypothesis: McpStructuredObject,
         method: str = "auto",
     ) -> dict[str, object]:
         """Submit POST /sessions/{session_id}/intents/test using the canonical IntentTestRequest body; this path selects the intent, so do not add an extra intent field. On 422, follow error.guidance.contract_url, schema_url, and examples."""
+        _require_structured_object(left_ref, field_name="left_ref")
+        _require_structured_object(right_ref, field_name="right_ref")
+        _require_structured_object(hypothesis, field_name="hypothesis")
         return _intent_request(
             client,
             session_id,
@@ -321,12 +352,13 @@ def register_tools(
     @_tool_metadata("POST", "/sessions/{session_id}/intents/forecast")
     def forecast(
         session_id: str,
-        source_ref: ObservationRef,
+        source_ref: McpStructuredObject,
         horizon: int,
         profile: str = "auto",
         interval_level: float | None = None,
     ) -> dict[str, object]:
         """Submit POST /sessions/{session_id}/intents/forecast using the canonical ForecastRequest body; this path selects the intent, so do not add an extra intent field. On 422, follow error.guidance.contract_url, schema_url, and examples."""
+        _require_structured_object(source_ref, field_name="source_ref")
         return _intent_request(
             client,
             session_id,
@@ -342,13 +374,15 @@ def register_tools(
     def attribute(
         session_id: str,
         metric: str,
-        left: AttributeObservationInput,
-        right: AttributeObservationInput,
+        left: McpStructuredObject,
+        right: McpStructuredObject,
         dimensions: list[str],
         decomposition_method: str = "delta_share",
         decomposition_limit: int = 5,
     ) -> dict[str, object]:
         """Submit POST /sessions/{session_id}/intents/attribute using the canonical AttributeRequest body; this path selects the intent, so do not add an extra intent field. On 422, follow error.guidance.contract_url, schema_url, and examples."""
+        _require_structured_object(left, field_name="left")
+        _require_structured_object(right, field_name="right")
         return _intent_request(
             client,
             session_id,
@@ -366,7 +400,7 @@ def register_tools(
     def diagnose(
         session_id: str,
         metric: str,
-        time_scope: DetectTimeScope,
+        time_scope: McpStructuredObject,
         candidate_dimensions: list[str],
         scope: ObserveScope | None = None,
         detect_split_by: str | None = None,
@@ -377,6 +411,7 @@ def register_tools(
         decomposition_limit: int | None = 5,
     ) -> dict[str, object]:
         """Submit POST /sessions/{session_id}/intents/diagnose using the canonical DiagnoseRequest body; this path selects the intent, so do not add an extra intent field. On 422, follow error.guidance.contract_url, schema_url, and examples."""
+        _require_structured_object(time_scope, field_name="time_scope")
         return _intent_request(
             client,
             session_id,
@@ -398,13 +433,17 @@ def register_tools(
     def validate(
         session_id: str,
         metric: str,
-        left: ValidateObservationInput,
-        right: ValidateObservationInput,
+        left: McpStructuredObject,
+        right: McpStructuredObject,
         sample_kind: Literal["auto", "numeric", "rate"] | None = None,
-        hypothesis: ValidateHypothesis | None = None,
+        hypothesis: McpStructuredObject | None = None,
         method: Literal["auto", "welch_t", "two_proportion_z"] | None = None,
     ) -> dict[str, object]:
         """Submit POST /sessions/{session_id}/intents/validate using the canonical ValidateRequest body; this path selects the intent, so do not add an extra intent field. On 422, follow error.guidance.contract_url, schema_url, and examples."""
+        _require_structured_object(left, field_name="left")
+        _require_structured_object(right, field_name="right")
+        if hypothesis is not None:
+            _require_structured_object(hypothesis, field_name="hypothesis")
         return _intent_request(
             client,
             session_id,

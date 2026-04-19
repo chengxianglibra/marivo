@@ -11,12 +11,7 @@ import pytest
 from app.api.models._legacy import (
     DetectTimeScope,
     DetectTimeScopeCurrentWindow,
-    HypothesisContract,
     ObserveTimeScopeAsOf,
-    ObserveTimeScopeRange,
-    TestObservationRef,
-    ValidateHypothesis,
-    ValidateObservationInput,
 )
 
 FACTUM_MCP_SRC = Path(__file__).resolve().parents[1] / "factum-mcp" / "src"
@@ -1387,7 +1382,7 @@ def test_detect_accepts_pydantic_time_scope_models_and_serializes_canonical_body
     assert result["ok"] is True
 
 
-def test_validate_accepts_pydantic_nested_models_and_serializes_canonical_body() -> None:
+def test_validate_accepts_structured_object_nested_models_and_serializes_canonical_body() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "POST"
         assert request.url.path == "/sessions/sess_123/intents/validate"
@@ -1404,24 +1399,22 @@ def test_validate_accepts_pydantic_nested_models_and_serializes_canonical_body()
         handler,
         session_id="sess_123",
         metric="metric.conversion_rate",
-        left=ValidateObservationInput(
-            time_scope=ObserveTimeScopeRange(kind="range", start="2025-03-01", end="2025-03-08")
-        ),
-        right=ValidateObservationInput(
-            time_scope=ObserveTimeScopeRange(kind="range", start="2025-02-22", end="2025-03-01")
-        ),
-        hypothesis=ValidateHypothesis(
-            family="difference",
-            alternative="greater",
-            alpha=0.1,
-            label="lift",
-        ),
+        left={"time_scope": {"kind": "range", "start": "2025-03-01", "end": "2025-03-08"}},
+        right={"time_scope": {"kind": "range", "start": "2025-02-22", "end": "2025-03-01"}},
+        hypothesis={
+            "family": "difference",
+            "alternative": "greater",
+            "alpha": 0.1,
+            "label": "lift",
+        },
     )
 
     assert result["ok"] is True
 
 
-def test_test_intent_accepts_pydantic_nested_models_and_serializes_canonical_body() -> None:
+def test_test_intent_accepts_structured_object_nested_models_and_serializes_canonical_body() -> (
+    None
+):
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "POST"
         assert request.url.path == "/sessions/sess_123/intents/test"
@@ -1438,26 +1431,50 @@ def test_test_intent_accepts_pydantic_nested_models_and_serializes_canonical_bod
         "test_intent",
         handler,
         session_id="sess_123",
-        left_ref=TestObservationRef(
-            step_id="obs_left",
-            step_type="observe",
-            artifact_id="artifact_left",
-            observation_type="numeric_sample_summary",
-        ),
-        right_ref=TestObservationRef(
-            step_id="obs_right",
-            step_type="observe",
-            artifact_id="artifact_right",
-            observation_type="rate_sample_summary",
-        ),
-        hypothesis=HypothesisContract(
-            family="difference",
-            alternative="less",
-            alpha=0.2,
-        ),
+        left_ref={
+            "step_id": "obs_left",
+            "step_type": "observe",
+            "artifact_id": "artifact_left",
+            "observation_type": "numeric_sample_summary",
+        },
+        right_ref={
+            "step_id": "obs_right",
+            "step_type": "observe",
+            "artifact_id": "artifact_right",
+            "observation_type": "rate_sample_summary",
+        },
+        hypothesis={"family": "difference", "alternative": "less", "alpha": 0.2},
     )
 
     assert result["ok"] is True
+
+
+def test_observe_rejects_json_string_time_scope_before_http_roundtrip() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("HTTP handler should not be called for invalid MCP input")
+
+    with pytest.raises(ValueError, match=r"observe\.time_scope requires canonical object shape"):
+        _invoke_registered_tool(
+            "observe",
+            handler,
+            session_id="sess_123",
+            metric="metric.watch_time",
+            time_scope='{"kind":"range","start":"2025-03-01","end":"2025-03-08"}',
+        )
+
+
+def test_compare_rejects_json_string_ref_before_http_roundtrip() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("HTTP handler should not be called for invalid MCP input")
+
+    with pytest.raises(ValueError, match="Pass a structured object, not a JSON-encoded string"):
+        _invoke_registered_tool(
+            "compare",
+            handler,
+            session_id="sess_123",
+            left_ref='{"artifact_id":"obs_left","step_type":"observe"}',
+            right_ref={"artifact_id": "obs_right", "step_type": "observe"},
+        )
 
 
 def test_intent_tools_preserve_422_guidance_from_factum() -> None:
