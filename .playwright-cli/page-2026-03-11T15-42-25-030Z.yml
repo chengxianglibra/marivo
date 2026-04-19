@@ -1,0 +1,25 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - heading "OmniDB" [level=1] [ref=e3]
+    - generic [ref=e4]:
+      - button "Sources" [ref=e5] [cursor=pointer]
+      - button "Engines" [ref=e6] [cursor=pointer]
+      - button "Bindings" [ref=e7] [cursor=pointer]
+      - button "Entities" [ref=e8] [cursor=pointer]
+      - button "Metrics" [active] [ref=e9] [cursor=pointer]
+  - generic [ref=e92]:
+    - generic [ref=e93]:
+      - heading "Semantic Metrics" [level=2] [ref=e94]
+      - button "+ Add Metric" [ref=e95] [cursor=pointer]
+    - table [ref=e96]:
+      - rowgroup [ref=e97]:
+        - row "Name Display Name Status Rev SQL" [ref=e98]:
+          - columnheader "Name" [ref=e99]
+          - columnheader "Display Name" [ref=e100]
+          - columnheader "Status" [ref=e101]
+          - columnheader "Rev" [ref=e102]
+          - columnheader "SQL" [ref=e103]
+          - columnheader [ref=e104]
+      - rowgroup [ref=e105]:
+        - row "No metrics." [ref=e106]:
+          - cell "No metrics." [ref=e107]

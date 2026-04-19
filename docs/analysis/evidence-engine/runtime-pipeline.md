@@ -1,0 +1,197 @@
+# Evidence Engine Runtime Pipeline
+
+本文档定义 Evidence Engine 主线中的运行时流水线与提交边界。
+
+状态：draft design。本文是主题级总线文档，负责固定 canonical pipeline 的阶段顺序、对象提交边界与主线 suppression 规则；更细的运行时 ownership、串行化点、发布边界、恢复与 backpressure 基线由 [`runtime-lifecycle.md`](runtime-lifecycle.md) 补充，`finding -> proposition` 的实现级 seeding contract 由 [`finding-proposition-seeding.md`](finding-proposition-seeding.md) 补充。
+
+## 目的
+
+固定以下问题的统一答案：
+
+- canonical pipeline 的阶段顺序是什么
+- 哪些 artifact family 必须进入 finding layer
+- committed canonical state 的最小可见单元是什么
+- internal staging 与 external canonical visibility 如何分离
+- extractor 应如何选择、item boundary 应如何稳定化
+- proposition seeding 何时运行、如何匹配、如何去重
+- latest assessment 后 proposal refresh 如何触发与抑制
+- replay、idempotency、soft invalidation 如何解释
+
+## Canonical Pipeline
+
+Evidence Engine 的目标态运行时流水线固定为：
+
+1. typed intent 执行并形成 artifact
+2. 对 committed artifact 做 deterministic finding extraction
+3. 对 committed findings 执行 deterministic proposition seeding / registration
+4. 对受影响 proposition 执行 assessment recompute
+5. 仅在 judgment output 发生变化时提交新的 assessment snapshot
+6. 基于 latest assessment 刷新 action proposals
+7. state/context 读取层暴露 latest/live canonical state
+
+更细的 runtime lifecycle 基线：
+
+- internal staging、claim / retry / recovery 由 [`runtime-lifecycle.md`](runtime-lifecycle.md) 定义
+- proposition 是 assessment / proposal publish path 的最小串行化单元
+- 对外读取面采用严格原子可见，不暴露“新 assessment + 旧 proposal”的半更新组合
+
+## Artifact -> Finding
+
+### Mandatory extraction families
+
+以下 artifact family 属于 `mandatory extraction`：
+
+- `observe`
+- `compare`
+- `decompose`
+- `detect`
+- `correlate`
+- `test`
+- `forecast`
+
+这些 artifact 一旦进入 committed canonical state，就必须同时完成 finding extraction，并形成对应的 committed finding set。是否允许 empty finding set 由各 artifact family contract 单独定义，而不是由 runtime 主线一刀切。
+
+### Commit boundary
+
+对 `mandatory extraction artifact`：
+
+- 最小 committed 可见单元是 `artifact + extracted findings`
+- `artifact committed but extraction pending` 非法
+- `artifact committed but extraction failed` 非法
+- empty finding set 只有在该 artifact family contract 显式允许时才合法
+
+因此，proposition seeding、assessment recompute 与 action proposal refresh 都只能消费 committed findings。
+更细的 stage ownership、claim 与 extraction crash recovery 规则，以 [`runtime-lifecycle.md`](runtime-lifecycle.md) 为准。
+
+### Extraction rules
+
+`artifact -> finding` 抽取必须：
+
+- 由 `(artifact_type, artifact_schema_version)` 选择对应 extractor
+- 只依赖 artifact payload、artifact contract 与 extractor version
+- 不使用模型
+- 不依赖 UI projection、top-k 或 narrative text
+- `canonical item boundary` 必须绑定 artifact contract 中的最小可引用结果项
+- `canonical item key` 必须优先使用稳定 item key；只有在 contract 显式固定 canonical order 时才允许退回 `index`
+- 对同一 `artifact_id + canonical item boundary` 产生稳定 `finding_id`
+
+## Finding -> Proposition
+
+### Seeding input boundary
+
+proposition seeding 的唯一上游输入是 committed findings。
+
+因此：
+
+- extraction pending/failure 的 artifact 不参与 seeding
+- committed empty finding set 若该 family contract 允许，则只表示当前没有可注册 proposition 的 seed input
+- replay 必须以 committed finding set 为权威输入
+
+template 在运行时可以解引用 committed finding 所显式携带的 canonical refs / lineage handles，以补全 proposition payload 所需的 typed semantics；但它不得跳过 finding layer，直接把未声明的 artifact / projection 内容提升为新的 seeding authority。
+
+### Deterministic matching
+
+seed template 的选择、slot matching、creation condition、identity normalization 与 seed output 都必须 deterministic。
+
+v1 支持：
+
+- 单 finding template
+- 多 finding 组合 template
+
+组合 template 仍必须通过显式 typed slots 匹配，不允许“临时再找一些相关 findings”。
+
+### Registration and identity
+
+`proposition_id` 绑定 session-local judgment semantics，而不是 seed 批次。
+
+固定规则：
+
+- `system_seeded` 与 `system_seeded` 按 judgment semantics 去重
+- `agent_authored` 与 `agent_authored` 按 judgment semantics 去重
+- `system_seeded` 与 `agent_authored` 不跨来源共享 proposition identity
+- `seed_finding_refs` 只在首次注册时写入，不做实时增量维护
+
+## Assessment Refresh And Downstream Suppression
+
+assessment recompute 只在 proposition registration 或相关 finding 变化后运行。
+
+其中：
+
+- evaluation context assembly 与 `related finding changes` 的命中规则，以 [`assessment-evaluation-context.md`](assessment-evaluation-context.md) 为准
+- `judgment output changed` 的 canonical diff set 与 candidate discard 规则，以 [`schemas/assessment.md`](schemas/assessment.md) 和 [`gap-confidence-and-transition-materialization.md`](gap-confidence-and-transition-materialization.md) 为准
+
+下游 suppression 规则：
+
+- extraction 成功前不得注册 proposition
+- proposition 注册成功前不得触发 assessment recompute
+- assessment 未形成 committed latest state 前，不得刷新 action proposals
+- 读取面不得暴露 artifact-only 中间态作为 canonical state
+- 同一 proposition 的 assessment snapshot commit 不得绕过 proposal refresh 直接切换 externally visible latest bundle
+
+## Latest Assessment -> Action Proposal Refresh
+
+proposal refresh 的 authority input 固定为 committed `latest_assessment` 及其 proposition-local canonical closure。
+
+固定要求：
+
+- proposal refresh 只能发生在 latest assessment 可解引用之后
+- proposal refresh 只读取当前 proposition 的 canonical objects、显式 `proposal_context` 与显式 policy context
+- proposal refresh 不得回写 assessment judgment semantics
+- proposal refresh 允许输出空 proposal 集；空集仍是合法 canonical result
+- refresh 若未改变 canonical proposal 集，可记为 no-op，而不是提交新的 proposal snapshots
+- 对外暴露时，latest assessment 与其匹配的 proposal set 必须作为 proposition-local bundle 原子切换
+
+更细的 candidate generation、payload materialization、ranking、identity 与 no-op 规则，以 [`proposal-policy-engine.md`](proposal-policy-engine.md) 为准。
+
+## Replay And Idempotency
+
+### Artifact replay
+
+artifact replay 的权威输入是 artifact payload，而不是旧 projection。
+
+replay 允许：
+
+- 重跑 extraction
+- 重跑 seeding
+- 重跑 assessment recompute
+- 形成新的 assessment snapshots 与 action proposals
+
+replay 不允许：
+
+- 改写既有 artifact identity
+- 在 source item boundary 未变化时漂移 finding identity
+- 违反对应 artifact family contract 定义的 empty/non-empty 合法性边界
+
+更细的 stage checkpoint、publish-ready 恢复与 duplicate delivery 基线，以 [`runtime-lifecycle.md`](runtime-lifecycle.md) 为准。
+
+### Snapshot behavior
+
+- proposition 是 registry object，不因 assessment 推进而重建
+- assessment 是 immutable snapshot
+- action proposal 是 immutable projection snapshot
+- latest/live 由读取层解释，不回写历史对象
+
+## Soft Invalidation
+
+当上游对象当前不可解引用时，默认采用 soft invalidation：
+
+- 历史 canonical objects 保留
+- 通过 missing refs、gap reopen、membership 收缩与 latest selection 变化暴露影响
+- 不通过硬删除伪装成“从未发生”
+
+v1 默认采用 tombstone-first 基线；invalidated upstream object 的更细 lifecycle、受控物理删除边界与 mixed-version 规则留待后续专项文档补齐。
+
+## Related Documents
+
+- [`overview.md`](overview.md)：主题总览与阅读顺序
+- [`runtime-lifecycle.md`](runtime-lifecycle.md)：运行时 ownership、发布边界、恢复与 backpressure 基线
+- [`artifact-finding-generation-rules.md`](artifact-finding-generation-rules.md)：artifact -> finding 的统一生成协议与 family-level 规则提案
+- [`finding-proposition-seeding.md`](finding-proposition-seeding.md)：finding -> system-seeded proposition 的完整实现级 contract
+- [`assessment-evaluation-context.md`](assessment-evaluation-context.md)：assessment recompute 的输入组装与触发映射
+- [`inference-and-gap-engine.md`](inference-and-gap-engine.md)：assessment recompute 的规则过程
+- [`support-oppose-and-status-resolution.md`](support-oppose-and-status-resolution.md)：directional evidence 与 status 决议
+- [`gap-confidence-and-transition-materialization.md`](gap-confidence-and-transition-materialization.md)：gap / confidence / transition materialization
+- [`proposal-policy-engine.md`](proposal-policy-engine.md)：latest assessment 之后的 proposal refresh、排序与 identity 规则
+- [`graph-and-reference-semantics.md`](graph-and-reference-semantics.md)：refs、edges 与 closure integrity
+- [`../finding.md`](schemas/finding.md)：finding schema
+- [`../proposition.md`](schemas/proposition.md)：proposition schema

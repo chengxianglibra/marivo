@@ -1,0 +1,239 @@
+from __future__ import annotations
+
+import sys
+from importlib import import_module
+from pathlib import Path
+from typing import Any, cast, get_type_hints
+
+from pydantic import TypeAdapter
+
+FACTUM_MCP_SRC = Path(__file__).resolve().parents[1] / "factum-mcp" / "src"
+sys.path.insert(0, str(FACTUM_MCP_SRC))
+
+config_module = import_module("factum_mcp.config")
+inventory_module = import_module("factum_mcp.inventory")
+resources_module = import_module("factum_mcp.resources")
+tools_module = import_module("factum_mcp.tools")
+
+FactumMcpConfig = config_module.FactumMcpConfig
+HttpTransportConfig = config_module.HttpTransportConfig
+get_implemented_specs = inventory_module.get_implemented_specs
+get_surface_spec = inventory_module.get_surface_spec
+get_tier_specs = inventory_module.get_tier_specs
+register_resources = resources_module.register_resources
+register_tools = tools_module.register_tools
+
+
+class _FakeServerSettings:
+    def __init__(self) -> None:
+        self.host = "127.0.0.1"
+        self.port = 8000
+        self.streamable_http_path = "/mcp"
+
+
+class _FakeServer:
+    def __init__(self) -> None:
+        self.settings = _FakeServerSettings()
+        self.tools: dict[str, Any] = {}
+        self.resources: dict[str, Any] = {}
+
+    def tool(self) -> Any:
+        def decorator(func: Any) -> Any:
+            self.tools[func.__name__] = func
+            return func
+
+        return decorator
+
+    def resource(self, uri: str) -> Any:
+        def decorator(func: Any) -> Any:
+            self.resources[uri] = func
+            return func
+
+        return decorator
+
+    def run(self, transport: str | None = None) -> None:
+        raise AssertionError(f"Unexpected run({transport!r}) during unit tests")
+
+
+def _build_config() -> Any:
+    return FactumMcpConfig(
+        base_url="http://factum.test",
+        api_token=None,
+        timeout_ms=1500,
+        openapi_cache_ttl_sec=300,
+        default_source_id=None,
+        transport="stdio",
+        http=HttpTransportConfig(),
+    )
+
+
+def test_registered_tools_match_implemented_inventory() -> None:
+    server = cast("Any", _FakeServer())
+    register_tools(server, _build_config())
+
+    expected = {spec.name for spec in get_implemented_specs("tool")}
+    assert set(server.tools) == expected
+
+
+def test_registered_resources_match_implemented_inventory() -> None:
+    server = cast("Any", _FakeServer())
+    register_resources(server, _build_config())
+
+    expected = {spec.name for spec in get_implemented_specs("resource")}
+    assert set(server.resources) == expected
+
+
+def test_registered_tools_expose_inventory_method_and_path_metadata() -> None:
+    server = cast("Any", _FakeServer())
+    register_tools(server, _build_config())
+
+    for name, func in server.tools.items():
+        spec = get_surface_spec(name)
+        typed_func = cast("Any", func)
+        assert typed_func._factum_http_method == spec.http_method
+        assert (typed_func._factum_http_path,) == spec.http_paths
+
+
+def test_registered_resources_expose_inventory_http_metadata() -> None:
+    server = cast("Any", _FakeServer())
+    register_resources(server, _build_config())
+
+    for name, func in server.resources.items():
+        spec = get_surface_spec(name)
+        typed_func = cast("Any", func)
+        assert typed_func._factum_http_method == spec.http_method
+        assert typed_func._factum_http_paths == spec.http_paths
+
+
+def test_p0_inventory_surfaces_remain_implemented() -> None:
+    missing = [spec.name for spec in get_tier_specs("p0") if not spec.implemented]
+    assert missing == []
+
+
+def test_inventory_tracks_known_http_contracts_not_yet_wrapped() -> None:
+    assert get_surface_spec("list_sessions").implemented is False
+    assert get_surface_spec("get_source").implemented is False
+
+
+def test_observe_tool_time_scope_annotation_exposes_discriminator_schema() -> None:
+    server = cast("Any", _FakeServer())
+    register_tools(server, _build_config())
+
+    observe = server.tools["observe"]
+    hints = get_type_hints(observe, include_extras=True)
+    time_scope_schema = TypeAdapter(hints["time_scope"]).json_schema()
+
+    assert time_scope_schema["discriminator"]["propertyName"] == "kind"
+    assert {item["$ref"] for item in time_scope_schema["oneOf"]} == {
+        "#/$defs/ObserveTimeScopeRange",
+        "#/$defs/ObserveTimeScopeSnapshotNow",
+        "#/$defs/ObserveTimeScopeLatestAvailable",
+        "#/$defs/ObserveTimeScopeAsOf",
+    }
+    scope_schema = TypeAdapter(hints["scope"]).json_schema()
+    assert scope_schema["anyOf"][0]["$ref"] == "#/$defs/ObserveScope"
+
+
+def test_typed_intent_tools_expose_top_level_session_id() -> None:
+    server = cast("Any", _FakeServer())
+    register_tools(server, _build_config())
+
+    typed_intent_names = [
+        "observe",
+        "compare",
+        "decompose",
+        "correlate",
+        "detect",
+        "test_intent",
+        "forecast",
+        "attribute",
+        "diagnose",
+        "validate",
+    ]
+
+    for tool_name in typed_intent_names:
+        hints = get_type_hints(server.tools[tool_name])
+        assert hints["session_id"] is str
+        assert "request" not in hints
+
+
+def test_detect_and_diagnose_time_scope_annotations_expose_grain_enum() -> None:
+    server = cast("Any", _FakeServer())
+    register_tools(server, _build_config())
+
+    detect = server.tools["detect"]
+    diagnose = server.tools["diagnose"]
+
+    detect_time_scope = TypeAdapter(get_type_hints(detect)["time_scope"]).json_schema()
+    diagnose_time_scope = TypeAdapter(get_type_hints(diagnose)["time_scope"]).json_schema()
+
+    expected_grains = ["hour", "day", "week", "month"]
+    assert detect_time_scope["properties"]["grain"]["enum"] == expected_grains
+    assert diagnose_time_scope["properties"]["grain"]["enum"] == expected_grains
+
+
+def test_t6_tools_use_strongly_typed_nested_models_instead_of_raw_dicts() -> None:
+    server = cast("Any", _FakeServer())
+    register_tools(server, _build_config())
+
+    observe_hints = get_type_hints(server.tools["observe"])
+    detect_hints = get_type_hints(server.tools["detect"])
+    diagnose_hints = get_type_hints(server.tools["diagnose"])
+    compare_hints = get_type_hints(server.tools["compare"])
+    test_hints = get_type_hints(server.tools["test_intent"])
+    validate_hints = get_type_hints(server.tools["validate"])
+
+    observe_time_scope_schema = TypeAdapter(observe_hints["time_scope"]).json_schema()
+    assert {item["$ref"] for item in observe_time_scope_schema["anyOf"]} == {
+        "#/$defs/ObserveTimeScopeRange",
+        "#/$defs/ObserveTimeScopeSnapshotNow",
+        "#/$defs/ObserveTimeScopeLatestAvailable",
+        "#/$defs/ObserveTimeScopeAsOf",
+    }
+    assert TypeAdapter(detect_hints["time_scope"]).json_schema()["properties"]["mode"]["const"] == (
+        "single_window"
+    )
+    assert TypeAdapter(diagnose_hints["time_scope"]).json_schema()["properties"]["mode"][
+        "const"
+    ] == ("single_window")
+    assert compare_hints["left_ref"].__name__ == "ObservationRef"
+    assert compare_hints["right_ref"].__name__ == "ObservationRef"
+    assert test_hints["hypothesis"].__name__ == "HypothesisContract"
+    assert validate_hints["left"].__name__ == "ValidateObservationInput"
+    assert validate_hints["right"].__name__ == "ValidateObservationInput"
+
+
+def test_validate_tool_schema_keeps_nested_left_right_objects() -> None:
+    server = cast("Any", _FakeServer())
+    register_tools(server, _build_config())
+
+    validate = server.tools["validate"]
+    hints = get_type_hints(validate)
+    left_schema = TypeAdapter(hints["left"]).json_schema()
+    right_schema = TypeAdapter(hints["right"]).json_schema()
+
+    assert left_schema["properties"]["time_scope"]["discriminator"]["propertyName"] == "kind"
+    assert right_schema["properties"]["time_scope"]["discriminator"]["propertyName"] == "kind"
+
+
+def test_attribute_tool_schema_keeps_nested_left_right_objects() -> None:
+    server = cast("Any", _FakeServer())
+    register_tools(server, _build_config())
+
+    attribute = server.tools["attribute"]
+    hints = get_type_hints(attribute)
+    left_schema = TypeAdapter(hints["left"]).json_schema()
+    right_schema = TypeAdapter(hints["right"]).json_schema()
+
+    assert left_schema["properties"]["time_scope"]["discriminator"]["propertyName"] == "kind"
+    assert right_schema["properties"]["time_scope"]["discriminator"]["propertyName"] == "kind"
+
+
+def test_attribute_tool_uses_strongly_typed_nested_models() -> None:
+    server = cast("Any", _FakeServer())
+    register_tools(server, _build_config())
+
+    attribute_hints = get_type_hints(server.tools["attribute"])
+
+    assert attribute_hints["left"].__name__ == "AttributeObservationInput"
+    assert attribute_hints["right"].__name__ == "AttributeObservationInput"

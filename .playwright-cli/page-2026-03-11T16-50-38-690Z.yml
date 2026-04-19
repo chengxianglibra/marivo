@@ -1,0 +1,19 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - heading "OmniDB Analytics" [level=1] [ref=e3]
+    - generic [ref=e4]:
+      - button "Catalog" [ref=e5] [cursor=pointer]
+      - button "Sessions" [ref=e6] [cursor=pointer]
+      - button "Evidence" [active] [ref=e7] [cursor=pointer]
+      - button "Plans" [ref=e8] [cursor=pointer]
+      - button "Jobs" [ref=e9] [cursor=pointer]
+    - link "← Admin UI" [ref=e10] [cursor=pointer]:
+      - /url: /admin
+  - generic [ref=e45]:
+    - heading "Load Evidence" [level=2] [ref=e46]
+    - generic [ref=e47]:
+      - generic [ref=e48]:
+        - generic [ref=e49]: Session
+        - combobox [ref=e50]:
+          - option "No sessions available" [selected]
+      - button "Load" [ref=e51] [cursor=pointer]

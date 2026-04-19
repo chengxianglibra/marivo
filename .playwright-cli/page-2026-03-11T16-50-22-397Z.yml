@@ -1,0 +1,31 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - heading "OmniDB Admin" [level=1] [ref=e3]
+    - generic [ref=e4]:
+      - button "Sources" [ref=e5] [cursor=pointer]
+      - button "Engines" [active] [ref=e6] [cursor=pointer]
+      - button "Bindings" [ref=e7] [cursor=pointer]
+      - button "Entities" [ref=e8] [cursor=pointer]
+      - button "Metrics" [ref=e9] [cursor=pointer]
+      - button "Governance" [ref=e10] [cursor=pointer]
+      - button "Approvals" [ref=e11] [cursor=pointer]
+      - button "Observability" [ref=e12] [cursor=pointer]
+    - link "Analytics UI →" [ref=e13] [cursor=pointer]:
+      - /url: /ui
+  - generic [ref=e40]:
+    - generic [ref=e41]:
+      - heading "Query Engines" [level=2] [ref=e42]
+      - button "+ Add Engine" [ref=e43] [cursor=pointer]
+    - table [ref=e44]:
+      - rowgroup [ref=e45]:
+        - row "Name Type Status Created" [ref=e46]:
+          - columnheader "Name" [ref=e47]
+          - columnheader "Type" [ref=e48]
+          - columnheader "Status" [ref=e49]
+          - columnheader "Created" [ref=e50]
+      - rowgroup [ref=e51]:
+        - row "Local DuckDB duckdb active 2026/3/11" [ref=e52]:
+          - cell "Local DuckDB" [ref=e53]
+          - cell "duckdb" [ref=e54]
+          - cell "active" [ref=e55]
+          - cell "2026/3/11" [ref=e56]

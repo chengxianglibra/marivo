@@ -1,0 +1,33 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - heading "OmniDB" [level=1] [ref=e3]
+    - generic [ref=e4]:
+      - button "Sources" [ref=e5] [cursor=pointer]
+      - button "Engines" [ref=e6] [cursor=pointer]
+      - button "Bindings" [ref=e7] [cursor=pointer]
+      - button "Entities" [ref=e8] [cursor=pointer]
+      - button "Metrics" [ref=e9] [cursor=pointer]
+  - generic [ref=e12]:
+    - generic [ref=e13]:
+      - heading "Catalog Sources" [level=2] [ref=e14]
+      - button "+ Add Source" [ref=e15] [cursor=pointer]
+    - table [ref=e16]:
+      - rowgroup [ref=e17]:
+        - row "Name Type Sync Mode Status Created" [ref=e18]:
+          - columnheader "Name" [ref=e19]
+          - columnheader "Type" [ref=e20]
+          - columnheader "Sync Mode" [ref=e21]
+          - columnheader "Status" [ref=e22]
+          - columnheader "Created" [ref=e23]
+          - columnheader [ref=e24]
+      - rowgroup [ref=e25]:
+        - row "Local Demo local by_select active 2026/3/11 Select Tables" [ref=e26]:
+          - cell "Local Demo" [ref=e27]:
+            - link "Local Demo" [ref=e28] [cursor=pointer]:
+              - /url: "#"
+          - cell "local" [ref=e29]
+          - cell "by_select" [ref=e30]
+          - cell "active" [ref=e31]
+          - cell "2026/3/11" [ref=e32]
+          - cell "Select Tables" [ref=e33]:
+            - button "Select Tables" [ref=e34] [cursor=pointer]

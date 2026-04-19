@@ -1,0 +1,157 @@
+# Factum 开发规范
+
+## 代码风格
+
+### 基本规范
+- 遵循 PEP 8 Python代码风格指南
+- 使用 Ruff 进行代码格式化和linting
+- 行长度限制：100字符
+- 缩进：4个空格
+- 使用类型注解（Type Hints）
+
+### 命名规范
+- 类名：`PascalCase`（例如：`SemanticService`, `QueryRouter`）
+- 函数/变量：`snake_case`（例如：`create_entity`, `table_name`）
+- 常量：`UPPER_SNAKE_CASE`（例如：`MAX_RETRIES`, `DEFAULT_TIMEOUT`）
+- 私有成员：`_leading_underscore`（例如：`_internal_method`）
+
+### 导入组织
+导入语句按以下顺序组织：
+1. Future imports (`from __future__ import annotations`)
+2. 标准库导入
+3. 第三方库导入
+4. 本地应用导入
+
+使用 Ruff 的 isort 功能自动排序。
+
+### 类型注解
+- 所有公共函数必须包含类型注解
+- 使用 `from __future__ import annotations` 启用延迟注解
+- 使用 `TYPE_CHECKING` 处理循环导入
+- 使用 `| None` 而不是 `Optional[]`（Python 3.10+语法）
+
+## 开发工具
+
+### 安装开发依赖
+```bash
+pip install -e ".[dev,trino]"
+```
+
+### Pre-commit Hooks
+安装pre-commit hooks以在提交前自动检查代码：
+```bash
+pip install pre-commit
+pre-commit install
+```
+
+手动运行所有检查：
+```bash
+pre-commit run --all-files
+```
+
+### 代码格式化
+```bash
+# 检查格式问题
+ruff format --check .
+
+# 自动格式化
+ruff format .
+```
+
+### Linting
+```bash
+# 检查代码问题
+ruff check .
+
+# 自动修复可修复的问题
+ruff check --fix .
+```
+
+### 类型检查
+```bash
+mypy app
+```
+
+## 测试
+
+### 运行测试
+```bash
+# 运行所有测试（并行）
+pytest
+
+# 运行特定测试文件
+pytest tests/test_sessions.py
+
+# 运行特定测试方法
+pytest tests/test_sessions.py::SessionAPITests::test_get_session_after_create
+
+# 显示详细输出
+pytest -v
+
+# 显示print输出
+pytest -s
+```
+
+### 测试覆盖率
+```bash
+# 生成覆盖率报告
+pytest --cov=app --cov-report=term-missing
+
+# 生成HTML覆盖率报告
+pytest --cov=app --cov-report=html
+# 然后打开 htmlcov/index.html
+
+# 生成XML覆盖率报告（用于CI）
+pytest --cov=app --cov-report=xml
+```
+
+### 测试要求
+- 新功能必须包含单元测试
+- 测试覆盖率目标：≥80%
+- 所有测试必须通过才能合并
+- 测试文件命名：`test_*.py`
+- 测试类命名：`*Tests`
+- 测试方法命名：`test_*`
+
+## 提交规范
+
+### 提交前检查清单
+- [ ] 代码已格式化（`ruff format .`）
+- [ ] 通过linting检查（`ruff check .`）
+- [ ] 通过类型检查（`mypy app`）
+- [ ] 所有测试通过（`pytest`）
+- [ ] 测试覆盖率满足要求
+- [ ] 更新了相关文档
+
+### 提交信息格式
+使用清晰、描述性的提交信息：
+```
+简短的总结（50字符以内）
+
+详细描述（如果需要）：
+- 为什么做这个变更
+- 解决了什么问题
+- 有什么影响
+```
+
+## CI/CD
+
+项目使用GitHub Actions进行持续集成：
+- 自动运行linting和类型检查
+- 自动运行测试套件
+- 生成测试覆盖率报告
+- 所有检查必须通过才能合并PR
+
+## 常见问题
+
+### Q: 如何修复格式问题？
+A: 运行 `ruff format .` 自动格式化所有文件。
+
+### Q: 如何修复import顺序问题？
+A: Ruff会自动修复，运行 `ruff check --fix .`。
+
+### Q: Mypy报告类型错误怎么办？
+A: 添加正确的类型注解。如果是第三方库缺少类型定义，可以在pyproject.toml中配置忽略。
+
+### Q: 测试失败怎么办？
+A: 检查错误信息，修复代码或测试。使用 `pytest -v -s` 查看详细输出。
