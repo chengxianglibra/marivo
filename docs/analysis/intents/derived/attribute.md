@@ -99,6 +99,7 @@ type ObserveScalarInput = {
   // This profile only permits the subset that deterministically
   // normalizes to scalar observe(metric, time_scope, scope).
   time_scope: CanonicalTimeScope;
+  calendar_policy_ref?: string | null;
   scope?: CanonicalScope | null;
 };
 
@@ -287,7 +288,7 @@ v1 支持的输入形态如下：
 - `metric` 必须解析到已发布的 semantic metric
 - `left` 与 `right` 复用 canonical `observe` 请求契约，且都必须能确定性展开为 `observe(..., dimensions = null, granularity = null)` 的 scalar observation
 - `left` / `right` 不得引入 `observe` scalar profile 之外的新字段
-- `left` / `right` 不重复接收 `calendar_policy_ref`；若需要 calendar alignment 语义，应复用上游 observation 已冻结的 resolved policy summary
+- `left` / `right` 可各自显式提供 `calendar_policy_ref`，该字段只用于内部 `observe`；`attribute` 自身不得重新解释 holiday / weekday / event pairing 规则
 - 该复用必须只通过内部 `compare(compare_ref)` 完成；`attribute` 自身不得重建 holiday / weekday / event pairing，也不得重选 calendar version
 - `dimensions` 必须是非空的单维度名称列表，且去重后仍非空
 - `decomposition_method` 省略时默认为 `delta_share`

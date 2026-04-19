@@ -493,7 +493,7 @@ Unsupported inputs include:
 
 Success returns `AttributeResponse`, the canonical `attribute_bundle`. The payload includes normalized left/right scopes, observation refs, compare ref, comparison summary, ordered driver sets, validation issues, and projection metadata including the normalized `decomposition_limit`.
 
-`attribute` does not accept `calendar_policy_ref`. If either side requires calendar alignment semantics, the two internal `observe` steps freeze that metadata in `resolved_policy_summary`, and the derived intent reuses it only through the internal `compare(mode = "scalar")` step. `attribute` must not rebuild holiday / weekday / event pairing on its own.
+`attribute` supports `calendar_policy_ref` only inside its `left` / `right` observe-shaped inputs. Those side-level fields are forwarded to the two internal `observe` steps, which freeze alignment metadata in `resolved_policy_summary`; the derived intent then reuses that frozen metadata only through the internal `compare(mode = "scalar")` step. `attribute` must not rebuild holiday / weekday / event pairing on its own, and `decompose` still does not accept a second policy input.
 
 Recommended semantic error codes:
 
