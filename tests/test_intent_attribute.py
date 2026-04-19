@@ -313,6 +313,14 @@ class AttributeRunnerServiceTests(unittest.TestCase):
         """validation.status should be 'attributable' with clean numeric data."""
         self.assertEqual(self.default_bundle["validation"]["status"], "attributable")
 
+    def test_driver_projection_quantitative_by_default(self) -> None:
+        """Clean driver sets should keep contribution_share as quantitative attribution."""
+        driver = self.default_bundle["drivers"][0]
+
+        self.assertEqual(driver["interpretation"], "quantitative")
+        self.assertFalse(driver["share_suppressed"])
+        self.assertTrue(any(row["contribution_share"] is not None for row in driver["rows"]))
+
     def test_scalar_delta_summary_correct_values(self) -> None:
         """ScalarDeltaSummary should reflect known current=720, baseline=540, delta=180."""
         comparison = self.default_bundle["comparison"]
@@ -740,6 +748,153 @@ class AttributeRunnerServiceTests(unittest.TestCase):
         self.assertEqual(captured_params[0]["calendar_policy_ref"], "calendar_policy.weekday_yoy")
         self.assertEqual(captured_params[1]["calendar_policy_ref"], "calendar_policy.weekday_yoy")
         self.assertEqual(bundle["validation"]["status"], "attributable")
+
+    def test_reconciliation_needs_attention_suppresses_share_projection(self) -> None:
+        """High-divergence decompose output remains directional but hides share ratios."""
+        sid = self._make_session()
+
+        with (
+            patch(
+                "app.intents.attribute.run_observe_intent",
+                side_effect=[
+                    {
+                        "step_ref": {"step_id": "step_left_obs", "step_type": "observe"},
+                        "artifact_id": "artifact_left_obs",
+                        "observation_type": "scalar",
+                        "time_scope": {
+                            "kind": "range",
+                            "start": _CURRENT_START,
+                            "end": _CURRENT_END,
+                        },
+                    },
+                    {
+                        "step_ref": {"step_id": "step_right_obs", "step_type": "observe"},
+                        "artifact_id": "artifact_right_obs",
+                        "observation_type": "scalar",
+                        "time_scope": {
+                            "kind": "range",
+                            "start": _BASELINE_START,
+                            "end": _BASELINE_END,
+                        },
+                    },
+                ],
+            ),
+            patch(
+                "app.intents.attribute.run_compare_intent",
+                return_value={
+                    "step_ref": {"step_id": "step_compare", "step_type": "compare"},
+                    "artifact_id": "artifact_compare",
+                    "comparability": {"status": "comparable", "issues": []},
+                    "left_value": 200.0,
+                    "right_value": 100.0,
+                    "absolute_delta": 100.0,
+                    "relative_delta": 1.0,
+                    "direction": "increase",
+                },
+            ),
+            patch(
+                "app.intents.attribute.run_decompose_intent",
+                return_value={
+                    "step_ref": {"step_id": "step_decompose", "step_type": "decompose"},
+                    "artifact_id": "artifact_decompose",
+                    "attribution": {
+                        "status": "needs_attention",
+                        "issues": [
+                            {
+                                "code": "attribution_not_reconcilable",
+                                "severity": "error",
+                                "message": (
+                                    "Explained sum diverges from scope_absolute_delta by 57.4%."
+                                ),
+                            }
+                        ],
+                    },
+                    "rows": [
+                        {
+                            "key": "entry_source",
+                            "left_value": 157.4,
+                            "right_value": 0.0,
+                            "absolute_contribution": 157.4,
+                            "contribution_share": 1.574,
+                            "direction": "increase",
+                            "presence": "both",
+                        },
+                        {
+                            "key": "initiative_type",
+                            "left_value": 43.4,
+                            "right_value": 0.0,
+                            "absolute_contribution": 43.4,
+                            "contribution_share": 0.434,
+                            "direction": "increase",
+                            "presence": "both",
+                        },
+                        {
+                            "key": "entry_resource",
+                            "left_value": 21.6,
+                            "right_value": 0.0,
+                            "absolute_contribution": 21.6,
+                            "contribution_share": 0.216,
+                            "direction": "increase",
+                            "presence": "both",
+                        },
+                    ],
+                    "scope_absolute_delta": 100.0,
+                    "unexplained_absolute_delta": -122.4,
+                    "unexplained_share": -1.224,
+                    "unexplained_reason": "scope_recomputation_failed",
+                },
+            ),
+        ):
+            bundle = self.service.run_intent(
+                sid,
+                "attribute",
+                {
+                    "metric": _METRIC,
+                    "left": {
+                        "time_scope": {
+                            "kind": "range",
+                            "start": _CURRENT_START,
+                            "end": _CURRENT_END,
+                        }
+                    },
+                    "right": {
+                        "time_scope": {
+                            "kind": "range",
+                            "start": _BASELINE_START,
+                            "end": _BASELINE_END,
+                        }
+                    },
+                    "dimensions": ["channel"],
+                    "decomposition_limit": 2,
+                },
+            )
+
+        driver = bundle["drivers"][0]
+        self.assertEqual(bundle["validation"]["status"], "needs_attention")
+        self.assertEqual(driver["attribution_status"], "needs_attention")
+        self.assertEqual(driver["interpretation"], "directional_only")
+        self.assertTrue(driver["share_suppressed"])
+        self.assertEqual(driver["returned_row_count"], 2)
+        self.assertEqual(driver["total_row_count"], 3)
+        self.assertEqual(driver["rows"][0]["absolute_contribution"], 157.4)
+        self.assertIsNone(driver["rows"][0]["contribution_share"])
+        self.assertIsNone(driver["rows"][1]["contribution_share"])
+        self.assertEqual(driver["others_absolute_contribution"], 21.6)
+        self.assertIsNone(driver["others_contribution_share"])
+        self.assertEqual(driver["unexplained_reason"], "scope_recomputation_failed")
+        self.assertEqual(
+            bundle["projection_metadata"]["share_suppression_policy"],
+            "suppress_on_reconciliation_needs_attention",
+        )
+
+        driver_messages = [issue["message"] for issue in driver["issues"]]
+        validation_messages = [issue["message"] for issue in bundle["validation"]["issues"]]
+        self.assertTrue(
+            any("contribution_share values were suppressed" in m for m in driver_messages)
+        )
+        self.assertTrue(
+            any("contribution_share values were suppressed" in m for m in validation_messages)
+        )
 
     def test_issue_codes_remapped_to_attribute_schema(self) -> None:
         """Any issues in drivers must use AttributeIssue schema codes, not raw decompose codes."""
