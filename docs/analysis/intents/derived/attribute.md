@@ -196,6 +196,8 @@ type AttributeDriverSet = {
   dimension: string;
   decompose_ref: DecomposeArtifactRef;
   attribution_status: "attributable" | "needs_attention";
+  interpretation: "quantitative" | "directional_only";
+  share_suppressed: boolean;
   rows: Array<{
     key: string | number | boolean | null;
     left_value: number | null;
@@ -225,6 +227,7 @@ type AttributeProjectionMetadata = {
   decomposition_limit: number;
   driver_row_order: "inherits_decompose_order";
   dimension_order: "request_order";
+  share_suppression_policy: "suppress_on_reconciliation_needs_attention";
 };
 ```
 
@@ -455,6 +458,14 @@ v1 只支持 `delta_share`，语义完全继承 `decompose(method = "delta_share
 - v1 成功响应中只允许 `attributable` 或 `needs_attention`
 - 若内部 `decompose` 为 `not_attributable`，整个 `attribute` 请求必须失败，不得返回伪成功的 driver set
 
+`drivers[*].interpretation` 与 `share_suppressed` 的推导规则：
+
+- 默认 `interpretation = "quantitative"` 且 `share_suppressed = false`
+- 若内部 `decompose` 因 reconciliation / divergence 问题达到 `needs_attention`，则 `interpretation = "directional_only"` 且 `share_suppressed = true`
+- `share_suppressed = true` 时，`attribute_bundle` projection 必须把对应 rows 的 `contribution_share` 置为 `null`
+- `share_suppressed = true` 时，`others_contribution_share` 也必须为 `null`，但 `absolute_contribution` 与 `others_absolute_contribution` 保留
+- 该 suppression 只作用于 `attribute_bundle` projection；atomic `decompose` artifact 仍保留原始 row 与 issue，作为事实层来源
+
 ### Null And Empty Semantics
 
 所有 nullable 字段都必须满足单义语义。
@@ -470,6 +481,8 @@ v1 只支持 `delta_share`，语义完全继承 `decompose(method = "delta_share
 `drivers.rows[*].left_value` / `right_value` / `absolute_contribution` / `contribution_share` 为 `null` 的唯一语义：
 
 - 对应 atomic `decompose` row 将该数值标记为 `unknown`
+
+例外：`attribute_bundle` 中当 `drivers[*].share_suppressed = true` 时，`drivers.rows[*].contribution_share = null` 表示该 share 被 projection 隐藏，因为对应 driver set 只允许 directional-only 解读，不得作为精确归因比例使用。
 
 `others_absolute_contribution` / `others_contribution_share` 为 `null` 的唯一语义：
 
@@ -499,6 +512,7 @@ v1 只支持 `delta_share`，语义完全继承 `decompose(method = "delta_share
 - 默认 dimension 顺序：请求顺序
 - 默认 driver row 顺序：继承对应 `decompose` artifact 的稳定排序
 - 稳定截断规则：每个维度最多返回 `projection_metadata.decomposition_limit` 行
+- 若 `drivers[*].share_suppressed = true` 或 `interpretation = "directional_only"`，agent 不得使用 `contribution_share` 形成精确归因结论，只能把 rows 作为方向性线索
 - 局部最小闭包：读取 `comparison`、目标 `drivers[*]`、对应 typed refs 与 `projection_metadata` 即可恢复面向 agent 的最小归因视图
 
 ## Projection Policy

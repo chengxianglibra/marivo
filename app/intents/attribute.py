@@ -24,6 +24,13 @@ _DEFAULT_DECOMPOSITION_LIMIT = 5
 _MAX_DECOMPOSITION_LIMIT = 100
 _DERIVED_LOGIC_VERSION = "1.0"
 _PROJECTION_VERSION = "attribute_bundle.v1"
+_SHARE_SUPPRESSION_POLICY = "suppress_on_reconciliation_needs_attention"
+_RECONCILIATION_ISSUE_CODES = frozenset(
+    {
+        "attribution_not_reconcilable",
+        "scope_recomputation_failed",
+    }
+)
 
 
 def run_attribute_intent(
@@ -261,9 +268,18 @@ def run_attribute_intent(
         all_rows: list[dict[str, Any]] = decompose_result.get("rows") or []
         total_row_count: int = len(all_rows)
         # Truncate to decomposition_limit (decompose runner does not apply this limit)
-        returned_rows: list[dict[str, Any]] = all_rows[:decomposition_limit]
+        returned_rows: list[dict[str, Any]] = [dict(row) for row in all_rows[:decomposition_limit]]
         returned_row_count: int = len(returned_rows)
         is_truncated: bool = total_row_count > returned_row_count
+        share_suppressed = _should_suppress_contribution_shares(
+            attribution_status=attribution_status,
+            raw_issues=raw_decompose_issues,
+            unexplained_reason=decompose_result.get("unexplained_reason"),
+        )
+        interpretation = "directional_only" if share_suppressed else "quantitative"
+        if share_suppressed:
+            for row in returned_rows:
+                row["contribution_share"] = None
 
         # Build others aggregation if truncated
         others_abs: float | None = None
@@ -285,8 +301,14 @@ def run_attribute_intent(
                     others_share = others_abs / scope_delta
                 else:
                     others_share = None
+        if share_suppressed:
+            others_share = None
 
         driver_issues: list[dict[str, Any]] = list(remapped_decompose_issues)
+        if share_suppressed:
+            share_suppression_issue = _share_suppression_issue(dimension)
+            driver_issues.append(share_suppression_issue)
+            validation_issues.append(share_suppression_issue)
         if is_truncated:
             driver_issues.append(
                 {
@@ -304,6 +326,8 @@ def run_attribute_intent(
             "dimension": dimension,
             "decompose_ref": decompose_ref,
             "attribution_status": attribution_status,
+            "interpretation": interpretation,
+            "share_suppressed": share_suppressed,
             "rows": returned_rows,
             "returned_row_count": returned_row_count,
             "total_row_count": total_row_count,
@@ -408,6 +432,7 @@ def run_attribute_intent(
             "decomposition_limit": decomposition_limit,
             "driver_row_order": "inherits_decompose_order",
             "dimension_order": "request_order",
+            "share_suppression_policy": _SHARE_SUPPRESSION_POLICY,
         },
         "execution_metadata": {
             "engine": "service",
@@ -466,4 +491,31 @@ def _remap_compare_issue(issue: dict[str, Any]) -> dict[str, Any]:
         "code": "compare_needs_attention",
         "severity": issue.get("severity", "warning"),
         "message": issue.get("message", ""),
+    }
+
+
+def _should_suppress_contribution_shares(
+    *,
+    attribution_status: str,
+    raw_issues: list[dict[str, Any]],
+    unexplained_reason: Any,
+) -> bool:
+    """Return whether attribute should hide share ratios for a decompose projection."""
+    if attribution_status != "needs_attention":
+        return False
+    if unexplained_reason == "scope_recomputation_failed":
+        return True
+    return any(issue.get("code") in _RECONCILIATION_ISSUE_CODES for issue in raw_issues)
+
+
+def _share_suppression_issue(dimension: str) -> dict[str, Any]:
+    return {
+        "code": "decompose_needs_attention",
+        "severity": "error",
+        "message": (
+            f"Dimension '{dimension}': contribution_share values were suppressed because "
+            "the decomposition did not reconcile with the compare delta; rows are "
+            "directional only and must not be read as precise attribution shares."
+        ),
+        "dimension": dimension,
     }

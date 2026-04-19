@@ -493,6 +493,8 @@ Unsupported inputs include:
 
 Success returns `AttributeResponse`, the canonical `attribute_bundle`. The payload includes normalized left/right scopes, observation refs, compare ref, comparison summary, ordered driver sets, validation issues, and projection metadata including the normalized `decomposition_limit`.
 
+When an internal `decompose` result is `needs_attention` because the driver rows do not reconcile with the compare delta, `attribute` keeps the directional rows but marks that driver set as `interpretation = "directional_only"` and `share_suppressed = true`. In that case, projected `contribution_share` values and `others_contribution_share` are returned as `null`; consumers must not treat those rows as precise attribution shares.
+
 `attribute` supports `calendar_policy_ref` only inside its `left` / `right` observe-shaped inputs. Those side-level fields are forwarded to the two internal `observe` steps, which freeze alignment metadata in `resolved_policy_summary`; the derived intent then reuses that frozen metadata only through the internal `compare(mode = "scalar")` step. `attribute` must not rebuild holiday / weekday / event pairing on its own, and `decompose` still does not accept a second policy input.
 
 Recommended semantic error codes:
