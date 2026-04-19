@@ -4,9 +4,12 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from uuid import uuid4
 
+import app.intents.observe as observe_module
 import app.service as service_module
 from app.analysis_core.compiler import CompiledQuery
+from app.intents.observe import run_observe_intent
 from app.main import create_app
 from app.time_axis_metadata import TimeAxisMetadataContext
 from app.time_scope import (
@@ -642,228 +645,217 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         cls.service = cls.app.state.service
         from fastapi.testclient import TestClient
 
-        client = TestClient(cls.app)
-        try:
-            source_id = client.post(
-                "/sources",
-                json={
-                    "source_type": "duckdb",
-                    "display_name": "TSU-05 Source",
-                    "connection": {"path": str(db_path)},
-                },
-            ).json()["source_id"]
-            client.post(
-                f"/sources/{source_id}/sync/selections",
-                json={
-                    "selections": [
-                        {"schema_name": "analytics", "table_name": "watch_events"},
-                        {"schema_name": "analytics", "table_name": "player_qoe"},
-                        {"schema_name": "analytics", "table_name": "ad_events"},
-                        {"schema_name": "analytics", "table_name": "recommendation_events"},
-                    ]
-                },
-            )
-            client.post(f"/sources/{source_id}/sync")
-            table_objects = {
-                table["native_name"]: table
-                for table in client.get(f"/sources/{source_id}/objects?type=table").json()
-            }
-            cls.watch_events_object_id = table_objects["watch_events"]["object_id"]
-            cls.watch_events_fqn = str(table_objects["watch_events"]["fqn"])
-        finally:
-            client.close()
+        cls.client = TestClient(cls.app)
+        source_id = cls.client.post(
+            "/sources",
+            json={
+                "source_type": "duckdb",
+                "display_name": "TSU-05 Source",
+                "connection": {"path": str(db_path)},
+            },
+        ).json()["source_id"]
+        cls.client.post(
+            f"/sources/{source_id}/sync/selections",
+            json={
+                "selections": [
+                    {"schema_name": "analytics", "table_name": "watch_events"},
+                    {"schema_name": "analytics", "table_name": "player_qoe"},
+                    {"schema_name": "analytics", "table_name": "ad_events"},
+                    {"schema_name": "analytics", "table_name": "recommendation_events"},
+                ]
+            },
+        )
+        cls.client.post(f"/sources/{source_id}/sync")
+        table_objects = {
+            table["native_name"]: table
+            for table in cls.client.get(f"/sources/{source_id}/objects?type=table").json()
+        }
+        cls.watch_events_object_id = table_objects["watch_events"]["object_id"]
+        cls.watch_events_fqn = str(table_objects["watch_events"]["fqn"])
+        cls._setup_semantic_scope()
 
     @classmethod
     def tearDownClass(cls) -> None:
+        cls.client.close()
         cls.tmp.cleanup()
 
+    @classmethod
+    def _setup_semantic_scope(cls) -> None:
+        suffix = uuid4().hex[:8]
+        entity = create_typed_entity(
+            cls.client,
+            name=f"session_tsu02_{suffix}",
+            display_name="Session",
+            keys=["session_id"],
+        )
+        cls.entity_id = entity["entity_contract_id"]
+        publish_typed_entity(cls.client, cls.entity_id)
+        entity_ref = f"entity.session_tsu02_{suffix}"
+
+        metric = create_typed_metric(
+            cls.client,
+            name=f"watch_time_tsu02_{suffix}",
+            display_name="Watch Time",
+            definition_sql="avg(play_duration_seconds)",
+            dimensions=["platform", "event_date"],
+            entity_ref=entity_ref,
+        )
+        metric_id = metric["metric_contract_id"]
+        publish_typed_metric(cls.client, metric_id)
+        ensure_published_typed_dimension(cls.service.metadata, dimension_name="cluster")
+
+        entity_binding_resp = cls.client.post(
+            "/semantic/bindings",
+            json={
+                "header": {
+                    "binding_ref": f"binding.session_tsu02_{suffix}_entity",
+                    "display_name": "TSU-02 Entity Binding",
+                    "binding_scope": "entity",
+                    "bound_object_ref": entity_ref,
+                    "binding_contract_version": "binding.v1",
+                },
+                "interface_contract": {
+                    "carrier_bindings": [
+                        {
+                            "binding_key": "primary",
+                            "source_object_ref": cls.watch_events_object_id,
+                            "carrier_kind": "table",
+                            "carrier_locator": cls.watch_events_fqn,
+                            "binding_role": "primary",
+                            "field_surfaces": [
+                                {
+                                    "surface_ref": "field.event_date",
+                                    "physical_name": "event_date",
+                                },
+                                {
+                                    "surface_ref": "field.session_id",
+                                    "physical_name": "session_id",
+                                },
+                                {
+                                    "surface_ref": "field.cluster",
+                                    "physical_name": "cluster",
+                                },
+                            ],
+                        }
+                    ],
+                    "field_bindings": [
+                        {
+                            "carrier_binding_key": "primary",
+                            "target": {
+                                "target_kind": "identity_key",
+                                "target_key": "key.session_id",
+                            },
+                            "semantic_ref": "key.session_id",
+                            "surface_ref": "field.session_id",
+                        },
+                        {
+                            "carrier_binding_key": "primary",
+                            "target": {
+                                "target_kind": "primary_time",
+                                "target_key": "time.event_date",
+                            },
+                            "semantic_ref": "time.event_date",
+                            "surface_ref": "field.event_date",
+                        },
+                        {
+                            "carrier_binding_key": "primary",
+                            "target": {
+                                "target_kind": "stable_descriptor",
+                                "target_key": "dimension.cluster",
+                            },
+                            "semantic_ref": "dimension.cluster",
+                            "surface_ref": "field.cluster",
+                        },
+                    ],
+                },
+            },
+        )
+        assert entity_binding_resp.status_code == 200, entity_binding_resp.text
+        entity_binding_id = entity_binding_resp.json()["binding_id"]
+        publish_entity_binding_resp = cls.client.post(
+            f"/semantic/bindings/{entity_binding_id}/publish"
+        )
+        assert publish_entity_binding_resp.status_code == 200, publish_entity_binding_resp.text
+
+        metric_binding_resp = cls.client.post(
+            "/semantic/bindings",
+            json={
+                "header": {
+                    "binding_ref": f"binding.watch_time_tsu02_{suffix}_primary",
+                    "display_name": "TSU-02 Metric Binding",
+                    "binding_scope": "metric",
+                    "bound_object_ref": f"metric.watch_time_tsu02_{suffix}",
+                    "binding_contract_version": "binding.v1",
+                },
+                "interface_contract": {
+                    "imports": [
+                        {
+                            "import_key": "entity_bridge",
+                            "binding_ref": f"binding.session_tsu02_{suffix}_entity",
+                            "required_ref_prefixes": ["dimension."],
+                        }
+                    ],
+                    "carrier_bindings": [
+                        {
+                            "binding_key": "primary",
+                            "source_object_ref": cls.watch_events_object_id,
+                            "carrier_kind": "table",
+                            "carrier_locator": cls.watch_events_fqn,
+                            "binding_role": "primary",
+                            "field_surfaces": [
+                                {
+                                    "surface_ref": "field.event_date",
+                                    "physical_name": "event_date",
+                                },
+                                {
+                                    "surface_ref": "field.value",
+                                    "physical_name": "play_duration_seconds",
+                                },
+                                {
+                                    "surface_ref": "field.platform",
+                                    "physical_name": "platform",
+                                },
+                            ],
+                        }
+                    ],
+                    "field_bindings": [
+                        {
+                            "carrier_binding_key": "primary",
+                            "target": {
+                                "target_kind": "primary_time",
+                                "target_key": "time.event_date",
+                            },
+                            "semantic_ref": "time.event_date",
+                            "surface_ref": "field.event_date",
+                        },
+                        {
+                            "carrier_binding_key": "primary",
+                            "target": {
+                                "target_kind": "metric_input",
+                                "target_key": "count_target",
+                            },
+                            "semantic_ref": "metric_input.count_target",
+                            "surface_ref": "field.value",
+                        },
+                    ],
+                },
+            },
+        )
+        assert metric_binding_resp.status_code == 200, metric_binding_resp.text
+        metric_binding_id = metric_binding_resp.json()["binding_id"]
+        publish_metric_binding_resp = cls.client.post(
+            f"/semantic/bindings/{metric_binding_id}/publish"
+        )
+        assert publish_metric_binding_resp.status_code == 200, publish_metric_binding_resp.text
+
+        cls.metric_name = f"watch_time_tsu02_{suffix}"
+
     def setUp(self) -> None:
-        client = self._client()
-        try:
-            suffix = str(id(self))
-            entity = create_typed_entity(
-                client,
-                name=f"session_tsu02_{suffix}",
-                display_name="Session",
-                keys=["session_id"],
-            )
-            self.entity_id = entity["entity_contract_id"]
-            publish_typed_entity(client, self.entity_id)
-            entity_ref = f"entity.session_tsu02_{suffix}"
-
-            metric = create_typed_metric(
-                client,
-                name=f"watch_time_tsu02_{suffix}",
-                display_name="Watch Time",
-                definition_sql="avg(play_duration_seconds)",
-                dimensions=["platform", "event_date"],
-                entity_ref=entity_ref,
-            )
-            metric_id = metric["metric_contract_id"]
-            publish_typed_metric(client, metric_id)
-            ensure_published_typed_dimension(self.service.metadata, dimension_name="cluster")
-
-            entity_binding_resp = client.post(
-                "/semantic/bindings",
-                json={
-                    "header": {
-                        "binding_ref": f"binding.session_tsu02_{suffix}_entity",
-                        "display_name": "TSU-02 Entity Binding",
-                        "binding_scope": "entity",
-                        "bound_object_ref": entity_ref,
-                        "binding_contract_version": "binding.v1",
-                    },
-                    "interface_contract": {
-                        "carrier_bindings": [
-                            {
-                                "binding_key": "primary",
-                                "source_object_ref": self.watch_events_object_id,
-                                "carrier_kind": "table",
-                                "carrier_locator": self.watch_events_fqn,
-                                "binding_role": "primary",
-                                "field_surfaces": [
-                                    {
-                                        "surface_ref": "field.event_date",
-                                        "physical_name": "event_date",
-                                    },
-                                    {
-                                        "surface_ref": "field.session_id",
-                                        "physical_name": "session_id",
-                                    },
-                                    {
-                                        "surface_ref": "field.cluster",
-                                        "physical_name": "cluster",
-                                    },
-                                ],
-                            }
-                        ],
-                        "field_bindings": [
-                            {
-                                "carrier_binding_key": "primary",
-                                "target": {
-                                    "target_kind": "identity_key",
-                                    "target_key": "key.session_id",
-                                },
-                                "semantic_ref": "key.session_id",
-                                "surface_ref": "field.session_id",
-                            },
-                            {
-                                "carrier_binding_key": "primary",
-                                "target": {
-                                    "target_kind": "primary_time",
-                                    "target_key": "time.event_date",
-                                },
-                                "semantic_ref": "time.event_date",
-                                "surface_ref": "field.event_date",
-                            },
-                            {
-                                "carrier_binding_key": "primary",
-                                "target": {
-                                    "target_kind": "stable_descriptor",
-                                    "target_key": "dimension.cluster",
-                                },
-                                "semantic_ref": "dimension.cluster",
-                                "surface_ref": "field.cluster",
-                            },
-                        ],
-                    },
-                },
-            )
-            self.assertEqual(entity_binding_resp.status_code, 200, entity_binding_resp.text)
-            entity_binding_id = entity_binding_resp.json()["binding_id"]
-            publish_entity_binding_resp = client.post(
-                f"/semantic/bindings/{entity_binding_id}/publish"
-            )
-            self.assertEqual(
-                publish_entity_binding_resp.status_code,
-                200,
-                publish_entity_binding_resp.text,
-            )
-
-            metric_binding_resp = client.post(
-                "/semantic/bindings",
-                json={
-                    "header": {
-                        "binding_ref": f"binding.watch_time_tsu02_{suffix}_primary",
-                        "display_name": "TSU-02 Metric Binding",
-                        "binding_scope": "metric",
-                        "bound_object_ref": f"metric.watch_time_tsu02_{suffix}",
-                        "binding_contract_version": "binding.v1",
-                    },
-                    "interface_contract": {
-                        "imports": [
-                            {
-                                "import_key": "entity_bridge",
-                                "binding_ref": f"binding.session_tsu02_{suffix}_entity",
-                                "required_ref_prefixes": ["dimension."],
-                            }
-                        ],
-                        "carrier_bindings": [
-                            {
-                                "binding_key": "primary",
-                                "source_object_ref": self.watch_events_object_id,
-                                "carrier_kind": "table",
-                                "carrier_locator": self.watch_events_fqn,
-                                "binding_role": "primary",
-                                "field_surfaces": [
-                                    {
-                                        "surface_ref": "field.event_date",
-                                        "physical_name": "event_date",
-                                    },
-                                    {
-                                        "surface_ref": "field.value",
-                                        "physical_name": "play_duration_seconds",
-                                    },
-                                    {
-                                        "surface_ref": "field.platform",
-                                        "physical_name": "platform",
-                                    },
-                                ],
-                            }
-                        ],
-                        "field_bindings": [
-                            {
-                                "carrier_binding_key": "primary",
-                                "target": {
-                                    "target_kind": "primary_time",
-                                    "target_key": "time.event_date",
-                                },
-                                "semantic_ref": "time.event_date",
-                                "surface_ref": "field.event_date",
-                            },
-                            {
-                                "carrier_binding_key": "primary",
-                                "target": {
-                                    "target_kind": "metric_input",
-                                    "target_key": "count_target",
-                                },
-                                "semantic_ref": "metric_input.count_target",
-                                "surface_ref": "field.value",
-                            },
-                        ],
-                    },
-                },
-            )
-            self.assertEqual(metric_binding_resp.status_code, 200, metric_binding_resp.text)
-            metric_binding_id = metric_binding_resp.json()["binding_id"]
-            publish_metric_binding_resp = client.post(
-                f"/semantic/bindings/{metric_binding_id}/publish"
-            )
-            self.assertEqual(
-                publish_metric_binding_resp.status_code,
-                200,
-                publish_metric_binding_resp.text,
-            )
-
-            self.metric_name = f"watch_time_tsu02_{suffix}"
-            self.session_id = client.post("/sessions", json={"goal": "TSU-02"}).json()["session_id"]
-        finally:
-            client.close()
-
-    def _client(self):
-        from fastapi.testclient import TestClient
-
-        return TestClient(self.app)
+        self.entity_id = type(self).entity_id
+        self.metric_name = type(self).metric_name
+        self.session_id = self.client.post("/sessions", json={"goal": "TSU-02"}).json()[
+            "session_id"
+        ]
 
     def test_metric_query_service_uses_typed_execution_request(self) -> None:
         captured: dict[str, object] = {}
@@ -1149,6 +1141,56 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
                     },
                 },
             )
+
+    def test_observe_time_series_resolves_analysis_time_expr_before_bucketing(self) -> None:
+        captured: dict[str, object] = {}
+        original_compile = self.service._compile_step_with_feedback
+        original_execute = observe_module.execute_compiled
+        original_resolve_engine = self.service._resolve_engine
+        self.service._resolve_engine = lambda table_names: (
+            _FakeEngine(),
+            "duckdb",
+            {table_names[0]: table_names[0]},
+        )
+
+        def fake_compile(step, *, engine_type, semantic_context=None):
+            params = dict(step.params)
+            captured["params"] = params
+            select = params.get("select")
+            if isinstance(select, list):
+                captured["select"] = list(select)
+            return CompiledQuery(sql="SELECT 1", params=[], metadata={})
+
+        class _Result:
+            rows = [{"bucket_start": "2026-03-10", "value": 10.0}]
+
+        self.service._compile_step_with_feedback = fake_compile
+        observe_module.execute_compiled = lambda engine, compiled: _Result()
+        try:
+            result = run_observe_intent(
+                self.service,
+                self.session_id,
+                {
+                    "metric": self.metric_name,
+                    "time_scope": {"kind": "range", "start": "2026-03-10", "end": "2026-03-17"},
+                    "granularity": "day",
+                },
+            )
+        finally:
+            self.service._compile_step_with_feedback = original_compile
+            observe_module.execute_compiled = original_execute
+            self.service._resolve_engine = original_resolve_engine
+
+        self.assertEqual(result["observation_type"], "time_series")
+        select = captured["select"]
+        self.assertEqual(
+            select[0],
+            "DATE_TRUNC('day', CAST(event_date AS DATE)) AS bucket_start",
+        )
+        self.assertTrue(str(select[1]).endswith(" AS value"))
+        scoped_query = captured["params"]["scoped_query"]
+        self.assertEqual(scoped_query["analysis_time_kind"], "date_field")
+        self.assertEqual(scoped_query["analysis_time_expr"], "CAST(event_date AS DATE)")
 
     def test_aggregate_query_service_uses_typed_execution_request(self) -> None:
         captured: dict[str, object] = {}
@@ -1460,14 +1502,15 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
         self.assertIn("baseline_window", result["debug"])
 
     def test_service_resolver_ignores_legacy_time_capabilities_when_binding_exists(self) -> None:
-        client = self._client()
+        client = self.client
         try:
             table_row = self.service.metadata.query_one(
                 "SELECT object_id, properties_json FROM source_objects WHERE object_type = 'table' AND native_name = ?",
                 ["watch_events"],
             )
             self.assertIsNotNone(table_row)
-            table_props = json.loads(table_row["properties_json"] or "{}")
+            original_table_props = table_row["properties_json"] or "{}"
+            table_props = json.loads(original_table_props)
             table_props["time_capabilities"] = {
                 "analysis_time": {"fallback_date_column": "platform"},
             }
@@ -1476,6 +1519,12 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
                 [json.dumps(table_props), table_row["object_id"]],
             )
 
+            entity_row = self.service.metadata.query_one(
+                "SELECT properties_json FROM semantic_entity_contracts WHERE entity_contract_id = ?",
+                [self.entity_id],
+            )
+            self.assertIsNotNone(entity_row)
+            original_entity_props = entity_row["properties_json"] or "{}"
             patch_typed_entity_properties(
                 client,
                 self.entity_id,
@@ -1501,7 +1550,14 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
                 fallback_columns=["event_date", "platform"],
             )
         finally:
-            client.close()
+            self.service.metadata.execute(
+                "UPDATE source_objects SET properties_json = ? WHERE object_id = ?",
+                [original_table_props, table_row["object_id"]],
+            )
+            self.service.metadata.execute(
+                "UPDATE semantic_entity_contracts SET properties_json = ? WHERE entity_contract_id = ?",
+                [original_entity_props, self.entity_id],
+            )
 
         self.assertEqual(request.resolved_time_axis.analysis_time_kind, "date_field")
         self.assertEqual(request.resolved_time_axis.analysis_time_expr, "CAST(event_date AS DATE)")

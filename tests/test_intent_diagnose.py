@@ -24,11 +24,10 @@ from __future__ import annotations
 
 import tempfile
 import unittest
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import duckdb
 from fastapi.testclient import TestClient
 
 from app.main import create_app
@@ -39,6 +38,7 @@ from tests.semantic_test_helpers import (
     ensure_published_typed_metric,
     ensure_published_typed_metric_binding,
 )
+from tests.shared_fixtures import get_named_seeded_duckdb_path
 
 
 def _metric_ref(name: str) -> str:
@@ -73,32 +73,8 @@ _ANOMALY_VALUE = 700.0
 
 
 def _seed_diag_table(db_path: Path) -> None:
-    """Create analytics.diag_events with a clear anomaly spike on 2024-03-05."""
-    con = duckdb.connect(str(db_path))
-    try:
-        con.execute("CREATE SCHEMA IF NOT EXISTS analytics")
-        con.execute(
-            """
-            CREATE TABLE IF NOT EXISTS analytics.diag_events (
-                event_date DATE    NOT NULL,
-                channel    VARCHAR NOT NULL,
-                value      DOUBLE  NOT NULL
-            )
-            """
-        )
-        rows: list[tuple[str, str, float]] = []
-        base = datetime(2024, 3, 1).date()
-        for i in range(10):  # 2024-03-01 to 2024-03-10
-            d = (base + timedelta(days=i)).isoformat()
-            for ch in _CHANNELS:
-                # Spike: day 5 (2024-03-05), channel A = 700; everything else = 100
-                if d == _ANOMALY_DATE and ch == _ANOMALY_CHANNEL:
-                    rows.append((d, ch, _ANOMALY_VALUE))
-                else:
-                    rows.append((d, ch, _NORMAL_VALUE))
-        con.executemany("INSERT INTO analytics.diag_events VALUES (?, ?, ?)", rows)
-    finally:
-        con.close()
+    """Copy the shared seeded analytics.diag_events fixture into place."""
+    get_named_seeded_duckdb_path(db_path, "diagnose_intent")
 
 
 def _seed_metadata(meta: SQLiteMetadataStore) -> None:
@@ -151,12 +127,11 @@ class DiagnoseRunnerServiceTests(unittest.TestCase):
         db_path = Path(cls.temp_dir.name) / "diag_svc.duckdb"
         meta_path = Path(cls.temp_dir.name) / "diag_svc.meta.sqlite"
 
+        _seed_diag_table(db_path)
         cls.analytics = DuckDBAnalyticsEngine(str(db_path))
         cls.metadata = SQLiteMetadataStore(str(meta_path))
         cls.metadata.initialize()
         cls.analytics.initialize()
-
-        _seed_diag_table(db_path)
         _seed_metadata(cls.metadata)
 
         cls.service = SemanticLayerService(cls.metadata, cls.analytics)
@@ -485,12 +460,11 @@ class DiagnoseHTTPTests(unittest.TestCase):
         db_path = Path(cls.temp_dir.name) / "diag_http.duckdb"
         meta_path = Path(cls.temp_dir.name) / "diag_http.meta.sqlite"
 
+        _seed_diag_table(db_path)
         analytics = DuckDBAnalyticsEngine(str(db_path))
         metadata = SQLiteMetadataStore(str(meta_path))
         metadata.initialize()
         analytics.initialize()
-
-        _seed_diag_table(db_path)
         _seed_metadata(metadata)
 
         app = create_app(metadata_store=metadata, analytics_engine=analytics)
@@ -568,12 +542,11 @@ class DiagnoseValidationBoundaryTests(unittest.TestCase):
         db_path = Path(cls.temp_dir.name) / "diag_val.duckdb"
         meta_path = Path(cls.temp_dir.name) / "diag_val.meta.sqlite"
 
+        _seed_diag_table(db_path)
         analytics = DuckDBAnalyticsEngine(str(db_path))
         metadata = SQLiteMetadataStore(str(meta_path))
         metadata.initialize()
         analytics.initialize()
-
-        _seed_diag_table(db_path)
         _seed_metadata(metadata)
 
         cls.service = SemanticLayerService(metadata, analytics)

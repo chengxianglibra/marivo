@@ -17,6 +17,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 from app.service import SemanticLayerService
+from app.time_scope import ResolvedTimeAxis
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -88,6 +89,19 @@ def _make_compiled_mock_with_calendar_alignment() -> MagicMock:
         }
     }
     return m
+
+
+def _set_resolved_time_axis(svc: MagicMock, expr: str, *, kind: str = "date_field") -> None:
+    def _resolve_time_axis(resolved: Any, **_: Any) -> ResolvedTimeAxis:
+        axis = ResolvedTimeAxis(
+            observation_grain=resolved.time_scope.grain,
+            analysis_time_kind=kind,
+            analysis_time_expr=expr,
+        )
+        resolved.resolved_time_axis = axis
+        return axis
+
+    svc._resolve_windowed_query_time_axis.side_effect = _resolve_time_axis
 
 
 def _make_compiled_mock_with_holiday_only_calendar_alignment() -> MagicMock:
@@ -327,7 +341,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
         svc.resolve_metric_dimensions.return_value = []
         svc._resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
-        svc._resolve_windowed_query_time_axis.return_value = None
+        _set_resolved_time_axis(svc, "event_date")
         svc._build_scoped_query.return_value = {
             "mode": "single_window",
             "analysis_time_expr": "event_date",
@@ -367,7 +381,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
         svc.resolve_metric_dimensions.return_value = []
         svc._resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
-        svc._resolve_windowed_query_time_axis.return_value = None
+        _set_resolved_time_axis(svc, "CAST(log_date AS DATE)")
         svc._build_scoped_query.return_value = {
             "mode": "single_window",
             "analysis_time_expr": "event_date",
@@ -456,7 +470,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
         svc.resolve_metric_dimensions.return_value = []
         svc._resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
-        svc._resolve_windowed_query_time_axis.return_value = None
+        _set_resolved_time_axis(svc, "event_date")
         svc._build_scoped_query.return_value = {
             "mode": "single_window",
             "analysis_time_expr": "event_date",
@@ -521,7 +535,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
         svc.resolve_metric_dimensions.return_value = []
         svc._resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
-        svc._resolve_windowed_query_time_axis.return_value = None
+        _set_resolved_time_axis(svc, "event_date")
         svc._build_scoped_query.return_value = {
             "mode": "single_window",
             "analysis_time_expr": "event_date",
@@ -557,7 +571,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
         svc.resolve_metric_dimensions.return_value = []
         svc._resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
-        svc._resolve_windowed_query_time_axis.return_value = None
+        _set_resolved_time_axis(svc, "event_date")
         svc._build_scoped_query.return_value = {
             "mode": "single_window",
             "analysis_time_expr": "event_date",
@@ -595,7 +609,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
         svc.resolve_metric_dimensions.return_value = []
         svc._resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
-        svc._resolve_windowed_query_time_axis.return_value = None
+        _set_resolved_time_axis(svc, "CAST(log_date AS DATE)")
         svc._build_scoped_query.return_value = {
             "mode": "single_window",
             "analysis_time_expr": "event_date",
@@ -631,7 +645,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
         svc.resolve_metric_dimensions.return_value = []
         svc._resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
-        svc._resolve_windowed_query_time_axis.return_value = None
+        _set_resolved_time_axis(svc, "event_date")
         svc._build_scoped_query.return_value = {
             "mode": "single_window",
             "analysis_time_expr": "event_date",
@@ -673,7 +687,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
         svc.resolve_metric_dimensions.return_value = []
         svc._resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
-        svc._resolve_windowed_query_time_axis.return_value = None
+        _set_resolved_time_axis(svc, "event_time", kind="timestamp_field")
         svc._build_scoped_query.return_value = {
             "mode": "single_window",
             "analysis_time_expr": "event_date",
@@ -748,7 +762,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
         svc.resolve_metric_dimensions.return_value = []
         svc._resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
-        svc._resolve_windowed_query_time_axis.return_value = None
+        _set_resolved_time_axis(svc, "CAST(log_date AS DATE)")
 
         scoped_queries: list[dict[str, Any]] = []
 
@@ -827,7 +841,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
         svc.resolve_metric_dimensions.return_value = []
         svc._resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
-        svc._resolve_windowed_query_time_axis.return_value = None
+        _set_resolved_time_axis(svc, "event_date")
         svc._build_scoped_query.return_value = {
             "mode": "single_window",
             "analysis_time_expr": "event_date",
@@ -887,7 +901,7 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
         svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
         svc.resolve_metric_dimensions.return_value = []
         svc._resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
-        svc._resolve_windowed_query_time_axis.return_value = None
+        _set_resolved_time_axis(svc, "event_time", kind="timestamp_field")
 
         def _capture_scoped_query(
             session_id: str, resolved: Any, *, engine_type: str
