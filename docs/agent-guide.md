@@ -147,5 +147,9 @@ App startup requires `factum.yaml` metadata config with `metadata.engine=sqlite`
 - `factum-mcp/README.md` and `factum_mcp.inventory`: factum-mcp runtime scope, validation, and executable MCP surface inventory. Keep MCP implementation details there instead of expanding this guide.
 - When canonical intent request models change, treat `factum-mcp` typed intent tool schemas as affected because the adapter reuses those request models directly. All typed intent MCP tools expose an explicit top-level `session_id` for the HTTP path, and the remaining parameters should map directly to canonical HTTP body fields instead of MCP-only wrapper objects or JSON-encoded strings.
 - Typed intent `metric` parameters use canonical semantic refs such as `metric.watch_time`; do not pass bare metric names like `watch_time`.
+- Calendar alignment policies are discoverable builtin refs. For holiday, weekday, or natural
+  alignment requests, use `GET /catalog/search?type=calendar_policy` or `GET /semantic/resolve/{ref}`
+  to select fixed refs such as `calendar_policy.holiday_yoy`, `calendar_policy.weekday_yoy`, and
+  `calendar_policy.natural_yoy`; do not guess policy refs from prose.
 - For `observe(time_series)`, if the returned series backfills requested buckets with `value=null`, surface that as a first-class quality signal (`analytical_metadata.data_complete=false`, `quality_status=needs_attention`) instead of only burying it in coverage summary metadata.
 - Do not update this document with implementation details; keep it focused on shared agent guidance and repository-wide boundaries.

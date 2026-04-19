@@ -198,6 +198,12 @@ Request body fields:
 - `granularity`: allowed only for `standard` time-series observations
 - `dimensions`: allowed only for `standard` segmented observations
 
+Supported `calendar_policy_ref` values are discoverable through `GET /catalog/search` with
+`type=calendar_policy` and through `GET /semantic/resolve/{ref}`. The fixed refs are
+compiler-owned builtin catalog entries such as `calendar_policy.holiday_yoy`,
+`calendar_policy.weekday_yoy`, and `calendar_policy.natural_yoy`; callers should discover them
+instead of guessing or reading implementation docs.
+
 Supported outputs:
 
 - scalar observation

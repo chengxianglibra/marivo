@@ -274,7 +274,8 @@ Current discovery / health / catalog coverage:
 - `get_openapi_schema(schema_name, depth=1)` -> `GET /openapi/schemas/{schema_name}`
 - `get_openapi_fragment(path, operation=None, expand=None, depth=1)` -> `GET /openapi/fragment`
 - `get_openapi_path_fragment(path, expand=None, depth=1)` -> `GET /openapi/paths/{encoded_path}` (tool auto-encodes raw path as base64url)
-- `search_catalog(q, type=None, readiness=None)` -> `GET /catalog/search`
+- `search_catalog(q, type=None, readiness=None)` -> `GET /catalog/search`; `type` includes
+  `calendar_policy` for builtin calendar-alignment refs such as `calendar_policy.holiday_yoy`
 - `resolve_typed_ref(ref)` -> `GET /semantic/resolve/{ref}`
 
 These tools are adapters over the canonical HTTP contract. They do not publish a

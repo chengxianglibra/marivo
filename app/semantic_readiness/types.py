@@ -15,6 +15,7 @@ ObjectKind = Literal[
     "enum",
     "binding",
     "compiler_profile",
+    "calendar_policy",
 ]
 
 

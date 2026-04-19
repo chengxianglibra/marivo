@@ -29,7 +29,7 @@ _ParamScalar = str | int | float | bool | None
 _ParamList = list[_ParamScalar]
 _ParamValue = _ParamScalar | _ParamList
 _CATALOG_SEARCH_TYPES = frozenset(
-    {"asset", "binding", "dimension", "entity", "metric", "process", "time"}
+    {"asset", "binding", "calendar_policy", "dimension", "entity", "metric", "process", "time"}
 )
 _CATALOG_SEARCH_READINESS = frozenset({"all", "not_ready", "ready", "stale"})
 

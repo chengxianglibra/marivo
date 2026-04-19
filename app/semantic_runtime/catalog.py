@@ -4,6 +4,10 @@ import json
 from typing import TYPE_CHECKING, Any
 
 from app.analysis_core import SUPPORTED_STEP_TYPES
+from app.analysis_core.calendar_policy import (
+    CalendarPolicyCatalogEntry,
+    list_calendar_policy_catalog_entries,
+)
 from app.semantic_runtime.errors import (
     SemanticRuntimeNotReadyError,
     SemanticRuntimeUnpublishedError,
@@ -55,7 +59,7 @@ _SEARCH_CONFIG: dict[str, dict[str, str]] = {
         "version_column": "binding_contract_version",
     },
 }
-_SEARCHABLE_OBJECT_TYPES = frozenset({*_SEARCH_CONFIG.keys(), "asset"})
+_SEARCHABLE_OBJECT_TYPES = frozenset({*_SEARCH_CONFIG.keys(), "asset", "calendar_policy"})
 
 
 class CatalogRuntimeService:
@@ -118,6 +122,18 @@ class CatalogRuntimeService:
                     continue
                 results.append(self._semantic_search_row_to_summary(object_kind, row, availability))
 
+        if normalized_type is None or normalized_type == "calendar_policy":
+            for entry in list_calendar_policy_catalog_entries():
+                if not self._matches_calendar_policy_query(entry, query):
+                    continue
+                if not self._matches_readiness_filter(
+                    lifecycle_status=entry.lifecycle_status,
+                    readiness_status=entry.readiness_status,
+                    readiness_filter=normalized_readiness,
+                ):
+                    continue
+                results.append(self._calendar_policy_search_row_to_summary(entry))
+
         if normalized_type is None or normalized_type == "asset":
             rows = self.metadata.query_rows(
                 """
@@ -139,6 +155,11 @@ class CatalogRuntimeService:
             raise KeyError(f"Unsupported catalog object kind: {object_kind}")
         if normalized_kind == "asset":
             return self._asset_object_detail(object_id)
+        if normalized_kind == "calendar_policy":
+            availability = self.semantic_repository.inspect_ref(object_id)
+            detail = self._availability_to_detail(availability)
+            detail["detail_path"] = self._catalog_detail_path(normalized_kind, object_id)
+            return detail
 
         config = _SEARCH_CONFIG[normalized_kind]
         row = self.metadata.query_one(
@@ -189,6 +210,17 @@ class CatalogRuntimeService:
             "session_id": session["session_id"] if session else session_id,
             "metrics": context["metrics"],
             "entities": context["entities"],
+            "calendar_policies": [
+                {
+                    "policy_ref": entry.policy_ref,
+                    "display_name": entry.display_name,
+                    "comparison_basis": entry.comparison_basis,
+                    "resolved_alignment_mode": entry.resolved_alignment_mode,
+                    "use_when": list(entry.use_when),
+                    "avoid_when": list(entry.avoid_when),
+                }
+                for entry in list_calendar_policy_catalog_entries()
+            ],
             "available_step_types": list(SUPPORTED_STEP_TYPES),
             "policies": [
                 "Results are aggregate-only.",
@@ -328,6 +360,33 @@ class CatalogRuntimeService:
             "resolve_path": f"/semantic/resolve/{ref}",
         }
 
+    def _calendar_policy_search_row_to_summary(
+        self, entry: CalendarPolicyCatalogEntry
+    ) -> dict[str, Any]:
+        return {
+            "object_kind": "calendar_policy",
+            "object_id": entry.object_id,
+            "ref": entry.policy_ref,
+            "name": entry.name,
+            "display_name": entry.display_name,
+            "description": entry.description,
+            "status": entry.status,
+            "lifecycle_status": entry.lifecycle_status,
+            "readiness_status": entry.readiness_status,
+            "blocker_count": entry.blocker_count,
+            "blocking_requirements_preview": [],
+            "capabilities_summary": {"supports_observe_calendar_alignment": True},
+            "revision": entry.revision,
+            "created_at": entry.created_at,
+            "updated_at": entry.updated_at,
+            "detail_path": entry.detail_path,
+            "resolve_path": entry.resolve_path,
+            "comparison_basis": entry.comparison_basis,
+            "resolved_alignment_mode": entry.resolved_alignment_mode,
+            "system_managed": entry.system_managed,
+            "catalog_source": entry.catalog_source,
+        }
+
     def _asset_search_row_to_summary(self, row: dict[str, Any]) -> dict[str, Any]:
         object_id = str(row["object_id"])
         source_id = str(row["source_id"])
@@ -369,6 +428,24 @@ class CatalogRuntimeService:
             "created_at": resolved.created_at,
             "updated_at": resolved.updated_at,
         }
+
+    def _matches_calendar_policy_query(self, entry: CalendarPolicyCatalogEntry, query: str) -> bool:
+        normalized_query = query.casefold()
+        haystacks = [
+            entry.policy_ref,
+            entry.name,
+            entry.display_name,
+            entry.description,
+            entry.comparison_basis,
+            entry.resolved_alignment_mode,
+            *entry.window_tags,
+            *entry.use_when,
+            *entry.avoid_when,
+            *entry.matching_strategy_summary,
+            *entry.fallback_strategy,
+            entry.coverage_behavior,
+        ]
+        return any(normalized_query in str(candidate).casefold() for candidate in haystacks)
 
     def _capabilities_summary(self, capabilities: dict[str, Any]) -> dict[str, bool]:
         return {key: value for key, value in capabilities.items() if isinstance(value, bool)}

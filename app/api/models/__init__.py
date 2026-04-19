@@ -176,6 +176,8 @@ from .binding import (
 from .catalog import (
     CatalogAssetDetail,
     CatalogAssetSearchResult,
+    CatalogCalendarPolicyDetail,
+    CatalogCalendarPolicySearchResult,
     CatalogEntityDetail,
     CatalogGenericSemanticDetail,
     CatalogMetricDetail,
@@ -322,6 +324,8 @@ __all__ = [  # noqa: RUF022
     "BindingTarget",
     "CatalogAssetDetail",
     "CatalogAssetSearchResult",
+    "CatalogCalendarPolicyDetail",
+    "CatalogCalendarPolicySearchResult",
     "CatalogEntityDetail",
     "CatalogGenericSemanticDetail",
     "CatalogMetricDetail",

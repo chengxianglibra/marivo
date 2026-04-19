@@ -61,6 +61,35 @@ class ResolvedCalendarPolicyBinding:
     resolution_source: ResolutionSource
 
 
+@dataclass(frozen=True, slots=True)
+class CalendarPolicyCatalogEntry:
+    policy_ref: CalendarPolicyRef
+    object_id: str
+    name: str
+    display_name: str
+    description: str
+    comparison_basis: CalendarComparisonBasis
+    resolved_alignment_mode: str
+    resolved_calendar_source: str
+    window_tags: tuple[str, ...]
+    use_when: tuple[str, ...]
+    avoid_when: tuple[str, ...]
+    matching_strategy_summary: tuple[str, ...]
+    fallback_strategy: tuple[str, ...]
+    coverage_behavior: str
+    detail_path: str
+    resolve_path: str
+    status: Literal["published"] = "published"
+    lifecycle_status: Literal["active"] = "active"
+    readiness_status: Literal["ready"] = "ready"
+    blocker_count: Literal[0] = 0
+    revision: Literal[1] = 1
+    created_at: Literal["builtin"] = "builtin"
+    updated_at: Literal["builtin"] = "builtin"
+    system_managed: Literal[True] = True
+    catalog_source: Literal["builtin_calendar_policy"] = "builtin_calendar_policy"
+
+
 class CalendarPolicyResolutionError(ValueError):
     def __init__(
         self, message: str, *, code: str, details: dict[str, object] | None = None
@@ -259,6 +288,67 @@ _POLICIES: tuple[CalendarPolicyDefinition, ...] = (
 _POLICY_BY_REF: dict[str, CalendarPolicyDefinition] = {
     policy.policy_ref: policy for policy in _POLICIES
 }
+_BASIS_LABELS: dict[CalendarComparisonBasis, str] = {
+    "yoy": "year-over-year",
+    "mom": "month-over-month",
+    "wow": "week-over-week",
+}
+
+
+def _policy_name(policy: CalendarPolicyDefinition) -> str:
+    return policy.policy_ref.split(".", 1)[1]
+
+
+def _policy_display_name(policy: CalendarPolicyDefinition) -> str:
+    basis_label = _BASIS_LABELS[policy.comparison_basis]
+    return f"{_policy_name(policy).replace('_', ' ')} ({basis_label})"
+
+
+def _policy_description(policy: CalendarPolicyDefinition) -> str:
+    use_when = ", ".join(policy.use_when[:2]) if policy.use_when else "calendar-aligned comparison"
+    return (
+        f"Builtin calendar alignment policy for {policy.comparison_basis} comparisons using "
+        f"{policy.resolved_alignment_mode}; use when {use_when}."
+    )
+
+
+def _matching_step_summary(step: CalendarMatchingStep) -> str:
+    summary: str = step.matcher
+    if step.max_shift_days is not None:
+        summary = f"{summary}(max_shift_days={step.max_shift_days})"
+    if step.tie_breaker is not None:
+        summary = f"{summary}[{step.tie_breaker}]"
+    if step.requires_annotation:
+        summary = f"{summary}:annotation_required"
+    return summary
+
+
+def calendar_policy_catalog_entry(policy_ref: str) -> CalendarPolicyCatalogEntry:
+    policy = get_calendar_policy(policy_ref)
+    return CalendarPolicyCatalogEntry(
+        policy_ref=policy.policy_ref,
+        object_id=policy.policy_ref,
+        name=_policy_name(policy),
+        display_name=_policy_display_name(policy),
+        description=_policy_description(policy),
+        comparison_basis=policy.comparison_basis,
+        resolved_alignment_mode=policy.resolved_alignment_mode,
+        resolved_calendar_source=policy.resolved_calendar_source,
+        window_tags=policy.window_tags,
+        use_when=policy.use_when,
+        avoid_when=policy.avoid_when,
+        matching_strategy_summary=tuple(
+            _matching_step_summary(step) for step in policy.matching_strategy
+        ),
+        fallback_strategy=policy.fallback_strategy,
+        coverage_behavior=policy.coverage_behavior,
+        detail_path=f"/catalog/objects/calendar_policy/{policy.policy_ref}",
+        resolve_path=f"/semantic/resolve/{policy.policy_ref}",
+    )
+
+
+def list_calendar_policy_catalog_entries() -> tuple[CalendarPolicyCatalogEntry, ...]:
+    return tuple(calendar_policy_catalog_entry(policy.policy_ref) for policy in _POLICIES)
 
 
 def list_calendar_policies() -> tuple[CalendarPolicyDefinition, ...]:

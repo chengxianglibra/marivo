@@ -10,6 +10,7 @@ SUPPORTED_RUNTIME_REF_KINDS: dict[str, str] = {
     "dimension.": "dimension",
     "time.": "time",
     "binding.": "binding",
+    "calendar_policy.": "calendar_policy",
 }
 
 
