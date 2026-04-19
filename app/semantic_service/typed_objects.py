@@ -311,11 +311,12 @@ class TypedObjectService(SemanticServiceSupport):
                 "SELECT * FROM semantic_metric_contracts WHERE status = ? ORDER BY metric_ref",
                 [status],
             )
+        list_context = self._list_context()
         items = [
             item
             for row in rows
             if self._matches_readiness_filter(
-                item := self._row_to_typed_metric(row, mode=mode),
+                item := self._row_to_typed_metric(row, mode=mode, list_context=list_context),
                 readiness_status=readiness_status,
             )
         ]

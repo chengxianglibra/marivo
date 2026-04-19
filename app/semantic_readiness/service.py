@@ -15,7 +15,15 @@ from typing import Any
 
 from app.storage.metadata import MetadataStore
 
-from .context import ReadinessEvaluationContext, build_snapshot
+from .context import (
+    BindingImportsLoader,
+    CarrierSourceObjectLoader,
+    DependencySnapshotLoader,
+    ProfilesLoader,
+    ReadinessEvaluationContext,
+    SubjectBindingsLoader,
+    build_snapshot,
+)
 from .registry import SemanticReadinessRegistry, build_default_registry
 from .types import ObjectKind, ReadinessResult
 
@@ -66,6 +74,11 @@ class SemanticReadinessService:
         require_physical_grounding: bool = False,
         required_capabilities: list[str] | None = None,
         intent_kind: str | None = None,
+        dependency_snapshot_loader: DependencySnapshotLoader | None = None,
+        subject_bindings_loader: SubjectBindingsLoader | None = None,
+        binding_imports_loader: BindingImportsLoader | None = None,
+        carrier_source_object_loader: CarrierSourceObjectLoader | None = None,
+        profiles_loader: ProfilesLoader | None = None,
     ) -> ReadinessResult:
         """Evaluate readiness for a semantic object snapshot.
 
@@ -97,6 +110,11 @@ class SemanticReadinessService:
             require_physical_grounding=require_physical_grounding,
             required_capabilities=list(required_capabilities or []),
             intent_kind=intent_kind,
+            dependency_snapshot_loader=dependency_snapshot_loader,
+            subject_bindings_loader=subject_bindings_loader,
+            binding_imports_loader=binding_imports_loader,
+            carrier_source_object_loader=carrier_source_object_loader,
+            profiles_loader=profiles_loader,
         )
         evaluator = self.registry.evaluator_for(object_kind)
         return evaluator.evaluate(context)

@@ -82,11 +82,17 @@ class TypedBindingService(SemanticServiceSupport):
                 [status],
             )
         mode: Literal["list", "detail"] = "detail" if detail else "list"
+        list_context = self._list_context()
         items = [
             item
             for row in rows
             if self._matches_readiness_filter(
-                item := self._row_to_typed_binding(row, mode=mode, include_dependents=detail),
+                item := self._row_to_typed_binding(
+                    row,
+                    mode=mode,
+                    include_dependents=detail,
+                    list_context=list_context,
+                ),
                 readiness_status=readiness_status,
             )
         ]
