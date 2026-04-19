@@ -295,6 +295,28 @@ def _build_data_coverage_summary(
     return summary
 
 
+def _time_series_data_complete(summary: Mapping[str, Any] | None) -> bool | None:
+    if summary is None:
+        return None
+    missing_bucket_count = summary.get("missing_bucket_count")
+    expected_bucket_count = summary.get("expected_bucket_count")
+    if not isinstance(missing_bucket_count, int) or not isinstance(expected_bucket_count, int):
+        return None
+    if missing_bucket_count > 0:
+        return False
+    if expected_bucket_count > 0:
+        return True
+    return None
+
+
+def _time_series_quality_status(*, row_count: int, data_complete: bool | None) -> str:
+    if row_count <= 0:
+        return "not_ready"
+    if data_complete is False:
+        return "needs_attention"
+    return "ready"
+
+
 def _build_scoped_query_for_window(
     svc: SemanticLayerService,
     *,
@@ -858,16 +880,21 @@ def run_observe_intent(
                 resolved_policy_summary=resolved_policy_summary,
                 granularity=granularity,
             )
+        data_coverage_summary = _build_data_coverage_summary(
+            series=series,
+            aligned_yoy_series=aligned_series_payload.get("yoy_series"),
+        )
         if resolved_policy_summary is not None:
             resolved_policy_summary = {
                 **resolved_policy_summary,
-                "data_coverage_summary": _build_data_coverage_summary(
-                    series=series,
-                    aligned_yoy_series=aligned_series_payload.get("yoy_series"),
-                ),
+                "data_coverage_summary": data_coverage_summary,
             }
 
-        quality_status = "ready" if rows else "not_ready"
+        data_complete = _time_series_data_complete(data_coverage_summary)
+        quality_status = _time_series_quality_status(
+            row_count=len(rows),
+            data_complete=data_complete,
+        )
         observation: dict[str, Any] = {
             "schema_version": "1.0",
             "metric_contract_version": None,
@@ -885,7 +912,7 @@ def run_observe_intent(
                 "metric_additivity": "additive",
                 "aggregation_semantics": "sum",
                 "timezone": None,
-                "data_complete": None,
+                "data_complete": data_complete,
                 "quality_status": quality_status,
                 "row_count": len(rows),
                 "sample_size": len(rows),

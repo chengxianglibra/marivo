@@ -297,6 +297,15 @@ class TestObserveExtractorTimeSeries(unittest.TestCase):
         ids2 = [f["finding_id"] for f in result2["findings"]]
         self.assertEqual(ids1, ids2)
 
+    def test_quality_metadata_propagates_data_completeness_and_attention_status(self) -> None:
+        payload = _time_series_payload()
+        payload["analytical_metadata"]["data_complete"] = False
+        payload["analytical_metadata"]["quality_status"] = "needs_attention"
+        result = _EXTRACTOR.extract(_ART_ID, payload, _STEP_REF, _SESSION)
+        for finding in result["findings"]:
+            self.assertFalse(finding["quality"]["data_complete"])
+            self.assertEqual(finding["quality"]["quality_status"], "needs_attention")
+
 
 # ---------------------------------------------------------------------------
 # TestObserveExtractorSegmented

@@ -210,6 +210,8 @@ class ObserveArtifactExtractor(FindingExtractor):
         unit = payload.get("unit")
         metric = payload.get("metric")
         scope = payload.get("scope") or {}
+        am = payload.get("analytical_metadata") or {}
+        quality = _quality_from_am(am)
 
         findings: list[ObservationFinding] = []
         for bucket in series:
@@ -234,7 +236,7 @@ class ObserveArtifactExtractor(FindingExtractor):
                     analysis_axis="time",
                 ),
                 observed_window={"kind": "range", "start": bucket_start, "end": bucket_end},
-                quality=_empty_quality(),
+                quality=quality,
                 provenance=self._make_provenance(step_ref, canonical_item_key, item_ref),
                 payload=TimeBucketObservationPayload(
                     observation_kind="time_bucket",
