@@ -479,6 +479,12 @@ type RateSampleSummaryObservation = ObservationBase & {
 - `null_rate`
 - metric 或 source 侧的已知质量告警
 
+对于 `observe(time_series)`：
+
+- 若响应为了覆盖请求窗口而回填了 `value = null` bucket，则 `analytical_metadata.data_complete` 必须为 `false`
+- 同一场景下 `quality_status` 至少应为 `needs_attention`，不得继续返回 `ready`
+- 若请求窗口 bucket 全部有值，则 `data_complete` 应为 `true`
+
 若实现无法稳定计算某项辅助信号，可以令辅助字段为 `null`，但 `quality_status` 自身不得因此退化成未定义的自由裁量字段。
 
 ## 校验规则

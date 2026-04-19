@@ -896,6 +896,97 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
                 "aligned_present_both_bucket_count": 1,
             },
         )
+        self.assertFalse(result["analytical_metadata"]["data_complete"])
+        self.assertEqual(result["analytical_metadata"]["quality_status"], "needs_attention")
+
+    def test_observe_time_series_sets_data_complete_true_when_all_requested_buckets_present(
+        self,
+    ) -> None:
+        from app.intents.observe import run_observe_intent
+
+        svc = _make_svc()
+        svc.normalize_intent_metric_ref.side_effect = lambda metric: metric
+        svc.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
+        svc._resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
+        svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
+        svc.resolve_metric_dimensions.return_value = []
+        svc._resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
+        _set_resolved_time_axis(svc, "event_date")
+        svc._build_scoped_query.return_value = {
+            "mode": "single_window",
+            "analysis_time_expr": "event_date",
+            "analysis_time_kind": "date_field",
+            "current": {"start": "2026-04-01", "end": "2026-04-03"},
+        }
+        svc._compile_step_with_feedback.side_effect = [
+            _make_time_series_compiled_mock_with_calendar_alignment(),
+            _make_compiled_mock(),
+        ]
+
+        with patch("app.intents.observe.execute_compiled") as mock_exec:
+            mock_exec.side_effect = [
+                MagicMock(
+                    rows=[
+                        {"bucket_start": "2026-04-01", "value": 120.0},
+                        {"bucket_start": "2026-04-02", "value": 130.0},
+                    ]
+                ),
+                MagicMock(rows=[{"bucket_start": "2025-04-02", "value": 100.0}]),
+            ]
+            result = run_observe_intent(
+                svc,
+                _SESSION,
+                {
+                    "metric": "metric.m1",
+                    "time_scope": {"kind": "range", "start": "2026-04-01", "end": "2026-04-03"},
+                    "calendar_policy_ref": "calendar_policy.weekday_yoy",
+                    "granularity": "day",
+                },
+            )
+
+        self.assertTrue(result["analytical_metadata"]["data_complete"])
+        self.assertEqual(result["analytical_metadata"]["quality_status"], "ready")
+
+    def test_observe_time_series_without_rows_marks_backfilled_buckets_incomplete(self) -> None:
+        from app.intents.observe import run_observe_intent
+
+        svc = _make_svc()
+        svc.normalize_intent_metric_ref.side_effect = lambda metric: metric
+        svc.metric_name_from_ref.side_effect = lambda metric: metric.removeprefix("metric.")
+        svc._resolve_metric_execution_context.return_value = MagicMock(table_name="src.metrics")
+        svc.resolve_metric_sql_for_execution.return_value = "SUM(val)"
+        svc.resolve_metric_dimensions.return_value = []
+        svc._resolve_engine.return_value = (MagicMock(), "duckdb", {"src.metrics": "src.metrics"})
+        _set_resolved_time_axis(svc, "event_date")
+        svc._build_scoped_query.return_value = {
+            "mode": "single_window",
+            "analysis_time_expr": "event_date",
+            "analysis_time_kind": "date_field",
+            "current": {"start": "2026-04-01", "end": "2026-04-03"},
+        }
+        svc._compile_step_with_feedback.return_value = _make_compiled_mock()
+
+        with patch("app.intents.observe.execute_compiled") as mock_exec:
+            mock_exec.return_value = MagicMock(rows=[])
+            result = run_observe_intent(
+                svc,
+                _SESSION,
+                {
+                    "metric": "metric.m1",
+                    "time_scope": {"kind": "range", "start": "2026-04-01", "end": "2026-04-03"},
+                    "granularity": "day",
+                },
+            )
+
+        self.assertEqual(
+            result["series"],
+            [
+                {"window": {"start": "2026-04-01", "end": "2026-04-02"}, "value": None},
+                {"window": {"start": "2026-04-02", "end": "2026-04-03"}, "value": None},
+            ],
+        )
+        self.assertFalse(result["analytical_metadata"]["data_complete"])
+        self.assertEqual(result["analytical_metadata"]["quality_status"], "not_ready")
 
     def test_observe_hour_granularity_uses_hour_internal_grain(self) -> None:
         from app.intents.observe import run_observe_intent

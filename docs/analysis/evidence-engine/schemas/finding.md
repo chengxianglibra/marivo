@@ -360,6 +360,8 @@ v1 中各字段的 `null` 语义固定如下：
 - `null_rate = null`：not_applicable
 - `quality_status = null`：not_applicable
 
+对来自 `observe(time_series)` 的 finding，若上游 observation 已用 `value = null` 明确表达请求窗口内 bucket 缺失，则 `quality.data_complete` 不得继续为 `null`，应随 artifact 透传为 `false`，且 `quality_status` 应反映该 quality warning（通常为 `needs_attention`）。
+
 ### provenance
 
 `provenance` 用于支持 agent 的快速溯源和审计读取。
