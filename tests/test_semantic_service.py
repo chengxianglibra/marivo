@@ -9,6 +9,7 @@ from app.api.models.compatibility_profile import (
     CompatibilityProfileCreateRequest,
     CompatibilityProfileUpdateRequest,
 )
+from app.api.models.dimension import DimensionCreateRequest
 from app.api.models.entity import TypedEntityCreateRequest, TypedEntityUpdateRequest
 from app.api.models.metric import TypedMetricCreateRequest, TypedMetricUpdateRequest
 from app.semantic import SemanticService
@@ -227,6 +228,51 @@ class SemanticServiceFacadeTests(unittest.TestCase):
                     }
                 ),
             )
+
+    def test_list_dimensions_detail_uses_list_context_for_dependents(self) -> None:
+        dimension = self.service.create_dimension(
+            DimensionCreateRequest.model_validate(
+                {
+                    "header": {
+                        "dimension_ref": "dimension.discovery_channel",
+                        "display_name": "Discovery Channel",
+                        "dimension_contract_version": "dimension.v1",
+                    },
+                    "interface_contract": {
+                        "value_domain": {
+                            "structure_kind": "flat",
+                            "semantic_role": "category",
+                            "value_type": "string",
+                            "domain_kind": "open",
+                        },
+                        "grouping": {"supports_grouping": True},
+                    },
+                }
+            )
+        )
+        self.service.publish_dimension(dimension["dimension_contract_id"])
+
+        original = self.service.typed_objects._dependent_refs_for_ref
+
+        def _fail_if_called(ref: str) -> list[str]:
+            raise AssertionError(f"unexpected per-item dependent scan for {ref}")
+
+        self.service.typed_objects._dependent_refs_for_ref = _fail_if_called
+        try:
+            listed = self.service.list_dimensions(
+                lifecycle_status="active",
+                readiness_status="ready",
+                detail=True,
+            )
+        finally:
+            self.service.typed_objects._dependent_refs_for_ref = original
+
+        self.assertEqual(listed["total"], 1)
+        self.assertEqual(
+            listed["items"][0]["header"]["dimension_ref"],
+            "dimension.discovery_channel",
+        )
+        self.assertIn("dependent_refs", listed["items"][0])
 
     def test_compatibility_profile_update_requires_draft_and_increments_revision(self) -> None:
         entity = self.service.create_typed_entity(
