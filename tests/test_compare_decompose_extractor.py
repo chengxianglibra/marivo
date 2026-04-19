@@ -113,6 +113,7 @@ def _calendar_alignment_summary(
         "resolved_calendar_source": "calendar.cn_holidays",
         "resolved_calendar_version": "2026.01",
         "comparability_warnings": list(warnings or []),
+        "rollup_safe": True,
         "left_coverage_summary": dict(coverage),
         "right_coverage_summary": dict(coverage),
         "effective_coverage_summary": dict(coverage),

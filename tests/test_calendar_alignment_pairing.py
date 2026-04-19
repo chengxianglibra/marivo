@@ -78,6 +78,13 @@ class CalendarAlignmentPairingTests(unittest.TestCase):
             [bucket["pairing_reason"] for bucket in resolution.bucket_pairing],
             ["natural_date_shift", "natural_date_shift", "natural_date_shift"],
         )
+        self.assertTrue(
+            all(bucket["strictness_level"] == "strict" for bucket in resolution.bucket_pairing)
+        )
+        self.assertTrue(
+            all(not bucket["is_reused_baseline_bucket"] for bucket in resolution.bucket_pairing)
+        )
+        self.assertTrue(resolution.rollup_safe)
         self.assertEqual(resolution.comparability_warnings, [])
 
     def test_holiday_policy_matches_unique_cluster_before_fallback(self) -> None:
@@ -111,6 +118,9 @@ class CalendarAlignmentPairingTests(unittest.TestCase):
         self.assertEqual(resolution.bucket_pairing[0]["pairing_reason"], "holiday_cluster")
         self.assertEqual(resolution.bucket_pairing[0]["baseline_bucket_start"], "2025-04-04")
         self.assertEqual(resolution.bucket_pairing[0]["issues"], [])
+        self.assertEqual(resolution.bucket_pairing[0]["strictness_level"], "strict")
+        self.assertFalse(resolution.bucket_pairing[0]["is_reused_baseline_bucket"])
+        self.assertTrue(resolution.rollup_safe)
 
     def test_holiday_policy_uses_relative_key_when_cluster_is_not_unique(self) -> None:
         current_window = (date(2026, 4, 1), date(2026, 4, 4))
@@ -197,6 +207,9 @@ class CalendarAlignmentPairingTests(unittest.TestCase):
             resolution.bucket_pairing[0]["issues"],
             ["holiday_cluster_unmapped", "fallback_applied"],
         )
+        self.assertEqual(resolution.bucket_pairing[0]["strictness_level"], "fallback")
+        self.assertFalse(resolution.bucket_pairing[0]["is_reused_baseline_bucket"])
+        self.assertFalse(resolution.rollup_safe)
         self.assertEqual(
             resolution.comparability_warnings,
             ["holiday_cluster_unmapped", "fallback_applied"],
@@ -233,6 +246,8 @@ class CalendarAlignmentPairingTests(unittest.TestCase):
             resolution.bucket_pairing[0]["issues"],
             ["holiday_cluster_unmapped", "fallback_applied"],
         )
+        self.assertEqual(resolution.bucket_pairing[0]["strictness_level"], "fallback")
+        self.assertFalse(resolution.rollup_safe)
         self.assertEqual(
             resolution.comparability_warnings,
             ["holiday_cluster_unmapped", "fallback_applied"],
@@ -280,6 +295,11 @@ class CalendarAlignmentPairingTests(unittest.TestCase):
             ["holiday_cluster_unmapped", "fallback_applied"],
         )
         self.assertEqual(resolution.bucket_pairing[1]["issues"], [])
+        self.assertEqual(resolution.bucket_pairing[0]["strictness_level"], "reused_baseline")
+        self.assertEqual(resolution.bucket_pairing[1]["strictness_level"], "reused_baseline")
+        self.assertTrue(resolution.bucket_pairing[0]["is_reused_baseline_bucket"])
+        self.assertTrue(resolution.bucket_pairing[1]["is_reused_baseline_bucket"])
+        self.assertFalse(resolution.rollup_safe)
         self.assertEqual(
             resolution.comparability_warnings,
             ["holiday_cluster_unmapped", "fallback_applied"],
@@ -382,6 +402,8 @@ class CalendarAlignmentPairingTests(unittest.TestCase):
         self.assertEqual(resolution.bucket_pairing[0]["pairing_reason"], "natural_date_shift")
         self.assertEqual(resolution.bucket_pairing[0]["baseline_bucket_start"], "2025-04-05")
         self.assertEqual(resolution.bucket_pairing[0]["issues"], [])
+        self.assertEqual(resolution.bucket_pairing[0]["strictness_level"], "strict")
+        self.assertTrue(resolution.rollup_safe)
 
     def test_weekday_wow_leaves_bucket_unpaired_when_max_shift_blocks_match(self) -> None:
         current_window = (date(2026, 4, 7), date(2026, 4, 8))
@@ -405,6 +427,8 @@ class CalendarAlignmentPairingTests(unittest.TestCase):
             resolution.bucket_pairing[0]["issues"],
             ["alignment_coverage_insufficient"],
         )
+        self.assertEqual(resolution.bucket_pairing[0]["strictness_level"], "coverage_incomplete")
+        self.assertFalse(resolution.rollup_safe)
 
     def test_holiday_policy_uses_natural_fallback_when_weekday_match_exceeds_max_shift(
         self,
@@ -430,6 +454,8 @@ class CalendarAlignmentPairingTests(unittest.TestCase):
             resolution.bucket_pairing[0]["issues"],
             ["holiday_cluster_unmapped", "fallback_applied"],
         )
+        self.assertEqual(resolution.bucket_pairing[0]["strictness_level"], "fallback")
+        self.assertFalse(resolution.rollup_safe)
 
     def test_unpaired_bucket_records_coverage_issue(self) -> None:
         current_window = (date(2026, 4, 1), date(2026, 4, 4))
@@ -453,3 +479,37 @@ class CalendarAlignmentPairingTests(unittest.TestCase):
             resolution.bucket_pairing[-1]["issues"],
             ["alignment_coverage_insufficient"],
         )
+        self.assertEqual(resolution.bucket_pairing[-1]["strictness_level"], "coverage_incomplete")
+        self.assertFalse(resolution.rollup_safe)
+
+    def test_weekday_policy_marks_reused_baseline_bucket_and_rollup_unsafe(self) -> None:
+        current_window = (date(2026, 1, 1), date(2026, 1, 3))
+        baseline_window = (date(2025, 1, 1), date(2025, 1, 3))
+        policy = get_calendar_policy("calendar_policy.weekday_yoy")
+
+        resolution = resolve_calendar_bucket_pairing(
+            current_window=current_window,
+            baseline_window=baseline_window,
+            matching_strategy=policy.matching_strategy,
+            fallback_strategy=policy.fallback_strategy,
+            annotation_rows=build_calendar_annotation_rows(
+                current_window=current_window,
+                baseline_window=baseline_window,
+                raw_rows=None,
+            ),
+        )
+
+        self.assertEqual(
+            [bucket["baseline_bucket_start"] for bucket in resolution.bucket_pairing],
+            ["2025-01-02", "2025-01-02"],
+        )
+        self.assertTrue(
+            all(bucket["is_reused_baseline_bucket"] for bucket in resolution.bucket_pairing)
+        )
+        self.assertTrue(
+            all(
+                bucket["strictness_level"] == "reused_baseline"
+                for bucket in resolution.bucket_pairing
+            )
+        )
+        self.assertFalse(resolution.rollup_safe)

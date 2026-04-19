@@ -265,6 +265,7 @@ class _RecomputeBase(unittest.TestCase):
                 "comparison_basis": "yoy",
                 "resolved_calendar_source": "calendar.cn_holidays",
                 "resolved_calendar_version": "2026.01",
+                "rollup_safe": True,
                 "resolved_baseline_generation_rule": "previous_year",
                 "current_window": {"start": "2026-04-01", "end": "2026-04-07", "grain": "day"},
                 "baseline_window": {"start": "2025-04-01", "end": "2025-04-07", "grain": "day"},

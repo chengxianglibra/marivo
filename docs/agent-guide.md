@@ -151,5 +151,8 @@ App startup requires `factum.yaml` metadata config with `metadata.engine=sqlite`
   alignment requests, use `GET /catalog/search?type=calendar_policy` or `GET /semantic/resolve/{ref}`
   to select fixed refs such as `calendar_policy.holiday_yoy`, `calendar_policy.weekday_yoy`, and
   `calendar_policy.natural_yoy`; do not guess policy refs from prose.
+- When an observation freezes `resolved_policy_summary`, preserve any bucket-pairing strictness
+  metadata such as fallback use, reused baseline buckets, and `rollup_safe`; do not present
+  holiday/weekday alignment as strict 1:1 pairing when the frozen metadata says otherwise.
 - For `observe(time_series)`, if the returned series backfills requested buckets with `value=null`, surface that as a first-class quality signal (`analytical_metadata.data_complete=false`, `quality_status=needs_attention`) instead of only burying it in coverage summary metadata.
 - Do not update this document with implementation details; keep it focused on shared agent guidance and repository-wide boundaries.

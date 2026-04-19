@@ -1133,6 +1133,7 @@ def _resolve_calendar_alignment_plan(
         "current_window": _serialize_calendar_window(current_window),
         "baseline_window": _serialize_calendar_window(baseline_window),
         "bucket_pairing": bucket_pairing,
+        "rollup_safe": pairing_resolution.rollup_safe,
         "coverage_summary": coverage_summary,
         "comparability_warnings": comparability_warnings,
         "source_lineage": calendar_data.source_lineage,

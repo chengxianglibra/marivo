@@ -377,7 +377,14 @@ type ResolvedPolicySummary = {
       | "fallback";
     shift_days: number | null;
     issues: string[];
+    strictness_level:
+      | "strict"
+      | "fallback"
+      | "reused_baseline"
+      | "coverage_incomplete";
+    is_reused_baseline_bucket: boolean;
   }>;
+  rollup_safe: boolean;
   coverage_summary: {
     aligned_bucket_count: number;
     unpaired_bucket_count: number;
@@ -451,6 +458,8 @@ type RateSampleSummaryObservation = ObservationBase & {
 - 时间序列 bucket 采用半开区间（half-open interval）语义：`[window.start, window.end)`
 - `resolved_policy_summary.coverage_summary` 只表示 calendar bucket pairing coverage，不表示业务数据已完整落库
 - `resolved_policy_summary.data_coverage_summary` 表示实际 metric bucket coverage；当请求窗口内某些 bucket 尚无业务数据时，必须通过该字段显式暴露
+- `resolved_policy_summary.bucket_pairing[*].strictness_level` 与 `is_reused_baseline_bucket` 用于显式说明该 bucket 是否仍可被解释为严格 1:1 对齐；`fallback` 或 baseline bucket 复用都不得再被表述为“严格对齐”
+- `resolved_policy_summary.rollup_safe=false` 表示本次 bucket pairing 不应被解释为严格对齐后可安全 rollup 的窗口；常见触发条件包括 fallback、baseline bucket 复用或 coverage 不完整
 - `time_series.series` 必须按请求窗口返回完整 bucket 序列；缺失 bucket 不得静默省略，应用 `value = null` 表达
 - `segmented` 的 `share` 表示该 segment 在当前 scope 中的占比
 - `segmented` artifact 必须返回完整 segment 集合，不得把 tail-folding 或 top-k 截断编码进 artifact

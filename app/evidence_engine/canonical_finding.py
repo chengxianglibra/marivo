@@ -284,6 +284,7 @@ class CalendarAlignmentReuseSummary(TypedDict):
     resolved_calendar_source: str
     resolved_calendar_version: str
     comparability_warnings: list[str]
+    rollup_safe: bool
     left_coverage_summary: CalendarAlignmentCoverageSummary
     right_coverage_summary: CalendarAlignmentCoverageSummary
     effective_coverage_summary: CalendarAlignmentCoverageSummary

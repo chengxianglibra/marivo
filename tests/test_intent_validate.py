@@ -106,8 +106,11 @@ def _resolved_policy_summary(
                 "pairing_reason": "same_weekday_nearest",
                 "shift_days": -364,
                 "issues": [],
+                "strictness_level": "strict",
+                "is_reused_baseline_bucket": False,
             }
         ],
+        "rollup_safe": True,
         "coverage_summary": {
             "aligned_bucket_count": 5,
             "unpaired_bucket_count": 0,
@@ -338,6 +341,7 @@ class ValidateRunnerServiceTests(unittest.TestCase):
             test_artifact["source_lineage"]["calendar_alignment"]["policy_ref"],
             "calendar_policy.weekday_yoy",
         )
+        self.assertTrue(test_artifact["source_lineage"]["calendar_alignment"]["rollup_safe"])
 
     def test_calendar_alignment_mismatch_fails_through_internal_test(self) -> None:
         """validate should fail when its internal test sees mismatched frozen metadata."""
