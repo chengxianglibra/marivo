@@ -333,6 +333,7 @@ Boundary notes:
 - MCP parameter names intentionally reuse the canonical HTTP request field names
 - every typed intent tool exposes a top-level `session_id` used to fill the canonical HTTP path, while the remaining MCP parameters map directly to the canonical HTTP request body fields
 - nested MCP input schemas still reuse Factum's canonical request models; object fields such as `time_scope`, `left`, and `right` remain typed objects, not JSON-encoded strings
+- `observe.time_scope` must be a canonical object, not a shorthand string; for a range use `{"kind":"range","start":"YYYY-MM-DD","end":"YYYY-MM-DD"}`
 - `observe` keeps canonical guardrails from `ObserveRequest`: `granularity` and `dimensions` are mutually exclusive, and both are only valid when `result_mode="standard"`
 - typed intent `metric` parameters must use canonical semantic refs such as `metric.watch_time`; bare names like `watch_time` are rejected
 - nested MCP input schemas now reuse Factum's canonical request models, so

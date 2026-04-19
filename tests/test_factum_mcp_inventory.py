@@ -5,6 +5,7 @@ from importlib import import_module
 from pathlib import Path
 from typing import Any, cast, get_type_hints
 
+import pytest
 from pydantic import TypeAdapter
 
 FACTUM_MCP_SRC = Path(__file__).resolve().parents[1] / "factum-mcp" / "src"
@@ -123,6 +124,10 @@ def test_observe_tool_time_scope_annotation_exposes_discriminator_schema() -> No
     hints = get_type_hints(observe, include_extras=True)
     time_scope_schema = TypeAdapter(hints["time_scope"]).json_schema()
 
+    assert time_scope_schema["description"] == (
+        "Canonical object only; shorthand strings are not accepted. "
+        'For a date range use {"kind":"range","start":"YYYY-MM-DD","end":"YYYY-MM-DD"}.'
+    )
     assert time_scope_schema["discriminator"]["propertyName"] == "kind"
     assert {item["$ref"] for item in time_scope_schema["oneOf"]} == {
         "#/$defs/ObserveTimeScopeRange",
@@ -132,6 +137,22 @@ def test_observe_tool_time_scope_annotation_exposes_discriminator_schema() -> No
     }
     scope_schema = TypeAdapter(hints["scope"]).json_schema()
     assert scope_schema["anyOf"][0]["$ref"] == "#/$defs/ObserveScope"
+
+
+def test_observe_tool_time_scope_string_error_points_to_canonical_shape() -> None:
+    server = cast("Any", _FakeServer())
+    register_tools(server, _build_config())
+
+    observe = server.tools["observe"]
+    hints = get_type_hints(observe, include_extras=True)
+    adapter = TypeAdapter(hints["time_scope"])
+
+    with pytest.raises(Exception) as exc_info:
+        adapter.validate_python("2026-04-01..2026-04-15")
+
+    message = str(exc_info.value)
+    assert "observe.time_scope requires canonical object shape" in message
+    assert '{"kind":"range","start":"YYYY-MM-DD","end":"YYYY-MM-DD"}' in message
 
 
 def test_typed_intent_tools_expose_top_level_session_id() -> None:
@@ -184,7 +205,7 @@ def test_t6_tools_use_strongly_typed_nested_models_instead_of_raw_dicts() -> Non
     validate_hints = get_type_hints(server.tools["validate"])
 
     observe_time_scope_schema = TypeAdapter(observe_hints["time_scope"]).json_schema()
-    assert {item["$ref"] for item in observe_time_scope_schema["anyOf"]} == {
+    assert {item["$ref"] for item in observe_time_scope_schema["oneOf"]} == {
         "#/$defs/ObserveTimeScopeRange",
         "#/$defs/ObserveTimeScopeSnapshotNow",
         "#/$defs/ObserveTimeScopeLatestAvailable",

@@ -3,9 +3,10 @@ from __future__ import annotations
 import base64
 from collections.abc import Callable
 from copy import deepcopy
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, BeforeValidator, Field
+from pydantic_core import PydanticCustomError
 
 from app.api.models._legacy import (
     ArtifactRef,
@@ -32,6 +33,31 @@ _CATALOG_SEARCH_TYPES = frozenset(
     {"asset", "binding", "calendar_policy", "dimension", "entity", "metric", "process", "time"}
 )
 _CATALOG_SEARCH_READINESS = frozenset({"all", "not_ready", "ready", "stale"})
+_OBSERVE_TIME_SCOPE_CANONICAL_MESSAGE = (
+    "observe.time_scope requires canonical object shape, not shorthand string. "
+    'Use {"kind":"range","start":"YYYY-MM-DD","end":"YYYY-MM-DD"}.'
+)
+
+
+def _reject_observe_time_scope_string(value: object) -> object:
+    if isinstance(value, str):
+        raise PydanticCustomError(
+            "observe_time_scope_canonical_required",
+            _OBSERVE_TIME_SCOPE_CANONICAL_MESSAGE,
+        )
+    return value
+
+
+type McpObserveTimeScope = Annotated[
+    ObserveTimeScope,
+    BeforeValidator(_reject_observe_time_scope_string),
+    Field(
+        description=(
+            "Canonical object only; shorthand strings are not accepted. "
+            'For a date range use {"kind":"range","start":"YYYY-MM-DD","end":"YYYY-MM-DD"}.'
+        ),
+    ),
+]
 
 
 def _tool_metadata(
@@ -164,7 +190,7 @@ def register_tools(
     def observe(
         session_id: str,
         metric: str,
-        time_scope: ObserveTimeScope,
+        time_scope: McpObserveTimeScope,
         result_mode: Literal["standard", "numeric_sample_summary", "rate_sample_summary"] = (
             "standard"
         ),
