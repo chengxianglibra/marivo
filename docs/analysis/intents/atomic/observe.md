@@ -43,6 +43,8 @@
 }
 ```
 
+**注：上述示例覆盖 2024-03-01 至 2024-03-07（7 天），`end` 为排他边界。若需覆盖 3 月 1-7 日 inclusive，请使用 `end = "2024-03-08"`。**
+
 ## Typed Schema
 
 ```ts
@@ -187,6 +189,25 @@ v1 支持：
 ### time_scope
 
 `time_scope` 是必填项，用于定义观测的时间语义。
+
+**重要：`time_scope` 必须是结构化对象，不接受简写字符串。**
+
+```ts
+// CORRECT: 结构化对象
+{ "kind": "range", "start": "2024-03-01", "end": "2024-04-01" }
+
+// WRONG: 简写字符串（会被拒绝）
+"2024-03-01~2024-03-31"
+```
+
+**时间范围采用半开区间语义：`[start, end)`，`end` 是排他边界。**
+
+- 若需覆盖 2024 年 3 月整月（即 3 月 1 日至 3 月 31 日 inclusive），应使用：
+  - `start = "2024-03-01"`
+  - `end = "2024-04-01"`（下月首日）
+- 若误用 `end = "2024-03-31"`，则只会覆盖 3 月 1 日至 3 月 30 日。
+
+支持的 `kind` 类型：
 
 - `range`：半开区间 `[start, end)`
 - `snapshot_now`：查询时刻的即时快照
@@ -427,6 +448,13 @@ type SegmentedObservation = ObservationBase & {
     keys: Record<string, string | number | boolean | null>;
     value: number | null;
     share: number | null;
+  }>;
+  segmented_yoy?: Array<{
+    keys: Record<string, string | number | boolean | null>;
+    current_value: number | null;
+    baseline_value: number | null;
+    absolute_delta: number | null;
+    relative_delta: number | null;
   }>;
   scope_value: number | null;
 };
