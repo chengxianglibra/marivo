@@ -312,13 +312,18 @@ class TypedObjectService(SemanticServiceSupport):
                 [status],
             )
         list_context = self._list_context()
+        filtered_rows = rows
+        if readiness_status is not None:
+            filtered_rows = []
+            for row in rows:
+                snapshot = list_context.load_dependency_snapshot(str(row["metric_ref"]))
+                if snapshot is None:
+                    continue
+                if list_context.readiness_for(snapshot).get("readiness_status") == readiness_status:
+                    filtered_rows.append(row)
         items = [
-            item
-            for row in rows
-            if self._matches_readiness_filter(
-                item := self._row_to_typed_metric(row, mode=mode, list_context=list_context),
-                readiness_status=readiness_status,
-            )
+            self._row_to_typed_metric(row, mode=mode, list_context=list_context)
+            for row in filtered_rows
         ]
         return {"items": items, "total": len(items)}
 
@@ -691,13 +696,24 @@ class TypedObjectService(SemanticServiceSupport):
                 [status],
             )
         mode: Literal["list", "detail"] = "detail" if detail else "list"
+        list_context = self._list_context()
+        filtered_rows = rows
+        if readiness_status is not None:
+            filtered_rows = []
+            for row in rows:
+                snapshot = list_context.load_dependency_snapshot(str(row["dimension_ref"]))
+                if snapshot is None:
+                    continue
+                if list_context.readiness_for(snapshot).get("readiness_status") == readiness_status:
+                    filtered_rows.append(row)
         items = [
-            item
-            for row in rows
-            if self._matches_readiness_filter(
-                item := self._row_to_dimension(row, mode=mode, include_dependents=detail),
-                readiness_status=readiness_status,
+            self._row_to_dimension(
+                row,
+                mode=mode,
+                include_dependents=detail,
+                list_context=list_context,
             )
+            for row in filtered_rows
         ]
         return {"items": items, "total": len(items)}
 

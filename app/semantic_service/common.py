@@ -51,6 +51,7 @@ class _SemanticListContext:
     def __init__(self, service: Any) -> None:
         self._service = service
         self._snapshots_by_ref: dict[str, ReadinessObjectSnapshot] | None = None
+        self._readiness_by_ref: dict[str, dict[str, Any]] = {}
         self._bindings_by_id: dict[str, dict[str, Any]] | None = None
         self._bindings_by_ref: dict[str, dict[str, Any]] | None = None
         self._bindings_by_subject: dict[str, list[dict[str, Any]]] | None = None
@@ -112,6 +113,28 @@ class _SemanticListContext:
         self._ensure_dependent_refs()
         assert self._dependent_refs_by_ref is not None
         return list(self._dependent_refs_by_ref.get(ref, []))
+
+    def readiness_for(self, snapshot: ReadinessObjectSnapshot) -> dict[str, Any]:
+        cached = self._readiness_by_ref.get(snapshot.ref)
+        if cached is not None:
+            return dict(cached)
+        result: dict[str, Any] = dict(
+            self._service.readiness_service.evaluate_snapshot(
+                object_kind=snapshot.object_kind,
+                object_id=snapshot.object_id,
+                ref=snapshot.ref,
+                status=snapshot.status,
+                revision=snapshot.revision,
+                semantic_object=snapshot.semantic_object,
+                dependency_snapshot_loader=self.load_dependency_snapshot,
+                subject_bindings_loader=self.load_subject_bindings,
+                binding_imports_loader=self.load_binding_imports,
+                carrier_source_object_loader=self.load_carrier_source_object,
+                profiles_loader=self.load_profiles,
+            ).contract_payload()
+        )
+        self._readiness_by_ref[snapshot.ref] = result
+        return result
 
     def _ensure_dependent_refs(self) -> None:
         if self._dependent_refs_by_ref is not None:
@@ -768,15 +791,16 @@ class SemanticServiceSupport:
         semantic_object: dict[str, Any],
         list_context: _SemanticListContext | None = None,
     ) -> dict[str, Any]:
-        loader_kwargs: dict[str, Any] = {}
         if list_context is not None:
-            loader_kwargs = {
-                "dependency_snapshot_loader": list_context.load_dependency_snapshot,
-                "subject_bindings_loader": list_context.load_subject_bindings,
-                "binding_imports_loader": list_context.load_binding_imports,
-                "carrier_source_object_loader": list_context.load_carrier_source_object,
-                "profiles_loader": list_context.load_profiles,
-            }
+            snapshot = ReadinessObjectSnapshot(
+                object_kind=object_kind,
+                object_id=object_id,
+                ref=ref,
+                status=status,
+                revision=revision,
+                semantic_object=semantic_object,
+            )
+            return list_context.readiness_for(snapshot)
         result = self.readiness_service.evaluate_snapshot(
             object_kind=object_kind,
             object_id=object_id,
@@ -784,7 +808,6 @@ class SemanticServiceSupport:
             status=status,
             revision=revision,
             semantic_object=semantic_object,
-            **loader_kwargs,
         )
         return result.contract_payload()
 
@@ -3027,6 +3050,7 @@ class SemanticServiceSupport:
         mode: Literal["list", "detail"] = "detail",
         *,
         include_dependents: bool = True,
+        list_context: _SemanticListContext | None = None,
     ) -> dict[str, Any]:
         value_domain: dict[str, Any] = {
             "structure_kind": row["structure_kind"],
@@ -3070,6 +3094,7 @@ class SemanticServiceSupport:
             ref=str(row["dimension_ref"]),
             mode=mode,
             include_dependents=include_dependents,
+            list_context=list_context,
         )
         if mode == "list":
             dimension.pop("interface_contract", None)

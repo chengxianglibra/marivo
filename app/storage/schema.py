@@ -448,7 +448,9 @@ METADATA_DDL: list[str] = [
     """,
     "CREATE INDEX IF NOT EXISTS idx_semantic_entity_key_refs_entity ON semantic_entity_key_refs(entity_contract_id)",
     "CREATE INDEX IF NOT EXISTS idx_semantic_entity_stable_descriptors_entity ON semantic_entity_stable_descriptors(entity_contract_id)",
+    "CREATE INDEX IF NOT EXISTS idx_semantic_metric_contracts_status_ref ON semantic_metric_contracts(status, metric_ref)",
     "CREATE INDEX IF NOT EXISTS idx_semantic_process_exported_dimension_refs_process ON semantic_process_exported_dimension_refs(process_contract_id)",
+    "CREATE INDEX IF NOT EXISTS idx_semantic_dimension_contracts_status_ref ON semantic_dimension_contracts(status, dimension_ref)",
     "CREATE INDEX IF NOT EXISTS idx_semantic_enum_set_versions_enum_set ON semantic_enum_set_versions(enum_set_contract_id)",
     "CREATE INDEX IF NOT EXISTS idx_semantic_enum_set_values_version ON semantic_enum_set_values(enum_set_version_id)",
     # -------------------------------------------------------------------------
@@ -643,6 +645,7 @@ METADATA_DDL: list[str] = [
     """,
     # Typed binding indexes
     "CREATE INDEX IF NOT EXISTS idx_typed_bindings_ref ON typed_bindings(binding_ref)",
+    "CREATE INDEX IF NOT EXISTS idx_typed_bindings_status_ref ON typed_bindings(status, binding_ref)",
     "CREATE INDEX IF NOT EXISTS idx_binding_imports_binding ON binding_imports(binding_id)",
     "CREATE INDEX IF NOT EXISTS idx_carrier_bindings_binding ON carrier_bindings(binding_id)",
     "CREATE INDEX IF NOT EXISTS idx_carrier_bindings_key ON carrier_bindings(binding_id, binding_key)",
