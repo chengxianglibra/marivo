@@ -25,6 +25,7 @@ from fastapi.testclient import TestClient
 
 from app.api.models import (
     ArtifactRef,
+    AttributeRequest,
     CompareRequest,
     DecomposeRequest,
     DetectRequest,
@@ -474,6 +475,49 @@ class ObserveRequestModelTests(unittest.TestCase):
             granularity="hour",
         )
         self.assertEqual(r.granularity, "hour")
+
+
+class AttributeRequestModelTests(unittest.TestCase):
+    def _make(self, **kwargs: Any) -> AttributeRequest:
+        base: dict[str, Any] = {
+            "metric": _metric_ref("dau"),
+            "left": {
+                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+            },
+            "right": {
+                "time_scope": {"kind": "range", "start": "2023-01-01", "end": "2023-01-08"},
+            },
+            "dimensions": ["region"],
+        }
+        base.update(kwargs)
+        return AttributeRequest(**base)
+
+    def test_side_level_calendar_policy_ref_is_accepted(self) -> None:
+        request = self._make(
+            left={
+                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+                "calendar_policy_ref": "calendar_policy.holiday_yoy",
+            },
+            right={
+                "time_scope": {"kind": "range", "start": "2023-01-01", "end": "2023-01-08"},
+                "calendar_policy_ref": "calendar_policy.holiday_yoy",
+            },
+        )
+        self.assertEqual(request.left.calendar_policy_ref, "calendar_policy.holiday_yoy")
+        self.assertEqual(request.right.calendar_policy_ref, "calendar_policy.holiday_yoy")
+
+    def test_side_level_calendar_policy_ref_rejects_unknown_ref(self) -> None:
+        with self.assertRaisesRegex(Exception, "Unknown calendar_policy_ref"):
+            self._make(
+                left={
+                    "time_scope": {
+                        "kind": "range",
+                        "start": "2024-01-01",
+                        "end": "2024-01-08",
+                    },
+                    "calendar_policy_ref": "calendar_policy.not_real",
+                }
+            )
 
 
 class DetectRequestModelTests(unittest.TestCase):
@@ -1058,12 +1102,26 @@ class _SemanticObserveIntentEndpointMixin:
         return metric_name
 
 
-class ObserveIntentReadinessEndpointTests(_SemanticObserveIntentEndpointMixin, unittest.TestCase):
-    """Observe readiness and execution-preflight failures with minimal semantic setup."""
+class ObserveIntentNotReadyEndpointTests(_SemanticObserveIntentEndpointMixin, unittest.TestCase):
+    """Observe readiness error with only the not-ready metric seeded."""
 
     @classmethod
     def _setup_semantic_layer(cls) -> None:
-        cls._setup_basic_observe_metrics()
+        ensure_published_typed_metric(
+            cls.client.app.state.service.metadata,
+            metric_name="intent_not_ready_metric",
+            display_name="Intent Not Ready Metric",
+            definition_sql="COUNT(*)",
+            dimensions=["platform"],
+            measure_type="average",
+        )
+        create_typed_metric_binding(
+            cls.client,
+            metric_ref="metric.intent_not_ready_metric",
+            object_id=cls.watch_events_object_id,
+            carrier_locator=cls.watch_events_fqn,
+            metric_input_target_keys=["numerator"],
+        )
 
     def test_observe_not_ready_metric_returns_409_with_structured_readiness_error(self) -> None:
         response = self.client.post(
@@ -1081,6 +1139,27 @@ class ObserveIntentReadinessEndpointTests(_SemanticObserveIntentEndpointMixin, u
         self.assertEqual(detail["subject_ref"], "metric.intent_not_ready_metric")
         self.assertEqual(detail["readiness_status"], "not_ready")
 
+
+class ObserveIntentAuxBindingEndpointTests(_SemanticObserveIntentEndpointMixin, unittest.TestCase):
+    """Observe success path with only the auxiliary-binding metric seeded."""
+
+    @classmethod
+    def _setup_semantic_layer(cls) -> None:
+        ensure_published_typed_metric(
+            cls.client.app.state.service.metadata,
+            metric_name="intent_aux_binding_metric",
+            display_name="Intent Auxiliary Binding Metric",
+            definition_sql="COUNT(*)",
+            dimensions=["event_date"],
+        )
+        create_typed_metric_binding(
+            cls.client,
+            metric_ref="metric.intent_aux_binding_metric",
+            object_id=cls.import_bridge_object_id,
+            carrier_locator=cls.import_bridge_fqn,
+            binding_role="auxiliary",
+        )
+
     def test_observe_ready_metric_with_auxiliary_binding_executes(self) -> None:
         response = self.client.post(
             f"/sessions/{self.session_id}/intents/observe",
@@ -1092,6 +1171,28 @@ class ObserveIntentReadinessEndpointTests(_SemanticObserveIntentEndpointMixin, u
 
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["metric"], "intent_aux_binding_metric")
+
+
+class ObserveIntentPreflightFailureEndpointTests(
+    _SemanticObserveIntentEndpointMixin, unittest.TestCase
+):
+    """Observe preflight failure path with only the preflight metric seeded."""
+
+    @classmethod
+    def _setup_semantic_layer(cls) -> None:
+        ensure_published_typed_metric(
+            cls.client.app.state.service.metadata,
+            metric_name="intent_preflight_failure_metric",
+            display_name="Intent Preflight Failure Metric",
+            definition_sql="COUNT(*)",
+            dimensions=["event_date"],
+        )
+        create_typed_metric_binding(
+            cls.client,
+            metric_ref="metric.intent_preflight_failure_metric",
+            object_id=cls.watch_events_object_id,
+            carrier_locator=cls.watch_events_fqn,
+        )
 
     def test_observe_execution_preflight_failure_returns_candidate_binding_detail(self) -> None:
         service = self.client.app.state.service
@@ -1159,26 +1260,20 @@ class ObserveIntentCompatibilityEndpointTests(
         )
 
 
-class ObserveIntentImportBridgeEndpointTests(
+class ObserveIntentImportBridgeSingleEndpointTests(
     _SemanticObserveIntentEndpointMixin, unittest.TestCase
 ):
-    """Observe imported-dimension bridge paths isolated from other setup-heavy metrics."""
+    """Observe imported-dimension bridge success path with a single imported binding."""
 
     @classmethod
     def _setup_semantic_layer(cls) -> None:
-        cls.import_bridge_metric_names = {
-            "single": cls._create_import_bridge_metric(mode="single"),
-            "missing": cls._create_import_bridge_metric(mode="missing"),
-            "ambiguous": cls._create_import_bridge_metric(mode="ambiguous"),
-        }
+        cls.metric_name = cls._create_import_bridge_metric(mode="single")
 
     def test_observe_imported_dimension_bridge_allows_segmented_request(self) -> None:
-        metric_name = self.import_bridge_metric_names["single"]
-
         response = self.client.post(
             f"/sessions/{self.session_id}/intents/observe",
             json={
-                "metric": _metric_ref(metric_name),
+                "metric": _metric_ref(self.metric_name),
                 "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-04"},
                 "dimensions": ["dimension.cluster"],
             },
@@ -1192,13 +1287,21 @@ class ObserveIntentImportBridgeEndpointTests(
         values = [segment["value"] for segment in data["segments"]]
         self.assertEqual(values, sorted(values, reverse=True))
 
-    def test_observe_imported_dimension_bridge_missing_returns_structured_error(self) -> None:
-        metric_name = self.import_bridge_metric_names["missing"]
 
+class ObserveIntentImportBridgeMissingEndpointTests(
+    _SemanticObserveIntentEndpointMixin, unittest.TestCase
+):
+    """Observe imported-dimension bridge missing-import error path."""
+
+    @classmethod
+    def _setup_semantic_layer(cls) -> None:
+        cls.metric_name = cls._create_import_bridge_metric(mode="missing")
+
+    def test_observe_imported_dimension_bridge_missing_returns_structured_error(self) -> None:
         response = self.client.post(
             f"/sessions/{self.session_id}/intents/observe",
             json={
-                "metric": _metric_ref(metric_name),
+                "metric": _metric_ref(self.metric_name),
                 "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-04"},
                 "dimensions": ["dimension.cluster"],
             },
@@ -1210,13 +1313,21 @@ class ObserveIntentImportBridgeEndpointTests(
         self.assertEqual(detail["subject_ref"], "dimension.cluster")
         self.assertEqual(detail["issues"][0]["code"], "COMPILER_DIMENSION_IMPORT_MISSING")
 
-    def test_observe_imported_dimension_bridge_ambiguous_returns_structured_error(self) -> None:
-        metric_name = self.import_bridge_metric_names["ambiguous"]
 
+class ObserveIntentImportBridgeAmbiguousEndpointTests(
+    _SemanticObserveIntentEndpointMixin, unittest.TestCase
+):
+    """Observe imported-dimension bridge ambiguous-import error path."""
+
+    @classmethod
+    def _setup_semantic_layer(cls) -> None:
+        cls.metric_name = cls._create_import_bridge_metric(mode="ambiguous")
+
+    def test_observe_imported_dimension_bridge_ambiguous_returns_structured_error(self) -> None:
         response = self.client.post(
             f"/sessions/{self.session_id}/intents/observe",
             json={
-                "metric": _metric_ref(metric_name),
+                "metric": _metric_ref(self.metric_name),
                 "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-04"},
                 "dimensions": ["dimension.cluster"],
             },
@@ -1928,7 +2039,7 @@ class ObserveAggregateMetricSummaryErrorTests(unittest.TestCase):
         self.assertNotEqual(r.status_code, 200)
 
 
-class ObserveRateMetricTests(_ObserveIntentTestCase, unittest.TestCase):
+class ObserveRateMetricStandardModeTests(_ObserveIntentTestCase, unittest.TestCase):
     @classmethod
     def _setup_additional_semantic_layer(cls) -> None:
         metadata = cls.app.state.service.metadata
@@ -1949,23 +2060,6 @@ class ObserveRateMetricTests(_ObserveIntentTestCase, unittest.TestCase):
             surface_name="play_duration_seconds",
         )
 
-        ensure_published_typed_metric(
-            metadata,
-            metric_name="observe_typed_rate_summary",
-            display_name="Observe Typed Rate Summary",
-            grain="day",
-            dimensions=["event_date"],
-            measure_type="rate",
-        )
-        ensure_published_typed_metric_binding(
-            metadata,
-            metric_name="observe_typed_rate_summary",
-            carrier_locator=cls.watch_events_fqn,
-            source_object_ref=cls.watch_events_object_id,
-            metric_input_target_keys=["numerator", "denominator"],
-            surface_name="play_duration_seconds",
-        )
-
     def test_observe_typed_rate_metric_standard_mode_uses_aggregate_sql(self) -> None:
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/observe",
@@ -1975,6 +2069,27 @@ class ObserveRateMetricTests(_ObserveIntentTestCase, unittest.TestCase):
             },
         )
         self.assertEqual(r.status_code, 200, r.text)
+
+
+class ObserveRateMetricSummaryModeTests(_ObserveIntentTestCase, unittest.TestCase):
+    @classmethod
+    def _setup_additional_semantic_layer(cls) -> None:
+        ensure_published_typed_metric(
+            cls.app.state.service.metadata,
+            metric_name="observe_typed_rate_summary",
+            display_name="Observe Typed Rate Summary",
+            grain="day",
+            dimensions=["event_date"],
+            measure_type="rate",
+        )
+        ensure_published_typed_metric_binding(
+            cls.app.state.service.metadata,
+            metric_name="observe_typed_rate_summary",
+            carrier_locator=cls.watch_events_fqn,
+            source_object_ref=cls.watch_events_object_id,
+            metric_input_target_keys=["numerator", "denominator"],
+            surface_name="play_duration_seconds",
+        )
 
     def test_observe_typed_rate_metric_rate_summary_returns_422(self) -> None:
         r = self.client.post(
@@ -1989,19 +2104,36 @@ class ObserveRateMetricTests(_ObserveIntentTestCase, unittest.TestCase):
         self.assertIn("per-row rate value expression", r.text)
 
 
-class ObserveBindingResolutionTests(_ObserveIntentTestCase, unittest.TestCase):
+class _ObserveBindingResolutionBase(_ObserveIntentTestCase):
     @classmethod
     def _setup_additional_semantic_layer(cls) -> None:
-        metadata = cls.app.state.service.metadata
-
         ensure_published_typed_metric(
-            metadata,
+            cls.app.state.service.metadata,
             metric_name="observe_binding_fallback",
             display_name="Observe Binding Fallback",
             grain="day",
             dimensions=["event_date"],
             measure_type="sum",
         )
+        ensure_published_typed_metric(
+            cls.app.state.service.metadata,
+            metric_name="observe_binding_ambiguous",
+            display_name="Observe Binding Ambiguous",
+            grain="day",
+            dimensions=["event_date"],
+            measure_type="sum",
+        )
+        ensure_published_typed_metric(
+            cls.app.state.service.metadata,
+            metric_name="observe_binding_missing_slot",
+            display_name="Observe Binding Missing Slot",
+            grain="day",
+            dimensions=["event_date"],
+            measure_type="sum",
+        )
+
+    @classmethod
+    def _seed_aux_binding_table(cls) -> str:
         aux_fqn = "analytics.observe_aux_binding"
         con = duckdb.connect(str(cls.db_path))
         try:
@@ -2021,18 +2153,25 @@ class ObserveBindingResolutionTests(_ObserveIntentTestCase, unittest.TestCase):
             )
         finally:
             con.close()
-        aux_object_id = _ensure_source_object(
-            metadata,
+        return _ensure_source_object(
+            cls.app.state.service.metadata,
             source_id=cls.source_id,
             native_name="observe_aux_binding",
             fqn=aux_fqn,
         )
+
+
+class ObserveBindingFallbackTests(_ObserveBindingResolutionBase, unittest.TestCase):
+    @classmethod
+    def _setup_additional_semantic_layer(cls) -> None:
+        super()._setup_additional_semantic_layer()
+        aux_object_id = cls._seed_aux_binding_table()
         _create_metric_binding(
             cls.client,
             binding_ref="binding.aaa_observe_binding_fallback_incomplete",
             metric_ref="metric.observe_binding_fallback",
             source_object_ref=aux_object_id,
-            carrier_locator=aux_fqn,
+            carrier_locator="analytics.observe_aux_binding",
             binding_role="auxiliary",
             metric_input_target_keys=["measure"],
             surface_name="aux_value",
@@ -2048,14 +2187,21 @@ class ObserveBindingResolutionTests(_ObserveIntentTestCase, unittest.TestCase):
             surface_name="play_duration_seconds",
         )
 
-        ensure_published_typed_metric(
-            metadata,
-            metric_name="observe_binding_ambiguous",
-            display_name="Observe Binding Ambiguous",
-            grain="day",
-            dimensions=["event_date"],
-            measure_type="sum",
+    def test_observe_uses_viable_binding_instead_of_first_binding_row(self) -> None:
+        response = self.client.post(
+            f"/sessions/{self.session_id}/intents/observe",
+            json={
+                "metric": "metric.observe_binding_fallback",
+                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+            },
         )
+        self.assertEqual(response.status_code, 200, response.text)
+
+
+class ObserveBindingAmbiguityTests(_ObserveBindingResolutionBase, unittest.TestCase):
+    @classmethod
+    def _setup_additional_semantic_layer(cls) -> None:
+        super()._setup_additional_semantic_layer()
         _create_metric_binding(
             cls.client,
             binding_ref="binding.aaa_observe_binding_ambiguous",
@@ -2075,42 +2221,6 @@ class ObserveBindingResolutionTests(_ObserveIntentTestCase, unittest.TestCase):
             metric_input_target_keys=["measure"],
         )
 
-        ensure_published_typed_metric(
-            metadata,
-            metric_name="observe_binding_missing_slot",
-            display_name="Observe Binding Missing Slot",
-            grain="day",
-            dimensions=["event_date"],
-            measure_type="sum",
-        )
-        missing_slot_binding_id = _create_metric_binding(
-            cls.client,
-            binding_ref="binding.observe_binding_missing_slot_missing_measure",
-            metric_ref="metric.observe_binding_missing_slot",
-            source_object_ref=cls.watch_events_object_id,
-            carrier_locator=cls.watch_events_fqn,
-            binding_role="primary",
-            metric_input_target_keys=["measure"],
-        )
-        metadata.execute(
-            """
-            UPDATE field_bindings
-            SET target_key = ?, semantic_ref = ?
-            WHERE binding_id = ? AND target_kind = 'metric_input'
-            """,
-            ["count_target", "metric_input.count_target", missing_slot_binding_id],
-        )
-
-    def test_observe_uses_viable_binding_instead_of_first_binding_row(self) -> None:
-        response = self.client.post(
-            f"/sessions/{self.session_id}/intents/observe",
-            json={
-                "metric": "metric.observe_binding_fallback",
-                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
-            },
-        )
-        self.assertEqual(response.status_code, 200, response.text)
-
     def test_observe_returns_binding_ambiguity_error_for_multiple_primary_bindings(self) -> None:
         response = self.client.post(
             f"/sessions/{self.session_id}/intents/observe",
@@ -2123,6 +2233,29 @@ class ObserveBindingResolutionTests(_ObserveIntentTestCase, unittest.TestCase):
         self.assertIn("ambiguous", response.text)
         self.assertIn("binding.aaa_observe_binding_ambiguous", response.text)
         self.assertIn("binding.bbb_observe_binding_ambiguous", response.text)
+
+
+class ObserveBindingCoverageTests(_ObserveBindingResolutionBase, unittest.TestCase):
+    @classmethod
+    def _setup_additional_semantic_layer(cls) -> None:
+        super()._setup_additional_semantic_layer()
+        missing_slot_binding_id = _create_metric_binding(
+            cls.client,
+            binding_ref="binding.observe_binding_missing_slot_missing_measure",
+            metric_ref="metric.observe_binding_missing_slot",
+            source_object_ref=cls.watch_events_object_id,
+            carrier_locator=cls.watch_events_fqn,
+            binding_role="primary",
+            metric_input_target_keys=["measure"],
+        )
+        cls.app.state.service.metadata.execute(
+            """
+            UPDATE field_bindings
+            SET target_key = ?, semantic_ref = ?
+            WHERE binding_id = ? AND target_kind = 'metric_input'
+            """,
+            ["count_target", "metric_input.count_target", missing_slot_binding_id],
+        )
 
     def test_observe_returns_metric_input_coverage_error(self) -> None:
         response = self.client.post(
@@ -2137,13 +2270,11 @@ class ObserveBindingResolutionTests(_ObserveIntentTestCase, unittest.TestCase):
         self.assertIn("missing required metric_input coverage", response.text)
 
 
-class ObserveDistributionMetricTests(_ObserveIntentTestCase, unittest.TestCase):
+class ObserveDistributionMetricScalarTests(_ObserveIntentTestCase, unittest.TestCase):
     @classmethod
     def _setup_additional_semantic_layer(cls) -> None:
-        metadata = cls.app.state.service.metadata
-
         ensure_published_typed_metric(
-            metadata,
+            cls.app.state.service.metadata,
             metric_name="observe_distribution_metric",
             display_name="Observe Distribution Metric",
             grain="day",
@@ -2161,6 +2292,24 @@ class ObserveDistributionMetricTests(_ObserveIntentTestCase, unittest.TestCase):
             surface_name="play_duration_seconds",
         )
 
+    def test_observe_distribution_metric_uses_bound_value_component(self) -> None:
+        response = self.client.post(
+            f"/sessions/{self.session_id}/intents/observe",
+            json={
+                "metric": "metric.observe_distribution_metric",
+                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        payload = response.json()
+        self.assertEqual(payload["observation_type"], "scalar")
+        self.assertEqual(payload["metric"], "observe_distribution_metric")
+
+
+class ObserveDistributionMetricHistogramTests(_ObserveIntentTestCase, unittest.TestCase):
+    @classmethod
+    def _setup_additional_semantic_layer(cls) -> None:
+        metadata = cls.app.state.service.metadata
         ensure_published_typed_metric(
             metadata,
             metric_name="observe_distribution_histogram",
@@ -2198,19 +2347,6 @@ class ObserveDistributionMetricTests(_ObserveIntentTestCase, unittest.TestCase):
             metric_input_target_keys=["value_component"],
             surface_name="play_duration_seconds",
         )
-
-    def test_observe_distribution_metric_uses_bound_value_component(self) -> None:
-        response = self.client.post(
-            f"/sessions/{self.session_id}/intents/observe",
-            json={
-                "metric": "metric.observe_distribution_metric",
-                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
-            },
-        )
-        self.assertEqual(response.status_code, 200, response.text)
-        payload = response.json()
-        self.assertEqual(payload["observation_type"], "scalar")
-        self.assertEqual(payload["metric"], "observe_distribution_metric")
 
     def test_observe_distribution_histogram_ready_returns_unsupported_operation(self) -> None:
         response = self.client.post(

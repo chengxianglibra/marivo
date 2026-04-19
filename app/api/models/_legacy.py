@@ -934,7 +934,24 @@ class AttributeObservationInput(BaseModel):
     """One side of an attribute request — canonical observe scalar profile."""
 
     time_scope: ObserveTimeScope
+    calendar_policy_ref: str | None = Field(
+        default=None,
+        description=(
+            "Optional fixed calendar alignment policy ref for this side's internal observe step. "
+            "Uses the same validation and builtin ref whitelist as ObserveRequest."
+        ),
+    )
     scope: ObserveScope | None = Field(default=None)
+
+    @field_validator("calendar_policy_ref")
+    @classmethod
+    def _validate_calendar_policy_ref(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        try:
+            return validate_calendar_policy_ref(value)
+        except CalendarPolicyResolutionError as error:
+            raise ValueError(str(error)) from error
 
 
 class AttributeRequest(BaseModel):

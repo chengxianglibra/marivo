@@ -174,6 +174,34 @@ class AttributeRunnerServiceTests(unittest.TestCase):
         _seed_metadata(cls.metadata)
 
         cls.service = SemanticLayerService(cls.metadata, cls.analytics)
+        cls.default_session_id = cls.service.create_session("attr default cache", {}, {}, {})[
+            "session_id"
+        ]
+        cls.default_bundle = cls._run_attribute(cls.default_session_id)
+        cls.two_dim_session_id = cls.service.create_session("attr two dim cache", {}, {}, {})[
+            "session_id"
+        ]
+        cls.two_dim_bundle = cls._run_attribute(
+            cls.two_dim_session_id, dimensions=["channel", "region"]
+        )
+        cls.truncated_bundle = cls._run_attribute(
+            cls.service.create_session("attr truncated cache", {}, {}, {})["session_id"],
+            dimensions=["channel"],
+            decomposition_limit=2,
+        )
+        cls.not_truncated_bundle = cls._run_attribute(
+            cls.service.create_session("attr not truncated cache", {}, {}, {})["session_id"],
+            dimensions=["channel"],
+            decomposition_limit=10,
+        )
+        cls.deduplicated_bundle = cls._run_attribute(
+            cls.service.create_session("attr dedup cache", {}, {}, {})["session_id"],
+            dimensions=["channel", "channel", "region"],
+        )
+        cls.limit_three_bundle = cls._run_attribute(
+            cls.service.create_session("attr limit cache", {}, {}, {})["session_id"],
+            decomposition_limit=3,
+        )
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -182,8 +210,9 @@ class AttributeRunnerServiceTests(unittest.TestCase):
     def _make_session(self) -> str:
         return self.service.create_session("attr test", {}, {}, {})["session_id"]
 
-    def _attribute(
-        self,
+    @classmethod
+    def _run_attribute(
+        cls,
         session_id: str,
         dimensions: list[str] | None = None,
         decomposition_limit: int = 5,
@@ -208,7 +237,7 @@ class AttributeRunnerServiceTests(unittest.TestCase):
         }
         if right_scope is not None:
             right["scope"] = right_scope
-        return self.service.run_intent(
+        return cls.service.run_intent(
             session_id,
             "attribute",
             {
@@ -220,11 +249,27 @@ class AttributeRunnerServiceTests(unittest.TestCase):
             },
         )
 
+    def _attribute(
+        self,
+        session_id: str,
+        dimensions: list[str] | None = None,
+        decomposition_limit: int = 5,
+        left_scope: dict | None = None,
+        right_scope: dict | None = None,
+    ) -> dict:
+        return self._run_attribute(
+            session_id,
+            dimensions=dimensions,
+            decomposition_limit=decomposition_limit,
+            left_scope=left_scope,
+            right_scope=right_scope,
+        )
+
     def test_expansion_creates_all_steps(self) -> None:
         """attribute with 1 dimension creates 5 steps: obs×2 + compare + decompose + attribute."""
-        sid = self._make_session()
-        self._attribute(sid, dimensions=["channel"])
-        rows = self.metadata.query_rows("SELECT step_type FROM steps WHERE session_id = ?", [sid])
+        rows = self.metadata.query_rows(
+            "SELECT step_type FROM steps WHERE session_id = ?", [self.default_session_id]
+        )
         step_types = [r["step_type"] for r in rows]
         self.assertEqual(step_types.count("observe"), 2)
         self.assertEqual(step_types.count("compare"), 1)
@@ -234,17 +279,17 @@ class AttributeRunnerServiceTests(unittest.TestCase):
 
     def test_expansion_two_dimensions_creates_six_steps(self) -> None:
         """attribute with 2 dimensions creates 6 steps."""
-        sid = self._make_session()
-        self._attribute(sid, dimensions=["channel", "region"])
-        rows = self.metadata.query_rows("SELECT step_type FROM steps WHERE session_id = ?", [sid])
+        rows = self.metadata.query_rows(
+            "SELECT step_type FROM steps WHERE session_id = ?", [self.two_dim_session_id]
+        )
         step_types = [r["step_type"] for r in rows]
         self.assertEqual(len(step_types), 6)
         self.assertEqual(step_types.count("decompose"), 2)
 
     def test_bundle_lineage_refs_correct(self) -> None:
         """Lineage refs in bundle match the intermediate step ids."""
-        sid = self._make_session()
-        bundle = self._attribute(sid)
+        sid = self.default_session_id
+        bundle = self.default_bundle
 
         obs_left_sid = bundle["observation_refs"]["left_ref"]["step_id"]
         obs_right_sid = bundle["observation_refs"]["right_ref"]["step_id"]
@@ -266,15 +311,11 @@ class AttributeRunnerServiceTests(unittest.TestCase):
 
     def test_validation_status_attributable(self) -> None:
         """validation.status should be 'attributable' with clean numeric data."""
-        sid = self._make_session()
-        bundle = self._attribute(sid)
-        self.assertEqual(bundle["validation"]["status"], "attributable")
+        self.assertEqual(self.default_bundle["validation"]["status"], "attributable")
 
     def test_scalar_delta_summary_correct_values(self) -> None:
         """ScalarDeltaSummary should reflect known current=720, baseline=540, delta=180."""
-        sid = self._make_session()
-        bundle = self._attribute(sid)
-        comparison = bundle["comparison"]
+        comparison = self.default_bundle["comparison"]
 
         self.assertEqual(comparison["comparison_type"], "scalar_delta")
         # current total = sum(100+80+60) * 3 days = 720
@@ -371,17 +412,13 @@ class AttributeRunnerServiceTests(unittest.TestCase):
 
     def test_drivers_length_matches_dimensions(self) -> None:
         """drivers array length equals len(dimensions)."""
-        sid = self._make_session()
-        bundle = self._attribute(sid, dimensions=["channel", "region"])
-        self.assertEqual(len(bundle["drivers"]), 2)
-        self.assertEqual(bundle["drivers"][0]["dimension"], "channel")
-        self.assertEqual(bundle["drivers"][1]["dimension"], "region")
+        self.assertEqual(len(self.two_dim_bundle["drivers"]), 2)
+        self.assertEqual(self.two_dim_bundle["drivers"][0]["dimension"], "channel")
+        self.assertEqual(self.two_dim_bundle["drivers"][1]["dimension"], "region")
 
     def test_driver_rows_capped_at_decomposition_limit(self) -> None:
         """With decomposition_limit=2 and 3 channels, is_truncated should be True."""
-        sid = self._make_session()
-        bundle = self._attribute(sid, dimensions=["channel"], decomposition_limit=2)
-        driver = bundle["drivers"][0]
+        driver = self.truncated_bundle["drivers"][0]
 
         self.assertLessEqual(len(driver["rows"]), 2)
         self.assertEqual(driver["returned_row_count"], 2)
@@ -393,17 +430,13 @@ class AttributeRunnerServiceTests(unittest.TestCase):
 
     def test_driver_truncated_issue_added_when_truncated(self) -> None:
         """When is_truncated, a driver_truncated issue must appear in driver.issues."""
-        sid = self._make_session()
-        bundle = self._attribute(sid, dimensions=["channel"], decomposition_limit=2)
-        driver = bundle["drivers"][0]
+        driver = self.truncated_bundle["drivers"][0]
         issue_codes = [i["code"] for i in driver["issues"]]
         self.assertIn("driver_truncated", issue_codes)
 
     def test_others_null_when_not_truncated(self) -> None:
         """others_* fields should be None when decomposition_limit >= total rows."""
-        sid = self._make_session()
-        bundle = self._attribute(sid, dimensions=["channel"], decomposition_limit=10)
-        driver = bundle["drivers"][0]
+        driver = self.not_truncated_bundle["drivers"][0]
 
         self.assertFalse(driver["is_truncated"])
         self.assertIsNone(driver["others_absolute_contribution"])
@@ -411,8 +444,8 @@ class AttributeRunnerServiceTests(unittest.TestCase):
 
     def test_artifact_id_persisted(self) -> None:
         """Bundle artifact_id should be queryable via _resolve_artifact_for_ref."""
-        sid = self._make_session()
-        bundle = self._attribute(sid)
+        sid = self.default_session_id
+        bundle = self.default_bundle
 
         step_id = bundle["step_ref"]["step_id"]
         artifact = self.service._resolve_artifact_for_ref(sid, step_id)
@@ -421,8 +454,7 @@ class AttributeRunnerServiceTests(unittest.TestCase):
 
     def test_bundle_required_fields_present(self) -> None:
         """All required top-level bundle fields must be present."""
-        sid = self._make_session()
-        bundle = self._attribute(sid)
+        bundle = self.default_bundle
 
         required = [
             "result_type",
@@ -448,29 +480,23 @@ class AttributeRunnerServiceTests(unittest.TestCase):
 
     def test_projection_metadata_reflects_decomposition_limit(self) -> None:
         """projection_metadata.decomposition_limit should equal decomposition_limit."""
-        sid = self._make_session()
-        bundle = self._attribute(sid, decomposition_limit=3)
-        self.assertEqual(bundle["projection_metadata"]["decomposition_limit"], 3)
+        self.assertEqual(self.limit_three_bundle["projection_metadata"]["decomposition_limit"], 3)
 
     def test_projection_metadata_no_min_contribution_pct(self) -> None:
         """projection_metadata must not contain min_contribution_pct (not in schema)."""
-        sid = self._make_session()
-        bundle = self._attribute(sid)
-        self.assertNotIn("min_contribution_pct", bundle["projection_metadata"])
+        self.assertNotIn("min_contribution_pct", self.default_bundle["projection_metadata"])
 
     def test_version_fields_correct(self) -> None:
         """version must carry all three required version fields."""
-        sid = self._make_session()
-        bundle = self._attribute(sid)
-        version = bundle["version"]
+        version = self.default_bundle["version"]
         self.assertEqual(version["intent_contract_version"], "attribute.v1")
         self.assertEqual(version["projection_version"], "attribute_bundle.v1")
         self.assertIn("derived_logic_version", version)
 
     def test_provenance_contains_projection_version(self) -> None:
         """Persisted step provenance must include projection_version."""
-        sid = self._make_session()
-        bundle = self._attribute(sid)
+        sid = self.default_session_id
+        bundle = self.default_bundle
         step_id = bundle["step_ref"]["step_id"]
         row = self.metadata.query_one(
             "SELECT provenance_json FROM steps WHERE step_id = ? AND session_id = ?",
@@ -600,17 +626,13 @@ class AttributeRunnerServiceTests(unittest.TestCase):
 
     def test_result_type_is_attribute_bundle(self) -> None:
         """result_type must be 'attribute_bundle'."""
-        sid = self._make_session()
-        bundle = self._attribute(sid)
-        self.assertEqual(bundle["result_type"], "attribute_bundle")
-        self.assertEqual(bundle["intent_type"], "attribute")
+        self.assertEqual(self.default_bundle["result_type"], "attribute_bundle")
+        self.assertEqual(self.default_bundle["intent_type"], "attribute")
 
     def test_deduplicated_dimensions(self) -> None:
         """Duplicate dimensions should be deduplicated; bundle.dimensions is deduped list."""
-        sid = self._make_session()
-        bundle = self._attribute(sid, dimensions=["channel", "channel", "region"])
-        self.assertEqual(bundle["dimensions"], ["channel", "region"])
-        self.assertEqual(len(bundle["drivers"]), 2)
+        self.assertEqual(self.deduplicated_bundle["dimensions"], ["channel", "region"])
+        self.assertEqual(len(self.deduplicated_bundle["drivers"]), 2)
 
     def test_independent_left_right_scope(self) -> None:
         """Independent left.scope and right.scope are wired to the correct observe calls."""
@@ -629,11 +651,99 @@ class AttributeRunnerServiceTests(unittest.TestCase):
         # Result should still be clean (same data, so comparable and attributable)
         self.assertEqual(bundle["validation"]["status"], "attributable")
 
+    def test_independent_left_right_calendar_policy_ref(self) -> None:
+        """Side-level calendar_policy_ref values are forwarded to the corresponding observe calls."""
+        sid = self._make_session()
+        captured_params: list[dict[str, Any]] = []
+
+        def _capture_observe(
+            svc: SemanticLayerService,
+            session_id: str,
+            params: dict[str, Any] | None,
+        ) -> dict[str, Any]:
+            captured_params.append(dict(params or {}))
+            return {
+                "step_ref": {
+                    "step_id": f"step_{len(captured_params)}",
+                    "step_type": "observe",
+                },
+                "artifact_id": f"artifact_{len(captured_params)}",
+                "observation_type": "scalar",
+                "time_scope": dict(params["time_scope"]),
+            }
+
+        with (
+            patch("app.intents.attribute.run_observe_intent", side_effect=_capture_observe),
+            patch(
+                "app.intents.attribute.run_compare_intent",
+                return_value={
+                    "step_ref": {"step_id": "step_compare", "step_type": "compare"},
+                    "artifact_id": "artifact_compare",
+                    "comparability": {"status": "comparable", "issues": []},
+                    "left_value": 10.0,
+                    "right_value": 8.0,
+                    "absolute_delta": 2.0,
+                    "relative_delta": 0.25,
+                    "direction": "increase",
+                },
+            ),
+            patch(
+                "app.intents.attribute.run_decompose_intent",
+                return_value={
+                    "step_ref": {"step_id": "step_decompose", "step_type": "decompose"},
+                    "artifact_id": "artifact_decompose",
+                    "attribution": {"status": "attributable", "issues": []},
+                    "rows": [
+                        {
+                            "key": "A",
+                            "left_value": 10.0,
+                            "right_value": 8.0,
+                            "absolute_contribution": 2.0,
+                            "contribution_share": 1.0,
+                            "direction": "increase",
+                            "presence": "both",
+                        }
+                    ],
+                    "scope_absolute_delta": 2.0,
+                    "unexplained_absolute_delta": 0.0,
+                    "unexplained_share": 0.0,
+                    "unexplained_reason": None,
+                },
+            ),
+        ):
+            bundle = self.service.run_intent(
+                sid,
+                "attribute",
+                {
+                    "metric": _METRIC,
+                    "left": {
+                        "time_scope": {
+                            "kind": "range",
+                            "start": _CURRENT_START,
+                            "end": _CURRENT_END,
+                        },
+                        "calendar_policy_ref": "calendar_policy.weekday_yoy",
+                    },
+                    "right": {
+                        "time_scope": {
+                            "kind": "range",
+                            "start": "2025-03-01",
+                            "end": "2025-03-04",
+                        },
+                        "calendar_policy_ref": "calendar_policy.weekday_yoy",
+                    },
+                    "dimensions": ["channel"],
+                },
+            )
+
+        self.assertEqual(len(captured_params), 2)
+        self.assertEqual(captured_params[0]["calendar_policy_ref"], "calendar_policy.weekday_yoy")
+        self.assertEqual(captured_params[1]["calendar_policy_ref"], "calendar_policy.weekday_yoy")
+        self.assertEqual(bundle["validation"]["status"], "attributable")
+
     def test_issue_codes_remapped_to_attribute_schema(self) -> None:
         """Any issues in drivers must use AttributeIssue schema codes, not raw decompose codes."""
-        sid = self._make_session()
-        # Force truncation to guarantee a driver_truncated issue
-        bundle = self._attribute(sid, dimensions=["channel"], decomposition_limit=1)
+        bundle = self.truncated_bundle
         allowed_codes = {
             "observe_failed",
             "compare_needs_attention",
@@ -862,6 +972,57 @@ class AttributeEndpointTests(unittest.TestCase):
         self.assertEqual(body.get("result_type"), "attribute_bundle")
         self.assertIn("comparison", body)
         self.assertIn("drivers", body)
+
+    def test_http_attribute_accepts_side_level_calendar_policy_ref(self) -> None:
+        """POST /sessions/{id}/intents/attribute accepts side-level calendar_policy_ref."""
+        captured: dict[str, Any] = {}
+
+        def _capture_run_intent(
+            session_id: str, intent: str, payload: dict[str, Any]
+        ) -> dict[str, Any]:
+            captured["session_id"] = session_id
+            captured["intent"] = intent
+            captured["payload"] = payload
+            return {"result_type": "attribute_bundle"}
+
+        with patch.object(
+            self.client.app.state.service, "run_intent", side_effect=_capture_run_intent
+        ):
+            resp = self.client.post(
+                f"/sessions/{self.session_id}/intents/attribute",
+                json={
+                    "metric": _metric_ref(_METRIC),
+                    "left": {
+                        "time_scope": {
+                            "kind": "range",
+                            "start": _CURRENT_START,
+                            "end": _CURRENT_END,
+                        },
+                        "calendar_policy_ref": "calendar_policy.weekday_yoy",
+                    },
+                    "right": {
+                        "time_scope": {
+                            "kind": "range",
+                            "start": "2025-03-01",
+                            "end": "2025-03-04",
+                        },
+                        "calendar_policy_ref": "calendar_policy.weekday_yoy",
+                    },
+                    "dimensions": ["channel"],
+                },
+            )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json().get("result_type"), "attribute_bundle")
+        self.assertEqual(captured["session_id"], self.session_id)
+        self.assertEqual(captured["intent"], "attribute")
+        self.assertEqual(
+            captured["payload"]["left"]["calendar_policy_ref"],
+            "calendar_policy.weekday_yoy",
+        )
+        self.assertEqual(
+            captured["payload"]["right"]["calendar_policy_ref"],
+            "calendar_policy.weekday_yoy",
+        )
 
     def test_http_missing_dimensions_returns_422(self) -> None:
         """POST without dimensions returns 422."""
