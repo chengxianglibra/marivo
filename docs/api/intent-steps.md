@@ -231,12 +231,12 @@ Success returns `ObserveResponse`, a union of the five canonical observation art
 
 `calendar_policy_ref` is an observe-only input boundary in v1. Downstream typed-ref intents such as `compare`, `attribute`, and `validate` must reuse the upstream frozen alignment metadata instead of accepting a second policy input.
 
-When `calendar_policy_ref` is present, the returned observation artifact freezes the compiler-resolved alignment plan in `resolved_policy_summary`, including the final policy ref, calendar source/version, baseline window, bucket pairing, coverage summary, and comparability warnings. Downstream intents must treat this field as the artifact-level reuse surface rather than reconstructing policy semantics from the original request.
+When `calendar_policy_ref` is present, the returned observation artifact freezes the compiler-resolved alignment plan in `resolved_policy_summary`, including the final policy ref, calendar source/version, baseline window, bucket pairing, bucket-pairing strictness metadata, rollup safety, coverage summary, and comparability warnings. Downstream intents must treat this field as the artifact-level reuse surface rather than reconstructing policy semantics from the original request.
 
 Calendar provenance attached to that frozen summary may omit optional lineage branches that were not configured for the resolved snapshot. In particular, `holiday_yoy` must still succeed when only holiday lineage is available; missing optional event lineage should surface through coverage / comparability metadata rather than as an `observe` hard failure.
 If an optional `event_source` lineage branch is empty or partial, runtime metadata normalization treats it as absent and omits it from the persisted calendar binding.
 
-In v1, `resolved_policy_summary.bucket_pairing` remains metadata on the observation artifact. Factum does not expose a separate bucket-pairing artifact id or typed ref.
+In v1, `resolved_policy_summary.bucket_pairing` remains metadata on the observation artifact. Factum does not expose a separate bucket-pairing artifact id or typed ref. Callers must inspect `bucket_pairing[*].strictness_level`, `bucket_pairing[*].is_reused_baseline_bucket`, and `rollup_safe` before presenting holiday / weekday alignment as strict bucket-by-bucket comparability.
 
 When `calendar_policy_ref` is present on a `week` or `month` observation, the request granularity still controls the returned observation shape, but the compiler resolves calendar alignment at day granularity for comparability metadata. `calendar_policy.weekday_wow` specifically means "day-aligned within the compared weeks", not "whole-week black-box to whole-week black-box".
 

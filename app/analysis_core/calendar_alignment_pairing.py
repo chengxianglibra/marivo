@@ -22,6 +22,7 @@ class CalendarAnnotationRow:
 class CalendarPairingResolution:
     bucket_pairing: list[dict[str, Any]]
     comparability_warnings: list[str]
+    rollup_safe: bool
 
 
 _WARNING_ISSUE_CODES = frozenset(
@@ -157,9 +158,11 @@ class _CalendarPairingResolver:
                     comparability_warnings.append(issue_code)
             cursor += timedelta(days=1)
             index += 1
+        _finalize_bucket_pairing_metadata(pairings)
         return CalendarPairingResolution(
             bucket_pairing=pairings,
             comparability_warnings=comparability_warnings,
+            rollup_safe=_is_rollup_safe(pairings),
         )
 
     def _resolve_one_bucket(self, *, current_day: date, offset: int) -> dict[str, Any]:
@@ -199,6 +202,8 @@ class _CalendarPairingResolver:
             "pairing_reason": pairing_reason,
             "shift_days": (current_day - baseline_day).days if baseline_day is not None else None,
             "issues": issues,
+            "strictness_level": "strict",
+            "is_reused_baseline_bucket": False,
         }
 
     def _apply_matcher(
@@ -328,3 +333,49 @@ def _nearest_same_weekday(
             candidate,
         ),
     )
+
+
+def _finalize_bucket_pairing_metadata(pairings: list[dict[str, Any]]) -> None:
+    baseline_usage: dict[str, int] = {}
+    for pairing in pairings:
+        baseline_bucket_start = pairing.get("baseline_bucket_start")
+        if isinstance(baseline_bucket_start, str) and baseline_bucket_start:
+            baseline_usage[baseline_bucket_start] = baseline_usage.get(baseline_bucket_start, 0) + 1
+
+    for pairing in pairings:
+        baseline_bucket_start = pairing.get("baseline_bucket_start")
+        reused_baseline_bucket = (
+            isinstance(baseline_bucket_start, str)
+            and baseline_bucket_start
+            and baseline_usage.get(baseline_bucket_start, 0) > 1
+        )
+        pairing["is_reused_baseline_bucket"] = bool(reused_baseline_bucket)
+        pairing["strictness_level"] = _strictness_level_for_bucket(
+            issues=pairing.get("issues"),
+            is_reused_baseline_bucket=bool(reused_baseline_bucket),
+        )
+
+
+def _strictness_level_for_bucket(
+    *,
+    issues: Any,
+    is_reused_baseline_bucket: bool,
+) -> str:
+    issue_list = (
+        [issue for issue in issues if isinstance(issue, str)] if isinstance(issues, list) else []
+    )
+    if "alignment_coverage_insufficient" in issue_list:
+        return "coverage_incomplete"
+    if is_reused_baseline_bucket:
+        return "reused_baseline"
+    if "fallback_applied" in issue_list:
+        return "fallback"
+    return "strict"
+
+
+def _is_rollup_safe(pairings: Sequence[Mapping[str, Any]]) -> bool:
+    for pairing in pairings:
+        strictness_level = pairing.get("strictness_level")
+        if strictness_level != "strict":
+            return False
+    return True

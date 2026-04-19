@@ -1281,6 +1281,15 @@ class CompilerTypedResolutionTests(unittest.TestCase):
         )
         self.assertEqual(alignment["bucket_pairing"][0]["baseline_bucket_start"], "2025-04-01")
         self.assertEqual(alignment["bucket_pairing"][0]["issues"], [])
+        self.assertEqual(alignment["bucket_pairing"][0]["strictness_level"], "strict")
+        self.assertFalse(alignment["bucket_pairing"][0]["is_reused_baseline_bucket"])
+        self.assertFalse(alignment["rollup_safe"])
+        self.assertTrue(alignment["bucket_pairing"][-2]["is_reused_baseline_bucket"])
+        self.assertTrue(alignment["bucket_pairing"][-1]["is_reused_baseline_bucket"])
+        self.assertEqual(alignment["bucket_pairing"][-2]["baseline_bucket_start"], "2025-04-30")
+        self.assertEqual(alignment["bucket_pairing"][-1]["baseline_bucket_start"], "2025-04-30")
+        self.assertEqual(alignment["bucket_pairing"][-2]["strictness_level"], "reused_baseline")
+        self.assertEqual(alignment["bucket_pairing"][-1]["strictness_level"], "reused_baseline")
         self.assertEqual(alignment["comparability_warnings"], ["fallback_applied"])
         assert compiled.ir_bundle is not None
         self.assertEqual(
@@ -1338,6 +1347,10 @@ class CompilerTypedResolutionTests(unittest.TestCase):
                 for bucket in alignment["bucket_pairing"]
             )
         )
+        self.assertTrue(
+            all(bucket["strictness_level"] == "strict" for bucket in alignment["bucket_pairing"])
+        )
+        self.assertTrue(alignment["rollup_safe"])
         self.assertEqual(alignment["coverage_summary"]["aligned_bucket_count"], 7)
         self.assertEqual(alignment["comparability_warnings"], [])
 
@@ -1687,6 +1700,7 @@ class CompilerTypedResolutionTests(unittest.TestCase):
                 "aligned_ratio": 1.0,
             },
         )
+        self.assertTrue(alignment["rollup_safe"])
         self.assertEqual(alignment["comparability_warnings"], [])
 
     def test_compile_step_resolves_event_yoy_alignment_successfully(self) -> None:
@@ -1950,6 +1964,8 @@ class CompilerTypedResolutionTests(unittest.TestCase):
         self.assertEqual(alignment["bucket_pairing"][0]["pairing_reason"], "natural_date_shift")
         self.assertEqual(alignment["bucket_pairing"][0]["baseline_bucket_start"], "2025-04-01")
         self.assertEqual(alignment["bucket_pairing"][0]["issues"], [])
+        self.assertEqual(alignment["bucket_pairing"][0]["strictness_level"], "strict")
+        self.assertTrue(alignment["rollup_safe"])
 
     def test_compile_step_records_partial_alignment_coverage_summary(self) -> None:
         compiled = compile_step(
@@ -2002,6 +2018,8 @@ class CompilerTypedResolutionTests(unittest.TestCase):
             alignment["bucket_pairing"][-1]["issues"],
             ["alignment_coverage_insufficient"],
         )
+        self.assertEqual(alignment["bucket_pairing"][-1]["strictness_level"], "coverage_incomplete")
+        self.assertFalse(alignment["rollup_safe"])
         self.assertEqual(alignment["comparability_warnings"], [])
 
     def test_build_calendar_alignment_coverage_returns_zero_ratio_for_empty_pairing(self) -> None:

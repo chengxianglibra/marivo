@@ -68,8 +68,11 @@ def _make_compiled_mock_with_calendar_alignment() -> MagicMock:
                     "pairing_reason": "same_weekday_nearest",
                     "shift_days": 1,
                     "issues": [],
+                    "strictness_level": "strict",
+                    "is_reused_baseline_bucket": False,
                 }
             ],
+            "rollup_safe": True,
             "coverage_summary": {
                 "aligned_bucket_count": 1,
                 "unpaired_bucket_count": 0,
@@ -222,8 +225,11 @@ def _resolved_policy_summary(
                 "pairing_reason": "same_weekday_nearest",
                 "shift_days": 1,
                 "issues": [],
+                "strictness_level": "strict",
+                "is_reused_baseline_bucket": False,
             }
         ],
+        "rollup_safe": True,
         "coverage_summary": {
             "aligned_bucket_count": aligned_bucket_count,
             "unpaired_bucket_count": unpaired_bucket_count,
@@ -463,8 +469,11 @@ class TestObserveRunnerCommitPath(unittest.TestCase):
                 "pairing_reason": "same_weekday_nearest",
                 "shift_days": 1,
                 "issues": [],
+                "strictness_level": "strict",
+                "is_reused_baseline_bucket": False,
             },
         )
+        self.assertTrue(result["resolved_policy_summary"]["rollup_safe"])
         self.assertEqual(result["resolved_policy_summary"]["comparability_warnings"], [])
 
     def test_observe_accepts_holiday_only_calendar_lineage(self) -> None:
@@ -1299,6 +1308,7 @@ class TestCompareRunnerCommitPath(unittest.TestCase):
             result["resolved_input_summary"]["calendar_alignment"]["policy_ref"],
             "calendar_policy.weekday_yoy",
         )
+        self.assertTrue(result["resolved_input_summary"]["calendar_alignment"]["rollup_safe"])
         self.assertEqual(
             result["resolved_input_summary"]["calendar_alignment"]["effective_coverage_summary"],
             {

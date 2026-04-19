@@ -96,8 +96,11 @@ def _resolved_policy_summary(
                 "pairing_reason": "same_weekday_nearest",
                 "shift_days": -364,
                 "issues": [],
+                "strictness_level": "strict",
+                "is_reused_baseline_bucket": False,
             }
         ],
+        "rollup_safe": True,
         "coverage_summary": {
             "aligned_bucket_count": 3,
             "unpaired_bucket_count": 0,

@@ -18,6 +18,11 @@ _BUCKET_PAIRING_FIELDS: tuple[str, ...] = (
     "pairing_reason",
     "shift_days",
     "issues",
+    "strictness_level",
+    "is_reused_baseline_bucket",
+)
+_VALID_STRICTNESS_LEVELS: frozenset[str] = frozenset(
+    {"strict", "fallback", "reused_baseline", "coverage_incomplete"}
 )
 _COVERAGE_SUMMARY_FIELDS: tuple[str, ...] = (
     "aligned_bucket_count",
@@ -230,6 +235,10 @@ def normalize_resolved_policy_summary(
             value.get("bucket_pairing"),
             error_factory=error_factory,
         ),
+        "rollup_safe": _normalize_rollup_safe(
+            value.get("rollup_safe"),
+            error_factory=error_factory,
+        ),
         "coverage_summary": _normalize_coverage_summary(
             value.get("coverage_summary"),
             error_factory=error_factory,
@@ -344,6 +353,7 @@ def resolve_calendar_alignment_reuse(
             "resolved_calendar_source": left_summary["resolved_calendar_source"],
             "resolved_calendar_version": left_summary["resolved_calendar_version"],
             "comparability_warnings": warnings,
+            "rollup_safe": bool(left_summary["rollup_safe"] and right_summary["rollup_safe"]),
             "left_coverage_summary": left_summary["coverage_summary"],
             "right_coverage_summary": right_summary["coverage_summary"],
             "effective_coverage_summary": {
@@ -487,6 +497,8 @@ def _normalize_bucket_pairing(
         pairing_reason = item["pairing_reason"]
         shift_days = item["shift_days"]
         issues = item["issues"]
+        strictness_level = item["strictness_level"]
+        is_reused_baseline_bucket = item["is_reused_baseline_bucket"]
         if not isinstance(current_bucket_start, str):
             raise error_factory()
         if baseline_bucket_start is not None and not isinstance(baseline_bucket_start, str):
@@ -497,8 +509,22 @@ def _normalize_bucket_pairing(
             raise error_factory()
         if not isinstance(issues, list) or not all(isinstance(issue, str) for issue in issues):
             raise error_factory()
+        if strictness_level not in _VALID_STRICTNESS_LEVELS:
+            raise error_factory()
+        if not isinstance(is_reused_baseline_bucket, bool):
+            raise error_factory()
         pairings.append({field: item[field] for field in _BUCKET_PAIRING_FIELDS})
     return pairings
+
+
+def _normalize_rollup_safe(
+    value: Any,
+    *,
+    error_factory: Callable[[], ValueError],
+) -> bool:
+    if not isinstance(value, bool):
+        raise error_factory()
+    return value
 
 
 def _normalize_coverage_summary(

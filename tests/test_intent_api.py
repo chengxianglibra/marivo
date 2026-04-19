@@ -2635,8 +2635,11 @@ class CompareIntentTests(unittest.TestCase):
                     "pairing_reason": "same_weekday_nearest",
                     "shift_days": 365,
                     "issues": [],
+                    "strictness_level": "strict",
+                    "is_reused_baseline_bucket": False,
                 }
             ],
+            "rollup_safe": True,
             "coverage_summary": {
                 "aligned_bucket_count": aligned_bucket_count,
                 "unpaired_bucket_count": unpaired_bucket_count,
@@ -2795,6 +2798,7 @@ class CompareIntentTests(unittest.TestCase):
             payload["resolved_input_summary"]["calendar_alignment"]["resolved_calendar_version"],
             "calendar.patched_for_compare_reuse_v3",
         )
+        self.assertTrue(payload["resolved_input_summary"]["calendar_alignment"]["rollup_safe"])
         self.assertEqual(
             payload["resolved_input_summary"]["calendar_alignment"]["effective_coverage_summary"],
             {
