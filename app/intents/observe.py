@@ -470,6 +470,12 @@ def run_observe_intent(
     resolved = normalize_metric_query_request(mq_params)
     all_dimensions = svc.resolve_metric_dimensions(metric_ref)
     engine, engine_type, qualified = svc._resolve_engine([resolved.table])
+    svc._resolve_windowed_query_time_axis(
+        resolved,
+        engine_type=engine_type,
+        metric_name=metric_ref,
+        fallback_columns=all_dimensions,
+    )
     metric_sql = svc.resolve_metric_sql_for_execution(
         metric_ref,
         execution_context,
@@ -749,6 +755,8 @@ def run_observe_intent(
         # --- Time-series mode ---
         # Use aggregate_query select path: bucket alias is reliable across engines.
         time_col = resolved.resolved_time_axis.analysis_time_expr
+        if not time_col:
+            raise ValueError("windowed execution requires resolved_time_axis.analysis_time_expr")
         bucket_expr = f"DATE_TRUNC('{granularity}', {time_col})"
         compiled_query = svc._compile_step_with_feedback(
             AnalysisStepIR(

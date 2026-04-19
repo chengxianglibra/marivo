@@ -32,21 +32,17 @@ from __future__ import annotations
 
 import tempfile
 import unittest
-from datetime import UTC, datetime, timedelta
 from datetime import date as _date
+from datetime import timedelta
 from pathlib import Path
 
-import duckdb
 from fastapi.testclient import TestClient
 
 from app.main import create_app
 from app.service import SemanticLayerService
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 from app.storage.sqlite_metadata import SQLiteMetadataStore
-from tests.semantic_test_helpers import (
-    ensure_published_typed_metric,
-    ensure_published_typed_metric_binding,
-)
+from tests.shared_fixtures import get_named_seeded_duckdb_path
 
 
 def _metric_ref(name: str) -> str:
@@ -65,70 +61,8 @@ _SERIES_END = "2026-01-15"  # 14 daily buckets
 
 
 def _seed_forecast_table(db_path: Path) -> None:
-    """Create a simple daily time-series table with a linear upward trend.
-
-    14 days (Jan 1–14 2026): value = 100 + i * 10  (100, 110, 120, …, 230)
-    """
-    con = duckdb.connect(str(db_path))
-    try:
-        con.execute("CREATE SCHEMA IF NOT EXISTS analytics")
-        con.execute(
-            """
-            CREATE TABLE IF NOT EXISTS analytics.forecast_events (
-                event_date DATE   NOT NULL,
-                value      DOUBLE NOT NULL
-            )
-            """
-        )
-        base = _date.fromisoformat(_SERIES_START)
-        rows = []
-        for i in range(14):
-            d = base + timedelta(days=i)
-            v = 100.0 + i * 10.0
-            rows.append((d.isoformat(), v))
-        con.executemany("INSERT INTO analytics.forecast_events VALUES (?, ?)", rows)
-    finally:
-        con.close()
-
-
-def _seed_metadata(
-    meta: SQLiteMetadataStore, *, suffix: str = "01", metric_name: str = _METRIC
-) -> str:
-    """Insert minimal metadata records so observe can resolve metric → table."""
-    now = datetime.now(UTC).isoformat()
-    src_id = f"src_forecast{suffix}"
-    obj_id = f"obj_forecast{suffix}"
-    met_id = f"met_forecast{suffix}"
-    map_id = f"map_forecast{suffix}"
-
-    meta.execute(
-        "INSERT OR IGNORE INTO sources "
-        "(source_id, source_type, display_name, connection_json, capabilities_json, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        [src_id, "duckdb", "Forecast Test Source", "{}", "{}", now, now],
-    )
-    meta.execute(
-        "INSERT OR IGNORE INTO source_objects "
-        "(object_id, source_id, object_type, native_name, fqn, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        [obj_id, src_id, "table", "forecast_events", "analytics.forecast_events", now, now],
-    )
-    ensure_published_typed_metric(
-        meta,
-        metric_name=metric_name,
-        display_name=metric_name,
-        grain="day",
-        dimensions=["event_date"],
-        definition_sql="SUM(value)",
-        measure_type="sum",
-    )
-    ensure_published_typed_metric_binding(
-        meta,
-        metric_name=metric_name,
-        carrier_locator="analytics.forecast_events",
-        source_object_ref=obj_id,
-    )
-    return metric_name
+    """Copy the shared seeded analytics.forecast_events fixture into place."""
+    get_named_seeded_duckdb_path(db_path, "forecast_intent")
 
 
 def _make_synthetic_series(n: int = 14, start: str = _SERIES_START) -> list[dict]:
@@ -575,9 +509,6 @@ class ForecastIntentEndpointTests(unittest.TestCase):
         metadata = SQLiteMetadataStore(str(meta_path))
         metadata.initialize()
 
-        _seed_forecast_table(db_path)
-        _seed_metadata(metadata, suffix="http01", metric_name="http_forecast_dau")
-
         cls.client = TestClient(
             create_app(db_path=db_path, metadata_store=metadata, analytics_engine=analytics)
         )
@@ -586,19 +517,11 @@ class ForecastIntentEndpointTests(unittest.TestCase):
         r = cls.client.post("/sessions", json={"goal": "forecast HTTP test"})
         assert r.status_code == 200, r.text
         cls.session_id = r.json()["session_id"]
-
-        r_obs = cls.client.post(
-            f"/sessions/{cls.session_id}/intents/observe",
-            json={
-                "metric": _metric_ref("http_forecast_dau"),
-                "granularity": "day",
-                "time_scope": {"kind": "range", "start": _SERIES_START, "end": _SERIES_END},
-            },
+        cls.obs_step_id, cls.obs_artifact_id = _inject_observe_artifact(
+            cls.client.app.state.service,
+            cls.session_id,
+            metric="http_forecast_dau",
         )
-        assert r_obs.status_code == 200, r_obs.text
-        obs_body = r_obs.json()
-        cls.obs_step_id = obs_body["step_ref"]["step_id"]
-        cls.obs_artifact_id = obs_body["artifact_id"]
 
     @classmethod
     def tearDownClass(cls) -> None:

@@ -17,6 +17,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 import duckdb
@@ -42,7 +43,7 @@ from tests.semantic_test_helpers import (
     publish_typed_entity,
     publish_typed_metric,
 )
-from tests.shared_fixtures import get_seeded_duckdb_path
+from tests.shared_fixtures import get_named_seeded_duckdb_path, get_seeded_duckdb_path
 
 
 def _metric_ref(name: str) -> str:
@@ -165,6 +166,218 @@ def _create_metric_binding(
     publish_resp = client.post(f"/semantic/bindings/{binding_id}/publish")
     assert publish_resp.status_code == 200, publish_resp.text
     return binding_id
+
+
+def _register_duckdb_runtime(
+    client: TestClient,
+    *,
+    db_path: Path,
+    source_display_name: str,
+    engine_display_name: str,
+) -> str:
+    source = client.post(
+        "/sources",
+        json={
+            "source_type": "duckdb",
+            "display_name": source_display_name,
+            "connection": {"path": str(db_path)},
+        },
+    ).json()
+    engine = client.post(
+        "/engines",
+        json={
+            "engine_type": "duckdb",
+            "display_name": engine_display_name,
+            "connection": {"database": str(db_path)},
+        },
+    ).json()
+    client.post(
+        "/bindings",
+        json={"source_id": source["source_id"], "engine_id": engine["engine_id"], "priority": 0},
+    )
+    return str(source["source_id"])
+
+
+def _ensure_source_object(
+    metadata: SQLiteMetadataStore,
+    *,
+    source_id: str,
+    native_name: str,
+    fqn: str,
+    now: str = "2026-01-01T00:00:00",
+) -> str:
+    existing = metadata.query_one(
+        "SELECT object_id FROM source_objects WHERE source_id = ? AND fqn = ?",
+        [source_id, fqn],
+    )
+    if existing is not None:
+        return str(existing["object_id"])
+    object_id = f"obj_{uuid4().hex[:12]}"
+    metadata.execute(
+        """
+        INSERT INTO source_objects
+            (object_id, source_id, object_type, native_name, fqn,
+             properties_json, created_at, updated_at)
+        VALUES (?, ?, 'table', ?, ?, '{}', ?, ?)
+        """,
+        [object_id, source_id, native_name, fqn, now, now],
+    )
+    return object_id
+
+
+def _insert_observe_artifact(
+    service: Any,
+    *,
+    session_id: str,
+    step_id: str,
+    metric: str,
+    observation_type: str,
+    time_scope: dict[str, object],
+    value: float | None = None,
+    dimensions: list[str] | None = None,
+    segments: list[dict[str, object]] | None = None,
+    granularity: str | None = None,
+    series: list[dict[str, object]] | None = None,
+    unit: str | None = None,
+    resolved_policy_summary: dict[str, object] | None = None,
+) -> str:
+    payload: dict[str, object] = {
+        "schema_version": "1.0",
+        "intent_type": "observe",
+        "observation_type": observation_type,
+        "metric": metric,
+        "time_scope": time_scope,
+        "scope": {},
+        "unit": unit,
+        "analytical_metadata": {
+            "quality_status": "ready",
+            "aggregation_semantics": "sum",
+            "metric_additivity": "additive",
+            "row_count": len(series or segments or []),
+        },
+        "execution_metadata": {
+            "query_hash": "test",
+            "engine": "duckdb",
+            "executed_at": "2026-01-01T00:00:00",
+        },
+    }
+    if observation_type == "scalar":
+        payload["value"] = value
+    if dimensions is not None:
+        payload["dimensions"] = dimensions
+    if segments is not None:
+        payload["segments"] = segments
+        payload["scope_value"] = value
+    if granularity is not None:
+        payload["granularity"] = granularity
+    if series is not None:
+        payload["series"] = series
+    if resolved_policy_summary is not None:
+        payload["resolved_policy_summary"] = resolved_policy_summary
+    artifact_id = service._insert_artifact(
+        session_id,
+        step_id,
+        "observation",
+        f"{metric}_{observation_type}",
+        payload,
+    )
+    result = {
+        "intent_type": "observe",
+        "step_type": "observe",
+        "step_ref": {
+            "session_id": session_id,
+            "step_id": step_id,
+            "step_type": "observe",
+        },
+        "artifact_id": artifact_id,
+        **payload,
+    }
+    service._insert_step(
+        step_id,
+        session_id,
+        "observe",
+        f"seeded observe {metric}",
+        result,
+        provenance={"seeded": True},
+    )
+    return artifact_id
+
+
+class _SessionBackedIntentEndpointMixin:
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        cls.db_path = Path(cls.temp_dir.name) / f"{cls.__name__.lower()}.duckdb"
+        cls.client = TestClient(create_app(cls.db_path))
+        response = cls.client.post("/sessions", json={"goal": f"{cls.__name__} session"})
+        cls.session_id = response.json()["session_id"]
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.client.close()
+        cls.temp_dir.cleanup()
+
+
+class _ObserveIntentTestCase:
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        cls.db_path = Path(cls.temp_dir.name) / f"{cls.__name__.lower()}.duckdb"
+        get_seeded_duckdb_path(cls.db_path)
+        _seed_default_calendar_source_metadata(cls.db_path)
+        cls.app = create_app(cls.db_path)
+        cls.client = TestClient(cls.app)
+        cls._setup_base_semantic_layer()
+        cls._setup_additional_semantic_layer()
+        response = cls.client.post(
+            "/sessions",
+            json={"goal": f"{cls.__name__} session", "budget": {}, "policy": {}},
+        )
+        cls.session_id = response.json()["session_id"]
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.client.close()
+        cls.temp_dir.cleanup()
+
+    @classmethod
+    def _setup_base_semantic_layer(cls) -> None:
+        metadata = cls.app.state.service.metadata
+        cls.source_id = _register_duckdb_runtime(
+            cls.client,
+            db_path=cls.db_path,
+            source_display_name=f"{cls.__name__} Source",
+            engine_display_name=f"{cls.__name__} Engine",
+        )
+        cls.watch_events_fqn = "analytics.watch_events"
+        cls.watch_events_object_id = _ensure_source_object(
+            metadata,
+            source_id=cls.source_id,
+            native_name="watch_events",
+            fqn=cls.watch_events_fqn,
+        )
+
+        metric = create_typed_metric(
+            cls.client,
+            name="observe_test_dau",
+            display_name="DAU (observe test)",
+            definition_sql="COUNT(DISTINCT user_id)",
+            dimensions=["event_date", "platform"],
+            grain="day",
+            measure_type="average",
+        )
+        cls.metric_id = metric["metric_contract_id"]
+        publish_typed_metric(cls.client, cls.metric_id)
+        create_typed_metric_binding(
+            cls.client,
+            metric_ref="metric.observe_test_dau",
+            object_id=cls.watch_events_object_id,
+            carrier_locator=cls.watch_events_fqn,
+        )
+
+    @classmethod
+    def _setup_additional_semantic_layer(cls) -> None:
+        return
 
 
 # ── Model-level validation tests (no HTTP) ───────────────────────────────────
@@ -323,41 +536,84 @@ class DecomposeRequestModelTests(unittest.TestCase):
 # ── HTTP endpoint tests ───────────────────────────────────────────────────────
 
 
-class IntentEndpointTests(unittest.TestCase):
+class ObserveIntentValidationEndpointTests(_SessionBackedIntentEndpointMixin, unittest.TestCase):
+    """Observe validation paths that only require a session-backed app."""
+
+    def test_observe_requires_metric_and_time_scope(self) -> None:
+        r = self.client.post(f"/sessions/{self.session_id}/intents/observe", json={})
+        self.assertEqual(r.status_code, 422)
+        detail = r.json()["detail"]
+        fields = {e["loc"][-1] for e in detail}
+        self.assertIn("metric", fields)
+        self.assertIn("time_scope", fields)
+
+    def test_observe_rejects_granularity_plus_dimensions(self) -> None:
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/observe",
+            json={
+                "metric": _metric_ref("dau"),
+                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+                "granularity": "day",
+                "dimensions": ["region"],
+            },
+        )
+        self.assertEqual(r.status_code, 422)
+
+    def test_observe_unknown_metric_returns_422(self) -> None:
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/observe",
+            json={
+                "metric": _metric_ref("non_existent_metric_xyz"),
+                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+            },
+        )
+        self.assertEqual(r.status_code, 422)
+
+    def test_observe_snapshot_now_unknown_metric_returns_422(self) -> None:
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/observe",
+            json={
+                "metric": _metric_ref("non_existent_metric_xyz"),
+                "time_scope": {"kind": "snapshot_now"},
+            },
+        )
+        self.assertEqual(r.status_code, 422)
+
+
+class _SemanticObserveIntentEndpointMixin:
+    import_bridge_table_name = "intent_import_bridge_events"
+
     @classmethod
     def setUpClass(cls) -> None:
         cls.temp_dir = tempfile.TemporaryDirectory()
-        cls.db_path = Path(cls.temp_dir.name) / "intent_api.duckdb"
-        get_seeded_duckdb_path(cls.db_path)
+        cls.db_path = Path(cls.temp_dir.name) / f"{cls.__name__.lower()}.duckdb"
+        get_named_seeded_duckdb_path(cls.db_path, "intent_api")
         _seed_default_calendar_source_metadata(cls.db_path)
         cls.client = TestClient(create_app(cls.db_path))
-        source = cls.client.post(
-            "/sources",
-            json={
-                "source_type": "duckdb",
-                "display_name": "Intent API Source",
-                "connection": {"path": str(cls.db_path)},
-            },
-        ).json()
-        cls.source_id = source["source_id"]
-        cls.client.post(
-            f"/sources/{cls.source_id}/sync/selections",
-            json={
-                "selections": [
-                    {"schema_name": "analytics", "table_name": "watch_events"},
-                    {"schema_name": "analytics", "table_name": "player_qoe"},
-                    {"schema_name": "analytics", "table_name": "ad_events"},
-                    {"schema_name": "analytics", "table_name": "recommendation_events"},
-                ]
-            },
+        metadata = cls.client.app.state.service.metadata
+        cls.source_id = _register_duckdb_runtime(
+            cls.client,
+            db_path=cls.db_path,
+            source_display_name="Intent API Source",
+            engine_display_name="Intent API Engine",
         )
-        cls.client.post(f"/sources/{cls.source_id}/sync")
-        source_objects = cls.client.get(f"/sources/{cls.source_id}/objects?type=table").json()
-        watch_events = next(obj for obj in source_objects if obj["native_name"] == "watch_events")
-        cls.watch_events_object_id = watch_events["object_id"]
-        cls.watch_events_fqn = str(watch_events["fqn"])
-        r = cls.client.post("/sessions", json={"goal": "Intent API test session"})
+        cls.watch_events_fqn = "analytics.watch_events"
+        cls.watch_events_object_id = _ensure_source_object(
+            metadata,
+            source_id=cls.source_id,
+            native_name="watch_events",
+            fqn=cls.watch_events_fqn,
+        )
+        cls.import_bridge_fqn = f"analytics.{cls.import_bridge_table_name}"
+        cls.import_bridge_object_id = _ensure_source_object(
+            metadata,
+            source_id=cls.source_id,
+            native_name=cls.import_bridge_table_name,
+            fqn=cls.import_bridge_fqn,
+        )
+        r = cls.client.post("/sessions", json={"goal": f"{cls.__name__} session"})
         cls.session_id = r.json()["session_id"]
+        cls._setup_semantic_layer()
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -365,58 +621,125 @@ class IntentEndpointTests(unittest.TestCase):
         cls.temp_dir.cleanup()
 
     @classmethod
-    def _ensure_import_bridge_table(cls) -> tuple[str, str]:
-        table_name = "intent_import_bridge_events"
-        table_fqn = f"analytics.{table_name}"
-        con = duckdb.connect(str(cls.db_path))
-        try:
-            con.execute("CREATE SCHEMA IF NOT EXISTS analytics")
-            con.execute(
-                f"""
-                CREATE TABLE IF NOT EXISTS {table_fqn} (
-                    event_date DATE NOT NULL,
-                    user_id VARCHAR NOT NULL,
-                    cluster VARCHAR NOT NULL,
-                    value DOUBLE NOT NULL
-                )
-                """
-            )
-            con.execute(f"DELETE FROM {table_fqn}")
-            con.executemany(
-                f"INSERT INTO {table_fqn} VALUES (?, ?, ?, ?)",
-                [
-                    ("2024-01-01", "u1", "alpha", 10.0),
-                    ("2024-01-02", "u2", "beta", 20.0),
-                    ("2024-01-03", "u3", "alpha", 30.0),
-                ],
-            )
-        finally:
-            con.close()
+    def _setup_semantic_layer(cls) -> None:
+        return
 
+    @classmethod
+    def _setup_basic_observe_metrics(cls) -> None:
         metadata = cls.client.app.state.service.metadata
-        existing = metadata.query_one(
-            "SELECT object_id FROM source_objects WHERE source_id = ? AND fqn = ?",
-            [cls.source_id, table_fqn],
-        )
-        if existing is not None:
-            return str(existing["object_id"]), table_fqn
-        object_id = f"obj_{uuid4().hex[:12]}"
-        now = "2026-01-01T00:00:00"
-        metadata.execute(
-            """
-            INSERT INTO source_objects
-                (object_id, source_id, object_type, native_name, fqn,
-                 properties_json, created_at, updated_at)
-            VALUES (?, ?, 'table', ?, ?, '{}', ?, ?)
-            """,
-            [object_id, cls.source_id, table_name, table_fqn, now, now],
-        )
-        return object_id, table_fqn
 
-    def _create_import_bridge_metric(self, *, mode: str) -> str:
-        object_id, table_fqn = self._ensure_import_bridge_table()
-        metadata = self.client.app.state.metadata_store
-        ensure_published_typed_time(metadata)
+        ensure_published_typed_metric(
+            metadata,
+            metric_name="intent_not_ready_metric",
+            display_name="Intent Not Ready Metric",
+            definition_sql="COUNT(*)",
+            dimensions=["platform"],
+            measure_type="average",
+        )
+        create_typed_metric_binding(
+            cls.client,
+            metric_ref="metric.intent_not_ready_metric",
+            object_id=cls.watch_events_object_id,
+            carrier_locator=cls.watch_events_fqn,
+            metric_input_target_keys=["numerator"],
+        )
+
+        ensure_published_typed_metric(
+            metadata,
+            metric_name="intent_aux_binding_metric",
+            display_name="Intent Auxiliary Binding Metric",
+            definition_sql="COUNT(*)",
+            dimensions=["event_date"],
+        )
+        create_typed_metric_binding(
+            cls.client,
+            metric_ref="metric.intent_aux_binding_metric",
+            object_id=cls.import_bridge_object_id,
+            carrier_locator=cls.import_bridge_fqn,
+            binding_role="auxiliary",
+        )
+
+        ensure_published_typed_metric(
+            metadata,
+            metric_name="intent_preflight_failure_metric",
+            display_name="Intent Preflight Failure Metric",
+            definition_sql="COUNT(*)",
+            dimensions=["event_date"],
+        )
+        create_typed_metric_binding(
+            cls.client,
+            metric_ref="metric.intent_preflight_failure_metric",
+            object_id=cls.watch_events_object_id,
+            carrier_locator=cls.watch_events_fqn,
+        )
+
+    @classmethod
+    def _setup_compatibility_metric(cls) -> None:
+        metadata = cls.client.app.state.service.metadata
+        ensure_published_typed_time(
+            metadata, time_ref="time.signup_date", display_name="Signup Date"
+        )
+        existing_dimension = metadata.query_one(
+            """
+            SELECT dimension_contract_id, status
+            FROM semantic_dimension_contracts
+            WHERE dimension_ref = ?
+            """,
+            ["dimension.intent_signup_week"],
+        )
+        if existing_dimension is None:
+            dimension_resp = cls.client.post(
+                "/semantic/dimensions",
+                json={
+                    "header": {
+                        "dimension_ref": "dimension.intent_signup_week",
+                        "display_name": "Intent Signup Week",
+                        "dimension_contract_version": "dimension.v1",
+                    },
+                    "interface_contract": {
+                        "value_domain": {
+                            "structure_kind": "time_derived",
+                            "semantic_role": "category",
+                            "value_type": "string",
+                            "domain_kind": "open",
+                        },
+                        "grouping": {"supports_grouping": True},
+                        "time_derived_requirement": {
+                            "required_time_anchor_ref": "time.signup_date"
+                        },
+                    },
+                },
+            )
+            assert dimension_resp.status_code == 200, dimension_resp.text
+            publish_resp = cls.client.post(
+                f"/semantic/dimensions/{dimension_resp.json()['dimension_contract_id']}/publish"
+            )
+            assert publish_resp.status_code == 200, publish_resp.text
+        elif existing_dimension["status"] != "published":
+            publish_resp = cls.client.post(
+                f"/semantic/dimensions/{existing_dimension['dimension_contract_id']}/publish"
+            )
+            assert publish_resp.status_code == 200, publish_resp.text
+
+        ensure_published_typed_metric(
+            metadata,
+            metric_name="intent_compatible_metric",
+            display_name="Intent Compatible Metric",
+            definition_sql="COUNT(DISTINCT user_id)",
+            dimensions=["dimension.intent_signup_week"],
+            grain="day",
+            measure_type="average",
+        )
+        create_typed_metric_binding(
+            cls.client,
+            metric_ref="metric.intent_compatible_metric",
+            object_id=cls.watch_events_object_id,
+            carrier_locator=cls.watch_events_fqn,
+        )
+
+    @classmethod
+    def _ensure_cluster_dimension(cls) -> None:
+        metadata = cls.client.app.state.service.metadata
         dimension_row = metadata.query_one(
             """
             SELECT dimension_contract_id, status
@@ -426,7 +749,7 @@ class IntentEndpointTests(unittest.TestCase):
             ["dimension.cluster"],
         )
         if dimension_row is None:
-            dimension_resp = self.client.post(
+            dimension_resp = cls.client.post(
                 "/semantic/dimensions",
                 json={
                     "header": {
@@ -445,41 +768,39 @@ class IntentEndpointTests(unittest.TestCase):
                     },
                 },
             )
-            self.assertEqual(dimension_resp.status_code, 200, dimension_resp.text)
+            assert dimension_resp.status_code == 200, dimension_resp.text
             dimension_id = dimension_resp.json()["dimension_contract_id"]
-            publish_dimension_resp = self.client.post(
-                f"/semantic/dimensions/{dimension_id}/publish"
-            )
-            self.assertEqual(
-                publish_dimension_resp.status_code,
-                200,
-                publish_dimension_resp.text,
-            )
-        elif dimension_row["status"] != "published":
-            publish_dimension_resp = self.client.post(
+            publish_dimension_resp = cls.client.post(f"/semantic/dimensions/{dimension_id}/publish")
+            assert publish_dimension_resp.status_code == 200, publish_dimension_resp.text
+            return
+
+        if dimension_row["status"] != "published":
+            publish_dimension_resp = cls.client.post(
                 f"/semantic/dimensions/{dimension_row['dimension_contract_id']}/publish"
             )
-            self.assertEqual(
-                publish_dimension_resp.status_code,
-                200,
-                publish_dimension_resp.text,
-            )
+            assert publish_dimension_resp.status_code == 200, publish_dimension_resp.text
+
+    @classmethod
+    def _create_import_bridge_metric(cls, *, mode: str) -> str:
+        metadata = cls.client.app.state.service.metadata
+        ensure_published_typed_time(metadata)
+        cls._ensure_cluster_dimension()
 
         suffix = uuid4().hex[:8]
         entity = create_typed_entity(
-            self.client,
+            cls.client,
             name=f"intent_bridge_entity_{suffix}",
             display_name="Intent Bridge Entity",
             keys=["user_id"],
             primary_time_ref="time.event_date",
         )
-        publish_typed_entity(self.client, entity["entity_contract_id"])
+        publish_typed_entity(cls.client, entity["entity_contract_id"])
         entity_ref = entity["header"]["entity_ref"]
 
         metric_name = f"intent_bridge_metric_{suffix}"
         metric_ref = f"metric.{metric_name}"
         metric = create_typed_metric(
-            self.client,
+            cls.client,
             name=metric_name,
             display_name="Intent Bridge Metric",
             description="Metric that relies on imported entity dimensions",
@@ -489,10 +810,10 @@ class IntentEndpointTests(unittest.TestCase):
             grain="day",
             measure_type="sum",
         )
-        publish_typed_metric(self.client, metric["metric_contract_id"])
+        publish_typed_metric(cls.client, metric["metric_contract_id"])
 
         primary_imported_binding_ref = f"binding.intent_bridge_entity_{suffix}"
-        entity_binding_resp = self.client.post(
+        entity_binding_resp = cls.client.post(
             "/semantic/bindings",
             json={
                 "header": {
@@ -506,9 +827,9 @@ class IntentEndpointTests(unittest.TestCase):
                     "carrier_bindings": [
                         {
                             "binding_key": "primary",
-                            "source_object_ref": object_id,
+                            "source_object_ref": cls.import_bridge_object_id,
                             "carrier_kind": "table",
-                            "carrier_locator": table_fqn,
+                            "carrier_locator": cls.import_bridge_fqn,
                             "binding_role": "primary",
                             "field_surfaces": [
                                 {
@@ -558,14 +879,12 @@ class IntentEndpointTests(unittest.TestCase):
                 },
             },
         )
-        self.assertEqual(entity_binding_resp.status_code, 200, entity_binding_resp.text)
+        assert entity_binding_resp.status_code == 200, entity_binding_resp.text
         entity_binding_id = entity_binding_resp.json()["binding_id"]
-        publish_entity_binding_resp = self.client.post(
+        publish_entity_binding_resp = cls.client.post(
             f"/semantic/bindings/{entity_binding_id}/publish"
         )
-        self.assertEqual(
-            publish_entity_binding_resp.status_code, 200, publish_entity_binding_resp.text
-        )
+        assert publish_entity_binding_resp.status_code == 200, publish_entity_binding_resp.text
 
         imports: list[dict[str, object]] = []
         if mode in {"single", "ambiguous"}:
@@ -578,7 +897,7 @@ class IntentEndpointTests(unittest.TestCase):
             )
         if mode == "ambiguous":
             secondary_imported_binding_ref = f"binding.intent_bridge_entity_alt_{suffix}"
-            entity_binding_alt_resp = self.client.post(
+            entity_binding_alt_resp = cls.client.post(
                 "/semantic/bindings",
                 json={
                     "header": {
@@ -592,9 +911,9 @@ class IntentEndpointTests(unittest.TestCase):
                         "carrier_bindings": [
                             {
                                 "binding_key": "primary",
-                                "source_object_ref": object_id,
+                                "source_object_ref": cls.import_bridge_object_id,
                                 "carrier_kind": "table",
-                                "carrier_locator": table_fqn,
+                                "carrier_locator": cls.import_bridge_fqn,
                                 "binding_role": "primary",
                                 "field_surfaces": [
                                     {
@@ -644,15 +963,13 @@ class IntentEndpointTests(unittest.TestCase):
                     },
                 },
             )
-            self.assertEqual(entity_binding_alt_resp.status_code, 200, entity_binding_alt_resp.text)
+            assert entity_binding_alt_resp.status_code == 200, entity_binding_alt_resp.text
             entity_binding_alt_id = entity_binding_alt_resp.json()["binding_id"]
-            publish_entity_binding_alt_resp = self.client.post(
+            publish_entity_binding_alt_resp = cls.client.post(
                 f"/semantic/bindings/{entity_binding_alt_id}/publish"
             )
-            self.assertEqual(
-                publish_entity_binding_alt_resp.status_code,
-                200,
-                publish_entity_binding_alt_resp.text,
+            assert publish_entity_binding_alt_resp.status_code == 200, (
+                publish_entity_binding_alt_resp.text
             )
             imports.append(
                 {
@@ -662,7 +979,7 @@ class IntentEndpointTests(unittest.TestCase):
                 }
             )
 
-        metric_binding_resp = self.client.post(
+        metric_binding_resp = cls.client.post(
             "/semantic/bindings",
             json={
                 "header": {
@@ -677,9 +994,9 @@ class IntentEndpointTests(unittest.TestCase):
                     "carrier_bindings": [
                         {
                             "binding_key": "primary",
-                            "source_object_ref": object_id,
+                            "source_object_ref": cls.import_bridge_object_id,
                             "carrier_kind": "table",
-                            "carrier_locator": table_fqn,
+                            "carrier_locator": cls.import_bridge_fqn,
                             "binding_role": "primary",
                             "field_surfaces": [
                                 {
@@ -729,81 +1046,23 @@ class IntentEndpointTests(unittest.TestCase):
                 },
             },
         )
-        self.assertEqual(metric_binding_resp.status_code, 200, metric_binding_resp.text)
+        assert metric_binding_resp.status_code == 200, metric_binding_resp.text
         metric_binding_id = metric_binding_resp.json()["binding_id"]
-        publish_metric_binding_resp = self.client.post(
+        publish_metric_binding_resp = cls.client.post(
             f"/semantic/bindings/{metric_binding_id}/publish"
         )
-        self.assertEqual(
-            publish_metric_binding_resp.status_code,
-            200,
-            publish_metric_binding_resp.text,
-        )
+        assert publish_metric_binding_resp.status_code == 200, publish_metric_binding_resp.text
         return metric_name
 
-    # ── observe ───────────────────────────────────────────────────────────────
 
-    def test_observe_requires_metric_and_time_scope(self) -> None:
-        r = self.client.post(f"/sessions/{self.session_id}/intents/observe", json={})
-        self.assertEqual(r.status_code, 422)
-        detail = r.json()["detail"]
-        fields = {e["loc"][-1] for e in detail}
-        self.assertIn("metric", fields)
-        self.assertIn("time_scope", fields)
+class ObserveIntentReadinessEndpointTests(_SemanticObserveIntentEndpointMixin, unittest.TestCase):
+    """Observe readiness and execution-preflight failures with minimal semantic setup."""
 
-    def test_observe_rejects_granularity_plus_dimensions(self) -> None:
-        r = self.client.post(
-            f"/sessions/{self.session_id}/intents/observe",
-            json={
-                "metric": _metric_ref("dau"),
-                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
-                "granularity": "day",
-                "dimensions": ["region"],
-            },
-        )
-        self.assertEqual(r.status_code, 422)
-
-    def test_observe_unknown_metric_returns_422(self) -> None:
-        r = self.client.post(
-            f"/sessions/{self.session_id}/intents/observe",
-            json={
-                "metric": _metric_ref("non_existent_metric_xyz"),
-                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
-            },
-        )
-        # metric not in semantic layer → 422 from service
-        self.assertEqual(r.status_code, 422)
-
-    def test_observe_snapshot_now_unknown_metric_returns_422(self) -> None:
-        r = self.client.post(
-            f"/sessions/{self.session_id}/intents/observe",
-            json={
-                "metric": _metric_ref("non_existent_metric_xyz"),
-                "time_scope": {"kind": "snapshot_now"},
-            },
-        )
-        # snapshot_now is implemented; unknown metric → 422
-        self.assertEqual(r.status_code, 422)
+    @classmethod
+    def _setup_semantic_layer(cls) -> None:
+        cls._setup_basic_observe_metrics()
 
     def test_observe_not_ready_metric_returns_409_with_structured_readiness_error(self) -> None:
-        metric = create_typed_metric(
-            self.client,
-            name="intent_not_ready_metric",
-            display_name="Intent Not Ready Metric",
-            description="Metric with incomplete binding coverage",
-            definition_sql="COUNT(*)",
-            dimensions=["platform"],
-            measure_type="average",
-        )
-        publish_typed_metric(self.client, metric["metric_contract_id"])
-        create_typed_metric_binding(
-            self.client,
-            metric_ref="metric.intent_not_ready_metric",
-            object_id=self.watch_events_object_id,
-            carrier_locator=self.watch_events_fqn,
-            metric_input_target_keys=["numerator"],
-        )
-
         response = self.client.post(
             f"/sessions/{self.session_id}/intents/observe",
             json={
@@ -820,24 +1079,6 @@ class IntentEndpointTests(unittest.TestCase):
         self.assertEqual(detail["readiness_status"], "not_ready")
 
     def test_observe_ready_metric_with_auxiliary_binding_executes(self) -> None:
-        object_id, table_fqn = self._ensure_import_bridge_table()
-        metric = create_typed_metric(
-            self.client,
-            name="intent_aux_binding_metric",
-            display_name="Intent Auxiliary Binding Metric",
-            description="Metric grounded by an auxiliary carrier.",
-            definition_sql="COUNT(*)",
-            dimensions=["event_date"],
-        )
-        publish_typed_metric(self.client, metric["metric_contract_id"])
-        create_typed_metric_binding(
-            self.client,
-            metric_ref="metric.intent_aux_binding_metric",
-            object_id=object_id,
-            carrier_locator=table_fqn,
-            binding_role="auxiliary",
-        )
-
         response = self.client.post(
             f"/sessions/{self.session_id}/intents/observe",
             json={
@@ -850,22 +1091,6 @@ class IntentEndpointTests(unittest.TestCase):
         self.assertEqual(response.json()["metric"], "intent_aux_binding_metric")
 
     def test_observe_execution_preflight_failure_returns_candidate_binding_detail(self) -> None:
-        metric = create_typed_metric(
-            self.client,
-            name="intent_preflight_failure_metric",
-            display_name="Intent Preflight Failure Metric",
-            description="Metric used to assert execution preflight detail payloads.",
-            definition_sql="COUNT(*)",
-            dimensions=["event_date"],
-        )
-        publish_typed_metric(self.client, metric["metric_contract_id"])
-        create_typed_metric_binding(
-            self.client,
-            metric_ref="metric.intent_preflight_failure_metric",
-            object_id=self.watch_events_object_id,
-            carrier_locator=self.watch_events_fqn,
-        )
-
         service = self.client.app.state.service
         original = service._resolve_metric_carrier_source_object
         service._resolve_metric_carrier_source_object = lambda _carrier: None
@@ -898,68 +1123,19 @@ class IntentEndpointTests(unittest.TestCase):
         )
         self.assertEqual(candidate["failure_stage"], "source_object_lookup")
 
+
+class ObserveIntentCompatibilityEndpointTests(
+    _SemanticObserveIntentEndpointMixin, unittest.TestCase
+):
+    """Observe compatibility failures that require a time-derived dimension."""
+
+    @classmethod
+    def _setup_semantic_layer(cls) -> None:
+        cls._setup_compatibility_metric()
+
     def test_observe_incompatible_dimension_returns_409_with_structured_compatibility_error(
         self,
     ) -> None:
-        time_resp = self.client.post(
-            "/semantic/time",
-            json={
-                "header": {
-                    "time_ref": "time.signup_date",
-                    "display_name": "Signup Date",
-                    "semantic_roles": ["business_anchor"],
-                    "time_contract_version": "time.v1",
-                }
-            },
-        )
-        self.assertEqual(time_resp.status_code, 200, time_resp.text)
-        time_id = time_resp.json()["time_contract_id"]
-        publish_time_resp = self.client.post(f"/semantic/time/{time_id}/publish")
-        self.assertEqual(publish_time_resp.status_code, 200, publish_time_resp.text)
-
-        dimension_resp = self.client.post(
-            "/semantic/dimensions",
-            json={
-                "header": {
-                    "dimension_ref": "dimension.intent_signup_week",
-                    "display_name": "Intent Signup Week",
-                    "dimension_contract_version": "dimension.v1",
-                },
-                "interface_contract": {
-                    "value_domain": {
-                        "structure_kind": "time_derived",
-                        "semantic_role": "category",
-                        "value_type": "string",
-                        "domain_kind": "open",
-                    },
-                    "grouping": {"supports_grouping": True},
-                    "time_derived_requirement": {"required_time_anchor_ref": "time.signup_date"},
-                },
-            },
-        )
-        self.assertEqual(dimension_resp.status_code, 200, dimension_resp.text)
-        dimension_id = dimension_resp.json()["dimension_contract_id"]
-        publish_resp = self.client.post(f"/semantic/dimensions/{dimension_id}/publish")
-        self.assertEqual(publish_resp.status_code, 200, publish_resp.text)
-
-        metric = create_typed_metric(
-            self.client,
-            name="intent_compatible_metric",
-            display_name="Intent Compatible Metric",
-            description="Metric with request-level incompatible dimension",
-            definition_sql="COUNT(DISTINCT user_id)",
-            dimensions=["dimension.intent_signup_week"],
-            grain="day",
-            measure_type="average",
-        )
-        publish_typed_metric(self.client, metric["metric_contract_id"])
-        create_typed_metric_binding(
-            self.client,
-            metric_ref="metric.intent_compatible_metric",
-            object_id=self.watch_events_object_id,
-            carrier_locator=self.watch_events_fqn,
-        )
-
         response = self.client.post(
             f"/sessions/{self.session_id}/intents/observe",
             json={
@@ -979,8 +1155,22 @@ class IntentEndpointTests(unittest.TestCase):
             "COMPILER_DIMENSION_TIME_ANCHOR_MISMATCH",
         )
 
+
+class ObserveIntentImportBridgeEndpointTests(
+    _SemanticObserveIntentEndpointMixin, unittest.TestCase
+):
+    """Observe imported-dimension bridge paths isolated from other setup-heavy metrics."""
+
+    @classmethod
+    def _setup_semantic_layer(cls) -> None:
+        cls.import_bridge_metric_names = {
+            "single": cls._create_import_bridge_metric(mode="single"),
+            "missing": cls._create_import_bridge_metric(mode="missing"),
+            "ambiguous": cls._create_import_bridge_metric(mode="ambiguous"),
+        }
+
     def test_observe_imported_dimension_bridge_allows_segmented_request(self) -> None:
-        metric_name = self._create_import_bridge_metric(mode="single")
+        metric_name = self.import_bridge_metric_names["single"]
 
         response = self.client.post(
             f"/sessions/{self.session_id}/intents/observe",
@@ -1000,7 +1190,7 @@ class IntentEndpointTests(unittest.TestCase):
         self.assertEqual(values, sorted(values, reverse=True))
 
     def test_observe_imported_dimension_bridge_missing_returns_structured_error(self) -> None:
-        metric_name = self._create_import_bridge_metric(mode="missing")
+        metric_name = self.import_bridge_metric_names["missing"]
 
         response = self.client.post(
             f"/sessions/{self.session_id}/intents/observe",
@@ -1018,7 +1208,7 @@ class IntentEndpointTests(unittest.TestCase):
         self.assertEqual(detail["issues"][0]["code"], "COMPILER_DIMENSION_IMPORT_MISSING")
 
     def test_observe_imported_dimension_bridge_ambiguous_returns_structured_error(self) -> None:
-        metric_name = self._create_import_bridge_metric(mode="ambiguous")
+        metric_name = self.import_bridge_metric_names["ambiguous"]
 
         response = self.client.post(
             f"/sessions/{self.session_id}/intents/observe",
@@ -1042,10 +1232,53 @@ class IntentEndpointTests(unittest.TestCase):
             ["entity_bridge", "entity_bridge_alt"],
         )
 
-    # ── compare ───────────────────────────────────────────────────────────────
+
+class AttributeUnknownMetricEndpointTests(unittest.TestCase):
+    """Lightweight coverage for attribute's unknown-metric HTTP failure path."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        cls.db_path = Path(cls.temp_dir.name) / "attribute_unknown_metric.duckdb"
+        cls.client = TestClient(create_app(cls.db_path))
+        response = cls.client.post("/sessions", json={"goal": "attribute unknown metric test"})
+        cls.session_id = response.json()["session_id"]
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.client.close()
+        cls.temp_dir.cleanup()
+
+    def test_attribute_unknown_metric_returns_422(self) -> None:
+        # attribute is now a real runner; an unresolvable metric yields OBSERVE_FAILED → 422
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/attribute",
+            json={
+                "metric": _metric_ref("dau"),
+                "left": {
+                    "time_scope": {
+                        "kind": "range",
+                        "start": "2024-01-08",
+                        "end": "2024-01-15",
+                    }
+                },
+                "right": {
+                    "time_scope": {
+                        "kind": "range",
+                        "start": "2024-01-01",
+                        "end": "2024-01-08",
+                    }
+                },
+                "dimensions": ["region"],
+            },
+        )
+        self.assertEqual(r.status_code, 422)
+
+
+class LightweightIntentEndpointTests(_SessionBackedIntentEndpointMixin, unittest.TestCase):
+    """HTTP intent validation paths that only need a session-backed app."""
 
     def test_compare_nonexistent_ref_returns_422(self) -> None:
-        """compare with non-existent step refs returns 422 (STEP_NOT_FOUND)."""
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/compare",
             json={
@@ -1082,8 +1315,6 @@ class IntentEndpointTests(unittest.TestCase):
         self.assertEqual(r.status_code, 422)
         self.assertIn("Cross-session", r.json()["detail"])
 
-    # ── correlate ─────────────────────────────────────────────────────────────
-
     def test_correlate_rejects_cross_session_ref(self) -> None:
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/correlate",
@@ -1103,7 +1334,6 @@ class IntentEndpointTests(unittest.TestCase):
         self.assertEqual(r.status_code, 422)
 
     def test_correlate_nonexistent_steps_returns_422(self) -> None:
-        """correlate with non-existent step refs returns 422 (STEP_NOT_FOUND)."""
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/correlate",
             json={
@@ -1122,10 +1352,7 @@ class IntentEndpointTests(unittest.TestCase):
         self.assertEqual(r.status_code, 422)
         self.assertIn("STEP_NOT_FOUND", r.json()["detail"])
 
-    # ── detect ────────────────────────────────────────────────────────────────
-
     def test_detect_unregistered_metric_returns_422(self) -> None:
-        """detect is now implemented; an unregistered metric returns 422, not 501."""
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/detect",
             json={
@@ -1138,8 +1365,6 @@ class IntentEndpointTests(unittest.TestCase):
             },
         )
         self.assertEqual(r.status_code, 422)
-
-    # ── test ─────────────────────────────────────────────────────────────────
 
     def test_intent_test_rejects_cross_session_ref(self) -> None:
         r = self.client.post(
@@ -1187,8 +1412,6 @@ class IntentEndpointTests(unittest.TestCase):
         )
         self.assertEqual(r.status_code, 422)
 
-    # ── forecast ──────────────────────────────────────────────────────────────
-
     def test_forecast_rejects_missing_horizon(self) -> None:
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/forecast",
@@ -1197,13 +1420,12 @@ class IntentEndpointTests(unittest.TestCase):
                     "session_id": self.session_id,
                     "step_id": "step_1",
                     "step_type": "observe",
-                },
+                }
             },
         )
         self.assertEqual(r.status_code, 422)
 
     def test_forecast_nonexistent_step_returns_422(self) -> None:
-        # forecast is now a real runner; a nonexistent step_id yields STEP_NOT_FOUND → 422
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/forecast",
             json={
@@ -1217,35 +1439,7 @@ class IntentEndpointTests(unittest.TestCase):
         )
         self.assertEqual(r.status_code, 422)
 
-    # ── derived intents ───────────────────────────────────────────────────────
-
-    def test_attribute_unknown_metric_returns_422(self) -> None:
-        # attribute is now a real runner; an unresolvable metric yields OBSERVE_FAILED → 422
-        r = self.client.post(
-            f"/sessions/{self.session_id}/intents/attribute",
-            json={
-                "metric": _metric_ref("dau"),
-                "left": {
-                    "time_scope": {
-                        "kind": "range",
-                        "start": "2024-01-08",
-                        "end": "2024-01-15",
-                    }
-                },
-                "right": {
-                    "time_scope": {
-                        "kind": "range",
-                        "start": "2024-01-01",
-                        "end": "2024-01-08",
-                    }
-                },
-                "dimensions": ["region"],
-            },
-        )
-        self.assertEqual(r.status_code, 422)
-
     def test_diagnose_invalid_request_returns_422(self) -> None:
-        # diagnose is now implemented; missing required candidate_dimensions → 422
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/diagnose",
             json={
@@ -1256,17 +1450,11 @@ class IntentEndpointTests(unittest.TestCase):
         self.assertEqual(r.status_code, 422)
 
     def test_validate_invalid_request_returns_422(self) -> None:
-        # validate is now implemented; missing required left/right → 422
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/validate",
-            json={
-                "metric": _metric_ref("dau"),
-                # no left, no right — required fields missing
-            },
+            json={"metric": _metric_ref("dau")},
         )
         self.assertEqual(r.status_code, 422)
-
-    # ── non-existent session ──────────────────────────────────────────────────
 
     def test_observe_on_nonexistent_session_returns_404(self) -> None:
         r = self.client.post(
@@ -1464,110 +1652,11 @@ class IntentEndpointWithSemanticLayerTests(unittest.TestCase):
         self.assertEqual(r.json()["metric"], "test_observe_metric")
 
 
-class ObserveTypedArtifactTests(unittest.TestCase):
+class ObserveTypedArtifactTests(_ObserveIntentTestCase, unittest.TestCase):
     """Phase 3a: verify that observe produces a typed observation artifact.
 
     Requires a fully wired semantic layer (metric published + mapped to a source table).
     """
-
-    @classmethod
-    def setUpClass(cls) -> None:
-        from app.main import create_app
-
-        cls.temp_dir = tempfile.TemporaryDirectory()
-        db_path = Path(cls.temp_dir.name) / "observe_artifact.duckdb"
-        cls.db_path = db_path
-        get_seeded_duckdb_path(db_path)
-        _seed_default_calendar_source_metadata(db_path)
-        cls.app = create_app(db_path)
-        cls.client = TestClient(cls.app)
-        cls._setup_semantic_layer(db_path)
-        r = cls.client.post(
-            "/sessions",
-            json={
-                "goal": "observe typed artifact test",
-                "budget": {},
-                "policy": {},
-            },
-        )
-        cls.session_id = r.json()["session_id"]
-
-    @classmethod
-    def tearDownClass(cls) -> None:
-        cls.client.close()
-        cls.temp_dir.cleanup()
-
-    @classmethod
-    def _setup_semantic_layer(cls, db_path: Path) -> None:
-        from uuid import uuid4
-
-        service = cls.app.state.service
-        now = "2026-01-01T00:00:00"
-
-        # Register a source entry (just for FK reference in source_objects)
-        r = cls.client.post(
-            "/sources",
-            json={
-                "source_type": "duckdb",
-                "display_name": "Observe Test Source",
-                "connection": {"path": str(db_path)},
-            },
-        )
-        source_id = r.json()["source_id"]
-        cls.source_id = source_id
-
-        # Register the seeded DuckDB as an engine (same file the analytics engine uses)
-        r = cls.client.post(
-            "/engines",
-            json={
-                "engine_type": "duckdb",
-                "display_name": "Observe Test Engine",
-                "connection": {"database": str(db_path)},
-            },
-        )
-        engine_id = r.json()["engine_id"]
-        cls.client.post(
-            "/bindings",
-            json={"source_id": source_id, "engine_id": engine_id, "priority": 0},
-        )
-
-        # Directly insert a source_object for analytics.watch_events with the correct
-        # 2-part fqn that DuckDB can resolve against the seeded database.
-        obj_id = f"obj_{uuid4().hex[:12]}"
-        service.metadata.execute(
-            """
-            INSERT INTO source_objects
-                (object_id, source_id, object_type, native_name, fqn,
-                 properties_json, created_at, updated_at)
-            VALUES (?, ?, 'table', 'watch_events', 'analytics.watch_events',
-                    '{}', ?, ?)
-            """,
-            [obj_id, source_id, now, now],
-        )
-        cls.watch_events_object_id = obj_id
-        cls.watch_events_fqn = "analytics.watch_events"
-
-        # Create and publish a semantic metric backed by watch_events
-        metric = create_typed_metric(
-            cls.client,
-            name="observe_test_dau",
-            display_name="DAU (observe test)",
-            definition_sql="COUNT(DISTINCT user_id)",
-            dimensions=["event_date", "platform"],
-            grain="day",
-            measure_type="average",
-        )
-        metric_id = metric["metric_contract_id"]
-        publish_typed_metric(cls.client, metric_id)
-        cls.metric_id = metric_id
-
-        # Create typed binding: metric → watch_events source_object
-        create_typed_metric_binding(
-            cls.client,
-            metric_ref="metric.observe_test_dau",
-            object_id=obj_id,
-            carrier_locator=cls.watch_events_fqn,
-        )
 
     def test_observe_returns_typed_artifact_shape(self) -> None:
         r = self.client.post(
@@ -1762,6 +1851,62 @@ class ObserveTypedArtifactTests(unittest.TestCase):
         values = [s["value"] for s in segments if s["value"] is not None]
         self.assertEqual(values, sorted(values, reverse=True))
 
+
+class ObserveAggregateMetricSummaryErrorTests(unittest.TestCase):
+    """Lightweight coverage for aggregate metrics rejected in numeric summary mode."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        cls.db_path = Path(cls.temp_dir.name) / "observe_aggregate_summary.duckdb"
+        get_seeded_duckdb_path(cls.db_path)
+        _seed_default_calendar_source_metadata(cls.db_path)
+        cls.app = create_app(cls.db_path)
+        cls.client = TestClient(cls.app)
+
+        metadata = cls.app.state.service.metadata
+        cls.source_id = _register_duckdb_runtime(
+            cls.client,
+            db_path=cls.db_path,
+            source_display_name="Observe Aggregate Summary Source",
+            engine_display_name="Observe Aggregate Summary Engine",
+        )
+        cls.watch_events_fqn = "analytics.watch_events"
+        cls.watch_events_object_id = _ensure_source_object(
+            metadata,
+            source_id=cls.source_id,
+            native_name="watch_events",
+            fqn=cls.watch_events_fqn,
+        )
+
+        metric = create_typed_metric(
+            cls.client,
+            name="observe_aggregate_summary_dau",
+            display_name="Observe Aggregate Summary DAU",
+            definition_sql="COUNT(DISTINCT user_id)",
+            dimensions=["event_date", "platform"],
+            grain="day",
+            measure_type="average",
+        )
+        publish_typed_metric(cls.client, metric["metric_contract_id"])
+        create_typed_metric_binding(
+            cls.client,
+            metric_ref="metric.observe_aggregate_summary_dau",
+            object_id=cls.watch_events_object_id,
+            carrier_locator=cls.watch_events_fqn,
+        )
+
+        response = cls.client.post(
+            "/sessions",
+            json={"goal": "observe aggregate summary error test", "budget": {}, "policy": {}},
+        )
+        cls.session_id = response.json()["session_id"]
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.client.close()
+        cls.temp_dir.cleanup()
+
     def test_observe_aggregate_metric_numeric_summary_returns_error(self) -> None:
         """Aggregate metric (COUNT DISTINCT) cannot be used as per-row value expression.
 
@@ -1771,7 +1916,7 @@ class ObserveTypedArtifactTests(unittest.TestCase):
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/observe",
             json={
-                "metric": _metric_ref("observe_test_dau"),
+                "metric": _metric_ref("observe_aggregate_summary_dau"),
                 "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
                 "result_mode": "numeric_sample_summary",
             },
@@ -1779,8 +1924,11 @@ class ObserveTypedArtifactTests(unittest.TestCase):
         # DuckDB rejects nested aggregates — returned as 502 (execution error)
         self.assertNotEqual(r.status_code, 200)
 
-    def test_observe_typed_rate_metric_standard_mode_uses_aggregate_sql(self) -> None:
-        metadata = self.client.app.state.service.metadata
+
+class ObserveRateMetricTests(_ObserveIntentTestCase, unittest.TestCase):
+    @classmethod
+    def _setup_additional_semantic_layer(cls) -> None:
+        metadata = cls.app.state.service.metadata
         ensure_published_typed_metric(
             metadata,
             metric_name="observe_typed_rate",
@@ -1792,23 +1940,12 @@ class ObserveTypedArtifactTests(unittest.TestCase):
         ensure_published_typed_metric_binding(
             metadata,
             metric_name="observe_typed_rate",
-            carrier_locator=self.watch_events_fqn,
-            source_object_ref=self.watch_events_object_id,
+            carrier_locator=cls.watch_events_fqn,
+            source_object_ref=cls.watch_events_object_id,
             metric_input_target_keys=["numerator", "denominator"],
             surface_name="play_duration_seconds",
         )
 
-        r = self.client.post(
-            f"/sessions/{self.session_id}/intents/observe",
-            json={
-                "metric": _metric_ref("observe_typed_rate"),
-                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
-            },
-        )
-        self.assertEqual(r.status_code, 200, r.text)
-
-    def test_observe_typed_rate_metric_rate_summary_returns_422(self) -> None:
-        metadata = self.client.app.state.service.metadata
         ensure_published_typed_metric(
             metadata,
             metric_name="observe_typed_rate_summary",
@@ -1820,12 +1957,23 @@ class ObserveTypedArtifactTests(unittest.TestCase):
         ensure_published_typed_metric_binding(
             metadata,
             metric_name="observe_typed_rate_summary",
-            carrier_locator=self.watch_events_fqn,
-            source_object_ref=self.watch_events_object_id,
+            carrier_locator=cls.watch_events_fqn,
+            source_object_ref=cls.watch_events_object_id,
             metric_input_target_keys=["numerator", "denominator"],
             surface_name="play_duration_seconds",
         )
 
+    def test_observe_typed_rate_metric_standard_mode_uses_aggregate_sql(self) -> None:
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/observe",
+            json={
+                "metric": _metric_ref("observe_typed_rate"),
+                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+            },
+        )
+        self.assertEqual(r.status_code, 200, r.text)
+
+    def test_observe_typed_rate_metric_rate_summary_returns_422(self) -> None:
         r = self.client.post(
             f"/sessions/{self.session_id}/intents/observe",
             json={
@@ -1837,58 +1985,49 @@ class ObserveTypedArtifactTests(unittest.TestCase):
         self.assertEqual(r.status_code, 422, r.text)
         self.assertIn("per-row rate value expression", r.text)
 
-    def test_observe_uses_viable_binding_instead_of_first_binding_row(self) -> None:
-        metadata = self.client.app.state.service.metadata
-        metric_name = f"observe_binding_fallback_{uuid4().hex[:8]}"
-        metric_ref = _metric_ref(metric_name)
+
+class ObserveBindingResolutionTests(_ObserveIntentTestCase, unittest.TestCase):
+    @classmethod
+    def _setup_additional_semantic_layer(cls) -> None:
+        metadata = cls.app.state.service.metadata
+
         ensure_published_typed_metric(
             metadata,
-            metric_name=metric_name,
+            metric_name="observe_binding_fallback",
             display_name="Observe Binding Fallback",
             grain="day",
             dimensions=["event_date"],
             measure_type="sum",
         )
-        aux_table = f"observe_aux_binding_{uuid4().hex[:8]}"
-        aux_fqn = f"analytics.{aux_table}"
-        con = duckdb.connect(str(self.db_path))
+        aux_fqn = "analytics.observe_aux_binding"
+        con = duckdb.connect(str(cls.db_path))
         try:
             con.execute("CREATE SCHEMA IF NOT EXISTS analytics")
             con.execute(
                 f"""
-                CREATE TABLE {aux_fqn} (
+                CREATE TABLE IF NOT EXISTS {aux_fqn} (
                     event_date DATE NOT NULL,
                     aux_value DOUBLE NOT NULL
                 )
                 """
             )
+            con.execute(f"DELETE FROM {aux_fqn}")
             con.executemany(
                 f"INSERT INTO {aux_fqn} VALUES (?, ?)",
                 [("2024-01-01", 1.0), ("2024-01-02", 2.0), ("2024-01-03", 3.0)],
             )
         finally:
             con.close()
-        aux_object_id = f"obj_{uuid4().hex[:12]}"
-        metadata.execute(
-            """
-            INSERT INTO source_objects
-                (object_id, source_id, object_type, native_name, fqn,
-                 properties_json, created_at, updated_at)
-            VALUES (?, ?, 'table', ?, ?, '{}', ?, ?)
-            """,
-            [
-                aux_object_id,
-                self.source_id,
-                aux_table,
-                aux_fqn,
-                "2026-01-01T00:00:00",
-                "2026-01-01T00:00:00",
-            ],
+        aux_object_id = _ensure_source_object(
+            metadata,
+            source_id=cls.source_id,
+            native_name="observe_aux_binding",
+            fqn=aux_fqn,
         )
         _create_metric_binding(
-            self.client,
-            binding_ref=f"binding.aaa_{metric_name}_incomplete",
-            metric_ref=metric_ref,
+            cls.client,
+            binding_ref="binding.aaa_observe_binding_fallback_incomplete",
+            metric_ref="metric.observe_binding_fallback",
             source_object_ref=aux_object_id,
             carrier_locator=aux_fqn,
             binding_role="auxiliary",
@@ -1896,86 +2035,57 @@ class ObserveTypedArtifactTests(unittest.TestCase):
             surface_name="aux_value",
         )
         _create_metric_binding(
-            self.client,
-            binding_ref=f"binding.zzz_{metric_name}_complete",
-            metric_ref=metric_ref,
-            source_object_ref=self.watch_events_object_id,
-            carrier_locator=self.watch_events_fqn,
+            cls.client,
+            binding_ref="binding.zzz_observe_binding_fallback_complete",
+            metric_ref="metric.observe_binding_fallback",
+            source_object_ref=cls.watch_events_object_id,
+            carrier_locator=cls.watch_events_fqn,
             binding_role="primary",
             metric_input_target_keys=["measure"],
             surface_name="play_duration_seconds",
         )
 
-        response = self.client.post(
-            f"/sessions/{self.session_id}/intents/observe",
-            json={
-                "metric": metric_ref,
-                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
-            },
-        )
-        self.assertEqual(response.status_code, 200, response.text)
-
-    def test_observe_returns_binding_ambiguity_error_for_multiple_primary_bindings(self) -> None:
-        metadata = self.client.app.state.service.metadata
-        metric_name = f"observe_binding_ambiguous_{uuid4().hex[:8]}"
-        metric_ref = _metric_ref(metric_name)
         ensure_published_typed_metric(
             metadata,
-            metric_name=metric_name,
+            metric_name="observe_binding_ambiguous",
             display_name="Observe Binding Ambiguous",
             grain="day",
             dimensions=["event_date"],
             measure_type="sum",
         )
         _create_metric_binding(
-            self.client,
-            binding_ref=f"binding.aaa_{metric_name}",
-            metric_ref=metric_ref,
-            source_object_ref=self.watch_events_object_id,
-            carrier_locator=self.watch_events_fqn,
+            cls.client,
+            binding_ref="binding.aaa_observe_binding_ambiguous",
+            metric_ref="metric.observe_binding_ambiguous",
+            source_object_ref=cls.watch_events_object_id,
+            carrier_locator=cls.watch_events_fqn,
             binding_role="primary",
             metric_input_target_keys=["measure"],
         )
         _create_metric_binding(
-            self.client,
-            binding_ref=f"binding.bbb_{metric_name}",
-            metric_ref=metric_ref,
-            source_object_ref=self.watch_events_object_id,
-            carrier_locator=self.watch_events_fqn,
+            cls.client,
+            binding_ref="binding.bbb_observe_binding_ambiguous",
+            metric_ref="metric.observe_binding_ambiguous",
+            source_object_ref=cls.watch_events_object_id,
+            carrier_locator=cls.watch_events_fqn,
             binding_role="primary",
             metric_input_target_keys=["measure"],
         )
 
-        response = self.client.post(
-            f"/sessions/{self.session_id}/intents/observe",
-            json={
-                "metric": metric_ref,
-                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
-            },
-        )
-        self.assertEqual(response.status_code, 422, response.text)
-        self.assertIn("ambiguous", response.text)
-        self.assertIn(f"binding.aaa_{metric_name}", response.text)
-        self.assertIn(f"binding.bbb_{metric_name}", response.text)
-
-    def test_observe_returns_metric_input_coverage_error(self) -> None:
-        metadata = self.client.app.state.service.metadata
-        metric_name = f"observe_binding_missing_slot_{uuid4().hex[:8]}"
-        metric_ref = _metric_ref(metric_name)
         ensure_published_typed_metric(
             metadata,
-            metric_name=metric_name,
+            metric_name="observe_binding_missing_slot",
             display_name="Observe Binding Missing Slot",
             grain="day",
             dimensions=["event_date"],
             measure_type="sum",
         )
-        binding_id = _create_metric_binding(
-            self.client,
-            binding_ref=f"binding.{metric_name}_missing_measure",
-            metric_ref=metric_ref,
-            source_object_ref=self.watch_events_object_id,
-            carrier_locator=self.watch_events_fqn,
+        missing_slot_binding_id = _create_metric_binding(
+            cls.client,
+            binding_ref="binding.observe_binding_missing_slot_missing_measure",
+            metric_ref="metric.observe_binding_missing_slot",
+            source_object_ref=cls.watch_events_object_id,
+            carrier_locator=cls.watch_events_fqn,
             binding_role="primary",
             metric_input_target_keys=["measure"],
         )
@@ -1985,13 +2095,37 @@ class ObserveTypedArtifactTests(unittest.TestCase):
             SET target_key = ?, semantic_ref = ?
             WHERE binding_id = ? AND target_kind = 'metric_input'
             """,
-            ["count_target", "metric_input.count_target", binding_id],
+            ["count_target", "metric_input.count_target", missing_slot_binding_id],
         )
 
+    def test_observe_uses_viable_binding_instead_of_first_binding_row(self) -> None:
         response = self.client.post(
             f"/sessions/{self.session_id}/intents/observe",
             json={
-                "metric": metric_ref,
+                "metric": "metric.observe_binding_fallback",
+                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+
+    def test_observe_returns_binding_ambiguity_error_for_multiple_primary_bindings(self) -> None:
+        response = self.client.post(
+            f"/sessions/{self.session_id}/intents/observe",
+            json={
+                "metric": "metric.observe_binding_ambiguous",
+                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+            },
+        )
+        self.assertEqual(response.status_code, 422, response.text)
+        self.assertIn("ambiguous", response.text)
+        self.assertIn("binding.aaa_observe_binding_ambiguous", response.text)
+        self.assertIn("binding.bbb_observe_binding_ambiguous", response.text)
+
+    def test_observe_returns_metric_input_coverage_error(self) -> None:
+        response = self.client.post(
+            f"/sessions/{self.session_id}/intents/observe",
+            json={
+                "metric": "metric.observe_binding_missing_slot",
                 "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
             },
         )
@@ -1999,48 +2133,34 @@ class ObserveTypedArtifactTests(unittest.TestCase):
         self.assertIn("METRIC_INPUT_COVERAGE_MISSING", response.text)
         self.assertIn("missing required metric_input coverage", response.text)
 
-    def test_observe_distribution_metric_uses_bound_value_component(self) -> None:
-        metadata = self.client.app.state.service.metadata
-        metric_name = f"observe_distribution_metric_{uuid4().hex[:8]}"
-        metric_ref = _metric_ref(metric_name)
+
+class ObserveDistributionMetricTests(_ObserveIntentTestCase, unittest.TestCase):
+    @classmethod
+    def _setup_additional_semantic_layer(cls) -> None:
+        metadata = cls.app.state.service.metadata
+
         ensure_published_typed_metric(
             metadata,
-            metric_name=metric_name,
+            metric_name="observe_distribution_metric",
             display_name="Observe Distribution Metric",
             grain="day",
             dimensions=["event_date"],
             measure_type="percentile",
         )
         _create_metric_binding(
-            self.client,
-            binding_ref=f"binding.{metric_name}_primary",
-            metric_ref=metric_ref,
-            source_object_ref=self.watch_events_object_id,
-            carrier_locator=self.watch_events_fqn,
+            cls.client,
+            binding_ref="binding.observe_distribution_metric_primary",
+            metric_ref="metric.observe_distribution_metric",
+            source_object_ref=cls.watch_events_object_id,
+            carrier_locator=cls.watch_events_fqn,
             binding_role="primary",
             metric_input_target_keys=["value_component"],
             surface_name="play_duration_seconds",
         )
 
-        response = self.client.post(
-            f"/sessions/{self.session_id}/intents/observe",
-            json={
-                "metric": metric_ref,
-                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
-            },
-        )
-        self.assertEqual(response.status_code, 200, response.text)
-        payload = response.json()
-        self.assertEqual(payload["observation_type"], "scalar")
-        self.assertEqual(payload["metric"], metric_name)
-
-    def test_observe_distribution_histogram_ready_returns_unsupported_operation(self) -> None:
-        metadata = self.client.app.state.service.metadata
-        metric_name = f"observe_distribution_histogram_{uuid4().hex[:8]}"
-        metric_ref = _metric_ref(metric_name)
         ensure_published_typed_metric(
             metadata,
-            metric_name=metric_name,
+            metric_name="observe_distribution_histogram",
             display_name="Observe Distribution Histogram",
             grain="day",
             dimensions=["event_date"],
@@ -2052,7 +2172,7 @@ class ObserveTypedArtifactTests(unittest.TestCase):
             FROM semantic_metric_contracts
             WHERE metric_ref = ?
             """,
-            [metric_ref],
+            ["metric.observe_distribution_histogram"],
         )
         assert metric_row is not None
         family_payload = json.loads(metric_row["family_payload_json"] or "{}")
@@ -2066,20 +2186,34 @@ class ObserveTypedArtifactTests(unittest.TestCase):
             [json.dumps(family_payload), metric_row["metric_contract_id"]],
         )
         _create_metric_binding(
-            self.client,
-            binding_ref=f"binding.{metric_name}_primary",
-            metric_ref=metric_ref,
-            source_object_ref=self.watch_events_object_id,
-            carrier_locator=self.watch_events_fqn,
+            cls.client,
+            binding_ref="binding.observe_distribution_histogram_primary",
+            metric_ref="metric.observe_distribution_histogram",
+            source_object_ref=cls.watch_events_object_id,
+            carrier_locator=cls.watch_events_fqn,
             binding_role="primary",
             metric_input_target_keys=["value_component"],
             surface_name="play_duration_seconds",
         )
 
+    def test_observe_distribution_metric_uses_bound_value_component(self) -> None:
         response = self.client.post(
             f"/sessions/{self.session_id}/intents/observe",
             json={
-                "metric": metric_ref,
+                "metric": "metric.observe_distribution_metric",
+                "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        payload = response.json()
+        self.assertEqual(payload["observation_type"], "scalar")
+        self.assertEqual(payload["metric"], "observe_distribution_metric")
+
+    def test_observe_distribution_histogram_ready_returns_unsupported_operation(self) -> None:
+        response = self.client.post(
+            f"/sessions/{self.session_id}/intents/observe",
+            json={
+                "metric": "metric.observe_distribution_histogram",
                 "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
             },
         )
@@ -2180,7 +2314,6 @@ class CompareIntentTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-
         from app.main import create_app
         from tests.shared_fixtures import get_seeded_duckdb_path
 
@@ -2193,149 +2326,97 @@ class CompareIntentTests(unittest.TestCase):
         cls.service = cls.app.state.service
         cls.skipped = False
 
-        # -- Wire semantic layer (same pattern as ObserveTypedArtifactTests) --
-        now = "2026-01-01T00:00:00"
-
-        r = cls.client.post(
-            "/sources",
-            json={
-                "source_type": "duckdb",
-                "display_name": "Compare Test Source",
-                "connection": {"path": str(db_path)},
-            },
-        )
-        source_id = r.json()["source_id"]
-
-        r = cls.client.post(
-            "/engines",
-            json={
-                "engine_type": "duckdb",
-                "display_name": "Compare Test Engine",
-                "connection": {"database": str(db_path)},
-            },
-        )
-        engine_id = r.json()["engine_id"]
-        cls.client.post(
-            "/bindings",
-            json={"source_id": source_id, "engine_id": engine_id, "priority": 0},
-        )
-
-        obj_id = f"obj_{__import__('uuid').uuid4().hex[:12]}"
-        cls.service.metadata.execute(
-            """
-            INSERT INTO source_objects
-                (object_id, source_id, object_type, native_name, fqn,
-                 properties_json, created_at, updated_at)
-            VALUES (?, ?, 'table', 'watch_events', 'analytics.watch_events',
-                    '{}', ?, ?)
-            """,
-            [obj_id, source_id, now, now],
-        )
-
-        metric = create_typed_metric(
-            cls.client,
-            name="compare_test_dau",
-            display_name="DAU (compare test)",
-            definition_sql="COUNT(DISTINCT user_id)",
-            dimensions=["event_date", "platform"],
-            grain="day",
-            measure_type="average",
-        )
-        metric_id = metric["metric_contract_id"]
-        publish_typed_metric(cls.client, metric_id)
-        create_typed_metric_binding(
-            cls.client,
-            metric_ref="metric.compare_test_dau",
-            object_id=obj_id,
-            carrier_locator="analytics.watch_events",
-        )
-
-        # Create a second metric for mismatch tests
-        other_metric = create_typed_metric(
-            cls.client,
-            name="compare_test_other",
-            display_name="Other metric",
-            definition_sql="COUNT(*)",
-            dimensions=["event_date"],
-            grain="day",
-            measure_type="average",
-        )
-        cls.other_metric_id = other_metric["metric_contract_id"]
-        if cls.other_metric_id:
-            publish_typed_metric(cls.client, cls.other_metric_id)
-            create_typed_metric_binding(
-                cls.client,
-                metric_ref="metric.compare_test_other",
-                object_id=obj_id,
-                carrier_locator="analytics.watch_events",
-            )
-
-        # Create session
         r = cls.client.post("/sessions", json={"goal": "compare intent test"})
         cls.session_id = r.json()["session_id"]
+        cls.left_step_id = "step_compare_scalar_left"
+        cls.right_step_id = "step_compare_scalar_right"
+        cls.left_seg_step_id = "step_compare_segmented_left"
+        cls.right_seg_step_id = "step_compare_segmented_right"
+        cls.left_ts_step_id = "step_compare_ts_left"
+        cls.right_ts_step_id = "step_compare_ts_right"
+        cls.other_step_id = "step_compare_other_metric"
 
-        # Run two scalar observe steps (different time windows)
-        def _scalar_observe(session_id: str, start: str, end: str) -> str | None:
-            resp = cls.client.post(
-                f"/sessions/{session_id}/intents/observe",
-                json={
-                    "metric": _metric_ref("compare_test_dau"),
-                    "time_scope": {"kind": "range", "start": start, "end": end},
-                },
-            )
-            if resp.status_code != 200:
-                return None
-            return resp.json()["step_ref"]["step_id"]
-
-        def _seg_observe(session_id: str, start: str, end: str) -> str | None:
-            resp = cls.client.post(
-                f"/sessions/{session_id}/intents/observe",
-                json={
-                    "metric": _metric_ref("compare_test_dau"),
-                    "time_scope": {"kind": "range", "start": start, "end": end},
-                    "dimensions": ["platform"],
-                },
-            )
-            if resp.status_code != 200:
-                return None
-            return resp.json()["step_ref"]["step_id"]
-
-        def _time_series_observe(session_id: str, start: str, end: str) -> str | None:
-            resp = cls.client.post(
-                f"/sessions/{session_id}/intents/observe",
-                json={
-                    "metric": _metric_ref("compare_test_dau"),
-                    "time_scope": {"kind": "range", "start": start, "end": end},
-                    "granularity": "day",
-                },
-            )
-            if resp.status_code != 200:
-                return None
-            return resp.json()["step_ref"]["step_id"]
-
-        cls.left_step_id = _scalar_observe(cls.session_id, "2024-01-08", "2024-01-15")
-        cls.right_step_id = _scalar_observe(cls.session_id, "2024-01-01", "2024-01-08")
-        # Use dates within the seeded data range (2026-02-07 to 2026-03-06) for segmented
-        # so segments are non-empty and the compare can succeed.
-        cls.left_seg_step_id = _seg_observe(cls.session_id, "2026-02-14", "2026-02-21")
-        cls.right_seg_step_id = _seg_observe(cls.session_id, "2026-02-07", "2026-02-14")
-        cls.left_ts_step_id = _time_series_observe(cls.session_id, "2026-02-14", "2026-02-21")
-        cls.right_ts_step_id = _time_series_observe(cls.session_id, "2026-02-07", "2026-02-14")
-
-        # Also prepare an observe for the "other" metric (for mismatch test)
-        if cls.other_metric_id:
-            resp = cls.client.post(
-                f"/sessions/{cls.session_id}/intents/observe",
-                json={
-                    "metric": _metric_ref("compare_test_other"),
-                    "time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
-                },
-            )
-            cls.other_step_id = (
-                resp.json().get("step_ref", {}).get("step_id") if resp.status_code == 200 else None
-            )
-        else:
-            cls.other_step_id = None
+        _insert_observe_artifact(
+            cls.service,
+            session_id=cls.session_id,
+            step_id=cls.left_step_id,
+            metric="compare_test_dau",
+            observation_type="scalar",
+            time_scope={"kind": "range", "start": "2024-01-08", "end": "2024-01-15"},
+            value=12.0,
+        )
+        _insert_observe_artifact(
+            cls.service,
+            session_id=cls.session_id,
+            step_id=cls.right_step_id,
+            metric="compare_test_dau",
+            observation_type="scalar",
+            time_scope={"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+            value=10.0,
+        )
+        _insert_observe_artifact(
+            cls.service,
+            session_id=cls.session_id,
+            step_id=cls.left_seg_step_id,
+            metric="compare_test_dau",
+            observation_type="segmented",
+            time_scope={"kind": "range", "start": "2026-02-14", "end": "2026-02-21"},
+            dimensions=["platform"],
+            value=12.0,
+            segments=[
+                {"keys": {"platform": "ios"}, "value": 7.0},
+                {"keys": {"platform": "android"}, "value": 5.0},
+            ],
+        )
+        _insert_observe_artifact(
+            cls.service,
+            session_id=cls.session_id,
+            step_id=cls.right_seg_step_id,
+            metric="compare_test_dau",
+            observation_type="segmented",
+            time_scope={"kind": "range", "start": "2026-02-07", "end": "2026-02-14"},
+            dimensions=["platform"],
+            value=10.0,
+            segments=[
+                {"keys": {"platform": "ios"}, "value": 6.0},
+                {"keys": {"platform": "android"}, "value": 4.0},
+            ],
+        )
+        _insert_observe_artifact(
+            cls.service,
+            session_id=cls.session_id,
+            step_id=cls.left_ts_step_id,
+            metric="compare_test_dau",
+            observation_type="time_series",
+            time_scope={"kind": "range", "start": "2026-02-14", "end": "2026-02-21"},
+            granularity="day",
+            series=[
+                {"window": {"start": "2026-02-14", "end": "2026-02-15"}, "value": 3.0},
+                {"window": {"start": "2026-02-15", "end": "2026-02-16"}, "value": 4.0},
+            ],
+        )
+        _insert_observe_artifact(
+            cls.service,
+            session_id=cls.session_id,
+            step_id=cls.right_ts_step_id,
+            metric="compare_test_dau",
+            observation_type="time_series",
+            time_scope={"kind": "range", "start": "2026-02-07", "end": "2026-02-14"},
+            granularity="day",
+            series=[
+                {"window": {"start": "2026-02-14", "end": "2026-02-15"}, "value": 2.0},
+                {"window": {"start": "2026-02-15", "end": "2026-02-16"}, "value": 5.0},
+            ],
+        )
+        _insert_observe_artifact(
+            cls.service,
+            session_id=cls.session_id,
+            step_id=cls.other_step_id,
+            metric="compare_test_other",
+            observation_type="scalar",
+            time_scope={"kind": "range", "start": "2024-01-01", "end": "2024-01-08"},
+            value=8.0,
+        )
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -2346,28 +2427,17 @@ class CompareIntentTests(unittest.TestCase):
         if self.skipped or self.left_step_id is None or self.right_step_id is None:
             self.skipTest("Semantic layer not fully wired or observe steps failed")
 
-    def _observe_scalar(self, *, start: str, end: str) -> str:
-        response = self.client.post(
-            f"/sessions/{self.session_id}/intents/observe",
-            json={
-                "metric": _metric_ref("compare_test_dau"),
-                "time_scope": {"kind": "range", "start": start, "end": end},
-            },
+    def _seed_scalar_observe(self, *, step_id: str, start: str, end: str) -> str:
+        _insert_observe_artifact(
+            self.service,
+            session_id=self.session_id,
+            step_id=step_id,
+            metric="compare_test_dau",
+            observation_type="scalar",
+            time_scope={"kind": "range", "start": start, "end": end},
+            value=10.0,
         )
-        self.assertEqual(response.status_code, 200, response.text)
-        return response.json()["step_ref"]["step_id"]
-
-    def _observe_time_series(self, *, start: str, end: str) -> str:
-        response = self.client.post(
-            f"/sessions/{self.session_id}/intents/observe",
-            json={
-                "metric": _metric_ref("compare_test_dau"),
-                "time_scope": {"kind": "range", "start": start, "end": end},
-                "granularity": "day",
-            },
-        )
-        self.assertEqual(response.status_code, 200, response.text)
-        return response.json()["step_ref"]["step_id"]
+        return step_id
 
     def _update_observation_resolved_policy_summary(
         self,
@@ -2533,8 +2603,12 @@ class CompareIntentTests(unittest.TestCase):
         self.assertEqual(lineage["derivation_version"], "1.0")
 
     def test_compare_reuses_frozen_calendar_alignment_from_observation_artifacts(self) -> None:
-        left_step_id = self._observe_scalar(start="2026-02-21", end="2026-02-28")
-        right_step_id = self._observe_scalar(start="2026-02-14", end="2026-02-21")
+        left_step_id = self._seed_scalar_observe(
+            step_id="step_compare_frozen_left", start="2026-02-21", end="2026-02-28"
+        )
+        right_step_id = self._seed_scalar_observe(
+            step_id="step_compare_frozen_right", start="2026-02-14", end="2026-02-21"
+        )
         summary = self._resolved_policy_summary(
             resolved_calendar_source="calendar.patched_for_compare_reuse",
             resolved_calendar_version="calendar.patched_for_compare_reuse_v3",
@@ -2596,8 +2670,12 @@ class CompareIntentTests(unittest.TestCase):
         )
 
     def test_compare_fails_when_observation_frozen_alignment_metadata_mismatches(self) -> None:
-        left_step_id = self._observe_scalar(start="2026-02-21", end="2026-02-28")
-        right_step_id = self._observe_scalar(start="2026-02-14", end="2026-02-21")
+        left_step_id = self._seed_scalar_observe(
+            step_id="step_compare_mismatch_left", start="2026-02-21", end="2026-02-28"
+        )
+        right_step_id = self._seed_scalar_observe(
+            step_id="step_compare_mismatch_right", start="2026-02-14", end="2026-02-21"
+        )
         self._update_observation_resolved_policy_summary(
             step_id=left_step_id,
             resolved_policy_summary=self._resolved_policy_summary(
@@ -2635,8 +2713,12 @@ class CompareIntentTests(unittest.TestCase):
         )
 
     def test_compare_rejects_weekday_pairing_tie_from_frozen_observation_metadata(self) -> None:
-        left_step_id = self._observe_scalar(start="2026-02-21", end="2026-02-28")
-        right_step_id = self._observe_scalar(start="2026-02-14", end="2026-02-21")
+        left_step_id = self._seed_scalar_observe(
+            step_id="step_compare_tie_left", start="2026-02-21", end="2026-02-28"
+        )
+        right_step_id = self._seed_scalar_observe(
+            step_id="step_compare_tie_right", start="2026-02-14", end="2026-02-21"
+        )
         summary = self._resolved_policy_summary(comparability_warnings=["weekday_pairing_tie"])
         self._update_observation_resolved_policy_summary(
             step_id=left_step_id,
@@ -2953,175 +3035,178 @@ class DecomposeIntentTests(unittest.TestCase):
         cls.client = TestClient(cls.app)
         cls.service = cls.app.state.service
         cls.skipped = False
-        cls.compare_step_id: str | None = None
-        cls.time_series_compare_step_id: str | None = None
-        cls.segmented_compare_step_id: str | None = None
+        cls.compare_step_id = "step_decompose_scalar_compare"
+        cls.time_series_compare_step_id = "step_decompose_ts_compare"
+        cls.segmented_compare_step_id = "step_decompose_segmented_compare"
 
-        now = "2026-01-01T00:00:00"
-
-        r = cls.client.post(
-            "/sources",
-            json={
-                "source_type": "duckdb",
-                "display_name": "Decompose Test Source",
-                "connection": {"path": str(db_path)},
-            },
-        )
-        source_id = r.json()["source_id"]
-
-        r = cls.client.post(
-            "/engines",
-            json={
-                "engine_type": "duckdb",
-                "display_name": "Decompose Test Engine",
-                "connection": {"database": str(db_path)},
-            },
-        )
-        engine_id = r.json()["engine_id"]
-        cls.client.post(
-            "/bindings",
-            json={"source_id": source_id, "engine_id": engine_id, "priority": 0},
-        )
-
-        obj_id = f"obj_{__import__('uuid').uuid4().hex[:12]}"
-        cls.service.metadata.execute(
-            """
-            INSERT INTO source_objects
-                (object_id, source_id, object_type, native_name, fqn,
-                 properties_json, created_at, updated_at)
-            VALUES (?, ?, 'table', 'watch_events', 'analytics.watch_events',
-                    '{}', ?, ?)
-            """,
-            [obj_id, source_id, now, now],
-        )
-
-        metric = create_typed_metric(
+        source_id = _register_duckdb_runtime(
             cls.client,
-            name="decompose_test_dau",
+            db_path=db_path,
+            source_display_name="Decompose Test Source",
+            engine_display_name="Decompose Test Engine",
+        )
+        obj_id = _ensure_source_object(
+            cls.service.metadata,
+            source_id=source_id,
+            native_name="watch_events",
+            fqn="analytics.watch_events",
+        )
+
+        ensure_published_typed_metric(
+            cls.service.metadata,
+            metric_name="decompose_test_dau",
             display_name="DAU (decompose test)",
             definition_sql="COUNT(DISTINCT user_id)",
             dimensions=["event_date", "platform"],
             grain="day",
-            measure_type="average",
+            measure_type="sum",
         )
-        metric_id = metric["metric_contract_id"]
-        publish_typed_metric(cls.client, metric_id)
         create_typed_metric_binding(
             cls.client,
             metric_ref="metric.decompose_test_dau",
             object_id=obj_id,
             carrier_locator="analytics.watch_events",
+            metric_input_target_keys=["measure"],
         )
 
         r = cls.client.post("/sessions", json={"goal": "decompose intent test"})
         cls.session_id = r.json()["session_id"]
+        left_scalar_step = "step_decompose_scalar_left"
+        right_scalar_step = "step_decompose_scalar_right"
+        left_ts_step = "step_decompose_ts_left"
+        right_ts_step = "step_decompose_ts_right"
+        left_seg_step = "step_decompose_seg_left"
+        right_seg_step = "step_decompose_seg_right"
 
-        # Scalar observations in seeded data range
-        def _scalar_observe(start: str, end: str) -> str | None:
-            resp = cls.client.post(
-                f"/sessions/{cls.session_id}/intents/observe",
-                json={
-                    "metric": _metric_ref("decompose_test_dau"),
-                    "time_scope": {"kind": "range", "start": start, "end": end},
-                },
-            )
-            return resp.json()["step_ref"]["step_id"] if resp.status_code == 200 else None
+        _insert_observe_artifact(
+            cls.service,
+            session_id=cls.session_id,
+            step_id=left_scalar_step,
+            metric="decompose_test_dau",
+            observation_type="scalar",
+            time_scope={"kind": "range", "start": "2026-02-21", "end": "2026-03-07"},
+            value=12.0,
+        )
+        _insert_observe_artifact(
+            cls.service,
+            session_id=cls.session_id,
+            step_id=right_scalar_step,
+            metric="decompose_test_dau",
+            observation_type="scalar",
+            time_scope={"kind": "range", "start": "2026-02-07", "end": "2026-02-21"},
+            value=10.0,
+        )
+        _insert_observe_artifact(
+            cls.service,
+            session_id=cls.session_id,
+            step_id=left_ts_step,
+            metric="decompose_test_dau",
+            observation_type="time_series",
+            time_scope={"kind": "range", "start": "2026-02-21", "end": "2026-03-07"},
+            granularity="day",
+            series=[
+                {"window": {"start": "2026-02-21", "end": "2026-02-22"}, "value": 6.0},
+                {"window": {"start": "2026-02-22", "end": "2026-02-23"}, "value": 6.0},
+            ],
+        )
+        _insert_observe_artifact(
+            cls.service,
+            session_id=cls.session_id,
+            step_id=right_ts_step,
+            metric="decompose_test_dau",
+            observation_type="time_series",
+            time_scope={"kind": "range", "start": "2026-02-07", "end": "2026-02-21"},
+            granularity="day",
+            series=[
+                {"window": {"start": "2026-02-21", "end": "2026-02-22"}, "value": 5.0},
+                {"window": {"start": "2026-02-22", "end": "2026-02-23"}, "value": 5.0},
+            ],
+        )
+        _insert_observe_artifact(
+            cls.service,
+            session_id=cls.session_id,
+            step_id=left_seg_step,
+            metric="decompose_test_dau",
+            observation_type="segmented",
+            time_scope={"kind": "range", "start": "2026-02-21", "end": "2026-03-07"},
+            dimensions=["platform"],
+            value=12.0,
+            segments=[
+                {"keys": {"platform": "ios"}, "value": 7.0},
+                {"keys": {"platform": "android"}, "value": 5.0},
+            ],
+        )
+        _insert_observe_artifact(
+            cls.service,
+            session_id=cls.session_id,
+            step_id=right_seg_step,
+            metric="decompose_test_dau",
+            observation_type="segmented",
+            time_scope={"kind": "range", "start": "2026-02-07", "end": "2026-02-21"},
+            dimensions=["platform"],
+            value=10.0,
+            segments=[
+                {"keys": {"platform": "ios"}, "value": 6.0},
+                {"keys": {"platform": "android"}, "value": 4.0},
+            ],
+        )
 
-        def _seg_observe(start: str, end: str) -> str | None:
-            resp = cls.client.post(
-                f"/sessions/{cls.session_id}/intents/observe",
-                json={
-                    "metric": _metric_ref("decompose_test_dau"),
-                    "time_scope": {"kind": "range", "start": start, "end": end},
-                    "dimensions": ["platform"],
-                },
-            )
-            return resp.json()["step_ref"]["step_id"] if resp.status_code == 200 else None
-
-        def _time_series_observe(start: str, end: str) -> str | None:
-            resp = cls.client.post(
-                f"/sessions/{cls.session_id}/intents/observe",
-                json={
-                    "metric": _metric_ref("decompose_test_dau"),
-                    "time_scope": {"kind": "range", "start": start, "end": end},
-                    "granularity": "day",
-                },
-            )
-            return resp.json()["step_ref"]["step_id"] if resp.status_code == 200 else None
-
-        # Use dates inside seeded range so decompose queries return real data
-        left_scalar = _scalar_observe("2026-02-21", "2026-03-07")
-        right_scalar = _scalar_observe("2026-02-07", "2026-02-21")
-
-        if left_scalar is None or right_scalar is None:
-            cls.skipped = True
-            return
-
-        # Run compare (scalar_delta)
-        r = cls.client.post(
+        scalar_compare = cls.client.post(
             f"/sessions/{cls.session_id}/intents/compare",
             json={
                 "left_ref": {
                     "session_id": cls.session_id,
-                    "step_id": left_scalar,
+                    "step_id": left_scalar_step,
                     "step_type": "observe",
                 },
                 "right_ref": {
                     "session_id": cls.session_id,
-                    "step_id": right_scalar,
+                    "step_id": right_scalar_step,
                     "step_type": "observe",
                 },
             },
         )
-        if r.status_code != 200:
+        if scalar_compare.status_code != 200:
             cls.skipped = True
             return
-        cls.compare_step_id = r.json()["step_ref"]["step_id"]
+        cls.compare_step_id = scalar_compare.json()["step_ref"]["step_id"]
 
-        # Produce a time_series_delta compare for summary-delta decompose support
-        left_ts = _time_series_observe("2026-02-21", "2026-03-07")
-        right_ts = _time_series_observe("2026-02-07", "2026-02-21")
-        if left_ts and right_ts:
-            r_ts = cls.client.post(
-                f"/sessions/{cls.session_id}/intents/compare",
-                json={
-                    "left_ref": {
-                        "session_id": cls.session_id,
-                        "step_id": left_ts,
-                        "step_type": "observe",
-                    },
-                    "right_ref": {
-                        "session_id": cls.session_id,
-                        "step_id": right_ts,
-                        "step_type": "observe",
-                    },
-                    "mode": "time_series",
+        ts_compare = cls.client.post(
+            f"/sessions/{cls.session_id}/intents/compare",
+            json={
+                "left_ref": {
+                    "session_id": cls.session_id,
+                    "step_id": left_ts_step,
+                    "step_type": "observe",
                 },
-            )
-            if r_ts.status_code == 200:
-                cls.time_series_compare_step_id = r_ts.json()["step_ref"]["step_id"]
+                "right_ref": {
+                    "session_id": cls.session_id,
+                    "step_id": right_ts_step,
+                    "step_type": "observe",
+                },
+                "mode": "time_series",
+            },
+        )
+        if ts_compare.status_code == 200:
+            cls.time_series_compare_step_id = ts_compare.json()["step_ref"]["step_id"]
 
-        # Produce a segmented_delta compare for rejection test
-        left_seg = _seg_observe("2026-02-21", "2026-03-07")
-        right_seg = _seg_observe("2026-02-07", "2026-02-21")
-        if left_seg and right_seg:
-            r2 = cls.client.post(
-                f"/sessions/{cls.session_id}/intents/compare",
-                json={
-                    "left_ref": {
-                        "session_id": cls.session_id,
-                        "step_id": left_seg,
-                        "step_type": "observe",
-                    },
-                    "right_ref": {
-                        "session_id": cls.session_id,
-                        "step_id": right_seg,
-                        "step_type": "observe",
-                    },
+        seg_compare = cls.client.post(
+            f"/sessions/{cls.session_id}/intents/compare",
+            json={
+                "left_ref": {
+                    "session_id": cls.session_id,
+                    "step_id": left_seg_step,
+                    "step_type": "observe",
                 },
-            )
-            if r2.status_code == 200:
-                cls.segmented_compare_step_id = r2.json()["step_ref"]["step_id"]
+                "right_ref": {
+                    "session_id": cls.session_id,
+                    "step_id": right_seg_step,
+                    "step_type": "observe",
+                },
+            },
+        )
+        if seg_compare.status_code == 200:
+            cls.segmented_compare_step_id = seg_compare.json()["step_ref"]["step_id"]
 
     @classmethod
     def tearDownClass(cls) -> None:

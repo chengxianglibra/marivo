@@ -27,12 +27,11 @@ from __future__ import annotations
 
 import tempfile
 import unittest
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
-import duckdb
 from fastapi.testclient import TestClient
 
 from app.intents.attribute import run_attribute_intent
@@ -44,6 +43,7 @@ from tests.semantic_test_helpers import (
     ensure_published_typed_metric,
     ensure_published_typed_metric_binding,
 )
+from tests.shared_fixtures import get_named_seeded_duckdb_path
 
 
 def _metric_ref(name: str) -> str:
@@ -111,43 +111,8 @@ def _resolved_policy_summary(
 
 
 def _seed_attr_table(db_path: Path) -> None:
-    """Create analytics.attr_events and seed with 3 channels × 2 time windows.
-
-    Each channel has one row per day per window (3 days each).
-    The metric is SUM(value).
-    """
-    con = duckdb.connect(str(db_path))
-    try:
-        con.execute("CREATE SCHEMA IF NOT EXISTS analytics")
-        con.execute(
-            """
-            CREATE TABLE IF NOT EXISTS analytics.attr_events (
-                event_date DATE    NOT NULL,
-                channel    VARCHAR NOT NULL,
-                region     VARCHAR NOT NULL,
-                value      DOUBLE  NOT NULL
-            )
-            """
-        )
-        rows: list[tuple[str, str, str, float]] = []
-
-        # current window: 2026-03-01 to 2026-03-03
-        current_base = datetime(2026, 3, 1).date()
-        for i in range(3):
-            d = (current_base + timedelta(days=i)).isoformat()
-            for channel, current_daily, _ in _CHANNELS:
-                rows.append((d, channel, "X", current_daily))
-
-        # baseline window: 2026-02-01 to 2026-02-03
-        baseline_base = datetime(2026, 2, 1).date()
-        for i in range(3):
-            d = (baseline_base + timedelta(days=i)).isoformat()
-            for channel, _, baseline_daily in _CHANNELS:
-                rows.append((d, channel, "X", baseline_daily))
-
-        con.executemany("INSERT INTO analytics.attr_events VALUES (?, ?, ?, ?)", rows)
-    finally:
-        con.close()
+    """Copy the shared seeded analytics.attr_events fixture into place."""
+    get_named_seeded_duckdb_path(db_path, "attribute_intent")
 
 
 def _seed_metadata(meta: SQLiteMetadataStore) -> str:
@@ -201,12 +166,11 @@ class AttributeRunnerServiceTests(unittest.TestCase):
         db_path = Path(cls.temp_dir.name) / "attr_svc.duckdb"
         meta_path = Path(cls.temp_dir.name) / "attr_svc.meta.sqlite"
 
+        _seed_attr_table(db_path)
         cls.analytics = DuckDBAnalyticsEngine(str(db_path))
         cls.metadata = SQLiteMetadataStore(str(meta_path))
         cls.metadata.initialize()
         cls.analytics.initialize()
-
-        _seed_attr_table(db_path)
         _seed_metadata(cls.metadata)
 
         cls.service = SemanticLayerService(cls.metadata, cls.analytics)
@@ -847,12 +811,11 @@ class AttributeEndpointTests(unittest.TestCase):
         db_path = Path(cls.temp_dir.name) / "attr_http.duckdb"
         meta_path = Path(cls.temp_dir.name) / "attr_http.meta.sqlite"
 
+        _seed_attr_table(db_path)
         analytics = DuckDBAnalyticsEngine(str(db_path))
         metadata = SQLiteMetadataStore(str(meta_path))
         metadata.initialize()
         analytics.initialize()
-
-        _seed_attr_table(db_path)
         _seed_metadata(metadata)
 
         app = create_app(metadata_store=metadata, analytics_engine=analytics)

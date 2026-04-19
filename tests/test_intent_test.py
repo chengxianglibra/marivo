@@ -22,14 +22,12 @@ Covers:
 from __future__ import annotations
 
 import json
-import random
 import tempfile
 import unittest
 from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
 
-import duckdb
 from fastapi.testclient import TestClient
 
 from app.main import create_app
@@ -40,6 +38,7 @@ from tests.semantic_test_helpers import (
     ensure_published_typed_metric,
     ensure_published_typed_metric_binding,
 )
+from tests.shared_fixtures import get_named_seeded_duckdb_path
 
 
 def _metric_ref(name: str) -> str:
@@ -115,50 +114,6 @@ def _resolved_policy_summary(
         },
         "comparability_warnings": list(comparability_warnings or []),
     }
-
-
-# ── Seeding helpers ───────────────────────────────────────────────────────────
-
-
-def _seed_test_tables(con: duckdb.DuckDBPyConnection) -> None:
-    """Create four tables in DuckDB with deterministic test data.
-
-    test_numeric_a: 200 rows, response_time ~ N(100, 10)
-    test_numeric_b: 200 rows, response_time ~ N(130, 10)  ← large mean diff
-    test_rate_a:   1000 rows, converted ~ Bernoulli(0.30)
-    test_rate_b:   1000 rows, converted ~ Bernoulli(0.50)  ← large rate diff
-
-    All rows have event_date = '2026-01-15' (within the test time window).
-    """
-    rng = random.Random(42)
-
-    con.execute("CREATE SCHEMA IF NOT EXISTS analytics")
-
-    # Numeric tables
-    for tbl_name, mu in (("test_numeric_a", 100.0), ("test_numeric_b", 130.0)):
-        con.execute(
-            f"""
-            CREATE TABLE IF NOT EXISTS analytics.{tbl_name} (
-                event_date  DATE   NOT NULL,
-                response_time DOUBLE NOT NULL
-            )
-            """
-        )
-        rows = [(_DATE, rng.gauss(mu, 10.0)) for _ in range(200)]
-        con.executemany(f"INSERT INTO analytics.{tbl_name} VALUES (?, ?)", rows)
-
-    # Rate tables
-    for tbl_name, rate in (("test_rate_a", 0.30), ("test_rate_b", 0.50)):
-        con.execute(
-            f"""
-            CREATE TABLE IF NOT EXISTS analytics.{tbl_name} (
-                event_date  DATE     NOT NULL,
-                converted   SMALLINT NOT NULL
-            )
-            """
-        )
-        rows = [(_DATE, 1 if rng.random() < rate else 0) for _ in range(1000)]
-        con.executemany(f"INSERT INTO analytics.{tbl_name} VALUES (?, ?)", rows)
 
 
 def _seed_metric(
@@ -239,10 +194,8 @@ class TestRunnerServiceTests(unittest.TestCase):
         cls.analytics = DuckDBAnalyticsEngine(str(db_path))
         cls.metadata = SQLiteMetadataStore(str(meta_path))
         cls.metadata.initialize()
+        get_named_seeded_duckdb_path(db_path, "test_intent")
         cls.analytics.initialize()
-
-        with cls.analytics._connect() as con:
-            _seed_test_tables(con)
 
         cls.metric_num_a = _seed_metric(
             cls.metadata,
@@ -1175,6 +1128,7 @@ class TestIntentEndpointTests(unittest.TestCase):
         db_path = Path(cls.temp_dir.name) / "test_http.duckdb"
 
         analytics = DuckDBAnalyticsEngine(str(db_path))
+        get_named_seeded_duckdb_path(db_path, "test_intent")
         analytics.initialize()
 
         meta_path = db_path.with_suffix(".meta.sqlite")
@@ -1182,7 +1136,6 @@ class TestIntentEndpointTests(unittest.TestCase):
         metadata.initialize()
 
         with analytics._connect() as con:
-            _seed_test_tables(con)
             # Verify within same connection
             r1 = con.execute(
                 "SELECT COUNT(*) FROM information_schema.tables "

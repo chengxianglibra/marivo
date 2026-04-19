@@ -35,7 +35,6 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
-import duckdb
 from fastapi.testclient import TestClient
 
 from app.main import create_app
@@ -46,6 +45,7 @@ from tests.semantic_test_helpers import (
     ensure_published_typed_metric,
     ensure_published_typed_metric_binding,
 )
+from tests.shared_fixtures import get_named_seeded_duckdb_path
 
 
 def _metric_ref(name: str) -> str:
@@ -131,27 +131,8 @@ def _resolved_policy_summary(
 
 
 def _seed_val_table(db_path: Path) -> None:
-    """Create analytics.val_events with two time windows having distinct value profiles."""
-    con = duckdb.connect(str(db_path))
-    try:
-        con.execute("CREATE SCHEMA IF NOT EXISTS analytics")
-        con.execute(
-            """
-            CREATE TABLE IF NOT EXISTS analytics.val_events (
-                event_date   DATE   NOT NULL,
-                value        DOUBLE NOT NULL,
-                binary_value DOUBLE NOT NULL
-            )
-            """
-        )
-        rows: list[tuple[str, float, float]] = []
-        for d, v, b in zip(_DATES_A, _WINDOW_A_VALUES, _WINDOW_A_BINARY, strict=True):
-            rows.append((d, v, b))
-        for d, v, b in zip(_DATES_B, _WINDOW_B_VALUES, _WINDOW_B_BINARY, strict=True):
-            rows.append((d, v, b))
-        con.executemany("INSERT INTO analytics.val_events VALUES (?, ?, ?)", rows)
-    finally:
-        con.close()
+    """Copy the shared seeded analytics.val_events fixture into place."""
+    get_named_seeded_duckdb_path(db_path, "validate_intent")
 
 
 def _seed_metadata(meta: SQLiteMetadataStore) -> None:
@@ -215,12 +196,11 @@ class ValidateRunnerServiceTests(unittest.TestCase):
         db_path = Path(cls.temp_dir.name) / "val_svc.duckdb"
         meta_path = Path(cls.temp_dir.name) / "val_svc.meta.sqlite"
 
+        _seed_val_table(db_path)
         cls.analytics = DuckDBAnalyticsEngine(str(db_path))
         cls.metadata = SQLiteMetadataStore(str(meta_path))
         cls.metadata.initialize()
         cls.analytics.initialize()
-
-        _seed_val_table(db_path)
         _seed_metadata(cls.metadata)
 
         cls.service = SemanticLayerService(cls.metadata, cls.analytics)
@@ -497,12 +477,11 @@ class ValidateValidationBoundaryTests(unittest.TestCase):
         db_path = Path(cls.temp_dir.name) / "val_val.duckdb"
         meta_path = Path(cls.temp_dir.name) / "val_val.meta.sqlite"
 
+        _seed_val_table(db_path)
         analytics = DuckDBAnalyticsEngine(str(db_path))
         metadata = SQLiteMetadataStore(str(meta_path))
         metadata.initialize()
         analytics.initialize()
-
-        _seed_val_table(db_path)
         _seed_metadata(metadata)
 
         cls.service = SemanticLayerService(metadata, analytics)
@@ -604,12 +583,11 @@ class ValidateHTTPTests(unittest.TestCase):
         db_path = Path(cls.temp_dir.name) / "val_http.duckdb"
         meta_path = Path(cls.temp_dir.name) / "val_http.meta.sqlite"
 
+        _seed_val_table(db_path)
         analytics = DuckDBAnalyticsEngine(str(db_path))
         metadata = SQLiteMetadataStore(str(meta_path))
         metadata.initialize()
         analytics.initialize()
-
-        _seed_val_table(db_path)
         _seed_metadata(metadata)
 
         app = create_app(metadata_store=metadata, analytics_engine=analytics)

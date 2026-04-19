@@ -127,6 +127,18 @@ App startup requires `factum.yaml` metadata config with `metadata.engine=sqlite`
   `setUpClass`.
 - Bump a named template's version string when its seeded schema or rows change so cached `/tmp`
   copies rebuild automatically.
+- Fresh SQLite metadata stores are initialized from the cached empty schema template in
+  `tests/shared_fixtures.py`; existing metadata files still run the real initializer so migration
+  tests keep covering schema upgrades. Bump the metadata template version when metadata DDL changes.
+- For heavy intent API tests, prefer class-level reuse of published semantic objects and seeded
+  upstream artifacts over creating and publishing new metrics/bindings inside individual test
+  methods. When compare/correlate-style tests only need committed upstream artifacts, seed the
+  minimal artifact payloads directly instead of executing repeated observe setup queries.
+- When an intent API test file covers multiple semantic scenarios, split them into scenario-specific
+  test classes so each `setUpClass` only creates the metrics, dimensions, bindings, and seeded
+  upstream tables required by that group.
+- For repeated intent bridge/import tables, add them to a named DuckDB template instead of creating
+  and repopulating the table inside each test class setup.
 
 ## Docs layout:
 - `docs/api/`: external HTTP API docs only; target-state step submission is in `intent-steps.md`, and canonical read surfaces are split into `session-state.md` and `context-surface.md`
