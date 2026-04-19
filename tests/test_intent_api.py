@@ -238,6 +238,7 @@ def _insert_observe_artifact(
     segments: list[dict[str, object]] | None = None,
     granularity: str | None = None,
     series: list[dict[str, object]] | None = None,
+    aligned_baseline_series: list[dict[str, object]] | None = None,
     unit: str | None = None,
     resolved_policy_summary: dict[str, object] | None = None,
 ) -> str:
@@ -272,6 +273,8 @@ def _insert_observe_artifact(
         payload["granularity"] = granularity
     if series is not None:
         payload["series"] = series
+    if aligned_baseline_series is not None:
+        payload["aligned_baseline_series"] = aligned_baseline_series
     if resolved_policy_summary is not None:
         payload["resolved_policy_summary"] = resolved_policy_summary
     artifact_id = service._insert_artifact(
@@ -2809,11 +2812,90 @@ class CompareIntentTests(unittest.TestCase):
         self.assertIn("rows", data)
         self.assertTrue(len(data["rows"]) > 0)
         self.assertIn("summary_absolute_delta", data)
+        self.assertEqual(data["analytical_metadata"]["pairing_basis"], "observed_series")
         self.assertIn("matched_bucket_count", data["analytical_metadata"])
         for row in data["rows"]:
             self.assertIn("window", row)
             self.assertIn("presence", row)
             self.assertIn("direction", row)
+
+    def test_time_series_compare_reuses_calendar_aligned_bucket_pairing(self) -> None:
+        left_step_id = "step_compare_ts_calendar_left"
+        right_step_id = "step_compare_ts_calendar_right"
+        _insert_observe_artifact(
+            self.service,
+            session_id=self.session_id,
+            step_id=left_step_id,
+            metric="compare_test_dau",
+            observation_type="time_series",
+            time_scope={"kind": "range", "start": "2026-02-14", "end": "2026-02-21"},
+            granularity="day",
+            series=[
+                {"window": {"start": "2026-02-14", "end": "2026-02-15"}, "value": 10.0},
+                {"window": {"start": "2026-02-15", "end": "2026-02-16"}, "value": 12.0},
+            ],
+        )
+        _insert_observe_artifact(
+            self.service,
+            session_id=self.session_id,
+            step_id=right_step_id,
+            metric="compare_test_dau",
+            observation_type="time_series",
+            time_scope={"kind": "range", "start": "2025-02-14", "end": "2025-02-21"},
+            granularity="day",
+            series=[
+                {"window": {"start": "2025-02-14", "end": "2025-02-15"}, "value": 9.0},
+                {"window": {"start": "2025-02-15", "end": "2025-02-16"}, "value": 11.0},
+            ],
+        )
+        summary = self._resolved_policy_summary()
+        self._update_observation_resolved_policy_summary(
+            step_id=left_step_id,
+            resolved_policy_summary=summary,
+        )
+        self._update_observation_resolved_policy_summary(
+            step_id=right_step_id,
+            resolved_policy_summary=summary,
+        )
+
+        response = self.client.post(
+            f"/sessions/{self.session_id}/intents/compare",
+            json={
+                "left_ref": {
+                    "session_id": self.session_id,
+                    "step_id": left_step_id,
+                    "step_type": "observe",
+                },
+                "right_ref": {
+                    "session_id": self.session_id,
+                    "step_id": right_step_id,
+                    "step_type": "observe",
+                },
+                "mode": "time_series",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()
+        self.assertEqual(
+            data["analytical_metadata"]["pairing_basis"],
+            "calendar_aligned_observation_windows",
+        )
+        self.assertEqual(
+            data["analytical_metadata"]["pairing_rule"],
+            "calendar_aligned_bucket_pairing",
+        )
+        self.assertEqual(data["summary_left_value"], 10.0)
+        self.assertEqual(data["summary_right_value"], 9.0)
+        self.assertEqual(data["summary_absolute_delta"], 1.0)
+        self.assertEqual(
+            data["analytical_metadata"]["matched_left_time_scope"],
+            {"kind": "range", "start": "2026-02-14", "end": "2026-02-15"},
+        )
+        self.assertEqual(
+            data["analytical_metadata"]["matched_right_time_scope"],
+            {"kind": "range", "start": "2025-02-14", "end": "2025-02-15"},
+        )
 
     def test_compare_mode_time_series_guard(self) -> None:
         self._skip_if_not_wired()

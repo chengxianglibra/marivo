@@ -171,6 +171,7 @@ def _time_series_delta_payload(
     rows: list[dict[str, Any]] | None = None,
     unit: str | None = "usd",
     granularity: str = "day",
+    analytical_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if rows is None:
         rows = [
@@ -215,8 +216,15 @@ def _time_series_delta_payload(
             "right_time_scope": {"kind": "range", "start": "2023-12-25", "end": "2023-12-27"},
         },
         "comparability": {"status": "comparable", "issues": []},
-        "analytical_metadata": {
-            "matched_time_scope": {"kind": "range", "start": "2024-01-01", "end": "2024-01-03"}
+        "analytical_metadata": analytical_metadata
+        or {
+            "pairing_basis": "observed_series",
+            "pairing_rule": "intersection_by_time_bucket",
+            "matched_time_scope": {
+                "kind": "range",
+                "start": "2024-01-01",
+                "end": "2024-01-03",
+            },
         },
     }
 

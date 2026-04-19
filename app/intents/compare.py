@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -47,6 +48,124 @@ def _coverage_ratio_value(summary: Any) -> float | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
     return float(value)
+
+
+def _require_mapping(value: Any, *, label: str) -> Mapping[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"compare: INVALID_ARGUMENT - {label} must be an object")
+    return value
+
+
+def _window_start(row: dict[str, Any], *, label: str) -> str:
+    window = _require_mapping(row.get("window"), label=label)
+    start = window.get("start")
+    if not isinstance(start, str) or not start:
+        raise ValueError(f"compare: INVALID_ARGUMENT - {label}.start must be a string")
+    return start
+
+
+def _series_map_by_start(series: list[dict[str, Any]], *, label: str) -> dict[str, dict[str, Any]]:
+    by_start: dict[str, dict[str, Any]] = {}
+    for row in series:
+        by_start[_window_start(row, label=label)] = row
+    return by_start
+
+
+def _matched_scope_from_windows(windows: list[tuple[str, str]]) -> dict[str, Any] | None:
+    if not windows:
+        return None
+    return {
+        "kind": "range",
+        "start": windows[0][0],
+        "end": windows[-1][1],
+    }
+
+
+def _resolve_time_series_pairing_basis(
+    *,
+    left_artifact: dict[str, Any],
+    right_artifact: dict[str, Any],
+) -> dict[str, Any]:
+    left_series: list[dict[str, Any]] = left_artifact.get("series") or []
+    right_series: list[dict[str, Any]] = right_artifact.get("series") or []
+    left_series_map = {_series_row_key(row): row for row in left_series}
+    right_series_map = {_series_row_key(row): row for row in right_series}
+    default_keys = sorted(set(left_series_map) | set(right_series_map))
+
+    left_summary = left_artifact.get("resolved_policy_summary")
+    right_summary = right_artifact.get("resolved_policy_summary")
+    if not isinstance(left_summary, dict) or not isinstance(right_summary, dict):
+        return {
+            "pairing_basis": "observed_series",
+            "pairing_rule": "intersection_by_time_bucket",
+            "series_keys": default_keys,
+            "left_series_map": left_series_map,
+            "right_series_map": right_series_map,
+        }
+
+    left_bucket_pairing = left_summary.get("bucket_pairing")
+    right_bucket_pairing = right_summary.get("bucket_pairing")
+    if not isinstance(left_bucket_pairing, list) or not isinstance(right_bucket_pairing, list):
+        return {
+            "pairing_basis": "observed_series",
+            "pairing_rule": "intersection_by_time_bucket",
+            "series_keys": default_keys,
+            "left_series_map": left_series_map,
+            "right_series_map": right_series_map,
+        }
+
+    left_by_current = _series_map_by_start(left_series, label="left.series.window")
+    right_by_current = _series_map_by_start(right_series, label="right.series.window")
+
+    paired_left: dict[str, dict[str, Any]] = {}
+    paired_right: dict[str, dict[str, Any]] = {}
+    paired_keys: list[str] = []
+    seen_keys: set[str] = set()
+
+    for pairing in left_bucket_pairing:
+        pairing_map = _require_mapping(
+            pairing,
+            label="left.resolved_policy_summary.bucket_pairing[]",
+        )
+        current_bucket_start = pairing_map.get("current_bucket_start")
+        baseline_bucket_start = pairing_map.get("baseline_bucket_start")
+        if not isinstance(current_bucket_start, str) or not current_bucket_start:
+            raise ValueError(
+                "compare: INVALID_ARGUMENT - left.resolved_policy_summary.bucket_pairing[].current_bucket_start must be a string"
+            )
+        if not isinstance(baseline_bucket_start, str) or not baseline_bucket_start:
+            continue
+        left_current_row = left_by_current.get(current_bucket_start)
+        right_baseline_row = right_by_current.get(baseline_bucket_start)
+        if left_current_row is None or right_baseline_row is None:
+            continue
+        key = _series_row_key(left_current_row)
+        paired_left[key] = left_current_row
+        paired_right[key] = {
+            "window": dict(left_current_row.get("window") or {}),
+            "value": right_baseline_row.get("value"),
+            "_matched_window": dict(right_baseline_row.get("window") or {}),
+        }
+        if key not in seen_keys:
+            paired_keys.append(key)
+            seen_keys.add(key)
+
+    if not paired_keys:
+        return {
+            "pairing_basis": "observed_series",
+            "pairing_rule": "intersection_by_time_bucket",
+            "series_keys": default_keys,
+            "left_series_map": left_series_map,
+            "right_series_map": right_series_map,
+        }
+
+    return {
+        "pairing_basis": "calendar_aligned_observation_windows",
+        "pairing_rule": "calendar_aligned_bucket_pairing",
+        "series_keys": sorted(paired_keys),
+        "left_series_map": paired_left,
+        "right_series_map": paired_right,
+    }
 
 
 def run_compare_intent(
@@ -326,10 +445,13 @@ def run_compare_intent(
         granularity = left_artifact.get("granularity")
         left_series: list[dict[str, Any]] = left_artifact.get("series") or []
         right_series: list[dict[str, Any]] = right_artifact.get("series") or []
-
-        left_series_map = {_series_row_key(row): row for row in left_series}
-        right_series_map = {_series_row_key(row): row for row in right_series}
-        all_series_keys = sorted(set(left_series_map) | set(right_series_map))
+        pairing_basis = _resolve_time_series_pairing_basis(
+            left_artifact=left_artifact,
+            right_artifact=right_artifact,
+        )
+        left_series_map = pairing_basis["left_series_map"]
+        right_series_map = pairing_basis["right_series_map"]
+        all_series_keys = pairing_basis["series_keys"]
         if not all_series_keys:
             raise ValueError(
                 "compare: NOT_COMPARABLE - no time-series buckets found in either observation"
@@ -338,6 +460,8 @@ def run_compare_intent(
         time_series_rows: list[dict[str, Any]] = []
         matched_left_values: list[float] = []
         matched_right_values: list[float] = []
+        matched_left_windows: list[tuple[str, str]] = []
+        matched_right_windows: list[tuple[str, str]] = []
 
         for key in all_series_keys:
             left_row = left_series_map.get(key)
@@ -353,6 +477,12 @@ def run_compare_intent(
                 row_dir = _compute_direction(row_abs, row_rel, flat_tolerance_relative)
                 matched_left_values.append(left_value)
                 matched_right_values.append(right_value)
+                matched_left_windows.append(_normalize_window(left_row.get("window") or {}))
+                matched_right_windows.append(
+                    _normalize_window(
+                        right_row.get("_matched_window") or right_row.get("window") or {}
+                    )
+                )
             elif left_value is not None:
                 presence = "left_only"
                 row_abs = left_value
@@ -387,23 +517,9 @@ def run_compare_intent(
         summary_rel = _compute_relative_delta(summary_abs, summary_right_value)
         summary_dir = _compute_direction(summary_abs, summary_rel, flat_tolerance_relative)
 
-        matched_windows = [
-            _normalize_window(left_series_map[key].get("window") or {})
-            for key in all_series_keys
-            if (
-                key in left_series_map
-                and key in right_series_map
-                and _coerce_numeric_or_none(left_series_map[key].get("value")) is not None
-                and _coerce_numeric_or_none(right_series_map[key].get("value")) is not None
-            )
-        ]
-        matched_time_scope: dict[str, Any] | None = None
-        if matched_windows:
-            matched_time_scope = {
-                "kind": "range",
-                "start": matched_windows[0][0],
-                "end": matched_windows[-1][1],
-            }
+        matched_time_scope = _matched_scope_from_windows(matched_left_windows)
+        matched_left_time_scope = _matched_scope_from_windows(matched_left_windows)
+        matched_right_time_scope = _matched_scope_from_windows(matched_right_windows)
 
         analytical_metadata.update(
             {
@@ -436,8 +552,11 @@ def run_compare_intent(
                         if _coerce_numeric_or_none(row.get("value")) is None
                     ),
                 ),
-                "pairing_rule": "intersection_by_time_bucket",
+                "pairing_basis": pairing_basis["pairing_basis"],
+                "pairing_rule": pairing_basis["pairing_rule"],
                 "matched_time_scope": matched_time_scope,
+                "matched_left_time_scope": matched_left_time_scope,
+                "matched_right_time_scope": matched_right_time_scope,
             }
         )
 

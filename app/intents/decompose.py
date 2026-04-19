@@ -442,9 +442,16 @@ def _normalize_decompose_compare_input(compare_artifact: dict[str, Any]) -> dict
         analytical = compare_artifact.get("analytical_metadata") or {}
         left_time_scope = dict(resolved_input.get("left_time_scope") or {})
         right_time_scope = dict(resolved_input.get("right_time_scope") or {})
+        matched_left_time_scope = analytical.get("matched_left_time_scope")
+        matched_right_time_scope = analytical.get("matched_right_time_scope")
         matched_time_scope = analytical.get("matched_time_scope")
-        if isinstance(matched_time_scope, dict) and matched_time_scope:
+        if isinstance(matched_left_time_scope, dict) and matched_left_time_scope:
+            left_time_scope = dict(matched_left_time_scope)
+        elif isinstance(matched_time_scope, dict) and matched_time_scope:
             left_time_scope = dict(matched_time_scope)
+        if isinstance(matched_right_time_scope, dict) and matched_right_time_scope:
+            right_time_scope = dict(matched_right_time_scope)
+        elif isinstance(matched_time_scope, dict) and matched_time_scope:
             right_time_scope = dict(matched_time_scope)
 
         return {
@@ -465,6 +472,8 @@ def _normalize_decompose_compare_input(compare_artifact: dict[str, Any]) -> dict
                 "source_matched_bucket_count": analytical.get("matched_bucket_count"),
                 "source_dropped_left_buckets": analytical.get("dropped_left_buckets"),
                 "source_dropped_right_buckets": analytical.get("dropped_right_buckets"),
+                "source_pairing_basis": analytical.get("pairing_basis"),
+                "source_pairing_rule": analytical.get("pairing_rule"),
             },
         }
 
