@@ -38,9 +38,25 @@ def run_live_smoke(config: FactumMcpConfig) -> list[SmokeCheckResult]:
 
         session_id = _extract_session_id(session)
         if session_id is not None:
+            terminated = client.request_envelope(
+                "POST",
+                f"/sessions/{session_id}/terminate",
+                json_body={"terminal_reason": "user_closed"},
+            )
+            results.append(_result_from_envelope("terminate_session", terminated))
             session_state = client.request_envelope("GET", f"/sessions/{session_id}/state")
             results.append(_result_from_envelope("get_session_state", session_state))
         else:
+            results.append(
+                SmokeCheckResult(
+                    name="terminate_session",
+                    ok=False,
+                    status_code=session.status_code,
+                    category="server_error",
+                    factum_path="/sessions/{session_id}/terminate",
+                    message="Skipped because create_session did not return a session_id.",
+                )
+            )
             results.append(
                 SmokeCheckResult(
                     name="get_session_state",

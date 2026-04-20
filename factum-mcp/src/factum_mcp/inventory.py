@@ -51,6 +51,14 @@ SURFACE_SPECS: tuple[McpSurfaceSpec, ...] = (
     McpSurfaceSpec("list_sessions", "tool", "p1", False, "GET", ("/sessions",)),
     McpSurfaceSpec("get_session", "tool", "p0", True, "GET", ("/sessions/{session_id}",)),
     McpSurfaceSpec(
+        "terminate_session",
+        "tool",
+        "p0",
+        True,
+        "POST",
+        ("/sessions/{session_id}/terminate",),
+    ),
+    McpSurfaceSpec(
         "get_session_state",
         "tool",
         "p0",

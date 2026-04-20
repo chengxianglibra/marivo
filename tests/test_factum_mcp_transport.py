@@ -305,6 +305,7 @@ def test_registers_t4_discovery_and_catalog_tools() -> None:
     assert set(server.tools) >= {
         "create_session",
         "get_session",
+        "terminate_session",
         "get_session_state",
         "query_session_state",
         "get_proposition_context",
@@ -847,6 +848,46 @@ def test_create_session_omits_null_optional_fields() -> None:
 
     assert result["ok"] is True
     assert result["data"] == {"session_id": "sess_min"}
+
+
+def test_terminate_session_uses_canonical_lifecycle_endpoint() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"
+        assert request.url.path == "/sessions/sess_123/terminate"
+        assert request.read() == b'{"terminal_reason":"answered"}'
+        return httpx.Response(
+            200,
+            json={"session_id": "sess_123", "lifecycle": {"status": "closed"}},
+            request=request,
+        )
+
+    result = _invoke_registered_tool(
+        "terminate_session",
+        handler,
+        session_id="sess_123",
+        terminal_reason="answered",
+    )
+
+    assert result["ok"] is True
+    assert result["data"] == {"session_id": "sess_123", "lifecycle": {"status": "closed"}}
+    assert result["meta"]["factum_path"] == "/sessions/sess_123/terminate"
+
+
+def test_terminate_session_uses_default_terminal_reason() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"
+        assert request.url.path == "/sessions/sess_default/terminate"
+        assert request.read() == b'{"terminal_reason":"user_closed"}'
+        return httpx.Response(200, json={"session_id": "sess_default"}, request=request)
+
+    result = _invoke_registered_tool(
+        "terminate_session",
+        handler,
+        session_id="sess_default",
+    )
+
+    assert result["ok"] is True
+    assert result["data"] == {"session_id": "sess_default"}
 
 
 def test_get_session_uses_session_root_endpoint() -> None:

@@ -297,6 +297,7 @@ Current session / state / context coverage:
 
 - `create_session(goal, budget=None, policy=None)` -> `POST /sessions`
 - `get_session(session_id)` -> `GET /sessions/{session_id}`
+- `terminate_session(session_id, terminal_reason="user_closed")` -> `POST /sessions/{session_id}/terminate`
 - `get_session_state(session_id, metric=None, entity=None, proposition_type=None, origin_kind=None, assessment_presence=None, assessment_status=None, has_blocking_gaps=None, limit=None, page_token=None)` -> `GET /sessions/{session_id}/state`
 - `query_session_state(session_id, metric=None, entity=None, slice=None, proposition_types=None, origin_kinds=None, assessment_presence=None, assessment_statuses=None, has_blocking_gaps=None, limit=None, page_token=None)` -> `POST /sessions/{session_id}/state/query`
 - `get_proposition_context(session_id, proposition_id)` -> `GET /sessions/{session_id}/propositions/{proposition_id}/context`
@@ -305,6 +306,7 @@ Boundary notes:
 
 - `create_session()` only accepts canonical session-root fields; execution filters belong in typed
   intent requests such as `scope.constraints` or `scope.predicate`
+- `terminate_session()` is the explicit lifecycle close-out step for agent-driven investigations once no further writes are needed
 - `get_session_state()` mirrors the `GET /state` query contract and intentionally does not support `slice`
 - use `query_session_state()` when `slice` or a structured state query body is required
 - `get_session_state()` is proposition-centered canonical state, not a session step or artifact inventory
