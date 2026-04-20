@@ -22,6 +22,11 @@ import duckdb
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 from app.storage.schema import METADATA_DDL
 
+# Capture the original (unpatched) initialize before conftest.py monkeys it.
+# This prevents _build_default_template from re-entering the template build
+# path, which would deadlock on the fcntl file lock.
+_unpatched_duckdb_initialize = DuckDBAnalyticsEngine.initialize
+
 
 @dataclass(frozen=True)
 class _TemplateSpec:
@@ -32,7 +37,10 @@ class _TemplateSpec:
 
 def _build_default_template(db_path: Path) -> None:
     engine = DuckDBAnalyticsEngine(db_path)
-    engine.initialize()
+    # Use the original (unpatched) initialize to avoid re-entering the
+    # template build path via the conftest monkey-patch, which would
+    # deadlock on the fcntl file lock.
+    _unpatched_duckdb_initialize(engine)
 
 
 def _build_regression_8_5_template(db_path: Path) -> None:
