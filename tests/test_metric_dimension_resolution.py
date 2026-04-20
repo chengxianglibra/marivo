@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 from uuid import uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import create_app
@@ -245,6 +246,7 @@ class TypedMetricDimensionResolutionTests(unittest.TestCase):
         self.assertEqual(publish_response.status_code, 200, publish_response.text)
         return str(binding_ref)
 
+    @pytest.mark.slow
     def test_typed_metric_dimensions_fallback_to_entity_binding_stable_descriptors(self) -> None:
         suffix = uuid4().hex[:8]
         entity_ref = self._create_entity(

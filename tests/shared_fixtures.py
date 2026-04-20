@@ -185,6 +185,7 @@ def _build_test_intent_template(db_path: Path) -> None:
     try:
         rng = random.Random(42)
         con.execute("CREATE SCHEMA IF NOT EXISTS analytics")
+        # Reduced from 200 to 50 rows - sufficient for statistical tests
         for table_name, mean in (("test_numeric_a", 100.0), ("test_numeric_b", 130.0)):
             con.execute(
                 f"""
@@ -194,9 +195,10 @@ def _build_test_intent_template(db_path: Path) -> None:
                 )
                 """
             )
-            rows = [("2026-01-15", rng.gauss(mean, 10.0)) for _ in range(200)]
+            rows = [("2026-01-15", rng.gauss(mean, 10.0)) for _ in range(50)]
             con.executemany(f"INSERT INTO analytics.{table_name} VALUES (?, ?)", rows)
 
+        # Reduced from 1000 to 100 rows - sufficient for rate tests
         for table_name, rate in (("test_rate_a", 0.30), ("test_rate_b", 0.50)):
             con.execute(
                 f"""
@@ -206,7 +208,7 @@ def _build_test_intent_template(db_path: Path) -> None:
                 )
                 """
             )
-            rows = [("2026-01-15", 1 if rng.random() < rate else 0) for _ in range(1000)]
+            rows = [("2026-01-15", 1 if rng.random() < rate else 0) for _ in range(100)]
             con.executemany(f"INSERT INTO analytics.{table_name} VALUES (?, ?)", rows)
     finally:
         con.close()
@@ -239,6 +241,49 @@ def _build_validate_intent_template(db_path: Path) -> None:
             ("2024-02-05", 15.0, 1.0),
         ]
         con.executemany("INSERT INTO analytics.val_events VALUES (?, ?, ?)", rows)
+    finally:
+        con.close()
+
+
+def _build_detect_intent_template(db_path: Path) -> None:
+    """Pre-seeded detect_events with spike and uniform_events for detect tests."""
+    _build_default_template(db_path)
+    con = duckdb.connect(str(db_path))
+    try:
+        con.execute("CREATE SCHEMA IF NOT EXISTS analytics")
+        # detect_events: 14 days with spike on day 7 (500 rows vs 100 rows)
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS analytics.detect_events (
+                event_date DATE NOT NULL,
+                value      DOUBLE NOT NULL
+            )
+            """
+        )
+        rows: list[tuple[str, float]] = []
+        base_date = datetime(2026, 1, 1).date()
+        for i in range(14):
+            d = (base_date + timedelta(days=i)).isoformat()
+            count = 500 if i == 7 else 100
+            for _ in range(count):
+                rows.append((d, 1.0))
+        con.executemany("INSERT INTO analytics.detect_events VALUES (?, ?)", rows)
+
+        # uniform_events: 14 days uniform (100 rows each day)
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS analytics.uniform_events (
+                event_date DATE NOT NULL,
+                value      DOUBLE NOT NULL
+            )
+            """
+        )
+        rows = []
+        for i in range(14):
+            d = (base_date + timedelta(days=i)).isoformat()
+            for _ in range(100):
+                rows.append((d, 1.0))
+        con.executemany("INSERT INTO analytics.uniform_events VALUES (?, ?)", rows)
     finally:
         con.close()
 
@@ -366,7 +411,7 @@ _TEMPLATE_SPECS: dict[str, _TemplateSpec] = {
         ),
     ),
     "test_intent": _TemplateSpec(
-        version="test_intent_v2",
+        version="test_intent_v3",
         builder=_build_test_intent_template,
         validator=lambda db_path: _all_tables_exist(
             db_path,
@@ -385,6 +430,18 @@ _TEMPLATE_SPECS: dict[str, _TemplateSpec] = {
         validator=lambda db_path: _all_tables_exist(
             db_path,
             [("analytics", "watch_events"), ("analytics", "val_events")],
+        ),
+    ),
+    "detect_intent": _TemplateSpec(
+        version="detect_intent_v1",
+        builder=_build_detect_intent_template,
+        validator=lambda db_path: _all_tables_exist(
+            db_path,
+            [
+                ("analytics", "watch_events"),
+                ("analytics", "detect_events"),
+                ("analytics", "uniform_events"),
+            ],
         ),
     ),
     "intent_api": _TemplateSpec(

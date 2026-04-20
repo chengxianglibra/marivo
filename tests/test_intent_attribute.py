@@ -162,7 +162,74 @@ def _seed_metadata(meta: SQLiteMetadataStore) -> str:
 # ── Direct service tests ───────────────────────────────────────────────────────
 
 
+class _LazyBundle:
+    """Descriptor for lazy bundle computation on first access.
+
+    Avoids running 6 full attribute intents in setUpClass when only 1-2 bundles
+    are needed by the tests actually executed in a given worker.
+    """
+
+    def __init__(
+        self, name: str, dimensions: list[str] | None = None, decomposition_limit: int = 5
+    ):
+        self.name = name
+        self.dimensions = dimensions
+        self.decomposition_limit = decomposition_limit
+        self._cache_key = f"_lazy_{name}"
+        self._session_key = f"_lazy_sid_{name}"
+
+    def __get__(self, obj: AttributeRunnerServiceTests, objtype: type) -> dict:
+        if obj is None:
+            raise AttributeError(f"{self.name} bundle accessed on class, not instance")
+        cache = getattr(objtype, "_bundle_cache", None)
+        if cache is None:
+            cache = {}
+            objtype._bundle_cache = cache
+        if self._cache_key not in cache:
+            session_id = obj.service.create_session(f"attr {self.name} cache", {}, {}, {})[
+                "session_id"
+            ]
+            cache[self._session_key] = session_id
+            cache[self._cache_key] = obj._run_attribute(
+                session_id,
+                dimensions=self.dimensions,
+                decomposition_limit=self.decomposition_limit,
+            )
+        return cache[self._cache_key]
+
+
+class _LazySessionId:
+    """Descriptor to get session_id for a lazy bundle."""
+
+    def __init__(self, bundle_name: str):
+        self.bundle_name = bundle_name
+        self._session_key = f"_lazy_sid_{bundle_name}"
+        self._cache_key = f"_lazy_{bundle_name}"
+
+    def __get__(self, obj: AttributeRunnerServiceTests, objtype: type) -> str:
+        if obj is None:
+            raise AttributeError(f"{self.bundle_name} session_id accessed on class, not instance")
+        cache = getattr(objtype, "_bundle_cache", {})
+        if self._session_key not in cache:
+            # Trigger bundle computation first
+            getattr(obj, self.bundle_name + "_bundle")
+            cache = getattr(objtype, "_bundle_cache", {})
+        return cache[self._session_key]
+
+
 class AttributeRunnerServiceTests(unittest.TestCase):
+    # Lazy bundle descriptors - computed only when accessed by a test
+    default_bundle = _LazyBundle("default", dimensions=["channel"])
+    default_session_id = _LazySessionId("default")
+    two_dim_bundle = _LazyBundle("two_dim", dimensions=["channel", "region"])
+    two_dim_session_id = _LazySessionId("two_dim")
+    truncated_bundle = _LazyBundle("truncated", dimensions=["channel"], decomposition_limit=2)
+    not_truncated_bundle = _LazyBundle(
+        "not_truncated", dimensions=["channel"], decomposition_limit=10
+    )
+    deduplicated_bundle = _LazyBundle("dedup", dimensions=["channel", "channel", "region"])
+    limit_three_bundle = _LazyBundle("limit_three", dimensions=["channel"], decomposition_limit=3)
+
     @classmethod
     def setUpClass(cls) -> None:
         cls.temp_dir = tempfile.TemporaryDirectory()
@@ -177,34 +244,7 @@ class AttributeRunnerServiceTests(unittest.TestCase):
         _seed_metadata(cls.metadata)
 
         cls.service = SemanticLayerService(cls.metadata, cls.analytics)
-        cls.default_session_id = cls.service.create_session("attr default cache", {}, {}, {})[
-            "session_id"
-        ]
-        cls.default_bundle = cls._run_attribute(cls.default_session_id)
-        cls.two_dim_session_id = cls.service.create_session("attr two dim cache", {}, {}, {})[
-            "session_id"
-        ]
-        cls.two_dim_bundle = cls._run_attribute(
-            cls.two_dim_session_id, dimensions=["channel", "region"]
-        )
-        cls.truncated_bundle = cls._run_attribute(
-            cls.service.create_session("attr truncated cache", {}, {}, {})["session_id"],
-            dimensions=["channel"],
-            decomposition_limit=2,
-        )
-        cls.not_truncated_bundle = cls._run_attribute(
-            cls.service.create_session("attr not truncated cache", {}, {}, {})["session_id"],
-            dimensions=["channel"],
-            decomposition_limit=10,
-        )
-        cls.deduplicated_bundle = cls._run_attribute(
-            cls.service.create_session("attr dedup cache", {}, {}, {})["session_id"],
-            dimensions=["channel", "channel", "region"],
-        )
-        cls.limit_three_bundle = cls._run_attribute(
-            cls.service.create_session("attr limit cache", {}, {}, {})["session_id"],
-            decomposition_limit=3,
-        )
+        cls._bundle_cache: dict[str, dict] = {}
 
     @classmethod
     def tearDownClass(cls) -> None:

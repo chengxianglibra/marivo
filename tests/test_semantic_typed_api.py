@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 from uuid import uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import create_app
@@ -507,6 +508,7 @@ class SemanticTypedApiTests(unittest.TestCase):
         self.assertEqual(deprecate_resp.status_code, 200, deprecate_resp.text)
         self.assertEqual(deprecate_resp.json()["status"], "deprecated")
 
+    @pytest.mark.slow
     def test_typed_binding_and_profile_lifecycle(self) -> None:
         entity_ref, entity_id = self._create_entity(
             "entity.account", key_refs=["key.account_id"], publish=True
@@ -1175,6 +1177,7 @@ class SemanticTypedApiTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 422, resp.text)
         self.assertIn("numerator' and 'denominator", resp.json()["detail"])
 
+    @pytest.mark.slow
     def test_binding_publish_requires_published_dependencies_and_grounding(self) -> None:
         time_resp = self.client.post(
             "/semantic/time",
@@ -1485,6 +1488,7 @@ class SemanticTypedApiTests(unittest.TestCase):
             message_substring="Imported binding must be published",
         )
 
+    @pytest.mark.slow
     def test_process_object_dimension_time_and_enum_set_lifecycle(self) -> None:
         time_resp = self.client.post(
             "/semantic/time",
@@ -1719,6 +1723,7 @@ class SemanticTypedApiTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 422, resp.text)
         self.assertIsInstance(resp.json()["detail"], str)
 
+    @pytest.mark.slow
     def test_publish_requires_published_cross_object_refs(self) -> None:
         enum_resp = self.client.post(
             "/semantic/enum-sets",
@@ -1861,6 +1866,7 @@ class SemanticTypedApiTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 422, resp.text)
         self.assertIsInstance(resp.json()["detail"], str)
 
+    @pytest.mark.slow
     def test_publish_requires_published_entity_and_metric_refs(self) -> None:
         # Create a time object but do NOT publish it yet
         time_resp = self.client.post(
@@ -2124,6 +2130,7 @@ class SemanticTypedApiTests(unittest.TestCase):
         self.assertEqual(payload["error"]["code"], "request_validation_error")
         self.assertEqual(payload["guidance"]["docs_url"], "docs/api/semantic.md")
 
+    @pytest.mark.slow
     def test_detail_reads_accept_canonical_refs_for_all_typed_object_families(self) -> None:
         suffix = uuid4().hex[:8]
 

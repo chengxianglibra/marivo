@@ -21,6 +21,7 @@ from typing import Any
 from uuid import uuid4
 
 import duckdb
+import pytest
 from fastapi.testclient import TestClient
 
 from app.api.models import (
@@ -1317,6 +1318,7 @@ class ObserveIntentImportBridgeMissingEndpointTests(
         self.assertEqual(detail["issues"][0]["code"], "COMPILER_DIMENSION_IMPORT_MISSING")
 
 
+@pytest.mark.slow
 class ObserveIntentImportBridgeAmbiguousEndpointTests(
     _SemanticObserveIntentEndpointMixin, unittest.TestCase
 ):
@@ -2192,6 +2194,7 @@ class _ObserveBindingResolutionBase(_ObserveIntentTestCase):
         )
 
 
+@pytest.mark.slow
 class ObserveBindingFallbackTests(_ObserveBindingResolutionBase, unittest.TestCase):
     @classmethod
     def _setup_additional_semantic_layer(cls) -> None:
@@ -2229,6 +2232,7 @@ class ObserveBindingFallbackTests(_ObserveBindingResolutionBase, unittest.TestCa
         self.assertEqual(response.status_code, 200, response.text)
 
 
+@pytest.mark.slow
 class ObserveBindingAmbiguityTests(_ObserveBindingResolutionBase, unittest.TestCase):
     @classmethod
     def _setup_additional_semantic_layer(cls) -> None:

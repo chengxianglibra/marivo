@@ -23,10 +23,9 @@ from __future__ import annotations
 
 import tempfile
 import unittest
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 
-import duckdb
 from fastapi.testclient import TestClient
 
 from app.main import create_app
@@ -37,6 +36,7 @@ from tests.semantic_test_helpers import (
     ensure_published_typed_metric,
     ensure_published_typed_metric_binding,
 )
+from tests.shared_fixtures import get_named_seeded_duckdb_path
 
 
 def _metric_ref(name: str) -> str:
@@ -46,57 +46,9 @@ def _metric_ref(name: str) -> str:
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
-def _seed_detect_test_table(db_path: Path) -> None:
-    """Inject a known time-series with one clear spike into the DuckDB file.
-
-    14 days: days 0-6 and 8-13 have 100 rows each; day 7 has 500 rows (5× spike).
-    Expected z-score for day 7 ≈ 3.6 (> all sensitivity thresholds).
-    """
-    con = duckdb.connect(str(db_path))
-    try:
-        con.execute("CREATE SCHEMA IF NOT EXISTS analytics")
-        con.execute(
-            """
-            CREATE TABLE IF NOT EXISTS analytics.detect_events (
-                event_date DATE NOT NULL,
-                value      DOUBLE NOT NULL
-            )
-            """
-        )
-        rows: list[tuple[str, float]] = []
-        base_date = datetime(2026, 1, 1).date()
-        for i in range(14):
-            d = base_date + timedelta(days=i)
-            count = 500 if i == 7 else 100
-            for _ in range(count):
-                rows.append((d.isoformat(), 1.0))
-        con.executemany("INSERT INTO analytics.detect_events VALUES (?, ?)", rows)
-    finally:
-        con.close()
-
-
-def _seed_uniform_detect_table(db_path: Path) -> None:
-    """Inject a perfectly uniform time-series with no anomalies."""
-    con = duckdb.connect(str(db_path))
-    try:
-        con.execute("CREATE SCHEMA IF NOT EXISTS analytics")
-        con.execute(
-            """
-            CREATE TABLE IF NOT EXISTS analytics.uniform_events (
-                event_date DATE NOT NULL,
-                value      DOUBLE NOT NULL
-            )
-            """
-        )
-        rows: list[tuple[str, float]] = []
-        base_date = datetime(2026, 1, 1).date()
-        for i in range(14):
-            d = base_date + timedelta(days=i)
-            for _ in range(100):
-                rows.append((d.isoformat(), 1.0))
-        con.executemany("INSERT INTO analytics.uniform_events VALUES (?, ?)", rows)
-    finally:
-        con.close()
+def _seed_detect_tables(db_path: Path) -> None:
+    """Copy the cached detect_intent template with spike/uniform data."""
+    get_named_seeded_duckdb_path(db_path, "detect_intent")
 
 
 def _seed_metadata(
@@ -163,8 +115,7 @@ class DetectRunnerServiceTests(unittest.TestCase):
         cls.metadata.initialize()
         cls.analytics.initialize()
 
-        _seed_detect_test_table(db_path)
-        _seed_uniform_detect_table(db_path)
+        _seed_detect_tables(db_path)
 
         # Spike metric: detect_event_count → analytics.detect_events
         cls.spike_metric = _seed_metadata(
