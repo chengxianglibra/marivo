@@ -28,6 +28,7 @@ from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import create_app
@@ -185,6 +186,7 @@ def _duckdb_table_visible(engine: DuckDBAnalyticsEngine, table_fqn: str) -> bool
 # ── Direct-service tests ──────────────────────────────────────────────────────
 
 
+@pytest.mark.slow
 class TestRunnerServiceTests(unittest.TestCase):
     """Tests that call run_test_intent through SemanticLayerService directly."""
 

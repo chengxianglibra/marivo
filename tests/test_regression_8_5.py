@@ -24,6 +24,8 @@ import unittest
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 from app.analysis_core import (
     COMPOSITE_STEP_TYPES,
     STEP_TAXONOMY,
@@ -449,6 +451,7 @@ class SemanticLayerRegressionTests(_RegressionServiceTestCase):
         self.assertIn("region", resolved.dimensions)
 
 
+@pytest.mark.slow
 class TypedMetricSqlCompilationTests(_RegressionServiceTestCase):
     duckdb_filename = "typed_metric_sql.duckdb"
     metadata_filename = "typed_metric_sql.meta.sqlite"
