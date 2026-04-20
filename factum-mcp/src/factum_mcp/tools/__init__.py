@@ -148,6 +148,19 @@ def register_tools(
         return client.request_envelope("GET", f"/sessions/{session_id}").model_dump()
 
     @server.tool()
+    @_tool_metadata("POST", "/sessions/{session_id}/terminate")
+    def terminate_session(
+        session_id: str,
+        terminal_reason: str = "user_closed",
+    ) -> dict[str, object]:
+        """Explicitly terminate one session via POST /sessions/{session_id}/terminate using the canonical session lifecycle contract."""
+        return client.request_envelope(
+            "POST",
+            f"/sessions/{session_id}/terminate",
+            json_body=_compact_body(terminal_reason=terminal_reason),
+        ).model_dump()
+
+    @server.tool()
     @_tool_metadata("GET", "/sessions/{session_id}/state")
     def get_session_state(
         session_id: str,

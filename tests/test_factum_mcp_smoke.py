@@ -33,7 +33,7 @@ def _build_config() -> Any:
     )
 
 
-def test_live_smoke_covers_health_openapi_session_state_and_validation() -> None:
+def test_live_smoke_covers_health_openapi_session_lifecycle_state_and_validation() -> None:
     requests: list[tuple[str, str]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -44,6 +44,12 @@ def test_live_smoke_covers_health_openapi_session_state_and_validation() -> None
             return httpx.Response(200, json={"revision": "rev_123", "paths": []}, request=request)
         if request.url.path == "/sessions":
             return httpx.Response(200, json={"session_id": "sess_123"}, request=request)
+        if request.url.path == "/sessions/sess_123/terminate":
+            return httpx.Response(
+                200,
+                json={"session_id": "sess_123", "lifecycle": {"status": "closed"}},
+                request=request,
+            )
         if request.url.path == "/sessions/sess_123/state":
             return httpx.Response(
                 200,
@@ -83,6 +89,7 @@ def test_live_smoke_covers_health_openapi_session_state_and_validation() -> None
         ("health_check", True),
         ("list_openapi_paths", True),
         ("create_session", True),
+        ("terminate_session", True),
         ("get_session_state", True),
         ("validation_envelope", True),
     ]
@@ -90,6 +97,7 @@ def test_live_smoke_covers_health_openapi_session_state_and_validation() -> None
         ("GET", "/health"),
         ("GET", "/openapi/index"),
         ("POST", "/sessions"),
+        ("POST", "/sessions/sess_123/terminate"),
         ("GET", "/sessions/sess_123/state"),
         ("POST", "/semantic/entities"),
     ]
