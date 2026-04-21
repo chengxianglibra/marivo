@@ -8,6 +8,7 @@
 - `docs/semantic/enum-set-schema-contract.zh.md`
 - `docs/semantic/metric-process-contract.zh.md`
 - `docs/semantic/metric-v2-schema.zh.md`
+- `docs/semantic/predicate-schema-contract.zh.md`
 - `docs/semantic/process-object-schema.zh.md`
 - `docs/semantic/compiler-compatibility-profile.zh.md`
 - `docs/semantic/time-schema-contract.zh.md`
@@ -141,6 +142,8 @@ compiler 必须优先复用 typed refs，而不是在下游请求里重建上游
 - 编译后的 normalized input 必须保留两者分离
 - `time_scope` 只表达本次请求的观察范围，不重写 catalog 中的 `time.*` taxonomy；合法时间锚点仍由 metric / process / dimension contract 决定
 - compiler 必须把 `time_scope` 解析到单一的 `resolved_filter_time_ref`，但同时保留 metric / process / window 各自的时间引用
+- `scope.predicate` 若存在，应与 `predicate.*` contract 对齐为同一受限表达式形态，而不是平行 DSL
+- request `scope` 只能进一步收窄 metric / binding / governance 已声明的过滤约束；无法证明 narrowing 时应 fail closed
 
 ### 2. artifact 与 projection 严格分层
 

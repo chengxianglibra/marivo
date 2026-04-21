@@ -4,6 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.analysis_core.additivity_capabilities import derive_additivity_capabilities
 from app.semantic_runtime.resolution import ResolvedSemanticObject
 
 ProfileReader = Callable[[str], list[dict[str, Any]]]
@@ -14,6 +15,7 @@ class DerivedMetricCapabilities:
     supports_observe: bool = True
     supports_compare: bool = False
     supports_decompose: bool = False
+    supports_attribute: bool = False
     supports_test: bool = False
     supports_detect: bool = False
     supports_validate: bool = False
@@ -88,6 +90,7 @@ class DerivedCompilerState:
                 "supports_observe": self.metric_capabilities.supports_observe,
                 "supports_compare": self.metric_capabilities.supports_compare,
                 "supports_decompose": self.metric_capabilities.supports_decompose,
+                "supports_attribute": self.metric_capabilities.supports_attribute,
                 "supports_test": self.metric_capabilities.supports_test,
                 "supports_detect": self.metric_capabilities.supports_detect,
                 "supports_validate": self.metric_capabilities.supports_validate,
@@ -142,6 +145,7 @@ def derive_compiler_state(
                 "derived_keys": [
                     "supports_compare",
                     "supports_decompose",
+                    "supports_attribute",
                     "supports_detect",
                     "supports_observe",
                     "supports_test",
@@ -237,20 +241,22 @@ def _derive_metric_capabilities(
     resolved_process: ResolvedSemanticObject | None,
 ) -> DerivedMetricCapabilities:
     header = dict(resolved_metric.semantic_object.get("header") or {})
-    sample_kind = str(header.get("sample_kind") or "").strip()
-    additivity = str(header.get("additivity") or "").strip()
-    primary_time_ref = _optional_str(header.get("primary_time_ref"))
     process_anchor_time_ref = None
     if resolved_process is not None:
         process_contract = dict(resolved_process.semantic_object.get("interface_contract") or {})
         process_anchor_time_ref = _optional_str(process_contract.get("anchor_time_ref"))
+    caps = derive_additivity_capabilities(
+        header=header,
+        process_anchor_time_ref=process_anchor_time_ref,
+    )
     return DerivedMetricCapabilities(
-        supports_observe=True,
-        supports_compare=bool(additivity and primary_time_ref),
-        supports_decompose=additivity in {"additive", "semi_additive"},
-        supports_test=sample_kind in {"numeric", "rate", "binary"},
-        supports_detect=bool(primary_time_ref or process_anchor_time_ref),
-        supports_validate=(sample_kind == "rate" and bool(process_anchor_time_ref)),
+        supports_observe=caps.supports_observe,
+        supports_compare=caps.supports_compare,
+        supports_decompose=caps.supports_decompose,
+        supports_attribute=caps.supports_attribute,
+        supports_test=caps.supports_test,
+        supports_detect=caps.supports_detect,
+        supports_validate=caps.supports_validate,
     )
 
 

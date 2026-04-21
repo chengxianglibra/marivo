@@ -226,16 +226,17 @@ class SemanticMetricRouteTests(unittest.TestCase):
         self.assertEqual(metric["blocking_requirements"], [])
         self.assertEqual(metric["dependency_refs"], ["entity.user"])
         self.assertEqual(
-            metric["capabilities"],
-            {
-                "supports_observe": True,
-                "supports_attribute": False,
-                "supports_diagnose": True,
-                "supports_detect": False,
-                "supports_validate": False,
-                "supports_decompose": True,
-            },
+            metric["capabilities"]["supports_observe"],
+            True,
         )
+        # additive metric supports decompose; no primary_time_ref means no compare/detect
+        self.assertEqual(metric["capabilities"]["supports_compare"], False)
+        self.assertEqual(metric["capabilities"]["supports_decompose"], True)
+        self.assertEqual(metric["capabilities"]["supports_attribute"], False)
+        # sample_kind=numeric means supports_test=True
+        self.assertEqual(metric["capabilities"]["supports_test"], True)
+        self.assertEqual(metric["capabilities"]["supports_detect"], False)
+        self.assertEqual(metric["capabilities"]["supports_validate"], False)
 
         resp = self.client.get(f"/semantic/metrics/{metric_id}")
         self.assertEqual(resp.status_code, 200, resp.text)
@@ -267,17 +268,14 @@ class SemanticMetricRouteTests(unittest.TestCase):
         self.assertEqual(
             resp.json()["blocking_requirements"][0]["details"]["required_binding_scope"], "metric"
         )
-        self.assertEqual(
-            resp.json()["capabilities"],
-            {
-                "supports_observe": True,
-                "supports_attribute": False,
-                "supports_diagnose": True,
-                "supports_detect": False,
-                "supports_validate": False,
-                "supports_decompose": True,
-            },
-        )
+        capabilities = resp.json()["capabilities"]
+        self.assertEqual(capabilities["supports_observe"], True)
+        self.assertEqual(capabilities["supports_compare"], False)
+        self.assertEqual(capabilities["supports_decompose"], True)
+        self.assertEqual(capabilities["supports_attribute"], False)
+        self.assertEqual(capabilities["supports_test"], True)
+        self.assertEqual(capabilities["supports_detect"], False)
+        self.assertEqual(capabilities["supports_validate"], False)
         self.assertEqual(resp.json()["revision"], 3)
 
         resp = self.client.get("/semantic/metrics?status=published")

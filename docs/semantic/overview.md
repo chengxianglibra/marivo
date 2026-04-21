@@ -68,6 +68,7 @@ process schema ----/--/
 | [`process-object-schema.zh.md`](./process-object-schema.zh.md) | `process object` 的目标 schema | 过程对象如何声明稳定接口、subtype 如何建模、哪些 capability 应保留 vs 推导 |
 | [`entity-schema-contract.zh.md`](./entity-schema-contract.zh.md) | `entity` 的目标 schema | entity 如何作为独立语义锚点，不依赖 binding，不暴露 process 语义 |
 | [`dimension-schema-contract.zh.md`](./dimension-schema-contract.zh.md) | `dimension` 的目标 schema | 共享分析维度如何成为独立 contract，structure_kind 与 semantic_role 分离 |
+| [`predicate-schema-contract.zh.md`](./predicate-schema-contract.zh.md) | `predicate.*` 的目标 schema | 过滤语义如何成为独立 contract，如何区分 metric qualifier、binding row filter 与 request scope |
 | [`enum-set-schema-contract.zh.md`](./enum-set-schema-contract.zh.md) | `dimension` 的受治理值域 contract | `enum_set_ref` / `enum_version` 引用的值域本体是什么、版本锚定哪一层、与 governance / binding 如何分层 |
 | [`typed-binding-contract.zh.md`](./typed-binding-contract.zh.md) | 语义对象到物理层的绑定契约 | semantic refs 如何映射到 carriers / surfaces / relations，使用类型化 BindingTarget |
 | [`evidence-integration.zh.md`](./evidence-integration.zh.md) | Evidence 与 Semantic 的集成边界 | canonical refs / canonical artifact refs 与 `metric_ref`、`process_ref`、广义 `semantic_ref` 如何分层、关联与禁止互相替代 |
@@ -90,7 +91,7 @@ process schema ----/--/
 
 如果不先建立这层分工，后面的 schema 文档会显得像一组孤立字段设计。
 
-### 2. 再看五个核心对象与一个配套值域契约
+### 2. 再看六个核心对象与一个配套值域契约
 
 随后阅读：
 
@@ -98,21 +99,23 @@ process schema ----/--/
 2. [`process-object-schema.zh.md`](./process-object-schema.zh.md)
 3. [`entity-schema-contract.zh.md`](./entity-schema-contract.zh.md)
 4. [`dimension-schema-contract.zh.md`](./dimension-schema-contract.zh.md)
-5. [`time-schema-contract.zh.md`](./time-schema-contract.zh.md)
-6. [`calendar-alignment-policy.zh.md`](./calendar-alignment-policy.zh.md)
-7. [`calendar-data-contract.zh.md`](./calendar-data-contract.zh.md)
-8. [`calendar-data-v1-source-note.zh.md`](./calendar-data-v1-source-note.zh.md)
-9. [`calendar-version-freeze-policy.zh.md`](./calendar-version-freeze-policy.zh.md)
-10. [`calendar-annotation-generation-policy.zh.md`](./calendar-annotation-generation-policy.zh.md)
-11. [`calendar-annotation-failure-policy.zh.md`](./calendar-annotation-failure-policy.zh.md)
-12. [`enum-set-schema-contract.zh.md`](./enum-set-schema-contract.zh.md)
+5. [`predicate-schema-contract.zh.md`](./predicate-schema-contract.zh.md)
+6. [`time-schema-contract.zh.md`](./time-schema-contract.zh.md)
+7. [`calendar-alignment-policy.zh.md`](./calendar-alignment-policy.zh.md)
+8. [`calendar-data-contract.zh.md`](./calendar-data-contract.zh.md)
+9. [`calendar-data-v1-source-note.zh.md`](./calendar-data-v1-source-note.zh.md)
+10. [`calendar-version-freeze-policy.zh.md`](./calendar-version-freeze-policy.zh.md)
+11. [`calendar-annotation-generation-policy.zh.md`](./calendar-annotation-generation-policy.zh.md)
+12. [`calendar-annotation-failure-policy.zh.md`](./calendar-annotation-failure-policy.zh.md)
+13. [`enum-set-schema-contract.zh.md`](./enum-set-schema-contract.zh.md)
 
-前五篇定义 semantic layer 中最核心的五类对象，第六篇补充 `dimension` 在 enumerated domain 下依赖的值域契约：
+前六篇定义 semantic layer 中最核心的六类对象，第七篇补充 `dimension` 在 enumerated domain 下依赖的值域契约：
 
 - `metric`：measurement contract
 - `process object`：process/interface contract
 - `entity`：稳定业务身份与引用锚点
 - `dimension`：共享分析轴与值治理 contract
+- `predicate`：共享过滤语义与 lineage contract
 - `time`：共享时间语义与时间锚点 contract
 - `calendar alignment policy`：可比期生成、holiday/weekday 对齐与 bucket pairing contract
 - `calendar data` logical contract：resolver 实际依赖的日粒度注释字段与 source/version 边界
@@ -127,6 +130,7 @@ process schema ----/--/
 - 如果你关心“漏斗 / cohort / experiment / lifecycle 这类对象该放在哪里”，优先看 `process-object-schema`
 - 如果你关心“`entity.*` / `subject.*` / `grain.*` / `key.*` 这些 ref taxonomy 为什么要分开”，优先看 `entity-schema-contract`
 - 如果你关心“`dimension.*` 为什么不能继续只是 metric 上的字符串数组”，优先看 `dimension-schema-contract`
+- 如果你关心“metric qualifier、binding row filter、request scope 为什么不能继续各自维护一套 filter 语义”，优先看 `predicate-schema-contract`
 - 如果你关心“`enum_set_ref` / `enum_version` 到底引用什么，以及为什么它需要独立文档但不是新的顶层对象”，优先看 `enum-set-schema-contract`
 - 如果你关心“`time_scope`、`primary_time_ref`、`anchor_time_ref`、late arrival / freshness 应分别落在哪层”，优先看 `time-schema-contract`
 - 如果你关心“同比不按自然日，而按节假日或周几对齐该落在哪层”，优先看 `calendar-alignment-policy`
@@ -181,6 +185,7 @@ process schema ----/--/
 - **semantic / physical 分层**：对象层表达”是什么”，binding 层表达”如何落地”，compiler/IR 表达”如何组合与编译”。
 - **stable object contract / compiler profile 分层**：对象主 contract 只保留稳定且必须的语义字段；组合兼容、治理与执行前置条件优先进入 compiler profile / governance context；capability 从核心字段推导。
 - **dimensions are first-class semantic axes**：共享维度应是独立对象，而不是继续退回成 metric 上的字符串数组。
+- **predicates are first-class filter semantics**：共享过滤语义应通过 `predicate.*` 治理，而不是在 metric、binding、request scope 中各自发明局部 filter DSL。
 - **process semantics 从 metric 中拆出**：复杂总体构造、路径、阶段、session、实验上下文不应继续塞进 metric。
 - **time semantics are layered**：时间语义引用、窗口本体、消费策略三层清晰分离；角色可组合而非排斥。
 - **typed refs 是组合边界**：下游应优先消费 canonical artifact refs，而不是重建上游 scope/time_scope。

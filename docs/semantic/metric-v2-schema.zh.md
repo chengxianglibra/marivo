@@ -6,6 +6,7 @@
 
 - `docs/semantic/dimension-schema-contract.zh.md`
 - `docs/semantic/metric-process-contract.zh.md`
+- `docs/semantic/predicate-schema-contract.zh.md`
 - `docs/semantic/process-object-schema.zh.md`
 - `docs/semantic/time-schema-contract.zh.md`
 - `docs/semantic/ir-schema-contract.zh.md`
@@ -304,6 +305,13 @@ class MeasurementComponent(TypedDict):
 - `predicate`：执行细节，不属于 public contract
 - `dedup_key`：执行细节，不属于 public contract
 - `dedup_strategy`：执行细节，不属于 public contract
+
+其中 `qualifier_refs` 的语义边界应保持明确：
+
+- 它引用受治理的 `predicate.*` contract，而不是内联 SQL 或局部 filter DSL
+- 它表达 component-specific business predicates，是 measurement identity 的一部分
+- 对 `rate_metric` / `average_metric`，numerator 与 denominator 的 `qualifier_refs` 必须分别保留 lineage，不能在编译期被压平成单个全局 predicate
+- 若所有 component 共享同一组默认过滤，应通过 metric-level `default_predicate_refs` 一类的 ref list 表达，而不是吞并 component qualifier lineage
 
 ### Distribution Spec
 
@@ -818,6 +826,8 @@ metric 创建或发布前，建议至少校验：
 - `rate_metric` / `average_metric` 的 `numerator`、`denominator` 必填
 - `distribution_spec.percentile` 在 `0 < p < 1`
 - 所有 `*_ref` 均可解析
+- `qualifier_refs` 若存在，必须引用可解析的 `predicate.*`
+- `qualifier_refs` 使用的 predicate 必须允许 `metric_qualifier` usage
 
 组合期还应额外校验：
 
@@ -825,6 +835,7 @@ metric 创建或发布前，建议至少校验：
 - metric 的 `additivity` 是否满足下游分析动作
 - 请求维度若为 `time_derived`，其 `required_time_anchor_ref` 是否被 metric / process 组合满足
 - 若存在 compiler profile，则其 result mode / inference 规则是否满足 `test` / `validate`
+- 多 component metric 的 predicate lineage 是否可分别解析、验证并保留
 
 ## 与 IR 的关系
 

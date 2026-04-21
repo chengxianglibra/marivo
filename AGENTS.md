@@ -10,3 +10,4 @@ Key local rules:
 - For Python-related commands, never use bare `python`, `pytest`, `mypy`, or `ruff`.
 - Use repository entrypoints only: `make test`, `make typecheck`, `make lint`, `make format`, or the explicit `.venv/bin/...` paths they wrap.
 - After behavior changes, update the shared guide and any affected API/UI/docs files.
+- When Codex creates a commit, include Codex collaboration attribution in the commit message footer: `Co-authored-by: Codex <codex@openai.com>`.

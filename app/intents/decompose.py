@@ -5,6 +5,7 @@ import hashlib
 from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
+from app.analysis_core.additivity_capabilities import derive_additivity_capabilities
 from app.analysis_core.executor import execute_compiled
 from app.analysis_core.ir import AnalysisStepIR
 from app.time_scope import normalize_metric_query_request
@@ -82,6 +83,7 @@ def run_decompose_intent(
     scope_direction: str = normalized_compare["scope_direction"]
     source_observation_type: str = normalized_compare["source_observation_type"]
     source_analytical_metadata: dict[str, Any] = normalized_compare["analytical_metadata"]
+    frozen_metric_additivity: str | None = normalized_compare.get("frozen_metric_additivity")
 
     lineage_info: dict[str, Any] = compare_artifact.get("lineage") or {}
     left_source_ref: dict[str, Any] = lineage_info.get("left_source_ref") or {}
@@ -101,17 +103,38 @@ def run_decompose_intent(
     left_scope: dict[str, Any] = resolved_input.get("left_scope") or {}
     right_scope: dict[str, Any] = resolved_input.get("right_scope") or {}
 
-    # ── Validate metric, additivity, and dimension ────────────────────────────
+    # ── Validate metric and dimension ────────────────────────────────────────
+    # Use frozen metric_additivity from compare artifact lineage for idempotent retries.
+    # Fallback to current metric state for older artifacts without frozen metadata.
+    if frozen_metric_additivity is not None:
+        additivity_for_gate = frozen_metric_additivity
+        gate_source = "compare_artifact_lineage"
+    else:
+        resolved_metric = svc.semantic_repository.resolve_metric(metric_name)
+        if resolved_metric is None:
+            raise ValueError(f"decompose: metric '{metric_name}' not found or not published")
+        additivity_for_gate = resolved_metric.additivity
+        gate_source = "current_metric_state"
+
+    additivity_caps = derive_additivity_capabilities(
+        header={
+            "additivity": additivity_for_gate,
+        },
+    )
+    if not additivity_caps.supports_decompose:
+        raise ValueError(
+            f"decompose: ADDITIVITY_CONSTRAINT - metric '{metric_name}' does not support "
+            f"decomposition (additivity='{additivity_for_gate}', "
+            f"dimension_policy='{additivity_caps.dimension_policy}', "
+            f"time_axis_policy='{additivity_caps.time_axis_policy}', "
+            f"gate_source='{gate_source}')"
+            + (f"; {additivity_caps.remediation_hint}" if additivity_caps.remediation_hint else "")
+        )
+
+    # Resolve metric for dimension validation (dimensions are runtime state, not frozen)
     resolved_metric = svc.semantic_repository.resolve_metric(metric_name)
     if resolved_metric is None:
         raise ValueError(f"decompose: metric '{metric_name}' not found or not published")
-
-    measure_type = resolved_metric.measure_type
-    if measure_type in {"semi_additive", "non_additive"}:
-        raise ValueError(
-            f"decompose: INVALID_ARGUMENT - metric '{metric_name}' has measure_type "
-            f"'{measure_type}'; only additive metrics are supported in v1"
-        )
 
     runtime_dimensions = svc.resolve_metric_dimensions(metric_name) or []
     valid_dimensions = (
@@ -359,8 +382,11 @@ def run_decompose_intent(
         "analytical_metadata": {
             "method": "delta_share",
             "aggregation_semantics": "sum",
-            "metric_additivity": "additive",
-            "decomposability_constraint": "additive_only",
+            "metric_additivity": additivity_for_gate,
+            "metric_additivity_source": gate_source,
+            "decomposability_constraint": additivity_caps.dimension_policy,
+            "time_axis_policy": additivity_caps.time_axis_policy,
+            "time_rollup_allowed": additivity_caps.time_rollup_allowed,
             "reconciliation_expected": True,
             "flat_tolerance_relative": _FLAT_TOLERANCE_RELATIVE,
             "left_row_count": len(left_rows),
@@ -420,6 +446,10 @@ def run_decompose_intent(
 
 def _normalize_decompose_compare_input(compare_artifact: dict[str, Any]) -> dict[str, Any]:
     comparison_type = compare_artifact.get("comparison_type")
+    # Extract frozen metric_additivity from compare artifact's analytical_metadata
+    compare_am: dict[str, Any] = compare_artifact.get("analytical_metadata") or {}
+    frozen_metric_additivity: str | None = compare_am.get("metric_additivity")
+
     if comparison_type == "scalar_delta":
         resolved_input: dict[str, Any] = compare_artifact.get("resolved_input_summary") or {}
         return {
@@ -435,6 +465,7 @@ def _normalize_decompose_compare_input(compare_artifact: dict[str, Any]) -> dict
             "left_time_scope": dict(resolved_input.get("left_time_scope") or {}),
             "right_time_scope": dict(resolved_input.get("right_time_scope") or {}),
             "analytical_metadata": {"decomposition_source": "scalar_delta"},
+            "frozen_metric_additivity": frozen_metric_additivity,
         }
 
     if comparison_type == "time_series_delta":
@@ -475,6 +506,7 @@ def _normalize_decompose_compare_input(compare_artifact: dict[str, Any]) -> dict
                 "source_pairing_basis": analytical.get("pairing_basis"),
                 "source_pairing_rule": analytical.get("pairing_rule"),
             },
+            "frozen_metric_additivity": frozen_metric_additivity,
         }
 
     raise ValueError(
