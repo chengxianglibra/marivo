@@ -975,7 +975,10 @@ class AttributeHourWindowTests(unittest.TestCase):
                 # Mock semantic_repository for metric resolution
                 self.semantic_repository = MagicMock()
                 mock_metric = MagicMock()
-                mock_metric.additivity = "additive"
+                mock_metric.additivity_constraints = {
+                    "dimension_policy": "all",
+                    "time_axis_policy": "additive",
+                }
                 mock_metric.primary_time_ref = "time.default"
                 mock_metric.sample_kind = "rate"
                 self.semantic_repository.resolve_metric.return_value = mock_metric

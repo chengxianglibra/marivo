@@ -1388,10 +1388,10 @@ def _measurement_node(
         "Literal['numeric', 'rate', 'binary', 'survival']",
         _optional_str(header.get("sample_kind")) or "numeric",
     )
-    additivity = cast(
-        "Literal['additive', 'semi_additive', 'non_additive']",
-        _optional_str(header.get("additivity")) or "non_additive",
-    )
+    constraints = header.get("additivity_constraints") or {}
+    dimension_policy = str(constraints.get("dimension_policy", "none"))
+    time_axis_policy = str(constraints.get("time_axis_policy", "non_additive"))
+    additive_dimensions = constraints.get("additive_dimensions")
     node: MeasurementNode = {
         "node_id": f"measurement:{step.index}",
         "node_type": "measurement",
@@ -1400,9 +1400,12 @@ def _measurement_node(
         "observation_grain_ref": _optional_str(header.get("observation_grain_ref")) or "",
         "sample_kind": sample_kind,
         "value_semantics": _optional_str(header.get("value_semantics")) or "",
-        "additivity": additivity,
+        "dimension_policy": dimension_policy,
+        "time_axis_policy": time_axis_policy,
         "output_bindings": [output_binding],
     }
+    if additive_dimensions is not None:
+        node["additive_dimensions"] = additive_dimensions
     inferential_summary_mode = _optional_str(header.get("inferential_summary_mode"))
     if inferential_summary_mode is not None:
         node["inferential_summary_mode"] = inferential_summary_mode

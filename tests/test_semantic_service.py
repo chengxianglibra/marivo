@@ -195,7 +195,10 @@ class SemanticServiceFacadeTests(unittest.TestCase):
                         "observation_grain_ref": "grain.order",
                         "sample_kind": "numeric",
                         "value_semantics": "count",
-                        "additivity": "additive",
+                        "additivity_constraints": {
+                            "dimension_policy": "all",
+                            "time_axis_policy": "additive",
+                        },
                         "metric_contract_version": "metric.v1",
                     },
                     "payload": {
@@ -306,7 +309,10 @@ class SemanticServiceFacadeTests(unittest.TestCase):
                         "observation_grain_ref": "grain.profile_subject",
                         "sample_kind": "numeric",
                         "value_semantics": "count",
-                        "additivity": "additive",
+                        "additivity_constraints": {
+                            "dimension_policy": "none",
+                            "time_axis_policy": "non_additive",
+                        },
                         "metric_contract_version": "metric.v1",
                     },
                     "payload": {

@@ -237,7 +237,10 @@ class SemanticRuntimeTests(unittest.TestCase):
                     "value_semantics": "sum",
                     "aggregation_scope": "session",
                     "primary_time_ref": time_ref,
-                    "additivity": "additive",
+                    "additivity_constraints": {
+                        "dimension_policy": "all",
+                        "time_axis_policy": "additive",
+                    },
                     "metric_contract_version": "metric.v1",
                 },
                 "payload": {

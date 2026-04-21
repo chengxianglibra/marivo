@@ -193,9 +193,7 @@ METADATA_DDL: list[str] = [
         ),
         aggregation_scope       TEXT,
         primary_time_ref        TEXT,
-        additivity              TEXT NOT NULL CHECK (
-            additivity IN ('additive', 'semi_additive', 'non_additive')
-        ),
+        additivity_constraints_json  TEXT NOT NULL DEFAULT '{}',
         metric_contract_version  TEXT NOT NULL,
         family_payload_json      TEXT NOT NULL DEFAULT '{}',
         status                  TEXT NOT NULL DEFAULT 'draft' CHECK (

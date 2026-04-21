@@ -100,7 +100,7 @@ class MetricExecutionContext:
     source_object_ref: str | None = None
     carrier_locator: str | None = None
     input_field_map: dict[str, str] | None = None
-    additivity: str = ""
+    additivity_constraints: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -561,7 +561,7 @@ class SemanticLayerService:
             required_slots=required_slots,
         )
         metric_header = dict(availability.resolved.semantic_object.get("header") or {})
-        metric_additivity = str(metric_header.get("additivity") or "")
+        metric_additivity_constraints = metric_header.get("additivity_constraints")
         if resolution is not None and resolution.table_name is not None:
             return MetricExecutionContext(
                 metric_ref=metric_ref,
@@ -571,7 +571,7 @@ class SemanticLayerService:
                 source_object_ref=resolution.source_object_ref,
                 carrier_locator=resolution.carrier_locator,
                 input_field_map=dict(resolution.input_field_map),
-                additivity=metric_additivity,
+                additivity_constraints=metric_additivity_constraints,
             )
         candidate_bindings = self._metric_binding_candidates(metric_ref)
         metric_input_failures = [

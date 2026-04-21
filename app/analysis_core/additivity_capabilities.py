@@ -1,17 +1,19 @@
 """Shared additivity capability derivation for metrics.
 
 Single source of truth for deriving analysis capabilities from a metric's
-additivity properties.  All consumers (readiness evaluator, compiler
+additivity_constraints.  All consumers (readiness evaluator, compiler
 capability profiles, intent gates) must call ``derive_additivity_capabilities``
 instead of implementing their own logic.
 
-P1 design notes
-~~~~~~~~~~~~~~~
-- Reads from the existing ``header.additivity`` three-state field.
-- ``semi_additive`` is treated fail-closed: we cannot express *which*
-  dimensions are allowed, so we do not claim ``supports_decompose``.
-- When P2 introduces ``header.additivity_constraints``, this module will
-  be updated to read from constraints instead of the legacy field.
+Design notes
+~~~~~~~~~~~~
+- Reads from ``header.additivity_constraints`` (structured object).
+- ``additivity_constraints`` is the single source of truth for metric
+  decomposability and time-axis rollup behavior.
+- Missing or empty constraints are fail-closed: we cannot express allowed
+  dimensions, so we do not claim ``supports_decompose``.
+- ``dimension_policy = "subset"`` with non-empty ``additive_dimensions``
+  enables decompose/attribute on those specific dimensions only.
 """
 
 from __future__ import annotations
@@ -32,10 +34,11 @@ class AdditivityCapabilityResult:
     supports_detect: bool
     supports_validate: bool
     time_rollup_allowed: bool
-    dimension_policy: str  # "all" | "none"  (P2 adds "subset")
+    dimension_policy: str  # "all" | "subset" | "none"
     time_axis_policy: str  # "additive" | "non_additive"
+    additive_dimensions: list[str] | None
     additivity_basis: dict[str, Any]  # raw inputs for downstream consumers
-    blocker: str | None  # e.g. "ADDITIVITY_MISSING"
+    blocker: str | None  # e.g. "ADDITIVITY_CONSTRAINTS_MISSING"
     remediation_hint: str | None
 
     def to_dict(self) -> dict[str, Any]:
@@ -50,6 +53,7 @@ class AdditivityCapabilityResult:
             "time_rollup_allowed": self.time_rollup_allowed,
             "dimension_policy": self.dimension_policy,
             "time_axis_policy": self.time_axis_policy,
+            "additive_dimensions": self.additive_dimensions,
             "additivity_basis": self.additivity_basis,
             "blocker": self.blocker,
             "remediation_hint": self.remediation_hint,
@@ -73,68 +77,95 @@ def derive_additivity_capabilities(
     Parameters
     ----------
     header:
-        The metric header dict.  Must contain at least ``additivity``,
-        ``primary_time_ref``, and ``sample_kind`` keys (values may be
-        missing/empty — the function handles that gracefully).
+        The metric header dict.  Must contain at least
+        ``additivity_constraints``, ``primary_time_ref``, and ``sample_kind``
+        keys (values may be missing/empty — the function handles that
+        gracefully).
     process_anchor_time_ref:
         Optional anchor time ref from an associated process object.
         Affects ``supports_detect`` and ``supports_validate``.
     """
-    additivity = _optional_str(header.get("additivity")) or ""
+    constraints_raw = header.get("additivity_constraints")
     primary_time_ref = _optional_str(header.get("primary_time_ref"))
     sample_kind = _optional_str(header.get("sample_kind")) or ""
 
-    # ── Additivity → dimension / time policies ────────────────────────────
-    if additivity == "additive":
-        dimension_policy = "all"
-        time_axis_policy = "additive"
-        supports_decompose = True
-        time_rollup_allowed = True
-        blocker = None
-        remediation_hint = None
-    elif additivity == "semi_additive":
-        # Fail-closed: without constraints we cannot express allowed dimensions.
+    # ── Parse constraints ──────────────────────────────────────────────────
+    if constraints_raw is None:
         dimension_policy = "none"
         time_axis_policy = "non_additive"
+        additive_dimensions: list[str] | None = None
         supports_decompose = False
         time_rollup_allowed = False
-        blocker = "ADDITIVITY_SEMI_ADDITIVE_NO_CONSTRAINTS"
+        blocker = "ADDITIVITY_CONSTRAINTS_MISSING"
         remediation_hint = (
-            "Metric is semi_additive but additivity_constraints are not yet "
-            "declared. Declare additivity_constraints with an explicit "
-            "dimension_policy and additive_dimensions to enable decompose/attribute."
+            "Metric header is missing additivity_constraints. "
+            "Provide additivity_constraints with dimension_policy and "
+            "time_axis_policy."
         )
-    elif additivity == "non_additive":
-        dimension_policy = "none"
-        time_axis_policy = "non_additive"
-        supports_decompose = False
-        time_rollup_allowed = False
-        blocker = None
-        remediation_hint = None
+    elif isinstance(constraints_raw, dict):
+        dp = constraints_raw.get("dimension_policy")
+        tap = constraints_raw.get("time_axis_policy")
+        ad = constraints_raw.get("additive_dimensions")
+
+        if dp not in ("all", "subset", "none"):
+            dimension_policy = "none"
+            time_axis_policy = "non_additive"
+            additive_dimensions = None
+            supports_decompose = False
+            time_rollup_allowed = False
+            blocker = "ADDITIVITY_CONSTRAINTS_INVALID"
+            remediation_hint = (
+                f"Unrecognized dimension_policy: {dp!r}. Must be 'all', 'subset', or 'none'."
+            )
+        else:
+            dimension_policy = str(dp)
+            time_axis_policy = str(tap) if tap in ("additive", "non_additive") else "non_additive"
+            additive_dimensions = ad if isinstance(ad, list) else None
+
+            if dimension_policy == "all":
+                supports_decompose = True
+                time_rollup_allowed = time_axis_policy == "additive"
+                blocker = None
+                remediation_hint = None
+            elif dimension_policy == "subset":
+                if additive_dimensions and len(additive_dimensions) > 0:
+                    supports_decompose = True
+                    time_rollup_allowed = time_axis_policy == "additive"
+                    blocker = None
+                    remediation_hint = None
+                else:
+                    supports_decompose = False
+                    time_rollup_allowed = False
+                    blocker = "ADDITIVITY_SUBSET_NO_DIMENSIONS"
+                    remediation_hint = (
+                        "dimension_policy='subset' but additive_dimensions is "
+                        "empty. Provide at least one additive dimension."
+                    )
+            else:  # "none"
+                supports_decompose = False
+                time_rollup_allowed = False
+                blocker = None
+                remediation_hint = None
     else:
-        # Missing or unrecognised additivity — fail-closed.
         dimension_policy = "none"
         time_axis_policy = "non_additive"
+        additive_dimensions = None
         supports_decompose = False
         time_rollup_allowed = False
-        blocker = "ADDITIVITY_MISSING"
-        remediation_hint = (
-            "Metric header is missing a valid additivity value. "
-            "Provide additivity ('additive', 'semi_additive', or "
-            "'non_additive') in the metric header."
-        )
+        blocker = "ADDITIVITY_CONSTRAINTS_INVALID"
+        remediation_hint = "additivity_constraints must be a structured object."
 
     # ── Composite capabilities ────────────────────────────────────────────
-    supports_compare = bool(additivity and primary_time_ref)
+    supports_compare = bool(constraints_raw is not None and primary_time_ref)
     supports_attribute = supports_compare and supports_decompose
     supports_test = sample_kind in {"numeric", "rate", "binary"}
     supports_detect = bool(primary_time_ref or process_anchor_time_ref)
-    # supports_validate is metric-only; process_anchor_time_ref not required.
-    # The validate intent runs on rate metrics without a process object.
     supports_validate = sample_kind == "rate"
 
     additivity_basis: dict[str, Any] = {
-        "additivity": additivity,
+        "dimension_policy": dimension_policy,
+        "time_axis_policy": time_axis_policy,
+        "additive_dimensions": additive_dimensions,
         "primary_time_ref": primary_time_ref,
         "sample_kind": sample_kind,
         "process_anchor_time_ref": process_anchor_time_ref,
@@ -151,6 +182,7 @@ def derive_additivity_capabilities(
         time_rollup_allowed=time_rollup_allowed,
         dimension_policy=dimension_policy,
         time_axis_policy=time_axis_policy,
+        additive_dimensions=additive_dimensions,
         additivity_basis=additivity_basis,
         blocker=blocker,
         remediation_hint=remediation_hint,

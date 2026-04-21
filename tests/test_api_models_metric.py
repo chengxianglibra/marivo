@@ -3,6 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
+from app.api.models.base import AdditivityConstraints
 from app.api.models.metric import (
     AverageMetricPayload,
     CountMetricPayload,
@@ -33,7 +34,9 @@ class TestMetricHeader:
             observation_grain_ref="grain.user",
             sample_kind="numeric",
             value_semantics="count",
-            additivity="non_additive",
+            additivity_constraints=AdditivityConstraints(
+                dimension_policy="none", time_axis_policy="non_additive"
+            ),
             metric_contract_version="metric.v1",
         )
         assert header.metric_ref == "metric.dau"
@@ -49,7 +52,9 @@ class TestMetricHeader:
             observation_grain_ref="grain.user",
             sample_kind="rate",
             value_semantics="ratio",
-            additivity="non_additive",
+            additivity_constraints=AdditivityConstraints(
+                dimension_policy="none", time_axis_policy="non_additive"
+            ),
             metric_contract_version="metric.v1",
         )
         assert header.population_subject_ref == "subject.user"
@@ -63,7 +68,9 @@ class TestMetricHeader:
                 observation_grain_ref="grain.user",
                 sample_kind="numeric",
                 value_semantics="count",
-                additivity="non_additive",
+                additivity_constraints=AdditivityConstraints(
+                    dimension_policy="none", time_axis_policy="non_additive"
+                ),
                 metric_contract_version="metric.v1",
             )
 
@@ -79,7 +86,9 @@ class TestMetricHeader:
                 observation_grain_ref="grain.user",
                 sample_kind="numeric",
                 value_semantics="count",
-                additivity="non_additive",
+                additivity_constraints=AdditivityConstraints(
+                    dimension_policy="none", time_axis_policy="non_additive"
+                ),
                 metric_contract_version="metric.v1",
             )
 
@@ -95,7 +104,9 @@ class TestMetricHeader:
                 observation_grain_ref="wrong.user",
                 sample_kind="numeric",
                 value_semantics="count",
-                additivity="non_additive",
+                additivity_constraints=AdditivityConstraints(
+                    dimension_policy="none", time_axis_policy="non_additive"
+                ),
                 metric_contract_version="metric.v1",
             )
 
@@ -244,7 +255,9 @@ class TestTypedMetricCreateRequest:
                 observation_grain_ref="grain.user",
                 sample_kind="numeric",
                 value_semantics="count",
-                additivity="non_additive",
+                additivity_constraints=AdditivityConstraints(
+                    dimension_policy="none", time_axis_policy="non_additive"
+                ),
                 metric_contract_version="metric.v1",
             ),
             payload=CountMetricPayload(
@@ -266,7 +279,9 @@ class TestTypedMetricCreateRequest:
                 observation_grain_ref="grain.user",
                 sample_kind="rate",
                 value_semantics="ratio",
-                additivity="non_additive",
+                additivity_constraints=AdditivityConstraints(
+                    dimension_policy="none", time_axis_policy="non_additive"
+                ),
                 metric_contract_version="metric.v1",
             ),
             payload=RateMetricPayload(
@@ -295,7 +310,9 @@ class TestTypedMetricCreateRequest:
                     observation_grain_ref="grain.user",
                     sample_kind="numeric",
                     value_semantics="sum",  # Wrong!
-                    additivity="non_additive",
+                    additivity_constraints=AdditivityConstraints(
+                        dimension_policy="none", time_axis_policy="non_additive"
+                    ),
                     metric_contract_version="metric.v1",
                 ),
                 payload=CountMetricPayload(
@@ -318,7 +335,9 @@ class TestTypedMetricCreateRequest:
                     observation_grain_ref="grain.user",
                     sample_kind="numeric",
                     value_semantics="count",
-                    additivity="non_additive",
+                    additivity_constraints=AdditivityConstraints(
+                        dimension_policy="none", time_axis_policy="non_additive"
+                    ),
                     metric_contract_version="metric.v1",
                 ),
                 payload=SumMetricPayload(  # Wrong family!
@@ -373,7 +392,9 @@ class TestTypedMetricResponse:
                 observation_grain_ref="grain.user",
                 sample_kind="numeric",
                 value_semantics="count",
-                additivity="non_additive",
+                additivity_constraints=AdditivityConstraints(
+                    dimension_policy="none", time_axis_policy="non_additive"
+                ),
                 metric_contract_version="metric.v1",
             ),
             payload=CountMetricPayload(

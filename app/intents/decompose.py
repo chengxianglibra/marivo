@@ -83,7 +83,9 @@ def run_decompose_intent(
     scope_direction: str = normalized_compare["scope_direction"]
     source_observation_type: str = normalized_compare["source_observation_type"]
     source_analytical_metadata: dict[str, Any] = normalized_compare["analytical_metadata"]
-    frozen_metric_additivity: str | None = normalized_compare.get("frozen_metric_additivity")
+    frozen_additivity_constraints: dict[str, Any] | None = normalized_compare.get(
+        "frozen_additivity_constraints"
+    )
 
     lineage_info: dict[str, Any] = compare_artifact.get("lineage") or {}
     left_source_ref: dict[str, Any] = lineage_info.get("left_source_ref") or {}
@@ -104,34 +106,53 @@ def run_decompose_intent(
     right_scope: dict[str, Any] = resolved_input.get("right_scope") or {}
 
     # ── Validate metric and dimension ────────────────────────────────────────
-    # Use frozen metric_additivity from compare artifact lineage for idempotent retries.
+    # Use frozen additivity_constraints from compare artifact lineage for idempotent retries.
     # Fallback to current metric state for older artifacts without frozen metadata.
-    if frozen_metric_additivity is not None:
-        additivity_for_gate = frozen_metric_additivity
+    if frozen_additivity_constraints is not None:
+        constraints_for_gate = frozen_additivity_constraints
         gate_source = "compare_artifact_lineage"
     else:
         resolved_metric = svc.semantic_repository.resolve_metric(metric_name)
         if resolved_metric is None:
             raise ValueError(f"decompose: metric '{metric_name}' not found or not published")
-        additivity_for_gate = resolved_metric.additivity
+        constraints_for_gate = resolved_metric.additivity_constraints or {}
         gate_source = "current_metric_state"
+
+    # Resolve metric for primary_time_ref and sample_kind needed by capability derivation
+    resolved_metric = svc.semantic_repository.resolve_metric(metric_name)
+    if resolved_metric is None:
+        raise ValueError(f"decompose: metric '{metric_name}' not found or not published")
 
     additivity_caps = derive_additivity_capabilities(
         header={
-            "additivity": additivity_for_gate,
+            "additivity_constraints": constraints_for_gate,
+            "primary_time_ref": resolved_metric.primary_time_ref,
+            "sample_kind": resolved_metric.sample_kind,
         },
     )
     if not additivity_caps.supports_decompose:
         raise ValueError(
             f"decompose: ADDITIVITY_CONSTRAINT - metric '{metric_name}' does not support "
-            f"decomposition (additivity='{additivity_for_gate}', "
-            f"dimension_policy='{additivity_caps.dimension_policy}', "
+            f"decomposition (dimension_policy='{additivity_caps.dimension_policy}', "
             f"time_axis_policy='{additivity_caps.time_axis_policy}', "
             f"gate_source='{gate_source}')"
             + (f"; {additivity_caps.remediation_hint}" if additivity_caps.remediation_hint else "")
         )
 
+    if (
+        additivity_caps.dimension_policy == "subset"
+        and additivity_caps.additive_dimensions is not None
+        and dimension not in additivity_caps.additive_dimensions
+    ):
+        raise ValueError(
+            f"decompose: ADDITIVITY_CONSTRAINT_DIMENSION_NOT_ALLOWED - metric "
+            f"'{metric_name}' with dimension_policy='subset' does not allow "
+            f"decomposition on '{dimension}'. "
+            f"Allowed: {sorted(additivity_caps.additive_dimensions)}"
+        )
+
     # Resolve metric for dimension validation (dimensions are runtime state, not frozen)
+    # resolved_metric already loaded above; re-resolve for fresh dimension state
     resolved_metric = svc.semantic_repository.resolve_metric(metric_name)
     if resolved_metric is None:
         raise ValueError(f"decompose: metric '{metric_name}' not found or not published")
@@ -382,10 +403,8 @@ def run_decompose_intent(
         "analytical_metadata": {
             "method": "delta_share",
             "aggregation_semantics": "sum",
-            "metric_additivity": additivity_for_gate,
-            "metric_additivity_source": gate_source,
-            "decomposability_constraint": additivity_caps.dimension_policy,
-            "time_axis_policy": additivity_caps.time_axis_policy,
+            "additivity_constraints": constraints_for_gate,
+            "additivity_constraints_source": gate_source,
             "time_rollup_allowed": additivity_caps.time_rollup_allowed,
             "reconciliation_expected": True,
             "flat_tolerance_relative": _FLAT_TOLERANCE_RELATIVE,
@@ -446,9 +465,9 @@ def run_decompose_intent(
 
 def _normalize_decompose_compare_input(compare_artifact: dict[str, Any]) -> dict[str, Any]:
     comparison_type = compare_artifact.get("comparison_type")
-    # Extract frozen metric_additivity from compare artifact's analytical_metadata
+    # Extract frozen additivity_constraints from compare artifact's analytical_metadata
     compare_am: dict[str, Any] = compare_artifact.get("analytical_metadata") or {}
-    frozen_metric_additivity: str | None = compare_am.get("metric_additivity")
+    frozen_additivity_constraints: dict[str, Any] | None = compare_am.get("additivity_constraints")
 
     if comparison_type == "scalar_delta":
         resolved_input: dict[str, Any] = compare_artifact.get("resolved_input_summary") or {}
@@ -465,7 +484,7 @@ def _normalize_decompose_compare_input(compare_artifact: dict[str, Any]) -> dict
             "left_time_scope": dict(resolved_input.get("left_time_scope") or {}),
             "right_time_scope": dict(resolved_input.get("right_time_scope") or {}),
             "analytical_metadata": {"decomposition_source": "scalar_delta"},
-            "frozen_metric_additivity": frozen_metric_additivity,
+            "frozen_additivity_constraints": frozen_additivity_constraints,
         }
 
     if comparison_type == "time_series_delta":
@@ -506,7 +525,7 @@ def _normalize_decompose_compare_input(compare_artifact: dict[str, Any]) -> dict
                 "source_pairing_basis": analytical.get("pairing_basis"),
                 "source_pairing_rule": analytical.get("pairing_rule"),
             },
-            "frozen_metric_additivity": frozen_metric_additivity,
+            "frozen_additivity_constraints": frozen_additivity_constraints,
         }
 
     raise ValueError(

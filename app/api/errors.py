@@ -82,7 +82,10 @@ _GUIDED_EXAMPLES: dict[tuple[str, str], list[dict[str, Any]]] = {
                     "observation_grain_ref": "grain.user",
                     "sample_kind": "numeric",
                     "value_semantics": "count",
-                    "additivity": "additive",
+                    "additivity_constraints": {
+                        "dimension_policy": "none",
+                        "time_axis_policy": "non_additive",
+                    },
                     "metric_contract_version": "metric.v1",
                 },
                 "payload": {

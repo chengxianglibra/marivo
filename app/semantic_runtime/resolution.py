@@ -43,7 +43,7 @@ class ResolvedMetric:
     value_semantics: str = ""
     aggregation_scope: str | None = None
     primary_time_ref: str | None = None
-    additivity: str = ""
+    additivity_constraints: dict[str, Any] | None = None
     metric_contract_version: str = ""
     family_payload: dict[str, Any] = field(default_factory=dict)
     definition_sql: str | None = None
@@ -208,7 +208,7 @@ class SemanticRuntimeMetadataReader:
                 "value_semantics": row["value_semantics"],
                 "aggregation_scope": row["aggregation_scope"],
                 "primary_time_ref": row["primary_time_ref"],
-                "additivity": row["additivity"],
+                "additivity_constraints": json.loads(row["additivity_constraints_json"] or "null"),
                 "metric_contract_version": row["metric_contract_version"],
             },
             "payload": json.loads(row["family_payload_json"]),
@@ -683,7 +683,7 @@ class SemanticResolver:
             value_semantics=str(header["value_semantics"]),
             aggregation_scope=header["aggregation_scope"],
             primary_time_ref=header["primary_time_ref"],
-            additivity=str(header["additivity"]),
+            additivity_constraints=header.get("additivity_constraints"),
             metric_contract_version=str(header["metric_contract_version"]),
             family_payload=family_payload,
             definition_sql=family_payload.get("definition_sql"),

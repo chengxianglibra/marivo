@@ -92,17 +92,42 @@ def _metric_payload_for_measure_type(metric_name: str, measure_type: str | None)
     }
 
 
-def _metric_header_axes(measure_type: str | None) -> tuple[str, str, str, str]:
+def _metric_header_axes(measure_type: str | None) -> tuple[str, str, str, dict[str, Any]]:
     kind = str(measure_type or "count").strip().lower()
     if kind in {"percentile", "quantile"}:
-        return ("distribution_metric", "numeric", "distribution_statistic", "non_additive")
+        return (
+            "distribution_metric",
+            "numeric",
+            "distribution_statistic",
+            {"dimension_policy": "none", "time_axis_policy": "non_additive"},
+        )
     if kind in {"ratio", "rate"}:
-        return ("rate_metric", "rate", "ratio", "non_additive")
+        return (
+            "rate_metric",
+            "rate",
+            "ratio",
+            {"dimension_policy": "none", "time_axis_policy": "non_additive"},
+        )
     if kind in {"average", "mean"}:
-        return ("average_metric", "numeric", "mean", "non_additive")
+        return (
+            "average_metric",
+            "numeric",
+            "mean",
+            {"dimension_policy": "none", "time_axis_policy": "non_additive"},
+        )
     if kind == "sum":
-        return ("sum_metric", "numeric", "sum", "additive")
-    return ("count_metric", "numeric", "count", "additive")
+        return (
+            "sum_metric",
+            "numeric",
+            "sum",
+            {"dimension_policy": "all", "time_axis_policy": "additive"},
+        )
+    return (
+        "count_metric",
+        "numeric",
+        "count",
+        {"dimension_policy": "all", "time_axis_policy": "additive"},
+    )
 
 
 def ensure_published_typed_entity(
@@ -318,7 +343,9 @@ def ensure_published_typed_metric(
         elif dimension_name != "event_date":
             ensure_published_typed_dimension(metadata, dimension_name=dimension_name)
 
-    metric_family, sample_kind, value_semantics, additivity = _metric_header_axes(measure_type)
+    metric_family, sample_kind, value_semantics, additivity_constraints = _metric_header_axes(
+        measure_type
+    )
     if existing is None:
         created = service.create_typed_metric(
             TypedMetricCreateRequest.model_validate(
@@ -333,7 +360,7 @@ def ensure_published_typed_metric(
                         "value_semantics": value_semantics,
                         "aggregation_scope": "window",
                         "primary_time_ref": primary_time_ref,
-                        "additivity": additivity,
+                        "additivity_constraints": additivity_constraints,
                         "metric_contract_version": "metric.v1",
                     },
                     "payload": _metric_payload_for_measure_type(metric_name, measure_type),
@@ -400,7 +427,9 @@ def create_typed_metric(
         elif dimension_name != "event_date":
             ensure_published_typed_dimension(metadata_store, dimension_name=dimension_name)
 
-    metric_family, sample_kind, value_semantics, additivity = _metric_header_axes(measure_type)
+    metric_family, sample_kind, value_semantics, additivity_constraints = _metric_header_axes(
+        measure_type
+    )
     metric = client.app.state.semantic_service.create_typed_metric(
         TypedMetricCreateRequest.model_validate(
             {
@@ -415,7 +444,7 @@ def create_typed_metric(
                     "value_semantics": value_semantics,
                     "aggregation_scope": "window",
                     "primary_time_ref": primary_time_ref,
-                    "additivity": additivity,
+                    "additivity_constraints": additivity_constraints,
                     "metric_contract_version": "metric.v1",
                 },
                 "payload": _metric_payload_for_measure_type(name, measure_type),

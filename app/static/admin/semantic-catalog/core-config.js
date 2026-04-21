@@ -366,7 +366,7 @@ export function createCoreSemanticCatalogConfig(statusBadge) {
                 value: "",
                 placeholder: "time.activity_date",
               },
-              { name: "additivity", label: "Additivity", value: "additive", placeholder: "additive" },
+              { name: "additivity_constraints", label: "Additivity Constraints", value: '{"dimension_policy":"all","time_axis_policy":"additive"}', placeholder: '{"dimension_policy":"all","time_axis_policy":"additive"}' },
               {
                 name: "population_subject_ref",
                 label: "Population Subject Ref",
@@ -408,7 +408,7 @@ export function createCoreSemanticCatalogConfig(statusBadge) {
           value_semantics: values.value_semantics,
           aggregation_scope: semanticOptionalText(values.aggregation_scope),
           primary_time_ref: semanticOptionalText(values.primary_time_ref),
-          additivity: values.additivity,
+          additivity_constraints: semanticParseJson(values.additivity_constraints, "Additivity Constraints JSON", {}),
           population_subject_ref: semanticOptionalText(values.population_subject_ref),
           metric_contract_version: values.metric_contract_version,
         },

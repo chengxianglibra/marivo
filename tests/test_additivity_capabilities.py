@@ -14,14 +14,17 @@ class DeriveAdditivityCapabilitiesTests(unittest.TestCase):
 
     def _header(self, **overrides: object) -> dict:
         base = {
-            "additivity": "additive",
+            "additivity_constraints": {
+                "dimension_policy": "all",
+                "time_axis_policy": "additive",
+            },
             "primary_time_ref": "time.activity_date",
             "sample_kind": "numeric",
         }
         base.update(overrides)
         return base
 
-    # ── additive metric ─────────────────────────────────────────────────────
+    # -- additive metric (dimension_policy="all") -----------------------------
 
     def test_additive_metric_full_capabilities(self) -> None:
         caps = derive_additivity_capabilities(header=self._header())
@@ -45,22 +48,65 @@ class DeriveAdditivityCapabilitiesTests(unittest.TestCase):
         self.assertFalse(caps.supports_attribute)
         self.assertFalse(caps.supports_detect)
 
-    # ── semi_additive metric (fail-closed) ──────────────────────────────────
+    # -- subset policy (semi-additive with declared dimensions) ---------------
 
-    def test_semi_additive_fail_closed(self) -> None:
-        caps = derive_additivity_capabilities(header=self._header(additivity="semi_additive"))
+    def test_subset_policy_with_additive_dimensions(self) -> None:
+        caps = derive_additivity_capabilities(
+            header=self._header(
+                additivity_constraints={
+                    "dimension_policy": "subset",
+                    "time_axis_policy": "non_additive",
+                    "additive_dimensions": ["dimension.country"],
+                },
+            )
+        )
+        self.assertTrue(caps.supports_decompose)
+        self.assertTrue(caps.supports_attribute)
+        self.assertFalse(caps.time_rollup_allowed)
+        self.assertEqual(caps.dimension_policy, "subset")
+        self.assertEqual(caps.time_axis_policy, "non_additive")
+        self.assertEqual(caps.additive_dimensions, ["dimension.country"])
+        self.assertIsNone(caps.blocker)
+
+    def test_subset_policy_with_additive_time_axis(self) -> None:
+        caps = derive_additivity_capabilities(
+            header=self._header(
+                additivity_constraints={
+                    "dimension_policy": "subset",
+                    "time_axis_policy": "additive",
+                    "additive_dimensions": ["dimension.country", "dimension.region"],
+                },
+            )
+        )
+        self.assertTrue(caps.supports_decompose)
+        self.assertTrue(caps.time_rollup_allowed)
+
+    def test_subset_policy_without_additive_dimensions_fail_closed(self) -> None:
+        caps = derive_additivity_capabilities(
+            header=self._header(
+                additivity_constraints={
+                    "dimension_policy": "subset",
+                    "time_axis_policy": "non_additive",
+                    "additive_dimensions": [],
+                },
+            )
+        )
         self.assertFalse(caps.supports_decompose)
         self.assertFalse(caps.supports_attribute)
         self.assertFalse(caps.time_rollup_allowed)
-        self.assertEqual(caps.dimension_policy, "none")
-        self.assertEqual(caps.time_axis_policy, "non_additive")
-        self.assertEqual(caps.blocker, "ADDITIVITY_SEMI_ADDITIVE_NO_CONSTRAINTS")
-        self.assertIn("additivity_constraints", caps.remediation_hint or "")
+        self.assertEqual(caps.blocker, "ADDITIVITY_SUBSET_NO_DIMENSIONS")
 
-    # ── non_additive metric ─────────────────────────────────────────────────
+    # -- non_additive metric (dimension_policy="none") -----------------------
 
     def test_non_additive_metric(self) -> None:
-        caps = derive_additivity_capabilities(header=self._header(additivity="non_additive"))
+        caps = derive_additivity_capabilities(
+            header=self._header(
+                additivity_constraints={
+                    "dimension_policy": "none",
+                    "time_axis_policy": "non_additive",
+                },
+            )
+        )
         self.assertTrue(caps.supports_compare)
         self.assertFalse(caps.supports_decompose)
         self.assertFalse(caps.supports_attribute)
@@ -71,48 +117,76 @@ class DeriveAdditivityCapabilitiesTests(unittest.TestCase):
 
     def test_non_additive_without_primary_time_ref(self) -> None:
         caps = derive_additivity_capabilities(
-            header=self._header(additivity="non_additive", primary_time_ref=None)
+            header=self._header(
+                additivity_constraints={
+                    "dimension_policy": "none",
+                    "time_axis_policy": "non_additive",
+                },
+                primary_time_ref=None,
+            )
         )
         self.assertFalse(caps.supports_compare)
         self.assertFalse(caps.supports_attribute)
 
-    # ── missing / empty additivity ──────────────────────────────────────────
+    # -- missing / empty additivity_constraints -------------------------------
 
-    def test_missing_additivity(self) -> None:
-        caps = derive_additivity_capabilities(header=self._header(additivity=""))
+    def test_missing_additivity_constraints(self) -> None:
+        caps = derive_additivity_capabilities(header=self._header(additivity_constraints=None))
         self.assertFalse(caps.supports_decompose)
         self.assertFalse(caps.supports_attribute)
         self.assertFalse(caps.supports_compare)
-        self.assertEqual(caps.blocker, "ADDITIVITY_MISSING")
-        self.assertIn("additivity", caps.remediation_hint or "")
+        self.assertEqual(caps.blocker, "ADDITIVITY_CONSTRAINTS_MISSING")
+        self.assertIn("additivity_constraints", caps.remediation_hint or "")
 
-    def test_none_additivity(self) -> None:
-        caps = derive_additivity_capabilities(header=self._header(additivity=None))
+    def test_invalid_additivity_constraints_type(self) -> None:
+        caps = derive_additivity_capabilities(
+            header=self._header(additivity_constraints="additive")
+        )
         self.assertFalse(caps.supports_decompose)
-        self.assertEqual(caps.blocker, "ADDITIVITY_MISSING")
+        self.assertEqual(caps.blocker, "ADDITIVITY_CONSTRAINTS_INVALID")
 
-    # ── supports_attribute = supports_compare AND supports_decompose ────────
+    def test_invalid_dimension_policy(self) -> None:
+        caps = derive_additivity_capabilities(
+            header=self._header(
+                additivity_constraints={
+                    "dimension_policy": "unknown",
+                    "time_axis_policy": "additive",
+                },
+            )
+        )
+        self.assertFalse(caps.supports_decompose)
+        self.assertEqual(caps.blocker, "ADDITIVITY_CONSTRAINTS_INVALID")
+        self.assertIn("dimension_policy", caps.remediation_hint or "")
+
+    # -- supports_attribute = supports_compare AND supports_decompose ---------
 
     def test_attribute_requires_both_compare_and_decompose(self) -> None:
-        # additive + primary_time_ref → both true → attribute true
+        # additive + primary_time_ref -> both true -> attribute true
         caps = derive_additivity_capabilities(header=self._header())
         self.assertTrue(caps.supports_compare)
         self.assertTrue(caps.supports_decompose)
         self.assertTrue(caps.supports_attribute)
 
-        # additive but no primary_time_ref → compare false → attribute false
+        # additive but no primary_time_ref -> compare false -> attribute false
         caps = derive_additivity_capabilities(header=self._header(primary_time_ref=None))
         self.assertFalse(caps.supports_compare)
         self.assertTrue(caps.supports_decompose)
         self.assertFalse(caps.supports_attribute)
 
-        # non_additive with primary_time_ref → compare true but decompose false → attribute false
-        caps = derive_additivity_capabilities(header=self._header(additivity="non_additive"))
+        # non_additive with primary_time_ref -> compare true but decompose false -> attribute false
+        caps = derive_additivity_capabilities(
+            header=self._header(
+                additivity_constraints={
+                    "dimension_policy": "none",
+                    "time_axis_policy": "non_additive",
+                },
+            )
+        )
         self.assertTrue(caps.supports_compare)
         self.assertFalse(caps.supports_decompose)
         self.assertFalse(caps.supports_attribute)
 
-    # ── supports_test (sample_kind) ─────────────────────────────────────────
+    # -- supports_test (sample_kind) ------------------------------------------
 
     def test_supports_test_numeric(self) -> None:
         caps = derive_additivity_capabilities(header=self._header(sample_kind="numeric"))
@@ -130,7 +204,7 @@ class DeriveAdditivityCapabilitiesTests(unittest.TestCase):
         caps = derive_additivity_capabilities(header=self._header(sample_kind="survival"))
         self.assertFalse(caps.supports_test)
 
-    # ── supports_detect (primary_time_ref + process_anchor_time_ref) ────────
+    # -- supports_detect (primary_time_ref + process_anchor_time_ref) ---------
 
     def test_supports_detect_from_metric_time(self) -> None:
         caps = derive_additivity_capabilities(header=self._header())
@@ -147,7 +221,7 @@ class DeriveAdditivityCapabilitiesTests(unittest.TestCase):
         caps = derive_additivity_capabilities(header=self._header(primary_time_ref=None))
         self.assertFalse(caps.supports_detect)
 
-    # ── supports_validate (rate only; process not required) ──────────────────
+    # -- supports_validate (rate only; process not required) -------------------
 
     def test_supports_validate_rate_with_process(self) -> None:
         caps = derive_additivity_capabilities(
@@ -169,19 +243,34 @@ class DeriveAdditivityCapabilitiesTests(unittest.TestCase):
         )
         self.assertFalse(caps.supports_validate)
 
-    # ── additivity_basis ────────────────────────────────────────────────────
+    # -- additivity_basis echoes inputs ---------------------------------------
 
     def test_additivity_basis_echoes_inputs(self) -> None:
         caps = derive_additivity_capabilities(
             header=self._header(),
             process_anchor_time_ref="time.exp",
         )
-        self.assertEqual(caps.additivity_basis["additivity"], "additive")
+        self.assertEqual(caps.additivity_basis["dimension_policy"], "all")
+        self.assertEqual(caps.additivity_basis["time_axis_policy"], "additive")
+        self.assertIsNone(caps.additivity_basis["additive_dimensions"])
         self.assertEqual(caps.additivity_basis["primary_time_ref"], "time.activity_date")
         self.assertEqual(caps.additivity_basis["sample_kind"], "numeric")
         self.assertEqual(caps.additivity_basis["process_anchor_time_ref"], "time.exp")
 
-    # ── to_dict ─────────────────────────────────────────────────────────────
+    def test_additivity_basis_includes_additive_dimensions(self) -> None:
+        caps = derive_additivity_capabilities(
+            header=self._header(
+                additivity_constraints={
+                    "dimension_policy": "subset",
+                    "time_axis_policy": "non_additive",
+                    "additive_dimensions": ["dimension.country"],
+                },
+            ),
+        )
+        self.assertEqual(caps.additivity_basis["dimension_policy"], "subset")
+        self.assertEqual(caps.additivity_basis["additive_dimensions"], ["dimension.country"])
+
+    # -- to_dict ---------------------------------------------------------------
 
     def test_to_dict_roundtrip(self) -> None:
         caps = derive_additivity_capabilities(header=self._header())
@@ -193,6 +282,7 @@ class DeriveAdditivityCapabilitiesTests(unittest.TestCase):
         self.assertEqual(d["supports_attribute"], caps.supports_attribute)
         self.assertEqual(d["dimension_policy"], caps.dimension_policy)
         self.assertEqual(d["time_axis_policy"], caps.time_axis_policy)
+        self.assertEqual(d["additive_dimensions"], caps.additive_dimensions)
         self.assertEqual(d["time_rollup_allowed"], caps.time_rollup_allowed)
         self.assertEqual(d["blocker"], caps.blocker)
         self.assertEqual(d["remediation_hint"], caps.remediation_hint)
