@@ -108,6 +108,7 @@ def run_decompose_intent(
     # ── Validate metric and dimension ────────────────────────────────────────
     # Use frozen additivity_constraints from compare artifact lineage for idempotent retries.
     # Fallback to current metric state for older artifacts without frozen metadata.
+    constraints_for_gate: dict[str, Any]
     if frozen_additivity_constraints is not None:
         constraints_for_gate = frozen_additivity_constraints
         gate_source = "compare_artifact_lineage"
@@ -135,6 +136,7 @@ def run_decompose_intent(
             f"decompose: ADDITIVITY_CONSTRAINT - metric '{metric_name}' does not support "
             f"decomposition (dimension_policy='{additivity_caps.dimension_policy}', "
             f"time_axis_policy='{additivity_caps.time_axis_policy}', "
+            f"blocker='{additivity_caps.blocker}', "
             f"gate_source='{gate_source}')"
             + (f"; {additivity_caps.remediation_hint}" if additivity_caps.remediation_hint else "")
         )
@@ -144,11 +146,15 @@ def run_decompose_intent(
         and additivity_caps.additive_dimensions is not None
         and dimension not in additivity_caps.additive_dimensions
     ):
+        disallowed = [dimension]
         raise ValueError(
             f"decompose: ADDITIVITY_CONSTRAINT_DIMENSION_NOT_ALLOWED - metric "
             f"'{metric_name}' with dimension_policy='subset' does not allow "
             f"decomposition on '{dimension}'. "
-            f"Allowed: {sorted(additivity_caps.additive_dimensions)}"
+            f"Allowed: {sorted(additivity_caps.additive_dimensions)}, "
+            f"Disallowed: {disallowed}, "
+            f"time_axis_policy='{additivity_caps.time_axis_policy}'"
+            + (f"; {additivity_caps.remediation_hint}" if additivity_caps.remediation_hint else "")
         )
 
     # Resolve metric for dimension validation (dimensions are runtime state, not frozen)
@@ -411,6 +417,26 @@ def run_decompose_intent(
             "left_row_count": len(left_rows),
             "right_row_count": len(right_rows),
             **source_analytical_metadata,
+            "dimension_policy": additivity_caps.dimension_policy,
+            "time_axis_policy": additivity_caps.time_axis_policy,
+            "decomposition_constraint": (
+                additivity_caps.capability_condition
+                or ("all_dimensions_allowed" if additivity_caps.dimension_policy == "all" else None)
+            ),
+            "allowed_dimension_basis": {
+                "dimension": dimension,
+                "basis": (
+                    "additive_dimensions_list"
+                    if additivity_caps.capability_condition == "dimension_must_be_allowed"
+                    else "all_dimensions_policy"
+                    if additivity_caps.dimension_policy == "all"
+                    else None
+                ),
+            },
+            "time_boundary_constraint": {
+                "scope": "frozen_compare_window",
+                "time_rollup_implied": False,
+            },
         },
         "version_metadata": {
             "artifact_schema_version": "1.0",
