@@ -1,10 +1,10 @@
 # Quickstart
 
-This guide walks through a complete end-to-end analysis workflow using the Factum API: registering a data source, publishing a metric, creating a session, and running analysis steps to produce evidence-backed recommendations.
+This guide walks through a complete end-to-end analysis workflow using the Marivo API: registering a data source, publishing a metric, creating a session, and running analysis steps to produce evidence-backed recommendations.
 
 ## Prerequisites
 
-- Factum service running at `http://localhost:8000`
+- Marivo service running at `http://localhost:8000`
 - A DuckDB database with data to analyze
 
 ## Step 1 - Register a Source
@@ -123,7 +123,10 @@ curl -s -X POST http://localhost:8000/semantic/metrics \
       "value_semantics": "count",
       "aggregation_scope": "window",
       "primary_time_ref": "time.watch_event_date",
-      "additivity": "additive",
+      "additivity_constraints": {
+        "dimension_policy": "none",
+        "time_axis_policy": "non_additive"
+      },
       "metric_contract_version": "metric.v1"
     },
     "payload": {

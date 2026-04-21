@@ -35,7 +35,7 @@ class FastMcpFactory(Protocol):
     ) -> FastMcpServer: ...
 
 
-class FactumMcpDependencyError(RuntimeError):
+class MarivoMcpDependencyError(RuntimeError):
     """Raised when the Python MCP SDK is unavailable at runtime."""
 
 
@@ -49,14 +49,14 @@ def load_fastmcp() -> FastMcpFactory:
     try:
         module = import_module("mcp.server.fastmcp")
     except ModuleNotFoundError as error:
-        raise FactumMcpDependencyError(
-            "The Python MCP SDK is not installed for factum-mcp. "
-            "Install the subproject dependencies in factum-mcp/ before starting the server."
+        raise MarivoMcpDependencyError(
+            "The Python MCP SDK is not installed for marivo-mcp. "
+            "Install the subproject dependencies in marivo-mcp/ before starting the server."
         ) from error
 
     fastmcp_cls = getattr(module, "FastMCP", None)
     if fastmcp_cls is None:
-        raise FactumMcpDependencyError(
+        raise MarivoMcpDependencyError(
             "Installed MCP SDK does not expose mcp.server.fastmcp.FastMCP."
         )
     return cast("FastMcpFactory", fastmcp_cls)

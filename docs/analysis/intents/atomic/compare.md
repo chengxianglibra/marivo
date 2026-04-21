@@ -284,7 +284,12 @@ type ComparabilityMetadata = {
 
 type CompareAnalyticalMetadata = {
   aggregation_semantics: string;
-  metric_additivity: "additive" | "semi_additive" | "non_additive";
+  additivity_constraints: {
+    dimension_policy: "all" | "subset" | "none";
+    additive_dimensions?: string[];
+    time_axis_policy: "additive" | "non_additive";
+    notes?: string | null;
+  };
   relative_delta_denominator: "right";
   flat_tolerance_relative: number;
   left_row_count: number | null;
@@ -353,7 +358,7 @@ type TimeSeriesDeltaArtifact = CompareBase & {
 };
 ```
 
-`resolved_input_summary` 是从上游观测工件（observation artifact）确定性派生出的只读溯源摘要，用于说明 compare 所比较的已解析上下文。它必须保留规范 `Scope` 的完整 shape（`constraints + predicate`），而不是只保留 predicate。它不是新的步骤级输入契约，也不替代 Factum 现有的 `time_scope` / `scope` 设计。
+`resolved_input_summary` 是从上游观测工件（observation artifact）确定性派生出的只读溯源摘要，用于说明 compare 所比较的已解析上下文。它必须保留规范 `Scope` 的完整 shape（`constraints + predicate`），而不是只保留 predicate。它不是新的步骤级输入契约，也不替代 Marivo 现有的 `time_scope` / `scope` 设计。
 
 对于 `time_series_delta`：
 
@@ -466,11 +471,11 @@ calendar alignment failure surface：
 
 分段差值行（segmented delta rows）是 compare artifact 的 delta rows，可供 `decompose` 等下游步骤消费，但本身不是归因（attribution）/ 解释（explanation）结论。
 
-对于可加性指标（additive metrics）：
+对于 `dimension_policy = "all"` 且 `time_axis_policy = "additive"` 的指标：
 
 - `sum(rows.absolute_delta)` 应与 `scope_absolute_delta` 对账
 
-对于不可加指标（non-additive metrics）：
+对于 `dimension_policy = "none"` 或 `time_axis_policy = "non_additive"` 的指标：
 
 - 行级差值（delta）只能视为切片内局部变化（slice-local changes）
 - `sum(rows.absolute_delta)` 不应被期待等于 `scope_absolute_delta`

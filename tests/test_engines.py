@@ -335,7 +335,7 @@ class EngineConfigTests(unittest.TestCase):
 
     def test_startup_registers_engines(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            config_path = Path(tmp) / "factum.yaml"
+            config_path = Path(tmp) / "marivo.yaml"
             config_path.write_text(
                 textwrap.dedent("""\
                 engines:

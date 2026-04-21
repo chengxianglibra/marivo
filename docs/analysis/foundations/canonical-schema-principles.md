@@ -1,12 +1,12 @@
 # 规范 Schema 设计原则
 
-本文档定义 Factum 中所有规范 schema（canonical schema）设计必须遵守的通用原则。
+本文档定义 Marivo 中所有规范 schema（canonical schema）设计必须遵守的通用原则。
 
 状态：规范设计原则（canonical design principles）。本文是跨领域的设计约束，适用于所有面向 agent 的结构化输出契约。
 
 ## 目的
 
-Factum 的核心设计目标之一是提供 agent-first、machine-readable、可审计的分析状态接口。
+Marivo 的核心设计目标之一是提供 agent-first、machine-readable、可审计的分析状态接口。
 
 为了实现这一目标，所有规范 schema（canonical schema）（无论是证据引擎（Evidence Engine）的内部实体、分析意图的输出契约，还是其他结构化输出）都必须遵守统一的设计原则。
 

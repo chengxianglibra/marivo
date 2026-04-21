@@ -1,8 +1,8 @@
 # Sources
 
-Sources represent external data catalogs (DuckDB databases, Trino clusters, etc.). After registering a source, you trigger a sync to snapshot its schema and table metadata into Factum's local metadata store. Post-sync, all catalog queries hit SQLite — the external system is not queried at read time.
+Sources represent external data catalogs (DuckDB databases, Trino clusters, etc.). After registering a source, you trigger a sync to snapshot its schema and table metadata into Marivo's local metadata store. Post-sync, all catalog queries hit SQLite — the external system is not queried at read time.
 
-When `factum.yaml` includes a Trino source, Factum validates the optional `trino` Python package at
+When `marivo.yaml` includes a Trino source, Marivo validates the optional `trino` Python package at
 startup and fails fast if it is missing. Install Trino support with `pip install -e .[trino]`.
 
 ## Endpoints
@@ -173,7 +173,7 @@ Triggers a catalog sync job. The job snapshots schemas, tables, and columns from
 
 If `sync_mode` is `by_select`, only tables listed in sync selections are synced.
 
-For Trino sources, table detail sync also attempts to capture table properties. Factum reads both
+For Trino sources, table detail sync also attempts to capture table properties. Marivo reads both
 connector hidden metadata tables such as `"table$properties"` and explicit `WITH (...)` properties
 from `SHOW CREATE TABLE` when available, so Hive and Iceberg-backed tables can both surface table
 property metadata in synced `source_objects`.

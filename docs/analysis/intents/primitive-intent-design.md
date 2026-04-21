@@ -1,12 +1,12 @@
 # 原子分析意图设计
 
-本文档定义 Factum 原子分析意图（primitive analysis intents）的跨意图设计规则。
+本文档定义 Marivo 原子分析意图（primitive analysis intents）的跨意图设计规则。
 
 状态：draft design。本文是面向规划中原子意图家族及其 typed API contract（类型化 API 契约）的设计指南，不表示文中提到的每个意图都已经实现。
 
 ## 目的
 
-Factum 的 step layer（步骤层）不是 SQL 的薄封装，而是面向 primitive analysis intents（原子分析意图）的 typed API。
+Marivo 的 step layer（步骤层）不是 SQL 的薄封装，而是面向 primitive analysis intents（原子分析意图）的 typed API。
 
 本文的目标，是在新增或调整意图 Schema 时，保证原子意图家族始终保持语义一致、边界清晰。
 
@@ -19,7 +19,7 @@ Factum 的 step layer（步骤层）不是 SQL 的薄封装，而是面向 primi
 
 ## 原子意图集合
 
-Factum 当前将以下能力视为原子分析意图集合：
+Marivo 当前将以下能力视为原子分析意图集合：
 
 - `observe`：在类型化观测契约下读取语义指标
 - `compare`：计算两个观测之间的类型化差异
@@ -110,7 +110,7 @@ Factum 当前将以下能力视为原子分析意图集合：
 
 ### 4. 证据边界必须保持确定性
 
-Factum 的 evidence（证据）必须由代码以确定性方式抽取。
+Marivo 的 evidence（证据）必须由代码以确定性方式抽取。
 
 原子意图输出可以包含：
 
@@ -169,7 +169,7 @@ Factum 的 evidence（证据）必须由代码以确定性方式抽取。
 
 ## Schema 设计通用准则
 
-原子意图的输出契约设计必须遵守 Factum 的 Canonical Schema 设计原则。
+原子意图的输出契约设计必须遵守 Marivo 的 Canonical Schema 设计原则。
 
 详见 [`canonical-schema-principles.md`](../foundations/canonical-schema-principles.md)。
 
@@ -177,7 +177,7 @@ Factum 的 evidence（证据）必须由代码以确定性方式抽取。
 
 ## 工件与投影
 
-Factum 的意图输出有两类主要消费者：
+Marivo 的意图输出有两类主要消费者：
 
 - 下游步骤需要完整、稳定、可引用的结果
 - agent 需要高信号、可压缩、可放入上下文预算的结果
@@ -366,7 +366,7 @@ Factum 的意图输出有两类主要消费者：
 
 ## 派生意图与模板
 
-当用户问题跨越多个原子意图时，Factum 应优先使用组合，而不是扩大原子意图的范围。
+当用户问题跨越多个原子意图时，Marivo 应优先使用组合，而不是扩大原子意图的范围。
 
 示例：
 
@@ -392,7 +392,7 @@ Factum 的意图输出有两类主要消费者：
 5. 输出是否可以压缩且不显著扭曲原意？
 6. 执行边界控制项是否已与投影 / 展示控制项分离？
 7. 该意图是否避免吸收相邻职责？
-8. 该意图是否保持了 Factum 的确定性证据边界？
+8. 该意图是否保持了 Marivo 的确定性证据边界？
 9. 步骤输出的 identity 边界是否明确？
 10. 所有 nullable 字段的 null 语义是否单一？
 11. provenance 是否结构化且 machine-readable？

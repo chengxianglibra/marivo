@@ -1,6 +1,6 @@
 # Analysis 设计文档
 
-本目录存放 Factum 的内部分析设计文档，覆盖 typed analysis intents、Evidence Engine canonical schema，以及 agent-first 读取面。这些文档属于内部设计说明，不属于对外 HTTP API 参考。
+本目录存放 Marivo 的内部分析设计文档，覆盖 typed analysis intents、Evidence Engine canonical schema，以及 agent-first 读取面。这些文档属于内部设计说明，不属于对外 HTTP API 参考。
 
 ## 目录组织
 

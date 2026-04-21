@@ -2,11 +2,11 @@
 
 本文为 `docs/semantic/` 目录下文档的导航页，用于帮助读者快速理解这一组语义设计文档分别回答什么问题、彼此之间如何衔接，以及建议的阅读顺序。
 
-这组文档整体关注的是 Factum 的 **semantic layer / catalog object contracts / compiler-facing contracts**：它们定义稳定语义对象、对象之间的组合边界，以及这些对象如何被编译为内部 IR。它们**不是**当前实现说明，也**不是**外部 HTTP wire spec。外部接口以 `docs/api/` 为准，intent 设计以 `docs/analysis/intents/` 为准。
+这组文档整体关注的是 Marivo 的 **semantic layer / catalog object contracts / compiler-facing contracts**：它们定义稳定语义对象、对象之间的组合边界，以及这些对象如何被编译为内部 IR。它们**不是**当前实现说明，也**不是**外部 HTTP wire spec。外部接口以 `docs/api/` 为准，intent 设计以 `docs/analysis/intents/` 为准。
 
 ## 这一组文档在解决什么问题
 
-`docs/semantic/` 试图把 Factum 从“SQL 表达式注册表”推进到“类型化分析契约”：
+`docs/semantic/` 试图把 Marivo 从“SQL 表达式注册表”推进到“类型化分析契约”：
 
 - `metric` 负责 **measurement semantics**：量什么、统计语义是什么、有哪些比较/检验/分解边界。
 - `process object` 负责 **process semantics**：总体、阶段、路径、session、cohort 等过程如何被稳定构造。
@@ -17,7 +17,7 @@
 
 一句话说，这一目录是在回答：
 
-> Factum 不把外部分析请求直接翻译成 SQL，而是先把类型化语义对象组合成受治理的中间语义计划。
+> Marivo 不把外部分析请求直接翻译成 SQL，而是先把类型化语义对象组合成受治理的中间语义计划。
 
 ## 文档关系图
 

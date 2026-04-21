@@ -11,10 +11,10 @@ from pydantic_core import PydanticCustomError
 from app.api.models._legacy import (
     ObserveScope,
 )
-from factum_mcp.config import FactumMcpConfig
-from factum_mcp.http_client import FactumHttpClient
-from factum_mcp.openapi_cache import OpenApiResponseCache
-from factum_mcp.sdk import FastMcpServer
+from marivo_mcp.config import MarivoMcpConfig
+from marivo_mcp.http_client import MarivoHttpClient
+from marivo_mcp.openapi_cache import OpenApiResponseCache
+from marivo_mcp.sdk import FastMcpServer
 
 _ParamScalar = str | int | float | bool | None
 _ParamList = list[_ParamScalar]
@@ -85,8 +85,8 @@ def _tool_metadata(
     method: str, path: str
 ) -> Callable[[Callable[..., object]], Callable[..., object]]:
     def decorator(func: Callable[..., object]) -> Callable[..., object]:
-        func._factum_http_method = method  # type: ignore[attr-defined]
-        func._factum_http_path = path  # type: ignore[attr-defined]
+        func._marivo_http_method = method  # type: ignore[attr-defined]
+        func._marivo_http_path = path  # type: ignore[attr-defined]
         return func
 
     return decorator
@@ -113,13 +113,13 @@ def _require_observe_time_scope_object(value: object) -> object:
 
 def register_tools(
     server: FastMcpServer,
-    config: FactumMcpConfig,
+    config: MarivoMcpConfig,
     *,
-    client_factory: Callable[[FactumMcpConfig], FactumHttpClient] | None = None,
+    client_factory: Callable[[MarivoMcpConfig], MarivoHttpClient] | None = None,
     openapi_cache: OpenApiResponseCache | None = None,
 ) -> None:
-    """Register the HTTP-backed MCP tools over the canonical Factum API."""
-    resolved_client_factory = client_factory or FactumHttpClient
+    """Register the HTTP-backed MCP tools over the canonical Marivo API."""
+    resolved_client_factory = client_factory or MarivoHttpClient
     client = resolved_client_factory(config)
     discovery_cache = openapi_cache or OpenApiResponseCache(config.openapi_cache_ttl_sec)
 
@@ -503,7 +503,7 @@ def register_tools(
     @server.tool()
     @_tool_metadata("GET", "/health")
     def health_check() -> dict[str, object]:
-        """Check Factum service health via GET /health using the shared MCP HTTP envelope."""
+        """Check Marivo service health via GET /health using the shared MCP HTTP envelope."""
         return client.request_envelope("GET", "/health").model_dump()
 
     @server.tool()
@@ -1564,7 +1564,7 @@ def register_tools(
     @server.tool()
     @_tool_metadata("GET", "/sources/{source_id}/objects/{object_id}")
     def get_source_object(source_id: str, object_id: str) -> dict[str, object]:
-        """Read one synced source object via GET /sources/{source_id}/objects/{object_id}; this mirrors Factum's stored metadata detail and does not browse live external catalogs."""
+        """Read one synced source object via GET /sources/{source_id}/objects/{object_id}; this mirrors Marivo's stored metadata detail and does not browse live external catalogs."""
         return client.request_envelope(
             "GET",
             f"/sources/{source_id}/objects/{object_id}",
@@ -1619,11 +1619,11 @@ def _normalize_json_value(value: object) -> object:
         }
     if isinstance(value, str | int | float | bool) or value is None:
         return value
-    raise TypeError(f"Unsupported JSON value for Factum MCP request body: {type(value).__name__}")
+    raise TypeError(f"Unsupported JSON value for Marivo MCP request body: {type(value).__name__}")
 
 
 def _intent_request(
-    client: FactumHttpClient,
+    client: MarivoHttpClient,
     session_id: str,
     intent_name: str,
     **params: object,
@@ -1648,7 +1648,7 @@ def _normalize_string_multi_param(values: list[str] | None) -> list[str] | None:
 
 
 def _semantic_read_request(
-    client: FactumHttpClient,
+    client: MarivoHttpClient,
     path: str,
     *,
     status: str | None = None,
@@ -1669,7 +1669,7 @@ def _semantic_read_request(
 
 
 def _semantic_write_request(
-    client: FactumHttpClient,
+    client: MarivoHttpClient,
     method: str,
     path: str,
     **params: object,
@@ -1682,14 +1682,14 @@ def _semantic_write_request(
 
 
 def _semantic_action_request(
-    client: FactumHttpClient,
+    client: MarivoHttpClient,
     path: str,
 ) -> dict[str, object]:
     return client.request_envelope("POST", path).model_dump()
 
 
 def _semantic_publish_request(
-    client: FactumHttpClient,
+    client: MarivoHttpClient,
     path: str,
 ) -> dict[str, object]:
     return _semantic_action_request(client, path)
@@ -1712,7 +1712,7 @@ def _resolve_object_id(
 
 
 def _openapi_cached_request(
-    client: FactumHttpClient,
+    client: MarivoHttpClient,
     cache: OpenApiResponseCache,
     key: tuple[object, ...],
     path: str,

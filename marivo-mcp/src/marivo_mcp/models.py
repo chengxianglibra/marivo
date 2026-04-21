@@ -10,7 +10,7 @@ class ToolMeta(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    factum_path: str
+    marivo_path: str
     method: str
     request_url: str
     attempt_count: int = 1
@@ -18,7 +18,7 @@ class ToolMeta(BaseModel):
 
 
 class ToolError(BaseModel):
-    """Structured error details normalized from Factum HTTP responses."""
+    """Structured error details normalized from Marivo HTTP responses."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -32,7 +32,7 @@ class ToolError(BaseModel):
 
 
 class ToolEnvelope(BaseModel):
-    """Canonical result envelope returned by Factum MCP tools."""
+    """Canonical result envelope returned by Marivo MCP tools."""
 
     model_config = ConfigDict(extra="forbid")
 

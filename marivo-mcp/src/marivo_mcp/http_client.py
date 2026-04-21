@@ -5,15 +5,15 @@ from typing import Any, Literal
 
 import httpx
 
-from factum_mcp.config import FactumMcpConfig
-from factum_mcp.models import ToolEnvelope, ToolError, ToolMeta
+from marivo_mcp.config import MarivoMcpConfig
+from marivo_mcp.models import ToolEnvelope, ToolError, ToolMeta
 
 _RETRYABLE_STATUS_CODES = {502, 503, 504}
 _TIMEOUT_STATUS_CODE = 504
 _TRANSPORT_STATUS_CODE = 503
 
 
-class FactumHttpClientError(RuntimeError):
+class MarivoHttpClientError(RuntimeError):
     """Raised when a canonical HTTP read fails outside the tool envelope path."""
 
     def __init__(
@@ -34,12 +34,12 @@ class FactumHttpClientError(RuntimeError):
         self.guidance = guidance
 
 
-class FactumHttpClient:
+class MarivoHttpClient:
     """Shared transport wrapper for all MCP tools."""
 
     def __init__(
         self,
-        config: FactumMcpConfig,
+        config: MarivoMcpConfig,
         *,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
@@ -122,10 +122,10 @@ class FactumHttpClient:
         if envelope.ok:
             return envelope.data
         error = envelope.error
-        raise FactumHttpClientError(
+        raise MarivoHttpClientError(
             status_code=envelope.status_code,
             category=error.category if error is not None else "server_error",
-            message=error.message if error is not None else "Factum request failed.",
+            message=error.message if error is not None else "Marivo request failed.",
             path=path,
             detail=error.detail if error is not None else None,
             guidance=error.guidance if error is not None else None,
@@ -153,7 +153,7 @@ class FactumHttpClient:
         attempt_count: int,
     ) -> ToolEnvelope:
         meta = ToolMeta(
-            factum_path=path,
+            marivo_path=path,
             method=method,
             request_url=str(response.request.url),
             attempt_count=attempt_count,
@@ -204,7 +204,7 @@ class FactumHttpClient:
                 raw_body=None,
             ),
             meta=ToolMeta(
-                factum_path=path,
+                marivo_path=path,
                 method=method,
                 request_url=request_url,
                 attempt_count=attempt_count,
@@ -288,7 +288,7 @@ class FactumHttpClient:
             return "Request validation failed."
         if raw_body:
             return raw_body
-        return "Factum request failed."
+        return "Marivo request failed."
 
     def _classify_status(
         self,
@@ -322,4 +322,4 @@ class FactumHttpClient:
                 )
         if isinstance(detail, list) and detail:
             return "Validation failed. Use detail[*].loc to repair the failing field path."
-        return "Validation failed. Inspect the canonical Factum error body for remediation."
+        return "Validation failed. Inspect the canonical Marivo error body for remediation."

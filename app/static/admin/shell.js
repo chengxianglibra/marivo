@@ -169,7 +169,7 @@ export function createAdminShell(ctx) {
     renderAdminTableCard,
     renderAdminDetailCard,
     renderAdminListDetailLayout,
-    buildFactumUiUrl,
+    buildMarivoUiUrl,
     buildUiSessionsUrl,
     adminUiDeepLinks,
     initSidebar,
@@ -364,7 +364,7 @@ export function createAdminShell(ctx) {
       'Open Jobs in /ui': deepLinks.jobs,
     };
     const uiLinks = tabMeta.uiLinks.map((link) => {
-      const href = linkMap[link.label] || buildFactumUiUrl(link.route || {});
+      const href = linkMap[link.label] || buildMarivoUiUrl(link.route || {});
       return `<a class="btn btn-sm" href="${esc(href)}">${esc(link.label)}</a>`;
     }).join('');
 

@@ -514,7 +514,7 @@ class SyncModeTests(unittest.TestCase):
                 "connection": {
                     "host": "trino.example.com",
                     "catalog": "iceberg",
-                    "user": "factum",
+                    "user": "marivo",
                 },
             },
         )

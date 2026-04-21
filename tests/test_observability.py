@@ -52,8 +52,8 @@ class MetricsCollectorTests(unittest.TestCase):
         mc.record_request("POST", "/sessions", 200, 10.0)
         mc.record_step("profile_table", 50.0)
         text = mc.prometheus()
-        self.assertIn("factum_requests_total", text)
-        self.assertIn("factum_step_executions_total", text)
+        self.assertIn("marivo_requests_total", text)
+        self.assertIn("marivo_step_executions_total", text)
         self.assertIn('method="POST"', text)
 
     def test_snapshot_structure(self) -> None:
@@ -127,7 +127,7 @@ class JSONFormatterTests(unittest.TestCase):
     def test_format_includes_extra_fields(self) -> None:
         formatter = JSONFormatter()
         record = logging.LogRecord(
-            name="factum.execution",
+            name="marivo.execution",
             level=logging.INFO,
             pathname="test.py",
             lineno=1,
@@ -169,7 +169,7 @@ class ObservabilityAPITests(unittest.TestCase):
         self.client.get("/health")
         resp = self.client.get("/metrics?format=prometheus")
         self.assertEqual(resp.status_code, 200)
-        self.assertIn("factum_requests_total", resp.text)
+        self.assertIn("marivo_requests_total", resp.text)
 
     def test_timing_middleware_records_requests(self) -> None:
         self.client.get("/health")

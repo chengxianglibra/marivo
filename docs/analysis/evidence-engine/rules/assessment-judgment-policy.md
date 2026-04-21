@@ -1,6 +1,6 @@
 # 评估判断策略
 
-本文档定义 Factum 各 `assessment_type` 的最小判断门槛补充。
+本文档定义 Marivo 各 `assessment_type` 的最小判断门槛补充。
 
 状态：draft design。本文只保留各 `assessment_type` 的 family-specific judgment threshold；评估单元、固定顺序、gap 规则、共享 judgment baseline 与 registry 角色，统一以 [`evidence-engine/inference-and-gap-engine.md`](../inference-and-gap-engine.md) 为准。directional evidence aggregation 与最终 status 决议，则以 [`support-oppose-and-status-resolution.md`](../support-oppose-and-status-resolution.md) 的可执行 contract 为准。
 

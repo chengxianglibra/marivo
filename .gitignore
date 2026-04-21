@@ -47,7 +47,7 @@ Thumbs.db
 .playwright-cli/
 
 # Config (contains local paths/credentials)
-factum.yaml
+marivo.yaml
 
 # Claude Code
 .claude/

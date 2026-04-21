@@ -93,7 +93,7 @@ class CalendarConfig(BaseModel):
     snapshots: list[CalendarSnapshotConfig] = Field(default_factory=list)
 
 
-class FactumConfig(BaseModel):
+class MarivoConfig(BaseModel):
     metadata: MetadataConfig | None = None
     sources: list[SourceConfig] = Field(default_factory=list)
     engines: list[EngineConfig] = Field(default_factory=list)
@@ -105,23 +105,23 @@ class FactumConfig(BaseModel):
 
 
 # Backward-compatible alias
-OmniDBConfig = FactumConfig
+OmniDBConfig = MarivoConfig
 
 
 def resolve_config_path(path: Path | None = None) -> Path:
     if path is not None:
         return path
-    env = os.getenv("FACTUM_CONFIG")
-    return Path(env) if env else Path("factum.yaml")
+    env = os.getenv("MARIVO_CONFIG")
+    return Path(env) if env else Path("marivo.yaml")
 
 
-def load_config(path: Path | None = None) -> FactumConfig:
-    """Load and validate the Factum YAML config file.
+def load_config(path: Path | None = None) -> MarivoConfig:
+    """Load and validate the Marivo YAML config file.
 
     Resolution order:
     1. Explicit *path* argument
-    2. ``FACTUM_CONFIG`` environment variable
-    3. ``factum.yaml`` in the current working directory
+    2. ``MARIVO_CONFIG`` environment variable
+    3. ``marivo.yaml`` in the current working directory
 
     Returns an empty config (no sources) when the file does not exist,
     so the application boots normally without a config file.
@@ -130,7 +130,7 @@ def load_config(path: Path | None = None) -> FactumConfig:
 
     if not path.is_file():
         logger.debug("Config file not found at %s — using defaults", path)
-        return FactumConfig()
+        return MarivoConfig()
 
     raw = yaml.safe_load(path.read_text()) or {}
-    return FactumConfig.model_validate(raw)
+    return MarivoConfig.model_validate(raw)

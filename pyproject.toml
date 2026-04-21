@@ -1,6 +1,6 @@
 [project]
-name = "factum"
-version = "0.2.0"
+name = "marivo"
+version = "0.1.0"
 description = "Semantic layer platform with pluggable metadata stores, analytics engines, and catalog adapters."
 readme = "README.md"
 requires-python = ">=3.12"

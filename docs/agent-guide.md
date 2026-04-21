@@ -119,7 +119,7 @@ make format
 Tests: `make test` or `.venv/bin/pytest`. Use `make test TESTS='tests/test_file.py'`
 for targeted runs through the repository entrypoint. Requires Python 3.12+. SQLite metadata,
 DuckDB/Trino engines. Tests pass explicit db_path and metadata store/file paths directly.
-App startup requires `factum.yaml` metadata config with `metadata.engine=sqlite` and
+App startup requires `marivo.yaml` metadata config with `metadata.engine=sqlite` and
 `metadata.path=<sqlite-file>`.
 - Prefer `tests/shared_fixtures.py` named DuckDB templates for repeated test data. When multiple
   test classes need the same seeded analytics tables, build them once as a deterministic named
@@ -148,8 +148,8 @@ App startup requires `factum.yaml` metadata config with `metadata.engine=sqlite`
 - `docs/analysis/`: intents/evidence engine related schema.
 - `docs/semantic`: entity/dimension/metric/process related schema.
 - `docs/service/`: service runtime and operator design notes; agent local/remote target resolution lives in `agent-runtime-target-resolution.md`, source/execution/mapping target-state modeling lives in `source-execution-mapping-contract.md`, and execution-side auth/authz target-state modeling lives in `execution-auth-contract.md`
-- `factum-mcp/README.md` and `factum_mcp.inventory`: factum-mcp runtime scope, validation, and executable MCP surface inventory. Keep MCP implementation details there instead of expanding this guide.
-- When canonical intent request models change, treat `factum-mcp` typed intent tool schemas as affected because the adapter reuses those request models directly. All typed intent MCP tools expose an explicit top-level `session_id` for the HTTP path, and the remaining parameters should map directly to canonical HTTP body fields instead of MCP-only wrapper objects or JSON-encoded strings.
+- `marivo-mcp/README.md` and `marivo_mcp.inventory`: marivo-mcp runtime scope, validation, and executable MCP surface inventory. Keep MCP implementation details there instead of expanding this guide.
+- When canonical intent request models change, treat `marivo-mcp` typed intent tool schemas as affected because the adapter reuses those request models directly. All typed intent MCP tools expose an explicit top-level `session_id` for the HTTP path, and the remaining parameters should map directly to canonical HTTP body fields instead of MCP-only wrapper objects or JSON-encoded strings.
 - Typed intent `metric` parameters use canonical semantic refs such as `metric.watch_time`; do not pass bare metric names like `watch_time`.
 - Agent flows that create analysis sessions should explicitly terminate them via `POST /sessions/{session_id}/terminate` when investigation writes are complete; leaving sessions open is not the intended steady state.
 - Calendar alignment policies are discoverable builtin refs. For holiday, weekday, or natural

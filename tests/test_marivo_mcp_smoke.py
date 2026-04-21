@@ -7,23 +7,23 @@ from typing import Any, cast
 
 import httpx
 
-FACTUM_MCP_SRC = Path(__file__).resolve().parents[1] / "factum-mcp" / "src"
-sys.path.insert(0, str(FACTUM_MCP_SRC))
+MARIVO_MCP_SRC = Path(__file__).resolve().parents[1] / "marivo-mcp" / "src"
+sys.path.insert(0, str(MARIVO_MCP_SRC))
 
-config_module = import_module("factum_mcp.config")
-http_client_module = import_module("factum_mcp.http_client")
-smoke_module = import_module("factum_mcp.smoke")
+config_module = import_module("marivo_mcp.config")
+http_client_module = import_module("marivo_mcp.http_client")
+smoke_module = import_module("marivo_mcp.smoke")
 
-FactumMcpConfig = config_module.FactumMcpConfig
+MarivoMcpConfig = config_module.MarivoMcpConfig
 HttpTransportConfig = config_module.HttpTransportConfig
-FactumHttpClient = http_client_module.FactumHttpClient
+MarivoHttpClient = http_client_module.MarivoHttpClient
 run_live_smoke = smoke_module.run_live_smoke
 summarize_results = smoke_module.summarize_results
 
 
 def _build_config() -> Any:
-    return FactumMcpConfig(
-        base_url="http://factum.test",
+    return MarivoMcpConfig(
+        base_url="http://marivo.test",
         api_token=None,
         timeout_ms=1500,
         openapi_cache_ttl_sec=300,
@@ -74,16 +74,16 @@ def test_live_smoke_covers_health_openapi_session_lifecycle_state_and_validation
         raise AssertionError(f"Unexpected request {request.method} {request.url.path}")
 
     smoke_module_any = cast("Any", smoke_module)
-    original_client = smoke_module_any.FactumHttpClient
+    original_client = smoke_module_any.MarivoHttpClient
 
     def build_client(config: Any) -> Any:
-        return FactumHttpClient(config, transport=httpx.MockTransport(handler))
+        return MarivoHttpClient(config, transport=httpx.MockTransport(handler))
 
-    smoke_module_any.FactumHttpClient = build_client
+    smoke_module_any.MarivoHttpClient = build_client
     try:
         results = run_live_smoke(_build_config())
     finally:
-        smoke_module_any.FactumHttpClient = original_client
+        smoke_module_any.MarivoHttpClient = original_client
 
     assert [(result.name, result.ok) for result in results] == [
         ("health_check", True),
@@ -121,16 +121,16 @@ def test_live_smoke_marks_missing_session_id_as_failed_followup() -> None:
         raise AssertionError(f"Unexpected request {request.method} {request.url.path}")
 
     smoke_module_any = cast("Any", smoke_module)
-    original_client = smoke_module_any.FactumHttpClient
+    original_client = smoke_module_any.MarivoHttpClient
 
     def build_client(config: Any) -> Any:
-        return FactumHttpClient(config, transport=httpx.MockTransport(handler))
+        return MarivoHttpClient(config, transport=httpx.MockTransport(handler))
 
-    smoke_module_any.FactumHttpClient = build_client
+    smoke_module_any.MarivoHttpClient = build_client
     try:
         results = run_live_smoke(_build_config())
     finally:
-        smoke_module_any.FactumHttpClient = original_client
+        smoke_module_any.MarivoHttpClient = original_client
 
     summary = summarize_results(results)
     assert summary["ok"] is False

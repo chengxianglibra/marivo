@@ -210,7 +210,7 @@ v1 只使用一条对齐规则：
 - `needs_attention`
 - `not_aligned`
 
-Factum 的推荐默认行为是拒绝 `not_aligned`。
+Marivo 的推荐默认行为是拒绝 `not_aligned`。
 
 ## 关联语义
 

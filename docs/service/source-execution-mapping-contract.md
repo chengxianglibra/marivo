@@ -2,7 +2,7 @@
 
 状态：draft design。
 
-本文档定义 Factum 数据平面中 `source`、`execution engine` 与 `mapping` 的目标 schema 契约。
+本文档定义 Marivo 数据平面中 `source`、`execution engine` 与 `mapping` 的目标 schema 契约。
 
 本文是服务/运行时设计说明，不是当前 HTTP API 契约，也不是对现有 `/sources`、`/engines`、`/bindings` 路由的逐字段解释。它描述的是下一阶段应收敛到的领域模型，用于支撑：
 
@@ -47,7 +47,7 @@
 - source object identity 应锚定在 metadata authority，而不是执行端可见名字
 - execution engine 对 authority object 的可见 namespace 需要显式 contract，而不是运行时猜测
 
-因此，Factum 需要把数据平面收敛为三个一等对象：
+因此，Marivo 需要把数据平面收敛为三个一等对象：
 
 1. `source`
 2. `execution engine`
@@ -86,7 +86,7 @@
 
 ### 1. Metadata identity 归属于 source
 
-`source` 是 metadata authority。Factum sync 得到的 object identity、层级、schema 与后续 semantic grounding，默认都以 source namespace 为准。
+`source` 是 metadata authority。Marivo sync 得到的 object identity、层级、schema 与后续 semantic grounding，默认都以 source namespace 为准。
 
 ### 2. Execution namespace 归属于 execution engine
 
@@ -102,7 +102,7 @@
 
 ### 4. 没有 mapping，就没有稳定 routing
 
-当 source 与 execution engine 分离时，Factum 不应通过连接参数、默认 catalog 或短名称推断 execution-side locator。若没有可用 mapping，应作为 readiness / routing blocker 明确失败。
+当 source 与 execution engine 分离时，Marivo 不应通过连接参数、默认 catalog 或短名称推断 execution-side locator。若没有可用 mapping，应作为 readiness / routing blocker 明确失败。
 
 ### 5. Typed binding 继续锚定 source object
 
@@ -215,7 +215,7 @@ typed semantic binding 的 carrier grounding 应继续依赖 sync 后的 `source
 ### Source 字段语义
 
 - `source_id`
-  Factum 内部稳定标识。
+  Marivo 内部稳定标识。
 - `source_type`
   authority adapter 类型。
 - `authority.catalog_system`
@@ -475,7 +475,7 @@ routing 在选择 engine 时，应至少同时考虑：
 #### `mysql`
 
 - authority 视角通常不具备强 catalog 层
-- 需要 Factum 生成稳定 `authority_catalog`
+- 需要 Marivo 生成稳定 `authority_catalog`
 - 推荐 `authority_catalog` 默认使用 source-local logical catalog 名称
 
 #### `hive_metastore`
@@ -668,7 +668,7 @@ typed semantic binding 不应直接存 execution-side locator。
 
 ## 结论
 
-Factum 数据平面应收敛为：
+Marivo 数据平面应收敛为：
 
 - `source`：metadata authority
 - `execution engine`：runtime execution authority

@@ -2,7 +2,7 @@
 
 Engines represent analytics execution backends (DuckDB, Trino). Source-engine bindings link a source to an engine with a priority for routing. The QueryRouter uses bindings to resolve which engine should execute a query against a given set of tables.
 
-When `factum.yaml` includes a Trino engine, Factum validates the optional `trino` Python package at
+When `marivo.yaml` includes a Trino engine, Marivo validates the optional `trino` Python package at
 startup and fails fast if it is missing. Install Trino support with `pip install -e .[trino]`.
 
 ## Endpoints

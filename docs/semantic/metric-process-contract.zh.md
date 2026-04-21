@@ -1,6 +1,6 @@
 # Semantic Layer Metric / Process Object 设计契约
 
-本文整理 Factum semantic layer 中 `metric` 与 `process object` 的目标分工、组合方式与设计边界。
+本文整理 Marivo semantic layer 中 `metric` 与 `process object` 的目标分工、组合方式与设计边界。
 
 本文是语义设计文档，不是当前实现说明，也不是 HTTP wire spec。外部 API 仍以 `docs/api/` 下文档为准；intent 设计以 `docs/analysis/intents/` 为准。配套 schema 细化见：
 
@@ -40,7 +40,7 @@
 - intent runtime 难以判断某个分析请求是在请求一个指标，还是在请求一套过程构造规则
 - SQL 实现细节、业务语义、统计前提容易混在一起，难以治理
 
-因此，Factum 需要把“过程型分析对象（process-oriented analysis objects）”提升为与 `metric` 同级的原生语义对象。
+因此，Marivo 需要把“过程型分析对象（process-oriented analysis objects）”提升为与 `metric` 同级的原生语义对象。
 
 ## 核心设计结论
 
@@ -94,7 +94,7 @@ typed binding contract 只负责把这些既有语义对象落到物理层，并
 - `sample_kind`
 - `value_semantics`
 - `numerator / denominator contract`（适用于 rate 类指标）
-- `additivity`
+- `additivity_constraints`
 - `metric_contract_version`
 
 `metric` 不应直接承载以下内容：
@@ -262,7 +262,12 @@ type MetricContract = {
   value_semantics: "count" | "sum" | "ratio" | "mean" | "percentile" | "score";
   numerator?: MeasurementComponent | null;
   denominator?: MeasurementComponent | null;
-  additivity: "additive" | "semi_additive" | "non_additive";
+  additivity_constraints: {
+    dimension_policy: "all" | "subset" | "none";
+    additive_dimensions?: string[];
+    time_axis_policy: "additive" | "non_additive";
+    notes?: string | null;
+  };
   metric_contract_version: string;
 };
 ```
@@ -672,7 +677,7 @@ IR 负责：
 - `population_subject_ref` 是否一致
 - grain 是否兼容
 - `sample_kind` 是否满足 intent 前提
-- `additivity` 是否满足 `decompose` / `attribute` 前提
+- `additivity_constraints.dimension_policy` 是否满足 `decompose` / `attribute` 前提
 - process interface 是否支持时间序列化
 - process interface 是否满足 comparability gate
 - quality gate / freshness gate 是否通过
@@ -703,7 +708,7 @@ IR 负责：
 
 ### 第一阶段：稳定 metric contract
 
-先把 measurement identity、comparability、additivity、inferential capability 从 `definition_sql` 中剥离出来，形成更完整的 metric contract。
+先把 measurement identity、comparability、additivity_constraints、inferential capability 从 `definition_sql` 中剥离出来，形成更完整的 metric contract。
 
 ### 第二阶段：引入最小 process object 集合
 
@@ -729,7 +734,7 @@ IR 负责：
 
 ## 总结
 
-对于 Factum semantic layer，更合适的演进方向不是继续扩张 `metric`，也不是为每类业务对象发明新 intent，而是建立如下稳定分工：
+对于 Marivo semantic layer，更合适的演进方向不是继续扩张 `metric`，也不是为每类业务对象发明新 intent，而是建立如下稳定分工：
 
 - `metric`：受治理的 measurement contract
 - `process object`：受治理的 process contract
@@ -746,4 +751,4 @@ IR 负责：
 
 一句话总结：
 
-> Factum 应把“量什么”“过程如何构造”“做什么分析动作”分离为三类稳定契约，并由 IR 承接其受约束组合，而不是把它们重新混回 SQL 或单一 metric schema 中。
+> Marivo 应把“量什么”“过程如何构造”“做什么分析动作”分离为三类稳定契约，并由 IR 承接其受约束组合，而不是把它们重新混回 SQL 或单一 metric schema 中。

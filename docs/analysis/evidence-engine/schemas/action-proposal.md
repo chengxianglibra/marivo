@@ -1,12 +1,12 @@
 # Action Proposal Schema
 
-本文档定义 Factum 动作支持层中 `action proposal` 的拟议类型契约。
+本文档定义 Marivo 动作支持层中 `action proposal` 的拟议类型契约。
 
 状态：draft design。本文是规划中的规范 `action proposal` Schema 提案，不表示对应 HTTP endpoint 或持久化模型已经实现。
 
 ## 目的
 
-`action proposal` 是 Factum 证据引擎面向 agent 的类型化动作支持对象（typed action-support object），用于把当前评估状态（`assessment`）暴露出的判断状态、证据缺口（evidence gap）和策略上下文（policy context），转化为结构化、可排序、可执行的下一步动作候选。
+`action proposal` 是 Marivo 证据引擎面向 agent 的类型化动作支持对象（typed action-support object），用于把当前评估状态（`assessment`）暴露出的判断状态、证据缺口（evidence gap）和策略上下文（policy context），转化为结构化、可排序、可执行的下一步动作候选。
 
 设计目标：
 

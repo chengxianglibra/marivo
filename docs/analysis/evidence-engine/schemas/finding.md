@@ -6,7 +6,7 @@
 
 ## 目的
 
-`finding` 是 Factum 证据引擎中的规范事实单元（canonical fact unit），用于承接类型化分析意图（typed analysis intent）产出的工件（artifact），并把其中可确定性抽取、可单独引用、可被 agent 消费的事实以稳定类型表达出来。
+`finding` 是 Marivo 证据引擎中的规范事实单元（canonical fact unit），用于承接类型化分析意图（typed analysis intent）产出的工件（artifact），并把其中可确定性抽取、可单独引用、可被 agent 消费的事实以稳定类型表达出来。
 
 设计目标：
 

@@ -20,7 +20,7 @@ from app.api.errors import (
 from app.api.router import include_api_routers
 from app.approvals import ApprovalService
 from app.bindings import BindingService
-from app.config import FactumConfig, load_config, resolve_config_path
+from app.config import MarivoConfig, load_config, resolve_config_path
 from app.engines import EngineService
 from app.governance import GovernanceService
 from app.jobs import JobService
@@ -41,7 +41,7 @@ from app.ui import register_ui
 logger = logging.getLogger(__name__)
 
 
-def _require_runtime_dependencies(config: FactumConfig) -> None:
+def _require_runtime_dependencies(config: MarivoConfig) -> None:
     needs_trino = any(source.type == "trino" for source in config.sources) or any(
         engine.type == "trino" for engine in config.engines
     )
@@ -51,7 +51,7 @@ def _require_runtime_dependencies(config: FactumConfig) -> None:
         importlib.import_module("trino")
     except ModuleNotFoundError as error:
         raise RuntimeError(
-            "factum.yaml references a Trino source or engine, but the optional dependency "
+            "marivo.yaml references a Trino source or engine, but the optional dependency "
             "'trino' is not installed. Install it with: pip install -e .[trino]"
         ) from error
 
@@ -60,7 +60,7 @@ def _resolve_storage(
     db_path: str | Path | None,
     metadata_store: MetadataStore | None,
     analytics_engine: AnalyticsEngine | None,
-    config: FactumConfig,
+    config: MarivoConfig,
     config_path: Path,
     config_path_explicit: bool,
 ) -> tuple[Path | str, MetadataStore, AnalyticsEngine]:
@@ -80,7 +80,7 @@ def _resolve_storage(
             metadata_store = SQLiteMetadataStore(metadata_path)
         else:
             raise RuntimeError(
-                "Factum config must define metadata.engine=sqlite and metadata.path when "
+                "Marivo config must define metadata.engine=sqlite and metadata.path when "
                 "metadata_store is not provided"
             )
     if analytics_engine is None:
@@ -92,7 +92,7 @@ def _resolve_storage(
 
 
 def _register_configured_sources(
-    config: FactumConfig, source_service: SourceService, sync_engine: SyncEngine
+    config: MarivoConfig, source_service: SourceService, sync_engine: SyncEngine
 ) -> None:
     for source_config in config.sources:
         try:
@@ -134,7 +134,7 @@ def _register_configured_sources(
             logger.exception("Failed to register/sync config source '%s'", source_config.name)
 
 
-def _register_configured_engines(config: FactumConfig, engine_service: EngineService) -> None:
+def _register_configured_engines(config: MarivoConfig, engine_service: EngineService) -> None:
     for engine_config in config.engines:
         try:
             engine_service.ensure_engine(
@@ -148,7 +148,7 @@ def _register_configured_engines(config: FactumConfig, engine_service: EngineSer
 
 
 def _register_configured_bindings(
-    config: FactumConfig,
+    config: MarivoConfig,
     metadata_store: MetadataStore,
     binding_service: BindingService,
 ) -> None:
@@ -188,7 +188,7 @@ def _register_configured_bindings(
 
 
 def _register_configured_governance(
-    config: FactumConfig,
+    config: MarivoConfig,
     metadata_store: MetadataStore,
     governance_service: GovernanceService | None,
 ) -> None:
@@ -236,7 +236,7 @@ def _build_services(
     resolved_path: Path | str,  # Analytics path; str ":memory:" means in-memory DuckDB.
     metadata_store: MetadataStore,
     analytics_engine: AnalyticsEngine,
-    config: FactumConfig,
+    config: MarivoConfig,
 ) -> AppServices:
     setup_logging(level=config.observability.log_level)
     metrics_collector = MetricsCollector() if config.observability.metrics_enabled else None
@@ -350,7 +350,7 @@ def create_app(
         analytics_engine=analytics_engine,
         config=config,
     )
-    app = FastAPI(title="Factum Semantic Layer", version="0.2.0")
+    app = FastAPI(title="Marivo Semantic Layer", version="0.1.0")
     _attach_state(app, services)
     app.add_exception_handler(
         RequestValidationError,

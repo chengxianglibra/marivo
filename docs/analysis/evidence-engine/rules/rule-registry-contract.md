@@ -1,6 +1,6 @@
 # 规则注册表契约
 
-本文档定义 Factum 推断规则注册表（inference rule registry）的元数据契约补充。
+本文档定义 Marivo 推断规则注册表（inference rule registry）的元数据契约补充。
 
 状态：draft design。本文只保留 registry 自身的 metadata shape 与 consumption contract；rule family 的固定顺序、主题边界与 registry 在 inference 主线中的角色，统一以 [`evidence-engine/inference-and-gap-engine.md`](../inference-and-gap-engine.md) 为准。
 

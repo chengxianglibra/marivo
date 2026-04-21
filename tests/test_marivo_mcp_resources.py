@@ -8,17 +8,17 @@ from typing import Any, cast
 import httpx
 import pytest
 
-FACTUM_MCP_SRC = Path(__file__).resolve().parents[1] / "factum-mcp" / "src"
-sys.path.insert(0, str(FACTUM_MCP_SRC))
+MARIVO_MCP_SRC = Path(__file__).resolve().parents[1] / "marivo-mcp" / "src"
+sys.path.insert(0, str(MARIVO_MCP_SRC))
 
-resources_module = import_module("factum_mcp.resources")
-config_module = import_module("factum_mcp.config")
-http_client_module = import_module("factum_mcp.http_client")
+resources_module = import_module("marivo_mcp.resources")
+config_module = import_module("marivo_mcp.config")
+http_client_module = import_module("marivo_mcp.http_client")
 
-FactumMcpConfig = config_module.FactumMcpConfig
+MarivoMcpConfig = config_module.MarivoMcpConfig
 HttpTransportConfig = config_module.HttpTransportConfig
-FactumHttpClient = http_client_module.FactumHttpClient
-FactumHttpClientError = http_client_module.FactumHttpClientError
+MarivoHttpClient = http_client_module.MarivoHttpClient
+MarivoHttpClientError = http_client_module.MarivoHttpClientError
 register_resources = resources_module.register_resources
 
 
@@ -49,8 +49,8 @@ class _FakeServer:
 
 
 def _build_config() -> Any:
-    return FactumMcpConfig(
-        base_url="http://factum.test",
+    return MarivoMcpConfig(
+        base_url="http://marivo.test",
         api_token=None,
         timeout_ms=1500,
         openapi_cache_ttl_sec=300,
@@ -65,13 +65,13 @@ def test_registers_t9_resources_and_scaffold_config_resource() -> None:
     register_resources(server, _build_config())
 
     assert set(server.resources) == {
-        "factum://server/config",
-        "factum://catalog/summary",
-        "factum://sessions/{session_id}/state",
-        "factum://sessions/{session_id}/propositions/{proposition_id}/context",
-        "factum://semantic/{family}",
-        "factum://sources/{source_id}/objects",
-        "factum://sources/{source_id}/objects/{object_id}",
+        "marivo://server/config",
+        "marivo://catalog/summary",
+        "marivo://sessions/{session_id}/state",
+        "marivo://sessions/{session_id}/propositions/{proposition_id}/context",
+        "marivo://semantic/{family}",
+        "marivo://sources/{source_id}/objects",
+        "marivo://sources/{source_id}/objects/{object_id}",
     }
 
 
@@ -79,9 +79,9 @@ def test_server_config_resource_exposes_non_secret_runtime_settings() -> None:
     server = cast("Any", _FakeServer())
     register_resources(server, _build_config())
 
-    payload = server.resources["factum://server/config"]()
+    payload = server.resources["marivo://server/config"]()
 
-    assert "base_url=http://factum.test" in payload
+    assert "base_url=http://marivo.test" in payload
     assert "openapi_cache_ttl_sec=300" in payload
     assert "default_source_id=" in payload
 
@@ -97,7 +97,7 @@ def test_session_state_resource_mirrors_canonical_http_body() -> None:
         )
 
     result = _invoke_registered_resource(
-        "factum://sessions/{session_id}/state",
+        "marivo://sessions/{session_id}/state",
         handler,
         session_id="sess_123",
     )
@@ -112,7 +112,7 @@ def test_proposition_context_resource_mirrors_canonical_http_body() -> None:
         return httpx.Response(200, json={"proposition_id": "prop_456"}, request=request)
 
     result = _invoke_registered_resource(
-        "factum://sessions/{session_id}/propositions/{proposition_id}/context",
+        "marivo://sessions/{session_id}/propositions/{proposition_id}/context",
         handler,
         session_id="sess_123",
         proposition_id="prop_456",
@@ -129,7 +129,7 @@ def test_semantic_family_resource_reads_one_canonical_family_surface() -> None:
         return httpx.Response(200, json=[{"metric_id": "met_123"}], request=request)
 
     result = _invoke_registered_resource(
-        "factum://semantic/{family}",
+        "marivo://semantic/{family}",
         handler,
         family="metrics",
     )
@@ -140,7 +140,7 @@ def test_semantic_family_resource_reads_one_canonical_family_surface() -> None:
 def test_semantic_family_resource_rejects_unknown_families() -> None:
     with pytest.raises(ValueError, match="Unsupported semantic family"):
         _invoke_registered_resource(
-            "factum://semantic/{family}",
+            "marivo://semantic/{family}",
             lambda request: httpx.Response(200, json={}, request=request),
             family="keys",
         )
@@ -154,7 +154,7 @@ def test_source_objects_resource_reads_synced_metadata_listing() -> None:
         return httpx.Response(200, json=[{"object_id": "obj_123"}], request=request)
 
     result = _invoke_registered_resource(
-        "factum://sources/{source_id}/objects",
+        "marivo://sources/{source_id}/objects",
         handler,
         source_id="src_123",
     )
@@ -170,7 +170,7 @@ def test_source_object_resource_reads_one_canonical_object_body() -> None:
         return httpx.Response(200, json={"object_id": "obj_456"}, request=request)
 
     result = _invoke_registered_resource(
-        "factum://sources/{source_id}/objects/{object_id}",
+        "marivo://sources/{source_id}/objects/{object_id}",
         handler,
         source_id="src_123",
         object_id="obj_456",
@@ -198,7 +198,7 @@ def test_catalog_summary_resource_aggregates_fixed_read_surfaces() -> None:
         seen_paths.append(request.url.path)
         return httpx.Response(200, json=responses[request.url.path], request=request)
 
-    result = _invoke_registered_resource("factum://catalog/summary", handler)
+    result = _invoke_registered_resource("marivo://catalog/summary", handler)
 
     assert seen_paths == [
         "/openapi/index",
@@ -237,9 +237,9 @@ def test_resource_failures_raise_structured_http_client_error() -> None:
             request=request,
         )
 
-    with pytest.raises(FactumHttpClientError, match="Session 'sess_missing' not found") as error:
+    with pytest.raises(MarivoHttpClientError, match="Session 'sess_missing' not found") as error:
         _invoke_registered_resource(
-            "factum://sessions/{session_id}/state",
+            "marivo://sessions/{session_id}/state",
             handler,
             session_id="sess_missing",
         )
@@ -256,15 +256,15 @@ def _invoke_registered_resource(
     **resource_kwargs: Any,
 ) -> object:
     resources_module_any = cast("Any", resources_module)
-    original_client = resources_module_any.FactumHttpClient
+    original_client = resources_module_any.MarivoHttpClient
 
     def build_client(config: Any) -> Any:
-        return FactumHttpClient(config, transport=httpx.MockTransport(handler))
+        return MarivoHttpClient(config, transport=httpx.MockTransport(handler))
 
-    resources_module_any.FactumHttpClient = build_client
+    resources_module_any.MarivoHttpClient = build_client
     try:
         server = cast("Any", _FakeServer())
         register_resources(server, _build_config())
         return server.resources[uri](**resource_kwargs)
     finally:
-        resources_module_any.FactumHttpClient = original_client
+        resources_module_any.MarivoHttpClient = original_client

@@ -1,6 +1,6 @@
 # Evidence Engine Runtime Status Surface
 
-本文档定义 Factum Evidence Engine 的 operator-facing runtime status surface。
+本文档定义 Marivo Evidence Engine 的 operator-facing runtime status surface。
 
 状态：draft design。本文只定义运行时观测与排障视角的状态面，不重写 canonical evidence object schema，也不把调度状态混入 `SessionStateView` 或 `PropositionContextView`。
 

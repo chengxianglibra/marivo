@@ -17,7 +17,7 @@ class UIBothEnabledTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.tmp = tempfile.TemporaryDirectory()
-        config_path = Path(cls.tmp.name) / "factum.yaml"
+        config_path = Path(cls.tmp.name) / "marivo.yaml"
         config_path.write_text(
             "metadata:\n  engine: sqlite\n  path: ui.meta.sqlite\nui:\n  enabled: true\n"
         )
@@ -35,13 +35,13 @@ class UIBothEnabledTests(unittest.TestCase):
         resp = self.client.get("/admin")
         self.assertEqual(resp.status_code, 200)
         self.assertIn("text/html", resp.headers["content-type"])
-        self.assertIn("Factum", resp.text)
+        self.assertIn("Marivo", resp.text)
 
     def test_ui_returns_html(self) -> None:
         resp = self.client.get("/ui")
         self.assertEqual(resp.status_code, 200)
         self.assertIn("text/html", resp.headers["content-type"])
-        self.assertIn("Factum", resp.text)
+        self.assertIn("Marivo", resp.text)
 
     def test_static_admin_accessible(self) -> None:
         resp = self.client.get("/static/admin.html")
@@ -186,7 +186,7 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertIn("function renderAdminDetailCard", resp.text)
         self.assertIn("function renderStructuredError", resp.text)
         self.assertIn("function openDangerConfirm", resp.text)
-        self.assertIn("function buildFactumUiUrl", resp.text)
+        self.assertIn("function buildMarivoUiUrl", resp.text)
         self.assertIn("function buildUiStateUrl", resp.text)
         self.assertIn("function buildUiContextUrl", resp.text)
         self.assertIn("function buildUiRuntimeUrl", resp.text)
@@ -1048,7 +1048,7 @@ class UIAdminOnlyTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.tmp = tempfile.TemporaryDirectory()
-        config_path = Path(cls.tmp.name) / "factum.yaml"
+        config_path = Path(cls.tmp.name) / "marivo.yaml"
         config_path.write_text(
             "metadata:\n"
             "  engine: sqlite\n"
@@ -1071,7 +1071,7 @@ class UIAdminOnlyTests(unittest.TestCase):
         resp = self.client.get("/admin")
         self.assertEqual(resp.status_code, 200)
         self.assertIn("text/html", resp.headers["content-type"])
-        self.assertIn("Factum", resp.text)
+        self.assertIn("Marivo", resp.text)
 
     def test_ui_returns_404(self) -> None:
         resp = self.client.get("/ui")
@@ -1084,7 +1084,7 @@ class UIUserOnlyTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.tmp = tempfile.TemporaryDirectory()
-        config_path = Path(cls.tmp.name) / "factum.yaml"
+        config_path = Path(cls.tmp.name) / "marivo.yaml"
         config_path.write_text(
             "metadata:\n"
             "  engine: sqlite\n"
@@ -1111,7 +1111,7 @@ class UIUserOnlyTests(unittest.TestCase):
         resp = self.client.get("/ui")
         self.assertEqual(resp.status_code, 200)
         self.assertIn("text/html", resp.headers["content-type"])
-        self.assertIn("Factum", resp.text)
+        self.assertIn("Marivo", resp.text)
 
 
 if __name__ == "__main__":

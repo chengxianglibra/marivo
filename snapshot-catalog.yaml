@@ -1,6 +1,6 @@
 - generic [active] [ref=e1]:
   - generic [ref=e2]:
-    - heading "Factum Analytics" [level=1] [ref=e3]
+    - heading "Marivo Analytics" [level=1] [ref=e3]
     - generic [ref=e4]:
       - button "Catalog" [ref=e5] [cursor=pointer]
       - button "Sessions" [ref=e6] [cursor=pointer]

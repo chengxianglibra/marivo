@@ -1,6 +1,6 @@
 # Semantic Layer Dimension Schema Contract（草案）
 
-本文定义 Factum semantic layer 中 `dimension` 的目标 schema contract。
+本文定义 Marivo semantic layer 中 `dimension` 的目标 schema contract。
 
 本文是**语义契约设计文档**，不是当前实现说明，也不是最终 HTTP wire spec。它与以下文档配套：
 
@@ -50,7 +50,7 @@
 - 某个维度是实体稳定属性、过程导出属性，还是请求时分组轴
 - compare / decompose / detect / experiment split 等动作下的结构化使用边界
 
-因此，Factum 需要把 `dimension` 从“metric 上的字符串清单”提升为“独立的语义分析轴契约”。
+因此，Marivo 需要把 `dimension` 从“metric 上的字符串清单”提升为“独立的语义分析轴契约”。
 
 ## 设计目标
 
@@ -414,7 +414,7 @@ class CoreDimensionObject(TypedDict):
 
 例如 `supports_grouping = true` 的意思是“这个轴在维度本体上允许被请求为分组轴”，但最终是否合法仍取决于：
 
-- metric 的 `additivity`
+- metric 的 `additivity_constraints`
 - process 是否导出该维度
 - entity 是否把它暴露为稳定描述属性
 - compiler 的请求时 gate

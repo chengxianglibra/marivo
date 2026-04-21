@@ -7,7 +7,7 @@ from typing import Any
 
 
 class MetadataStore(ABC):
-    """Pluggable backend for Factum control-plane tables (sessions, steps,
+    """Pluggable backend for Marivo control-plane tables (sessions, steps,
     artifacts, observations, claims, edges, recommendations, sources,
     semantic objects, etc.)."""
 

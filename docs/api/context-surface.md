@@ -1,6 +1,6 @@
 # Context Surface
 
-This document defines the target-state external HTTP contract for Factum's proposition context surface.
+This document defines the target-state external HTTP contract for Marivo's proposition context surface.
 
 It binds the canonical schema from [`docs/analysis/evidence-engine/schemas/context-surface-schema.md`](../analysis/evidence-engine/schemas/context-surface-schema.md) to a stable HTTP resource. This is a target-state wire specification and does not describe or depend on the current implementation.
 

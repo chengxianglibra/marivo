@@ -14,17 +14,17 @@ from app.api.models._legacy import (
     ObserveTimeScopeAsOf,
 )
 
-FACTUM_MCP_SRC = Path(__file__).resolve().parents[1] / "factum-mcp" / "src"
-sys.path.insert(0, str(FACTUM_MCP_SRC))
+MARIVO_MCP_SRC = Path(__file__).resolve().parents[1] / "marivo-mcp" / "src"
+sys.path.insert(0, str(MARIVO_MCP_SRC))
 
-tools_module = import_module("factum_mcp.tools")
-config_module = import_module("factum_mcp.config")
-http_client_module = import_module("factum_mcp.http_client")
-openapi_cache_module = import_module("factum_mcp.openapi_cache")
+tools_module = import_module("marivo_mcp.tools")
+config_module = import_module("marivo_mcp.config")
+http_client_module = import_module("marivo_mcp.http_client")
+openapi_cache_module = import_module("marivo_mcp.openapi_cache")
 
-FactumMcpConfig = config_module.FactumMcpConfig
+MarivoMcpConfig = config_module.MarivoMcpConfig
 HttpTransportConfig = config_module.HttpTransportConfig
-FactumHttpClient = http_client_module.FactumHttpClient
+MarivoHttpClient = http_client_module.MarivoHttpClient
 register_tools = tools_module.register_tools
 OpenApiResponseCache = openapi_cache_module.OpenApiResponseCache
 
@@ -56,8 +56,8 @@ class _FakeServer:
 
 
 def _build_config(*, api_token: str | None = None) -> Any:
-    return FactumMcpConfig(
-        base_url="http://factum.test",
+    return MarivoMcpConfig(
+        base_url="http://marivo.test",
         api_token=api_token,
         timeout_ms=1500,
         openapi_cache_ttl_sec=300,
@@ -77,16 +77,16 @@ def test_success_json_response() -> None:
             request=request,
         )
 
-    client = FactumHttpClient(_build_config(), transport=httpx.MockTransport(handler))
+    client = MarivoHttpClient(_build_config(), transport=httpx.MockTransport(handler))
     envelope = client.request_envelope("GET", "/health")
 
     assert envelope.ok is True
     assert envelope.status_code == 200
     assert envelope.data == {"status": "ok"}
     assert envelope.error is None
-    assert envelope.meta.factum_path == "/health"
+    assert envelope.meta.marivo_path == "/health"
     assert envelope.meta.method == "GET"
-    assert envelope.meta.request_url == "http://factum.test/health"
+    assert envelope.meta.request_url == "http://marivo.test/health"
     assert envelope.meta.attempt_count == 1
     assert envelope.meta.content_type == "application/json"
     client.close()
@@ -101,7 +101,7 @@ def test_non_json_success_response_is_wrapped_as_raw_text() -> None:
             request=request,
         )
 
-    client = FactumHttpClient(_build_config(), transport=httpx.MockTransport(handler))
+    client = MarivoHttpClient(_build_config(), transport=httpx.MockTransport(handler))
     envelope = client.request_envelope("GET", "/health")
 
     assert envelope.ok is True
@@ -115,7 +115,7 @@ def test_injects_bearer_authorization_header() -> None:
         assert request.headers["authorization"] == "Bearer secret-token"
         return httpx.Response(200, json={"status": "ok"}, request=request)
 
-    client = FactumHttpClient(
+    client = MarivoHttpClient(
         _build_config(api_token="secret-token"),
         transport=httpx.MockTransport(handler),
     )
@@ -151,7 +151,7 @@ def test_validation_error_preserves_guidance_and_adds_hint() -> None:
             request=request,
         )
 
-    client = FactumHttpClient(_build_config(), transport=httpx.MockTransport(handler))
+    client = MarivoHttpClient(_build_config(), transport=httpx.MockTransport(handler))
     envelope = client.request_envelope("POST", "/semantic/entities", json_body={})
 
     assert envelope.ok is False
@@ -198,7 +198,7 @@ def test_not_found_and_conflict_are_distinguished() -> None:
             request=request,
         )
 
-    client = FactumHttpClient(_build_config(), transport=httpx.MockTransport(handler))
+    client = MarivoHttpClient(_build_config(), transport=httpx.MockTransport(handler))
     not_found = client.request_envelope("GET", "/sessions/missing")
     conflict = client.request_envelope("POST", "/semantic/bindings", json_body={})
 
@@ -218,7 +218,7 @@ def test_server_error_with_text_body_preserves_raw_body() -> None:
             request=request,
         )
 
-    client = FactumHttpClient(_build_config(), transport=httpx.MockTransport(handler))
+    client = MarivoHttpClient(_build_config(), transport=httpx.MockTransport(handler))
     envelope = client.request_envelope("GET", "/jobs")
 
     assert envelope.error is not None
@@ -237,7 +237,7 @@ def test_get_retries_once_on_timeout() -> None:
             raise httpx.ReadTimeout("timed out", request=request)
         return httpx.Response(200, json={"status": "ok"}, request=request)
 
-    client = FactumHttpClient(_build_config(), transport=httpx.MockTransport(handler))
+    client = MarivoHttpClient(_build_config(), transport=httpx.MockTransport(handler))
     envelope = client.request_envelope("GET", "/health")
 
     assert attempts["count"] == 2
@@ -253,7 +253,7 @@ def test_post_does_not_retry_on_timeout() -> None:
         attempts["count"] += 1
         raise httpx.ReadTimeout("timed out", request=request)
 
-    client = FactumHttpClient(_build_config(), transport=httpx.MockTransport(handler))
+    client = MarivoHttpClient(_build_config(), transport=httpx.MockTransport(handler))
     envelope = client.request_envelope("POST", "/semantic/entities", json_body={})
 
     assert attempts["count"] == 1
@@ -270,18 +270,18 @@ def test_health_check_uses_shared_http_client_envelope() -> None:
         return httpx.Response(200, json={"status": "ok"}, request=request)
 
     tools_module_any = cast("Any", tools_module)
-    original_client = tools_module_any.FactumHttpClient
+    original_client = tools_module_any.MarivoHttpClient
 
     def build_client(config: Any) -> Any:
-        return FactumHttpClient(config, transport=httpx.MockTransport(handler))
+        return MarivoHttpClient(config, transport=httpx.MockTransport(handler))
 
-    tools_module_any.FactumHttpClient = build_client
+    tools_module_any.MarivoHttpClient = build_client
     try:
         server = cast("Any", _FakeServer())
         register_tools(server, _build_config())
         result = server.tools["health_check"]()
     finally:
-        tools_module_any.FactumHttpClient = original_client
+        tools_module_any.MarivoHttpClient = original_client
 
     assert result == {
         "ok": True,
@@ -289,9 +289,9 @@ def test_health_check_uses_shared_http_client_envelope() -> None:
         "data": {"status": "ok"},
         "error": None,
         "meta": {
-            "factum_path": "/health",
+            "marivo_path": "/health",
             "method": "GET",
-            "request_url": "http://factum.test/health",
+            "request_url": "http://marivo.test/health",
             "attempt_count": 1,
             "content_type": "application/json",
         },
@@ -414,7 +414,7 @@ def test_list_openapi_paths_uses_openapi_index_endpoint() -> None:
 
     assert result["ok"] is True
     assert result["data"] == {"paths": [], "schemas": []}
-    assert result["meta"]["factum_path"] == "/openapi/index"
+    assert result["meta"]["marivo_path"] == "/openapi/index"
 
 
 def test_get_openapi_schema_uses_schema_route_and_default_depth() -> None:
@@ -459,7 +459,7 @@ def test_get_openapi_fragment_forwards_operation_expand_and_depth() -> None:
     )
 
     assert result["ok"] is True
-    assert result["meta"]["factum_path"] == "/openapi/fragment"
+    assert result["meta"]["marivo_path"] == "/openapi/fragment"
 
 
 def test_get_openapi_fragment_omits_optional_query_params_when_not_provided() -> None:
@@ -830,7 +830,7 @@ def test_create_session_uses_canonical_session_root_request_fields() -> None:
 
     assert result["ok"] is True
     assert result["data"] == {"session_id": "sess_123"}
-    assert result["meta"]["factum_path"] == "/sessions"
+    assert result["meta"]["marivo_path"] == "/sessions"
 
 
 def test_create_session_omits_null_optional_fields() -> None:
@@ -870,7 +870,7 @@ def test_terminate_session_uses_canonical_lifecycle_endpoint() -> None:
 
     assert result["ok"] is True
     assert result["data"] == {"session_id": "sess_123", "lifecycle": {"status": "closed"}}
-    assert result["meta"]["factum_path"] == "/sessions/sess_123/terminate"
+    assert result["meta"]["marivo_path"] == "/sessions/sess_123/terminate"
 
 
 def test_terminate_session_uses_default_terminal_reason() -> None:
@@ -954,7 +954,7 @@ def test_get_session_state_forwards_repeated_query_keys() -> None:
     )
 
     assert result["ok"] is True
-    assert result["meta"]["factum_path"] == "/sessions/sess_123/state"
+    assert result["meta"]["marivo_path"] == "/sessions/sess_123/state"
 
 
 def test_get_session_state_omits_empty_query_values() -> None:
@@ -1028,7 +1028,7 @@ def test_query_session_state_sends_page_token_as_query_and_body_as_canonical_fie
     )
 
     assert result["ok"] is True
-    assert result["meta"]["factum_path"] == "/sessions/sess_123/state/query"
+    assert result["meta"]["marivo_path"] == "/sessions/sess_123/state/query"
 
 
 def test_query_session_state_preserves_validation_error_details() -> None:
@@ -1131,7 +1131,7 @@ def test_observe_uses_canonical_observe_request_body() -> None:
 
     assert result["ok"] is True
     assert result["data"] == {"artifact_id": "obs_123"}
-    assert result["meta"]["factum_path"] == "/sessions/sess_123/intents/observe"
+    assert result["meta"]["marivo_path"] == "/sessions/sess_123/intents/observe"
 
 
 def test_observe_forwards_calendar_policy_ref_in_canonical_body() -> None:
@@ -1518,7 +1518,7 @@ def test_compare_rejects_json_string_ref_before_http_roundtrip() -> None:
         )
 
 
-def test_intent_tools_preserve_422_guidance_from_factum() -> None:
+def test_intent_tools_preserve_422_guidance_from_marivo() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/sessions/sess_123/intents/observe"
         return httpx.Response(
@@ -1637,7 +1637,7 @@ def test_semantic_create_tools_use_inventory_names_and_canonical_paths() -> None
     ]
 
     for tool_name, expected_path, tool_kwargs in cases:
-        expected_body = httpx.Request("POST", "http://factum.test", json=tool_kwargs).read()
+        expected_body = httpx.Request("POST", "http://marivo.test", json=tool_kwargs).read()
 
         def handler(
             request: httpx.Request,
@@ -1654,7 +1654,7 @@ def test_semantic_create_tools_use_inventory_names_and_canonical_paths() -> None
 
         assert result["ok"] is True
         assert result["data"] == {"tool": tool_name}
-        assert result["meta"]["factum_path"] == expected_path
+        assert result["meta"]["marivo_path"] == expected_path
 
 
 def test_semantic_list_and_get_tools_forward_canonical_status_and_path_parameters() -> None:
@@ -1704,7 +1704,7 @@ def test_semantic_list_and_get_tools_forward_canonical_status_and_path_parameter
         result = _invoke_registered_tool(tool_name, handler, **tool_kwargs)
 
         assert result["ok"] is True
-        assert result["meta"]["factum_path"] == expected_path
+        assert result["meta"]["marivo_path"] == expected_path
 
 
 def test_semantic_list_tools_forward_detail_query_parameter_when_requested() -> None:
@@ -1746,7 +1746,7 @@ def test_semantic_list_tools_forward_detail_query_parameter_when_requested() -> 
         result = _invoke_registered_tool(tool_name, handler, **tool_kwargs)
 
         assert result["ok"] is True
-        assert result["meta"]["factum_path"] == expected_path
+        assert result["meta"]["marivo_path"] == expected_path
 
 
 def test_semantic_list_tools_omit_detail_query_parameter_by_default() -> None:
@@ -1825,7 +1825,7 @@ def test_semantic_update_tools_send_only_canonical_body_fields() -> None:
 
     for tool_name, expected_path, tool_kwargs, expected_body_payload in cases:
         expected_body = httpx.Request(
-            "PUT", "http://factum.test", json=expected_body_payload
+            "PUT", "http://marivo.test", json=expected_body_payload
         ).read()
 
         def handler(
@@ -1842,7 +1842,7 @@ def test_semantic_update_tools_send_only_canonical_body_fields() -> None:
         result = _invoke_registered_tool(tool_name, handler, **tool_kwargs)
 
         assert result["ok"] is True
-        assert result["meta"]["factum_path"] == expected_path
+        assert result["meta"]["marivo_path"] == expected_path
 
 
 def test_semantic_publish_tools_use_canonical_publish_paths() -> None:
@@ -1892,7 +1892,7 @@ def test_semantic_publish_tools_use_canonical_publish_paths() -> None:
 
         assert result["ok"] is True
         assert result["data"] == {"status": "published"}
-        assert result["meta"]["factum_path"] == expected_path
+        assert result["meta"]["marivo_path"] == expected_path
 
 
 def test_semantic_lifecycle_tools_use_canonical_validate_activate_and_deprecate_paths() -> None:
@@ -1942,7 +1942,7 @@ def test_semantic_lifecycle_tools_use_canonical_validate_activate_and_deprecate_
 
         assert result["ok"] is True
         assert result["data"] == {"path": expected_path}
-        assert result["meta"]["factum_path"] == expected_path
+        assert result["meta"]["marivo_path"] == expected_path
 
 
 def test_publish_errors_extract_message_and_code_from_structured_detail() -> None:
@@ -2036,7 +2036,7 @@ def test_list_sources_uses_canonical_sources_index() -> None:
 
     assert result["ok"] is True
     assert result["data"] == [{"source_id": "src_123"}]
-    assert result["meta"]["factum_path"] == "/sources"
+    assert result["meta"]["marivo_path"] == "/sources"
 
 
 def test_register_source_uses_only_canonical_body_fields() -> None:
@@ -2046,7 +2046,7 @@ def test_register_source_uses_only_canonical_body_fields() -> None:
         "connection": {"db_path": "/data/analytics.duckdb"},
         "capabilities": {"supports_partitions": False},
     }
-    expected_body = httpx.Request("POST", "http://factum.test", json=tool_kwargs).read()
+    expected_body = httpx.Request("POST", "http://marivo.test", json=tool_kwargs).read()
 
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "POST"
@@ -2058,7 +2058,7 @@ def test_register_source_uses_only_canonical_body_fields() -> None:
 
     assert result["ok"] is True
     assert result["data"] == {"source_id": "src_123"}
-    assert result["meta"]["factum_path"] == "/sources"
+    assert result["meta"]["marivo_path"] == "/sources"
 
 
 def test_register_source_omits_none_optional_fields() -> None:
@@ -2068,7 +2068,7 @@ def test_register_source_omits_none_optional_fields() -> None:
         assert request.read() == (
             httpx.Request(
                 "POST",
-                "http://factum.test",
+                "http://marivo.test",
                 json={"source_type": "trino", "display_name": "Warehouse"},
             ).read()
         )
@@ -2100,7 +2100,7 @@ def test_sync_source_uses_canonical_sync_route_without_body() -> None:
 
     assert result["ok"] is True
     assert result["data"] == {"job_id": "sync_123", "source_id": "src_123", "status": "succeeded"}
-    assert result["meta"]["factum_path"] == "/sources/src_123/sync"
+    assert result["meta"]["marivo_path"] == "/sources/src_123/sync"
 
 
 def test_sync_source_preserves_not_found_and_client_failure_shapes() -> None:
@@ -2152,7 +2152,7 @@ def test_get_source_objects_uses_only_canonical_type_and_schema_filters() -> Non
 
     assert result["ok"] is True
     assert result["data"] == [{"object_id": "obj_123"}]
-    assert result["meta"]["factum_path"] == "/sources/src_123/objects"
+    assert result["meta"]["marivo_path"] == "/sources/src_123/objects"
 
 
 def test_get_source_objects_preserves_missing_source_not_found() -> None:
@@ -2188,7 +2188,7 @@ def test_get_source_object_reads_one_synced_object_detail() -> None:
 
     assert result["ok"] is True
     assert result["data"] == {"object_id": "obj_456"}
-    assert result["meta"]["factum_path"] == "/sources/src_123/objects/obj_456"
+    assert result["meta"]["marivo_path"] == "/sources/src_123/objects/obj_456"
 
 
 def test_get_source_object_preserves_missing_object_not_found() -> None:
@@ -2220,7 +2220,7 @@ def test_resolve_routing_uses_canonical_nested_payload() -> None:
             "policy_hints": ["aggregate_only"],
         },
     }
-    expected_body = httpx.Request("POST", "http://factum.test", json=tool_kwargs).read()
+    expected_body = httpx.Request("POST", "http://marivo.test", json=tool_kwargs).read()
 
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "POST"
@@ -2234,7 +2234,7 @@ def test_resolve_routing_uses_canonical_nested_payload() -> None:
 
     assert result["ok"] is True
     assert result["data"] == {"resolved": True, "engine": {"engine_id": "eng_123"}}
-    assert result["meta"]["factum_path"] == "/routing/resolve"
+    assert result["meta"]["marivo_path"] == "/routing/resolve"
 
 
 def _invoke_registered_tool(
@@ -2244,13 +2244,13 @@ def _invoke_registered_tool(
     **tool_kwargs: Any,
 ) -> dict[str, Any]:
     tools_module_any = cast("Any", tools_module)
-    original_client = tools_module_any.FactumHttpClient
+    original_client = tools_module_any.MarivoHttpClient
 
     def build_client(config: Any) -> Any:
-        return FactumHttpClient(config, transport=httpx.MockTransport(handler))
+        return MarivoHttpClient(config, transport=httpx.MockTransport(handler))
 
     openapi_cache = tool_kwargs.pop("_openapi_cache", None)
-    tools_module_any.FactumHttpClient = build_client
+    tools_module_any.MarivoHttpClient = build_client
     try:
         server = cast("Any", _FakeServer())
         if openapi_cache is None:
@@ -2259,7 +2259,7 @@ def _invoke_registered_tool(
             register_tools(server, _build_config(), openapi_cache=openapi_cache)
         return cast("dict[str, Any]", server.tools[tool_name](**tool_kwargs))
     finally:
-        tools_module_any.FactumHttpClient = original_client
+        tools_module_any.MarivoHttpClient = original_client
 
 
 def test_semantic_tool_accepts_object_id_alias() -> None:

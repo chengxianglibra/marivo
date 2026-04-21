@@ -1,12 +1,12 @@
 # Assessment Schema
 
-本文档定义 Factum 判断层中 `assessment` 的拟议类型契约，以及与其配套的证据缺口（`evidence_gap`）/ 推断记录（`inference_record`）规范对象。
+本文档定义 Marivo 判断层中 `assessment` 的拟议类型契约，以及与其配套的证据缺口（`evidence_gap`）/ 推断记录（`inference_record`）规范对象。
 
 状态：draft design。本文是规划中的规范 `assessment` Schema 提案，不表示对应 HTTP endpoint 或持久化模型已经实现。
 
 ## 目的
 
-`assessment` 是 Factum 证据引擎中的规范评估状态（canonical evaluation state），用于表达系统当前对某个命题（`proposition`）已经判断到什么程度、还缺什么、以及这些判断是由哪些显式规则和事实支撑出来的。
+`assessment` 是 Marivo 证据引擎中的规范评估状态（canonical evaluation state），用于表达系统当前对某个命题（`proposition`）已经判断到什么程度、还缺什么、以及这些判断是由哪些显式规则和事实支撑出来的。
 
 设计目标：
 

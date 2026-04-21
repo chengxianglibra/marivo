@@ -23,7 +23,7 @@ from app.analysis_core.compiler import (
 from app.analysis_core.compiler import build_metric_query as compile_metric_query
 from app.analysis_core.executor import execute_compiled
 from app.analysis_core.ir import AnalysisStepIR
-from app.config import FactumConfig
+from app.config import MarivoConfig
 from app.evidence_engine.canonical_finding import StepRef
 from app.evidence_engine.canonical_pipeline_runtime import run_canonical_downstream
 from app.evidence_engine.finding_extractor_registry import (
@@ -193,14 +193,14 @@ class SemanticLayerService:
         metadata_store: MetadataStore,
         analytics_engine: AnalyticsEngine,
         query_router: QueryRouter | None = None,
-        config: FactumConfig | None = None,
+        config: MarivoConfig | None = None,
         governance: GovernanceService | None = None,
         metrics: MetricsCollector | None = None,
         approvals: ApprovalService | None = None,
     ) -> None:
         self.metadata = metadata_store
         self.analytics = analytics_engine
-        self.config = config or FactumConfig()
+        self.config = config or MarivoConfig()
         self._query_router = query_router
         self.calendar_data_reader: CalendarDataReader | None = None
         self.governance = governance

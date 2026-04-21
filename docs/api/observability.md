@@ -17,7 +17,7 @@ Admin UI note: `/admin?tab=observability` is the read-only operator page for the
 GET /health
 ```
 
-Returns the current health status of the Factum service. Used by load balancers, Kubernetes liveness probes, and monitoring systems.
+Returns the current health status of the Marivo service. Used by load balancers, Kubernetes liveness probes, and monitoring systems.
 
 ### Response
 
@@ -95,35 +95,35 @@ Returns operational metrics collected since service startup. Supports JSON and P
 When `format=prometheus`:
 
 ```
-# HELP factum_sessions_created_total Total sessions created
-# TYPE factum_sessions_created_total counter
-factum_sessions_created_total 42
+# HELP marivo_sessions_created_total Total sessions created
+# TYPE marivo_sessions_created_total counter
+marivo_sessions_created_total 42
 
-# HELP factum_steps_executed_total Total steps executed
-# TYPE factum_steps_executed_total counter
-factum_steps_executed_total 318
+# HELP marivo_steps_executed_total Total steps executed
+# TYPE marivo_steps_executed_total counter
+marivo_steps_executed_total 318
 
-# HELP factum_step_duration_seconds Step execution duration in seconds
-# TYPE factum_step_duration_seconds histogram
-factum_step_duration_seconds_bucket{le="1"} 89
-factum_step_duration_seconds_bucket{le="5"} 241
-factum_step_duration_seconds_bucket{le="30"} 315
-factum_step_duration_seconds_bucket{le="+Inf"} 318
-factum_step_duration_seconds_sum 1241.3
-factum_step_duration_seconds_count 318
+# HELP marivo_step_duration_seconds Step execution duration in seconds
+# TYPE marivo_step_duration_seconds histogram
+marivo_step_duration_seconds_bucket{le="1"} 89
+marivo_step_duration_seconds_bucket{le="5"} 241
+marivo_step_duration_seconds_bucket{le="30"} 315
+marivo_step_duration_seconds_bucket{le="+Inf"} 318
+marivo_step_duration_seconds_sum 1241.3
+marivo_step_duration_seconds_count 318
 ```
 
 ---
 
 ## Structured Logging
 
-Factum emits structured JSON logs when configured with the JSON formatter. Log entries include:
+Marivo emits structured JSON logs when configured with the JSON formatter. Log entries include:
 
 ```json
 {
   "timestamp": "2024-01-15T10:05:00+00:00",
   "level": "INFO",
-  "logger": "factum.service",
+  "logger": "marivo.service",
   "message": "Step completed",
   "session_id": "sess_...",
   "step_id": "step_...",

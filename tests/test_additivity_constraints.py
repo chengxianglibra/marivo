@@ -611,6 +611,335 @@ class SubsetDimensionEnforcementTests(unittest.TestCase):
         self.assertIn("rows", result)
 
 
+class AttributeAdditivityGateTests(unittest.TestCase):
+    """P5: Test attribute intent additivity gate — structured 409 errors and bundle metadata."""
+
+    def _make_svc(self, *, constraints: dict | None, primary_time_ref: str | None = "time.date"):
+        from unittest.mock import MagicMock
+
+        svc = MagicMock()
+        svc.normalize_intent_metric_ref.return_value = "metric.test_metric"
+        svc.metric_name_from_ref.return_value = "test_metric"
+        mock_metric = MagicMock()
+        mock_metric.additivity_constraints = constraints
+        mock_metric.primary_time_ref = primary_time_ref
+        mock_metric.sample_kind = "numeric"
+        svc.semantic_repository.resolve_metric.return_value = mock_metric
+        return svc
+
+    def _attribute_params(self, dimensions: list[str]) -> dict:
+        return {
+            "metric": "metric.test_metric",
+            "left": {"time_scope": {"kind": "range", "start": "2026-01-01", "end": "2026-02-01"}},
+            "right": {"time_scope": {"kind": "range", "start": "2025-01-01", "end": "2025-02-01"}},
+            "dimensions": dimensions,
+        }
+
+    # ── dimension_policy = "none" → 409 via Gate 2 (supports_decompose=False) ──
+
+    def test_none_policy_rejected_with_structured_409(self) -> None:
+        from app.execution.errors import ExecutionError
+        from app.intents.attribute import run_attribute_intent
+
+        svc = self._make_svc(
+            constraints={"dimension_policy": "none", "time_axis_policy": "non_additive"},
+        )
+        with self.assertRaises(ExecutionError) as ctx:
+            run_attribute_intent(svc, "session_1", self._attribute_params(["dimension.country"]))
+        err = ctx.exception
+        # Gate 2 fires first: supports_decompose=False when dimension_policy="none"
+        self.assertEqual(err.code, "ADDITIVITY_CONSTRAINT")
+        self.assertEqual(err.category, "compatibility")
+        payload = err.detail["compatibility_error"]
+        self.assertEqual(payload["gate"], "supports_decompose")
+        self.assertEqual(payload["dimension_policy"], "none")
+        self.assertFalse(payload["time_rollup_allowed"])
+
+    # ── missing additivity_constraints → 409 via Gate 1 (supports_compare=False) ──
+
+    def test_missing_constraints_rejected_with_structured_409(self) -> None:
+        from app.execution.errors import ExecutionError
+        from app.intents.attribute import run_attribute_intent
+
+        svc = self._make_svc(constraints=None)
+        with self.assertRaises(ExecutionError) as ctx:
+            run_attribute_intent(svc, "session_1", self._attribute_params(["dimension.country"]))
+        err = ctx.exception
+        self.assertEqual(err.code, "ADDITIVITY_CONSTRAINT")
+        self.assertEqual(err.category, "compatibility")
+        payload = err.detail["compatibility_error"]
+        # constraints=None → supports_compare=False → Gate 1 fires
+        self.assertEqual(payload["gate"], "supports_compare")
+        self.assertEqual(payload["blocker"], "ADDITIVITY_CONSTRAINTS_MISSING")
+
+    # ── supports_compare=false → specific gate error ──────────────────────
+
+    def test_compare_not_supported_specific_error(self) -> None:
+        from app.execution.errors import ExecutionError
+        from app.intents.attribute import run_attribute_intent
+
+        # No primary_time_ref → supports_compare=False
+        svc = self._make_svc(
+            constraints={"dimension_policy": "all", "time_axis_policy": "additive"},
+            primary_time_ref=None,
+        )
+        with self.assertRaises(ExecutionError) as ctx:
+            run_attribute_intent(svc, "session_1", self._attribute_params(["dimension.country"]))
+        err = ctx.exception
+        self.assertEqual(err.code, "ADDITIVITY_CONSTRAINT")
+        payload = err.detail["compatibility_error"]
+        self.assertEqual(payload["gate"], "supports_compare")
+
+    # ── supports_decompose=false → specific gate error ────────────────────
+
+    def test_decompose_not_supported_specific_error(self) -> None:
+        from app.execution.errors import ExecutionError
+        from app.intents.attribute import run_attribute_intent
+
+        # dimension_policy=none → supports_decompose=False, but supports_compare=True
+        svc = self._make_svc(
+            constraints={"dimension_policy": "none", "time_axis_policy": "non_additive"},
+        )
+        with self.assertRaises(ExecutionError) as ctx:
+            run_attribute_intent(svc, "session_1", self._attribute_params(["dimension.country"]))
+        err = ctx.exception
+        # Gate 2 fires first (supports_decompose=False) → ADDITIVITY_CONSTRAINT
+        self.assertEqual(err.code, "ADDITIVITY_CONSTRAINT")
+        self.assertEqual(err.category, "compatibility")
+        payload = err.detail["compatibility_error"]
+        self.assertEqual(payload.get("gate"), "supports_decompose")
+        self.assertEqual(payload["dimension_policy"], "none")
+
+    # ── mixed dimensions → 409 with allowed + disallowed lists ────────────
+
+    def test_mixed_dimensions_returns_structured_409_with_both_lists(self) -> None:
+        from app.execution.errors import ExecutionError
+        from app.intents.attribute import run_attribute_intent
+
+        svc = self._make_svc(
+            constraints={
+                "dimension_policy": "subset",
+                "time_axis_policy": "non_additive",
+                "additive_dimensions": ["dimension.country", "dimension.region"],
+            },
+        )
+        with self.assertRaises(ExecutionError) as ctx:
+            run_attribute_intent(
+                svc,
+                "session_1",
+                self._attribute_params(["dimension.country", "dimension.product", "dimension.region"]),
+            )
+        err = ctx.exception
+        self.assertEqual(err.code, "ADDITIVITY_CONSTRAINT_DIMENSION_NOT_ALLOWED")
+        self.assertEqual(err.category, "compatibility")
+        payload = err.detail["compatibility_error"]
+        self.assertEqual(payload["dimension_policy"], "subset")
+        self.assertEqual(sorted(payload["allowed_dimensions"]), ["dimension.country", "dimension.region"])
+        self.assertEqual(payload["disallowed_dimensions"], ["dimension.product"])
+        self.assertFalse(payload["time_rollup_allowed"])
+        self.assertIn("Retry", payload["remediation_hint"])
+
+    # ── all-allowed dimensions on subset → passes gate ────────────────────
+
+    def test_all_allowed_dimensions_on_subset_passes_gate(self) -> None:
+        from app.intents.attribute import run_attribute_intent
+
+        svc = self._make_svc(
+            constraints={
+                "dimension_policy": "subset",
+                "time_axis_policy": "non_additive",
+                "additive_dimensions": ["dimension.country", "dimension.region"],
+            },
+        )
+        try:
+            run_attribute_intent(
+                svc,
+                "session_1",
+                self._attribute_params(["dimension.country"]),
+            )
+        except Exception as e:
+            error_str = str(e)
+            self.assertNotIn("ADDITIVITY_CONSTRAINT", error_str)
+
+    # ── bundle includes analytical_metadata with additivity basis ─────────
+
+    def test_bundle_includes_additivity_basis_metadata(self) -> None:
+        from unittest.mock import patch
+
+        from app.intents.attribute import run_attribute_intent
+
+        svc = self._make_svc(
+            constraints={
+                "dimension_policy": "subset",
+                "time_axis_policy": "non_additive",
+                "additive_dimensions": ["dimension.country"],
+            },
+        )
+
+        # Mock the full orchestration pipeline to return a valid bundle
+        left_obs = {
+            "observation_type": "scalar",
+            "step_ref": {"step_id": "obs_left", "session_id": "session_1"},
+            "artifact_id": "art_left",
+            "time_scope": {"kind": "range", "start": "2026-01-01", "end": "2026-02-01"},
+        }
+        right_obs = {
+            "observation_type": "scalar",
+            "step_ref": {"step_id": "obs_right", "session_id": "session_1"},
+            "artifact_id": "art_right",
+            "time_scope": {"kind": "range", "start": "2025-01-01", "end": "2025-02-01"},
+        }
+        compare_result = {
+            "step_ref": {"step_id": "step_compare", "session_id": "session_1"},
+            "artifact_id": "art_compare",
+            "left_value": 100.0,
+            "right_value": 90.0,
+            "absolute_delta": 10.0,
+            "relative_delta": 0.111,
+            "direction": "increase",
+            "comparability": {"status": "comparable", "issues": []},
+        }
+        decompose_result = {
+            "step_ref": {"step_id": "step_decompose", "session_id": "session_1"},
+            "artifact_id": "art_decompose",
+            "attribution": {"status": "attributable", "issues": []},
+            "rows": [
+                {
+                    "key": "US",
+                    "left_value": 60.0,
+                    "right_value": 50.0,
+                    "absolute_contribution": 10.0,
+                    "contribution_share": 1.0,
+                    "direction": "increase",
+                    "presence": "both",
+                }
+            ],
+            "scope_absolute_delta": 10.0,
+            "unexplained_absolute_delta": 0.0,
+            "unexplained_share": 0.0,
+            "unexplained_reason": None,
+        }
+
+        with (
+            patch("app.intents.attribute.run_observe_intent", side_effect=[left_obs, right_obs]),
+            patch("app.intents.attribute.run_compare_intent", return_value=compare_result),
+            patch("app.intents.attribute.run_decompose_intent", return_value=decompose_result),
+        ):
+            result = run_attribute_intent(
+                svc, "session_1", self._attribute_params(["dimension.country"])
+            )
+
+        pm = result.get("projection_metadata", {})
+        ab = pm.get("additivity_basis", {})
+        self.assertEqual(ab["dimension_policy"], "subset")
+        self.assertEqual(ab["additive_dimensions"], ["dimension.country"])
+        self.assertEqual(ab["time_axis_policy"], "non_additive")
+        self.assertFalse(ab["time_rollup_allowed"])
+        self.assertEqual(ab["capability_condition"], "dimension_must_be_allowed")
+        tbc = pm.get("time_boundary_constraint", {})
+        self.assertEqual(tbc["scope"], "frozen_compare_window")
+        self.assertFalse(tbc["time_rollup_implied"])
+
+    def test_bundle_additivity_basis_all_policy(self) -> None:
+        from unittest.mock import patch
+
+        from app.intents.attribute import run_attribute_intent
+
+        svc = self._make_svc(
+            constraints={"dimension_policy": "all", "time_axis_policy": "additive"},
+        )
+
+        left_obs = {
+            "observation_type": "scalar",
+            "step_ref": {"step_id": "obs_left", "session_id": "session_1"},
+            "artifact_id": "art_left",
+            "time_scope": {"kind": "range", "start": "2026-01-01", "end": "2026-02-01"},
+        }
+        right_obs = {
+            "observation_type": "scalar",
+            "step_ref": {"step_id": "obs_right", "session_id": "session_1"},
+            "artifact_id": "art_right",
+            "time_scope": {"kind": "range", "start": "2025-01-01", "end": "2025-02-01"},
+        }
+        compare_result = {
+            "step_ref": {"step_id": "step_compare", "session_id": "session_1"},
+            "artifact_id": "art_compare",
+            "left_value": 100.0,
+            "right_value": 90.0,
+            "absolute_delta": 10.0,
+            "relative_delta": 0.111,
+            "direction": "increase",
+            "comparability": {"status": "comparable", "issues": []},
+        }
+        decompose_result = {
+            "step_ref": {"step_id": "step_decompose", "session_id": "session_1"},
+            "artifact_id": "art_decompose",
+            "attribution": {"status": "attributable", "issues": []},
+            "rows": [],
+            "scope_absolute_delta": 10.0,
+            "unexplained_absolute_delta": 0.0,
+            "unexplained_share": 0.0,
+            "unexplained_reason": None,
+        }
+
+        with (
+            patch("app.intents.attribute.run_observe_intent", side_effect=[left_obs, right_obs]),
+            patch("app.intents.attribute.run_compare_intent", return_value=compare_result),
+            patch("app.intents.attribute.run_decompose_intent", return_value=decompose_result),
+        ):
+            result = run_attribute_intent(
+                svc, "session_1", self._attribute_params(["dimension.country"])
+            )
+
+        pm = result.get("projection_metadata", {})
+        ab = pm.get("additivity_basis", {})
+        self.assertEqual(ab["dimension_policy"], "all")
+        self.assertTrue(ab["time_rollup_allowed"])
+        self.assertEqual(ab["capability_condition"], "all_dimensions_allowed")
+
+    # ── structural errors still use ValueError (422) ──────────────────────
+
+    def test_structural_errors_still_raise_valueerror(self) -> None:
+        from app.intents.attribute import run_attribute_intent
+
+        svc = self._make_svc(
+            constraints={"dimension_policy": "all", "time_axis_policy": "additive"},
+        )
+        # Missing metric
+        with self.assertRaises(ValueError) as ctx:
+            run_attribute_intent(svc, "session_1", {"metric": "", "dimensions": ["d"]})
+        self.assertNotIn("ADDITIVITY_CONSTRAINT", str(ctx.exception))
+
+    # ── disallowed dimensions list enables auto-retry ─────────────────────
+
+    def test_mixed_dimensions_payload_enables_auto_retry(self) -> None:
+        from app.execution.errors import ExecutionError
+        from app.intents.attribute import run_attribute_intent
+
+        svc = self._make_svc(
+            constraints={
+                "dimension_policy": "subset",
+                "time_axis_policy": "non_additive",
+                "additive_dimensions": ["dimension.country"],
+            },
+        )
+        with self.assertRaises(ExecutionError) as ctx:
+            run_attribute_intent(
+                svc,
+                "session_1",
+                self._attribute_params(["dimension.country", "dimension.platform", "dimension.os"]),
+            )
+        payload = ctx.exception.detail["compatibility_error"]
+        # Caller can construct retry with only allowed_dimensions
+        retry_dimensions = payload["allowed_dimensions"]
+        self.assertEqual(retry_dimensions, ["dimension.country"])
+        # Disallowed must be complete
+        self.assertEqual(
+            sorted(payload["disallowed_dimensions"]),
+            ["dimension.os", "dimension.platform"],
+        )
+
+
 class MetricUpdateCountDistinctValidationTests(unittest.TestCase):
     """Test that update_typed_metric rejects count_distinct + dimension_policy='all'."""
 

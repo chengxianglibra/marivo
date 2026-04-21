@@ -9,7 +9,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from app.api.app_factory import create_app
-from app.config import FactumConfig, UIConfig, load_config
+from app.config import MarivoConfig, UIConfig, load_config
 from app.sources import SourceService
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 from app.storage.sqlite_metadata import SQLiteMetadataStore
@@ -19,13 +19,13 @@ from tests.shared_fixtures import get_seeded_duckdb_path
 class LoadConfigTests(unittest.TestCase):
     def test_load_metadata_config(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
-            f.write("metadata:\n  engine: sqlite\n  path: data/factum.meta.sqlite\n")
+            f.write("metadata:\n  engine: sqlite\n  path: data/marivo.meta.sqlite\n")
             f.flush()
             cfg = load_config(Path(f.name))
 
         assert cfg.metadata is not None
         self.assertEqual(cfg.metadata.engine, "sqlite")
-        self.assertEqual(cfg.metadata.path, "data/factum.meta.sqlite")
+        self.assertEqual(cfg.metadata.path, "data/marivo.meta.sqlite")
 
     def test_load_valid_yaml(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
@@ -33,15 +33,15 @@ class LoadConfigTests(unittest.TestCase):
             f.flush()
             cfg = load_config(Path(f.name))
 
-        self.assertIsInstance(cfg, FactumConfig)
+        self.assertIsInstance(cfg, MarivoConfig)
         self.assertEqual(len(cfg.sources), 1)
         self.assertEqual(cfg.sources[0].name, "Demo")
         self.assertEqual(cfg.sources[0].type, "duckdb")
         self.assertEqual(cfg.sources[0].connection, {})
 
     def test_load_missing_file(self) -> None:
-        cfg = load_config(Path("/nonexistent/factum.yaml"))
-        self.assertIsInstance(cfg, FactumConfig)
+        cfg = load_config(Path("/nonexistent/marivo.yaml"))
+        self.assertIsInstance(cfg, MarivoConfig)
         self.assertEqual(cfg.sources, [])
 
     def test_load_invalid_yaml(self) -> None:
@@ -57,7 +57,7 @@ class LoadConfigTests(unittest.TestCase):
             f.flush()
             cfg = load_config(Path(f.name))
 
-        self.assertIsInstance(cfg, FactumConfig)
+        self.assertIsInstance(cfg, MarivoConfig)
         self.assertEqual(cfg.sources, [])
 
     def test_sync_mode_by_select_parses(self) -> None:
@@ -168,7 +168,7 @@ class StartupWithConfigTests(unittest.TestCase):
 
     def test_startup_registers_and_syncs_config_sources(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            config_path = Path(tmp) / "factum.yaml"
+            config_path = Path(tmp) / "marivo.yaml"
             config_path.write_text(
                 "sources:\n"
                 '  - name: "Config Demo"\n'
@@ -233,12 +233,12 @@ class StartupWithConfigTests(unittest.TestCase):
 
     def test_startup_requires_metadata_config_when_store_not_provided(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            config_path = Path(tmp) / "factum.yaml"
+            config_path = Path(tmp) / "marivo.yaml"
             config_path.write_text("ui:\n  enabled: true\n")
 
             with self.assertRaisesRegex(
                 RuntimeError,
-                "Factum config must define metadata.engine=sqlite and metadata.path",
+                "Marivo config must define metadata.engine=sqlite and metadata.path",
             ):
                 create_app(
                     db_path=Path(tmp) / "test.duckdb",
@@ -248,7 +248,7 @@ class StartupWithConfigTests(unittest.TestCase):
 
     def test_startup_builds_metadata_store_from_config(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            config_path = Path(tmp) / "factum.yaml"
+            config_path = Path(tmp) / "marivo.yaml"
             config_path.write_text(
                 "metadata:\n  engine: sqlite\n  path: test.meta.sqlite\nui:\n  enabled: true\n"
             )
@@ -268,7 +268,7 @@ class StartupWithConfigTests(unittest.TestCase):
 
     def test_startup_requires_trino_dependency_when_config_uses_trino_source(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            config_path = Path(tmp) / "factum.yaml"
+            config_path = Path(tmp) / "marivo.yaml"
             config_path.write_text(
                 "sources:\n"
                 '  - name: "Config Trino"\n'
@@ -291,7 +291,7 @@ class StartupWithConfigTests(unittest.TestCase):
 
     def test_startup_requires_trino_dependency_when_config_uses_trino_engine(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            config_path = Path(tmp) / "factum.yaml"
+            config_path = Path(tmp) / "marivo.yaml"
             config_path.write_text(
                 "engines:\n"
                 '  - name: "Config Trino Engine"\n'
@@ -314,7 +314,7 @@ class StartupWithConfigTests(unittest.TestCase):
 
     def test_startup_idempotent_on_restart(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            config_path = Path(tmp) / "factum.yaml"
+            config_path = Path(tmp) / "marivo.yaml"
             config_path.write_text(
                 "sources:\n"
                 '  - name: "Restart Test"\n'
@@ -354,7 +354,7 @@ class StartupWithConfigTests(unittest.TestCase):
 
     def test_startup_reconciles_existing_source_type_with_config(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            config_path = Path(tmp) / "factum.yaml"
+            config_path = Path(tmp) / "marivo.yaml"
             config_path.write_text(
                 "sources:\n"
                 '  - name: "Local Demo"\n'
@@ -419,7 +419,7 @@ class StartupWithConfigTests(unittest.TestCase):
 
     def test_startup_sync_mode_none_skips_sync(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            config_path = Path(tmp) / "factum.yaml"
+            config_path = Path(tmp) / "marivo.yaml"
             config_path.write_text(
                 "sources:\n"
                 '  - name: "No Sync Source"\n'
@@ -452,7 +452,7 @@ class StartupWithConfigTests(unittest.TestCase):
 
     def test_startup_sync_mode_by_select_no_selections(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            config_path = Path(tmp) / "factum.yaml"
+            config_path = Path(tmp) / "marivo.yaml"
             config_path.write_text(
                 "sources:\n"
                 '  - name: "Selective Source"\n'

@@ -1,6 +1,6 @@
 # 可比性门槛契约
 
-本文档定义 Factum 推断规则引擎中 `comparability_gate` 规则族的拟议契约。
+本文档定义 Marivo 推断规则引擎中 `comparability_gate` 规则族的拟议契约。
 
 状态：draft design。本文是 `docs/analysis/` 下的规范 family-level 设计提案，不表示对应实现、持久化模型或 HTTP endpoint 已经存在。
 

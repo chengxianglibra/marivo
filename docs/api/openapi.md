@@ -1,6 +1,6 @@
 # Progressive OpenAPI Access
 
-Factum keeps `GET /openapi.json` as the canonical full HTTP contract, but also exposes smaller OpenAPI retrieval surfaces so agents can fetch only the part of the contract they need.
+Marivo keeps `GET /openapi.json` as the canonical full HTTP contract, but also exposes smaller OpenAPI retrieval surfaces so agents can fetch only the part of the contract they need.
 
 ## Retrieval Order
 

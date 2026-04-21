@@ -1,4 +1,4 @@
-"""Canonical evidence repositories for the Factum evidence pipeline.
+"""Canonical evidence repositories for the Marivo evidence pipeline.
 
 Provides a typed read/write seam for all canonical evidence objects:
 
