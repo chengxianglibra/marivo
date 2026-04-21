@@ -286,6 +286,88 @@ class DeriveAdditivityCapabilitiesTests(unittest.TestCase):
         self.assertEqual(d["time_rollup_allowed"], caps.time_rollup_allowed)
         self.assertEqual(d["blocker"], caps.blocker)
         self.assertEqual(d["remediation_hint"], caps.remediation_hint)
+        self.assertEqual(d["capability_condition"], caps.capability_condition)
+
+    # -- fine-grained blockers ------------------------------------------------
+
+    def test_missing_dimension_policy(self) -> None:
+        caps = derive_additivity_capabilities(
+            header=self._header(additivity_constraints={"time_axis_policy": "additive"})
+        )
+        self.assertFalse(caps.supports_decompose)
+        self.assertEqual(caps.blocker, "ADDITIVITY_CONSTRAINTS_DIMENSION_POLICY_MISSING")
+        self.assertIn("dimension_policy", caps.remediation_hint or "")
+
+    def test_empty_dimension_policy(self) -> None:
+        caps = derive_additivity_capabilities(
+            header=self._header(
+                additivity_constraints={"dimension_policy": "", "time_axis_policy": "additive"}
+            )
+        )
+        self.assertFalse(caps.supports_decompose)
+        self.assertEqual(caps.blocker, "ADDITIVITY_CONSTRAINTS_DIMENSION_POLICY_MISSING")
+
+    def test_missing_time_axis_policy(self) -> None:
+        caps = derive_additivity_capabilities(
+            header=self._header(additivity_constraints={"dimension_policy": "all"})
+        )
+        self.assertFalse(caps.supports_decompose)
+        self.assertEqual(caps.blocker, "ADDITIVITY_CONSTRAINTS_TIME_AXIS_POLICY_MISSING")
+        self.assertIn("time_axis_policy", caps.remediation_hint or "")
+
+    def test_empty_time_axis_policy(self) -> None:
+        caps = derive_additivity_capabilities(
+            header=self._header(
+                additivity_constraints={"dimension_policy": "all", "time_axis_policy": ""}
+            )
+        )
+        self.assertFalse(caps.supports_decompose)
+        self.assertEqual(caps.blocker, "ADDITIVITY_CONSTRAINTS_TIME_AXIS_POLICY_MISSING")
+
+    def test_both_missing_reports_dimension_policy_first(self) -> None:
+        caps = derive_additivity_capabilities(header=self._header(additivity_constraints={}))
+        self.assertEqual(caps.blocker, "ADDITIVITY_CONSTRAINTS_DIMENSION_POLICY_MISSING")
+
+    def test_valid_dimension_policy_invalid_time_axis_policy(self) -> None:
+        caps = derive_additivity_capabilities(
+            header=self._header(
+                additivity_constraints={"dimension_policy": "all", "time_axis_policy": "bogus"}
+            )
+        )
+        self.assertEqual(caps.blocker, "ADDITIVITY_CONSTRAINTS_INVALID")
+
+    # -- capability_condition --------------------------------------------------
+
+    def test_capability_condition_subset(self) -> None:
+        caps = derive_additivity_capabilities(
+            header=self._header(
+                additivity_constraints={
+                    "dimension_policy": "subset",
+                    "time_axis_policy": "non_additive",
+                    "additive_dimensions": ["dimension.country"],
+                },
+            )
+        )
+        self.assertEqual(caps.capability_condition, "dimension_must_be_allowed")
+
+    def test_capability_condition_all(self) -> None:
+        caps = derive_additivity_capabilities(header=self._header())
+        self.assertIsNone(caps.capability_condition)
+
+    def test_capability_condition_none(self) -> None:
+        caps = derive_additivity_capabilities(
+            header=self._header(
+                additivity_constraints={
+                    "dimension_policy": "none",
+                    "time_axis_policy": "non_additive",
+                },
+            )
+        )
+        self.assertIsNone(caps.capability_condition)
+
+    def test_capability_condition_blocked(self) -> None:
+        caps = derive_additivity_capabilities(header=self._header(additivity_constraints=None))
+        self.assertIsNone(caps.capability_condition)
 
 
 if __name__ == "__main__":

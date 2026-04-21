@@ -14,6 +14,9 @@ Design notes
   dimensions, so we do not claim ``supports_decompose``.
 - ``dimension_policy = "subset"`` with non-empty ``additive_dimensions``
   enables decompose/attribute on those specific dimensions only.
+- ``capability_condition`` indicates when a capability is conditional:
+  ``"dimension_must_be_allowed"`` means decompose/attribute are only valid
+  on dimensions listed in ``additive_dimensions``.
 """
 
 from __future__ import annotations
@@ -40,6 +43,7 @@ class AdditivityCapabilityResult:
     additivity_basis: dict[str, Any]  # raw inputs for downstream consumers
     blocker: str | None  # e.g. "ADDITIVITY_CONSTRAINTS_MISSING"
     remediation_hint: str | None
+    capability_condition: str | None  # "dimension_must_be_allowed" | None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -57,6 +61,7 @@ class AdditivityCapabilityResult:
             "additivity_basis": self.additivity_basis,
             "blocker": self.blocker,
             "remediation_hint": self.remediation_hint,
+            "capability_condition": self.capability_condition,
         }
 
 
@@ -107,7 +112,20 @@ def derive_additivity_capabilities(
         tap = constraints_raw.get("time_axis_policy")
         ad = constraints_raw.get("additive_dimensions")
 
-        if dp not in ("all", "subset", "none"):
+        if dp is None or (isinstance(dp, str) and not dp.strip()):
+            # dimension_policy field is missing or empty
+            dimension_policy = "none"
+            time_axis_policy = "non_additive"
+            additive_dimensions = None
+            supports_decompose = False
+            time_rollup_allowed = False
+            blocker = "ADDITIVITY_CONSTRAINTS_DIMENSION_POLICY_MISSING"
+            remediation_hint = (
+                "additivity_constraints is missing dimension_policy. "
+                "Must be 'all', 'subset', or 'none'."
+            )
+        elif dp not in ("all", "subset", "none"):
+            # dimension_policy has an unrecognized value
             dimension_policy = "none"
             time_axis_policy = "non_additive"
             additive_dimensions = None
@@ -118,34 +136,53 @@ def derive_additivity_capabilities(
                 f"Unrecognized dimension_policy: {dp!r}. Must be 'all', 'subset', or 'none'."
             )
         else:
+            # dimension_policy is valid
             dimension_policy = str(dp)
-            time_axis_policy = str(tap) if tap in ("additive", "non_additive") else "non_additive"
             additive_dimensions = ad if isinstance(ad, list) else None
 
-            if dimension_policy == "all":
-                supports_decompose = True
-                time_rollup_allowed = time_axis_policy == "additive"
-                blocker = None
-                remediation_hint = None
-            elif dimension_policy == "subset":
-                if additive_dimensions and len(additive_dimensions) > 0:
-                    supports_decompose = True
-                    time_rollup_allowed = time_axis_policy == "additive"
-                    blocker = None
-                    remediation_hint = None
-                else:
-                    supports_decompose = False
-                    time_rollup_allowed = False
-                    blocker = "ADDITIVITY_SUBSET_NO_DIMENSIONS"
-                    remediation_hint = (
-                        "dimension_policy='subset' but additive_dimensions is "
-                        "empty. Provide at least one additive dimension."
-                    )
-            else:  # "none"
+            if tap is None or (isinstance(tap, str) and not tap.strip()):
+                # time_axis_policy field is missing or empty
+                time_axis_policy = "non_additive"
                 supports_decompose = False
                 time_rollup_allowed = False
+                blocker = "ADDITIVITY_CONSTRAINTS_TIME_AXIS_POLICY_MISSING"
+                remediation_hint = (
+                    "additivity_constraints is missing time_axis_policy. "
+                    "Must be 'additive' or 'non_additive'."
+                )
+            elif tap not in ("additive", "non_additive"):
+                # time_axis_policy has an unrecognized value
+                time_axis_policy = "non_additive"
+                supports_decompose = False
+                time_rollup_allowed = False
+                blocker = "ADDITIVITY_CONSTRAINTS_INVALID"
+                remediation_hint = (
+                    f"Unrecognized time_axis_policy: {tap!r}. Must be 'additive' or 'non_additive'."
+                )
+            else:
+                # Both dimension_policy and time_axis_policy are valid
+                time_axis_policy = str(tap)
                 blocker = None
                 remediation_hint = None
+
+                if dimension_policy == "all":
+                    supports_decompose = True
+                    time_rollup_allowed = time_axis_policy == "additive"
+                elif dimension_policy == "subset":
+                    if additive_dimensions and len(additive_dimensions) > 0:
+                        supports_decompose = True
+                        time_rollup_allowed = time_axis_policy == "additive"
+                    else:
+                        supports_decompose = False
+                        time_rollup_allowed = False
+                        blocker = "ADDITIVITY_SUBSET_NO_DIMENSIONS"
+                        remediation_hint = (
+                            "dimension_policy='subset' but additive_dimensions is "
+                            "empty. Provide at least one additive dimension."
+                        )
+                else:  # "none"
+                    supports_decompose = False
+                    time_rollup_allowed = False
     else:
         dimension_policy = "none"
         time_axis_policy = "non_additive"
@@ -161,6 +198,11 @@ def derive_additivity_capabilities(
     supports_test = sample_kind in {"numeric", "rate", "binary"}
     supports_detect = bool(primary_time_ref or process_anchor_time_ref)
     supports_validate = sample_kind == "rate"
+
+    # ── capability_condition ──────────────────────────────────────────────
+    capability_condition: str | None = None
+    if blocker is None and dimension_policy == "subset":
+        capability_condition = "dimension_must_be_allowed"
 
     additivity_basis: dict[str, Any] = {
         "dimension_policy": dimension_policy,
@@ -186,4 +228,5 @@ def derive_additivity_capabilities(
         additivity_basis=additivity_basis,
         blocker=blocker,
         remediation_hint=remediation_hint,
+        capability_condition=capability_condition,
     )

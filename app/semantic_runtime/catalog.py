@@ -353,6 +353,7 @@ class CatalogRuntimeService:
             "blocker_count": len(availability.blocking_requirements),
             "blocking_requirements_preview": blocking_preview,
             "capabilities_summary": self._capabilities_summary(availability.capabilities),
+            "additivity_summary": self._additivity_summary(availability.capabilities),
             "revision": row["revision"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
@@ -447,8 +448,27 @@ class CatalogRuntimeService:
         ]
         return any(normalized_query in str(candidate).casefold() for candidate in haystacks)
 
+    _ADDITIVITY_SUMMARY_KEYS = frozenset(
+        {
+            "dimension_policy",
+            "time_axis_policy",
+            "additive_dimensions",
+            "time_rollup_allowed",
+            "capability_condition",
+        }
+    )
+
     def _capabilities_summary(self, capabilities: dict[str, Any]) -> dict[str, bool]:
+        """Bool-only capability flags for backward-compatible list responses."""
         return {key: value for key, value in capabilities.items() if isinstance(value, bool)}
+
+    def _additivity_summary(self, capabilities: dict[str, Any]) -> dict[str, Any]:
+        """Structured additivity metadata for catalog search responses."""
+        return {
+            key: value
+            for key, value in capabilities.items()
+            if key in self._ADDITIVITY_SUMMARY_KEYS
+        }
 
     def _asset_object_detail(self, object_id: str) -> dict[str, Any]:
         row = self.metadata.query_one(

@@ -221,6 +221,44 @@ class AdditivityCapabilitiesWithConstraintsTests(unittest.TestCase):
         self.assertEqual(caps.additivity_basis["dimension_policy"], "subset")
         self.assertEqual(caps.additivity_basis["additive_dimensions"], ["dimension.region"])
 
+    # ── fine-grained blockers ─────────────────────────────────────────────
+
+    def test_missing_dimension_policy_blocker(self) -> None:
+        caps = derive_additivity_capabilities(
+            header=self._header(
+                additivity_constraints={"time_axis_policy": "additive"},
+            ),
+        )
+        self.assertFalse(caps.supports_decompose)
+        self.assertEqual(caps.blocker, "ADDITIVITY_CONSTRAINTS_DIMENSION_POLICY_MISSING")
+
+    def test_missing_time_axis_policy_blocker(self) -> None:
+        caps = derive_additivity_capabilities(
+            header=self._header(
+                additivity_constraints={"dimension_policy": "all"},
+            ),
+        )
+        self.assertFalse(caps.supports_decompose)
+        self.assertEqual(caps.blocker, "ADDITIVITY_CONSTRAINTS_TIME_AXIS_POLICY_MISSING")
+
+    def test_capability_condition_subset_policy(self) -> None:
+        caps = derive_additivity_capabilities(
+            header=self._header(
+                additivity_constraints={
+                    "dimension_policy": "subset",
+                    "time_axis_policy": "non_additive",
+                    "additive_dimensions": ["dimension.country"],
+                },
+            ),
+        )
+        self.assertEqual(caps.capability_condition, "dimension_must_be_allowed")
+
+    def test_capability_condition_none_for_blocked(self) -> None:
+        caps = derive_additivity_capabilities(
+            header=self._header(additivity_constraints=None),
+        )
+        self.assertIsNone(caps.capability_condition)
+
 
 class CountDistinctCrossValidatorTests(unittest.TestCase):
     """Test TypedMetricCreateRequest cross-validator for count_distinct."""

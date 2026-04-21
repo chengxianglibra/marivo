@@ -3220,5 +3220,370 @@ class CompilerTypedResolutionTests(unittest.TestCase):
         )
 
 
+class _SubsetMetricRepository(_FakeSemanticRepository):
+    """Repository returning a metric with dimension_policy='subset' and
+    explicit additive_dimensions."""
+
+    def __init__(self, *, additive_dimensions: list[str] | None = None) -> None:
+        super().__init__()
+        self._additive_dimensions = additive_dimensions
+
+    def resolve_metric_ref(self, metric_ref: str) -> ResolvedSemanticObject:
+        self.calls.append(("metric", metric_ref))
+        return _resolved_object(
+            "metric",
+            metric_ref,
+            semantic_object={
+                "metric_contract_id": "metric_contract_subset",
+                "header": {
+                    "metric_ref": metric_ref,
+                    "primary_time_ref": "time.event_date",
+                    "sample_kind": "numeric",
+                    "additivity_constraints": {
+                        "dimension_policy": "subset",
+                        "time_axis_policy": "additive",
+                        "additive_dimensions": self._additive_dimensions,
+                    },
+                    "population_subject_ref": "subject.user",
+                },
+                "payload": {"definition_sql": "sum(play_duration_seconds)"},
+                "status": "published",
+                "revision": 1,
+                "created_at": "2026-04-09T00:00:00Z",
+                "updated_at": "2026-04-09T00:00:00Z",
+            },
+        )
+
+
+class CompilerCapabilitiesPayloadTests(unittest.TestCase):
+    """Tests for capabilities_payload() including additivity basis fields."""
+
+    def test_capabilities_payload_includes_additivity_basis_for_additive_metric(self) -> None:
+        normalized = normalize_step_request(
+            AnalysisStepIR(index=0, step_type="observe", params={"metric": "watch_time"})
+        )
+        resolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=_FakeSemanticRepository(),
+            binding_reader=_binding_reader,
+        )
+        derived = derive_compiler_state(
+            intent_kind="observe",
+            resolved_metric=resolved.resolved_metric,
+            resolved_process=resolved.resolved_process,
+            resolved_bindings=resolved.resolved_bindings,
+            profile_reader=None,
+        )
+
+        payload = derived.capabilities_payload()
+        metric_caps = payload["metric"]
+        self.assertEqual(metric_caps["dimension_policy"], "all")
+        self.assertEqual(metric_caps["time_axis_policy"], "additive")
+        self.assertIsNone(metric_caps["additive_dimensions"])
+        self.assertTrue(metric_caps["time_rollup_allowed"])
+        self.assertIsNone(metric_caps["capability_condition"])
+
+    def test_capabilities_payload_includes_additivity_basis_for_subset_metric(self) -> None:
+        repo = _SubsetMetricRepository(additive_dimensions=["dimension.country"])
+        normalized = normalize_step_request(
+            AnalysisStepIR(index=0, step_type="observe", params={"metric": "watch_time"})
+        )
+        resolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=repo,
+            binding_reader=_binding_reader,
+        )
+        derived = derive_compiler_state(
+            intent_kind="observe",
+            resolved_metric=resolved.resolved_metric,
+            resolved_process=resolved.resolved_process,
+            resolved_bindings=resolved.resolved_bindings,
+            profile_reader=None,
+        )
+
+        payload = derived.capabilities_payload()
+        metric_caps = payload["metric"]
+        self.assertEqual(metric_caps["dimension_policy"], "subset")
+        self.assertEqual(metric_caps["time_axis_policy"], "additive")
+        self.assertEqual(metric_caps["additive_dimensions"], ["dimension.country"])
+        self.assertTrue(metric_caps["time_rollup_allowed"])
+        self.assertEqual(metric_caps["capability_condition"], "dimension_must_be_allowed")
+
+    def test_capabilities_payload_includes_additivity_basis_for_non_additive_metric(self) -> None:
+        repo = _FakeSemanticRepository()
+        # Override the metric to have dimension_policy="none"
+        repo.resolve_metric_ref = lambda ref: _resolved_object(  # type: ignore[assignment]
+            "metric",
+            ref,
+            semantic_object={
+                "metric_contract_id": "metric_contract_none",
+                "header": {
+                    "metric_ref": ref,
+                    "primary_time_ref": "time.event_date",
+                    "sample_kind": "numeric",
+                    "additivity_constraints": {
+                        "dimension_policy": "none",
+                        "time_axis_policy": "non_additive",
+                    },
+                    "population_subject_ref": "subject.user",
+                },
+                "payload": {"definition_sql": "avg(play_duration_seconds)"},
+                "status": "published",
+                "revision": 1,
+                "created_at": "2026-04-09T00:00:00Z",
+                "updated_at": "2026-04-09T00:00:00Z",
+            },
+        )
+        normalized = normalize_step_request(
+            AnalysisStepIR(index=0, step_type="observe", params={"metric": "watch_time"})
+        )
+        resolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=repo,
+            binding_reader=_binding_reader,
+        )
+        derived = derive_compiler_state(
+            intent_kind="observe",
+            resolved_metric=resolved.resolved_metric,
+            resolved_process=resolved.resolved_process,
+            resolved_bindings=resolved.resolved_bindings,
+            profile_reader=None,
+        )
+
+        payload = derived.capabilities_payload()
+        metric_caps = payload["metric"]
+        self.assertEqual(metric_caps["dimension_policy"], "none")
+        self.assertEqual(metric_caps["time_axis_policy"], "non_additive")
+        self.assertIsNone(metric_caps["additive_dimensions"])
+        self.assertFalse(metric_caps["time_rollup_allowed"])
+        self.assertIsNone(metric_caps["capability_condition"])
+
+
+class CompilerDimensionAdditivityGateTests(unittest.TestCase):
+    """Tests for the COMPILER_DIMENSION_NOT_ADDITIVE validator gate."""
+
+    def test_decompose_with_disallowed_dimension_emits_not_additive(self) -> None:
+        repo = _SubsetMetricRepository(additive_dimensions=["dimension.country"])
+        normalized = normalize_step_request(
+            AnalysisStepIR(
+                index=0,
+                step_type="decompose",
+                params={
+                    "metric": "watch_time",
+                    "dimensions": ["dimension.country", "dimension.region"],
+                },
+            )
+        )
+        resolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=repo,
+            binding_reader=_binding_reader,
+        )
+        derived = derive_compiler_state(
+            intent_kind="decompose",
+            resolved_metric=resolved.resolved_metric,
+            resolved_process=resolved.resolved_process,
+            resolved_bindings=resolved.resolved_bindings,
+            profile_reader=None,
+        )
+
+        result = validate_compiler_inputs(
+            step_type="decompose",
+            resolved_inputs=resolved,
+            derived_state=derived,
+        )
+
+        self.assertFalse(result.ok)
+        issue_codes = [issue.code for issue in result.issues]
+        self.assertIn("COMPILER_DIMENSION_NOT_ADDITIVE", issue_codes)
+        issue = next(i for i in result.issues if i.code == "COMPILER_DIMENSION_NOT_ADDITIVE")
+        self.assertEqual(issue.subject_ref, "metric.watch_time")
+        self.assertEqual(issue.gate, "dimension_additivity")
+        self.assertEqual(issue.category, "compatibility")
+
+    def test_attribute_with_disallowed_dimension_emits_not_additive(self) -> None:
+        repo = _SubsetMetricRepository(additive_dimensions=["dimension.country"])
+        normalized = normalize_step_request(
+            AnalysisStepIR(
+                index=0,
+                step_type="attribute",
+                params={
+                    "metric": "watch_time",
+                    "dimensions": ["dimension.region"],
+                },
+            )
+        )
+        resolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=repo,
+            binding_reader=_binding_reader,
+        )
+        derived = derive_compiler_state(
+            intent_kind="attribute",
+            resolved_metric=resolved.resolved_metric,
+            resolved_process=resolved.resolved_process,
+            resolved_bindings=resolved.resolved_bindings,
+            profile_reader=None,
+        )
+
+        result = validate_compiler_inputs(
+            step_type="attribute",
+            resolved_inputs=resolved,
+            derived_state=derived,
+        )
+
+        self.assertFalse(result.ok)
+        issue_codes = [issue.code for issue in result.issues]
+        self.assertIn("COMPILER_DIMENSION_NOT_ADDITIVE", issue_codes)
+
+    def test_decompose_with_allowed_dimension_passes_gate(self) -> None:
+        repo = _SubsetMetricRepository(additive_dimensions=["dimension.country"])
+        normalized = normalize_step_request(
+            AnalysisStepIR(
+                index=0,
+                step_type="decompose",
+                params={
+                    "metric": "watch_time",
+                    "dimensions": ["dimension.country"],
+                },
+            )
+        )
+        resolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=repo,
+            binding_reader=_binding_reader,
+        )
+        derived = derive_compiler_state(
+            intent_kind="decompose",
+            resolved_metric=resolved.resolved_metric,
+            resolved_process=resolved.resolved_process,
+            resolved_bindings=resolved.resolved_bindings,
+            profile_reader=None,
+        )
+
+        result = validate_compiler_inputs(
+            step_type="decompose",
+            resolved_inputs=resolved,
+            derived_state=derived,
+        )
+
+        self.assertNotIn(
+            "COMPILER_DIMENSION_NOT_ADDITIVE",
+            [issue.code for issue in result.issues],
+        )
+
+    def test_all_policy_metric_does_not_trigger_additivity_gate(self) -> None:
+        """When dimension_policy='all', capability_condition is None so the gate
+        is never entered regardless of requested dimensions."""
+        repo = _FakeSemanticRepository()  # dimension_policy="all" by default
+        normalized = normalize_step_request(
+            AnalysisStepIR(
+                index=0,
+                step_type="decompose",
+                params={
+                    "metric": "watch_time",
+                    "dimensions": ["dimension.country", "dimension.region"],
+                },
+            )
+        )
+        resolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=repo,
+            binding_reader=_binding_reader,
+        )
+        derived = derive_compiler_state(
+            intent_kind="decompose",
+            resolved_metric=resolved.resolved_metric,
+            resolved_process=resolved.resolved_process,
+            resolved_bindings=resolved.resolved_bindings,
+            profile_reader=None,
+        )
+
+        result = validate_compiler_inputs(
+            step_type="decompose",
+            resolved_inputs=resolved,
+            derived_state=derived,
+        )
+
+        self.assertNotIn(
+            "COMPILER_DIMENSION_NOT_ADDITIVE",
+            [issue.code for issue in result.issues],
+        )
+
+    def test_additivity_gate_only_fires_for_decompose_and_attribute(self) -> None:
+        """The gate should not fire for observe steps even when
+        capability_condition='dimension_must_be_allowed'."""
+        repo = _SubsetMetricRepository(additive_dimensions=["dimension.country"])
+        normalized = normalize_step_request(
+            AnalysisStepIR(
+                index=0,
+                step_type="observe",
+                params={
+                    "metric": "watch_time",
+                    "dimensions": ["dimension.region"],
+                },
+            )
+        )
+        resolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=repo,
+            binding_reader=_binding_reader,
+        )
+        derived = derive_compiler_state(
+            intent_kind="observe",
+            resolved_metric=resolved.resolved_metric,
+            resolved_process=resolved.resolved_process,
+            resolved_bindings=resolved.resolved_bindings,
+            profile_reader=None,
+        )
+
+        result = validate_compiler_inputs(
+            step_type="observe",
+            resolved_inputs=resolved,
+            derived_state=derived,
+        )
+
+        self.assertNotIn(
+            "COMPILER_DIMENSION_NOT_ADDITIVE",
+            [issue.code for issue in result.issues],
+        )
+
+    def test_plain_dimension_name_rejected_for_subset_metric(self) -> None:
+        """Plain dimension names (e.g. 'platform') cannot be verified against
+        additive_dimensions and must be rejected for decompose on subset metrics."""
+        repo = _SubsetMetricRepository(additive_dimensions=["dimension.country"])
+        normalized = normalize_step_request(
+            AnalysisStepIR(
+                index=0,
+                step_type="decompose",
+                params={
+                    "metric": "watch_time",
+                    "dimensions": ["platform"],
+                },
+            )
+        )
+        resolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=repo,
+            binding_reader=_binding_reader,
+        )
+        derived = derive_compiler_state(
+            intent_kind="decompose",
+            resolved_metric=resolved.resolved_metric,
+            resolved_process=resolved.resolved_process,
+            resolved_bindings=resolved.resolved_bindings,
+            profile_reader=None,
+        )
+
+        result = validate_compiler_inputs(
+            step_type="decompose",
+            resolved_inputs=resolved,
+            derived_state=derived,
+        )
+
+        issue_codes = [issue.code for issue in result.issues]
+        self.assertIn("COMPILER_DIMENSION_NOT_ADDITIVE", issue_codes)
+
+
 if __name__ == "__main__":
     unittest.main()

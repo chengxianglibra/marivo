@@ -536,7 +536,7 @@ class TypedMetricSqlCompilationTests(_RegressionServiceTestCase):
             if metric_name == "typed_count_distinct":
                 metric_row = cls.metadata.query_one(
                     """
-                    SELECT metric_contract_id, family_payload_json
+                    SELECT metric_contract_id, family_payload_json, additivity_constraints_json
                     FROM semantic_metric_contracts
                     WHERE metric_ref = ?
                     """,
@@ -545,13 +545,20 @@ class TypedMetricSqlCompilationTests(_RegressionServiceTestCase):
                 assert metric_row is not None
                 family_payload = json.loads(metric_row["family_payload_json"] or "{}")
                 family_payload["count_target"]["aggregation"] = "count_distinct"
+                constraints = json.loads(metric_row["additivity_constraints_json"] or "{}")
+                constraints["dimension_policy"] = "none"
+                constraints["time_axis_policy"] = "non_additive"
                 cls.metadata.execute(
                     """
                     UPDATE semantic_metric_contracts
-                    SET family_payload_json = ?
+                    SET family_payload_json = ?, additivity_constraints_json = ?
                     WHERE metric_contract_id = ?
                     """,
-                    [json.dumps(family_payload), metric_row["metric_contract_id"]],
+                    [
+                        json.dumps(family_payload),
+                        json.dumps(constraints),
+                        metric_row["metric_contract_id"],
+                    ],
                 )
 
         cls.service = SemanticLayerService(cls.metadata, cls.analytics)

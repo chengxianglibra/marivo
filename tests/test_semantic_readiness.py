@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from typing import Any
 
 from app.semantic_readiness import (
     ReadinessEvaluationContext,
@@ -305,6 +306,7 @@ class MetricReadinessEvaluatorTests(unittest.TestCase):
                 },
                 "blocker": None,
                 "remediation_hint": None,
+                "capability_condition": None,
             },
         )
 
@@ -564,6 +566,327 @@ class MetricReadinessEvaluatorTests(unittest.TestCase):
         self.assertEqual(result.readiness_status, "stale")
         blocker_codes = {item.code for item in result.blocking_requirements}
         self.assertIn("METRIC_BINDING_IMPORT_MISSING", blocker_codes)
+
+
+class MetricAdditivityCrossValidationTests(unittest.TestCase):
+    """Test readiness evaluator additivity cross-validation blockers."""
+
+    def setUp(self) -> None:
+        self.registry = build_default_registry()
+
+    def _evaluate(
+        self,
+        *,
+        header_overrides: dict[str, Any] | None = None,
+        payload_overrides: dict[str, Any] | None = None,
+        dependency_snapshots: dict[str, dict[str, Any]] | None = None,
+        subject_bindings: list[dict[str, Any]] | None = None,
+    ):
+        header: dict[str, Any] = {
+            "metric_ref": "metric.revenue",
+            "metric_family": "sum_metric",
+            "observed_entity_ref": "entity.order",
+            "observation_grain_ref": "grain.order",
+            "sample_kind": "numeric",
+            "value_semantics": "sum",
+            "additivity_constraints": {
+                "dimension_policy": "all",
+                "time_axis_policy": "additive",
+            },
+            "primary_time_ref": "time.event_date",
+        }
+        if header_overrides:
+            header.update(header_overrides)
+
+        payload: dict[str, Any] = {
+            "metric_family": "sum_metric",
+            "measure": {"name": "revenue", "semantics": "total revenue", "aggregation": "sum"},
+        }
+        if payload_overrides:
+            payload.update(payload_overrides)
+
+        semantic_object = {"header": header, "payload": payload}
+
+        default_deps = {
+            "entity.order": {"header": {"entity_ref": "entity.order"}},
+            "time.event_date": {"header": {"time_ref": "time.event_date"}},
+        }
+        if dependency_snapshots:
+            default_deps.update(dependency_snapshots)
+
+        snapshot = build_snapshot(
+            object_kind="metric",
+            object_id="metc_add_test",
+            ref="metric.revenue",
+            status="published",
+            revision=1,
+            semantic_object=semantic_object,
+        )
+
+        def dependency_loader(ref: str):
+            if ref in default_deps:
+                return build_snapshot(
+                    object_kind=_kind_for_ref(ref),
+                    object_id=f"{ref}_id",
+                    ref=ref,
+                    status="published",
+                    revision=1,
+                    semantic_object=default_deps[ref],
+                )
+            return None
+
+        context = ReadinessEvaluationContext(
+            snapshot=snapshot,
+            dependency_snapshot_loader=dependency_loader,
+            subject_bindings_loader=lambda _ref: subject_bindings or [],
+            carrier_source_object_loader=lambda _carrier: None,
+        )
+        return self.registry.evaluator_for("metric").evaluate(context)
+
+    def test_missing_additivity_constraints_produces_blocker(self) -> None:
+        result = self._evaluate(
+            header_overrides={"additivity_constraints": None},
+        )
+        blocker_codes = {b.code for b in result.blocking_requirements}
+        self.assertIn("ADDITIVITY_CONSTRAINTS_MISSING", blocker_codes)
+
+    def test_missing_dimension_policy_produces_blocker(self) -> None:
+        result = self._evaluate(
+            header_overrides={"additivity_constraints": {"time_axis_policy": "additive"}},
+        )
+        blocker_codes = {b.code for b in result.blocking_requirements}
+        self.assertIn("ADDITIVITY_CONSTRAINTS_DIMENSION_POLICY_MISSING", blocker_codes)
+
+    def test_missing_time_axis_policy_produces_blocker(self) -> None:
+        result = self._evaluate(
+            header_overrides={"additivity_constraints": {"dimension_policy": "all"}},
+        )
+        blocker_codes = {b.code for b in result.blocking_requirements}
+        self.assertIn("ADDITIVITY_CONSTRAINTS_TIME_AXIS_POLICY_MISSING", blocker_codes)
+
+    def test_subset_with_undeclared_dimension_produces_blocker(self) -> None:
+        result = self._evaluate(
+            header_overrides={
+                "additivity_constraints": {
+                    "dimension_policy": "subset",
+                    "time_axis_policy": "non_additive",
+                    "additive_dimensions": ["dimension.country"],
+                },
+            },
+        )
+        blocker_codes = {b.code for b in result.blocking_requirements}
+        self.assertIn("ADDITIVITY_CONSTRAINTS_DIMENSION_UNDECLARED", blocker_codes)
+
+    def test_subset_with_non_groupable_dimension_produces_blocker(self) -> None:
+        result = self._evaluate(
+            header_overrides={
+                "additivity_constraints": {
+                    "dimension_policy": "subset",
+                    "time_axis_policy": "non_additive",
+                    "additive_dimensions": ["dimension.country"],
+                },
+            },
+            payload_overrides={
+                "dimensions": ["dimension.country"],
+                "allowed_dimensions": ["dimension.country"],
+            },
+            dependency_snapshots={
+                "dimension.country": {
+                    "header": {"dimension_ref": "dimension.country"},
+                    "interface_contract": {
+                        "value_domain": {
+                            "structure_kind": "flat",
+                            "value_type": "string",
+                            "domain_kind": "open",
+                        },
+                        "grouping": {"supports_grouping": False},
+                    },
+                },
+            },
+        )
+        blocker_codes = {b.code for b in result.blocking_requirements}
+        self.assertIn("ADDITIVITY_CONSTRAINTS_DIMENSION_NOT_GROUPABLE", blocker_codes)
+
+    def test_subset_with_groupable_dimension_no_additivity_blocker(self) -> None:
+        result = self._evaluate(
+            header_overrides={
+                "additivity_constraints": {
+                    "dimension_policy": "subset",
+                    "time_axis_policy": "non_additive",
+                    "additive_dimensions": ["dimension.country"],
+                },
+            },
+            payload_overrides={
+                "dimensions": ["dimension.country"],
+                "allowed_dimensions": ["dimension.country"],
+            },
+            dependency_snapshots={
+                "dimension.country": {
+                    "header": {"dimension_ref": "dimension.country"},
+                    "interface_contract": {
+                        "value_domain": {
+                            "structure_kind": "flat",
+                            "value_type": "string",
+                            "domain_kind": "open",
+                        },
+                        "grouping": {"supports_grouping": True},
+                    },
+                },
+            },
+        )
+        additivity_blocker_codes = {
+            b.code
+            for b in result.blocking_requirements
+            if b.code.startswith("ADDITIVITY_CONSTRAINTS")
+        }
+        self.assertNotIn("ADDITIVITY_CONSTRAINTS_DIMENSION_UNDECLARED", additivity_blocker_codes)
+        self.assertNotIn("ADDITIVITY_CONSTRAINTS_DIMENSION_NOT_GROUPABLE", additivity_blocker_codes)
+
+    def test_count_distinct_with_all_policy_produces_aggregation_conflict(self) -> None:
+        result = self._evaluate(
+            header_overrides={
+                "additivity_constraints": {
+                    "dimension_policy": "all",
+                    "time_axis_policy": "additive",
+                },
+            },
+            payload_overrides={
+                "metric_family": "count_metric",
+                "count_target": {
+                    "name": "users",
+                    "semantics": "distinct users",
+                    "aggregation": "count_distinct",
+                },
+            },
+        )
+        blocker_codes = {b.code for b in result.blocking_requirements}
+        self.assertIn("ADDITIVITY_CONSTRAINTS_AGGREGATION_CONFLICT", blocker_codes)
+
+    def test_subset_dimension_declared_via_entity_stable_descriptors_no_blocker(self) -> None:
+        """A dimension in additive_dimensions that is NOT in payload.dimensions but IS
+        in the observed entity's stable_descriptors should NOT produce
+        ADDITIVITY_CONSTRAINTS_DIMENSION_UNDECLARED."""
+        entity_snapshot = {
+            "header": {"entity_ref": "entity.order"},
+            "interface_contract": {
+                "stable_descriptors": [
+                    {"dimension_ref": "dimension.country", "cardinality": "high"},
+                ],
+            },
+        }
+        entity_binding = {
+            "binding_ref": "binding.order",
+            "binding_scope": "entity",
+            "bound_object_ref": "entity.order",
+            "status": "published",
+            "interface_contract": {
+                "field_bindings": [
+                    {
+                        "carrier_binding_key": "primary",
+                        "target": {
+                            "target_kind": "stable_descriptor",
+                            "target_key": "dimension.country",
+                        },
+                        "semantic_ref": "dimension.country",
+                        "surface_ref": "field.country",
+                    },
+                ],
+            },
+        }
+        result = self._evaluate(
+            header_overrides={
+                "additivity_constraints": {
+                    "dimension_policy": "subset",
+                    "time_axis_policy": "non_additive",
+                    "additive_dimensions": ["dimension.country"],
+                },
+            },
+            dependency_snapshots={
+                "entity.order": entity_snapshot,
+                "dimension.country": {
+                    "header": {"dimension_ref": "dimension.country"},
+                    "interface_contract": {
+                        "value_domain": {
+                            "structure_kind": "flat",
+                            "value_type": "string",
+                            "domain_kind": "open",
+                        },
+                        "grouping": {"supports_grouping": True},
+                    },
+                },
+            },
+            subject_bindings=[entity_binding],
+        )
+        additivity_blocker_codes = {
+            b.code
+            for b in result.blocking_requirements
+            if b.code.startswith("ADDITIVITY_CONSTRAINTS")
+        }
+        self.assertNotIn("ADDITIVITY_CONSTRAINTS_DIMENSION_UNDECLARED", additivity_blocker_codes)
+
+    def test_subset_dimension_declared_via_entity_binding_no_blocker(self) -> None:
+        """A dimension declared only via entity binding field_bindings (not in entity
+        contract stable_descriptors) should also not produce UNDECLARED."""
+        entity_binding = {
+            "binding_ref": "binding.order",
+            "binding_scope": "entity",
+            "bound_object_ref": "entity.order",
+            "status": "published",
+            "interface_contract": {
+                "field_bindings": [
+                    {
+                        "carrier_binding_key": "primary",
+                        "target": {
+                            "target_kind": "stable_descriptor",
+                            "target_key": "dimension.region",
+                        },
+                        "semantic_ref": "dimension.region",
+                        "surface_ref": "field.region",
+                    },
+                ],
+            },
+        }
+        result = self._evaluate(
+            header_overrides={
+                "additivity_constraints": {
+                    "dimension_policy": "subset",
+                    "time_axis_policy": "non_additive",
+                    "additive_dimensions": ["dimension.region"],
+                },
+            },
+            dependency_snapshots={
+                "dimension.region": {
+                    "header": {"dimension_ref": "dimension.region"},
+                    "interface_contract": {
+                        "value_domain": {
+                            "structure_kind": "flat",
+                            "value_type": "string",
+                            "domain_kind": "open",
+                        },
+                        "grouping": {"supports_grouping": True},
+                    },
+                },
+            },
+            subject_bindings=[entity_binding],
+        )
+        additivity_blocker_codes = {
+            b.code
+            for b in result.blocking_requirements
+            if b.code.startswith("ADDITIVITY_CONSTRAINTS")
+        }
+        self.assertNotIn("ADDITIVITY_CONSTRAINTS_DIMENSION_UNDECLARED", additivity_blocker_codes)
+
+
+def _kind_for_ref(ref: str) -> str:
+    if ref.startswith("entity."):
+        return "entity"
+    if ref.startswith("dimension."):
+        return "dimension"
+    if ref.startswith("time."):
+        return "time"
+    if ref.startswith("process."):
+        return "process"
+    return "metric"
 
 
 class ProcessReadinessEvaluatorTests(unittest.TestCase):
