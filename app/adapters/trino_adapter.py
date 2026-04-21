@@ -23,7 +23,7 @@ class TrinoCatalogAdapter(CatalogAdapter):
         self,
         host: str,
         port: int = 8080,
-        user: str = "factum",
+        user: str = "marivo",
         password: str | None = None,
         http_scheme: str = "http",
         catalog: str = "hive",

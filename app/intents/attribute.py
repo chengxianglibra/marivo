@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from app.analysis_core.additivity_capabilities import derive_additivity_capabilities
+from app.execution.errors import ExecutionError
 from app.intents.compare import run_compare_intent
 from app.intents.decompose import run_decompose_intent
 from app.intents.observe import run_observe_intent
@@ -137,7 +138,7 @@ def run_attribute_intent(
                 f"({_MAX_DECOMPOSITION_LIMIT}), got {decomposition_limit}"
             )
 
-    # ── Pre-check: verify metric supports attribute ──────────────────────────
+    # ── Pre-check: verify metric supports attribute (compile-time gate) ──────
     resolved_metric = svc.semantic_repository.resolve_metric(metric_name)
     if resolved_metric is None:
         raise ValueError(f"attribute: metric '{metric_name}' not found or not published")
@@ -149,33 +150,124 @@ def run_attribute_intent(
             "sample_kind": resolved_metric.sample_kind,
         },
     )
-    if not additivity_caps.supports_attribute:
-        raise ValueError(
-            f"attribute: ADDITIVITY_CONSTRAINT - metric '{metric_name}' does not support "
-            f"attribution (dimension_policy='{additivity_caps.dimension_policy}', "
-            f"time_axis_policy='{additivity_caps.time_axis_policy}')"
-            + (f"; {additivity_caps.remediation_hint}" if additivity_caps.remediation_hint else "")
+
+    # Gate 1: metric must support compare
+    if not additivity_caps.supports_compare:
+        raise ExecutionError(
+            code="ADDITIVITY_CONSTRAINT",
+            category="compatibility",
+            message=(
+                f"attribute: ADDITIVITY_CONSTRAINT - metric '{metric_name}' does not support "
+                f"compare (dimension_policy='{additivity_caps.dimension_policy}', "
+                f"time_axis_policy='{additivity_caps.time_axis_policy}')"
+                + (
+                    f"; {additivity_caps.remediation_hint}"
+                    if additivity_caps.remediation_hint
+                    else ""
+                )
+            ),
+            detail={
+                "compatibility_error": {
+                    "code": "ADDITIVITY_CONSTRAINT",
+                    "gate": "supports_compare",
+                    "metric": metric_ref,
+                    "dimension_policy": additivity_caps.dimension_policy,
+                    "time_axis_policy": additivity_caps.time_axis_policy,
+                    "additive_dimensions": additivity_caps.additive_dimensions or [],
+                    "time_rollup_allowed": additivity_caps.time_rollup_allowed,
+                    "blocker": additivity_caps.blocker,
+                    "remediation_hint": additivity_caps.remediation_hint,
+                },
+            },
         )
 
-    # Dimension-level gate: check each requested dimension against the policy
+    # Gate 2: metric must support decompose
+    if not additivity_caps.supports_decompose:
+        raise ExecutionError(
+            code="ADDITIVITY_CONSTRAINT",
+            category="compatibility",
+            message=(
+                f"attribute: ADDITIVITY_CONSTRAINT - metric '{metric_name}' does not support "
+                f"decompose (dimension_policy='{additivity_caps.dimension_policy}', "
+                f"time_axis_policy='{additivity_caps.time_axis_policy}')"
+                + (
+                    f"; {additivity_caps.remediation_hint}"
+                    if additivity_caps.remediation_hint
+                    else ""
+                )
+            ),
+            detail={
+                "compatibility_error": {
+                    "code": "ADDITIVITY_CONSTRAINT",
+                    "gate": "supports_decompose",
+                    "metric": metric_ref,
+                    "dimension_policy": additivity_caps.dimension_policy,
+                    "time_axis_policy": additivity_caps.time_axis_policy,
+                    "additive_dimensions": additivity_caps.additive_dimensions or [],
+                    "time_rollup_allowed": additivity_caps.time_rollup_allowed,
+                    "blocker": additivity_caps.blocker,
+                    "remediation_hint": additivity_caps.remediation_hint,
+                },
+            },
+        )
+
+    # Gate 3: every requested dimension must be allowed by constraints
     if additivity_caps.dimension_policy == "none":
-        raise ValueError(
-            f"attribute: ADDITIVITY_CONSTRAINT_DIMENSION_NOT_ALLOWED - metric "
-            f"'{metric_name}' has dimension_policy='none'; no dimensions can be "
-            f"used for attribution. Requested dimensions: {dimensions}"
+        raise ExecutionError(
+            code="ADDITIVITY_CONSTRAINT_DIMENSION_NOT_ALLOWED",
+            category="compatibility",
+            message=(
+                f"attribute: ADDITIVITY_CONSTRAINT_DIMENSION_NOT_ALLOWED - metric "
+                f"'{metric_name}' has dimension_policy='none'; no dimensions can be "
+                f"used for attribution. Requested dimensions: {dimensions}"
+            ),
+            detail={
+                "compatibility_error": {
+                    "code": "ADDITIVITY_CONSTRAINT_DIMENSION_NOT_ALLOWED",
+                    "metric": metric_ref,
+                    "dimension_policy": additivity_caps.dimension_policy,
+                    "time_axis_policy": additivity_caps.time_axis_policy,
+                    "allowed_dimensions": [],
+                    "disallowed_dimensions": list(dimensions),
+                    "time_rollup_allowed": additivity_caps.time_rollup_allowed,
+                    "remediation_hint": (
+                        "Metric has dimension_policy='none'. "
+                        "Update additivity_constraints to declare allowed dimensions "
+                        "before requesting attribution."
+                    ),
+                },
+            },
         )
 
-    if (
-        additivity_caps.dimension_policy == "subset"
-        and additivity_caps.additive_dimensions is not None
-    ):
-        disallowed = [d for d in dimensions if d not in additivity_caps.additive_dimensions]
-        if disallowed:
-            raise ValueError(
-                f"attribute: ADDITIVITY_CONSTRAINT_DIMENSION_NOT_ALLOWED - metric "
-                f"'{metric_name}' with dimension_policy='subset' does not allow "
-                f"attribution on {disallowed}. "
-                f"Allowed: {sorted(additivity_caps.additive_dimensions)}"
+    if additivity_caps.dimension_policy == "subset":
+        allowed_set = set(additivity_caps.additive_dimensions or [])
+        disallowed_requested = [d for d in dimensions if d not in allowed_set]
+        if disallowed_requested:
+            raise ExecutionError(
+                code="ADDITIVITY_CONSTRAINT_DIMENSION_NOT_ALLOWED",
+                category="compatibility",
+                message=(
+                    f"attribute: ADDITIVITY_CONSTRAINT_DIMENSION_NOT_ALLOWED - metric "
+                    f"'{metric_name}' with dimension_policy='subset' does not allow "
+                    f"attribution on {disallowed_requested}. "
+                    f"Allowed: {sorted(allowed_set)}, "
+                    f"Disallowed: {disallowed_requested}"
+                ),
+                detail={
+                    "compatibility_error": {
+                        "code": "ADDITIVITY_CONSTRAINT_DIMENSION_NOT_ALLOWED",
+                        "metric": metric_ref,
+                        "dimension_policy": additivity_caps.dimension_policy,
+                        "time_axis_policy": additivity_caps.time_axis_policy,
+                        "allowed_dimensions": sorted(allowed_set),
+                        "disallowed_dimensions": disallowed_requested,
+                        "time_rollup_allowed": additivity_caps.time_rollup_allowed,
+                        "remediation_hint": (
+                            f"Retry with only allowed dimensions: "
+                            f"{sorted(allowed_set)}"
+                        ),
+                    },
+                },
             )
 
     # ── Step 1: observe left (current) ────────────────────────────────────────
@@ -475,6 +567,24 @@ def run_attribute_intent(
             "driver_row_order": "inherits_decompose_order",
             "dimension_order": "request_order",
             "share_suppression_policy": _SHARE_SUPPRESSION_POLICY,
+            "additivity_basis": {
+                "dimension_policy": additivity_caps.dimension_policy,
+                "additive_dimensions": additivity_caps.additive_dimensions,
+                "time_axis_policy": additivity_caps.time_axis_policy,
+                "time_rollup_allowed": additivity_caps.time_rollup_allowed,
+                "capability_condition": (
+                    additivity_caps.capability_condition
+                    or (
+                        "all_dimensions_allowed"
+                        if additivity_caps.dimension_policy == "all"
+                        else None
+                    )
+                ),
+            },
+            "time_boundary_constraint": {
+                "scope": "frozen_compare_window",
+                "time_rollup_implied": False,
+            },
         },
         "execution_metadata": {
             "engine": "service",

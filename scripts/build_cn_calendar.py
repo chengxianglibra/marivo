@@ -514,7 +514,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--db-path",
-        default="factum.duckdb",
+        default="marivo.duckdb",
         help="DuckDB file to create or update.",
     )
     parser.add_argument(

@@ -129,7 +129,7 @@ class FederationRuntimeTests(unittest.TestCase):
         runtime = FederationRuntime()
         engine = FakeEngine()
 
-        with self.assertLogs("factum.execution", level="INFO") as captured:
+        with self.assertLogs("marivo.execution", level="INFO") as captured:
             runtime.execute(engine, translated_sql="SELECT 1")
 
         self.assertEqual(engine.last_sql, "SELECT 1")

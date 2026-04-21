@@ -261,7 +261,7 @@ Python DSL 方案不把 `Assessment` 替换为 proof graph；它只改变 assess
 
 ### 2. 更容易显式表达 unknown / blocked
 
-Factum 最关键的 judgment status 之一是 `insufficient`。Python DSL 方案可以把：
+Marivo 最关键的 judgment status 之一是 `insufficient`。Python DSL 方案可以把：
 
 - `unresolved`
 - `blocked`

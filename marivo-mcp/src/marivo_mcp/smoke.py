@@ -4,8 +4,8 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from factum_mcp.config import FactumMcpConfig, FactumMcpConfigError, load_config_from_env
-from factum_mcp.http_client import FactumHttpClient
+from marivo_mcp.config import MarivoMcpConfig, MarivoMcpConfigError, load_config_from_env
+from marivo_mcp.http_client import MarivoHttpClient
 
 
 @dataclass(frozen=True)
@@ -14,20 +14,20 @@ class SmokeCheckResult:
     ok: bool
     status_code: int
     category: str | None
-    factum_path: str
+    marivo_path: str
     message: str
 
 
-def run_live_smoke(config: FactumMcpConfig) -> list[SmokeCheckResult]:
-    """Run a minimal live smoke path against a real Factum HTTP service."""
-    client = FactumHttpClient(config)
+def run_live_smoke(config: MarivoMcpConfig) -> list[SmokeCheckResult]:
+    """Run a minimal live smoke path against a real Marivo HTTP service."""
+    client = MarivoHttpClient(config)
     try:
         health = client.request_envelope("GET", "/health")
         openapi = client.request_envelope("GET", "/openapi/index")
         session = client.request_envelope(
             "POST",
             "/sessions",
-            json_body={"goal": "factum-mcp smoke test"},
+            json_body={"goal": "marivo-mcp smoke test"},
         )
 
         results = [
@@ -53,7 +53,7 @@ def run_live_smoke(config: FactumMcpConfig) -> list[SmokeCheckResult]:
                     ok=False,
                     status_code=session.status_code,
                     category="server_error",
-                    factum_path="/sessions/{session_id}/terminate",
+                    marivo_path="/sessions/{session_id}/terminate",
                     message="Skipped because create_session did not return a session_id.",
                 )
             )
@@ -63,7 +63,7 @@ def run_live_smoke(config: FactumMcpConfig) -> list[SmokeCheckResult]:
                     ok=False,
                     status_code=session.status_code,
                     category="server_error",
-                    factum_path="/sessions/{session_id}/state",
+                    marivo_path="/sessions/{session_id}/state",
                     message="Skipped because create_session did not return a session_id.",
                 )
             )
@@ -75,7 +75,7 @@ def run_live_smoke(config: FactumMcpConfig) -> list[SmokeCheckResult]:
                 ok=False,
                 status_code=validation.status_code,
                 category="server_error",
-                factum_path="/semantic/entities",
+                marivo_path="/semantic/entities",
                 message="Expected a validation failure envelope from POST /semantic/entities.",
             )
         elif validation.error.category != "validation":
@@ -84,7 +84,7 @@ def run_live_smoke(config: FactumMcpConfig) -> list[SmokeCheckResult]:
                 ok=False,
                 status_code=validation.status_code,
                 category=validation.error.category,
-                factum_path="/semantic/entities",
+                marivo_path="/semantic/entities",
                 message=(
                     "Expected error.category=validation for POST /semantic/entities, "
                     f"got {validation.error.category!r}."
@@ -96,7 +96,7 @@ def run_live_smoke(config: FactumMcpConfig) -> list[SmokeCheckResult]:
                 ok=True,
                 status_code=validation.status_code,
                 category=validation.error.category,
-                factum_path="/semantic/entities",
+                marivo_path="/semantic/entities",
                 message="validation envelope ok",
             )
         results.append(validation_result)
@@ -118,7 +118,7 @@ def summarize_results(results: list[SmokeCheckResult]) -> dict[str, Any]:
 def main() -> None:
     try:
         config = load_config_from_env()
-    except FactumMcpConfigError as error:
+    except MarivoMcpConfigError as error:
         raise SystemExit(str(error)) from error
 
     summary = summarize_results(run_live_smoke(config))
@@ -136,7 +136,7 @@ def _result_from_envelope(name: str, envelope: Any) -> SmokeCheckResult:
         ok=bool(envelope.ok),
         status_code=int(envelope.status_code),
         category=None if error is None else error.category,
-        factum_path=str(meta.factum_path),
+        marivo_path=str(meta.marivo_path),
         message=str(message),
     )
 

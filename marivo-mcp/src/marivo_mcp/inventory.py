@@ -628,9 +628,9 @@ SURFACE_SPECS: tuple[McpSurfaceSpec, ...] = (
     ),
     McpSurfaceSpec("sync_source", "tool", "p1", True, "POST", ("/sources/{source_id}/sync",)),
     McpSurfaceSpec("resolve_routing", "tool", "p1", True, "POST", ("/routing/resolve",)),
-    McpSurfaceSpec("factum://server/config", "resource", "p1", True),
+    McpSurfaceSpec("marivo://server/config", "resource", "p1", True),
     McpSurfaceSpec(
-        "factum://catalog/summary",
+        "marivo://catalog/summary",
         "resource",
         "p1",
         True,
@@ -649,7 +649,7 @@ SURFACE_SPECS: tuple[McpSurfaceSpec, ...] = (
         ),
     ),
     McpSurfaceSpec(
-        "factum://sessions/{session_id}/state",
+        "marivo://sessions/{session_id}/state",
         "resource",
         "p0",
         True,
@@ -657,7 +657,7 @@ SURFACE_SPECS: tuple[McpSurfaceSpec, ...] = (
         ("/sessions/{session_id}/state",),
     ),
     McpSurfaceSpec(
-        "factum://sessions/{session_id}/propositions/{proposition_id}/context",
+        "marivo://sessions/{session_id}/propositions/{proposition_id}/context",
         "resource",
         "p0",
         True,
@@ -665,7 +665,7 @@ SURFACE_SPECS: tuple[McpSurfaceSpec, ...] = (
         ("/sessions/{session_id}/propositions/{proposition_id}/context",),
     ),
     McpSurfaceSpec(
-        "factum://semantic/{family}",
+        "marivo://semantic/{family}",
         "resource",
         "p0",
         True,
@@ -682,7 +682,7 @@ SURFACE_SPECS: tuple[McpSurfaceSpec, ...] = (
         ),
     ),
     McpSurfaceSpec(
-        "factum://sources/{source_id}/objects",
+        "marivo://sources/{source_id}/objects",
         "resource",
         "p1",
         True,
@@ -690,7 +690,7 @@ SURFACE_SPECS: tuple[McpSurfaceSpec, ...] = (
         ("/sources/{source_id}/objects",),
     ),
     McpSurfaceSpec(
-        "factum://sources/{source_id}/objects/{object_id}",
+        "marivo://sources/{source_id}/objects/{object_id}",
         "resource",
         "p1",
         True,

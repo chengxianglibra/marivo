@@ -1,6 +1,6 @@
 # Session State Surface
 
-This document defines the target-state external HTTP contract for Factum's canonical session state surface.
+This document defines the target-state external HTTP contract for Marivo's canonical session state surface.
 
 It binds the canonical schema from [`docs/analysis/evidence-engine/schemas/state-surface-schema.md`](../analysis/evidence-engine/schemas/state-surface-schema.md) to stable HTTP resources. This is a target-state wire specification and does not describe or depend on the current implementation.
 

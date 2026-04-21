@@ -1,11 +1,11 @@
-"""Pydantic request/response models for the Factum HTTP API (legacy non-semantic models).
+"""Pydantic request/response models for the Marivo HTTP API (legacy non-semantic models).
 
 Signal vs Decision design principle
 -------------------------------------
-Factum returns **signals** (canonical evidence: findings, propositions,
+Marivo returns **signals** (canonical evidence: findings, propositions,
 assessments, action proposals) and enforces **decisions** (governance
 constraints, budget limits). Agents retain full control over what to do
-with signals; governance decisions are hard stops that Factum enforces on
+with signals; governance decisions are hard stops that Marivo enforces on
 behalf of the operator.
 
 Session constraints summary:
@@ -146,7 +146,7 @@ class SessionCreateRequest(BaseModel):
             "max_latency_sec": 120,
         },
         description=(
-            "Hard resource limits enforced by Factum. Steps that would exceed "
+            "Hard resource limits enforced by Marivo. Steps that would exceed "
             "max_scan_bytes or max_latency_sec are blocked before execution. "
             "This is a system decision constraint, not a suggestion."
         ),
@@ -157,7 +157,7 @@ class SessionCreateRequest(BaseModel):
             "min_group_size": 100,
         },
         description=(
-            "Governance rules enforced by Factum (e.g. aggregate_only blocks raw row access, "
+            "Governance rules enforced by Marivo (e.g. aggregate_only blocks raw row access, "
             "min_group_size enforces k-anonymity). System-enforced decision constraints — "
             "violations block step execution regardless of agent intent."
         ),
@@ -400,7 +400,7 @@ class MetricQueryStep(BaseModel):
     time_axis: TimeAxis | None = Field(
         default=None,
         description=(
-            "Advanced time-axis override. If omitted, Factum resolves from metadata or heuristics. "
+            "Advanced time-axis override. If omitted, Marivo resolves from metadata or heuristics. "
             "Legacy fields period_start, period_end, baseline_start, baseline_end, comparison_type, "
             "date_column, where, and filter are no longer supported."
         ),
@@ -477,9 +477,9 @@ class AutoFlagRequest(BaseModel):
 class ReadinessSignal(BaseModel):
     """Readiness signal returned in each primitive step response (M-04).
 
-    All dimensions are in [0.0, 1.0]. Factum computes these deterministically
+    All dimensions are in [0.0, 1.0]. Marivo computes these deterministically
     from the current session evidence state — no LLM involvement.
-    The agent decides how to act on these signals; Factum never auto-triggers
+    The agent decides how to act on these signals; Marivo never auto-triggers
     next steps.
     """
 

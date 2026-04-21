@@ -7,7 +7,7 @@ from typing import Any
 from app.execution.feedback import federation_failure_from_plan
 from app.storage.analytics import AnalyticsEngine
 
-logger = logging.getLogger("factum.execution")
+logger = logging.getLogger("marivo.execution")
 
 
 def _optional_str(value: Any) -> str | None:

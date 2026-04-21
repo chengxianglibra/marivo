@@ -1,6 +1,6 @@
 # Enum Value Set Schema Contract（草案）
 
-本文定义 Factum semantic 文档体系中 `Enum Value Set` 的配套 schema contract。
+本文定义 Marivo semantic 文档体系中 `Enum Value Set` 的配套 schema contract。
 
 本文是**语义契约设计文档**，不是当前实现说明，也不是最终 HTTP wire spec。它与以下文档配套：
 

@@ -1,6 +1,6 @@
 # Semantic Layer Predicate Schema Contract（草案）
 
-本文定义 Factum semantic layer 中 `predicate.*` 的目标 schema contract。
+本文定义 Marivo semantic layer 中 `predicate.*` 的目标 schema contract。
 
 本文是**语义契约设计文档**，不是当前实现说明，也不是最终 HTTP wire spec。它与以下文档配套：
 
@@ -38,7 +38,7 @@
 
 ## 背景
 
-Factum 现有设计中已经存在多类过滤入口：
+Marivo 现有设计中已经存在多类过滤入口：
 
 - `MeasurementComponent.qualifier_refs`
 - `CarrierBinding.row_filter_refs`
@@ -52,7 +52,7 @@ Factum 现有设计中已经存在多类过滤入口：
 - 多 component metric 的 sample basis 难以稳定冻结
 - compiler 很难在 lowering 前判断冲突、可解析性与 narrowing 边界
 
-因此，Factum 需要把“过滤条件”从零散字段收敛为受治理的 `predicate.*` contract。
+因此，Marivo 需要把“过滤条件”从零散字段收敛为受治理的 `predicate.*` contract。
 
 ## 设计目标
 

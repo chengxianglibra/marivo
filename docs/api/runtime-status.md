@@ -1,6 +1,6 @@
 # Runtime Status Surface
 
-This document defines the target-state external HTTP contract for Factum's operator-facing runtime status surface.
+This document defines the target-state external HTTP contract for Marivo's operator-facing runtime status surface.
 
 It binds the design in [`docs/analysis/evidence-engine/runtime-status-surface.md`](../analysis/evidence-engine/runtime-status-surface.md) to stable HTTP resources. This is a target-state wire specification and does not describe or depend on the current implementation.
 

@@ -126,7 +126,7 @@ v1 支持的输入形态如下：
 
 - `compare_ref` 必须解析到已完成的 `compare` artifact
 - 被引用的 compare 输出必须是 `scalar_delta` 或 `time_series_delta`
-- 被比较的 metric 必须是 `additive`
+- 被比较的 metric 的 `additivity_constraints.dimension_policy` 必须为 `'all'` 或 `'subset'`
 - 该 metric 必须声明自己可按所请求的 `dimension` 做分解
 - 请求的 method 必须受该 metric 支持
 
@@ -139,7 +139,7 @@ v1 支持的输入形态如下：
 - 以 `segmented_delta` 作为主输入契约
 - 多个 dimensions
 - interaction-effect decomposition
-- semi-additive 或 non-additive metrics
+- `dimension_policy = 'none'` 的 metrics（不支持分解）
 - `shapley`、`anova` 等替代方法
 - projection 参数驱动的执行请求
 
@@ -192,7 +192,7 @@ v1 只支持 `delta_share`。
 - 计算每个 segment 的 delta：`segment_left_value - segment_right_value`
 - 当数学和语义上都成立时，计算该 segment 对 scope delta 的带符号 share
 
-v1 将 `delta_share` 限制在 additive metrics 上。
+v1 将 `delta_share` 限制在 `dimension_policy` 为 `'all'` 或 `'subset'` 的 metrics 上；`dimension_policy = 'none'` 的 metrics 在 v1 中必须拒绝。
 
 ## Presence 语义
 
@@ -259,8 +259,12 @@ type AttributionMetadata = {
 type DecomposeAnalyticalMetadata = {
   method: "delta_share";
   aggregation_semantics: string;
-  metric_additivity: "additive";
-  decomposability_constraint: "additive_only";
+  additivity_constraints: {
+    dimension_policy: "all" | "subset";
+    additive_dimensions?: string[];
+    time_axis_policy: "additive" | "non_additive";
+  };
+  decomposition_constraint: "all_dimensions_allowed" | "dimension_must_be_allowed";
   reconciliation_expected: boolean;
   flat_tolerance_relative: number;
   left_row_count: number | null;
@@ -387,7 +391,7 @@ empty semantics：
 - 被引用结果必须是 `scalar_delta`
 - `dimension` 必须是单个 semantic dimension 名称
 - v1 中 `method` 只能是 `delta_share`
-- metric 必须是 additive；semi-additive 与 non-additive 在 v1 中必须拒绝
+- metric 的 `dimension_policy` 必须为 `'all'` 或 `'subset'`；`dimension_policy = 'none'` 在 v1 中必须拒绝
 - one-sided rows 必须显式保留，并通过 `presence` 标记
 - 成功 artifact 必须至少包含一条 contribution row；若当前请求无法形成任何 canonical contribution row，请求必须失败
 - 当 `scope_absolute_delta` 为 `0` 或 `null` 时，`contribution_share` 必须为 `null`

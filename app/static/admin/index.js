@@ -27,7 +27,7 @@ const shared = {
   normalizeApiError: window.normalizeApiError,
   pollAsync: window.pollAsync,
   formatKeyValueSummary: window.formatKeyValueSummary,
-  buildFactumUiUrl: window.buildFactumUiUrl,
+  buildMarivoUiUrl: window.buildMarivoUiUrl,
   buildUiSessionsUrl: window.buildUiSessionsUrl,
   buildUiStateUrl: window.buildUiStateUrl,
   buildUiContextUrl: window.buildUiContextUrl,

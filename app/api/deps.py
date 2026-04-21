@@ -8,7 +8,7 @@ from fastapi import HTTPException, Request
 
 from app.approvals import ApprovalService
 from app.bindings import BindingService
-from app.config import FactumConfig
+from app.config import MarivoConfig
 from app.engines import EngineService
 from app.governance import GovernanceService
 from app.jobs import JobService
@@ -27,7 +27,7 @@ from app.sync import SyncEngine
 @dataclass(slots=True)
 class AppServices:
     resolved_path: Path | str  # Analytics path; str ":memory:" means in-memory DuckDB.
-    config: FactumConfig
+    config: MarivoConfig
     service: SemanticLayerService
     source_service: SourceService
     sync_engine: SyncEngine

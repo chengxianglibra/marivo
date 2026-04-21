@@ -1,6 +1,6 @@
 # Evidence Engine Migration And Invalidation
 
-本文档定义 Factum Evidence Engine 的 version migration、mixed-version state 边界，以及 invalidation / redaction / deletion lifecycle。
+本文档定义 Marivo Evidence Engine 的 version migration、mixed-version state 边界，以及 invalidation / redaction / deletion lifecycle。
 
 状态：draft design。本文不替代各对象 schema，也不直接定义存储层迁移脚本；它只固定版本升级与对象失效治理的统一语义，避免运行时和读取面各自发明隐式规则。
 

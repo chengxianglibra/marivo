@@ -13,7 +13,7 @@ export function createAnalysisOpsModule(ctx) {
     renderAdminListDetailLayout,
     normalizeApiError,
     buildUiSessionsUrl,
-    buildFactumUiUrl,
+    buildMarivoUiUrl,
     buildUiStateUrl,
     buildUiRuntimeUrl,
     buildUiJobsUrl,
@@ -232,7 +232,7 @@ export function createAnalysisOpsModule(ctx) {
         ])}
         <div class="detail-actions">
           ${isOpen ? '<button type="button" class="btn btn-danger" data-action="terminate-session">Terminate Session</button>' : '<span class="shell-chip">Session already closed</span>'}
-          <a class="btn" href="${esc(buildFactumUiUrl({ tab: 'sessions', sessionId: session.session_id }))}">Open in /ui Sessions</a>
+          <a class="btn" href="${esc(buildMarivoUiUrl({ tab: 'sessions', sessionId: session.session_id }))}">Open in /ui Sessions</a>
           <a class="btn" href="${esc(buildUiStateUrl(session.session_id))}">View State in /ui</a>
           <a class="btn" href="${esc(buildUiRuntimeUrl(session.session_id))}">View Runtime in /ui</a>
           <a class="btn" href="${esc(buildUiJobsUrl(session.session_id))}">View Jobs in /ui</a>

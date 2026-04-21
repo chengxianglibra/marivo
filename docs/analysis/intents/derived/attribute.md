@@ -230,6 +230,17 @@ type AttributeProjectionMetadata = {
   driver_row_order: "inherits_decompose_order";
   dimension_order: "request_order";
   share_suppression_policy: "suppress_on_reconciliation_needs_attention";
+  additivity_basis: {
+    dimension_policy: "all" | "subset" | "none";
+    additive_dimensions?: string[];
+    time_axis_policy: "additive" | "non_additive";
+    time_rollup_allowed: boolean;
+    capability_condition: "all_dimensions_allowed" | "dimension_must_be_allowed" | null;
+  };
+  time_boundary_constraint: {
+    scope: "frozen_compare_window";
+    time_rollup_implied: false;
+  };
 };
 ```
 
@@ -634,5 +645,62 @@ v1 只支持 `delta_share`，语义完全继承 `decompose(method = "delta_share
 - 只支持调用方显式给定 left / right scope
 - 只支持显式归因维度列表
 - 只支持内部 `scalar` compare
-- 只支持 additive metric 的 `delta_share` 归因
+- 只支持 `dimension_policy` 为 `'all'` 或 `'subset'` 的 metric 的 `delta_share` 归因；`dimension_policy = 'none'` 的 metric 返回结构化 409 错误（`ADDITIVITY_CONSTRAINT`）
 - 不支持多维交互项、自动维度推荐、开放式下钻或因果解释
+
+## Additivity Gate 错误
+
+`attribute` 在执行内部 `observe -> compare -> decompose` 之前执行前置 gate 检查。gate 使用与 compiler / readiness / decompose 相同的 `derive_additivity_capabilities` helper。
+
+### Gate 1: supports_compare
+
+当 metric 不支持 compare 时（`additivity_constraints` 缺失或 `primary_time_ref` 不存在），返回：
+
+```json
+{
+  "code": "ADDITIVITY_CONSTRAINT",
+  "category": "compatibility",
+  "detail": {
+    "compatibility_error": {
+      "gate": "supports_compare",
+      "metric": "metric.xxx",
+      "dimension_policy": null,
+      "time_axis_policy": null,
+      "additive_dimensions": null,
+      "time_rollup_allowed": false,
+      "blocker": "ADDITIVITY_CONSTRAINTS_MISSING",
+      "remediation_hint": "..."
+    }
+  }
+}
+```
+
+### Gate 2: supports_decompose
+
+当 metric 不支持 decompose 时（`dimension_policy = "none"`），返回相同结构，`gate` 为 `"supports_decompose"`。
+
+### Gate 3: dimension not allowed
+
+当 `dimension_policy = "subset"` 且请求的 dimensions 中存在不在 `additive_dimensions` 中的维度时，返回：
+
+```json
+{
+  "code": "ADDITIVITY_CONSTRAINT_DIMENSION_NOT_ALLOWED",
+  "category": "compatibility",
+  "detail": {
+    "compatibility_error": {
+      "gate": "dimension_allowed_check",
+      "metric": "metric.xxx",
+      "dimension_policy": "subset",
+      "time_axis_policy": "non_additive",
+      "additive_dimensions": ["dimension.country", "dimension.region"],
+      "disallowed_dimensions": ["dimension.product"],
+      "allowed_dimensions": ["dimension.country", "dimension.region"],
+      "time_rollup_allowed": false,
+      "remediation_hint": "Retry with only allowed dimensions: dimension.country, dimension.region"
+    }
+  }
+}
+```
+
+调用方可根据 `allowed_dimensions` 自动构造仅包含 allowed 维度的重试请求。

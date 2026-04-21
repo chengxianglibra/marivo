@@ -1,6 +1,6 @@
 # Semantic Layer Time Schema Contract（草案）
 
-本文定义 Factum semantic layer 中 `time.*` 语义引用的目标 contract。
+本文定义 Marivo semantic layer 中 `time.*` 语义引用的目标 contract。
 
 本文是**语义契约设计文档**，不是当前实现说明，也不是最终 HTTP wire spec。它与以下文档配套：
 
@@ -555,6 +555,6 @@ Compiler 根据具体使用场景判断 `operational_support` 时间是否适合
 
 ## 总结
 
-时间语义在 Factum 中不应继续被当作零散字段或 capability 矩阵，而应收敛为：
+时间语义在 Marivo 中不应继续被当作零散字段或 capability 矩阵，而应收敛为：
 
 > `time.*` 定义“这是哪一种稳定时间语义”，entity / metric / process / dimension 消费这些语义，binding 负责把它们落地并补充消费策略，而 compiler / IR 负责把一次请求解析成可校验、可执行的多时间关系。

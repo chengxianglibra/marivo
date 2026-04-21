@@ -1,4 +1,4 @@
-"""Factum MCP adapter scaffold."""
+"""Marivo MCP adapter scaffold."""
 
 __all__ = ["__version__"]
 

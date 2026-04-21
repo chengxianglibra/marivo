@@ -19,7 +19,7 @@ def _trino_connect_kwargs(connection: dict[str, Any]) -> dict[str, Any]:
     kwargs: dict[str, Any] = {
         "host": connection["host"],
         "port": connection.get("port", 8080),
-        "user": connection.get("user", "factum"),
+        "user": connection.get("user", "marivo"),
         "password": connection.get("password"),
         "http_scheme": connection.get("http_scheme") or connection.get("http-scheme", "http"),
         "catalog": connection.get("catalog", "hive"),

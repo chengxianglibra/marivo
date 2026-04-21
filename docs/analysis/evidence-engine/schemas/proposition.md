@@ -6,7 +6,7 @@
 
 ## 目的
 
-`proposition` 是 Factum 证据引擎中的规范判断对象（canonical judgment object），用于把 `finding` 层已经确定知道的事实，组织成可被后续推断（inference）和评估（assessment）稳定评估的命题。
+`proposition` 是 Marivo 证据引擎中的规范判断对象（canonical judgment object），用于把 `finding` 层已经确定知道的事实，组织成可被后续推断（inference）和评估（assessment）稳定评估的命题。
 
 设计目标：
 
@@ -55,7 +55,7 @@ v1 采用 `proposition_type` 判别联合。
 
 原因：
 
-- Factum 已按 typed intent / typed finding 设计，judgment layer 应延续这种类型化边界
+- Marivo 已按 typed intent / typed finding 设计，judgment layer 应延续这种类型化边界
 - 不同命题家族的标识、种子事实家族、assessment 规则家族不同
 - 用统一 predicate/object 抽象会削弱 agent 的稳定读取轴，也会提高校验歧义
 

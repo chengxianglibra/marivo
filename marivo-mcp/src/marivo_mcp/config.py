@@ -5,7 +5,7 @@ import os
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 
-class FactumMcpConfigError(RuntimeError):
+class MarivoMcpConfigError(RuntimeError):
     """Raised when required MCP adapter configuration is missing or invalid."""
 
 
@@ -21,8 +21,8 @@ class HttpTransportConfig(BaseModel):
     json_response: bool = True
 
 
-class FactumMcpConfig(BaseModel):
-    """Runtime configuration for the standalone Factum MCP adapter."""
+class MarivoMcpConfig(BaseModel):
+    """Runtime configuration for the standalone Marivo MCP adapter."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -35,47 +35,47 @@ class FactumMcpConfig(BaseModel):
     http: HttpTransportConfig = Field(default_factory=HttpTransportConfig)
 
 
-def load_config_from_env() -> FactumMcpConfig:
+def load_config_from_env() -> MarivoMcpConfig:
     """Load MCP adapter configuration from environment variables."""
-    raw_base_url = os.environ.get("FACTUM_BASE_URL")
+    raw_base_url = os.environ.get("MARIVO_BASE_URL")
     if raw_base_url is None or not raw_base_url.strip():
-        raise FactumMcpConfigError(
-            "FACTUM_BASE_URL is required to start factum-mcp. "
-            "Set it to the Factum HTTP base URL, for example http://127.0.0.1:8000."
+        raise MarivoMcpConfigError(
+            "MARIVO_BASE_URL is required to start marivo-mcp. "
+            "Set it to the Marivo HTTP base URL, for example http://127.0.0.1:8000."
         )
 
-    raw_timeout_ms = os.environ.get("FACTUM_TIMEOUT_MS", "600000")
-    raw_openapi_cache_ttl_sec = os.environ.get("FACTUM_OPENAPI_CACHE_TTL_SEC", "300")
+    raw_timeout_ms = os.environ.get("MARIVO_TIMEOUT_MS", "600000")
+    raw_openapi_cache_ttl_sec = os.environ.get("MARIVO_OPENAPI_CACHE_TTL_SEC", "300")
 
     try:
-        return FactumMcpConfig.model_validate(
+        return MarivoMcpConfig.model_validate(
             {
                 "base_url": raw_base_url.strip(),
-                "api_token": _normalize_optional(os.environ.get("FACTUM_API_TOKEN")),
-                "transport": os.environ.get("FACTUM_MCP_TRANSPORT", "stdio").strip() or "stdio",
+                "api_token": _normalize_optional(os.environ.get("MARIVO_API_TOKEN")),
+                "transport": os.environ.get("MARIVO_MCP_TRANSPORT", "stdio").strip() or "stdio",
                 "timeout_ms": raw_timeout_ms,
                 "openapi_cache_ttl_sec": raw_openapi_cache_ttl_sec,
                 "default_source_id": _normalize_optional(
-                    os.environ.get("FACTUM_DEFAULT_SOURCE_ID")
+                    os.environ.get("MARIVO_DEFAULT_SOURCE_ID")
                 ),
                 "http": {
-                    "host": os.environ.get("FACTUM_MCP_HOST", "127.0.0.1"),
-                    "port": os.environ.get("FACTUM_MCP_PORT", "8000"),
+                    "host": os.environ.get("MARIVO_MCP_HOST", "127.0.0.1"),
+                    "port": os.environ.get("MARIVO_MCP_PORT", "8000"),
                     "streamable_http_path": os.environ.get(
-                        "FACTUM_MCP_STREAMABLE_HTTP_PATH", "/mcp"
+                        "MARIVO_MCP_STREAMABLE_HTTP_PATH", "/mcp"
                     ),
                     "stateless_http": _parse_bool_env(
-                        os.environ.get("FACTUM_MCP_STATELESS_HTTP"), default=True
+                        os.environ.get("MARIVO_MCP_STATELESS_HTTP"), default=True
                     ),
                     "json_response": _parse_bool_env(
-                        os.environ.get("FACTUM_MCP_JSON_RESPONSE"), default=True
+                        os.environ.get("MARIVO_MCP_JSON_RESPONSE"), default=True
                     ),
                 },
             }
         )
     except ValidationError as error:
-        raise FactumMcpConfigError(
-            f"Invalid factum-mcp configuration from environment variables: {error}"
+        raise MarivoMcpConfigError(
+            f"Invalid marivo-mcp configuration from environment variables: {error}"
         ) from error
 
 
@@ -94,6 +94,6 @@ def _parse_bool_env(value: str | None, *, default: bool) -> bool:
         return True
     if normalized in {"0", "false", "no", "off"}:
         return False
-    raise FactumMcpConfigError(
+    raise MarivoMcpConfigError(
         f"Invalid boolean value {value!r}. Use one of true/false, 1/0, yes/no, on/off."
     )

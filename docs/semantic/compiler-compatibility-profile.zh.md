@@ -1,6 +1,6 @@
 # Compiler Compatibility Profile 契约（v1）
 
-本文定义 Factum 中 **Compiler Compatibility Profile v1** 的最小 schema。
+本文定义 Marivo 中 **Compiler Compatibility Profile v1** 的最小 schema。
 
 它回答的问题只有一个：
 
@@ -48,8 +48,8 @@ Compiler compatibility profile v1 的职责只有一个：
 | 推导内容 | 推导来源 |
 |---------|---------|
 | `supports_observe` | 始终为 true |
-| `supports_compare` | `metric.additivity != null` AND `metric.primary_time_ref exists` |
-| `supports_decompose` | `metric.additivity in [“additive”, “semi_additive”]` |
+| `supports_compare` | `metric.additivity_constraints` 存在 AND `metric.primary_time_ref exists` |
+| `supports_decompose` | `metric.additivity_constraints.dimension_policy` in [“all”, “subset”] |
 | `supports_test` | `metric.sample_kind in [“numeric”, “rate”, “binary”]` |
 | `supports_detect` | `process.anchor_time_ref exists` OR `metric.primary_time_ref exists` |
 | `supports_validate` | `metric.sample_kind == “rate”` AND `process.anchor_time_ref exists` |

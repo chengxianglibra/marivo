@@ -1,6 +1,6 @@
 # Error Reference
 
-Factum uses standard HTTP status codes. Error responses include a `detail` field with a human-readable message, and in some cases additional structured context.
+Marivo uses standard HTTP status codes. Error responses include a `detail` field with a human-readable message, and in some cases additional structured context.
 
 ## HTTP Status Codes
 
@@ -94,7 +94,7 @@ Common typed semantic `422` patterns:
 | --- | --- |
 | entity create is missing `header` or `interface_contract` | include both, and include `interface_contract.identity.key_refs` |
 | metric create is missing `payload` or mismatches metric family | include `payload` and keep `header.metric_family` equal to `payload.metric_family` |
-| metric create is missing `header.additivity` | include `header.additivity` and use `additive`, `semi_additive`, or `non_additive` |
+| metric create is missing `header.additivity_constraints` | include `header.additivity_constraints` with `dimension_policy` (`"all"`, `"subset"`, or `"none"`) and `time_axis_policy` (`"additive"` or `"non_additive"`) |
 | metric create uses an unsupported `metric_family` or `value_semantics` | use one of the service-supported pairs such as `count_metric -> count`, `sum_metric -> sum`, `average_metric -> mean`, or `rate_metric -> ratio` |
 | metric create uses the wrong payload shape for the family | `count_metric` uses `count_target`, `sum_metric` uses `measure`, and `average_metric` or `rate_metric` use `numerator` plus `denominator` |
 | dimension create is missing `value_domain` | place it at `interface_contract.value_domain` |
@@ -227,6 +227,6 @@ When using a Trino engine, query errors from the Trino coordinator are wrapped a
 
 | Trino Error | Cause | Resolution |
 |-------------|-------|------------|
-| `QUERY_REJECTED: Missing required partition filter` | Table requires a partition column in WHERE clause | Ensure the step uses typed `time_scope`; Factum will resolve partition pruning automatically when time metadata or heuristics can identify the partition columns |
+| `QUERY_REJECTED: Missing required partition filter` | Table requires a partition column in WHERE clause | Ensure the step uses typed `time_scope`; Marivo will resolve partition pruning automatically when time metadata or heuristics can identify the partition columns |
 | `Table ... does not exist` | Table not found in Trino catalog | Check the namespace configuration in the engine binding |
 | `identityAccountPassword can't be empty` | Wrong Trino user | Use the correct user in engine connection config |

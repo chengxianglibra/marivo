@@ -295,7 +295,7 @@ v1 支持：
 - 仅当 `issues = []` 时，`status` 才能为 `forecastable`
 - 成功响应不得包含 `severity = "error"` 的 issue
 
-Factum 推荐默认行为是拒绝 `not_forecastable`。
+Marivo 推荐默认行为是拒绝 `not_forecastable`。
 
 ## 预测语义
 

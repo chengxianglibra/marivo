@@ -465,12 +465,12 @@ _TEMPLATE_SPECS: dict[str, _TemplateSpec] = {
 
 def _template_db_path(template_name: str) -> Path:
     spec = _TEMPLATE_SPECS[template_name]
-    return Path(f"/tmp/factum_test_tpl_{spec.version}.duckdb")
+    return Path(f"/tmp/marivo_test_tpl_{spec.version}.duckdb")
 
 
 def _template_lock_path(template_name: str) -> Path:
     spec = _TEMPLATE_SPECS[template_name]
-    return Path(f"/tmp/factum_test_tpl_{spec.version}.lock")
+    return Path(f"/tmp/marivo_test_tpl_{spec.version}.lock")
 
 
 # Backward-compatible aliases used by tests/conftest.py.
@@ -481,8 +481,8 @@ _LOCK_FILE = _template_lock_path("default")
 _TEMPLATE_READY: set[str] = set()
 
 _METADATA_TEMPLATE_VERSION = "sqlite_metadata_v3"
-_METADATA_TEMPLATE = Path(f"/tmp/factum_test_{_METADATA_TEMPLATE_VERSION}.sqlite")
-_METADATA_LOCK = Path(f"/tmp/factum_test_{_METADATA_TEMPLATE_VERSION}.lock")
+_METADATA_TEMPLATE = Path(f"/tmp/marivo_test_{_METADATA_TEMPLATE_VERSION}.sqlite")
+_METADATA_LOCK = Path(f"/tmp/marivo_test_{_METADATA_TEMPLATE_VERSION}.lock")
 _METADATA_READY = False
 
 

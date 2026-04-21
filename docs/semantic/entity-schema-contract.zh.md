@@ -1,6 +1,6 @@
 # Semantic Layer Entity Schema Contract（草案）
 
-本文定义 Factum semantic layer 中 `entity` 的目标 schema contract。
+本文定义 Marivo semantic layer 中 `entity` 的目标 schema contract。
 
 本文是**语义契约设计文档**，不是当前实现说明，也不是最终 HTTP wire spec。它与以下文档配套：
 
@@ -53,7 +53,7 @@
 - `join_constraints`、`properties`、`mapping_json` 之间边界不清
 - compiler 很难把 `entity` 当作稳定的 public semantic contract 消费
 
-因此，Factum 需要把 `entity` 从“混合元数据对象”收缩为“核心实体身份契约（core entity contract）”。
+因此，Marivo 需要把 `entity` 从“混合元数据对象”收缩为“核心实体身份契约（core entity contract）”。
 
 ## 设计目标
 

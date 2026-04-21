@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from factum_mcp.config import FactumMcpConfig
-from factum_mcp.http_client import FactumHttpClient
-from factum_mcp.sdk import FastMcpServer
+from marivo_mcp.config import MarivoMcpConfig
+from marivo_mcp.http_client import MarivoHttpClient
+from marivo_mcp.sdk import FastMcpServer
 
 _ParamScalar = str | int | float | bool | None
 _ParamList = list[_ParamScalar]
@@ -26,8 +26,8 @@ def _resource_metadata(
     *, http_method: str | None = None, http_paths: tuple[str, ...] = ()
 ) -> Callable[[Callable[..., object]], Callable[..., object]]:
     def decorator(func: Callable[..., object]) -> Callable[..., object]:
-        func._factum_http_method = http_method  # type: ignore[attr-defined]
-        func._factum_http_paths = http_paths  # type: ignore[attr-defined]
+        func._marivo_http_method = http_method  # type: ignore[attr-defined]
+        func._marivo_http_paths = http_paths  # type: ignore[attr-defined]
         return func
 
     return decorator
@@ -35,27 +35,27 @@ def _resource_metadata(
 
 def register_resources(
     server: FastMcpServer,
-    config: FactumMcpConfig,
+    config: MarivoMcpConfig,
     *,
-    client_factory: Callable[[FactumMcpConfig], FactumHttpClient] | None = None,
+    client_factory: Callable[[MarivoMcpConfig], MarivoHttpClient] | None = None,
 ) -> None:
-    """Register read-only MCP resources that mirror canonical Factum HTTP surfaces."""
-    resolved_client_factory = client_factory or FactumHttpClient
+    """Register read-only MCP resources that mirror canonical Marivo HTTP surfaces."""
+    resolved_client_factory = client_factory or MarivoHttpClient
     client = resolved_client_factory(config)
 
-    @server.resource("factum://server/config")
+    @server.resource("marivo://server/config")
     @_resource_metadata()
     def server_config() -> str:
         """Expose minimal non-secret runtime configuration for local debugging."""
         return (
-            "factum-mcp scaffold\n"
+            "marivo-mcp scaffold\n"
             f"base_url={config.base_url}\n"
             f"timeout_ms={config.timeout_ms}\n"
             f"openapi_cache_ttl_sec={config.openapi_cache_ttl_sec}\n"
             f"default_source_id={config.default_source_id or ''}\n"
         )
 
-    @server.resource("factum://catalog/summary")
+    @server.resource("marivo://catalog/summary")
     @_resource_metadata(
         http_method="GET",
         http_paths=(
@@ -82,13 +82,13 @@ def register_resources(
             },
         }
 
-    @server.resource("factum://sessions/{session_id}/state")
+    @server.resource("marivo://sessions/{session_id}/state")
     @_resource_metadata(http_method="GET", http_paths=("/sessions/{session_id}/state",))
     def session_state(session_id: str) -> object:
         """Mirror GET /sessions/{session_id}/state as a read-only MCP resource."""
         return _read_resource(client, f"/sessions/{session_id}/state")
 
-    @server.resource("factum://sessions/{session_id}/propositions/{proposition_id}/context")
+    @server.resource("marivo://sessions/{session_id}/propositions/{proposition_id}/context")
     @_resource_metadata(
         http_method="GET",
         http_paths=("/sessions/{session_id}/propositions/{proposition_id}/context",),
@@ -99,7 +99,7 @@ def register_resources(
             client, f"/sessions/{session_id}/propositions/{proposition_id}/context"
         )
 
-    @server.resource("factum://semantic/{family}")
+    @server.resource("marivo://semantic/{family}")
     @_resource_metadata(
         http_method="GET",
         http_paths=(
@@ -123,13 +123,13 @@ def register_resources(
             )
         return _read_resource(client, path)
 
-    @server.resource("factum://sources/{source_id}/objects")
+    @server.resource("marivo://sources/{source_id}/objects")
     @_resource_metadata(http_method="GET", http_paths=("/sources/{source_id}/objects",))
     def source_objects(source_id: str) -> object:
         """Mirror synced source metadata reads via GET /sources/{source_id}/objects only."""
         return _read_resource(client, f"/sources/{source_id}/objects")
 
-    @server.resource("factum://sources/{source_id}/objects/{object_id}")
+    @server.resource("marivo://sources/{source_id}/objects/{object_id}")
     @_resource_metadata(
         http_method="GET",
         http_paths=("/sources/{source_id}/objects/{object_id}",),
@@ -140,7 +140,7 @@ def register_resources(
 
 
 def _read_resource(
-    client: FactumHttpClient,
+    client: MarivoHttpClient,
     path: str,
     *,
     params: dict[str, _ParamValue] | None = None,

@@ -1,4 +1,4 @@
-# Factum — Agentic Analytics System
+# Marivo — Agentic Analytics System
 
 Stateful sessions, semantic discovery, typed analysis steps, deterministic evidence packaging, HTTP API. Not a text-to-SQL tool.
 
@@ -19,14 +19,14 @@ pip install -e .
 uvicorn app.main:app --reload
 ```
 
-`factum.yaml` must declare the metadata SQLite file path.
+`marivo.yaml` must declare the metadata SQLite file path.
 
 ## Configuration
 
 ```yaml
 metadata:
   engine: sqlite
-  path: data/factum.meta.sqlite
+  path: data/marivo.meta.sqlite
 
 sources:
   - name: "Local Demo"
@@ -56,7 +56,7 @@ ui:
   enabled: true
 ```
 
-Copy to `factum.yaml` or set `FACTUM_CONFIG`.
+Copy to `marivo.yaml` or set `MARIVO_CONFIG`.
 
 ## Example
 
@@ -103,8 +103,8 @@ curl -s http://127.0.0.1:8000/sessions/<id>/state | python3 -m json.tool
 HTTP → FastAPI → Services → Analysis Core + Evidence Engine + Storage
 ```
 
-An external MCP adapter scaffold now lives in `factum-mcp/`. It is a separate
-subproject and does not change Factum's HTTP-only product boundary.
+An external MCP adapter scaffold now lives in `marivo-mcp/`. It is a separate
+subproject and does not change Marivo's HTTP-only product boundary.
 
 - **Services**: SemanticLayerService, SourceService, EngineService, BindingService, QueryRouter, SemanticService, GovernanceService, JobService
 - **Analysis core**: IR, compiler, executor, primitives, composites

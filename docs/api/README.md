@@ -1,6 +1,6 @@
-# Factum API Reference
+# Marivo API Reference
 
-Factum is an **agentic analytics system** that provides stateful analysis sessions, semantic discovery, typed analysis steps, deterministic evidence packaging, and structured findings for AI agents and human analysts.
+Marivo is an **agentic analytics system** that provides stateful analysis sessions, semantic discovery, typed analysis steps, deterministic evidence packaging, and structured findings for AI agents and human analysts.
 
 ## Base URL
 

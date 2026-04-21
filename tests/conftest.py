@@ -1,4 +1,4 @@
-"""pytest configuration for the Factum test suite.
+"""pytest configuration for the Marivo test suite.
 
 Three optimizations applied here (no test logic changes):
 

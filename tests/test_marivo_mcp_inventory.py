@@ -8,15 +8,15 @@ from typing import Any, cast, get_type_hints
 import pytest
 from pydantic import TypeAdapter
 
-FACTUM_MCP_SRC = Path(__file__).resolve().parents[1] / "factum-mcp" / "src"
-sys.path.insert(0, str(FACTUM_MCP_SRC))
+MARIVO_MCP_SRC = Path(__file__).resolve().parents[1] / "marivo-mcp" / "src"
+sys.path.insert(0, str(MARIVO_MCP_SRC))
 
-config_module = import_module("factum_mcp.config")
-inventory_module = import_module("factum_mcp.inventory")
-resources_module = import_module("factum_mcp.resources")
-tools_module = import_module("factum_mcp.tools")
+config_module = import_module("marivo_mcp.config")
+inventory_module = import_module("marivo_mcp.inventory")
+resources_module = import_module("marivo_mcp.resources")
+tools_module = import_module("marivo_mcp.tools")
 
-FactumMcpConfig = config_module.FactumMcpConfig
+MarivoMcpConfig = config_module.MarivoMcpConfig
 HttpTransportConfig = config_module.HttpTransportConfig
 get_implemented_specs = inventory_module.get_implemented_specs
 get_surface_spec = inventory_module.get_surface_spec
@@ -57,8 +57,8 @@ class _FakeServer:
 
 
 def _build_config() -> Any:
-    return FactumMcpConfig(
-        base_url="http://factum.test",
+    return MarivoMcpConfig(
+        base_url="http://marivo.test",
         api_token=None,
         timeout_ms=1500,
         openapi_cache_ttl_sec=300,
@@ -91,8 +91,8 @@ def test_registered_tools_expose_inventory_method_and_path_metadata() -> None:
     for name, func in server.tools.items():
         spec = get_surface_spec(name)
         typed_func = cast("Any", func)
-        assert typed_func._factum_http_method == spec.http_method
-        assert (typed_func._factum_http_path,) == spec.http_paths
+        assert typed_func._marivo_http_method == spec.http_method
+        assert (typed_func._marivo_http_path,) == spec.http_paths
 
 
 def test_registered_resources_expose_inventory_http_metadata() -> None:
@@ -102,8 +102,8 @@ def test_registered_resources_expose_inventory_http_metadata() -> None:
     for name, func in server.resources.items():
         spec = get_surface_spec(name)
         typed_func = cast("Any", func)
-        assert typed_func._factum_http_method == spec.http_method
-        assert typed_func._factum_http_paths == spec.http_paths
+        assert typed_func._marivo_http_method == spec.http_method
+        assert typed_func._marivo_http_paths == spec.http_paths
 
 
 def test_p0_inventory_surfaces_remain_implemented() -> None:

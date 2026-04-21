@@ -1,6 +1,6 @@
 """Semantic layer API models.
 
-This package provides Pydantic models for the Factum HTTP API,
+This package provides Pydantic models for the Marivo HTTP API,
 implementing the typed semantic contracts defined in docs/semantic/*.md.
 
 Modules:

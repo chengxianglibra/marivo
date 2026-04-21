@@ -1,6 +1,6 @@
 # Context Surface Schema
 
-本文档定义 Factum 在 agent-first 读取路径中的上下文面（`context surface`）拟议类型契约。
+本文档定义 Marivo 在 agent-first 读取路径中的上下文面（`context surface`）拟议类型契约。
 
 状态：draft design。本文是 `docs/analysis/` 下 上下文面 的 canonical schema 提案，不表示对应 HTTP endpoint 或持久化模型已经实现。
 

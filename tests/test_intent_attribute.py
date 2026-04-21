@@ -1264,3 +1264,53 @@ class AttributeEndpointTests(unittest.TestCase):
             },
         )
         self.assertEqual(resp.status_code, 404)
+
+    def test_http_additivity_violation_returns_409(self) -> None:
+        """POST with disallowed dimensions on subset policy returns 409 with structured payload."""
+        from app.execution.errors import ExecutionError
+
+        def _raise_additivity_violation(
+            session_id: str, intent: str, payload: dict[str, Any]
+        ) -> dict[str, Any]:
+            raise ExecutionError(
+                code="ADDITIVITY_CONSTRAINT_DIMENSION_NOT_ALLOWED",
+                category="compatibility",
+                message="attribute: ADDITIVITY_CONSTRAINT_DIMENSION_NOT_ALLOWED - test",
+                detail={
+                    "compatibility_error": {
+                        "code": "ADDITIVITY_CONSTRAINT_DIMENSION_NOT_ALLOWED",
+                        "metric": "metric.test",
+                        "dimension_policy": "subset",
+                        "time_axis_policy": "non_additive",
+                        "allowed_dimensions": ["dimension.country"],
+                        "disallowed_dimensions": ["dimension.product"],
+                        "time_rollup_allowed": False,
+                        "remediation_hint": "Retry with only allowed dimensions: ['dimension.country']",
+                    },
+                },
+            )
+
+        with patch.object(
+            self.client.app.state.service, "run_intent", side_effect=_raise_additivity_violation
+        ):
+            resp = self.client.post(
+                f"/sessions/{self.session_id}/intents/attribute",
+                json={
+                    "metric": _metric_ref(_METRIC),
+                    "left": {
+                        "time_scope": {"kind": "range", "start": _CURRENT_START, "end": _CURRENT_END}
+                    },
+                    "right": {
+                        "time_scope": {"kind": "range", "start": _BASELINE_START, "end": _BASELINE_END}
+                    },
+                    "dimensions": ["dimension.product"],
+                },
+            )
+            self.assertEqual(resp.status_code, 409)
+            body = resp.json()
+            detail = body["detail"]
+            self.assertEqual(detail["code"], "ADDITIVITY_CONSTRAINT_DIMENSION_NOT_ALLOWED")
+            self.assertIn("allowed_dimensions", detail)
+            self.assertIn("disallowed_dimensions", detail)
+            self.assertEqual(detail["allowed_dimensions"], ["dimension.country"])
+            self.assertEqual(detail["disallowed_dimensions"], ["dimension.product"])

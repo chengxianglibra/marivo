@@ -1,9 +1,9 @@
-# factum-mcp
+# marivo-mcp
 
-External MCP adapter for Factum.
+External MCP adapter for Marivo.
 
-This subproject keeps the MCP runtime separate from Factum's core HTTP service.
-Factum remains HTTP-only. The MCP server is a client-side adapter over the
+This subproject keeps the MCP runtime separate from Marivo's core HTTP service.
+Marivo remains HTTP-only. The MCP server is a client-side adapter over the
 canonical HTTP API.
 
 ## Supported Scope
@@ -14,12 +14,12 @@ Validated P0 scope provides:
 - `stdio` and Streamable HTTP MCP server entrypoints
 - environment-driven configuration loading
 - a shared HTTP client with uniform result envelopes
-- discovery and catalog tools that proxy canonical Factum HTTP endpoints
+- discovery and catalog tools that proxy canonical Marivo HTTP endpoints
 - TTL-based caching for OpenAPI discovery tools
 - session lifecycle and canonical state/context investigation tools
-- typed intent tools that map directly to Factum's `/sessions/{id}/intents/*` routes
+- typed intent tools that map directly to Marivo's `/sessions/{id}/intents/*` routes
 - semantic-layer lifecycle tools for all public object families
-- read-only MCP resources that mirror canonical Factum HTTP surfaces
+- read-only MCP resources that mirror canonical Marivo HTTP surfaces
 
 Semantic lifecycle tools now expose `validate_*`, `activate_*`, and `deprecate_*` for each public
 semantic object family. Legacy `publish_*` tools remain available as compatibility aliases for
@@ -38,12 +38,12 @@ workflows:
 - `get_source_objects`
 - `get_source_object`
 - `resolve_routing`
-- `factum://catalog/summary`
-- `factum://sources/{source_id}/objects`
-- `factum://sources/{source_id}/objects/{object_id}`
-- `factum://server/config`
+- `marivo://catalog/summary`
+- `marivo://sources/{source_id}/objects`
+- `marivo://sources/{source_id}/objects/{object_id}`
+- `marivo://server/config`
 
-The executable support inventory lives in `factum_mcp.inventory`. Tests use that
+The executable support inventory lives in `marivo_mcp.inventory`. Tests use that
 module as the machine-readable source of truth for registration and contract
 consistency checks.
 
@@ -51,17 +51,17 @@ consistency checks.
 
 The server reads these environment variables:
 
-- `FACTUM_BASE_URL` (required)
-- `FACTUM_API_TOKEN` (optional)
-- `FACTUM_MCP_TRANSPORT` (optional, default `stdio`)
-- `FACTUM_TIMEOUT_MS` (optional, default `10000`)
-- `FACTUM_OPENAPI_CACHE_TTL_SEC` (optional, default `300`)
-- `FACTUM_DEFAULT_SOURCE_ID` (optional)
-- `FACTUM_MCP_HOST` (optional, default `127.0.0.1`)
-- `FACTUM_MCP_PORT` (optional, default `8000`)
-- `FACTUM_MCP_STREAMABLE_HTTP_PATH` (optional, default `/mcp`)
-- `FACTUM_MCP_STATELESS_HTTP` (optional, default `true`)
-- `FACTUM_MCP_JSON_RESPONSE` (optional, default `true`)
+- `MARIVO_BASE_URL` (required)
+- `MARIVO_API_TOKEN` (optional)
+- `MARIVO_MCP_TRANSPORT` (optional, default `stdio`)
+- `MARIVO_TIMEOUT_MS` (optional, default `10000`)
+- `MARIVO_OPENAPI_CACHE_TTL_SEC` (optional, default `300`)
+- `MARIVO_DEFAULT_SOURCE_ID` (optional)
+- `MARIVO_MCP_HOST` (optional, default `127.0.0.1`)
+- `MARIVO_MCP_PORT` (optional, default `8000`)
+- `MARIVO_MCP_STREAMABLE_HTTP_PATH` (optional, default `/mcp`)
+- `MARIVO_MCP_STATELESS_HTTP` (optional, default `true`)
+- `MARIVO_MCP_JSON_RESPONSE` (optional, default `true`)
 
 Missing or invalid required configuration fails at startup with a clear error.
 No implicit fallback base URL is used.
@@ -69,20 +69,20 @@ No implicit fallback base URL is used.
 ## Install
 
 ```bash
-cd factum-mcp
+cd marivo-mcp
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ..
 pip install -e .
 ```
 
-`factum-mcp` reuses Factum's canonical Pydantic request models for typed intent
+`marivo-mcp` reuses Marivo's canonical Pydantic request models for typed intent
 tool schemas. Keep the repository root package importable in the same
 environment as the MCP adapter.
 
 ## Client Setup
 
-After installing the package, you can register Factum with an MCP client in one
+After installing the package, you can register Marivo with an MCP client in one
 of two ways.
 
 Local `stdio` MCP:
@@ -90,17 +90,17 @@ Local `stdio` MCP:
 ```json
 {
   "mcpServers": {
-    "factum": {
-      "command": "/absolute/path/to/factum/factum-mcp/.venv/bin/factum-mcp",
+    "marivo": {
+      "command": "/absolute/path/to/marivo/marivo-mcp/.venv/bin/marivo-mcp",
       "env": {
-        "FACTUM_BASE_URL": "http://127.0.0.1:8000"
+        "MARIVO_BASE_URL": "http://127.0.0.1:8000"
       }
     }
   }
 }
 ```
 
-This starts `factum-mcp` as a local subprocess and uses the default `stdio`
+This starts `marivo-mcp` as a local subprocess and uses the default `stdio`
 transport.
 
 Streamable HTTP MCP (`streamable-http`, sometimes called `http-stream`):
@@ -108,9 +108,9 @@ Streamable HTTP MCP (`streamable-http`, sometimes called `http-stream`):
 1. Start the MCP HTTP server:
 
 ```bash
-cd factum-mcp
-FACTUM_BASE_URL=http://127.0.0.1:8000 \
-.venv/bin/factum-mcp-http
+cd marivo-mcp
+MARIVO_BASE_URL=http://127.0.0.1:8000 \
+.venv/bin/marivo-mcp-http
 ```
 
 2. Point the MCP client at the server URL:
@@ -118,7 +118,7 @@ FACTUM_BASE_URL=http://127.0.0.1:8000 \
 ```json
 {
   "mcpServers": {
-    "factum": {
+    "marivo": {
       "url": "http://127.0.0.1:8000/mcp"
     }
   }
@@ -126,13 +126,13 @@ FACTUM_BASE_URL=http://127.0.0.1:8000 \
 ```
 
 If you need a different bind host, port, or path, set
-`FACTUM_MCP_HOST`, `FACTUM_MCP_PORT`, and `FACTUM_MCP_STREAMABLE_HTTP_PATH`
+`MARIVO_MCP_HOST`, `MARIVO_MCP_PORT`, and `MARIVO_MCP_STREAMABLE_HTTP_PATH`
 before starting the HTTP transport.
 
 ## Run
 
 ```bash
-FACTUM_BASE_URL=http://127.0.0.1:8000 factum-mcp
+MARIVO_BASE_URL=http://127.0.0.1:8000 marivo-mcp
 ```
 
 The entrypoint starts a local `stdio` MCP server. If the Python MCP SDK is not
@@ -141,15 +141,15 @@ installed, startup fails with an explicit dependency error.
 Run the Streamable HTTP transport:
 
 ```bash
-FACTUM_BASE_URL=http://127.0.0.1:8000 factum-mcp-http
+MARIVO_BASE_URL=http://127.0.0.1:8000 marivo-mcp-http
 ```
 
 Or select it via the shared entrypoint:
 
 ```bash
-FACTUM_BASE_URL=http://127.0.0.1:8000 \
-FACTUM_MCP_TRANSPORT=streamable-http \
-factum-mcp
+MARIVO_BASE_URL=http://127.0.0.1:8000 \
+MARIVO_MCP_TRANSPORT=streamable-http \
+marivo-mcp
 ```
 
 With the current defaults and the official Python MCP SDK, clients should
@@ -161,18 +161,18 @@ Run the offline MCP regression checks from the repository root:
 
 ```bash
 .venv/bin/pytest \
-  tests/test_factum_mcp_config.py \
-  tests/test_factum_mcp_transport.py \
-  tests/test_factum_mcp_resources.py \
-  tests/test_factum_mcp_inventory.py \
-  tests/test_factum_mcp_smoke.py
+  tests/test_marivo_mcp_config.py \
+  tests/test_marivo_mcp_transport.py \
+  tests/test_marivo_mcp_resources.py \
+  tests/test_marivo_mcp_inventory.py \
+  tests/test_marivo_mcp_smoke.py
 ```
 
-Optional live smoke against a running Factum HTTP service:
+Optional live smoke against a running Marivo HTTP service:
 
 ```bash
-cd factum-mcp
-FACTUM_BASE_URL=http://127.0.0.1:8000 .venv/bin/factum-mcp-smoke
+cd marivo-mcp
+MARIVO_BASE_URL=http://127.0.0.1:8000 .venv/bin/marivo-mcp-smoke
 ```
 
 The live smoke checks:
@@ -192,32 +192,32 @@ The release checklist is documented in
 The adapter also exposes read-only MCP resources for high-frequency canonical
 reads:
 
-- `factum://catalog/summary`
-- `factum://sessions/{session_id}/state`
-- `factum://sessions/{session_id}/propositions/{proposition_id}/context`
-- `factum://semantic/{family}`
-- `factum://sources/{source_id}/objects`
-- `factum://sources/{source_id}/objects/{object_id}`
-- `factum://server/config`
+- `marivo://catalog/summary`
+- `marivo://sessions/{session_id}/state`
+- `marivo://sessions/{session_id}/propositions/{proposition_id}/context`
+- `marivo://semantic/{family}`
+- `marivo://sources/{source_id}/objects`
+- `marivo://sources/{source_id}/objects/{object_id}`
+- `marivo://server/config`
 
 Resource rules:
 
 - resources return the raw canonical JSON body for the mirrored HTTP surface
 - resources do not wrap responses in the tool envelope
-- `factum://catalog/summary` is a fixed aggregate snapshot over canonical read
+- `marivo://catalog/summary` is a fixed aggregate snapshot over canonical read
   surfaces; it does not become a search API
-- `factum://sources/{source_id}/objects` reads synced metadata only, not live
+- `marivo://sources/{source_id}/objects` reads synced metadata only, not live
   external catalog browse endpoints
-- `factum://sources/{source_id}/objects/{object_id}` reads one synced source
+- `marivo://sources/{source_id}/objects/{object_id}` reads one synced source
   object detail only, not live external catalog browse endpoints
-- `factum://semantic/{family}` only supports public semantic families
+- `marivo://semantic/{family}` only supports public semantic families
 - **MCP resources do not support query parameters** (e.g., `{?status}`, `{?type}`).
   The HTTP endpoints remain the authoritative surface for filtering; MCP resources
   simply mirror the canonical read surface. Use HTTP tools for parameterized queries.
 
 ## Known Limitations
 
-- Factum remains HTTP-only; this adapter is a separate client-side process.
+- Marivo remains HTTP-only; this adapter is a separate client-side process.
 - MCP resources mirror canonical HTTP reads and do not become a second source
   of evidence.
 - The adapter does not invent planner-style tools, generic step submission, or
@@ -238,7 +238,7 @@ Every HTTP-backed tool returns the same envelope:
   },
   "error": null,
   "meta": {
-    "factum_path": "/health",
+    "marivo_path": "/health",
     "method": "GET",
     "request_url": "http://127.0.0.1:8000/health",
     "attempt_count": 1,
@@ -255,7 +255,7 @@ For failures, `error.category` is normalized to one of:
 - `transport`
 - `server_error`
 
-Typed semantic `422` responses preserve Factum's canonical `detail` and
+Typed semantic `422` responses preserve Marivo's canonical `detail` and
 `guidance` fields. The MCP adapter only adds a short `remediation_hint`; it
 does not rewrite the original error body.
 
@@ -279,16 +279,16 @@ Current discovery / health / catalog coverage:
 - `resolve_typed_ref(ref)` -> `GET /semantic/resolve/{ref}`
 
 These tools are adapters over the canonical HTTP contract. They do not publish a
-second schema or reinterpret Factum object families.
+second schema or reinterpret Marivo object families.
 
 OpenAPI discovery responses are cached inside the MCP adapter using
-`FACTUM_OPENAPI_CACHE_TTL_SEC`:
+`MARIVO_OPENAPI_CACHE_TTL_SEC`:
 
 - cache scope is limited to `list_openapi_paths`, `get_openapi_schema`,
   `get_openapi_fragment`, and `get_openapi_path_fragment`
 - only successful responses are cached
-- `FACTUM_OPENAPI_CACHE_TTL_SEC=0` disables the cache
-- once the TTL expires, the adapter re-reads Factum's OpenAPI surface and
+- `MARIVO_OPENAPI_CACHE_TTL_SEC=0` disables the cache
+- once the TTL expires, the adapter re-reads Marivo's OpenAPI surface and
   surfaces the latest `revision`
 
 ## T5 Tools
@@ -312,7 +312,7 @@ Boundary notes:
 - `get_session_state()` is proposition-centered canonical state, not a session step or artifact inventory
 - a successful `observe` may still leave `get_session_state()` empty when no externally visible proposition has been seeded yet; keep following the returned artifact or typed refs instead of treating empty state as execution failure
 - `get_proposition_context()` reads canonical proposition closure, not runtime status
-- tool `data` remains the raw Factum canonical body; the MCP adapter only wraps it in the shared envelope
+- tool `data` remains the raw Marivo canonical body; the MCP adapter only wraps it in the shared envelope
 
 ## T6 Tools
 
@@ -339,8 +339,8 @@ Boundary notes:
 - `observe.time_scope` must be a canonical object, not a shorthand string; for a range use `{"kind":"range","start":"YYYY-MM-DD","end":"YYYY-MM-DD"}`
 - `observe` keeps canonical guardrails from `ObserveRequest`: `granularity` and `dimensions` are mutually exclusive, and both are only valid when `result_mode="standard"`
 - typed intent `metric` parameters must use canonical semantic refs such as `metric.watch_time`; bare names like `watch_time` are rejected
-- the adapter still validates those structured objects with Factum's canonical request models before forwarding HTTP requests, so discriminators such as `time_scope.kind`, nested required fields, and enums such as `grain` keep canonical behavior
-- tool `data` remains the raw Factum success body; the adapter does not derive a new evidence summary
+- the adapter still validates those structured objects with Marivo's canonical request models before forwarding HTTP requests, so discriminators such as `time_scope.kind`, nested required fields, and enums such as `grain` keep canonical behavior
+- tool `data` remains the raw Marivo success body; the adapter does not derive a new evidence summary
 - for `422` responses, use `error.guidance.contract_url`, `error.guidance.schema_url`, and `error.guidance.examples` to repair the payload
 
 ## T7 Tools
@@ -495,12 +495,12 @@ Current source metadata and routing coverage:
 
 Boundary notes:
 
-- `get_source_objects()` reads synced source metadata from Factum's local store; it does not browse the live external catalog
-- `get_source_object()` reads one synced source object from Factum's local store; it does not browse the live external catalog
+- `get_source_objects()` reads synced source metadata from Marivo's local store; it does not browse the live external catalog
+- `get_source_object()` reads one synced source object from Marivo's local store; it does not browse the live external catalog
 - live catalog browse remains under `/sources/{source_id}/catalog/schemas` and `/sources/{source_id}/catalog/tables`, and is intentionally not wrapped by T8
 - `sync_source()` preserves the current HTTP response body as-is; the MCP adapter does not invent a separate async status model
 - `resolve_routing()` is a planning and debugging aid over the public routing contract; it does not expose a second routing schema
-- tool `data` remains the raw Factum canonical body for both source and routing tools
+- tool `data` remains the raw Marivo canonical body for both source and routing tools
 
 ## Minimal Examples
 
@@ -863,7 +863,7 @@ Common failure examples:
 
 - `get_session({"session_id":"sess_missing"})` -> `404` with `error.category = "not_found"`
 - `query_session_state(...)` with an invalid body field or enum -> `422` with canonical `detail` preserved under `error.detail`
-- `get_proposition_context(...)` for a missing or cross-session proposition -> `404` with the original Factum error message
+- `get_proposition_context(...)` for a missing or cross-session proposition -> `404` with the original Marivo error message
 - `observe(request=...)` with an invalid or incomplete body -> `422` with canonical `guidance` preserved under `error.guidance`; start with `error.guidance.examples`, then inspect `error.guidance.schema_url` or `error.guidance.contract_url`
 - `publish_entity(...)` after the object is already published -> `422` with structured `error.detail`, `error.code = "publish_state_error"`, and a message explaining the draft-state violation
 - `publish_binding(...)` before required semantic imports are published -> `422` with structured `error.detail` and a publish-specific validation code such as `reference_validation_error`

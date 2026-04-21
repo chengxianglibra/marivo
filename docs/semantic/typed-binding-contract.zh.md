@@ -1,6 +1,6 @@
 # Semantic Layer Typed Binding Contract（草案）
 
-本文定义 Factum semantic layer 中 `typed binding contract` 的目标 schema。
+本文定义 Marivo semantic layer 中 `typed binding contract` 的目标 schema。
 
 本文是**语义契约设计文档**，不是当前实现说明，也不是最终 HTTP wire spec。它与以下文档配套：
 

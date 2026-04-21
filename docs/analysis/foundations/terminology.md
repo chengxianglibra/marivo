@@ -4,16 +4,16 @@
 
 - 代码标识符、Schema 字段名、枚举值保持英文
 - 正文优先使用中文；必要时在首次出现处保留英文括注
-- 与 Factum 外部契约强相关的概念，优先保持一词一译，避免在不同文档中漂移
+- 与 Marivo 外部契约强相关的概念，优先保持一词一译，避免在不同文档中漂移
 
 ## 核心概念
 
 | English | 中文推荐译法 | 使用说明 |
 | --- | --- | --- |
-| Evidence Engine | 证据引擎 | Factum 的证据分层与推断框架总称 |
+| Evidence Engine | 证据引擎 | Marivo 的证据分层与推断框架总称 |
 | canonical abstraction | 规范抽象链路 | 指 `artifact -> finding -> proposition -> assessment -> action proposal` 这条规范分层 |
 | canonical object | 规范对象 | 在 canonical state 中具有稳定类型与标识边界的对象 |
-| analysis intent | 分析意图 | Factum 的语义分析动作单位 |
+| analysis intent | 分析意图 | Marivo 的语义分析动作单位 |
 | primitive intent | 原子意图 | 最小、不可再约简的分析意图 |
 | derived intent | 派生意图 | 由多个原子意图确定性展开而成 |
 | analysis step | 分析步骤 | 执行层步骤；正文可与 analysis intent 对照使用 |

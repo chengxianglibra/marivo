@@ -6,7 +6,7 @@
 
 ## 目的
 
-`observe` 是 Factum 中稳定的证据入口步骤，用于在类型化观测契约下读取一个语义指标（semantic metric）。
+`observe` 是 Marivo 中稳定的证据入口步骤，用于在类型化观测契约下读取一个语义指标（semantic metric）。
 
 设计目标：
 
@@ -352,7 +352,12 @@ type ResolvedTimeScope =
   | { kind: "as_of"; at: string };
 
 type AnalyticalMetadata = {
-  metric_additivity: "additive" | "semi_additive" | "non_additive";
+  additivity_constraints: {
+    dimension_policy: "all" | "subset" | "none";
+    additive_dimensions?: string[];
+    time_axis_policy: "additive" | "non_additive";
+    notes?: string | null;
+  };
   aggregation_semantics: string;
   timezone: string | null;
   data_complete: boolean | null;

@@ -414,7 +414,7 @@ because the current HTTP contract is header-only.
 
 ## Complete Modeling Walkthrough
 
-When you want Factum to build a reusable semantic layer from synced source metadata, use this order:
+When you want Marivo to build a reusable semantic layer from synced source metadata, use this order:
 
 1. read the synced table and column metadata from `/sources/{source_id}/objects`
 2. create `time.*` semantics for the business or measurement anchors you need
@@ -534,7 +534,10 @@ Create a metric:
     "value_semantics": "count",
     "aggregation_scope": "window",
     "primary_time_ref": "time.event_date",
-    "additivity": "additive",
+    "additivity_constraints": {
+      "dimension_policy": "none",
+      "time_axis_policy": "non_additive"
+    },
     "metric_contract_version": "metric.v1"
   },
   "payload": {
@@ -671,7 +674,10 @@ Request:
     "value_semantics": "count",
     "aggregation_scope": "window",
     "primary_time_ref": "time.activity_date",
-    "additivity": "additive",
+    "additivity_constraints": {
+      "dimension_policy": "none",
+      "time_axis_policy": "non_additive"
+    },
     "metric_contract_version": "metric.v1"
   },
   "payload": {
@@ -702,7 +708,10 @@ Response:
     "value_semantics": "count",
     "aggregation_scope": "window",
     "primary_time_ref": "time.activity_date",
-    "additivity": "additive",
+    "additivity_constraints": {
+      "dimension_policy": "none",
+      "time_axis_policy": "non_additive"
+    },
     "metric_contract_version": "metric.v1"
   },
   "payload": {
@@ -1197,7 +1206,7 @@ Common typed semantic request failures:
 | --- | --- |
 | Entity create says `header` or `interface_contract` is missing | `POST /semantic/entities` requires both `header` and `interface_contract.identity` |
 | Metric create says `payload` is missing or the family mismatches | include both `header.metric_family` and `payload.metric_family`, and keep them identical |
-| Metric create says `header.additivity` is missing | include `header.additivity` and use one of `additive`, `semi_additive`, or `non_additive` |
+| Metric create says `header.additivity_constraints` is missing | include `header.additivity_constraints` with `dimension_policy` (`"all"`, `"subset"`, or `"none"`) and `time_axis_policy` (`"additive"` or `"non_additive"`) |
 | Metric create says `metric_family` or `value_semantics` is invalid | use a supported pair such as `count_metric -> count`, `sum_metric -> sum`, `average_metric -> mean`, or `rate_metric -> ratio` |
 | Metric create says the payload shape is invalid for the family | use the family slot names required by the payload: `count_target` for `count_metric`, `measure` for `sum_metric`, and `numerator` plus `denominator` for `average_metric` and `rate_metric` |
 | Dimension create says `value_domain` is missing | nest it under `interface_contract.value_domain` |

@@ -4,7 +4,7 @@
 > refactor. Mentions of claim objects, `correlate_metrics`, `synthesize_findings`, and
 > `reflection-context` describe an older workflow and are not the current HTTP contract.
 
-This document explains how Factum promotes claims from **L0 (correlation only)** through
+This document explains how Marivo promotes claims from **L0 (correlation only)** through
 **L2 (temporal precedence established)** automatically, which step types and observation
 patterns are required at each stage, and how to design a step sequence that reliably
 reaches L2. It uses the March 2026 BI cluster investigation as the reference case.

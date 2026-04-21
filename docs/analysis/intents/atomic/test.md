@@ -268,7 +268,7 @@ v1 每次请求只支持一种方法：
 - 无 `error` 且至少一个 `warning` 时为 `needs_attention`
 - `issues = []` 时为 `valid`
 
-Factum 推荐默认行为是拒绝 `invalid`。
+Marivo 推荐默认行为是拒绝 `invalid`。
 
 ## 检验语义
 

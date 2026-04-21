@@ -1,5 +1,5 @@
 /* ============================================================
-   Factum Shared Utilities
+   Marivo Shared Utilities
    ============================================================ */
 
 /* --- Toast Notifications --- */
@@ -241,7 +241,7 @@ function formatKeyValueSummary(value) {
   return entries.map(([key, item]) => `${key}: ${String(item)}`).join(', ');
 }
 
-function buildFactumUiUrl(route = {}) {
+function buildMarivoUiUrl(route = {}) {
   const params = new URLSearchParams();
   if (route.tab) params.set('tab', route.tab);
   if (route.sessionId) params.set('session_id', route.sessionId);
@@ -255,23 +255,23 @@ function buildFactumUiUrl(route = {}) {
 }
 
 function buildUiSessionsUrl(sessionId = '', status = '', sessionQuery = '') {
-  return buildFactumUiUrl({ tab: 'sessions', sessionId, status, sessionQuery });
+  return buildMarivoUiUrl({ tab: 'sessions', sessionId, status, sessionQuery });
 }
 
 function buildUiStateUrl(sessionId = '') {
-  return buildFactumUiUrl({ tab: 'state', sessionId });
+  return buildMarivoUiUrl({ tab: 'state', sessionId });
 }
 
 function buildUiContextUrl(sessionId = '', propositionId = '') {
-  return buildFactumUiUrl({ tab: 'context', sessionId, propositionId });
+  return buildMarivoUiUrl({ tab: 'context', sessionId, propositionId });
 }
 
 function buildUiRuntimeUrl(sessionId = '', propositionId = '', artifactId = '', runtimeScope = '') {
-  return buildFactumUiUrl({ tab: 'runtime', sessionId, propositionId, artifactId, runtimeScope });
+  return buildMarivoUiUrl({ tab: 'runtime', sessionId, propositionId, artifactId, runtimeScope });
 }
 
 function buildUiJobsUrl(sessionId = '', status = '') {
-  return buildFactumUiUrl({ tab: 'jobs', sessionId, status });
+  return buildMarivoUiUrl({ tab: 'jobs', sessionId, status });
 }
 
 function adminUiDeepLinks(route = {}) {

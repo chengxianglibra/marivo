@@ -1,12 +1,12 @@
 # Session Schema
 
-本文档定义 Factum 中分析容器根对象 `session` 的拟议类型契约。
+本文档定义 Marivo 中分析容器根对象 `session` 的拟议类型契约。
 
 状态：draft design。本文是 `docs/analysis/` 下规划中的规范 `session` schema 提案，不表示对应 HTTP endpoint、持久化模型或运行时实现已经完成。
 
 ## 目的
 
-`session` 是 Factum 中的规范分析容器。它为一次分析任务提供描述性任务上下文、治理边界、生命周期边界，以及进入规范读取面的明确入口。
+`session` 是 Marivo 中的规范分析容器。它为一次分析任务提供描述性任务上下文、治理边界、生命周期边界，以及进入规范读取面的明确入口。
 
 设计目标：
 
@@ -80,7 +80,7 @@ v1 中规范对象的标识边界都绑定单个 session。
 
 - session root 上不存在 `scope`、`time_scope`、`focus` 或 planning hint 字段
 - 所有分析约束都应在具体 step 的 `scope` / `time_scope` 中显式表达
-- agent 可以在 Factum 交互面之外维护私有 focus、候选步骤与调度顺序
+- agent 可以在 Marivo 交互面之外维护私有 focus、候选步骤与调度顺序
 - agent 可以随着分析推进在后续 steps 中逐步收紧约束；这不改写 session root
 - step-level scope 的变化本身不构成 session root 的变更语义
 

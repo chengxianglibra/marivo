@@ -11,7 +11,7 @@
 设计目标：
 
 - 让 `detect` 聚焦候选发现（candidate discovery），不承担诊断（diagnosis）或解释（explanation）
-- 复用 Factum 统一的 `time_scope` / `scope` 契约，而不是自定义平行过滤形状
+- 复用 Marivo 统一的 `time_scope` / `scope` 契约，而不是自定义平行过滤形状
 - 暴露稳定的产品契约，而不是泄漏建模内部细节
 - 显式表达可检测性（detectability）、截断（truncation）、扫描边界（scan boundary）与谱系（lineage）
 - 区分候选标记（candidate flags）与已确认证据（confirmed evidence），维持确定性下游推理边界
@@ -118,8 +118,8 @@ type DetectSensitivity = "conservative" | "balanced" | "aggressive";
 
 说明：
 
-- `time_scope` 复用 Factum 统一时间窗口契约；`detect` 仅允许 `mode = "single_window"`
-- `scope` 复用 Factum 统一 step-level non-time scope 契约；时间条件不得进入 `scope.predicate`
+- `time_scope` 复用 Marivo 统一时间窗口契约；`detect` 仅允许 `mode = "single_window"`
+- `scope` 复用 Marivo 统一 step-level non-time scope 契约；时间条件不得进入 `scope.predicate`
 - `split_by` 是扫描轴，不是额外过滤契约；它定义“按哪个单一 semantic dimension 拆成独立序列扫描”
 
 ## 输入规则
@@ -313,7 +313,7 @@ v1 支持：
 - `detectable`
 - `needs_attention`
 
-Factum 推荐默认行为是对不可检测请求直接报错，而不是返回 best-effort payload。
+Marivo 推荐默认行为是对不可检测请求直接报错，而不是返回 best-effort payload。
 
 ## Candidate Identity 与 Lineage
 

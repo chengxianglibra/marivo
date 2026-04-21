@@ -1,12 +1,12 @@
-# Factum configuration file
-# Copy to factum.yaml (or set FACTUM_CONFIG env var) to activate.
+# Marivo configuration file
+# Copy to marivo.yaml (or set MARIVO_CONFIG env var) to activate.
 #
 # Sources listed here are auto-registered and synced on app startup.
 # Engines listed here are auto-registered on app startup.
 # Registration is idempotent — restarting the app won't create duplicates.
 
 sources:
-  # Local demo catalog (ships with Factum, no external dependencies)
+  # Local demo catalog (ships with Marivo, no external dependencies)
   - name: "Local Demo"
     type: duckdb
     connection: {}
@@ -23,7 +23,7 @@ engines:
   #   connection:
   #     host: trino.internal
   #     port: 8080
-  #     user: factum
+  #     user: marivo
   #     catalog: hive
   #     schema: default
 
