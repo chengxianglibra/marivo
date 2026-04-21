@@ -164,8 +164,20 @@ class MetricReadinessEvaluator:
                 )
             )
 
+        # Add blockers from capability derivation (e.g. ADDITIVITY_CONSTRAINTS_MISSING)
+        blockers.extend(_additivity_blockers_from_capabilities(capabilities, snapshot.ref))
+
         if lifecycle_status == "active":
             had_active_bindings = False
+            # Cross-validate additivity constraints against dimensions and payload
+            additivity_cross_blockers = _cross_validate_additivity_constraints(
+                header=header,
+                payload=payload,
+                capabilities=capabilities,
+                context=context,
+                subject_ref=snapshot.ref,
+            )
+            blockers.extend(additivity_cross_blockers)
             for dependency_ref in _metric_dependency_refs(header, payload):
                 dependency = context.load_dependency_snapshot(dependency_ref)
                 if dependency is None or derive_lifecycle_status(dependency.status) != "active":
@@ -766,6 +778,177 @@ class CompilerProfileReadinessEvaluator:
 def _contains_basic_process_blockers(blockers: Iterable[BlockingRequirementPayload]) -> bool:
     inferential_only_codes = {"PROCESS_PROFILE_MISSING", "PROCESS_PROFILE_MISMATCH"}
     return any(blocker.code not in inferential_only_codes for blocker in blockers)
+
+
+_ADDITIVITY_BLOCKER_CODES = frozenset(
+    {
+        "ADDITIVITY_CONSTRAINTS_MISSING",
+        "ADDITIVITY_CONSTRAINTS_INVALID",
+        "ADDITIVITY_CONSTRAINTS_DIMENSION_POLICY_MISSING",
+        "ADDITIVITY_CONSTRAINTS_TIME_AXIS_POLICY_MISSING",
+        "ADDITIVITY_SUBSET_NO_DIMENSIONS",
+    }
+)
+
+
+def _additivity_blockers_from_capabilities(
+    capabilities: dict[str, Any],
+    subject_ref: str,
+) -> list[BlockingRequirementPayload]:
+    """Convert capability-level blocker codes to readiness BlockingRequirementPayloads."""
+    blocker_code = capabilities.get("blocker")
+    if blocker_code is None or blocker_code not in _ADDITIVITY_BLOCKER_CODES:
+        return []
+    return [
+        _blocker(
+            code=blocker_code,
+            message=capabilities.get("remediation_hint")
+            or f"Additivity constraint issue: {blocker_code}",
+            subject_ref=subject_ref,
+        )
+    ]
+
+
+def _collect_aggregation_methods_from_dict(payload: dict[str, Any]) -> set[str]:
+    """Extract all aggregation method strings from a metric payload dict."""
+    methods: set[str] = set()
+    for key in (
+        "count_target",
+        "measure",
+        "numerator",
+        "denominator",
+        "value_component",
+        "score_source",
+    ):
+        component = payload.get(key)
+        if isinstance(component, dict) and "aggregation" in component:
+            methods.add(str(component["aggregation"]))
+    return methods
+
+
+def _dimension_refs_from_metric_anchors(
+    header: dict[str, Any],
+    payload: dict[str, Any],
+    context: ReadinessEvaluationContext,
+) -> set[str]:
+    """Extract dimension refs from metric's declared semantic anchors.
+
+    Sources (in priority order):
+    1. payload.dimensions / payload.allowed_dimensions
+    2. Observed entity's published stable-descriptor bindings (matches runtime
+       resolve_entity_binding_dimensions / _metric_dimensions fallback)
+
+    Deliberately excludes additivity_constraints.additive_dimensions to avoid
+    treating self-referential declarations as "declared".
+    """
+    refs: set[str] = set()
+    # Collect from payload structural fields
+    if isinstance(payload, dict):
+        for key in ("dimensions", "allowed_dimensions"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                for item in value:
+                    if isinstance(item, str) and item.startswith("dimension."):
+                        refs.add(item)
+    # Collect from observed entity's stable-descriptor bindings
+    observed_entity_ref = str(header.get("observed_entity_ref") or "").strip()
+    if observed_entity_ref:
+        entity_snapshot = context.load_dependency_snapshot(observed_entity_ref)
+        if entity_snapshot is not None:
+            entity_interface = dict(entity_snapshot.semantic_object.get("interface_contract") or {})
+            for descriptor in entity_interface.get("stable_descriptors") or []:
+                dim_ref = descriptor.get("dimension_ref")
+                if isinstance(dim_ref, str) and dim_ref.startswith("dimension."):
+                    refs.add(dim_ref)
+        # Also collect from published entity bindings (matches runtime
+        # resolve_entity_binding_dimensions which queries binding field_bindings).
+        for binding in context.load_subject_bindings(observed_entity_ref):
+            if binding.get("status") != "published":
+                continue
+            if binding.get("binding_scope") != "entity":
+                continue
+            ic = dict(binding.get("interface_contract") or {})
+            for fb in ic.get("field_bindings") or []:
+                target = dict(fb.get("target") or {})
+                if target.get("target_kind") == "stable_descriptor":
+                    semantic_ref = str(fb.get("semantic_ref") or "").strip()
+                    if semantic_ref.startswith("dimension."):
+                        refs.add(semantic_ref)
+    return refs
+
+
+def _cross_validate_additivity_constraints(
+    *,
+    header: dict[str, Any],
+    payload: dict[str, Any],
+    capabilities: dict[str, Any],
+    context: ReadinessEvaluationContext,
+    subject_ref: str,
+) -> list[BlockingRequirementPayload]:
+    """Cross-validate additivity_constraints against declared dimensions,
+    dimension groupability, and payload aggregation methods."""
+    blockers: list[BlockingRequirementPayload] = []
+
+    additive_dimensions = capabilities.get("additive_dimensions")
+    dimension_policy = capabilities.get("dimension_policy")
+
+    if additive_dimensions and dimension_policy == "subset":
+        # Build declared dimension refs from structural dependencies only,
+        # NOT from additivity_constraints.additive_dimensions (which would be self-referential).
+        declared_dim_refs = _dimension_refs_from_metric_anchors(header, payload, context)
+
+        for dim_ref in additive_dimensions:
+            if not isinstance(dim_ref, str) or not dim_ref.startswith("dimension."):
+                continue
+            if dim_ref not in declared_dim_refs:
+                blockers.append(
+                    _blocker(
+                        code="ADDITIVITY_CONSTRAINTS_DIMENSION_UNDECLARED",
+                        message=(
+                            f"additive_dimensions references '{dim_ref}' which is "
+                            f"not declared as a metric dependency. "
+                            f"Add the dimension to the metric's entity stable_descriptors "
+                            f"or observation grain."
+                        ),
+                        subject_ref=subject_ref,
+                        dependency_ref=dim_ref,
+                    )
+                )
+                continue
+
+            dim_snapshot = context.load_dependency_snapshot(dim_ref)
+            if dim_snapshot is not None:
+                dim_interface = dict(dim_snapshot.semantic_object.get("interface_contract") or {})
+                grouping = dict(dim_interface.get("grouping") or {})
+                if not grouping.get("supports_grouping", False):
+                    blockers.append(
+                        _blocker(
+                            code="ADDITIVITY_CONSTRAINTS_DIMENSION_NOT_GROUPABLE",
+                            message=(
+                                f"additive_dimensions references '{dim_ref}' which does not "
+                                f"support grouping (supports_grouping=false). "
+                                f"A dimension must support grouping to be used for decomposition."
+                            ),
+                            subject_ref=subject_ref,
+                            dependency_ref=dim_ref,
+                        )
+                    )
+
+    if dimension_policy == "all":
+        agg_methods = _collect_aggregation_methods_from_dict(payload)
+        if "count_distinct" in agg_methods:
+            blockers.append(
+                _blocker(
+                    code="ADDITIVITY_CONSTRAINTS_AGGREGATION_CONFLICT",
+                    message=(
+                        "Metrics with count_distinct aggregation must not use "
+                        "dimension_policy='all'; use 'subset' or 'none' instead."
+                    ),
+                    subject_ref=subject_ref,
+                )
+            )
+
+    return blockers
 
 
 def _metric_capabilities(header: dict[str, Any]) -> dict[str, Any]:

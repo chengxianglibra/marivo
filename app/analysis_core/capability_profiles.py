@@ -19,6 +19,11 @@ class DerivedMetricCapabilities:
     supports_test: bool = False
     supports_detect: bool = False
     supports_validate: bool = False
+    time_rollup_allowed: bool = False
+    dimension_policy: str = "none"
+    time_axis_policy: str = "non_additive"
+    additive_dimensions: list[str] | None = None
+    capability_condition: str | None = None
 
 
 @dataclass(slots=True)
@@ -94,6 +99,11 @@ class DerivedCompilerState:
                 "supports_test": self.metric_capabilities.supports_test,
                 "supports_detect": self.metric_capabilities.supports_detect,
                 "supports_validate": self.metric_capabilities.supports_validate,
+                "time_rollup_allowed": self.metric_capabilities.time_rollup_allowed,
+                "dimension_policy": self.metric_capabilities.dimension_policy,
+                "time_axis_policy": self.metric_capabilities.time_axis_policy,
+                "additive_dimensions": self.metric_capabilities.additive_dimensions,
+                "capability_condition": self.metric_capabilities.capability_condition,
             }
         if self.process_capabilities is not None:
             payload["process"] = {
@@ -150,6 +160,11 @@ def derive_compiler_state(
                     "supports_observe",
                     "supports_test",
                     "supports_validate",
+                    "time_rollup_allowed",
+                    "dimension_policy",
+                    "time_axis_policy",
+                    "additive_dimensions",
+                    "capability_condition",
                 ],
             }
         )
@@ -257,6 +272,11 @@ def _derive_metric_capabilities(
         supports_test=caps.supports_test,
         supports_detect=caps.supports_detect,
         supports_validate=caps.supports_validate,
+        time_rollup_allowed=caps.time_rollup_allowed,
+        dimension_policy=caps.dimension_policy,
+        time_axis_policy=caps.time_axis_policy,
+        additive_dimensions=caps.additive_dimensions,
+        capability_condition=caps.capability_condition,
     )
 
 

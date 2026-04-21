@@ -41,6 +41,7 @@ class CatalogSemanticSearchResult(CatalogSearchResultBase):
     blocker_count: int = 0
     blocking_requirements_preview: list[BlockingRequirement] = Field(default_factory=list)
     capabilities_summary: dict[str, bool] = Field(default_factory=dict)
+    additivity_summary: dict[str, object] = Field(default_factory=dict)
     revision: int
     created_at: str
     updated_at: str
@@ -53,7 +54,7 @@ class CatalogCalendarPolicySearchResult(CatalogSearchResultBase):
     readiness_status: ReadinessStatus
     blocker_count: int = 0
     blocking_requirements_preview: list[BlockingRequirement] = Field(default_factory=list)
-    capabilities_summary: dict[str, bool] = Field(default_factory=dict)
+    capabilities_summary: dict[str, object] = Field(default_factory=dict)
     revision: int
     created_at: str
     updated_at: str
