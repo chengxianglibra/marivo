@@ -264,7 +264,10 @@ class SemanticTypedApiTests(unittest.TestCase):
                     "observation_grain_ref": "grain.account",
                     "sample_kind": "numeric",
                     "value_semantics": "count",
-                    "additivity": "additive",
+                    "additivity_constraints": {
+                        "dimension_policy": "all",
+                        "time_axis_policy": "additive",
+                    },
                     "metric_contract_version": "metric.v1",
                 },
                 "payload": payload,
@@ -411,7 +414,10 @@ class SemanticTypedApiTests(unittest.TestCase):
                     "observation_grain_ref": "grain.user",
                     "sample_kind": "numeric",
                     "value_semantics": "count",
-                    "additivity": "additive",
+                    "additivity_constraints": {
+                        "dimension_policy": "none",
+                        "time_axis_policy": "non_additive",
+                    },
                     "metric_contract_version": "metric.v1",
                 },
                 "payload": {
@@ -1108,7 +1114,10 @@ class SemanticTypedApiTests(unittest.TestCase):
                     "observation_grain_ref": "grain.user",
                     "sample_kind": "rate",
                     "value_semantics": "ratio",
-                    "additivity": "non_additive",
+                    "additivity_constraints": {
+                        "dimension_policy": "none",
+                        "time_axis_policy": "non_additive",
+                    },
                     "metric_contract_version": "metric.v1",
                 },
                 "payload": {
@@ -1404,7 +1413,10 @@ class SemanticTypedApiTests(unittest.TestCase):
                     "observation_grain_ref": "grain.user",
                     "sample_kind": "numeric",
                     "value_semantics": "count",
-                    "additivity": "additive",
+                    "additivity_constraints": {
+                        "dimension_policy": "none",
+                        "time_axis_policy": "non_additive",
+                    },
                     "metric_contract_version": "metric.v1",
                 },
                 "payload": {
@@ -1993,7 +2005,10 @@ class SemanticTypedApiTests(unittest.TestCase):
                     "observation_grain_ref": "grain.publish_test_user",
                     "sample_kind": "numeric",
                     "value_semantics": "count",
-                    "additivity": "additive",
+                    "additivity_constraints": {
+                        "dimension_policy": "none",
+                        "time_axis_policy": "non_additive",
+                    },
                     "metric_contract_version": "metric.v1",
                 },
                 "payload": {
@@ -2260,7 +2275,10 @@ class SemanticTypedApiTests(unittest.TestCase):
                     "observation_grain_ref": "grain.account",
                     "sample_kind": "numeric",
                     "value_semantics": "sum",
-                    "additivity": "additive",
+                    "additivity_constraints": {
+                        "dimension_policy": "all",
+                        "time_axis_policy": "additive",
+                    },
                     "metric_contract_version": "metric.v1",
                 },
                 "payload": {
@@ -2329,7 +2347,10 @@ class SemanticTypedApiTests(unittest.TestCase):
                     "observation_grain_ref": "grain.account",
                     "sample_kind": "numeric",
                     "value_semantics": "count",
-                    "additivity": "additive",
+                    "additivity_constraints": {
+                        "dimension_policy": "none",
+                        "time_axis_policy": "non_additive",
+                    },
                     "metric_contract_version": "metric.v1",
                 },
                 "payload": {
@@ -2448,7 +2469,10 @@ class SemanticTypedApiTests(unittest.TestCase):
                     "observation_grain_ref": "grain.account",
                     "sample_kind": "numeric",
                     "value_semantics": "count",
-                    "additivity": "additive",
+                    "additivity_constraints": {
+                        "dimension_policy": "all",
+                        "time_axis_policy": "additive",
+                    },
                     "metric_contract_version": "metric.v1",
                 },
                 "payload": {

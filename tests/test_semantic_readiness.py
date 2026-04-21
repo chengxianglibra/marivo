@@ -294,8 +294,11 @@ class MetricReadinessEvaluatorTests(unittest.TestCase):
                 "time_rollup_allowed": True,
                 "dimension_policy": "all",
                 "time_axis_policy": "additive",
+                "additive_dimensions": None,
                 "additivity_basis": {
-                    "additivity": "additive",
+                    "dimension_policy": "all",
+                    "time_axis_policy": "additive",
+                    "additive_dimensions": None,
                     "primary_time_ref": "time.event_date",
                     "sample_kind": "rate",
                     "process_anchor_time_ref": None,
@@ -422,7 +425,10 @@ class MetricReadinessEvaluatorTests(unittest.TestCase):
                 "observation_grain_ref": "grain.user",
                 "sample_kind": "rate",
                 "value_semantics": "ratio",
-                "additivity": "additive",
+                "additivity_constraints": {
+                    "dimension_policy": "all",
+                    "time_axis_policy": "additive",
+                },
                 "primary_time_ref": "time.event_date",
             },
             "payload": {

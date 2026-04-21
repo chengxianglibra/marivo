@@ -144,7 +144,7 @@ def run_attribute_intent(
 
     additivity_caps = derive_additivity_capabilities(
         header={
-            "additivity": resolved_metric.additivity,
+            "additivity_constraints": resolved_metric.additivity_constraints,
             "primary_time_ref": resolved_metric.primary_time_ref,
             "sample_kind": resolved_metric.sample_kind,
         },
@@ -152,8 +152,7 @@ def run_attribute_intent(
     if not additivity_caps.supports_attribute:
         raise ValueError(
             f"attribute: ADDITIVITY_CONSTRAINT - metric '{metric_name}' does not support "
-            f"attribution (additivity='{resolved_metric.additivity}', "
-            f"dimension_policy='{additivity_caps.dimension_policy}', "
+            f"attribution (dimension_policy='{additivity_caps.dimension_policy}', "
             f"time_axis_policy='{additivity_caps.time_axis_policy}')"
             + (f"; {additivity_caps.remediation_hint}" if additivity_caps.remediation_hint else "")
         )
@@ -165,6 +164,19 @@ def run_attribute_intent(
             f"'{metric_name}' has dimension_policy='none'; no dimensions can be "
             f"used for attribution. Requested dimensions: {dimensions}"
         )
+
+    if (
+        additivity_caps.dimension_policy == "subset"
+        and additivity_caps.additive_dimensions is not None
+    ):
+        disallowed = [d for d in dimensions if d not in additivity_caps.additive_dimensions]
+        if disallowed:
+            raise ValueError(
+                f"attribute: ADDITIVITY_CONSTRAINT_DIMENSION_NOT_ALLOWED - metric "
+                f"'{metric_name}' with dimension_policy='subset' does not allow "
+                f"attribution on {disallowed}. "
+                f"Allowed: {sorted(additivity_caps.additive_dimensions)}"
+            )
 
     # ── Step 1: observe left (current) ────────────────────────────────────────
     try:

@@ -365,7 +365,9 @@ class _SemanticListContext:
                     "value_semantics": row["value_semantics"],
                     "aggregation_scope": row["aggregation_scope"],
                     "primary_time_ref": row["primary_time_ref"],
-                    "additivity": row["additivity"],
+                    "additivity_constraints": json.loads(
+                        row["additivity_constraints_json"] or "null"
+                    ),
                     "metric_contract_version": row["metric_contract_version"],
                 },
                 "payload": json.loads(row["family_payload_json"]),
@@ -1300,23 +1302,65 @@ class SemanticServiceSupport:
         return "stable"
 
     @staticmethod
-    def _infer_metric_contract_axes(measure_type: str | None) -> tuple[str, str, str, str]:
+    def _infer_metric_contract_axes(
+        measure_type: str | None,
+    ) -> tuple[str, str, str, dict[str, Any]]:
         kind = str(measure_type or "count").strip().lower()
         if kind in {"ratio", "rate"}:
-            return ("rate_metric", "rate", "ratio", "non_additive")
+            return (
+                "rate_metric",
+                "rate",
+                "ratio",
+                {"dimension_policy": "none", "time_axis_policy": "non_additive"},
+            )
         if kind in {"average", "mean"}:
-            return ("average_metric", "numeric", "mean", "non_additive")
+            return (
+                "average_metric",
+                "numeric",
+                "mean",
+                {"dimension_policy": "none", "time_axis_policy": "non_additive"},
+            )
         if kind == "sum":
-            return ("sum_metric", "numeric", "sum", "additive")
+            return (
+                "sum_metric",
+                "numeric",
+                "sum",
+                {"dimension_policy": "all", "time_axis_policy": "additive"},
+            )
         if kind == "count":
-            return ("count_metric", "numeric", "count", "additive")
+            return (
+                "count_metric",
+                "numeric",
+                "count",
+                {"dimension_policy": "all", "time_axis_policy": "additive"},
+            )
         if kind in {"percentile", "quantile"}:
-            return ("distribution_metric", "numeric", "distribution_statistic", "non_additive")
+            return (
+                "distribution_metric",
+                "numeric",
+                "distribution_statistic",
+                {"dimension_policy": "none", "time_axis_policy": "non_additive"},
+            )
         if kind == "survival":
-            return ("survival_metric", "survival", "survival_probability", "non_additive")
+            return (
+                "survival_metric",
+                "survival",
+                "survival_probability",
+                {"dimension_policy": "none", "time_axis_policy": "non_additive"},
+            )
         if kind == "score":
-            return ("score_metric", "numeric", "score", "non_additive")
-        return ("count_metric", "numeric", "count", "additive")
+            return (
+                "score_metric",
+                "numeric",
+                "score",
+                {"dimension_policy": "none", "time_axis_policy": "non_additive"},
+            )
+        return (
+            "count_metric",
+            "numeric",
+            "count",
+            {"dimension_policy": "all", "time_axis_policy": "additive"},
+        )
 
     @staticmethod
     def _legacy_aggregation_scope(grain: str | None) -> str | None:
@@ -2957,7 +3001,7 @@ class SemanticServiceSupport:
                 "value_semantics": row["value_semantics"],
                 "aggregation_scope": row["aggregation_scope"],
                 "primary_time_ref": row["primary_time_ref"],
-                "additivity": row["additivity"],
+                "additivity_constraints": json.loads(row["additivity_constraints_json"] or "null"),
                 "metric_contract_version": row["metric_contract_version"],
             },
             "status": row["status"],

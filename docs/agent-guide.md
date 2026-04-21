@@ -147,6 +147,7 @@ App startup requires `factum.yaml` metadata config with `metadata.engine=sqlite`
 - `docs/api/`: external HTTP API docs only; target-state step submission is in `intent-steps.md`, and canonical read surfaces are split into `session-state.md` and `context-surface.md`
 - `docs/analysis/`: intents/evidence engine related schema.
 - `docs/semantic`: entity/dimension/metric/process related schema.
+- `docs/service/`: service runtime and operator design notes; agent local/remote target resolution lives in `agent-runtime-target-resolution.md`
 - `factum-mcp/README.md` and `factum_mcp.inventory`: factum-mcp runtime scope, validation, and executable MCP surface inventory. Keep MCP implementation details there instead of expanding this guide.
 - When canonical intent request models change, treat `factum-mcp` typed intent tool schemas as affected because the adapter reuses those request models directly. All typed intent MCP tools expose an explicit top-level `session_id` for the HTTP path, and the remaining parameters should map directly to canonical HTTP body fields instead of MCP-only wrapper objects or JSON-encoded strings.
 - Typed intent `metric` parameters use canonical semantic refs such as `metric.watch_time`; do not pass bare metric names like `watch_time`.

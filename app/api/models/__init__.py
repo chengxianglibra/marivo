@@ -92,7 +92,7 @@ from ._legacy import (
     ValidateRequest,
 )
 from .base import (
-    Additivity,
+    AdditivityConstraints,
     AggregationMethod,
     AggregationScope,
     # Base models
@@ -300,7 +300,7 @@ from .time import (
 )
 
 __all__ = [  # noqa: RUF022
-    "Additivity",
+    "AdditivityConstraints",
     "AggregateQueryStep",
     "AggregationMethod",
     "AggregationScope",

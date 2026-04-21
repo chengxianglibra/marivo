@@ -203,7 +203,10 @@ class SemanticMetricRouteTests(unittest.TestCase):
                     "observation_grain_ref": "grain.user",
                     "sample_kind": "numeric",
                     "value_semantics": "count",
-                    "additivity": "additive",
+                    "additivity_constraints": {
+                        "dimension_policy": "none",
+                        "time_axis_policy": "non_additive",
+                    },
                     "metric_contract_version": "metric.v1",
                 },
                 "payload": {
@@ -229,9 +232,9 @@ class SemanticMetricRouteTests(unittest.TestCase):
             metric["capabilities"]["supports_observe"],
             True,
         )
-        # additive metric supports decompose; no primary_time_ref means no compare/detect
+        # count_distinct with dimension_policy=none does not support decompose
         self.assertEqual(metric["capabilities"]["supports_compare"], False)
-        self.assertEqual(metric["capabilities"]["supports_decompose"], True)
+        self.assertEqual(metric["capabilities"]["supports_decompose"], False)
         self.assertEqual(metric["capabilities"]["supports_attribute"], False)
         # sample_kind=numeric means supports_test=True
         self.assertEqual(metric["capabilities"]["supports_test"], True)
@@ -271,7 +274,7 @@ class SemanticMetricRouteTests(unittest.TestCase):
         capabilities = resp.json()["capabilities"]
         self.assertEqual(capabilities["supports_observe"], True)
         self.assertEqual(capabilities["supports_compare"], False)
-        self.assertEqual(capabilities["supports_decompose"], True)
+        self.assertEqual(capabilities["supports_decompose"], False)
         self.assertEqual(capabilities["supports_attribute"], False)
         self.assertEqual(capabilities["supports_test"], True)
         self.assertEqual(capabilities["supports_detect"], False)
@@ -388,7 +391,10 @@ class SemanticMetricRouteTests(unittest.TestCase):
                     "observation_grain_ref": "grain.user",
                     "sample_kind": "numeric",
                     "value_semantics": "count",
-                    "additivity": "additive",
+                    "additivity_constraints": {
+                        "dimension_policy": "all",
+                        "time_axis_policy": "additive",
+                    },
                     "metric_contract_version": "metric.v1",
                 },
                 "payload": {

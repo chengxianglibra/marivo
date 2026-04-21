@@ -397,7 +397,7 @@ class ReadinessEvaluationContext:
                 "value_semantics": row["value_semantics"],
                 "aggregation_scope": row["aggregation_scope"],
                 "primary_time_ref": row["primary_time_ref"],
-                "additivity": row["additivity"],
+                "additivity_constraints": json.loads(row["additivity_constraints_json"] or "null"),
                 "metric_contract_version": row["metric_contract_version"],
             },
             "payload": json.loads(row["family_payload_json"]),

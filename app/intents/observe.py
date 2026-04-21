@@ -645,7 +645,7 @@ def run_observe_intent(
                 "max": max_val,
             },
             "analytical_metadata": {
-                "metric_additivity": execution_context.additivity or None,
+                "additivity_constraints": execution_context.additivity_constraints,
                 "aggregation_semantics": None,
                 "timezone": None,
                 "data_complete": None,
@@ -759,7 +759,7 @@ def run_observe_intent(
                 "rate": rate_val,
             },
             "analytical_metadata": {
-                "metric_additivity": execution_context.additivity or None,
+                "additivity_constraints": execution_context.additivity_constraints,
                 "aggregation_semantics": None,
                 "timezone": None,
                 "data_complete": None,
@@ -946,7 +946,7 @@ def run_observe_intent(
             "granularity": granularity,
             "series": series,
             "analytical_metadata": {
-                "metric_additivity": execution_context.additivity or None,
+                "additivity_constraints": execution_context.additivity_constraints,
                 "aggregation_semantics": "sum",
                 "timezone": None,
                 "data_complete": data_complete,
@@ -1028,7 +1028,7 @@ def run_observe_intent(
             "segments": segments,
             "scope_value": None,
             "analytical_metadata": {
-                "metric_additivity": execution_context.additivity or None,
+                "additivity_constraints": execution_context.additivity_constraints,
                 "aggregation_semantics": "sum",
                 "timezone": None,
                 "data_complete": None,
@@ -1097,7 +1097,7 @@ def run_observe_intent(
             "scope": scope_raw or {},
             "unit": None,
             "analytical_metadata": {
-                "metric_additivity": execution_context.additivity or None,
+                "additivity_constraints": execution_context.additivity_constraints,
                 "aggregation_semantics": "sum",
                 "timezone": None,
                 "data_complete": None,

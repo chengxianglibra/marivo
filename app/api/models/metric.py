@@ -14,7 +14,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .base import (
-    Additivity,
+    AdditivityConstraints,
     AggregationMethod,
     AggregationScope,
     HorizonSpec,
@@ -63,8 +63,8 @@ class MetricHeader(ObjectHeaderBase):
     primary_time_ref: str | None = Field(
         default=None, description="Reference to the primary time semantic (time.*)."
     )
-    additivity: Additivity = Field(
-        description="Additivity: additive, semi_additive, or non_additive."
+    additivity_constraints: AdditivityConstraints = Field(
+        description="Structured additivity constraints: dimension policy and time-axis policy."
     )
     metric_contract_version: str = Field(
         description="Contract version (e.g., 'metric.v1'). Must start with 'metric.'."
@@ -297,6 +297,24 @@ _FAMILY_VALUE_SEMANTICS_MAP: dict[MetricFamily, ValueSemantics] = {
 }
 
 
+def _collect_aggregation_methods(payload: MetricPayload) -> set[str]:
+    """Extract all aggregation method strings from a metric payload."""
+    methods: set[str] = set()
+    if hasattr(payload, "count_target"):
+        methods.add(payload.count_target.aggregation)
+    if hasattr(payload, "measure"):
+        methods.add(payload.measure.aggregation)
+    if hasattr(payload, "numerator"):
+        methods.add(payload.numerator.aggregation)
+    if hasattr(payload, "denominator"):
+        methods.add(payload.denominator.aggregation)
+    if hasattr(payload, "value_component"):
+        methods.add(payload.value_component.aggregation)
+    if hasattr(payload, "score_source"):
+        methods.add(payload.score_source.aggregation)
+    return methods
+
+
 # =============================================================================
 # Request Models
 # =============================================================================
@@ -317,7 +335,10 @@ class TypedMetricCreateRequest(BaseModel):
                         "observation_grain_ref": "grain.user",
                         "sample_kind": "numeric",
                         "value_semantics": "count",
-                        "additivity": "additive",
+                        "additivity_constraints": {
+                            "dimension_policy": "none",
+                            "time_axis_policy": "non_additive",
+                        },
                         "metric_contract_version": "metric.v1",
                     },
                     "payload": {
@@ -358,6 +379,18 @@ class TypedMetricCreateRequest(BaseModel):
             )
         return self
 
+    @model_validator(mode="after")
+    def validate_count_distinct_not_all_additive(self) -> TypedMetricCreateRequest:
+        """Metrics with count_distinct aggregation must not use dimension_policy='all'."""
+        if self.header.additivity_constraints.dimension_policy == "all":
+            components = _collect_aggregation_methods(self.payload)
+            if "count_distinct" in components:
+                raise ValueError(
+                    "Metrics with count_distinct aggregation must not use "
+                    "dimension_policy='all'; use 'subset' or 'none' instead."
+                )
+        return self
+
 
 class TypedMetricUpdateRequest(BaseModel):
     """Request to update an existing typed metric.
@@ -385,6 +418,10 @@ class TypedMetricUpdateRequest(BaseModel):
 
     display_name: str | None = Field(default=None, description="New display name.")
     description: str | None = Field(default=None, description="New description.")
+    additivity_constraints: AdditivityConstraints | None = Field(
+        default=None,
+        description="Updated additivity constraints. Only updatable in draft status.",
+    )
     payload: MetricPayload | None = Field(
         default=None, description="New payload. Note: cannot change metric_family."
     )

@@ -391,7 +391,7 @@ def run_compare_intent(
         resolved_input_summary["calendar_alignment"] = calendar_alignment_summary["reuse_summary"]
     analytical_metadata: dict[str, Any] = {
         "aggregation_semantics": left_am.get("aggregation_semantics", "sum"),
-        "metric_additivity": left_am.get("metric_additivity"),
+        "additivity_constraints": left_am.get("additivity_constraints"),
         "relative_delta_denominator": "right",
         "flat_tolerance_relative": flat_tolerance_relative,
         "left_row_count": left_am.get("row_count"),

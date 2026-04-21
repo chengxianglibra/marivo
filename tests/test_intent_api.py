@@ -319,7 +319,7 @@ def _insert_observe_artifact(
         "analytical_metadata": {
             "quality_status": "ready",
             "aggregation_semantics": "sum",
-            "metric_additivity": "additive",
+            "additivity_constraints": {"dimension_policy": "all", "time_axis_policy": "additive"},
             "row_count": len(series or segments or []),
         },
         "execution_metadata": {

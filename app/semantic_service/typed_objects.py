@@ -4,6 +4,8 @@ import json
 from typing import Any, Literal
 from uuid import uuid4
 
+from pydantic import TypeAdapter
+
 from app.api.models.dimension import DimensionCreateRequest, DimensionUpdateRequest
 from app.api.models.entity import TypedEntityCreateRequest, TypedEntityUpdateRequest
 from app.api.models.enum_set import (
@@ -11,7 +13,12 @@ from app.api.models.enum_set import (
     EnumSetUpdateRequest,
     _raw_value_matches_enum_value_type,
 )
-from app.api.models.metric import TypedMetricCreateRequest, TypedMetricUpdateRequest
+from app.api.models.metric import (
+    MetricPayload,
+    TypedMetricCreateRequest,
+    TypedMetricUpdateRequest,
+    _collect_aggregation_methods,
+)
 from app.api.models.process_object import ProcessObjectCreateRequest, ProcessObjectUpdateRequest
 from app.api.models.time import TimeCreateRequest, TimeUpdateRequest
 
@@ -244,7 +251,7 @@ class TypedObjectService(SemanticServiceSupport):
                 metric_contract_id, metric_ref, display_name, description, metric_family,
                 population_subject_ref, observed_entity_ref, observation_grain_ref,
                 sample_kind, value_semantics, aggregation_scope, primary_time_ref,
-                additivity, metric_contract_version, family_payload_json, status,
+                additivity_constraints_json, metric_contract_version, family_payload_json, status,
                 revision, created_at, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', 1, ?, ?)
             """,
@@ -261,7 +268,7 @@ class TypedObjectService(SemanticServiceSupport):
                 payload.header.value_semantics,
                 payload.header.aggregation_scope,
                 payload.header.primary_time_ref,
-                payload.header.additivity,
+                json.dumps(payload.header.additivity_constraints.model_dump(mode="json")),
                 payload.header.metric_contract_version,
                 json.dumps(payload.payload.model_dump(mode="json")),
                 created_at,
@@ -353,8 +360,38 @@ class TypedObjectService(SemanticServiceSupport):
                 )
             updates.append("family_payload_json = ?")
             params.append(json.dumps(payload.payload.model_dump(mode="json")))
+        if payload.additivity_constraints is not None:
+            if current["status"] != "draft":
+                raise self._validation_error(
+                    "additivity_constraints can only be updated in draft status"
+                )
+            updates.append("additivity_constraints_json = ?")
+            params.append(json.dumps(payload.additivity_constraints.model_dump(mode="json")))
         if not updates:
             return current
+        # Cross-field validation: count_distinct + dimension_policy='all' is invalid
+        effective_constraints = (
+            payload.additivity_constraints.model_dump(mode="json")
+            if payload.additivity_constraints is not None
+            else current["header"].get("additivity_constraints", {})
+        )
+        effective_payload = payload.payload
+        if effective_payload is None:
+            raw_payload = current.get("payload")
+            if isinstance(raw_payload, dict):
+                try:
+                    effective_payload = TypeAdapter(MetricPayload).validate_python(raw_payload)
+                except Exception:
+                    effective_payload = None
+        if (
+            effective_constraints.get("dimension_policy") == "all"
+            and effective_payload is not None
+            and "count_distinct" in _collect_aggregation_methods(effective_payload)
+        ):
+            raise self._validation_error(
+                "Metrics with count_distinct aggregation must not use "
+                "dimension_policy='all'; use 'subset' or 'none' instead."
+            )
         self._apply_contract_update(
             table_name="semantic_metric_contracts",
             id_column="metric_contract_id",
