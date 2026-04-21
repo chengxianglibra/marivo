@@ -6,6 +6,7 @@
 
 - `docs/semantic/dimension-schema-contract.zh.md`
 - `docs/semantic/entity-schema-contract.zh.md`
+- `docs/semantic/predicate-schema-contract.zh.md`
 - `docs/semantic/process-object-schema.zh.md`
 - `docs/semantic/metric-v2-schema.zh.md`
 - `docs/semantic/time-schema-contract.zh.md`
@@ -218,6 +219,13 @@ typed binding contract 主要回答：
 - 哪些 join relations 被允许
 - 哪些 filter / freshness / lateness / incomplete-window 消费策略稳定生效
 
+其中 filter 分层的稳定规则应为：
+
+- carrier row filter 属于 binding consumption constraint
+- metric business predicate 属于 metric identity
+- request scope 属于请求级临时 population narrowing
+- governance filter 属于更上层的强制策略
+
 ## binding 不要回答什么
 
 typed binding contract 不回答：
@@ -229,6 +237,8 @@ typed binding contract 不回答：
 - engine-specific 时间截断怎么写
 
 这些属于 compiler / lowering / execution。
+
+同理，binding 不重新定义 filter AST，也不直接暴露 SQL predicate string；其职责是通过 `row_filter_refs` 与 surfaces 为上游 contract 提供可 lowering 的 grounding。
 
 ## 通用 Schema
 
@@ -352,6 +362,13 @@ class CarrierBinding(TypedDict):
 - `freshness_policy_ref`：时效治理规则引用
 - `field_surfaces`：该 carrier 暴露的字段 surfaces
 - `time_surfaces`：该 carrier 暴露的时间 surfaces
+
+其中 `row_filter_refs` 的语义边界应保持严格：
+
+- 它应引用受治理的 `predicate.*`
+- 它表达 carrier consumption invariants，例如软删、测试数据排除、租户隔离
+- 它不表达某个 metric 的 business predicates
+- 它不应承载仅在 numerator / denominator 等 component 上成立的局部 measurement semantics
 
 **合并独立 asset 层到 binding 的原因：**
 

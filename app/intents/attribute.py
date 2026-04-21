@@ -13,6 +13,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from app.analysis_core.additivity_capabilities import derive_additivity_capabilities
 from app.intents.compare import run_compare_intent
 from app.intents.decompose import run_decompose_intent
 from app.intents.observe import run_observe_intent
@@ -135,6 +136,35 @@ def run_attribute_intent(
                 f"attribute: INVALID_ARGUMENT - decomposition_limit exceeds max allowed "
                 f"({_MAX_DECOMPOSITION_LIMIT}), got {decomposition_limit}"
             )
+
+    # ── Pre-check: verify metric supports attribute ──────────────────────────
+    resolved_metric = svc.semantic_repository.resolve_metric(metric_name)
+    if resolved_metric is None:
+        raise ValueError(f"attribute: metric '{metric_name}' not found or not published")
+
+    additivity_caps = derive_additivity_capabilities(
+        header={
+            "additivity": resolved_metric.additivity,
+            "primary_time_ref": resolved_metric.primary_time_ref,
+            "sample_kind": resolved_metric.sample_kind,
+        },
+    )
+    if not additivity_caps.supports_attribute:
+        raise ValueError(
+            f"attribute: ADDITIVITY_CONSTRAINT - metric '{metric_name}' does not support "
+            f"attribution (additivity='{resolved_metric.additivity}', "
+            f"dimension_policy='{additivity_caps.dimension_policy}', "
+            f"time_axis_policy='{additivity_caps.time_axis_policy}')"
+            + (f"; {additivity_caps.remediation_hint}" if additivity_caps.remediation_hint else "")
+        )
+
+    # Dimension-level gate: check each requested dimension against the policy
+    if additivity_caps.dimension_policy == "none":
+        raise ValueError(
+            f"attribute: ADDITIVITY_CONSTRAINT_DIMENSION_NOT_ALLOWED - metric "
+            f"'{metric_name}' has dimension_policy='none'; no dimensions can be "
+            f"used for attribution. Requested dimensions: {dimensions}"
+        )
 
     # ── Step 1: observe left (current) ────────────────────────────────────────
     try:

@@ -6,6 +6,7 @@ import json
 from collections.abc import Iterable
 from typing import Any
 
+from app.analysis_core.additivity_capabilities import derive_additivity_capabilities
 from app.metric_inputs import required_metric_input_slots
 from app.time_contracts import normalize_timestamp_format
 
@@ -768,17 +769,8 @@ def _contains_basic_process_blockers(blockers: Iterable[BlockingRequirementPaylo
 
 
 def _metric_capabilities(header: dict[str, Any]) -> dict[str, Any]:
-    primary_time_ref = _optional_str(header.get("primary_time_ref"))
-    additivity = _optional_str(header.get("additivity"))
-    sample_kind = _optional_str(header.get("sample_kind"))
-    return {
-        "supports_observe": True,
-        "supports_attribute": bool(additivity and primary_time_ref),
-        "supports_diagnose": sample_kind in {"numeric", "rate", "binary"},
-        "supports_detect": bool(primary_time_ref),
-        "supports_validate": sample_kind == "rate",
-        "supports_decompose": additivity in {"additive", "semi_additive"},
-    }
+    result = derive_additivity_capabilities(header=header)
+    return result.to_dict()
 
 
 def _process_capabilities(interface_contract: dict[str, Any]) -> dict[str, Any]:

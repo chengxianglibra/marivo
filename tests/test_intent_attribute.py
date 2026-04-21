@@ -30,7 +30,7 @@ import unittest
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
 
@@ -972,6 +972,13 @@ class AttributeHourWindowTests(unittest.TestCase):
         class _FakeService:
             def __init__(self) -> None:
                 self._step_counter = 0
+                # Mock semantic_repository for metric resolution
+                self.semantic_repository = MagicMock()
+                mock_metric = MagicMock()
+                mock_metric.additivity = "additive"
+                mock_metric.primary_time_ref = "time.default"
+                mock_metric.sample_kind = "rate"
+                self.semantic_repository.resolve_metric.return_value = mock_metric
 
             @staticmethod
             def normalize_intent_metric_ref(metric_ref: str) -> str:

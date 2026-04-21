@@ -285,11 +285,23 @@ class MetricReadinessEvaluatorTests(unittest.TestCase):
             result.capabilities,
             {
                 "supports_observe": True,
-                "supports_attribute": True,
-                "supports_diagnose": True,
-                "supports_detect": True,
-                "supports_validate": True,
+                "supports_compare": True,
                 "supports_decompose": True,
+                "supports_attribute": True,
+                "supports_test": True,
+                "supports_detect": True,
+                "supports_validate": True,  # rate metric supports validate without process
+                "time_rollup_allowed": True,
+                "dimension_policy": "all",
+                "time_axis_policy": "additive",
+                "additivity_basis": {
+                    "additivity": "additive",
+                    "primary_time_ref": "time.event_date",
+                    "sample_kind": "rate",
+                    "process_anchor_time_ref": None,
+                },
+                "blocker": None,
+                "remediation_hint": None,
             },
         )
 

@@ -2169,7 +2169,9 @@ class TestDecomposeRunnerCommitPath(unittest.TestCase):
 
         # Configure resolved_metric with real values so validation passes
         resolved_metric = MagicMock()
-        resolved_metric.measure_type = "additive"
+        resolved_metric.additivity = "additive"  # fully additive supports decompose
+        resolved_metric.primary_time_ref = "time.default"
+        resolved_metric.sample_kind = "rate"
         resolved_metric.allowed_dimensions = ["dim1"]
         resolved_metric.dimensions = ["dim1"]
         resolved_metric.grain = "day"

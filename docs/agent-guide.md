@@ -139,6 +139,9 @@ App startup requires `factum.yaml` metadata config with `metadata.engine=sqlite`
   upstream tables required by that group.
 - For repeated intent bridge/import tables, add them to a named DuckDB template instead of creating
   and repopulating the table inside each test class setup.
+- Do not add unit tests whose individual execution time exceeds 10 seconds. If a test requires
+  heavier setup, refactor it to use shared fixtures, named DuckDB templates, or class-level
+  `setUpClass` seeding so the per-test runtime stays under the limit.
 
 ## Docs layout:
 - `docs/api/`: external HTTP API docs only; target-state step submission is in `intent-steps.md`, and canonical read surfaces are split into `session-state.md` and `context-surface.md`
