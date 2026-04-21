@@ -27,14 +27,13 @@ repos:
       - id: check-merge-conflict
       - id: debug-statements
       - id: check-toml
-  
-  # we will reopen this after we optimize the ut cost into 120s
-  # - repo: local
-  #   hooks:
-  #     - id: pytest
-  #       name: pytest
-  #       entry: .venv/bin/pytest
-  #       language: system
-  #       types: [python]
-  #       pass_filenames: false
-  #       args: [-x, -q]
+
+  - repo: local
+    hooks:
+      - id: pytest
+        name: pytest
+        entry: .venv/bin/pytest
+        language: system
+        types: [python]
+        pass_filenames: false
+        args: [-x, -q]
