@@ -262,6 +262,24 @@ skills/factum/
 - `SKILL.md`：最小决策入口，优先回答“该走哪条路径”
 - `references/*.md`：只在需要时按主题展开
 
+## 当前落地映射
+
+当前建议把设计说明与实际 skill 文档保持如下映射关系：
+
+- [`docs/service/factum-skill.md`](/Users/lichengxiang/source/oss/factum/docs/service/factum-skill.md)：维护基线，定义目标形态、边界、验收标准与更新规则
+- `/Users/lichengxiang/source/bili/skills/factum/SKILL.md`：agent 的最小决策入口，只回答“是否启用 Factum、先走哪个 surface、默认 loop 是什么”
+- `/Users/lichengxiang/source/bili/skills/factum/references/steps.md`：typed intent、state/context、session close-out
+- `/Users/lichengxiang/source/bili/skills/factum/references/semantic-layer.md`：语义建模、依赖顺序与 activation heuristics
+- `/Users/lichengxiang/source/bili/skills/factum/references/semantic-readiness.md`：`lifecycle_status` / `readiness_status` 与 blocker 排查
+- `/Users/lichengxiang/source/bili/skills/factum/references/http-contracts.md`：跨 surface 的共享 HTTP 约束
+- 其他 `references/*.md`：只在对应主题需要时展开，不回到“完整协议手册”形态
+
+稳态要求：
+
+- 先更新 HTTP API 文档与 `factum-mcp`，再判断 skill 是否需要同步
+- `SKILL.md` 保持短小，避免变成第二份 README、inventory 或 schema 手册
+- `references/*.md` 只拥有一个主题，不跨主题重复展开同一 guardrail
+
 ## 内容组织规则
 
 Skill 应遵守以下写作规则：
@@ -281,6 +299,13 @@ Skill 应遵守以下写作规则：
 
 - “这里有 50 个工具，你自己选”
 - “这里是完整 JSON schema，请记住”
+
+额外约束：
+
+- `SKILL.md` 只保留足以做决策的规则、反模式与 read-next 索引
+- 高价值 guardrails 可以在 `SKILL.md` 提及，但详细展开应落到单一主题 reference
+- 同一规则如果已经在 `http-contracts.md` 作为跨 surface 约束持有，就不应在 `steps.md` 或 `semantic-layer.md` 中再次写成字段手册
+- payload 示例只保留“最小可用请求形状”，不扩展为逐字段 schema 文档
 
 ## 与其他文档的边界
 
@@ -312,6 +337,13 @@ Skill 应遵守以下写作规则：
 - 只有当变化影响 agent 的使用决策时，才更新 skill
 - 若只是字段名变化且不改变 agent 的路由/顺序/边界判断，不应扩大 skill 变更范围
 - skill 中引用的 canonical ref、surface 名称与生命周期术语应与下层文档保持一致
+
+常见更新判断：
+
+- 如果变化影响“先读 state 还是 context”“何时 terminate”“何时选 `observe` vs `detect`”，应更新 skill
+- 如果变化只是新增一个 HTTP 字段、错误码或 transport 细节，通常只更新 API/MCP 文档
+- 如果变化会改变 agent 对 readiness、routing、governance 的排查顺序，应更新对应主题 reference，而不是把所有细节塞回 `SKILL.md`
+- 如果某个 guardrail 同时出现在多个 references 中，应指定一个主文档持有，其他文档只保留短链接或一句边界提示
 
 ## 验收标准
 
