@@ -1,8 +1,8 @@
-# Semantic Layer Predicate Schema Contract（草案）
+# Semantic Layer Predicate Schema Contract
 
-本文定义 Marivo semantic layer 中 `predicate.*` 的目标 schema contract。
+本文定义 Marivo semantic layer 中 `predicate.*` 的 v1 schema contract。
 
-本文是**语义契约设计文档**，不是当前实现说明，也不是最终 HTTP wire spec。它与以下文档配套：
+本文是 `predicate.*` 的**正式语义规范**，不是当前实现说明，也不是最终 HTTP wire spec。v1 产品边界与范围冻结说明见 [`predicate-v1-scope-note.zh.md`](/Users/lichengxiang/source/oss/marivo/docs/semantic/predicate-v1-scope-note.zh.md)。它与以下文档配套：
 
 - `docs/semantic/dimension-schema-contract.zh.md`
 - `docs/semantic/entity-schema-contract.zh.md`
@@ -73,6 +73,27 @@ predicate contract 应同时满足：
 - 让 predicate 直接表达 cohort / funnel / session / attribution 规则
 - 让 request scope 覆盖或放宽 metric / binding / governance 已声明的过滤约束
 - 让 predicate 重新定义时间窗口契约
+
+## v1 范围
+
+v1 `predicate.*` 支持的内容：
+
+- 确定性（deterministic）、非时间（non-time）、合取（conjunctive）表达式
+- `PredicateAtom`（原子谓词）+ `PredicateConjunction(op="and")`（合取连接）
+- 四种 usage 类别：`metric_qualifier`、`carrier_row_filter`、`request_scope`、`governance_policy`
+- 11 个受限制操作符：`eq`、`neq`、`in`、`not_in`、`gt`、`gte`、`lt`、`lte`、`between`、`is_null`、`is_not_null`
+- `target_ref` 限于受治理语义引用前缀（`dimension.`、`entity.`、`key.`、`enum.`、`subject.`、`population.`、`event.`、`field.`）
+
+v1 明确不支持的内容（详见 [`predicate-v1-scope-note.zh.md`](/Users/lichengxiang/source/oss/marivo/docs/semantic/predicate-v1-scope-note.zh.md)）：
+
+- `or`、`not`、动态变量、非确定性输入、嵌套谓词引用
+- `time.*` target ref（时间条件由 `time_scope` 承担）
+- SQL AST、UDF、子查询、engine-specific 语法
+- cohort / funnel / session / attribution 规则
+- 请求级覆盖或放宽上游过滤
+- 时间窗口、归因窗口、late-arrival policy
+
+> 扩展到 `or`、`not`、动态变量或时间条件需要正式的契约版本升级（`predicate.v2`），而不是向后兼容扩展。
 
 ## 核心设计结论
 
@@ -266,12 +287,11 @@ class PredicateHeader(TypedDict):
 
 ### 公共子结构
 
+规范定义以 `app/api/models/predicate.py` 中的 Pydantic 模型为准。以下仅列出概要，详细字段约束见对应模型定义。
+
 #### PredicateUsage
 
 ```python
-from typing import Literal
-
-
 PredicateUsage = Literal[
     "metric_qualifier",
     "carrier_row_filter",
@@ -283,117 +303,141 @@ PredicateUsage = Literal[
 #### PredicateTimePolicy
 
 ```python
-from typing import Literal
-
-
 PredicateTimePolicy = Literal["non_time_only"]
+```
+
+#### PredicateOperator
+
+```python
+PredicateOperator = Literal[
+    "eq", "neq", "in", "not_in",
+    "gt", "gte", "lt", "lte",
+    "between", "is_null", "is_not_null",
+]
 ```
 
 #### PredicateAtom
 
-```python
-from typing import Literal, NotRequired, TypedDict
+规范定义：`app/api/models/predicate.PredicateAtom`
 
+字段：`target_ref`（受治理语义引用）、`op`（白名单操作符）、`value`（可选值）。
 
-class PredicateAtom(TypedDict):
-    target_ref: str
-    op: Literal[
-        "eq",
-        "neq",
-        "in",
-        "not_in",
-        "gt",
-        "gte",
-        "lt",
-        "lte",
-        "between",
-        "is_null",
-        "is_not_null",
-    ]
-    value: NotRequired[
-        str | int | float | bool | None | list[str | int | float | bool | None]
-    ]
-```
+`target_ref` 前缀约束：
+- 允许：`dimension.`、`entity.`、`key.`、`enum.`、`subject.`、`population.`、`event.`、`field.`
+- 禁止：`time.`（时间条件由 `time_scope` 承担）、`metric.`、`process.`、`binding.`、`predicate.`（递归引用）、`grain.`、`measure.`、`compiler_profile.`
+
+#### PredicateConjunction
+
+规范定义：`app/api/models/predicate.PredicateConjunction`
+
+字段：`op`（v1 仅支持 `"and"`）、`items`（一个或多个 `PredicateExpression`）。
 
 #### PredicateExpression
 
-```python
-from typing import TypeAlias, TypedDict
-
-
-class PredicateConjunction(TypedDict):
-    op: str
-    items: list["PredicateExpression"]
-
-
-PredicateExpression: TypeAlias = PredicateConjunction | PredicateAtom
-```
+`PredicateExpression = PredicateConjunction | PredicateAtom`
 
 #### PredicatePayload
 
-```python
-from typing import TypedDict
+规范定义：`app/api/models/predicate.PredicatePayload`
 
+字段：`expression`（`PredicateExpression`）、`allowed_usage`（非空 `list[PredicateUsage]`）、`time_policy`（默认 `"non_time_only"`）。
 
-class PredicatePayload(TypedDict):
-    expression: PredicateExpression
-    allowed_usage: list[PredicateUsage]
-    time_policy: PredicateTimePolicy
-```
+### allowed_usage 分类
+
+每个 usage 值定义了 predicate 的消费场景与边界。
+
+| Usage | 消费方 | 允许场景 | 禁止场景 | Compiler 校验语义 |
+| --- | --- | --- | --- | --- |
+| `metric_qualifier` | `MeasurementComponent.qualifier_refs`、`MetricHeader.default_predicate_refs` | metric 业务谓词，是 measurement identity 的一部分 | carrier 不变量、请求级收窄、治理策略 | predicate 必须声明此 usage；`qualifier_refs` 引用未声明 `metric_qualifier` 的 predicate 必须失败 |
+| `carrier_row_filter` | `CarrierBinding.row_filter_refs` | carrier 消费不变量（软删除排除、测试数据移除、租户防护） | metric 业务语义、请求级收窄 | predicate 必须声明此 usage；`row_filter_refs` 引用未声明 `carrier_row_filter` 的 predicate 必须失败 |
+| `request_scope` | typed intent `scope.predicate` | 请求级 non-time population 临时收窄 | metric identity、carrier 不变量、时间条件、治理策略 | predicate 必须声明此 usage；必须为合取表达式；必须为 non-time；只能收窄上游过滤器 |
+| `governance_policy` | governance context / policy engine | 隐私、租户隔离、合规过滤 | 所有其他场景——不在 metric/binding/scope 中由调用方指定 | 始终与其他过滤器 AND 合成；不可被覆盖；与 metric/binding 冲突为 readiness 失败，不是静默空结果 |
+
+**多 usage 声明**：单个 predicate 可以在 `allowed_usage` 中声明多个 usage 值，表示它可以被不同类型消费者安全复用。compiler 仍须校验每个消费者只使用声明了匹配 usage 的 predicate。
+
+**usage 与 subject 对齐**：usage 值影响 `subject_ref` 对消费者的含义。`metric_qualifier` 的 subject 应与 metric 的主体对齐；`carrier_row_filter` 的 subject 应与 carrier 实体对齐；`request_scope` 的 subject 应与请求的分析范围对齐。
 
 ## v1 表达式约束
 
-`predicate.v1` 只支持可确定性 lowering、可做 narrowing 校验的有限表达式子集。
+`predicate.v1` 只支持可确定性 lowering、可做 narrowing 校验的有限表达式子集。规范定义以 `app/api/models/predicate.py` 中的 Pydantic 验证器为准。
 
 ### 允许的结构
 
-- 原子谓词
-- `and` 连接的 conjunctive expression
+- `PredicateAtom`：单个原子谓词（`target_ref` + `op` + `value`）
+- `PredicateConjunction`：`op = "and"` 连接的一个或多个 `PredicateExpression`；允许混合原子和嵌套合取
+- 顶层 `expression` 可以是 `PredicateAtom` 或 `PredicateConjunction`
 
-### 不允许的结构
+### 明确禁止的结构（v1）
 
-- `or`
-- `not`
-- 动态变量
-- `now()`、随机函数等非确定性输入
+- `op = "or"` — 不允许析取
+- `op = "not"` — 不允许否定
+- `target_ref` 以 `time.` 开头 — 时间条件不属于 predicate
+- `value` 包含动态表达式（`now()`、`today()`、随机函数、运行时变量引用）
+- `value` 为字典或嵌套结构 — 仅允许标量值和值数组
+- `target_ref` 以 `predicate.` 开头 — 不允许递归谓词引用
 
-### 值约束
+### 操作符值约束
 
-- `between` 必须提供两个边界值
-- `in` / `not_in` 必须提供非空数组
-- `is_null` / `is_not_null` 不得提供 `value`
-- `value` 必须与 `target_ref` 的 value domain 兼容
+| 操作符 | `value` 必需 | `value` 类型 | 约束 |
+| --- | --- | --- | --- |
+| `eq` | 是 | 标量 | 必须为非 None |
+| `neq` | 是 | 标量 | 必须为非 None |
+| `gt` | 是 | 标量 | 必须为非 None |
+| `gte` | 是 | 标量 | 必须为非 None |
+| `lt` | 是 | 标量 | 必须为非 None |
+| `lte` | 是 | 标量 | 必须为非 None |
+| `between` | 是 | 列表 | 必须恰好 2 个元素 |
+| `in` | 是 | 列表 | 必须为非空数组 |
+| `not_in` | 是 | 列表 | 必须为非空数组 |
+| `is_null` | 否 | — | `value` 必须为 None 或缺失 |
+| `is_not_null` | 否 | — | `value` 必须为 None 或缺失 |
+
+### target_ref 前缀约束
+
+- 允许：`dimension.`、`entity.`、`key.`、`enum.`、`subject.`、`population.`、`event.`、`field.`
+- 禁止：`time.`（时间条件由 `time_scope` 承担）、`metric.`、`process.`、`binding.`、`predicate.`、`grain.`、`measure.`、`compiler_profile.`
+
+> v1 约束集是故意最小化的。扩展到 `or`、`not`、动态变量或时间条件需要正式的契约版本升级（`predicate.v2`），而不是向后兼容扩展。
 
 ## Effective Scope 合成
 
-编译阶段不应把多 component metric 的 qualifiers 折叠成单个全局 predicate。应区分 shared scope 与 component lineage：
+编译阶段不应把多 component metric 的 qualifiers 折叠成单个全局 predicate。应严格区分 shared scope 与 component lineage。
+
+### 合成公式
 
 ```text
 shared_effective_scope =
-  governance_policy_filters
-  AND carrier_row_filters
-  AND request_scope_constraints
-  AND request_scope_predicate
+  AND(governance_policy_filters,
+      carrier_row_filters,
+      request_scope_constraints)
 
 component_effective_scope(component) =
-  shared_effective_scope
-  AND metric_default_predicates
-  AND component_qualifier_predicates(component)
+  AND(shared_effective_scope,
+      metric_default_predicates,
+      component_qualifier_predicates(component))
 ```
 
-其中：
+### 各层职责
 
-- governance filters 是不可绕过的强制策略
-- carrier row filters 是 binding 不变量
-- metric default predicates 是 metric identity 的一部分
-- component qualifier predicates 是 component identity 的一部分
-- request scope 是调用方本次分析的临时收窄条件
+| 层 | 来源 | 优先级 | 说明 |
+| --- | --- | --- | --- |
+| governance_policy_filters | governance context / policy engine | 最高 | 不可绕过、不可覆盖；与 metric/binding 冲突为 readiness 失败 |
+| carrier_row_filters | `CarrierBinding.row_filter_refs` | 高 | carrier 消费不变量；与 metric predicate 冲突为 compiler 错误 |
+| request_scope_constraints | typed intent `scope.predicate` | 中 | 请求级临时收窄；只能收窄上游过滤器；无法证明收窄 = fail closed |
+| metric_default_predicates | `MetricHeader.default_predicate_refs` | 基线 | 所有 component 共享的 metric identity 的一部分 |
+| component_qualifier_predicates | `MeasurementComponent.qualifier_refs` | 基线 | component-specific identity 的一部分 |
 
-这意味着：
+### 扁平化禁止规则
 
-- 单 component metric 的 sample basis 是 `shared_effective_scope AND metric_default_predicates AND component_qualifier_predicates`
-- 多 component metric 不存在一个可替代所有 component 的全局 `effective_scope`
-- artifact 必须能分别冻结 shared scope 与 per-component lineage
+- Compiler 不得将 `metric_default_predicates` 和 `component_qualifier_predicates` 合并为单个 `effective_predicates` 列表
+- N-component metric 必须产生 N 个 `component_effective_scope` 值 + 1 个 `shared_effective_scope`
+- `default_predicate_refs` 是共享基线，`qualifier_refs` 是每个 component 的增量；两者必须在 artifact lineage 中独立保留
+- Artifact 必须能分别冻结 shared scope 与 per-component lineage
+
+### 对单/多 component metric 的影响
+
+- 单 component metric：`sample_basis = shared_effective_scope AND metric_default_predicates AND component_qualifier_predicates`
+- 多 component metric（rate / average）：不存在一个可替代所有 component 的全局 `effective_scope`；numerator 与 denominator 的 sample basis 必须独立计算
 
 ## 校验与治理规则
 

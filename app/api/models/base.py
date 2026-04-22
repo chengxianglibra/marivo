@@ -104,6 +104,28 @@ Cardinality = Literal["one_to_one", "many_to_one", "one_to_many", "many_to_many"
 ConsumptionPolicyType = Literal["late_arrival_policy", "incomplete_window_policy"]
 ConsumptionBehavior = Literal["exclude_open_subjects", "clip_to_window", "keep_partial"]
 
+# Predicate types — see docs/semantic/predicate-schema-contract.zh.md for taxonomy
+PredicateUsage = Literal[
+    "metric_qualifier",  # Metric business predicates (qualifier_refs, default_predicate_refs)
+    "carrier_row_filter",  # Carrier consumption invariants (row_filter_refs)
+    "request_scope",  # Per-request non-time narrowing (scope.predicate)
+    "governance_policy",  # Governance/privacy/compliance filters
+]
+PredicateTimePolicy = Literal["non_time_only"]
+PredicateOperator = Literal[
+    "eq",
+    "neq",
+    "in",
+    "not_in",
+    "gt",
+    "gte",
+    "lt",
+    "lte",
+    "between",
+    "is_null",
+    "is_not_null",
+]
+
 # Compatibility profile types
 ProfileKind = Literal["requirement", "capability"]
 ProfileSubjectKind = Literal["metric", "process", "binding"]

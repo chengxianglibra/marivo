@@ -369,6 +369,7 @@ class CarrierBinding(TypedDict):
 - 它表达 carrier consumption invariants，例如软删、测试数据排除、租户隔离
 - 它不表达某个 metric 的 business predicates
 - 它不应承载仅在 numerator / denominator 等 component 上成立的局部 measurement semantics
+- 在 effective scope 合成中，`row_filter_refs` 属于 `shared_effective_scope`（与 governance 和 request scope 并列），不属于 component-level scope（formal specification 见 `predicate-schema-contract.zh.md` "Effective Scope 合成"）
 
 **合并独立 asset 层到 binding 的原因：**
 

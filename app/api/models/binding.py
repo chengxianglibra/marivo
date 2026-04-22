@@ -160,7 +160,7 @@ class CarrierBinding(BaseModel):
         default=None, description="Optional primary entity reference (entity.*)."
     )
     row_filter_refs: list[str] | None = Field(
-        default=None, description="Optional row filter references."
+        default=None, description="Optional row filter references (predicate.*)."
     )
     freshness_policy_ref: str | None = Field(
         default=None, description="Optional freshness policy reference."
@@ -184,6 +184,13 @@ class CarrierBinding(BaseModel):
     def validate_primary_entity_ref_prefix(cls, v: str | None) -> str | None:
         if v is not None:
             return validate_ref_prefix(v, "entity", "primary_entity_ref")
+        return v
+
+    @field_validator("row_filter_refs")
+    @classmethod
+    def validate_row_filter_refs_prefix(cls, v: list[str] | None) -> list[str] | None:
+        if v is not None:
+            return [validate_ref_prefix(ref, "predicate", "row_filter_refs") for ref in v]
         return v
 
 

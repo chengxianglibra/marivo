@@ -66,6 +66,11 @@ class MetricHeader(ObjectHeaderBase):
     additivity_constraints: AdditivityConstraints = Field(
         description="Structured additivity constraints: dimension policy and time-axis policy."
     )
+    default_predicate_refs: list[str] | None = Field(
+        default=None,
+        description="Shared predicate defaults for all measurement components. "
+        "Must reference predicate.*. Does not replace component qualifier_refs lineage.",
+    )
     metric_contract_version: str = Field(
         description="Contract version (e.g., 'metric.v1'). Must start with 'metric.'."
     )
@@ -104,6 +109,13 @@ class MetricHeader(ObjectHeaderBase):
     def validate_version_prefix(cls, v: str) -> str:
         return validate_contract_version(v, "metric")
 
+    @field_validator("default_predicate_refs")
+    @classmethod
+    def validate_default_predicate_refs_prefix(cls, v: list[str] | None) -> list[str] | None:
+        if v is not None:
+            return [validate_ref_prefix(ref, "predicate", "default_predicate_refs") for ref in v]
+        return v
+
 
 # =============================================================================
 # Measurement Component
@@ -134,6 +146,13 @@ class MeasurementComponent(BaseModel):
     def validate_measure_ref_prefix(cls, v: str | None) -> str | None:
         if v is not None:
             return validate_ref_prefix(v, "measure", "measure_ref")
+        return v
+
+    @field_validator("qualifier_refs")
+    @classmethod
+    def validate_qualifier_refs_prefix(cls, v: list[str] | None) -> list[str] | None:
+        if v is not None:
+            return [validate_ref_prefix(ref, "predicate", "qualifier_refs") for ref in v]
         return v
 
 
