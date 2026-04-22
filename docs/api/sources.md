@@ -41,10 +41,20 @@ Registers a new data source. The source type determines which catalog adapter is
 {
   "source_type": "duckdb",
   "display_name": "Analytics DuckDB",
-  "connection": {
-    "db_path": "/data/analytics.duckdb"
+  "authority": {
+    "catalog_system": "duckdb",
+    "connection": {
+      "path": "/data/analytics.duckdb"
+    },
+    "synthetic_catalog": "main"
   },
-  "capabilities": null
+  "sync": {
+    "mode": "selected"
+  },
+  "policy": {
+    "allow_live_browse": true,
+    "allow_sync": true
+  }
 }
 ```
 
@@ -52,8 +62,9 @@ Registers a new data source. The source type determines which catalog adapter is
 |-------|------|----------|-------------|
 | `source_type` | string | yes | Adapter type: `"duckdb"` or `"trino"` |
 | `display_name` | string | yes | Human-readable name |
-| `connection` | object | no | Adapter-specific connection parameters (default: `{}`) |
-| `capabilities` | object \| null | no | Explicit capability overrides (default: auto-detected) |
+| `authority` | object | yes | Metadata authority contract with `catalog_system`, `connection`, and optional `synthetic_catalog` |
+| `sync` | object | no | Sync policy (`selected`, `all`, `none`) |
+| `policy` | object | no | Operator control-plane flags |
 
 **DuckDB connection parameters:**
 
@@ -79,9 +90,17 @@ Registers a new data source. The source type determines which catalog adapter is
   "source_id": "src_a1b2c3d4e5f6",
   "source_type": "duckdb",
   "display_name": "Analytics DuckDB",
-  "connection": {"db_path": "/data/analytics.duckdb"},
-  "capabilities": {"supports_partitions": false},
-  "sync_mode": "by_select",
+  "authority": {
+    "catalog_system": "duckdb",
+    "connection": {"path": "/data/analytics.duckdb"},
+    "synthetic_catalog": "main"
+  },
+  "sync": {"mode": "selected"},
+  "intrinsic_capabilities": {"supports_partitions": false},
+  "policy": {
+    "allow_live_browse": true,
+    "allow_sync": true
+  },
   "status": "active",
   "created_at": "2024-01-15T10:00:00+00:00",
   "updated_at": "2024-01-15T10:00:00+00:00"
@@ -92,7 +111,8 @@ Registers a new data source. The source type determines which catalog adapter is
 
 | Value | Description |
 |-------|-------------|
-| `by_select` | Sync only tables listed in sync selections (default) |
+| `selected` | Sync only tables listed in sync selections (default) |
+| `all` | Sync the full authority catalog |
 | `none` | Disable automatic sync |
 
 ---
@@ -132,18 +152,29 @@ All fields are optional; only provided fields are updated.
 ```json
 {
   "display_name": "Production Analytics DuckDB",
-  "connection": {
-    "db_path": "/data/prod_analytics.duckdb"
+  "authority": {
+    "catalog_system": "duckdb",
+    "connection": {
+      "path": "/data/prod_analytics.duckdb"
+    },
+    "synthetic_catalog": "main"
   },
-  "sync_mode": "by_select"
+  "sync": {
+    "mode": "selected"
+  },
+  "policy": {
+    "allow_live_browse": true,
+    "allow_sync": true
+  }
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `display_name` | string | New display name |
-| `connection` | object | Updated connection parameters |
-| `sync_mode` | string | `"by_select"` or `"none"` |
+| `authority` | object | Updated authority contract |
+| `sync` | object | Updated sync contract |
+| `policy` | object | Updated operator policy |
 
 ---
 
@@ -171,7 +202,8 @@ POST /sources/{source_id}/sync
 
 Triggers a catalog sync job. The job snapshots schemas, tables, and columns from the external source into the local metadata store. Stale objects (present in prior sync but absent from current sync) are automatically removed.
 
-If `sync_mode` is `by_select`, only tables listed in sync selections are synced.
+If `sync.mode` is `selected`, only tables listed in sync selections are synced. If it is `all`,
+Marivo syncs the full authority catalog.
 
 For Trino sources, table detail sync also attempts to capture table properties. Marivo reads both
 connector hidden metadata tables such as `"table$properties"` and explicit `WITH (...)` properties
@@ -219,7 +251,7 @@ GET /sources/{source_id}/sync/{job_id}
 
 ## Sync Selections
 
-Sync selections allow fine-grained control over which tables to include when `sync_mode` is `by_select`. Each selection specifies a schema + table pair.
+Sync selections allow fine-grained control over which tables to include when `sync.mode` is `selected`. Each selection specifies a schema + table pair.
 
 ### List Sync Selections
 

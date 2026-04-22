@@ -7,6 +7,7 @@ from app.bindings import BindingService
 from app.engines import EngineService
 from app.execution.capabilities import (
     EngineCapabilityProfile,
+    RoutingFitDetail,
     describe_routing_fit,
     score_capability_profile,
 )
@@ -146,7 +147,7 @@ class QueryRouter:
                 capability_profile,
                 table_count=len(table_names),
             )
-            fit_detail = (
+            fit_detail: RoutingFitDetail = (
                 describe_routing_fit(
                     capability_profile,
                     table_count=len(table_names),

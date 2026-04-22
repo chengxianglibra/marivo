@@ -163,6 +163,165 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
         )
         self.assertEqual(row["timestamp_format"], "%Y%m%d %H:%M:%S")
 
+    def test_initialize_migrates_legacy_source_and_engine_contracts(self) -> None:
+        legacy_path = Path(self.temp_dir.name) / "legacy_source_engine.sqlite"
+        legacy_store = SQLiteMetadataStore(legacy_path)
+        with legacy_store.connect() as con:
+            for ddl in METADATA_DDL:
+                if "CREATE TABLE IF NOT EXISTS sources" in ddl:
+                    con.execute(
+                        """
+                        CREATE TABLE sources (
+                            source_id         TEXT PRIMARY KEY,
+                            source_type       TEXT NOT NULL,
+                            display_name      TEXT NOT NULL,
+                            connection_json   TEXT NOT NULL,
+                            capabilities_json TEXT NOT NULL DEFAULT '{}',
+                            sync_mode         TEXT NOT NULL DEFAULT 'by_select',
+                            status            TEXT NOT NULL DEFAULT 'active',
+                            created_at        TEXT NOT NULL,
+                            updated_at        TEXT NOT NULL
+                        )
+                        """
+                    )
+                elif "CREATE TABLE IF NOT EXISTS engines" in ddl:
+                    con.execute(
+                        """
+                        CREATE TABLE engines (
+                            engine_id         TEXT PRIMARY KEY,
+                            engine_type       TEXT NOT NULL,
+                            display_name      TEXT NOT NULL,
+                            connection_json   TEXT NOT NULL,
+                            capabilities_json TEXT NOT NULL DEFAULT '{}',
+                            status            TEXT NOT NULL DEFAULT 'active',
+                            created_at        TEXT NOT NULL,
+                            updated_at        TEXT NOT NULL
+                        )
+                        """
+                    )
+                else:
+                    con.execute(ddl)
+            con.execute(
+                """
+                INSERT INTO sources (
+                    source_id, source_type, display_name, connection_json,
+                    capabilities_json, sync_mode, status, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    "src_legacy",
+                    "duckdb",
+                    "Legacy Source",
+                    '{"path": "/tmp/legacy.duckdb"}',
+                    '{"supports_partitions": false}',
+                    "by_select",
+                    "active",
+                    "2026-04-22T00:00:00Z",
+                    "2026-04-22T00:00:00Z",
+                ],
+            )
+            con.execute(
+                """
+                INSERT INTO engines (
+                    engine_id, engine_type, display_name, connection_json,
+                    capabilities_json, status, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    "eng_legacy",
+                    "trino",
+                    "Legacy Engine",
+                    '{"host": "localhost", "port": 8080, "catalog": "iceberg", "schema": "analytics"}',
+                    (
+                        '{"supported_step_types": ["metric_query"], '
+                        '"min_staleness_minutes": 15, '
+                        '"policy_support": ["catalog_governed"], '
+                        '"performance_class": "embedded", '
+                        '"supported_sql_features": ["connector_pushdown"], '
+                        '"metadata": {"runtime": "legacy"}}'
+                    ),
+                    "active",
+                    "2026-04-22T00:00:00Z",
+                    "2026-04-22T00:00:00Z",
+                ],
+            )
+            con.commit()
+
+        migrated_store = SQLiteMetadataStore(legacy_path)
+        migrated_store.initialize()
+
+        source_columns = {
+            str(row["name"]) for row in migrated_store.query_rows("PRAGMA table_info(sources)")
+        }
+        self.assertIn("authority_json", source_columns)
+        self.assertIn("intrinsic_capabilities_json", source_columns)
+        self.assertIn("policy_json", source_columns)
+        source_row = migrated_store.query_one(
+            """
+            SELECT authority_json, sync_mode, intrinsic_capabilities_json, policy_json
+            FROM sources
+            WHERE source_id = ?
+            """,
+            ["src_legacy"],
+        )
+        self.assertEqual(
+            source_row["authority_json"],
+            '{"catalog_system": "duckdb", "connection": {"path": "/tmp/legacy.duckdb"}, "synthetic_catalog": "main"}',
+        )
+        self.assertEqual(source_row["sync_mode"], "selected")
+        self.assertEqual(
+            source_row["intrinsic_capabilities_json"], '{"supports_partitions": false}'
+        )
+        self.assertEqual(
+            source_row["policy_json"], '{"allow_live_browse": true, "allow_sync": true}'
+        )
+
+        engine_columns = {
+            str(row["name"]) for row in migrated_store.query_rows("PRAGMA table_info(engines)")
+        }
+        self.assertIn("default_namespace_json", engine_columns)
+        self.assertIn("deployment_capabilities_json", engine_columns)
+        self.assertIn("policy_json", engine_columns)
+        engine_row = migrated_store.query_one(
+            """
+            SELECT
+                connection_json,
+                default_namespace_json,
+                intrinsic_capabilities_json,
+                deployment_capabilities_json,
+                policy_json
+            FROM engines
+            WHERE engine_id = ?
+            """,
+            ["eng_legacy"],
+        )
+        self.assertEqual(
+            engine_row["connection_json"],
+            '{"host": "localhost", "port": 8080, "catalog": "iceberg", "schema": "analytics"}',
+        )
+        self.assertEqual(
+            engine_row["default_namespace_json"], '{"catalog": "iceberg", "schema": "analytics"}'
+        )
+        self.assertEqual(
+            engine_row["intrinsic_capabilities_json"],
+            '{"materialization_support": "catalog_table", "performance_class": "distributed", "federation_support": "connector"}',
+        )
+        self.assertEqual(
+            engine_row["deployment_capabilities_json"],
+            (
+                '{"supported_step_types": ["metric_query"], '
+                '"min_staleness_minutes": 15, '
+                '"policy_support": ["catalog_governed"], '
+                '"performance_class": "embedded", '
+                '"supported_sql_features": ["connector_pushdown"], '
+                '"metadata": {"runtime": "legacy"}}'
+            ),
+        )
+        self.assertEqual(
+            engine_row["policy_json"],
+            '{"allowed_step_types": [], "required_policy_support": []}',
+        )
+
     def test_new_tables_exist(self) -> None:
         for table in [
             "sources",

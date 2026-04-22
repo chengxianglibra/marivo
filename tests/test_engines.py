@@ -60,15 +60,15 @@ class EngineServiceTests(unittest.TestCase):
         fetched = self.service.get_engine(engine["engine_id"])
         self.assertEqual(fetched["engine_id"], engine["engine_id"])
         self.assertEqual(fetched["connection"]["path"], "/tmp/test.duckdb")
-        self.assertEqual(fetched["capabilities"]["engine_type"], "duckdb")
-        self.assertEqual(fetched["capabilities"]["performance_class"], "embedded")
+        self.assertEqual(fetched["default_namespace"], {"catalog": None, "schema": None})
+        self.assertEqual(fetched["intrinsic_capabilities"]["performance_class"], "embedded")
 
     def test_get_capability_profile_merges_defaults_and_overrides(self) -> None:
         engine = self.service.register_engine(
             engine_type="trino",
             display_name="Capability Trino",
             connection={"host": "localhost"},
-            capabilities={"metadata": {"deployment": "prod"}, "min_staleness_minutes": 15},
+            deployment_capabilities={"min_staleness_minutes": 15},
         )
 
         profile = self.service.get_capability_profile(engine["engine_id"])
@@ -76,7 +76,22 @@ class EngineServiceTests(unittest.TestCase):
         self.assertEqual(profile.engine_type, "trino")
         self.assertEqual(profile.performance_class, "distributed")
         self.assertEqual(profile.min_staleness_minutes, 15)
-        self.assertEqual(profile.metadata["deployment"], "prod")
+
+    def test_register_engine_without_deployment_overrides_preserves_default_profile(self) -> None:
+        engine = self.service.register_engine(
+            engine_type="trino",
+            display_name="Default Capability Trino",
+            connection={"host": "localhost"},
+        )
+
+        profile = self.service.get_capability_profile(engine["engine_id"])
+
+        self.assertEqual(engine["deployment_capabilities"], {})
+        self.assertEqual(
+            profile.supported_step_types,
+            ("sample_rows", "profile_table", "metric_query"),
+        )
+        self.assertEqual(profile.min_staleness_minutes, 5)
 
     def test_get_engine_404(self) -> None:
         with self.assertRaises(KeyError):
@@ -168,6 +183,19 @@ class EngineAPITests(unittest.TestCase):
         engines = resp.json()
         self.assertIsInstance(engines, list)
         self.assertTrue(any(e["display_name"] == "API DuckDB" for e in engines))
+
+    def test_post_engine_omitting_deployment_capabilities_keeps_defaults(self) -> None:
+        resp = self.client.post(
+            "/engines",
+            json={
+                "engine_type": "trino",
+                "display_name": "API Default Trino",
+                "connection": {"host": "localhost"},
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        engine = resp.json()
+        self.assertEqual(engine["deployment_capabilities"], {})
 
     def test_post_engine_rejects_unsupported_type(self) -> None:
         resp = self.client.post(
@@ -329,7 +357,10 @@ class EngineConfigTests(unittest.TestCase):
                 sources:
                   - name: "Demo"
                     type: duckdb
-                    connection: {}
+                    authority:
+                      catalog_system: duckdb
+                      connection: {}
+                      synthetic_catalog: main
                 engines:
                   - name: "My DuckDB"
                     type: duckdb
@@ -377,7 +408,14 @@ class EngineConfigTests(unittest.TestCase):
             resp = client.get("/engines")
             self.assertEqual(resp.status_code, 200)
             engines = resp.json()
-            self.assertTrue(any(e["display_name"] == "Startup DuckDB" for e in engines))
+            startup_engine = next(e for e in engines if e["display_name"] == "Startup DuckDB")
+            self.assertEqual(startup_engine["deployment_capabilities"], {})
+
+            profile = EngineService(metadata).get_capability_profile(startup_engine["engine_id"])
+            self.assertEqual(
+                profile.supported_step_types,
+                ("sample_rows", "profile_table", "metric_query"),
+            )
 
             client.close()
 

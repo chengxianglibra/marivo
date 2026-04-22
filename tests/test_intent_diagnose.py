@@ -22,6 +22,7 @@ Covers:
 
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from datetime import UTC, datetime
@@ -87,10 +88,26 @@ def _seed_metadata(meta: SQLiteMetadataStore) -> None:
 
     meta.execute(
         "INSERT OR IGNORE INTO sources "
-        "(source_id, source_type, display_name, connection_json, capabilities_json, "
-        "created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        [src_id, "duckdb", "Diag Test Source", "{}", "{}", now, now],
+        "(source_id, source_type, display_name, authority_json, sync_mode, "
+        "intrinsic_capabilities_json, policy_json, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [
+            src_id,
+            "duckdb",
+            "Diag Test Source",
+            json.dumps(
+                {
+                    "catalog_system": "duckdb",
+                    "connection": {},
+                    "synthetic_catalog": "main",
+                }
+            ),
+            "selected",
+            json.dumps({"supports_partitions": False}),
+            json.dumps({"allow_live_browse": True, "allow_sync": True}),
+            now,
+            now,
+        ],
     )
     meta.execute(
         "INSERT OR IGNORE INTO source_objects "

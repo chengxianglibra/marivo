@@ -19,6 +19,42 @@ from app.sync import SyncEngine
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 
+def build_duckdb_source_payload(path: str, display_name: str) -> dict:
+    return {
+        "source_type": "duckdb",
+        "display_name": display_name,
+        "authority": {
+            "catalog_system": "duckdb",
+            "connection": {"path": path},
+            "synthetic_catalog": "main",
+        },
+        "sync": {"mode": "selected"},
+    }
+
+
+def build_duckdb_engine_payload(path: str, display_name: str) -> dict:
+    return {
+        "engine_type": "duckdb",
+        "display_name": display_name,
+        "connection": {"path": path},
+    }
+
+
+def build_trino_engine_payload(
+    display_name: str,
+    connection: dict[str, object],
+    deployment_capabilities: dict[str, object] | None = None,
+) -> dict:
+    payload: dict[str, object] = {
+        "engine_type": "trino",
+        "display_name": display_name,
+        "connection": connection,
+    }
+    if deployment_capabilities is not None:
+        payload["deployment_capabilities"] = deployment_capabilities
+    return payload
+
+
 class BindingServiceTests(unittest.TestCase):
     """Unit tests for BindingService using a real SQLiteMetadataStore."""
 
@@ -661,9 +697,8 @@ class QueryRouterTests(unittest.TestCase):
             "duckdb",
             "Semantic Route Duck",
             {"path": "/tmp/semantic_route.duckdb"},
-            capabilities={
-                "supported_step_types": ("sample_rows", "profile_table"),
-                "policy_support": (),
+            deployment_capabilities={
+                "supported_step_types": ["sample_rows", "profile_table"],
             },
         )
         trino = self.engine_service.register_engine(
@@ -721,7 +756,7 @@ class QueryRouterTests(unittest.TestCase):
             if candidate["engine_id"] == duck["engine_id"]
         )
         self.assertFalse(duck_candidate["step_type_supported"])
-        self.assertIn("aggregate_only", duck_candidate["missing_policy_support"])
+        self.assertEqual(duck_candidate["missing_policy_support"], [])
 
 
 class BindingAPITests(unittest.TestCase):
@@ -754,21 +789,13 @@ class BindingAPITests(unittest.TestCase):
 
         resp = self.client.post(
             "/sources",
-            json={
-                "source_type": "duckdb",
-                "display_name": f"API Src {suffix}",
-                "connection": {"path": str(self.db_path)},
-            },
+            json=build_duckdb_source_payload(str(self.db_path), f"API Src {suffix}"),
         )
         source_id = resp.json()["source_id"]
 
         resp = self.client.post(
             "/engines",
-            json={
-                "engine_type": "duckdb",
-                "display_name": f"API Eng {suffix}",
-                "connection": {"path": f"/tmp/api_{suffix}.duckdb"},
-            },
+            json=build_duckdb_engine_payload(f"/tmp/api_{suffix}.duckdb", f"API Eng {suffix}"),
         )
         engine_id = resp.json()["engine_id"]
 
@@ -852,11 +879,7 @@ class BindingAPITests(unittest.TestCase):
         # Register source, sync it, register engine, bind, then resolve
         resp = self.client.post(
             "/sources",
-            json={
-                "source_type": "duckdb",
-                "display_name": "Routing Src",
-                "connection": {"path": str(self.db_path)},
-            },
+            json=build_duckdb_source_payload(str(self.db_path), "Routing Src"),
         )
         source_id = resp.json()["source_id"]
 
@@ -877,11 +900,7 @@ class BindingAPITests(unittest.TestCase):
 
         resp = self.client.post(
             "/engines",
-            json={
-                "engine_type": "duckdb",
-                "display_name": "Routing Eng",
-                "connection": {"path": "/tmp/routing.duckdb"},
-            },
+            json=build_duckdb_engine_payload("/tmp/routing.duckdb", "Routing Eng"),
         )
         engine_id = resp.json()["engine_id"]
 
@@ -954,21 +973,13 @@ class BindingAPITests(unittest.TestCase):
 
         resp = self.client.post(
             "/sources",
-            json={
-                "source_type": "duckdb",
-                "display_name": "QN Routing Src",
-                "connection": {"path": str(self.db_path)},
-            },
+            json=build_duckdb_source_payload(str(self.db_path), "QN Routing Src"),
         )
         source_id = resp.json()["source_id"]
 
         resp = self.client.post(
             "/engines",
-            json={
-                "engine_type": "duckdb",
-                "display_name": "QN Routing Eng",
-                "connection": {"path": "/tmp/qn_routing.duckdb"},
-            },
+            json=build_duckdb_engine_payload("/tmp/qn_routing.duckdb", "QN Routing Eng"),
         )
         engine_id = resp.json()["engine_id"]
 
@@ -1020,21 +1031,13 @@ class BindingAPITests(unittest.TestCase):
 
         resp = self.client.post(
             "/sources",
-            json={
-                "source_type": "duckdb",
-                "display_name": "FQN Routing Src",
-                "connection": {"path": str(self.db_path)},
-            },
+            json=build_duckdb_source_payload(str(self.db_path), "FQN Routing Src"),
         )
         source_id = resp.json()["source_id"]
 
         resp = self.client.post(
             "/engines",
-            json={
-                "engine_type": "duckdb",
-                "display_name": "FQN Routing Eng",
-                "connection": {"path": "/tmp/fqn_routing.duckdb"},
-            },
+            json=build_duckdb_engine_payload("/tmp/fqn_routing.duckdb", "FQN Routing Eng"),
         )
         engine_id = resp.json()["engine_id"]
 
@@ -1081,20 +1084,12 @@ class BindingAPITests(unittest.TestCase):
     def test_routing_resolve_short_name_reports_ambiguity(self) -> None:
         resp = self.client.post(
             "/sources",
-            json={
-                "source_type": "duckdb",
-                "display_name": "Ambiguous Routing Src A",
-                "connection": {"path": str(self.db_path)},
-            },
+            json=build_duckdb_source_payload(str(self.db_path), "Ambiguous Routing Src A"),
         )
         source_a_id = resp.json()["source_id"]
         resp = self.client.post(
             "/sources",
-            json={
-                "source_type": "duckdb",
-                "display_name": "Ambiguous Routing Src B",
-                "connection": {"path": str(self.db_path)},
-            },
+            json=build_duckdb_source_payload(str(self.db_path), "Ambiguous Routing Src B"),
         )
         source_b_id = resp.json()["source_id"]
 
@@ -1104,11 +1099,7 @@ class BindingAPITests(unittest.TestCase):
         ):
             resp = self.client.post(
                 "/engines",
-                json={
-                    "engine_type": "duckdb",
-                    "display_name": f"Engine {source_id}",
-                    "connection": {"path": engine_path},
-                },
+                json=build_duckdb_engine_payload(engine_path, f"Engine {source_id}"),
             )
             engine_id = resp.json()["engine_id"]
             self.client.post(
@@ -1157,23 +1148,16 @@ class BindingAPITests(unittest.TestCase):
 
         resp = self.client.post(
             "/sources",
-            json={
-                "source_type": "duckdb",
-                "display_name": "Semantic API Routing Src",
-                "connection": {"path": str(self.db_path)},
-            },
+            json=build_duckdb_source_payload(str(self.db_path), "Semantic API Routing Src"),
         )
         source_id = resp.json()["source_id"]
 
         resp = self.client.post(
             "/engines",
             json={
-                "engine_type": "duckdb",
-                "display_name": "Semantic API Duck",
-                "connection": {"path": "/tmp/semantic_api_duck.duckdb"},
-                "capabilities": {
+                **build_duckdb_engine_payload("/tmp/semantic_api_duck.duckdb", "Semantic API Duck"),
+                "deployment_capabilities": {
                     "supported_step_types": ["sample_rows", "profile_table"],
-                    "policy_support": [],
                 },
             },
         )
@@ -1181,17 +1165,16 @@ class BindingAPITests(unittest.TestCase):
 
         resp = self.client.post(
             "/engines",
-            json={
-                "engine_type": "trino",
-                "display_name": "Semantic API Trino",
-                "connection": {
+            json=build_trino_engine_payload(
+                "Semantic API Trino",
+                {
                     "host": "localhost",
                     "port": 8080,
                     "user": "test",
                     "catalog": "hive",
                     "schema": "default",
                 },
-            },
+            ),
         )
         trino_engine_id = resp.json()["engine_id"]
 
@@ -1275,8 +1258,12 @@ class BindingConfigTests(unittest.TestCase):
                         {
                             "name": "Cfg Src",
                             "type": "duckdb",
-                            "connection": {
-                                "path": str(Path(self.class_tmp.name) / "shared.duckdb")
+                            "authority": {
+                                "catalog_system": "duckdb",
+                                "connection": {
+                                    "path": str(Path(self.class_tmp.name) / "shared.duckdb")
+                                },
+                                "synthetic_catalog": "main",
                             },
                         }
                     ],
@@ -1309,8 +1296,12 @@ class BindingConfigTests(unittest.TestCase):
                             {
                                 "name": "Startup Src",
                                 "type": "duckdb",
-                                "connection": {
-                                    "path": str(Path(self.class_tmp.name) / "shared.duckdb")
+                                "authority": {
+                                    "catalog_system": "duckdb",
+                                    "connection": {
+                                        "path": str(Path(self.class_tmp.name) / "shared.duckdb")
+                                    },
+                                    "synthetic_catalog": "main",
                                 },
                             }
                         ],
@@ -1359,8 +1350,12 @@ class BindingConfigTests(unittest.TestCase):
                         {
                             "name": "NS Cfg Src",
                             "type": "duckdb",
-                            "connection": {
-                                "path": str(Path(self.class_tmp.name) / "shared.duckdb")
+                            "authority": {
+                                "catalog_system": "duckdb",
+                                "connection": {
+                                    "path": str(Path(self.class_tmp.name) / "shared.duckdb")
+                                },
+                                "synthetic_catalog": "main",
                             },
                         }
                     ],

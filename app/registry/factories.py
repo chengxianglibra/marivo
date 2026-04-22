@@ -9,6 +9,14 @@ SUPPORTED_SOURCE_TYPES: tuple[str, ...] = ("duckdb", "trino")
 SUPPORTED_ENGINE_TYPES: tuple[str, ...] = ("duckdb", "trino")
 
 
+def _duckdb_path(connection: dict[str, Any]) -> str:
+    for key in ("path", "database", "db_path"):
+        value = connection.get(key)
+        if isinstance(value, str) and value:
+            return value
+    raise KeyError("DuckDB connection requires one of: path, database, db_path")
+
+
 def _trino_connect_kwargs(connection: dict[str, Any]) -> dict[str, Any]:
     """Extract Trino connection kwargs shared by catalog adapter and analytics engine."""
     raw_tags = connection.get("client_tags") or connection.get("client-tags")
@@ -60,7 +68,7 @@ def build_catalog_adapter(source_type: str, connection: dict[str, Any]) -> Catal
     if source_type == "duckdb":
         from app.adapters.duckdb_adapter import DuckDBCatalogAdapter
 
-        return DuckDBCatalogAdapter(connection["path"])
+        return DuckDBCatalogAdapter(_duckdb_path(connection))
     if source_type == "trino":
         from app.adapters.trino_adapter import TrinoCatalogAdapter
 
@@ -73,7 +81,7 @@ def build_analytics_engine(engine_type: str, connection: dict[str, Any]) -> Anal
     if engine_type == "duckdb":
         from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 
-        return DuckDBAnalyticsEngine(connection["path"])
+        return DuckDBAnalyticsEngine(_duckdb_path(connection))
     if engine_type == "trino":
         from app.storage.trino_analytics import TrinoAnalyticsEngine
 

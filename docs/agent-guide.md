@@ -130,6 +130,8 @@ App startup requires `marivo.yaml` metadata config with `metadata.engine=sqlite`
 - Fresh SQLite metadata stores are initialized from the cached empty schema template in
   `tests/shared_fixtures.py`; existing metadata files still run the real initializer so migration
   tests keep covering schema upgrades. Bump the metadata template version when metadata DDL changes.
+- When metadata contract changes only alter columns inside an existing table, also update the
+  template validator in `tests/shared_fixtures.py`; table-name checks alone are not sufficient.
 - For heavy intent API tests, prefer class-level reuse of published semantic objects and seeded
   upstream artifacts over creating and publishing new metrics/bindings inside individual test
   methods. When compare/correlate-style tests only need committed upstream artifacts, seed the

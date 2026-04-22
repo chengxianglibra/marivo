@@ -138,10 +138,26 @@ def _seed_metric(
 
     meta.execute(
         "INSERT OR IGNORE INTO sources "
-        "(source_id, source_type, display_name, connection_json, capabilities_json, "
-        " created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        [src_id, "duckdb", f"Test Source {suffix}", "{}", "{}", now, now],
+        "(source_id, source_type, display_name, authority_json, sync_mode, "
+        "intrinsic_capabilities_json, policy_json, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [
+            src_id,
+            "duckdb",
+            f"Test Source {suffix}",
+            json.dumps(
+                {
+                    "catalog_system": "duckdb",
+                    "connection": {},
+                    "synthetic_catalog": "main",
+                }
+            ),
+            "selected",
+            json.dumps({"supports_partitions": False}),
+            json.dumps({"allow_live_browse": True, "allow_sync": True}),
+            now,
+            now,
+        ],
     )
     meta.execute(
         "INSERT OR IGNORE INTO source_objects "

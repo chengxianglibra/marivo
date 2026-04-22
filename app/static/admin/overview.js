@@ -184,7 +184,7 @@ export function createOverviewModule(ctx) {
     }
     const statusCounts = countStatuses(sources);
     const activeCount = statusCounts.active || 0;
-    const syncEnabledCount = sources.filter((item) => item?.sync_mode && item.sync_mode !== 'none').length;
+    const syncEnabledCount = sources.filter((item) => item?.sync?.mode && item.sync.mode !== 'none').length;
     const latest = pickLatest(sources);
     return {
       kpis: [

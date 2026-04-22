@@ -651,7 +651,11 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
             json={
                 "source_type": "duckdb",
                 "display_name": "TSU-05 Source",
-                "connection": {"path": str(db_path)},
+                "authority": {
+                    "catalog_system": "duckdb",
+                    "connection": {"path": str(db_path)},
+                    "synthetic_catalog": "main",
+                },
             },
         ).json()["source_id"]
         cls.client.post(

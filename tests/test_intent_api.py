@@ -122,17 +122,24 @@ def _seed_default_calendar_source_metadata(db_path: Path) -> None:
     metadata.execute(
         """
         INSERT OR IGNORE INTO sources (
-            source_id, source_type, display_name, connection_json,
-            capabilities_json, sync_mode, status, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            source_id, source_type, display_name, authority_json,
+            sync_mode, intrinsic_capabilities_json, policy_json, status, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
             "src_test_calendar_duckdb",
             "duckdb",
             "DuckDB",
-            json.dumps({"path": str(db_path)}),
-            "{}",
-            "by_select",
+            json.dumps(
+                {
+                    "catalog_system": "duckdb",
+                    "connection": {"path": str(db_path)},
+                    "synthetic_catalog": "main",
+                }
+            ),
+            "selected",
+            json.dumps({"supports_partitions": False}),
+            json.dumps({"allow_live_browse": True, "allow_sync": True}),
             "active",
             now,
             now,
@@ -245,7 +252,11 @@ def _register_duckdb_runtime(
         json={
             "source_type": "duckdb",
             "display_name": source_display_name,
-            "connection": {"path": str(db_path)},
+            "authority": {
+                "catalog_system": "duckdb",
+                "connection": {"path": str(db_path)},
+                "synthetic_catalog": "main",
+            },
         },
     ).json()
     engine = client.post(
@@ -277,15 +288,41 @@ def _ensure_source_object(
     )
     if existing is not None:
         return str(existing["object_id"])
+    parent_id: str | None = None
+    fqn_parts = [part for part in fqn.split(".") if part]
+    if len(fqn_parts) >= 2:
+        schema_name = fqn_parts[-2]
+        schema_fqn = ".".join(fqn_parts[:-1])
+        existing_schema = metadata.query_one(
+            """
+            SELECT object_id
+            FROM source_objects
+            WHERE source_id = ? AND object_type = 'schema' AND fqn = ?
+            """,
+            [source_id, schema_fqn],
+        )
+        if existing_schema is not None:
+            parent_id = str(existing_schema["object_id"])
+        else:
+            parent_id = f"obj_{uuid4().hex[:12]}"
+            metadata.execute(
+                """
+                INSERT INTO source_objects
+                    (object_id, source_id, object_type, native_name, fqn,
+                     properties_json, created_at, updated_at)
+                VALUES (?, ?, 'schema', ?, ?, '{}', ?, ?)
+                """,
+                [parent_id, source_id, schema_name, schema_fqn, now, now],
+            )
     object_id = f"obj_{uuid4().hex[:12]}"
     metadata.execute(
         """
         INSERT INTO source_objects
-            (object_id, source_id, object_type, native_name, fqn,
+            (object_id, source_id, object_type, parent_id, native_name, fqn,
              properties_json, created_at, updated_at)
-        VALUES (?, ?, 'table', ?, ?, '{}', ?, ?)
+        VALUES (?, ?, 'table', ?, ?, ?, '{}', ?, ?)
         """,
-        [object_id, source_id, native_name, fqn, now, now],
+        [object_id, source_id, parent_id, native_name, fqn, now, now],
     )
     return object_id
 
@@ -1839,7 +1876,11 @@ class IntentEndpointWithSemanticLayerTests(unittest.TestCase):
             json={
                 "source_type": "duckdb",
                 "display_name": "Test DuckDB",
-                "connection": {"database": ":memory:"},
+                "authority": {
+                    "catalog_system": "duckdb",
+                    "connection": {"database": ":memory:"},
+                    "synthetic_catalog": "main",
+                },
             },
         )
         cls.source_id = r.json()["source_id"]
@@ -1850,7 +1891,7 @@ class IntentEndpointWithSemanticLayerTests(unittest.TestCase):
             json={
                 "engine_type": "duckdb",
                 "display_name": "Test DuckDB Engine",
-                "connection": {},
+                "connection": {"database": ":memory:"},
             },
         )
         cls.engine_id = r.json()["engine_id"]

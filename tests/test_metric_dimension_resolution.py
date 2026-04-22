@@ -32,7 +32,11 @@ class TypedMetricDimensionResolutionTests(unittest.TestCase):
             json={
                 "source_type": "duckdb",
                 "display_name": "Metric Dimension Resolution Source",
-                "connection": {"path": str(cls.db_path)},
+                "authority": {
+                    "catalog_system": "duckdb",
+                    "connection": {"path": str(cls.db_path)},
+                    "synthetic_catalog": "main",
+                },
             },
         ).json()
         cls.source_id = source["source_id"]
