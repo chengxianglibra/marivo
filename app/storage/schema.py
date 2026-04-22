@@ -954,6 +954,7 @@ METADATA_DDL: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_propositions_session_type ON propositions(session_id, proposition_type)",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_propositions_session_type_identity ON propositions(session_id, proposition_type, identity_key) WHERE identity_key != ''",
     "CREATE INDEX IF NOT EXISTS idx_source_objects_source_type_fqn ON source_objects(source_id, object_type, fqn)",
+    "CREATE INDEX IF NOT EXISTS idx_source_objects_source_fqn ON source_objects(source_id, fqn)",
     "CREATE INDEX IF NOT EXISTS idx_source_execution_mappings_source_status_priority ON source_execution_mappings(source_id, status, priority DESC, created_at)",
     "CREATE INDEX IF NOT EXISTS idx_source_execution_mappings_engine_status_priority ON source_execution_mappings(engine_id, status, priority DESC, created_at)",
     # -- assessments: immutable evaluation snapshots --
