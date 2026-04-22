@@ -164,28 +164,114 @@ class SessionCreateRequest(BaseModel):
     )
 
 
+class SourceAuthorityPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    catalog_system: Literal["duckdb", "trino"]
+    connection: dict[str, Any] = Field(default_factory=dict)
+    synthetic_catalog: str | None = None
+
+    @model_validator(mode="after")
+    def normalize_duckdb_catalog(self) -> SourceAuthorityPayload:
+        if self.catalog_system == "duckdb":
+            if self.synthetic_catalog is None:
+                self.synthetic_catalog = "main"
+            elif self.synthetic_catalog != "main":
+                raise ValueError("duckdb authority.synthetic_catalog must be 'main'")
+        elif self.synthetic_catalog is not None:
+            raise ValueError("synthetic_catalog is only supported for duckdb sources")
+        return self
+
+
+class SourceSyncPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["selected", "all", "none"] = "selected"
+
+
+class SourcePolicyPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    allow_live_browse: bool = True
+    allow_sync: bool = True
+
+
 class SourceRegisterRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     source_type: Literal["duckdb", "trino"]
     display_name: str
-    connection: dict[str, Any] = Field(default_factory=dict)
-    capabilities: dict[str, Any] | None = None
+    authority: SourceAuthorityPayload
+    sync: SourceSyncPayload = Field(default_factory=SourceSyncPayload)
+    policy: SourcePolicyPayload = Field(default_factory=SourcePolicyPayload)
+
+    @model_validator(mode="after")
+    def validate_authority_catalog_system(self) -> SourceRegisterRequest:
+        if self.authority.catalog_system != self.source_type:
+            raise ValueError("authority.catalog_system must match source_type")
+        return self
 
 
 class SourceUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     display_name: str | None = None
-    connection: dict[str, Any] | None = None
-    sync_mode: str | None = None
+    authority: SourceAuthorityPayload | None = None
+    sync: SourceSyncPayload | None = None
+    policy: SourcePolicyPayload | None = None
 
 
 class ColumnPropertiesUpdateRequest(BaseModel):
     unit: str | None = None
 
 
+class EngineDefaultNamespacePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    catalog: str | None = None
+    schema_name: str | None = Field(default=None, alias="schema")
+
+
+class EngineDeploymentCapabilitiesPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    supported_step_types: list[str] = Field(default_factory=list)
+    min_staleness_minutes: int | None = None
+
+
+class EnginePolicyPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    allowed_step_types: list[str] = Field(default_factory=list)
+    required_policy_support: list[str] = Field(default_factory=list)
+
+
 class EngineRegisterRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     engine_type: Literal["duckdb", "trino"]
     display_name: str
     connection: dict[str, Any] = Field(default_factory=dict)
-    capabilities: dict[str, Any] | None = None
+    default_namespace: EngineDefaultNamespacePayload | None = None
+    deployment_capabilities: EngineDeploymentCapabilitiesPayload = Field(
+        default_factory=EngineDeploymentCapabilitiesPayload
+    )
+    policy: EnginePolicyPayload = Field(default_factory=EnginePolicyPayload)
+
+    @model_validator(mode="after")
+    def validate_engine_defaults(self) -> EngineRegisterRequest:
+        if self.engine_type == "duckdb":
+            namespace = self.default_namespace
+            if namespace is not None and (
+                namespace.catalog is not None or namespace.schema_name is not None
+            ):
+                raise ValueError("duckdb default_namespace must be null for catalog and schema")
+        return self
+
+
+SourceRegisterRequest.model_rebuild()
+SourceUpdateRequest.model_rebuild()
+EngineRegisterRequest.model_rebuild()
 
 
 # Source-Engine Binding (not typed binding)

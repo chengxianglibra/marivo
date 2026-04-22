@@ -14,6 +14,66 @@ from app.storage.analytics import AnalyticsEngine
 from app.storage.metadata import MetadataStore
 
 
+def _build_intrinsic_capabilities(engine_type: str) -> dict[str, Any]:
+    profile = build_engine_capability_profile(engine_type).to_dict()
+    return {
+        "materialization_support": profile["materialization_support"],
+        "performance_class": profile["performance_class"],
+        "federation_support": profile["federation_support"],
+    }
+
+
+def _normalize_default_namespace(
+    engine_type: str,
+    connection: dict[str, Any],
+    default_namespace: dict[str, Any] | None,
+) -> dict[str, Any]:
+    normalized = {
+        "catalog": None,
+        "schema": None,
+    }
+    if engine_type == "trino":
+        normalized["catalog"] = connection.get("catalog")
+        normalized["schema"] = connection.get("schema")
+    if default_namespace:
+        normalized.update(
+            {
+                "catalog": default_namespace.get("catalog"),
+                "schema": default_namespace.get("schema"),
+            }
+        )
+    if engine_type == "duckdb" and (
+        normalized["catalog"] is not None or normalized["schema"] is not None
+    ):
+        raise ValueError("duckdb default_namespace must be null for catalog and schema")
+    return normalized
+
+
+def _normalize_deployment_capabilities(
+    deployment_capabilities: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if deployment_capabilities is None:
+        return {}
+
+    normalized: dict[str, Any] = {}
+    for key, value in deployment_capabilities.items():
+        if key in {"supported_sql_features", "supported_step_types", "policy_support"}:
+            normalized[key] = list(value)
+        elif key == "metadata" and value is not None:
+            normalized[key] = dict(value)
+        else:
+            normalized[key] = value
+    return normalized
+
+
+def _normalize_policy(policy: dict[str, Any] | None) -> dict[str, Any]:
+    payload = policy or {}
+    return {
+        "allowed_step_types": list(payload.get("allowed_step_types", [])),
+        "required_policy_support": list(payload.get("required_policy_support", [])),
+    }
+
+
 class EngineRegistry:
     """Engine registry and analytics factory boundary."""
 
@@ -25,37 +85,46 @@ class EngineRegistry:
         engine_type: str,
         display_name: str,
         connection: dict[str, Any],
-        capabilities: dict[str, Any] | None = None,
+        default_namespace: dict[str, Any] | None = None,
+        deployment_capabilities: dict[str, Any] | None = None,
+        policy: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         validate_engine_type(engine_type)
         engine_id = f"eng_{uuid4().hex[:12]}"
         now = now_iso()
-        caps = build_engine_capability_profile(engine_type, capabilities).to_dict()
         self.metadata.execute(
             """
-            INSERT INTO engines (engine_id, engine_type, display_name, connection_json, capabilities_json, status, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
+            INSERT INTO engines (
+                engine_id,
+                engine_type,
+                display_name,
+                connection_json,
+                default_namespace_json,
+                intrinsic_capabilities_json,
+                deployment_capabilities_json,
+                policy_json,
+                status,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
             """,
             [
                 engine_id,
                 engine_type,
                 display_name,
                 json.dumps(connection),
-                json.dumps(caps),
+                json.dumps(
+                    _normalize_default_namespace(engine_type, connection, default_namespace)
+                ),
+                json.dumps(_build_intrinsic_capabilities(engine_type)),
+                json.dumps(_normalize_deployment_capabilities(deployment_capabilities)),
+                json.dumps(_normalize_policy(policy)),
                 now,
                 now,
             ],
         )
-        return {
-            "engine_id": engine_id,
-            "engine_type": engine_type,
-            "display_name": display_name,
-            "connection": connection,
-            "capabilities": caps,
-            "status": "active",
-            "created_at": now,
-            "updated_at": now,
-        }
+        return self.get_engine(engine_id)
 
     def get_engine(self, engine_id: str) -> dict[str, Any]:
         row = self.metadata.query_one("SELECT * FROM engines WHERE engine_id = ?", [engine_id])
@@ -72,18 +141,47 @@ class EngineRegistry:
         engine_type: str,
         display_name: str,
         connection: dict[str, Any],
-        capabilities: dict[str, Any] | None = None,
+        default_namespace: dict[str, Any] | None = None,
+        deployment_capabilities: dict[str, Any] | None = None,
+        policy: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         validate_engine_type(engine_type)
         existing = self.metadata.query_one(
             "SELECT * FROM engines WHERE display_name = ?",
             [display_name],
         )
-        if existing is not None:
-            return self._row_to_engine(existing)
-        return self.register_engine(
-            engine_type, display_name, connection, capabilities=capabilities
+        if existing is None:
+            return self.register_engine(
+                engine_type,
+                display_name,
+                connection,
+                default_namespace=default_namespace,
+                deployment_capabilities=deployment_capabilities,
+                policy=policy,
+            )
+
+        self.metadata.execute(
+            """
+            UPDATE engines
+            SET engine_type = ?, connection_json = ?, default_namespace_json = ?,
+                intrinsic_capabilities_json = ?, deployment_capabilities_json = ?,
+                policy_json = ?, updated_at = ?
+            WHERE engine_id = ?
+            """,
+            [
+                engine_type,
+                json.dumps(connection),
+                json.dumps(
+                    _normalize_default_namespace(engine_type, connection, default_namespace)
+                ),
+                json.dumps(_build_intrinsic_capabilities(engine_type)),
+                json.dumps(_normalize_deployment_capabilities(deployment_capabilities)),
+                json.dumps(_normalize_policy(policy)),
+                now_iso(),
+                existing["engine_id"],
+            ],
         )
+        return self.get_engine(str(existing["engine_id"]))
 
     def build_analytics_engine(self, engine_id: str) -> AnalyticsEngine:
         engine = self.get_engine(engine_id)
@@ -93,20 +191,19 @@ class EngineRegistry:
         engine = self.get_engine(engine_id)
         return build_engine_capability_profile(
             engine["engine_type"],
-            engine["capabilities"],
+            engine["deployment_capabilities"],
         )
 
     def _row_to_engine(self, row: dict[str, Any]) -> dict[str, Any]:
-        capabilities = build_engine_capability_profile(
-            row["engine_type"],
-            json.loads(row["capabilities_json"]),
-        ).to_dict()
         return {
             "engine_id": row["engine_id"],
             "engine_type": row["engine_type"],
             "display_name": row["display_name"],
-            "connection": json.loads(row["connection_json"]),
-            "capabilities": capabilities,
+            "connection": json.loads(str(row["connection_json"])),
+            "default_namespace": json.loads(str(row["default_namespace_json"])),
+            "intrinsic_capabilities": json.loads(str(row["intrinsic_capabilities_json"])),
+            "deployment_capabilities": json.loads(str(row["deployment_capabilities_json"])),
+            "policy": json.loads(str(row["policy_json"])),
             "status": row["status"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],

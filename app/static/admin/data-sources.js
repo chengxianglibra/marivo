@@ -146,9 +146,10 @@ export function createDataSourcesModule(ctx) {
         { label: 'source_id', value: source.source_id },
         { label: 'display_name', value: source.display_name || '-' },
         { label: 'source_type', value: source.source_type || '-' },
-        { label: 'sync_mode', value: source.sync_mode || 'by_select' },
+        { label: 'sync.mode', value: source.sync?.mode || 'selected' },
         { label: 'enabled/status', valueHtml: statusBadge(source.status) },
-        { label: 'connection/config', value: summarizeConnection(source.connection) },
+        { label: 'authority', value: summarizeConnection(source.authority) },
+        { label: 'policy', value: summarizeConnection(source.policy) },
       ]),
       sourceError ? renderStructuredError(sourceError, 'Source Summary unavailable.') : '',
       `
@@ -157,7 +158,7 @@ export function createDataSourcesModule(ctx) {
           <button type="button" class="btn btn-danger" data-action="delete-source" data-source-id="${esc(source.source_id)}">Delete Source</button>
         </div>
       `,
-      renderJsonPanel('Connection JSON', source.connection, 'No connection payload.'),
+      renderJsonPanel('Authority JSON', source.authority, 'No authority payload.'),
     ];
     return renderAdminDetailCard({
       title: 'Source Summary',
@@ -183,7 +184,7 @@ export function createDataSourcesModule(ctx) {
       : '<span class="shell-chip">not started in current session</span>';
     const bodyParts = [
       renderDetailList([
-        { label: 'sync_mode', value: source.sync_mode || 'by_select' },
+        { label: 'sync.mode', value: source.sync?.mode || 'selected' },
         { label: 'recent job id', value: recentJob?.job_id || '-' },
         {
           label: 'recent job status',
@@ -386,7 +387,7 @@ export function createDataSourcesModule(ctx) {
             <h3 id="source-form-title">Create Source</h3>
             <span class="shell-chip" data-role="mode-label">create</span>
           </div>
-          <p class="panel-note" data-role="copy">POST /sources creates a new source entry. PUT /sources/{source_id} updates display name, connection, and sync_mode.</p>
+          <p class="panel-note" data-role="copy">POST /sources creates a new source entry. PUT /sources/{source_id} updates display name, authority, sync, and policy.</p>
           <form class="source-form-grid" data-role="form">
             <label>
               Source Type
@@ -402,13 +403,18 @@ export function createDataSourcesModule(ctx) {
             <label>
               Sync Mode
               <select name="sync_mode">
-                <option value="by_select">by_select</option>
+                <option value="selected">selected</option>
+                <option value="all">all</option>
                 <option value="none">none</option>
               </select>
             </label>
             <label>
-              Connection JSON
-              <textarea name="connection_json" placeholder="{&#10;  &quot;path&quot;: &quot;/tmp/demo.duckdb&quot;&#10;}"></textarea>
+              Authority JSON
+              <textarea name="authority_json" placeholder="{&#10;  &quot;catalog_system&quot;: &quot;duckdb&quot;,&#10;  &quot;connection&quot;: { &quot;path&quot;: &quot;/tmp/demo.duckdb&quot; },&#10;  &quot;synthetic_catalog&quot;: &quot;main&quot;&#10;}"></textarea>
+            </label>
+            <label>
+              Policy JSON
+              <textarea name="policy_json" placeholder="{&#10;  &quot;allow_live_browse&quot;: true,&#10;  &quot;allow_sync&quot;: true&#10;}"></textarea>
             </label>
             <div class="detail-error" data-role="error" style="display:none;"></div>
             <div class="detail-actions">
@@ -784,13 +790,14 @@ export function createDataSourcesModule(ctx) {
     const sourceTypeInput = form.querySelector('[name="source_type"]');
     const displayNameInput = form.querySelector('[name="display_name"]');
     const syncModeInput = form.querySelector('[name="sync_mode"]');
-    const connectionInput = form.querySelector('[name="connection_json"]');
+    const authorityInput = form.querySelector('[name="authority_json"]');
+    const policyInput = form.querySelector('[name="policy_json"]');
     const submit = overlay.querySelector('[data-role="submit"]');
 
     title.textContent = mode === 'edit' ? 'Edit Source' : 'Create Source';
     modeLabel.textContent = mode;
     copy.textContent = mode === 'edit'
-      ? 'PUT /sources/{source_id} updates display name, connection, and sync_mode.'
+      ? 'PUT /sources/{source_id} updates display name, authority, sync, and policy.'
       : 'POST /sources creates a new source entry and returns source_id.';
     if (errorBox) {
       errorBox.style.display = 'none';
@@ -799,19 +806,42 @@ export function createDataSourcesModule(ctx) {
     sourceTypeInput.value = source?.source_type || 'duckdb';
     sourceTypeInput.disabled = mode === 'edit';
     displayNameInput.value = source?.display_name || '';
-    syncModeInput.value = source?.sync_mode || 'by_select';
-    connectionInput.value = JSON.stringify(source?.connection || { path: '/tmp/demo.duckdb' }, null, 2);
+    syncModeInput.value = source?.sync?.mode || 'selected';
+    authorityInput.value = JSON.stringify(
+      source?.authority || {
+        catalog_system: 'duckdb',
+        connection: { path: '/tmp/demo.duckdb' },
+        synthetic_catalog: 'main',
+      },
+      null,
+      2
+    );
+    policyInput.value = JSON.stringify(
+      source?.policy || { allow_live_browse: true, allow_sync: true },
+      null,
+      2
+    );
     submit.textContent = mode === 'edit' ? 'Save Changes' : 'Create Source';
 
     form.onsubmit = async (event) => {
       event.preventDefault();
-      let connection = {};
+      let authority = {};
+      let policy = {};
       try {
-        connection = JSON.parse(connectionInput.value || '{}');
+        authority = JSON.parse(authorityInput.value || '{}');
       } catch {
         if (errorBox) {
           errorBox.style.display = '';
-          errorBox.innerHTML = renderErrorState('Connection JSON is invalid.');
+          errorBox.innerHTML = renderErrorState('Authority JSON is invalid.');
+        }
+        return;
+      }
+      try {
+        policy = JSON.parse(policyInput.value || '{}');
+      } catch {
+        if (errorBox) {
+          errorBox.style.display = '';
+          errorBox.innerHTML = renderErrorState('Policy JSON is invalid.');
         }
         return;
       }
@@ -819,15 +849,18 @@ export function createDataSourcesModule(ctx) {
         if (mode === 'edit' && source?.source_id) {
           await ctx.adminApi.updateSource(source.source_id, {
             display_name: displayNameInput.value.trim(),
-            sync_mode: syncModeInput.value,
-            connection,
+            authority,
+            sync: { mode: syncModeInput.value },
+            policy,
           });
           toast('Source updated.', 'success');
         } else {
           const created = await ctx.adminApi.createSource({
             source_type: sourceTypeInput.value.trim(),
             display_name: displayNameInput.value.trim(),
-            connection,
+            authority,
+            sync: { mode: syncModeInput.value },
+            policy,
           });
           toast('Source created.', 'success');
           closeModal('source-form-modal');

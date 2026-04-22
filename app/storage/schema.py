@@ -59,15 +59,16 @@ METADATA_DDL: list[str] = [
     # -- New semantic layer tables --
     """
     CREATE TABLE IF NOT EXISTS sources (
-        source_id       TEXT PRIMARY KEY,
-        source_type     TEXT NOT NULL,
-        display_name    TEXT NOT NULL,
-        connection_json TEXT NOT NULL,
-        capabilities_json TEXT NOT NULL,
-        sync_mode       TEXT NOT NULL DEFAULT 'by_select',
-        status          TEXT NOT NULL DEFAULT 'active',
-        created_at      TEXT NOT NULL,
-        updated_at      TEXT NOT NULL
+        source_id                    TEXT PRIMARY KEY,
+        source_type                  TEXT NOT NULL,
+        display_name                 TEXT NOT NULL,
+        authority_json               TEXT NOT NULL,
+        sync_mode                    TEXT NOT NULL DEFAULT 'selected',
+        intrinsic_capabilities_json  TEXT NOT NULL DEFAULT '{}',
+        policy_json                  TEXT NOT NULL DEFAULT '{}',
+        status                       TEXT NOT NULL DEFAULT 'active',
+        created_at                   TEXT NOT NULL,
+        updated_at                   TEXT NOT NULL
     )
     """,
     """
@@ -770,14 +771,17 @@ METADATA_DDL: list[str] = [
     # -- Engine registry --
     """
     CREATE TABLE IF NOT EXISTS engines (
-        engine_id         TEXT PRIMARY KEY,
-        engine_type       TEXT NOT NULL,
-        display_name      TEXT NOT NULL,
-        connection_json   TEXT NOT NULL,
-        capabilities_json TEXT NOT NULL,
-        status            TEXT NOT NULL DEFAULT 'active',
-        created_at        TEXT NOT NULL,
-        updated_at        TEXT NOT NULL
+        engine_id                    TEXT PRIMARY KEY,
+        engine_type                  TEXT NOT NULL,
+        display_name                 TEXT NOT NULL,
+        connection_json              TEXT NOT NULL,
+        default_namespace_json       TEXT NOT NULL DEFAULT '{}',
+        intrinsic_capabilities_json  TEXT NOT NULL DEFAULT '{}',
+        deployment_capabilities_json TEXT NOT NULL DEFAULT '{}',
+        policy_json                  TEXT NOT NULL DEFAULT '{}',
+        status                       TEXT NOT NULL DEFAULT 'active',
+        created_at                   TEXT NOT NULL,
+        updated_at                   TEXT NOT NULL
     )
     """,
     # -- Source-engine bindings --

@@ -163,7 +163,10 @@ export function createExecutionEnginesModule(ctx) {
           { label: 'active bindings', value: String((engineBindings || []).length) },
           { label: 'bound sources', value: String(new Set((engineBindings || []).map((item) => item.source_id)).size) },
           { label: 'connection', value: summarizeConnection(engine.connection) },
-          { label: 'capabilities', value: summarizeConnection(engine.capabilities) },
+          { label: 'default_namespace', value: summarizeConnection(engine.default_namespace) },
+          { label: 'intrinsic_capabilities', value: summarizeConnection(engine.intrinsic_capabilities) },
+          { label: 'deployment_capabilities', value: summarizeConnection(engine.deployment_capabilities) },
+          { label: 'policy', value: summarizeConnection(engine.policy) },
         ])}
         ${renderJsonPanel('Engine JSON', engine, 'No engine payload.')}
       `,
@@ -356,8 +359,16 @@ export function createExecutionEnginesModule(ctx) {
               <textarea name="connection_json" placeholder="{&#10;  &quot;path&quot;: &quot;/tmp/demo-engine.duckdb&quot;&#10;}"></textarea>
             </label>
             <label>
-              Capabilities JSON
-              <textarea name="capabilities_json" placeholder="{&#10;  &quot;supports_federation&quot;: true&#10;}"></textarea>
+              Default Namespace JSON
+              <textarea name="default_namespace_json" placeholder="{&#10;  &quot;catalog&quot;: null,&#10;  &quot;schema&quot;: null&#10;}"></textarea>
+            </label>
+            <label>
+              Deployment Capabilities JSON
+              <textarea name="deployment_capabilities_json" placeholder="{&#10;  &quot;supported_step_types&quot;: [&quot;metric_query&quot;]&#10;}"></textarea>
+            </label>
+            <label>
+              Policy JSON
+              <textarea name="policy_json" placeholder="{&#10;  &quot;allowed_step_types&quot;: [],&#10;  &quot;required_policy_support&quot;: []&#10;}"></textarea>
             </label>
             <div class="detail-error" data-role="error" style="display:none;"></div>
             <div class="detail-actions">
@@ -441,12 +452,16 @@ export function createExecutionEnginesModule(ctx) {
     const engineTypeInput = form.querySelector('[name="engine_type"]');
     const displayNameInput = form.querySelector('[name="display_name"]');
     const connectionInput = form.querySelector('[name="connection_json"]');
-    const capabilitiesInput = form.querySelector('[name="capabilities_json"]');
+    const defaultNamespaceInput = form.querySelector('[name="default_namespace_json"]');
+    const deploymentCapabilitiesInput = form.querySelector('[name="deployment_capabilities_json"]');
+    const policyInput = form.querySelector('[name="policy_json"]');
 
     engineTypeInput.value = 'duckdb';
     displayNameInput.value = '';
     connectionInput.value = JSON.stringify({ path: '/tmp/demo-engine.duckdb' }, null, 2);
-    capabilitiesInput.value = JSON.stringify({}, null, 2);
+    defaultNamespaceInput.value = JSON.stringify({ catalog: null, schema: null }, null, 2);
+    deploymentCapabilitiesInput.value = JSON.stringify({}, null, 2);
+    policyInput.value = JSON.stringify({ allowed_step_types: [], required_policy_support: [] }, null, 2);
     if (errorBox) {
       errorBox.style.display = 'none';
       errorBox.innerHTML = '';
@@ -455,7 +470,9 @@ export function createExecutionEnginesModule(ctx) {
     form.onsubmit = async (event) => {
       event.preventDefault();
       let connection = {};
-      let capabilities = {};
+      let defaultNamespace = {};
+      let deploymentCapabilities = {};
+      let policy = {};
       try {
         connection = JSON.parse(connectionInput.value || '{}');
       } catch {
@@ -464,10 +481,24 @@ export function createExecutionEnginesModule(ctx) {
         return;
       }
       try {
-        capabilities = JSON.parse(capabilitiesInput.value || '{}');
+        defaultNamespace = JSON.parse(defaultNamespaceInput.value || '{}');
       } catch {
         errorBox.style.display = '';
-        errorBox.innerHTML = renderErrorState('Capabilities JSON is invalid.');
+        errorBox.innerHTML = renderErrorState('Default Namespace JSON is invalid.');
+        return;
+      }
+      try {
+        deploymentCapabilities = JSON.parse(deploymentCapabilitiesInput.value || '{}');
+      } catch {
+        errorBox.style.display = '';
+        errorBox.innerHTML = renderErrorState('Deployment Capabilities JSON is invalid.');
+        return;
+      }
+      try {
+        policy = JSON.parse(policyInput.value || '{}');
+      } catch {
+        errorBox.style.display = '';
+        errorBox.innerHTML = renderErrorState('Policy JSON is invalid.');
         return;
       }
       try {
@@ -475,7 +506,9 @@ export function createExecutionEnginesModule(ctx) {
           engine_type: engineTypeInput.value.trim(),
           display_name: displayNameInput.value.trim(),
           connection,
-          capabilities,
+          default_namespace: defaultNamespace,
+          deployment_capabilities: deploymentCapabilities,
+          policy,
         });
         toast('Engine created.', 'success');
         closeModal('engine-form-modal');

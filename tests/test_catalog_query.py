@@ -33,7 +33,11 @@ class CatalogQueryTests(unittest.TestCase):
             json={
                 "source_type": "duckdb",
                 "display_name": "CQ Test Source",
-                "connection": {"path": str(cls.db_path)},
+                "authority": {
+                    "catalog_system": "duckdb",
+                    "connection": {"path": str(cls.db_path)},
+                    "synthetic_catalog": "main",
+                },
             },
         )
         cls.source_id = resp.json()["source_id"]

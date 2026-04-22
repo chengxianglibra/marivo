@@ -65,7 +65,11 @@ class SemanticRuntimeTests(unittest.TestCase):
             json={
                 "source_type": "duckdb",
                 "display_name": "Semantic Runtime Source",
-                "connection": {"path": str(db_path)},
+                "authority": {
+                    "catalog_system": "duckdb",
+                    "connection": {"path": str(db_path)},
+                    "synthetic_catalog": "main",
+                },
             },
         ).json()
         cls.source_id = source["source_id"]

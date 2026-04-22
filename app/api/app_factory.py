@@ -99,13 +99,14 @@ def _register_configured_sources(
             source = source_service.ensure_source(
                 source_type=source_config.type,
                 display_name=source_config.name,
-                connection=source_config.connection,
-                sync_mode=source_config.sync.mode,
+                authority=source_config.authority.model_dump(),
+                sync=source_config.sync.model_dump(),
+                policy=source_config.policy.model_dump(),
             )
-            sync_mode = source.get("sync_mode", source_config.sync.mode)
+            sync_mode = str(source.get("sync", {}).get("mode", source_config.sync.mode))
             if sync_mode == "none":
                 logger.info("Config source '%s' registered (sync disabled)", source_config.name)
-            elif sync_mode == "by_select":
+            elif sync_mode == "selected":
                 selections = source_service.list_sync_selections(source["source_id"])
                 if selections:
                     selection_dicts = [
@@ -121,12 +122,16 @@ def _register_configured_sources(
                     )
                 else:
                     logger.info(
-                        "Config source '%s' registered (by_select, no selections yet)",
+                        "Config source '%s' registered (selected, no selections yet)",
                         source_config.name,
                     )
+            elif sync_mode == "all":
+                adapter = source_service.get_adapter(source["source_id"])
+                sync_engine.trigger_sync(source["source_id"], adapter)
+                logger.info("Config source '%s' registered and fully synced", source_config.name)
             else:
                 logger.warning(
-                    "Config source '%s' has unknown sync_mode '%s'; skipping sync",
+                    "Config source '%s' has unknown sync.mode '%s'; skipping sync",
                     source_config.name,
                     sync_mode,
                 )
@@ -141,6 +146,15 @@ def _register_configured_engines(config: MarivoConfig, engine_service: EngineSer
                 engine_type=engine_config.type,
                 display_name=engine_config.name,
                 connection=engine_config.connection,
+                default_namespace=(
+                    engine_config.default_namespace.model_dump(by_alias=True)
+                    if engine_config.default_namespace is not None
+                    else None
+                ),
+                deployment_capabilities=engine_config.deployment_capabilities.model_dump(
+                    exclude_unset=True
+                ),
+                policy=engine_config.policy.model_dump(),
             )
             logger.info("Config engine '%s' registered", engine_config.name)
         except Exception:

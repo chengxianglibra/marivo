@@ -37,11 +37,22 @@ class SemanticTypedApiTests(unittest.TestCase):
         self._metadata().execute(
             """
             INSERT INTO sources (
-                source_id, source_type, display_name, connection_json,
-                capabilities_json, sync_mode, status, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                source_id, source_type, display_name, authority_json,
+                sync_mode, intrinsic_capabilities_json, policy_json, status, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            [source_id, "duckdb", "Test Source", "{}", "{}", "all", "active", now, now],
+            [
+                source_id,
+                "duckdb",
+                "Test Source",
+                '{"catalog_system":"duckdb","connection":{},"synthetic_catalog":"main"}',
+                "all",
+                '{"supports_partitions": false}',
+                '{"allow_live_browse": true, "allow_sync": true}',
+                "active",
+                now,
+                now,
+            ],
         )
         return source_id
 

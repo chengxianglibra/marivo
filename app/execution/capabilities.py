@@ -2,7 +2,22 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
-from typing import Any
+from typing import Any, TypedDict
+
+
+class RoutingFitDetail(TypedDict):
+    step_type_supported: bool
+    satisfied_policy_support: list[str]
+    missing_policy_support: list[str]
+    requested_dimension_count: int
+    compatible_dimension_count: int
+    unresolved_dimension_count: int
+    metric_count: int
+    step_score: int
+    policy_score: int
+    semantic_score: int
+    cost_score: int
+    reasons: list[str]
 
 
 @dataclass(frozen=True)
@@ -95,7 +110,7 @@ def describe_routing_fit(
     requested_dimensions: Sequence[str] = (),
     compatible_dimensions: Sequence[str] = (),
     policy_hints: Sequence[str] = (),
-) -> dict[str, Any]:
+) -> RoutingFitDetail:
     metric_count = len(tuple(metric_names))
     requested_dimension_count = len(tuple(requested_dimensions))
     compatible_dimension_count = len(tuple(compatible_dimensions))

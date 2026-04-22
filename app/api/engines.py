@@ -16,7 +16,13 @@ def register_engine(payload: EngineRegisterRequest, request: Request) -> dict[st
             engine_type=payload.engine_type,
             display_name=payload.display_name,
             connection=payload.connection,
-            capabilities=payload.capabilities,
+            default_namespace=(
+                payload.default_namespace.model_dump(by_alias=True)
+                if payload.default_namespace is not None
+                else None
+            ),
+            deployment_capabilities=payload.deployment_capabilities.model_dump(exclude_unset=True),
+            policy=payload.policy.model_dump(),
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error

@@ -18,6 +18,62 @@ class DependencyError(Exception):
         self.dependencies = dependencies or []
 
 
+def _normalize_sync(sync: dict[str, Any] | None) -> dict[str, Any]:
+    mode = str((sync or {}).get("mode", "selected"))
+    if mode == "by_select":
+        mode = "selected"
+    if mode not in {"selected", "all", "none"}:
+        raise ValueError("sync.mode must be 'selected', 'all', or 'none'")
+    return {"mode": mode}
+
+
+def _normalize_policy(policy: dict[str, Any] | None) -> dict[str, Any]:
+    normalized = {
+        "allow_live_browse": True,
+        "allow_sync": True,
+    }
+    if policy:
+        normalized.update(policy)
+    return normalized
+
+
+def _build_intrinsic_capabilities(source_type: str) -> dict[str, Any]:
+    return {
+        "supports_partitions": False,
+    }
+
+
+def _normalize_authority(source_type: str, authority: dict[str, Any]) -> dict[str, Any]:
+    catalog_system = str(authority.get("catalog_system", source_type))
+    if catalog_system != source_type:
+        raise ValueError("authority.catalog_system must match source_type")
+
+    connection = authority.get("connection")
+    if isinstance(connection, dict):
+        normalized_connection = dict(connection)
+    else:
+        normalized_connection = {
+            key: value
+            for key, value in authority.items()
+            if key not in {"catalog_system", "synthetic_catalog"}
+        }
+
+    synthetic_catalog = authority.get("synthetic_catalog")
+    if source_type == "duckdb":
+        if synthetic_catalog is None:
+            synthetic_catalog = "main"
+        if synthetic_catalog != "main":
+            raise ValueError("duckdb authority.synthetic_catalog must be 'main'")
+    elif synthetic_catalog is not None:
+        raise ValueError("synthetic_catalog is only supported for duckdb sources")
+
+    return {
+        "catalog_system": catalog_system,
+        "connection": normalized_connection,
+        "synthetic_catalog": synthetic_catalog,
+    }
+
+
 class SourceRegistry:
     """Source registry and live-catalog access boundary."""
 
@@ -28,41 +84,47 @@ class SourceRegistry:
         self,
         source_type: str,
         display_name: str,
-        connection: dict[str, Any],
-        capabilities: dict[str, Any] | None = None,
-        sync_mode: str = "by_select",
+        authority: dict[str, Any],
+        sync: dict[str, Any] | None = None,
+        policy: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         validate_source_type(source_type)
+        normalized_authority = _normalize_authority(source_type, authority)
+        normalized_sync = _normalize_sync(sync)
+        normalized_policy = _normalize_policy(policy)
+        intrinsic_capabilities = _build_intrinsic_capabilities(source_type)
+
         source_id = f"src_{uuid4().hex[:12]}"
         now = now_iso()
-        caps = capabilities or {}
         self.metadata.execute(
             """
-            INSERT INTO sources (source_id, source_type, display_name, connection_json, capabilities_json, sync_mode, status, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)
+            INSERT INTO sources (
+                source_id,
+                source_type,
+                display_name,
+                authority_json,
+                sync_mode,
+                intrinsic_capabilities_json,
+                policy_json,
+                status,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
             """,
             [
                 source_id,
                 source_type,
                 display_name,
-                json.dumps(connection),
-                json.dumps(caps),
-                sync_mode,
+                json.dumps(normalized_authority),
+                normalized_sync["mode"],
+                json.dumps(intrinsic_capabilities),
+                json.dumps(normalized_policy),
                 now,
                 now,
             ],
         )
-        return {
-            "source_id": source_id,
-            "source_type": source_type,
-            "display_name": display_name,
-            "connection": connection,
-            "capabilities": caps,
-            "sync_mode": sync_mode,
-            "status": "active",
-            "created_at": now,
-            "updated_at": now,
-        }
+        return self.get_source(source_id)
 
     def get_source(self, source_id: str) -> dict[str, Any]:
         row = self.metadata.query_one("SELECT * FROM sources WHERE source_id = ?", [source_id])
@@ -72,68 +134,92 @@ class SourceRegistry:
 
     def list_sources(self) -> list[dict[str, Any]]:
         rows = self.metadata.query_rows("SELECT * FROM sources ORDER BY created_at")
-        return [self._row_to_source(r) for r in rows]
+        return [self._row_to_source(row) for row in rows]
 
     def ensure_source(
         self,
         source_type: str,
         display_name: str,
-        connection: dict[str, Any],
-        sync_mode: str = "by_select",
+        authority: dict[str, Any],
+        sync: dict[str, Any] | None = None,
+        policy: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         validate_source_type(source_type)
         existing = self.metadata.query_one(
             "SELECT * FROM sources WHERE display_name = ?",
             [display_name],
         )
-        if existing is not None:
-            now = now_iso()
-            self.metadata.execute(
-                """
-                UPDATE sources
-                SET source_type = ?, connection_json = ?, sync_mode = ?, updated_at = ?
-                WHERE source_id = ?
-                """,
-                [source_type, json.dumps(connection), sync_mode, now, existing["source_id"]],
+        if existing is None:
+            return self.register_source(
+                source_type,
+                display_name,
+                authority,
+                sync=sync,
+                policy=policy,
             )
-            return self.get_source(existing["source_id"])
-        return self.register_source(source_type, display_name, connection, sync_mode=sync_mode)
+
+        now = now_iso()
+        normalized_authority = _normalize_authority(source_type, authority)
+        normalized_sync = _normalize_sync(sync)
+        normalized_policy = _normalize_policy(policy)
+        intrinsic_capabilities = _build_intrinsic_capabilities(source_type)
+        self.metadata.execute(
+            """
+            UPDATE sources
+            SET source_type = ?, authority_json = ?, sync_mode = ?,
+                intrinsic_capabilities_json = ?, policy_json = ?, updated_at = ?
+            WHERE source_id = ?
+            """,
+            [
+                source_type,
+                json.dumps(normalized_authority),
+                normalized_sync["mode"],
+                json.dumps(intrinsic_capabilities),
+                json.dumps(normalized_policy),
+                now,
+                existing["source_id"],
+            ],
+        )
+        return self.get_source(str(existing["source_id"]))
 
     def update_source(
         self,
         source_id: str,
         display_name: str | None = None,
-        connection: dict[str, Any] | None = None,
-        sync_mode: str | None = None,
+        authority: dict[str, Any] | None = None,
+        sync: dict[str, Any] | None = None,
+        policy: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        existing = self.get_source(source_id)  # raises KeyError if missing
-        now = now_iso()
+        existing = self.get_source(source_id)
         updates: list[str] = []
         params: list[Any] = []
+
         if display_name is not None:
             updates.append("display_name = ?")
             params.append(display_name)
-        if connection is not None:
-            updates.append("connection_json = ?")
-            params.append(json.dumps(connection))
-        if sync_mode is not None:
+        if authority is not None:
+            updates.append("authority_json = ?")
+            params.append(json.dumps(_normalize_authority(existing["source_type"], authority)))
+        if sync is not None:
             updates.append("sync_mode = ?")
-            params.append(sync_mode)
+            params.append(_normalize_sync(sync)["mode"])
+        if policy is not None:
+            updates.append("policy_json = ?")
+            params.append(json.dumps(_normalize_policy(policy)))
+
         if not updates:
             return existing
-        updates.append("updated_at = ?")
-        params.append(now)
-        params.append(source_id)
+
+        params.extend([now_iso(), source_id])
         self.metadata.execute(
-            f"UPDATE sources SET {', '.join(updates)} WHERE source_id = ?",
+            f"UPDATE sources SET {', '.join(updates)}, updated_at = ? WHERE source_id = ?",
             params,
         )
         return self.get_source(source_id)
 
     def delete_source(self, source_id: str) -> None:
-        self.get_source(source_id)  # raises KeyError if missing
+        self.get_source(source_id)
 
-        # Block if typed bindings reference this source's objects.
         bindings_using_source_objects = self.metadata.query_rows(
             """
             SELECT DISTINCT b.binding_ref
@@ -151,19 +237,17 @@ class SourceRegistry:
                 dependencies=refs,
             )
 
-        # Block if bindings reference this source
         bindings = self.metadata.query_rows(
             "SELECT binding_id, engine_id FROM source_engine_bindings WHERE source_id = ?",
             [source_id],
         )
         if bindings:
-            refs = [r["binding_id"] for r in bindings]
+            refs = [str(row["binding_id"]) for row in bindings]
             raise DependencyError(
                 f"Cannot delete source: {len(bindings)} binding(s) depend on it",
                 dependencies=refs,
             )
 
-        # Safe to delete — only owned/orphan data remains
         self.metadata.execute("DELETE FROM sync_selections WHERE source_id = ?", [source_id])
         self.metadata.execute("DELETE FROM sync_jobs WHERE source_id = ?", [source_id])
         self.metadata.execute("DELETE FROM source_objects WHERE source_id = ?", [source_id])
@@ -171,7 +255,8 @@ class SourceRegistry:
 
     def get_adapter(self, source_id: str) -> CatalogAdapter:
         source = self.get_source(source_id)
-        return build_catalog_adapter(source["source_type"], source["connection"])
+        connection = source["authority"]["connection"]
+        return build_catalog_adapter(source["source_type"], connection)
 
     def list_objects(
         self,
@@ -189,7 +274,7 @@ class SourceRegistry:
             params.append(f"%.{schema_name}.%")
         sql += " ORDER BY fqn"
         rows = self.metadata.query_rows(sql, params)
-        return [self._row_to_object(r) for r in rows]
+        return [self._row_to_object(row) for row in rows]
 
     def get_object(self, source_id: str, object_id: str) -> dict[str, Any]:
         row = self.metadata.query_one(
@@ -203,7 +288,6 @@ class SourceRegistry:
     def patch_object_properties(
         self, source_id: str, object_id: str, user_props: dict[str, Any]
     ) -> dict[str, Any]:
-        """Merge user_props into an existing column source_object's properties_json."""
         row = self.metadata.query_one(
             "SELECT * FROM source_objects WHERE object_id = ? AND source_id = ?",
             [object_id, source_id],
@@ -212,17 +296,18 @@ class SourceRegistry:
             raise KeyError(f"Object {object_id!r} not found in source {source_id!r}")
         if row["object_type"] != "column":
             raise ValueError(f"Object {object_id!r} is not a column (type={row['object_type']!r})")
-        existing_props = json.loads(row["properties_json"])
-        merged = {**existing_props, **user_props}
-        now = now_iso()
+
+        merged = {**json.loads(str(row["properties_json"])), **user_props}
         self.metadata.execute(
             "UPDATE source_objects SET properties_json = ?, updated_at = ? WHERE object_id = ?",
-            [json.dumps(merged), now, object_id],
+            [json.dumps(merged), now_iso(), object_id],
         )
         updated = self.metadata.query_one(
-            "SELECT * FROM source_objects WHERE object_id = ?", [object_id]
+            "SELECT * FROM source_objects WHERE object_id = ?",
+            [object_id],
         )
-        assert updated is not None
+        if updated is None:
+            raise KeyError(f"Object {object_id!r} not found in source {source_id!r}")
         return self._row_to_object(updated)
 
     def get_sync_mode(self, source_id: str) -> str:
@@ -232,7 +317,7 @@ class SourceRegistry:
         )
         if row is None:
             raise KeyError(f"Unknown source: {source_id}")
-        return str(row.get("sync_mode", "by_select"))
+        return str(row["sync_mode"])
 
     def add_sync_selection(
         self, source_id: str, schema_name: str, table_name: str
@@ -244,10 +329,14 @@ class SourceRegistry:
         )
         if existing is not None:
             return dict(existing)
+
         selection_id = f"sel_{uuid4().hex[:12]}"
         now = now_iso()
         self.metadata.execute(
-            "INSERT INTO sync_selections (selection_id, source_id, schema_name, table_name, created_at) VALUES (?, ?, ?, ?, ?)",
+            """
+            INSERT INTO sync_selections (selection_id, source_id, schema_name, table_name, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
             [selection_id, source_id, schema_name, table_name, now],
         )
         return {
@@ -272,7 +361,7 @@ class SourceRegistry:
             "SELECT * FROM sync_selections WHERE source_id = ? ORDER BY schema_name, table_name",
             [source_id],
         )
-        return [dict(r) for r in rows]
+        return [dict(row) for row in rows]
 
     def set_sync_selections(
         self, source_id: str, selections: list[dict[str, str]]
@@ -290,10 +379,11 @@ class SourceRegistry:
 
     def browse_catalog_schemas(self, source_id: str) -> list[dict[str, Any]]:
         source = self.get_source(source_id)
-        adapter = build_catalog_adapter(source["source_type"], source["connection"])
-        catalog_name = None
+        authority = source["authority"]
+        adapter = build_catalog_adapter(source["source_type"], authority["connection"])
+        catalog_name = authority.get("synthetic_catalog")
         if source["source_type"] == "trino":
-            raw_catalog = source["connection"].get("catalog")
+            raw_catalog = authority["connection"].get("catalog")
             if isinstance(raw_catalog, str) and raw_catalog:
                 catalog_name = raw_catalog
         schemas = adapter.list_schemas(catalog_name)
@@ -315,7 +405,6 @@ class SourceRegistry:
         limit: int = 100,
         columns: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Preview sample rows from a source table (live query, no persistence)."""
         adapter = self.get_adapter(source_id)
         result = adapter.preview_table(
             schema_name=schema_name,
@@ -340,9 +429,10 @@ class SourceRegistry:
             "source_id": row["source_id"],
             "source_type": row["source_type"],
             "display_name": row["display_name"],
-            "connection": json.loads(row["connection_json"]),
-            "capabilities": json.loads(row["capabilities_json"]),
-            "sync_mode": row.get("sync_mode", "by_select"),
+            "authority": json.loads(str(row["authority_json"])),
+            "sync": {"mode": str(row["sync_mode"])},
+            "intrinsic_capabilities": json.loads(str(row["intrinsic_capabilities_json"])),
+            "policy": json.loads(str(row["policy_json"])),
             "status": row["status"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
@@ -357,7 +447,7 @@ class SourceRegistry:
             "native_name": row["native_name"],
             "native_id": row["native_id"],
             "fqn": row["fqn"],
-            "properties": json.loads(row["properties_json"]),
+            "properties": json.loads(str(row["properties_json"])),
             "sync_version": row["sync_version"],
             "synced_at": row["synced_at"],
         }

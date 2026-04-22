@@ -11,6 +11,19 @@ from tests.semantic_test_helpers import create_typed_metric, create_typed_metric
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 
+def build_duckdb_source_payload(path: str, display_name: str, mode: str = "selected") -> dict:
+    return {
+        "source_type": "duckdb",
+        "display_name": display_name,
+        "authority": {
+            "catalog_system": "duckdb",
+            "connection": {"path": path},
+            "synthetic_catalog": "main",
+        },
+        "sync": {"mode": mode},
+    }
+
+
 class SourceRegistryTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -46,11 +59,7 @@ class SourceRegistryTests(unittest.TestCase):
     def test_register_and_list_sources(self) -> None:
         resp = self.client.post(
             "/sources",
-            json={
-                "source_type": "duckdb",
-                "display_name": "Demo Local",
-                "connection": self._local_connection(),
-            },
+            json=build_duckdb_source_payload(str(self.db_path), "Demo Local"),
         )
         self.assertEqual(resp.status_code, 200)
         source = resp.json()
@@ -68,7 +77,7 @@ class SourceRegistryTests(unittest.TestCase):
             json={
                 "source_type": "mysql",
                 "display_name": "Unsupported Source",
-                "connection": {},
+                "authority": {"catalog_system": "mysql", "connection": {}},
             },
         )
         self.assertEqual(resp.status_code, 422)
@@ -76,11 +85,7 @@ class SourceRegistryTests(unittest.TestCase):
     def test_get_source(self) -> None:
         resp = self.client.post(
             "/sources",
-            json={
-                "source_type": "duckdb",
-                "display_name": "Detail Test",
-                "connection": self._local_connection(),
-            },
+            json=build_duckdb_source_payload(str(self.db_path), "Detail Test"),
         )
         source_id = resp.json()["source_id"]
         resp = self.client.get(f"/sources/{source_id}")
@@ -94,11 +99,7 @@ class SourceRegistryTests(unittest.TestCase):
     def test_sync_local_source_and_browse_objects(self) -> None:
         resp = self.client.post(
             "/sources",
-            json={
-                "source_type": "duckdb",
-                "display_name": "Sync Test",
-                "connection": self._local_connection(),
-            },
+            json=build_duckdb_source_payload(str(self.db_path), "Sync Test"),
         )
         source_id = resp.json()["source_id"]
 
@@ -130,11 +131,7 @@ class SourceRegistryTests(unittest.TestCase):
     def test_sync_idempotent(self) -> None:
         resp = self.client.post(
             "/sources",
-            json={
-                "source_type": "duckdb",
-                "display_name": "Idempotent Test",
-                "connection": self._local_connection(),
-            },
+            json=build_duckdb_source_payload(str(self.db_path), "Idempotent Test"),
         )
         source_id = resp.json()["source_id"]
 
@@ -149,11 +146,7 @@ class SourceRegistryTests(unittest.TestCase):
     def test_get_source_object_detail(self) -> None:
         resp = self.client.post(
             "/sources",
-            json={
-                "source_type": "duckdb",
-                "display_name": "Object Detail Test",
-                "connection": self._local_connection(),
-            },
+            json=build_duckdb_source_payload(str(self.db_path), "Object Detail Test"),
         )
         source_id = resp.json()["source_id"]
         self._sync_all_tables(source_id)
@@ -169,11 +162,7 @@ class SourceRegistryTests(unittest.TestCase):
     def test_get_source_object_detail_for_column(self) -> None:
         resp = self.client.post(
             "/sources",
-            json={
-                "source_type": "duckdb",
-                "display_name": "Column Detail Test",
-                "connection": self._local_connection(),
-            },
+            json=build_duckdb_source_payload(str(self.db_path), "Column Detail Test"),
         )
         source_id = resp.json()["source_id"]
         self._sync_all_tables(source_id)
@@ -193,11 +182,7 @@ class SourceRegistryTests(unittest.TestCase):
     def test_get_source_object_detail_404_for_unknown_object(self) -> None:
         resp = self.client.post(
             "/sources",
-            json={
-                "source_type": "duckdb",
-                "display_name": "Unknown Object Test",
-                "connection": self._local_connection(),
-            },
+            json=build_duckdb_source_payload(str(self.db_path), "Unknown Object Test"),
         )
         source_id = resp.json()["source_id"]
         self._sync_all_tables(source_id)
@@ -208,11 +193,7 @@ class SourceRegistryTests(unittest.TestCase):
     def test_get_source_object_detail_404_for_object_from_other_source(self) -> None:
         first_resp = self.client.post(
             "/sources",
-            json={
-                "source_type": "duckdb",
-                "display_name": "First Source Detail Test",
-                "connection": self._local_connection(),
-            },
+            json=build_duckdb_source_payload(str(self.db_path), "First Source Detail Test"),
         )
         first_source_id = first_resp.json()["source_id"]
         self._sync_all_tables(first_source_id)
@@ -220,11 +201,7 @@ class SourceRegistryTests(unittest.TestCase):
 
         second_resp = self.client.post(
             "/sources",
-            json={
-                "source_type": "duckdb",
-                "display_name": "Second Source Detail Test",
-                "connection": self._local_connection(),
-            },
+            json=build_duckdb_source_payload(str(self.db_path), "Second Source Detail Test"),
         )
         second_source_id = second_resp.json()["source_id"]
         self._sync_all_tables(second_source_id)
@@ -237,43 +214,39 @@ class SourceRegistryTests(unittest.TestCase):
     def test_update_source_api(self) -> None:
         resp = self.client.post(
             "/sources",
-            json={
-                "source_type": "duckdb",
-                "display_name": "Update Test",
-                "connection": self._local_connection(),
-            },
+            json=build_duckdb_source_payload(str(self.db_path), "Update Test"),
         )
         source_id = resp.json()["source_id"]
         resp = self.client.put(
             f"/sources/{source_id}",
             json={
                 "display_name": "Updated Name",
-                "sync_mode": "by_select",
-                "connection": {"path": "/tmp/new.duckdb"},
+                "sync": {"mode": "selected"},
+                "authority": {
+                    "catalog_system": "duckdb",
+                    "connection": {"path": "/tmp/new.duckdb"},
+                    "synthetic_catalog": "main",
+                },
             },
         )
         self.assertEqual(resp.status_code, 200)
         updated = resp.json()
         self.assertEqual(updated["display_name"], "Updated Name")
-        self.assertEqual(updated["sync_mode"], "by_select")
-        self.assertEqual(updated["connection"]["path"], "/tmp/new.duckdb")
+        self.assertEqual(updated["sync"]["mode"], "selected")
+        self.assertEqual(updated["authority"]["connection"]["path"], "/tmp/new.duckdb")
 
     def test_update_source_partial(self) -> None:
         resp = self.client.post(
             "/sources",
-            json={
-                "source_type": "duckdb",
-                "display_name": "Partial Update",
-                "connection": self._local_connection(),
-            },
+            json=build_duckdb_source_payload(str(self.db_path), "Partial Update"),
         )
         source_id = resp.json()["source_id"]
-        original_conn = resp.json()["connection"]
+        original_authority = resp.json()["authority"]
         resp = self.client.put(f"/sources/{source_id}", json={"display_name": "New Name Only"})
         self.assertEqual(resp.status_code, 200)
         updated = resp.json()
         self.assertEqual(updated["display_name"], "New Name Only")
-        self.assertEqual(updated["connection"], original_conn)
+        self.assertEqual(updated["authority"], original_authority)
 
     def test_update_source_not_found(self) -> None:
         resp = self.client.put("/sources/nonexistent", json={"display_name": "x"})
@@ -282,11 +255,7 @@ class SourceRegistryTests(unittest.TestCase):
     def test_delete_source_api(self) -> None:
         resp = self.client.post(
             "/sources",
-            json={
-                "source_type": "duckdb",
-                "display_name": "Delete Test",
-                "connection": self._local_connection(),
-            },
+            json=build_duckdb_source_payload(str(self.db_path), "Delete Test"),
         )
         source_id = resp.json()["source_id"]
         # Sync to create source_objects
@@ -312,11 +281,7 @@ class SourceRegistryTests(unittest.TestCase):
         """DELETE returns 409 when bindings reference the source."""
         resp = self.client.post(
             "/sources",
-            json={
-                "source_type": "duckdb",
-                "display_name": "Bound Source",
-                "connection": self._local_connection(),
-            },
+            json=build_duckdb_source_payload(str(self.db_path), "Bound Source"),
         )
         source_id = resp.json()["source_id"]
         # Register an engine and create a binding
@@ -341,11 +306,7 @@ class SourceRegistryTests(unittest.TestCase):
         """DELETE returns 409 when typed bindings reference source objects."""
         resp = self.client.post(
             "/sources",
-            json={
-                "source_type": "duckdb",
-                "display_name": "Mapped Source",
-                "connection": self._local_connection(),
-            },
+            json=build_duckdb_source_payload(str(self.db_path), "Mapped Source"),
         )
         source_id = resp.json()["source_id"]
         # Sync to get source_objects
@@ -389,11 +350,7 @@ class SyncModeTests(unittest.TestCase):
     def _create_source(self, name: str) -> dict:
         resp = self.client.post(
             "/sources",
-            json={
-                "source_type": "duckdb",
-                "display_name": name,
-                "connection": {"path": str(self.db_path)},
-            },
+            json=build_duckdb_source_payload(str(self.db_path), name),
         )
         self.assertEqual(resp.status_code, 200)
         return resp.json()
@@ -410,12 +367,12 @@ class SyncModeTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 400)
         self.assertIn("disabled", resp.json()["detail"].lower())
 
-    def test_sync_mode_by_select_no_selections_returns_400(self) -> None:
-        """Triggering sync with by_select and no selections returns 400."""
-        source = self._create_source("BySelect No Sel")
+    def test_sync_mode_selected_no_selections_returns_400(self) -> None:
+        """Triggering sync with selected and no selections returns 400."""
+        source = self._create_source("Selected No Sel")
         source_id = source["source_id"]
         store = self.client.app.state.metadata_store
-        store.execute("UPDATE sources SET sync_mode = 'by_select' WHERE source_id = ?", [source_id])
+        store.execute("UPDATE sources SET sync_mode = 'selected' WHERE source_id = ?", [source_id])
 
         resp = self.client.post(f"/sources/{source_id}/sync")
         self.assertEqual(resp.status_code, 400)
@@ -464,11 +421,11 @@ class SyncModeTests(unittest.TestCase):
         self.assertEqual(resp.json(), [])
 
     def test_selective_sync_only_syncs_selected_tables(self) -> None:
-        """mode=by_select with selections only syncs chosen tables."""
+        """mode=selected with selections only syncs chosen tables."""
         source = self._create_source("Selective Sync")
         source_id = source["source_id"]
         store = self.client.app.state.metadata_store
-        store.execute("UPDATE sources SET sync_mode = 'by_select' WHERE source_id = ?", [source_id])
+        store.execute("UPDATE sources SET sync_mode = 'selected' WHERE source_id = ?", [source_id])
 
         # Add one table selection
         self.client.post(
@@ -522,10 +479,13 @@ class SyncModeTests(unittest.TestCase):
             json={
                 "source_type": "trino",
                 "display_name": "Browse Trino Schemas",
-                "connection": {
-                    "host": "trino.example.com",
-                    "catalog": "iceberg",
-                    "user": "marivo",
+                "authority": {
+                    "catalog_system": "trino",
+                    "connection": {
+                        "host": "trino.example.com",
+                        "catalog": "iceberg",
+                        "user": "marivo",
+                    },
                 },
             },
         )
@@ -824,11 +784,7 @@ class ColumnPropertiesTests(unittest.TestCase):
         # Register and sync a DuckDB source
         resp = cls.client.post(
             "/sources",
-            json={
-                "source_type": "duckdb",
-                "display_name": "ColProps Test",
-                "connection": {"path": str(cls.db_path)},
-            },
+            json=build_duckdb_source_payload(str(cls.db_path), "ColProps Test"),
         )
         cls.source_id = resp.json()["source_id"]
         # Add sync selections for all tables and sync
@@ -924,11 +880,7 @@ class TablePreviewTests(unittest.TestCase):
     def _create_source(self, name: str) -> dict:
         resp = self.client.post(
             "/sources",
-            json={
-                "source_type": "duckdb",
-                "display_name": name,
-                "connection": {"path": str(self.db_path)},
-            },
+            json=build_duckdb_source_payload(str(self.db_path), name),
         )
         self.assertEqual(resp.status_code, 200)
         return resp.json()

@@ -16,6 +16,47 @@ from app.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 
+def duckdb_source_yaml(name: str, path: str | None = None, mode: str = "selected") -> str:
+    lines = [
+        "sources:",
+        f'  - name: "{name}"',
+        "    type: duckdb",
+        "    authority:",
+        "      catalog_system: duckdb",
+    ]
+    if path is None:
+        lines.append("      connection: {}")
+    else:
+        lines.extend(
+            [
+                "      connection:",
+                f"        path: {path}",
+            ]
+        )
+    lines.extend(
+        [
+            "      synthetic_catalog: main",
+            "    sync:",
+            f"      mode: {mode}",
+        ]
+    )
+    return "\n".join(lines) + "\n"
+
+
+def trino_source_yaml(name: str, host: str, mode: str = "selected") -> str:
+    return (
+        "sources:\n"
+        f'  - name: "{name}"\n'
+        "    type: trino\n"
+        "    authority:\n"
+        "      catalog_system: trino\n"
+        "      connection:\n"
+        f"        host: {host}\n"
+        "    sync:\n"
+        f"      mode: {mode}\n"
+    )
+
+
 class LoadConfigTests(unittest.TestCase):
     def test_load_metadata_config(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
@@ -29,7 +70,7 @@ class LoadConfigTests(unittest.TestCase):
 
     def test_load_valid_yaml(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
-            f.write('sources:\n  - name: "Demo"\n    type: duckdb\n')
+            f.write(duckdb_source_yaml("Demo"))
             f.flush()
             cfg = load_config(Path(f.name))
 
@@ -37,7 +78,8 @@ class LoadConfigTests(unittest.TestCase):
         self.assertEqual(len(cfg.sources), 1)
         self.assertEqual(cfg.sources[0].name, "Demo")
         self.assertEqual(cfg.sources[0].type, "duckdb")
-        self.assertEqual(cfg.sources[0].connection, {})
+        self.assertEqual(cfg.sources[0].authority.catalog_system, "duckdb")
+        self.assertEqual(cfg.sources[0].authority.connection, {})
 
     def test_load_missing_file(self) -> None:
         cfg = load_config(Path("/nonexistent/marivo.yaml"))
@@ -60,22 +102,14 @@ class LoadConfigTests(unittest.TestCase):
         self.assertIsInstance(cfg, MarivoConfig)
         self.assertEqual(cfg.sources, [])
 
-    def test_sync_mode_by_select_parses(self) -> None:
+    def test_sync_mode_selected_parses(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
-            f.write(
-                "sources:\n"
-                '  - name: "Prod Trino"\n'
-                "    type: trino\n"
-                "    connection:\n"
-                "      host: trino.internal\n"
-                "    sync:\n"
-                "      mode: by_select\n"
-            )
+            f.write(trino_source_yaml("Prod Trino", "trino.internal", mode="selected"))
             f.flush()
             cfg = load_config(Path(f.name))
 
         self.assertEqual(len(cfg.sources), 1)
-        self.assertEqual(cfg.sources[0].sync.mode, "by_select")
+        self.assertEqual(cfg.sources[0].sync.mode, "selected")
 
     def test_load_rejects_unsupported_source_type(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
@@ -109,14 +143,14 @@ class LoadConfigTests(unittest.TestCase):
         self.assertIsInstance(cfg.ui, UIConfig)
         self.assertFalse(cfg.ui.enabled)
 
-    def test_sync_mode_defaults_to_by_select(self) -> None:
+    def test_sync_mode_defaults_to_selected(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
-            f.write('sources:\n  - name: "Demo"\n    type: duckdb\n')
+            f.write(duckdb_source_yaml("Demo"))
             f.flush()
             cfg = load_config(Path(f.name))
 
         self.assertEqual(len(cfg.sources), 1)
-        self.assertEqual(cfg.sources[0].sync.mode, "by_select")
+        self.assertEqual(cfg.sources[0].sync.mode, "selected")
 
 
 class EnsureSourceTests(unittest.TestCase):
@@ -156,14 +190,14 @@ class EnsureSourceTests(unittest.TestCase):
         updated = self.source_service.ensure_source(
             "trino",
             "Local Demo",
-            {"host": "trino.local"},
-            sync_mode="by_select",
+            {"catalog_system": "trino", "connection": {"host": "trino.local"}},
+            sync={"mode": "selected"},
         )
 
         self.assertEqual(updated["source_id"], existing["source_id"])
         self.assertEqual(updated["source_type"], "trino")
-        self.assertEqual(updated["connection"]["host"], "trino.local")
-        self.assertEqual(updated["sync_mode"], "by_select")
+        self.assertEqual(updated["authority"]["connection"]["host"], "trino.local")
+        self.assertEqual(updated["sync"]["mode"], "selected")
         persisted = self.source_service.get_source(existing["source_id"])
         self.assertEqual(persisted["source_type"], "trino")
 
@@ -192,13 +226,7 @@ class StartupWithConfigTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "marivo.yaml"
             config_path.write_text(
-                "sources:\n"
-                '  - name: "Config Demo"\n'
-                "    type: duckdb\n"
-                "    sync:\n"
-                "      mode: by_select\n"
-                "    connection:\n"
-                f"      path: {Path(self.class_tmp.name) / 'shared.duckdb'}\n"
+                duckdb_source_yaml("Config Demo", str(Path(self.class_tmp.name) / "shared.duckdb"))
             )
             meta_path = Path(tmp) / "test.meta.sqlite"
             metadata = SQLiteMetadataStore(meta_path)
@@ -291,13 +319,7 @@ class StartupWithConfigTests(unittest.TestCase):
     def test_startup_requires_trino_dependency_when_config_uses_trino_source(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "marivo.yaml"
-            config_path.write_text(
-                "sources:\n"
-                '  - name: "Config Trino"\n'
-                "    type: trino\n"
-                "    connection:\n"
-                "      host: trino.local\n"
-            )
+            config_path.write_text(trino_source_yaml("Config Trino", "trino.local"))
             meta_path = Path(tmp) / "test.meta.sqlite"
             metadata = SQLiteMetadataStore(meta_path)
             with patch("app.api.app_factory.importlib.import_module") as mock_import:
@@ -338,11 +360,7 @@ class StartupWithConfigTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "marivo.yaml"
             config_path.write_text(
-                "sources:\n"
-                '  - name: "Restart Test"\n'
-                "    type: duckdb\n"
-                "    connection:\n"
-                f"      path: {Path(self.class_tmp.name) / 'shared.duckdb'}\n"
+                duckdb_source_yaml("Restart Test", str(Path(self.class_tmp.name) / "shared.duckdb"))
             )
             meta_path = Path(tmp) / "test.meta.sqlite"
 
@@ -378,13 +396,7 @@ class StartupWithConfigTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "marivo.yaml"
             config_path.write_text(
-                "sources:\n"
-                '  - name: "Local Demo"\n'
-                "    type: duckdb\n"
-                "    sync:\n"
-                "      mode: by_select\n"
-                "    connection:\n"
-                f"      path: {Path(self.class_tmp.name) / 'shared.duckdb'}\n"
+                duckdb_source_yaml("Local Demo", str(Path(self.class_tmp.name) / "shared.duckdb"))
             )
             meta_path = Path(tmp) / "test.meta.sqlite"
             metadata = SQLiteMetadataStore(meta_path)
@@ -392,16 +404,18 @@ class StartupWithConfigTests(unittest.TestCase):
             metadata.execute(
                 """
                 INSERT INTO sources (
-                    source_id, source_type, display_name, connection_json, capabilities_json, sync_mode, status, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, 'active', datetime('now'), datetime('now'))
+                    source_id, source_type, display_name, authority_json, sync_mode,
+                    intrinsic_capabilities_json, policy_json, status, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', datetime('now'), datetime('now'))
                 """,
                 [
                     "src_existingdemo",
-                    "local",
+                    "duckdb",
                     "Local Demo",
-                    '{"path": "/tmp/old.duckdb"}',
-                    "{}",
-                    "by_select",
+                    '{"catalog_system":"duckdb","connection":{"path":"/tmp/old.duckdb"},"synthetic_catalog":"main"}',
+                    "selected",
+                    '{"supports_partitions": false}',
+                    '{"allow_live_browse": true, "allow_sync": true}',
                 ],
             )
 
@@ -419,7 +433,8 @@ class StartupWithConfigTests(unittest.TestCase):
             self.assertEqual(sources[0]["source_id"], "src_existingdemo")
             self.assertEqual(sources[0]["source_type"], "duckdb")
             self.assertEqual(
-                sources[0]["connection"]["path"], str(Path(self.class_tmp.name) / "shared.duckdb")
+                sources[0]["authority"]["connection"]["path"],
+                str(Path(self.class_tmp.name) / "shared.duckdb"),
             )
 
             # Add sync selections and trigger sync to verify source is configured correctly
@@ -443,13 +458,11 @@ class StartupWithConfigTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "marivo.yaml"
             config_path.write_text(
-                "sources:\n"
-                '  - name: "No Sync Source"\n'
-                "    type: duckdb\n"
-                "    connection:\n"
-                f"      path: {Path(self.class_tmp.name) / 'shared.duckdb'}\n"
-                "    sync:\n"
-                "      mode: none\n"
+                duckdb_source_yaml(
+                    "No Sync Source",
+                    str(Path(self.class_tmp.name) / "shared.duckdb"),
+                    mode="none",
+                )
             )
             meta_path = Path(tmp) / "test.meta.sqlite"
             metadata = SQLiteMetadataStore(meta_path)
@@ -464,7 +477,7 @@ class StartupWithConfigTests(unittest.TestCase):
             sources = resp.json()
             self.assertEqual(len(sources), 1)
             self.assertEqual(sources[0]["display_name"], "No Sync Source")
-            self.assertEqual(sources[0]["sync_mode"], "none")
+            self.assertEqual(sources[0]["sync"]["mode"], "none")
 
             # No objects should have been synced
             source_id = sources[0]["source_id"]
@@ -472,17 +485,15 @@ class StartupWithConfigTests(unittest.TestCase):
             self.assertEqual(resp.json(), [])
             client.close()
 
-    def test_startup_sync_mode_by_select_no_selections(self) -> None:
+    def test_startup_sync_mode_selected_no_selections(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "marivo.yaml"
             config_path.write_text(
-                "sources:\n"
-                '  - name: "Selective Source"\n'
-                "    type: duckdb\n"
-                "    connection:\n"
-                f"      path: {Path(self.class_tmp.name) / 'shared.duckdb'}\n"
-                "    sync:\n"
-                "      mode: by_select\n"
+                duckdb_source_yaml(
+                    "Selective Source",
+                    str(Path(self.class_tmp.name) / "shared.duckdb"),
+                    mode="selected",
+                )
             )
             meta_path = Path(tmp) / "test.meta.sqlite"
             metadata = SQLiteMetadataStore(meta_path)
@@ -495,7 +506,7 @@ class StartupWithConfigTests(unittest.TestCase):
 
             resp = client.get("/sources")
             sources = resp.json()
-            self.assertEqual(sources[0]["sync_mode"], "by_select")
+            self.assertEqual(sources[0]["sync"]["mode"], "selected")
 
             # No objects synced since no selections exist yet
             source_id = sources[0]["source_id"]

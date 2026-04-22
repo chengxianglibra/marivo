@@ -21,8 +21,9 @@ def register_source(payload: SourceRegisterRequest, request: Request) -> dict[st
         return services.source_service.register_source(
             source_type=payload.source_type,
             display_name=payload.display_name,
-            connection=payload.connection,
-            capabilities=payload.capabilities,
+            authority=payload.authority.model_dump(),
+            sync=payload.sync.model_dump(),
+            policy=payload.policy.model_dump(),
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
@@ -49,8 +50,9 @@ def update_source(
         return get_services(request).source_service.update_source(
             source_id,
             display_name=payload.display_name,
-            connection=payload.connection,
-            sync_mode=payload.sync_mode,
+            authority=payload.authority.model_dump() if payload.authority is not None else None,
+            sync=payload.sync.model_dump() if payload.sync is not None else None,
+            policy=payload.policy.model_dump() if payload.policy is not None else None,
         )
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
@@ -76,12 +78,12 @@ def trigger_sync(source_id: str, request: Request) -> dict[str, object]:
         sync_mode = services.source_service.get_sync_mode(source_id)
         if sync_mode == "none":
             raise HTTPException(status_code=400, detail="Sync disabled for this source (mode=none)")
-        if sync_mode == "by_select":
+        if sync_mode == "selected":
             selections = services.source_service.list_sync_selections(source_id)
             if not selections:
                 raise HTTPException(
                     status_code=400,
-                    detail="No sync selections configured for this source (mode=by_select)",
+                    detail="No sync selections configured for this source (mode=selected)",
                 )
             selection_dicts = [
                 {"schema_name": row["schema_name"], "table_name": row["table_name"]}
@@ -91,10 +93,13 @@ def trigger_sync(source_id: str, request: Request) -> dict[str, object]:
             job_id = services.sync_engine.trigger_sync(
                 source_id, adapter, selections=selection_dicts
             )
+        elif sync_mode == "all":
+            adapter = services.source_service.get_adapter(source_id)
+            job_id = services.sync_engine.trigger_sync(source_id, adapter)
         else:
             raise HTTPException(
                 status_code=400,
-                detail=f"Unknown sync_mode '{sync_mode}'. Supported modes: 'by_select', 'none'",
+                detail=f"Unknown sync.mode '{sync_mode}'. Supported modes: 'selected', 'all', 'none'",
             )
         return {"job_id": job_id, "source_id": source_id, "status": "succeeded"}
     except KeyError as error:

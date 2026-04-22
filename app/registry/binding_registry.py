@@ -111,7 +111,9 @@ class BindingRegistry:
             """
             SELECT b.binding_id, b.source_id, b.engine_id, b.priority, b.namespace_json,
                    b.status, b.created_at, b.updated_at,
-                   e.engine_type, e.display_name, e.connection_json, e.capabilities_json,
+                   e.engine_type, e.display_name, e.connection_json,
+                   e.default_namespace_json, e.intrinsic_capabilities_json,
+                   e.deployment_capabilities_json, e.policy_json,
                    e.status AS engine_status
             FROM source_engine_bindings b
             JOIN engines e ON b.engine_id = e.engine_id
@@ -131,7 +133,10 @@ class BindingRegistry:
                 "engine_type": row["engine_type"],
                 "display_name": row["display_name"],
                 "connection": json.loads(row["connection_json"]),
-                "capabilities": json.loads(row["capabilities_json"]),
+                "default_namespace": json.loads(row["default_namespace_json"]),
+                "intrinsic_capabilities": json.loads(row["intrinsic_capabilities_json"]),
+                "deployment_capabilities": json.loads(row["deployment_capabilities_json"]),
+                "policy": json.loads(row["policy_json"]),
                 "engine_status": row["engine_status"],
             }
             for row in rows

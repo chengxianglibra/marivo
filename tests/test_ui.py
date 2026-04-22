@@ -306,7 +306,7 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertIn("if (requestVersion !== tableRequestVersion) return;", resp.text)
         self.assertIn("checklist?.querySelectorAll('[data-role=\"table-checkbox\"]')", resp.text)
         self.assertIn("Manage Selections writes the full selection set back", resp.text)
-        self.assertIn("Connection JSON", resp.text)
+        self.assertIn("Authority JSON", resp.text)
         self.assertIn("source-form-modal", resp.text)
         self.assertIn("selection-modal", resp.text)
         self.assertIn("target?.closest('[data-action=\"select-source\"]')", resp.text)

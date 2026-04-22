@@ -67,9 +67,26 @@ def _seed_metadata(meta: SQLiteMetadataStore, db_path: Path | None = None) -> No
 
     meta.execute(
         "INSERT OR IGNORE INTO sources "
-        "(source_id, source_type, display_name, connection_json, capabilities_json, "
-        "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        [src_id, "duckdb", "Reg8.5 Source", "{}", "{}", now, now],
+        "(source_id, source_type, display_name, authority_json, sync_mode, "
+        "intrinsic_capabilities_json, policy_json, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [
+            src_id,
+            "duckdb",
+            "Reg8.5 Source",
+            json.dumps(
+                {
+                    "catalog_system": "duckdb",
+                    "connection": {},
+                    "synthetic_catalog": "main",
+                }
+            ),
+            "selected",
+            json.dumps({"supports_partitions": False}),
+            json.dumps({"allow_live_browse": True, "allow_sync": True}),
+            now,
+            now,
+        ],
     )
     meta.execute(
         "INSERT OR IGNORE INTO source_objects "
@@ -108,9 +125,27 @@ def _seed_metadata(meta: SQLiteMetadataStore, db_path: Path | None = None) -> No
         )
     meta.execute(
         "INSERT OR IGNORE INTO engines "
-        "(engine_id, engine_type, display_name, connection_json, capabilities_json, "
-        "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        [eng_id, "duckdb", "Reg8.5 Engine", engine_conn, "{}", now, now],
+        "(engine_id, engine_type, display_name, connection_json, default_namespace_json, "
+        "intrinsic_capabilities_json, deployment_capabilities_json, policy_json, "
+        "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [
+            eng_id,
+            "duckdb",
+            "Reg8.5 Engine",
+            engine_conn,
+            json.dumps({"catalog": None, "schema": None}),
+            json.dumps(
+                {
+                    "materialization_support": "temporary_table",
+                    "performance_class": "embedded",
+                    "federation_support": "none",
+                }
+            ),
+            json.dumps({"supported_step_types": [], "min_staleness_minutes": None}),
+            json.dumps({"allowed_step_types": [], "required_policy_support": []}),
+            now,
+            now,
+        ],
     )
     meta.execute(
         "INSERT OR IGNORE INTO source_engine_bindings "
@@ -464,9 +499,26 @@ class TypedMetricSqlCompilationTests(_RegressionServiceTestCase):
         now = datetime.now(UTC).isoformat()
         cls.metadata.execute(
             "INSERT OR IGNORE INTO sources "
-            "(source_id, source_type, display_name, connection_json, capabilities_json, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            ["src_typed_sql", "duckdb", "Typed SQL Source", "{}", "{}", now, now],
+            "(source_id, source_type, display_name, authority_json, sync_mode, "
+            "intrinsic_capabilities_json, policy_json, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                "src_typed_sql",
+                "duckdb",
+                "Typed SQL Source",
+                json.dumps(
+                    {
+                        "catalog_system": "duckdb",
+                        "connection": {},
+                        "synthetic_catalog": "main",
+                    }
+                ),
+                "selected",
+                json.dumps({"supports_partitions": False}),
+                json.dumps({"allow_live_browse": True, "allow_sync": True}),
+                now,
+                now,
+            ],
         )
         cls.metadata.execute(
             "INSERT OR IGNORE INTO source_objects "

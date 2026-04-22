@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -27,8 +28,163 @@ class SQLiteMetadataStore(MetadataStore):
         with self.connect() as con:
             for ddl in METADATA_DDL:
                 con.execute(ddl)
+            self._ensure_sources_contract_schema(con)
+            self._ensure_engines_contract_schema(con)
             self._ensure_time_bindings_timestamp_format_schema(con)
             con.commit()
+
+    def _ensure_sources_contract_schema(self, con: sqlite3.Connection) -> None:
+        columns = {str(row["name"]) for row in con.execute("PRAGMA table_info(sources)")}
+        if "authority_json" in columns and "intrinsic_capabilities_json" in columns:
+            return
+
+        con.execute("ALTER TABLE sources RENAME TO sources__legacy")
+        con.execute(
+            """
+            CREATE TABLE sources (
+                source_id                    TEXT PRIMARY KEY,
+                source_type                  TEXT NOT NULL,
+                display_name                 TEXT NOT NULL,
+                authority_json               TEXT NOT NULL,
+                sync_mode                    TEXT NOT NULL DEFAULT 'selected',
+                intrinsic_capabilities_json  TEXT NOT NULL DEFAULT '{}',
+                policy_json                  TEXT NOT NULL DEFAULT '{}',
+                status                       TEXT NOT NULL DEFAULT 'active',
+                created_at                   TEXT NOT NULL,
+                updated_at                   TEXT NOT NULL
+            )
+            """
+        )
+
+        legacy_rows = con.execute("SELECT * FROM sources__legacy").fetchall()
+        for row in legacy_rows:
+            source_type = str(row["source_type"])
+            connection = json.loads(str(row["connection_json"]))
+            authority = {
+                "catalog_system": source_type,
+                "connection": connection,
+                "synthetic_catalog": "main" if source_type == "duckdb" else None,
+            }
+            legacy_sync_mode = str(row["sync_mode"] or "by_select")
+            sync_mode = "selected" if legacy_sync_mode == "by_select" else legacy_sync_mode
+            intrinsic_capabilities = {"supports_partitions": False}
+            policy = {
+                "allow_live_browse": True,
+                "allow_sync": True,
+            }
+            con.execute(
+                """
+                INSERT INTO sources (
+                    source_id,
+                    source_type,
+                    display_name,
+                    authority_json,
+                    sync_mode,
+                    intrinsic_capabilities_json,
+                    policy_json,
+                    status,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    row["source_id"],
+                    source_type,
+                    row["display_name"],
+                    json.dumps(authority),
+                    sync_mode,
+                    json.dumps(intrinsic_capabilities),
+                    json.dumps(policy),
+                    row["status"],
+                    row["created_at"],
+                    row["updated_at"],
+                ],
+            )
+        con.execute("DROP TABLE sources__legacy")
+
+    def _ensure_engines_contract_schema(self, con: sqlite3.Connection) -> None:
+        columns = {str(row["name"]) for row in con.execute("PRAGMA table_info(engines)")}
+        if "default_namespace_json" in columns and "deployment_capabilities_json" in columns:
+            return
+
+        con.execute("ALTER TABLE engines RENAME TO engines__legacy")
+        con.execute(
+            """
+            CREATE TABLE engines (
+                engine_id                    TEXT PRIMARY KEY,
+                engine_type                  TEXT NOT NULL,
+                display_name                 TEXT NOT NULL,
+                connection_json              TEXT NOT NULL,
+                default_namespace_json       TEXT NOT NULL DEFAULT '{}',
+                intrinsic_capabilities_json  TEXT NOT NULL DEFAULT '{}',
+                deployment_capabilities_json TEXT NOT NULL DEFAULT '{}',
+                policy_json                  TEXT NOT NULL DEFAULT '{}',
+                status                       TEXT NOT NULL DEFAULT 'active',
+                created_at                   TEXT NOT NULL,
+                updated_at                   TEXT NOT NULL
+            )
+            """
+        )
+
+        legacy_rows = con.execute("SELECT * FROM engines__legacy").fetchall()
+        for row in legacy_rows:
+            engine_type = str(row["engine_type"])
+            connection = json.loads(str(row["connection_json"]))
+            intrinsic_capabilities = (
+                {
+                    "materialization_support": "temporary_table",
+                    "performance_class": "embedded",
+                    "federation_support": "none",
+                }
+                if engine_type == "duckdb"
+                else {
+                    "materialization_support": "catalog_table",
+                    "performance_class": "distributed",
+                    "federation_support": "connector",
+                }
+            )
+            default_namespace = {
+                "catalog": connection.get("catalog") if engine_type == "trino" else None,
+                "schema": connection.get("schema") if engine_type == "trino" else None,
+            }
+            deployment_capabilities = dict(json.loads(str(row["capabilities_json"])))
+            policy: dict[str, list[str]] = {
+                "allowed_step_types": [],
+                "required_policy_support": [],
+            }
+            con.execute(
+                """
+                INSERT INTO engines (
+                    engine_id,
+                    engine_type,
+                    display_name,
+                    connection_json,
+                    default_namespace_json,
+                    intrinsic_capabilities_json,
+                    deployment_capabilities_json,
+                    policy_json,
+                    status,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    row["engine_id"],
+                    engine_type,
+                    row["display_name"],
+                    row["connection_json"],
+                    json.dumps(default_namespace),
+                    json.dumps(intrinsic_capabilities),
+                    json.dumps(deployment_capabilities),
+                    json.dumps(policy),
+                    row["status"],
+                    row["created_at"],
+                    row["updated_at"],
+                ],
+            )
+        con.execute("DROP TABLE engines__legacy")
 
     def _ensure_time_bindings_timestamp_format_schema(self, con: sqlite3.Connection) -> None:
         """Ensure timestamp_format column exists without CHECK constraint.

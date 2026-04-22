@@ -6,26 +6,60 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 logger = logging.getLogger(__name__)
 
 
 class SyncConfig(BaseModel):
-    mode: str = "by_select"  # "by_select" | "none"
+    mode: Literal["selected", "all", "none"] = "selected"
+
+
+class SourceAuthorityConfig(BaseModel):
+    catalog_system: Literal["duckdb", "trino"]
+    connection: dict[str, Any] = Field(default_factory=dict)
+    synthetic_catalog: str | None = None
+
+
+class SourcePolicyConfig(BaseModel):
+    allow_live_browse: bool = True
+    allow_sync: bool = True
 
 
 class SourceConfig(BaseModel):
     name: str
     type: Literal["duckdb", "trino"]
-    connection: dict[str, Any] = Field(default_factory=dict)
+    authority: SourceAuthorityConfig
     sync: SyncConfig = Field(default_factory=SyncConfig)
+    policy: SourcePolicyConfig = Field(default_factory=SourcePolicyConfig)
+
+
+class EngineDefaultNamespaceConfig(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    catalog: str | None = None
+    schema_name: str | None = Field(default=None, alias="schema")
+
+
+class EngineDeploymentCapabilitiesConfig(BaseModel):
+    supported_step_types: list[str] = Field(default_factory=list)
+    min_staleness_minutes: int | None = None
+
+
+class EnginePolicyConfig(BaseModel):
+    allowed_step_types: list[str] = Field(default_factory=list)
+    required_policy_support: list[str] = Field(default_factory=list)
 
 
 class EngineConfig(BaseModel):
     name: str
     type: Literal["duckdb", "trino"]
     connection: dict[str, Any] = Field(default_factory=dict)
+    default_namespace: EngineDefaultNamespaceConfig | None = None
+    deployment_capabilities: EngineDeploymentCapabilitiesConfig = Field(
+        default_factory=EngineDeploymentCapabilitiesConfig
+    )
+    policy: EnginePolicyConfig = Field(default_factory=EnginePolicyConfig)
 
 
 class BindingConfig(BaseModel):

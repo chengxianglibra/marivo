@@ -35,9 +35,17 @@ Registers an analytics engine. The engine type determines which adapter implemen
   "engine_type": "duckdb",
   "display_name": "Local DuckDB Engine",
   "connection": {
-    "db_path": "/data/analytics.duckdb"
+    "path": "/data/analytics.duckdb"
   },
-  "capabilities": null
+  "default_namespace": {
+    "catalog": null,
+    "schema": null
+  },
+  "deployment_capabilities": {},
+  "policy": {
+    "allowed_step_types": [],
+    "required_policy_support": []
+  }
 }
 ```
 
@@ -46,7 +54,9 @@ Registers an analytics engine. The engine type determines which adapter implemen
 | `engine_type` | string | yes | `"duckdb"` or `"trino"` |
 | `display_name` | string | yes | Human-readable name |
 | `connection` | object | no | Engine-specific connection parameters (default: `{}`) |
-| `capabilities` | object \| null | no | Explicit capability overrides (default: auto-detected) |
+| `default_namespace` | object \| null | no | Engine-local default catalog/schema fallback |
+| `deployment_capabilities` | object | no | Deployment-scoped capability overrides. Omit fields you are not overriding so built-in engine defaults remain intact. |
+| `policy` | object | no | Operator control-plane restrictions |
 
 **DuckDB connection parameters:**
 
@@ -73,25 +83,26 @@ Registers an analytics engine. The engine type determines which adapter implemen
   "engine_id": "eng_a1b2c3d4e5f6",
   "engine_type": "duckdb",
   "display_name": "Local DuckDB Engine",
-  "connection": {"db_path": "/data/analytics.duckdb"},
-  "capabilities": {
-    "supports_federation": false,
-    "supports_partitions": false,
-    "dialect": "duckdb"
+  "connection": {"path": "/data/analytics.duckdb"},
+  "default_namespace": {
+    "catalog": null,
+    "schema": null
+  },
+  "intrinsic_capabilities": {
+    "materialization_support": "temporary_table",
+    "performance_class": "embedded",
+    "federation_support": "none"
+  },
+  "deployment_capabilities": {},
+  "policy": {
+    "allowed_step_types": [],
+    "required_policy_support": []
   },
   "status": "active",
   "created_at": "2024-01-15T10:00:00+00:00",
   "updated_at": "2024-01-15T10:00:00+00:00"
 }
 ```
-
-**Capability fields:**
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `supports_federation` | boolean | Can join across multiple sources |
-| `supports_partitions` | boolean | Can enumerate table partitions |
-| `dialect` | string | SQL dialect: `"duckdb"` or `"trino"` |
 
 ---
 
