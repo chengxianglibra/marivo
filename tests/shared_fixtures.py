@@ -20,7 +20,6 @@ from pathlib import Path
 import duckdb
 
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
-from app.storage.schema import METADATA_DDL
 
 # Capture the original (unpatched) initialize before conftest.py monkeys it.
 # This prevents _build_default_template from re-entering the template build
@@ -530,6 +529,8 @@ def get_named_seeded_duckdb_path(dest: Path, template_name: str) -> Path:
 
 
 def _build_metadata_template(db_path: Path) -> None:
+    from app.storage.schema import METADATA_DDL
+
     db_path.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(str(db_path))
     try:
@@ -548,11 +549,14 @@ def _metadata_template_valid(db_path: Path) -> bool:
         tables = {
             str(row[0])
             for row in con.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('sessions', 'steps', 'artifacts', 'sources', 'source_objects', 'time_bindings')"
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('sessions', 'steps', 'artifacts', 'sources', 'source_objects', 'source_execution_mappings', 'time_bindings')"
             ).fetchall()
         }
         source_columns = {
             str(row[1]) for row in con.execute("PRAGMA table_info(sources)").fetchall()
+        }
+        source_object_columns = {
+            str(row[1]) for row in con.execute("PRAGMA table_info(source_objects)").fetchall()
         }
         engine_columns = {
             str(row[1]) for row in con.execute("PRAGMA table_info(engines)").fetchall()
@@ -567,6 +571,7 @@ def _metadata_template_valid(db_path: Path) -> bool:
             "artifacts",
             "sources",
             "source_objects",
+            "source_execution_mappings",
             "time_bindings",
         }
         and {
@@ -575,6 +580,7 @@ def _metadata_template_valid(db_path: Path) -> bool:
             "intrinsic_capabilities_json",
             "policy_json",
         }.issubset(source_columns)
+        and {"authority_locator_json"}.issubset(source_object_columns)
         and {
             "connection_json",
             "default_namespace_json",

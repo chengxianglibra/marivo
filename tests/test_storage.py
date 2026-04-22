@@ -322,10 +322,94 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
             '{"allowed_step_types": [], "required_policy_support": []}',
         )
 
+    def test_initialize_backfills_source_object_authority_locator(self) -> None:
+        legacy_path = Path(self.temp_dir.name) / "legacy_source_objects.sqlite"
+        legacy_store = SQLiteMetadataStore(legacy_path)
+        with legacy_store.connect() as con:
+            for ddl in METADATA_DDL:
+                if "CREATE TABLE IF NOT EXISTS source_objects" in ddl:
+                    con.execute(
+                        """
+                        CREATE TABLE source_objects (
+                            object_id       TEXT PRIMARY KEY,
+                            source_id       TEXT NOT NULL REFERENCES sources(source_id),
+                            object_type     TEXT NOT NULL,
+                            parent_id       TEXT,
+                            native_name     TEXT NOT NULL,
+                            native_id       TEXT,
+                            fqn             TEXT NOT NULL,
+                            properties_json TEXT NOT NULL DEFAULT '{}',
+                            sync_version    TEXT,
+                            synced_at       TEXT,
+                            created_at      TEXT NOT NULL,
+                            updated_at      TEXT NOT NULL
+                        )
+                        """
+                    )
+                else:
+                    con.execute(ddl)
+            con.execute(
+                """
+                INSERT INTO sources (
+                    source_id, source_type, display_name, authority_json,
+                    sync_mode, intrinsic_capabilities_json, policy_json,
+                    status, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    "src_legacy",
+                    "duckdb",
+                    "Legacy Source",
+                    '{"catalog_system": "duckdb", "connection": {"path": "/tmp/legacy.duckdb"}, "synthetic_catalog": "main"}',
+                    "selected",
+                    '{"supports_partitions": false}',
+                    '{"allow_live_browse": true, "allow_sync": true}',
+                    "active",
+                    "2026-04-22T00:00:00Z",
+                    "2026-04-22T00:00:00Z",
+                ],
+            )
+            con.execute(
+                """
+                INSERT INTO source_objects (
+                    object_id, source_id, object_type, parent_id, native_name, native_id,
+                    fqn, properties_json, sync_version, synced_at, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    "obj_legacy",
+                    "src_legacy",
+                    "table",
+                    None,
+                    "watch_events",
+                    None,
+                    "duckdb.analytics.watch_events",
+                    "{}",
+                    "v_legacy",
+                    "2026-04-22T00:00:00Z",
+                    "2026-04-22T00:00:00Z",
+                    "2026-04-22T00:00:00Z",
+                ],
+            )
+            con.commit()
+
+        migrated_store = SQLiteMetadataStore(legacy_path)
+        migrated_store.initialize()
+
+        row = migrated_store.query_one(
+            "SELECT authority_locator_json FROM source_objects WHERE object_id = ?",
+            ["obj_legacy"],
+        )
+        self.assertEqual(
+            row["authority_locator_json"],
+            '{"catalog": "main", "schema": "analytics", "table": "watch_events"}',
+        )
+
     def test_new_tables_exist(self) -> None:
         for table in [
             "sources",
             "source_objects",
+            "source_execution_mappings",
             "semantic_entity_contracts",
             "semantic_entity_key_refs",
             "semantic_entity_stable_descriptors",

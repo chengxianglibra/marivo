@@ -201,6 +201,19 @@ class EnsureSourceTests(unittest.TestCase):
         persisted = self.source_service.get_source(existing["source_id"])
         self.assertEqual(persisted["source_type"], "trino")
 
+    def test_update_source_rejects_synthetic_catalog_rewrite(self) -> None:
+        source = self.source_service.register_source("duckdb", "Immutable Catalog", {})
+
+        with self.assertRaisesRegex(ValueError, "synthetic_catalog is immutable"):
+            self.source_service.update_source(
+                source["source_id"],
+                authority={
+                    "catalog_system": "duckdb",
+                    "connection": {"path": "/tmp/new.duckdb"},
+                    "synthetic_catalog": "alt",
+                },
+            )
+
     def test_ensure_source_rejects_unsupported_type(self) -> None:
         with self.assertRaisesRegex(ValueError, "Unsupported source type"):
             self.source_service.ensure_source("mysql", "Unsupported Source", {})

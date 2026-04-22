@@ -59,7 +59,7 @@ class RegistrySyncEngine:
     def _run_full_sync(self, source_id: str, adapter: CatalogAdapter) -> int:
         now = now_iso()
         sync_version = f"v_{uuid4().hex[:8]}"
-        source_type = adapter.source_type()
+        authority_catalog = self._get_authority_catalog(source_id)
         count = 0
 
         schemas = adapter.list_schemas()
@@ -68,7 +68,12 @@ class RegistrySyncEngine:
                 source_id=source_id,
                 obj=schema_obj,
                 parent_id=None,
-                fqn=f"{source_type}.{schema_obj.native_name}",
+                fqn=f"{adapter.source_type()}.{schema_obj.native_name}",
+                authority_locator={
+                    "catalog": authority_catalog,
+                    "schema": schema_obj.native_name,
+                    "table": None,
+                },
                 sync_version=sync_version,
                 now=now,
             )
@@ -80,7 +85,12 @@ class RegistrySyncEngine:
                     source_id=source_id,
                     obj=table_obj,
                     parent_id=schema_id,
-                    fqn=f"{source_type}.{schema_obj.native_name}.{table_obj.native_name}",
+                    fqn=f"{adapter.source_type()}.{schema_obj.native_name}.{table_obj.native_name}",
+                    authority_locator={
+                        "catalog": authority_catalog,
+                        "schema": schema_obj.native_name,
+                        "table": table_obj.native_name,
+                    },
                     sync_version=sync_version,
                     now=now,
                 )
@@ -92,7 +102,12 @@ class RegistrySyncEngine:
                         source_id=source_id,
                         obj=column_obj,
                         parent_id=table_id,
-                        fqn=f"{source_type}.{schema_obj.native_name}.{table_obj.native_name}.{column_obj.native_name}",
+                        fqn=f"{adapter.source_type()}.{schema_obj.native_name}.{table_obj.native_name}.{column_obj.native_name}",
+                        authority_locator={
+                            "catalog": authority_catalog,
+                            "schema": schema_obj.native_name,
+                            "table": table_obj.native_name,
+                        },
                         sync_version=sync_version,
                         now=now,
                     )
@@ -107,7 +122,12 @@ class RegistrySyncEngine:
                             source_id=source_id,
                             obj=partition_obj,
                             parent_id=table_id,
-                            fqn=f"{source_type}.{schema_obj.native_name}.{table_obj.native_name}.partition:{partition_obj.native_name}",
+                            fqn=f"{adapter.source_type()}.{schema_obj.native_name}.{table_obj.native_name}.partition:{partition_obj.native_name}",
+                            authority_locator={
+                                "catalog": authority_catalog,
+                                "schema": schema_obj.native_name,
+                                "table": table_obj.native_name,
+                            },
                             sync_version=sync_version,
                             now=now,
                         )
@@ -127,7 +147,7 @@ class RegistrySyncEngine:
     ) -> int:
         now = now_iso()
         sync_version = f"v_{uuid4().hex[:8]}"
-        source_type = adapter.source_type()
+        authority_catalog = self._get_authority_catalog(source_id)
         count = 0
         by_schema: dict[str, list[str]] = {}
         for selection in selections:
@@ -138,13 +158,18 @@ class RegistrySyncEngine:
                 native_name=schema_name,
                 native_id=None,
                 object_type="schema",
-                parent_path=source_type,
+                parent_path=adapter.source_type(),
             )
             schema_id = self._upsert_object(
                 source_id=source_id,
                 obj=schema_obj,
                 parent_id=None,
-                fqn=f"{source_type}.{schema_name}",
+                fqn=f"{adapter.source_type()}.{schema_name}",
+                authority_locator={
+                    "catalog": authority_catalog,
+                    "schema": schema_name,
+                    "table": None,
+                },
                 sync_version=sync_version,
                 now=now,
             )
@@ -164,7 +189,12 @@ class RegistrySyncEngine:
                     source_id=source_id,
                     obj=table_obj,
                     parent_id=schema_id,
-                    fqn=f"{source_type}.{schema_name}.{table_name}",
+                    fqn=f"{adapter.source_type()}.{schema_name}.{table_name}",
+                    authority_locator={
+                        "catalog": authority_catalog,
+                        "schema": schema_name,
+                        "table": table_name,
+                    },
                     sync_version=sync_version,
                     now=now,
                 )
@@ -176,7 +206,12 @@ class RegistrySyncEngine:
                         source_id=source_id,
                         obj=column_obj,
                         parent_id=table_id,
-                        fqn=f"{source_type}.{schema_name}.{table_name}.{column_obj.native_name}",
+                        fqn=f"{adapter.source_type()}.{schema_name}.{table_name}.{column_obj.native_name}",
+                        authority_locator={
+                            "catalog": authority_catalog,
+                            "schema": schema_name,
+                            "table": table_name,
+                        },
                         sync_version=sync_version,
                         now=now,
                     )
@@ -189,7 +224,12 @@ class RegistrySyncEngine:
                             source_id=source_id,
                             obj=partition_obj,
                             parent_id=table_id,
-                            fqn=f"{source_type}.{schema_name}.{table_name}.partition:{partition_obj.native_name}",
+                            fqn=f"{adapter.source_type()}.{schema_name}.{table_name}.partition:{partition_obj.native_name}",
+                            authority_locator={
+                                "catalog": authority_catalog,
+                                "schema": schema_name,
+                                "table": table_name,
+                            },
                             sync_version=sync_version,
                             now=now,
                         )
@@ -207,6 +247,7 @@ class RegistrySyncEngine:
         obj: PhysicalObject,
         parent_id: str | None,
         fqn: str,
+        authority_locator: dict[str, Any],
         sync_version: str,
         now: str,
     ) -> str:
@@ -227,7 +268,7 @@ class RegistrySyncEngine:
                 """
                 UPDATE source_objects
                 SET native_name = ?, native_id = ?, object_type = ?, parent_id = ?,
-                    properties_json = ?, sync_version = ?, synced_at = ?, updated_at = ?
+                    authority_locator_json = ?, properties_json = ?, sync_version = ?, synced_at = ?, updated_at = ?
                 WHERE object_id = ?
                 """,
                 [
@@ -235,6 +276,7 @@ class RegistrySyncEngine:
                     obj.native_id,
                     obj.object_type,
                     parent_id,
+                    json.dumps(authority_locator),
                     json.dumps(merged_props, default=str),
                     sync_version,
                     now,
@@ -249,8 +291,8 @@ class RegistrySyncEngine:
             """
             INSERT INTO source_objects (
                 object_id, source_id, object_type, parent_id, native_name, native_id,
-                fqn, properties_json, sync_version, synced_at, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                fqn, authority_locator_json, properties_json, sync_version, synced_at, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 object_id,
@@ -260,6 +302,7 @@ class RegistrySyncEngine:
                 obj.native_name,
                 obj.native_id,
                 fqn,
+                json.dumps(authority_locator),
                 json.dumps(obj.properties, default=str),
                 sync_version,
                 now,
@@ -268,3 +311,21 @@ class RegistrySyncEngine:
             ],
         )
         return object_id
+
+    def _get_authority_catalog(self, source_id: str) -> str | None:
+        row = self.metadata.query_one(
+            "SELECT authority_json FROM sources WHERE source_id = ?",
+            [source_id],
+        )
+        if row is None:
+            raise KeyError(f"Unknown source: {source_id}")
+        authority = json.loads(str(row["authority_json"]))
+        synthetic_catalog = authority.get("synthetic_catalog")
+        if isinstance(synthetic_catalog, str) and synthetic_catalog:
+            return synthetic_catalog
+        connection = authority.get("connection")
+        if isinstance(connection, dict):
+            catalog = connection.get("catalog")
+            if isinstance(catalog, str) and catalog:
+                return catalog
+        return None

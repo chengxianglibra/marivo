@@ -198,6 +198,14 @@ class SourceRegistry:
             updates.append("display_name = ?")
             params.append(display_name)
         if authority is not None:
+            existing_synthetic_catalog = existing["authority"].get("synthetic_catalog")
+            next_synthetic_catalog = authority.get("synthetic_catalog")
+            if (
+                existing_synthetic_catalog is not None
+                and next_synthetic_catalog is not None
+                and next_synthetic_catalog != existing_synthetic_catalog
+            ):
+                raise ValueError("authority.synthetic_catalog is immutable once set")
             updates.append("authority_json = ?")
             params.append(json.dumps(_normalize_authority(existing["source_type"], authority)))
         if sync is not None:
@@ -447,6 +455,7 @@ class SourceRegistry:
             "native_name": row["native_name"],
             "native_id": row["native_id"],
             "fqn": row["fqn"],
+            "authority_locator": json.loads(str(row["authority_locator_json"])),
             "properties": json.loads(str(row["properties_json"])),
             "sync_version": row["sync_version"],
             "synced_at": row["synced_at"],

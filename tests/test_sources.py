@@ -127,6 +127,11 @@ class SourceRegistryTests(unittest.TestCase):
         )  # watch_events, player_qoe, ad_events, recommendation_events
         table_names = {t["native_name"] for t in tables}
         self.assertIn("watch_events", table_names)
+        watch_events = next(table for table in tables if table["native_name"] == "watch_events")
+        self.assertEqual(
+            watch_events["authority_locator"],
+            {"catalog": "main", "schema": "analytics", "table": "watch_events"},
+        )
 
     def test_sync_idempotent(self) -> None:
         resp = self.client.post(
@@ -247,6 +252,24 @@ class SourceRegistryTests(unittest.TestCase):
         updated = resp.json()
         self.assertEqual(updated["display_name"], "New Name Only")
         self.assertEqual(updated["authority"], original_authority)
+
+    def test_update_source_invalid_authority_returns_400(self) -> None:
+        resp = self.client.post(
+            "/sources",
+            json=build_duckdb_source_payload(str(self.db_path), "Invalid Authority Update"),
+        )
+        source_id = resp.json()["source_id"]
+        resp = self.client.put(
+            f"/sources/{source_id}",
+            json={
+                "authority": {
+                    "catalog_system": "trino",
+                    "connection": {"host": "trino.local"},
+                }
+            },
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("authority.catalog_system must match source_type", resp.text)
 
     def test_update_source_not_found(self) -> None:
         resp = self.client.put("/sources/nonexistent", json={"display_name": "x"})

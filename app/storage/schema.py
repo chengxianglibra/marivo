@@ -80,6 +80,7 @@ METADATA_DDL: list[str] = [
         native_name     TEXT NOT NULL,
         native_id       TEXT,
         fqn             TEXT NOT NULL,
+        authority_locator_json TEXT NOT NULL DEFAULT '{}',
         properties_json TEXT NOT NULL DEFAULT '{}',
         sync_version    TEXT,
         synced_at       TEXT,
@@ -798,6 +799,19 @@ METADATA_DDL: list[str] = [
         UNIQUE(source_id, engine_id)
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS source_execution_mappings (
+        mapping_id             TEXT PRIMARY KEY,
+        source_id              TEXT NOT NULL REFERENCES sources(source_id),
+        engine_id              TEXT NOT NULL REFERENCES engines(engine_id),
+        priority               INTEGER NOT NULL DEFAULT 0,
+        catalog_mappings_json  TEXT NOT NULL DEFAULT '[]',
+        status                 TEXT NOT NULL DEFAULT 'active',
+        created_at             TEXT NOT NULL,
+        updated_at             TEXT NOT NULL,
+        UNIQUE(source_id, engine_id)
+    )
+    """,
     # -- Plans --
     """
     CREATE TABLE IF NOT EXISTS plans (
@@ -939,6 +953,9 @@ METADATA_DDL: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_propositions_session ON propositions(session_id)",
     "CREATE INDEX IF NOT EXISTS idx_propositions_session_type ON propositions(session_id, proposition_type)",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_propositions_session_type_identity ON propositions(session_id, proposition_type, identity_key) WHERE identity_key != ''",
+    "CREATE INDEX IF NOT EXISTS idx_source_objects_source_type_fqn ON source_objects(source_id, object_type, fqn)",
+    "CREATE INDEX IF NOT EXISTS idx_source_execution_mappings_source_status_priority ON source_execution_mappings(source_id, status, priority DESC, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_source_execution_mappings_engine_status_priority ON source_execution_mappings(engine_id, status, priority DESC, created_at)",
     # -- assessments: immutable evaluation snapshots --
     """
     CREATE TABLE IF NOT EXISTS assessments (
