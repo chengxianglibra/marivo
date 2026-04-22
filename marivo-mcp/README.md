@@ -827,7 +827,7 @@ Create a metric:
     "observation_grain_ref": "grain.user",
     "sample_kind": "numeric",
     "value_semantics": "count",
-    "additivity": "additive",
+    "additivity_constraints": {"dimension_policy": "all", "time_axis_policy": "additive"},
     "metric_contract_version": "metric.v1"
   },
   "payload": {

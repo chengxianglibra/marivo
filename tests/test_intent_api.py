@@ -3392,6 +3392,60 @@ class CompareIntentTests(unittest.TestCase):
         self.assertEqual(r.status_code, 422)
         self.assertIn("INVALID_ARGUMENT", r.json()["detail"])
 
+    def test_compare_artifact_propagates_additivity_constraints(self) -> None:
+        """compare artifact analytical_metadata should contain additivity_constraints
+        propagated from the upstream observe artifact."""
+        self._skip_if_not_wired()
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/compare",
+            json={
+                "left_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.left_step_id,
+                    "step_type": "observe",
+                },
+                "right_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.right_step_id,
+                    "step_type": "observe",
+                },
+            },
+        )
+        self.assertEqual(r.status_code, 200, r.text)
+        am = r.json()["analytical_metadata"]
+        self.assertIn("additivity_constraints", am)
+        ac = am["additivity_constraints"]
+        self.assertIn("dimension_policy", ac)
+        self.assertIn("time_axis_policy", ac)
+
+    def test_compare_artifact_analytical_metadata_shape(self) -> None:
+        """compare artifact analytical_metadata should contain all expected fields."""
+        self._skip_if_not_wired()
+        r = self.client.post(
+            f"/sessions/{self.session_id}/intents/compare",
+            json={
+                "left_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.left_step_id,
+                    "step_type": "observe",
+                },
+                "right_ref": {
+                    "session_id": self.session_id,
+                    "step_id": self.right_step_id,
+                    "step_type": "observe",
+                },
+            },
+        )
+        self.assertEqual(r.status_code, 200, r.text)
+        am = r.json()["analytical_metadata"]
+        for key in (
+            "aggregation_semantics",
+            "additivity_constraints",
+            "relative_delta_denominator",
+            "flat_tolerance_relative",
+        ):
+            self.assertIn(key, am, f"missing expected key '{key}' in analytical_metadata")
+
 
 class DecomposeIntentTests(unittest.TestCase):
     """Phase 3b-2: verify that decompose produces a typed delta_decomposition artifact.

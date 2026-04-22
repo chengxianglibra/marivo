@@ -877,6 +877,97 @@ class MetricAdditivityCrossValidationTests(unittest.TestCase):
         self.assertNotIn("ADDITIVITY_CONSTRAINTS_DIMENSION_UNDECLARED", additivity_blocker_codes)
 
 
+class MetricReadinessCapabilitiesTests(unittest.TestCase):
+    """Test that readiness evaluation correctly populates capabilities dict
+    for different additivity policies."""
+
+    def setUp(self) -> None:
+        self.registry = build_default_registry()
+
+    def _evaluate_capabilities(
+        self,
+        *,
+        additivity_constraints: dict[str, Any],
+        sample_kind: str = "numeric",
+        primary_time_ref: str | None = "time.event_date",
+        metric_family: str = "sum_metric",
+        payload_overrides: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        header: dict[str, Any] = {
+            "metric_ref": "metric.test",
+            "metric_family": metric_family,
+            "observed_entity_ref": "entity.order",
+            "observation_grain_ref": "grain.order",
+            "sample_kind": sample_kind,
+            "value_semantics": "sum",
+            "additivity_constraints": additivity_constraints,
+            "primary_time_ref": primary_time_ref,
+        }
+
+        payload: dict[str, Any] = {
+            "metric_family": metric_family,
+            "measure": {"name": "test", "semantics": "test", "aggregation": "sum"},
+        }
+        if payload_overrides:
+            payload.update(payload_overrides)
+
+        semantic_object = {"header": header, "payload": payload}
+        snapshot = build_snapshot(
+            object_kind="metric",
+            object_id="metc_cap_test",
+            ref="metric.test",
+            status="published",
+            revision=1,
+            semantic_object=semantic_object,
+        )
+
+        context = ReadinessEvaluationContext(
+            snapshot=snapshot,
+            dependency_snapshot_loader=lambda _ref: None,
+            subject_bindings_loader=lambda _ref: [],
+            carrier_source_object_loader=lambda _carrier: None,
+        )
+        result = self.registry.evaluator_for("metric").evaluate(context)
+        return result.capabilities
+
+    def test_none_policy_capabilities(self) -> None:
+        caps = self._evaluate_capabilities(
+            additivity_constraints={
+                "dimension_policy": "none",
+                "time_axis_policy": "non_additive",
+            },
+        )
+        self.assertFalse(caps["supports_decompose"])
+        self.assertFalse(caps["supports_attribute"])
+        self.assertTrue(caps["supports_compare"])  # has primary_time_ref
+        self.assertFalse(caps["time_rollup_allowed"])
+        self.assertEqual(caps["dimension_policy"], "none")
+
+    def test_subset_policy_capabilities(self) -> None:
+        caps = self._evaluate_capabilities(
+            additivity_constraints={
+                "dimension_policy": "subset",
+                "time_axis_policy": "non_additive",
+                "additive_dimensions": ["dimension.country"],
+            },
+        )
+        self.assertTrue(caps["supports_decompose"])
+        self.assertTrue(caps["supports_attribute"])
+        self.assertEqual(caps["capability_condition"], "dimension_must_be_allowed")
+        self.assertFalse(caps["time_rollup_allowed"])
+        self.assertEqual(caps["dimension_policy"], "subset")
+
+    def test_rate_metric_supports_validate(self) -> None:
+        caps = self._evaluate_capabilities(
+            additivity_constraints={
+                "dimension_policy": "all",
+                "time_axis_policy": "additive",
+            },
+            sample_kind="rate",
+        )
+        self.assertTrue(caps["supports_validate"])
+
+
 def _kind_for_ref(ref: str) -> str:
     if ref.startswith("entity."):
         return "entity"

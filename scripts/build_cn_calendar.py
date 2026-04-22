@@ -40,8 +40,8 @@ NOTICE_2024 = NoticeSource(
     published_at=_d("2023-10-25"),
 )
 NOTICE_2024_VALIDATION = NoticeSource(
-    title="图解：2024年放假安排来了",
-    url="https://www.gov.cn/zhengce/202310/content_6911534.htm",
+    title="图解：国务院办公厅关于2024年部分节假日安排的通知",
+    url="https://www.gov.cn/yaowen/liebiao/202310/content_6911540.htm",
     published_at=_d("2023-10-25"),
 )
 NOTICE_2025 = NoticeSource(
@@ -50,19 +50,19 @@ NOTICE_2025 = NoticeSource(
     published_at=_d("2024-11-12"),
 )
 NOTICE_2025_VALIDATION = NoticeSource(
-    title="图解：2025年放假安排来了",
-    url="https://www.gov.cn/zhengce/202411/content_6986383.htm",
+    title="假期增2天！春节休8天，五一休5天，国庆中秋连休8天……2025年放假安排来了！",
+    url="https://www.gov.cn/zhengce/jiedu/tujie/202411/content_6986385.htm",
     published_at=_d("2024-11-12"),
 )
 NOTICE_2026 = NoticeSource(
     title="国务院办公厅关于2026年部分节假日安排的通知",
-    url="https://www.gov.cn/zhengce/zhengceku/202511/content_7036297.htm",
-    published_at=_d("2025-11-12"),
+    url="https://www.gov.cn/zhengce/zhengceku/202511/content_7047091.htm",
+    published_at=_d("2025-11-04"),
 )
 NOTICE_2026_VALIDATION = NoticeSource(
-    title="图解：2026年放假安排来了",
-    url="https://www.gov.cn/zhengce/202511/content_7036299.htm",
-    published_at=_d("2025-11-12"),
+    title="图解：国务院办公厅关于2026年部分节假日安排的通知",
+    url="https://www.gov.cn/yaowen/liebiao/202511/content_7047099.htm",
+    published_at=_d("2025-11-04"),
 )
 
 
@@ -202,8 +202,8 @@ HOLIDAY_WINDOWS: tuple[HolidayWindow, ...] = (
         holiday_name="元旦",
         holiday_group_id="new_year",
         start=_d("2026-01-01"),
-        end=_d("2026-01-01"),
-        adjusted_workdays=(),
+        end=_d("2026-01-03"),
+        adjusted_workdays=(_d("2026-01-04"),),
         primary_source=NOTICE_2026,
         validation_source=NOTICE_2026_VALIDATION,
     ),
@@ -212,8 +212,8 @@ HOLIDAY_WINDOWS: tuple[HolidayWindow, ...] = (
         holiday_name="春节",
         holiday_group_id="spring_festival",
         start=_d("2026-02-15"),
-        end=_d("2026-02-21"),
-        adjusted_workdays=(_d("2026-02-28"),),
+        end=_d("2026-02-23"),
+        adjusted_workdays=(_d("2026-02-14"), _d("2026-02-28")),
         primary_source=NOTICE_2026,
         validation_source=NOTICE_2026_VALIDATION,
     ),
@@ -233,7 +233,7 @@ HOLIDAY_WINDOWS: tuple[HolidayWindow, ...] = (
         holiday_group_id="labor_day",
         start=_d("2026-05-01"),
         end=_d("2026-05-05"),
-        adjusted_workdays=(),
+        adjusted_workdays=(_d("2026-05-09"),),
         primary_source=NOTICE_2026,
         validation_source=NOTICE_2026_VALIDATION,
     ),
@@ -249,11 +249,21 @@ HOLIDAY_WINDOWS: tuple[HolidayWindow, ...] = (
     ),
     HolidayWindow(
         notice_year=2026,
+        holiday_name="中秋节",
+        holiday_group_id="mid_autumn",
+        start=_d("2026-09-25"),
+        end=_d("2026-09-27"),
+        adjusted_workdays=(),
+        primary_source=NOTICE_2026,
+        validation_source=NOTICE_2026_VALIDATION,
+    ),
+    HolidayWindow(
+        notice_year=2026,
         holiday_name="国庆节、中秋节",
         holiday_group_id="national_day",
         start=_d("2026-10-01"),
-        end=_d("2026-10-08"),
-        adjusted_workdays=(_d("2026-09-27"), _d("2026-10-10")),
+        end=_d("2026-10-07"),
+        adjusted_workdays=(_d("2026-09-20"), _d("2026-10-10")),
         primary_source=NOTICE_2026,
         validation_source=NOTICE_2026_VALIDATION,
     ),
@@ -527,7 +537,7 @@ def main() -> None:
     end_date = _d(args.end_date)
     if end_date < BUILD_START:
         raise ValueError("end-date must be on or after 2024-01-01")
-    max_supported = max(window.end for window in HOLIDAY_WINDOWS)
+    max_supported = date(max(window.notice_year for window in HOLIDAY_WINDOWS), 12, 31)
     if end_date > max_supported:
         raise ValueError(
             f"end-date {end_date.isoformat()} exceeds supported schedule "

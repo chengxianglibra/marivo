@@ -727,14 +727,18 @@ class AttributeAdditivityGateTests(unittest.TestCase):
             run_attribute_intent(
                 svc,
                 "session_1",
-                self._attribute_params(["dimension.country", "dimension.product", "dimension.region"]),
+                self._attribute_params(
+                    ["dimension.country", "dimension.product", "dimension.region"]
+                ),
             )
         err = ctx.exception
         self.assertEqual(err.code, "ADDITIVITY_CONSTRAINT_DIMENSION_NOT_ALLOWED")
         self.assertEqual(err.category, "compatibility")
         payload = err.detail["compatibility_error"]
         self.assertEqual(payload["dimension_policy"], "subset")
-        self.assertEqual(sorted(payload["allowed_dimensions"]), ["dimension.country", "dimension.region"])
+        self.assertEqual(
+            sorted(payload["allowed_dimensions"]), ["dimension.country", "dimension.region"]
+        )
         self.assertEqual(payload["disallowed_dimensions"], ["dimension.product"])
         self.assertFalse(payload["time_rollup_allowed"])
         self.assertIn("Retry", payload["remediation_hint"])
@@ -1056,6 +1060,79 @@ class MetricUpdateCountDistinctValidationTests(unittest.TestCase):
             )
         # metric_family is immutable, so this should fail on that check instead
         self.assertIn("metric_family", str(ctx.exception).lower())
+
+
+class AdditivityCombinationMatrixTests(unittest.TestCase):
+    """Systematic test of all 6 dimension_policy × time_axis_policy combinations
+    to verify derive_additivity_capabilities produces correct results for each."""
+
+    def _derive(
+        self,
+        dimension_policy: str,
+        time_axis_policy: str,
+        additive_dimensions: list[str] | None = None,
+        primary_time_ref: str | None = "time.event_date",
+        sample_kind: str = "numeric",
+    ) -> dict[str, object]:
+        header: dict[str, object] = {
+            "additivity_constraints": {
+                "dimension_policy": dimension_policy,
+                "time_axis_policy": time_axis_policy,
+            },
+            "primary_time_ref": primary_time_ref,
+            "sample_kind": sample_kind,
+        }
+        if additive_dimensions is not None:
+            header["additivity_constraints"]["additive_dimensions"] = additive_dimensions  # type: ignore[assignment]
+        result = derive_additivity_capabilities(header=header)
+        return result.to_dict()
+
+    def test_all_additive(self) -> None:
+        caps = self._derive("all", "additive")
+        self.assertTrue(caps["supports_decompose"])
+        self.assertTrue(caps["supports_attribute"])
+        self.assertTrue(caps["supports_compare"])
+        self.assertTrue(caps["time_rollup_allowed"])
+
+    def test_all_non_additive_time(self) -> None:
+        caps = self._derive("all", "non_additive")
+        self.assertTrue(caps["supports_decompose"])
+        self.assertTrue(caps["supports_attribute"])
+        self.assertTrue(caps["supports_compare"])
+        self.assertFalse(caps["time_rollup_allowed"])
+
+    def test_subset_additive_time(self) -> None:
+        caps = self._derive("subset", "additive", additive_dimensions=["dimension.country"])
+        self.assertTrue(caps["supports_decompose"])
+        self.assertTrue(caps["supports_attribute"])
+        self.assertTrue(caps["supports_compare"])
+        self.assertTrue(caps["time_rollup_allowed"])
+        self.assertEqual(caps["capability_condition"], "dimension_must_be_allowed")
+
+    def test_subset_non_additive_time(self) -> None:
+        caps = self._derive("subset", "non_additive", additive_dimensions=["dimension.country"])
+        self.assertTrue(caps["supports_decompose"])
+        self.assertTrue(caps["supports_attribute"])
+        self.assertTrue(caps["supports_compare"])
+        self.assertFalse(caps["time_rollup_allowed"])
+        self.assertEqual(caps["capability_condition"], "dimension_must_be_allowed")
+
+    def test_none_additive_time(self) -> None:
+        """dimension_policy=none with time_axis_policy=additive: decompose/attribute
+        disabled, time_rollup_allowed=False (none policy disables all decompose paths
+        regardless of time_axis_policy)."""
+        caps = self._derive("none", "additive")
+        self.assertFalse(caps["supports_decompose"])
+        self.assertFalse(caps["supports_attribute"])
+        self.assertTrue(caps["supports_compare"])
+        self.assertFalse(caps["time_rollup_allowed"])
+
+    def test_none_non_additive_time(self) -> None:
+        caps = self._derive("none", "non_additive")
+        self.assertFalse(caps["supports_decompose"])
+        self.assertFalse(caps["supports_attribute"])
+        self.assertTrue(caps["supports_compare"])
+        self.assertFalse(caps["time_rollup_allowed"])
 
 
 if __name__ == "__main__":

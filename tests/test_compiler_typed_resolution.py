@@ -3585,5 +3585,154 @@ class CompilerDimensionAdditivityGateTests(unittest.TestCase):
         self.assertIn("COMPILER_DIMENSION_NOT_ADDITIVE", issue_codes)
 
 
+class _NonePolicyNoTimeRefRepository(_FakeSemanticRepository):
+    """Repository returning a metric with dimension_policy='none' and no
+    primary_time_ref, so supports_compare should be False."""
+
+    def resolve_metric_ref(self, metric_ref: str) -> ResolvedSemanticObject:
+        self.calls.append(("metric", metric_ref))
+        return _resolved_object(
+            "metric",
+            metric_ref,
+            semantic_object={
+                "metric_contract_id": "metric_contract_none",
+                "header": {
+                    "metric_ref": metric_ref,
+                    "primary_time_ref": None,
+                    "sample_kind": "rate",
+                    "additivity_constraints": {
+                        "dimension_policy": "none",
+                        "time_axis_policy": "non_additive",
+                    },
+                    "population_subject_ref": "subject.user",
+                },
+                "payload": {"definition_sql": "count(distinct user_id)"},
+                "status": "published",
+                "revision": 1,
+                "created_at": "2026-04-09T00:00:00Z",
+                "updated_at": "2026-04-09T00:00:00Z",
+            },
+        )
+
+
+class _NonePolicyWithTimeRefRepository(_FakeSemanticRepository):
+    """Repository returning a metric with dimension_policy='none' but with
+    primary_time_ref set, so supports_compare should be True."""
+
+    def resolve_metric_ref(self, metric_ref: str) -> ResolvedSemanticObject:
+        self.calls.append(("metric", metric_ref))
+        return _resolved_object(
+            "metric",
+            metric_ref,
+            semantic_object={
+                "metric_contract_id": "metric_contract_none_with_time",
+                "header": {
+                    "metric_ref": metric_ref,
+                    "primary_time_ref": "time.event_date",
+                    "sample_kind": "rate",
+                    "additivity_constraints": {
+                        "dimension_policy": "none",
+                        "time_axis_policy": "non_additive",
+                    },
+                    "population_subject_ref": "subject.user",
+                },
+                "payload": {"definition_sql": "count(distinct user_id)"},
+                "status": "published",
+                "revision": 1,
+                "created_at": "2026-04-09T00:00:00Z",
+                "updated_at": "2026-04-09T00:00:00Z",
+            },
+        )
+
+
+class CompilerCompareCapabilityGateTests(unittest.TestCase):
+    """Tests for compare intent capability gate at compiler level."""
+
+    def test_compare_emits_issue_when_supports_compare_false(self) -> None:
+        repo = _NonePolicyNoTimeRefRepository()
+        normalized = normalize_step_request(
+            AnalysisStepIR(
+                index=0,
+                step_type="metric_query",
+                params={
+                    "table": "analytics.watch_events",
+                    "metric": "watch_time",
+                    "time_scope": {
+                        "mode": "compare",
+                        "grain": "day",
+                        "current": {"start": "2026-03-10", "end": "2026-03-17"},
+                        "baseline": {"start": "2026-03-03", "end": "2026-03-10"},
+                    },
+                },
+            )
+        )
+        resolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=repo,
+            binding_reader=_binding_reader,
+        )
+        derived = derive_compiler_state(
+            intent_kind="metric_query",
+            resolved_metric=resolved.resolved_metric,
+            resolved_process=resolved.resolved_process,
+            resolved_bindings=resolved.resolved_bindings,
+            profile_reader=None,
+        )
+
+        result = validate_compiler_inputs(
+            step_type="metric_query",
+            resolved_inputs=resolved,
+            derived_state=derived,
+        )
+
+        self.assertFalse(result.ok)
+        issue_codes = [issue.code for issue in result.issues]
+        self.assertIn("COMPILER_INTENT_UNSUPPORTED", issue_codes)
+        issue = next(i for i in result.issues if i.code == "COMPILER_INTENT_UNSUPPORTED")
+        self.assertEqual(issue.gate, "intent_support")
+
+    def test_compare_passes_when_supports_compare_true_even_for_none_policy(self) -> None:
+        repo = _NonePolicyWithTimeRefRepository()
+        normalized = normalize_step_request(
+            AnalysisStepIR(
+                index=0,
+                step_type="metric_query",
+                params={
+                    "table": "analytics.watch_events",
+                    "metric": "watch_time",
+                    "time_scope": {
+                        "mode": "compare",
+                        "grain": "day",
+                        "current": {"start": "2026-03-10", "end": "2026-03-17"},
+                        "baseline": {"start": "2026-03-03", "end": "2026-03-10"},
+                    },
+                },
+            )
+        )
+        resolved = resolve_compiler_inputs(
+            normalized,
+            semantic_repository=repo,
+            binding_reader=_binding_reader,
+        )
+        derived = derive_compiler_state(
+            intent_kind="metric_query",
+            resolved_metric=resolved.resolved_metric,
+            resolved_process=resolved.resolved_process,
+            resolved_bindings=resolved.resolved_bindings,
+            profile_reader=None,
+        )
+
+        result = validate_compiler_inputs(
+            step_type="metric_query",
+            resolved_inputs=resolved,
+            derived_state=derived,
+        )
+
+        self.assertNotIn(
+            "COMPILER_INTENT_UNSUPPORTED",
+            [issue.code for issue in result.issues],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
