@@ -320,6 +320,13 @@ class MeasurementComponent(TypedDict):
 - 对 `rate_metric` / `average_metric`，numerator 与 denominator 的 `qualifier_refs` 必须分别保留 lineage，不能在编译期被压平成单个全局 predicate
 - 若所有 component 共享同一组默认过滤，应通过 metric-level `default_predicate_refs` 一类的 ref list 表达，而不是吞并 component qualifier lineage
 
+**扁平化禁止规则**（formal specification 见 `predicate-schema-contract.zh.md` "Effective Scope 合成"）：
+
+- Compiler 不得将 `default_predicate_refs` 和 `qualifier_refs` 合并为单个 `effective_predicates` 列表
+- `default_predicate_refs` 是所有 component 共享的基线过滤，`qualifier_refs` 是每个 component 的增量过滤
+- 两者在 artifact lineage 中必须独立保留，否则 numerator / denominator 的 sample basis 会被错误合并
+- N-component metric 必须产生 N 个 `component_effective_scope` + 1 个 `shared_effective_scope`
+
 ### Distribution Spec
 
 ```python

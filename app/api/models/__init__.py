@@ -13,6 +13,7 @@ Modules:
 - metric: Metric v2 models with 7 family types
 - binding: Typed binding models
 - compatibility_profile: Compiler compatibility profile models
+- predicate: Predicate filter semantic object models
 """
 
 # Base types and validators
@@ -128,6 +129,9 @@ from .base import (
     ObjectStatus,
     OwnershipSemantics,
     PopulationSpec,
+    PredicateOperator,
+    PredicateTimePolicy,
+    PredicateUsage,
     ProcessType,
     ProfileKind,
     ProfileSchemaVersion,
@@ -261,6 +265,14 @@ from .metric import (
     TypedMetricListResponse,
     TypedMetricResponse,
     TypedMetricUpdateRequest,
+)
+
+# Predicate models
+from .predicate import (
+    PredicateAtom,
+    PredicateConjunction,
+    PredicateHeader,
+    PredicatePayload,
 )
 
 # Process Object models
@@ -441,6 +453,13 @@ __all__ = [  # noqa: RUF022
     "PolicyCreateRequest",
     "PolicyUpdateRequest",
     "PopulationSpec",
+    "PredicateAtom",
+    "PredicateConjunction",
+    "PredicateHeader",
+    "PredicateOperator",
+    "PredicatePayload",
+    "PredicateTimePolicy",
+    "PredicateUsage",
     "ProcessCapability",
     "ProcessInterfaceContract",
     "ProcessObjectCreateRequest",

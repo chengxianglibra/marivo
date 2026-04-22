@@ -144,6 +144,7 @@ compiler 必须优先复用 typed refs，而不是在下游请求里重建上游
 - compiler 必须把 `time_scope` 解析到单一的 `resolved_filter_time_ref`，但同时保留 metric / process / window 各自的时间引用
 - `scope.predicate` 若存在，应与 `predicate.*` contract 对齐为同一受限表达式形态，而不是平行 DSL
 - request `scope` 只能进一步收窄 metric / binding / governance 已声明的过滤约束；无法证明 narrowing 时应 fail closed
+- predicate effective scope 合成必须按 `predicate-schema-contract.zh.md` 的分层公式执行：`shared_effective_scope` 与 `component_effective_scope` 分开计算，不得将 `default_predicate_refs` 与 `qualifier_refs` 压平为单个全局 predicate
 
 ### 2. artifact 与 projection 严格分层
 
@@ -769,6 +770,9 @@ type CompilerError = {
 
 - `invalid_scope_shape`
 - `time_predicate_in_scope`
+- `predicate_usage_mismatch`
+- `predicate_scope_flattening`
+- `predicate_narrowing_unprovable`
 - `unsupported_result_mode`
 - `metric_intent_not_supported`
 - `process_contract_not_satisfied`

@@ -16,6 +16,7 @@ ObjectKind = Literal[
     "binding",
     "compiler_profile",
     "calendar_policy",
+    "predicate",
 ]
 
 
