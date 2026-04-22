@@ -17,14 +17,14 @@ class SyncConfig(BaseModel):
 
 class SourceConfig(BaseModel):
     name: str
-    type: str
+    type: Literal["duckdb", "trino"]
     connection: dict[str, Any] = Field(default_factory=dict)
     sync: SyncConfig = Field(default_factory=SyncConfig)
 
 
 class EngineConfig(BaseModel):
     name: str
-    type: str  # 'duckdb', 'trino'
+    type: Literal["duckdb", "trino"]
     connection: dict[str, Any] = Field(default_factory=dict)
 
 

@@ -1,6 +1,6 @@
 # Sources
 
-Sources represent external data catalogs (DuckDB databases, Trino clusters, etc.). After registering a source, you trigger a sync to snapshot its schema and table metadata into Marivo's local metadata store. Post-sync, all catalog queries hit SQLite — the external system is not queried at read time.
+Sources represent external data catalogs. In the current runtime, supported source types are `duckdb` and `trino` only. After registering a source, you trigger a sync to snapshot its schema and table metadata into Marivo's local metadata store. Post-sync, all catalog queries hit SQLite — the external system is not queried at read time.
 
 When `marivo.yaml` includes a Trino source, Marivo validates the optional `trino` Python package at
 startup and fails fast if it is missing. Install Trino support with `pip install -e .[trino]`.

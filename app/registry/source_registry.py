@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from app.adapters.base import MAX_PREVIEW_ROWS, CatalogAdapter
 from app.registry.common import now_iso
-from app.registry.factories import build_catalog_adapter
+from app.registry.factories import build_catalog_adapter, validate_source_type
 from app.storage.metadata import MetadataStore
 
 
@@ -32,6 +32,7 @@ class SourceRegistry:
         capabilities: dict[str, Any] | None = None,
         sync_mode: str = "by_select",
     ) -> dict[str, Any]:
+        validate_source_type(source_type)
         source_id = f"src_{uuid4().hex[:12]}"
         now = now_iso()
         caps = capabilities or {}
@@ -80,6 +81,7 @@ class SourceRegistry:
         connection: dict[str, Any],
         sync_mode: str = "by_select",
     ) -> dict[str, Any]:
+        validate_source_type(source_type)
         existing = self.metadata.query_one(
             "SELECT * FROM sources WHERE display_name = ?",
             [display_name],

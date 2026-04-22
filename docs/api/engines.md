@@ -1,6 +1,6 @@
 # Engines & Bindings
 
-Engines represent analytics execution backends (DuckDB, Trino). Source-engine bindings link a source to an engine with a priority for routing. The QueryRouter uses bindings to resolve which engine should execute a query against a given set of tables.
+Engines represent analytics execution backends. In the current runtime, supported engine types are `duckdb` and `trino` only. Source-engine bindings link a source to an engine with a priority for routing. The QueryRouter uses bindings to resolve which engine should execute a query against a given set of tables.
 
 When `marivo.yaml` includes a Trino engine, Marivo validates the optional `trino` Python package at
 startup and fails fast if it is missing. Install Trino support with `pip install -e .[trino]`.
@@ -125,6 +125,8 @@ POST /bindings
 
 Creates a source-engine binding. A binding tells the QueryRouter that a given engine can execute queries against tables in the specified source.
 
+`namespace` is a legacy compatibility field. It remains readable and writable on `/bindings`, but it is not the target-state authority-to-execution mapping contract.
+
 Each `(source_id, engine_id)` pair must be unique. If a binding already exists, use the returned `binding_id` or delete and recreate it.
 
 ### Request Body
@@ -146,7 +148,7 @@ Each `(source_id, engine_id)` pair must be unique. If a binding already exists, 
 | `source_id` | string | yes | Source to bind |
 | `engine_id` | string | yes | Engine to bind |
 | `priority` | integer | no | Routing priority (higher = preferred, default: `0`) |
-| `namespace` | object | no | Table qualification namespace (e.g., catalog/schema for Trino) |
+| `namespace` | object | no | Legacy compatibility namespace for table qualification (for example catalog/schema in current routing) |
 
 **Namespace fields (Trino):**
 

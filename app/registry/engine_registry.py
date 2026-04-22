@@ -9,7 +9,7 @@ from app.execution.capabilities import (
     build_engine_capability_profile,
 )
 from app.registry.common import now_iso
-from app.registry.factories import build_analytics_engine
+from app.registry.factories import build_analytics_engine, validate_engine_type
 from app.storage.analytics import AnalyticsEngine
 from app.storage.metadata import MetadataStore
 
@@ -27,6 +27,7 @@ class EngineRegistry:
         connection: dict[str, Any],
         capabilities: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        validate_engine_type(engine_type)
         engine_id = f"eng_{uuid4().hex[:12]}"
         now = now_iso()
         caps = build_engine_capability_profile(engine_type, capabilities).to_dict()
@@ -73,6 +74,7 @@ class EngineRegistry:
         connection: dict[str, Any],
         capabilities: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        validate_engine_type(engine_type)
         existing = self.metadata.query_one(
             "SELECT * FROM engines WHERE display_name = ?",
             [display_name],

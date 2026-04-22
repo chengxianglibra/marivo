@@ -11,12 +11,15 @@ router = APIRouter()
 @router.post("/engines")
 def register_engine(payload: EngineRegisterRequest, request: Request) -> dict[str, object]:
     services = get_services(request)
-    return services.engine_service.register_engine(
-        engine_type=payload.engine_type,
-        display_name=payload.display_name,
-        connection=payload.connection,
-        capabilities=payload.capabilities,
-    )
+    try:
+        return services.engine_service.register_engine(
+            engine_type=payload.engine_type,
+            display_name=payload.display_name,
+            connection=payload.connection,
+            capabilities=payload.capabilities,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @router.get("/engines")

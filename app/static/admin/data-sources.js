@@ -390,7 +390,10 @@ export function createDataSourcesModule(ctx) {
           <form class="source-form-grid" data-role="form">
             <label>
               Source Type
-              <input name="source_type" type="text" placeholder="duckdb" />
+              <select name="source_type">
+                <option value="duckdb">duckdb</option>
+                <option value="trino">trino</option>
+              </select>
             </label>
             <label>
               Display Name

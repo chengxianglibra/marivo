@@ -342,7 +342,10 @@ export function createExecutionEnginesModule(ctx) {
           <form class="source-form-grid" data-role="form">
             <label>
               Engine Type
-              <input name="engine_type" type="text" placeholder="duckdb" />
+              <select name="engine_type">
+                <option value="duckdb">duckdb</option>
+                <option value="trino">trino</option>
+              </select>
             </label>
             <label>
               Display Name
