@@ -1,0 +1,3 @@
+[mcp_servers.marivo]
+command = "/Users/lichengxiang/source/oss/marivo/marivo-mcp/.venv/bin/marivo-mcp"
+env = { MARIVO_BASE_URL = "http://127.0.0.1:8000", PYTHONPATH = "/Users/lichengxiang/source/oss/marivo" }
