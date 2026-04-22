@@ -70,6 +70,11 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
         rows = self.store.query_rows("SELECT * FROM sessions")
         self.assertEqual(len(rows), 2)
 
+    def test_initialize_creates_source_object_lookup_index(self) -> None:
+        rows = self.store.query_rows("PRAGMA index_list(source_objects)")
+        index_names = {str(row["name"]) for row in rows}
+        self.assertIn("idx_source_objects_source_fqn", index_names)
+
     def test_initialize_migrates_time_bindings_timestamp_format_no_constraint(self) -> None:
         """Migration removes timestamp_format CHECK constraint, allowing custom formats."""
         legacy_path = Path(self.temp_dir.name) / "legacy.sqlite"
@@ -129,7 +134,6 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
             """,
             ["bind_1", "binding.test", "entity", "entity.test", "binding.v1", "draft"],
         )
-        # After migration, CHECK constraint is removed, so custom formats are accepted
         migrated_store.execute(
             """
             INSERT INTO time_bindings (
