@@ -165,7 +165,7 @@ class SessionCreateRequest(BaseModel):
 
 
 class SourceRegisterRequest(BaseModel):
-    source_type: str
+    source_type: Literal["duckdb", "trino"]
     display_name: str
     connection: dict[str, Any] = Field(default_factory=dict)
     capabilities: dict[str, Any] | None = None
@@ -182,7 +182,7 @@ class ColumnPropertiesUpdateRequest(BaseModel):
 
 
 class EngineRegisterRequest(BaseModel):
-    engine_type: str
+    engine_type: Literal["duckdb", "trino"]
     display_name: str
     connection: dict[str, Any] = Field(default_factory=dict)
     capabilities: dict[str, Any] | None = None

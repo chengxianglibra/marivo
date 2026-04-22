@@ -17,12 +17,15 @@ router = APIRouter()
 @router.post("/sources")
 def register_source(payload: SourceRegisterRequest, request: Request) -> dict[str, object]:
     services = get_services(request)
-    return services.source_service.register_source(
-        source_type=payload.source_type,
-        display_name=payload.display_name,
-        connection=payload.connection,
-        capabilities=payload.capabilities,
-    )
+    try:
+        return services.source_service.register_source(
+            source_type=payload.source_type,
+            display_name=payload.display_name,
+            connection=payload.connection,
+            capabilities=payload.capabilities,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @router.get("/sources")

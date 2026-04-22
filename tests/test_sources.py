@@ -62,6 +62,17 @@ class SourceRegistryTests(unittest.TestCase):
         sources = resp.json()
         self.assertTrue(any(s["source_id"] == source["source_id"] for s in sources))
 
+    def test_register_source_rejects_unsupported_type(self) -> None:
+        resp = self.client.post(
+            "/sources",
+            json={
+                "source_type": "mysql",
+                "display_name": "Unsupported Source",
+                "connection": {},
+            },
+        )
+        self.assertEqual(resp.status_code, 422)
+
     def test_get_source(self) -> None:
         resp = self.client.post(
             "/sources",

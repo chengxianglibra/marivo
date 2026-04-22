@@ -95,6 +95,14 @@ class EngineServiceTests(unittest.TestCase):
         )
         self.assertEqual(e1["engine_id"], e2["engine_id"])
 
+    def test_register_engine_rejects_unsupported_type(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Unsupported engine type"):
+            self.service.register_engine(
+                engine_type="spark",
+                display_name="Unsupported Engine",
+                connection={},
+            )
+
     def test_build_duckdb_engine(self) -> None:
         engine = self.service.register_engine(
             engine_type="duckdb",
@@ -160,6 +168,17 @@ class EngineAPITests(unittest.TestCase):
         engines = resp.json()
         self.assertIsInstance(engines, list)
         self.assertTrue(any(e["display_name"] == "API DuckDB" for e in engines))
+
+    def test_post_engine_rejects_unsupported_type(self) -> None:
+        resp = self.client.post(
+            "/engines",
+            json={
+                "engine_type": "spark",
+                "display_name": "Unsupported Engine",
+                "connection": {},
+            },
+        )
+        self.assertEqual(resp.status_code, 422)
 
     def test_get_engine_404(self) -> None:
         resp = self.client.get("/engines/eng_nonexistent")

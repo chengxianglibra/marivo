@@ -5,6 +5,9 @@ from typing import Any
 from app.adapters.base import CatalogAdapter
 from app.storage.analytics import AnalyticsEngine
 
+SUPPORTED_SOURCE_TYPES: tuple[str, ...] = ("duckdb", "trino")
+SUPPORTED_ENGINE_TYPES: tuple[str, ...] = ("duckdb", "trino")
+
 
 def _trino_connect_kwargs(connection: dict[str, Any]) -> dict[str, Any]:
     """Extract Trino connection kwargs shared by catalog adapter and analytics engine."""
@@ -36,7 +39,24 @@ def _trino_connect_kwargs(connection: dict[str, Any]) -> dict[str, Any]:
     return kwargs
 
 
+def validate_source_type(source_type: str) -> None:
+    if source_type not in SUPPORTED_SOURCE_TYPES:
+        supported = ", ".join(SUPPORTED_SOURCE_TYPES)
+        raise ValueError(
+            f"Unsupported source type: {source_type}. Supported source types: {supported}"
+        )
+
+
+def validate_engine_type(engine_type: str) -> None:
+    if engine_type not in SUPPORTED_ENGINE_TYPES:
+        supported = ", ".join(SUPPORTED_ENGINE_TYPES)
+        raise ValueError(
+            f"Unsupported engine type: {engine_type}. Supported engine types: {supported}"
+        )
+
+
 def build_catalog_adapter(source_type: str, connection: dict[str, Any]) -> CatalogAdapter:
+    validate_source_type(source_type)
     if source_type == "duckdb":
         from app.adapters.duckdb_adapter import DuckDBCatalogAdapter
 
@@ -49,6 +69,7 @@ def build_catalog_adapter(source_type: str, connection: dict[str, Any]) -> Catal
 
 
 def build_analytics_engine(engine_type: str, connection: dict[str, Any]) -> AnalyticsEngine:
+    validate_engine_type(engine_type)
     if engine_type == "duckdb":
         from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 

@@ -64,10 +64,10 @@ class LoadConfigTests(unittest.TestCase):
         with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
             f.write(
                 "sources:\n"
-                '  - name: "Prod Hive"\n'
-                "    type: hive_metastore\n"
+                '  - name: "Prod Trino"\n'
+                "    type: trino\n"
                 "    connection:\n"
-                "      host: hive.internal\n"
+                "      host: trino.internal\n"
                 "    sync:\n"
                 "      mode: by_select\n"
             )
@@ -76,6 +76,20 @@ class LoadConfigTests(unittest.TestCase):
 
         self.assertEqual(len(cfg.sources), 1)
         self.assertEqual(cfg.sources[0].sync.mode, "by_select")
+
+    def test_load_rejects_unsupported_source_type(self) -> None:
+        with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
+            f.write('sources:\n  - name: "Demo"\n    type: mysql\n')
+            f.flush()
+            with self.assertRaises(Exception):
+                load_config(Path(f.name))
+
+    def test_load_rejects_unsupported_engine_type(self) -> None:
+        with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
+            f.write('engines:\n  - name: "Batch Engine"\n    type: spark\n')
+            f.flush()
+            with self.assertRaises(Exception):
+                load_config(Path(f.name))
 
     def test_ui_enabled_parses(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
@@ -122,6 +136,10 @@ class EnsureSourceTests(unittest.TestCase):
         self.assertEqual(source["source_type"], "duckdb")
         self.assertTrue(source["source_id"].startswith("src_"))
 
+    def test_register_source_rejects_unsupported_type(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Unsupported source type"):
+            self.source_service.register_source("mysql", "Unsupported Source", {})
+
     def test_ensure_source_idempotent(self) -> None:
         s1 = self.source_service.ensure_source("duckdb", "Same Name", {})
         s2 = self.source_service.ensure_source("duckdb", "Same Name", {})
@@ -132,22 +150,26 @@ class EnsureSourceTests(unittest.TestCase):
 
     def test_ensure_source_updates_existing_source_type(self) -> None:
         existing = self.source_service.register_source(
-            "local", "Local Demo", {"path": "/tmp/old.duckdb"}
+            "duckdb", "Local Demo", {"path": "/tmp/old.duckdb"}
         )
 
         updated = self.source_service.ensure_source(
-            "duckdb",
+            "trino",
             "Local Demo",
-            {"path": "/tmp/new.duckdb"},
+            {"host": "trino.local"},
             sync_mode="by_select",
         )
 
         self.assertEqual(updated["source_id"], existing["source_id"])
-        self.assertEqual(updated["source_type"], "duckdb")
-        self.assertEqual(updated["connection"]["path"], "/tmp/new.duckdb")
+        self.assertEqual(updated["source_type"], "trino")
+        self.assertEqual(updated["connection"]["host"], "trino.local")
         self.assertEqual(updated["sync_mode"], "by_select")
         persisted = self.source_service.get_source(existing["source_id"])
-        self.assertEqual(persisted["source_type"], "duckdb")
+        self.assertEqual(persisted["source_type"], "trino")
+
+    def test_ensure_source_rejects_unsupported_type(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Unsupported source type"):
+            self.source_service.ensure_source("mysql", "Unsupported Source", {})
 
 
 class StartupWithConfigTests(unittest.TestCase):
