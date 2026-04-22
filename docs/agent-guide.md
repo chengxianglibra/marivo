@@ -132,6 +132,12 @@ App startup requires `marivo.yaml` metadata config with `metadata.engine=sqlite`
   tests keep covering schema upgrades. Bump the metadata template version when metadata DDL changes.
 - When metadata contract changes only alter columns inside an existing table, also update the
   template validator in `tests/shared_fixtures.py`; table-name checks alone are not sufficient.
+- Treat `tests/shared_fixtures.py` metadata template build as a hot path. Keep it on the minimal
+  DDL/shape-validation path; do not route it through heavier initializer or migration logic unless
+  the contract truly requires that extra work.
+- Prefer API/service/registry validation over SQLite triggers for request-level business invariants.
+  Only add triggers when storage must fail closed across uncontrolled write paths; otherwise they
+  add maintenance cost and can slow shared test fixture paths.
 - For heavy intent API tests, prefer class-level reuse of published semantic objects and seeded
   upstream artifacts over creating and publishing new metrics/bindings inside individual test
   methods. When compare/correlate-style tests only need committed upstream artifacts, seed the
