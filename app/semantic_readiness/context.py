@@ -43,6 +43,14 @@ ProfilesLoader = Callable[[str, str], list[dict[str, Any]]]
 PreviouslyReadyLoader = Callable[[ReadinessObjectSnapshot], bool]
 
 
+def _resolve_entity_alias(ref: str) -> str:
+    """Map subject/population/event alias refs to their backing entity ref."""
+    for prefix in ("subject.", "population.", "event."):
+        if ref.startswith(prefix):
+            return "entity." + ref[len(prefix) :]
+    return ref
+
+
 def _runtime_object_kind(ref: str) -> ObjectKind | None:
     """Derive object kind from a ref string by prefix matching.
 
@@ -233,13 +241,14 @@ class ReadinessEvaluationContext:
     def _default_dependency_snapshot_loader(self, ref: str) -> ReadinessObjectSnapshot | None:
         if self.metadata is None:
             return None
-        object_kind = _runtime_object_kind(ref)
+        resolved_ref = _resolve_entity_alias(ref)
+        object_kind = _runtime_object_kind(resolved_ref)
         if object_kind is None:
             return None
         if object_kind == "entity":
             row = self.metadata.query_one(
                 "SELECT * FROM semantic_entity_contracts WHERE entity_ref = ?",
-                [ref],
+                [resolved_ref],
             )
             if row is None:
                 return None
@@ -310,6 +319,11 @@ class ReadinessEvaluationContext:
                 "profile_id",
                 "profile_ref",
             ),
+            "predicate": (
+                "semantic_predicate_contracts",
+                "predicate_contract_id",
+                "predicate_ref",
+            ),
         }
         # Assertion documents that object_kind comes from type-checked ObjectKind literal,
         # making SQL identifiers safe (values from hardcoded dict, not user input).
@@ -330,6 +344,8 @@ class ReadinessEvaluationContext:
             semantic_object = self._build_binding_snapshot(row_dict)
         elif object_kind == "compiler_profile":
             semantic_object = self._build_compatibility_profile_snapshot(row_dict)
+        elif object_kind == "predicate":
+            semantic_object = self._build_predicate_snapshot(row_dict)
         else:
             semantic_object = {"header": {ref_field: row_dict[ref_field]}}
         return ReadinessObjectSnapshot(
@@ -688,9 +704,20 @@ class ReadinessEvaluationContext:
             "capability": json.loads(row["capability_json"] or "{}") or None,
         }
 
+    @staticmethod
+    def _build_predicate_snapshot(row: dict[str, Any]) -> dict[str, Any]:
+        payload = json.loads(row["payload_json"] or "{}")
+        return {
+            "header": {
+                "predicate_ref": row["predicate_ref"],
+                "subject_ref": row["subject_ref"],
+                "predicate_contract_version": row["predicate_contract_version"],
+            },
+            "interface_contract": payload,
+        }
+
 
 def build_snapshot(
-    *,
     object_kind: ObjectKind,
     object_id: str,
     ref: str,

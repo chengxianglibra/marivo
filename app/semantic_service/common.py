@@ -295,6 +295,7 @@ class _SemanticListContext:
         self._add_enum_snapshots(snapshots)
         self._add_binding_snapshots(snapshots)
         self._add_profile_snapshots(snapshots)
+        self._add_predicate_snapshots(snapshots)
         self._snapshots_by_ref = snapshots
 
     def _add_entity_snapshots(self, snapshots: dict[str, ReadinessObjectSnapshot]) -> None:
@@ -514,6 +515,27 @@ class _SemanticListContext:
                 "compiler_profile",
                 str(row["profile_id"]),
                 str(row["profile_ref"]),
+                row,
+                semantic_object,
+            )
+
+    def _add_predicate_snapshots(self, snapshots: dict[str, ReadinessObjectSnapshot]) -> None:
+        rows = self._service.metadata.query_rows("SELECT * FROM semantic_predicate_contracts")
+        for row in rows:
+            payload = json.loads(row["payload_json"] or "{}")
+            semantic_object = {
+                "header": {
+                    "predicate_ref": row["predicate_ref"],
+                    "subject_ref": row["subject_ref"],
+                    "predicate_contract_version": row["predicate_contract_version"],
+                },
+                "interface_contract": payload,
+            }
+            self._add_snapshot(
+                snapshots,
+                "predicate",
+                str(row["predicate_contract_id"]),
+                str(row["predicate_ref"]),
                 row,
                 semantic_object,
             )
@@ -1437,6 +1459,19 @@ class SemanticServiceSupport:
             "entity ref",
         )
 
+    @staticmethod
+    def _resolve_entity_ref_from_alias(ref: str) -> str:
+        """Map an alias-prefixed ref (subject/population/event) to its backing entity ref.
+
+        In v1, subject.X, population.X, and event.X are namespace aliases for entity.X.
+        The semantic_entity_contracts table only stores entity.* values, so alias
+        refs must be translated before querying.
+        """
+        for prefix in ("subject.", "population.", "event."):
+            if ref.startswith(prefix):
+                return "entity." + ref[len(prefix) :]
+        return ref
+
     def _validate_dimension_ref(self, dimension_ref: str) -> None:
         self._require_ref_exists(
             "SELECT dimension_contract_id FROM semantic_dimension_contracts WHERE dimension_ref = ?",
@@ -1492,6 +1527,101 @@ class SemanticServiceSupport:
             """,
             enum_set_ref,
             "enum set ref",
+        )
+
+    def _validate_predicate_ref(self, predicate_ref: str) -> None:
+        self._require_ref_exists(
+            "SELECT predicate_contract_id FROM semantic_predicate_contracts WHERE predicate_ref = ?",
+            predicate_ref,
+            "predicate ref",
+        )
+
+    def _validate_published_predicate_ref(self, predicate_ref: str) -> None:
+        self._validate_predicate_ref(predicate_ref)
+        self._require_published_ref_exists(
+            """
+            SELECT predicate_contract_id
+            FROM semantic_predicate_contracts
+            WHERE predicate_ref = ? AND status = 'published'
+            """,
+            predicate_ref,
+            "predicate ref",
+        )
+
+    @staticmethod
+    def _extract_target_refs(expression: dict[str, Any]) -> list[str]:
+        """Recursively extract all target_ref values from a predicate expression tree."""
+        refs: list[str] = []
+        if expression.get("target_ref") is not None:
+            refs.append(expression["target_ref"])
+        for item in expression.get("items") or []:
+            refs.extend(SemanticServiceSupport._extract_target_refs(item))
+        return refs
+
+    def _validate_semantic_ref_target(
+        self, target_ref: str, *, require_published: bool = False
+    ) -> None:
+        """Validate that a target_ref points to an existing (optionally published) semantic object.
+
+        Dispatches to the appropriate per-kind validator based on the ref prefix.
+        """
+        if target_ref.startswith("dimension."):
+            if require_published:
+                self._validate_published_dimension_ref(target_ref)
+            else:
+                self._validate_dimension_ref(target_ref)
+        elif target_ref.startswith("entity."):
+            if require_published:
+                self._validate_published_entity_ref(target_ref)
+            else:
+                self._validate_entity_ref(target_ref)
+        elif target_ref.startswith("key."):
+            self._require_ref_exists(
+                "SELECT entity_contract_id FROM semantic_entity_key_refs WHERE key_ref = ?",
+                target_ref,
+                "key ref",
+            )
+        elif target_ref.startswith("enum."):
+            if require_published:
+                self._validate_published_enum_set_ref(target_ref)
+            else:
+                self._validate_enum_set_ref(target_ref)
+        elif target_ref.startswith(("subject.", "population.", "event.")):
+            resolved = self._resolve_entity_ref_from_alias(target_ref)
+            if require_published:
+                self._validate_published_entity_ref(resolved)
+            else:
+                self._validate_entity_ref(resolved)
+        elif target_ref.startswith("field."):
+            self._require_ref_exists(
+                "SELECT carrier_binding_id FROM carrier_field_surfaces WHERE surface_ref = ?",
+                target_ref,
+                "field ref",
+            )
+
+    def _validate_predicate_contract_refs(
+        self,
+        interface_contract: dict[str, Any],
+        *,
+        subject_ref: str | None = None,
+        require_published: bool = False,
+    ) -> None:
+        if subject_ref is not None:
+            resolved = self._resolve_entity_ref_from_alias(subject_ref)
+            if require_published:
+                self._validate_published_entity_ref(resolved)
+            else:
+                self._validate_entity_ref(resolved)
+        expression = interface_contract.get("expression")
+        if expression is not None:
+            for target_ref in self._extract_target_refs(expression):
+                self._validate_semantic_ref_target(target_ref, require_published=require_published)
+
+    def _validate_published_predicate_contract_refs(
+        self, interface_contract: dict[str, Any], *, subject_ref: str | None = None
+    ) -> None:
+        self._validate_predicate_contract_refs(
+            interface_contract, subject_ref=subject_ref, require_published=True
         )
 
     def _validate_dimension_refs(self, dimension_refs: list[str] | None) -> None:
@@ -3410,3 +3540,41 @@ class SemanticServiceSupport:
             mode=mode,
             include_dependents=include_dependents,
         )
+
+    def _row_to_predicate(
+        self,
+        row: dict[str, Any],
+        mode: Literal["list", "detail"] = "detail",
+        *,
+        include_dependents: bool = True,
+        list_context: _SemanticListContext | None = None,
+    ) -> dict[str, Any]:
+        payload = json.loads(row["payload_json"] or "{}")
+        predicate = {
+            "predicate_contract_id": row["predicate_contract_id"],
+            "header": {
+                "predicate_ref": row["predicate_ref"],
+                "display_name": row["display_name"],
+                "description": row["description"],
+                "subject_ref": row["subject_ref"],
+                "predicate_contract_version": row["predicate_contract_version"],
+            },
+            "status": row["status"],
+            "revision": row["revision"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+            "interface_contract": payload,
+        }
+        predicate = self._augment_object_with_readiness(
+            predicate,
+            object_kind="predicate",
+            row=row,
+            id_field="predicate_contract_id",
+            ref=str(row["predicate_ref"]),
+            mode=mode,
+            include_dependents=include_dependents,
+            list_context=list_context,
+        )
+        if mode == "list":
+            predicate.pop("interface_contract", None)
+        return predicate

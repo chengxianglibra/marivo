@@ -15,6 +15,8 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .base import (
     ObjectHeaderBase,
+    ObjectListItemBase,
+    ObjectResponseBase,
     PredicateOperator,
     PredicateTimePolicy,
     PredicateUsage,
@@ -221,3 +223,77 @@ class PredicatePayload(BaseModel):
     time_policy: PredicateTimePolicy = Field(
         default="non_time_only", description="Time policy. v1 only supports 'non_time_only'."
     )
+
+
+# =============================================================================
+# Predicate Interface Contract
+# =============================================================================
+
+
+class PredicateInterfaceContract(BaseModel):
+    """Interface contract for a predicate object.
+
+    Wraps PredicatePayload for consistency with other semantic object
+    create/update request patterns.
+    """
+
+    expression: PredicateExpression = Field(
+        description="The filter expression. v1 supports PredicateAtom and "
+        "PredicateConjunction(op='and') only."
+    )
+    allowed_usage: list[PredicateUsage] = Field(
+        min_length=1,
+        description="Allowed consumption contexts. Must be non-empty. "
+        "Values: metric_qualifier, carrier_row_filter, request_scope, governance_policy.",
+    )
+    time_policy: PredicateTimePolicy = Field(
+        default="non_time_only", description="Time policy. v1 only supports 'non_time_only'."
+    )
+
+
+# =============================================================================
+# Predicate CRUD Request/Response Models
+# =============================================================================
+
+
+class PredicateCreateRequest(BaseModel):
+    """Request body for creating a predicate object."""
+
+    header: PredicateHeader = Field(description="Predicate header with identity and subject.")
+    interface_contract: PredicateInterfaceContract = Field(
+        description="Predicate interface contract with expression and usage."
+    )
+
+
+class PredicateUpdateRequest(BaseModel):
+    """Request body for updating a predicate object."""
+
+    display_name: str | None = Field(default=None, description="Updated display name.")
+    description: str | None = Field(default=None, description="Updated description.")
+    interface_contract: PredicateInterfaceContract | None = Field(
+        default=None, description="Updated interface contract."
+    )
+
+
+class PredicateListItem(ObjectListItemBase):
+    """Lightweight list item for predicate objects."""
+
+    predicate_contract_id: str = Field(description="Predicate contract ID.")
+    header: PredicateHeader = Field(description="Predicate header.")
+
+
+class PredicateResponse(ObjectResponseBase):
+    """Full detail response for a predicate object."""
+
+    predicate_contract_id: str = Field(description="Predicate contract ID.")
+    header: PredicateHeader = Field(description="Predicate header.")
+    interface_contract: PredicateInterfaceContract = Field(
+        description="Predicate interface contract."
+    )
+
+
+class PredicateListResponse(BaseModel):
+    """List envelope for predicate objects."""
+
+    items: list[PredicateListItem] = Field(default_factory=list, description="List of predicates.")
+    total: int = Field(ge=0, description="Total count of predicates.")

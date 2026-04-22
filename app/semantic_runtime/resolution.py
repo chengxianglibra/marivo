@@ -110,6 +110,11 @@ class SemanticRuntimeMetadataReader:
         "dimension": ("semantic_dimension_contracts", "dimension_ref", "_row_to_dimension"),
         "time": ("semantic_time_objects", "time_ref", "_row_to_time_semantic"),
         "binding": ("typed_bindings", "binding_ref", "_row_to_typed_binding"),
+        "predicate": (
+            "semantic_predicate_contracts",
+            "predicate_ref",
+            "_row_to_predicate",
+        ),
     }
 
     def __init__(self, metadata: MetadataStore) -> None:
@@ -514,6 +519,24 @@ class SemanticRuntimeMetadataReader:
             "updated_at": row["updated_at"],
         }
 
+    def _row_to_predicate(self, row: dict[str, Any]) -> dict[str, Any]:
+        payload = json.loads(row["payload_json"] or "{}")
+        return {
+            "predicate_contract_id": row["predicate_contract_id"],
+            "header": {
+                "predicate_ref": row["predicate_ref"],
+                "display_name": row["display_name"],
+                "description": row["description"],
+                "subject_ref": row["subject_ref"],
+                "predicate_contract_version": row["predicate_contract_version"],
+            },
+            "interface_contract": payload,
+            "status": row["status"],
+            "revision": row["revision"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
 
 class SemanticResolver:
     """Resolve published semantic objects into typed runtime models."""
@@ -526,6 +549,7 @@ class SemanticResolver:
         "time": "time_contract_id",
         "binding": "binding_id",
         "calendar_policy": "policy_ref",
+        "predicate": "predicate_contract_id",
     }
     _REF_FIELDS: ClassVar[dict[str, str]] = {
         "entity": "entity_ref",
@@ -535,6 +559,7 @@ class SemanticResolver:
         "time": "time_ref",
         "binding": "binding_ref",
         "calendar_policy": "policy_ref",
+        "predicate": "predicate_ref",
     }
 
     def __init__(self, metadata: MetadataStore) -> None:
@@ -653,6 +678,9 @@ class SemanticResolver:
 
     def resolve_binding_ref(self, binding_ref: str) -> ResolvedSemanticObject:
         return self._resolve_ref_of_kind(binding_ref, expected_kind="binding")
+
+    def resolve_predicate_ref(self, predicate_ref: str) -> ResolvedSemanticObject:
+        return self._resolve_ref_of_kind(predicate_ref, expected_kind="predicate")
 
     def resolve_metric(self, metric_name: str) -> ResolvedMetric | None:
         try:
@@ -798,7 +826,10 @@ _DEPENDENCY_PREFIXES = (
     "binding.",
     "compiler_profile.",
     "calendar_policy.",
+    "predicate.",
     "subject.",
+    "population.",
+    "event.",
     "source_object.",
 )
 
@@ -835,6 +866,12 @@ def _dependency_refs_for_object(
         return [ref for ref in refs if ref != header.get("process_ref")]
     if object_kind == "dimension":
         _collect_dependency_refs(semantic_object.get("interface_contract") or {}, refs, seen)
+        return refs
+    if object_kind == "predicate":
+        header = semantic_object.get("header") or {}
+        _append_dependency_ref(refs, seen, header.get("subject_ref"))
+        interface_contract = semantic_object.get("interface_contract") or {}
+        _collect_dependency_refs(interface_contract.get("expression") or {}, refs, seen)
         return refs
     if object_kind in {"time", "enum"}:
         return refs

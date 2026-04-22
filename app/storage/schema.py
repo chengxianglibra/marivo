@@ -444,6 +444,25 @@ METADATA_DDL: list[str] = [
         CHECK (position > 0)
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS semantic_predicate_contracts (
+        predicate_contract_id      TEXT PRIMARY KEY,
+        predicate_ref              TEXT NOT NULL UNIQUE,
+        display_name               TEXT NOT NULL,
+        description                TEXT NOT NULL DEFAULT '',
+        subject_ref                TEXT NOT NULL,
+        predicate_contract_version TEXT NOT NULL,
+        payload_json               TEXT NOT NULL DEFAULT '{}',
+        status                     TEXT NOT NULL DEFAULT 'draft' CHECK (
+            status IN ('draft', 'published', 'deprecated')
+        ),
+        revision                   INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+        created_at                 TEXT NOT NULL,
+        updated_at                 TEXT NOT NULL,
+        CHECK (substr(predicate_ref, 1, 10) = 'predicate.'),
+        CHECK (substr(subject_ref, 1, 7) = 'entity.' OR substr(subject_ref, 1, 8) = 'subject.')
+    )
+    """,
     "CREATE INDEX IF NOT EXISTS idx_semantic_entity_key_refs_entity ON semantic_entity_key_refs(entity_contract_id)",
     "CREATE INDEX IF NOT EXISTS idx_semantic_entity_stable_descriptors_entity ON semantic_entity_stable_descriptors(entity_contract_id)",
     "CREATE INDEX IF NOT EXISTS idx_semantic_metric_contracts_status_ref ON semantic_metric_contracts(status, metric_ref)",
@@ -451,6 +470,7 @@ METADATA_DDL: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_semantic_dimension_contracts_status_ref ON semantic_dimension_contracts(status, dimension_ref)",
     "CREATE INDEX IF NOT EXISTS idx_semantic_enum_set_versions_enum_set ON semantic_enum_set_versions(enum_set_contract_id)",
     "CREATE INDEX IF NOT EXISTS idx_semantic_enum_set_values_version ON semantic_enum_set_values(enum_set_version_id)",
+    "CREATE INDEX IF NOT EXISTS idx_semantic_predicate_contracts_status_ref ON semantic_predicate_contracts(status, predicate_ref)",
     # -------------------------------------------------------------------------
     # Typed binding contract tables
     # -------------------------------------------------------------------------

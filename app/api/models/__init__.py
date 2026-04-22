@@ -271,8 +271,14 @@ from .metric import (
 from .predicate import (
     PredicateAtom,
     PredicateConjunction,
+    PredicateCreateRequest,
     PredicateHeader,
+    PredicateInterfaceContract,
+    PredicateListItem,
+    PredicateListResponse,
     PredicatePayload,
+    PredicateResponse,
+    PredicateUpdateRequest,
 )
 
 # Process Object models
@@ -455,9 +461,15 @@ __all__ = [  # noqa: RUF022
     "PopulationSpec",
     "PredicateAtom",
     "PredicateConjunction",
+    "PredicateCreateRequest",
     "PredicateHeader",
+    "PredicateInterfaceContract",
+    "PredicateListItem",
+    "PredicateListResponse",
     "PredicateOperator",
     "PredicatePayload",
+    "PredicateResponse",
+    "PredicateUpdateRequest",
     "PredicateTimePolicy",
     "PredicateUsage",
     "ProcessCapability",

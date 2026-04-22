@@ -480,7 +480,7 @@ _LOCK_FILE = _template_lock_path("default")
 # In-process flags: skip lock on repeated calls within the same worker.
 _TEMPLATE_READY: set[str] = set()
 
-_METADATA_TEMPLATE_VERSION = "sqlite_metadata_v3"
+_METADATA_TEMPLATE_VERSION = "sqlite_metadata_v4"
 _METADATA_TEMPLATE = Path(f"/tmp/marivo_test_{_METADATA_TEMPLATE_VERSION}.sqlite")
 _METADATA_LOCK = Path(f"/tmp/marivo_test_{_METADATA_TEMPLATE_VERSION}.lock")
 _METADATA_READY = False
