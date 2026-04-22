@@ -229,6 +229,7 @@ def run_attribute_intent(
                     "time_axis_policy": additivity_caps.time_axis_policy,
                     "allowed_dimensions": [],
                     "disallowed_dimensions": list(dimensions),
+                    "requested_dimensions": list(dimensions),
                     "time_rollup_allowed": additivity_caps.time_rollup_allowed,
                     "remediation_hint": (
                         "Metric has dimension_policy='none'. "
@@ -261,10 +262,10 @@ def run_attribute_intent(
                         "time_axis_policy": additivity_caps.time_axis_policy,
                         "allowed_dimensions": sorted(allowed_set),
                         "disallowed_dimensions": disallowed_requested,
+                        "requested_dimensions": list(dimensions),
                         "time_rollup_allowed": additivity_caps.time_rollup_allowed,
                         "remediation_hint": (
-                            f"Retry with only allowed dimensions: "
-                            f"{sorted(allowed_set)}"
+                            f"Retry with only allowed dimensions: {sorted(allowed_set)}"
                         ),
                     },
                 },

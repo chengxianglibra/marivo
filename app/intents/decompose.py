@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 from app.analysis_core.additivity_capabilities import derive_additivity_capabilities
 from app.analysis_core.executor import execute_compiled
 from app.analysis_core.ir import AnalysisStepIR
+from app.execution.errors import ExecutionError
 from app.time_scope import normalize_metric_query_request
 
 if TYPE_CHECKING:
@@ -132,13 +133,34 @@ def run_decompose_intent(
         },
     )
     if not additivity_caps.supports_decompose:
-        raise ValueError(
-            f"decompose: ADDITIVITY_CONSTRAINT - metric '{metric_name}' does not support "
-            f"decomposition (dimension_policy='{additivity_caps.dimension_policy}', "
-            f"time_axis_policy='{additivity_caps.time_axis_policy}', "
-            f"blocker='{additivity_caps.blocker}', "
-            f"gate_source='{gate_source}')"
-            + (f"; {additivity_caps.remediation_hint}" if additivity_caps.remediation_hint else "")
+        raise ExecutionError(
+            code="ADDITIVITY_CONSTRAINT",
+            category="compatibility",
+            message=(
+                f"decompose: ADDITIVITY_CONSTRAINT - metric '{metric_name}' does not support "
+                f"decomposition (dimension_policy='{additivity_caps.dimension_policy}', "
+                f"time_axis_policy='{additivity_caps.time_axis_policy}', "
+                f"blocker='{additivity_caps.blocker}', "
+                f"gate_source='{gate_source}')"
+                + (
+                    f"; {additivity_caps.remediation_hint}"
+                    if additivity_caps.remediation_hint
+                    else ""
+                )
+            ),
+            detail={
+                "compatibility_error": {
+                    "code": "ADDITIVITY_CONSTRAINT",
+                    "metric": metric_name,
+                    "dimension_policy": additivity_caps.dimension_policy,
+                    "time_axis_policy": additivity_caps.time_axis_policy,
+                    "additive_dimensions": additivity_caps.additive_dimensions or [],
+                    "time_rollup_allowed": additivity_caps.time_rollup_allowed,
+                    "blocker": additivity_caps.blocker,
+                    "gate_source": gate_source,
+                    "remediation_hint": additivity_caps.remediation_hint,
+                },
+            },
         )
 
     if (
@@ -147,14 +169,35 @@ def run_decompose_intent(
         and dimension not in additivity_caps.additive_dimensions
     ):
         disallowed = [dimension]
-        raise ValueError(
-            f"decompose: ADDITIVITY_CONSTRAINT_DIMENSION_NOT_ALLOWED - metric "
-            f"'{metric_name}' with dimension_policy='subset' does not allow "
-            f"decomposition on '{dimension}'. "
-            f"Allowed: {sorted(additivity_caps.additive_dimensions)}, "
-            f"Disallowed: {disallowed}, "
-            f"time_axis_policy='{additivity_caps.time_axis_policy}'"
-            + (f"; {additivity_caps.remediation_hint}" if additivity_caps.remediation_hint else "")
+        raise ExecutionError(
+            code="ADDITIVITY_CONSTRAINT_DIMENSION_NOT_ALLOWED",
+            category="compatibility",
+            message=(
+                f"decompose: ADDITIVITY_CONSTRAINT_DIMENSION_NOT_ALLOWED - metric "
+                f"'{metric_name}' with dimension_policy='subset' does not allow "
+                f"decomposition on '{dimension}'. "
+                f"Allowed: {sorted(additivity_caps.additive_dimensions)}, "
+                f"Disallowed: {disallowed}, "
+                f"time_axis_policy='{additivity_caps.time_axis_policy}'"
+                + (
+                    f"; {additivity_caps.remediation_hint}"
+                    if additivity_caps.remediation_hint
+                    else ""
+                )
+            ),
+            detail={
+                "compatibility_error": {
+                    "code": "ADDITIVITY_CONSTRAINT_DIMENSION_NOT_ALLOWED",
+                    "metric": metric_name,
+                    "dimension_policy": additivity_caps.dimension_policy,
+                    "time_axis_policy": additivity_caps.time_axis_policy,
+                    "additive_dimensions": sorted(additivity_caps.additive_dimensions),
+                    "disallowed_dimensions": disallowed,
+                    "requested_dimensions": [dimension],
+                    "time_rollup_allowed": additivity_caps.time_rollup_allowed,
+                    "remediation_hint": additivity_caps.remediation_hint,
+                },
+            },
         )
 
     # Resolve metric for dimension validation (dimensions are runtime state, not frozen)
