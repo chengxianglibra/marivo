@@ -54,6 +54,8 @@ def update_source(
             sync=payload.sync.model_dump() if payload.sync is not None else None,
             policy=payload.policy.model_dump() if payload.policy is not None else None,
         )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
 

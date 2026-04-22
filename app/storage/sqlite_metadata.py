@@ -28,9 +28,12 @@ class SQLiteMetadataStore(MetadataStore):
         with self.connect() as con:
             for ddl in METADATA_DDL:
                 con.execute(ddl)
+            self._drop_legacy_source_mapping_triggers(con)
             self._ensure_sources_contract_schema(con)
             self._ensure_engines_contract_schema(con)
+            self._ensure_source_objects_authority_locator_schema(con)
             self._ensure_time_bindings_timestamp_format_schema(con)
+            self._ensure_metric_default_predicate_refs_schema(con)
             con.commit()
 
     def _ensure_sources_contract_schema(self, con: sqlite3.Connection) -> None:
@@ -102,6 +105,15 @@ class SQLiteMetadataStore(MetadataStore):
                 ],
             )
         con.execute("DROP TABLE sources__legacy")
+
+    def _drop_legacy_source_mapping_triggers(self, con: sqlite3.Connection) -> None:
+        con.execute("DROP TRIGGER IF EXISTS trg_sources_synthetic_catalog_immutable")
+        con.execute(
+            "DROP TRIGGER IF EXISTS trg_source_execution_mappings_unique_authority_catalog_insert"
+        )
+        con.execute(
+            "DROP TRIGGER IF EXISTS trg_source_execution_mappings_unique_authority_catalog_update"
+        )
 
     def _ensure_engines_contract_schema(self, con: sqlite3.Connection) -> None:
         columns = {str(row["name"]) for row in con.execute("PRAGMA table_info(engines)")}
@@ -185,6 +197,35 @@ class SQLiteMetadataStore(MetadataStore):
                 ],
             )
         con.execute("DROP TABLE engines__legacy")
+
+    def _ensure_source_objects_authority_locator_schema(self, con: sqlite3.Connection) -> None:
+        columns = {str(row["name"]) for row in con.execute("PRAGMA table_info(source_objects)")}
+        if "authority_locator_json" not in columns:
+            con.execute(
+                "ALTER TABLE source_objects ADD COLUMN authority_locator_json TEXT NOT NULL DEFAULT '{}'"
+            )
+
+        rows = con.execute(
+            """
+            SELECT o.object_id, o.object_type, o.native_name, o.fqn, s.authority_json, s.source_type
+            FROM source_objects o
+            JOIN sources s ON s.source_id = o.source_id
+            WHERE o.authority_locator_json = '{}'
+            """
+        ).fetchall()
+        for row in rows:
+            authority = json.loads(str(row["authority_json"]))
+            locator = self._build_authority_locator_from_row(
+                source_type=str(row["source_type"]),
+                authority=authority,
+                object_type=str(row["object_type"]),
+                native_name=str(row["native_name"]),
+                fqn=str(row["fqn"]),
+            )
+            con.execute(
+                "UPDATE source_objects SET authority_locator_json = ? WHERE object_id = ?",
+                [json.dumps(locator), row["object_id"]],
+            )
 
     def _ensure_time_bindings_timestamp_format_schema(self, con: sqlite3.Connection) -> None:
         """Ensure timestamp_format column exists without CHECK constraint.
@@ -289,6 +330,55 @@ class SQLiteMetadataStore(MetadataStore):
                 """
             )
             con.execute("DROP TABLE time_bindings__legacy")
+
+    def _ensure_metric_default_predicate_refs_schema(self, con: sqlite3.Connection) -> None:
+        columns = {
+            str(row["name"]) for row in con.execute("PRAGMA table_info(semantic_metric_contracts)")
+        }
+        if "default_predicate_refs_json" not in columns:
+            con.execute(
+                "ALTER TABLE semantic_metric_contracts ADD COLUMN default_predicate_refs_json TEXT"
+            )
+
+    def _build_authority_locator_from_row(
+        self,
+        source_type: str,
+        authority: dict[str, Any],
+        object_type: str,
+        native_name: str,
+        fqn: str,
+    ) -> dict[str, Any]:
+        catalog = self._authority_catalog(source_type, authority)
+        schema_name, table_name = self._schema_and_table_from_fqn(fqn)
+        if object_type == "schema":
+            schema_name = native_name
+            table_name = None
+        elif object_type == "table":
+            table_name = native_name
+        return {
+            "catalog": catalog,
+            "schema": schema_name,
+            "table": table_name,
+        }
+
+    def _authority_catalog(self, source_type: str, authority: dict[str, Any]) -> str | None:
+        synthetic_catalog = authority.get("synthetic_catalog")
+        if isinstance(synthetic_catalog, str) and synthetic_catalog:
+            return synthetic_catalog
+        connection = authority.get("connection")
+        if isinstance(connection, dict):
+            catalog = connection.get("catalog")
+            if isinstance(catalog, str) and catalog:
+                return catalog
+        return None
+
+    def _schema_and_table_from_fqn(self, fqn: str) -> tuple[str | None, str | None]:
+        parts = fqn.split(".")
+        if len(parts) < 2:
+            return None, None
+        schema_name = parts[1]
+        table_name = parts[2] if len(parts) >= 3 else None
+        return schema_name, table_name
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
