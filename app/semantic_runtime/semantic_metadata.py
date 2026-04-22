@@ -11,6 +11,7 @@ SUPPORTED_RUNTIME_REF_KINDS: dict[str, str] = {
     "time.": "time",
     "binding.": "binding",
     "calendar_policy.": "calendar_policy",
+    "predicate.": "predicate",
 }
 
 

@@ -15,6 +15,7 @@ from .evaluators import (
     EntityReadinessEvaluator,
     EnumReadinessEvaluator,
     MetricReadinessEvaluator,
+    PredicateReadinessEvaluator,
     ProcessReadinessEvaluator,
     TimeReadinessEvaluator,
 )
@@ -69,4 +70,5 @@ def build_default_registry() -> SemanticReadinessRegistry:
     registry.register("enum", EnumReadinessEvaluator())
     registry.register("binding", BindingReadinessEvaluator())
     registry.register("compiler_profile", CompilerProfileReadinessEvaluator())
+    registry.register("predicate", PredicateReadinessEvaluator())
     return registry

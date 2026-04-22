@@ -12,6 +12,7 @@ from app.api.models.dimension import DimensionCreateRequest, DimensionUpdateRequ
 from app.api.models.entity import TypedEntityCreateRequest, TypedEntityUpdateRequest
 from app.api.models.enum_set import EnumSetCreateRequest, EnumSetUpdateRequest
 from app.api.models.metric import TypedMetricCreateRequest, TypedMetricUpdateRequest
+from app.api.models.predicate import PredicateCreateRequest, PredicateUpdateRequest
 from app.api.models.process_object import ProcessObjectCreateRequest, ProcessObjectUpdateRequest
 from app.api.models.time import TimeCreateRequest, TimeUpdateRequest
 from app.semantic_service import (
@@ -268,6 +269,54 @@ class SemanticService:
 
     def deprecate_dimension(self, dimension_contract_id: str) -> dict[str, Any]:
         return self._invoke(lambda: self.typed_objects.deprecate_dimension(dimension_contract_id))
+
+    # -- Predicate --
+
+    def create_predicate(self, payload: PredicateCreateRequest) -> dict[str, Any]:
+        return self._invoke(lambda: self.typed_objects.create_predicate(payload))
+
+    def read_predicate(self, predicate_identifier: str) -> dict[str, Any]:
+        return self._invoke(lambda: self.typed_objects.read_predicate(predicate_identifier))
+
+    def get_predicate(self, predicate_contract_id: str) -> dict[str, Any]:
+        return self._invoke(lambda: self.typed_objects.get_predicate(predicate_contract_id))
+
+    def list_predicates(
+        self,
+        status: str | None = None,
+        lifecycle_status: str | None = None,
+        readiness_status: str | None = None,
+        detail: bool = False,
+    ) -> dict[str, Any]:
+        return self._invoke(
+            lambda: self.typed_objects.list_predicates(
+                status=status,
+                lifecycle_status=lifecycle_status,
+                readiness_status=readiness_status,
+                detail=detail,
+            )
+        )
+
+    def update_predicate(
+        self, predicate_contract_id: str, payload: PredicateUpdateRequest
+    ) -> dict[str, Any]:
+        return self._invoke(
+            lambda: self.typed_objects.update_predicate(predicate_contract_id, payload)
+        )
+
+    def publish_predicate(self, predicate_contract_id: str) -> dict[str, Any]:
+        return self._invoke(lambda: self.typed_objects.publish_predicate(predicate_contract_id))
+
+    def validate_predicate(self, predicate_contract_id: str) -> dict[str, Any]:
+        return self._validate_action_response(
+            self._invoke(lambda: self.typed_objects.validate_predicate(predicate_contract_id))
+        )
+
+    def activate_predicate(self, predicate_contract_id: str) -> dict[str, Any]:
+        return self._invoke(lambda: self.typed_objects.activate_predicate(predicate_contract_id))
+
+    def deprecate_predicate(self, predicate_contract_id: str) -> dict[str, Any]:
+        return self._invoke(lambda: self.typed_objects.deprecate_predicate(predicate_contract_id))
 
     def create_time_semantic(self, payload: TimeCreateRequest) -> dict[str, Any]:
         return self._invoke(lambda: self.typed_objects.create_time_semantic(payload))

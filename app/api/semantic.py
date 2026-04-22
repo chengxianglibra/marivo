@@ -16,6 +16,9 @@ from app.api.models import (
     EnumSetCreateRequest,
     EnumSetResponse,
     EnumSetUpdateRequest,
+    PredicateCreateRequest,
+    PredicateResponse,
+    PredicateUpdateRequest,
     ProcessObjectCreateRequest,
     ProcessObjectResponse,
     ProcessObjectUpdateRequest,
@@ -412,6 +415,101 @@ def deprecate_dimension(dimension_contract_id: str, request: Request) -> dict[st
     semantic_service = get_services(request).semantic_service
     return _run_route_action(
         lambda: semantic_service.deprecate_dimension(dimension_contract_id),
+        structured_value_error=True,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Predicate CRUD
+# ---------------------------------------------------------------------------
+
+
+@router.post("/semantic/predicates", response_model=PredicateResponse)
+def create_predicate(
+    request: Request, payload: PredicateCreateRequest = Body(...)
+) -> dict[str, Any]:
+    semantic_service = get_services(request).semantic_service
+    return _run_route_action(lambda: semantic_service.create_predicate(payload))
+
+
+@router.get("/semantic/predicates")
+def list_predicates(
+    request: Request,
+    status: str | None = Query(default=None),
+    lifecycle_status: str | None = Query(default=None),
+    readiness_status: str | None = Query(default=None),
+    detail: bool = Query(
+        default=False, description="Return full detail instead of lightweight format."
+    ),
+) -> dict[str, Any]:
+    semantic_service = get_services(request).semantic_service
+    return _run_route_action(
+        lambda: semantic_service.list_predicates(
+            status=status,
+            lifecycle_status=lifecycle_status,
+            readiness_status=readiness_status,
+            detail=detail,
+        )
+    )
+
+
+@router.get("/semantic/predicates/{predicate_contract_id}", response_model=PredicateResponse)
+def get_predicate(predicate_contract_id: str, request: Request) -> dict[str, Any]:
+    semantic_service = get_services(request).semantic_service
+    return _run_route_action(lambda: semantic_service.read_predicate(predicate_contract_id))
+
+
+@router.put("/semantic/predicates/{predicate_contract_id}", response_model=PredicateResponse)
+def update_predicate(
+    predicate_contract_id: str,
+    request: Request,
+    payload: PredicateUpdateRequest = Body(...),
+) -> dict[str, Any]:
+    semantic_service = get_services(request).semantic_service
+    return _run_route_action(
+        lambda: semantic_service.update_predicate(predicate_contract_id, payload)
+    )
+
+
+@router.post("/semantic/predicates/{predicate_contract_id}/publish")
+def publish_predicate(predicate_contract_id: str, request: Request) -> dict[str, Any]:
+    semantic_service = get_services(request).semantic_service
+    return _run_route_action(
+        lambda: semantic_service.publish_predicate(predicate_contract_id),
+        structured_value_error=True,
+    )
+
+
+@router.post(
+    "/semantic/predicates/{predicate_contract_id}/validate",
+    response_model=SemanticValidateActionResponse,
+)
+def validate_predicate(predicate_contract_id: str, request: Request) -> dict[str, Any]:
+    semantic_service = get_services(request).semantic_service
+    return _run_route_action(
+        lambda: semantic_service.validate_predicate(predicate_contract_id),
+        structured_value_error=True,
+    )
+
+
+@router.post(
+    "/semantic/predicates/{predicate_contract_id}/activate", response_model=PredicateResponse
+)
+def activate_predicate(predicate_contract_id: str, request: Request) -> dict[str, Any]:
+    semantic_service = get_services(request).semantic_service
+    return _run_route_action(
+        lambda: semantic_service.activate_predicate(predicate_contract_id),
+        structured_value_error=True,
+    )
+
+
+@router.post(
+    "/semantic/predicates/{predicate_contract_id}/deprecate", response_model=PredicateResponse
+)
+def deprecate_predicate(predicate_contract_id: str, request: Request) -> dict[str, Any]:
+    semantic_service = get_services(request).semantic_service
+    return _run_route_action(
+        lambda: semantic_service.deprecate_predicate(predicate_contract_id),
         structured_value_error=True,
     )
 

@@ -58,6 +58,12 @@ _SEARCH_CONFIG: dict[str, dict[str, str]] = {
         "ref_column": "binding_ref",
         "version_column": "binding_contract_version",
     },
+    "predicate": {
+        "table": "semantic_predicate_contracts",
+        "id_column": "predicate_contract_id",
+        "ref_column": "predicate_ref",
+        "version_column": "predicate_contract_version",
+    },
 }
 _SEARCHABLE_OBJECT_TYPES = frozenset({*_SEARCH_CONFIG.keys(), "asset", "calendar_policy"})
 

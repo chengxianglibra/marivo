@@ -775,6 +775,115 @@ class CompilerProfileReadinessEvaluator:
         )
 
 
+class PredicateReadinessEvaluator:
+    def evaluate(self, context: ReadinessEvaluationContext) -> ReadinessResult:
+        snapshot = context.snapshot
+        lifecycle_status = derive_lifecycle_status(snapshot.status)
+        header = dict(snapshot.semantic_object.get("header") or {})
+        interface_contract = dict(snapshot.semantic_object.get("interface_contract") or {})
+        blockers: list[BlockingRequirementPayload] = []
+        trace: list[ReadinessTraceItem] = [
+            ReadinessTraceItem(
+                stage="lifecycle_gate",
+                detail=f"Derived lifecycle_status={lifecycle_status} from storage status={snapshot.status}.",
+                source="predicate_readiness_evaluator",
+                subject_ref=snapshot.ref,
+            )
+        ]
+        capabilities: dict[str, Any] = {
+            "has_expression": bool(interface_contract.get("expression")),
+            "allowed_usage": list(interface_contract.get("allowed_usage") or []),
+        }
+        if not header.get("predicate_ref") or not header.get("subject_ref"):
+            blockers.append(
+                _blocker(
+                    code="PREDICATE_CONTRACT_INVALID",
+                    message="Predicate must define predicate_ref and subject_ref.",
+                    subject_ref=snapshot.ref,
+                )
+            )
+        expression = interface_contract.get("expression")
+        if not expression:
+            blockers.append(
+                _blocker(
+                    code="PREDICATE_EXPRESSION_MISSING",
+                    message="Predicate must define a non-empty expression.",
+                    subject_ref=snapshot.ref,
+                )
+            )
+        allowed_usage = interface_contract.get("allowed_usage")
+        if not allowed_usage:
+            blockers.append(
+                _blocker(
+                    code="PREDICATE_ALLOWED_USAGE_MISSING",
+                    message="Predicate must define at least one allowed_usage.",
+                    subject_ref=snapshot.ref,
+                )
+            )
+        if lifecycle_status == "active":
+            for dependency_ref in _predicate_dependency_refs(header, interface_contract):
+                dependency = context.load_dependency_snapshot(dependency_ref)
+                if dependency is None or derive_lifecycle_status(dependency.status) != "active":
+                    blockers.append(
+                        _blocker(
+                            code="PREDICATE_DEPENDENCY_INACTIVE",
+                            message="Predicate dependency must exist and be active before the predicate is ready.",
+                            subject_ref=snapshot.ref,
+                            dependency_ref=dependency_ref,
+                        )
+                    )
+                    trace.append(
+                        ReadinessTraceItem(
+                            stage="dependency_check",
+                            detail=f"Dependency {dependency_ref} is missing or not active.",
+                            source="predicate_readiness_evaluator",
+                            subject_ref=snapshot.ref,
+                            dependency_ref=dependency_ref,
+                        )
+                    )
+        readiness_status = (
+            _classify_active_readiness(
+                blockers,
+                stale_codes={"PREDICATE_DEPENDENCY_INACTIVE"},
+                allow_stale=True,
+            )
+            if lifecycle_status == "active"
+            else "not_ready"
+        )
+        return ReadinessResult(
+            lifecycle_status=lifecycle_status,
+            readiness_status=readiness_status,
+            capabilities=capabilities,
+            blocking_requirements=blockers,
+            trace=trace,
+            had_ready_predecessor=context.previously_ready(),
+        )
+
+
+def _predicate_dependency_refs(
+    header: dict[str, Any], interface_contract: dict[str, Any]
+) -> list[str]:
+    refs: list[str] = []
+    seen: set[str] = set()
+    subject_ref = header.get("subject_ref")
+    if subject_ref:
+        seen.add(subject_ref)
+        refs.append(subject_ref)
+    _collect_predicate_target_refs(interface_contract.get("expression") or {}, refs, seen)
+    return refs
+
+
+def _collect_predicate_target_refs(
+    expression: dict[str, Any], refs: list[str], seen: set[str]
+) -> None:
+    target_ref = expression.get("target_ref")
+    if target_ref and target_ref not in seen:
+        seen.add(target_ref)
+        refs.append(target_ref)
+    for item in expression.get("items") or []:
+        _collect_predicate_target_refs(item, refs, seen)
+
+
 def _contains_basic_process_blockers(blockers: Iterable[BlockingRequirementPayload]) -> bool:
     inferential_only_codes = {"PROCESS_PROFILE_MISSING", "PROCESS_PROFILE_MISMATCH"}
     return any(blocker.code not in inferential_only_codes for blocker in blockers)

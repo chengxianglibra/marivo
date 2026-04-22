@@ -34,7 +34,7 @@ class CatalogSearchResultBase(BaseModel):
 
 
 class CatalogSemanticSearchResult(CatalogSearchResultBase):
-    object_kind: Literal["entity", "metric", "process", "dimension", "time", "binding"]
+    object_kind: Literal["entity", "metric", "process", "dimension", "time", "binding", "predicate"]
     contract_version: str
     lifecycle_status: LifecycleStatus
     readiness_status: ReadinessStatus
@@ -100,7 +100,7 @@ class CatalogMetricDetail(CatalogSemanticDetailBase):
 
 
 class CatalogGenericSemanticDetail(CatalogSemanticDetailBase):
-    object_kind: Literal["process", "dimension", "time", "binding"]
+    object_kind: Literal["process", "dimension", "time", "binding", "predicate"]
     semantic_object: dict[str, object]
 
 

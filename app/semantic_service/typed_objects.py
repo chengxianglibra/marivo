@@ -19,6 +19,7 @@ from app.api.models.metric import (
     TypedMetricUpdateRequest,
     _collect_aggregation_methods,
 )
+from app.api.models.predicate import PredicateCreateRequest, PredicateUpdateRequest
 from app.api.models.process_object import ProcessObjectCreateRequest, ProcessObjectUpdateRequest
 from app.api.models.time import TimeCreateRequest, TimeUpdateRequest
 
@@ -880,6 +881,174 @@ class TypedObjectService(SemanticServiceSupport):
 
     def publish_dimension(self, dimension_contract_id: str) -> dict[str, Any]:
         return self.activate_dimension(dimension_contract_id)
+
+    # -------------------------------------------------------------------------
+    # Predicate CRUD
+    # -------------------------------------------------------------------------
+
+    def create_predicate(self, payload: PredicateCreateRequest) -> dict[str, Any]:
+        interface_contract = payload.interface_contract.model_dump(mode="json")
+        predicate_contract_id = f"predc_{uuid4().hex[:24]}"
+        created_at = now_iso()
+        self.metadata.execute(
+            """
+            INSERT INTO semantic_predicate_contracts (
+                predicate_contract_id, predicate_ref, display_name, description,
+                subject_ref, predicate_contract_version, payload_json,
+                status, revision, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', 1, ?, ?)
+            """,
+            [
+                predicate_contract_id,
+                payload.header.predicate_ref,
+                payload.header.display_name
+                or payload.header.predicate_ref.removeprefix("predicate."),
+                payload.header.description or "",
+                payload.header.subject_ref,
+                payload.header.predicate_contract_version,
+                json.dumps(interface_contract),
+                created_at,
+                created_at,
+            ],
+        )
+        return self.get_predicate(predicate_contract_id)
+
+    def get_predicate(self, predicate_contract_id: str) -> dict[str, Any]:
+        row = self.metadata.query_one(
+            "SELECT * FROM semantic_predicate_contracts WHERE predicate_contract_id = ?",
+            [predicate_contract_id],
+        )
+        if row is None:
+            raise self._not_found(f"Unknown predicate: {predicate_contract_id}")
+        return self._row_to_predicate(row)
+
+    def read_predicate(self, predicate_identifier: str) -> dict[str, Any]:
+        row = self.metadata.query_one(
+            "SELECT * FROM semantic_predicate_contracts WHERE predicate_contract_id = ?",
+            [predicate_identifier],
+        )
+        if row is None:
+            row = self.metadata.query_one(
+                "SELECT * FROM semantic_predicate_contracts WHERE predicate_ref = ?",
+                [predicate_identifier],
+            )
+        if row is None:
+            raise self._not_found(f"Unknown predicate: {predicate_identifier}")
+        return self._row_to_predicate(row)
+
+    def list_predicates(
+        self,
+        status: str | None = None,
+        lifecycle_status: str | None = None,
+        readiness_status: str | None = None,
+        detail: bool = False,
+    ) -> dict[str, Any]:
+        status = self._resolve_semantic_filters(status=status, lifecycle_status=lifecycle_status)
+        if status is None:
+            rows = self.metadata.query_rows(
+                "SELECT * FROM semantic_predicate_contracts ORDER BY predicate_ref"
+            )
+        else:
+            rows = self.metadata.query_rows(
+                "SELECT * FROM semantic_predicate_contracts WHERE status = ? ORDER BY predicate_ref",
+                [status],
+            )
+        mode: Literal["list", "detail"] = "detail" if detail else "list"
+        list_context = self._list_context()
+        filtered_rows = rows
+        if readiness_status is not None:
+            filtered_rows = []
+            for row in rows:
+                snapshot = list_context.load_dependency_snapshot(str(row["predicate_ref"]))
+                if snapshot is None:
+                    continue
+                if list_context.readiness_for(snapshot).get("readiness_status") == readiness_status:
+                    filtered_rows.append(row)
+        items = [
+            self._row_to_predicate(
+                row,
+                mode=mode,
+                include_dependents=detail,
+                list_context=list_context,
+            )
+            for row in filtered_rows
+        ]
+        return {"items": items, "total": len(items)}
+
+    def update_predicate(
+        self, predicate_contract_id: str, payload: PredicateUpdateRequest
+    ) -> dict[str, Any]:
+        current = self.get_predicate(predicate_contract_id)
+        self._require_lifecycle_action_status(
+            action="activate",
+            status=current["status"],
+            object_label="Predicate",
+            object_id=predicate_contract_id,
+        )
+        updates: list[str] = []
+        params: list[Any] = []
+        if payload.display_name is not None:
+            updates.append("display_name = ?")
+            params.append(payload.display_name)
+        if payload.description is not None:
+            updates.append("description = ?")
+            params.append(payload.description)
+        if payload.interface_contract is not None:
+            interface_contract = payload.interface_contract.model_dump(mode="json")
+            updates.append("payload_json = ?")
+            params.append(json.dumps(interface_contract))
+        if not updates:
+            return current
+        self._apply_contract_update(
+            table_name="semantic_predicate_contracts",
+            id_column="predicate_contract_id",
+            object_id=predicate_contract_id,
+            updates=updates,
+            params=params,
+        )
+        return self.get_predicate(predicate_contract_id)
+
+    def validate_predicate(self, predicate_contract_id: str) -> dict[str, Any]:
+        current = self.get_predicate(predicate_contract_id)
+        self._validate_record(
+            object_id=predicate_contract_id,
+            object_label="Predicate",
+            status=current["status"],
+            reference_validator=lambda: self._validate_published_predicate_contract_refs(
+                current["interface_contract"],
+                subject_ref=current["header"]["subject_ref"],
+            ),
+        )
+        return self.get_predicate(predicate_contract_id)
+
+    def activate_predicate(self, predicate_contract_id: str) -> dict[str, Any]:
+        current = self.get_predicate(predicate_contract_id)
+        self._activate_record(
+            table_name="semantic_predicate_contracts",
+            id_column="predicate_contract_id",
+            object_id=predicate_contract_id,
+            object_label="Predicate",
+            status=current["status"],
+            reference_validator=lambda: self._validate_published_predicate_contract_refs(
+                current["interface_contract"],
+                subject_ref=current["header"]["subject_ref"],
+            ),
+        )
+        return self.get_predicate(predicate_contract_id)
+
+    def deprecate_predicate(self, predicate_contract_id: str) -> dict[str, Any]:
+        current = self.get_predicate(predicate_contract_id)
+        self._deprecate_record(
+            table_name="semantic_predicate_contracts",
+            id_column="predicate_contract_id",
+            object_id=predicate_contract_id,
+            object_label="Predicate",
+            status=current["status"],
+        )
+        return self.get_predicate(predicate_contract_id)
+
+    def publish_predicate(self, predicate_contract_id: str) -> dict[str, Any]:
+        return self.activate_predicate(predicate_contract_id)
 
     def create_time_semantic(self, payload: TimeCreateRequest) -> dict[str, Any]:
         time_contract_id = f"timec_{uuid4().hex[:24]}"
