@@ -82,6 +82,9 @@ def validate_compiler_inputs(
     issues.extend(
         _gate_scope_validation(resolved_inputs, semantic_repository, governance_repository)
     )
+    issues.extend(
+        _gate_predicate_conflict(resolved_inputs, semantic_repository, governance_repository)
+    )
     issues.extend(_gate_dimension_compatibility(resolved_inputs))
     issues.extend(_gate_intent_specific(step_type, resolved_inputs, derived_state))
     issues.extend(_gate_dimension_additivity_condition(step_type, resolved_inputs, derived_state))
@@ -415,10 +418,39 @@ def _gate_scope_validation(
         for ref in _collect_predicate_refs(resolved_inputs)
         if ref.required_usage != "request_scope"
     ]
-    upstream_predicates.extend(_collect_governance_predicate_refs(governance_repository))
+    upstream_predicates.extend(
+        _collect_governance_predicate_refs(
+            governance_repository,
+            step_type=resolved_inputs.normalized_request.intent_kind,
+            tables={resolved_inputs.normalized_request.table_name}
+            if resolved_inputs.normalized_request.table_name
+            else None,
+        )
+    )
     return validate_request_scope(
         request_scope_ref=request_scope_ref,
         upstream_predicates=upstream_predicates,
+        resolver=semantic_repository,
+    )
+
+
+def _gate_predicate_conflict(
+    resolved_inputs: ResolvedCompilerInputs,
+    semantic_repository: SemanticRuntimeRepository | None,
+    governance_repository: GovernanceRepository | None = None,
+) -> list[ValidationIssue]:
+    if semantic_repository is None:
+        return []
+    from app.analysis_core.predicate_validator import (
+        collect_layered_predicate_refs,
+        validate_predicate_conflicts,
+    )
+
+    layered_refs = collect_layered_predicate_refs(resolved_inputs, governance_repository)
+    if not layered_refs:
+        return []
+    return validate_predicate_conflicts(
+        layered_refs=layered_refs,
         resolver=semantic_repository,
     )
 
@@ -478,16 +510,22 @@ def _collect_predicate_refs(
 
 def _collect_governance_predicate_refs(
     governance_repository: GovernanceRepository | None,
+    *,
+    step_type: str | None = None,
+    tables: set[str] | None = None,
 ) -> list[PredicateRefWithUsage]:
     """Extract predicate refs from enabled row_filter governance policies."""
     if governance_repository is None:
         return []
     from app.analysis_core.predicate_validator import PredicateRefWithUsage
+    from app.governance_engine.runtime import policy_matches_scope
 
     refs: list[PredicateRefWithUsage] = []
     seen: set[str] = set()
     for policy in governance_repository.list_policies(enabled_only=True):
         if policy.get("policy_type") != "row_filter":
+            continue
+        if not policy_matches_scope(policy, step_type=step_type, tables=tables):
             continue
         definition = policy.get("definition") or {}
         predicate_ref = definition.get("predicate_ref")

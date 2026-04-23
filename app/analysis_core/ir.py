@@ -76,6 +76,34 @@ class IrInputSnapshot(TypedDict):
     intent_request: IntentRequestSnapshot
 
 
+class SharedEffectiveScope(TypedDict):
+    governance_policy_refs: list[str]
+    carrier_row_filter_refs: list[str]
+    request_scope_ref: NotRequired[str | None]
+
+
+class MetricDefaultLineage(TypedDict):
+    default_predicate_refs: list[str]
+
+
+class ComponentQualifierLineage(TypedDict):
+    component_field: str
+    qualifier_refs: list[str]
+
+
+class ComponentEffectiveScope(TypedDict):
+    component_field: str
+    effective_scope_refs: list[str]
+    scope_fingerprint: str
+
+
+class PredicateFilterLineage(TypedDict):
+    shared_effective_scope: SharedEffectiveScope
+    metric_default_lineage: MetricDefaultLineage
+    component_qualifier_lineages: list[ComponentQualifierLineage]
+    component_effective_scopes: list[ComponentEffectiveScope]
+
+
 class ArtifactLineageEntry(TypedDict):
     source_artifact_id: str
     relationship: Literal["consumes", "derives_from", "compares", "tests", "projects"]
@@ -143,6 +171,7 @@ class MeasurementNode(TypedDict):
     output_bindings: NotRequired[list[OutputBinding] | None]
     carrier_bindings: NotRequired[list[CarrierBinding] | None]
     inferential_summary_mode: NotRequired[str | None]
+    predicate_filter_lineage: NotRequired[PredicateFilterLineage | None]
 
 
 class ProcessNode(TypedDict):
@@ -185,6 +214,7 @@ class ValidationRecord(TypedDict):
         "binding_grounding",
         "predicate_contract",
         "scope_validation",
+        "predicate_conflict",
         "dimension_compatibility",
         "intent_specific",
     ]
