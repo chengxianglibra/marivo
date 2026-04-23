@@ -287,15 +287,44 @@ class EngineRegistry:
         )
 
     def _row_to_engine(self, row: dict[str, Any]) -> dict[str, Any]:
+        engine_type = str(row["engine_type"])
+        raw_connection = json.loads(str(row["connection_json"]))
+        connection = raw_connection if isinstance(raw_connection, dict) else {}
+
+        raw_default_namespace = json.loads(str(row["default_namespace_json"]))
+        default_namespace = raw_default_namespace if isinstance(raw_default_namespace, dict) else {}
+        catalog = default_namespace.get("catalog")
+        schema = default_namespace.get("schema")
+        normalized_default_namespace = {
+            "catalog": catalog if isinstance(catalog, str) or catalog is None else None,
+            "schema": schema if isinstance(schema, str) or schema is None else None,
+        }
+
+        raw_intrinsic_capabilities = json.loads(str(row["intrinsic_capabilities_json"]))
+        intrinsic_capabilities = (
+            raw_intrinsic_capabilities
+            if isinstance(raw_intrinsic_capabilities, dict)
+            else _build_intrinsic_capabilities(engine_type)
+        )
+        for key, value in _build_intrinsic_capabilities(engine_type).items():
+            intrinsic_capabilities.setdefault(key, value)
+
+        raw_deployment_capabilities = json.loads(str(row["deployment_capabilities_json"]))
+        deployment_capabilities = (
+            raw_deployment_capabilities if isinstance(raw_deployment_capabilities, dict) else {}
+        )
+
+        raw_policy = json.loads(str(row["policy_json"]))
+        policy = _normalize_policy(raw_policy if isinstance(raw_policy, dict) else None)
         engine = {
             "engine_id": row["engine_id"],
-            "engine_type": row["engine_type"],
+            "engine_type": engine_type,
             "display_name": row["display_name"],
-            "connection": json.loads(str(row["connection_json"])),
-            "default_namespace": json.loads(str(row["default_namespace_json"])),
-            "intrinsic_capabilities": json.loads(str(row["intrinsic_capabilities_json"])),
-            "deployment_capabilities": json.loads(str(row["deployment_capabilities_json"])),
-            "policy": json.loads(str(row["policy_json"])),
+            "connection": connection,
+            "default_namespace": normalized_default_namespace,
+            "intrinsic_capabilities": intrinsic_capabilities,
+            "deployment_capabilities": deployment_capabilities,
+            "policy": policy,
             "status": row["status"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],

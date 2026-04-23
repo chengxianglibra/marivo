@@ -107,6 +107,10 @@ Registers an analytics engine. The engine type determines which adapter implemen
 }
 ```
 
+The canonical response model is `EngineResponse`. `default_namespace`,
+`intrinsic_capabilities`, `deployment_capabilities`, and `policy` are structured sub-objects;
+`intrinsic_capabilities`, `readiness_status`, and `failure_code` are read-only derived fields.
+
 `readiness_status` is derived from engine validation. This check is configuration-only in the
 current runtime: it validates engine type, connection shape, `default_namespace`, and the value
 stability of `deployment_capabilities` / `policy`. It does not run online connectivity probes or
@@ -125,7 +129,7 @@ Returns all registered engines.
 
 ### Response
 
-Array of engine objects.
+Array of `EngineResponse` objects.
 
 ---
 
@@ -134,6 +138,10 @@ Array of engine objects.
 ```
 GET /engines/{engine_id}
 ```
+
+### Response
+
+Returns `EngineResponse`.
 
 ---
 

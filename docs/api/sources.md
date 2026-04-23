@@ -109,6 +109,10 @@ Registers a new data source. The source type determines which catalog adapter is
 }
 ```
 
+The canonical response model is `SourceResponse`. `authority`, `sync`, `intrinsic_capabilities`,
+and `policy` are structured sub-objects; `intrinsic_capabilities`, `readiness_status`, and
+`failure_code` are read-only derived fields.
+
 `readiness_status` is derived from source validation. A source stays `not_ready` when the
 authority connection is incomplete or when a source without a native catalog layer lacks a stable
 `synthetic_catalog`. `failure_code` exposes the current blocker, such as
@@ -134,7 +138,7 @@ Returns all registered sources.
 
 ### Response
 
-Array of source objects.
+Array of `SourceResponse` objects.
 
 ---
 
@@ -182,6 +186,10 @@ All fields are optional; only provided fields are updated.
 | `authority` | object | Updated authority contract |
 | `sync` | object | Updated sync contract |
 | `policy` | object | Updated operator policy |
+
+### Response
+
+Returns `SourceResponse`.
 
 ---
 
