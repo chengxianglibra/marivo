@@ -1167,6 +1167,11 @@ class SemanticLayerService:
         )
         if self.calendar_data_reader is not None:
             effective_semantic_context.setdefault("calendar_data_reader", self.calendar_data_reader)
+        # governance_repository is intentionally NOT injected here.
+        # Intent execution (run_intent) does not enforce governance row-filters,
+        # so freezing governance_policy_refs into lineage would create a false
+        # audit trail.  Wire governance enforcement into the intent path first,
+        # then inject governance_repository to populate the lineage.
         try:
             return compile_step(
                 step,
