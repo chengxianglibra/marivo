@@ -461,7 +461,7 @@ Returns synced objects from the local metadata store. These are snapshots taken 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `type` | string | Filter by object type: `schema`, `table`, `column` |
-| `schema` | string | Filter by schema name |
+| `schema` | string | Filter by authority schema name from `authority_locator.schema` |
 
 ### Response
 
@@ -473,7 +473,12 @@ Returns synced objects from the local metadata store. These are snapshots taken 
     "object_type": "table",
     "parent_id": "obj_...",
     "native_name": "user_video_watch",
-    "fqn": "events.user_video_watch",
+    "fqn": "main.events.user_video_watch",
+    "authority_locator": {
+      "catalog": "main",
+      "schema": "events",
+      "table": "user_video_watch"
+    },
     "properties": {
       "row_count": 15234891,
       "partition_columns": ["event_date"],
@@ -492,6 +497,9 @@ Returns synced objects from the local metadata store. These are snapshots taken 
   }
 ]
 ```
+
+`authority_locator` is the stable source-side locator frozen during sync. `fqn` is derived from that
+locator and uses the same `catalog.schema.table` prefix for tables.
 
 **Object types:**
 
@@ -524,7 +532,12 @@ Returns one synced source object from the local metadata store. This is the deta
   "parent_id": "obj_...",
   "native_name": "user_video_watch",
   "native_id": null,
-  "fqn": "events.user_video_watch",
+  "fqn": "main.events.user_video_watch",
+  "authority_locator": {
+    "catalog": "main",
+    "schema": "events",
+    "table": "user_video_watch"
+  },
   "properties": {
     "row_count": 15234891,
     "partition_columns": ["event_date"]

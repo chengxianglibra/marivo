@@ -140,6 +140,9 @@ App startup requires `marivo.yaml` metadata config with `metadata.engine=sqlite`
   tests keep covering schema upgrades. Bump the metadata template version when metadata DDL changes.
 - When metadata contract changes only alter columns inside an existing table, also update the
   template validator in `tests/shared_fixtures.py`; table-name checks alone are not sufficient.
+- Synced `source_objects.authority_locator` is the primary source-side identity for routing and
+  table lookup. Treat `fqn` as a derived display/reference field; for newly synced objects it should
+  mirror the authority locator shape (`catalog.schema.table`) instead of execution-side naming.
 - Treat `tests/shared_fixtures.py` metadata template build as a hot path. Keep it on the minimal
   DDL/shape-validation path; do not route it through heavier initializer or migration logic unless
   the contract truly requires that extra work.

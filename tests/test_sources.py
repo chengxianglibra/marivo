@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -268,6 +269,15 @@ class SourceRegistryTests(unittest.TestCase):
             watch_events["authority_locator"],
             {"catalog": "main", "schema": "analytics", "table": "watch_events"},
         )
+        self.assertEqual(watch_events["fqn"], "main.analytics.watch_events")
+
+        resp = self.client.get(f"/sources/{source_id}/objects?type=table&schema=analytics")
+        self.assertEqual(resp.status_code, 200)
+        filtered_tables = resp.json()
+        self.assertEqual(len(filtered_tables), 4)
+        self.assertTrue(
+            all(table["authority_locator"]["schema"] == "analytics" for table in filtered_tables)
+        )
 
     def test_sync_idempotent(self) -> None:
         resp = self.client.post(
@@ -283,6 +293,36 @@ class SourceRegistryTests(unittest.TestCase):
         resp = self.client.get(f"/sources/{source_id}/objects?type=table")
         tables = resp.json()
         self.assertEqual(len(tables), 4)
+
+    def test_sync_reuses_existing_object_when_locator_json_key_order_differs(self) -> None:
+        resp = self.client.post(
+            "/sources",
+            json=build_duckdb_source_payload(str(self.db_path), "Locator Order Test"),
+        )
+        source_id = resp.json()["source_id"]
+
+        self._sync_all_tables(source_id)
+        resp = self.client.get(f"/sources/{source_id}/objects?type=table")
+        tables = resp.json()
+        watch_events = next(table for table in tables if table["native_name"] == "watch_events")
+        original_object_id = watch_events["object_id"]
+
+        store = self.client.app.state.metadata_store
+        store.execute(
+            "UPDATE source_objects SET authority_locator_json = ? WHERE object_id = ?",
+            [
+                json.dumps({"table": "watch_events", "schema": "analytics", "catalog": "main"}),
+                original_object_id,
+            ],
+        )
+
+        self._sync_all_tables(source_id)
+        resp = self.client.get(f"/sources/{source_id}/objects?type=table")
+        resynced_tables = resp.json()
+        resynced_watch_events = next(
+            table for table in resynced_tables if table["native_name"] == "watch_events"
+        )
+        self.assertEqual(resynced_watch_events["object_id"], original_object_id)
 
     def test_get_source_object_detail(self) -> None:
         resp = self.client.post(
@@ -617,6 +657,11 @@ class SyncModeTests(unittest.TestCase):
         tables = resp.json()
         self.assertEqual(len(tables), 1)
         self.assertEqual(tables[0]["native_name"], "watch_events")
+        self.assertEqual(tables[0]["fqn"], "main.analytics.watch_events")
+        self.assertEqual(
+            tables[0]["authority_locator"],
+            {"catalog": "main", "schema": "analytics", "table": "watch_events"},
+        )
 
     def test_browse_catalog_schemas(self) -> None:
         """Browse live catalog schemas without persisting."""
