@@ -1428,12 +1428,16 @@ def _measurement_node(
     if semantic_repository is not None and resolved_inputs is not None:
         from app.analysis_core.predicate_validator import (
             build_predicate_filter_lineage,
+            collect_component_fields,
             collect_layered_predicate_refs,
         )
 
         layered_refs = collect_layered_predicate_refs(resolved_inputs, governance_repository)
-        if layered_refs:
-            node["predicate_filter_lineage"] = build_predicate_filter_lineage(layered_refs)
+        component_fields = collect_component_fields(resolved_inputs)
+        if layered_refs or component_fields:
+            node["predicate_filter_lineage"] = build_predicate_filter_lineage(
+                layered_refs, component_fields=component_fields
+            )
     return node
 
 

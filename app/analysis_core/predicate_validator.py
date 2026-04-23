@@ -451,6 +451,15 @@ _COMPONENT_FIELDS = (
 )
 
 
+def collect_component_fields(resolved_inputs: ResolvedCompilerInputs) -> list[str]:
+    """Return sorted list of component fields present in the resolved metric payload."""
+    metric = resolved_inputs.resolved_metric
+    if metric is None:
+        return []
+    payload = dict(metric.semantic_object.get("payload") or {})
+    return sorted(field for field in _COMPONENT_FIELDS if payload.get(field) is not None)
+
+
 def collect_layered_predicate_refs(
     resolved_inputs: ResolvedCompilerInputs,
     governance_repository: GovernanceRepository | None,
@@ -1272,11 +1281,16 @@ def _conflict_code(layer_a: str, layer_b: str, overlap_result: bool | None) -> s
 
 def build_predicate_filter_lineage(
     layered_refs: list[PredicateLayerRef],
+    *,
+    component_fields: list[str] | None = None,
 ) -> PredicateFilterLineage:
     """Build the frozen predicate lineage from validated+resolved layer refs.
 
-    Called after successful conflict detection. Constructs the lineage IR
-    that will be attached to MeasurementNode.
+    When *component_fields* is provided, every listed field gets an entry in
+    component_qualifier_lineages / component_effective_scopes — even those
+    without qualifier_refs.  This satisfies the contract that an N-component
+    metric produces N component_effective_scope values.
+    When None (default), only fields with qualifier_refs appear (backward-compat).
     """
     from app.analysis_core.ir import (
         ComponentEffectiveScope,
@@ -1314,17 +1328,20 @@ def build_predicate_filter_lineage(
         "default_predicate_refs": default_refs,
     }
 
+    fields_to_emit = (
+        component_fields if component_fields is not None else sorted(qualifier_by_field)
+    )
+
     component_lineages: list[ComponentQualifierLineage] = []
     component_scopes: list[ComponentEffectiveScope] = []
-    for field in sorted(qualifier_by_field):
-        q_refs = qualifier_by_field[field]
+    for field in fields_to_emit:
+        q_refs = qualifier_by_field.get(field, [])
         component_lineages.append(
             {
                 "component_field": field,
                 "qualifier_refs": q_refs,
             }
         )
-        # effective scope = shared + default + this component's qualifiers
         effective_refs = gov_refs + carrier_refs + default_refs + q_refs
         if request_scope_ref:
             effective_refs.append(request_scope_ref)

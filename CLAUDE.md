@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Repository guidance lives in [`docs/agent-guide.md`](docs/agent-guide.md).
+`MUST READ`: Repository guidance lives in [`docs/agent-guide.md`](docs/agent-guide.md), must read it.
 
 Key local rules:
 
