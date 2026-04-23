@@ -169,6 +169,26 @@ App startup requires `marivo.yaml` metadata config with `metadata.engine=sqlite`
   heavier setup, refactor it to use shared fixtures, named DuckDB templates, or class-level
   `setUpClass` seeding so the per-test runtime stays under the limit.
 
+## Commit Attribution
+
+- When AI assistance contributes to a commit, add an AI attribution line at the end of the commit
+  message.
+- Use this exact format:
+
+```text
+Co-Authored-By: AGENT_NAME:MODEL_VERSION [TOOL1] [TOOL2] ...
+```
+
+- Example:
+
+```text
+feat: add user login endpoint
+
+Implement JWT-based authentication with refresh token support.
+
+Co-Authored-By: Claude Code:claude-sonnet-4-6 [Edit] [Bash] [Grep]
+```
+
 ## Docs layout:
 - `docs/api/`: external HTTP API docs only; target-state step submission is in `intent-steps.md`, and canonical read surfaces are split into `session-state.md` and `context-surface.md`
 - `docs/analysis/`: intents/evidence engine related schema.
