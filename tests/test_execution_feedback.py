@@ -19,6 +19,7 @@ from app.execution.errors import ExecutionError
 from app.execution.federation import FederationPlanner
 from app.execution.feedback import compile_failure_from_error, federation_failure_from_plan
 from app.execution.routing_runtime import RoutingRuntime
+from app.routing import RoutingFailure, RoutingResolutionError
 from app.semantic_runtime.errors import SemanticRuntimeNotReadyError
 from app.storage.analytics import AnalyticsEngine
 from tests.shared_fixtures import get_seeded_duckdb_path
@@ -41,7 +42,16 @@ class FailingEngine(AnalyticsEngine):
 
 class FakeRouter:
     def resolve_tables(self, table_names: list[str]) -> Any:
-        raise ValueError(f"No common engine for tables {table_names}")
+        raise RoutingResolutionError(
+            RoutingFailure(
+                code="routing_no_common_engine",
+                message=f"No common engine for tables {table_names}",
+                routing_detail={
+                    "resolution_status": "no_common_engine",
+                    "unresolved_tables": list(table_names),
+                },
+            )
+        )
 
 
 class ExecutionFeedbackTests(unittest.TestCase):
@@ -76,6 +86,42 @@ class ExecutionFeedbackTests(unittest.TestCase):
         self.assertIsNotNone(resolution.feedback)
         assert resolution.feedback is not None
         self.assertEqual(resolution.feedback.code, "routing_no_common_engine")
+
+    def test_routing_feedback_preserves_new_structured_routing_codes(self) -> None:
+        runtime = RoutingRuntime(cast("Any", FakeRouter()), FailingEngine())
+        runtime.query_router = cast(
+            "Any",
+            type(
+                "SourceUnavailableRouter",
+                (),
+                {
+                    "resolve_tables": lambda self, table_names: (_ for _ in ()).throw(
+                        RoutingResolutionError(
+                            RoutingFailure(
+                                code="routing_source_unavailable",
+                                message=f"Source unavailable for {table_names}",
+                                routing_detail={
+                                    "resolution_status": "no_ready_mappings",
+                                    "readiness_blockers": [
+                                        {"failure_code": "engine_invalid_connection"}
+                                    ],
+                                },
+                            )
+                        )
+                    )
+                },
+            )(),
+        )
+
+        resolution = runtime.resolve_tables(["watch_events"])
+
+        self.assertTrue(resolution.fallback_used)
+        assert resolution.feedback is not None
+        self.assertEqual(resolution.feedback.code, "routing_source_unavailable")
+        self.assertEqual(
+            resolution.feedback.detail["routing_detail"]["readiness_blockers"][0]["failure_code"],
+            "engine_invalid_connection",
+        )
 
     def test_federation_failure_includes_plan_detail(self) -> None:
         plan = FederationPlanner().build_plan(
