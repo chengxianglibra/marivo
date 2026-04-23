@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
 
@@ -12,6 +13,21 @@ from app.registry.common import now_iso
 from app.registry.factories import build_analytics_engine, validate_engine_type
 from app.storage.analytics import AnalyticsEngine
 from app.storage.metadata import MetadataStore
+
+
+@dataclass(slots=True)
+class EngineValidationResult:
+    is_valid: bool
+    readiness_status: str
+    failure_code: str | None = None
+
+    def to_dict(self, *, engine_id: str) -> dict[str, Any]:
+        return {
+            "engine_id": engine_id,
+            "is_valid": self.is_valid,
+            "readiness_status": self.readiness_status,
+            "failure_code": self.failure_code,
+        }
 
 
 def _build_intrinsic_capabilities(engine_type: str) -> dict[str, Any]:
@@ -194,8 +210,84 @@ class EngineRegistry:
             engine["deployment_capabilities"],
         )
 
-    def _row_to_engine(self, row: dict[str, Any]) -> dict[str, Any]:
+    def validate_engine(self, engine_id: str) -> dict[str, Any]:
+        engine = self.get_engine(engine_id)
+        return self.evaluate_engine(engine).to_dict(engine_id=engine_id)
+
+    def get_engine_readiness(self, engine_id: str) -> dict[str, Any]:
+        validation = self.validate_engine(engine_id)
         return {
+            "engine_id": engine_id,
+            "readiness_status": validation["readiness_status"],
+            "failure_code": validation["failure_code"],
+        }
+
+    def evaluate_engine(self, engine: dict[str, Any]) -> EngineValidationResult:
+        if engine["status"] != "active":
+            return EngineValidationResult(
+                is_valid=False,
+                readiness_status="not_ready",
+                failure_code="engine_inactive",
+            )
+
+        engine_type = engine["engine_type"]
+        try:
+            validate_engine_type(engine_type)
+        except ValueError:
+            return EngineValidationResult(
+                is_valid=False,
+                readiness_status="not_ready",
+                failure_code="engine_invalid_type",
+            )
+
+        connection = engine.get("connection")
+        if not isinstance(connection, dict):
+            return EngineValidationResult(
+                is_valid=False,
+                readiness_status="not_ready",
+                failure_code="engine_invalid_connection",
+            )
+
+        try:
+            build_analytics_engine(engine_type, connection)
+        except (KeyError, TypeError, ValueError):
+            return EngineValidationResult(
+                is_valid=False,
+                readiness_status="not_ready",
+                failure_code="engine_invalid_connection",
+            )
+
+        namespace = engine.get("default_namespace")
+        if not self._is_valid_default_namespace(engine_type, namespace):
+            return EngineValidationResult(
+                is_valid=False,
+                readiness_status="not_ready",
+                failure_code="engine_invalid_namespace",
+            )
+
+        deployment_capabilities = engine.get("deployment_capabilities")
+        if not self._is_valid_deployment_capabilities(deployment_capabilities):
+            return EngineValidationResult(
+                is_valid=False,
+                readiness_status="not_ready",
+                failure_code="engine_invalid_deployment_capabilities",
+            )
+
+        policy = engine.get("policy")
+        if not self._is_valid_policy(policy):
+            return EngineValidationResult(
+                is_valid=False,
+                readiness_status="not_ready",
+                failure_code="engine_invalid_policy",
+            )
+
+        return EngineValidationResult(
+            is_valid=True,
+            readiness_status="ready",
+        )
+
+    def _row_to_engine(self, row: dict[str, Any]) -> dict[str, Any]:
+        engine = {
             "engine_id": row["engine_id"],
             "engine_type": row["engine_type"],
             "display_name": row["display_name"],
@@ -208,3 +300,56 @@ class EngineRegistry:
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
+        validation = self.evaluate_engine(engine)
+        engine["readiness_status"] = validation.readiness_status
+        engine["failure_code"] = validation.failure_code
+        return engine
+
+    def _is_valid_default_namespace(self, engine_type: str, namespace: Any) -> bool:
+        if not isinstance(namespace, dict):
+            return False
+
+        catalog = namespace.get("catalog")
+        schema = namespace.get("schema")
+        if engine_type == "duckdb":
+            return catalog is None and schema is None
+
+        if engine_type != "trino":
+            return False
+        return self._is_nullable_non_blank_str(catalog) and self._is_nullable_non_blank_str(schema)
+
+    def _is_valid_deployment_capabilities(self, payload: Any) -> bool:
+        if not isinstance(payload, dict):
+            return False
+
+        supported_step_types = payload.get("supported_step_types")
+        if supported_step_types is not None and not self._is_valid_string_list(
+            supported_step_types
+        ):
+            return False
+
+        min_staleness_minutes = payload.get("min_staleness_minutes")
+        return min_staleness_minutes is None or (
+            isinstance(min_staleness_minutes, int) and min_staleness_minutes >= 0
+        )
+
+    def _is_valid_policy(self, payload: Any) -> bool:
+        if not isinstance(payload, dict):
+            return False
+
+        allowed_step_types = payload.get("allowed_step_types")
+        if allowed_step_types is None or not self._is_valid_string_list(allowed_step_types):
+            return False
+
+        required_policy_support = payload.get("required_policy_support")
+        return required_policy_support is not None and self._is_valid_string_list(
+            required_policy_support
+        )
+
+    def _is_valid_string_list(self, value: Any) -> bool:
+        if not isinstance(value, list):
+            return False
+        return all(isinstance(item, str) and item.strip() for item in value)
+
+    def _is_nullable_non_blank_str(self, value: Any) -> bool:
+        return value is None or (isinstance(value, str) and bool(value.strip()))

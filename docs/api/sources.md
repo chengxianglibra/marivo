@@ -102,10 +102,17 @@ Registers a new data source. The source type determines which catalog adapter is
     "allow_sync": true
   },
   "status": "active",
+  "readiness_status": "ready",
+  "failure_code": null,
   "created_at": "2024-01-15T10:00:00+00:00",
   "updated_at": "2024-01-15T10:00:00+00:00"
 }
 ```
+
+`readiness_status` is derived from source validation. A source stays `not_ready` when the
+authority connection is incomplete or when a source without a native catalog layer lacks a stable
+`synthetic_catalog`. `failure_code` exposes the current blocker, such as
+`source_invalid_connection` or `source_missing_synthetic_catalog`.
 
 **Sync modes:**
 

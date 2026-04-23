@@ -47,6 +47,8 @@ class EngineServiceTests(unittest.TestCase):
         self.assertEqual(engine["engine_type"], "trino")
         self.assertEqual(engine["display_name"], "Test Trino")
         self.assertEqual(engine["status"], "active")
+        self.assertEqual(engine["readiness_status"], "ready")
+        self.assertIsNone(engine["failure_code"])
 
         engines = self.service.list_engines()
         self.assertTrue(any(e["engine_id"] == engine["engine_id"] for e in engines))
@@ -62,6 +64,8 @@ class EngineServiceTests(unittest.TestCase):
         self.assertEqual(fetched["connection"]["path"], "/tmp/test.duckdb")
         self.assertEqual(fetched["default_namespace"], {"catalog": None, "schema": None})
         self.assertEqual(fetched["intrinsic_capabilities"]["performance_class"], "embedded")
+        self.assertEqual(fetched["readiness_status"], "ready")
+        self.assertIsNone(fetched["failure_code"])
 
     def test_get_capability_profile_merges_defaults_and_overrides(self) -> None:
         engine = self.service.register_engine(
@@ -129,6 +133,97 @@ class EngineServiceTests(unittest.TestCase):
 
         self.assertIsInstance(analytics, DuckDBAnalyticsEngine)
 
+    def test_validate_engine_reports_invalid_connection(self) -> None:
+        engine = self.service.register_engine(
+            engine_type="duckdb",
+            display_name="Unconfigured DuckDB",
+            connection={},
+        )
+
+        validation = self.service.validate_engine(engine["engine_id"])
+
+        self.assertEqual(
+            validation,
+            {
+                "engine_id": engine["engine_id"],
+                "is_valid": False,
+                "readiness_status": "not_ready",
+                "failure_code": "engine_invalid_connection",
+            },
+        )
+
+    def test_get_engine_readiness_reports_ready_engine(self) -> None:
+        engine = self.service.register_engine(
+            engine_type="trino",
+            display_name="Ready Trino",
+            connection={"host": "localhost"},
+        )
+
+        readiness = self.service.get_engine_readiness(engine["engine_id"])
+
+        self.assertEqual(
+            readiness,
+            {
+                "engine_id": engine["engine_id"],
+                "readiness_status": "ready",
+                "failure_code": None,
+            },
+        )
+
+    def test_get_engine_reports_not_ready_when_namespace_is_invalid(self) -> None:
+        engine = self.service.register_engine(
+            engine_type="trino",
+            display_name="Broken Namespace Trino",
+            connection={"host": "localhost"},
+        )
+        self.metadata.execute(
+            "UPDATE engines SET default_namespace_json = ? WHERE engine_id = ?",
+            ['{"catalog":"hive","schema":""}', engine["engine_id"]],
+        )
+
+        fetched = self.service.get_engine(engine["engine_id"])
+
+        self.assertEqual(fetched["readiness_status"], "not_ready")
+        self.assertEqual(fetched["failure_code"], "engine_invalid_namespace")
+
+    def test_get_engine_reports_not_ready_when_deployment_capabilities_are_invalid(self) -> None:
+        engine = self.service.register_engine(
+            engine_type="trino",
+            display_name="Broken Deployment Trino",
+            connection={"host": "localhost"},
+        )
+        self.metadata.execute(
+            "UPDATE engines SET deployment_capabilities_json = ? WHERE engine_id = ?",
+            [
+                '{"supported_step_types":["sample_rows",""],"min_staleness_minutes":-1}',
+                engine["engine_id"],
+            ],
+        )
+
+        fetched = self.service.get_engine(engine["engine_id"])
+
+        self.assertEqual(fetched["readiness_status"], "not_ready")
+        self.assertEqual(fetched["failure_code"], "engine_invalid_deployment_capabilities")
+
+    def test_get_engine_reports_not_ready_when_policy_is_invalid(self) -> None:
+        engine = self.service.register_engine(
+            engine_type="trino",
+            display_name="Broken Policy Trino",
+            connection={"host": "localhost"},
+        )
+        self.metadata.execute(
+            "UPDATE engines SET policy_json = ? WHERE engine_id = ?",
+            [
+                '{"allowed_step_types":["sample_rows",""],"required_policy_support":[]}',
+                engine["engine_id"],
+            ],
+        )
+
+        fetched = self.service.get_engine(engine["engine_id"])
+
+        self.assertEqual(fetched["readiness_status"], "not_ready")
+        self.assertEqual(fetched["failure_code"], "engine_invalid_policy")
+
 
 class EngineAPITests(unittest.TestCase):
     """Integration tests for engine endpoints via TestClient."""
@@ -164,10 +259,14 @@ class EngineAPITests(unittest.TestCase):
         engine = resp.json()
         self.assertTrue(engine["engine_id"].startswith("eng_"))
         self.assertEqual(engine["engine_type"], "trino")
+        self.assertEqual(engine["readiness_status"], "ready")
+        self.assertIsNone(engine["failure_code"])
 
         resp = self.client.get(f"/engines/{engine['engine_id']}")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["engine_id"], engine["engine_id"])
+        self.assertEqual(resp.json()["readiness_status"], "ready")
+        self.assertIsNone(resp.json()["failure_code"])
 
     def test_list_engines(self) -> None:
         self.client.post(
@@ -183,6 +282,9 @@ class EngineAPITests(unittest.TestCase):
         engines = resp.json()
         self.assertIsInstance(engines, list)
         self.assertTrue(any(e["display_name"] == "API DuckDB" for e in engines))
+        matching = next(e for e in engines if e["display_name"] == "API DuckDB")
+        self.assertEqual(matching["readiness_status"], "ready")
+        self.assertIsNone(matching["failure_code"])
 
     def test_post_engine_omitting_deployment_capabilities_keeps_defaults(self) -> None:
         resp = self.client.post(
