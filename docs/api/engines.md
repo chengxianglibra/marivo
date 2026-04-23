@@ -212,13 +212,15 @@ the full authority locator FQN.
     "engine_type": "trino",
     "display_name": "Trino Cluster"
   },
-  "qualified_names": [
-    "iceberg.events.user_video_watch",
-    "iceberg.dimensions.video_metadata"
-  ],
+  "qualified_names": {
+    "events.user_video_watch": "iceberg.events.user_video_watch",
+    "dimensions.video_metadata": "iceberg.dimensions.video_metadata"
+  },
   "selection_reason": "Highest priority mapping covering all requested tables",
   "routing_detail": {
+    "resolution_status": "resolved",
     "selected_mapping_ids": ["map_..."],
+    "readiness_blockers": [],
     "execution_locators": {
       "events.user_video_watch": {
         "catalog": "iceberg",
@@ -266,11 +268,50 @@ When routing fails (no engine covers all tables):
   "resolved": false,
   "table_names": ["events.user_video_watch", "other_source.some_table"],
   "engine": null,
-  "qualified_names": [],
+  "qualified_names": {},
   "selection_reason": "No single engine has mappings covering all requested tables",
   "routing_detail": {
-    "unresolved_tables": ["other_source.some_table"]
+    "resolution_status": "no_common_engine",
+    "unresolved_tables": ["events.user_video_watch", "other_source.some_table"],
+    "sources": {
+      "src_events": {
+        "candidate_engine_ids": ["eng_trino"],
+        "ready_mapping_ids": ["map_events"],
+        "failed_mappings": [],
+        "readiness_blockers": []
+      },
+      "src_other": {
+        "candidate_engine_ids": ["eng_duckdb"],
+        "ready_mapping_ids": ["map_other"],
+        "failed_mappings": [],
+        "readiness_blockers": []
+      }
+    },
+    "candidates": [
+      {
+        "engine_id": "eng_trino",
+        "eligible": false,
+        "covered_sources": ["src_events"],
+        "missing_sources": ["src_other"],
+        "mapping_ids": ["map_events"]
+      },
+      {
+        "engine_id": "eng_duckdb",
+        "eligible": false,
+        "covered_sources": ["src_other"],
+        "missing_sources": ["src_events"],
+        "mapping_ids": ["map_other"]
+      }
+    ],
+    "selected_mapping_ids": [],
+    "execution_locators": {},
+    "readiness_blockers": []
   },
   "capability_profile": null
 }
 ```
+
+Routing failures now stay on the same `200` response contract with `resolved=false`. Inspect
+`routing_detail.resolution_status`, `routing_detail.readiness_blockers`, `routing_detail.sources`,
+and `routing_detail.candidates` to understand whether the blocker came from missing mappings,
+dependency readiness, or lack of a common eligible engine.

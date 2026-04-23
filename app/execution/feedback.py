@@ -9,6 +9,7 @@ from app.analysis_core.compiler import (
 )
 from app.analysis_core.ir import AnalysisStepIR
 from app.execution.errors import ExecutionError
+from app.routing import RoutingResolutionError
 from app.runtime_contracts import ExecutionFeedback
 from app.semantic_runtime.errors import SemanticRuntimeNotReadyError
 
@@ -23,16 +24,20 @@ def routing_feedback_from_error(
     fallback_candidates: list[str] | None = None,
 ) -> ExecutionFeedback:
     message = str(error)
-    normalized = message.lower()
-
-    if isinstance(error, KeyError):
+    detail: dict[str, Any] = {"table_names": list(table_names)}
+    if isinstance(error, RoutingResolutionError):
+        code = {
+            "routing_table_not_found": "routing_table_not_found",
+            "routing_table_ambiguous": "routing_table_ambiguous",
+            "routing_no_common_engine": "routing_no_common_engine",
+            "routing_no_tables": "routing_no_tables",
+            "routing_source_unmapped": "routing_source_unmapped",
+            "routing_source_unavailable": "routing_source_unavailable",
+            "routing_projection_failed": "routing_projection_failed",
+        }.get(error.code, "routing_resolution_failed")
+        detail["routing_detail"] = error.routing_detail
+    elif isinstance(error, KeyError):
         code = "routing_table_not_found"
-    elif "no common engine" in normalized:
-        code = "routing_no_common_engine"
-    elif "no active engine bindings" in normalized:
-        code = "engine_unavailable"
-    elif "no table names provided" in normalized:
-        code = "routing_no_tables"
     else:
         code = "routing_resolution_failed"
 
@@ -42,7 +47,7 @@ def routing_feedback_from_error(
         message=message,
         replan_candidate=True,
         fallback_candidates=list(fallback_candidates or ["use_default_analytics_engine"]),
-        detail={"table_names": list(table_names)},
+        detail=detail,
     )
 
 

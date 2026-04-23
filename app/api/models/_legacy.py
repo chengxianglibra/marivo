@@ -611,6 +611,67 @@ class RouteResolveRequest(BaseModel):
     routing_intent: RouteIntentRequest | None = None
 
 
+class RouteEngineResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    engine_id: str = Field(description="Resolved execution engine identifier.")
+    engine_type: str = Field(description="Resolved execution engine type.")
+    display_name: str = Field(description="Resolved execution engine display name.")
+
+
+class RouteCapabilityProfileResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    engine_type: str = Field(description="Engine type associated with this capability profile.")
+    supported_sql_features: list[str] = Field(default_factory=list)
+    supported_step_types: list[str] = Field(default_factory=list)
+    materialization_support: str = Field(
+        description="Materialization mode advertised by the engine."
+    )
+    policy_support: list[str] = Field(default_factory=list)
+    performance_class: str = Field(description="Performance class used during routing.")
+    min_staleness_minutes: int | None = Field(
+        default=None,
+        description="Minimum freshness lag tolerated by the engine profile.",
+    )
+    federation_support: str = Field(description="Federation capability advertised by the engine.")
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class RouteResolveResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    resolved: bool = Field(description="Whether routing resolved to a concrete execution engine.")
+    failure_code: str | None = Field(
+        default=None,
+        description="Stable routing blocker code when resolution fails.",
+    )
+    table_names: list[str] = Field(
+        default_factory=list,
+        description="Original table names supplied to the routing request.",
+    )
+    engine: RouteEngineResponse | None = Field(
+        default=None,
+        description="Resolved engine summary when routing succeeds.",
+    )
+    qualified_names: dict[str, str] = Field(
+        default_factory=dict,
+        description="Execution-qualified table names keyed by the requested table name.",
+    )
+    selection_reason: str | None = Field(
+        default=None,
+        description="Primary explanation for the selected engine or routing failure.",
+    )
+    routing_detail: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Structured routing evidence covering mappings, candidates, and blockers.",
+    )
+    capability_profile: RouteCapabilityProfileResponse | None = Field(
+        default=None,
+        description="Capability profile of the resolved engine when routing succeeds.",
+    )
+
+
 class SyncSelectionItem(BaseModel):
     schema_name: str
     table_name: str

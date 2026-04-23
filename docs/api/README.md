@@ -175,7 +175,7 @@ Artifacts → Observations → Claims → Recommendations
 ```
 Source (external data catalog)
   └─ Source objects (synced schema/table/column snapshots)
-  └─ Binding → Engine (DuckDB / Trino)
+  └─ Mapping → Engine (DuckDB / Trino)
 ```
 
-The **QueryRouter** resolves table names at step execution time: table name → source object → binding → engine.
+The **QueryRouter** resolves table names at step execution time: table name → source object → mapping → engine.

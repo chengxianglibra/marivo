@@ -44,6 +44,42 @@ class ResolvedRoute:
     routing_detail: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class RoutingFailure:
+    code: str
+    message: str
+    routing_detail: dict[str, Any] = field(default_factory=dict)
+
+
+class RoutingResolutionError(ValueError):
+    """Structured routing failure for callers that still rely on exceptions."""
+
+    def __init__(self, failure: RoutingFailure) -> None:
+        super().__init__(failure.message)
+        self.code = failure.code
+        self.routing_detail = failure.routing_detail
+
+
+@dataclass
+class RouteResolution:
+    resolved: bool
+    route: ResolvedRoute | None = None
+    failure: RoutingFailure | None = None
+
+    def require_route(self) -> ResolvedRoute:
+        if self.resolved and self.route is not None:
+            return self.route
+        if self.failure is None:
+            raise RoutingResolutionError(
+                RoutingFailure(
+                    code="routing_resolution_failed",
+                    message="Routing did not produce a resolved route",
+                    routing_detail={},
+                )
+            )
+        raise RoutingResolutionError(self.failure)
+
+
 class QueryRouter:
     """Resolve table names to an execution engine via source execution mappings."""
 
@@ -80,217 +116,159 @@ class QueryRouter:
         Raises KeyError if a table is not found in source_objects.
         Raises ValueError if no single engine covers all tables.
         """
+        return self.resolve_route(table_names, routing_intent=routing_intent).require_route()
+
+    def resolve_route(
+        self,
+        table_names: list[str],
+        *,
+        routing_intent: RoutingIntent | None = None,
+    ) -> RouteResolution:
         if not table_names:
-            raise ValueError("No table names provided")
+            return self._failure(
+                code="routing_no_tables",
+                message="No table names provided",
+                table_names=table_names,
+                resolution_status="no_tables",
+            )
 
-        # Step 1: resolve each table to its source_id and authority locator
         resolved_tables: dict[str, dict[str, Any]] = {}
+        source_tables: dict[str, list[str]] = {}
         for table_name in table_names:
-            resolved_tables[table_name] = self._resolve_table_source_object(table_name)
+            try:
+                resolved_table = self._resolve_table_source_object(table_name)
+            except KeyError as error:
+                return self._failure(
+                    code="routing_table_not_found",
+                    message=str(error),
+                    table_names=table_names,
+                    unresolved_tables=[table_name],
+                    resolution_status="table_lookup_failed",
+                    routing_intent=routing_intent,
+                )
+            except ValueError as error:
+                return self._failure(
+                    code="routing_table_ambiguous",
+                    message=str(error),
+                    table_names=table_names,
+                    unresolved_tables=[table_name],
+                    resolution_status="table_lookup_failed",
+                    routing_intent=routing_intent,
+                )
+            resolved_tables[table_name] = resolved_table
+            source_tables.setdefault(str(resolved_table["source_id"]), []).append(table_name)
 
-        # Step 2: for each unique source, get candidate engine_ids and mapping info
-        unique_sources = {str(table["source_id"]) for table in resolved_tables.values()}
+        unique_sources = sorted(source_tables)
         engine_sets: dict[str, set[str]] = {}
-        engine_priorities: dict[str, dict[str, int]] = {}  # engine_id -> source_id -> priority
+        engine_priorities: dict[str, dict[str, int]] = {}
         mapping_details: dict[tuple[str, str], dict[str, Any]] = {}
         source_detail: dict[str, dict[str, Any]] = {}
 
         for source_id in unique_sources:
-            mappings = self.mapping_service.list_mappings(source_id=source_id, status="active")
-            if not mappings:
-                raise ValueError(f"Source '{source_id}' has no active execution mappings")
-            engine_ids = set()
-            failed_mappings: list[dict[str, Any]] = []
-            for mapping in mappings:
-                if mapping["readiness_status"] != "ready":
-                    failed_mappings.append(
-                        {
-                            "mapping_id": mapping["mapping_id"],
-                            "engine_id": mapping["engine_id"],
-                            "failure_code": mapping.get("failure_code"),
-                        }
-                    )
-                    continue
-                engine_id = str(mapping["engine_id"])
-                engine_info = self.engine_service.get_engine(engine_id)
-                if engine_info["readiness_status"] != "ready":
-                    failed_mappings.append(
-                        {
-                            "mapping_id": mapping["mapping_id"],
-                            "engine_id": mapping["engine_id"],
-                            "failure_code": engine_info.get("failure_code") or "engine_not_ready",
-                        }
-                    )
-                    continue
-                engine_ids.add(engine_id)
-                engine_priorities.setdefault(engine_id, {})[source_id] = int(mapping["priority"])
+            source_result = self._collect_source_candidates(source_id)
+            engine_sets[source_id] = source_result["engine_ids"]
+            source_detail[source_id] = source_result["detail"]
+            for engine_id, priority in source_result["engine_priorities"].items():
+                engine_priorities.setdefault(engine_id, {})[source_id] = priority
+            for engine_id, mapping in source_result["ready_mappings"].items():
                 mapping_details[(source_id, engine_id)] = mapping
-            if not engine_ids:
-                detail = ", ".join(
-                    f"{entry['mapping_id']}:{entry['failure_code'] or 'not_ready'}"
-                    for entry in failed_mappings
+            if source_result["failure_code"] is not None:
+                return self._failure(
+                    code=source_result["failure_code"],
+                    message=source_result["failure_message"],
+                    table_names=table_names,
+                    source_detail=source_detail,
+                    unresolved_tables=list(source_tables[source_id]),
+                    resolution_status=str(source_result["detail"]["resolution_status"]),
+                    routing_intent=routing_intent,
                 )
-                raise ValueError(
-                    f"Source '{source_id}' has no ready execution mappings"
-                    + (f" ({detail})" if detail else "")
-                )
-            engine_sets[source_id] = engine_ids
-            source_detail[source_id] = {
-                "candidate_engine_ids": sorted(engine_ids),
-                "failed_mappings": failed_mappings,
-                "readiness_blockers": [
-                    {
-                        "kind": "mapping_not_ready",
-                        "mapping_id": entry["mapping_id"],
-                        "engine_id": entry["engine_id"],
-                        "failure_code": entry["failure_code"],
-                    }
-                    for entry in failed_mappings
-                ],
-            }
 
-        # Step 3: intersect engine sets across all sources
-        common_engines = engine_sets[next(iter(engine_sets))]
-        for _, engines in engine_sets.items():
-            common_engines = common_engines & engines
-
-        if not common_engines:
-            detail_parts = []
-            for source_id, engines in engine_sets.items():
-                detail_parts.append(f"source '{source_id}' → engines {sorted(engines)}")
-            raise ValueError(
-                f"No common engine for tables {table_names}. Mappings: {'; '.join(detail_parts)}"
-            )
-
-        capability_profiles = {
-            engine_id: self.engine_service.get_capability_profile(engine_id)
-            for engine_id in common_engines
-        }
-
-        # Step 4: score candidates with mapping, capability, and optional semantic intent.
-        candidate_scores: list[dict[str, Any]] = []
-        for engine_id in common_engines:
-            capability_profile = capability_profiles[engine_id]
-            priority_score = sum(engine_priorities.get(engine_id, {}).values())
-            capability_score = score_capability_profile(
-                capability_profile,
-                table_count=len(table_names),
-            )
-            fit_detail: RoutingFitDetail = (
-                describe_routing_fit(
-                    capability_profile,
-                    table_count=len(table_names),
-                    step_type=routing_intent.step_type,
-                    metric_names=routing_intent.metric_names,
-                    requested_dimensions=routing_intent.requested_dimensions,
-                    compatible_dimensions=routing_intent.compatible_dimensions,
-                    policy_hints=routing_intent.policy_hints,
-                )
-                if routing_intent is not None
-                else {
-                    "step_type_supported": True,
-                    "satisfied_policy_support": [],
-                    "missing_policy_support": [],
-                    "requested_dimension_count": 0,
-                    "compatible_dimension_count": 0,
-                    "unresolved_dimension_count": 0,
-                    "metric_count": 0,
-                    "step_score": 0,
-                    "policy_score": 0,
-                    "semantic_score": 0,
-                    "cost_score": 0,
-                    "reasons": [],
-                }
-            )
-            total_score = (
-                priority_score
-                + capability_score
-                + int(fit_detail["step_score"])
-                + int(fit_detail["policy_score"])
-                + int(fit_detail["semantic_score"])
-                + int(fit_detail["cost_score"])
-            )
-            candidate_scores.append(
-                {
-                    "engine_id": engine_id,
-                    "priority_score": priority_score,
-                    "capability_score": capability_score,
-                    "total_score": total_score,
-                    "performance_class": capability_profile.performance_class,
-                    "federation_support": capability_profile.federation_support,
-                    "step_type_supported": fit_detail["step_type_supported"],
-                    "satisfied_policy_support": fit_detail["satisfied_policy_support"],
-                    "missing_policy_support": fit_detail["missing_policy_support"],
-                    "step_score": fit_detail["step_score"],
-                    "policy_score": fit_detail["policy_score"],
-                    "semantic_score": fit_detail["semantic_score"],
-                    "cost_score": fit_detail["cost_score"],
-                    "reasons": list(fit_detail["reasons"]),
-                    "mapping_ids": [
-                        str(mapping_details[(source_id, engine_id)]["mapping_id"])
-                        for source_id in sorted(unique_sources)
-                    ],
-                }
-            )
-
-        candidate_scores.sort(
-            key=lambda candidate: (
-                candidate["total_score"],
-                candidate["priority_score"],
-                candidate["capability_score"],
-            ),
-            reverse=True,
+        candidate_scores = self._build_candidate_scores(
+            table_count=len(table_names),
+            unique_sources=unique_sources,
+            engine_sets=engine_sets,
+            engine_priorities=engine_priorities,
+            mapping_details=mapping_details,
+            routing_intent=routing_intent,
         )
-        selected_candidate = candidate_scores[0]
-        best_engine_id = str(selected_candidate["engine_id"])
+        eligible_candidates = [candidate for candidate in candidate_scores if candidate["eligible"]]
+        if not eligible_candidates:
+            return self._failure(
+                code="routing_no_common_engine",
+                message=f"No common engine for tables {table_names}",
+                table_names=table_names,
+                source_detail=source_detail,
+                candidate_scores=candidate_scores,
+                resolution_status="no_common_engine",
+                routing_intent=routing_intent,
+            )
 
-        # Step 5: build execution-qualified names using mapping resolution
+        selected_candidate = eligible_candidates[0]
+        best_engine_id = str(selected_candidate["engine_id"])
+        selected_mapping_ids = list(selected_candidate["mapping_ids"])
+
         qualified_names: dict[str, str] = {}
         resolved_execution_locators: dict[str, dict[str, Any]] = {}
         for table_name in table_names:
             resolved_table = resolved_tables[table_name]
             source_id = str(resolved_table["source_id"])
             mapping = mapping_details[(source_id, best_engine_id)]
-            execution_locator = self.resolve_execution_locator(
-                resolved_table,
-                mapping,
-            )
+            try:
+                execution_locator = self.resolve_execution_locator(resolved_table, mapping)
+            except ValueError as error:
+                failure_code = self._failure_code_from_message(str(error))
+                blocker = self._mapping_projection_blocker(
+                    table_name=table_name,
+                    source_id=source_id,
+                    engine_id=best_engine_id,
+                    mapping_id=str(mapping["mapping_id"]),
+                    message=str(error),
+                )
+                return self._failure(
+                    code=failure_code,
+                    message=str(error),
+                    table_names=table_names,
+                    source_detail=source_detail,
+                    candidate_scores=candidate_scores,
+                    execution_locators=resolved_execution_locators,
+                    selected_mapping_ids=selected_mapping_ids,
+                    unresolved_tables=[table_name],
+                    resolution_status="execution_locator_failed",
+                    extra_readiness_blockers=[blocker],
+                    routing_intent=routing_intent,
+                )
             qualified_names[table_name] = self.qualify_table_name(execution_locator)
             resolved_execution_locators[table_name] = execution_locator
 
-        # Step 6: build the analytics engine
         engine = self.engine_service.build_analytics_engine(best_engine_id)
-        capability_profile = capability_profiles[best_engine_id]
-        return ResolvedRoute(
-            engine=engine,
-            engine_id=best_engine_id,
-            qualified_names=qualified_names,
-            capability_profile=capability_profile,
-            capability_score=score_capability_profile(
-                capability_profile,
-                table_count=len(table_names),
-            ),
-            selection_reason=(
-                selected_candidate["reasons"][0]
-                if selected_candidate["reasons"]
-                else "highest combined routing score"
-            ),
-            routing_detail={
-                "strategy": (
-                    "semantic_intent_and_capability"
-                    if routing_intent is not None
-                    else "mapping_priority_and_capability"
+        capability_profile = self.engine_service.get_capability_profile(best_engine_id)
+        routing_detail = self._build_routing_detail(
+            table_names=table_names,
+            resolution_status="resolved",
+            source_detail=source_detail,
+            candidate_scores=candidate_scores,
+            execution_locators=resolved_execution_locators,
+            selected_mapping_ids=selected_mapping_ids,
+            routing_intent=routing_intent,
+        )
+        return RouteResolution(
+            resolved=True,
+            route=ResolvedRoute(
+                engine=engine,
+                engine_id=best_engine_id,
+                qualified_names=qualified_names,
+                capability_profile=capability_profile,
+                capability_score=score_capability_profile(
+                    capability_profile,
+                    table_count=len(table_names),
                 ),
-                "intent": routing_intent.to_dict() if routing_intent is not None else None,
-                "sources": source_detail,
-                "candidates": candidate_scores,
-                "resolution_status": "resolved",
-                "execution_locators": resolved_execution_locators,
-                "selected_mapping_ids": [
-                    str(mapping_details[(source_id, best_engine_id)]["mapping_id"])
-                    for source_id in sorted(unique_sources)
-                ],
-            },
+                selection_reason=(
+                    selected_candidate["reasons"][0]
+                    if selected_candidate["reasons"]
+                    else "highest combined routing score"
+                ),
+                routing_detail=routing_detail,
+            ),
         )
 
     def resolve_engine_for_source(self, source_id: str) -> AnalyticsEngine:
@@ -340,6 +318,330 @@ class QueryRouter:
 
         detail = ", ".join(failed_entries) if failed_entries else None
         return ready_mappings, detail
+
+    def _collect_source_candidates(self, source_id: str) -> dict[str, Any]:
+        mappings = self.mapping_service.list_mappings(source_id=source_id, status="active")
+        detail: dict[str, Any] = {
+            "candidate_engine_ids": [],
+            "active_mapping_ids": [str(mapping["mapping_id"]) for mapping in mappings],
+            "ready_mapping_ids": [],
+            "failed_mappings": [],
+            "readiness_blockers": [],
+            "resolution_status": "ready_candidates",
+        }
+        if not mappings:
+            blocker = {
+                "kind": "mapping_missing",
+                "source_id": source_id,
+                "failure_code": "mapping_missing",
+                "message": f"Source '{source_id}' has no active execution mappings",
+            }
+            detail["readiness_blockers"] = [blocker]
+            detail["resolution_status"] = "no_active_mappings"
+            return {
+                "engine_ids": set(),
+                "engine_priorities": {},
+                "ready_mappings": {},
+                "detail": detail,
+                "failure_code": "routing_source_unmapped",
+                "failure_message": blocker["message"],
+            }
+
+        engine_ids: set[str] = set()
+        engine_priorities: dict[str, int] = {}
+        ready_mappings: dict[str, dict[str, Any]] = {}
+        failed_mappings: list[dict[str, Any]] = []
+        blockers: list[dict[str, Any]] = []
+        for mapping in mappings:
+            mapping_id = str(mapping["mapping_id"])
+            engine_id = str(mapping["engine_id"])
+            if mapping["readiness_status"] != "ready":
+                failure_code = str(mapping.get("failure_code") or "mapping_inactive_dependency")
+                failed_entry = {
+                    "mapping_id": mapping_id,
+                    "engine_id": engine_id,
+                    "failure_code": failure_code,
+                    "kind": "mapping_not_ready",
+                }
+                failed_mappings.append(failed_entry)
+                blockers.append(
+                    {
+                        "kind": "mapping_not_ready",
+                        "source_id": source_id,
+                        "mapping_id": mapping_id,
+                        "engine_id": engine_id,
+                        "failure_code": failure_code,
+                        "message": f"Mapping '{mapping_id}' is not ready for source '{source_id}'",
+                    }
+                )
+                continue
+            engine_info = self.engine_service.get_engine(engine_id)
+            if engine_info["readiness_status"] != "ready":
+                failure_code = str(engine_info.get("failure_code") or "engine_not_ready")
+                failed_entry = {
+                    "mapping_id": mapping_id,
+                    "engine_id": engine_id,
+                    "failure_code": failure_code,
+                    "kind": "engine_not_ready",
+                }
+                failed_mappings.append(failed_entry)
+                blockers.append(
+                    {
+                        "kind": "engine_not_ready",
+                        "source_id": source_id,
+                        "mapping_id": mapping_id,
+                        "engine_id": engine_id,
+                        "failure_code": failure_code,
+                        "message": f"Engine '{engine_id}' is not ready for mapping '{mapping_id}'",
+                    }
+                )
+                continue
+            engine_ids.add(engine_id)
+            engine_priorities[engine_id] = int(mapping["priority"])
+            ready_mappings[engine_id] = mapping
+
+        detail["candidate_engine_ids"] = sorted(engine_ids)
+        detail["ready_mapping_ids"] = [
+            str(ready_mappings[engine_id]["mapping_id"]) for engine_id in sorted(engine_ids)
+        ]
+        detail["failed_mappings"] = failed_mappings
+        detail["readiness_blockers"] = blockers
+        if engine_ids:
+            return {
+                "engine_ids": engine_ids,
+                "engine_priorities": engine_priorities,
+                "ready_mappings": ready_mappings,
+                "detail": detail,
+                "failure_code": None,
+                "failure_message": None,
+            }
+
+        detail["resolution_status"] = "no_ready_mappings"
+        failure_suffix = ", ".join(
+            f"{entry['mapping_id']}:{entry['failure_code']}" for entry in failed_mappings
+        )
+        return {
+            "engine_ids": set(),
+            "engine_priorities": {},
+            "ready_mappings": {},
+            "detail": detail,
+            "failure_code": "routing_source_unavailable",
+            "failure_message": (
+                f"Source '{source_id}' has no ready execution mappings"
+                + (f" ({failure_suffix})" if failure_suffix else "")
+            ),
+        }
+
+    def _build_candidate_scores(
+        self,
+        *,
+        table_count: int,
+        unique_sources: list[str],
+        engine_sets: dict[str, set[str]],
+        engine_priorities: dict[str, dict[str, int]],
+        mapping_details: dict[tuple[str, str], dict[str, Any]],
+        routing_intent: RoutingIntent | None,
+    ) -> list[dict[str, Any]]:
+        all_engine_ids = sorted(
+            {engine_id for engines in engine_sets.values() for engine_id in engines}
+        )
+        candidate_scores: list[dict[str, Any]] = []
+        for engine_id in all_engine_ids:
+            covered_sources = sorted(
+                source_id
+                for source_id in unique_sources
+                if engine_id in engine_sets.get(source_id, set())
+            )
+            missing_sources = sorted(
+                source_id for source_id in unique_sources if source_id not in covered_sources
+            )
+            capability_profile = self.engine_service.get_capability_profile(engine_id)
+            priority_score = sum(engine_priorities.get(engine_id, {}).values())
+            capability_score = score_capability_profile(
+                capability_profile,
+                table_count=table_count,
+            )
+            fit_detail = self._routing_fit_detail(
+                capability_profile=capability_profile,
+                table_count=table_count,
+                routing_intent=routing_intent,
+            )
+            total_score = (
+                priority_score
+                + capability_score
+                + int(fit_detail["step_score"])
+                + int(fit_detail["policy_score"])
+                + int(fit_detail["semantic_score"])
+                + int(fit_detail["cost_score"])
+            )
+            reasons = list(fit_detail["reasons"])
+            if missing_sources:
+                reasons.append("missing mappings for sources: " + ", ".join(missing_sources))
+            candidate_scores.append(
+                {
+                    "engine_id": engine_id,
+                    "eligible": not missing_sources,
+                    "covered_sources": covered_sources,
+                    "missing_sources": missing_sources,
+                    "priority_score": priority_score,
+                    "capability_score": capability_score,
+                    "total_score": total_score,
+                    "performance_class": capability_profile.performance_class,
+                    "federation_support": capability_profile.federation_support,
+                    "step_type_supported": fit_detail["step_type_supported"],
+                    "satisfied_policy_support": fit_detail["satisfied_policy_support"],
+                    "missing_policy_support": fit_detail["missing_policy_support"],
+                    "step_score": fit_detail["step_score"],
+                    "policy_score": fit_detail["policy_score"],
+                    "semantic_score": fit_detail["semantic_score"],
+                    "cost_score": fit_detail["cost_score"],
+                    "reasons": reasons,
+                    "mapping_ids": [
+                        str(mapping_details[(source_id, engine_id)]["mapping_id"])
+                        for source_id in covered_sources
+                    ],
+                }
+            )
+        candidate_scores.sort(
+            key=lambda candidate: (
+                candidate["eligible"],
+                candidate["total_score"],
+                candidate["priority_score"],
+                candidate["capability_score"],
+            ),
+            reverse=True,
+        )
+        return candidate_scores
+
+    def _routing_fit_detail(
+        self,
+        *,
+        capability_profile: EngineCapabilityProfile,
+        table_count: int,
+        routing_intent: RoutingIntent | None,
+    ) -> RoutingFitDetail:
+        if routing_intent is None:
+            return {
+                "step_type_supported": True,
+                "satisfied_policy_support": [],
+                "missing_policy_support": [],
+                "requested_dimension_count": 0,
+                "compatible_dimension_count": 0,
+                "unresolved_dimension_count": 0,
+                "metric_count": 0,
+                "step_score": 0,
+                "policy_score": 0,
+                "semantic_score": 0,
+                "cost_score": 0,
+                "reasons": [],
+            }
+        return describe_routing_fit(
+            capability_profile,
+            table_count=table_count,
+            step_type=routing_intent.step_type,
+            metric_names=routing_intent.metric_names,
+            requested_dimensions=routing_intent.requested_dimensions,
+            compatible_dimensions=routing_intent.compatible_dimensions,
+            policy_hints=routing_intent.policy_hints,
+        )
+
+    def _failure(
+        self,
+        *,
+        code: str,
+        message: str,
+        table_names: list[str],
+        resolution_status: str,
+        source_detail: dict[str, dict[str, Any]] | None = None,
+        candidate_scores: list[dict[str, Any]] | None = None,
+        execution_locators: dict[str, dict[str, Any]] | None = None,
+        selected_mapping_ids: list[str] | None = None,
+        unresolved_tables: list[str] | None = None,
+        extra_readiness_blockers: list[dict[str, Any]] | None = None,
+        routing_intent: RoutingIntent | None = None,
+    ) -> RouteResolution:
+        routing_detail = self._build_routing_detail(
+            table_names=table_names,
+            resolution_status=resolution_status,
+            source_detail=source_detail or {},
+            candidate_scores=candidate_scores or [],
+            execution_locators=execution_locators or {},
+            selected_mapping_ids=selected_mapping_ids or [],
+            unresolved_tables=unresolved_tables or [],
+            extra_readiness_blockers=extra_readiness_blockers or [],
+            routing_intent=routing_intent,
+        )
+        return RouteResolution(
+            resolved=False,
+            failure=RoutingFailure(
+                code=code,
+                message=message,
+                routing_detail=routing_detail,
+            ),
+        )
+
+    def _build_routing_detail(
+        self,
+        *,
+        table_names: list[str],
+        resolution_status: str,
+        source_detail: dict[str, dict[str, Any]],
+        candidate_scores: list[dict[str, Any]],
+        execution_locators: dict[str, dict[str, Any]],
+        selected_mapping_ids: list[str],
+        unresolved_tables: list[str] | None = None,
+        extra_readiness_blockers: list[dict[str, Any]] | None = None,
+        routing_intent: RoutingIntent | None = None,
+    ) -> dict[str, Any]:
+        readiness_blockers: list[dict[str, Any]] = []
+        for detail in source_detail.values():
+            blockers = detail.get("readiness_blockers", [])
+            if isinstance(blockers, list):
+                readiness_blockers.extend(
+                    blocker for blocker in blockers if isinstance(blocker, dict)
+                )
+        if extra_readiness_blockers:
+            readiness_blockers.extend(extra_readiness_blockers)
+        return {
+            "strategy": (
+                "semantic_intent_and_capability"
+                if routing_intent is not None
+                else "mapping_priority_and_capability"
+            ),
+            "intent": routing_intent.to_dict() if routing_intent is not None else None,
+            "table_names": list(table_names),
+            "sources": source_detail,
+            "candidates": candidate_scores,
+            "resolution_status": resolution_status,
+            "unresolved_tables": list(unresolved_tables or []),
+            "execution_locators": execution_locators,
+            "selected_mapping_ids": list(selected_mapping_ids),
+            "readiness_blockers": readiness_blockers,
+        }
+
+    def _mapping_projection_blocker(
+        self,
+        *,
+        table_name: str,
+        source_id: str,
+        engine_id: str,
+        mapping_id: str,
+        message: str,
+    ) -> dict[str, Any]:
+        failure_code = self._failure_code_from_message(message)
+        return {
+            "kind": "execution_locator_invalid",
+            "source_id": source_id,
+            "engine_id": engine_id,
+            "mapping_id": mapping_id,
+            "table_name": table_name,
+            "failure_code": failure_code,
+            "message": message,
+        }
+
+    def _failure_code_from_message(self, message: str) -> str:
+        code, _, _ = message.partition(":")
+        return code.strip() or "routing_resolution_failed"
 
     def resolve_execution_locator(
         self,

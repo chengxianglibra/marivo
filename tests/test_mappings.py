@@ -4,6 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any, cast
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -11,7 +12,7 @@ from fastapi.testclient import TestClient
 from app.api.app_factory import create_app
 from app.engines import EngineService
 from app.mappings import MappingService
-from app.routing import QueryRouter
+from app.routing import QueryRouter, RoutingResolutionError
 from app.sources import SourceService
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 from app.storage.sqlite_metadata import SQLiteMetadataStore
@@ -565,8 +566,101 @@ class MappingServiceTests(unittest.TestCase):
 
         self.assertEqual(mapping["readiness_status"], "not_ready")
         self.assertEqual(mapping["failure_code"], "engine_invalid_connection")
-        with self.assertRaisesRegex(ValueError, "engine_invalid_connection"):
+        with self.assertRaises(RoutingResolutionError) as error:
             self.router.resolve_tables(["watch_events"])
+        self.assertEqual(error.exception.code, "routing_source_unavailable")
+        self.assertEqual(
+            error.exception.routing_detail["readiness_blockers"][0]["failure_code"],
+            "engine_invalid_connection",
+        )
+
+    def test_resolve_route_reports_no_active_mapping_as_structured_failure(self) -> None:
+        resolution = self.router.resolve_route(["watch_events"])
+
+        self.assertFalse(resolution.resolved)
+        assert resolution.failure is not None
+        self.assertEqual(resolution.failure.code, "routing_source_unmapped")
+        self.assertEqual(
+            resolution.failure.routing_detail["readiness_blockers"],
+            [
+                {
+                    "kind": "mapping_missing",
+                    "source_id": self.source["source_id"],
+                    "failure_code": "mapping_missing",
+                    "message": (
+                        f"Source '{self.source['source_id']}' has no active execution mappings"
+                    ),
+                }
+            ],
+        )
+
+    def test_resolve_route_reports_candidates_when_sources_have_no_common_engine(self) -> None:
+        second_source = self.source_service.register_source(
+            "duckdb",
+            "DuckDB Source 2",
+            authority={"catalog_system": "duckdb", "connection": {"path": str(self.db_path)}},
+            sync={"mode": "none"},
+            policy={"allow_live_browse": True, "allow_sync": False},
+        )
+        second_engine = self.engine_service.register_engine(
+            "duckdb",
+            "DuckDB Engine 2",
+            connection={"path": str(self.db_path)},
+        )
+        now = "2026-04-23T00:00:00+00:00"
+        self.metadata.execute(
+            """
+            INSERT INTO source_objects (
+                object_id, source_id, object_type, parent_id, native_name, native_id, fqn,
+                authority_locator_json, properties_json, sync_version, synced_at, created_at, updated_at
+            )
+            VALUES (?, ?, 'table', NULL, ?, NULL, ?, ?, '{}', 'v_seed', ?, ?, ?)
+            """,
+            [
+                "obj_orders_source2",
+                second_source["source_id"],
+                "orders",
+                "main.analytics.orders",
+                json.dumps({"catalog": "main", "schema": "analytics", "table": "orders"}),
+                now,
+                now,
+                now,
+            ],
+        )
+        self.mapping_service.create_mapping(
+            self.source["source_id"],
+            self.engine["engine_id"],
+            priority=10,
+            catalog_mappings=[
+                {
+                    "authority_catalog": "main",
+                    "execution_catalog": "duckdb_runtime",
+                    "default_schema": None,
+                }
+            ],
+        )
+        self.mapping_service.create_mapping(
+            second_source["source_id"],
+            second_engine["engine_id"],
+            priority=10,
+            catalog_mappings=[
+                {
+                    "authority_catalog": "main",
+                    "execution_catalog": "duckdb_runtime_2",
+                    "default_schema": None,
+                }
+            ],
+        )
+
+        resolution = self.router.resolve_route(["watch_events", "orders"])
+
+        self.assertFalse(resolution.resolved)
+        assert resolution.failure is not None
+        self.assertEqual(resolution.failure.code, "routing_no_common_engine")
+        candidates = resolution.failure.routing_detail["candidates"]
+        self.assertEqual(len(candidates), 2)
+        self.assertFalse(candidates[0]["eligible"])
+        self.assertTrue(candidates[0]["missing_sources"])
 
     def test_get_engine_info_for_source_returns_none_when_only_engine_is_not_ready(self) -> None:
         self.metadata.execute(
@@ -677,6 +771,38 @@ class MappingApiTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.client.close()
         self.temp_dir.cleanup()
+
+    def _insert_source_table(
+        self,
+        source_id: str,
+        *,
+        object_id: str,
+        native_name: str,
+        catalog: str = "main",
+        schema: str = "analytics",
+    ) -> None:
+        now = "2026-04-23T00:00:00+00:00"
+        locator = {"catalog": catalog, "schema": schema, "table": native_name}
+        app_state = cast("Any", self.client.app).state
+        app_state.metadata_store.execute(
+            """
+            INSERT INTO source_objects (
+                object_id, source_id, object_type, parent_id, native_name, native_id, fqn,
+                authority_locator_json, properties_json, sync_version, synced_at, created_at, updated_at
+            )
+            VALUES (?, ?, 'table', NULL, ?, NULL, ?, ?, '{}', 'v_seed', ?, ?, ?)
+            """,
+            [
+                object_id,
+                source_id,
+                native_name,
+                f"{catalog}.{schema}.{native_name}",
+                json.dumps(locator),
+                now,
+                now,
+                now,
+            ],
+        )
 
     def test_create_and_get_mapping(self) -> None:
         source_resp = self.client.post(
@@ -804,6 +930,124 @@ class MappingApiTests(unittest.TestCase):
         self.assertEqual(detail.status_code, 200)
         self.assertEqual(detail.json()["failure_code"], "mapping_invalid_type_combo")
         self.assertEqual(detail.json()["readiness_status"], "not_ready")
+
+    def test_routing_resolve_returns_structured_success_payload(self) -> None:
+        source_resp = self.client.post(
+            "/sources",
+            json=_duckdb_source_payload(str(self.db_path), "Routing Source"),
+        )
+        engine_resp = self.client.post(
+            "/engines",
+            json={
+                "engine_type": "duckdb",
+                "display_name": "Routing Engine",
+                "connection": {"path": str(self.db_path)},
+            },
+        )
+        self._insert_source_table(
+            source_resp.json()["source_id"],
+            object_id="obj_watch_events_api",
+            native_name="watch_events",
+        )
+        mapping_resp = self.client.post(
+            "/mappings",
+            json={
+                "source_id": source_resp.json()["source_id"],
+                "engine_id": engine_resp.json()["engine_id"],
+                "catalog_mappings": [
+                    {
+                        "authority_catalog": "main",
+                        "execution_catalog": "duckdb_runtime",
+                    }
+                ],
+            },
+        )
+        self.assertEqual(mapping_resp.status_code, 200)
+
+        response = self.client.post("/routing/resolve", json={"table_names": ["watch_events"]})
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["resolved"])
+        self.assertEqual(payload["engine"]["engine_id"], engine_resp.json()["engine_id"])
+        self.assertEqual(
+            payload["qualified_names"],
+            {"watch_events": "duckdb_runtime.analytics.watch_events"},
+        )
+        self.assertEqual(
+            payload["routing_detail"]["selected_mapping_ids"],
+            [mapping_resp.json()["mapping_id"]],
+        )
+        self.assertEqual(
+            payload["routing_detail"]["execution_locators"]["watch_events"]["mapping_id"],
+            mapping_resp.json()["mapping_id"],
+        )
+
+    def test_routing_resolve_returns_structured_failure_payload(self) -> None:
+        source_resp = self.client.post(
+            "/sources",
+            json=_duckdb_source_payload(str(self.db_path), "Unmapped Routing Source"),
+        )
+        self._insert_source_table(
+            source_resp.json()["source_id"],
+            object_id="obj_watch_events_unmapped",
+            native_name="watch_events",
+        )
+
+        response = self.client.post("/routing/resolve", json={"table_names": ["watch_events"]})
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertFalse(payload["resolved"])
+        self.assertEqual(payload["failure_code"], "routing_source_unmapped")
+        self.assertIsNone(payload["engine"])
+        self.assertEqual(payload["qualified_names"], {})
+        self.assertEqual(payload["routing_detail"]["resolution_status"], "no_active_mappings")
+        self.assertEqual(
+            payload["routing_detail"]["readiness_blockers"][0]["failure_code"],
+            "mapping_missing",
+        )
+
+    def test_routing_resolve_failure_payload_distinguishes_ambiguous_lookup(self) -> None:
+        source_resp_1 = self.client.post(
+            "/sources",
+            json=_duckdb_source_payload(str(self.db_path), "Ambiguous Source"),
+        )
+        source_resp_2 = self.client.post(
+            "/sources",
+            json=_duckdb_source_payload(str(self.db_path), "Ambiguous Source 2"),
+        )
+        self._insert_source_table(
+            source_resp_1.json()["source_id"],
+            object_id="obj_watch_events_ambiguous_1",
+            native_name="watch_events",
+        )
+        self._insert_source_table(
+            source_resp_2.json()["source_id"],
+            object_id="obj_watch_events_ambiguous_2",
+            native_name="watch_events",
+            catalog="other_catalog",
+        )
+
+        response = self.client.post(
+            "/routing/resolve", json={"table_names": ["analytics.watch_events"]}
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertFalse(payload["resolved"])
+        self.assertEqual(payload["failure_code"], "routing_table_ambiguous")
+
+    def test_routing_openapi_uses_explicit_response_model(self) -> None:
+        response = self.client.get("/openapi.json")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertIn("RouteResolveResponse", payload["components"]["schemas"])
+        route_post = payload["paths"]["/routing/resolve"]["post"]["responses"]["200"]["content"][
+            "application/json"
+        ]["schema"]
+        self.assertEqual(route_post["$ref"], "#/components/schemas/RouteResolveResponse")
 
     def test_bindings_route_removed(self) -> None:
         self.assertEqual(self.client.get("/bindings").status_code, 404)
