@@ -8,6 +8,7 @@ from app.analysis_core.typed_resolution import ResolvedCompilerInputs
 
 if TYPE_CHECKING:
     from app.analysis_core.predicate_validator import PredicateRefWithUsage
+    from app.governance_engine.repository import GovernanceRepository
     from app.semantic_runtime.repository import SemanticRuntimeRepository
 
 
@@ -69,6 +70,7 @@ def validate_compiler_inputs(
     resolved_inputs: ResolvedCompilerInputs,
     derived_state: DerivedCompilerState,
     semantic_repository: SemanticRuntimeRepository | None = None,
+    governance_repository: GovernanceRepository | None = None,
 ) -> ValidationResult:
     issues: list[ValidationIssue] = []
     issues.extend(_gate_profile_integrity(derived_state))
@@ -77,6 +79,9 @@ def validate_compiler_inputs(
     issues.extend(_gate_metric_process_compatibility(resolved_inputs, derived_state))
     issues.extend(_gate_binding_compatibility(step_type, resolved_inputs))
     issues.extend(_gate_predicate_contracts(resolved_inputs, semantic_repository))
+    issues.extend(
+        _gate_scope_validation(resolved_inputs, semantic_repository, governance_repository)
+    )
     issues.extend(_gate_dimension_compatibility(resolved_inputs))
     issues.extend(_gate_intent_specific(step_type, resolved_inputs, derived_state))
     issues.extend(_gate_dimension_additivity_condition(step_type, resolved_inputs, derived_state))
@@ -393,6 +398,31 @@ def _gate_predicate_contracts(
     )
 
 
+def _gate_scope_validation(
+    resolved_inputs: ResolvedCompilerInputs,
+    semantic_repository: SemanticRuntimeRepository | None,
+    governance_repository: GovernanceRepository | None = None,
+) -> list[ValidationIssue]:
+    if semantic_repository is None:
+        return []
+    request_scope_ref = resolved_inputs.normalized_request.request_scope_predicate_ref
+    if not request_scope_ref:
+        return []
+    from app.analysis_core.predicate_validator import validate_request_scope
+
+    upstream_predicates = [
+        ref
+        for ref in _collect_predicate_refs(resolved_inputs)
+        if ref.required_usage != "request_scope"
+    ]
+    upstream_predicates.extend(_collect_governance_predicate_refs(governance_repository))
+    return validate_request_scope(
+        request_scope_ref=request_scope_ref,
+        upstream_predicates=upstream_predicates,
+        resolver=semantic_repository,
+    )
+
+
 def _collect_predicate_refs(
     resolved_inputs: ResolvedCompilerInputs,
 ) -> list[PredicateRefWithUsage]:
@@ -443,6 +473,29 @@ def _collect_predicate_refs(
     request_predicate = resolved_inputs.normalized_request.request_scope_predicate_ref
     _add(request_predicate, "request_scope")
 
+    return refs
+
+
+def _collect_governance_predicate_refs(
+    governance_repository: GovernanceRepository | None,
+) -> list[PredicateRefWithUsage]:
+    """Extract predicate refs from enabled row_filter governance policies."""
+    if governance_repository is None:
+        return []
+    from app.analysis_core.predicate_validator import PredicateRefWithUsage
+
+    refs: list[PredicateRefWithUsage] = []
+    seen: set[str] = set()
+    for policy in governance_repository.list_policies(enabled_only=True):
+        if policy.get("policy_type") != "row_filter":
+            continue
+        definition = policy.get("definition") or {}
+        predicate_ref = definition.get("predicate_ref")
+        if predicate_ref and predicate_ref.startswith("predicate.") and predicate_ref not in seen:
+            seen.add(predicate_ref)
+            refs.append(
+                PredicateRefWithUsage(ref=predicate_ref, required_usage="governance_policy")
+            )
     return refs
 
 

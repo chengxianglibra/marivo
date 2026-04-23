@@ -762,6 +762,8 @@ _VALIDATION_GATE_ORDER: tuple[
         "intent_support",
         "metric_process_compatibility",
         "binding_grounding",
+        "predicate_contract",
+        "scope_validation",
         "dimension_compatibility",
         "intent_specific",
     ],
@@ -771,6 +773,8 @@ _VALIDATION_GATE_ORDER: tuple[
     "intent_support",
     "metric_process_compatibility",
     "binding_grounding",
+    "predicate_contract",
+    "scope_validation",
     "dimension_compatibility",
     "intent_specific",
 )
@@ -1624,6 +1628,7 @@ def compile_step(
         resolved_inputs=resolved_inputs,
         derived_state=derived_state,
         semantic_repository=semantic_repository,
+        governance_repository=semantic_context.get("governance_repository"),
     )
     imported_dimension_sources, imported_dimension_issues = (
         _resolve_imported_dimension_physical_sources(

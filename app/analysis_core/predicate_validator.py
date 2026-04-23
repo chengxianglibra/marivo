@@ -394,6 +394,453 @@ def _extract_target_refs(expression: dict[str, Any]) -> list[str]:
     return refs
 
 
+def _extract_atoms(expression: dict[str, Any]) -> list[dict[str, Any]]:
+    """Recursively extract all leaf atom dicts (those with target_ref) from an expression tree."""
+    if expression.get("target_ref") is not None:
+        return [expression]
+    atoms: list[dict[str, Any]] = []
+    for item in expression.get("items") or []:
+        atoms.extend(_extract_atoms(item))
+    return atoms
+
+
+# ---------------------------------------------------------------------------
+# Task 4.3: Scope expression shape validation
+# ---------------------------------------------------------------------------
+
+_SCOPE_GATE = "scope_validation"
+_FORBIDDEN_SCOPE_ATOM_OPS = frozenset({"neq", "not_in"})
+
+
+def _check_scope_expression_shape(
+    expression: dict[str, Any],
+    scope_ref: str,
+) -> list[ValidationIssue]:
+    """Check request scope expression is non-time, conjunctive-only, no dynamic values."""
+    issues: list[ValidationIssue] = []
+    _walk_scope_expression(expression, scope_ref, issues)
+    return issues
+
+
+def _walk_scope_expression(
+    node: dict[str, Any],
+    scope_ref: str,
+    issues: list[ValidationIssue],
+) -> None:
+    op = node.get("op")
+    if op == "or":
+        issues.append(
+            ValidationIssue(
+                code="COMPILER_SCOPE_DISJUNCTIVE",
+                gate=_SCOPE_GATE,
+                category="compiler",
+                severity="error",
+                message=f"Request scope predicate '{scope_ref}' uses disjunctive op 'or'",
+                subject_ref=scope_ref,
+                details={"op": "or"},
+            )
+        )
+    if op == "not":
+        issues.append(
+            ValidationIssue(
+                code="COMPILER_SCOPE_NEGATION",
+                gate=_SCOPE_GATE,
+                category="compiler",
+                severity="error",
+                message=f"Request scope predicate '{scope_ref}' uses negation op 'not'",
+                subject_ref=scope_ref,
+                details={"op": "not"},
+            )
+        )
+    target_ref = node.get("target_ref")
+    if target_ref and target_ref.startswith("time."):
+        issues.append(
+            ValidationIssue(
+                code="COMPILER_SCOPE_TIME_CONDITION",
+                gate=_SCOPE_GATE,
+                category="compiler",
+                severity="error",
+                message=(
+                    f"Request scope predicate '{scope_ref}' references "
+                    f"time-dependent target '{target_ref}'"
+                ),
+                subject_ref=scope_ref,
+                details={"target_ref": target_ref},
+            )
+        )
+    if target_ref and op in _FORBIDDEN_SCOPE_ATOM_OPS:
+        issues.append(
+            ValidationIssue(
+                code="COMPILER_SCOPE_FORBIDDEN_OPERATOR",
+                gate=_SCOPE_GATE,
+                category="compiler",
+                severity="error",
+                message=(
+                    f"Request scope predicate '{scope_ref}' uses "
+                    f"forbidden operator '{op}' — neq and not_in are not allowed as scope operators"
+                ),
+                subject_ref=scope_ref,
+                details={"op": op},
+            )
+        )
+    value = node.get("value")
+    if _contains_dynamic_value(value):
+        issues.append(
+            ValidationIssue(
+                code="COMPILER_SCOPE_DYNAMIC_VALUE",
+                gate=_SCOPE_GATE,
+                category="compiler",
+                severity="error",
+                message=f"Request scope predicate '{scope_ref}' contains dynamic value",
+                subject_ref=scope_ref,
+            )
+        )
+    for item in node.get("items") or []:
+        _walk_scope_expression(item, scope_ref, issues)
+
+
+# ---------------------------------------------------------------------------
+# Task 4.4: Scope narrowing proof
+# ---------------------------------------------------------------------------
+
+_SCOPE_EXCLUDED_UPSTREAM_USAGES = frozenset({"governance_policy", "carrier_row_filter"})
+
+
+def _check_scope_target_exclusions(
+    scope_atoms: list[dict[str, Any]],
+    excluded_targets: dict[str, str],
+    scope_ref: str,
+) -> list[ValidationIssue]:
+    """Reject scope atoms that constrain targets governed by excluded upstream usages.
+
+    excluded_targets maps target_ref → upstream usage that governs it.
+    """
+    issues: list[ValidationIssue] = []
+    for atom in scope_atoms:
+        target_ref = atom.get("target_ref", "")
+        governing_usage = excluded_targets.get(target_ref)
+        if governing_usage:
+            issues.append(
+                ValidationIssue(
+                    code="COMPILER_SCOPE_TARGET_EXCLUDED",
+                    gate=_SCOPE_GATE,
+                    category="compiler",
+                    severity="error",
+                    message=(
+                        f"Request scope predicate '{scope_ref}' constrains target "
+                        f"'{target_ref}' which is governed by upstream "
+                        f"{governing_usage} — request scope cannot override or narrow this target"
+                    ),
+                    subject_ref=scope_ref,
+                    details={
+                        "target_ref": target_ref,
+                        "governing_usage": governing_usage,
+                    },
+                )
+            )
+    return issues
+
+
+def _check_scope_narrowing(
+    scope_atoms: list[dict[str, Any]],
+    upstream_atoms_by_target: dict[str, list[dict[str, Any]]],
+    scope_ref: str,
+) -> list[ValidationIssue]:
+    """Check that scope atoms narrow (do not contradict) upstream atoms."""
+    issues: list[ValidationIssue] = []
+    for atom in scope_atoms:
+        target_ref = atom.get("target_ref", "")
+        upstream_atoms = upstream_atoms_by_target.get(target_ref)
+        if not upstream_atoms:
+            continue
+        for upstream_atom in upstream_atoms:
+            narrowing_issues = _check_atom_narrowing(atom, upstream_atom, scope_ref, target_ref)
+            issues.extend(narrowing_issues)
+    return issues
+
+
+def _check_atom_narrowing(
+    scope_atom: dict[str, Any],
+    upstream_atom: dict[str, Any],
+    scope_ref: str,
+    target_ref: str,
+) -> list[ValidationIssue]:
+    """Check single scope atom against single upstream atom on the same target_ref."""
+    scope_op = scope_atom.get("op", "")
+    upstream_op = upstream_atom.get("op", "")
+    scope_value = scope_atom.get("value")
+    upstream_value = upstream_atom.get("value")
+
+    result = _values_overlap(scope_op, scope_value, upstream_op, upstream_value)
+    if result is True:
+        return []
+    if result is False:
+        return [
+            ValidationIssue(
+                code="COMPILER_SCOPE_CONTRADICTS_UPSTREAM",
+                gate=_SCOPE_GATE,
+                category="compiler",
+                severity="error",
+                message=(
+                    f"Request scope predicate '{scope_ref}' contradicts upstream filter "
+                    f"on '{target_ref}': scope {scope_op} vs upstream {upstream_op}"
+                ),
+                subject_ref=scope_ref,
+                details={
+                    "target_ref": target_ref,
+                    "scope_op": scope_op,
+                    "upstream_op": upstream_op,
+                },
+            )
+        ]
+    reason = _narrowing_unprovable_reason(scope_op, upstream_op, scope_value, upstream_value)
+    return [
+        ValidationIssue(
+            code="COMPILER_SCOPE_NARROWING_UNPROVABLE",
+            gate=_SCOPE_GATE,
+            category="compiler",
+            severity="error",
+            message=(
+                f"Request scope predicate '{scope_ref}' hits upstream target "
+                f"'{target_ref}' but cannot prove narrowing: "
+                f"scope {scope_op} vs upstream {upstream_op} is not a narrowing-safe pair"
+            ),
+            subject_ref=scope_ref,
+            details={
+                "target_ref": target_ref,
+                "scope_op": scope_op,
+                "upstream_op": upstream_op,
+                "reason": reason,
+            },
+        )
+    ]
+
+
+def _narrowing_unprovable_reason(
+    scope_op: str,
+    upstream_op: str,
+    scope_value: Any,
+    upstream_value: Any,
+) -> str:
+    """Classify why narrowing is unprovable for agent-facing diagnostics."""
+    if scope_op != upstream_op:
+        return "cross_operator"
+    if (
+        scope_op == "in"
+        and isinstance(scope_value, list)
+        and isinstance(upstream_value, list)
+        and set(scope_value) & set(upstream_value)
+    ):
+        return "not_subset"
+    if (
+        scope_op == "between"
+        and isinstance(scope_value, list)
+        and isinstance(upstream_value, list)
+        and len(scope_value) == 2
+        and len(upstream_value) == 2
+    ):
+        try:
+            if not (scope_value[0] > upstream_value[1] or scope_value[1] < upstream_value[0]):
+                return "not_subset"
+        except TypeError:
+            pass
+    return "unsupported_operator"
+
+
+def _values_overlap(
+    scope_op: str,
+    scope_value: Any,
+    upstream_op: str,
+    upstream_value: Any,
+) -> bool | None:
+    """Check narrowing between a scope atom and an upstream atom on the same target_ref.
+
+    Implements a narrow decidable subset: only same-operator pairs and one
+    cross-operator pair (eq scope vs in upstream) are accepted as narrowing-safe.
+    Cross-operator or complex pairs return None (fail-closed).
+
+    Returns:
+        True  — narrowing is provable
+        False — contradiction detected
+        None  — cannot prove narrowing (fail-closed)
+    """
+    # --- same-operator: null-check ops ---
+    if scope_op == "is_null" and upstream_op == "is_null":
+        return True
+    if scope_op == "is_null" and upstream_op == "is_not_null":
+        return False
+    if scope_op == "is_not_null" and upstream_op == "is_null":
+        return False
+    if scope_op == "is_not_null" and upstream_op == "is_not_null":
+        return True
+
+    # null-check ops against value ops: cross-operator → reject
+    if scope_op in ("is_null", "is_not_null"):
+        return None
+
+    # --- same-operator: eq ---
+    if scope_op == "eq" and upstream_op == "eq":
+        return bool(scope_value == upstream_value)
+
+    # --- only allowed cross-operator pair: eq scope vs in upstream ---
+    if scope_op == "eq" and upstream_op == "in":
+        return _value_in_set(scope_value, upstream_value)
+
+    # --- same-operator: in (subset semantics) ---
+    if scope_op == "in" and upstream_op == "in":
+        return _sets_subset(scope_value, upstream_value)
+
+    # --- same-operator: between (range subset semantics) ---
+    if scope_op == "between" and upstream_op == "between":
+        return _ranges_subset(scope_value, upstream_value)
+
+    # --- same-operator: gte ---
+    if scope_op == "gte" and upstream_op == "gte":
+        return _compare_values(scope_value, upstream_value, ">=")
+
+    # --- same-operator: gt ---
+    if scope_op == "gt" and upstream_op == "gt":
+        return _compare_values(scope_value, upstream_value, ">=")
+
+    # --- same-operator: lte ---
+    if scope_op == "lte" and upstream_op == "lte":
+        return _compare_values(scope_value, upstream_value, "<=")
+
+    # --- same-operator: lt ---
+    if scope_op == "lt" and upstream_op == "lt":
+        return _compare_values(scope_value, upstream_value, "<=")
+
+    # everything else: cross-operator or unsupported → reject
+    return None
+
+
+def _value_in_set(value: Any, set_value: Any) -> bool | None:
+    """Check if value is in the set represented by set_value."""
+    if isinstance(set_value, list):
+        return value in set_value
+    return None
+
+
+def _sets_subset(scope_set: Any, upstream_set: Any) -> bool | None:
+    """Check if scope_set ⊆ upstream_set (narrowing), disjoint (contradiction), or ambiguous."""
+    if not isinstance(scope_set, list) or not isinstance(upstream_set, list):
+        return None
+    scope_s = set(scope_set)
+    upstream_s = set(upstream_set)
+    if scope_s <= upstream_s:
+        return True
+    if not scope_s & upstream_s:
+        return False
+    return None
+
+
+def _ranges_subset(scope_range: Any, upstream_range: Any) -> bool | None:
+    """Check if scope_range ⊆ upstream_range (narrowing), disjoint (contradiction), or ambiguous."""
+    if not isinstance(scope_range, list) or len(scope_range) != 2:
+        return None
+    if not isinstance(upstream_range, list) or len(upstream_range) != 2:
+        return None
+    try:
+        s_lo, s_hi = scope_range[0], scope_range[1]
+        u_lo, u_hi = upstream_range[0], upstream_range[1]
+        if s_lo >= u_lo and s_hi <= u_hi:
+            return True
+        if s_lo > u_hi or s_hi < u_lo:
+            return False
+        return None
+    except TypeError:
+        return None
+
+
+def _compare_values(a: Any, b: Any, op: str) -> bool | None:
+    """Compare two scalar values with the given operator. Returns None if incomparable."""
+    if a is None or b is None:
+        return None
+    try:
+        if op == ">=":
+            return bool(a >= b)
+        if op == ">":
+            return bool(a > b)
+        if op == "<=":
+            return bool(a <= b)
+        if op == "<":
+            return bool(a < b)
+    except TypeError:
+        return None
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Scope validation entry point (4.3 + 4.4)
+# ---------------------------------------------------------------------------
+
+
+def validate_request_scope(
+    *,
+    request_scope_ref: str | None,
+    upstream_predicates: list[PredicateRefWithUsage],
+    resolver: SemanticRuntimeRepository,
+) -> list[ValidationIssue]:
+    """Validate request scope predicate: shape + target exclusions + narrowing.
+
+    Returns empty list if no scope predicate is present. Skips validation
+    if the scope predicate cannot be resolved (the predicate_contract gate
+    already covers that failure mode).
+    """
+    if request_scope_ref is None:
+        return []
+
+    # Resolve scope predicate
+    resolved = _resolve_predicate(request_scope_ref, resolver)
+    if resolved is None:
+        return []
+
+    interface_contract = dict(resolved.semantic_object.get("interface_contract") or {})
+    expression = interface_contract.get("expression")
+    if not expression:
+        return []
+
+    issues: list[ValidationIssue] = []
+    scope_atoms = _extract_atoms(expression)
+
+    # Task 4.3: scope expression shape
+    issues.extend(_check_scope_expression_shape(expression, request_scope_ref))
+
+    # Task 4.4: collect upstream atoms and check exclusions + narrowing
+    upstream_atoms_by_target: dict[str, list[dict[str, Any]]] = {}
+    excluded_targets: dict[str, str] = {}
+    for entry in upstream_predicates:
+        if entry.ref == request_scope_ref:
+            continue
+        upstream_resolved = _resolve_predicate(entry.ref, resolver)
+        if upstream_resolved is None:
+            continue
+        upstream_ic = dict(upstream_resolved.semantic_object.get("interface_contract") or {})
+        upstream_expr = upstream_ic.get("expression")
+        if not upstream_expr:
+            continue
+        usage = entry.required_usage
+        for atom in _extract_atoms(upstream_expr):
+            target = atom.get("target_ref", "")
+            upstream_atoms_by_target.setdefault(target, []).append(atom)
+            if usage in _SCOPE_EXCLUDED_UPSTREAM_USAGES and target not in excluded_targets:
+                excluded_targets[target] = usage
+
+    # Check that scope doesn't constrain governance/carrier targets
+    if excluded_targets:
+        issues.extend(
+            _check_scope_target_exclusions(scope_atoms, excluded_targets, request_scope_ref)
+        )
+
+    # Check narrowing on non-excluded targets
+    if upstream_atoms_by_target:
+        issues.extend(
+            _check_scope_narrowing(scope_atoms, upstream_atoms_by_target, request_scope_ref)
+        )
+
+    return issues
+
+
 def _resolve_entity_ref_from_alias(ref: str) -> str:
     """Map subject/population/event alias to entity ref."""
     for prefix in ("subject.", "population.", "event."):

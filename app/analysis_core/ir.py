@@ -183,6 +183,8 @@ class ValidationRecord(TypedDict):
         "intent_support",
         "metric_process_compatibility",
         "binding_grounding",
+        "predicate_contract",
+        "scope_validation",
         "dimension_compatibility",
         "intent_specific",
     ]
