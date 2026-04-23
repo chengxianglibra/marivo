@@ -4,7 +4,6 @@ import tempfile
 import unittest
 from pathlib import Path
 from typing import ClassVar
-from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -16,44 +15,14 @@ from app.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.shared_fixtures import get_seeded_duckdb_path
 
 
-def duckdb_source_yaml(name: str, path: str | None = None, mode: str = "selected") -> str:
-    lines = [
-        "sources:",
-        f'  - name: "{name}"',
-        "    type: duckdb",
-        "    authority:",
-        "      catalog_system: duckdb",
-    ]
-    if path is None:
-        lines.append("      connection: {}")
-    else:
-        lines.extend(
-            [
-                "      connection:",
-                f"        path: {path}",
-            ]
-        )
-    lines.extend(
-        [
-            "      synthetic_catalog: main",
-            "    sync:",
-            f"      mode: {mode}",
-        ]
-    )
-    return "\n".join(lines) + "\n"
-
-
-def trino_source_yaml(name: str, host: str, mode: str = "selected") -> str:
+def runtime_config_yaml() -> str:
     return (
-        "sources:\n"
-        f'  - name: "{name}"\n'
-        "    type: trino\n"
-        "    authority:\n"
-        "      catalog_system: trino\n"
-        "      connection:\n"
-        f"        host: {host}\n"
-        "    sync:\n"
-        f"      mode: {mode}\n"
+        "metadata:\n"
+        "  engine: sqlite\n"
+        "  path: data/marivo.meta.sqlite\n"
+        "observability:\n"
+        "  log_level: DEBUG\n"
+        "  metrics_enabled: false\n"
     )
 
 
@@ -70,21 +39,21 @@ class LoadConfigTests(unittest.TestCase):
 
     def test_load_valid_yaml(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
-            f.write(duckdb_source_yaml("Demo"))
+            f.write(runtime_config_yaml())
             f.flush()
             cfg = load_config(Path(f.name))
 
         self.assertIsInstance(cfg, MarivoConfig)
-        self.assertEqual(len(cfg.sources), 1)
-        self.assertEqual(cfg.sources[0].name, "Demo")
-        self.assertEqual(cfg.sources[0].type, "duckdb")
-        self.assertEqual(cfg.sources[0].authority.catalog_system, "duckdb")
-        self.assertEqual(cfg.sources[0].authority.connection, {})
+        assert cfg.metadata is not None
+        self.assertEqual(cfg.metadata.engine, "sqlite")
+        self.assertEqual(cfg.metadata.path, "data/marivo.meta.sqlite")
+        self.assertEqual(cfg.observability.log_level, "DEBUG")
+        self.assertFalse(cfg.observability.metrics_enabled)
 
     def test_load_missing_file(self) -> None:
         cfg = load_config(Path("/nonexistent/marivo.yaml"))
         self.assertIsInstance(cfg, MarivoConfig)
-        self.assertEqual(cfg.sources, [])
+        self.assertIsNone(cfg.metadata)
 
     def test_load_invalid_yaml(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
@@ -100,47 +69,43 @@ class LoadConfigTests(unittest.TestCase):
             cfg = load_config(Path(f.name))
 
         self.assertIsInstance(cfg, MarivoConfig)
-        self.assertEqual(cfg.sources, [])
+        self.assertIsNone(cfg.metadata)
 
-    def test_sync_mode_selected_parses(self) -> None:
+    def test_load_rejects_sources_inventory_config(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
-            f.write(trino_source_yaml("Prod Trino", "trino.internal", mode="selected"))
-            f.flush()
-            cfg = load_config(Path(f.name))
-
-        self.assertEqual(len(cfg.sources), 1)
-        self.assertEqual(cfg.sources[0].sync.mode, "selected")
-
-    def test_load_rejects_unsupported_source_type(self) -> None:
-        with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
-            f.write('sources:\n  - name: "Demo"\n    type: mysql\n')
+            f.write('sources:\n  - display_name: "Demo"\n')
             f.flush()
             with self.assertRaises(Exception):
                 load_config(Path(f.name))
 
-    def test_load_rejects_unsupported_engine_type(self) -> None:
+    def test_load_rejects_engines_inventory_config(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
-            f.write('engines:\n  - name: "Batch Engine"\n    type: spark\n')
+            f.write('engines:\n  - display_name: "Batch Engine"\n')
+            f.flush()
+            with self.assertRaises(Exception):
+                load_config(Path(f.name))
+
+    def test_load_rejects_bindings_inventory_config(self) -> None:
+        with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
+            f.write('bindings:\n  - source: "src"\n')
+            f.flush()
+            with self.assertRaises(Exception):
+                load_config(Path(f.name))
+
+    def test_load_rejects_mappings_inventory_config(self) -> None:
+        with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
+            f.write('mappings:\n  - source_id: "src_1"\n')
             f.flush()
             with self.assertRaises(Exception):
                 load_config(Path(f.name))
 
     def test_load_defaults_governance_when_ui_block_absent(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
-            f.write("sources: []\n")
+            f.write("observability:\n  log_level: INFO\n")
             f.flush()
             cfg = load_config(Path(f.name))
 
         self.assertTrue(cfg.governance.enabled)
-
-    def test_sync_mode_defaults_to_selected(self) -> None:
-        with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
-            f.write(duckdb_source_yaml("Demo"))
-            f.flush()
-            cfg = load_config(Path(f.name))
-
-        self.assertEqual(len(cfg.sources), 1)
-        self.assertEqual(cfg.sources[0].sync.mode, "selected")
 
 
 class EnsureSourceTests(unittest.TestCase):
@@ -266,69 +231,25 @@ class StartupWithConfigTests(unittest.TestCase):
     def tearDownClass(cls) -> None:
         cls.class_tmp.cleanup()
 
-    def test_startup_registers_and_syncs_config_sources(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            config_path = Path(tmp) / "marivo.yaml"
-            config_path.write_text(
-                duckdb_source_yaml("Config Demo", str(Path(self.class_tmp.name) / "shared.duckdb"))
-            )
-            meta_path = Path(tmp) / "test.meta.sqlite"
-            metadata = SQLiteMetadataStore(meta_path)
-            app = create_app(
-                metadata_store=metadata,
-                analytics_engine=self.shared_analytics,
-                config_path=config_path,
-            )
-            client = TestClient(app)
-
-            resp = client.get("/sources")
-            self.assertEqual(resp.status_code, 200)
-            sources = resp.json()
-            names = [s["display_name"] for s in sources]
-            self.assertIn("Config Demo", names)
-
-            source_id = next(s["source_id"] for s in sources if s["display_name"] == "Config Demo")
-
-            # Add sync selections and trigger sync
-            client.post(
-                f"/sources/{source_id}/sync/selections",
-                json={
-                    "selections": [
-                        {"schema_name": "analytics", "table_name": "watch_events"},
-                    ]
-                },
-            )
-            client.post(f"/sources/{source_id}/sync")
-
-            resp = client.get(f"/sources/{source_id}/objects?type=table")
-            self.assertEqual(resp.status_code, 200)
-            tables = resp.json()
-            self.assertGreater(len(tables), 0)
-
-            client.close()
-
     def test_startup_without_config_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "nonexistent.yaml"
             meta_path = Path(tmp) / "test.meta.sqlite"
             metadata = SQLiteMetadataStore(meta_path)
-            app = create_app(
-                metadata_store=metadata,
-                analytics_engine=self.shared_analytics,
-                config_path=config_path,
-            )
-            client = TestClient(app)
-
-            resp = client.get("/sources")
-            self.assertEqual(resp.status_code, 200)
-            self.assertEqual(resp.json(), [])
-
-            client.close()
+            with self.assertRaisesRegex(
+                RuntimeError,
+                f"Config file not found: {config_path}",
+            ):
+                create_app(
+                    metadata_store=metadata,
+                    analytics_engine=self.shared_analytics,
+                    config_path=config_path,
+                )
 
     def test_startup_requires_metadata_config_when_store_not_provided(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "marivo.yaml"
-            config_path.write_text("sources: []\n")
+            config_path.write_text("observability:\n  log_level: INFO\n")
 
             with self.assertRaisesRegex(
                 RuntimeError,
@@ -358,185 +279,23 @@ class StartupWithConfigTests(unittest.TestCase):
             self.assertEqual(resp.json(), [])
             client.close()
 
-    def test_startup_requires_trino_dependency_when_config_uses_trino_source(self) -> None:
+    def test_startup_rejects_inventory_config_in_yaml(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "marivo.yaml"
-            config_path.write_text(trino_source_yaml("Config Trino", "trino.local"))
+            config_path.write_text('sources:\n  - display_name: "Config Trino"\n')
             meta_path = Path(tmp) / "test.meta.sqlite"
             metadata = SQLiteMetadataStore(meta_path)
-            with patch("app.api.app_factory.importlib.import_module") as mock_import:
-                mock_import.side_effect = ModuleNotFoundError("No module named 'trino'")
-                with self.assertRaisesRegex(RuntimeError, "optional dependency 'trino'"):
-                    create_app(
-                        metadata_store=metadata,
-                        analytics_engine=self.shared_analytics,
-                        config_path=config_path,
-                    )
-
-                mock_import.assert_called_once_with("trino")
-
-    def test_startup_requires_trino_dependency_when_config_uses_trino_engine(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            config_path = Path(tmp) / "marivo.yaml"
-            config_path.write_text(
-                "engines:\n"
-                '  - name: "Config Trino Engine"\n'
-                "    type: trino\n"
-                "    connection:\n"
-                "      host: trino.local\n"
-            )
-            meta_path = Path(tmp) / "test.meta.sqlite"
-            metadata = SQLiteMetadataStore(meta_path)
-            with patch("app.api.app_factory.importlib.import_module") as mock_import:
-                mock_import.side_effect = ModuleNotFoundError("No module named 'trino'")
-                with self.assertRaisesRegex(RuntimeError, "optional dependency 'trino'"):
-                    create_app(
-                        metadata_store=metadata,
-                        analytics_engine=self.shared_analytics,
-                        config_path=config_path,
-                    )
-
-                mock_import.assert_called_once_with("trino")
-
-    def test_startup_idempotent_on_restart(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            config_path = Path(tmp) / "marivo.yaml"
-            config_path.write_text(
-                duckdb_source_yaml("Restart Test", str(Path(self.class_tmp.name) / "shared.duckdb"))
-            )
-            meta_path = Path(tmp) / "test.meta.sqlite"
-
-            # First "boot" — shared analytics, fresh metadata
-            metadata1 = SQLiteMetadataStore(meta_path)
-            app1 = create_app(
-                metadata_store=metadata1,
-                analytics_engine=self.shared_analytics,
-                config_path=config_path,
-            )
-            client1 = TestClient(app1)
-            resp1 = client1.get("/sources")
-            sources1 = resp1.json()
-            client1.close()
-
-            # Second "boot" — same metadata DB file, same config
-            metadata2 = SQLiteMetadataStore(meta_path)
-            app2 = create_app(
-                metadata_store=metadata2,
-                analytics_engine=self.shared_analytics,
-                config_path=config_path,
-            )
-            client2 = TestClient(app2)
-            resp2 = client2.get("/sources")
-            sources2 = resp2.json()
-            client2.close()
-
-            restart_sources = [s for s in sources2 if s["display_name"] == "Restart Test"]
-            self.assertEqual(len(restart_sources), 1)
-            self.assertEqual(sources1[0]["source_id"], restart_sources[0]["source_id"])
-
-    def test_startup_reconciles_existing_source_type_with_config(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            config_path = Path(tmp) / "marivo.yaml"
-            config_path.write_text(
-                duckdb_source_yaml("Local Demo", str(Path(self.class_tmp.name) / "shared.duckdb"))
-            )
-            meta_path = Path(tmp) / "test.meta.sqlite"
-            metadata = SQLiteMetadataStore(meta_path)
-            metadata.initialize()
-            metadata.execute(
-                """
-                INSERT INTO sources (
-                    source_id, source_type, display_name, authority_json, sync_mode,
-                    intrinsic_capabilities_json, policy_json, status, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', datetime('now'), datetime('now'))
-                """,
-                [
-                    "src_existingdemo",
-                    "duckdb",
-                    "Local Demo",
-                    '{"catalog_system":"duckdb","connection":{"path":"/tmp/old.duckdb"},"synthetic_catalog":"main"}',
-                    "selected",
-                    '{"supports_partitions": false}',
-                    '{"allow_live_browse": true, "allow_sync": true}',
-                ],
-            )
-
-            app = create_app(
-                metadata_store=metadata,
-                analytics_engine=self.shared_analytics,
-                config_path=config_path,
-            )
-            client = TestClient(app)
-
-            resp = client.get("/sources")
-            self.assertEqual(resp.status_code, 200)
-            sources = resp.json()
-            self.assertEqual(len(sources), 1)
-            self.assertEqual(sources[0]["source_id"], "src_existingdemo")
-            self.assertEqual(sources[0]["source_type"], "duckdb")
-            self.assertEqual(
-                sources[0]["authority"]["connection"]["path"],
-                str(Path(self.class_tmp.name) / "shared.duckdb"),
-            )
-
-            # Add sync selections and trigger sync to verify source is configured correctly
-            client.post(
-                "/sources/src_existingdemo/sync/selections",
-                json={
-                    "selections": [
-                        {"schema_name": "analytics", "table_name": "watch_events"},
-                    ]
-                },
-            )
-            client.post("/sources/src_existingdemo/sync")
-
-            resp = client.get("/sources/src_existingdemo/objects?type=table")
-            self.assertEqual(resp.status_code, 200)
-            self.assertGreater(len(resp.json()), 0)
-
-            client.close()
-
-    def test_startup_sync_mode_none_skips_sync(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            config_path = Path(tmp) / "marivo.yaml"
-            config_path.write_text(
-                duckdb_source_yaml(
-                    "No Sync Source",
-                    str(Path(self.class_tmp.name) / "shared.duckdb"),
-                    mode="none",
+            with self.assertRaises(Exception):
+                create_app(
+                    metadata_store=metadata,
+                    analytics_engine=self.shared_analytics,
+                    config_path=config_path,
                 )
-            )
-            meta_path = Path(tmp) / "test.meta.sqlite"
-            metadata = SQLiteMetadataStore(meta_path)
-            app = create_app(
-                metadata_store=metadata,
-                analytics_engine=self.shared_analytics,
-                config_path=config_path,
-            )
-            client = TestClient(app)
 
-            resp = client.get("/sources")
-            sources = resp.json()
-            self.assertEqual(len(sources), 1)
-            self.assertEqual(sources[0]["display_name"], "No Sync Source")
-            self.assertEqual(sources[0]["sync"]["mode"], "none")
-
-            # No objects should have been synced
-            source_id = sources[0]["source_id"]
-            resp = client.get(f"/sources/{source_id}/objects")
-            self.assertEqual(resp.json(), [])
-            client.close()
-
-    def test_startup_sync_mode_selected_no_selections(self) -> None:
+    def test_startup_does_not_register_sources_or_engines_from_config(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "marivo.yaml"
-            config_path.write_text(
-                duckdb_source_yaml(
-                    "Selective Source",
-                    str(Path(self.class_tmp.name) / "shared.duckdb"),
-                    mode="selected",
-                )
-            )
+            config_path.write_text("observability:\n  log_level: DEBUG\n")
             meta_path = Path(tmp) / "test.meta.sqlite"
             metadata = SQLiteMetadataStore(meta_path)
             app = create_app(
@@ -546,14 +305,9 @@ class StartupWithConfigTests(unittest.TestCase):
             )
             client = TestClient(app)
 
-            resp = client.get("/sources")
-            sources = resp.json()
-            self.assertEqual(sources[0]["sync"]["mode"], "selected")
-
-            # No objects synced since no selections exist yet
-            source_id = sources[0]["source_id"]
-            resp = client.get(f"/sources/{source_id}/objects")
-            self.assertEqual(resp.json(), [])
+            self.assertEqual(client.get("/sources").json(), [])
+            self.assertEqual(client.get("/engines").json(), [])
+            self.assertEqual(client.get("/mappings").json(), [])
             client.close()
 
 

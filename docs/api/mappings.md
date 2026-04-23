@@ -5,6 +5,9 @@ and an `engine`. In the current runtime, supported source types and engine types
 `trino` only. A mapping does not change source-side identity; it explicitly declares how authority
 catalogs project into execution catalogs for routing and compile.
 
+`marivo.yaml` does not carry mapping inventory. Mappings are created, updated, and deleted only
+through the HTTP API.
+
 This page documents the current minimal HTTP write/read surface for mappings. It aligns with the
 v1 constraints in [`docs/service/source-execution-mapping-contract.md`](../service/source-execution-mapping-contract.md):
 

@@ -237,9 +237,7 @@ class SourceAuthorityResponse(BaseModel):
 class SourceSyncResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    mode: Literal["selected", "all", "none"] = Field(
-        description="Metadata sync scope policy."
-    )
+    mode: Literal["selected", "all", "none"] = Field(description="Metadata sync scope policy.")
 
 
 class SourceIntrinsicCapabilitiesResponse(BaseModel):
@@ -257,6 +255,27 @@ class SourcePolicyResponse(BaseModel):
         description="Whether operator policy allows live catalog browse."
     )
     allow_sync: bool = Field(description="Whether operator policy allows sync jobs.")
+
+
+class SourceMappingSummaryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mapping_id: str = Field(description="Stable mapping identifier.")
+    engine_id: str = Field(description="Execution engine targeted by this mapping.")
+    status: Literal["active", "inactive", "deprecated"] = Field(
+        description="Operator lifecycle status for the mapping."
+    )
+    readiness_status: Literal["not_ready", "ready"] = Field(
+        description="Derived readiness status for the mapping."
+    )
+    failure_code: str | None = Field(
+        default=None,
+        description="Stable blocker code when the mapping is not ready.",
+    )
+    catalog_mappings: list[MappingCatalogEntryResponse] = Field(
+        default_factory=list,
+        description="Authority-to-execution catalog projection entries owned by the mapping.",
+    )
 
 
 class SourceResponse(BaseModel):
@@ -280,6 +299,10 @@ class SourceResponse(BaseModel):
     failure_code: str | None = Field(
         default=None,
         description="Stable blocker code when the source is not ready.",
+    )
+    mappings: list[SourceMappingSummaryResponse] = Field(
+        default_factory=list,
+        description="Mappings currently registered for this source.",
     )
     created_at: str = Field(description="Creation timestamp (ISO-8601).")
     updated_at: str = Field(description="Last update timestamp (ISO-8601).")
@@ -353,9 +376,7 @@ class EngineIntrinsicCapabilitiesResponse(BaseModel):
     materialization_support: str = Field(
         description="Built-in materialization mode exposed by the engine implementation."
     )
-    performance_class: str = Field(
-        description="Built-in execution performance class."
-    )
+    performance_class: str = Field(description="Built-in execution performance class.")
     federation_support: str = Field(
         description="Built-in federation mode exposed by the engine implementation."
     )
@@ -396,6 +417,27 @@ class EnginePolicyResponse(BaseModel):
     )
 
 
+class EngineMappingSummaryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mapping_id: str = Field(description="Stable mapping identifier.")
+    source_id: str = Field(description="Source governed by this mapping.")
+    status: Literal["active", "inactive", "deprecated"] = Field(
+        description="Operator lifecycle status for the mapping."
+    )
+    readiness_status: Literal["not_ready", "ready"] = Field(
+        description="Derived readiness status for the mapping."
+    )
+    failure_code: str | None = Field(
+        default=None,
+        description="Stable blocker code when the mapping is not ready.",
+    )
+    catalog_mappings: list[MappingCatalogEntryResponse] = Field(
+        default_factory=list,
+        description="Authority-to-execution catalog projection entries owned by the mapping.",
+    )
+
+
 class EngineResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -425,6 +467,10 @@ class EngineResponse(BaseModel):
     failure_code: str | None = Field(
         default=None,
         description="Stable blocker code when the engine is not ready.",
+    )
+    mappings: list[EngineMappingSummaryResponse] = Field(
+        default_factory=list,
+        description="Mappings currently targeting this engine.",
     )
     created_at: str = Field(description="Creation timestamp (ISO-8601).")
     updated_at: str = Field(description="Last update timestamp (ISO-8601).")
@@ -459,7 +505,9 @@ class MappingCatalogEntryPayload(BaseModel):
 class MappingCatalogEntryResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    authority_catalog: str = Field(description="Authority-side catalog name frozen in source metadata.")
+    authority_catalog: str = Field(
+        description="Authority-side catalog name frozen in source metadata."
+    )
     execution_catalog: str = Field(description="Execution-side catalog projected by the mapping.")
     default_schema: str | None = Field(
         default=None,
@@ -502,7 +550,9 @@ class MappingResponse(BaseModel):
     mapping_id: str = Field(description="Stable mapping identifier.")
     source_id: str = Field(description="Source governed by this mapping.")
     engine_id: str = Field(description="Execution engine targeted by this mapping.")
-    priority: int = Field(description="Routing priority. Higher values win among otherwise eligible mappings.")
+    priority: int = Field(
+        description="Routing priority. Higher values win among otherwise eligible mappings."
+    )
     catalog_mappings: list[MappingCatalogEntryResponse] = Field(
         default_factory=list,
         description="Explicit authority-to-execution catalog projection entries.",
@@ -540,6 +590,8 @@ def _validate_unique_authority_catalogs(
         seen_authority_catalogs.add(entry.authority_catalog)
 
 
+SourceResponse.model_rebuild()
+EngineResponse.model_rebuild()
 SourceRegisterRequest.model_rebuild()
 SourceUpdateRequest.model_rebuild()
 EngineRegisterRequest.model_rebuild()

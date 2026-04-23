@@ -138,6 +138,15 @@ class QueryRouter:
             source_detail[source_id] = {
                 "candidate_engine_ids": sorted(engine_ids),
                 "failed_mappings": failed_mappings,
+                "readiness_blockers": [
+                    {
+                        "kind": "mapping_not_ready",
+                        "mapping_id": entry["mapping_id"],
+                        "engine_id": entry["engine_id"],
+                        "failure_code": entry["failure_code"],
+                    }
+                    for entry in failed_mappings
+                ],
             }
 
         # Step 3: intersect engine sets across all sources
@@ -277,6 +286,10 @@ class QueryRouter:
                 "candidates": candidate_scores,
                 "resolution_status": "resolved",
                 "execution_locators": resolved_execution_locators,
+                "selected_mapping_ids": [
+                    str(mapping_details[(source_id, best_engine_id)]["mapping_id"])
+                    for source_id in sorted(unique_sources)
+                ],
             },
         )
 
@@ -380,6 +393,7 @@ class QueryRouter:
                     "override an existing authority schema with default_schema"
                 )
             schema = authority_schema
+            default_schema_applied = False
         else:
             schema = default_schema
             if schema is None:
@@ -387,12 +401,17 @@ class QueryRouter:
                     f"mapping_invalid_namespace: mapping '{mapping['mapping_id']}' needs "
                     "default_schema when authority schema is missing"
                 )
+            default_schema_applied = True
 
         return {
             "catalog": execution_catalog,
             "schema": schema,
             "table": authority_locator.get("table") or table_source_object.get("native_name"),
             "mapping_id": mapping["mapping_id"],
+            "authority_catalog": authority_catalog,
+            "execution_catalog": execution_catalog,
+            "default_schema_applied": default_schema_applied,
+            "readiness_blockers": [],
             "authority_locator": authority_locator,
         }
 

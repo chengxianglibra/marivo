@@ -232,8 +232,9 @@ class EngineAPITests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.temp_dir = tempfile.TemporaryDirectory()
         db_path = Path(cls.temp_dir.name) / "test_engine_api.duckdb"
+        meta_path = Path(cls.temp_dir.name) / "test_engine_api.meta.sqlite"
         get_seeded_duckdb_path(db_path)
-        cls.client = TestClient(create_app(db_path))
+        cls.client = TestClient(create_app(db_path, metadata_store=SQLiteMetadataStore(meta_path)))
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -281,6 +282,63 @@ class EngineAPITests(unittest.TestCase):
         self.assertEqual(resp.json()["engine_id"], engine["engine_id"])
         self.assertEqual(resp.json()["readiness_status"], "ready")
         self.assertIsNone(resp.json()["failure_code"])
+        self.assertEqual(resp.json()["mappings"], [])
+
+    def test_get_engine_includes_mapping_summaries(self) -> None:
+        source_resp = self.client.post(
+            "/sources",
+            json={
+                "source_type": "duckdb",
+                "display_name": "Engine Summary Source",
+                "authority": {
+                    "catalog_system": "duckdb",
+                    "connection": {
+                        "path": str(Path(self.temp_dir.name) / "test_engine_api.duckdb")
+                    },
+                    "synthetic_catalog": "main",
+                },
+            },
+        )
+        engine_resp = self.client.post(
+            "/engines",
+            json={
+                "engine_type": "duckdb",
+                "display_name": "Engine Summary Target",
+                "connection": {"path": str(Path(self.temp_dir.name) / "test_engine_api.duckdb")},
+            },
+        )
+        mapping_resp = self.client.post(
+            "/mappings",
+            json={
+                "source_id": source_resp.json()["source_id"],
+                "engine_id": engine_resp.json()["engine_id"],
+                "catalog_mappings": [
+                    {
+                        "authority_catalog": "main",
+                        "execution_catalog": "duckdb_runtime",
+                    }
+                ],
+            },
+        )
+        self.assertEqual(mapping_resp.status_code, 200)
+
+        detail = self.client.get(f"/engines/{engine_resp.json()['engine_id']}")
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(len(detail.json()["mappings"]), 1)
+        self.assertEqual(
+            detail.json()["mappings"][0]["mapping_id"], mapping_resp.json()["mapping_id"]
+        )
+        self.assertEqual(detail.json()["mappings"][0]["source_id"], source_resp.json()["source_id"])
+        self.assertEqual(
+            detail.json()["mappings"][0]["catalog_mappings"],
+            [
+                {
+                    "authority_catalog": "main",
+                    "execution_catalog": "duckdb_runtime",
+                    "default_schema": None,
+                }
+            ],
+        )
 
     def test_list_engines(self) -> None:
         self.client.post(
@@ -521,46 +579,28 @@ class EngineConfigTests(unittest.TestCase):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             f.write(
                 textwrap.dedent("""\
-                sources:
-                  - name: "Demo"
-                    type: duckdb
-                    authority:
-                      catalog_system: duckdb
-                      connection: {}
-                      synthetic_catalog: main
-                engines:
-                  - name: "My DuckDB"
-                    type: duckdb
-                    connection:
-                      path: data/test.duckdb
-                  - name: "My Trino"
-                    type: trino
-                    connection:
-                      host: trino.local
-                      port: 8080
-            """)
+                metadata:
+                  engine: sqlite
+                  path: data/test.meta.sqlite
+                observability:
+                  log_level: DEBUG
+                """)
             )
             f.flush()
             config = load_config(Path(f.name))
 
-        self.assertEqual(len(config.sources), 1)
-        self.assertEqual(len(config.engines), 2)
-        self.assertEqual(config.engines[0].name, "My DuckDB")
-        self.assertEqual(config.engines[0].type, "duckdb")
-        self.assertEqual(config.engines[1].name, "My Trino")
-        self.assertEqual(config.engines[1].connection["host"], "trino.local")
+        assert config.metadata is not None
+        self.assertEqual(config.metadata.path, "data/test.meta.sqlite")
+        self.assertEqual(config.observability.log_level, "DEBUG")
 
-    def test_startup_registers_engines(self) -> None:
+    def test_startup_does_not_register_engines_from_config(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "marivo.yaml"
             config_path.write_text(
                 textwrap.dedent("""\
-                engines:
-                  - name: "Startup DuckDB"
-                    type: duckdb
-                    connection:
-                      path: data/startup.duckdb
-            """)
+                observability:
+                  log_level: INFO
+                """)
             )
             meta_path = Path(tmp) / "test.meta.sqlite"
             metadata = SQLiteMetadataStore(meta_path)
@@ -574,15 +614,7 @@ class EngineConfigTests(unittest.TestCase):
 
             resp = client.get("/engines")
             self.assertEqual(resp.status_code, 200)
-            engines = resp.json()
-            startup_engine = next(e for e in engines if e["display_name"] == "Startup DuckDB")
-            self.assertEqual(startup_engine["deployment_capabilities"], {})
-
-            profile = EngineService(metadata).get_capability_profile(startup_engine["engine_id"])
-            self.assertEqual(
-                profile.supported_step_types,
-                ("sample_rows", "profile_table", "metric_query"),
-            )
+            self.assertEqual(resp.json(), [])
 
             client.close()
 
