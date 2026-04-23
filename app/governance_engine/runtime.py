@@ -17,6 +17,20 @@ VALID_QUALITY_RULE_TYPES = ("freshness", "null_rate", "row_count_min")
 VALID_QUALITY_SEVERITIES = ("warn", "block")
 
 
+def policy_matches_scope(
+    policy: dict[str, Any],
+    *,
+    step_type: str | None = None,
+    tables: set[str] | None = None,
+) -> bool:
+    """Check whether a governance policy's scope matches the given context."""
+    scope = policy.get("scope", {})
+    if scope.get("step_types") and step_type not in scope["step_types"]:
+        return False
+    scope_tables = scope.get("tables")
+    return not (scope_tables and tables is not None and tables and not tables & set(scope_tables))
+
+
 class GovernanceRuntime:
     def __init__(
         self,
@@ -119,20 +133,14 @@ class GovernanceRuntime:
             "max_rows_scanned": None,
         }
 
+        queried_tables: set[str] = set(tables or [])
+        if params and params.get("table_name"):
+            queried_tables.add(str(params["table_name"]))
+
         for policy in policies:
             scope = policy.get("scope", {})
-            if scope.get("step_types") and step_type not in scope["step_types"]:
+            if not policy_matches_scope(policy, step_type=step_type, tables=queried_tables or None):
                 continue
-
-            # Table-scope matching: skip policy if it defines scope.tables
-            # and none of the queried tables match
-            scope_tables = scope.get("tables")
-            if scope_tables:
-                queried_tables = set(tables or [])
-                if params and params.get("table_name"):
-                    queried_tables.add(str(params["table_name"]))
-                if queried_tables and not queried_tables & set(scope_tables):
-                    continue
 
             policy_type = policy["policy_type"]
             if policy_type == "aggregate_only":

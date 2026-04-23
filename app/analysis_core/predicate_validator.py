@@ -6,14 +6,20 @@ predicates with structured diagnostics early in the compile flow.
 
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from app.analysis_core.validator import ValidationIssue
 from app.api.models.base import PredicateUsage
 from app.semantic_runtime.errors import SemanticRuntimeError
 from app.semantic_runtime.repository import SemanticRuntimeRepository
+
+if TYPE_CHECKING:
+    from app.analysis_core.ir import PredicateFilterLineage
+    from app.analysis_core.typed_resolution import ResolvedCompilerInputs
+    from app.governance_engine.repository import GovernanceRepository
 
 
 @dataclass(slots=True, frozen=True)
@@ -22,6 +28,33 @@ class PredicateRefWithUsage:
 
     ref: str
     required_usage: PredicateUsage
+
+
+@dataclass(slots=True, frozen=True)
+class PredicateLayerRef:
+    """A predicate ref tagged with its filter layer and optional component field."""
+
+    ref: str
+    layer: Literal[
+        "governance_policy",
+        "carrier_row_filter",
+        "metric_default",
+        "component_qualifier",
+        "request_scope",
+    ]
+    component_field: str | None = None
+
+
+@dataclass(slots=True, frozen=True)
+class ResolvedAtom:
+    """A leaf atom from a resolved predicate, tagged with provenance."""
+
+    target_ref: str
+    op: str
+    value: Any
+    source_ref: str
+    source_layer: str
+    component_field: str | None = None
 
 
 _GATE = "predicate_contract"
@@ -405,6 +438,103 @@ def _extract_atoms(expression: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
+# Task 4.5: Layered predicate extraction for conflict detection
+# ---------------------------------------------------------------------------
+
+_COMPONENT_FIELDS = (
+    "count_target",
+    "measure",
+    "numerator",
+    "denominator",
+    "value_component",
+    "score_source",
+)
+
+
+def collect_layered_predicate_refs(
+    resolved_inputs: ResolvedCompilerInputs,
+    governance_repository: GovernanceRepository | None,
+) -> list[PredicateLayerRef]:
+    """Extract all predicate refs tagged with filter layer and component field.
+
+    Unlike _collect_predicate_refs (which flattens to usage), this preserves
+    the distinction between metric_default and component_qualifier layers,
+    and records which component_field each qualifier_ref belongs to.
+    """
+    refs: list[PredicateLayerRef] = []
+    seen: set[tuple[str, str, str | None]] = set()
+
+    _layer_type = Literal[
+        "governance_policy",
+        "carrier_row_filter",
+        "metric_default",
+        "component_qualifier",
+        "request_scope",
+    ]
+
+    def _add(ref: str, layer: _layer_type, component_field: str | None = None) -> None:
+        if not ref.startswith("predicate."):
+            return
+        key = (ref, layer, component_field)
+        if key not in seen:
+            seen.add(key)
+            refs.append(PredicateLayerRef(ref=ref, layer=layer, component_field=component_field))
+
+    # Governance policies
+    if governance_repository is not None:
+        from app.governance_engine.runtime import policy_matches_scope
+
+        step_type = resolved_inputs.normalized_request.intent_kind
+        tables: set[str] = set()
+        if resolved_inputs.normalized_request.table_name:
+            tables.add(resolved_inputs.normalized_request.table_name)
+        gov_seen: set[str] = set()
+        for policy in governance_repository.list_policies(enabled_only=True):
+            if policy.get("policy_type") != "row_filter":
+                continue
+            if not policy_matches_scope(policy, step_type=step_type, tables=tables or None):
+                continue
+            definition = policy.get("definition") or {}
+            predicate_ref = definition.get("predicate_ref")
+            if (
+                predicate_ref
+                and predicate_ref.startswith("predicate.")
+                and predicate_ref not in gov_seen
+            ):
+                gov_seen.add(predicate_ref)
+                _add(predicate_ref, "governance_policy")
+
+    # Binding carrier row_filter_refs
+    for binding in resolved_inputs.resolved_bindings:
+        interface_contract = dict(binding.semantic_object.get("interface_contract") or {})
+        for carrier in interface_contract.get("carrier_bindings") or []:
+            for ref in carrier.get("row_filter_refs") or []:
+                _add(ref, "carrier_row_filter")
+
+    # Metric default_predicate_refs and component qualifier_refs
+    metric = resolved_inputs.resolved_metric
+    if metric is not None:
+        header = dict(metric.semantic_object.get("header") or {})
+        payload = dict(metric.semantic_object.get("payload") or {})
+        for ref in (
+            header.get("default_predicate_refs") or payload.get("default_predicate_refs") or []
+        ):
+            _add(ref, "metric_default")
+        for field in _COMPONENT_FIELDS:
+            component = payload.get(field)
+            if component is not None:
+                for ref in component.get("qualifier_refs") or []:
+                    _add(ref, "component_qualifier", component_field=field)
+
+    # Request scope
+    request_predicate = resolved_inputs.normalized_request.request_scope_predicate_ref
+    if request_predicate:
+        _add(request_predicate, "request_scope")
+
+    return refs
+
+
+# ---------------------------------------------------------------------------
 # Task 4.3: Scope expression shape validation
 # ---------------------------------------------------------------------------
 
@@ -710,6 +840,88 @@ def _values_overlap(
     if scope_op == "lt" and upstream_op == "lt":
         return _compare_values(scope_value, upstream_value, "<=")
 
+    # --- cross-operator: eq vs comparison ops ---
+    _cmp_ops = {"gte", "gt", "lte", "lt"}
+    _cmp_map: dict[str, str] = {"gte": ">=", "gt": ">", "lte": "<=", "lt": "<"}
+
+    if scope_op == "eq" and upstream_op in _cmp_ops:
+        return _compare_values(scope_value, upstream_value, _cmp_map[upstream_op])
+
+    if scope_op in _cmp_ops and upstream_op == "eq":
+        # scope gte 18 narrows upstream eq 25 iff 25 >= 18
+        return _compare_values(upstream_value, scope_value, _cmp_map[scope_op])
+
+    # --- cross-operator: eq vs between ---
+    if scope_op == "eq" and upstream_op == "between":
+        if isinstance(upstream_value, list) and len(upstream_value) == 2:
+            try:
+                return bool(upstream_value[0] <= scope_value <= upstream_value[1])
+            except TypeError:
+                return None
+        return None
+
+    if scope_op == "between" and upstream_op == "eq":
+        if isinstance(scope_value, list) and len(scope_value) == 2:
+            try:
+                return bool(scope_value[0] <= upstream_value <= scope_value[1])
+            except TypeError:
+                return None
+        return None
+
+    # --- cross-operator: in vs comparison ops ---
+    if scope_op == "in" and upstream_op in _cmp_ops:
+        if isinstance(scope_value, list):
+            results = [
+                _compare_values(v, upstream_value, _cmp_map[upstream_op]) for v in scope_value
+            ]
+            if all(r is True for r in results):
+                return True
+            if all(r is False for r in results):
+                return False
+        return None
+
+    if scope_op in _cmp_ops and upstream_op == "in":
+        if isinstance(upstream_value, list):
+            results = [_compare_values(v, scope_value, _cmp_map[scope_op]) for v in upstream_value]
+            if all(r is True for r in results):
+                return True
+            if all(r is False for r in results):
+                return False
+        return None
+
+    # --- cross-operator: in vs between ---
+    if scope_op == "in" and upstream_op == "between":
+        if (
+            isinstance(scope_value, list)
+            and isinstance(upstream_value, list)
+            and len(upstream_value) == 2
+        ):
+            try:
+                in_range = [upstream_value[0] <= v <= upstream_value[1] for v in scope_value]
+                if all(in_range):
+                    return True
+                if not any(in_range):
+                    return False
+            except TypeError:
+                pass
+        return None
+
+    if scope_op == "between" and upstream_op == "in":
+        if (
+            isinstance(upstream_value, list)
+            and isinstance(scope_value, list)
+            and len(scope_value) == 2
+        ):
+            try:
+                in_range = [scope_value[0] <= v <= scope_value[1] for v in upstream_value]
+                if all(in_range):
+                    return True
+                if not any(in_range):
+                    return False
+            except TypeError:
+                pass
+        return None
+
     # everything else: cross-operator or unsupported → reject
     return None
 
@@ -847,3 +1059,293 @@ def _resolve_entity_ref_from_alias(ref: str) -> str:
         if ref.startswith(prefix):
             return "entity." + ref[len(prefix) :]
     return ref
+
+
+# ---------------------------------------------------------------------------
+# Task 4.5: Predicate conflict detection
+# ---------------------------------------------------------------------------
+
+_CONFLICT_GATE = "predicate_conflict"
+
+
+def validate_predicate_conflicts(
+    *,
+    layered_refs: list[PredicateLayerRef],
+    resolver: SemanticRuntimeRepository,
+) -> list[ValidationIssue]:
+    """Detect cross-layer predicate conflicts.
+
+    Runs after gates 6 (predicate_contract) and 7 (scope_validation) so all
+    individual predicates are already validated. This gate checks conflicts
+    BETWEEN layers, not within individual predicates.
+    """
+    # Resolve each layer ref and extract atoms
+    atoms_by_target: dict[str, list[ResolvedAtom]] = {}
+    for entry in layered_refs:
+        resolved = _resolve_predicate(entry.ref, resolver)
+        if resolved is None:
+            continue
+        ic = dict(resolved.semantic_object.get("interface_contract") or {})
+        expression = ic.get("expression")
+        if not expression:
+            continue
+        for raw_atom in _extract_atoms(expression):
+            atom = ResolvedAtom(
+                target_ref=raw_atom.get("target_ref", ""),
+                op=raw_atom.get("op", ""),
+                value=raw_atom.get("value"),
+                source_ref=entry.ref,
+                source_layer=entry.layer,
+                component_field=entry.component_field,
+            )
+            atoms_by_target.setdefault(atom.target_ref, []).append(atom)
+
+    if not atoms_by_target:
+        return []
+
+    issues: list[ValidationIssue] = []
+    for _target, atoms in atoms_by_target.items():
+        issues.extend(_check_governance_vs_metric_conflict(atoms))
+        issues.extend(_check_carrier_vs_qualifier_conflict(atoms))
+        issues.extend(_check_within_metric_conflict(atoms))
+        issues.extend(_check_cross_component_conflict(atoms))
+
+    return issues
+
+
+def _atoms_compatible(atom_a: ResolvedAtom, atom_b: ResolvedAtom) -> bool | None:
+    """Check if two atoms on the same target_ref are compatible (non-empty intersection).
+
+    Unlike _values_overlap which is directional (scope narrows upstream), this
+    checks both directions: if either direction proves narrowing, the atoms
+    are compatible.
+
+    Returns:
+        True  — compatible (narrowing provable in at least one direction)
+        False — contradiction (both directions contradict)
+        None  — cannot prove compatibility (fail-closed)
+    """
+    fwd = _values_overlap(atom_a.op, atom_a.value, atom_b.op, atom_b.value)
+    if fwd is True:
+        return True
+    rev = _values_overlap(atom_b.op, atom_b.value, atom_a.op, atom_a.value)
+    if rev is True:
+        return True
+    if fwd is False and rev is False:
+        return False
+    return None
+
+
+def _check_governance_vs_metric_conflict(atoms: list[ResolvedAtom]) -> list[ValidationIssue]:
+    """Detect contradictions between governance_policy and metric predicates."""
+    gov_atoms = [a for a in atoms if a.source_layer == "governance_policy"]
+    metric_atoms = [a for a in atoms if a.source_layer in ("metric_default", "component_qualifier")]
+    if not gov_atoms or not metric_atoms:
+        return []
+    issues: list[ValidationIssue] = []
+    for gov in gov_atoms:
+        for metric in metric_atoms:
+            result = _atoms_compatible(gov, metric)
+            if result is True:
+                continue
+            issues.append(_make_conflict_issue(gov, metric, result, "readiness"))
+    return issues
+
+
+def _check_carrier_vs_qualifier_conflict(atoms: list[ResolvedAtom]) -> list[ValidationIssue]:
+    """Detect contradictions between carrier_row_filter and component_qualifier."""
+    carrier_atoms = [a for a in atoms if a.source_layer == "carrier_row_filter"]
+    qualifier_atoms = [a for a in atoms if a.source_layer == "component_qualifier"]
+    if not carrier_atoms or not qualifier_atoms:
+        return []
+    issues: list[ValidationIssue] = []
+    for carrier in carrier_atoms:
+        for qualifier in qualifier_atoms:
+            result = _atoms_compatible(carrier, qualifier)
+            if result is True:
+                continue
+            issues.append(_make_conflict_issue(carrier, qualifier, result, "compiler"))
+    return issues
+
+
+def _check_within_metric_conflict(atoms: list[ResolvedAtom]) -> list[ValidationIssue]:
+    """Detect contradictions between metric_default and component_qualifier on same target."""
+    default_atoms = [a for a in atoms if a.source_layer == "metric_default"]
+    qualifier_atoms = [a for a in atoms if a.source_layer == "component_qualifier"]
+    if not default_atoms or not qualifier_atoms:
+        return []
+    issues: list[ValidationIssue] = []
+    for default in default_atoms:
+        for qualifier in qualifier_atoms:
+            result = _atoms_compatible(default, qualifier)
+            if result is True:
+                continue
+            issues.append(_make_conflict_issue(default, qualifier, result, "compiler"))
+    return issues
+
+
+def _check_cross_component_conflict(atoms: list[ResolvedAtom]) -> list[ValidationIssue]:
+    """Detect contradictions between different components on the same target."""
+    qualifier_atoms = [
+        a for a in atoms if a.source_layer == "component_qualifier" and a.component_field
+    ]
+    if len(qualifier_atoms) < 2:
+        return []
+    # Group by component_field
+    by_field: dict[str, list[ResolvedAtom]] = {}
+    for atom in qualifier_atoms:
+        field = atom.component_field
+        assert field is not None  # guaranteed by filter above
+        by_field.setdefault(field, []).append(atom)
+    if len(by_field) < 2:
+        return []
+    issues: list[ValidationIssue] = []
+    fields = sorted(by_field)
+    for i in range(len(fields)):
+        for j in range(i + 1, len(fields)):
+            for atom_a in by_field[fields[i]]:
+                for atom_b in by_field[fields[j]]:
+                    result = _atoms_compatible(atom_a, atom_b)
+                    if result is True:
+                        continue
+                    issues.append(_make_conflict_issue(atom_a, atom_b, result, "readiness"))
+    return issues
+
+
+def _make_conflict_issue(
+    atom_a: ResolvedAtom,
+    atom_b: ResolvedAtom,
+    overlap_result: bool | None,
+    category: str,
+) -> ValidationIssue:
+    """Produce a structured ValidationIssue for a detected conflict or unprovable pair."""
+    code = _conflict_code(atom_a.source_layer, atom_b.source_layer, overlap_result)
+    is_contradiction = overlap_result is False
+    message = (
+        f"Predicate conflict on '{atom_a.target_ref}': "
+        f"{atom_a.source_layer} {atom_a.op} vs {atom_b.source_layer} {atom_b.op}"
+        + (" — contradiction" if is_contradiction else " — narrowing unprovable")
+    )
+    return ValidationIssue(
+        code=code,
+        gate=_CONFLICT_GATE,
+        category=category,
+        severity="warning" if overlap_result is None else "error",
+        message=message,
+        subject_ref=atom_a.target_ref,
+        details={
+            "target_ref": atom_a.target_ref,
+            "atom_a": {
+                "ref": atom_a.source_ref,
+                "layer": atom_a.source_layer,
+                "op": atom_a.op,
+                "component_field": atom_a.component_field,
+            },
+            "atom_b": {
+                "ref": atom_b.source_ref,
+                "layer": atom_b.source_layer,
+                "op": atom_b.op,
+                "component_field": atom_b.component_field,
+            },
+        },
+    )
+
+
+def _conflict_code(layer_a: str, layer_b: str, overlap_result: bool | None) -> str:
+    """Determine the error code for a conflict between two layers."""
+    layers = frozenset({layer_a, layer_b})
+    if layers & {"governance_policy"} and layers & {"metric_default", "component_qualifier"}:
+        return "COMPILER_PREDICATE_GOVERNANCE_METRIC_CONFLICT"
+    if layers == frozenset({"carrier_row_filter", "component_qualifier"}):
+        return "COMPILER_PREDICATE_CARRIER_QUALIFIER_CONFLICT"
+    if layers == frozenset({"metric_default", "component_qualifier"}):
+        return "COMPILER_PREDICATE_WITHIN_METRIC_CONFLICT"
+    if layer_a == "component_qualifier" and layer_b == "component_qualifier":
+        return "COMPILER_PREDICATE_CROSS_COMPONENT_CONFLICT"
+    return "COMPILER_PREDICATE_CONFLICT_UNPROVABLE"
+
+
+# ---------------------------------------------------------------------------
+# Task 4.6: Resolved predicate lineage builder
+# ---------------------------------------------------------------------------
+
+
+def build_predicate_filter_lineage(
+    layered_refs: list[PredicateLayerRef],
+) -> PredicateFilterLineage:
+    """Build the frozen predicate lineage from validated+resolved layer refs.
+
+    Called after successful conflict detection. Constructs the lineage IR
+    that will be attached to MeasurementNode.
+    """
+    from app.analysis_core.ir import (
+        ComponentEffectiveScope,
+        ComponentQualifierLineage,
+        MetricDefaultLineage,
+        SharedEffectiveScope,
+    )
+
+    gov_refs: list[str] = []
+    carrier_refs: list[str] = []
+    request_scope_ref: str | None = None
+    default_refs: list[str] = []
+    qualifier_by_field: dict[str, list[str]] = {}
+
+    for entry in layered_refs:
+        if entry.layer == "governance_policy":
+            gov_refs.append(entry.ref)
+        elif entry.layer == "carrier_row_filter":
+            carrier_refs.append(entry.ref)
+        elif entry.layer == "request_scope":
+            request_scope_ref = entry.ref
+        elif entry.layer == "metric_default":
+            default_refs.append(entry.ref)
+        elif entry.layer == "component_qualifier" and entry.component_field:
+            qualifier_by_field.setdefault(entry.component_field, []).append(entry.ref)
+
+    shared_scope: SharedEffectiveScope = {
+        "governance_policy_refs": gov_refs,
+        "carrier_row_filter_refs": carrier_refs,
+    }
+    if request_scope_ref is not None:
+        shared_scope["request_scope_ref"] = request_scope_ref
+
+    metric_default: MetricDefaultLineage = {
+        "default_predicate_refs": default_refs,
+    }
+
+    component_lineages: list[ComponentQualifierLineage] = []
+    component_scopes: list[ComponentEffectiveScope] = []
+    for field in sorted(qualifier_by_field):
+        q_refs = qualifier_by_field[field]
+        component_lineages.append(
+            {
+                "component_field": field,
+                "qualifier_refs": q_refs,
+            }
+        )
+        # effective scope = shared + default + this component's qualifiers
+        effective_refs = gov_refs + carrier_refs + default_refs + q_refs
+        if request_scope_ref:
+            effective_refs.append(request_scope_ref)
+        component_scopes.append(
+            {
+                "component_field": field,
+                "effective_scope_refs": effective_refs,
+                "scope_fingerprint": _scope_fingerprint(effective_refs),
+            }
+        )
+
+    lineage: PredicateFilterLineage = {
+        "shared_effective_scope": shared_scope,
+        "metric_default_lineage": metric_default,
+        "component_qualifier_lineages": component_lineages,
+        "component_effective_scopes": component_scopes,
+    }
+    return lineage
+
+
+def _scope_fingerprint(refs: list[str]) -> str:
+    """Deterministic SHA-256 fingerprint for a list of predicate refs."""
+    canonical = ":".join(sorted(refs))
+    return hashlib.sha256(canonical.encode()).hexdigest()[:16]

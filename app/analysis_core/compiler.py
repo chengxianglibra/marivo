@@ -764,6 +764,7 @@ _VALIDATION_GATE_ORDER: tuple[
         "binding_grounding",
         "predicate_contract",
         "scope_validation",
+        "predicate_conflict",
         "dimension_compatibility",
         "intent_specific",
     ],
@@ -775,6 +776,7 @@ _VALIDATION_GATE_ORDER: tuple[
     "binding_grounding",
     "predicate_contract",
     "scope_validation",
+    "predicate_conflict",
     "dimension_compatibility",
     "intent_specific",
 )
@@ -1367,6 +1369,9 @@ def _measurement_node(
     resolved_metric: ResolvedSemanticObject,
     resolved_bindings: list[ResolvedSemanticObject],
     output_binding: OutputBinding,
+    resolved_inputs: ResolvedCompilerInputs | None = None,
+    semantic_repository: Any | None = None,
+    governance_repository: Any | None = None,
 ) -> MeasurementNode:
     header = dict(resolved_metric.semantic_object.get("header") or {})
     carrier_bindings: list[CarrierBinding] = []
@@ -1419,6 +1424,16 @@ def _measurement_node(
         node["inferential_summary_mode"] = inferential_summary_mode
     if carrier_bindings:
         node["carrier_bindings"] = carrier_bindings
+    # Attach predicate filter lineage if repository is available
+    if semantic_repository is not None and resolved_inputs is not None:
+        from app.analysis_core.predicate_validator import (
+            build_predicate_filter_lineage,
+            collect_layered_predicate_refs,
+        )
+
+        layered_refs = collect_layered_predicate_refs(resolved_inputs, governance_repository)
+        if layered_refs:
+            node["predicate_filter_lineage"] = build_predicate_filter_lineage(layered_refs)
     return node
 
 
@@ -1502,6 +1517,13 @@ def _build_ir_bundle(
             resolved_metric=resolved_inputs.resolved_metric,
             resolved_bindings=resolved_inputs.resolved_bindings,
             output_binding=output_binding,
+            resolved_inputs=resolved_inputs,
+            semantic_repository=semantic_context.get("semantic_repository")
+            if semantic_context
+            else None,
+            governance_repository=semantic_context.get("governance_repository")
+            if semantic_context
+            else None,
         )
         nodes.append(measurement_node)
         depends_on.append(measurement_node["node_id"])

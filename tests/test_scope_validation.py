@@ -342,30 +342,94 @@ class TestValuesOverlap(unittest.TestCase):
     def test_is_not_null_is_not_null(self):
         self.assertTrue(_values_overlap("is_not_null", None, "is_not_null", None))
 
-    # --- cross-operator pairs: all unprovable ---
-    def test_in_vs_eq_unprovable(self):
-        self.assertIsNone(_values_overlap("in", ["US", "CN"], "eq", "US"))
+    # --- cross-operator pairs: eq vs comparison ops ---
+    def test_eq_vs_gte_narrowing(self):
+        self.assertTrue(_values_overlap("eq", 25, "gte", 18))
 
-    def test_eq_vs_gte_unprovable(self):
-        self.assertIsNone(_values_overlap("eq", 25, "gte", 18))
+    def test_eq_vs_gte_contradiction(self):
+        self.assertFalse(_values_overlap("eq", 10, "gte", 18))
 
-    def test_eq_vs_lte_unprovable(self):
-        self.assertIsNone(_values_overlap("eq", 50, "lte", 65))
+    def test_eq_vs_gt_narrowing(self):
+        self.assertTrue(_values_overlap("eq", 25, "gt", 18))
 
-    def test_eq_vs_between_unprovable(self):
-        self.assertIsNone(_values_overlap("eq", 25, "between", [18, 65]))
+    def test_eq_vs_gt_contradiction(self):
+        self.assertFalse(_values_overlap("eq", 18, "gt", 18))
 
-    def test_in_vs_between_unprovable(self):
+    def test_eq_vs_lte_narrowing(self):
+        self.assertTrue(_values_overlap("eq", 50, "lte", 65))
+
+    def test_eq_vs_lte_contradiction(self):
+        self.assertFalse(_values_overlap("eq", 70, "lte", 65))
+
+    def test_eq_vs_lt_narrowing(self):
+        self.assertTrue(_values_overlap("eq", 50, "lt", 65))
+
+    def test_eq_vs_lt_contradiction(self):
+        self.assertFalse(_values_overlap("eq", 65, "lt", 65))
+
+    def test_gte_vs_eq_narrowing(self):
+        self.assertTrue(_values_overlap("gte", 18, "eq", 25))
+
+    def test_gte_vs_eq_contradiction(self):
+        self.assertFalse(_values_overlap("gte", 18, "eq", 10))
+
+    def test_lte_vs_eq_narrowing(self):
+        self.assertTrue(_values_overlap("lte", 65, "eq", 50))
+
+    def test_lte_vs_eq_contradiction(self):
+        self.assertFalse(_values_overlap("lte", 65, "eq", 70))
+
+    # --- cross-operator: eq vs between ---
+    def test_eq_vs_between_in_range(self):
+        self.assertTrue(_values_overlap("eq", 25, "between", [18, 65]))
+
+    def test_eq_vs_between_out_of_range(self):
+        self.assertFalse(_values_overlap("eq", 70, "between", [18, 65]))
+
+    def test_between_vs_eq_in_range(self):
+        self.assertTrue(_values_overlap("between", [18, 65], "eq", 25))
+
+    def test_between_vs_eq_out_of_range(self):
+        self.assertFalse(_values_overlap("between", [18, 65], "eq", 70))
+
+    # --- cross-operator: in vs comparison ops ---
+    def test_in_vs_gte_all_pass(self):
+        self.assertTrue(_values_overlap("in", [25, 30], "gte", 18))
+
+    def test_in_vs_gte_none_pass(self):
+        self.assertFalse(_values_overlap("in", [5, 10], "gte", 18))
+
+    def test_in_vs_gte_partial(self):
+        self.assertIsNone(_values_overlap("in", [10, 25], "gte", 18))
+
+    def test_gte_vs_in_all_pass(self):
+        self.assertTrue(_values_overlap("gte", 18, "in", [25, 30]))
+
+    def test_gte_vs_in_none_pass(self):
+        self.assertFalse(_values_overlap("gte", 18, "in", [5, 10]))
+
+    def test_gte_vs_in_partial(self):
+        self.assertIsNone(_values_overlap("gte", 18, "in", [10, 25]))
+
+    # --- cross-operator: in vs between ---
+    def test_in_vs_between_all_in_range(self):
+        self.assertTrue(_values_overlap("in", [20, 25], "between", [18, 30]))
+
+    def test_in_vs_between_none_in_range(self):
+        self.assertFalse(_values_overlap("in", [5, 10], "between", [18, 30]))
+
+    def test_in_vs_between_partial(self):
         self.assertIsNone(_values_overlap("in", [20, 30], "between", [18, 25]))
 
-    def test_between_vs_eq_unprovable(self):
-        self.assertIsNone(_values_overlap("between", [18, 65], "eq", 25))
+    def test_between_vs_in_all_in_range(self):
+        self.assertTrue(_values_overlap("between", [18, 30], "in", [20, 25]))
 
-    def test_between_vs_in_unprovable(self):
+    def test_between_vs_in_partial(self):
         self.assertIsNone(_values_overlap("between", [18, 30], "in", [25, 40]))
 
-    def test_gte_vs_gt_unprovable(self):
-        self.assertIsNone(_values_overlap("gte", 19, "gt", 18))
+    # --- cross-operator pairs: still unprovable ---
+    def test_in_vs_eq_unprovable(self):
+        self.assertIsNone(_values_overlap("in", ["US", "CN"], "eq", "US"))
 
     def test_is_not_null_vs_eq_unprovable(self):
         self.assertIsNone(_values_overlap("is_not_null", None, "eq", "US"))
@@ -1020,6 +1084,93 @@ class TestCollectGovernancePredicateRefs(unittest.TestCase):
         refs = _collect_governance_predicate_refs(_StubGovRepo())
         self.assertEqual(refs, [])
 
+    def test_scope_matching_step_type_included(self):
+        from app.analysis_core.validator import _collect_governance_predicate_refs
 
-if __name__ == "__main__":
-    unittest.main()
+        class _ScopedGovRepo:
+            def list_policies(self, enabled_only=True):
+                return [
+                    {
+                        "policy_type": "row_filter",
+                        "definition": {"predicate_ref": "predicate.matching"},
+                        "scope": {"step_types": ["metric_query"]},
+                        "enabled": True,
+                    },
+                    {
+                        "policy_type": "row_filter",
+                        "definition": {"predicate_ref": "predicate.wrong_step"},
+                        "scope": {"step_types": ["aggregate_query"]},
+                        "enabled": True,
+                    },
+                ]
+
+        refs = _collect_governance_predicate_refs(_ScopedGovRepo(), step_type="metric_query")
+        self.assertEqual(len(refs), 1)
+        self.assertEqual(refs[0].ref, "predicate.matching")
+
+    def test_scope_matching_table_included(self):
+        from app.analysis_core.validator import _collect_governance_predicate_refs
+
+        class _ScopedGovRepo:
+            def list_policies(self, enabled_only=True):
+                return [
+                    {
+                        "policy_type": "row_filter",
+                        "definition": {"predicate_ref": "predicate.orders_policy"},
+                        "scope": {"tables": ["orders"]},
+                        "enabled": True,
+                    },
+                    {
+                        "policy_type": "row_filter",
+                        "definition": {"predicate_ref": "predicate.users_policy"},
+                        "scope": {"tables": ["users"]},
+                        "enabled": True,
+                    },
+                ]
+
+        refs = _collect_governance_predicate_refs(_ScopedGovRepo(), tables={"orders"})
+        self.assertEqual(len(refs), 1)
+        self.assertEqual(refs[0].ref, "predicate.orders_policy")
+
+    def test_no_scope_restriction_always_included(self):
+        from app.analysis_core.validator import _collect_governance_predicate_refs
+
+        class _NoScopeGovRepo:
+            def list_policies(self, enabled_only=True):
+                return [
+                    {
+                        "policy_type": "row_filter",
+                        "definition": {"predicate_ref": "predicate.no_scope"},
+                        "enabled": True,
+                    },
+                ]
+
+        refs = _collect_governance_predicate_refs(
+            _NoScopeGovRepo(), step_type="metric_query", tables={"orders"}
+        )
+        self.assertEqual(len(refs), 1)
+        self.assertEqual(refs[0].ref, "predicate.no_scope")
+
+    def test_no_scope_context_excludes_scoped_policies(self):
+        from app.analysis_core.validator import _collect_governance_predicate_refs
+
+        class _ScopedGovRepo:
+            def list_policies(self, enabled_only=True):
+                return [
+                    {
+                        "policy_type": "row_filter",
+                        "definition": {"predicate_ref": "predicate.scoped"},
+                        "scope": {"step_types": ["metric_query"]},
+                        "enabled": True,
+                    },
+                    {
+                        "policy_type": "row_filter",
+                        "definition": {"predicate_ref": "predicate.unscoped"},
+                        "enabled": True,
+                    },
+                ]
+
+        # No step_type/tables context: scoped policy excluded, unscoped included
+        refs = _collect_governance_predicate_refs(_ScopedGovRepo())
+        self.assertEqual(len(refs), 1)
+        self.assertEqual(refs[0].ref, "predicate.unscoped")
