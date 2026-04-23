@@ -368,7 +368,7 @@ class SemanticRuntimeMetadataReader:
                     "binding_key": carrier_row["binding_key"],
                     "source_object_ref": carrier_row["source_object_ref"],
                     "carrier_kind": carrier_row["carrier_kind"],
-                    "carrier_locator": carrier_row["carrier_locator"],
+                    "carrier_locator": json.loads(str(carrier_row["carrier_locator"])),
                     "binding_role": carrier_row["binding_role"],
                     "semantic_role_ref": carrier_row["semantic_role_ref"],
                     "grain_ref": carrier_row["grain_ref"],
@@ -884,7 +884,6 @@ def _dependency_refs_for_object(
         for carrier in interface_contract.get("carrier_bindings") or []:
             _append_dependency_ref(refs, seen, carrier.get("primary_entity_ref"))
             _append_dependency_ref(refs, seen, carrier.get("source_object_ref"))
-            _append_dependency_ref(refs, seen, carrier.get("carrier_locator"), allow_locator=True)
         for field_binding in interface_contract.get("field_bindings") or []:
             _append_dependency_ref(refs, seen, field_binding.get("semantic_ref"))
             target = field_binding.get("target") or {}

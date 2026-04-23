@@ -98,7 +98,7 @@ class MetricExecutionContext:
     binding_ref: str
     carrier_binding_key: str | None = None
     source_object_ref: str | None = None
-    carrier_locator: str | None = None
+    carrier_locator: dict[str, Any] | None = None
     input_field_map: dict[str, str] | None = None
     additivity_constraints: dict[str, Any] | None = None
 
@@ -109,7 +109,7 @@ class MetricBindingResolution:
     binding_ref: str
     carrier_binding_key: str | None
     source_object_ref: str | None
-    carrier_locator: str | None
+    carrier_locator: dict[str, Any] | None
     table_name: str | None
     input_field_map: dict[str, str]
 
@@ -118,6 +118,35 @@ def _optional_str(value: Any) -> str | None:
     if isinstance(value, str):
         normalized = value.strip()
         return normalized or None
+    return None
+
+
+def _carrier_locator_dict(value: Any) -> dict[str, Any] | None:
+    if isinstance(value, dict):
+        return {
+            "catalog": _optional_str(value.get("catalog")),
+            "schema": _optional_str(value.get("schema")) or _optional_str(value.get("schema_name")),
+            "table": _optional_str(value.get("table")),
+        }
+    if isinstance(value, str):
+        normalized = value.strip()
+        if not normalized:
+            return None
+        try:
+            payload = json.loads(normalized)
+        except json.JSONDecodeError:
+            parts = [part.strip() for part in normalized.split(".") if part.strip()]
+            if len(parts) >= 3:
+                return {"catalog": parts[-3], "schema": parts[-2], "table": parts[-1]}
+            if len(parts) == 2:
+                return {"catalog": None, "schema": parts[0], "table": parts[1]}
+            if len(parts) == 1:
+                return {"catalog": None, "schema": None, "table": parts[0]}
+            return None
+        if isinstance(payload, dict):
+            return _carrier_locator_dict(payload)
+        if isinstance(payload, str):
+            return _carrier_locator_dict(payload)
     return None
 
 
@@ -637,9 +666,7 @@ class SemanticLayerService:
             )
             for carrier in ordered_carriers:
                 source_row = self._resolve_metric_carrier_source_object(carrier)
-                runtime_table_name = _optional_str(carrier.get("carrier_locator")) or (
-                    str(source_row["fqn"]) if source_row is not None else None
-                )
+                runtime_table_name = str(source_row["fqn"]) if source_row is not None else None
                 candidates.append(
                     {
                         "binding_ref": binding.ref,
@@ -720,9 +747,7 @@ class SemanticLayerService:
             )
             for carrier in carriers:
                 source_row = self._resolve_metric_carrier_source_object(carrier)
-                runtime_table_name = _optional_str(carrier.get("carrier_locator")) or (
-                    str(source_row["fqn"]) if source_row is not None else None
-                )
+                runtime_table_name = str(source_row["fqn"]) if source_row is not None else None
                 if source_row is None or runtime_table_name is None:
                     continue
                 resolution = MetricBindingResolution(
@@ -730,7 +755,7 @@ class SemanticLayerService:
                     binding_ref=binding.ref,
                     carrier_binding_key=_optional_str(carrier.get("binding_key")),
                     source_object_ref=_optional_str(carrier.get("source_object_ref")),
-                    carrier_locator=_optional_str(carrier.get("carrier_locator")),
+                    carrier_locator=_carrier_locator_dict(carrier.get("carrier_locator")),
                     table_name=runtime_table_name,
                     input_field_map=input_field_map,
                 )
@@ -766,36 +791,30 @@ class SemanticLayerService:
                 [source_object_ref, source_object_ref],
             )
             if row is not None:
-                return dict(row)
+                source_object = dict(row)
+                source_object["authority_locator"] = json.loads(str(row["authority_locator_json"]))
+                return source_object
 
-        carrier_locator = carrier_binding.get("carrier_locator")
-        if isinstance(carrier_locator, dict):
-            object_id = _optional_str(carrier_locator.get("object_id"))
-            if object_id is not None:
-                row = self.metadata.query_one(
-                    "SELECT * FROM source_objects WHERE object_id = ?",
-                    [object_id],
-                )
-                if row is not None:
-                    return dict(row)
-            fqn = _optional_str(carrier_locator.get("fqn"))
-            if fqn is not None:
-                row = self.metadata.query_one(
-                    "SELECT * FROM source_objects WHERE fqn = ?",
-                    [fqn],
-                )
-                if row is not None:
-                    return dict(row)
+        carrier_locator = _carrier_locator_dict(carrier_binding.get("carrier_locator"))
+        if carrier_locator is None:
             return None
-
-        carrier_locator_str = _optional_str(carrier_locator)
-        if carrier_locator_str is None:
-            return None
-        row = self.metadata.query_one(
-            "SELECT * FROM source_objects WHERE fqn = ?",
-            [carrier_locator_str],
+        rows = self.metadata.query_rows(
+            "SELECT * FROM source_objects WHERE object_type = ?", ["table"]
         )
-        return dict(row) if row is not None else None
+        matches: list[dict[str, Any]] = []
+        for row in rows:
+            source_object = dict(row)
+            source_object["authority_locator"] = json.loads(str(row["authority_locator_json"]))
+            authority_locator = source_object["authority_locator"]
+            if all(
+                carrier_locator.get(key) is None
+                or authority_locator.get(key) == carrier_locator.get(key)
+                for key in ("catalog", "schema", "table")
+            ):
+                matches.append(source_object)
+        if len(matches) == 1:
+            return matches[0]
+        return None
 
     # ── Metric resolution ────────────────────────────────────────────
 
@@ -1215,9 +1234,22 @@ class SemanticLayerService:
         return profiles
 
     @staticmethod
-    def _table_name_matches_locator(table_name: str, locator: str | None) -> bool:
+    def _table_name_matches_locator(table_name: str, locator: dict[str, Any] | str | None) -> bool:
         normalized_table = table_name.strip()
-        normalized_locator = str(locator or "").strip()
+        locator_dict = _carrier_locator_dict(locator)
+        normalized_locator = ""
+        if locator_dict is not None:
+            normalized_locator = ".".join(
+                value
+                for value in [
+                    _optional_str(locator_dict.get("catalog")),
+                    _optional_str(locator_dict.get("schema")),
+                    _optional_str(locator_dict.get("table")),
+                ]
+                if value is not None
+            )
+        else:
+            normalized_locator = str(locator or "").strip()
         if not normalized_table or not normalized_locator:
             return False
         if normalized_table == normalized_locator:
@@ -1234,7 +1266,7 @@ class SemanticLayerService:
         return any(
             self._table_name_matches_locator(
                 table_name,
-                _optional_str(carrier_binding.get("carrier_locator"))
+                carrier_binding.get("carrier_locator")
                 or _optional_str(carrier_binding.get("source_object_ref")),
             )
             for carrier_binding in carrier_bindings

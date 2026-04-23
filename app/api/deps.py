@@ -7,11 +7,11 @@ from typing import cast
 from fastapi import HTTPException, Request
 
 from app.approvals import ApprovalService
-from app.bindings import BindingService
 from app.config import MarivoConfig
 from app.engines import EngineService
 from app.governance import GovernanceService
 from app.jobs import JobService
+from app.mappings import MappingService
 from app.observability import MetricsCollector
 from app.routing import QueryRouter
 from app.semantic import SemanticService
@@ -32,7 +32,7 @@ class AppServices:
     source_service: SourceService
     sync_engine: SyncEngine
     engine_service: EngineService
-    binding_service: BindingService
+    mapping_service: MappingService
     query_router: QueryRouter
     metadata_store: MetadataStore
     analytics_engine: AnalyticsEngine

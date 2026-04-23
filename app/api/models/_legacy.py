@@ -117,16 +117,6 @@ class MetricUpdateRequest(BaseModel):
     desired_direction: str | None = None
 
 
-class MappingCreateRequest(BaseModel):
-    """DEPRECATED: Legacy mapping create request. Use TypedBindingCreateRequest from app.api.models.binding."""
-
-    semantic_type: str
-    semantic_id: str
-    object_id: str
-    mapping_type: str
-    mapping_json: dict[str, Any] = Field(default_factory=dict)
-
-
 # =============================================================================
 # Non-semantic API models (kept as-is)
 # =============================================================================
@@ -269,22 +259,35 @@ class EngineRegisterRequest(BaseModel):
         return self
 
 
-SourceRegisterRequest.model_rebuild()
-SourceUpdateRequest.model_rebuild()
-EngineRegisterRequest.model_rebuild()
+class MappingCatalogEntryPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    authority_catalog: str
+    execution_catalog: str
+    default_schema: str | None = None
 
 
-# Source-Engine Binding (not typed binding)
-# This is for binding a source to an execution engine, not semantic binding
-class SourceEngineBindingCreateRequest(BaseModel):
+class MappingCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     source_id: str
     engine_id: str
     priority: int = 0
-    namespace: dict[str, Any] = Field(default_factory=dict)
+    catalog_mappings: list[MappingCatalogEntryPayload] = Field(default_factory=list)
+    status: Literal["active", "inactive", "deprecated"] = "active"
 
 
-# Alias for backward compatibility
-BindingCreateRequest = SourceEngineBindingCreateRequest
+class MappingUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    priority: int | None = None
+    catalog_mappings: list[MappingCatalogEntryPayload] | None = None
+    status: Literal["active", "inactive", "deprecated"] | None = None
+
+
+SourceRegisterRequest.model_rebuild()
+SourceUpdateRequest.model_rebuild()
+EngineRegisterRequest.model_rebuild()
 
 
 class RouteIntentRequest(BaseModel):

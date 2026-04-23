@@ -19,11 +19,11 @@ from app.api.errors import (
 )
 from app.api.router import include_api_routers
 from app.approvals import ApprovalService
-from app.bindings import BindingService
 from app.config import MarivoConfig, load_config, resolve_config_path
 from app.engines import EngineService
 from app.governance import GovernanceService
 from app.jobs import JobService
+from app.mappings import MappingService
 from app.observability import MetricsCollector, TimingMiddleware, setup_logging
 from app.routing import QueryRouter
 from app.semantic import SemanticService
@@ -161,46 +161,6 @@ def _register_configured_engines(config: MarivoConfig, engine_service: EngineSer
             logger.exception("Failed to register config engine '%s'", engine_config.name)
 
 
-def _register_configured_bindings(
-    config: MarivoConfig,
-    metadata_store: MetadataStore,
-    binding_service: BindingService,
-) -> None:
-    for binding_config in config.bindings:
-        try:
-            source_row = metadata_store.query_one(
-                "SELECT source_id FROM sources WHERE display_name = ?",
-                [binding_config.source],
-            )
-            engine_row = metadata_store.query_one(
-                "SELECT engine_id FROM engines WHERE display_name = ?",
-                [binding_config.engine],
-            )
-            if source_row and engine_row:
-                binding_service.ensure_binding(
-                    source_row["source_id"],
-                    engine_row["engine_id"],
-                    binding_config.priority,
-                    namespace=binding_config.namespace,
-                )
-                logger.info(
-                    "Config binding '%s' -> '%s' registered",
-                    binding_config.source,
-                    binding_config.engine,
-                )
-            else:
-                if not source_row:
-                    logger.warning("Config binding: source '%s' not found", binding_config.source)
-                if not engine_row:
-                    logger.warning("Config binding: engine '%s' not found", binding_config.engine)
-        except Exception:
-            logger.exception(
-                "Failed to register config binding '%s' -> '%s'",
-                binding_config.source,
-                binding_config.engine,
-            )
-
-
 def _register_configured_governance(
     config: MarivoConfig,
     metadata_store: MetadataStore,
@@ -273,13 +233,12 @@ def _build_services(
     _register_configured_sources(config, source_service, sync_engine)
     engine_service = EngineService(metadata_store)
     _register_configured_engines(config, engine_service)
-    binding_service = BindingService(metadata_store)
-    _register_configured_bindings(config, metadata_store, binding_service)
+    mapping_service = MappingService(metadata_store)
     query_router = QueryRouter(metadata_store, engine_service)
     service.query_router = query_router
     _register_configured_governance(config, metadata_store, governance_service)
     semantic_service = SemanticService(metadata_store)
-    catalog_runtime = CatalogRuntimeService(metadata_store, binding_service)
+    catalog_runtime = CatalogRuntimeService(metadata_store)
     job_repository = JobRepository(metadata_store)
     job_service = JobService(
         metadata_store,
@@ -301,7 +260,7 @@ def _build_services(
         source_service=source_service,
         sync_engine=sync_engine,
         engine_service=engine_service,
-        binding_service=binding_service,
+        mapping_service=mapping_service,
         query_router=query_router,
         metadata_store=metadata_store,
         analytics_engine=analytics_engine,
@@ -325,7 +284,8 @@ def _attach_state(app: FastAPI, services: AppServices) -> None:
     app.state.source_service = services.source_service
     app.state.sync_engine = services.sync_engine
     app.state.engine_service = services.engine_service
-    app.state.binding_service = services.binding_service
+    app.state.binding_service = services.mapping_service
+    app.state.mapping_service = services.mapping_service
     app.state.query_router = services.query_router
     app.state.metadata_store = services.metadata_store
     app.state.analytics_engine = services.analytics_engine

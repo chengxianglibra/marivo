@@ -245,14 +245,14 @@ class SourceRegistry:
                 dependencies=refs,
             )
 
-        bindings = self.metadata.query_rows(
-            "SELECT binding_id, engine_id FROM source_engine_bindings WHERE source_id = ?",
+        mappings = self.metadata.query_rows(
+            "SELECT mapping_id, engine_id FROM source_execution_mappings WHERE source_id = ?",
             [source_id],
         )
-        if bindings:
-            refs = [str(row["binding_id"]) for row in bindings]
+        if mappings:
+            refs = [str(row["mapping_id"]) for row in mappings]
             raise DependencyError(
-                f"Cannot delete source: {len(bindings)} binding(s) depend on it",
+                f"Cannot delete source: {len(mappings)} mapping(s) depend on it",
                 dependencies=refs,
             )
 

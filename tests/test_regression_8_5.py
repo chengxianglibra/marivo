@@ -148,10 +148,19 @@ def _seed_metadata(meta: SQLiteMetadataStore, db_path: Path | None = None) -> No
         ],
     )
     meta.execute(
-        "INSERT OR IGNORE INTO source_engine_bindings "
-        "(binding_id, source_id, engine_id, priority, status, namespace_json, "
+        "INSERT OR IGNORE INTO source_execution_mappings "
+        "(mapping_id, source_id, engine_id, priority, status, catalog_mappings_json, "
         "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        [bind_id, src_id, eng_id, 5, "active", "{}", now, now],
+        [
+            bind_id.replace("bind_", "map_"),
+            src_id,
+            eng_id,
+            5,
+            "active",
+            '[{"authority_catalog":"main","execution_catalog":"main"}]',
+            now,
+            now,
+        ],
     )
 
 

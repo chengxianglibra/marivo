@@ -300,14 +300,14 @@ class SourceRegistryTests(unittest.TestCase):
         resp = self.client.delete("/sources/nonexistent")
         self.assertEqual(resp.status_code, 404)
 
-    def test_delete_source_blocked_by_binding(self) -> None:
-        """DELETE returns 409 when bindings reference the source."""
+    def test_delete_source_blocked_by_mapping(self) -> None:
+        """DELETE returns 409 when mappings reference the source."""
         resp = self.client.post(
             "/sources",
             json=build_duckdb_source_payload(str(self.db_path), "Bound Source"),
         )
         source_id = resp.json()["source_id"]
-        # Register an engine and create a binding
+        # Register an engine and create a mapping
         eng_resp = self.client.post(
             "/engines",
             json={
@@ -317,12 +317,24 @@ class SourceRegistryTests(unittest.TestCase):
             },
         )
         engine_id = eng_resp.json()["engine_id"]
-        self.client.post("/bindings", json={"source_id": source_id, "engine_id": engine_id})
+        self.client.post(
+            "/mappings",
+            json={
+                "source_id": source_id,
+                "engine_id": engine_id,
+                "catalog_mappings": [
+                    {
+                        "authority_catalog": "main",
+                        "execution_catalog": "duckdb_runtime",
+                    }
+                ],
+            },
+        )
 
         resp = self.client.delete(f"/sources/{source_id}")
         self.assertEqual(resp.status_code, 409)
         detail = resp.json()["detail"]
-        self.assertIn("binding", detail["message"].lower())
+        self.assertIn("mapping", detail["message"].lower())
         self.assertGreater(len(detail["dependencies"]), 0)
 
     def test_delete_source_blocked_by_typed_binding(self) -> None:

@@ -139,6 +139,16 @@ class FieldSurfaceSpec(BaseModel):
 # =============================================================================
 
 
+class CarrierLocatorSpec(BaseModel):
+    """Structured authority locator for a bound carrier."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    catalog: str | None = None
+    schema_name: str | None = Field(default=None, alias="schema", serialization_alias="schema")
+    table: str | None = None
+
+
 class CarrierBinding(BaseModel):
     """Binding to a carrier (table or view).
 
@@ -150,7 +160,9 @@ class CarrierBinding(BaseModel):
         default=None, description="Optional reference to a source object catalog entry."
     )
     carrier_kind: CarrierKind = Field(description="Kind of carrier: table or view.")
-    carrier_locator: str = Field(description="Internal locator for the carrier (e.g., FQN).")
+    carrier_locator: CarrierLocatorSpec | str = Field(
+        description="Structured authority locator for the carrier, or a legacy string FQN."
+    )
     binding_role: BindingRole = Field(description="Role of this carrier: primary or auxiliary.")
     semantic_role_ref: str | None = Field(
         default=None, description="Optional semantic role reference (e.g., assignment, exposure)."
@@ -488,7 +500,11 @@ class TypedBindingCreateRequest(BaseModel):
                             {
                                 "binding_key": "primary",
                                 "carrier_kind": "table",
-                                "carrier_locator": "analytics.user_events",
+                                "carrier_locator": {
+                                    "catalog": "main",
+                                    "schema": "analytics",
+                                    "table": "user_events",
+                                },
                                 "binding_role": "primary",
                                 "field_surfaces": [
                                     {

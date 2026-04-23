@@ -199,20 +199,54 @@ class ReadinessEvaluationContext:
             )
             return dict(row) if row is not None else None
         locator = carrier_binding.get("carrier_locator") or {}
+        if isinstance(locator, str):
+            normalized = locator.strip()
+            if not normalized:
+                return None
+            row = self.metadata.query_one(
+                "SELECT * FROM source_objects WHERE fqn = ? OR native_name = ?",
+                [normalized, normalized],
+            )
+            if row is not None:
+                return dict(row)
+            parts = [part.strip() for part in normalized.split(".") if part.strip()]
+            if len(parts) >= 3:
+                locator = {"catalog": parts[-3], "schema": parts[-2], "table": parts[-1]}
+            elif len(parts) == 2:
+                locator = {"catalog": None, "schema": parts[0], "table": parts[1]}
+            elif len(parts) == 1:
+                locator = {"catalog": None, "schema": None, "table": parts[0]}
+            else:
+                return None
         if not isinstance(locator, dict):
             return None
-        if locator.get("object_id"):
+        locator_fqn = ".".join(
+            part
+            for part in [
+                str(locator.get("catalog")).strip() if locator.get("catalog") is not None else None,
+                str(locator.get("schema")).strip() if locator.get("schema") is not None else None,
+                str(locator.get("table")).strip() if locator.get("table") is not None else None,
+            ]
+            if part
+        )
+        if locator_fqn:
             row = self.metadata.query_one(
-                "SELECT * FROM source_objects WHERE object_id = ?",
-                [locator["object_id"]],
+                "SELECT * FROM source_objects WHERE fqn = ? OR native_name = ?",
+                [locator_fqn, locator_fqn],
             )
-            return dict(row) if row is not None else None
-        if locator.get("fqn"):
-            row = self.metadata.query_one(
-                "SELECT * FROM source_objects WHERE fqn = ?",
-                [locator["fqn"]],
-            )
-            return dict(row) if row is not None else None
+            if row is not None:
+                return dict(row)
+        rows = self.metadata.query_rows(
+            "SELECT * FROM source_objects WHERE object_type = ?", ["table"]
+        )
+        for row in rows:
+            source_object = dict(row)
+            authority_locator = json.loads(str(row["authority_locator_json"]))
+            if all(
+                locator.get(key) is None or authority_locator.get(key) == locator.get(key)
+                for key in ("catalog", "schema", "table")
+            ):
+                return source_object
         return None
 
     def _default_profiles_loader(self, subject_kind: str, subject_ref: str) -> list[dict[str, Any]]:
@@ -510,7 +544,7 @@ class ReadinessEvaluationContext:
                     "binding_key": carrier_row["binding_key"],
                     "source_object_ref": carrier_row["source_object_ref"],
                     "carrier_kind": carrier_row["carrier_kind"],
-                    "carrier_locator": carrier_row["carrier_locator"],
+                    "carrier_locator": json.loads(str(carrier_row["carrier_locator"])),
                     "binding_role": carrier_row["binding_role"],
                     "semantic_role_ref": carrier_row["semantic_role_ref"],
                     "grain_ref": carrier_row["grain_ref"],

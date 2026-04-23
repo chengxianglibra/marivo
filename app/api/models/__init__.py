@@ -29,7 +29,6 @@ from ._legacy import (
     AttributeObservationInput,
     AttributeRequest,
     AutoFlagRequest,
-    BindingCreateRequest,  # Alias for backward compatibility
     ColumnPropertiesUpdateRequest,
     CompareRequest,
     CorrelateObservationRef,
@@ -48,6 +47,8 @@ from ._legacy import (
     IntentTestRequest,
     # Job models
     JobSubmitRequest,
+    MappingCreateRequest,
+    MappingUpdateRequest,
     Measure,
     # Step models
     MetricQueryStep,
@@ -76,8 +77,6 @@ from ._legacy import (
     SessionCreateRequest,
     SessionStateQueryRequest,
     SessionTerminateRequest,
-    # Source-Engine Binding models
-    SourceEngineBindingCreateRequest,
     # Source models
     SourceRegisterRequest,
     SourceUpdateRequest,
@@ -333,7 +332,6 @@ __all__ = [  # noqa: RUF022
     "AutoFlagRequest",
     "AverageMetricPayload",
     "BlockingRequirement",
-    "BindingCreateRequest",
     "BindingHeader",
     "BindingImport",
     "BindingInterfaceContract",
@@ -431,6 +429,8 @@ __all__ = [  # noqa: RUF022
     "ListResponseBase",
     "Measure",
     "MeasurementComponent",
+    "MappingCreateRequest",
+    "MappingUpdateRequest",
     "MembershipCardinality",
     "MetricFamily",
     "MetricHeader",
@@ -505,7 +505,6 @@ __all__ = [  # noqa: RUF022
     "SessionCreateRequest",
     "SessionStateQueryRequest",
     "SessionTerminateRequest",
-    "SourceEngineBindingCreateRequest",
     "SourceObjectResponse",
     "SourceRegisterRequest",
     "SourceUpdateRequest",

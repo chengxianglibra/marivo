@@ -42,11 +42,11 @@ v1 当前只支持以下运行时类型：
 
 ### 1.3 兼容策略
 
-v1 保留现有 `/sources`、`/engines`、`/bindings` 读写面，但兼容语义固定为：
+v1 采用一次性切换策略：
 
-- `binding.namespace` 仅是 legacy compatibility field
-- 当前 routing 仍可读取它，但它不再代表目标态内部权威语义
-- 后续 authority-to-execution projection 必须收敛到独立 `mapping` 对象
+- `/bindings` 与 `binding.namespace` 不再保留在主链路
+- source 到 engine 的外部 contract 直接切到 `/mappings`
+- routing 只读取 `source_object.authority_locator` 与 active mapping，不再兼容读取 binding namespace
 
 ### 1.4 Authority Locator 最小字段集
 
@@ -698,8 +698,8 @@ resolved execution locator：
 
 在 v1 中，它被明确降级为 legacy compatibility field：
 
-- 可以继续保留在现有 `/bindings` 读写面中
-- 可以继续被当前 routing 兼容读取
+- 不再保留在现有 `/bindings` 读写面中
+- 不再被 routing 兼容读取
 - 不能再被视为目标态 authority-to-execution 权威 contract
 
 它不够表达：
