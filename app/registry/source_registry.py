@@ -526,14 +526,38 @@ class SourceRegistry:
         )
 
     def _row_to_source(self, row: dict[str, Any]) -> dict[str, Any]:
+        source_type = str(row["source_type"])
+        raw_authority = json.loads(str(row["authority_json"]))
+        authority = raw_authority if isinstance(raw_authority, dict) else {}
+        raw_connection = authority.get("connection")
+        connection = raw_connection if isinstance(raw_connection, dict) else {}
+        synthetic_catalog = authority.get("synthetic_catalog")
+        if synthetic_catalog is not None and not isinstance(synthetic_catalog, str):
+            synthetic_catalog = None
+
+        raw_intrinsic_capabilities = json.loads(str(row["intrinsic_capabilities_json"]))
+        intrinsic_capabilities = (
+            raw_intrinsic_capabilities
+            if isinstance(raw_intrinsic_capabilities, dict)
+            else _build_intrinsic_capabilities(source_type)
+        )
+        if "supports_partitions" not in intrinsic_capabilities:
+            intrinsic_capabilities["supports_partitions"] = False
+
+        raw_policy = json.loads(str(row["policy_json"]))
+        policy = _normalize_policy(raw_policy if isinstance(raw_policy, dict) else None)
         source = {
             "source_id": row["source_id"],
-            "source_type": row["source_type"],
+            "source_type": source_type,
             "display_name": row["display_name"],
-            "authority": json.loads(str(row["authority_json"])),
+            "authority": {
+                "catalog_system": str(authority.get("catalog_system", source_type)),
+                "connection": connection,
+                "synthetic_catalog": synthetic_catalog,
+            },
             "sync": {"mode": str(row["sync_mode"])},
-            "intrinsic_capabilities": json.loads(str(row["intrinsic_capabilities_json"])),
-            "policy": json.loads(str(row["policy_json"])),
+            "intrinsic_capabilities": intrinsic_capabilities,
+            "policy": policy,
             "status": row["status"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],

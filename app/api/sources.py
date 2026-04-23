@@ -6,6 +6,7 @@ from app.api.deps import get_services
 from app.api.models import (
     ColumnPropertiesUpdateRequest,
     SourceRegisterRequest,
+    SourceResponse,
     SourceUpdateRequest,
     SyncSelectionRequest,
 )
@@ -14,45 +15,52 @@ from app.registry.source_registry import DependencyError
 router = APIRouter()
 
 
-@router.post("/sources")
-def register_source(payload: SourceRegisterRequest, request: Request) -> dict[str, object]:
+@router.post("/sources", response_model=SourceResponse)
+def register_source(payload: SourceRegisterRequest, request: Request) -> SourceResponse:
     services = get_services(request)
     try:
-        return services.source_service.register_source(
-            source_type=payload.source_type,
-            display_name=payload.display_name,
-            authority=payload.authority.model_dump(),
-            sync=payload.sync.model_dump(),
-            policy=payload.policy.model_dump(),
+        return SourceResponse.model_validate(
+            services.source_service.register_source(
+                source_type=payload.source_type,
+                display_name=payload.display_name,
+                authority=payload.authority.model_dump(),
+                sync=payload.sync.model_dump(),
+                policy=payload.policy.model_dump(),
+            )
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
 
-@router.get("/sources")
-def list_sources(request: Request) -> list[dict[str, object]]:
-    return get_services(request).source_service.list_sources()
+@router.get("/sources", response_model=list[SourceResponse])
+def list_sources(request: Request) -> list[SourceResponse]:
+    return [
+        SourceResponse.model_validate(source)
+        for source in get_services(request).source_service.list_sources()
+    ]
 
 
-@router.get("/sources/{source_id}")
-def get_source(source_id: str, request: Request) -> dict[str, object]:
+@router.get("/sources/{source_id}", response_model=SourceResponse)
+def get_source(source_id: str, request: Request) -> SourceResponse:
     try:
-        return get_services(request).source_service.get_source(source_id)
+        return SourceResponse.model_validate(get_services(request).source_service.get_source(source_id))
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
 
 
-@router.put("/sources/{source_id}")
+@router.put("/sources/{source_id}", response_model=SourceResponse)
 def update_source(
     source_id: str, payload: SourceUpdateRequest, request: Request
-) -> dict[str, object]:
+) -> SourceResponse:
     try:
-        return get_services(request).source_service.update_source(
-            source_id,
-            display_name=payload.display_name,
-            authority=payload.authority.model_dump() if payload.authority is not None else None,
-            sync=payload.sync.model_dump() if payload.sync is not None else None,
-            policy=payload.policy.model_dump() if payload.policy is not None else None,
+        return SourceResponse.model_validate(
+            get_services(request).source_service.update_source(
+                source_id,
+                display_name=payload.display_name,
+                authority=payload.authority.model_dump() if payload.authority is not None else None,
+                sync=payload.sync.model_dump() if payload.sync is not None else None,
+                policy=payload.policy.model_dump() if payload.policy is not None else None,
+            )
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error

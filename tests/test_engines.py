@@ -259,6 +259,20 @@ class EngineAPITests(unittest.TestCase):
         engine = resp.json()
         self.assertTrue(engine["engine_id"].startswith("eng_"))
         self.assertEqual(engine["engine_type"], "trino")
+        self.assertEqual(engine["default_namespace"], {"catalog": "hive", "schema": "default"})
+        self.assertEqual(
+            engine["intrinsic_capabilities"],
+            {
+                "materialization_support": "catalog_table",
+                "performance_class": "distributed",
+                "federation_support": "connector",
+            },
+        )
+        self.assertEqual(engine["deployment_capabilities"], {})
+        self.assertEqual(
+            engine["policy"],
+            {"allowed_step_types": [], "required_policy_support": []},
+        )
         self.assertEqual(engine["readiness_status"], "ready")
         self.assertIsNone(engine["failure_code"])
 
@@ -313,6 +327,57 @@ class EngineAPITests(unittest.TestCase):
     def test_get_engine_404(self) -> None:
         resp = self.client.get("/engines/eng_nonexistent")
         self.assertEqual(resp.status_code, 404)
+
+    def test_engine_api_normalizes_malformed_stored_connection(self) -> None:
+        resp = self.client.post(
+            "/engines",
+            json={
+                "engine_type": "trino",
+                "display_name": "Malformed Stored Engine",
+                "connection": {"host": "localhost"},
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        engine_id = resp.json()["engine_id"]
+        metadata = self.client.app.state.metadata_store
+        metadata.execute(
+            "UPDATE engines SET connection_json = ? WHERE engine_id = ?",
+            ['"oops"', engine_id],
+        )
+
+        detail = self.client.get(f"/engines/{engine_id}")
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(detail.json()["connection"], {})
+        self.assertEqual(detail.json()["readiness_status"], "not_ready")
+        self.assertEqual(detail.json()["failure_code"], "engine_invalid_connection")
+
+        listed = self.client.get("/engines")
+        self.assertEqual(listed.status_code, 200)
+        listed_engine = next(item for item in listed.json() if item["engine_id"] == engine_id)
+        self.assertEqual(listed_engine["connection"], {})
+        self.assertEqual(listed_engine["readiness_status"], "not_ready")
+        self.assertEqual(listed_engine["failure_code"], "engine_invalid_connection")
+
+    def test_engine_openapi_uses_explicit_response_model(self) -> None:
+        response = self.client.get("/openapi.json")
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        schemas = payload["components"]["schemas"]
+        self.assertIn("EngineResponse", schemas)
+        self.assertIn("EngineDefaultNamespaceResponse", schemas)
+        self.assertIn("EngineIntrinsicCapabilitiesResponse", schemas)
+        self.assertIn("EngineDeploymentCapabilitiesResponse", schemas)
+        self.assertIn("EnginePolicyResponse", schemas)
+
+        engine_get = payload["paths"]["/engines"]["get"]["responses"]["200"]["content"][
+            "application/json"
+        ]["schema"]
+        self.assertEqual(engine_get["items"]["$ref"], "#/components/schemas/EngineResponse")
+
+        engine_post = payload["paths"]["/engines"]["post"]["responses"]["200"]["content"][
+            "application/json"
+        ]["schema"]
+        self.assertEqual(engine_post["$ref"], "#/components/schemas/EngineResponse")
 
 
 class TrinoAnalyticsEngineTests(unittest.TestCase):

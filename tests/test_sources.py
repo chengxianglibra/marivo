@@ -91,8 +91,33 @@ class SourceRegistryTests(unittest.TestCase):
         resp = self.client.get(f"/sources/{source_id}")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["source_id"], source_id)
+        self.assertEqual(resp.json()["authority"]["catalog_system"], "duckdb")
+        self.assertEqual(resp.json()["sync"]["mode"], "selected")
+        self.assertEqual(resp.json()["policy"]["allow_sync"], True)
+        self.assertEqual(resp.json()["intrinsic_capabilities"], {"supports_partitions": False})
         self.assertEqual(resp.json()["readiness_status"], "ready")
         self.assertIsNone(resp.json()["failure_code"])
+
+    def test_source_openapi_uses_explicit_response_model(self) -> None:
+        response = self.client.get("/openapi.json")
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        schemas = payload["components"]["schemas"]
+        self.assertIn("SourceResponse", schemas)
+        self.assertIn("SourceAuthorityResponse", schemas)
+        self.assertIn("SourceSyncResponse", schemas)
+        self.assertIn("SourcePolicyResponse", schemas)
+        self.assertIn("SourceIntrinsicCapabilitiesResponse", schemas)
+
+        source_get = payload["paths"]["/sources"]["get"]["responses"]["200"]["content"][
+            "application/json"
+        ]["schema"]
+        self.assertEqual(source_get["items"]["$ref"], "#/components/schemas/SourceResponse")
+
+        source_post = payload["paths"]["/sources"]["post"]["responses"]["200"]["content"][
+            "application/json"
+        ]["schema"]
+        self.assertEqual(source_post["$ref"], "#/components/schemas/SourceResponse")
 
     def test_get_source_reports_not_ready_when_legacy_row_is_missing_synthetic_catalog(
         self,
@@ -119,6 +144,38 @@ class SourceRegistryTests(unittest.TestCase):
         self.assertEqual(detail.status_code, 200)
         self.assertEqual(detail.json()["readiness_status"], "not_ready")
         self.assertEqual(detail.json()["failure_code"], "source_missing_synthetic_catalog")
+
+    def test_source_api_normalizes_malformed_stored_authority_connection(self) -> None:
+        resp = self.client.post(
+            "/sources",
+            json=build_duckdb_source_payload(str(self.db_path), "Malformed Stored Source"),
+        )
+        source_id = resp.json()["source_id"]
+        metadata = self.client.app.state.metadata_store
+        metadata.execute(
+            """
+            UPDATE sources
+            SET authority_json = ?
+            WHERE source_id = ?
+            """,
+            [
+                '{"catalog_system":"duckdb","connection":"oops","synthetic_catalog":"main"}',
+                source_id,
+            ],
+        )
+
+        detail = self.client.get(f"/sources/{source_id}")
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(detail.json()["authority"]["connection"], {})
+        self.assertEqual(detail.json()["readiness_status"], "not_ready")
+        self.assertEqual(detail.json()["failure_code"], "source_invalid_connection")
+
+        listed = self.client.get("/sources")
+        self.assertEqual(listed.status_code, 200)
+        listed_source = next(item for item in listed.json() if item["source_id"] == source_id)
+        self.assertEqual(listed_source["authority"]["connection"], {})
+        self.assertEqual(listed_source["readiness_status"], "not_ready")
+        self.assertEqual(listed_source["failure_code"], "source_invalid_connection")
 
     def test_get_source_404(self) -> None:
         resp = self.client.get("/sources/nonexistent")

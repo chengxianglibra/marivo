@@ -28,7 +28,14 @@ from __future__ import annotations
 import re
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
 
 from app.analysis_core.calendar_policy import (
     CalendarPolicyResolutionError,
@@ -211,6 +218,73 @@ class SourceUpdateRequest(BaseModel):
     policy: SourcePolicyPayload | None = None
 
 
+class SourceAuthorityResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    catalog_system: Literal["duckdb", "trino"] = Field(
+        description="Underlying metadata authority system type."
+    )
+    connection: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Metadata authority connection parameters.",
+    )
+    synthetic_catalog: str | None = Field(
+        default=None,
+        description="Stable logical catalog name when the source lacks a native catalog layer.",
+    )
+
+
+class SourceSyncResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["selected", "all", "none"] = Field(
+        description="Metadata sync scope policy."
+    )
+
+
+class SourceIntrinsicCapabilitiesResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    supports_partitions: bool = Field(
+        description="Whether the source adapter can enumerate partition metadata."
+    )
+
+
+class SourcePolicyResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    allow_live_browse: bool = Field(
+        description="Whether operator policy allows live catalog browse."
+    )
+    allow_sync: bool = Field(description="Whether operator policy allows sync jobs.")
+
+
+class SourceResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_id: str = Field(description="Stable source identifier.")
+    source_type: Literal["duckdb", "trino"] = Field(description="Metadata authority adapter type.")
+    display_name: str = Field(description="Human-readable source name.")
+    authority: SourceAuthorityResponse = Field(description="Metadata authority contract.")
+    sync: SourceSyncResponse = Field(description="Metadata sync policy.")
+    intrinsic_capabilities: SourceIntrinsicCapabilitiesResponse = Field(
+        description="Read-only source implementation capabilities."
+    )
+    policy: SourcePolicyResponse = Field(description="Operator control-plane policy.")
+    status: Literal["active", "inactive", "deprecated"] = Field(
+        description="Operator lifecycle status for the source."
+    )
+    readiness_status: Literal["not_ready", "ready"] = Field(
+        description="Derived readiness status based on source validation."
+    )
+    failure_code: str | None = Field(
+        default=None,
+        description="Stable blocker code when the source is not ready.",
+    )
+    created_at: str = Field(description="Creation timestamp (ISO-8601).")
+    updated_at: str = Field(description="Last update timestamp (ISO-8601).")
+
+
 class ColumnPropertiesUpdateRequest(BaseModel):
     unit: str | None = None
 
@@ -257,6 +331,103 @@ class EngineRegisterRequest(BaseModel):
             ):
                 raise ValueError("duckdb default_namespace must be null for catalog and schema")
         return self
+
+
+class EngineDefaultNamespaceResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    catalog: str | None = Field(
+        default=None,
+        description="Engine-local default catalog fallback.",
+    )
+    schema_name: str | None = Field(
+        default=None,
+        alias="schema",
+        description="Engine-local default schema fallback.",
+    )
+
+
+class EngineIntrinsicCapabilitiesResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    materialization_support: str = Field(
+        description="Built-in materialization mode exposed by the engine implementation."
+    )
+    performance_class: str = Field(
+        description="Built-in execution performance class."
+    )
+    federation_support: str = Field(
+        description="Built-in federation mode exposed by the engine implementation."
+    )
+
+
+class EngineDeploymentCapabilitiesResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    supported_step_types: list[str] = Field(
+        default_factory=list,
+        description="Deployment-specific allowed step types when explicitly overridden.",
+    )
+    min_staleness_minutes: int | None = Field(
+        default=None,
+        description="Deployment-specific freshness floor in minutes.",
+    )
+
+    @model_serializer(mode="plain")
+    def serialize_non_default_fields(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {}
+        if self.supported_step_types:
+            payload["supported_step_types"] = self.supported_step_types
+        if self.min_staleness_minutes is not None:
+            payload["min_staleness_minutes"] = self.min_staleness_minutes
+        return payload
+
+
+class EnginePolicyResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    allowed_step_types: list[str] = Field(
+        default_factory=list,
+        description="Operator-allowed step types for this engine.",
+    )
+    required_policy_support: list[str] = Field(
+        default_factory=list,
+        description="Policy capabilities required before this engine may be selected.",
+    )
+
+
+class EngineResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    engine_id: str = Field(description="Stable engine identifier.")
+    engine_type: Literal["duckdb", "trino"] = Field(description="Execution engine type.")
+    display_name: str = Field(description="Human-readable engine name.")
+    connection: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Execution engine connection parameters.",
+    )
+    default_namespace: EngineDefaultNamespaceResponse = Field(
+        description="Engine-local default namespace fallback."
+    )
+    intrinsic_capabilities: EngineIntrinsicCapabilitiesResponse = Field(
+        description="Read-only engine implementation capabilities."
+    )
+    deployment_capabilities: EngineDeploymentCapabilitiesResponse = Field(
+        description="Deployment-scoped engine capability overrides."
+    )
+    policy: EnginePolicyResponse = Field(description="Operator control-plane policy.")
+    status: Literal["active", "inactive", "deprecated"] = Field(
+        description="Operator lifecycle status for the engine."
+    )
+    readiness_status: Literal["not_ready", "ready"] = Field(
+        description="Derived readiness status based on engine validation."
+    )
+    failure_code: str | None = Field(
+        default=None,
+        description="Stable blocker code when the engine is not ready.",
+    )
+    created_at: str = Field(description="Creation timestamp (ISO-8601).")
+    updated_at: str = Field(description="Last update timestamp (ISO-8601).")
 
 
 class MappingCatalogEntryPayload(BaseModel):
