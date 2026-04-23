@@ -9,7 +9,6 @@ Stateful sessions, semantic discovery, typed analysis steps, deterministic evide
 - **Readiness signal**: 5-dimensional readiness + suggested_action + live_claims after each typed analysis step
 - **Causal checkers**: deterministic inference-level upgrades
 - **Dual-backend**: SQLite (metadata) + DuckDB (analytics)
-- **Web UI**: Admin (`/admin`) plus a read-only query workbench (`/ui`) for Sessions, State, Context, Runtime, Grounding, and Jobs
 
 ## Quick Start
 
@@ -52,8 +51,6 @@ governance:
       definition: { fields: ["email", "phone"] }
       scope: { all: true }
 
-ui:
-  enabled: true
 ```
 
 Copy to `marivo.yaml` or set `MARIVO_CONFIG`.
@@ -93,7 +90,6 @@ curl -s http://127.0.0.1:8000/sessions/<id>/state | python3 -m json.tool
 | Jobs | `POST/GET /jobs`, `POST /jobs/{id}/cancel` |
 | Approvals | `POST/GET /approvals`, `POST .../approve|reject` |
 | Observability | `GET /metrics`, `GET /health` |
-| UI | `GET /admin`, `GET /ui` (read-only query/troubleshooting workbench over canonical and runtime read surfaces) |
 
 **Typed intents**: `observe`, `compare`, `decompose`, `correlate`, `detect`, `test`, `forecast`, `attribute`, `diagnose`, `validate`
 

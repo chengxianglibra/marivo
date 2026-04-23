@@ -299,9 +299,6 @@ metadata:
   engine: sqlite
   path: .marivo/metadata.sqlite
 
-ui:
-  enabled: false
-
 governance:
   enabled: true
 ```

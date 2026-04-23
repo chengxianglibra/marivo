@@ -1,6 +1,6 @@
 # Jobs
 
-Read-only job inspection endpoints for the `/ui` query workbench.
+Read-only job inspection endpoints for HTTP API callers that need background task visibility.
 
 `Jobs` is an auxiliary troubleshooting surface. It helps operators inspect
 background task progress and failure details for a session, but it is not the
@@ -45,8 +45,8 @@ Field notes:
 - `created_at` is the job submission timestamp.
 - `updated_at` is the latest lifecycle transition timestamp, derived from
   `completed_at`, `started_at`, or `submitted_at`.
-- `payload` is descriptive metadata for the queued work. UI surfaces should
-  present it as a summary or expandable JSON, not as an execution authoring form.
+- `payload` is descriptive metadata for the queued work. Callers should treat it
+  as read-only execution context, not as an execution authoring form.
 
 ## Get Job Detail
 
@@ -74,12 +74,5 @@ Failed example:
 }
 ```
 
-## UI Mapping
-
-The redesigned `/ui` `Jobs` page should expose only:
-
-- filters: `session_id`, `status`
-- list columns: `job_id`, `session_id`, `job_type`, `status`, `created_at`, `updated_at`
-- detail panel: payload summary, linked session, error detail
-
-It must not expose submit, cancel, retry, or any other job control.
+Clients should treat this surface as inspection-only. It does not expose submit,
+cancel, retry, or any other job control.

@@ -116,23 +116,11 @@ make lint
 make format
 ```
 
-When using `claude` CLI for code review in this repository:
-- Do not paste large `git diff` output into the prompt. Ask Claude to inspect the current diff itself with git.
-- In this environment, the default `~/.claude` runtime path can fail with `EPERM` on `session-env` /
-  `shell-snapshots` writes, which makes tool-using prompts appear to hang.
-- Prefer a writable runtime dir plus minimal startup flags, for example:
-  ```bash
-  CLAUDE_CONFIG_DIR=/tmp/claude-home \
-  claude --bare --no-session-persistence \
-    --settings ~/.claude/settings.json \
-    --permission-mode bypassPermissions \
-    -p "Review current git changes in this repo. Use git yourself to inspect them."
-  ```
-- Keep the review prompt narrow and explicit: ask for findings only, ordered by severity, with file references.
-- If a `-p` review appears to stall, first retry with `--output-format stream-json --include-partial-messages --verbose`
-  so you can see whether Claude is still reading files / running git instead of hanging silently.
-- Treat Claude review feedback as input, not truth. Validate findings against the current code, schema contract,
-  and repository entrypoint rules before making changes.
+When using `claude` CLI for code review in this repository, use the local
+[`claude-review` skill](../.agents/skills/claude-review/SKILL.md)
+instead of duplicating the review recipe inline here. The skill owns the standard command,
+prompt shape, stall-debug flags, and the rule that Claude findings must be validated against the
+current code and repository constraints before any change is made.
 
 Tests: `make test` or `.venv/bin/pytest`. Use `make test TESTS='tests/test_file.py'`
 for targeted runs through the repository entrypoint. Requires Python 3.12+. SQLite metadata,
@@ -153,6 +141,8 @@ App startup requires `marivo.yaml` metadata config with `metadata.engine=sqlite`
 - Treat `tests/shared_fixtures.py` metadata template build as a hot path. Keep it on the minimal
   DDL/shape-validation path; do not route it through heavier initializer or migration logic unless
   the contract truly requires that extra work.
+- Marivo no longer ships an internal `/admin`, `/ui`, or `/static/*` surface. Keep repository
+  changes scoped to the HTTP API unless the user explicitly asks to build a new UI.
 - Prefer API/service/registry validation over SQLite triggers for request-level business invariants.
   Only add triggers when storage must fail closed across uncontrolled write paths; otherwise they
   add maintenance cost and can slow shared test fixture paths.

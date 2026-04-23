@@ -43,9 +43,6 @@ class AppServices:
     job_repository: JobRepository
     semantic_service: SemanticService
     catalog_runtime: CatalogRuntimeService
-    admin_enabled: bool
-    user_enabled: bool
-    static_dir: Path
 
 
 def get_services(request: Request) -> AppServices:

@@ -9,7 +9,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from app.api.app_factory import create_app
-from app.config import MarivoConfig, UIConfig, load_config
+from app.config import MarivoConfig, load_config
 from app.sources import SourceService
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 from app.storage.sqlite_metadata import SQLiteMetadataStore
@@ -125,23 +125,13 @@ class LoadConfigTests(unittest.TestCase):
             with self.assertRaises(Exception):
                 load_config(Path(f.name))
 
-    def test_ui_enabled_parses(self) -> None:
-        with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
-            f.write("ui:\n  enabled: true\n")
-            f.flush()
-            cfg = load_config(Path(f.name))
-
-        self.assertIsInstance(cfg.ui, UIConfig)
-        self.assertTrue(cfg.ui.enabled)
-
-    def test_ui_defaults_to_disabled(self) -> None:
+    def test_load_defaults_governance_when_ui_block_absent(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
             f.write("sources: []\n")
             f.flush()
             cfg = load_config(Path(f.name))
 
-        self.assertIsInstance(cfg.ui, UIConfig)
-        self.assertFalse(cfg.ui.enabled)
+        self.assertTrue(cfg.governance.enabled)
 
     def test_sync_mode_defaults_to_selected(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
@@ -338,7 +328,7 @@ class StartupWithConfigTests(unittest.TestCase):
     def test_startup_requires_metadata_config_when_store_not_provided(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "marivo.yaml"
-            config_path.write_text("ui:\n  enabled: true\n")
+            config_path.write_text("sources: []\n")
 
             with self.assertRaisesRegex(
                 RuntimeError,
@@ -353,9 +343,7 @@ class StartupWithConfigTests(unittest.TestCase):
     def test_startup_builds_metadata_store_from_config(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "marivo.yaml"
-            config_path.write_text(
-                "metadata:\n  engine: sqlite\n  path: test.meta.sqlite\nui:\n  enabled: true\n"
-            )
+            config_path.write_text("metadata:\n  engine: sqlite\n  path: test.meta.sqlite\n")
 
             app = create_app(
                 db_path=Path(tmp) / "test.duckdb",

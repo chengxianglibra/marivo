@@ -1,7 +1,5 @@
 # Health & Observability
 
-Admin UI note: `/admin?tab=observability` is the read-only operator page for these endpoints. It shows health and metrics summaries, JSON/raw text detail panes, and auto-refresh status only; it does not provide incident handling or runtime control actions.
-
 ## Endpoints
 
 | Method | Path | Description |

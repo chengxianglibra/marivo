@@ -36,7 +36,6 @@ from app.storage.metadata import MetadataStore
 from app.storage.repositories import JobRepository
 from app.storage.sqlite_metadata import SQLiteMetadataStore
 from app.sync import SyncEngine
-from app.ui import register_ui
 
 logger = logging.getLogger(__name__)
 
@@ -246,13 +245,6 @@ def _build_services(
         job_repository=job_repository,
         metrics=metrics_collector,
     )
-    admin_enabled = (
-        config.ui.admin_enabled if config.ui.admin_enabled is not None else config.ui.enabled
-    )
-    user_enabled = (
-        config.ui.user_enabled if config.ui.user_enabled is not None else config.ui.enabled
-    )
-    static_dir = Path(__file__).resolve().parent.parent / "static"
     return AppServices(
         resolved_path=resolved_path,
         config=config,
@@ -271,9 +263,6 @@ def _build_services(
         job_repository=job_repository,
         semantic_service=semantic_service,
         catalog_runtime=catalog_runtime,
-        admin_enabled=admin_enabled,
-        user_enabled=user_enabled,
-        static_dir=static_dir,
     )
 
 
@@ -341,10 +330,4 @@ def create_app(
     )
     app.add_middleware(TimingMiddleware)
     include_api_routers(app)
-    register_ui(
-        app,
-        static_dir=services.static_dir,
-        admin_enabled=services.admin_enabled,
-        user_enabled=services.user_enabled,
-    )
     return app
