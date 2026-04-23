@@ -51,6 +51,8 @@ marivo.yaml
 
 # Claude Code
 .claude/
+.codex/
+.agents/
 
 # Plan
 plan/
