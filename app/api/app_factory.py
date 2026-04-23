@@ -284,7 +284,6 @@ def _attach_state(app: FastAPI, services: AppServices) -> None:
     app.state.source_service = services.source_service
     app.state.sync_engine = services.sync_engine
     app.state.engine_service = services.engine_service
-    app.state.binding_service = services.mapping_service
     app.state.mapping_service = services.mapping_service
     app.state.query_router = services.query_router
     app.state.metadata_store = services.metadata_store

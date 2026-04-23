@@ -20,9 +20,6 @@ export function createExecutionEnginesModule(ctx) {
   } = shared;
 
   let executionEnginesRenderVersion = 0;
-  const executionEnginesUiState = {
-    sourceEngineErrors: {},
-  };
 
   function summarizeConnection(config) {
     return formatKeyValueSummary(config);
@@ -34,12 +31,12 @@ export function createExecutionEnginesModule(ctx) {
     return [];
   }
 
-  function buildEngineBindingsByEngine(bindings) {
-    return (bindings || []).reduce((acc, binding) => {
-      const engineId = String(binding?.engine_id || '');
+  function buildEngineMappingsByEngine(mappings) {
+    return (mappings || []).reduce((acc, mapping) => {
+      const engineId = String(mapping?.engine_id || '');
       if (!engineId) return acc;
       if (!acc[engineId]) acc[engineId] = [];
-      acc[engineId].push(binding);
+      acc[engineId].push(mapping);
       return acc;
     }, {});
   }
@@ -70,29 +67,29 @@ export function createExecutionEnginesModule(ctx) {
     `).join('');
   }
 
-  function buildBindingListRows(bindings, selectedBindingId) {
-    if (!bindings.length) {
+  function buildMappingListRows(mappings, selectedMappingId) {
+    if (!mappings.length) {
       return `
         <tr>
-          <td colspan="5">${renderEmptyState('No source-engine bindings configured yet.', '<button type="button" class="btn btn-primary" data-action="create-binding">Create Binding</button>')}</td>
+          <td colspan="5">${renderEmptyState('No source-engine mappings configured yet.', '<button type="button" class="btn btn-primary" data-action="create-mapping">Create Mapping</button>')}</td>
         </tr>
       `;
     }
-    return bindings.map((binding) => `
-      <tr class="${binding.binding_id === selectedBindingId ? 'is-selected' : ''}">
+    return mappings.map((mapping) => `
+      <tr class="${mapping.mapping_id === selectedMappingId ? 'is-selected' : ''}">
         <td>
-          <button type="button" class="selectable-list-item ${binding.binding_id === selectedBindingId ? 'is-active' : ''}" data-action="select-binding" data-binding-id="${esc(binding.binding_id)}">
+          <button type="button" class="selectable-list-item ${mapping.mapping_id === selectedMappingId ? 'is-active' : ''}" data-action="select-mapping" data-mapping-id="${esc(mapping.mapping_id)}">
             <span class="selectable-list-copy">
-              <span class="selectable-list-title">${esc(binding.binding_id)}</span>
-              <span class="selectable-list-meta">${esc(binding.source_id)} → ${esc(binding.engine_id)}</span>
+              <span class="selectable-list-title">${esc(mapping.mapping_id)}</span>
+              <span class="selectable-list-meta">${esc(mapping.source_id)} → ${esc(mapping.engine_id)}</span>
             </span>
-            ${statusBadge(binding.status)}
+            ${statusBadge(mapping.status)}
           </button>
         </td>
-        <td>${esc(binding.source_id || '-')}</td>
-        <td>${esc(binding.engine_id || '-')}</td>
-        <td>${esc(String(binding.priority ?? 0))}</td>
-        <td>${statusBadge(binding.status)}</td>
+        <td>${esc(mapping.source_id || '-')}</td>
+        <td>${esc(mapping.engine_id || '-')}</td>
+        <td>${esc(String(mapping.priority ?? 0))}</td>
+        <td>${statusBadge(mapping.status)}</td>
       </tr>
     `).join('');
   }
@@ -115,25 +112,25 @@ export function createExecutionEnginesModule(ctx) {
     });
   }
 
-  function renderBindingListCard(viewModel) {
+  function renderMappingListCard(viewModel) {
     return renderAdminTableCard({
-      title: 'Binding Inventory',
-      count: viewModel.bindings.length,
-      countLabel: 'binding(s)',
-      note: 'GET /bindings manages execution engine bindings only. Semantic typed bindings live in Semantic Catalog and must not be mixed into this list.',
-      columns: ['binding_id', 'source_id', 'engine_id', 'priority', 'status'],
+      title: 'Mapping Inventory',
+      count: viewModel.mappings.length,
+      countLabel: 'mapping(s)',
+      note: 'GET /mappings manages source-to-engine routing mappings only. Semantic typed bindings live in Semantic Catalog and must not be mixed into this list.',
+      columns: ['mapping_id', 'source_id', 'engine_id', 'priority', 'status'],
       actionsHtml: `
         <div class="data-sources-header-actions">
-          <button type="button" class="btn btn-primary" data-action="create-binding">Create Binding</button>
+          <button type="button" class="btn btn-primary" data-action="create-mapping">Create Mapping</button>
           <button type="button" class="btn" data-action="refresh-execution-engines">Refresh</button>
         </div>
       `,
-      rowsHtml: buildBindingListRows(viewModel.bindings, viewModel.selectedBindingId),
+      rowsHtml: buildMappingListRows(viewModel.mappings, viewModel.selectedMappingId),
       errorHtml: '',
     });
   }
 
-  function renderEngineSummaryCard(engine, engineBindings, detailError) {
+  function renderEngineSummaryCard(engine, engineMappings, detailError) {
     if (detailError) {
       return renderAdminDetailCard({
         title: 'Engine Summary',
@@ -146,8 +143,8 @@ export function createExecutionEnginesModule(ctx) {
       return renderAdminDetailCard({
         title: 'Engine Summary',
         statusHtml: '<span class="shell-chip">no engine selected</span>',
-        note: 'Select an engine from Engine Inventory to inspect connection, capabilities, and binding coverage.',
-        bodyHtml: renderEmptyState('Select an engine to inspect execution backend configuration and binding coverage.'),
+        note: 'Select an engine from Engine Inventory to inspect connection, capabilities, and mapping coverage.',
+        bodyHtml: renderEmptyState('Select an engine to inspect execution backend configuration and mapping coverage.'),
       });
     }
     return renderAdminDetailCard({
@@ -160,8 +157,8 @@ export function createExecutionEnginesModule(ctx) {
           { label: 'display_name', value: engine.display_name || '-' },
           { label: 'engine_type', value: engine.engine_type || '-' },
           { label: 'status', valueHtml: statusBadge(engine.status) },
-          { label: 'active bindings', value: String((engineBindings || []).length) },
-          { label: 'bound sources', value: String(new Set((engineBindings || []).map((item) => item.source_id)).size) },
+          { label: 'active mappings', value: String((engineMappings || []).length) },
+          { label: 'mapped sources', value: String(new Set((engineMappings || []).map((item) => item.source_id)).size) },
           { label: 'connection', value: summarizeConnection(engine.connection) },
           { label: 'default_namespace', value: summarizeConnection(engine.default_namespace) },
           { label: 'intrinsic_capabilities', value: summarizeConnection(engine.intrinsic_capabilities) },
@@ -173,110 +170,71 @@ export function createExecutionEnginesModule(ctx) {
     });
   }
 
-  function renderBindingSummaryCard(binding, detailError) {
+  function renderMappingSummaryCard(mapping, detailError) {
     if (detailError) {
       return renderAdminDetailCard({
-        title: 'Binding Summary',
+        title: 'Mapping Summary',
         statusHtml: '<span class="shell-chip">error</span>',
-        note: 'GET /bindings/{binding_id} returns the canonical execution binding payload.',
-        bodyHtml: renderStructuredError(detailError, 'Binding detail unavailable.'),
+        note: 'GET /mappings/{mapping_id} returns the canonical mapping payload.',
+        bodyHtml: renderStructuredError(detailError, 'Mapping detail unavailable.'),
       });
     }
-    if (!binding) {
+    if (!mapping) {
       return renderAdminDetailCard({
-        title: 'Binding Summary',
-        statusHtml: '<span class="shell-chip">no binding selected</span>',
-        note: 'Select a binding to inspect source-engine routing priority and deletion controls.',
-        bodyHtml: renderEmptyState('Select a binding to inspect source_id, engine_id, priority, and namespace.'),
+        title: 'Mapping Summary',
+        statusHtml: '<span class="shell-chip">no mapping selected</span>',
+        note: 'Select a mapping to inspect source-engine routing priority, catalog projection, and deletion controls.',
+        bodyHtml: renderEmptyState('Select a mapping to inspect source_id, engine_id, priority, and catalog_mappings.'),
       });
     }
     return renderAdminDetailCard({
-      title: 'Binding Summary',
-      statusHtml: statusBadge(binding.status),
-      note: 'Execution engine bindings connect a source to an execution backend. Semantic typed bindings are managed in Semantic Catalog.',
+      title: 'Mapping Summary',
+      statusHtml: statusBadge(mapping.status),
+      note: 'Source-to-engine mappings connect authority catalogs to execution catalogs. Semantic typed bindings are managed in Semantic Catalog.',
       bodyHtml: `
         ${renderDetailList([
-          { label: 'binding_id', value: binding.binding_id },
-          { label: 'source_id', value: binding.source_id || '-' },
-          { label: 'engine_id', value: binding.engine_id || '-' },
-          { label: 'priority', value: String(binding.priority ?? 0) },
-          { label: 'status', valueHtml: statusBadge(binding.status) },
-          { label: 'namespace', value: summarizeConnection(binding.namespace) },
+          { label: 'mapping_id', value: mapping.mapping_id },
+          { label: 'source_id', value: mapping.source_id || '-' },
+          { label: 'engine_id', value: mapping.engine_id || '-' },
+          { label: 'priority', value: String(mapping.priority ?? 0) },
+          { label: 'status', valueHtml: statusBadge(mapping.status) },
+          { label: 'readiness_status', value: mapping.readiness_status || '-' },
+          { label: 'failure_code', value: mapping.failure_code || '-' },
+          { label: 'catalog_mappings', value: summarizeConnection(mapping.catalog_mappings) },
         ])}
         <div class="detail-actions">
-          <button type="button" class="btn btn-danger" data-action="delete-binding" data-binding-id="${esc(binding.binding_id)}">Delete Binding</button>
+          <button type="button" class="btn btn-danger" data-action="delete-mapping" data-mapping-id="${esc(mapping.mapping_id)}">Delete Mapping</button>
         </div>
-        ${renderJsonPanel('Binding JSON', binding, 'No binding payload.')}
+        ${renderJsonPanel('Mapping JSON', mapping, 'No mapping payload.')}
       `,
     });
   }
 
-  function renderSourceEngineRelationshipsCard(binding, sourceEngines, sourceEngineError) {
-    if (!binding) {
-      return renderAdminDetailCard({
-        title: 'Source-engine Relationship',
-        statusHtml: '<span class="shell-chip">idle</span>',
-        note: 'Select a binding to inspect GET /sources/{source_id}/engines relationship coverage.',
-        bodyHtml: renderEmptyState('No binding selected.'),
-      });
-    }
-    if (sourceEngineError) {
-      return renderAdminDetailCard({
-        title: 'Source-engine Relationship',
-        statusHtml: '<span class="shell-chip">error</span>',
-        note: 'GET /sources/{source_id}/engines shows all active execution backends for the selected source.',
-        bodyHtml: renderStructuredError(sourceEngineError, 'Source-engine relationship unavailable.'),
-      });
-    }
-    const relationshipHtml = (sourceEngines || []).length
-      ? `
-        <div class="compact-list">
-          ${(sourceEngines || []).map((item) => `
-            <div class="compact-list-item">
-              <div class="compact-list-copy">
-                <strong>${esc(item.engine_id)}</strong>
-                <span>${esc(item.display_name || 'Unnamed Engine')} · ${esc(item.engine_type || '-')}</span>
-              </div>
-              <span class="shell-chip">priority ${esc(String(item.priority ?? 0))}</span>
-            </div>
-          `).join('')}
-        </div>
-      `
-      : renderEmptyState('No active execution engines are bound to this source.');
+  function renderRoutingContractCard(viewModel) {
+    const mapping = viewModel.selectedMapping;
     return renderAdminDetailCard({
-      title: 'Source-engine Relationship',
-      statusHtml: `<span class="shell-chip">${esc(binding.source_id)}</span>`,
-      note: 'GET /sources/{source_id}/engines returns the active execution engines for this source. Use it to verify routing coverage without confusing it with semantic typed bindings.',
+      title: 'Routing & Mapping Contract',
+      statusHtml: '<span class="shell-chip">mapping only</span>',
+      note: 'This page manages source-to-engine mappings only. Typed semantic bindings remain in Semantic Catalog.',
       bodyHtml: `
         ${renderDetailList([
-          { label: 'source_id', value: binding.source_id || '-' },
-          { label: 'selected binding', value: binding.binding_id || '-' },
-          { label: 'selected engine', value: binding.engine_id || '-' },
-          { label: 'active engines on source', value: String((sourceEngines || []).length) },
+          { label: 'selected mapping', value: mapping?.mapping_id || '-' },
+          { label: 'selected source', value: mapping?.source_id || '-' },
+          { label: 'selected engine', value: mapping?.engine_id || '-' },
+          { label: 'routing detail', value: 'Use POST /routing/resolve when you need a concrete selection_reason and routing_detail for a table set.' },
         ])}
-        ${relationshipHtml}
-      `,
-    });
-  }
-
-  function renderExecutionBindingContractCard() {
-    return renderAdminDetailCard({
-      title: 'Execution Binding Contract',
-      statusHtml: '<span class="shell-chip">execution only</span>',
-      note: 'This page manages execution engine bindings only and must not be used as a semantic typed binding editor.',
-      bodyHtml: `
         <div class="overview-mini-list">
           <div class="overview-mini-item">
             <strong>HTTP contracts</strong>
-            GET /engines, GET /engines/{engine_id}, GET /bindings, GET /bindings/{binding_id}, DELETE /bindings/{binding_id}, GET /sources/{source_id}/engines
+            GET /engines, GET /engines/{engine_id}, GET /mappings, GET /mappings/{mapping_id}, POST /mappings, PUT /mappings/{mapping_id}, DELETE /mappings/{mapping_id}, POST /routing/resolve
           </div>
           <div class="overview-mini-item">
-            <strong>Execution engine binding</strong>
-            Connects a source to an execution engine so routing can resolve where physical data is executed.
+            <strong>Source-to-engine mapping</strong>
+            Connects authority catalogs to execution catalogs so routing and compile can resolve execution locators without guessing.
           </div>
           <div class="overview-mini-item">
             <strong>Not a typed binding</strong>
-            Semantic typed bindings belong to Semantic Catalog and should not share list semantics or deletion flows with execution bindings.
+            Semantic typed bindings belong to Semantic Catalog and should not share list semantics or deletion flows with source-to-engine mappings.
           </div>
         </div>
       `,
@@ -288,21 +246,16 @@ export function createExecutionEnginesModule(ctx) {
       <div class="data-sources-page">
         ${renderAdminListDetailLayout({
           primaryHtml: renderEngineListCard(viewModel),
-          secondaryHtml: viewModel.listError ? '' : renderBindingListCard(viewModel),
+          secondaryHtml: viewModel.listError ? '' : renderMappingListCard(viewModel),
           detailHtml: `
             <div class="data-sources-detail-stack">
               ${renderEngineSummaryCard(
                 viewModel.selectedEngine,
-                viewModel.engineBindingsByEngine[viewModel.selectedEngine?.engine_id || ''] || [],
+                viewModel.engineMappingsByEngine[viewModel.selectedEngine?.engine_id || ''] || [],
                 viewModel.engineDetailError
               )}
-              ${renderBindingSummaryCard(viewModel.selectedBinding, viewModel.bindingDetailError)}
-              ${renderSourceEngineRelationshipsCard(
-                viewModel.selectedBinding,
-                viewModel.selectedSourceEngines,
-                viewModel.sourceEngineError
-              )}
-              ${renderExecutionBindingContractCard()}
+              ${renderMappingSummaryCard(viewModel.selectedMapping, viewModel.mappingDetailError)}
+              ${renderRoutingContractCard(viewModel)}
             </div>
           `,
         })}
@@ -313,18 +266,16 @@ export function createExecutionEnginesModule(ctx) {
   function render() {
     return `<div data-role="execution-engines-body">${renderBody({
       engines: [],
-      bindings: [],
+      mappings: [],
       sources: [],
       selectedEngineId: '',
-      selectedBindingId: '',
+      selectedMappingId: '',
       selectedEngine: null,
-      selectedBinding: null,
-      selectedSourceEngines: [],
-      sourceEngineError: null,
+      selectedMapping: null,
       listError: null,
       engineDetailError: null,
-      bindingDetailError: null,
-      engineBindingsByEngine: {},
+      mappingDetailError: null,
+      engineMappingsByEngine: {},
     })}</div>`;
   }
 
@@ -341,7 +292,7 @@ export function createExecutionEnginesModule(ctx) {
             <h3 id="engine-form-title">Create Engine</h3>
             <span class="shell-chip">execution backend</span>
           </div>
-          <p class="panel-note">POST /engines registers a new execution engine. This does not create any source-engine binding or semantic typed binding.</p>
+          <p class="panel-note">POST /engines registers a new execution engine. This does not create any source-to-engine mapping or semantic typed binding.</p>
           <form class="source-form-grid" data-role="form">
             <label>
               Engine Type
@@ -388,20 +339,20 @@ export function createExecutionEnginesModule(ctx) {
     return overlay;
   }
 
-  function ensureBindingFormModal() {
-    let overlay = document.getElementById('binding-form-modal');
+  function ensureMappingFormModal() {
+    let overlay = document.getElementById('mapping-form-modal');
     if (overlay) return overlay;
     overlay = document.createElement('div');
-    overlay.id = 'binding-form-modal';
+    overlay.id = 'mapping-form-modal';
     overlay.className = 'modal-overlay';
     overlay.innerHTML = `
-      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="binding-form-title">
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="mapping-form-title">
         <div class="modal-card-stack">
           <div class="shell-card-title">
-            <h3 id="binding-form-title">Create Binding</h3>
-            <span class="shell-chip">execution engine binding</span>
+            <h3 id="mapping-form-title">Create Mapping</h3>
+            <span class="shell-chip">authority to execution</span>
           </div>
-          <p class="panel-note" data-role="copy">Create Binding connects a source to an execution engine. This flow manages execution engine bindings only; semantic typed bindings stay in Semantic Catalog.</p>
+          <p class="panel-note" data-role="copy">Create Mapping connects a source to an execution engine through explicit catalog_mappings. Semantic typed bindings stay in Semantic Catalog.</p>
           <form class="source-form-grid" data-role="form">
             <label>
               Source
@@ -415,14 +366,22 @@ export function createExecutionEnginesModule(ctx) {
               Priority
               <input name="priority" type="number" min="0" step="1" value="0" />
             </label>
-            <details>
-              <summary>Advanced Namespace JSON</summary>
-              <textarea name="namespace_json" placeholder="{&#10;  &quot;catalog&quot;: &quot;hive&quot;,&#10;  &quot;schema&quot;: &quot;prod&quot;&#10;}"></textarea>
-            </details>
+            <label>
+              Status
+              <select name="status">
+                <option value="active">active</option>
+                <option value="inactive">inactive</option>
+                <option value="deprecated">deprecated</option>
+              </select>
+            </label>
+            <label>
+              Catalog Mappings JSON
+              <textarea name="catalog_mappings_json" placeholder="[{&#10;  &quot;authority_catalog&quot;: &quot;main&quot;,&#10;  &quot;execution_catalog&quot;: &quot;duckdb_runtime&quot;,&#10;  &quot;default_schema&quot;: null&#10;}]"></textarea>
+            </label>
             <div class="detail-error" data-role="error" style="display:none;"></div>
             <div class="detail-actions">
               <button type="button" class="btn" data-role="cancel">Cancel</button>
-              <button type="submit" class="btn btn-primary" data-role="submit">Create Binding</button>
+              <button type="submit" class="btn btn-primary" data-role="submit">Create Mapping</button>
             </div>
           </form>
         </div>
@@ -431,7 +390,7 @@ export function createExecutionEnginesModule(ctx) {
     document.body.appendChild(overlay);
     overlay.addEventListener('click', (event) => {
       if (event.target === overlay || event.target?.dataset?.role === 'cancel') {
-        closeModal('binding-form-modal');
+        closeModal('mapping-form-modal');
       }
     });
     return overlay;
@@ -513,7 +472,7 @@ export function createExecutionEnginesModule(ctx) {
         toast('Engine created.', 'success');
         closeModal('engine-form-modal');
         ctx.applyAdminRoute(
-          { ...ctx.getCurrentRoute(), tab: 'execution-engines', engineId: created.engine_id, bindingId: '' },
+          { ...ctx.getCurrentRoute(), tab: 'execution-engines', engineId: created.engine_id, mappingId: '' },
           'replace'
         );
       } catch (error) {
@@ -525,8 +484,8 @@ export function createExecutionEnginesModule(ctx) {
     openModal('engine-form-modal');
   }
 
-  async function openBindingFormModal(sources, engines) {
-    const overlay = ensureBindingFormModal();
+  async function openMappingFormModal(sources, engines) {
+    const overlay = ensureMappingFormModal();
     const form = overlay.querySelector('[data-role="form"]');
     const errorBox = overlay.querySelector('[data-role="error"]');
     const copy = overlay.querySelector('[data-role="copy"]');
@@ -534,7 +493,8 @@ export function createExecutionEnginesModule(ctx) {
     const sourceSelect = form.querySelector('[name="source_id"]');
     const engineSelect = form.querySelector('[name="engine_id"]');
     const priorityInput = form.querySelector('[name="priority"]');
-    const namespaceInput = form.querySelector('[name="namespace_json"]');
+    const statusSelect = form.querySelector('[name="status"]');
+    const catalogMappingsInput = form.querySelector('[name="catalog_mappings_json"]');
 
     sourceSelect.innerHTML = (sources || []).map((source) => `
       <option value="${esc(source.source_id)}">${esc(source.display_name || source.source_id)} · ${esc(source.source_id)}</option>
@@ -543,7 +503,12 @@ export function createExecutionEnginesModule(ctx) {
       <option value="${esc(engine.engine_id)}">${esc(engine.display_name || engine.engine_id)} · ${esc(engine.engine_type || '-')}</option>
     `).join('');
     priorityInput.value = '0';
-    namespaceInput.value = JSON.stringify({}, null, 2);
+    statusSelect.value = 'active';
+    catalogMappingsInput.value = JSON.stringify(
+      [{ authority_catalog: 'main', execution_catalog: 'duckdb_runtime', default_schema: null }],
+      null,
+      2
+    );
     if (errorBox) {
       errorBox.style.display = 'none';
       errorBox.innerHTML = '';
@@ -554,72 +519,73 @@ export function createExecutionEnginesModule(ctx) {
     if (!hasSources || !hasEngines) {
       submit.disabled = true;
       copy.textContent = !hasSources
-        ? 'Create at least one data source before creating an execution binding.'
-        : 'Create at least one execution engine before creating an execution binding.';
+        ? 'Create at least one data source before creating a source-to-engine mapping.'
+        : 'Create at least one execution engine before creating a source-to-engine mapping.';
       if (errorBox) {
         errorBox.style.display = '';
         errorBox.innerHTML = renderEmptyState(copy.textContent);
       }
     } else {
       submit.disabled = false;
-      copy.textContent = 'Create Binding connects a source to an execution engine. This flow manages execution engine bindings only; semantic typed bindings stay in Semantic Catalog.';
+      copy.textContent = 'Create Mapping connects a source to an execution engine through explicit catalog_mappings. Semantic typed bindings stay in Semantic Catalog.';
     }
 
     form.onsubmit = async (event) => {
       event.preventDefault();
-      let namespace = {};
+      let catalogMappings = [];
       try {
-        namespace = JSON.parse(namespaceInput.value || '{}');
+        catalogMappings = JSON.parse(catalogMappingsInput.value || '[]');
       } catch {
         errorBox.style.display = '';
-        errorBox.innerHTML = renderErrorState('Namespace JSON is invalid.');
+        errorBox.innerHTML = renderErrorState('Catalog Mappings JSON is invalid.');
         return;
       }
       try {
-        const created = await ctx.adminApi.createBinding({
+        const created = await ctx.adminApi.createMapping({
           source_id: sourceSelect.value,
           engine_id: engineSelect.value,
           priority: Number(priorityInput.value || 0),
-          namespace,
+          status: statusSelect.value,
+          catalog_mappings: catalogMappings,
         });
-        toast('Binding created.', 'success');
-        closeModal('binding-form-modal');
+        toast('Mapping created.', 'success');
+        closeModal('mapping-form-modal');
         ctx.applyAdminRoute(
-          { ...ctx.getCurrentRoute(), tab: 'execution-engines', engineId: '', bindingId: created.binding_id },
+          { ...ctx.getCurrentRoute(), tab: 'execution-engines', engineId: '', mappingId: created.mapping_id },
           'replace'
         );
       } catch (error) {
         errorBox.style.display = '';
-        errorBox.innerHTML = renderStructuredError(error, 'Create Binding failed.');
+        errorBox.innerHTML = renderStructuredError(error, 'Create Mapping failed.');
       }
     };
 
-    openModal('binding-form-modal');
+    openModal('mapping-form-modal');
   }
 
-  function handleDeleteBinding(binding) {
+  function handleDeleteMapping(mapping) {
     openDangerConfirm({
-      title: 'Delete Binding',
-      objectLabel: binding.binding_id,
-      impactScope: 'Removes the source-engine routing association for this binding and may change engine resolution for the source.',
+      title: 'Delete Mapping',
+      objectLabel: mapping.mapping_id,
+      impactScope: 'Removes the source-to-engine routing association for this mapping and may change engine resolution for the source.',
       reversible: 'No',
-      confirmLabel: 'Delete Binding',
+      confirmLabel: 'Delete Mapping',
       detailsHtml: renderDetailList([
-        { label: 'source_id', value: binding.source_id || '-' },
-        { label: 'engine_id', value: binding.engine_id || '-' },
-        { label: 'priority', value: String(binding.priority ?? 0) },
-        { label: 'warning', value: 'This deletes an execution engine binding only. Semantic typed bindings are unaffected.' },
+        { label: 'source_id', value: mapping.source_id || '-' },
+        { label: 'engine_id', value: mapping.engine_id || '-' },
+        { label: 'priority', value: String(mapping.priority ?? 0) },
+        { label: 'warning', value: 'This deletes a source-to-engine mapping only. Semantic typed bindings are unaffected.' },
       ]),
       onConfirm: async () => {
         try {
-          await ctx.adminApi.deleteBinding(binding.binding_id);
-          toast('Binding deleted.', 'success');
+          await ctx.adminApi.deleteMapping(mapping.mapping_id);
+          toast('Mapping deleted.', 'success');
           ctx.applyAdminRoute(
-            { ...ctx.getCurrentRoute(), tab: 'execution-engines', bindingId: '', engineId: '' },
+            { ...ctx.getCurrentRoute(), tab: 'execution-engines', mappingId: '', engineId: '' },
             'replace'
           );
         } catch (error) {
-          toast(normalizeApiError(error, 'Delete Binding failed.').message, 'error');
+          toast(normalizeApiError(error, 'Delete Mapping failed.').message, 'error');
           refreshCurrentExecutionEngines();
         }
       },
@@ -629,7 +595,7 @@ export function createExecutionEnginesModule(ctx) {
   async function hydrate(panel, route) {
     const renderVersion = ++executionEnginesRenderVersion;
     let lastEngines = [];
-    let lastBindings = [];
+    let lastMappings = [];
     let lastSources = [];
     const safeRender = (viewModel) => {
       if (renderVersion !== executionEnginesRenderVersion) return;
@@ -642,69 +608,63 @@ export function createExecutionEnginesModule(ctx) {
 
     safeRender({
       engines: [],
-      bindings: [],
+      mappings: [],
       sources: [],
       selectedEngineId: route.engineId || '',
-      selectedBindingId: route.bindingId || '',
+      selectedMappingId: route.mappingId || '',
       selectedEngine: null,
-      selectedBinding: null,
-      selectedSourceEngines: [],
-      sourceEngineError: null,
+      selectedMapping: null,
       listError: null,
       engineDetailError: null,
-      bindingDetailError: null,
-      engineBindingsByEngine: {},
+      mappingDetailError: null,
+      engineMappingsByEngine: {},
     });
 
     try {
-      const [rawEngines, rawBindings, rawSources] = await Promise.all([
+      const [rawEngines, rawMappings, rawSources] = await Promise.all([
         ctx.adminApi.listEngines(),
-        ctx.adminApi.listBindings(),
+        ctx.adminApi.listMappings(),
         ctx.adminApi.listSources(),
       ]);
       const engines = extractItems(rawEngines);
-      const bindings = extractItems(rawBindings);
+      const mappings = extractItems(rawMappings);
       const sources = extractItems(rawSources);
       lastEngines = engines;
-      lastBindings = bindings;
+      lastMappings = mappings;
       lastSources = sources;
 
       let selectedEngineId = engines.some((item) => item.engine_id === route.engineId) ? route.engineId : '';
-      let selectedBindingId = bindings.some((item) => item.binding_id === route.bindingId) ? route.bindingId : '';
-      if (!selectedEngineId && !selectedBindingId) {
+      let selectedMappingId = mappings.some((item) => item.mapping_id === route.mappingId) ? route.mappingId : '';
+      if (!selectedEngineId && !selectedMappingId) {
         selectedEngineId = engines[0]?.engine_id || '';
         if (!selectedEngineId) {
-          selectedBindingId = bindings[0]?.binding_id || '';
+          selectedMappingId = mappings[0]?.mapping_id || '';
         }
       }
 
       safeRender({
         engines,
-        bindings,
+        mappings,
         sources,
-        selectedEngineId: engines.some((item) => item.engine_id === route.engineId) ? route.engineId : '',
-        selectedBindingId: bindings.some((item) => item.binding_id === route.bindingId) ? route.bindingId : '',
+        selectedEngineId: selectedEngineId,
+        selectedMappingId: selectedMappingId,
         selectedEngine: null,
-        selectedBinding: null,
-        selectedSourceEngines: [],
-        sourceEngineError: null,
+        selectedMapping: null,
         listError: null,
         engineDetailError: null,
-        bindingDetailError: null,
-        engineBindingsByEngine: buildEngineBindingsByEngine(bindings),
+        mappingDetailError: null,
+        engineMappingsByEngine: buildEngineMappingsByEngine(mappings),
       });
 
-      if (route.engineId !== selectedEngineId || route.bindingId !== selectedBindingId) {
-        ctx.applyAdminRoute({ ...route, engineId: selectedEngineId, bindingId: selectedBindingId }, 'replace');
+      if (route.engineId !== selectedEngineId || route.mappingId !== selectedMappingId) {
+        ctx.applyAdminRoute({ ...route, engineId: selectedEngineId, mappingId: selectedMappingId }, 'replace');
         return;
       }
 
       let selectedEngine = null;
-      let selectedBinding = null;
+      let selectedMapping = null;
       let engineDetailError = null;
-      let bindingDetailError = null;
-      let selectedSourceEngines = [];
-      let sourceEngineError = null;
+      let mappingDetailError = null;
 
       if (selectedEngineId) {
         try {
@@ -714,54 +674,40 @@ export function createExecutionEnginesModule(ctx) {
         }
       }
 
-      if (selectedBindingId) {
+      if (selectedMappingId) {
         try {
-          selectedBinding = await ctx.adminApi.getBinding(selectedBindingId);
+          selectedMapping = await ctx.adminApi.getMapping(selectedMappingId);
         } catch (error) {
-          bindingDetailError = normalizeApiError(error, 'Binding detail unavailable.');
-        }
-      }
-
-      if (selectedBinding?.source_id) {
-        try {
-          selectedSourceEngines = extractItems(await ctx.adminApi.listSourceEngines(selectedBinding.source_id));
-          delete executionEnginesUiState.sourceEngineErrors[selectedBinding.source_id];
-        } catch (error) {
-          sourceEngineError = normalizeApiError(error, 'Source-engine relationship unavailable.');
-          executionEnginesUiState.sourceEngineErrors[selectedBinding.source_id] = sourceEngineError;
+          mappingDetailError = normalizeApiError(error, 'Mapping detail unavailable.');
         }
       }
 
       safeRender({
         engines,
-        bindings,
+        mappings,
         sources,
         selectedEngineId,
-        selectedBindingId,
+        selectedMappingId,
         selectedEngine,
-        selectedBinding,
-        selectedSourceEngines,
-        sourceEngineError,
+        selectedMapping,
         listError: null,
         engineDetailError,
-        bindingDetailError,
-        engineBindingsByEngine: buildEngineBindingsByEngine(bindings),
+        mappingDetailError,
+        engineMappingsByEngine: buildEngineMappingsByEngine(mappings),
       });
     } catch (error) {
       safeRender({
         engines: lastEngines,
-        bindings: lastBindings,
+        mappings: lastMappings,
         sources: lastSources,
         selectedEngineId: route.engineId || '',
-        selectedBindingId: route.bindingId || '',
+        selectedMappingId: route.mappingId || '',
         selectedEngine: null,
-        selectedBinding: null,
-        selectedSourceEngines: [],
-        sourceEngineError: null,
+        selectedMapping: null,
         listError: normalizeApiError(error, 'Execution Engines unavailable.'),
         engineDetailError: null,
-        bindingDetailError: null,
-        engineBindingsByEngine: {},
+        mappingDetailError: null,
+        engineMappingsByEngine: {},
       });
     }
   }
@@ -775,31 +721,31 @@ export function createExecutionEnginesModule(ctx) {
         void openEngineFormModal();
       });
     });
-    panel.querySelectorAll('[data-action="create-binding"]').forEach((button) => {
+    panel.querySelectorAll('[data-action="create-mapping"]').forEach((button) => {
       button.addEventListener('click', () => {
-        void openBindingFormModal(viewModel.sources, viewModel.engines);
+        void openMappingFormModal(viewModel.sources, viewModel.engines);
       });
     });
     panel.querySelectorAll('[data-action="select-engine"]').forEach((button) => {
       button.addEventListener('click', () => {
         ctx.applyAdminRoute(
-          { ...ctx.getCurrentRoute(), tab: 'execution-engines', engineId: button.dataset.engineId || '', bindingId: '' },
+          { ...ctx.getCurrentRoute(), tab: 'execution-engines', engineId: button.dataset.engineId || '', mappingId: '' },
           'push'
         );
       });
     });
-    panel.querySelectorAll('[data-action="select-binding"]').forEach((button) => {
+    panel.querySelectorAll('[data-action="select-mapping"]').forEach((button) => {
       button.addEventListener('click', () => {
         ctx.applyAdminRoute(
-          { ...ctx.getCurrentRoute(), tab: 'execution-engines', engineId: '', bindingId: button.dataset.bindingId || '' },
+          { ...ctx.getCurrentRoute(), tab: 'execution-engines', engineId: '', mappingId: button.dataset.mappingId || '' },
           'push'
         );
       });
     });
-    panel.querySelectorAll('[data-action="delete-binding"]').forEach((button) => {
+    panel.querySelectorAll('[data-action="delete-mapping"]').forEach((button) => {
       button.addEventListener('click', () => {
-        if (viewModel.selectedBinding) {
-          handleDeleteBinding(viewModel.selectedBinding);
+        if (viewModel.selectedMapping) {
+          handleDeleteMapping(viewModel.selectedMapping);
         }
       });
     });

@@ -227,27 +227,30 @@ export function createAdminApi() {
     createEngine(payload) {
       return sendJson('/engines', 'POST', payload, 'Create Engine failed.');
     },
-    listBindings(params = {}) {
+    listMappings(params = {}) {
       const search = new URLSearchParams();
       if (params.sourceId) search.set('source_id', params.sourceId);
       if (params.engineId) search.set('engine_id', params.engineId);
+      if (params.status) search.set('status', params.status);
       const query = search.toString();
-      return requestJson(`/bindings${query ? `?${query}` : ''}`, 'Binding Inventory unavailable.');
+      return requestJson(`/mappings${query ? `?${query}` : ''}`, 'Mapping Inventory unavailable.');
     },
-    getBinding(bindingId) {
-      return requestJson(`/bindings/${encodeURIComponent(bindingId)}`, 'Binding detail unavailable.');
+    getMapping(mappingId) {
+      return requestJson(`/mappings/${encodeURIComponent(mappingId)}`, 'Mapping detail unavailable.');
     },
-    createBinding(payload) {
-      return sendJson('/bindings', 'POST', payload, 'Create Binding failed.');
+    createMapping(payload) {
+      return sendJson('/mappings', 'POST', payload, 'Create Mapping failed.');
     },
-    deleteBinding(bindingId) {
-      return sendDelete(`/bindings/${encodeURIComponent(bindingId)}`, 'Delete Binding failed.');
-    },
-    listSourceEngines(sourceId) {
-      return requestJson(
-        `/sources/${encodeURIComponent(sourceId)}/engines`,
-        'Source-engine relationship unavailable.'
+    updateMapping(mappingId, payload) {
+      return sendJson(
+        `/mappings/${encodeURIComponent(mappingId)}`,
+        'PUT',
+        payload,
+        'Update Mapping failed.'
       );
+    },
+    deleteMapping(mappingId) {
+      return sendDelete(`/mappings/${encodeURIComponent(mappingId)}`, 'Delete Mapping failed.');
     },
     listSemanticEntities(status = null, options = {}) {
       return requestJson(

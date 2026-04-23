@@ -4,9 +4,8 @@ Engines represent analytics execution backends. In the current runtime, supporte
 `duckdb` and `trino` only. Source-to-engine routing is governed by explicit mappings; see
 [`mappings.md`](mappings.md) for the authority-to-execution projection contract.
 
-This page documents the engine inventory surface only. Legacy `binding` terminology may still
-appear in some internal/admin read surfaces, but the public operator-facing source-to-engine write
-contract is `/mappings`, not `/bindings`.
+This page documents the engine inventory surface only. The public operator-facing source-to-engine
+write/read contract is `/mappings`; `/bindings` is not part of the current external HTTP surface.
 
 When `marivo.yaml` includes a Trino engine, Marivo validates the optional `trino` Python package at
 startup and fails fast if it is missing. Install Trino support with `pip install -e .[trino]`.
@@ -153,7 +152,7 @@ POST /routing/resolve
 
 Resolves a set of table names to a single engine capable of querying all of them. This endpoint is useful for debugging routing decisions or for agents that want to understand which engine will be used before submitting a step.
 
-The router selects the highest-priority engine that has active bindings to sources containing all the specified tables.
+The router selects the highest-priority engine that has active mappings to sources containing all the specified tables.
 Routing accepts either a synced table's full `source_objects.fqn` or its short `native_name`.
 When both could match, full FQN wins; if a short name matches multiple synced tables, the request
 fails and the caller must retry with a full FQN.
@@ -205,8 +204,18 @@ fails and the caller must retry with a full FQN.
     "iceberg.events.user_video_watch",
     "iceberg.dimensions.video_metadata"
   ],
-  "selection_reason": "Highest priority binding covering all requested tables",
-  "routing_detail": "Resolved via binding bind_... with namespace {catalog: iceberg}",
+  "selection_reason": "Highest priority mapping covering all requested tables",
+  "routing_detail": {
+    "selected_mapping_id": "map_...",
+    "execution_locators": {
+      "events.user_video_watch": {
+        "qualified_name": "iceberg.events.user_video_watch"
+      },
+      "dimensions.video_metadata": {
+        "qualified_name": "iceberg.dimensions.video_metadata"
+      }
+    }
+  },
   "capability_profile": {
     "dialect": "trino",
     "supports_federation": true
@@ -222,8 +231,10 @@ When routing fails (no engine covers all tables):
   "table_names": ["events.user_video_watch", "other_source.some_table"],
   "engine": null,
   "qualified_names": [],
-  "selection_reason": "No single engine has bindings covering all requested tables",
-  "routing_detail": "events.user_video_watch → src_abc (eng_xyz); other_source.some_table → unresolved",
+  "selection_reason": "No single engine has mappings covering all requested tables",
+  "routing_detail": {
+    "unresolved_tables": ["other_source.some_table"]
+  },
   "capability_profile": null
 }
 ```

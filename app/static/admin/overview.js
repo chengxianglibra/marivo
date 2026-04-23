@@ -21,7 +21,7 @@ export function createOverviewModule(ctx) {
     },
     {
       key: 'engines',
-      title: 'Engine / Binding Summary',
+      title: 'Engine / Mapping Summary',
       href: '?tab=execution-engines',
       actionLabel: 'Open Execution Engines',
       helperLabel: 'Routing foundation',
@@ -198,24 +198,24 @@ export function createOverviewModule(ctx) {
     };
   }
 
-  function summarizeEngines(engines, bindings) {
-    if (!engines.length && !bindings.length) {
-      return { empty: 'No execution engines or source-engine bindings configured yet.' };
+  function summarizeEngines(engines, mappings) {
+    if (!engines.length && !mappings.length) {
+      return { empty: 'No execution engines or source-engine mappings configured yet.' };
     }
-    const activeBindings = bindings.filter(
+    const activeMappings = mappings.filter(
       (item) => String(item?.status || '').toLowerCase() === 'active'
     ).length;
-    const latestBinding = pickLatest(bindings);
+    const latestMapping = pickLatest(mappings);
     return {
       kpis: [
         { label: 'Engines', value: String(engines.length) },
-        { label: 'Bindings', value: String(bindings.length) },
-        { label: 'Active Bindings', value: String(activeBindings) },
-        { label: 'Latest Binding', value: latestBinding?.binding_id || '-' },
+        { label: 'Mappings', value: String(mappings.length) },
+        { label: 'Active Mappings', value: String(activeMappings) },
+        { label: 'Latest Mapping', value: latestMapping?.mapping_id || '-' },
       ],
-      copy: 'Engine inventory and binding coverage for source routing and execution setup.',
+      copy: 'Engine inventory and mapping coverage for source routing and execution setup.',
       metaHtml:
-        '<div class="overview-card-contracts"><span class="shell-chip">GET /engines</span><span class="shell-chip">GET /bindings</span></div>',
+        '<div class="overview-card-contracts"><span class="shell-chip">GET /engines</span><span class="shell-chip">GET /mappings</span></div>',
     };
   }
 
@@ -436,9 +436,9 @@ export function createOverviewModule(ctx) {
       'engines',
       async () => ({
         engines: await ctx.adminApi.listEngines(),
-        bindings: await ctx.adminApi.listBindings(),
+        mappings: await ctx.adminApi.listMappings(),
       }),
-      (payload) => summarizeEngines(payload.engines, payload.bindings)
+      (payload) => summarizeEngines(payload.engines, payload.mappings)
     );
     void settleCard(
       'semantic',
