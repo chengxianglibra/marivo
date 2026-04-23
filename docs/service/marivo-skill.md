@@ -266,7 +266,7 @@ skills/marivo/
 
 当前建议把设计说明与实际 skill 文档保持如下映射关系：
 
-- [`docs/service/marivo-skill.md`](/Users/lichengxiang/source/oss/marivo/docs/service/marivo-skill.md)：维护基线，定义目标形态、边界、验收标准与更新规则
+- [`docs/service/marivo-skill.md`](./marivo-skill.md)：维护基线，定义目标形态、边界、验收标准与更新规则
 - `/Users/lichengxiang/source/bili/skills/marivo/SKILL.md`：agent 的最小决策入口，只回答“是否启用 Marivo、先走哪个 surface、默认 loop 是什么”
 - `/Users/lichengxiang/source/bili/skills/marivo/references/steps.md`：typed intent、state/context、session close-out
 - `/Users/lichengxiang/source/bili/skills/marivo/references/semantic-layer.md`：语义建模、依赖顺序与 activation heuristics
