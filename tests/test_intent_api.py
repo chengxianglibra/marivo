@@ -268,8 +268,18 @@ def _register_duckdb_runtime(
         },
     ).json()
     client.post(
-        "/bindings",
-        json={"source_id": source["source_id"], "engine_id": engine["engine_id"], "priority": 0},
+        "/mappings",
+        json={
+            "source_id": source["source_id"],
+            "engine_id": engine["engine_id"],
+            "priority": 0,
+            "catalog_mappings": [
+                {
+                    "authority_catalog": "main",
+                    "execution_catalog": "main",
+                }
+            ],
+        },
     )
     return str(source["source_id"])
 
@@ -506,21 +516,22 @@ class _ObserveIntentTestCase:
         if engine_row is None:
             return
         engine_id = str(engine_row["engine_id"])
-        # Remove any existing bindings for the calendar source and rebind to the test engine
-        # with the analytics schema namespace so routing produces analytics.cn_public_holiday.
+        # Remove any existing mappings for the calendar source and rebind to the test engine.
         metadata.execute(
-            "DELETE FROM source_engine_bindings WHERE source_id = ?",
+            "DELETE FROM source_execution_mappings WHERE source_id = ?",
             ["src_test_calendar_duckdb"],
         )
         metadata.execute(
             """
-            INSERT INTO source_engine_bindings
-                (source_id, engine_id, priority, namespace_json, status, created_at, updated_at)
-            VALUES (?, ?, 0, '{"schema": "analytics"}', 'active', ?, ?)
+            INSERT INTO source_execution_mappings
+                (mapping_id, source_id, engine_id, priority, catalog_mappings_json, status, created_at, updated_at)
+            VALUES (?, ?, ?, 0, ?, 'active', ?, ?)
             """,
             [
+                "map_test_calendar",
                 "src_test_calendar_duckdb",
                 engine_id,
+                '[{"authority_catalog":"main","execution_catalog":"main"}]',
                 "2026-04-18T00:00:00+00:00",
                 "2026-04-18T00:00:00+00:00",
             ],
@@ -1896,10 +1907,20 @@ class IntentEndpointWithSemanticLayerTests(unittest.TestCase):
         )
         cls.engine_id = r.json()["engine_id"]
 
-        # Create binding
+        # Create mapping
         cls.client.post(
-            "/bindings",
-            json={"source_id": cls.source_id, "engine_id": cls.engine_id, "priority": 0},
+            "/mappings",
+            json={
+                "source_id": cls.source_id,
+                "engine_id": cls.engine_id,
+                "priority": 0,
+                "catalog_mappings": [
+                    {
+                        "authority_catalog": "main",
+                        "execution_catalog": "main",
+                    }
+                ],
+            },
         )
 
         # Create a semantic metric (uses watch_events table from demo data)

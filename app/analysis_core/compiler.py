@@ -897,11 +897,13 @@ def _resolve_imported_dimension_physical_sources(
             if _optional_str(carrier_binding.get("binding_key")) is not None
         }
         carrier_binding = carrier_bindings.get(carrier_binding_key)
-        carrier_locator = (
-            _optional_str(carrier_binding.get("carrier_locator"))
-            if carrier_binding is not None
-            else None
-        )
+        carrier_locator: dict[str, Any] | str | None = None
+        if carrier_binding is not None:
+            raw_carrier_locator = carrier_binding.get("carrier_locator")
+            if isinstance(raw_carrier_locator, dict):
+                carrier_locator = dict(cast("dict[str, Any]", raw_carrier_locator))
+            elif isinstance(raw_carrier_locator, str) and raw_carrier_locator.strip():
+                carrier_locator = raw_carrier_locator.strip()
         physical_name = None
         if carrier_binding is not None:
             for field_surface in carrier_binding.get("field_surfaces") or []:
@@ -953,7 +955,7 @@ def _resolve_imported_dimension_physical_sources(
                 )
             )
             continue
-        resolved_source = {
+        resolved_source: dict[str, Any] = {
             "dimension_ref": dimension_ref,
             "source_binding_ref": bridge.source_binding_ref,
             "source_entity_ref": bridge.source_entity_ref,
@@ -1376,11 +1378,13 @@ def _measurement_node(
                 "binding_ref": binding.ref,
             }
             source_object_ref = _optional_str(carrier_binding.get("source_object_ref"))
-            carrier_locator = _optional_str(carrier_binding.get("carrier_locator"))
+            carrier_locator = carrier_binding.get("carrier_locator")
             if source_object_ref is not None:
                 binding_payload["source_object_ref"] = source_object_ref
-            if carrier_locator is not None:
-                binding_payload["carrier_locator"] = carrier_locator
+            if isinstance(carrier_locator, dict):
+                binding_payload["carrier_locator"] = dict(cast("dict[str, Any]", carrier_locator))
+            elif isinstance(carrier_locator, str) and carrier_locator.strip():
+                binding_payload["carrier_locator"] = carrier_locator.strip()
             if surfaces:
                 binding_payload["consumed_surface_refs"] = sorted(set(surfaces))
             carrier_bindings.append(binding_payload)

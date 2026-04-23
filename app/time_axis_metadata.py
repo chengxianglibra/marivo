@@ -535,19 +535,46 @@ class TimeAxisMetadataProvider:
     def _binding_matches_table(self, binding: dict[str, Any], table_name: str) -> bool:
         interface_contract = dict(binding.get("interface_contract") or {})
         carrier_bindings = list(interface_contract.get("carrier_bindings") or [])
-        return any(
-            self._table_name_matches_locator(
-                table_name,
-                _optional_str(carrier_binding.get("carrier_locator"))
-                or _optional_str(carrier_binding.get("source_object_ref")),
+        for carrier_binding in carrier_bindings:
+            if self._table_name_matches_locator(table_name, carrier_binding.get("carrier_locator")):
+                return True
+            source_object_ref = _optional_str(carrier_binding.get("source_object_ref"))
+            if source_object_ref is None:
+                continue
+            row = self.metadata.query_one(
+                """
+                SELECT fqn, native_name, authority_locator_json
+                FROM source_objects
+                WHERE object_id = ? OR fqn = ?
+                """,
+                [source_object_ref, source_object_ref],
             )
-            for carrier_binding in carrier_bindings
-        )
+            if row is not None:
+                if self._table_name_matches_locator(
+                    table_name, row["fqn"]
+                ) or self._table_name_matches_locator(table_name, row["native_name"]):
+                    return True
+                authority_locator = json.loads(str(row["authority_locator_json"]))
+                if self._table_name_matches_locator(table_name, authority_locator):
+                    return True
+            elif self._table_name_matches_locator(table_name, source_object_ref):
+                return True
+        return False
 
     @staticmethod
-    def _table_name_matches_locator(table_name: str, locator: str | None) -> bool:
+    def _table_name_matches_locator(table_name: str, locator: dict[str, Any] | str | None) -> bool:
         normalized_table = table_name.strip()
         normalized_locator = str(locator or "").strip()
+        if isinstance(locator, dict):
+            normalized_locator = ".".join(
+                value
+                for value in [
+                    _optional_str(locator.get("catalog")),
+                    _optional_str(locator.get("schema")),
+                    _optional_str(locator.get("table")),
+                ]
+                if value is not None
+            )
         if not normalized_table or not normalized_locator:
             return False
         if normalized_table == normalized_locator:
@@ -605,7 +632,7 @@ class TimeAxisMetadataProvider:
                     "binding_key": carrier_row["binding_key"],
                     "source_object_ref": carrier_row["source_object_ref"],
                     "carrier_kind": carrier_row["carrier_kind"],
-                    "carrier_locator": carrier_row["carrier_locator"],
+                    "carrier_locator": json.loads(str(carrier_row["carrier_locator"])),
                     "binding_role": carrier_row["binding_role"],
                     "semantic_role_ref": carrier_row["semantic_role_ref"],
                     "grain_ref": carrier_row["grain_ref"],

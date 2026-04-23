@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from app.analysis_core import SUPPORTED_STEP_TYPES
 from app.analysis_core.calendar_policy import (
@@ -16,10 +16,6 @@ from app.semantic_runtime.repository import SemanticRuntimeRepository
 from app.semantic_runtime.resolution import RuntimeSemanticAvailability
 from app.semantic_runtime.semantic_metadata import runtime_ref_kind
 from app.storage.metadata import MetadataStore
-
-if TYPE_CHECKING:
-    from app.bindings import BindingService
-
 
 _SEARCH_CONFIG: dict[str, dict[str, str]] = {
     "entity": {
@@ -74,11 +70,11 @@ class CatalogRuntimeService:
     def __init__(
         self,
         metadata: MetadataStore,
-        binding_service: BindingService | None = None,
+        binding_service: object | None = None,
         semantic_repository: SemanticRuntimeRepository | None = None,
     ) -> None:
+        _ = binding_service
         self.metadata = metadata
-        self.binding_service = binding_service
         self.semantic_repository = semantic_repository or SemanticRuntimeRepository(metadata)
 
     def search(

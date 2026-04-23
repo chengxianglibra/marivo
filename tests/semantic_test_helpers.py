@@ -482,11 +482,40 @@ def publish_typed_metric(client: TestClient, metric_contract_id: str) -> dict[st
     return client.app.state.semantic_service.publish_typed_metric(metric_contract_id)
 
 
+def _structured_carrier_locator(
+    metadata: MetadataStore,
+    *,
+    carrier_locator: str | dict[str, Any],
+    source_object_ref: str | None,
+) -> dict[str, Any]:
+    if isinstance(carrier_locator, dict):
+        return dict(carrier_locator)
+    if source_object_ref is not None:
+        row = metadata.query_one(
+            "SELECT authority_locator_json FROM source_objects WHERE object_id = ?",
+            [source_object_ref],
+        )
+        if row is not None:
+            return json.loads(str(row["authority_locator_json"]))
+    row = metadata.query_one(
+        "SELECT authority_locator_json FROM source_objects WHERE fqn = ?",
+        [carrier_locator],
+    )
+    if row is not None:
+        return json.loads(str(row["authority_locator_json"]))
+    parts = [part for part in carrier_locator.split(".") if part]
+    if len(parts) == 3:
+        return {"catalog": parts[0], "schema": parts[1], "table": parts[2]}
+    if len(parts) == 2:
+        return {"catalog": None, "schema": parts[0], "table": parts[1]}
+    raise AssertionError(f"Unable to derive structured carrier locator from {carrier_locator!r}")
+
+
 def ensure_published_typed_metric_binding(
     metadata: MetadataStore,
     *,
     metric_name: str,
-    carrier_locator: str,
+    carrier_locator: str | dict[str, Any],
     source_object_ref: str | None = None,
     binding_role: str = "primary",
     surface_name: str = "value",
@@ -518,6 +547,11 @@ def ensure_published_typed_metric_binding(
         [f"metric.{metric_name}"],
     )
     metric_family = str(metric_row["metric_family"]) if metric_row is not None else "count_metric"
+    structured_locator = _structured_carrier_locator(
+        metadata,
+        carrier_locator=carrier_locator,
+        source_object_ref=source_object_ref,
+    )
 
     field_surfaces = [
         {"surface_ref": "field.event_date", "physical_name": "event_date"},
@@ -584,7 +618,7 @@ def ensure_published_typed_metric_binding(
                                 "binding_key": "primary",
                                 "source_object_ref": source_object_ref,
                                 "carrier_kind": "table",
-                                "carrier_locator": carrier_locator,
+                                "carrier_locator": structured_locator,
                                 "binding_role": binding_role,
                                 "field_surfaces": field_surfaces,
                             }
@@ -606,7 +640,7 @@ def create_typed_metric_binding(
     *,
     metric_ref: str,
     object_id: str,
-    carrier_locator: str,
+    carrier_locator: str | dict[str, Any],
     binding_role: str = "primary",
     mapping_type: str | None = None,
     metric_input_target_keys: Sequence[str] | None = None,

@@ -114,7 +114,7 @@ class OutputBinding(TypedDict):
 class CarrierBinding(TypedDict):
     binding_ref: str
     source_object_ref: NotRequired[str | None]
-    carrier_locator: NotRequired[str | None]
+    carrier_locator: NotRequired[dict[str, str | None] | str | None]
     consumed_surface_refs: NotRequired[list[str] | None]
 
 

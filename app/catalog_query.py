@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from app.semantic_runtime import CatalogRuntimeService
 from app.storage.metadata import MetadataStore
-
-if TYPE_CHECKING:
-    from app.bindings import BindingService
 
 
 class CatalogQueryService:
@@ -16,10 +13,9 @@ class CatalogQueryService:
     def __init__(
         self,
         metadata: MetadataStore,
-        binding_service: BindingService | None = None,
     ) -> None:
         self.metadata = metadata
-        self.runtime = CatalogRuntimeService(metadata, binding_service)
+        self.runtime = CatalogRuntimeService(metadata)
 
     # ── Search ───────────────────────────────────────────────────
 

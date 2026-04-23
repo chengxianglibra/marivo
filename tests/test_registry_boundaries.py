@@ -4,9 +4,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app.bindings import BindingService
 from app.engines import EngineService
-from app.registry import BindingRegistry, EngineRegistry, RegistrySyncEngine, SourceRegistry
+from app.mappings import MappingService
+from app.registry import EngineRegistry, MappingRegistry, RegistrySyncEngine, SourceRegistry
 from app.sources import SourceService
 from app.storage.sqlite_metadata import SQLiteMetadataStore
 from app.sync import SyncEngine
@@ -25,7 +25,7 @@ class RegistryBoundaryTests(unittest.TestCase):
     def test_legacy_facades_subclass_registry_layer(self) -> None:
         self.assertIsInstance(SourceService(self.metadata), SourceRegistry)
         self.assertIsInstance(EngineService(self.metadata), EngineRegistry)
-        self.assertIsInstance(BindingService(self.metadata), BindingRegistry)
+        self.assertIsInstance(MappingService(self.metadata), MappingRegistry)
         self.assertIsInstance(SyncEngine(self.metadata), RegistrySyncEngine)
 
 

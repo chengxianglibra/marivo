@@ -40,6 +40,102 @@ def _optional_str(value: Any) -> str | None:
     return normalized or None
 
 
+def _normalize_carrier_locator(value: Any) -> dict[str, Any] | None:
+    if isinstance(value, dict):
+        return {
+            "catalog": _optional_str(value.get("catalog")),
+            "schema": _optional_str(value.get("schema")) or _optional_str(value.get("schema_name")),
+            "table": _optional_str(value.get("table")),
+        }
+    if isinstance(value, str):
+        normalized = value.strip()
+        if not normalized:
+            return None
+        try:
+            payload = json.loads(normalized)
+        except json.JSONDecodeError:
+            parts = [part.strip() for part in normalized.split(".") if part.strip()]
+            if len(parts) >= 3:
+                return {"catalog": parts[-3], "schema": parts[-2], "table": parts[-1]}
+            if len(parts) == 2:
+                return {"catalog": None, "schema": parts[0], "table": parts[1]}
+            if len(parts) == 1:
+                return {"catalog": None, "schema": None, "table": parts[0]}
+            return None
+        if isinstance(payload, dict):
+            return _normalize_carrier_locator(payload)
+        if isinstance(payload, str):
+            return _normalize_carrier_locator(payload)
+    return None
+
+
+def _carrier_locator_ref(value: Any) -> str | None:
+    if isinstance(value, str):
+        normalized = value.strip()
+        return normalized or None
+    locator = _normalize_carrier_locator(value)
+    if locator is None:
+        return None
+    normalized = ".".join(
+        part
+        for part in [
+            _optional_str(locator.get("catalog")),
+            _optional_str(locator.get("schema")),
+            _optional_str(locator.get("table")),
+        ]
+        if part is not None
+    )
+    return normalized or None
+
+
+def _locator_matches_source_object(
+    source_object: dict[str, Any], locator: dict[str, Any] | str
+) -> bool:
+    fqn = _optional_str(source_object.get("fqn"))
+    native_name = _optional_str(source_object.get("native_name"))
+    authority_locator = _normalize_carrier_locator(source_object.get("authority_locator")) or {}
+    authority_fqn = ".".join(
+        part
+        for part in [
+            _optional_str(authority_locator.get("catalog")),
+            _optional_str(authority_locator.get("schema")),
+            _optional_str(authority_locator.get("table")),
+        ]
+        if part is not None
+    )
+    if isinstance(locator, str):
+        normalized = locator.strip()
+        if not normalized:
+            return False
+        if normalized in {
+            candidate for candidate in [fqn, native_name, authority_fqn] if candidate
+        }:
+            return True
+    normalized_locator = _normalize_carrier_locator(locator)
+    if normalized_locator is None:
+        return False
+    normalized_locator_fqn = ".".join(
+        part
+        for part in [
+            _optional_str(normalized_locator.get("catalog")),
+            _optional_str(normalized_locator.get("schema")),
+            _optional_str(normalized_locator.get("table")),
+        ]
+        if part is not None
+    )
+    if normalized_locator_fqn and normalized_locator_fqn in {
+        candidate for candidate in [fqn, native_name, authority_fqn] if candidate
+    }:
+        return True
+    if not authority_locator:
+        return False
+    return all(
+        normalized_locator.get(key) is None
+        or authority_locator.get(key) == normalized_locator.get(key)
+        for key in ("catalog", "schema", "table")
+    )
+
+
 class _SemanticListContext:
     """Request-local semantic caches for list endpoints.
 
@@ -87,16 +183,12 @@ class _SemanticListContext:
             return self._source_objects_by_id.get(
                 source_object_ref
             ) or self._source_objects_by_fqn.get(source_object_ref)
-        locator = carrier_binding.get("carrier_locator") or {}
-        if isinstance(locator, dict):
-            object_id = locator.get("object_id")
-            if isinstance(object_id, str) and object_id:
-                return self._source_objects_by_id.get(object_id)
-            fqn = locator.get("fqn")
-            if isinstance(fqn, str) and fqn:
-                return self._source_objects_by_fqn.get(fqn)
-        # Keep parity with the default readiness loader: plain-string
-        # carrier_locator does not resolve unless also present as source_object_ref.
+        raw_locator = carrier_binding.get("carrier_locator")
+        if raw_locator is None:
+            return None
+        for source_object in self._source_objects_by_id.values():
+            if _locator_matches_source_object(source_object, raw_locator):
+                return dict(source_object)
         return None
 
     def load_profiles(self, subject_kind: str, subject_ref: str) -> list[dict[str, Any]]:
@@ -158,10 +250,13 @@ class _SemanticListContext:
         if self._source_objects_by_id is not None and self._source_objects_by_fqn is not None:
             return
         rows = self._service.metadata.query_rows("SELECT * FROM source_objects")
-        self._source_objects_by_id = {str(row["object_id"]): dict(row) for row in rows}
+        self._source_objects_by_id = {}
         source_objects_by_fqn: dict[str, dict[str, Any]] = {}
         for row in rows:
-            source_objects_by_fqn.setdefault(str(row["fqn"]), dict(row))
+            source_object = dict(row)
+            source_object["authority_locator"] = json.loads(str(row["authority_locator_json"]))
+            self._source_objects_by_id[str(row["object_id"])] = source_object
+            source_objects_by_fqn.setdefault(str(row["fqn"]), source_object)
         self._source_objects_by_fqn = source_objects_by_fqn
 
     def _ensure_profiles(self) -> None:
@@ -579,7 +674,7 @@ class _SemanticListContext:
                     "binding_key": carrier_row["binding_key"],
                     "source_object_ref": carrier_row["source_object_ref"],
                     "carrier_kind": carrier_row["carrier_kind"],
-                    "carrier_locator": carrier_row["carrier_locator"],
+                    "carrier_locator": _normalize_carrier_locator(carrier_row["carrier_locator"]),
                     "binding_role": carrier_row["binding_role"],
                     "semantic_role_ref": carrier_row["semantic_role_ref"],
                     "grain_ref": carrier_row["grain_ref"],
@@ -1084,7 +1179,10 @@ class SemanticServiceSupport:
                 self._append_dependency_ref(refs, seen, carrier.get("primary_entity_ref"))
                 self._append_dependency_ref(refs, seen, carrier.get("source_object_ref"))
                 self._append_dependency_ref(
-                    refs, seen, carrier.get("carrier_locator"), allow_locator=True
+                    refs,
+                    seen,
+                    _carrier_locator_ref(carrier.get("carrier_locator")),
+                    allow_locator=True,
                 )
             for field_binding in interface_contract.get("field_bindings") or []:
                 self._append_dependency_ref(refs, seen, field_binding.get("semantic_ref"))
@@ -1908,13 +2006,13 @@ class SemanticServiceSupport:
         require_resolution: bool,
     ) -> dict[str, Any] | None:
         source_object_ref = carrier.get("source_object_ref")
-        carrier_locator = carrier["carrier_locator"]
+        carrier_locator = carrier.get("carrier_locator")
         carrier_kind = carrier["carrier_kind"]
 
         if source_object_ref is not None:
             row = self.metadata.query_one(
                 """
-                SELECT object_id, object_type, fqn
+                SELECT object_id, object_type, fqn, authority_locator_json
                 FROM source_objects
                 WHERE object_id = ?
                 """,
@@ -1928,26 +2026,39 @@ class SemanticServiceSupport:
                     f"for carrier '{carrier['binding_key']}': expected '{carrier_kind}', "
                     f"got '{row['object_type']}'"
                 )
-            if row["fqn"] != carrier_locator:
+            row_dict = dict(row)
+            row_dict["authority_locator"] = json.loads(str(row["authority_locator_json"]))
+            if carrier_locator is None or not _locator_matches_source_object(
+                row_dict, carrier_locator
+            ):
                 raise self._validation_error(
-                    "carrier_locator does not match resolved source object FQN "
-                    f"for carrier '{carrier['binding_key']}': expected '{row['fqn']}', "
+                    "carrier_locator does not match resolved source object authority locator "
+                    f"for carrier '{carrier['binding_key']}': expected '{row_dict['authority_locator']}', "
                     f"got '{carrier_locator}'"
                 )
-            return dict(row)
+            return row_dict
 
         if not require_resolution:
             return None
 
         rows = self.metadata.query_rows(
             """
-            SELECT object_id, object_type, fqn
+            SELECT object_id, object_type, fqn, authority_locator_json
             FROM source_objects
-            WHERE fqn = ? AND object_type = ?
+            WHERE object_type = ?
             ORDER BY object_id
             """,
-            [carrier_locator, carrier_kind],
+            [carrier_kind],
         )
+        matching_rows: list[dict[str, Any]] = []
+        for row in rows:
+            row_dict = dict(row)
+            row_dict["authority_locator"] = json.loads(str(row["authority_locator_json"]))
+            if carrier_locator is not None and _locator_matches_source_object(
+                row_dict, carrier_locator
+            ):
+                matching_rows.append(row_dict)
+        rows = matching_rows
         if not rows:
             raise self._validation_error(
                 "carrier_locator must resolve to a synced source_object at publish time: "
@@ -2811,7 +2922,7 @@ class SemanticServiceSupport:
                     carrier["binding_key"],
                     carrier.get("source_object_ref"),
                     carrier["carrier_kind"],
-                    carrier["carrier_locator"],
+                    json.dumps(carrier["carrier_locator"]),
                     carrier["binding_role"],
                     carrier.get("semantic_role_ref"),
                     carrier.get("grain_ref"),
