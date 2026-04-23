@@ -32,6 +32,106 @@ class MappingValidationResult:
         }
 
 
+def _mapping_from_row(row: dict[str, Any]) -> dict[str, Any]:
+    raw_catalog_mappings = json.loads(str(row["catalog_mappings_json"]))
+    return {
+        "mapping_id": row["mapping_id"],
+        "source_id": row["source_id"],
+        "engine_id": row["engine_id"],
+        "priority": row["priority"],
+        "catalog_mappings": raw_catalog_mappings if isinstance(raw_catalog_mappings, list) else [],
+        "status": row["status"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
+def evaluate_mapping_payload(
+    metadata: MetadataStore,
+    mapping: dict[str, Any],
+    *,
+    source_registry: SourceRegistry | None = None,
+    engine_registry: EngineRegistry | None = None,
+) -> MappingValidationResult:
+    source_registry = source_registry or SourceRegistry(metadata)
+    engine_registry = engine_registry or EngineRegistry(metadata)
+    if mapping["status"] != "active":
+        return MappingValidationResult(
+            is_valid=False,
+            readiness_status="not_ready",
+            failure_code="mapping_inactive",
+        )
+    source = source_registry.get_source(str(mapping["source_id"]), include_mappings=False)
+    engine = engine_registry.get_engine(str(mapping["engine_id"]), include_mappings=False)
+    dependency_validation = MappingRegistry._validate_dependencies(source, engine)
+    if dependency_validation is not None:
+        return dependency_validation
+
+    source_type = str(source["source_type"])
+    engine_type = str(engine["engine_type"])
+    if (source_type, engine_type) not in _ALLOWED_TYPE_COMBINATIONS:
+        return MappingValidationResult(
+            is_valid=False,
+            readiness_status="not_ready",
+            failure_code="mapping_invalid_type_combo",
+        )
+
+    catalog_validation = MappingRegistry._validate_catalog_mappings(
+        metadata,
+        str(mapping["source_id"]),
+        mapping.get("catalog_mappings", []),
+    )
+    if catalog_validation is not None:
+        return catalog_validation
+
+    return MappingValidationResult(is_valid=True, readiness_status="ready")
+
+
+def list_mapping_summaries(
+    metadata: MetadataStore,
+    *,
+    source_id: str | None = None,
+    engine_id: str | None = None,
+) -> list[dict[str, Any]]:
+    if (source_id is None) == (engine_id is None):
+        raise ValueError("Exactly one of source_id or engine_id must be provided")
+
+    filter_column = "source_id" if source_id is not None else "engine_id"
+    filter_value = source_id if source_id is not None else engine_id
+    opposite_id_key = "engine_id" if source_id is not None else "source_id"
+    rows = metadata.query_rows(
+        f"""
+        SELECT mapping_id, source_id, engine_id, priority, catalog_mappings_json, status, created_at, updated_at
+        FROM source_execution_mappings
+        WHERE {filter_column} = ?
+        ORDER BY priority DESC, created_at
+        """,
+        [filter_value],
+    )
+    source_registry = SourceRegistry(metadata)
+    engine_registry = EngineRegistry(metadata)
+    summaries: list[dict[str, Any]] = []
+    for row in rows:
+        mapping = _mapping_from_row(row)
+        mapping_validation = evaluate_mapping_payload(
+            metadata,
+            mapping,
+            source_registry=source_registry,
+            engine_registry=engine_registry,
+        )
+        summaries.append(
+            {
+                "mapping_id": mapping["mapping_id"],
+                opposite_id_key: mapping[opposite_id_key],
+                "status": mapping["status"],
+                "readiness_status": mapping_validation.readiness_status,
+                "failure_code": mapping_validation.failure_code,
+                "catalog_mappings": mapping["catalog_mappings"],
+            }
+        )
+    return summaries
+
+
 class MappingRegistry:
     """Registry for source-to-execution mapping contracts."""
 
@@ -191,47 +291,15 @@ class MappingRegistry:
         )
 
     def evaluate_mapping(self, mapping: dict[str, Any]) -> MappingValidationResult:
-        if mapping["status"] != "active":
-            return MappingValidationResult(
-                is_valid=False,
-                readiness_status="not_ready",
-                failure_code="mapping_inactive",
-            )
-        source = self.source_registry.get_source(str(mapping["source_id"]))
-        engine = self.engine_registry.get_engine(str(mapping["engine_id"]))
-        dependency_validation = self._validate_dependencies(source, engine)
-        if dependency_validation is not None:
-            return dependency_validation
-
-        source_type = str(source["source_type"])
-        engine_type = str(engine["engine_type"])
-        if (source_type, engine_type) not in _ALLOWED_TYPE_COMBINATIONS:
-            return MappingValidationResult(
-                is_valid=False,
-                readiness_status="not_ready",
-                failure_code="mapping_invalid_type_combo",
-            )
-
-        catalog_validation = self._validate_catalog_mappings(
-            str(mapping["source_id"]),
-            mapping.get("catalog_mappings", []),
+        return evaluate_mapping_payload(
+            self.metadata,
+            mapping,
+            source_registry=self.source_registry,
+            engine_registry=self.engine_registry,
         )
-        if catalog_validation is not None:
-            return catalog_validation
-
-        return MappingValidationResult(is_valid=True, readiness_status="ready")
 
     def _row_to_mapping(self, row: dict[str, Any]) -> dict[str, Any]:
-        mapping = {
-            "mapping_id": row["mapping_id"],
-            "source_id": row["source_id"],
-            "engine_id": row["engine_id"],
-            "priority": row["priority"],
-            "catalog_mappings": json.loads(str(row["catalog_mappings_json"])),
-            "status": row["status"],
-            "created_at": row["created_at"],
-            "updated_at": row["updated_at"],
-        }
+        mapping = _mapping_from_row(row)
         validation = self.evaluate_mapping(mapping)
         mapping["readiness_status"] = validation.readiness_status
         mapping["failure_code"] = validation.failure_code
@@ -277,8 +345,8 @@ class MappingRegistry:
             )
         return normalized
 
+    @staticmethod
     def _validate_dependencies(
-        self,
         source: dict[str, Any],
         engine: dict[str, Any],
     ) -> MappingValidationResult | None:
@@ -314,8 +382,9 @@ class MappingRegistry:
             )
         return None
 
+    @staticmethod
     def _validate_catalog_mappings(
-        self,
+        metadata: MetadataStore,
         source_id: str,
         catalog_mappings: Any,
     ) -> MappingValidationResult | None:
@@ -359,7 +428,7 @@ class MappingRegistry:
                 )
             mapped_catalogs.add(authority_catalog.strip())
 
-        source_catalogs = self._current_source_authority_catalogs(source_id)
+        source_catalogs = MappingRegistry._current_source_authority_catalogs(metadata, source_id)
         if source_catalogs:
             if not mapped_catalogs.issubset(source_catalogs):
                 return MappingValidationResult(
@@ -376,8 +445,9 @@ class MappingRegistry:
 
         return None
 
-    def _current_source_authority_catalogs(self, source_id: str) -> set[str]:
-        rows = self.metadata.query_rows(
+    @staticmethod
+    def _current_source_authority_catalogs(metadata: MetadataStore, source_id: str) -> set[str]:
+        rows = metadata.query_rows(
             """
             SELECT authority_locator_json
             FROM source_objects

@@ -142,15 +142,15 @@ class SourceRegistry:
         )
         return self.get_source(source_id)
 
-    def get_source(self, source_id: str) -> dict[str, Any]:
+    def get_source(self, source_id: str, *, include_mappings: bool = True) -> dict[str, Any]:
         row = self.metadata.query_one("SELECT * FROM sources WHERE source_id = ?", [source_id])
         if row is None:
             raise KeyError(f"Unknown source: {source_id}")
-        return self._row_to_source(row)
+        return self._row_to_source(row, include_mappings=include_mappings)
 
     def list_sources(self) -> list[dict[str, Any]]:
         rows = self.metadata.query_rows("SELECT * FROM sources ORDER BY created_at")
-        return [self._row_to_source(row) for row in rows]
+        return [self._row_to_source(row, include_mappings=True) for row in rows]
 
     def ensure_source(
         self,
@@ -525,7 +525,7 @@ class SourceRegistry:
             readiness_status="ready",
         )
 
-    def _row_to_source(self, row: dict[str, Any]) -> dict[str, Any]:
+    def _row_to_source(self, row: dict[str, Any], *, include_mappings: bool) -> dict[str, Any]:
         source_type = str(row["source_type"])
         raw_authority = json.loads(str(row["authority_json"]))
         authority = raw_authority if isinstance(raw_authority, dict) else {}
@@ -559,6 +559,9 @@ class SourceRegistry:
             "intrinsic_capabilities": intrinsic_capabilities,
             "policy": policy,
             "status": row["status"],
+            "mappings": (
+                self._list_mapping_summaries(str(row["source_id"])) if include_mappings else []
+            ),
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
@@ -566,6 +569,11 @@ class SourceRegistry:
         source["readiness_status"] = validation.readiness_status
         source["failure_code"] = validation.failure_code
         return source
+
+    def _list_mapping_summaries(self, source_id: str) -> list[dict[str, Any]]:
+        from app.registry.mapping_registry import list_mapping_summaries
+
+        return list_mapping_summaries(self.metadata, source_id=source_id)
 
     def _row_to_object(self, row: dict[str, Any]) -> dict[str, Any]:
         return {

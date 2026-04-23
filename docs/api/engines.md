@@ -7,8 +7,8 @@ Engines represent analytics execution backends. In the current runtime, supporte
 This page documents the engine inventory surface only. The public operator-facing source-to-engine
 write/read contract is `/mappings`; `/bindings` is not part of the current external HTTP surface.
 
-When `marivo.yaml` includes a Trino engine, Marivo validates the optional `trino` Python package at
-startup and fails fast if it is missing. Install Trino support with `pip install -e .[trino]`.
+`marivo.yaml` does not carry engine inventory. Engines are registered and managed only through the
+HTTP API.
 
 ## Endpoints
 
@@ -101,14 +101,16 @@ Registers an analytics engine. The engine type determines which adapter implemen
   "status": "active",
   "readiness_status": "ready",
   "failure_code": null,
+  "mappings": [],
   "created_at": "2024-01-15T10:00:00+00:00",
   "updated_at": "2024-01-15T10:00:00+00:00"
 }
 ```
 
 The canonical response model is `EngineResponse`. `default_namespace`,
-`intrinsic_capabilities`, `deployment_capabilities`, and `policy` are structured sub-objects;
-`intrinsic_capabilities`, `readiness_status`, and `failure_code` are read-only derived fields.
+`intrinsic_capabilities`, `deployment_capabilities`, `policy`, and `mappings` are structured
+sub-objects; `intrinsic_capabilities`, `readiness_status`, and `failure_code` are read-only
+derived fields.
 
 `readiness_status` is derived from engine validation. This check is configuration-only in the
 current runtime: it validates engine type, connection shape, `default_namespace`, and the value
@@ -141,6 +143,10 @@ GET /engines/{engine_id}
 ### Response
 
 Returns `EngineResponse`.
+
+The detail surface includes a `mappings` array summarizing the mappings that currently target the
+engine. Each entry exposes `mapping_id`, `source_id`, `status`, `readiness_status`,
+`failure_code`, and the mapping's `catalog_mappings`.
 
 ---
 
@@ -206,13 +212,37 @@ fails and the caller must retry with a full FQN.
   ],
   "selection_reason": "Highest priority mapping covering all requested tables",
   "routing_detail": {
-    "selected_mapping_id": "map_...",
+    "selected_mapping_ids": ["map_..."],
     "execution_locators": {
       "events.user_video_watch": {
-        "qualified_name": "iceberg.events.user_video_watch"
+        "catalog": "iceberg",
+        "schema": "events",
+        "table": "user_video_watch",
+        "mapping_id": "map_...",
+        "authority_catalog": "lakehouse",
+        "execution_catalog": "iceberg",
+        "default_schema_applied": false,
+        "readiness_blockers": [],
+        "authority_locator": {
+          "catalog": "lakehouse",
+          "schema": "events",
+          "table": "user_video_watch"
+        }
       },
       "dimensions.video_metadata": {
-        "qualified_name": "iceberg.dimensions.video_metadata"
+        "catalog": "iceberg",
+        "schema": "dimensions",
+        "table": "video_metadata",
+        "mapping_id": "map_...",
+        "authority_catalog": "lakehouse",
+        "execution_catalog": "iceberg",
+        "default_schema_applied": false,
+        "readiness_blockers": [],
+        "authority_locator": {
+          "catalog": "lakehouse",
+          "schema": "dimensions",
+          "table": "video_metadata"
+        }
       }
     }
   },

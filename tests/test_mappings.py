@@ -115,6 +115,25 @@ class MappingServiceTests(unittest.TestCase):
             route.routing_detail["execution_locators"]["watch_events"]["authority_locator"],
             {"catalog": "main", "schema": "analytics", "table": "watch_events"},
         )
+        self.assertEqual(
+            route.routing_detail["execution_locators"]["watch_events"]["mapping_id"],
+            mapping["mapping_id"],
+        )
+        self.assertEqual(
+            route.routing_detail["execution_locators"]["watch_events"]["authority_catalog"],
+            "main",
+        )
+        self.assertEqual(
+            route.routing_detail["execution_locators"]["watch_events"]["execution_catalog"],
+            "duckdb_runtime",
+        )
+        self.assertFalse(
+            route.routing_detail["execution_locators"]["watch_events"]["default_schema_applied"]
+        )
+        self.assertEqual(
+            route.routing_detail["execution_locators"]["watch_events"]["readiness_blockers"], []
+        )
+        self.assertEqual(route.routing_detail["selected_mapping_ids"], [mapping["mapping_id"]])
 
     def test_mapping_incomplete_fails_closed(self) -> None:
         self.mapping_service.create_mapping(

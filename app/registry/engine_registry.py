@@ -142,15 +142,15 @@ class EngineRegistry:
         )
         return self.get_engine(engine_id)
 
-    def get_engine(self, engine_id: str) -> dict[str, Any]:
+    def get_engine(self, engine_id: str, *, include_mappings: bool = True) -> dict[str, Any]:
         row = self.metadata.query_one("SELECT * FROM engines WHERE engine_id = ?", [engine_id])
         if row is None:
             raise KeyError(f"Unknown engine: {engine_id}")
-        return self._row_to_engine(row)
+        return self._row_to_engine(row, include_mappings=include_mappings)
 
     def list_engines(self) -> list[dict[str, Any]]:
         rows = self.metadata.query_rows("SELECT * FROM engines ORDER BY created_at")
-        return [self._row_to_engine(row) for row in rows]
+        return [self._row_to_engine(row, include_mappings=True) for row in rows]
 
     def ensure_engine(
         self,
@@ -286,7 +286,7 @@ class EngineRegistry:
             readiness_status="ready",
         )
 
-    def _row_to_engine(self, row: dict[str, Any]) -> dict[str, Any]:
+    def _row_to_engine(self, row: dict[str, Any], *, include_mappings: bool) -> dict[str, Any]:
         engine_type = str(row["engine_type"])
         raw_connection = json.loads(str(row["connection_json"]))
         connection = raw_connection if isinstance(raw_connection, dict) else {}
@@ -326,6 +326,9 @@ class EngineRegistry:
             "deployment_capabilities": deployment_capabilities,
             "policy": policy,
             "status": row["status"],
+            "mappings": (
+                self._list_mapping_summaries(str(row["engine_id"])) if include_mappings else []
+            ),
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
@@ -333,6 +336,11 @@ class EngineRegistry:
         engine["readiness_status"] = validation.readiness_status
         engine["failure_code"] = validation.failure_code
         return engine
+
+    def _list_mapping_summaries(self, engine_id: str) -> list[dict[str, Any]]:
+        from app.registry.mapping_registry import list_mapping_summaries
+
+        return list_mapping_summaries(self.metadata, engine_id=engine_id)
 
     def _is_valid_default_namespace(self, engine_type: str, namespace: Any) -> bool:
         if not isinstance(namespace, dict):

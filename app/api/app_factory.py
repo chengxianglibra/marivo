@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib
 import logging
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -40,21 +39,6 @@ from app.sync import SyncEngine
 logger = logging.getLogger(__name__)
 
 
-def _require_runtime_dependencies(config: MarivoConfig) -> None:
-    needs_trino = any(source.type == "trino" for source in config.sources) or any(
-        engine.type == "trino" for engine in config.engines
-    )
-    if not needs_trino:
-        return
-    try:
-        importlib.import_module("trino")
-    except ModuleNotFoundError as error:
-        raise RuntimeError(
-            "marivo.yaml references a Trino source or engine, but the optional dependency "
-            "'trino' is not installed. Install it with: pip install -e .[trino]"
-        ) from error
-
-
 def _resolve_storage(
     db_path: str | Path | None,
     metadata_store: MetadataStore | None,
@@ -88,76 +72,6 @@ def _resolve_storage(
     if created_analytics_engine:
         analytics_engine.initialize()
     return resolved_path, metadata_store, analytics_engine
-
-
-def _register_configured_sources(
-    config: MarivoConfig, source_service: SourceService, sync_engine: SyncEngine
-) -> None:
-    for source_config in config.sources:
-        try:
-            source = source_service.ensure_source(
-                source_type=source_config.type,
-                display_name=source_config.name,
-                authority=source_config.authority.model_dump(),
-                sync=source_config.sync.model_dump(),
-                policy=source_config.policy.model_dump(),
-            )
-            sync_mode = str(source.get("sync", {}).get("mode", source_config.sync.mode))
-            if sync_mode == "none":
-                logger.info("Config source '%s' registered (sync disabled)", source_config.name)
-            elif sync_mode == "selected":
-                selections = source_service.list_sync_selections(source["source_id"])
-                if selections:
-                    selection_dicts = [
-                        {"schema_name": row["schema_name"], "table_name": row["table_name"]}
-                        for row in selections
-                    ]
-                    adapter = source_service.get_adapter(source["source_id"])
-                    sync_engine.trigger_sync(
-                        source["source_id"], adapter, selections=selection_dicts
-                    )
-                    logger.info(
-                        "Config source '%s' registered and selectively synced", source_config.name
-                    )
-                else:
-                    logger.info(
-                        "Config source '%s' registered (selected, no selections yet)",
-                        source_config.name,
-                    )
-            elif sync_mode == "all":
-                adapter = source_service.get_adapter(source["source_id"])
-                sync_engine.trigger_sync(source["source_id"], adapter)
-                logger.info("Config source '%s' registered and fully synced", source_config.name)
-            else:
-                logger.warning(
-                    "Config source '%s' has unknown sync.mode '%s'; skipping sync",
-                    source_config.name,
-                    sync_mode,
-                )
-        except Exception:
-            logger.exception("Failed to register/sync config source '%s'", source_config.name)
-
-
-def _register_configured_engines(config: MarivoConfig, engine_service: EngineService) -> None:
-    for engine_config in config.engines:
-        try:
-            engine_service.ensure_engine(
-                engine_type=engine_config.type,
-                display_name=engine_config.name,
-                connection=engine_config.connection,
-                default_namespace=(
-                    engine_config.default_namespace.model_dump(by_alias=True)
-                    if engine_config.default_namespace is not None
-                    else None
-                ),
-                deployment_capabilities=engine_config.deployment_capabilities.model_dump(
-                    exclude_unset=True
-                ),
-                policy=engine_config.policy.model_dump(),
-            )
-            logger.info("Config engine '%s' registered", engine_config.name)
-        except Exception:
-            logger.exception("Failed to register config engine '%s'", engine_config.name)
 
 
 def _register_configured_governance(
@@ -229,9 +143,7 @@ def _build_services(
     )
     source_service = SourceService(metadata_store)
     sync_engine = SyncEngine(metadata_store)
-    _register_configured_sources(config, source_service, sync_engine)
     engine_service = EngineService(metadata_store)
-    _register_configured_engines(config, engine_service)
     mapping_service = MappingService(metadata_store)
     query_router = QueryRouter(metadata_store, engine_service)
     service.query_router = query_router
@@ -292,12 +204,13 @@ def create_app(
     analytics_engine: AnalyticsEngine | None = None,
     config_path: str | Path | None = None,
 ) -> FastAPI:
-    explicit_config_path = config_path is not None
     resolved_config_path = resolve_config_path(
         Path(config_path) if config_path is not None else None
     )
+    explicit_config_path = config_path is not None
+    if explicit_config_path and not resolved_config_path.is_file():
+        raise RuntimeError(f"Config file not found: {resolved_config_path}")
     config = load_config(resolved_config_path)
-    _require_runtime_dependencies(config)
     resolved_path, metadata_store, analytics_engine = _resolve_storage(
         db_path,
         metadata_store,

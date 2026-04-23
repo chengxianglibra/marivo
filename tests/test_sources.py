@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from app.main import create_app
+from app.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.semantic_test_helpers import create_typed_metric, create_typed_metric_binding
 from tests.shared_fixtures import get_seeded_duckdb_path
 
@@ -29,8 +30,11 @@ class SourceRegistryTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.temp_dir = tempfile.TemporaryDirectory()
         cls.db_path = Path(cls.temp_dir.name) / "test_sources.duckdb"
+        cls.meta_path = Path(cls.temp_dir.name) / "test_sources.meta.sqlite"
         get_seeded_duckdb_path(cls.db_path)
-        cls.client = TestClient(create_app(cls.db_path))
+        cls.client = TestClient(
+            create_app(cls.db_path, metadata_store=SQLiteMetadataStore(cls.meta_path))
+        )
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -97,6 +101,53 @@ class SourceRegistryTests(unittest.TestCase):
         self.assertEqual(resp.json()["intrinsic_capabilities"], {"supports_partitions": False})
         self.assertEqual(resp.json()["readiness_status"], "ready")
         self.assertIsNone(resp.json()["failure_code"])
+        self.assertEqual(resp.json()["mappings"], [])
+
+    def test_get_source_includes_mapping_summaries(self) -> None:
+        source_resp = self.client.post(
+            "/sources",
+            json=build_duckdb_source_payload(str(self.db_path), "Mapped Source Detail"),
+        )
+        engine_resp = self.client.post(
+            "/engines",
+            json={
+                "engine_type": "duckdb",
+                "display_name": "Mapped Engine Detail",
+                "connection": {"path": str(self.db_path)},
+            },
+        )
+        mapping_resp = self.client.post(
+            "/mappings",
+            json={
+                "source_id": source_resp.json()["source_id"],
+                "engine_id": engine_resp.json()["engine_id"],
+                "catalog_mappings": [
+                    {
+                        "authority_catalog": "main",
+                        "execution_catalog": "duckdb_runtime",
+                    }
+                ],
+            },
+        )
+        self.assertEqual(mapping_resp.status_code, 200)
+
+        detail = self.client.get(f"/sources/{source_resp.json()['source_id']}")
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(len(detail.json()["mappings"]), 1)
+        self.assertEqual(
+            detail.json()["mappings"][0]["mapping_id"], mapping_resp.json()["mapping_id"]
+        )
+        self.assertEqual(detail.json()["mappings"][0]["engine_id"], engine_resp.json()["engine_id"])
+        self.assertEqual(
+            detail.json()["mappings"][0]["catalog_mappings"],
+            [
+                {
+                    "authority_catalog": "main",
+                    "execution_catalog": "duckdb_runtime",
+                    "default_schema": None,
+                }
+            ],
+        )
 
     def test_source_openapi_uses_explicit_response_model(self) -> None:
         response = self.client.get("/openapi.json")
@@ -459,8 +510,11 @@ class SyncModeTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.temp_dir = tempfile.TemporaryDirectory()
         cls.db_path = Path(cls.temp_dir.name) / "test_sync_mode.duckdb"
+        cls.meta_path = Path(cls.temp_dir.name) / "test_sync_mode.meta.sqlite"
         get_seeded_duckdb_path(cls.db_path)
-        cls.client = TestClient(create_app(cls.db_path))
+        cls.client = TestClient(
+            create_app(cls.db_path, metadata_store=SQLiteMetadataStore(cls.meta_path))
+        )
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -898,8 +952,11 @@ class ColumnPropertiesTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.temp_dir = tempfile.TemporaryDirectory()
         cls.db_path = Path(cls.temp_dir.name) / "col_props.duckdb"
+        cls.meta_path = Path(cls.temp_dir.name) / "col_props.meta.sqlite"
         get_seeded_duckdb_path(cls.db_path)
-        cls.client = TestClient(create_app(cls.db_path))
+        cls.client = TestClient(
+            create_app(cls.db_path, metadata_store=SQLiteMetadataStore(cls.meta_path))
+        )
 
         # Register and sync a DuckDB source
         resp = cls.client.post(
@@ -989,8 +1046,11 @@ class TablePreviewTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.temp_dir = tempfile.TemporaryDirectory()
         cls.db_path = Path(cls.temp_dir.name) / "preview_test.duckdb"
+        cls.meta_path = Path(cls.temp_dir.name) / "preview_test.meta.sqlite"
         get_seeded_duckdb_path(cls.db_path)
-        cls.client = TestClient(create_app(cls.db_path))
+        cls.client = TestClient(
+            create_app(cls.db_path, metadata_store=SQLiteMetadataStore(cls.meta_path))
+        )
 
     @classmethod
     def tearDownClass(cls) -> None:

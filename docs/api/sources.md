@@ -1,9 +1,12 @@
 # Sources
 
-Sources represent external data catalogs. In the current runtime, supported source types are `duckdb` and `trino` only. After registering a source, you trigger a sync to snapshot its schema and table metadata into Marivo's local metadata store. Post-sync, all catalog queries hit SQLite — the external system is not queried at read time.
+Sources represent external data catalogs. In the current runtime, supported source types are
+`duckdb` and `trino` only. After registering a source, you trigger a sync to snapshot its schema
+and table metadata into Marivo's local metadata store. Post-sync, all catalog queries hit SQLite;
+the external system is not queried at read time.
 
-When `marivo.yaml` includes a Trino source, Marivo validates the optional `trino` Python package at
-startup and fails fast if it is missing. Install Trino support with `pip install -e .[trino]`.
+`marivo.yaml` does not carry source inventory. Sources are registered and managed only through the
+HTTP API.
 
 ## Endpoints
 
@@ -104,14 +107,15 @@ Registers a new data source. The source type determines which catalog adapter is
   "status": "active",
   "readiness_status": "ready",
   "failure_code": null,
+  "mappings": [],
   "created_at": "2024-01-15T10:00:00+00:00",
   "updated_at": "2024-01-15T10:00:00+00:00"
 }
 ```
 
 The canonical response model is `SourceResponse`. `authority`, `sync`, `intrinsic_capabilities`,
-and `policy` are structured sub-objects; `intrinsic_capabilities`, `readiness_status`, and
-`failure_code` are read-only derived fields.
+`policy`, and `mappings` are structured sub-objects; `intrinsic_capabilities`,
+`readiness_status`, and `failure_code` are read-only derived fields.
 
 `readiness_status` is derived from source validation. A source stays `not_ready` when the
 authority connection is incomplete or when a source without a native catalog layer lacks a stable
@@ -147,6 +151,10 @@ Array of `SourceResponse` objects.
 ```
 GET /sources/{source_id}
 ```
+
+The detail surface includes a `mappings` array summarizing the mappings that currently govern the
+source. Each entry exposes `mapping_id`, `engine_id`, `status`, `readiness_status`,
+`failure_code`, and the mapping's `catalog_mappings`.
 
 ---
 
@@ -199,7 +207,7 @@ Returns `SourceResponse`.
 DELETE /sources/{source_id}
 ```
 
-Deletes the source and its synced objects. Will fail if the source has active engine bindings.
+Deletes the source and its synced objects. Will fail if the source has dependent mappings.
 
 ### Response
 
