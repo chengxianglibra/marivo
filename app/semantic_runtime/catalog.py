@@ -70,10 +70,8 @@ class CatalogRuntimeService:
     def __init__(
         self,
         metadata: MetadataStore,
-        binding_service: object | None = None,
         semantic_repository: SemanticRuntimeRepository | None = None,
     ) -> None:
-        _ = binding_service
         self.metadata = metadata
         self.semantic_repository = semantic_repository or SemanticRuntimeRepository(metadata)
 

@@ -130,7 +130,7 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertIn("subtab", resp.text)
         self.assertIn("source_id", resp.text)
         self.assertIn("engine_id", resp.text)
-        self.assertIn("binding_id", resp.text)
+        self.assertIn("mapping_id", resp.text)
         self.assertIn("object_id", resp.text)
         self.assertIn("session_id", resp.text)
         self.assertIn("policy_id", resp.text)
@@ -143,7 +143,7 @@ class UIBothEnabledTests(unittest.TestCase):
     def test_admin_overview_declares_t3_summary_cards_and_links(self) -> None:
         resp = self.client.get("/static/admin/overview.js")
         self.assertIn("Source Summary", resp.text)
-        self.assertIn("Engine / Binding Summary", resp.text)
+        self.assertIn("Engine / Mapping Summary", resp.text)
         self.assertIn("Semantic Summary", resp.text)
         self.assertIn("Session Operations Summary", resp.text)
         self.assertIn("Runtime / Jobs Summary", resp.text)
@@ -317,46 +317,46 @@ class UIBothEnabledTests(unittest.TestCase):
     ) -> None:
         resp = self.client.get("/static/admin/execution-engines.js")
         self.assertIn("Engine Inventory", resp.text)
-        self.assertIn("Binding Inventory", resp.text)
+        self.assertIn("Mapping Inventory", resp.text)
         self.assertIn("Engine Summary", resp.text)
-        self.assertIn("Binding Summary", resp.text)
-        self.assertIn("Source-engine Relationship", resp.text)
-        self.assertIn("Execution Binding Contract", resp.text)
+        self.assertIn("Mapping Summary", resp.text)
+        self.assertIn("Routing & Mapping Contract", resp.text)
         self.assertIn("Create Engine", resp.text)
-        self.assertIn("Create Binding", resp.text)
-        self.assertIn("Delete Binding", resp.text)
+        self.assertIn("Create Mapping", resp.text)
+        self.assertIn("Delete Mapping", resp.text)
         self.assertIn("engine_id", resp.text)
         self.assertIn("display_name", resp.text)
         self.assertIn("engine_type", resp.text)
-        self.assertIn("binding_id", resp.text)
+        self.assertIn("mapping_id", resp.text)
         self.assertIn("source_id", resp.text)
         self.assertIn("priority", resp.text)
         self.assertIn("GET /engines", resp.text)
         self.assertIn("GET /engines/{engine_id}", resp.text)
-        self.assertIn("GET /bindings", resp.text)
-        self.assertIn("GET /bindings/{binding_id}", resp.text)
-        self.assertIn("DELETE /bindings/{binding_id}", resp.text)
-        self.assertIn("GET /sources/{source_id}/engines", resp.text)
+        self.assertIn("GET /mappings", resp.text)
+        self.assertIn("GET /mappings/{mapping_id}", resp.text)
+        self.assertIn("DELETE /mappings/{mapping_id}", resp.text)
+        self.assertIn("POST /routing/resolve", resp.text)
 
     def test_admin_execution_engines_declares_boundary_copy_empty_states_and_modals(
         self,
     ) -> None:
         resp = self.client.get("/static/admin/execution-engines.js")
         self.assertIn("No execution engines configured yet.", resp.text)
-        self.assertIn("No source-engine bindings configured yet.", resp.text)
+        self.assertIn("No source-engine mappings configured yet.", resp.text)
         self.assertIn(
-            "Create at least one data source before creating an execution binding.", resp.text
+            "Create at least one data source before creating a source-to-engine mapping.", resp.text
         )
         self.assertIn(
-            "Create at least one execution engine before creating an execution binding.", resp.text
+            "Create at least one execution engine before creating a source-to-engine mapping.",
+            resp.text,
         )
         self.assertIn(
-            "Execution engine bindings connect a source to an execution backend.", resp.text
+            "Create Mapping connects a source to an execution engine through explicit catalog_mappings.",
+            resp.text,
         )
-        self.assertIn("semantic typed bindings stay in Semantic Catalog", resp.text)
-        self.assertIn("Advanced Namespace JSON", resp.text)
+        self.assertIn("Semantic typed bindings stay in Semantic Catalog.", resp.text)
         self.assertIn("engine-form-modal", resp.text)
-        self.assertIn("binding-form-modal", resp.text)
+        self.assertIn("mapping-form-modal", resp.text)
         self.assertNotIn("still waits for its task-specific data sources", resp.text)
 
     def test_admin_execution_engines_declares_t5_client_helpers(self) -> None:
@@ -364,14 +364,14 @@ class UIBothEnabledTests(unittest.TestCase):
         self.assertIn("async function hydrate(panel, route)", resp.text)
         self.assertIn("function extractItems(payload)", resp.text)
         self.assertIn("let lastEngines = []", resp.text)
-        self.assertIn("let lastBindings = []", resp.text)
+        self.assertIn("let lastMappings = []", resp.text)
         self.assertIn("let lastSources = []", resp.text)
         self.assertIn("function renderBody(viewModel)", resp.text)
         self.assertIn("ensureEngineFormModal", resp.text)
-        self.assertIn("ensureBindingFormModal", resp.text)
+        self.assertIn("ensureMappingFormModal", resp.text)
         self.assertIn("openEngineFormModal", resp.text)
-        self.assertIn("openBindingFormModal", resp.text)
-        self.assertIn("handleDeleteBinding", resp.text)
+        self.assertIn("openMappingFormModal", resp.text)
+        self.assertIn("handleDeleteMapping", resp.text)
         self.assertIn("refreshCurrentExecutionEngines", resp.text)
         self.assertIn("route?.tab === 'execution-engines'", resp.text)
 

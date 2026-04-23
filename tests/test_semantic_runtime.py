@@ -32,7 +32,7 @@ class SemanticRuntimeTests(unittest.TestCase):
         get_seeded_duckdb_path(db_path)
         cls.client = TestClient(create_app(db_path))
         cls.metadata_store = cls.client.app.state.metadata_store
-        cls.binding_service = cls.client.app.state.binding_service
+        cls.mapping_service = cls.client.app.state.mapping_service
 
         entity = create_typed_entity(
             cls.client,
@@ -430,7 +430,6 @@ class SemanticRuntimeTests(unittest.TestCase):
 
         runtime = CatalogRuntimeService(
             self.metadata_store,
-            self.binding_service,
             semantic_repository=repository,
         )
         for object_type, expected_ref in (
@@ -703,7 +702,7 @@ class SemanticRuntimeTests(unittest.TestCase):
         self.assertEqual([row["key_ref"] for row in key_refs], ["key.user_id"])
 
     def test_catalog_runtime_search_finds_published_metric(self) -> None:
-        runtime = CatalogRuntimeService(self.metadata_store, self.binding_service)
+        runtime = CatalogRuntimeService(self.metadata_store)
 
         results = runtime.search("watch", object_type="metric")
         self.assertFalse(any(result["name"] == "watch_time" for result in results))
@@ -723,7 +722,7 @@ class SemanticRuntimeTests(unittest.TestCase):
         self.assertFalse(metric["capabilities_summary"]["supports_validate"])
 
     def test_catalog_runtime_resolve_raises_not_ready_for_non_ready_metric(self) -> None:
-        runtime = CatalogRuntimeService(self.metadata_store, self.binding_service)
+        runtime = CatalogRuntimeService(self.metadata_store)
 
         with self.assertRaises(SemanticRuntimeNotReadyError) as ctx:
             runtime.resolve("metric.watch_time")
@@ -747,7 +746,7 @@ class SemanticRuntimeTests(unittest.TestCase):
         self.assertIn("entity.user", detail["dependency_refs"])
 
     def test_catalog_runtime_resolve_requires_explicit_typed_refs(self) -> None:
-        runtime = CatalogRuntimeService(self.metadata_store, self.binding_service)
+        runtime = CatalogRuntimeService(self.metadata_store)
 
         entity_resolved = runtime.resolve("entity.user")
 
@@ -758,7 +757,7 @@ class SemanticRuntimeTests(unittest.TestCase):
             runtime.resolve("runtime_session")
 
     def test_catalog_runtime_search_rejects_invalid_type_filter(self) -> None:
-        runtime = CatalogRuntimeService(self.metadata_store, self.binding_service)
+        runtime = CatalogRuntimeService(self.metadata_store)
 
         with self.assertRaises(ValueError):
             runtime.search("watch", object_type="profile")
@@ -766,7 +765,6 @@ class SemanticRuntimeTests(unittest.TestCase):
     def test_catalog_runtime_planner_context_formats_runtime_payload(self) -> None:
         runtime = CatalogRuntimeService(
             self.metadata_store,
-            self.binding_service,
             semantic_repository=self.client.app.state.service.semantic_repository,
         )
         session = self.client.app.state.service.create_session(
@@ -797,7 +795,6 @@ class SemanticRuntimeTests(unittest.TestCase):
     def test_runtime_hides_objects_without_published_typed_contracts(self) -> None:
         runtime = CatalogRuntimeService(
             self.metadata_store,
-            self.binding_service,
             semantic_repository=self.client.app.state.service.semantic_repository,
         )
         session = self.client.app.state.service.create_session("Typed visibility gate", {}, {}, {})
@@ -826,7 +823,7 @@ class SemanticRuntimeTests(unittest.TestCase):
             )
 
     def test_catalog_runtime_graph_traverses_metric_mapping(self) -> None:
-        runtime = CatalogRuntimeService(self.metadata_store, self.binding_service)
+        runtime = CatalogRuntimeService(self.metadata_store)
 
         graph = runtime.graph(self.metric_id, depth=2)
 

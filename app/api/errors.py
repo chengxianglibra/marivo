@@ -15,7 +15,7 @@ _DOCS_BY_PATH_PREFIX: tuple[tuple[str, str], ...] = (
     ("/sessions/", "docs/api/intent-steps.md"),
     ("/sources/", "docs/api/sources.md"),
     ("/engines/", "docs/api/engines.md"),
-    ("/bindings/", "docs/api/engines.md"),
+    ("/mappings/", "docs/api/mappings.md"),
     ("/governance/", "docs/api/governance.md"),
     ("/policies/", "docs/api/governance.md"),
     ("/quality-rules/", "docs/api/governance.md"),

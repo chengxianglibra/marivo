@@ -1045,7 +1045,7 @@ export function createSemanticCatalogModule(ctx) {
     };
     semanticCatalogUiState.formModeBySubtab["typed-bindings"] = "edit";
     ctx.applyAdminRoute(
-      { ...ctx.getCurrentRoute(), tab: "semantic-catalog", subtab: "typed-bindings", objectId: "", bindingId: "" },
+      { ...ctx.getCurrentRoute(), tab: "semantic-catalog", subtab: "typed-bindings", objectId: "" },
       "push"
     );
   }
@@ -1057,7 +1057,7 @@ export function createSemanticCatalogModule(ctx) {
       return;
     }
     semanticCatalogUiState.focusRefBySubtab[targetSubtab] = ref;
-    ctx.applyAdminRoute({ ...ctx.getCurrentRoute(), tab: "semantic-catalog", subtab: targetSubtab, objectId: "", bindingId: "" }, "push");
+    ctx.applyAdminRoute({ ...ctx.getCurrentRoute(), tab: "semantic-catalog", subtab: targetSubtab, objectId: "" }, "push");
   }
 
   async function handleValidateSemanticObject(route, viewModel) {
@@ -1177,7 +1177,7 @@ export function createSemanticCatalogModule(ctx) {
       semanticCatalogUiState.formModeBySubtab[viewModel.route.subtab] = "edit";
       toast(`${viewModel.config.singularLabel} ${mode === "edit" ? "updated" : "created"}.`, "success");
       ctx.applyAdminRoute(
-        { ...ctx.getCurrentRoute(), tab: "semantic-catalog", subtab: viewModel.route.subtab, objectId: nextObjectId, bindingId: "" },
+        { ...ctx.getCurrentRoute(), tab: "semantic-catalog", subtab: viewModel.route.subtab, objectId: nextObjectId },
         "replace"
       );
     } catch (error) {
@@ -1354,7 +1354,7 @@ export function createSemanticCatalogModule(ctx) {
         selectedObjectId = semanticObjectId(config, filteredItems[0]);
       }
       if (route.objectId !== selectedObjectId) {
-        ctx.applyAdminRoute({ ...route, tab: "semantic-catalog", subtab: route.subtab, objectId: selectedObjectId, bindingId: "" }, "replace");
+        ctx.applyAdminRoute({ ...route, tab: "semantic-catalog", subtab: route.subtab, objectId: selectedObjectId }, "replace");
         return;
       }
 

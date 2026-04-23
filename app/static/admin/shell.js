@@ -14,7 +14,7 @@ export const DEFAULT_ADMIN_ROUTE = {
   subtab: '',
   sourceId: '',
   engineId: '',
-  bindingId: '',
+  mappingId: '',
   objectId: '',
   sessionId: '',
   policyId: '',
@@ -54,15 +54,15 @@ export const ADMIN_TAB_META = {
   },
   'execution-engines': {
     label: 'Execution Engines',
-    subtitle: 'Manage execution engine inventory and source-engine routing bindings.',
+    subtitle: 'Manage execution engine inventory and source-engine routing mappings.',
     objectLabel: 'engine_id',
     subtabConfig: [],
     summary: [
-      'Manage execution engine inventory and source-engine bindings from one operator-facing page.',
-      'Execution engine bindings stay distinct from semantic typed bindings, which remain in Semantic Catalog.',
-      'The URL contract keeps engine_id and binding_id shareable for stable drill-ins and refresh-safe detail panes.',
+      'Manage execution engine inventory and source-engine mappings from one operator-facing page.',
+      'Source-to-engine mappings stay distinct from semantic typed bindings, which remain in Semantic Catalog.',
+      'The URL contract keeps engine_id and mapping_id shareable for stable drill-ins and refresh-safe detail panes.',
     ],
-    routeFocus: ['tab', 'engine_id', 'binding_id'],
+    routeFocus: ['tab', 'engine_id', 'mapping_id'],
     uiLinks: [],
   },
   'semantic-catalog': {
@@ -185,7 +185,7 @@ export function createAdminShell(ctx) {
       subtab: String(nextRoute.subtab || '').trim(),
       sourceId: String(nextRoute.sourceId || '').trim(),
       engineId: String(nextRoute.engineId || '').trim(),
-      bindingId: String(nextRoute.bindingId || '').trim(),
+      mappingId: String(nextRoute.mappingId || '').trim(),
       objectId: String(nextRoute.objectId || '').trim(),
       sessionId: String(nextRoute.sessionId || '').trim(),
       policyId: String(nextRoute.policyId || '').trim(),
@@ -204,15 +204,7 @@ export function createAdminShell(ctx) {
 
     if (normalized.tab !== 'data-sources') normalized.sourceId = '';
     if (normalized.tab !== 'execution-engines') normalized.engineId = '';
-    if (
-      normalized.tab === 'semantic-catalog' &&
-      !normalized.objectId &&
-      normalized.subtab === 'typed-bindings' &&
-      normalized.bindingId
-    ) {
-      normalized.objectId = normalized.bindingId;
-    }
-    if (normalized.tab !== 'execution-engines') normalized.bindingId = '';
+    if (normalized.tab !== 'execution-engines') normalized.mappingId = '';
     if (normalized.tab !== 'semantic-catalog') normalized.objectId = '';
     if (!['analysis-ops', 'runtime-jobs', 'governance'].includes(normalized.tab)) normalized.sessionId = '';
     if (normalized.tab !== 'governance') normalized.policyId = '';
@@ -266,7 +258,7 @@ export function createAdminShell(ctx) {
       subtab: params.get('subtab') || '',
       sourceId: params.get('source_id') || '',
       engineId: params.get('engine_id') || '',
-      bindingId: params.get('binding_id') || '',
+      mappingId: params.get('mapping_id') || '',
       objectId: params.get('object_id') || '',
       sessionId: params.get('session_id') || '',
       policyId: params.get('policy_id') || '',
@@ -284,7 +276,7 @@ export function createAdminShell(ctx) {
     if (route.subtab) params.set('subtab', route.subtab);
     if (route.sourceId) params.set('source_id', route.sourceId);
     if (route.engineId) params.set('engine_id', route.engineId);
-    if (route.bindingId) params.set('binding_id', route.bindingId);
+    if (route.mappingId) params.set('mapping_id', route.mappingId);
     if (route.objectId) params.set('object_id', route.objectId);
     if (route.sessionId) params.set('session_id', route.sessionId);
     if (route.policyId) params.set('policy_id', route.policyId);
@@ -300,7 +292,7 @@ export function createAdminShell(ctx) {
 
   function adminObjectLocator(route) {
     if (route.tab === 'data-sources') return route.sourceId;
-    if (route.tab === 'execution-engines') return route.engineId || route.bindingId;
+    if (route.tab === 'execution-engines') return route.engineId || route.mappingId;
     if (route.tab === 'semantic-catalog') return route.objectId;
     if (route.tab === 'analysis-ops') return route.sessionId;
     if (route.tab === 'runtime-jobs') {
@@ -378,7 +370,7 @@ export function createAdminShell(ctx) {
           { label: 'subtab', value: route.subtab || '-' },
           { label: 'source_id', value: route.sourceId || '-' },
           { label: 'engine_id', value: route.engineId || '-' },
-          { label: 'binding_id', value: route.bindingId || '-' },
+          { label: 'mapping_id', value: route.mappingId || '-' },
           { label: 'object_id', value: route.objectId || '-' },
           { label: 'session_id', value: route.sessionId || '-' },
           { label: 'policy_id', value: route.policyId || '-' },
@@ -398,7 +390,7 @@ export function createAdminShell(ctx) {
             subtab: route.subtab || null,
             source_id: route.sourceId || null,
             engine_id: route.engineId || null,
-            binding_id: route.bindingId || null,
+            mapping_id: route.mappingId || null,
             object_id: route.objectId || null,
             session_id: route.sessionId || null,
             policy_id: route.policyId || null,
