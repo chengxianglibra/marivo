@@ -306,8 +306,8 @@ class SourceRegistry:
             sql += " AND object_type = ?"
             params.append(object_type)
         if schema_name:
-            sql += " AND fqn LIKE ?"
-            params.append(f"%.{schema_name}.%")
+            sql += " AND json_extract(authority_locator_json, '$.schema') = ?"
+            params.append(schema_name)
         sql += " ORDER BY fqn"
         rows = self.metadata.query_rows(sql, params)
         return [self._row_to_object(row) for row in rows]

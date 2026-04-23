@@ -426,6 +426,10 @@ class QueryRouter:
         return ".".join(parts)
 
     def _resolve_table_source_object(self, table_name: str) -> dict[str, Any]:
+        locator_rows = self._lookup_table_rows_by_authority_locator(table_name)
+        if locator_rows:
+            return self._select_table_row_for_locator_lookup(table_name, locator_rows)
+
         short_name = table_name.split(".")[-1]
         rows = self.metadata.query_rows(
             """
@@ -453,6 +457,68 @@ class QueryRouter:
             )
 
         return self._row_to_source_object(dict(rows[0]))
+
+    def _lookup_table_rows_by_authority_locator(self, table_name: str) -> list[dict[str, Any]]:
+        parts = table_name.split(".")
+        if len(parts) == 3:
+            sql = """
+                SELECT object_id, source_id, parent_id, native_name, fqn, authority_locator_json, updated_at
+                FROM source_objects
+                WHERE object_type = 'table'
+                  AND json_extract(authority_locator_json, '$.catalog') = ?
+                  AND json_extract(authority_locator_json, '$.schema') = ?
+                  AND json_extract(authority_locator_json, '$.table') = ?
+                ORDER BY updated_at DESC, object_id
+            """
+            params: list[Any] = parts
+        elif len(parts) == 2:
+            sql = """
+                SELECT object_id, source_id, parent_id, native_name, fqn, authority_locator_json, updated_at
+                FROM source_objects
+                WHERE object_type = 'table'
+                  AND json_extract(authority_locator_json, '$.schema') = ?
+                  AND json_extract(authority_locator_json, '$.table') = ?
+                ORDER BY updated_at DESC, object_id
+            """
+            params = parts
+        elif len(parts) == 1:
+            sql = """
+                SELECT object_id, source_id, parent_id, native_name, fqn, authority_locator_json, updated_at
+                FROM source_objects
+                WHERE object_type = 'table'
+                  AND json_extract(authority_locator_json, '$.table') = ?
+                ORDER BY updated_at DESC, object_id
+            """
+            params = parts
+        else:
+            return []
+        return [dict(row) for row in self.metadata.query_rows(sql, params)]
+
+    def _select_table_row_for_locator_lookup(
+        self, table_name: str, rows: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        if len(rows) == 1:
+            return self._row_to_source_object(rows[0])
+
+        if len(table_name.split(".")) == 3:
+            matching_sources = ", ".join(sorted({str(row["source_id"]) for row in rows}))
+            raise ValueError(
+                "Ambiguous table name in source_objects; full authority locator matches multiple "
+                f"sources: {table_name} -> {matching_sources}"
+            )
+
+        unique_locators = {
+            self.qualify_table_name(self._row_to_source_object(row)["authority_locator"])
+            for row in rows
+        }
+        if len(unique_locators) == 1:
+            return self._row_to_source_object(rows[0])
+
+        matching_locators = ", ".join(sorted(unique_locators))
+        raise ValueError(
+            "Ambiguous table name in source_objects; use full authority locator FQN: "
+            f"{table_name} -> {matching_locators}"
+        )
 
     def _row_to_source_object(self, row: dict[str, Any]) -> dict[str, Any]:
         source_object = dict(row)

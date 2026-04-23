@@ -80,7 +80,7 @@ class MappingServiceTests(unittest.TestCase):
                 "obj_watch_events",
                 self.source["source_id"],
                 "watch_events",
-                "duckdb.analytics.watch_events",
+                "main.analytics.watch_events",
                 json.dumps({"catalog": "main", "schema": "analytics", "table": "watch_events"}),
                 now,
                 now,
@@ -134,6 +134,146 @@ class MappingServiceTests(unittest.TestCase):
             route.routing_detail["execution_locators"]["watch_events"]["readiness_blockers"], []
         )
         self.assertEqual(route.routing_detail["selected_mapping_ids"], [mapping["mapping_id"]])
+
+    def test_routing_accepts_authority_locator_name_variants(self) -> None:
+        self.mapping_service.create_mapping(
+            self.source["source_id"],
+            self.engine["engine_id"],
+            priority=10,
+            catalog_mappings=[
+                {
+                    "authority_catalog": "main",
+                    "execution_catalog": "duckdb_runtime",
+                    "default_schema": None,
+                }
+            ],
+        )
+
+        full_route = self.router.resolve_tables(["main.analytics.watch_events"])
+        schema_route = self.router.resolve_tables(["analytics.watch_events"])
+        short_route = self.router.resolve_tables(["watch_events"])
+
+        self.assertEqual(
+            full_route.qualified_names["main.analytics.watch_events"],
+            "duckdb_runtime.analytics.watch_events",
+        )
+        self.assertEqual(
+            schema_route.qualified_names["analytics.watch_events"],
+            "duckdb_runtime.analytics.watch_events",
+        )
+        self.assertEqual(
+            short_route.qualified_names["watch_events"],
+            "duckdb_runtime.analytics.watch_events",
+        )
+
+    def test_routing_reports_schema_table_ambiguity_across_catalogs(self) -> None:
+        now = "2026-04-23T00:00:00+00:00"
+        self.metadata.execute(
+            """
+            INSERT INTO source_objects (
+                object_id, source_id, object_type, parent_id, native_name, native_id, fqn,
+                authority_locator_json, properties_json, sync_version, synced_at, created_at, updated_at
+            )
+            VALUES (?, ?, 'table', NULL, ?, NULL, ?, ?, '{}', 'v_seed', ?, ?, ?)
+            """,
+            [
+                "obj_watch_events_other",
+                self.source["source_id"],
+                "watch_events",
+                "other.analytics.watch_events",
+                json.dumps({"catalog": "other", "schema": "analytics", "table": "watch_events"}),
+                now,
+                now,
+                now,
+            ],
+        )
+        self.mapping_service.create_mapping(
+            self.source["source_id"],
+            self.engine["engine_id"],
+            priority=10,
+            catalog_mappings=[
+                {
+                    "authority_catalog": "main",
+                    "execution_catalog": "duckdb_runtime",
+                    "default_schema": None,
+                },
+                {
+                    "authority_catalog": "other",
+                    "execution_catalog": "duckdb_runtime",
+                    "default_schema": None,
+                },
+            ],
+        )
+
+        with self.assertRaisesRegex(ValueError, "Ambiguous table name"):
+            self.router.resolve_tables(["analytics.watch_events"])
+
+        full_route = self.router.resolve_tables(["main.analytics.watch_events"])
+        self.assertEqual(
+            full_route.qualified_names["main.analytics.watch_events"],
+            "duckdb_runtime.analytics.watch_events",
+        )
+
+    def test_routing_rejects_full_authority_locator_shared_by_multiple_sources(self) -> None:
+        second_source = self.source_service.register_source(
+            "duckdb",
+            "DuckDB Source 2",
+            authority={"catalog_system": "duckdb", "connection": {"path": str(self.db_path)}},
+            sync={"mode": "none"},
+            policy={"allow_live_browse": True, "allow_sync": False},
+        )
+        second_engine = self.engine_service.register_engine(
+            "duckdb",
+            "DuckDB Engine 2",
+            connection={"path": str(self.db_path)},
+        )
+        now = "2026-04-23T00:00:00+00:00"
+        self.metadata.execute(
+            """
+            INSERT INTO source_objects (
+                object_id, source_id, object_type, parent_id, native_name, native_id, fqn,
+                authority_locator_json, properties_json, sync_version, synced_at, created_at, updated_at
+            )
+            VALUES (?, ?, 'table', NULL, ?, NULL, ?, ?, '{}', 'v_seed', ?, ?, ?)
+            """,
+            [
+                "obj_watch_events_source2",
+                second_source["source_id"],
+                "watch_events",
+                "main.analytics.watch_events",
+                json.dumps({"catalog": "main", "schema": "analytics", "table": "watch_events"}),
+                now,
+                now,
+                now,
+            ],
+        )
+        self.mapping_service.create_mapping(
+            self.source["source_id"],
+            self.engine["engine_id"],
+            priority=10,
+            catalog_mappings=[
+                {
+                    "authority_catalog": "main",
+                    "execution_catalog": "duckdb_runtime",
+                    "default_schema": None,
+                }
+            ],
+        )
+        self.mapping_service.create_mapping(
+            second_source["source_id"],
+            second_engine["engine_id"],
+            priority=10,
+            catalog_mappings=[
+                {
+                    "authority_catalog": "main",
+                    "execution_catalog": "duckdb_runtime_2",
+                    "default_schema": None,
+                }
+            ],
+        )
+
+        with self.assertRaisesRegex(ValueError, "matches multiple sources"):
+            self.router.resolve_tables(["main.analytics.watch_events"])
 
     def test_mapping_incomplete_fails_closed(self) -> None:
         self.mapping_service.create_mapping(
