@@ -39,17 +39,23 @@ curl -s -X POST http://localhost:8000/engines \
 
 Save the returned `engine_id`.
 
-## Step 3 - Create a Binding
+## Step 3 - Create a Mapping
 
-Link the source to the engine:
+Link the source to the engine with an explicit authority-to-execution mapping:
 
 ```bash
-curl -s -X POST http://localhost:8000/bindings \
+curl -s -X POST http://localhost:8000/mappings \
   -H "Content-Type: application/json" \
   -d '{
     "source_id": "src_...",
     "engine_id": "eng_...",
-    "priority": 10
+    "priority": 10,
+    "catalog_mappings": [
+      {
+        "authority_catalog": "main",
+        "execution_catalog": "main"
+      }
+    ]
   }' | jq .
 ```
 
@@ -309,5 +315,6 @@ curl -s http://localhost:8000/sessions/sess_.../state | jq .
 - [Session State Surface](session-state.md) - canonical session-level decision surface
 - [Context Surface](context-surface.md) - canonical proposition-level minimal closure
 - [Progressive OpenAPI Access](openapi.md) - path- and schema-focused contract retrieval
+- [Mappings](mappings.md) - minimal source-to-engine projection write/read surface
 - [Semantic Layer](semantic.md) - entities, metrics, mappings, and catalog search
 - [Governance](governance.md) - policies and quality rules

@@ -285,6 +285,17 @@ class MappingCatalogEntryPayload(BaseModel):
         return normalized
 
 
+class MappingCatalogEntryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    authority_catalog: str = Field(description="Authority-side catalog name frozen in source metadata.")
+    execution_catalog: str = Field(description="Execution-side catalog projected by the mapping.")
+    default_schema: str | None = Field(
+        default=None,
+        description="Fallback schema to apply only when the authority locator omits schema.",
+    )
+
+
 class MappingCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -312,6 +323,38 @@ class MappingUpdateRequest(BaseModel):
         if self.catalog_mappings is not None:
             _validate_unique_authority_catalogs(self.catalog_mappings)
         return self
+
+
+class MappingResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mapping_id: str = Field(description="Stable mapping identifier.")
+    source_id: str = Field(description="Source governed by this mapping.")
+    engine_id: str = Field(description="Execution engine targeted by this mapping.")
+    priority: int = Field(description="Routing priority. Higher values win among otherwise eligible mappings.")
+    catalog_mappings: list[MappingCatalogEntryResponse] = Field(
+        default_factory=list,
+        description="Explicit authority-to-execution catalog projection entries.",
+    )
+    status: Literal["active", "inactive", "deprecated"] = Field(
+        description="Operator lifecycle status for the mapping."
+    )
+    readiness_status: Literal["not_ready", "ready"] = Field(
+        description="Derived readiness status based on dependency and catalog validation."
+    )
+    failure_code: str | None = Field(
+        default=None,
+        description="Stable blocker code when the mapping is not ready.",
+    )
+    created_at: str = Field(description="Creation timestamp (ISO-8601).")
+    updated_at: str = Field(description="Last update timestamp (ISO-8601).")
+
+
+class MappingDeleteResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["deleted"] = Field(description="Deletion status.")
+    mapping_id: str = Field(description="Deleted mapping identifier.")
 
 
 def _validate_unique_authority_catalogs(

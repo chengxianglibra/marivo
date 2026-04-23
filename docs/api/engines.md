@@ -1,6 +1,12 @@
-# Engines & Bindings
+# Engines
 
-Engines represent analytics execution backends. In the current runtime, supported engine types are `duckdb` and `trino` only. Source-engine bindings link a source to an engine with a priority for routing. The QueryRouter uses bindings to resolve which engine should execute a query against a given set of tables.
+Engines represent analytics execution backends. In the current runtime, supported engine types are
+`duckdb` and `trino` only. Source-to-engine routing is governed by explicit mappings; see
+[`mappings.md`](mappings.md) for the authority-to-execution projection contract.
+
+This page documents the engine inventory surface only. Legacy `binding` terminology may still
+appear in some internal/admin read surfaces, but the public operator-facing source-to-engine write
+contract is `/mappings`, not `/bindings`.
 
 When `marivo.yaml` includes a Trino engine, Marivo validates the optional `trino` Python package at
 startup and fails fast if it is missing. Install Trino support with `pip install -e .[trino]`.
@@ -12,11 +18,6 @@ startup and fails fast if it is missing. Install Trino support with `pip install
 | `POST` | `/engines` | Register an engine |
 | `GET` | `/engines` | List engines |
 | `GET` | `/engines/{engine_id}` | Get an engine |
-| `POST` | `/bindings` | Create a source-engine binding |
-| `GET` | `/bindings` | List bindings |
-| `GET` | `/bindings/{binding_id}` | Get a binding |
-| `DELETE` | `/bindings/{binding_id}` | Delete a binding |
-| `GET` | `/sources/{source_id}/engines` | List engines bound to a source |
 
 ---
 
@@ -132,130 +133,6 @@ Array of engine objects.
 
 ```
 GET /engines/{engine_id}
-```
-
----
-
-## Create Binding
-
-```
-POST /bindings
-```
-
-Creates a source-engine binding. A binding tells the QueryRouter that a given engine can execute queries against tables in the specified source.
-
-`namespace` is a legacy compatibility field. It remains readable and writable on `/bindings`, but it is not the target-state authority-to-execution mapping contract.
-
-Each `(source_id, engine_id)` pair must be unique. If a binding already exists, use the returned `binding_id` or delete and recreate it.
-
-### Request Body
-
-```json
-{
-  "source_id": "src_a1b2c3d4e5f6",
-  "engine_id": "eng_a1b2c3d4e5f6",
-  "priority": 10,
-  "namespace": {
-    "catalog": "iceberg",
-    "schema": "events"
-  }
-}
-```
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `source_id` | string | yes | Source to bind |
-| `engine_id` | string | yes | Engine to bind |
-| `priority` | integer | no | Routing priority (higher = preferred, default: `0`) |
-| `namespace` | object | no | Legacy compatibility namespace for table qualification (for example catalog/schema in current routing) |
-
-**Namespace fields (Trino):**
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `catalog` | string | Trino catalog to prefix table references |
-| `schema` | string | Default schema for unqualified table names |
-
-### Response
-
-```json
-{
-  "binding_id": "bind_a1b2c3d4e5f6",
-  "source_id": "src_...",
-  "engine_id": "eng_...",
-  "priority": 10,
-  "namespace": {"catalog": "iceberg", "schema": "events"},
-  "status": "active",
-  "created_at": "2024-01-15T10:00:00+00:00",
-  "updated_at": "2024-01-15T10:00:00+00:00"
-}
-```
-
----
-
-## List Bindings
-
-```
-GET /bindings
-```
-
-### Query Parameters
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `source_id` | string | Filter by source |
-| `engine_id` | string | Filter by engine |
-
-### Response
-
-Array of binding objects.
-
----
-
-## Get Binding
-
-```
-GET /bindings/{binding_id}
-```
-
----
-
-## Delete Binding
-
-```
-DELETE /bindings/{binding_id}
-```
-
-### Response
-
-```json
-{"status": "deleted", "binding_id": "bind_..."}
-```
-
----
-
-## List Engines for Source
-
-```
-GET /sources/{source_id}/engines
-```
-
-Returns all engines that have an active binding to the specified source, ordered by priority (descending).
-
-### Response
-
-Array of engine objects with their binding priority:
-
-```json
-[
-  {
-    "engine_id": "eng_...",
-    "engine_type": "trino",
-    "display_name": "Trino Cluster",
-    "priority": 10,
-    "binding_id": "bind_..."
-  }
-]
 ```
 
 ---

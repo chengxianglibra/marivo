@@ -3,12 +3,17 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.api.deps import get_services
-from app.api.models import MappingCreateRequest, MappingUpdateRequest
+from app.api.models import (
+    MappingCreateRequest,
+    MappingDeleteResponse,
+    MappingResponse,
+    MappingUpdateRequest,
+)
 
 router = APIRouter()
 
 
-@router.post("/mappings")
+@router.post("/mappings", response_model=MappingResponse)
 def create_mapping(payload: MappingCreateRequest, request: Request) -> dict[str, object]:
     services = get_services(request)
     try:
@@ -26,7 +31,7 @@ def create_mapping(payload: MappingCreateRequest, request: Request) -> dict[str,
         ) from error
 
 
-@router.get("/mappings")
+@router.get("/mappings", response_model=list[MappingResponse])
 def list_mappings(
     request: Request,
     source_id: str | None = Query(default=None),
@@ -43,7 +48,7 @@ def list_mappings(
         raise HTTPException(status_code=400, detail=str(error)) from error
 
 
-@router.get("/mappings/{mapping_id}")
+@router.get("/mappings/{mapping_id}", response_model=MappingResponse)
 def get_mapping(mapping_id: str, request: Request) -> dict[str, object]:
     try:
         return get_services(request).mapping_service.get_mapping(mapping_id)
@@ -51,7 +56,7 @@ def get_mapping(mapping_id: str, request: Request) -> dict[str, object]:
         raise HTTPException(status_code=404, detail=str(error)) from error
 
 
-@router.put("/mappings/{mapping_id}")
+@router.put("/mappings/{mapping_id}", response_model=MappingResponse)
 def update_mapping(
     mapping_id: str,
     payload: MappingUpdateRequest,
@@ -75,10 +80,10 @@ def update_mapping(
         ) from error
 
 
-@router.delete("/mappings/{mapping_id}")
-def delete_mapping(mapping_id: str, request: Request) -> dict[str, str]:
+@router.delete("/mappings/{mapping_id}", response_model=MappingDeleteResponse)
+def delete_mapping(mapping_id: str, request: Request) -> MappingDeleteResponse:
     try:
         get_services(request).mapping_service.delete_mapping(mapping_id)
-        return {"status": "deleted", "mapping_id": mapping_id}
+        return MappingDeleteResponse(status="deleted", mapping_id=mapping_id)
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error

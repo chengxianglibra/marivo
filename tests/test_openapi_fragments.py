@@ -160,3 +160,54 @@ class OpenApiFragmentTests(unittest.TestCase):
                 "application/json"
             ]["schema"]
             self.assertEqual(response_body["$ref"], f"#/components/schemas/{schema_name}")
+
+    def test_mapping_routes_publish_stable_request_and_response_schemas(self) -> None:
+        response = self.client.get("/openapi.json")
+
+        self.assertEqual(response.status_code, 200)
+        schema = response.json()
+        components = schema["components"]["schemas"]
+
+        for schema_name in (
+            "MappingCreateRequest",
+            "MappingUpdateRequest",
+            "MappingResponse",
+            "MappingDeleteResponse",
+        ):
+            self.assertIn(schema_name, components)
+
+        create_request = schema["paths"]["/mappings"]["post"]["requestBody"]["content"][
+            "application/json"
+        ]["schema"]
+        self.assertEqual(create_request["$ref"], "#/components/schemas/MappingCreateRequest")
+
+        create_response = schema["paths"]["/mappings"]["post"]["responses"]["200"]["content"][
+            "application/json"
+        ]["schema"]
+        self.assertEqual(create_response["$ref"], "#/components/schemas/MappingResponse")
+
+        list_response = schema["paths"]["/mappings"]["get"]["responses"]["200"]["content"][
+            "application/json"
+        ]["schema"]
+        self.assertEqual(list_response["type"], "array")
+        self.assertEqual(list_response["items"]["$ref"], "#/components/schemas/MappingResponse")
+
+        get_response = schema["paths"]["/mappings/{mapping_id}"]["get"]["responses"]["200"][
+            "content"
+        ]["application/json"]["schema"]
+        self.assertEqual(get_response["$ref"], "#/components/schemas/MappingResponse")
+
+        update_request = schema["paths"]["/mappings/{mapping_id}"]["put"]["requestBody"][
+            "content"
+        ]["application/json"]["schema"]
+        self.assertEqual(update_request["$ref"], "#/components/schemas/MappingUpdateRequest")
+
+        update_response = schema["paths"]["/mappings/{mapping_id}"]["put"]["responses"]["200"][
+            "content"
+        ]["application/json"]["schema"]
+        self.assertEqual(update_response["$ref"], "#/components/schemas/MappingResponse")
+
+        delete_response = schema["paths"]["/mappings/{mapping_id}"]["delete"]["responses"]["200"][
+            "content"
+        ]["application/json"]["schema"]
+        self.assertEqual(delete_response["$ref"], "#/components/schemas/MappingDeleteResponse")
