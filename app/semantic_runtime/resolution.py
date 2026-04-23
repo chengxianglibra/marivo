@@ -199,23 +199,27 @@ class SemanticRuntimeMetadataReader:
         }
 
     def _row_to_typed_metric(self, row: dict[str, Any]) -> dict[str, Any]:
+        header: dict[str, Any] = {
+            "metric_ref": row["metric_ref"],
+            "display_name": row["display_name"],
+            "description": row["description"],
+            "metric_family": row["metric_family"],
+            "population_subject_ref": row["population_subject_ref"],
+            "observed_entity_ref": row["observed_entity_ref"],
+            "observation_grain_ref": row["observation_grain_ref"],
+            "sample_kind": row["sample_kind"],
+            "value_semantics": row["value_semantics"],
+            "aggregation_scope": row["aggregation_scope"],
+            "primary_time_ref": row["primary_time_ref"],
+            "additivity_constraints": json.loads(row["additivity_constraints_json"] or "null"),
+            "metric_contract_version": row["metric_contract_version"],
+        }
+        default_predicate_refs = json.loads(row.get("default_predicate_refs_json") or "[]")
+        if default_predicate_refs:
+            header["default_predicate_refs"] = default_predicate_refs
         return {
             "metric_contract_id": row["metric_contract_id"],
-            "header": {
-                "metric_ref": row["metric_ref"],
-                "display_name": row["display_name"],
-                "description": row["description"],
-                "metric_family": row["metric_family"],
-                "population_subject_ref": row["population_subject_ref"],
-                "observed_entity_ref": row["observed_entity_ref"],
-                "observation_grain_ref": row["observation_grain_ref"],
-                "sample_kind": row["sample_kind"],
-                "value_semantics": row["value_semantics"],
-                "aggregation_scope": row["aggregation_scope"],
-                "primary_time_ref": row["primary_time_ref"],
-                "additivity_constraints": json.loads(row["additivity_constraints_json"] or "null"),
-                "metric_contract_version": row["metric_contract_version"],
-            },
+            "header": header,
             "payload": json.loads(row["family_payload_json"]),
             "status": row["status"],
             "revision": row["revision"],

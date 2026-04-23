@@ -38,6 +38,19 @@ def _resolved_policy_summary_from_compiled(compiled_query: Any) -> dict[str, Any
     )
 
 
+def _extract_predicate_filter_lineage(compiled_query: Any) -> dict[str, Any] | None:
+    """Extract predicate_filter_lineage from the first MeasurementNode in the IR bundle."""
+    ir_bundle = getattr(compiled_query, "ir_bundle", None)
+    if ir_bundle is None:
+        return None
+    for node in ir_bundle.get("plan", {}).get("nodes") or []:
+        if node.get("node_type") == "measurement":
+            lineage: dict[str, Any] | None = node.get("predicate_filter_lineage")
+            if lineage is not None:
+                return lineage
+    return None
+
+
 def _series_from_rows(
     rows: list[dict[str, Any]], *, granularity: TimeGrain
 ) -> list[dict[str, Any]]:
@@ -596,6 +609,7 @@ def run_observe_intent(
             compiled_query.sql, compiled_query.params, engine_type=engine_type
         )
         resolved_policy_summary_ns = _resolved_policy_summary_from_compiled(compiled_query)
+        predicate_filter_lineage_ns = _extract_predicate_filter_lineage(compiled_query)
 
         n_numeric: int = 0
         mean_val: float | None = None
@@ -635,6 +649,7 @@ def run_observe_intent(
             "calendar_policy_ref": normalized_calendar_policy_ref,
             "resolved_policy_summary": resolved_policy_summary_ns,
             "scope": scope_raw or {},
+            "predicate_filter_lineage": predicate_filter_lineage_ns,
             "unit": None,
             "sample_summary": {
                 "n": n_numeric,
@@ -728,6 +743,7 @@ def run_observe_intent(
             compiled_query.sql, compiled_query.params, engine_type=engine_type
         )
         resolved_policy_summary_rs = _resolved_policy_summary_from_compiled(compiled_query)
+        predicate_filter_lineage_rs = _extract_predicate_filter_lineage(compiled_query)
 
         n_rate: int = 0
         k_rate: float = 0.0
@@ -752,6 +768,7 @@ def run_observe_intent(
             "calendar_policy_ref": normalized_calendar_policy_ref,
             "resolved_policy_summary": resolved_policy_summary_rs,
             "scope": scope_raw or {},
+            "predicate_filter_lineage": predicate_filter_lineage_rs,
             "unit": None,
             "sample_summary": {
                 "successes": round(k_rate),
@@ -850,6 +867,7 @@ def run_observe_intent(
             granularity=granularity_typed,
         )
         resolved_policy_summary = _resolved_policy_summary_from_compiled(compiled_query)
+        predicate_filter_lineage_ts = _extract_predicate_filter_lineage(compiled_query)
         if normalized_calendar_policy_ref is not None and resolved_policy_summary is None:
             raise ValueError(
                 "observe: INVALID_ARGUMENT - calendar_policy_ref did not resolve frozen calendar alignment metadata"
@@ -942,6 +960,7 @@ def run_observe_intent(
             "calendar_policy_ref": normalized_calendar_policy_ref,
             "resolved_policy_summary": resolved_policy_summary,
             "scope": scope_raw or {},
+            "predicate_filter_lineage": predicate_filter_lineage_ts,
             "unit": None,
             "granularity": granularity,
             "series": series,
@@ -991,6 +1010,7 @@ def run_observe_intent(
             compiled_query.sql, compiled_query.params, engine_type=engine_type
         )
         resolved_policy_summary = _resolved_policy_summary_from_compiled(compiled_query)
+        predicate_filter_lineage_seg = _extract_predicate_filter_lineage(compiled_query)
         if normalized_calendar_policy_ref is not None and resolved_policy_summary is None:
             raise ValueError(
                 "observe: INVALID_ARGUMENT - calendar_policy_ref did not resolve frozen calendar alignment metadata"
@@ -1023,6 +1043,7 @@ def run_observe_intent(
             "calendar_policy_ref": normalized_calendar_policy_ref,
             "resolved_policy_summary": resolved_policy_summary,
             "scope": scope_raw or {},
+            "predicate_filter_lineage": predicate_filter_lineage_seg,
             "unit": None,
             "dimensions": dimensions,
             "segments": segments,
@@ -1071,6 +1092,7 @@ def run_observe_intent(
         provenance = svc._make_provenance(
             compiled_query.sql, compiled_query.params, engine_type=engine_type
         )
+        predicate_filter_lineage_scalar = _extract_predicate_filter_lineage(compiled_query)
 
         value: float | None = None
         sample_size: int | None = None
@@ -1095,6 +1117,7 @@ def run_observe_intent(
             "time_scope": resolved_time_scope,
             "calendar_policy_ref": normalized_calendar_policy_ref,
             "scope": scope_raw or {},
+            "predicate_filter_lineage": predicate_filter_lineage_scalar,
             "unit": None,
             "analytical_metadata": {
                 "additivity_constraints": execution_context.additivity_constraints,
