@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Repository guidance lives in [`docs/agent-guide.md`](/Users/lichengxiang/source/oss/marivo/docs/agent-guide.md).
+Repository guidance lives in [`docs/agent-guide.md`](docs/agent-guide.md).
 
 Key local rules:
 

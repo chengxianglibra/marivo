@@ -2,7 +2,7 @@
 
 本文定义 Marivo semantic layer 中 `predicate.*` 的 v1 schema contract。
 
-本文是 `predicate.*` 的**正式语义规范**，不是当前实现说明，也不是最终 HTTP wire spec。v1 产品边界与范围冻结说明见 [`predicate-v1-scope-note.zh.md`](/Users/lichengxiang/source/oss/marivo/docs/semantic/predicate-v1-scope-note.zh.md)。它与以下文档配套：
+本文是 `predicate.*` 的**正式语义规范**，不是当前实现说明，也不是最终 HTTP wire spec。v1 产品边界与范围冻结说明见 [`predicate-v1-scope-note.zh.md`](./predicate-v1-scope-note.zh.md)。它与以下文档配套：
 
 - `docs/semantic/dimension-schema-contract.zh.md`
 - `docs/semantic/entity-schema-contract.zh.md`
@@ -84,7 +84,7 @@ v1 `predicate.*` 支持的内容：
 - 11 个受限制操作符：`eq`、`neq`、`in`、`not_in`、`gt`、`gte`、`lt`、`lte`、`between`、`is_null`、`is_not_null`
 - `target_ref` 限于受治理语义引用前缀（`dimension.`、`entity.`、`key.`、`enum.`、`subject.`、`population.`、`event.`、`field.`）
 
-v1 明确不支持的内容（详见 [`predicate-v1-scope-note.zh.md`](/Users/lichengxiang/source/oss/marivo/docs/semantic/predicate-v1-scope-note.zh.md)）：
+v1 明确不支持的内容（详见 [`predicate-v1-scope-note.zh.md`](./predicate-v1-scope-note.zh.md)）：
 
 - `or`、`not`、动态变量、非确定性输入、嵌套谓词引用
 - `time.*` target ref（时间条件由 `time_scope` 承担）

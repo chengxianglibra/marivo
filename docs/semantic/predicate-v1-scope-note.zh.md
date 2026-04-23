@@ -2,7 +2,7 @@
 
 本文是 `predicate.*` v1 的正式产品边界说明。它回答"predicate 表达什么、明确不表达什么"，作为后续所有实施、校验与治理决策的权威参考。
 
-正式 schema 定义见 [`predicate-schema-contract.zh.md`](/Users/lichengxiang/source/oss/marivo/docs/semantic/predicate-schema-contract.zh.md)。
+正式 schema 定义见 [`predicate-schema-contract.zh.md`](./predicate-schema-contract.zh.md)。
 
 ## v1 范围内
 

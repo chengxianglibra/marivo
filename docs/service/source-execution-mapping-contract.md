@@ -554,6 +554,14 @@ routing 在选择 engine 时，应至少同时考虑：
 - carrier 对应的 authority locator 能否被至少一个 active mapping 解析
 - 若某 semantic object 依赖特定 engine class，可否解析到同时满足 intrinsic/deployment capability 与 policy 的 engine
 
+当前 v1 已落地的 mapping validate/readiness 规则补充如下：
+
+- 仅允许同类映射组合：`duckdb -> duckdb`、`trino -> trino`
+- 跨类型组合直接返回 `mapping_invalid_type_combo`
+- 若 source 或 engine 自身不 ready，mapping 透传依赖侧 failure code；拿不到细分 failure code 时回退为 `mapping_inactive_dependency`
+- 若 source 已有已知 authority catalog 集合，则 `catalog_mappings` 既不能引用未知 catalog，也不能缺覆盖；两类情况都返回 `mapping_incomplete`
+- 若 source 还没有任何已 sync table object，则 mapping 只校验 `catalog_mappings` 的结构合法性，不因“尚未知晓全集”直接判定 incomplete
+
 ## 推荐的类型组合
 
 ### Source 侧
