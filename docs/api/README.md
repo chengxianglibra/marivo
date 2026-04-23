@@ -80,7 +80,8 @@ Runtime/catalog availability is gated by `lifecycle_status` and `readiness_statu
 | [Runtime Status Surface](runtime-status.md) | `/sessions/{id}/**/runtime-status` | Operator-facing runtime stage, attempt, failure, and backlog status |
 | [Progressive OpenAPI Access](openapi.md) | `/openapi/*`, `/openapi.json` | Progressive machine-readable contract retrieval derived from the canonical OpenAPI schema |
 | [Sources](sources.md) | `/sources` | Data source registration and catalog sync |
-| [Engines & Bindings](engines.md) | `/engines`, `/bindings` | Analytics engine registration and source-engine routing |
+| [Engines](engines.md) | `/engines` | Analytics engine registration and execution capability surfaces |
+| [Mappings](mappings.md) | `/mappings` | Operator-managed authority-to-execution projection for source-engine routing |
 | [Semantic Layer](semantic.md) | `/semantic` | Typed semantic objects, typed bindings, runtime catalog resolve, and compiler profiles |
 | [Governance](governance.md) | `/policies`, `/quality-rules`, `/governance` | Data policies and quality rules |
 | [Jobs](jobs.md) | `/jobs` | Async job submission and tracking |

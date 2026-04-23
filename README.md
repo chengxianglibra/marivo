@@ -86,7 +86,7 @@ curl -s http://127.0.0.1:8000/sessions/<id>/state | python3 -m json.tool
 | Sessions | `POST/GET /sessions`, `POST /sessions/{id}/intents/*`, `GET /sessions/{id}/state`, `GET /sessions/{id}/propositions/{pid}/context` |
 | Sources | `POST/GET/PUT/DELETE /sources`, `POST .../sync`, `GET .../catalog/schemas|tables` |
 | Engines | `POST/GET /engines` |
-| Bindings | `POST/GET/DELETE /bindings`, `POST /routing/resolve` |
+| Mappings | `POST/GET/PUT/DELETE /mappings`, `POST /routing/resolve` |
 | Semantic | `POST/GET/PUT /semantic/entities|metrics|process-objects|dimensions|time|enum-sets|bindings`, `POST .../publish`, `/compiler/compatibility-profiles` |
 | Catalog | `GET /catalog/search`, `GET /semantic/resolve/{name}`, `GET /catalog/graph` |
 | Governance | `/policies`, `/quality-rules`, `POST /governance/check` |

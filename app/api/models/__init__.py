@@ -47,7 +47,10 @@ from ._legacy import (
     IntentTestRequest,
     # Job models
     JobSubmitRequest,
+    MappingCatalogEntryResponse,
     MappingCreateRequest,
+    MappingDeleteResponse,
+    MappingResponse,
     MappingUpdateRequest,
     Measure,
     # Step models
@@ -430,6 +433,9 @@ __all__ = [  # noqa: RUF022
     "Measure",
     "MeasurementComponent",
     "MappingCreateRequest",
+    "MappingCatalogEntryResponse",
+    "MappingDeleteResponse",
+    "MappingResponse",
     "MappingUpdateRequest",
     "MembershipCardinality",
     "MetricFamily",

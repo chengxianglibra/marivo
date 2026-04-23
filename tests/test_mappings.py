@@ -4,6 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -27,6 +28,18 @@ def _duckdb_source_payload(path: str, display_name: str) -> dict[str, object]:
         },
         "sync": {"mode": "none"},
         "policy": {"allow_live_browse": True, "allow_sync": False},
+    }
+
+
+def _trino_engine_payload(display_name: str) -> dict[str, object]:
+    return {
+        "engine_type": "trino",
+        "display_name": display_name,
+        "connection": {
+            "host": "localhost",
+            "catalog": "iceberg_prod",
+            "schema": "analytics",
+        },
     }
 
 
@@ -166,7 +179,214 @@ class MappingServiceTests(unittest.TestCase):
             },
         )
 
-    def test_router_skips_not_ready_engine_even_when_mapping_is_ready(self) -> None:
+    def test_mapping_propagates_source_failure_code(self) -> None:
+        self.metadata.execute(
+            "UPDATE sources SET authority_json = ? WHERE source_id = ?",
+            [
+                json.dumps(
+                    {
+                        "catalog_system": "duckdb",
+                        "connection": {},
+                        "synthetic_catalog": "main",
+                    }
+                ),
+                self.source["source_id"],
+            ],
+        )
+        mapping = self.mapping_service.create_mapping(
+            self.source["source_id"],
+            self.engine["engine_id"],
+            catalog_mappings=[
+                {
+                    "authority_catalog": "main",
+                    "execution_catalog": "duckdb_runtime",
+                    "default_schema": None,
+                }
+            ],
+        )
+
+        validation = self.mapping_service.validate_mapping(mapping["mapping_id"])
+        self.assertFalse(validation["is_valid"])
+        self.assertEqual(validation["failure_code"], "source_invalid_connection")
+
+    def test_mapping_propagates_engine_failure_code(self) -> None:
+        self.metadata.execute(
+            "UPDATE engines SET connection_json = ? WHERE engine_id = ?",
+            ["{}", self.engine["engine_id"]],
+        )
+        mapping = self.mapping_service.create_mapping(
+            self.source["source_id"],
+            self.engine["engine_id"],
+            catalog_mappings=[
+                {
+                    "authority_catalog": "main",
+                    "execution_catalog": "duckdb_runtime",
+                    "default_schema": None,
+                }
+            ],
+        )
+
+        validation = self.mapping_service.validate_mapping(mapping["mapping_id"])
+        self.assertFalse(validation["is_valid"])
+        self.assertEqual(validation["failure_code"], "engine_invalid_connection")
+
+    def test_mapping_rejects_unknown_authority_catalog_when_source_catalogs_known(self) -> None:
+        mapping = self.mapping_service.create_mapping(
+            self.source["source_id"],
+            self.engine["engine_id"],
+            catalog_mappings=[
+                {
+                    "authority_catalog": "other_catalog",
+                    "execution_catalog": "duckdb_runtime",
+                    "default_schema": None,
+                }
+            ],
+        )
+
+        self.assertEqual(mapping["failure_code"], "mapping_incomplete")
+
+    def test_mapping_requires_full_authority_catalog_coverage(self) -> None:
+        now = "2026-04-23T00:00:00+00:00"
+        self.metadata.execute(
+            """
+            INSERT INTO source_objects (
+                object_id, source_id, object_type, parent_id, native_name, native_id, fqn,
+                authority_locator_json, properties_json, sync_version, synced_at, created_at, updated_at
+            )
+            VALUES (?, ?, 'table', NULL, ?, NULL, ?, ?, '{}', 'v_seed', ?, ?, ?)
+            """,
+            [
+                "obj_orders",
+                self.source["source_id"],
+                "orders",
+                "other.analytics.orders",
+                json.dumps({"catalog": "other", "schema": "analytics", "table": "orders"}),
+                now,
+                now,
+                now,
+            ],
+        )
+
+        mapping = self.mapping_service.create_mapping(
+            self.source["source_id"],
+            self.engine["engine_id"],
+            catalog_mappings=[
+                {
+                    "authority_catalog": "main",
+                    "execution_catalog": "duckdb_runtime",
+                    "default_schema": None,
+                }
+            ],
+        )
+
+        self.assertEqual(mapping["failure_code"], "mapping_incomplete")
+
+    def test_mapping_without_known_source_catalogs_only_checks_shape(self) -> None:
+        source = self.source_service.register_source(
+            "duckdb",
+            "No Objects Source",
+            authority={"catalog_system": "duckdb", "connection": {"path": str(self.db_path)}},
+            sync={"mode": "none"},
+            policy={"allow_live_browse": True, "allow_sync": False},
+        )
+        mapping = self.mapping_service.create_mapping(
+            source["source_id"],
+            self.engine["engine_id"],
+            catalog_mappings=[
+                {
+                    "authority_catalog": "unknown_catalog",
+                    "execution_catalog": "duckdb_runtime",
+                    "default_schema": None,
+                }
+            ],
+        )
+
+        self.assertEqual(mapping["readiness_status"], "ready")
+        self.assertIsNone(mapping["failure_code"])
+
+    def test_mapping_rejects_duckdb_to_trino_combo(self) -> None:
+        with (
+            patch("app.registry.source_registry.build_catalog_adapter", return_value=object()),
+            patch("app.registry.engine_registry.build_analytics_engine", return_value=object()),
+        ):
+            trino_engine = self.engine_service.register_engine(
+                "trino",
+                "Trino Engine",
+                connection={"host": "localhost", "catalog": "iceberg_prod", "schema": "analytics"},
+            )
+            mapping = self.mapping_service.create_mapping(
+                self.source["source_id"],
+                trino_engine["engine_id"],
+                catalog_mappings=[
+                    {
+                        "authority_catalog": "main",
+                        "execution_catalog": "iceberg_prod",
+                        "default_schema": None,
+                    }
+                ],
+            )
+
+        self.assertEqual(mapping["failure_code"], "mapping_invalid_type_combo")
+
+    def test_mapping_rejects_trino_to_duckdb_combo(self) -> None:
+        with (
+            patch("app.registry.source_registry.build_catalog_adapter", return_value=object()),
+            patch("app.registry.engine_registry.build_analytics_engine", return_value=object()),
+        ):
+            trino_source = self.source_service.register_source(
+                "trino",
+                "Trino Source",
+                authority={
+                    "catalog_system": "trino",
+                    "connection": {
+                        "host": "localhost",
+                        "catalog": "lakehouse",
+                        "schema": "analytics",
+                    },
+                },
+                sync={"mode": "none"},
+                policy={"allow_live_browse": True, "allow_sync": False},
+            )
+            self.metadata.execute(
+                """
+                INSERT INTO source_objects (
+                    object_id, source_id, object_type, parent_id, native_name, native_id, fqn,
+                    authority_locator_json, properties_json, sync_version, synced_at, created_at, updated_at
+                )
+                VALUES (?, ?, 'table', NULL, ?, NULL, ?, ?, '{}', 'v_seed', ?, ?, ?)
+                """,
+                [
+                    "obj_trino_watch_events",
+                    trino_source["source_id"],
+                    "watch_events",
+                    "lakehouse.analytics.watch_events",
+                    json.dumps(
+                        {
+                            "catalog": "lakehouse",
+                            "schema": "analytics",
+                            "table": "watch_events",
+                        }
+                    ),
+                    "2026-04-23T00:00:00+00:00",
+                    "2026-04-23T00:00:00+00:00",
+                    "2026-04-23T00:00:00+00:00",
+                ],
+            )
+            mapping = self.mapping_service.create_mapping(
+                trino_source["source_id"],
+                self.engine["engine_id"],
+                catalog_mappings=[
+                    {
+                        "authority_catalog": "lakehouse",
+                        "execution_catalog": "duckdb_runtime",
+                        "default_schema": None,
+                    }
+                ],
+            )
+
+        self.assertEqual(mapping["failure_code"], "mapping_invalid_type_combo")
+
+    def test_router_skips_mapping_when_engine_is_not_ready(self) -> None:
         self.metadata.execute(
             "UPDATE engines SET connection_json = ? WHERE engine_id = ?",
             ["{}", self.engine["engine_id"]],
@@ -184,7 +404,8 @@ class MappingServiceTests(unittest.TestCase):
             ],
         )
 
-        self.assertEqual(mapping["readiness_status"], "ready")
+        self.assertEqual(mapping["readiness_status"], "not_ready")
+        self.assertEqual(mapping["failure_code"], "engine_invalid_connection")
         with self.assertRaisesRegex(ValueError, "engine_invalid_connection"):
             self.router.resolve_tables(["watch_events"])
 
@@ -333,6 +554,97 @@ class MappingApiTests(unittest.TestCase):
         self.assertEqual(detail.status_code, 200)
         self.assertEqual(detail.json()["mapping_id"], mapping_id)
         self.assertEqual(detail.json()["catalog_mappings"][0]["authority_catalog"], "main")
+        self.assertEqual(detail.json()["readiness_status"], "ready")
+        self.assertIsNone(detail.json()["failure_code"])
+        self.assertIn("created_at", detail.json())
+        self.assertIn("updated_at", detail.json())
+
+    def test_list_update_and_delete_mapping_use_stable_response_shapes(self) -> None:
+        source_resp = self.client.post(
+            "/sources",
+            json=_duckdb_source_payload(str(self.db_path), "List Source"),
+        )
+        engine_resp = self.client.post(
+            "/engines",
+            json={
+                "engine_type": "duckdb",
+                "display_name": "List Engine",
+                "connection": {"path": str(self.db_path)},
+            },
+        )
+        create_resp = self.client.post(
+            "/mappings",
+            json={
+                "source_id": source_resp.json()["source_id"],
+                "engine_id": engine_resp.json()["engine_id"],
+                "catalog_mappings": [
+                    {
+                        "authority_catalog": "main",
+                        "execution_catalog": "duckdb_runtime",
+                    }
+                ],
+            },
+        )
+        self.assertEqual(create_resp.status_code, 200)
+        mapping_id = create_resp.json()["mapping_id"]
+
+        list_resp = self.client.get("/mappings")
+        self.assertEqual(list_resp.status_code, 200)
+        self.assertIsInstance(list_resp.json(), list)
+        listed = next(item for item in list_resp.json() if item["mapping_id"] == mapping_id)
+        self.assertEqual(listed["source_id"], source_resp.json()["source_id"])
+        self.assertEqual(listed["engine_id"], engine_resp.json()["engine_id"])
+        self.assertEqual(listed["catalog_mappings"][0]["execution_catalog"], "duckdb_runtime")
+
+        update_resp = self.client.put(
+            f"/mappings/{mapping_id}",
+            json={"priority": 7, "status": "inactive"},
+        )
+        self.assertEqual(update_resp.status_code, 200)
+        self.assertEqual(update_resp.json()["priority"], 7)
+        self.assertEqual(update_resp.json()["status"], "inactive")
+        self.assertEqual(update_resp.json()["failure_code"], "mapping_inactive")
+        self.assertEqual(update_resp.json()["readiness_status"], "not_ready")
+
+        delete_resp = self.client.delete(f"/mappings/{mapping_id}")
+        self.assertEqual(delete_resp.status_code, 200)
+        self.assertEqual(
+            delete_resp.json(),
+            {"status": "deleted", "mapping_id": mapping_id},
+        )
+
+    def test_mapping_detail_exposes_new_failure_code(self) -> None:
+        with (
+            patch("app.registry.source_registry.build_catalog_adapter", return_value=object()),
+            patch("app.registry.engine_registry.build_analytics_engine", return_value=object()),
+        ):
+            source_resp = self.client.post(
+                "/sources",
+                json=_duckdb_source_payload(str(self.db_path), "API DuckDB Source"),
+            )
+            engine_resp = self.client.post(
+                "/engines",
+                json=_trino_engine_payload("API Trino Engine"),
+            )
+            mapping_resp = self.client.post(
+                "/mappings",
+                json={
+                    "source_id": source_resp.json()["source_id"],
+                    "engine_id": engine_resp.json()["engine_id"],
+                    "catalog_mappings": [
+                        {
+                            "authority_catalog": "main",
+                            "execution_catalog": "iceberg_prod",
+                        }
+                    ],
+                },
+            )
+
+        self.assertEqual(mapping_resp.status_code, 200)
+        detail = self.client.get(f"/mappings/{mapping_resp.json()['mapping_id']}")
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(detail.json()["failure_code"], "mapping_invalid_type_combo")
+        self.assertEqual(detail.json()["readiness_status"], "not_ready")
 
     def test_bindings_route_removed(self) -> None:
         self.assertEqual(self.client.get("/bindings").status_code, 404)
