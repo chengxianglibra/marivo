@@ -335,10 +335,11 @@ class SQLiteMetadataStore(MetadataStore):
         columns = {
             str(row["name"]) for row in con.execute("PRAGMA table_info(semantic_metric_contracts)")
         }
-        if "default_predicate_refs_json" not in columns:
-            con.execute(
-                "ALTER TABLE semantic_metric_contracts ADD COLUMN default_predicate_refs_json TEXT"
-            )
+        if "default_predicate_refs_json" in columns:
+            return
+        con.execute(
+            "ALTER TABLE semantic_metric_contracts ADD COLUMN default_predicate_refs_json TEXT NOT NULL DEFAULT '[]'"
+        )
 
     def _build_authority_locator_from_row(
         self,

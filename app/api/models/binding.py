@@ -172,7 +172,11 @@ class CarrierBinding(BaseModel):
         default=None, description="Optional primary entity reference (entity.*)."
     )
     row_filter_refs: list[str] | None = Field(
-        default=None, description="Optional row filter references (predicate.*)."
+        default=None,
+        description="Carrier consumption invariant references (predicate.*). "
+        "Must reference predicates declaring 'carrier_row_filter' usage. "
+        "Expresses data-hygiene invariants only (soft-delete exclusion, test data removal, "
+        "tenant guardrails); must NOT express metric business semantics.",
     )
     freshness_policy_ref: str | None = Field(
         default=None, description="Optional freshness policy reference."

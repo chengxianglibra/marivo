@@ -1419,10 +1419,118 @@ class SemanticLayerService:
             metric_ref=metric_ref,
             table_name=request.table,
         )
+        scope_predicate = (
+            self._resolve_predicate_ref_to_filter(
+                request.scope.predicate_ref,
+                metric_ref=metric_ref,
+                table_name=request.table,
+            )
+            if request.scope.predicate_ref is not None
+            else request.scope.predicate
+        )
         return self._merge_filters(
             scope_constraints,
-            request.scope.predicate,
+            scope_predicate,
         )
+
+    def _resolve_predicate_ref_to_filter(
+        self,
+        predicate_ref: str,
+        *,
+        metric_ref: str | None = None,
+        table_name: str | None = None,
+    ) -> str | None:
+        row = self.metadata.query_one(
+            "SELECT payload_json FROM semantic_predicate_contracts "
+            "WHERE predicate_ref = ? AND status = 'published'",
+            [predicate_ref],
+        )
+        if row is None:
+            raise ValueError(
+                f"predicate_ref '{predicate_ref}' does not reference a published predicate"
+            )
+        payload = json.loads(row["payload_json"] or "{}")
+        expression = payload.get("expression")
+        if expression is None:
+            return None
+        return self._predicate_expression_to_sql(
+            expression, metric_ref=metric_ref, table_name=table_name
+        )
+
+    def _resolve_predicate_target_column(
+        self,
+        target_ref: str,
+        *,
+        metric_ref: str | None = None,
+        table_name: str | None = None,
+    ) -> str:
+        if "." not in target_ref:
+            return target_ref
+        if target_ref.startswith("dimension."):
+            return self._resolve_scope_constraint_column(
+                target_ref,
+                metric_ref=metric_ref,
+                table_name=table_name,
+            )
+        # For entity.*, key.*, field.*, etc. — resolve via binding field surfaces.
+        if metric_ref is not None:
+            metric_ref = _coerce_metric_ref(metric_ref)
+            metric_bindings = list(self._published_bindings_for_object_ref(metric_ref))
+            if table_name is not None:
+                metric_bindings = [
+                    b for b in metric_bindings if self._binding_matches_table(b, table_name)
+                ] or metric_bindings
+            for binding in metric_bindings:
+                for surface in (binding.semantic_object.get("interface_contract") or {}).get(
+                    "carrier_bindings"
+                ) or []:
+                    for fs in surface.get("field_surfaces") or []:
+                        if fs.get("semantic_ref") == target_ref:
+                            return str(fs.get("physical_name", target_ref))
+                for fb in (binding.semantic_object.get("interface_contract") or {}).get(
+                    "field_bindings"
+                ) or []:
+                    if fb.get("semantic_ref") == target_ref:
+                        return str(fb.get("surface_ref", target_ref))
+        # Fall back: strip prefix and use as column hint (entity.user → user)
+        return target_ref.split(".", 1)[-1].replace(".", "_")
+
+    def _predicate_expression_to_sql(
+        self,
+        expr: dict[str, Any],
+        *,
+        metric_ref: str | None = None,
+        table_name: str | None = None,
+    ) -> str:
+        op = expr.get("op")
+        if op == "and":
+            items = expr.get("items") or []
+            parts = [
+                self._predicate_expression_to_sql(
+                    item, metric_ref=metric_ref, table_name=table_name
+                )
+                for item in items
+            ]
+            return " AND ".join(parts)
+        target_ref = expr.get("target_ref", "")
+        column = self._resolve_predicate_target_column(
+            target_ref,
+            metric_ref=metric_ref,
+            table_name=table_name,
+        )
+        value: Any = expr.get("value")
+        if op in ("is_null", "is_not_null"):
+            return f"{column} IS NULL" if op == "is_null" else f"{column} IS NOT NULL"
+        if op == "between":
+            lo, hi = value[0], value[1]
+            return f"{column} BETWEEN '{lo}' AND '{hi}'"
+        if op in ("in", "not_in"):
+            vals = ", ".join(f"'{v}'" for v in value)
+            sql_in = f"{column} IN ({vals})"
+            return sql_in if op == "in" else f"NOT {sql_in}"
+        if value is not None:
+            return f"{column} {op} '{value}'"
+        return f"{column} {op}"
 
     def _build_scoped_query(
         self,
@@ -1464,7 +1572,15 @@ class SemanticLayerService:
                 metric_ref=metric_ref,
                 table_name=request.table,
             ),
-            "scope_predicate_filter": request.scope.predicate,
+            "scope_predicate_filter": (
+                self._resolve_predicate_ref_to_filter(
+                    request.scope.predicate_ref,
+                    metric_ref=metric_ref,
+                    table_name=request.table,
+                )
+                if request.scope.predicate_ref is not None
+                else request.scope.predicate
+            ),
         }
 
     @staticmethod

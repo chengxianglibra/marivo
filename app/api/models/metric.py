@@ -69,7 +69,8 @@ class MetricHeader(ObjectHeaderBase):
     default_predicate_refs: list[str] | None = Field(
         default=None,
         description="Shared predicate defaults for all measurement components. "
-        "Must reference predicate.*. Does not replace component qualifier_refs lineage.",
+        "Must reference predicate.* declaring 'metric_qualifier' usage. "
+        "Does not replace component qualifier_refs lineage.",
     )
     metric_contract_version: str = Field(
         description="Contract version (e.g., 'metric.v1'). Must start with 'metric.'."
@@ -138,7 +139,9 @@ class MeasurementComponent(BaseModel):
         default=None, description="Optional reference to a measure definition (measure.*)."
     )
     qualifier_refs: list[str] | None = Field(
-        default=None, description="Optional qualifier references (predicate.*)."
+        default=None,
+        description="Component-specific business predicate references (predicate.*). "
+        "Must reference predicates declaring 'metric_qualifier' usage.",
     )
 
     @field_validator("measure_ref")
@@ -444,6 +447,18 @@ class TypedMetricUpdateRequest(BaseModel):
     payload: MetricPayload | None = Field(
         default=None, description="New payload. Note: cannot change metric_family."
     )
+    default_predicate_refs: list[str] | None = Field(
+        default=None,
+        description="Updated shared predicate defaults for all measurement components. "
+        "Must reference predicate.*.",
+    )
+
+    @field_validator("default_predicate_refs")
+    @classmethod
+    def validate_default_predicate_refs_prefix(cls, v: list[str] | None) -> list[str] | None:
+        if v is not None:
+            return [validate_ref_prefix(ref, "predicate", "default_predicate_refs") for ref in v]
+        return v
 
 
 # =============================================================================

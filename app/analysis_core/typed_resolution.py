@@ -39,6 +39,7 @@ class NormalizedCompilerRequest:
     right_process_ref: str | None = None
     upstream_refs: list[str] = field(default_factory=list)
     request_scope: dict[str, Any] | None = None
+    request_scope_predicate_ref: str | None = None
     request_time_scope: dict[str, Any] | None = None
     request_dimensions: list[str] = field(default_factory=list)
     request_result_mode: str | None = None
@@ -120,9 +121,11 @@ def normalize_step_request(
             )
             request_options = _request_options_from_windowed_request(normalized)
             metric_name = normalized.value_spec.metric
+            request_scope_predicate_ref = normalized.scope.predicate_ref
         else:
             table_name = step.table_name()
             request_scope = None
+            request_scope_predicate_ref = None
             request_time_scope = _mapping_dict(step.params.get("scoped_query"))
             request_dimensions = _normalize_dimension_refs(
                 _string_list(step.params.get("dimensions"))
@@ -146,6 +149,7 @@ def normalize_step_request(
             table_name=table_name,
             metric_ref=_normalize_metric_ref(metric_name),
             request_scope=request_scope,
+            request_scope_predicate_ref=request_scope_predicate_ref,
             request_time_scope=request_time_scope,
             request_dimensions=request_dimensions,
             request_calendar_policy_ref=request_calendar_policy_ref,
@@ -160,6 +164,7 @@ def normalize_step_request(
                 request_class="root_metric_process",
                 table_name=normalized.table,
                 request_scope=asdict(normalized.scope),
+                request_scope_predicate_ref=normalized.scope.predicate_ref,
                 request_time_scope=asdict(normalized.time_scope),
                 request_dimensions=_normalize_dimension_refs(normalized.grouping),
                 request_calendar_policy_ref=request_calendar_policy_ref,

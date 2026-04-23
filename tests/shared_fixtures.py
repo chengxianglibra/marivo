@@ -564,6 +564,10 @@ def _metadata_template_valid(db_path: Path) -> bool:
         engine_columns = {
             str(row[1]) for row in con.execute("PRAGMA table_info(engines)").fetchall()
         }
+        metric_columns = {
+            str(row[1])
+            for row in con.execute("PRAGMA table_info(semantic_metric_contracts)").fetchall()
+        }
     finally:
         con.close()
     return (
@@ -595,6 +599,7 @@ def _metadata_template_valid(db_path: Path) -> bool:
             "idx_source_objects_source_type_fqn",
             "idx_source_objects_source_fqn",
         }.issubset(source_object_indexes)
+        and {"default_predicate_refs_json"}.issubset(metric_columns)
     )
 
 

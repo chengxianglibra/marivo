@@ -98,6 +98,17 @@ class GovernanceRuntime:
         params: dict[str, Any] | None = None,
         tables: list[str] | None = None,
     ) -> dict[str, Any]:
+        """Check governance policies and compute transforms.
+
+        Priority ordering (per predicate-schema-contract):
+        1. governance_policy_filters — highest, non-overridable, non-bypassable
+        2. carrier_row_filters — carrier consumption invariants
+        3. request_scope_constraints — per-request narrowing only
+        4. metric_default_predicates + component_qualifier_predicates — baseline
+
+        Conflict rule: governance policy conflicts with metric/binding predicates
+        are readiness failures, not silent empty results.
+        """
         del session_id
         policies = self.list_policies(enabled_only=True)
         decisions: list[PolicyDecision] = []
@@ -192,10 +203,10 @@ class GovernanceRuntime:
                                 )
                             )
             elif policy_type == "row_filter":
+                definition = policy.get("definition", {})
+                predicate_ref = definition.get("predicate_ref")
                 filter_expression = (
-                    policy.get("definition", {}).get("sql")
-                    or policy.get("definition", {}).get("predicate")
-                    or ""
+                    definition.get("sql") or definition.get("predicate") or predicate_ref or ""
                 )
                 if filter_expression:
                     transforms["row_filters"].append(
