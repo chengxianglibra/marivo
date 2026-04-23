@@ -1005,6 +1005,7 @@ class ObserveScope(BaseModel):
 
     `constraints` holds scalar equality filters; `predicate` holds a
     structured predicate AST (dict).  Time conditions must not appear here.
+    Prefer `predicate_ref` over `predicate` for governed predicate references.
     """
 
     constraints: dict[str, Any] | None = Field(
@@ -1013,8 +1014,27 @@ class ObserveScope(BaseModel):
     )
     predicate: dict[str, Any] | None = Field(
         default=None,
-        description="Structured non-time predicate AST.  Must not contain time conditions.",
+        description="DEPRECATED: Use predicate_ref instead. "
+        "Structured non-time predicate AST.  Must not contain time conditions.",
     )
+    predicate_ref: str | None = Field(
+        default=None,
+        description="Reference to a governed predicate (predicate.*) declaring 'request_scope' usage. "
+        "Mutually exclusive with predicate.",
+    )
+
+    @field_validator("predicate_ref")
+    @classmethod
+    def _validate_predicate_ref_prefix(cls, v: str | None) -> str | None:
+        if v is not None:
+            return validate_ref_prefix(v, "predicate", "predicate_ref")
+        return v
+
+    @model_validator(mode="after")
+    def _validate_mutual_exclusion(self) -> ObserveScope:
+        if self.predicate is not None and self.predicate_ref is not None:
+            raise ValueError("predicate and predicate_ref are mutually exclusive")
+        return self
 
 
 class ObserveRequest(BaseModel):

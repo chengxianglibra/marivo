@@ -33,6 +33,7 @@ class ResolvedTimeScope:
 class ResolvedScope:
     constraints: dict[str, Any] = field(default_factory=dict)
     predicate: str | None = None
+    predicate_ref: str | None = None
 
 
 @dataclass(slots=True)
@@ -757,14 +758,16 @@ def _normalize_scope(payload: Any) -> ResolvedScope:
     constraints = payload.get("constraints") or {}
     if not isinstance(constraints, Mapping):
         raise ValueError("scope.constraints must be an object")
-    predicate = _optional_str(payload.get("predicate"))
-    if scope_predicate_contains_time_condition(predicate):
+    predicate_ref = _optional_str(payload.get("predicate_ref"))
+    predicate_raw = _optional_str(payload.get("predicate"))
+    if scope_predicate_contains_time_condition(predicate_raw):
         raise ValueError(
             "scope.predicate must not contain time-axis predicates; move time conditions into time_scope"
         )
     return ResolvedScope(
         constraints={str(key): value for key, value in constraints.items()},
-        predicate=predicate,
+        predicate=predicate_raw,
+        predicate_ref=predicate_ref,
     )
 
 

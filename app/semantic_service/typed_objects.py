@@ -252,9 +252,10 @@ class TypedObjectService(SemanticServiceSupport):
                 metric_contract_id, metric_ref, display_name, description, metric_family,
                 population_subject_ref, observed_entity_ref, observation_grain_ref,
                 sample_kind, value_semantics, aggregation_scope, primary_time_ref,
-                additivity_constraints_json, metric_contract_version, family_payload_json, status,
+                additivity_constraints_json, default_predicate_refs_json,
+                metric_contract_version, family_payload_json, status,
                 revision, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', 1, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', 1, ?, ?)
             """,
             [
                 metric_contract_id,
@@ -270,6 +271,7 @@ class TypedObjectService(SemanticServiceSupport):
                 payload.header.aggregation_scope,
                 payload.header.primary_time_ref,
                 json.dumps(payload.header.additivity_constraints.model_dump(mode="json")),
+                json.dumps(payload.header.default_predicate_refs or []),
                 payload.header.metric_contract_version,
                 json.dumps(payload.payload.model_dump(mode="json")),
                 created_at,
@@ -368,6 +370,9 @@ class TypedObjectService(SemanticServiceSupport):
                 )
             updates.append("additivity_constraints_json = ?")
             params.append(json.dumps(payload.additivity_constraints.model_dump(mode="json")))
+        if payload.default_predicate_refs is not None:
+            updates.append("default_predicate_refs_json = ?")
+            params.append(json.dumps(payload.default_predicate_refs))
         if not updates:
             return current
         # Cross-field validation: count_distinct + dimension_policy='all' is invalid
@@ -404,27 +409,33 @@ class TypedObjectService(SemanticServiceSupport):
 
     def validate_typed_metric(self, metric_contract_id: str) -> dict[str, Any]:
         current = self.get_typed_metric(metric_contract_id)
+
+        def _validate_refs() -> None:
+            self._validate_published_metric_header_refs(current["header"])
+            self._validate_published_metric_predicate_refs(current["header"], current["payload"])
+
         self._validate_record(
             object_id=metric_contract_id,
             object_label="Typed metric",
             status=current["status"],
-            reference_validator=lambda: self._validate_published_metric_header_refs(
-                current["header"]
-            ),
+            reference_validator=_validate_refs,
         )
         return self.get_typed_metric(metric_contract_id)
 
     def activate_typed_metric(self, metric_contract_id: str) -> dict[str, Any]:
         current = self.get_typed_metric(metric_contract_id)
+
+        def _validate_refs() -> None:
+            self._validate_published_metric_header_refs(current["header"])
+            self._validate_published_metric_predicate_refs(current["header"], current["payload"])
+
         self._activate_record(
             table_name="semantic_metric_contracts",
             id_column="metric_contract_id",
             object_id=metric_contract_id,
             object_label="Typed metric",
             status=current["status"],
-            reference_validator=lambda: self._validate_published_metric_header_refs(
-                current["header"]
-            ),
+            reference_validator=_validate_refs,
         )
         return self.get_typed_metric(metric_contract_id)
 

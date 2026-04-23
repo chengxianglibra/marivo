@@ -1646,6 +1646,35 @@ class SemanticServiceSupport:
             "predicate ref",
         )
 
+    def _get_predicate_by_ref(self, predicate_ref: str) -> dict[str, Any] | None:
+        row = self.metadata.query_one(
+            "SELECT * FROM semantic_predicate_contracts WHERE predicate_ref = ?",
+            [predicate_ref],
+        )
+        return None if row is None else self._row_to_predicate(row)
+
+    def _validate_predicate_refs_with_usage(
+        self,
+        refs: list[str] | None,
+        *,
+        required_usage: str,
+        field_name: str,
+        require_published: bool = True,
+    ) -> None:
+        for ref in refs or []:
+            if require_published:
+                self._validate_published_predicate_ref(ref)
+            else:
+                self._validate_predicate_ref(ref)
+            predicate = self._get_predicate_by_ref(ref)
+            if predicate is not None:
+                allowed = predicate.get("interface_contract", {}).get("allowed_usage") or []
+                if required_usage not in allowed:
+                    raise self._validation_error(
+                        f"{field_name} references '{ref}' which does not declare "
+                        f"'{required_usage}' in allowed_usage (has: {allowed})"
+                    )
+
     @staticmethod
     def _extract_target_refs(expression: dict[str, Any]) -> list[str]:
         """Recursively extract all target_ref values from a predicate expression tree."""
@@ -1741,6 +1770,49 @@ class SemanticServiceSupport:
             self._validate_published_time_ref(header["primary_time_ref"])
         if header.get("observed_entity_ref") is not None:
             self._validate_published_entity_ref(header["observed_entity_ref"])
+
+    def _validate_published_metric_predicate_refs(
+        self, header: dict[str, Any], payload: dict[str, Any]
+    ) -> None:
+        self._validate_predicate_refs_with_usage(
+            header.get("default_predicate_refs"),
+            required_usage="metric_qualifier",
+            field_name="default_predicate_refs",
+        )
+        component_fields = (
+            "count_target",
+            "measure",
+            "numerator",
+            "denominator",
+            "value_component",
+            "score_source",
+        )
+        for field in component_fields:
+            component = payload.get(field)
+            if component is not None:
+                qualifier_refs = component.get("qualifier_refs")
+                if qualifier_refs:
+                    self._validate_predicate_refs_with_usage(
+                        qualifier_refs,
+                        required_usage="metric_qualifier",
+                        field_name=f"{field}.qualifier_refs",
+                    )
+
+    def _validate_request_scope_predicate_ref(self, predicate_ref: str | None) -> None:
+        if predicate_ref is None:
+            return
+        self._validate_predicate_refs_with_usage(
+            [predicate_ref],
+            required_usage="request_scope",
+            field_name="scope.predicate_ref",
+        )
+
+    def _validate_governance_predicate_refs(self, refs: list[str] | None) -> None:
+        self._validate_predicate_refs_with_usage(
+            refs,
+            required_usage="governance_policy",
+            field_name="governance_predicate_refs",
+        )
 
     def _replace_process_exported_dimension_refs(
         self, process_contract_id: str, dimension_refs: list[str] | None
@@ -2615,6 +2687,14 @@ class SemanticServiceSupport:
                     self._validate_published_entity_ref(carrier["primary_entity_ref"])
                 else:
                     self._validate_entity_ref(carrier["primary_entity_ref"])
+            row_filter_refs = carrier.get("row_filter_refs")
+            if row_filter_refs:
+                self._validate_predicate_refs_with_usage(
+                    row_filter_refs,
+                    required_usage="carrier_row_filter",
+                    field_name="row_filter_refs",
+                    require_published=require_published_dependencies,
+                )
             self._resolve_binding_source_object(
                 carrier,
                 require_resolution=require_published_dependencies,
@@ -3243,6 +3323,8 @@ class SemanticServiceSupport:
                 "aggregation_scope": row["aggregation_scope"],
                 "primary_time_ref": row["primary_time_ref"],
                 "additivity_constraints": json.loads(row["additivity_constraints_json"] or "null"),
+                "default_predicate_refs": json.loads(row["default_predicate_refs_json"] or "[]")
+                or None,
                 "metric_contract_version": row["metric_contract_version"],
             },
             "status": row["status"],
