@@ -474,6 +474,41 @@ typed intent 入口应至少保证：
 - request scope 不得包含时间条件
 - request scope 必须属于 metric 的 semantic scope
 - request scope 只能进一步收窄；无法证明时应拒绝
+- request scope 不得声明任何治理、carrier invariant 性质的 predicate（即不得约束 `governance_policy` 或 `carrier_row_filter` 上游已涉及的 target）
+- request scope 只允许表达"额外附加"的 non-time conjunctive constraints
+
+#### 收窄判定：可判定子集 + 失败即拒绝
+
+v1 不引入完整的 subset / implication algebra。收窄判定只覆盖一小组可判定情况：
+
+**target 上游未涉及**：直接视为合法收窄（例如上游没有 `dimension.platform`，请求新增 `platform in ["ios"]`）
+
+**同操作符可判定情况**：
+
+| scope op | upstream op | 判定条件 |
+|----------|------------|---------|
+| `eq(a)` | `eq(b)` | a == b → 收窄；a != b → 矛盾 |
+| `in(s)` | `in(u)` | s ⊆ u → 收窄；s ∩ u = ∅ → 矛盾；s ∩ u ≠ ∅ 但 s ⊄ u → 拒绝（重述更宽条件） |
+| `gte(a)` | `gte(b)` | a >= b → 收窄；a < b → 矛盾 |
+| `gt(a)` | `gt(b)` | a >= b → 收窄；a < b → 矛盾 |
+| `lte(a)` | `lte(b)` | a <= b → 收窄；a > b → 矛盾 |
+| `lt(a)` | `lt(b)` | a <= b → 收窄；a > b → 矛盾 |
+| `between([a,b])` | `between([c,d])` | [a,b] ⊆ [c,d] → 收窄；不相交 → 矛盾；部分重叠但不包含 → 拒绝 |
+| `is_null` / `is_not_null` | 同操作符对 | 同 → 收窄；互斥 → 矛盾 |
+
+**唯一允许的跨操作符对**：
+
+| scope op | upstream op | 判定条件 |
+|----------|------------|---------|
+| `eq(x)` | `in([...])` | x ∈ set → 收窄；x ∉ set → 矛盾 |
+
+**其他所有情况**：一律拒绝，不做聪明推断。包括：
+- 同一 target 上出现跨操作符（如 `in` scope vs `eq` upstream）
+- `neq`、`not_in` 作为 scope 操作符
+- `is_not_null` scope vs 有值约束的 upstream（跨操作符）
+- 任何需要复杂逻辑推导的情况
+
+**"重述更宽条件"规则**：request scope 不允许先声明一个比上游更宽的条件再依赖 AND 自动抵消。例如上游 `country = "CN"`，请求写 `country in ["CN","US"]` 应拒绝。
 
 ## 与其他对象的边界
 
