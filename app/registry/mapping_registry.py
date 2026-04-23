@@ -11,6 +11,10 @@ from app.registry.source_registry import SourceRegistry
 from app.storage.metadata import MetadataStore
 
 _SUPPORTED_STATUSES = {"active", "inactive", "deprecated"}
+_ALLOWED_TYPE_COMBINATIONS = {
+    ("duckdb", "duckdb"),
+    ("trino", "trino"),
+}
 
 
 @dataclass(slots=True)
@@ -195,55 +199,27 @@ class MappingRegistry:
             )
         source = self.source_registry.get_source(str(mapping["source_id"]))
         engine = self.engine_registry.get_engine(str(mapping["engine_id"]))
-        if source["status"] != "active" or engine["status"] != "active":
+        dependency_validation = self._validate_dependencies(source, engine)
+        if dependency_validation is not None:
+            return dependency_validation
+
+        source_type = str(source["source_type"])
+        engine_type = str(engine["engine_type"])
+        if (source_type, engine_type) not in _ALLOWED_TYPE_COMBINATIONS:
             return MappingValidationResult(
                 is_valid=False,
                 readiness_status="not_ready",
-                failure_code="mapping_inactive_dependency",
+                failure_code="mapping_invalid_type_combo",
             )
 
-        mapped_catalogs = {
-            str(item["authority_catalog"])
-            for item in mapping.get("catalog_mappings", [])
-            if item.get("authority_catalog")
-        }
-        if not mapped_catalogs:
-            return MappingValidationResult(
-                is_valid=False,
-                readiness_status="not_ready",
-                failure_code="mapping_incomplete",
-            )
-
-        source_catalogs = self._current_source_authority_catalogs(str(mapping["source_id"]))
-        if source_catalogs and not source_catalogs.issubset(mapped_catalogs):
-            return MappingValidationResult(
-                is_valid=False,
-                readiness_status="not_ready",
-                failure_code="mapping_incomplete",
-            )
-
-        for item in mapping["catalog_mappings"]:
-            execution_catalog = item.get("execution_catalog")
-            default_schema = item.get("default_schema")
-            if not isinstance(execution_catalog, str) or not execution_catalog.strip():
-                return MappingValidationResult(
-                    is_valid=False,
-                    readiness_status="not_ready",
-                    failure_code="mapping_invalid_namespace",
-                )
-            if default_schema is not None and (
-                not isinstance(default_schema, str) or not default_schema.strip()
-            ):
-                return MappingValidationResult(
-                    is_valid=False,
-                    readiness_status="not_ready",
-                    failure_code="mapping_invalid_namespace",
-                )
-
-        return MappingValidationResult(
-            is_valid=True,
-            readiness_status="ready",
+        catalog_validation = self._validate_catalog_mappings(
+            str(mapping["source_id"]),
+            mapping.get("catalog_mappings", []),
         )
+        if catalog_validation is not None:
+            return catalog_validation
+
+        return MappingValidationResult(is_valid=True, readiness_status="ready")
 
     def _row_to_mapping(self, row: dict[str, Any]) -> dict[str, Any]:
         mapping = {
@@ -300,6 +276,105 @@ class MappingRegistry:
                 }
             )
         return normalized
+
+    def _validate_dependencies(
+        self,
+        source: dict[str, Any],
+        engine: dict[str, Any],
+    ) -> MappingValidationResult | None:
+        if source["status"] != "active" or engine["status"] != "active":
+            return MappingValidationResult(
+                is_valid=False,
+                readiness_status="not_ready",
+                failure_code="mapping_inactive_dependency",
+            )
+
+        source_failure = source.get("failure_code")
+        if source.get("readiness_status") != "ready":
+            return MappingValidationResult(
+                is_valid=False,
+                readiness_status="not_ready",
+                failure_code=(
+                    str(source_failure)
+                    if isinstance(source_failure, str) and source_failure
+                    else "mapping_inactive_dependency"
+                ),
+            )
+
+        engine_failure = engine.get("failure_code")
+        if engine.get("readiness_status") != "ready":
+            return MappingValidationResult(
+                is_valid=False,
+                readiness_status="not_ready",
+                failure_code=(
+                    str(engine_failure)
+                    if isinstance(engine_failure, str) and engine_failure
+                    else "mapping_inactive_dependency"
+                ),
+            )
+        return None
+
+    def _validate_catalog_mappings(
+        self,
+        source_id: str,
+        catalog_mappings: Any,
+    ) -> MappingValidationResult | None:
+        if not isinstance(catalog_mappings, list) or not catalog_mappings:
+            return MappingValidationResult(
+                is_valid=False,
+                readiness_status="not_ready",
+                failure_code="mapping_incomplete",
+            )
+
+        mapped_catalogs: set[str] = set()
+        for item in catalog_mappings:
+            if not isinstance(item, dict):
+                return MappingValidationResult(
+                    is_valid=False,
+                    readiness_status="not_ready",
+                    failure_code="mapping_invalid_namespace",
+                )
+            authority_catalog = item.get("authority_catalog")
+            execution_catalog = item.get("execution_catalog")
+            default_schema = item.get("default_schema")
+            if not isinstance(authority_catalog, str) or not authority_catalog.strip():
+                return MappingValidationResult(
+                    is_valid=False,
+                    readiness_status="not_ready",
+                    failure_code="mapping_invalid_namespace",
+                )
+            if not isinstance(execution_catalog, str) or not execution_catalog.strip():
+                return MappingValidationResult(
+                    is_valid=False,
+                    readiness_status="not_ready",
+                    failure_code="mapping_invalid_namespace",
+                )
+            if default_schema is not None and (
+                not isinstance(default_schema, str) or not default_schema.strip()
+            ):
+                return MappingValidationResult(
+                    is_valid=False,
+                    readiness_status="not_ready",
+                    failure_code="mapping_invalid_namespace",
+                )
+            mapped_catalogs.add(authority_catalog.strip())
+
+        source_catalogs = self._current_source_authority_catalogs(source_id)
+        if source_catalogs:
+            if not mapped_catalogs.issubset(source_catalogs):
+                return MappingValidationResult(
+                    is_valid=False,
+                    readiness_status="not_ready",
+                    failure_code="mapping_incomplete",
+                )
+            if not source_catalogs.issubset(mapped_catalogs):
+                return MappingValidationResult(
+                    is_valid=False,
+                    readiness_status="not_ready",
+                    failure_code="mapping_incomplete",
+                )
+
+        return None
 
     def _current_source_authority_catalogs(self, source_id: str) -> set[str]:
         rows = self.metadata.query_rows(

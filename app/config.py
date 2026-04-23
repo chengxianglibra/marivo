@@ -69,12 +69,6 @@ class BindingConfig(BaseModel):
     namespace: dict[str, Any] = Field(default_factory=dict)
 
 
-class UIConfig(BaseModel):
-    enabled: bool = False
-    admin_enabled: bool | None = None
-    user_enabled: bool | None = None
-
-
 class GovernancePolicyConfig(BaseModel):
     name: str
     type: str
@@ -133,7 +127,6 @@ class MarivoConfig(BaseModel):
     engines: list[EngineConfig] = Field(default_factory=list)
     bindings: list[BindingConfig] = Field(default_factory=list)
     calendar: CalendarConfig = Field(default_factory=CalendarConfig)
-    ui: UIConfig = Field(default_factory=UIConfig)
     governance: GovernanceConfig = Field(default_factory=GovernanceConfig)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
 

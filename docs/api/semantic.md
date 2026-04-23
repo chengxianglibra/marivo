@@ -86,10 +86,9 @@ Lifecycle actions are now shared across public semantic object families:
 - Use `detail=true` query parameter on list endpoints to return full object payloads
 - Example: `GET /semantic/entities?detail=true` returns full objects instead of lightweight items
 - Default behavior (`detail=false`) returns lightweight items
-- `/admin?tab=semantic-catalog` uses the lightweight list shape for inventory and fetches detail by
-  object id when the operator selects an object. That UI surfaces `lifecycle_status`,
-  `readiness_status`, blocker detail, dependencies, dependents, and capabilities directly so
-  operators can see why an object is unusable without triggering a runtime failure first.
+- API callers can use the lightweight list shape for inventory and fetch detail by
+  object id when they need `lifecycle_status`, `readiness_status`, blocker detail,
+  dependencies, dependents, and capabilities without triggering a runtime failure first.
 
 Current compatibility policy for read routes:
 
@@ -1070,7 +1069,7 @@ Notes:
 ## Runtime Catalog Discovery
 
 Runtime catalog discovery defaults to ready semantic objects and exposes explicit readiness filters
-for modeling/admin callers.
+for modeling and integration callers.
 
 `GET /catalog/search?q=...&type=...&readiness=...`
 
