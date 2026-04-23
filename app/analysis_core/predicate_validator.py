@@ -7,11 +7,22 @@ predicates with structured diagnostics early in the compile flow.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from typing import Any
 
 from app.analysis_core.validator import ValidationIssue
+from app.api.models.base import PredicateUsage
 from app.semantic_runtime.errors import SemanticRuntimeError
 from app.semantic_runtime.repository import SemanticRuntimeRepository
+
+
+@dataclass(slots=True, frozen=True)
+class PredicateRefWithUsage:
+    """A predicate ref paired with the usage context where it was consumed."""
+
+    ref: str
+    required_usage: PredicateUsage
+
 
 _GATE = "predicate_contract"
 
@@ -44,26 +55,36 @@ _FORBIDDEN_ATOM_TARGET_PREFIXES = frozenset(
 
 def validate_predicate_contracts(
     *,
-    predicate_refs: list[str],
+    predicate_refs: list[PredicateRefWithUsage],
     resolver: SemanticRuntimeRepository,
 ) -> list[ValidationIssue]:
     """Validate all predicate contracts referenced in a compile flow.
 
     Resolves each predicate, then checks: ref prefix, subject_ref resolvable,
     target_ref resolvable (where runtime supports), allowed_usage non-empty,
-    time_policy=non_time_only, expression deterministic.
+    usage context matches, time_policy=non_time_only, expression deterministic.
 
-    Each predicate ref is validated independently so one failure does not
-    suppress diagnostics for the rest.
+    Each (ref, usage_context) pair is validated independently so one failure
+    does not suppress diagnostics for the rest. Contract-level checks run once
+    per unique ref; usage-level checks run per (ref, required_usage) pair.
     """
+    resolved_cache: dict[str, Any | None] = {}
+    seen_contract_checks: set[str] = set()
     issues: list[ValidationIssue] = []
-    for ref in predicate_refs:
+    for entry in predicate_refs:
+        ref = entry.ref
+        required_usage = entry.required_usage
+
         ref_issues: list[ValidationIssue] = []
         ref_issues.extend(_check_predicate_ref_prefix(ref))
         if ref_issues:
             issues.extend(ref_issues)
             continue
-        resolved = _resolve_predicate(ref, resolver)
+
+        if ref not in resolved_cache:
+            resolved_cache[ref] = _resolve_predicate(ref, resolver)
+        resolved = resolved_cache[ref]
+
         if resolved is None:
             issues.extend(_check_predicate_resolved(ref, resolved=None, resolver=resolver))
             continue
@@ -71,14 +92,20 @@ def validate_predicate_contracts(
         if any(i.severity == "error" for i in ref_issues):
             issues.extend(ref_issues)
             continue
-        header = dict(resolved.semantic_object.get("header") or {})
-        interface_contract = dict(resolved.semantic_object.get("interface_contract") or {})
-        ref_issues.extend(_check_subject_ref_resolvable(header, ref, resolver))
-        ref_issues.extend(_check_target_refs_resolvable(interface_contract, ref, resolver))
-        ref_issues.extend(_check_allowed_usage_nonempty(interface_contract, ref))
-        ref_issues.extend(_check_time_policy(interface_contract, ref))
-        ref_issues.extend(_check_expression_deterministic(interface_contract, ref))
+
+        if ref not in seen_contract_checks:
+            seen_contract_checks.add(ref)
+            header = dict(resolved.semantic_object.get("header") or {})
+            interface_contract = dict(resolved.semantic_object.get("interface_contract") or {})
+            ref_issues.extend(_check_subject_ref_resolvable(header, ref, resolver))
+            ref_issues.extend(_check_target_refs_resolvable(interface_contract, ref, resolver))
+            ref_issues.extend(_check_allowed_usage_nonempty(interface_contract, ref))
+            ref_issues.extend(_check_time_policy(interface_contract, ref))
+            ref_issues.extend(_check_expression_deterministic(interface_contract, ref))
         issues.extend(ref_issues)
+
+        interface_contract = dict(resolved.semantic_object.get("interface_contract") or {})
+        issues.extend(_check_usage_context_allowed(interface_contract, ref, required_usage))
     return issues
 
 
@@ -231,6 +258,37 @@ def _check_allowed_usage_nonempty(
             )
         ]
     return []
+
+
+def _check_usage_context_allowed(
+    interface_contract: dict[str, Any],
+    predicate_ref: str,
+    required_usage: str,
+) -> list[ValidationIssue]:
+    """Check that the predicate's allowed_usage includes the required usage context."""
+    allowed_usage = interface_contract.get("allowed_usage")
+    if allowed_usage is None:
+        return []
+    if required_usage in allowed_usage:
+        return []
+    return [
+        ValidationIssue(
+            code="COMPILER_PREDICATE_USAGE_MISMATCH",
+            gate=_GATE,
+            category="compiler",
+            severity="error",
+            message=(
+                f"Predicate '{predicate_ref}' used as {required_usage} "
+                f"does not declare '{required_usage}' in allowed_usage "
+                f"(has: {allowed_usage})"
+            ),
+            subject_ref=predicate_ref,
+            details={
+                "required_usage": required_usage,
+                "allowed_usage": list(allowed_usage),
+            },
+        )
+    ]
 
 
 def _check_time_policy(

@@ -4,6 +4,7 @@ import unittest
 from typing import Any
 
 from app.analysis_core.predicate_validator import (
+    PredicateRefWithUsage,
     _check_allowed_usage_nonempty,
     _check_expression_deterministic,
     _check_predicate_ref_prefix,
@@ -11,6 +12,7 @@ from app.analysis_core.predicate_validator import (
     _check_subject_ref_resolvable,
     _check_target_refs_resolvable,
     _check_time_policy,
+    _check_usage_context_allowed,
     _contains_dynamic_value,
     _extract_target_refs,
     _resolve_entity_ref_from_alias,
@@ -294,6 +296,43 @@ class TestAllowedUsageNonempty(unittest.TestCase):
         self.assertEqual(issues[0].code, "COMPILER_PREDICATE_USAGE_EMPTY")
 
 
+class TestUsageContextAllowed(unittest.TestCase):
+    def test_matching_usage_passes(self):
+        contract = {"allowed_usage": ["metric_qualifier", "carrier_row_filter"]}
+        issues = _check_usage_context_allowed(contract, "predicate.test", "metric_qualifier")
+        self.assertEqual(issues, [])
+
+    def test_mismatching_usage_fails(self):
+        contract = {"allowed_usage": ["carrier_row_filter"]}
+        issues = _check_usage_context_allowed(contract, "predicate.test", "metric_qualifier")
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].code, "COMPILER_PREDICATE_USAGE_MISMATCH")
+        self.assertEqual(issues[0].details["required_usage"], "metric_qualifier")
+        self.assertEqual(issues[0].details["allowed_usage"], ["carrier_row_filter"])
+
+    def test_none_allowed_usage_defers(self):
+        contract = {"allowed_usage": None}
+        issues = _check_usage_context_allowed(contract, "predicate.test", "metric_qualifier")
+        self.assertEqual(issues, [])
+
+    def test_request_scope_context_mismatch(self):
+        contract = {"allowed_usage": ["metric_qualifier"]}
+        issues = _check_usage_context_allowed(contract, "predicate.test", "request_scope")
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].code, "COMPILER_PREDICATE_USAGE_MISMATCH")
+
+    def test_multi_usage_predicate_in_correct_context(self):
+        contract = {"allowed_usage": ["metric_qualifier", "carrier_row_filter"]}
+        issues = _check_usage_context_allowed(contract, "predicate.test", "carrier_row_filter")
+        self.assertEqual(issues, [])
+
+    def test_governance_policy_in_metric_qualifier_context(self):
+        contract = {"allowed_usage": ["governance_policy"]}
+        issues = _check_usage_context_allowed(contract, "predicate.test", "metric_qualifier")
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].code, "COMPILER_PREDICATE_USAGE_MISMATCH")
+
+
 class TestTimePolicy(unittest.TestCase):
     def test_non_time_only_passes(self):
         contract = {"time_policy": "non_time_only"}
@@ -514,7 +553,9 @@ class TestValidatePredicateContractsIntegration(unittest.TestCase):
             availability={"predicate.valid_one": availability},
         )
         issues = validate_predicate_contracts(
-            predicate_refs=["predicate.valid_one"],
+            predicate_refs=[
+                PredicateRefWithUsage(ref="predicate.valid_one", required_usage="metric_qualifier")
+            ],
             resolver=resolver,
         )
         self.assertEqual(issues, [])
@@ -522,7 +563,9 @@ class TestValidatePredicateContractsIntegration(unittest.TestCase):
     def test_invalid_ref_prefix(self):
         resolver = _StubResolver()
         issues = validate_predicate_contracts(
-            predicate_refs=["metric.bad_ref"],
+            predicate_refs=[
+                PredicateRefWithUsage(ref="metric.bad_ref", required_usage="metric_qualifier")
+            ],
             resolver=resolver,
         )
         self.assertTrue(any(i.code == "COMPILER_PREDICATE_REF_INVALID" for i in issues))
@@ -530,7 +573,9 @@ class TestValidatePredicateContractsIntegration(unittest.TestCase):
     def test_unresolved_predicate(self):
         resolver = _StubResolver()
         issues = validate_predicate_contracts(
-            predicate_refs=["predicate.missing"],
+            predicate_refs=[
+                PredicateRefWithUsage(ref="predicate.missing", required_usage="metric_qualifier")
+            ],
             resolver=resolver,
         )
         self.assertTrue(any(i.code == "COMPILER_PREDICATE_REF_UNRESOLVED" for i in issues))
@@ -539,7 +584,10 @@ class TestValidatePredicateContractsIntegration(unittest.TestCase):
         """Verify one failure does not suppress diagnostics for the rest."""
         resolver = _StubResolver()
         issues = validate_predicate_contracts(
-            predicate_refs=["predicate.missing_a", "predicate.missing_b"],
+            predicate_refs=[
+                PredicateRefWithUsage(ref="predicate.missing_a", required_usage="metric_qualifier"),
+                PredicateRefWithUsage(ref="predicate.missing_b", required_usage="metric_qualifier"),
+            ],
             resolver=resolver,
         )
         unresolved = [i for i in issues if i.code == "COMPILER_PREDICATE_REF_UNRESOLVED"]
@@ -636,7 +684,23 @@ class TestCompilerPredicateGate(unittest.TestCase):
     def test_with_valid_predicate_passes(self):
         from app.analysis_core.capability_profiles import DerivedCompilerState
 
-        predicate = _resolved_predicate("predicate.test")
+        predicate = _resolved_predicate(
+            "predicate.test",
+            interface_contract={
+                "expression": {
+                    "op": "and",
+                    "items": [
+                        {
+                            "op": "eq",
+                            "target_ref": "dimension.test_dim",
+                            "value": "active",
+                        }
+                    ],
+                },
+                "allowed_usage": ["request_scope"],
+                "time_policy": "non_time_only",
+            },
+        )
         entity = ResolvedSemanticObject(
             object_kind="entity",
             object_id="entity_1",
@@ -786,6 +850,428 @@ class TestCompilerPredicateGate(unittest.TestCase):
         reported_refs = {i.subject_ref for i in unresolved}
         self.assertTrue("predicate.num_qualifier" in reported_refs)
         self.assertTrue("predicate.den_qualifier" in reported_refs)
+
+
+# ---------------------------------------------------------------------------
+# Integration — validate_predicate_contracts with usage context
+# ---------------------------------------------------------------------------
+
+
+class TestValidatePredicateContractWithUsage(unittest.TestCase):
+    def test_usage_mismatch_reported(self):
+        predicate = _resolved_predicate(
+            "predicate.carrier_only",
+            interface_contract={
+                "expression": {
+                    "op": "eq",
+                    "target_ref": "dimension.test_dim",
+                    "value": "active",
+                },
+                "allowed_usage": ["carrier_row_filter"],
+                "time_policy": "non_time_only",
+            },
+        )
+        entity = ResolvedSemanticObject(
+            object_kind="entity",
+            object_id="e1",
+            ref="entity.test_entity",
+            semantic_object={},
+            status="published",
+            revision=1,
+            created_at="2026-04-23T00:00:00Z",
+            updated_at="2026-04-23T00:00:00Z",
+        )
+        dim = ResolvedSemanticObject(
+            object_kind="dimension",
+            object_id="d1",
+            ref="dimension.test_dim",
+            semantic_object={},
+            status="published",
+            revision=1,
+            created_at="2026-04-23T00:00:00Z",
+            updated_at="2026-04-23T00:00:00Z",
+        )
+        availability = RuntimeSemanticAvailability(
+            resolved=predicate, lifecycle_status="active", readiness_status="ready"
+        )
+        resolver = _StubResolver(
+            resolved={
+                "predicate.carrier_only": predicate,
+                "entity.test_entity": entity,
+                "dimension.test_dim": dim,
+            },
+            availability={"predicate.carrier_only": availability},
+        )
+        issues = validate_predicate_contracts(
+            predicate_refs=[
+                PredicateRefWithUsage(
+                    ref="predicate.carrier_only", required_usage="metric_qualifier"
+                ),
+            ],
+            resolver=resolver,
+        )
+        mismatch = [i for i in issues if i.code == "COMPILER_PREDICATE_USAGE_MISMATCH"]
+        self.assertEqual(len(mismatch), 1)
+        self.assertEqual(mismatch[0].details["required_usage"], "metric_qualifier")
+
+    def test_usage_match_no_issue(self):
+        predicate = _resolved_predicate(
+            "predicate.dual_use",
+            interface_contract={
+                "expression": {
+                    "op": "eq",
+                    "target_ref": "dimension.test_dim",
+                    "value": "active",
+                },
+                "allowed_usage": ["metric_qualifier", "carrier_row_filter"],
+                "time_policy": "non_time_only",
+            },
+        )
+        entity = ResolvedSemanticObject(
+            object_kind="entity",
+            object_id="e1",
+            ref="entity.test_entity",
+            semantic_object={},
+            status="published",
+            revision=1,
+            created_at="2026-04-23T00:00:00Z",
+            updated_at="2026-04-23T00:00:00Z",
+        )
+        dim = ResolvedSemanticObject(
+            object_kind="dimension",
+            object_id="d1",
+            ref="dimension.test_dim",
+            semantic_object={},
+            status="published",
+            revision=1,
+            created_at="2026-04-23T00:00:00Z",
+            updated_at="2026-04-23T00:00:00Z",
+        )
+        availability = RuntimeSemanticAvailability(
+            resolved=predicate, lifecycle_status="active", readiness_status="ready"
+        )
+        resolver = _StubResolver(
+            resolved={
+                "predicate.dual_use": predicate,
+                "entity.test_entity": entity,
+                "dimension.test_dim": dim,
+            },
+            availability={"predicate.dual_use": availability},
+        )
+        issues = validate_predicate_contracts(
+            predicate_refs=[
+                PredicateRefWithUsage(
+                    ref="predicate.dual_use", required_usage="carrier_row_filter"
+                ),
+            ],
+            resolver=resolver,
+        )
+        mismatch = [i for i in issues if i.code == "COMPILER_PREDICATE_USAGE_MISMATCH"]
+        self.assertEqual(len(mismatch), 0)
+
+    def test_same_ref_different_contexts_both_checked(self):
+        """Same predicate ref used in two contexts: one matches, one doesn't."""
+        predicate = _resolved_predicate(
+            "predicate.metric_only",
+            interface_contract={
+                "expression": {
+                    "op": "eq",
+                    "target_ref": "dimension.test_dim",
+                    "value": "active",
+                },
+                "allowed_usage": ["metric_qualifier"],
+                "time_policy": "non_time_only",
+            },
+        )
+        entity = ResolvedSemanticObject(
+            object_kind="entity",
+            object_id="e1",
+            ref="entity.test_entity",
+            semantic_object={},
+            status="published",
+            revision=1,
+            created_at="2026-04-23T00:00:00Z",
+            updated_at="2026-04-23T00:00:00Z",
+        )
+        dim = ResolvedSemanticObject(
+            object_kind="dimension",
+            object_id="d1",
+            ref="dimension.test_dim",
+            semantic_object={},
+            status="published",
+            revision=1,
+            created_at="2026-04-23T00:00:00Z",
+            updated_at="2026-04-23T00:00:00Z",
+        )
+        availability = RuntimeSemanticAvailability(
+            resolved=predicate, lifecycle_status="active", readiness_status="ready"
+        )
+        resolver = _StubResolver(
+            resolved={
+                "predicate.metric_only": predicate,
+                "entity.test_entity": entity,
+                "dimension.test_dim": dim,
+            },
+            availability={"predicate.metric_only": availability},
+        )
+        issues = validate_predicate_contracts(
+            predicate_refs=[
+                PredicateRefWithUsage(
+                    ref="predicate.metric_only", required_usage="metric_qualifier"
+                ),
+                PredicateRefWithUsage(
+                    ref="predicate.metric_only", required_usage="carrier_row_filter"
+                ),
+            ],
+            resolver=resolver,
+        )
+        mismatch = [i for i in issues if i.code == "COMPILER_PREDICATE_USAGE_MISMATCH"]
+        self.assertEqual(len(mismatch), 1)
+        self.assertEqual(mismatch[0].details["required_usage"], "carrier_row_filter")
+        # Contract-level issues should appear only once (not duplicated)
+        unresolved = [i for i in issues if i.code == "COMPILER_PREDICATE_REF_UNRESOLVED"]
+        self.assertEqual(len(unresolved), 0)
+
+
+# ---------------------------------------------------------------------------
+# Integration — compiler pipeline usage-level validation gate
+# ---------------------------------------------------------------------------
+
+
+class TestCompilerPredicateUsageGate(unittest.TestCase):
+    """Test usage-level validation in the compiler pipeline."""
+
+    def _make_resolved_inputs(
+        self,
+        *,
+        metric_predicate_refs: list[str] | None = None,
+        component_qualifier_refs: dict[str, list[str]] | None = None,
+        binding_row_filter_refs: list[str] | None = None,
+        request_scope_predicate_ref: str | None = None,
+    ) -> Any:
+        from app.analysis_core.typed_resolution import (
+            NormalizedCompilerRequest,
+            ResolvedCompilerInputs,
+        )
+
+        header: dict[str, Any] = {"metric_ref": "metric.test"}
+        if metric_predicate_refs:
+            header["default_predicate_refs"] = metric_predicate_refs
+        payload: dict[str, Any] = {}
+        if component_qualifier_refs:
+            for field, refs in component_qualifier_refs.items():
+                payload[field] = {"qualifier_refs": refs}
+
+        metric_obj = {"header": header, "payload": payload}
+        metric = ResolvedSemanticObject(
+            object_kind="metric",
+            object_id="metric_1",
+            ref="metric.test",
+            semantic_object=metric_obj,
+            status="published",
+            revision=1,
+            created_at="2026-04-23T00:00:00Z",
+            updated_at="2026-04-23T00:00:00Z",
+        )
+
+        carrier: dict[str, Any] = {
+            "binding_key": "primary",
+            "carrier_kind": "table",
+        }
+        if binding_row_filter_refs:
+            carrier["row_filter_refs"] = binding_row_filter_refs
+
+        binding = ResolvedSemanticObject(
+            object_kind="binding",
+            object_id="binding_1",
+            ref="binding.test",
+            semantic_object={
+                "header": {"binding_ref": "binding.test"},
+                "interface_contract": {
+                    "carrier_bindings": [carrier],
+                    "field_bindings": [
+                        {
+                            "carrier_binding_key": "primary",
+                            "target": {"target_kind": "metric_input"},
+                        }
+                    ],
+                },
+            },
+            status="published",
+            revision=1,
+            created_at="2026-04-23T00:00:00Z",
+            updated_at="2026-04-23T00:00:00Z",
+        )
+
+        return ResolvedCompilerInputs(
+            normalized_request=NormalizedCompilerRequest(
+                intent_kind="metric_query",
+                request_class="root_metric_process",
+                table_name=None,
+                metric_ref="metric.test",
+                request_scope_predicate_ref=request_scope_predicate_ref,
+            ),
+            resolved_metric=metric,
+            resolved_bindings=[binding],
+        )
+
+    def _make_resolver_with_predicate(self, ref: str, allowed_usage: list[str]) -> _StubResolver:
+        predicate = _resolved_predicate(
+            ref,
+            interface_contract={
+                "expression": {
+                    "op": "eq",
+                    "target_ref": "dimension.test_dim",
+                    "value": "active",
+                },
+                "allowed_usage": allowed_usage,
+                "time_policy": "non_time_only",
+            },
+        )
+        entity = ResolvedSemanticObject(
+            object_kind="entity",
+            object_id="e1",
+            ref="entity.test_entity",
+            semantic_object={},
+            status="published",
+            revision=1,
+            created_at="2026-04-23T00:00:00Z",
+            updated_at="2026-04-23T00:00:00Z",
+        )
+        dim = ResolvedSemanticObject(
+            object_kind="dimension",
+            object_id="d1",
+            ref="dimension.test_dim",
+            semantic_object={},
+            status="published",
+            revision=1,
+            created_at="2026-04-23T00:00:00Z",
+            updated_at="2026-04-23T00:00:00Z",
+        )
+        availability = RuntimeSemanticAvailability(
+            resolved=predicate, lifecycle_status="active", readiness_status="ready"
+        )
+        return _StubResolver(
+            resolved={
+                ref: predicate,
+                "entity.test_entity": entity,
+                "dimension.test_dim": dim,
+            },
+            availability={ref: availability},
+        )
+
+    def test_metric_qualifier_usage_mismatch_fails(self):
+        from app.analysis_core.capability_profiles import DerivedCompilerState
+
+        resolver = self._make_resolver_with_predicate(
+            "predicate.carrier_only", ["carrier_row_filter"]
+        )
+        inputs = self._make_resolved_inputs(metric_predicate_refs=["predicate.carrier_only"])
+        derived = DerivedCompilerState(
+            metric_capabilities=None,
+            metric_requirements=None,
+            process_capabilities=None,
+            profile_validation_issues=[],
+        )
+        result = validate_compiler_inputs(
+            step_type="metric_query",
+            resolved_inputs=inputs,
+            derived_state=derived,
+            semantic_repository=resolver,
+        )
+        self.assertFalse(result.ok)
+        mismatch = [i for i in result.issues if i.code == "COMPILER_PREDICATE_USAGE_MISMATCH"]
+        self.assertEqual(len(mismatch), 1)
+        self.assertEqual(mismatch[0].details["required_usage"], "metric_qualifier")
+
+    def test_binding_row_filter_usage_mismatch_fails(self):
+        from app.analysis_core.capability_profiles import DerivedCompilerState
+
+        resolver = self._make_resolver_with_predicate("predicate.metric_only", ["metric_qualifier"])
+        inputs = self._make_resolved_inputs(binding_row_filter_refs=["predicate.metric_only"])
+        derived = DerivedCompilerState(
+            metric_capabilities=None,
+            metric_requirements=None,
+            process_capabilities=None,
+            profile_validation_issues=[],
+        )
+        result = validate_compiler_inputs(
+            step_type="metric_query",
+            resolved_inputs=inputs,
+            derived_state=derived,
+            semantic_repository=resolver,
+        )
+        self.assertFalse(result.ok)
+        mismatch = [i for i in result.issues if i.code == "COMPILER_PREDICATE_USAGE_MISMATCH"]
+        self.assertEqual(len(mismatch), 1)
+        self.assertEqual(mismatch[0].details["required_usage"], "carrier_row_filter")
+
+    def test_request_scope_usage_mismatch_fails(self):
+        from app.analysis_core.capability_profiles import DerivedCompilerState
+
+        resolver = self._make_resolver_with_predicate("predicate.metric_only", ["metric_qualifier"])
+        inputs = self._make_resolved_inputs(request_scope_predicate_ref="predicate.metric_only")
+        derived = DerivedCompilerState(
+            metric_capabilities=None,
+            metric_requirements=None,
+            process_capabilities=None,
+            profile_validation_issues=[],
+        )
+        result = validate_compiler_inputs(
+            step_type="metric_query",
+            resolved_inputs=inputs,
+            derived_state=derived,
+            semantic_repository=resolver,
+        )
+        self.assertFalse(result.ok)
+        mismatch = [i for i in result.issues if i.code == "COMPILER_PREDICATE_USAGE_MISMATCH"]
+        self.assertEqual(len(mismatch), 1)
+        self.assertEqual(mismatch[0].details["required_usage"], "request_scope")
+
+    def test_correct_usage_passes(self):
+        from app.analysis_core.capability_profiles import DerivedCompilerState
+
+        resolver = self._make_resolver_with_predicate("predicate.correct", ["metric_qualifier"])
+        inputs = self._make_resolved_inputs(metric_predicate_refs=["predicate.correct"])
+        derived = DerivedCompilerState(
+            metric_capabilities=None,
+            metric_requirements=None,
+            process_capabilities=None,
+            profile_validation_issues=[],
+        )
+        result = validate_compiler_inputs(
+            step_type="metric_query",
+            resolved_inputs=inputs,
+            derived_state=derived,
+            semantic_repository=resolver,
+        )
+        self.assertTrue(result.ok)
+
+    def test_same_ref_multiple_contexts_partial_mismatch(self):
+        """Same ref in metric_qualifier (valid) and carrier_row_filter (invalid)."""
+        from app.analysis_core.capability_profiles import DerivedCompilerState
+
+        resolver = self._make_resolver_with_predicate("predicate.metric_only", ["metric_qualifier"])
+        inputs = self._make_resolved_inputs(
+            metric_predicate_refs=["predicate.metric_only"],
+            binding_row_filter_refs=["predicate.metric_only"],
+        )
+        derived = DerivedCompilerState(
+            metric_capabilities=None,
+            metric_requirements=None,
+            process_capabilities=None,
+            profile_validation_issues=[],
+        )
+        result = validate_compiler_inputs(
+            step_type="metric_query",
+            resolved_inputs=inputs,
+            derived_state=derived,
+            semantic_repository=resolver,
+        )
+        self.assertFalse(result.ok)
+        mismatch = [i for i in result.issues if i.code == "COMPILER_PREDICATE_USAGE_MISMATCH"]
+        self.assertEqual(len(mismatch), 1)
+        self.assertEqual(mismatch[0].details["required_usage"], "carrier_row_filter")
 
 
 if __name__ == "__main__":

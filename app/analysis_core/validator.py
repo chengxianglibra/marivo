@@ -7,6 +7,7 @@ from app.analysis_core.capability_profiles import DerivedCompilerState
 from app.analysis_core.typed_resolution import ResolvedCompilerInputs
 
 if TYPE_CHECKING:
+    from app.analysis_core.predicate_validator import PredicateRefWithUsage
     from app.semantic_runtime.repository import SemanticRuntimeRepository
 
 
@@ -392,15 +393,21 @@ def _gate_predicate_contracts(
     )
 
 
-def _collect_predicate_refs(resolved_inputs: ResolvedCompilerInputs) -> list[str]:
-    """Extract all predicate refs from resolved metric, bindings, and request scope."""
-    refs: list[str] = []
-    seen: set[str] = set()
+def _collect_predicate_refs(
+    resolved_inputs: ResolvedCompilerInputs,
+) -> list[PredicateRefWithUsage]:
+    """Extract all predicate refs from resolved metric, bindings, and request scope,
+    tagged with their usage context."""
+    from app.analysis_core.predicate_validator import PredicateRefWithUsage
+    from app.api.models.base import PredicateUsage
 
-    def _add(ref: str | None) -> None:
-        if ref and ref.startswith("predicate.") and ref not in seen:
-            seen.add(ref)
-            refs.append(ref)
+    refs: list[PredicateRefWithUsage] = []
+    seen: set[tuple[str, str]] = set()
+
+    def _add(ref: str | None, usage: PredicateUsage) -> None:
+        if ref and ref.startswith("predicate.") and (ref, usage) not in seen:
+            seen.add((ref, usage))
+            refs.append(PredicateRefWithUsage(ref=ref, required_usage=usage))
 
     metric = resolved_inputs.resolved_metric
     if metric is not None:
@@ -411,7 +418,7 @@ def _collect_predicate_refs(resolved_inputs: ResolvedCompilerInputs) -> list[str
         for ref in (
             header.get("default_predicate_refs") or payload.get("default_predicate_refs") or []
         ):
-            _add(ref)
+            _add(ref, "metric_qualifier")
         # Component qualifier_refs live under family-specific payload fields.
         _component_fields = (
             "count_target",
@@ -425,16 +432,16 @@ def _collect_predicate_refs(resolved_inputs: ResolvedCompilerInputs) -> list[str
             component = payload.get(field)
             if component is not None:
                 for ref in component.get("qualifier_refs") or []:
-                    _add(ref)
+                    _add(ref, "metric_qualifier")
 
     for binding in resolved_inputs.resolved_bindings:
         interface_contract = dict(binding.semantic_object.get("interface_contract") or {})
         for carrier in interface_contract.get("carrier_bindings") or []:
             for ref in carrier.get("row_filter_refs") or []:
-                _add(ref)
+                _add(ref, "carrier_row_filter")
 
     request_predicate = resolved_inputs.normalized_request.request_scope_predicate_ref
-    _add(request_predicate)
+    _add(request_predicate, "request_scope")
 
     return refs
 
