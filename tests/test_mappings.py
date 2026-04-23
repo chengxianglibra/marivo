@@ -166,6 +166,50 @@ class MappingServiceTests(unittest.TestCase):
             },
         )
 
+    def test_router_skips_not_ready_engine_even_when_mapping_is_ready(self) -> None:
+        self.metadata.execute(
+            "UPDATE engines SET connection_json = ? WHERE engine_id = ?",
+            ["{}", self.engine["engine_id"]],
+        )
+        mapping = self.mapping_service.create_mapping(
+            self.source["source_id"],
+            self.engine["engine_id"],
+            priority=10,
+            catalog_mappings=[
+                {
+                    "authority_catalog": "main",
+                    "execution_catalog": "duckdb_runtime",
+                    "default_schema": None,
+                }
+            ],
+        )
+
+        self.assertEqual(mapping["readiness_status"], "ready")
+        with self.assertRaisesRegex(ValueError, "engine_invalid_connection"):
+            self.router.resolve_tables(["watch_events"])
+
+    def test_get_engine_info_for_source_returns_none_when_only_engine_is_not_ready(self) -> None:
+        self.metadata.execute(
+            "UPDATE engines SET connection_json = ? WHERE engine_id = ?",
+            ["{}", self.engine["engine_id"]],
+        )
+        self.mapping_service.create_mapping(
+            self.source["source_id"],
+            self.engine["engine_id"],
+            priority=10,
+            catalog_mappings=[
+                {
+                    "authority_catalog": "main",
+                    "execution_catalog": "duckdb_runtime",
+                    "default_schema": None,
+                }
+            ],
+        )
+
+        self.assertIsNone(self.router.get_engine_info_for_source(self.source["source_id"]))
+        with self.assertRaisesRegex(ValueError, "engine_invalid_connection"):
+            self.router.resolve_engine_for_source(self.source["source_id"])
+
     def test_update_and_delete_mapping(self) -> None:
         mapping = self.mapping_service.create_mapping(
             self.source["source_id"],

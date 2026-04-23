@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
 
@@ -16,6 +17,21 @@ class DependencyError(Exception):
     def __init__(self, message: str, dependencies: list[str] | None = None) -> None:
         super().__init__(message)
         self.dependencies = dependencies or []
+
+
+@dataclass(slots=True)
+class SourceValidationResult:
+    is_valid: bool
+    readiness_status: str
+    failure_code: str | None = None
+
+    def to_dict(self, *, source_id: str) -> dict[str, Any]:
+        return {
+            "source_id": source_id,
+            "is_valid": self.is_valid,
+            "readiness_status": self.readiness_status,
+            "failure_code": self.failure_code,
+        }
 
 
 def _normalize_sync(sync: dict[str, Any] | None) -> dict[str, Any]:
@@ -261,6 +277,18 @@ class SourceRegistry:
         self.metadata.execute("DELETE FROM source_objects WHERE source_id = ?", [source_id])
         self.metadata.execute("DELETE FROM sources WHERE source_id = ?", [source_id])
 
+    def validate_source(self, source_id: str) -> dict[str, Any]:
+        source = self.get_source(source_id)
+        return self.evaluate_source(source).to_dict(source_id=source_id)
+
+    def get_source_readiness(self, source_id: str) -> dict[str, Any]:
+        validation = self.validate_source(source_id)
+        return {
+            "source_id": source_id,
+            "readiness_status": validation["readiness_status"],
+            "failure_code": validation["failure_code"],
+        }
+
     def get_adapter(self, source_id: str) -> CatalogAdapter:
         source = self.get_source(source_id)
         connection = source["authority"]["connection"]
@@ -432,8 +460,73 @@ class SourceRegistry:
             "limit_applied": min(limit, MAX_PREVIEW_ROWS),
         }
 
+    def evaluate_source(self, source: dict[str, Any]) -> SourceValidationResult:
+        if source["status"] != "active":
+            return SourceValidationResult(
+                is_valid=False,
+                readiness_status="not_ready",
+                failure_code="source_inactive",
+            )
+
+        source_type = source["source_type"]
+        try:
+            validate_source_type(source_type)
+        except ValueError:
+            return SourceValidationResult(
+                is_valid=False,
+                readiness_status="not_ready",
+                failure_code="source_invalid_type",
+            )
+
+        authority = source.get("authority")
+        if not isinstance(authority, dict):
+            return SourceValidationResult(
+                is_valid=False,
+                readiness_status="not_ready",
+                failure_code="source_invalid_authority",
+            )
+
+        if authority.get("catalog_system") != source_type:
+            return SourceValidationResult(
+                is_valid=False,
+                readiness_status="not_ready",
+                failure_code="source_invalid_authority",
+            )
+
+        synthetic_catalog = authority.get("synthetic_catalog")
+        if source_type == "duckdb" and (
+            not isinstance(synthetic_catalog, str) or not synthetic_catalog.strip()
+        ):
+            return SourceValidationResult(
+                is_valid=False,
+                readiness_status="not_ready",
+                failure_code="source_missing_synthetic_catalog",
+            )
+
+        connection = authority.get("connection")
+        if not isinstance(connection, dict):
+            return SourceValidationResult(
+                is_valid=False,
+                readiness_status="not_ready",
+                failure_code="source_invalid_connection",
+            )
+
+        try:
+            build_catalog_adapter(source_type, connection)
+        except (KeyError, TypeError, ValueError):
+            return SourceValidationResult(
+                is_valid=False,
+                readiness_status="not_ready",
+                failure_code="source_invalid_connection",
+            )
+
+        return SourceValidationResult(
+            is_valid=True,
+            readiness_status="ready",
+        )
+
     def _row_to_source(self, row: dict[str, Any]) -> dict[str, Any]:
-        return {
+        source = {
             "source_id": row["source_id"],
             "source_type": row["source_type"],
             "display_name": row["display_name"],
@@ -445,6 +538,10 @@ class SourceRegistry:
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
+        validation = self.evaluate_source(source)
+        source["readiness_status"] = validation.readiness_status
+        source["failure_code"] = validation.failure_code
+        return source
 
     def _row_to_object(self, row: dict[str, Any]) -> dict[str, Any]:
         return {

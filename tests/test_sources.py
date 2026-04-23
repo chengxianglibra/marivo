@@ -91,6 +91,34 @@ class SourceRegistryTests(unittest.TestCase):
         resp = self.client.get(f"/sources/{source_id}")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["source_id"], source_id)
+        self.assertEqual(resp.json()["readiness_status"], "ready")
+        self.assertIsNone(resp.json()["failure_code"])
+
+    def test_get_source_reports_not_ready_when_legacy_row_is_missing_synthetic_catalog(
+        self,
+    ) -> None:
+        resp = self.client.post(
+            "/sources",
+            json=build_duckdb_source_payload(str(self.db_path), "Legacy DuckDB Source"),
+        )
+        source_id = resp.json()["source_id"]
+        metadata = self.client.app.state.metadata_store
+        metadata.execute(
+            """
+            UPDATE sources
+            SET authority_json = ?
+            WHERE source_id = ?
+            """,
+            [
+                f'{{"catalog_system":"duckdb","connection":{{"path":"{self.db_path}"}}}}',
+                source_id,
+            ],
+        )
+
+        detail = self.client.get(f"/sources/{source_id}")
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(detail.json()["readiness_status"], "not_ready")
+        self.assertEqual(detail.json()["failure_code"], "source_missing_synthetic_catalog")
 
     def test_get_source_404(self) -> None:
         resp = self.client.get("/sources/nonexistent")

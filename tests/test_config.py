@@ -169,6 +169,8 @@ class EnsureSourceTests(unittest.TestCase):
         self.assertEqual(source["display_name"], "My Source")
         self.assertEqual(source["source_type"], "duckdb")
         self.assertTrue(source["source_id"].startswith("src_"))
+        self.assertEqual(source["readiness_status"], "not_ready")
+        self.assertEqual(source["failure_code"], "source_invalid_connection")
 
     def test_register_source_rejects_unsupported_type(self) -> None:
         with self.assertRaisesRegex(ValueError, "Unsupported source type"):
@@ -217,6 +219,45 @@ class EnsureSourceTests(unittest.TestCase):
     def test_ensure_source_rejects_unsupported_type(self) -> None:
         with self.assertRaisesRegex(ValueError, "Unsupported source type"):
             self.source_service.ensure_source("mysql", "Unsupported Source", {})
+
+    def test_validate_source_reports_invalid_connection(self) -> None:
+        source = self.source_service.register_source("duckdb", "Unconfigured DuckDB", {})
+
+        validation = self.source_service.validate_source(source["source_id"])
+
+        self.assertEqual(
+            validation,
+            {
+                "source_id": source["source_id"],
+                "is_valid": False,
+                "readiness_status": "not_ready",
+                "failure_code": "source_invalid_connection",
+            },
+        )
+
+    def test_get_source_readiness_reports_ready_source(self) -> None:
+        db_path = Path(self.temp_dir.name) / "ready-source.duckdb"
+        get_seeded_duckdb_path(db_path)
+        source = self.source_service.register_source(
+            "duckdb",
+            "Configured DuckDB",
+            {
+                "catalog_system": "duckdb",
+                "connection": {"path": str(db_path)},
+                "synthetic_catalog": "main",
+            },
+        )
+
+        readiness = self.source_service.get_source_readiness(source["source_id"])
+
+        self.assertEqual(
+            readiness,
+            {
+                "source_id": source["source_id"],
+                "readiness_status": "ready",
+                "failure_code": None,
+            },
+        )
 
 
 class StartupWithConfigTests(unittest.TestCase):

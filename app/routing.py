@@ -112,6 +112,16 @@ class QueryRouter:
                     )
                     continue
                 engine_id = str(mapping["engine_id"])
+                engine_info = self.engine_service.get_engine(engine_id)
+                if engine_info["readiness_status"] != "ready":
+                    failed_mappings.append(
+                        {
+                            "mapping_id": mapping["mapping_id"],
+                            "engine_id": mapping["engine_id"],
+                            "failure_code": engine_info.get("failure_code") or "engine_not_ready",
+                        }
+                    )
+                    continue
                 engine_ids.add(engine_id)
                 engine_priorities.setdefault(engine_id, {})[source_id] = int(mapping["priority"])
                 mapping_details[(source_id, engine_id)] = mapping
@@ -275,22 +285,17 @@ class QueryRouter:
 
         Raises ValueError if no ready mappings exist for the source.
         """
-        mappings = [
-            mapping
-            for mapping in self.mapping_service.list_mappings(source_id=source_id, status="active")
-            if mapping["readiness_status"] == "ready"
-        ]
+        mappings, detail = self._ready_mappings_for_source(source_id)
         if not mappings:
-            raise ValueError(f"Source '{source_id}' has no ready execution mappings")
+            raise ValueError(
+                f"Source '{source_id}' has no ready execution mappings"
+                + (f" ({detail})" if detail else "")
+            )
         return self.engine_service.build_analytics_engine(str(mappings[0]["engine_id"]))
 
     def get_engine_info_for_source(self, source_id: str) -> dict[str, Any] | None:
         """Return the highest-priority ready engine dict (not instance) for a source."""
-        mappings = [
-            mapping
-            for mapping in self.mapping_service.list_mappings(source_id=source_id, status="active")
-            if mapping["readiness_status"] == "ready"
-        ]
+        mappings, _ = self._ready_mappings_for_source(source_id)
         if not mappings:
             return None
         best = mappings[0]
@@ -302,6 +307,26 @@ class QueryRouter:
             "priority": best["priority"],
             "mapping_id": best["mapping_id"],
         }
+
+    def _ready_mappings_for_source(self, source_id: str) -> tuple[list[dict[str, Any]], str | None]:
+        ready_mappings: list[dict[str, Any]] = []
+        failed_entries: list[str] = []
+        for mapping in self.mapping_service.list_mappings(source_id=source_id, status="active"):
+            if mapping["readiness_status"] != "ready":
+                failed_entries.append(
+                    f"{mapping['mapping_id']}:{mapping.get('failure_code') or 'not_ready'}"
+                )
+                continue
+            engine = self.engine_service.get_engine(str(mapping["engine_id"]))
+            if engine["readiness_status"] != "ready":
+                failed_entries.append(
+                    f"{mapping['mapping_id']}:{engine.get('failure_code') or 'engine_not_ready'}"
+                )
+                continue
+            ready_mappings.append(mapping)
+
+        detail = ", ".join(failed_entries) if failed_entries else None
+        return ready_mappings, detail
 
     def resolve_execution_locator(
         self,

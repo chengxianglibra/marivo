@@ -99,10 +99,18 @@ Registers an analytics engine. The engine type determines which adapter implemen
     "required_policy_support": []
   },
   "status": "active",
+  "readiness_status": "ready",
+  "failure_code": null,
   "created_at": "2024-01-15T10:00:00+00:00",
   "updated_at": "2024-01-15T10:00:00+00:00"
 }
 ```
+
+`readiness_status` is derived from engine validation. This check is configuration-only in the
+current runtime: it validates engine type, connection shape, `default_namespace`, and the value
+stability of `deployment_capabilities` / `policy`. It does not run online connectivity probes or
+issue `SELECT 1`. `failure_code` exposes the current blocker, such as `engine_invalid_connection`
+or `engine_invalid_namespace`.
 
 ---
 
