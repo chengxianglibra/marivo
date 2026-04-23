@@ -1623,6 +1623,7 @@ def compile_step(
         step_type=step.step_type,
         resolved_inputs=resolved_inputs,
         derived_state=derived_state,
+        semantic_repository=semantic_repository,
     )
     imported_dimension_sources, imported_dimension_issues = (
         _resolve_imported_dimension_physical_sources(

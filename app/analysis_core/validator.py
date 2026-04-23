@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from app.analysis_core.capability_profiles import DerivedCompilerState
 from app.analysis_core.typed_resolution import ResolvedCompilerInputs
+
+if TYPE_CHECKING:
+    from app.semantic_runtime.repository import SemanticRuntimeRepository
 
 
 @dataclass(slots=True)
@@ -64,6 +67,7 @@ def validate_compiler_inputs(
     step_type: str,
     resolved_inputs: ResolvedCompilerInputs,
     derived_state: DerivedCompilerState,
+    semantic_repository: SemanticRuntimeRepository | None = None,
 ) -> ValidationResult:
     issues: list[ValidationIssue] = []
     issues.extend(_gate_profile_integrity(derived_state))
@@ -71,6 +75,7 @@ def validate_compiler_inputs(
     issues.extend(_gate_intent_support(step_type, resolved_inputs, derived_state))
     issues.extend(_gate_metric_process_compatibility(resolved_inputs, derived_state))
     issues.extend(_gate_binding_compatibility(step_type, resolved_inputs))
+    issues.extend(_gate_predicate_contracts(resolved_inputs, semantic_repository))
     issues.extend(_gate_dimension_compatibility(resolved_inputs))
     issues.extend(_gate_intent_specific(step_type, resolved_inputs, derived_state))
     issues.extend(_gate_dimension_additivity_condition(step_type, resolved_inputs, derived_state))
@@ -368,6 +373,70 @@ def _gate_binding_compatibility(
                     )
                 )
     return issues
+
+
+def _gate_predicate_contracts(
+    resolved_inputs: ResolvedCompilerInputs,
+    semantic_repository: SemanticRuntimeRepository | None,
+) -> list[ValidationIssue]:
+    if semantic_repository is None:
+        return []
+    predicate_refs = _collect_predicate_refs(resolved_inputs)
+    if not predicate_refs:
+        return []
+    from app.analysis_core.predicate_validator import validate_predicate_contracts
+
+    return validate_predicate_contracts(
+        predicate_refs=predicate_refs,
+        resolver=semantic_repository,
+    )
+
+
+def _collect_predicate_refs(resolved_inputs: ResolvedCompilerInputs) -> list[str]:
+    """Extract all predicate refs from resolved metric, bindings, and request scope."""
+    refs: list[str] = []
+    seen: set[str] = set()
+
+    def _add(ref: str | None) -> None:
+        if ref and ref.startswith("predicate.") and ref not in seen:
+            seen.add(ref)
+            refs.append(ref)
+
+    metric = resolved_inputs.resolved_metric
+    if metric is not None:
+        header = dict(metric.semantic_object.get("header") or {})
+        payload = dict(metric.semantic_object.get("payload") or {})
+        # default_predicate_refs lives on the header (service path) or payload
+        # (runtime _row_to_typed_metric omits it from header).
+        for ref in (
+            header.get("default_predicate_refs") or payload.get("default_predicate_refs") or []
+        ):
+            _add(ref)
+        # Component qualifier_refs live under family-specific payload fields.
+        _component_fields = (
+            "count_target",
+            "measure",
+            "numerator",
+            "denominator",
+            "value_component",
+            "score_source",
+        )
+        for field in _component_fields:
+            component = payload.get(field)
+            if component is not None:
+                for ref in component.get("qualifier_refs") or []:
+                    _add(ref)
+
+    for binding in resolved_inputs.resolved_bindings:
+        interface_contract = dict(binding.semantic_object.get("interface_contract") or {})
+        for carrier in interface_contract.get("carrier_bindings") or []:
+            for ref in carrier.get("row_filter_refs") or []:
+                _add(ref)
+
+    request_predicate = resolved_inputs.normalized_request.request_scope_predicate_ref
+    _add(request_predicate)
+
+    return refs
 
 
 def _gate_dimension_compatibility(resolved_inputs: ResolvedCompilerInputs) -> list[ValidationIssue]:
