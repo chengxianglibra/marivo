@@ -116,6 +116,24 @@ make lint
 make format
 ```
 
+When using `claude` CLI for code review in this repository:
+- Do not paste large `git diff` output into the prompt. Ask Claude to inspect the current diff itself with git.
+- In this environment, the default `~/.claude` runtime path can fail with `EPERM` on `session-env` /
+  `shell-snapshots` writes, which makes tool-using prompts appear to hang.
+- Prefer a writable runtime dir plus minimal startup flags, for example:
+  ```bash
+  CLAUDE_CONFIG_DIR=/tmp/claude-home \
+  claude --bare --no-session-persistence \
+    --settings ~/.claude/settings.json \
+    --permission-mode bypassPermissions \
+    -p "Review current git changes in this repo. Use git yourself to inspect them."
+  ```
+- Keep the review prompt narrow and explicit: ask for findings only, ordered by severity, with file references.
+- If a `-p` review appears to stall, first retry with `--output-format stream-json --include-partial-messages --verbose`
+  so you can see whether Claude is still reading files / running git instead of hanging silently.
+- Treat Claude review feedback as input, not truth. Validate findings against the current code, schema contract,
+  and repository entrypoint rules before making changes.
+
 Tests: `make test` or `.venv/bin/pytest`. Use `make test TESTS='tests/test_file.py'`
 for targeted runs through the repository entrypoint. Requires Python 3.12+. SQLite metadata,
 DuckDB/Trino engines. Tests pass explicit db_path and metadata store/file paths directly.

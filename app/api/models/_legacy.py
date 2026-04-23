@@ -266,6 +266,24 @@ class MappingCatalogEntryPayload(BaseModel):
     execution_catalog: str
     default_schema: str | None = None
 
+    @field_validator("authority_catalog", "execution_catalog")
+    @classmethod
+    def validate_required_catalog_fields(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("mapping catalog fields must not be blank")
+        return normalized
+
+    @field_validator("default_schema")
+    @classmethod
+    def validate_default_schema(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("default_schema must not be blank")
+        return normalized
+
 
 class MappingCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -276,6 +294,11 @@ class MappingCreateRequest(BaseModel):
     catalog_mappings: list[MappingCatalogEntryPayload] = Field(default_factory=list)
     status: Literal["active", "inactive", "deprecated"] = "active"
 
+    @model_validator(mode="after")
+    def validate_catalog_mappings(self) -> MappingCreateRequest:
+        _validate_unique_authority_catalogs(self.catalog_mappings)
+        return self
+
 
 class MappingUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -283,6 +306,24 @@ class MappingUpdateRequest(BaseModel):
     priority: int | None = None
     catalog_mappings: list[MappingCatalogEntryPayload] | None = None
     status: Literal["active", "inactive", "deprecated"] | None = None
+
+    @model_validator(mode="after")
+    def validate_catalog_mappings(self) -> MappingUpdateRequest:
+        if self.catalog_mappings is not None:
+            _validate_unique_authority_catalogs(self.catalog_mappings)
+        return self
+
+
+def _validate_unique_authority_catalogs(
+    catalog_mappings: list[MappingCatalogEntryPayload],
+) -> None:
+    seen_authority_catalogs: set[str] = set()
+    for entry in catalog_mappings:
+        if entry.authority_catalog in seen_authority_catalogs:
+            raise ValueError(
+                f"catalog_mappings contains duplicate authority_catalog: {entry.authority_catalog}"
+            )
+        seen_authority_catalogs.add(entry.authority_catalog)
 
 
 SourceRegisterRequest.model_rebuild()

@@ -19,6 +19,14 @@ class MappingValidationResult:
     readiness_status: str
     failure_code: str | None = None
 
+    def to_dict(self, *, mapping_id: str) -> dict[str, Any]:
+        return {
+            "mapping_id": mapping_id,
+            "is_valid": self.is_valid,
+            "readiness_status": self.readiness_status,
+            "failure_code": self.failure_code,
+        }
+
 
 class MappingRegistry:
     """Registry for source-to-execution mapping contracts."""
@@ -134,6 +142,18 @@ class MappingRegistry:
             [mapping_id],
         )
 
+    def validate_mapping(self, mapping_id: str) -> dict[str, Any]:
+        mapping = self.get_mapping(mapping_id)
+        return self.evaluate_mapping(mapping).to_dict(mapping_id=mapping_id)
+
+    def get_mapping_readiness(self, mapping_id: str) -> dict[str, Any]:
+        validation = self.validate_mapping(mapping_id)
+        return {
+            "mapping_id": mapping_id,
+            "readiness_status": validation["readiness_status"],
+            "failure_code": validation["failure_code"],
+        }
+
     def ensure_mapping(
         self,
         source_id: str,
@@ -167,6 +187,12 @@ class MappingRegistry:
         )
 
     def evaluate_mapping(self, mapping: dict[str, Any]) -> MappingValidationResult:
+        if mapping["status"] != "active":
+            return MappingValidationResult(
+                is_valid=False,
+                readiness_status="not_ready",
+                failure_code="mapping_inactive",
+            )
         source = self.source_registry.get_source(str(mapping["source_id"]))
         engine = self.engine_registry.get_engine(str(mapping["engine_id"]))
         if source["status"] != "active" or engine["status"] != "active":
@@ -255,10 +281,12 @@ class MappingRegistry:
             default_schema = None
             if default_schema_raw is not None:
                 default_schema = str(default_schema_raw).strip()
-                if not default_schema:
-                    default_schema = None
             if not authority_catalog:
                 raise ValueError("catalog_mappings[].authority_catalog is required")
+            if not execution_catalog:
+                raise ValueError("catalog_mappings[].execution_catalog is required")
+            if default_schema_raw is not None and not default_schema:
+                raise ValueError("catalog_mappings[].default_schema must not be blank")
             if authority_catalog in seen_authority_catalogs:
                 raise ValueError(
                     f"catalog_mappings contains duplicate authority_catalog: {authority_catalog}"
