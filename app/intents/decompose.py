@@ -225,12 +225,15 @@ def run_decompose_intent(
         fallback_grain=resolved_metric.grain,
     )
 
-    table = svc._resolve_metric_table(metric_name)
+    table = svc._resolve_metric_table(metric_name, session_id=session_id)
     if table is None:
         raise ValueError(f"decompose: metric '{metric_name}' has no source table mapping")
 
     # ── Engine resolution ─────────────────────────────────────────────────────
-    engine, engine_type, qualified = svc._resolve_engine([table])
+    engine_resolution = svc._resolve_engine_for_session(session_id, [table])
+    if not isinstance(engine_resolution, tuple) or len(engine_resolution) != 3:
+        engine_resolution = svc._resolve_engine([table])
+    engine, engine_type, qualified = engine_resolution
     metric_sql = svc.resolve_metric_sql_for_execution(metric_name, engine_type=engine_type)
     qualified_table = qualified.get(table, table)
 

@@ -59,6 +59,29 @@ class SessionManagerTests(unittest.TestCase):
             {"session_user": "alice", "actor_ref": "agent.alice"},
         )
 
+    def test_get_execution_identity_returns_empty_dict_when_session_has_none(self) -> None:
+        created = self.manager.create_session("Investigate auth defaults", {}, {}, {})
+
+        execution_identity = self.manager.get_execution_identity(created["session_id"])
+
+        self.assertEqual(execution_identity, {})
+
+    def test_get_execution_identity_returns_normalized_payload(self) -> None:
+        created = self.manager.create_session(
+            "Investigate auth identity read",
+            {},
+            {"max_latency_sec": 120},
+            {"aggregate_only": True},
+            {"session_user": "alice", "actor_ref": "agent.alice"},
+        )
+
+        execution_identity = self.manager.get_execution_identity(created["session_id"])
+
+        self.assertEqual(
+            execution_identity,
+            {"session_user": "alice", "actor_ref": "agent.alice"},
+        )
+
     def test_create_session_normalizes_execution_identity_before_persisting(self) -> None:
         created = self.manager.create_session(
             "Investigate trimmed auth user",
@@ -304,11 +327,13 @@ class SessionManagerTests(unittest.TestCase):
 
         legacy_manager = SessionManager(SQLiteMetadataStore(legacy_path))
         session = legacy_manager.get_session("sess_legacy")
+        execution_identity = legacy_manager.get_execution_identity("sess_legacy")
 
         self.assertEqual(session["session_id"], "sess_legacy")
         self.assertEqual(session["goal"]["question"], "Legacy read")
         self.assertEqual(session["scope"]["constraints"], {"region": "all"})
         self.assertEqual(session["execution_identity"], {})
+        self.assertEqual(execution_identity, {})
         self.assertEqual(session["lifecycle"]["status"], "open")
 
 

@@ -36,15 +36,20 @@ class RoutingIntent:
 
 @dataclass
 class ResolvedRoute:
-    """Result of resolve_tables(): the chosen engine plus qualified table names."""
+    """Result of route resolution for runtime or inspection callers."""
 
-    engine: AnalyticsEngine
     engine_id: str
+    engine: AnalyticsEngine | None = None
     qualified_names: dict[str, str] = field(default_factory=dict)  # {native_name: qualified_name}
     capability_profile: EngineCapabilityProfile | None = None
     capability_score: int = 0
     selection_reason: str | None = None
     routing_detail: dict[str, Any] = field(default_factory=dict)
+
+    def require_engine(self) -> AnalyticsEngine:
+        if self.engine is None:
+            raise ValueError("resolved route does not include a runtime engine")
+        return self.engine
 
 
 @dataclass(frozen=True)
@@ -96,20 +101,26 @@ class QueryRouter:
         table_names: list[str],
         *,
         routing_intent: RoutingIntent | None = None,
+        session_id: str | None = None,
     ) -> AnalyticsEngine:
         """Given table names, find a common engine that can query all of them.
 
         Raises KeyError if a table is not found in source_objects.
         Raises ValueError if no single engine covers all tables.
         """
-        route = self.resolve_tables(table_names, routing_intent=routing_intent)
-        return route.engine
+        route = self.resolve_tables(
+            table_names,
+            routing_intent=routing_intent,
+            session_id=session_id,
+        )
+        return route.require_engine()
 
     def resolve_tables(
         self,
         table_names: list[str],
         *,
         routing_intent: RoutingIntent | None = None,
+        session_id: str | None = None,
     ) -> ResolvedRoute:
         """Given table names, find a common engine and return qualified names.
 
@@ -119,13 +130,19 @@ class QueryRouter:
         Raises KeyError if a table is not found in source_objects.
         Raises ValueError if no single engine covers all tables.
         """
-        return self.resolve_route(table_names, routing_intent=routing_intent).require_route()
+        return self.resolve_route(
+            table_names,
+            routing_intent=routing_intent,
+            session_id=session_id,
+        ).require_route()
 
     def resolve_route(
         self,
         table_names: list[str],
         *,
         routing_intent: RoutingIntent | None = None,
+        session_id: str | None = None,
+        include_runtime_engine: bool = True,
     ) -> RouteResolution:
         if not table_names:
             return self._failure(
@@ -246,7 +263,6 @@ class QueryRouter:
             )
             resolved_execution_locators[table_name] = execution_locator
 
-        engine = self.engine_service.build_analytics_engine(best_engine_id)
         capability_profile = self.engine_service.get_capability_profile(best_engine_id)
         routing_detail = self._build_routing_detail(
             table_names=table_names,
@@ -257,11 +273,16 @@ class QueryRouter:
             selected_mapping_ids=selected_mapping_ids,
             routing_intent=routing_intent,
         )
+        engine = (
+            self.engine_service.build_analytics_engine(best_engine_id, session_id=session_id)
+            if include_runtime_engine
+            else None
+        )
         return RouteResolution(
             resolved=True,
             route=ResolvedRoute(
-                engine=engine,
                 engine_id=best_engine_id,
+                engine=engine,
                 qualified_names=qualified_names,
                 capability_profile=capability_profile,
                 capability_score=score_capability_profile(
@@ -277,7 +298,12 @@ class QueryRouter:
             ),
         )
 
-    def resolve_engine_for_source(self, source_id: str) -> AnalyticsEngine:
+    def resolve_engine_for_source(
+        self,
+        source_id: str,
+        *,
+        session_id: str | None = None,
+    ) -> AnalyticsEngine:
         """Return the highest-priority ready engine mapped to a source.
 
         Raises ValueError if no ready mappings exist for the source.
@@ -288,7 +314,10 @@ class QueryRouter:
                 f"Source '{source_id}' has no ready execution mappings"
                 + (f" ({detail})" if detail else "")
             )
-        return self.engine_service.build_analytics_engine(str(mappings[0]["engine_id"]))
+        return self.engine_service.build_analytics_engine(
+            str(mappings[0]["engine_id"]),
+            session_id=session_id,
+        )
 
     def get_engine_info_for_source(self, source_id: str) -> dict[str, Any] | None:
         """Return the highest-priority ready engine dict (not instance) for a source."""

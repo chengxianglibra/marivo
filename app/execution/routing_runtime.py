@@ -31,7 +31,12 @@ class RoutingRuntime:
         self.default_engine = default_engine
         self.default_engine_type = default_engine_type
 
-    def resolve_tables(self, table_names: list[str]) -> RoutingResolutionResult:
+    def resolve_tables(
+        self,
+        table_names: list[str],
+        *,
+        session_id: str | None = None,
+    ) -> RoutingResolutionResult:
         if self.query_router is None:
             return RoutingResolutionResult(
                 engine=self.default_engine,
@@ -39,10 +44,13 @@ class RoutingRuntime:
             )
 
         try:
-            route = self.query_router.resolve_tables(table_names)
+            if session_id is None:
+                route = self.query_router.resolve_tables(table_names)
+            else:
+                route = self.query_router.resolve_tables(table_names, session_id=session_id)
             engine_info = self.query_router.engine_service.get_engine(route.engine_id)
             return RoutingResolutionResult(
-                engine=route.engine,
+                engine=route.require_engine(),
                 engine_type=str(engine_info["engine_type"]),
                 route=route,
             )

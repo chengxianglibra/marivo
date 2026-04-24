@@ -109,6 +109,17 @@ class SessionManager:
             raise KeyError(f"Unknown session: {session_id}")
         return self._session_from_row(row)
 
+    def get_execution_identity(self, session_id: str) -> dict[str, str]:
+        row = self.metadata.query_one(
+            f"SELECT {_SESSION_SELECT} FROM sessions WHERE session_id = ?",
+            [session_id],
+        )
+        if row is None:
+            raise KeyError(f"Unknown session: {session_id}")
+        return self._normalize_execution_identity(
+            self._load_json_dict(row.get("execution_identity_json"))
+        )
+
     def assert_session_exists(self, session_id: str) -> None:
         row = self.metadata.query_one(
             "SELECT COUNT(*) AS cnt FROM sessions WHERE session_id = ?",

@@ -263,7 +263,19 @@ class CalendarDataReader:
             table_fqn=binding.table_fqn,
             source_name=binding.source_name,
         )
-        rows = route.engine.query_rows(
+        runtime_engine = (
+            route.require_engine() if hasattr(route, "require_engine") else route.engine
+        )
+        if runtime_engine is None:
+            raise CalendarDataResolutionError(
+                "calendar route did not provide a runtime engine",
+                details={
+                    "table_fqn": binding.table_fqn,
+                    "source_name": binding.source_name,
+                    "calendar_version": binding.calendar_version,
+                },
+            )
+        rows = runtime_engine.query_rows(
             f"""
             SELECT *
             FROM {safe_qualified_table}

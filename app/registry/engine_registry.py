@@ -11,6 +11,7 @@ from app.execution.capabilities import (
 )
 from app.registry.common import now_iso
 from app.registry.factories import build_analytics_engine, validate_engine_type
+from app.session import SessionManager
 from app.storage.analytics import AnalyticsEngine
 from app.storage.metadata import MetadataStore
 
@@ -140,6 +141,7 @@ class EngineRegistry:
 
     def __init__(self, metadata: MetadataStore) -> None:
         self.metadata = metadata
+        self.session_manager = SessionManager(metadata)
 
     def register_engine(
         self,
@@ -256,9 +258,67 @@ class EngineRegistry:
         )
         return self.get_engine(str(existing["engine_id"]))
 
-    def build_analytics_engine(self, engine_id: str) -> AnalyticsEngine:
+    def build_analytics_engine(
+        self,
+        engine_id: str,
+        *,
+        session_id: str | None = None,
+    ) -> AnalyticsEngine:
         engine = self.get_engine(engine_id)
-        return build_analytics_engine(engine["engine_type"], engine["connection"])
+        connection = self.resolve_runtime_connection(engine, session_id=session_id)
+        return build_analytics_engine(engine["engine_type"], connection)
+
+    def resolve_runtime_connection(
+        self,
+        engine: dict[str, Any],
+        *,
+        session_id: str | None = None,
+    ) -> dict[str, Any]:
+        connection = dict(engine.get("connection") or {})
+        auth = dict(engine.get("auth") or {})
+        if auth.get("mode") != "username_only":
+            return connection
+        if engine.get("engine_type") != "trino":
+            return connection
+
+        execution_identity = (
+            self.session_manager.get_execution_identity(session_id)
+            if session_id is not None
+            else {}
+        )
+        username = self._resolve_runtime_username(
+            auth=auth,
+            execution_identity=execution_identity,
+        )
+        resolved = dict(connection)
+        resolved["user"] = username
+        return resolved
+
+    def _resolve_runtime_username(
+        self,
+        *,
+        auth: dict[str, Any],
+        execution_identity: dict[str, Any],
+    ) -> str:
+        username_source = auth.get("username_source")
+        fallback_username = auth.get("fallback_username")
+        username: str | None = None
+
+        if username_source == "session_user":
+            candidate = execution_identity.get("session_user")
+            if isinstance(candidate, str) and candidate.strip():
+                username = candidate
+        elif username_source == "fixed" and isinstance(fallback_username, str):
+            username = fallback_username
+
+        if username is None and isinstance(fallback_username, str):
+            username = fallback_username
+        if username is None:
+            raise ValueError(
+                "session_user_missing: trino username_only auth requires session_user "
+                "or fallback_username"
+            )
+        return username
 
     def get_capability_profile(self, engine_id: str) -> EngineCapabilityProfile:
         engine = self.get_engine(engine_id)

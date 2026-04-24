@@ -519,7 +519,7 @@ def run_observe_intent(
             else "day"
         )
 
-    execution_context = svc._resolve_metric_execution_context(metric_ref)
+    execution_context = svc._resolve_metric_execution_context(metric_ref, session_id=session_id)
     table = execution_context.table_name
 
     scope_raw = p.get("scope")
@@ -541,7 +541,10 @@ def run_observe_intent(
 
     resolved = normalize_metric_query_request(mq_params)
     all_dimensions = svc.resolve_metric_dimensions(metric_ref)
-    engine, engine_type, qualified = svc._resolve_engine([resolved.table])
+    engine_resolution = svc._resolve_engine_for_session(session_id, [resolved.table])
+    if not isinstance(engine_resolution, tuple) or len(engine_resolution) != 3:
+        engine_resolution = svc._resolve_engine([resolved.table])
+    engine, engine_type, qualified = engine_resolution
     svc._resolve_windowed_query_time_axis(
         resolved,
         engine_type=engine_type,
