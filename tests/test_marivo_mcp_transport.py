@@ -8,7 +8,7 @@ from typing import Any, cast
 import httpx
 import pytest
 
-from app.api.models._legacy import (
+from app.api.models.intents import (
     DetectTimeScope,
     DetectTimeScopeCurrentWindow,
     ObserveTimeScopeAsOf,
