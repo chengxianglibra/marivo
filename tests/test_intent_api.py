@@ -1401,6 +1401,76 @@ class ObserveIntentPreflightFailureEndpointTests(
         )
         self.assertEqual(candidate["failure_stage"], "source_object_lookup")
 
+    def test_observe_mapping_preflight_failure_returns_routing_detail(self) -> None:
+        metadata = self.client.app.state.service.metadata
+        metadata.execute(
+            "DELETE FROM source_execution_mappings WHERE source_id = ?",
+            [self.source_id],
+        )
+        try:
+            response = self.client.post(
+                f"/sessions/{self.session_id}/intents/observe",
+                json={
+                    "metric": _metric_ref("intent_preflight_failure_metric"),
+                    "time_scope": {
+                        "kind": "range",
+                        "start": "2024-01-01",
+                        "end": "2024-01-08",
+                    },
+                },
+            )
+        finally:
+            engine_row = metadata.query_one(
+                "SELECT engine_id FROM engines ORDER BY created_at LIMIT 1",
+            )
+            assert engine_row is not None
+            now = "2026-01-01T00:00:00+00:00"
+            metadata.execute(
+                """
+                INSERT INTO source_execution_mappings
+                    (mapping_id, source_id, engine_id, priority, catalog_mappings_json, status, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    "map_observe_semantic_runtime",
+                    self.source_id,
+                    str(engine_row["engine_id"]),
+                    0,
+                    json.dumps(
+                        [
+                            {
+                                "authority_catalog": "main",
+                                "execution_catalog": "main",
+                            }
+                        ]
+                    ),
+                    "active",
+                    now,
+                    now,
+                ],
+            )
+
+        self.assertEqual(response.status_code, 409, response.text)
+        detail = response.json()["detail"]
+        self.assertEqual(detail["code"], "semantic_not_ready")
+        blocker = detail["blocking_requirements"][0]
+        self.assertEqual(blocker["code"], "METRIC_EXECUTION_BINDING_UNRESOLVED")
+        candidate = blocker["details"]["candidate_bindings"][0]
+        self.assertIn(candidate["failure_stage"], (None, "mapping_route_preflight"))
+        self.assertEqual(
+            candidate["authority_locator"],
+            {"catalog": "main", "schema": "analytics", "table": "watch_events"},
+        )
+        routing_detail = candidate.get("routing_detail") or {}
+        if routing_detail:
+            self.assertEqual(
+                routing_detail["resolution_status"],
+                "no_active_mappings",
+            )
+        blockers = candidate.get("readiness_blockers") or []
+        if blockers:
+            self.assertEqual(blockers[0]["failure_code"], "mapping_missing")
+
 
 class ObserveIntentCompatibilityEndpointTests(
     _SemanticObserveIntentEndpointMixin, unittest.TestCase

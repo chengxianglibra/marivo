@@ -13,9 +13,14 @@ from app.api.app_factory import create_app
 from app.engines import EngineService
 from app.mappings import MappingService
 from app.routing import QueryRouter, RoutingResolutionError
+from app.semantic_runtime.errors import SemanticRuntimeNotReadyError
 from app.sources import SourceService
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 from app.storage.sqlite_metadata import SQLiteMetadataStore
+from tests.semantic_test_helpers import (
+    ensure_published_typed_metric,
+    ensure_published_typed_metric_binding,
+)
 
 
 def _duckdb_source_payload(path: str, display_name: str) -> dict[str, object]:
@@ -55,6 +60,12 @@ class MappingServiceTests(unittest.TestCase):
         self.engine_service = EngineService(self.metadata)
         self.mapping_service = MappingService(self.metadata)
         self.router = QueryRouter(self.metadata, self.engine_service)
+        self.app = create_app(
+            self.db_path,
+            metadata_store=self.metadata,
+            analytics_engine=DuckDBAnalyticsEngine(str(self.db_path)),
+        )
+        self.service = cast("Any", self.app.state.service)
 
         self.source = self.source_service.register_source(
             "duckdb",
@@ -90,6 +101,9 @@ class MappingServiceTests(unittest.TestCase):
         )
 
     def tearDown(self) -> None:
+        analytics = getattr(self.app.state, "analytics", None)
+        if analytics is not None:
+            analytics.close()
         self.temp_dir.cleanup()
 
     def test_create_mapping_and_route_table(self) -> None:
@@ -135,6 +149,99 @@ class MappingServiceTests(unittest.TestCase):
             route.routing_detail["execution_locators"]["watch_events"]["readiness_blockers"], []
         )
         self.assertEqual(route.routing_detail["selected_mapping_ids"], [mapping["mapping_id"]])
+
+    def test_metric_execution_context_uses_mapping_projection(self) -> None:
+        mapping = self.mapping_service.create_mapping(
+            self.source["source_id"],
+            self.engine["engine_id"],
+            priority=10,
+            catalog_mappings=[
+                {
+                    "authority_catalog": "main",
+                    "execution_catalog": "duckdb_runtime",
+                    "default_schema": None,
+                }
+            ],
+        )
+        ensure_published_typed_metric(
+            self.metadata,
+            metric_name="mapping_ready_metric",
+            display_name="Mapping Ready Metric",
+            measure_type="sum",
+            dimensions=["event_date"],
+        )
+        ensure_published_typed_metric_binding(
+            self.metadata,
+            metric_name="mapping_ready_metric",
+            carrier_locator="main.analytics.watch_events",
+            source_object_ref="obj_watch_events",
+            metric_input_target_keys=["measure"],
+        )
+
+        context = self.service._resolve_metric_execution_context("metric.mapping_ready_metric")
+
+        self.assertEqual(context.table_name, "duckdb_runtime.analytics.watch_events")
+        self.assertEqual(context.mapping_id, mapping["mapping_id"])
+        self.assertEqual(
+            context.authority_locator,
+            {"catalog": "main", "schema": "analytics", "table": "watch_events"},
+        )
+        self.assertEqual(
+            context.execution_locator,
+            {
+                "catalog": "duckdb_runtime",
+                "schema": "analytics",
+                "table": "watch_events",
+                "mapping_id": mapping["mapping_id"],
+                "authority_catalog": "main",
+                "execution_catalog": "duckdb_runtime",
+                "default_schema_applied": False,
+                "readiness_blockers": [],
+                "authority_locator": {
+                    "catalog": "main",
+                    "schema": "analytics",
+                    "table": "watch_events",
+                },
+            },
+        )
+
+    def test_metric_execution_preflight_reports_mapping_route_blocker(self) -> None:
+        ensure_published_typed_metric(
+            self.metadata,
+            metric_name="mapping_missing_metric",
+            display_name="Mapping Missing Metric",
+            measure_type="sum",
+            dimensions=["event_date"],
+        )
+        ensure_published_typed_metric_binding(
+            self.metadata,
+            metric_name="mapping_missing_metric",
+            carrier_locator="main.analytics.watch_events",
+            source_object_ref="obj_watch_events",
+            metric_input_target_keys=["measure"],
+        )
+
+        with self.assertRaises(SemanticRuntimeNotReadyError) as error:
+            self.service._resolve_metric_execution_context("metric.mapping_missing_metric")
+
+        blocker = error.exception.blocking_requirements[0]
+        self.assertEqual(blocker["code"], "METRIC_EXECUTION_BINDING_UNRESOLVED")
+        candidate = blocker["details"]["candidate_bindings"][0]
+        self.assertIn(candidate["failure_stage"], (None, "mapping_route_preflight"))
+        self.assertEqual(
+            candidate["authority_locator"],
+            {"catalog": "main", "schema": "analytics", "table": "watch_events"},
+        )
+        self.assertIsNone(candidate["mapping_id"])
+        routing_detail = candidate.get("routing_detail") or {}
+        if routing_detail:
+            self.assertEqual(
+                routing_detail["resolution_status"],
+                "no_active_mappings",
+            )
+        blockers = candidate.get("readiness_blockers") or []
+        if blockers:
+            self.assertEqual(blockers[0]["failure_code"], "mapping_missing")
 
     def test_routing_accepts_authority_locator_name_variants(self) -> None:
         self.mapping_service.create_mapping(
