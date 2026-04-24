@@ -48,6 +48,7 @@ class EngineServiceTests(unittest.TestCase):
         self.assertTrue(engine["engine_id"].startswith("eng_"))
         self.assertEqual(engine["engine_type"], "trino")
         self.assertEqual(engine["display_name"], "Test Trino")
+        self.assertEqual(engine["auth"], {"mode": "none"})
         self.assertEqual(engine["status"], "active")
         self.assertEqual(engine["readiness_status"], "ready")
         self.assertIsNone(engine["failure_code"])
@@ -64,10 +65,32 @@ class EngineServiceTests(unittest.TestCase):
         fetched = self.service.get_engine(engine["engine_id"])
         self.assertEqual(fetched["engine_id"], engine["engine_id"])
         self.assertEqual(fetched["connection"]["path"], "/tmp/test.duckdb")
+        self.assertEqual(fetched["auth"], {"mode": "none"})
         self.assertEqual(fetched["default_namespace"], {"catalog": None, "schema": None})
         self.assertEqual(fetched["intrinsic_capabilities"]["performance_class"], "embedded")
         self.assertEqual(fetched["readiness_status"], "ready")
         self.assertIsNone(fetched["failure_code"])
+
+    def test_register_engine_persists_auth_contract(self) -> None:
+        engine = self.service.register_engine(
+            engine_type="trino",
+            display_name="Auth Trino",
+            connection={"host": "localhost"},
+            auth={
+                "mode": "username_only",
+                "username_source": "session_user",
+                "fallback_username": "marivo",
+            },
+        )
+
+        self.assertEqual(
+            engine["auth"],
+            {
+                "mode": "username_only",
+                "username_source": "session_user",
+                "fallback_username": "marivo",
+            },
+        )
 
     def test_get_capability_profile_merges_defaults_and_overrides(self) -> None:
         engine = self.service.register_engine(
@@ -299,6 +322,7 @@ class EngineServiceTests(unittest.TestCase):
         self.assertEqual(engine["engine_id"], "eng_legacy")
         self.assertEqual(engine["engine_type"], "duckdb")
         self.assertEqual(engine["display_name"], "Legacy DuckDB")
+        self.assertEqual(engine["auth"], {"mode": "none"})
 
 
 class EngineAPITests(unittest.TestCase):
@@ -336,6 +360,7 @@ class EngineAPITests(unittest.TestCase):
         engine = resp.json()
         self.assertTrue(engine["engine_id"].startswith("eng_"))
         self.assertEqual(engine["engine_type"], "trino")
+        self.assertEqual(engine["auth"], {"mode": "none"})
         self.assertEqual(engine["default_namespace"], {"catalog": "hive", "schema": "default"})
         self.assertEqual(
             engine["intrinsic_capabilities"],
@@ -356,9 +381,39 @@ class EngineAPITests(unittest.TestCase):
         resp = self.client.get(f"/engines/{engine['engine_id']}")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["engine_id"], engine["engine_id"])
+        self.assertEqual(resp.json()["auth"], {"mode": "none"})
         self.assertEqual(resp.json()["readiness_status"], "ready")
         self.assertIsNone(resp.json()["failure_code"])
         self.assertEqual(resp.json()["mappings"], [])
+
+    def test_post_engine_with_username_only_auth(self) -> None:
+        resp = self.client.post(
+            "/engines",
+            json={
+                "engine_type": "trino",
+                "display_name": "API Auth Trino",
+                "connection": {
+                    "host": "localhost",
+                    "port": 8080,
+                    "catalog": "hive",
+                    "schema": "default",
+                },
+                "auth": {
+                    "mode": "username_only",
+                    "username_source": "session_user",
+                    "fallback_username": "marivo",
+                },
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(
+            resp.json()["auth"],
+            {
+                "mode": "username_only",
+                "username_source": "session_user",
+                "fallback_username": "marivo",
+            },
+        )
 
     def test_get_engine_includes_mapping_summaries(self) -> None:
         source_resp = self.client.post(
@@ -431,6 +486,7 @@ class EngineAPITests(unittest.TestCase):
         self.assertIsInstance(engines, list)
         self.assertTrue(any(e["display_name"] == "API DuckDB" for e in engines))
         matching = next(e for e in engines if e["display_name"] == "API DuckDB")
+        self.assertEqual(matching["auth"], {"mode": "none"})
         self.assertEqual(matching["readiness_status"], "ready")
         self.assertIsNone(matching["failure_code"])
 
@@ -499,6 +555,7 @@ class EngineAPITests(unittest.TestCase):
         schemas = payload["components"]["schemas"]
         self.assertIn("EngineResponse", schemas)
         self.assertIn("EngineDefaultNamespaceResponse", schemas)
+        self.assertIn("EngineAuthResponse", schemas)
         self.assertIn("EngineIntrinsicCapabilitiesResponse", schemas)
         self.assertIn("EngineDeploymentCapabilitiesResponse", schemas)
         self.assertIn("EnginePolicyResponse", schemas)
@@ -512,6 +569,7 @@ class EngineAPITests(unittest.TestCase):
             "application/json"
         ]["schema"]
         self.assertEqual(engine_post["$ref"], "#/components/schemas/EngineResponse")
+        self.assertIn("auth", schemas["EngineResponse"]["properties"])
 
 
 class TrinoAnalyticsEngineTests(unittest.TestCase):

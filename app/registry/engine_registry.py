@@ -90,6 +90,22 @@ def _normalize_policy(policy: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
+def _normalize_auth(auth: dict[str, Any] | None) -> dict[str, Any]:
+    payload = auth if isinstance(auth, dict) else {}
+    mode = payload.get("mode")
+    normalized: dict[str, Any] = {
+        "mode": mode if mode in {"none", "username_only"} else "none",
+    }
+    if normalized["mode"] == "username_only":
+        username_source = payload.get("username_source")
+        if username_source in {"session_user", "fixed"}:
+            normalized["username_source"] = username_source
+        fallback_username = payload.get("fallback_username")
+        if isinstance(fallback_username, str):
+            normalized["fallback_username"] = fallback_username
+    return normalized
+
+
 class EngineRegistry:
     """Engine registry and analytics factory boundary."""
 
@@ -101,6 +117,7 @@ class EngineRegistry:
         engine_type: str,
         display_name: str,
         connection: dict[str, Any],
+        auth: dict[str, Any] | None = None,
         default_namespace: dict[str, Any] | None = None,
         deployment_capabilities: dict[str, Any] | None = None,
         policy: dict[str, Any] | None = None,
@@ -115,6 +132,7 @@ class EngineRegistry:
                 engine_type,
                 display_name,
                 connection_json,
+                auth_json,
                 default_namespace_json,
                 intrinsic_capabilities_json,
                 deployment_capabilities_json,
@@ -123,13 +141,14 @@ class EngineRegistry:
                 created_at,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
             """,
             [
                 engine_id,
                 engine_type,
                 display_name,
                 json.dumps(connection),
+                json.dumps(_normalize_auth(auth)),
                 json.dumps(
                     _normalize_default_namespace(engine_type, connection, default_namespace)
                 ),
@@ -157,6 +176,7 @@ class EngineRegistry:
         engine_type: str,
         display_name: str,
         connection: dict[str, Any],
+        auth: dict[str, Any] | None = None,
         default_namespace: dict[str, Any] | None = None,
         deployment_capabilities: dict[str, Any] | None = None,
         policy: dict[str, Any] | None = None,
@@ -171,6 +191,7 @@ class EngineRegistry:
                 engine_type,
                 display_name,
                 connection,
+                auth=auth,
                 default_namespace=default_namespace,
                 deployment_capabilities=deployment_capabilities,
                 policy=policy,
@@ -179,7 +200,7 @@ class EngineRegistry:
         self.metadata.execute(
             """
             UPDATE engines
-            SET engine_type = ?, connection_json = ?, default_namespace_json = ?,
+            SET engine_type = ?, connection_json = ?, auth_json = ?, default_namespace_json = ?,
                 intrinsic_capabilities_json = ?, deployment_capabilities_json = ?,
                 policy_json = ?, updated_at = ?
             WHERE engine_id = ?
@@ -187,6 +208,7 @@ class EngineRegistry:
             [
                 engine_type,
                 json.dumps(connection),
+                json.dumps(_normalize_auth(auth)),
                 json.dumps(
                     _normalize_default_namespace(engine_type, connection, default_namespace)
                 ),
@@ -291,6 +313,17 @@ class EngineRegistry:
         raw_connection = json.loads(str(row["connection_json"]))
         connection = raw_connection if isinstance(raw_connection, dict) else {}
 
+        raw_auth = row.get("auth_json")
+        parsed_auth: dict[str, Any] | None = None
+        if raw_auth:
+            try:
+                auth_payload = json.loads(str(raw_auth))
+            except (TypeError, ValueError):
+                auth_payload = None
+            if isinstance(auth_payload, dict):
+                parsed_auth = auth_payload
+        auth = _normalize_auth(parsed_auth)
+
         raw_default_namespace = json.loads(str(row["default_namespace_json"]))
         default_namespace = raw_default_namespace if isinstance(raw_default_namespace, dict) else {}
         catalog = default_namespace.get("catalog")
@@ -321,6 +354,7 @@ class EngineRegistry:
             "engine_type": engine_type,
             "display_name": row["display_name"],
             "connection": connection,
+            "auth": auth,
             "default_namespace": normalized_default_namespace,
             "intrinsic_capabilities": intrinsic_capabilities,
             "deployment_capabilities": deployment_capabilities,

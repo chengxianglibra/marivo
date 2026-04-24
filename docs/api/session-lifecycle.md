@@ -47,6 +47,10 @@ All session lifecycle endpoints use the canonical wire shape below unless the en
   "goal": {
     "question": "Why did watch time decline last week?"
   },
+  "execution_identity": {
+    "session_user": "alice",
+    "actor_ref": "agent.alice"
+  },
   "governance": {
     "policy_refs": [
       {
@@ -84,6 +88,7 @@ All session lifecycle endpoints use the canonical wire shape below unless the en
 Wire invariants fixed by this contract:
 
 - `goal.question` is descriptive task context, not canonical identity
+- `execution_identity` freezes optional session-level execution user context; omit it or use `{}` when no runtime username should be recorded
 - `governance.policy_refs` defines the immutable governance boundary for the session
 - `governance.budget` and `governance.warnings` are mutable while the session is open
 - `lifecycle.status` is one of `open`, `closed`, or `aborted`
@@ -100,33 +105,27 @@ Request body:
 
 ```json
 {
-  "goal": {
-    "question": "Investigate the week-over-week watch time decline for mobile users"
+  "goal": "Investigate the week-over-week watch time decline for mobile users",
+  "execution_identity": {
+    "session_user": "alice",
+    "actor_ref": "agent.alice"
   },
-  "governance": {
-    "policy_refs": [
-      {
-        "policy_id": "pol_aggregate_only",
-        "policy_version": "7"
-      }
-    ],
-    "budget": {
-      "max_steps": 15,
-      "max_scan_bytes": 500000000000,
-      "max_latency_sec": 120
-    },
-    "warnings": [
-      "Raw row sampling may require approval"
-    ]
+  "budget": {
+    "max_scan_bytes": 500000000000,
+    "max_latency_sec": 120
+  },
+  "policy": {
+    "aggregate_only": true,
+    "min_group_size": 100
   }
 }
 ```
 
 Request rules:
 
-- `goal.question` is required
-- `governance` may be omitted; omitted subfields default to `null`
-- `policy_refs` may be `null` or a list of structured policy refs
+- `goal` is required
+- `execution_identity` may be omitted; omitted or empty values persist and read back as `{}`
+- `execution_identity.session_user` and `execution_identity.actor_ref` are optional session-level metadata fields
 - session root request bodies must not define `scope`, `time_scope`, `focus`, `constraints`, `raw_filter`, or other step-level execution controls
 
 Response:
@@ -144,21 +143,18 @@ Example:
 curl -s -X POST "http://localhost:8000/sessions" \
   -H "Content-Type: application/json" \
   -d '{
-    "goal": {
-      "question": "Investigate the week-over-week watch time decline for mobile users"
+    "goal": "Investigate the week-over-week watch time decline for mobile users",
+    "execution_identity": {
+      "session_user": "alice",
+      "actor_ref": "agent.alice"
     },
-    "governance": {
-      "policy_refs": [
-        {
-          "policy_id": "pol_aggregate_only",
-          "policy_version": "7"
-        }
-      ],
-      "budget": {
-        "max_steps": 15,
-        "max_scan_bytes": 500000000000,
-        "max_latency_sec": 120
-      }
+    "budget": {
+      "max_scan_bytes": 500000000000,
+      "max_latency_sec": 120
+    },
+    "policy": {
+      "aggregate_only": true,
+      "min_group_size": 100
     }
   }' | jq .
 ```
@@ -172,6 +168,7 @@ Returns the canonical session root payload for a single session.
 This endpoint is the root read baseline for:
 
 - descriptive task context
+- optional execution identity reflection via `execution_identity`
 - compatibility-only session scope reflection via `scope.constraints`; execution does not read session-level filters
 - governance boundary
 - lifecycle state
@@ -220,6 +217,7 @@ Response shape:
         "budget": null,
         "warnings": null
       },
+      "execution_identity": {},
       "lifecycle": {
         "status": "open",
         "terminal_reason": null,
