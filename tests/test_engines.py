@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import sqlite3
 import tempfile
 import textwrap
 import unittest
@@ -223,6 +225,80 @@ class EngineServiceTests(unittest.TestCase):
 
         self.assertEqual(fetched["readiness_status"], "not_ready")
         self.assertEqual(fetched["failure_code"], "engine_invalid_policy")
+
+    def test_get_engine_degrades_on_legacy_row_without_auth_column(self) -> None:
+        legacy_path = Path(self.temp_dir.name) / "legacy_engines.meta.sqlite"
+        con = sqlite3.connect(legacy_path)
+        try:
+            con.execute(
+                """
+                CREATE TABLE engines (
+                    engine_id TEXT PRIMARY KEY,
+                    engine_type TEXT NOT NULL,
+                    display_name TEXT NOT NULL,
+                    connection_json TEXT NOT NULL,
+                    default_namespace_json TEXT NOT NULL DEFAULT '{}',
+                    intrinsic_capabilities_json TEXT NOT NULL DEFAULT '{}',
+                    deployment_capabilities_json TEXT NOT NULL DEFAULT '{}',
+                    policy_json TEXT NOT NULL DEFAULT '{}',
+                    status TEXT NOT NULL DEFAULT 'active',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            con.execute(
+                """
+                CREATE TABLE source_execution_mappings (
+                    mapping_id TEXT PRIMARY KEY,
+                    source_id TEXT NOT NULL,
+                    engine_id TEXT NOT NULL,
+                    priority INTEGER NOT NULL DEFAULT 0,
+                    catalog_mappings_json TEXT NOT NULL DEFAULT '[]',
+                    status TEXT NOT NULL DEFAULT 'active',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            con.execute(
+                """
+                INSERT INTO engines (
+                    engine_id, engine_type, display_name, connection_json,
+                    default_namespace_json, intrinsic_capabilities_json,
+                    deployment_capabilities_json, policy_json, status,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "eng_legacy",
+                    "duckdb",
+                    "Legacy DuckDB",
+                    json.dumps({"path": "/tmp/legacy.duckdb"}),
+                    json.dumps({"catalog": None, "schema": None}),
+                    json.dumps(build_engine_capability_profile("duckdb").to_dict()),
+                    json.dumps({}),
+                    json.dumps(
+                        {
+                            "allowed_step_types": [],
+                            "required_policy_support": [],
+                        }
+                    ),
+                    "active",
+                    "2026-04-24T00:00:00Z",
+                    "2026-04-24T00:00:00Z",
+                ),
+            )
+            con.commit()
+        finally:
+            con.close()
+
+        legacy_service = EngineService(SQLiteMetadataStore(legacy_path))
+        engine = legacy_service.get_engine("eng_legacy")
+
+        self.assertEqual(engine["engine_id"], "eng_legacy")
+        self.assertEqual(engine["engine_type"], "duckdb")
+        self.assertEqual(engine["display_name"], "Legacy DuckDB")
 
 
 class EngineAPITests(unittest.TestCase):

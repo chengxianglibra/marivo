@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -212,6 +214,59 @@ class SessionManagerTests(unittest.TestCase):
     def test_list_sessions_rejects_invalid_page_token(self) -> None:
         with self.assertRaises(ValueError):
             self.manager.list_sessions(page_token="bad-token")
+
+    def test_get_session_degrades_on_legacy_row_without_execution_identity_column(self) -> None:
+        legacy_path = Path(self.temp_dir.name) / "legacy_sessions.meta.sqlite"
+        con = sqlite3.connect(legacy_path)
+        try:
+            con.execute(
+                """
+                CREATE TABLE sessions (
+                    session_id TEXT PRIMARY KEY,
+                    goal TEXT NOT NULL,
+                    constraints_json TEXT NOT NULL,
+                    budget_json TEXT NOT NULL,
+                    policy_json TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    raw_filter TEXT,
+                    terminal_reason TEXT,
+                    ended_at TEXT,
+                    rollover_from_session_id TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            con.execute(
+                """
+                INSERT INTO sessions (
+                    session_id, goal, constraints_json, budget_json, policy_json,
+                    status, raw_filter, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "sess_legacy",
+                    "Legacy read",
+                    json.dumps({"region": "all"}),
+                    json.dumps({"max_latency_sec": 120}),
+                    json.dumps({}),
+                    "open",
+                    None,
+                    "2026-04-24T00:00:00Z",
+                    "2026-04-24T00:00:00Z",
+                ),
+            )
+            con.commit()
+        finally:
+            con.close()
+
+        legacy_manager = SessionManager(SQLiteMetadataStore(legacy_path))
+        session = legacy_manager.get_session("sess_legacy")
+
+        self.assertEqual(session["session_id"], "sess_legacy")
+        self.assertEqual(session["goal"]["question"], "Legacy read")
+        self.assertEqual(session["scope"]["constraints"], {"region": "all"})
+        self.assertEqual(session["lifecycle"]["status"], "open")
 
 
 if __name__ == "__main__":

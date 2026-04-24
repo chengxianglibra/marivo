@@ -479,7 +479,7 @@ _LOCK_FILE = _template_lock_path("default")
 # In-process flags: skip lock on repeated calls within the same worker.
 _TEMPLATE_READY: set[str] = set()
 
-_METADATA_TEMPLATE_VERSION = "sqlite_metadata_v8"
+_METADATA_TEMPLATE_VERSION = "sqlite_metadata_v9"
 _METADATA_TEMPLATE = Path(f"/tmp/marivo_test_{_METADATA_TEMPLATE_VERSION}.sqlite")
 _METADATA_LOCK = Path(f"/tmp/marivo_test_{_METADATA_TEMPLATE_VERSION}.lock")
 _METADATA_READY = False
@@ -570,6 +570,9 @@ def _metadata_template_valid(db_path: Path) -> bool:
         engine_columns = {
             str(row[1]) for row in con.execute("PRAGMA table_info(engines)").fetchall()
         }
+        session_columns = {
+            str(row[1]) for row in con.execute("PRAGMA table_info(sessions)").fetchall()
+        }
         mapping_columns = {
             str(row[1])
             for row in con.execute("PRAGMA table_info(source_execution_mappings)").fetchall()
@@ -609,7 +612,11 @@ def _metadata_template_valid(db_path: Path) -> bool:
         }.issubset(source_columns)
         and {"authority_locator_json"}.issubset(source_object_columns)
         and {
+            "execution_identity_json",
+        }.issubset(session_columns)
+        and {
             "connection_json",
+            "auth_json",
             "default_namespace_json",
             "intrinsic_capabilities_json",
             "deployment_capabilities_json",

@@ -1,10 +1,21 @@
 # Execution Engine Authentication Contract
 
-状态：draft design。
+状态：v1 frozen design（tasks 1.1 - 1.5 completed）。
 
 本文档定义 Marivo 在 execution engine 侧读取数据时的最小身份信息契约。
 
-本文是服务/运行时设计说明，不是当前 HTTP API 契约，也不是当前 `connection` 字段的逐项实现说明。当前目标不是设计完整的企业认证框架，而是先为已支持的 `duckdb/trino` 收敛出一个最小、清晰、可扩展的边界。
+本文是服务/运行时设计说明，不是当前 HTTP API 契约，也不是当前 `connection` 字段的逐项实现说明。当前目标不是设计完整的企业认证框架，而是先为已支持的 `duckdb/trino` 收敛出一个最小、清晰、可直接实现的边界。
+
+## v1 冻结结论
+
+本轮冻结后的结论如下，后续 2.x - 6.x 的 schema / API / runtime / tests 实现都以此为准：
+
+- Marivo v1 的 execution auth 只表达“本次 analysis session 使用哪个 Trino username”。
+- 当前不表达用户身份认证，也不表达 delegation、proxy、token、password 治理。
+- engine 最小 auth contract 固定为 `auth.mode`、`auth.username_source`、`auth.fallback_username`。
+- session 最小 execution identity contract 固定为 `execution_identity.session_user`、`execution_identity.actor_ref`。
+- username resolution 顺序固定为：`session_user` 优先，其次 `fallback_username`，否则失败。
+- 稳定错误码先冻结在服务/运行时层；HTTP API 本轮仍沿用当前 plain `detail` 形态，不把本轮扩成全局错误协议改造。
 
 ## 背景
 
@@ -42,6 +53,8 @@
 - 本轮支持 proxy user / impersonation
 - 本轮引入独立 `engine auth policy` 资源
 - 让 typed semantic binding 感知 engine-side principal
+- 让 typed intent payload 接受 `session_user` override
+- 在当前阶段把稳定错误码直接暴露成 HTTP 结构化 `code`
 
 ## 设计原则
 
@@ -75,6 +88,10 @@ catalog。source identity 仍来自 `source_object.authority_locator`，catalog 
 ready mapping。
 
 且 Trino 只支持 username injection，不支持更复杂的 auth material。
+
+### 6. 失败面先冻结，再决定 API 线缆
+
+本轮先冻结服务/运行时内部要使用的稳定错误码与触发条件，供后续实现、测试与审计统一引用。HTTP API 是否在响应体里公开结构化 `code`，不属于本轮范围。
 
 ## 最小模型
 
@@ -118,6 +135,8 @@ ready mapping。
 - `fallback_username`
   当 session 未提供用户，或 engine 配置为固定用户名时使用。
 
+`auth` 字段集在 v1 到此冻结；后续实现不得在同一轮再引入额外 auth 字段占位。
+
 ### Layer 2. Session Execution Identity
 
 `execution identity` 是 analysis session 级上下文，用于冻结“本次分析使用哪个用户”。
@@ -144,6 +163,8 @@ ready mapping。
 - `actor_ref`
   可选字段，用于 Marivo 自身审计、追踪或区分 agent 身份；它不直接参与 Trino 认证。
 
+`execution_identity` 字段集在 v1 到此冻结；后续实现只允许新增这两个字段，不引入认证语义。
+
 本轮刻意不引入以下字段：
 
 - `requested_auth_mode`
@@ -158,13 +179,15 @@ ready mapping。
 
 ## 运行时规则
 
+以下规则是规范性要求，不是示例性描述。后续 runtime 必须通过统一 resolver 实现，不能在调用点散落 fallback 逻辑。
+
 ### 1. Trino
 
-当 `engine_type=trino` 且 `auth.mode=username_only` 时，runtime 按以下顺序决定连接里的 `user`：
+当 `engine_type=trino` 且 `auth.mode=username_only` 时，runtime 必须按以下顺序决定连接里的 `user`：
 
 1. 如果 `auth.username_source=session_user` 且 session 提供了 `execution_identity.session_user`，使用该值
 2. 否则若 `auth.fallback_username` 非空，使用 fallback
-3. 否则返回明确配置错误
+3. 否则返回明确配置错误，不允许静默猜测或回退到未声明来源的 `connection.user`
 
 运行时只负责把最终得到的 username 写入 Trino connection：
 
@@ -198,7 +221,30 @@ DuckDB 不消费 session 用户信息。
 - `auth.username_source = "fixed"`
 - `auth.fallback_username = null`
 
-即使 session 携带了 `execution_identity.session_user`，DuckDB 运行时也忽略它。
+即使 session 携带了 `execution_identity.session_user`，DuckDB 运行时也忽略它，也不应因此报错。
+
+### 3. Typed intent 输入边界
+
+typed intent payload 不接受 `session_user` override。
+
+分析使用哪个 execution user，只能在 session create 阶段通过 `execution_identity` 冻结一次；后续 typed intent 不得重复传递，也不得覆盖 session 已冻结的用户信息。
+
+## v1 失败面 taxonomy
+
+以下错误码先作为服务/运行时层稳定标识冻结，供后续 validator、resolver、preflight 与测试直接引用：
+
+| code | 触发条件 | 责任层 |
+| --- | --- | --- |
+| `session_user_missing` | `engine_type=trino`、`auth.mode=username_only`，且 resolution 后既拿不到 `execution_identity.session_user`，也拿不到 `fallback_username` | runtime resolver / execution preflight |
+| `engine_auth_invalid` | engine `auth` shape 不合法，或 `username_source` / `fallback_username` 组合非法 | engine validator / service write path |
+| `engine_auth_unsupported` | engine 类型与 auth mode 组合不支持，例如 `duckdb + username_only` | engine validator / service write path |
+| `session_execution_identity_invalid` | session 输入中的 `session_user` / `actor_ref` 非法，例如空白字符串 | session validator / service write path |
+
+约束说明：
+
+- 本轮只冻结这些 code 的名字、触发条件与责任层。
+- HTTP API 当前仍可继续返回 `400 detail=str(error)` 或同类 plain detail，不要求本轮改成结构化错误响应。
+- 后续 2.x - 4.x 新增 auth 相关失败面时，应优先复用本表，不再发明新的自由命名错误。
 
 ## 示例
 
@@ -326,6 +372,8 @@ runtime 结果：
 - `connection.user` 不再由 engine 静态写死，而是优先从 session `execution_identity.session_user` 注入
 - `password`、`http_headers` 不作为当前 contract 的一部分继续扩展
 - session 级用户信息只出现一次，不在 intent payload 重复出现
+- Trino runtime 只能通过统一 resolver 获得最终 `user`
+- DuckDB runtime 不读取 `session_user`，也不会因 session 携带该字段报错
 
 ## 审计契约
 
