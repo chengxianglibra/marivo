@@ -226,6 +226,8 @@ typed binding contract 主要回答：
 - request scope 属于请求级临时 population narrowing
 - governance filter 属于更上层的强制策略
 
+以上 filter 分层的 formal specification 与 effective scope 合成公式见 `predicate-schema-contract.zh.md` "Effective Scope 合成"。本文只引用其结论，不重复定义分层规则。
+
 ## binding 不要回答什么
 
 typed binding contract 不回答：
@@ -370,6 +372,7 @@ class CarrierBinding(TypedDict):
 - 它不表达某个 metric 的 business predicates
 - 它不应承载仅在 numerator / denominator 等 component 上成立的局部 measurement semantics
 - 在 effective scope 合成中，`row_filter_refs` 属于 `shared_effective_scope`（与 governance 和 request scope 并列），不属于 component-level scope（formal specification 见 `predicate-schema-contract.zh.md` "Effective Scope 合成"）
+- `row_filter_refs` 引用的 predicate 必须声明 `carrier_row_filter` usage（formal specification 见 `predicate-schema-contract.zh.md` "allowed_usage 分类"）
 
 **合并独立 asset 层到 binding 的原因：**
 
@@ -808,6 +811,7 @@ binding 不直接等于 IR，也不直接等于 engine plan。
         "binding_role": "primary",
         "grain_ref": "grain.user",
         "primary_entity_ref": "entity.user",
+        "row_filter_refs": ["predicate.not_soft_deleted"],
         "field_surfaces": [
           {"surface_ref": "field.user_id", "physical_name": "user_id"},
           {"surface_ref": "field.created_at", "physical_name": "created_at"},
