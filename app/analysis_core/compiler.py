@@ -770,6 +770,8 @@ _VALIDATION_GATE_ORDER: tuple[
         "predicate_conflict",
         "dimension_compatibility",
         "intent_specific",
+        "dimension_additivity",
+        "lowering_precheck",
     ],
     ...,
 ] = (
@@ -782,6 +784,8 @@ _VALIDATION_GATE_ORDER: tuple[
     "predicate_conflict",
     "dimension_compatibility",
     "intent_specific",
+    "dimension_additivity",
+    "lowering_precheck",
 )
 
 
@@ -1448,6 +1452,15 @@ def _measurement_node(
             resolver=semantic_repository,
             component_fields=component_fields or None,
         )
+    if normalized_predicate_input is not None and carrier_bindings:
+        from app.analysis_core.predicate_validator import build_component_lowering_inputs
+
+        component_lowering_inputs = build_component_lowering_inputs(
+            normalized_predicate_input=normalized_predicate_input,
+            resolved_bindings=resolved_bindings,
+        )
+        if component_lowering_inputs:
+            node["component_lowering_inputs"] = component_lowering_inputs
     return node, normalized_predicate_input
 
 

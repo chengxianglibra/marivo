@@ -88,6 +88,9 @@ def validate_compiler_inputs(
     issues.extend(_gate_dimension_compatibility(resolved_inputs))
     issues.extend(_gate_intent_specific(step_type, resolved_inputs, derived_state))
     issues.extend(_gate_dimension_additivity_condition(step_type, resolved_inputs, derived_state))
+    issues.extend(
+        _gate_lowering_precheck(resolved_inputs, semantic_repository, governance_repository)
+    )
 
     errors = [issue for issue in issues if issue.severity == "error"]
     return ValidationResult(
@@ -799,6 +802,42 @@ def _gate_dimension_additivity_condition(
         )
 
     return issues
+
+
+def _gate_lowering_precheck(
+    resolved_inputs: ResolvedCompilerInputs,
+    semantic_repository: SemanticRuntimeRepository | None,
+    governance_repository: GovernanceRepository | None,
+) -> list[ValidationIssue]:
+    """Gate: validate that predicate atoms can be grounded through binding surfaces."""
+    if semantic_repository is None or resolved_inputs.resolved_metric is None:
+        return []
+
+    # TODO: normalized_predicate_input is also computed in _measurement_node;
+    # consider threading it through derived_state or resolved_inputs to avoid
+    # the duplicate build_normalized_predicate_input call.
+    from app.analysis_core.predicate_validator import (
+        build_normalized_predicate_input,
+        collect_component_fields,
+        collect_layered_predicate_refs,
+        run_lowering_precheck,
+    )
+
+    layered_refs = collect_layered_predicate_refs(resolved_inputs, governance_repository)
+    component_fields = collect_component_fields(resolved_inputs)
+    if not layered_refs and not component_fields:
+        return []
+
+    normalized_input = build_normalized_predicate_input(
+        layered_refs=layered_refs,
+        resolver=semantic_repository,
+        component_fields=component_fields or None,
+    )
+    return run_lowering_precheck(
+        normalized_predicate_input=normalized_input,
+        resolved_bindings=resolved_inputs.resolved_bindings,
+        component_fields=component_fields or [],
+    )
 
 
 def _optional_str(value: Any) -> str | None:
