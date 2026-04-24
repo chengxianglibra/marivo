@@ -287,7 +287,7 @@ class PredicateHeader(TypedDict):
 
 ### 公共子结构
 
-规范定义以 `app/api/models/predicate.py` 中的 Pydantic 模型为准。以下仅列出概要，详细字段约束见对应模型定义。
+以下结构定义是 `predicate.*` contract 的正式规范。实现模型（`app/api/models/predicate.py`）应与此处保持一致。
 
 #### PredicateUsage
 
@@ -316,21 +316,44 @@ PredicateOperator = Literal[
 ]
 ```
 
+#### PredicateValue
+
+```python
+PredicateValue = str | int | float | bool | None | list[str | int | float | bool | None]
+```
+
 #### PredicateAtom
 
-规范定义：`app/api/models/predicate.PredicateAtom`
+```python
+from typing import NotRequired, TypedDict
 
-字段：`target_ref`（受治理语义引用）、`op`（白名单操作符）、`value`（可选值）。
+
+class PredicateAtom(TypedDict):
+    target_ref: str    # 受治理语义引用；前缀约束见下方
+    op: PredicateOperator  # 白名单操作符
+    value: NotRequired[PredicateValue | None]  # 可选值；is_null/is_not_null 时必须为 None
+```
 
 `target_ref` 前缀约束：
 - 允许：`dimension.`、`entity.`、`key.`、`enum.`、`subject.`、`population.`、`event.`、`field.`
 - 禁止：`time.`（时间条件由 `time_scope` 承担）、`metric.`、`process.`、`binding.`、`predicate.`（递归引用）、`grain.`、`measure.`、`compiler_profile.`
 
+`value` 与 `op` 的约束：
+- `is_null` / `is_not_null`：`value` 必须为 `None` 或缺失
+- `between`：`value` 必须为恰好 2 个元素的列表
+- `in` / `not_in`：`value` 必须为非空列表
+- 其他操作符：`value` 必须为非 `None` 标量
+
 #### PredicateConjunction
 
-规范定义：`app/api/models/predicate.PredicateConjunction`
+```python
+from typing import Literal, TypedDict
 
-字段：`op`（v1 仅支持 `"and"`）、`items`（一个或多个 `PredicateExpression`）。
+
+class PredicateConjunction(TypedDict):
+    op: Literal["and"]  # v1 仅支持合取
+    items: list[PredicateExpression]  # 一个或多个 predicate expression
+```
 
 #### PredicateExpression
 
@@ -338,9 +361,15 @@ PredicateOperator = Literal[
 
 #### PredicatePayload
 
-规范定义：`app/api/models/predicate.PredicatePayload`
+```python
+from typing import NotRequired, TypedDict
 
-字段：`expression`（`PredicateExpression`）、`allowed_usage`（非空 `list[PredicateUsage]`）、`time_policy`（默认 `"non_time_only"`）。
+
+class PredicatePayload(TypedDict):
+    expression: PredicateExpression  # 过滤表达式；v1 支持 PredicateAtom 和 PredicateConjunction(op="and")
+    allowed_usage: list[PredicateUsage]  # 非空；声明合法消费场景
+    time_policy: NotRequired[PredicateTimePolicy]  # 默认 "non_time_only"
+```
 
 ### allowed_usage 分类
 

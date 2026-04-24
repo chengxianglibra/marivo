@@ -188,6 +188,7 @@ class MetricHeader(TypedDict):
     ]
     primary_time_ref: NotRequired[str | None]
     additivity_constraints: AdditivityConstraints
+    default_predicate_refs: NotRequired[list[str] | None]
     metric_contract_version: str
 
 
@@ -249,6 +250,7 @@ class AdditivityConstraints(TypedDict):
 | `aggregation_scope` | enum | no | 聚合作用的主要层次 |
 | `primary_time_ref` | string | no | metric 主时间语义引用 |
 | `additivity_constraints` | AdditivityConstraints | yes | 结构化加和性约束：维度可分解策略与时间轴策略 |
+| `default_predicate_refs` | list of string | no | 所有 measurement component 共享的默认过滤语义引用；必须引用声明 `metric_qualifier` usage 的 `predicate.*`；不替代 component qualifier lineage |
 | `metric_contract_version` | string | yes | 合同版本 |
 
 ### 设计说明
@@ -303,6 +305,7 @@ class MeasurementComponent(TypedDict):
     ]
     measure_ref: NotRequired[str | None]
     qualifier_refs: NotRequired[list[str] | None]
+    # 引用的 predicate 必须声明 metric_qualifier usage（见 predicate-schema-contract.zh.md "allowed_usage 分类"）
 ```
 
 `MeasurementComponent` 不再重复声明 `entity_ref`、`grain`、`time_ref`。这些 measurement identity 已由顶层 `MetricHeader` 统一给出，family payload 不应制造第二套真相。因此以下字段已从 `MeasurementComponent` 中移除：
