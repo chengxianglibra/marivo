@@ -406,5 +406,97 @@ class TestPredicateLineageRefsOnly(unittest.TestCase):
         assert_predicate_lineage_refs_only(lineage, surface="test_artifact")
 
 
+# ---------------------------------------------------------------------------
+# Task 7.5: multi-component lineage reuse
+# ---------------------------------------------------------------------------
+
+
+class TestResolvePredicateLineageReuseMultiComponent(unittest.TestCase):
+    def test_identical_multi_component_lineage_no_issues(self) -> None:
+        lineage = _make_lineage(
+            default_refs=["predicate.d1"],
+            component_lineages=[
+                _make_component_lineage("numerator", qualifier_refs=["predicate.q1"]),
+                _make_component_lineage("denominator"),
+            ],
+            component_scopes=[
+                _make_component_scope("numerator", fingerprint="aaa1111bbb2222"),
+                _make_component_scope("denominator", fingerprint="ccc3333ddd4444"),
+            ],
+        )
+        result = resolve_predicate_lineage_reuse(
+            left_predicate_filter_lineage=lineage,
+            right_predicate_filter_lineage=lineage,
+            error_factory=_error_factory,
+        )
+        self.assertEqual(result["issues"], [])
+        self.assertIsNone(result["fatal_message"])
+        self.assertIsNotNone(result["reuse_summary"])
+        assert result["reuse_summary"] is not None
+        self.assertIn("numerator", result["reuse_summary"]["component_fields"])
+        self.assertIn("denominator", result["reuse_summary"]["component_fields"])
+
+    def test_multi_component_fingerprint_divergence_is_warning(self) -> None:
+        left = _make_lineage(
+            default_refs=["predicate.d1"],
+            component_lineages=[
+                _make_component_lineage("numerator", qualifier_refs=["predicate.q1"]),
+                _make_component_lineage("denominator"),
+            ],
+            component_scopes=[
+                _make_component_scope("numerator", fingerprint="aaa1111bbb2222"),
+                _make_component_scope("denominator", fingerprint="ccc3333ddd4444"),
+            ],
+        )
+        right = _make_lineage(
+            default_refs=["predicate.d1"],
+            component_lineages=[
+                _make_component_lineage("numerator", qualifier_refs=["predicate.q1"]),
+                _make_component_lineage("denominator"),
+            ],
+            component_scopes=[
+                _make_component_scope("numerator", fingerprint="zzz9999yyy8888"),
+                _make_component_scope("denominator", fingerprint="ccc3333ddd4444"),
+            ],
+        )
+        result = resolve_predicate_lineage_reuse(
+            left_predicate_filter_lineage=left,
+            right_predicate_filter_lineage=right,
+            error_factory=_error_factory,
+        )
+        fp_issues = [
+            i for i in result["issues"] if i["code"] == "component_scope_fingerprint_divergence"
+        ]
+        self.assertEqual(len(fp_issues), 1)
+        self.assertEqual(fp_issues[0]["severity"], "warning")
+        self.assertIsNone(result["fatal_message"])
+        self.assertIsNotNone(result["reuse_summary"])
+
+    def test_reuse_summary_contains_component_fields_and_fingerprints(self) -> None:
+        lineage = _make_lineage(
+            default_refs=["predicate.d1"],
+            component_lineages=[
+                _make_component_lineage("numerator", qualifier_refs=["predicate.q1"]),
+                _make_component_lineage("denominator"),
+            ],
+            component_scopes=[
+                _make_component_scope("numerator", fingerprint="aaa1111bbb2222"),
+                _make_component_scope("denominator", fingerprint="ccc3333ddd4444"),
+            ],
+        )
+        result = resolve_predicate_lineage_reuse(
+            left_predicate_filter_lineage=lineage,
+            right_predicate_filter_lineage=lineage,
+            error_factory=_error_factory,
+        )
+        summary = result["reuse_summary"]
+        assert summary is not None
+        self.assertEqual(sorted(summary["component_fields"]), ["denominator", "numerator"])
+        self.assertIn("numerator", summary["left_scope_fingerprints"])
+        self.assertIn("denominator", summary["left_scope_fingerprints"])
+        self.assertIn("numerator", summary["right_scope_fingerprints"])
+        self.assertIn("denominator", summary["right_scope_fingerprints"])
+
+
 if __name__ == "__main__":
     unittest.main()
