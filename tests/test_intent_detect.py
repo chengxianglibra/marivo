@@ -30,10 +30,10 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from app.main import create_app
-from app.service import SemanticLayerService
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 from app.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.semantic_test_helpers import (
+    build_semantic_layer_service,
     ensure_active_duckdb_mapping,
     ensure_published_typed_metric,
     ensure_published_typed_metric_binding,
@@ -66,46 +66,60 @@ def _seed_metadata(
 ) -> str:
     """Insert minimal metadata records so detect can resolve metric → table."""
     now = datetime.now(UTC).isoformat()
-    src_id = f"src_detecttest{src_suffix}"
-    obj_id = f"obj_detecttest{src_suffix}"
-    meta.execute(
-        "INSERT OR IGNORE INTO sources "
-        "(source_id, source_type, display_name, authority_json, sync_mode, "
-        "intrinsic_capabilities_json, policy_json, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        [
-            src_id,
-            "duckdb",
-            "Detect Test Source",
-            json.dumps(
-                {
-                    "catalog_system": "duckdb",
-                    "connection": {},
-                    "synthetic_catalog": "main",
-                }
-            ),
-            "selected",
-            json.dumps({"supports_partitions": False}),
-            json.dumps({"allow_live_browse": True, "allow_sync": True}),
-            now,
-            now,
-        ],
+    existing_object = meta.query_one(
+        """
+        SELECT object_id, source_id
+        FROM source_objects
+        WHERE object_type = 'table' AND fqn = ?
+        ORDER BY updated_at DESC, object_id
+        LIMIT 1
+        """,
+        [table_fqn],
     )
-    meta.execute(
-        "INSERT OR IGNORE INTO source_objects "
-        "(object_id, source_id, object_type, native_name, fqn, authority_locator_json, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        [
-            obj_id,
-            src_id,
-            "table",
-            native_name,
-            table_fqn,
-            json.dumps({"catalog": "main", "schema": "analytics", "table": native_name}),
-            now,
-            now,
-        ],
-    )
+    if existing_object is None:
+        src_id = f"src_detecttest{src_suffix}"
+        obj_id = f"obj_detecttest{src_suffix}"
+        meta.execute(
+            "INSERT OR IGNORE INTO sources "
+            "(source_id, source_type, display_name, authority_json, sync_mode, "
+            "intrinsic_capabilities_json, policy_json, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                src_id,
+                "duckdb",
+                "Detect Test Source",
+                json.dumps(
+                    {
+                        "catalog_system": "duckdb",
+                        "connection": {},
+                        "synthetic_catalog": "main",
+                    }
+                ),
+                "selected",
+                json.dumps({"supports_partitions": False}),
+                json.dumps({"allow_live_browse": True, "allow_sync": True}),
+                now,
+                now,
+            ],
+        )
+        meta.execute(
+            "INSERT OR IGNORE INTO source_objects "
+            "(object_id, source_id, object_type, native_name, fqn, authority_locator_json, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                obj_id,
+                src_id,
+                "table",
+                native_name,
+                table_fqn,
+                json.dumps({"catalog": "main", "schema": "analytics", "table": native_name}),
+                now,
+                now,
+            ],
+        )
+    else:
+        src_id = str(existing_object["source_id"])
+        obj_id = str(existing_object["object_id"])
     ensure_published_typed_metric(
         meta,
         metric_name=metric_name,
@@ -163,7 +177,7 @@ class DetectRunnerServiceTests(unittest.TestCase):
             native_name="uniform_events",
         )
 
-        cls.service = SemanticLayerService(cls.metadata, cls.analytics)
+        cls.service = build_semantic_layer_service(cls.metadata, cls.analytics)
 
     @classmethod
     def tearDownClass(cls) -> None:

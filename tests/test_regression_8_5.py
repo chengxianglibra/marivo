@@ -34,10 +34,11 @@ from app.analysis_core import (
 from app.analysis_core.compiler import compile_step
 from app.analysis_core.executor import execute_compiled
 from app.analysis_core.ir import STEP_ARTIFACT_KINDS, STEP_OBSERVATION_TYPES, AnalysisStepIR
-from app.service import SemanticLayerService
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 from app.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.semantic_test_helpers import (
+    build_semantic_layer_service,
+    ensure_active_duckdb_mapping,
     ensure_published_typed_metric,
     ensure_published_typed_metric_binding,
 )
@@ -60,10 +61,6 @@ def _seed_metadata(meta: SQLiteMetadataStore, db_path: Path | None = None) -> No
     now = datetime.now(UTC).isoformat()
     src_id = "src_reg8501"
     obj_id = "obj_reg8501"
-    met_id = "met_reg8501"
-    eng_id = "eng_reg8501"
-    bind_id = "bind_reg8501"
-    engine_conn = json.dumps({"path": str(db_path)}) if db_path is not None else "{}"
 
     meta.execute(
         "INSERT OR IGNORE INTO sources "
@@ -132,44 +129,11 @@ def _seed_metadata(meta: SQLiteMetadataStore, db_path: Path | None = None) -> No
             """,
             ["measure", "metric_input.measure", binding_row["binding_id"]],
         )
-    meta.execute(
-        "INSERT OR IGNORE INTO engines "
-        "(engine_id, engine_type, display_name, connection_json, default_namespace_json, "
-        "intrinsic_capabilities_json, deployment_capabilities_json, policy_json, "
-        "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        [
-            eng_id,
-            "duckdb",
-            "Reg8.5 Engine",
-            engine_conn,
-            json.dumps({"catalog": None, "schema": None}),
-            json.dumps(
-                {
-                    "materialization_support": "temporary_table",
-                    "performance_class": "embedded",
-                    "federation_support": "none",
-                }
-            ),
-            json.dumps({"supported_step_types": [], "min_staleness_minutes": None}),
-            json.dumps({"allowed_step_types": [], "required_policy_support": []}),
-            now,
-            now,
-        ],
-    )
-    meta.execute(
-        "INSERT OR IGNORE INTO source_execution_mappings "
-        "(mapping_id, source_id, engine_id, priority, status, catalog_mappings_json, "
-        "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        [
-            bind_id.replace("bind_", "map_"),
-            src_id,
-            eng_id,
-            5,
-            "active",
-            '[{"authority_catalog":"main","execution_catalog":"main"}]',
-            now,
-            now,
-        ],
+    ensure_active_duckdb_mapping(
+        meta,
+        source_id=src_id,
+        now=now,
+        db_path=str(db_path) if db_path is not None else None,
     )
 
 
@@ -193,7 +157,7 @@ class _RegressionServiceTestCase(unittest.TestCase):
         cls.metadata.initialize()
         cls.analytics.initialize()
         _seed_metadata(cls.metadata, db_path=db_path if cls.seed_metadata_db_path else None)
-        cls.service = SemanticLayerService(cls.metadata, cls.analytics)
+        cls.service = build_semantic_layer_service(cls.metadata, cls.analytics)
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -380,6 +344,7 @@ class ObservePathRegressionTests(_RegressionServiceTestCase):
     """
 
     duckdb_template = "regression_8_5"
+    seed_metadata_db_path = True
 
     def _session(self) -> str:
         return self.service.create_session("reg8.5 observe", {}, {}, {})["session_id"]
@@ -509,50 +474,24 @@ class TypedMetricSqlCompilationTests(_RegressionServiceTestCase):
     duckdb_filename = "typed_metric_sql.duckdb"
     metadata_filename = "typed_metric_sql.meta.sqlite"
     duckdb_template = "regression_8_5"
+    seed_metadata_db_path = True
 
     @classmethod
     def setUpClass(cls) -> None:
         super().setUpClass()
 
-        now = datetime.now(UTC).isoformat()
-        cls.metadata.execute(
-            "INSERT OR IGNORE INTO sources "
-            "(source_id, source_type, display_name, authority_json, sync_mode, "
-            "intrinsic_capabilities_json, policy_json, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [
-                "src_typed_sql",
-                "duckdb",
-                "Typed SQL Source",
-                json.dumps(
-                    {
-                        "catalog_system": "duckdb",
-                        "connection": {},
-                        "synthetic_catalog": "main",
-                    }
-                ),
-                "selected",
-                json.dumps({"supports_partitions": False}),
-                json.dumps({"allow_live_browse": True, "allow_sync": True}),
-                now,
-                now,
-            ],
+        source_object = cls.metadata.query_one(
+            """
+            SELECT object_id
+            FROM source_objects
+            WHERE object_type = 'table' AND fqn = ?
+            ORDER BY updated_at DESC, object_id
+            LIMIT 1
+            """,
+            [f"analytics.{_TABLE}"],
         )
-        cls.metadata.execute(
-            "INSERT OR IGNORE INTO source_objects "
-            "(object_id, source_id, object_type, native_name, fqn, authority_locator_json, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            [
-                "obj_typed_sql",
-                "src_typed_sql",
-                "table",
-                _TABLE,
-                f"analytics.{_TABLE}",
-                json.dumps({"catalog": "main", "schema": "analytics", "table": _TABLE}),
-                now,
-                now,
-            ],
-        )
+        assert source_object is not None
+        source_object_ref = str(source_object["object_id"])
 
         typed_metrics = [
             ("typed_count_distinct", "count", ["count_target"], {"count_target": "field.user_id"}),
@@ -590,7 +529,7 @@ class TypedMetricSqlCompilationTests(_RegressionServiceTestCase):
                 cls.metadata,
                 metric_name=metric_name,
                 carrier_locator=f"analytics.{_TABLE}",
-                source_object_ref="obj_typed_sql",
+                source_object_ref=source_object_ref,
                 metric_input_target_keys=input_keys,
             )
             binding_row = cls.metadata.query_one(
@@ -640,7 +579,7 @@ class TypedMetricSqlCompilationTests(_RegressionServiceTestCase):
                     ],
                 )
 
-        cls.service = SemanticLayerService(cls.metadata, cls.analytics)
+        cls.service = build_semantic_layer_service(cls.metadata, cls.analytics)
 
     @classmethod
     def tearDownClass(cls) -> None:

@@ -23,6 +23,7 @@ from app.time_scope import (
 from tests.semantic_test_helpers import (
     create_typed_entity,
     create_typed_metric,
+    ensure_active_duckdb_mapping,
     ensure_published_typed_dimension,
     patch_typed_entity_properties,
     publish_typed_entity,
@@ -670,6 +671,12 @@ class TimeScopeServiceBridgeTests(unittest.TestCase):
             },
         )
         cls.client.post(f"/sources/{source_id}/sync")
+        ensure_active_duckdb_mapping(
+            cls.service.metadata,
+            source_id=source_id,
+            now="2026-03-10T00:00:00Z",
+            db_path=str(db_path),
+        )
         table_objects = {
             table["native_name"]: table
             for table in cls.client.get(f"/sources/{source_id}/objects?type=table").json()
