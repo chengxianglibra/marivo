@@ -11,11 +11,14 @@ through the HTTP API.
 This page documents the current minimal HTTP write/read surface for mappings. It aligns with the
 v1 constraints in [`docs/service/source-execution-mapping-contract.md`](../service/source-execution-mapping-contract.md):
 
-- `catalog_mappings` is the only catalog projection contract
+- `catalog_mappings` is the only catalog projection contract and must be non-empty for a ready
+  mapping
 - Marivo does not guess execution catalogs from source defaults or engine defaults
 - `default_schema` is only a fallback when the authority locator omits schema
 - readiness is derived from source readiness, engine readiness, type compatibility, and catalog
   coverage validation
+- active mappings fail closed: when a source already has synced table catalogs, the mapping must
+  cover exactly those authority catalogs
 
 ## Endpoints
 
@@ -60,7 +63,7 @@ Creates a source-to-engine mapping that explicitly governs authority catalog pro
 | `source_id` | string | yes | Source governed by this mapping |
 | `engine_id` | string | yes | Execution engine targeted by this mapping |
 | `priority` | integer | no | Routing priority. Defaults to `0` |
-| `catalog_mappings` | array | no | Explicit authority-to-execution catalog projection entries |
+| `catalog_mappings` | array | no | Explicit authority-to-execution catalog projection entries. Defaults to `[]`, but an empty list is `not_ready` |
 | `status` | string | no | `active`, `inactive`, or `deprecated` |
 
 Each `catalog_mappings[]` entry has the following shape:
@@ -70,6 +73,9 @@ Each `catalog_mappings[]` entry has the following shape:
 | `authority_catalog` | string | yes | Source authority catalog name |
 | `execution_catalog` | string | yes | Execution-side catalog name used for routing/compile |
 | `default_schema` | string \| null | no | Fallback schema only when the authority locator omits schema |
+
+`authority_catalog` values must be unique within one mapping. Blank catalog names, blank execution
+catalog names, and blank `default_schema` values are rejected.
 
 ### Response
 
@@ -99,7 +105,13 @@ Each `catalog_mappings[]` entry has the following shape:
 - `mapping_inactive`
 - `mapping_invalid_type_combo`
 - `mapping_incomplete`
+- `mapping_invalid_namespace`
+- `mapping_inactive_dependency`
 - source or engine propagated blockers such as `source_invalid_connection`
+
+`mapping_incomplete` is used when catalog coverage is missing or does not match the source's
+currently synced authority catalogs. Source and engine readiness blockers propagate into mapping
+readiness so callers can fix the dependency before retrying routing.
 
 ---
 
@@ -194,3 +206,5 @@ Deletes the mapping.
 - This contract does not introduce schema-level rewrite or object-level remap.
 - `catalog_mappings` should be treated as authoritative. Missing or incomplete coverage fails closed
   during readiness/routing evaluation.
+- Engine `default_namespace` and source authority defaults are not used to infer missing
+  projection entries.

@@ -4,7 +4,7 @@
 
 本文档定义 Marivo 数据平面中 `source`、`execution engine` 与 `mapping` 的目标 schema 契约。
 
-本文是服务/运行时设计说明，不是当前 HTTP API 契约，也不是对现有 `/sources`、`/engines`、`/mappings` 路由的逐字段解释。它描述 Marivo 已采用的 mapping-only 数据平面边界，以及这些边界背后的设计理由，用于支撑：
+本文是服务/运行时设计说明，不是当前 HTTP API 契约，也不是对现有 `/sources`、`/engines`、`/mappings` 路由的逐字段解释。HTTP 写读面以 [`docs/api/sources.md`](../api/sources.md)、[`docs/api/engines.md`](../api/engines.md) 与 [`docs/api/mappings.md`](../api/mappings.md) 为准。本文描述 Marivo 已采用的 mapping-only 数据平面边界，以及这些边界背后的设计理由，用于支撑：
 
 - metadata authority 与 execution authority 分离
 - source sync 仍以 metadata authority 为准
@@ -44,7 +44,7 @@ v1 当前只支持以下运行时类型：
 
 v1 采用一次性切换策略，当前代码库已经按此收敛：
 
-- 旧 `/bindings` projection 面与 `binding.namespace` 不再保留在主链路
+- 旧 source-engine binding projection 面与 `binding.namespace` 不再保留在主链路
 - source 到 engine 的外部 contract 直接切到 `/mappings`
 - routing 只读取 `source_object.authority_locator` 与 active mapping，不再兼容读取 binding namespace
 
@@ -706,7 +706,7 @@ resolved execution locator：
 
 在 v1 中，它已被明确降级并从主链路移除：
 
-- 不再保留在现有 `/bindings` 读写面中
+- 不再作为当前 HTTP 读写面、配置面或运行时兼容面存在
 - 不再被 routing 兼容读取
 - 不能再被视为目标态 authority-to-execution 权威 contract
 

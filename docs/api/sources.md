@@ -1,9 +1,13 @@
 # Sources
 
-Sources represent external data catalogs. In the current runtime, supported source types are
+Sources represent metadata authority catalogs. In the current runtime, supported source types are
 `duckdb` and `trino` only. After registering a source, you trigger a sync to snapshot its schema
-and table metadata into Marivo's local metadata store. Post-sync, all catalog queries hit SQLite;
-the external system is not queried at read time.
+and table metadata into Marivo's local metadata store. Post-sync, all stored metadata queries hit
+SQLite; the external system is not queried at read time.
+
+A source never declares execution-side catalog projection. Source-to-engine projection is governed
+only by [`/mappings`](mappings.md); source objects keep their source-side identity through
+`authority_locator`.
 
 `marivo.yaml` does not carry source inventory. Sources are registered and managed only through the
 HTTP API.
@@ -73,7 +77,9 @@ Registers a new data source. The source type determines which catalog adapter is
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `db_path` | string | Absolute path to the `.duckdb` file |
+| `path` | string | Recommended absolute path to the `.duckdb` file |
+| `database` | string | Supported alias for `path` |
+| `db_path` | string | Supported alias for `path` |
 
 **Trino connection parameters:**
 
@@ -116,6 +122,9 @@ Registers a new data source. The source type determines which catalog adapter is
 The canonical response model is `SourceResponse`. `authority`, `sync`, `intrinsic_capabilities`,
 `policy`, and `mappings` are structured sub-objects; `intrinsic_capabilities`,
 `readiness_status`, and `failure_code` are read-only derived fields.
+
+`mappings` is a summary of mapping objects that govern this source. It is not embedded source
+configuration and does not let a source carry execution namespace defaults.
 
 `readiness_status` is derived from source validation. A source stays `not_ready` when the
 authority connection is incomplete or when a source without a native catalog layer lacks a stable

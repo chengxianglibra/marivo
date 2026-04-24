@@ -4,10 +4,16 @@
 
 Marivo 仍然保持 HTTP-only。Agent 通过 `marivo-mcp` 与 Marivo 交互，而 `marivo-mcp` 再通过规范 HTTP API 与 Marivo 交互。本地与远程使用方式的差异，只体现在目标 Marivo 服务的解析方式上。
 
+Agent 解析分析目标时必须保持数据平面边界不变：source object identity 来自
+`source_object.authority_locator`，source-to-engine projection 来自 ready mapping。不得从 engine
+`default_namespace`、source connection 默认值或历史 source-engine binding 推断 execution-side
+locator。
+
 ## 目标
 
 - 为本地和远程 Marivo 使用场景保留一条统一的 agent 集成路径
 - 保持 HTTP 作为唯一的规范执行边界
+- 保持 routing/compile 只通过 `authority_locator` + ready mapping 解析执行目标
 - 在默认场景下，无需用户手动启动本地 Marivo 服务
 - 让远程配置显式且可预测
 - 避免任何可能掩盖 agent 实际在使用本地还是远程状态的静默回退
