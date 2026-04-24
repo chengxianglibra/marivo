@@ -138,16 +138,17 @@ App startup requires `marivo.yaml` metadata config with `metadata.engine=sqlite`
 - Bump a named template's version string when its seeded schema or rows change so cached `/tmp`
   copies rebuild automatically.
 - Fresh SQLite metadata stores are initialized from the cached empty schema template in
-  `tests/shared_fixtures.py`; existing metadata files still run the real initializer so migration
-  tests keep covering schema upgrades. Bump the metadata template version when metadata DDL changes.
+  `tests/shared_fixtures.py`. Marivo only supports fresh-init for metadata SQLite; if the schema
+  changes, delete the old metadata file and rebuild it from the current schema/template. Bump the
+  metadata template version when metadata DDL changes.
 - When metadata contract changes only alter columns inside an existing table, also update the
   template validator in `tests/shared_fixtures.py`; table-name checks alone are not sufficient.
 - Synced `source_objects.authority_locator` is the primary source-side identity for routing and
   table lookup. Treat `fqn` as a derived display/reference field; for newly synced objects it should
   mirror the authority locator shape (`catalog.schema.table`) instead of execution-side naming.
 - Do not rely on SQLite initialization or test helpers to backfill missing `authority_locator`
-  from legacy `fqn` values. Old metadata files and test fixtures should be reset or rebuilt into the
-  mapping-only model instead.
+  from legacy `fqn` values. Marivo does not provide online metadata backfill, migration, or reset
+  tooling for old local metadata files; delete and rebuild them into the mapping-only model instead.
 - Treat `tests/shared_fixtures.py` metadata template build as a hot path. Keep it on the minimal
   DDL/shape-validation path; do not route it through heavier initializer or migration logic unless
   the contract truly requires that extra work.

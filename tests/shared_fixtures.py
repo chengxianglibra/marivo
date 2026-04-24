@@ -479,7 +479,7 @@ _LOCK_FILE = _template_lock_path("default")
 # In-process flags: skip lock on repeated calls within the same worker.
 _TEMPLATE_READY: set[str] = set()
 
-_METADATA_TEMPLATE_VERSION = "sqlite_metadata_v7"
+_METADATA_TEMPLATE_VERSION = "sqlite_metadata_v8"
 _METADATA_TEMPLATE = Path(f"/tmp/marivo_test_{_METADATA_TEMPLATE_VERSION}.sqlite")
 _METADATA_LOCK = Path(f"/tmp/marivo_test_{_METADATA_TEMPLATE_VERSION}.lock")
 _METADATA_READY = False
@@ -564,9 +564,22 @@ def _metadata_template_valid(db_path: Path) -> bool:
         engine_columns = {
             str(row[1]) for row in con.execute("PRAGMA table_info(engines)").fetchall()
         }
+        mapping_columns = {
+            str(row[1])
+            for row in con.execute("PRAGMA table_info(source_execution_mappings)").fetchall()
+        }
         metric_columns = {
             str(row[1])
             for row in con.execute("PRAGMA table_info(semantic_metric_contracts)").fetchall()
+        }
+        typed_binding_columns = {
+            str(row[1]) for row in con.execute("PRAGMA table_info(typed_bindings)").fetchall()
+        }
+        carrier_binding_columns = {
+            str(row[1]) for row in con.execute("PRAGMA table_info(carrier_bindings)").fetchall()
+        }
+        field_binding_columns = {
+            str(row[1]) for row in con.execute("PRAGMA table_info(field_bindings)").fetchall()
         }
     finally:
         con.close()
@@ -596,10 +609,40 @@ def _metadata_template_valid(db_path: Path) -> bool:
             "policy_json",
         }.issubset(engine_columns)
         and {
+            "source_id",
+            "engine_id",
+            "priority",
+            "catalog_mappings_json",
+            "status",
+        }.issubset(mapping_columns)
+        and {
             "idx_source_objects_source_type_fqn",
             "idx_source_objects_source_fqn",
         }.issubset(source_object_indexes)
         and {"default_predicate_refs_json"}.issubset(metric_columns)
+        and {
+            "binding_ref",
+            "binding_scope",
+            "bound_object_ref",
+            "binding_contract_version",
+            "status",
+        }.issubset(typed_binding_columns)
+        and {
+            "binding_id",
+            "binding_key",
+            "source_object_ref",
+            "carrier_kind",
+            "carrier_locator",
+            "binding_role",
+        }.issubset(carrier_binding_columns)
+        and {
+            "binding_id",
+            "carrier_binding_key",
+            "target_kind",
+            "target_key",
+            "semantic_ref",
+            "surface_ref",
+        }.issubset(field_binding_columns)
     )
 
 

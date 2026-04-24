@@ -12,7 +12,11 @@ from app.api.models.dimension import DimensionCreateRequest
 from app.api.models.entity import TypedEntityCreateRequest
 from app.api.models.metric import TypedMetricCreateRequest
 from app.api.models.time import TimeCreateRequest
+from app.engines import EngineService
+from app.routing import QueryRouter
 from app.semantic import SemanticService
+from app.service import SemanticLayerService
+from app.storage.analytics import AnalyticsEngine
 from app.storage.metadata import MetadataStore
 
 _DEFAULT_TYPED_ENTITY_REF = "entity.synthetic_subject"
@@ -29,6 +33,15 @@ def _metadata_store_from_client(client: TestClient) -> MetadataStore:
     if metadata_store is None:
         metadata_store = client.app.state.services.metadata_store
     return metadata_store
+
+
+def build_semantic_layer_service(
+    metadata: MetadataStore,
+    analytics: AnalyticsEngine,
+) -> SemanticLayerService:
+    service = SemanticLayerService(metadata, analytics)
+    service.query_router = QueryRouter(metadata, EngineService(metadata))
+    return service
 
 
 def ensure_active_duckdb_mapping(
@@ -49,6 +62,22 @@ def ensure_active_duckdb_mapping(
                 )
     if resolved_db_path is None:
         raise AssertionError("DuckDB mapping seed requires an explicit analytics db path")
+
+    source_row = metadata.query_one(
+        "SELECT source_type, authority_json FROM sources WHERE source_id = ?",
+        [source_id],
+    )
+    if source_row is None:
+        raise AssertionError(f"Unknown source for mapping seed: {source_id}")
+    if str(source_row["source_type"]) == "duckdb":
+        authority = json.loads(str(source_row["authority_json"]))
+        connection = authority.get("connection")
+        if not isinstance(connection, dict) or not connection.get("path"):
+            authority["connection"] = {"path": resolved_db_path}
+            metadata.execute(
+                "UPDATE sources SET authority_json = ?, updated_at = ? WHERE source_id = ?",
+                [json.dumps(authority), now, source_id],
+            )
 
     suffix = source_id.removeprefix("src_")
     engine_id = f"eng_{suffix}"

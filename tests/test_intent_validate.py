@@ -39,10 +39,10 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from app.main import create_app
-from app.service import SemanticLayerService
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 from app.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.semantic_test_helpers import (
+    build_semantic_layer_service,
     ensure_active_duckdb_mapping,
     ensure_published_typed_metric,
     ensure_published_typed_metric_binding,
@@ -235,7 +235,7 @@ class ValidateRunnerServiceTests(unittest.TestCase):
         cls.analytics.initialize()
         _seed_metadata(cls.metadata)
 
-        cls.service = SemanticLayerService(cls.metadata, cls.analytics)
+        cls.service = build_semantic_layer_service(cls.metadata, cls.analytics)
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -517,7 +517,7 @@ class ValidateValidationBoundaryTests(unittest.TestCase):
         analytics.initialize()
         _seed_metadata(metadata)
 
-        cls.service = SemanticLayerService(metadata, analytics)
+        cls.service = build_semantic_layer_service(metadata, analytics)
 
     @classmethod
     def tearDownClass(cls) -> None:

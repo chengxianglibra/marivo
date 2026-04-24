@@ -20,28 +20,15 @@ uvicorn app.main:app --reload
 
 `marivo.yaml` must declare the metadata SQLite file path.
 
+Marivo only supports fresh-init for local metadata SQLite. If the metadata schema changes, delete
+the old metadata file and let the service rebuild it from the current schema.
+
 ## Configuration
 
 ```yaml
 metadata:
   engine: sqlite
   path: data/marivo.meta.sqlite
-
-sources:
-  - name: "Local Demo"
-    type: duckdb
-    connection: {}
-    sync: { mode: all }
-
-engines:
-  - name: "Local DuckDB"
-    type: duckdb
-    connection: { path: data/mvp.duckdb }
-
-bindings:
-  - source: "Local Demo"
-    engine: "Local DuckDB"
-    priority: 10
 
 governance:
   enabled: true
@@ -53,7 +40,8 @@ governance:
 
 ```
 
-Copy to `marivo.yaml` or set `MARIVO_CONFIG`.
+Copy to `marivo.yaml` or set `MARIVO_CONFIG`. Source, engine, and mapping inventory is managed via
+the HTTP API, not YAML config.
 
 ## Example
 
