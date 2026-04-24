@@ -24,6 +24,17 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
         self.assertIsNotNone(row)
         self.assertEqual(row["cnt"], 0)
 
+    def test_initialize_does_not_create_legacy_source_engine_bindings_table(self) -> None:
+        row = self.store.query_one(
+            """
+            SELECT COUNT(*) AS cnt
+            FROM sqlite_master
+            WHERE type = 'table' AND name = 'source_engine_bindings'
+            """
+        )
+        self.assertIsNotNone(row)
+        self.assertEqual(row["cnt"], 0)
+
     def test_initialize_uses_current_sessions_schema(self) -> None:
         rows = self.store.query_rows("PRAGMA table_info(sessions)")
         column_names = {str(row["name"]) for row in rows}

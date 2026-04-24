@@ -4,7 +4,7 @@
 
 本文档定义 Marivo 数据平面中 `source`、`execution engine` 与 `mapping` 的目标 schema 契约。
 
-本文是服务/运行时设计说明，不是当前 HTTP API 契约，也不是对现有 `/sources`、`/engines`、`/bindings` 路由的逐字段解释。它描述的是下一阶段应收敛到的领域模型，用于支撑：
+本文是服务/运行时设计说明，不是当前 HTTP API 契约，也不是对现有 `/sources`、`/engines`、`/mappings` 路由的逐字段解释。它描述 Marivo 已采用的 mapping-only 数据平面边界，以及这些边界背后的设计理由，用于支撑：
 
 - metadata authority 与 execution authority 分离
 - source sync 仍以 metadata authority 为准
@@ -42,9 +42,9 @@ v1 当前只支持以下运行时类型：
 
 ### 1.3 兼容策略
 
-v1 采用一次性切换策略：
+v1 采用一次性切换策略，当前代码库已经按此收敛：
 
-- `/bindings` 与 `binding.namespace` 不再保留在主链路
+- 旧 `/bindings` projection 面与 `binding.namespace` 不再保留在主链路
 - source 到 engine 的外部 contract 直接切到 `/mappings`
 - routing 只读取 `source_object.authority_locator` 与 active mapping，不再兼容读取 binding namespace
 
@@ -77,7 +77,7 @@ v1 失败面固定为：
 
 ## 背景
 
-当前实现中：
+历史上：
 
 - `source` 同时承担“catalog metadata authority”与“可用于执行的 catalog endpoint”两种含义
 - `execution engine` 表达执行端能力与连接
@@ -89,7 +89,7 @@ v1 失败面固定为：
 - source object identity 应锚定在 metadata authority，而不是执行端可见名字
 - execution engine 对 authority object 的可见 namespace 需要显式 contract，而不是运行时猜测
 
-因此，Marivo 需要把数据平面收敛为三个一等对象：
+因此，Marivo 已把数据平面收敛为三个一等对象：
 
 1. `source`
 2. `execution engine`
@@ -697,14 +697,14 @@ resolved execution locator：
 - authority catalog `duckdb_local` 被显式对齐到 execution catalog `main`
 - 当 authority schema 缺失时，execution schema fallback 到 `main`
 
-## 与当前 `source_engine_binding.namespace` 的关系
+## 与历史 `source_engine_binding.namespace` 的关系
 
-当前 `namespace` 只适合表达：
+历史 `namespace` 只适合表达：
 
 - 一个 engine 的 catalog 前缀
 - 一个粗粒度默认 schema
 
-在 v1 中，它被明确降级为 legacy compatibility field：
+在 v1 中，它已被明确降级并从主链路移除：
 
 - 不再保留在现有 `/bindings` 读写面中
 - 不再被 routing 兼容读取
@@ -716,12 +716,12 @@ resolved execution locator：
 - source object identity 与 execution locator 的区分
 - catalog 对齐必须显式治理，不能依赖默认 catalog 投影
 
-因此，后续应将现有 `source_engine_binding.namespace` 逐步收敛为 `mapping`：
+其语义已由 `mapping` 接管：
 
 - `namespace.catalog` -> `catalog_mappings[*].execution_catalog`
 - `namespace.schema` -> `catalog_mappings[*].default_schema`
 
-但仅当 source 只含一个 authority catalog，或者产品显式为每个 authority catalog 生成对应 mapping 项时，才能无损迁移。
+对应关系如下：
 
 ## 与 typed semantic binding 的关系
 

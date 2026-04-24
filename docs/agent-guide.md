@@ -129,6 +129,8 @@ App startup requires `marivo.yaml` metadata config with `metadata.engine=sqlite`
 `metadata.path=<sqlite-file>`.
 - `marivo.yaml` is runtime-only. Do not add `sources`, `engines`, `bindings`, or `mappings`
   inventory blocks; source/engine/mapping objects are configured through the HTTP API only.
+- Source-to-engine projection is mapping-only. Do not reintroduce legacy `/bindings` or
+  `binding.namespace` style config or operator-facing contract.
 - Prefer `tests/shared_fixtures.py` named DuckDB templates for repeated test data. When multiple
   test classes need the same seeded analytics tables, build them once as a deterministic named
   template and copy that template into each temporary db path instead of re-seeding in every
