@@ -18,7 +18,7 @@ from app.api.errors import (
 )
 from app.api.router import include_api_routers
 from app.approvals import ApprovalService
-from app.config import MarivoConfig, load_config, resolve_config_path
+from app.config import MarivoConfig, load_config, resolve_config_path, resolve_metadata_path
 from app.engines import EngineService
 from app.governance import GovernanceService
 from app.jobs import JobService
@@ -57,9 +57,7 @@ def _resolve_storage(
         if db_path is not None and not config_path_explicit:
             metadata_store = SQLiteMetadataStore(Path(resolved_path).with_suffix(".meta.sqlite"))
         elif metadata_config is not None and metadata_config.path.strip():
-            metadata_path = Path(metadata_config.path)
-            if not metadata_path.is_absolute():
-                metadata_path = config_path.parent / metadata_path
+            metadata_path = resolve_metadata_path(config_path, metadata_config.path)
             metadata_store = SQLiteMetadataStore(metadata_path)
         else:
             raise RuntimeError(
