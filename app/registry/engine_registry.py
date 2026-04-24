@@ -91,19 +91,48 @@ def _normalize_policy(policy: dict[str, Any] | None) -> dict[str, Any]:
 
 
 def _normalize_auth(auth: dict[str, Any] | None) -> dict[str, Any]:
-    payload = auth if isinstance(auth, dict) else {}
-    mode = payload.get("mode")
-    normalized: dict[str, Any] = {
-        "mode": mode if mode in {"none", "username_only"} else "none",
+    payload = {} if auth is None else auth
+    if not isinstance(payload, dict):
+        raise ValueError("engine_auth_invalid: auth must be an object")
+    extra_keys = set(payload) - {"mode", "username_source", "fallback_username"}
+    if extra_keys:
+        extra_key = sorted(extra_keys)[0]
+        raise ValueError(f"engine_auth_invalid: unexpected auth field {extra_key!r}")
+    mode = payload.get("mode", "none")
+    if mode not in {"none", "username_only"}:
+        raise ValueError("engine_auth_invalid: mode must be 'none' or 'username_only'")
+    username_source = payload.get("username_source")
+    fallback_username = payload.get("fallback_username")
+    if fallback_username is not None:
+        if not isinstance(fallback_username, str):
+            raise ValueError("engine_auth_invalid: fallback_username must be a string")
+        fallback_username = fallback_username.strip()
+        if not fallback_username:
+            raise ValueError("engine_auth_invalid: fallback_username must not be blank")
+    if mode == "none":
+        if username_source is not None or fallback_username is not None:
+            raise ValueError(
+                "engine_auth_invalid: mode='none' does not allow username_source "
+                "or fallback_username"
+            )
+        return {"mode": "none"}
+    if username_source not in {"session_user", "fixed"}:
+        raise ValueError("engine_auth_invalid: username_source must be 'session_user' or 'fixed'")
+    if username_source == "fixed" and fallback_username is None:
+        raise ValueError("engine_auth_invalid: fixed username_source requires fallback_username")
+    return {
+        "mode": "username_only",
+        "username_source": username_source,
+        **({"fallback_username": fallback_username} if fallback_username is not None else {}),
     }
-    if normalized["mode"] == "username_only":
-        username_source = payload.get("username_source")
-        if username_source in {"session_user", "fixed"}:
-            normalized["username_source"] = username_source
-        fallback_username = payload.get("fallback_username")
-        if isinstance(fallback_username, str):
-            normalized["fallback_username"] = fallback_username
-    return normalized
+
+
+def _normalize_stored_auth(auth: dict[str, Any] | None) -> dict[str, Any]:
+    """Degrade malformed stored auth rows to the v1 default read shape."""
+    try:
+        return _normalize_auth(auth)
+    except ValueError:
+        return {"mode": "none"}
 
 
 class EngineRegistry:
@@ -123,6 +152,9 @@ class EngineRegistry:
         policy: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         validate_engine_type(engine_type)
+        normalized_auth = _normalize_auth(auth)
+        if engine_type == "duckdb" and normalized_auth["mode"] != "none":
+            raise ValueError("engine_auth_unsupported: duckdb only supports auth.mode='none'")
         engine_id = f"eng_{uuid4().hex[:12]}"
         now = now_iso()
         self.metadata.execute(
@@ -148,7 +180,7 @@ class EngineRegistry:
                 engine_type,
                 display_name,
                 json.dumps(connection),
-                json.dumps(_normalize_auth(auth)),
+                json.dumps(normalized_auth),
                 json.dumps(
                     _normalize_default_namespace(engine_type, connection, default_namespace)
                 ),
@@ -182,6 +214,9 @@ class EngineRegistry:
         policy: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         validate_engine_type(engine_type)
+        normalized_auth = _normalize_auth(auth)
+        if engine_type == "duckdb" and normalized_auth["mode"] != "none":
+            raise ValueError("engine_auth_unsupported: duckdb only supports auth.mode='none'")
         existing = self.metadata.query_one(
             "SELECT * FROM engines WHERE display_name = ?",
             [display_name],
@@ -208,7 +243,7 @@ class EngineRegistry:
             [
                 engine_type,
                 json.dumps(connection),
-                json.dumps(_normalize_auth(auth)),
+                json.dumps(normalized_auth),
                 json.dumps(
                     _normalize_default_namespace(engine_type, connection, default_namespace)
                 ),
@@ -322,7 +357,7 @@ class EngineRegistry:
                 auth_payload = None
             if isinstance(auth_payload, dict):
                 parsed_auth = auth_payload
-        auth = _normalize_auth(parsed_auth)
+        auth = _normalize_stored_auth(parsed_auth)
 
         raw_default_namespace = json.loads(str(row["default_namespace_json"]))
         default_namespace = raw_default_namespace if isinstance(raw_default_namespace, dict) else {}

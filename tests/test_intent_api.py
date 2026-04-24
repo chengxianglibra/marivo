@@ -842,6 +842,27 @@ class ObserveIntentValidationEndpointTests(_SessionBackedIntentEndpointMixin, un
         )
         self.assertEqual(r.status_code, 422)
 
+    def test_observe_rejects_session_user_override_fields(self) -> None:
+        for extra_field, extra_value in (
+            ("session_user", "alice"),
+            ("execution_user", "alice"),
+            ("execution_identity", {"session_user": "alice"}),
+        ):
+            with self.subTest(extra_field=extra_field):
+                response = self.client.post(
+                    f"/sessions/{self.session_id}/intents/observe",
+                    json={
+                        "metric": _metric_ref("dau"),
+                        "time_scope": {
+                            "kind": "range",
+                            "start": "2024-01-01",
+                            "end": "2024-01-08",
+                        },
+                        extra_field: extra_value,
+                    },
+                )
+                self.assertEqual(response.status_code, 422)
+
 
 class _SemanticObserveIntentEndpointMixin:
     import_bridge_table_name = "intent_import_bridge_events"

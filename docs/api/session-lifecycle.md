@@ -126,6 +126,7 @@ Request rules:
 - `goal` is required
 - `execution_identity` may be omitted; omitted or empty values persist and read back as `{}`
 - `execution_identity.session_user` and `execution_identity.actor_ref` are optional session-level metadata fields
+- when provided, `execution_identity.session_user` and `execution_identity.actor_ref` are trimmed before persistence; blank-after-trim values are rejected
 - session root request bodies must not define `scope`, `time_scope`, `focus`, `constraints`, `raw_filter`, or other step-level execution controls
 
 Response:

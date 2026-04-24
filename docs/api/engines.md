@@ -73,6 +73,15 @@ Registers an analytics engine. The engine type determines which adapter implemen
 | `username_source` | string | Optional username source when `mode = "username_only"`; currently `"session_user"` or `"fixed"` |
 | `fallback_username` | string | Optional fallback username when runtime session user is absent |
 
+Validation rules:
+
+- `duckdb` only supports `auth = { "mode": "none" }`
+- `trino` supports `mode = "none"` or `mode = "username_only"`
+- when `mode = "none"`, `username_source` and `fallback_username` must be omitted
+- when `mode = "username_only"`, `username_source` is required
+- when `username_source = "fixed"`, `fallback_username` is required
+- `fallback_username`, if present, is trimmed before persistence; blank-after-trim values are rejected
+
 **DuckDB connection parameters:**
 
 | Field | Type | Description |

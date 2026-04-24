@@ -59,6 +59,30 @@ class SessionManagerTests(unittest.TestCase):
             {"session_user": "alice", "actor_ref": "agent.alice"},
         )
 
+    def test_create_session_normalizes_execution_identity_before_persisting(self) -> None:
+        created = self.manager.create_session(
+            "Investigate trimmed auth user",
+            {},
+            {"max_latency_sec": 120},
+            {"aggregate_only": True},
+            {"session_user": " alice ", "actor_ref": " agent.alice "},
+        )
+
+        self.assertEqual(
+            created["execution_identity"],
+            {"session_user": "alice", "actor_ref": "agent.alice"},
+        )
+
+    def test_create_session_rejects_blank_execution_identity_fields(self) -> None:
+        with self.assertRaisesRegex(ValueError, "session_execution_identity_invalid"):
+            self.manager.create_session(
+                "Investigate blank auth user",
+                {},
+                {"max_latency_sec": 120},
+                {"aggregate_only": True},
+                {"session_user": "   "},
+            )
+
     def test_list_sessions_with_status_filter(self) -> None:
         open_session = self.manager.create_session("Open session", {}, {}, {})
         closed_session = self.manager.create_session("Closed session", {}, {}, {})

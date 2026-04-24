@@ -82,7 +82,6 @@ class EngineServiceTests(unittest.TestCase):
                 "fallback_username": "marivo",
             },
         )
-
         self.assertEqual(
             engine["auth"],
             {
@@ -91,6 +90,54 @@ class EngineServiceTests(unittest.TestCase):
                 "fallback_username": "marivo",
             },
         )
+
+    def test_register_engine_trims_fallback_username(self) -> None:
+        engine = self.service.register_engine(
+            engine_type="trino",
+            display_name="Trimmed Auth Trino",
+            connection={"host": "localhost"},
+            auth={
+                "mode": "username_only",
+                "username_source": "fixed",
+                "fallback_username": " marivo ",
+            },
+        )
+
+        self.assertEqual(
+            engine["auth"],
+            {
+                "mode": "username_only",
+                "username_source": "fixed",
+                "fallback_username": "marivo",
+            },
+        )
+
+    def test_register_engine_rejects_mode_none_with_extra_auth_fields(self) -> None:
+        with self.assertRaisesRegex(ValueError, "engine_auth_invalid"):
+            self.service.register_engine(
+                engine_type="trino",
+                display_name="Invalid None Auth Trino",
+                connection={"host": "localhost"},
+                auth={"mode": "none", "fallback_username": "marivo"},
+            )
+
+    def test_register_engine_rejects_fixed_username_without_fallback(self) -> None:
+        with self.assertRaisesRegex(ValueError, "engine_auth_invalid"):
+            self.service.register_engine(
+                engine_type="trino",
+                display_name="Invalid Fixed Auth Trino",
+                connection={"host": "localhost"},
+                auth={"mode": "username_only", "username_source": "fixed"},
+            )
+
+    def test_register_engine_rejects_duckdb_username_only_auth(self) -> None:
+        with self.assertRaisesRegex(ValueError, "engine_auth_unsupported"):
+            self.service.register_engine(
+                engine_type="duckdb",
+                display_name="Invalid DuckDB Auth",
+                connection={"path": "/tmp/test.duckdb"},
+                auth={"mode": "username_only", "username_source": "session_user"},
+            )
 
     def test_get_capability_profile_merges_defaults_and_overrides(self) -> None:
         engine = self.service.register_engine(
@@ -248,6 +295,21 @@ class EngineServiceTests(unittest.TestCase):
 
         self.assertEqual(fetched["readiness_status"], "not_ready")
         self.assertEqual(fetched["failure_code"], "engine_invalid_policy")
+
+    def test_get_engine_degrades_on_malformed_stored_auth_json(self) -> None:
+        engine = self.service.register_engine(
+            engine_type="trino",
+            display_name="Malformed Auth Trino",
+            connection={"host": "localhost"},
+        )
+        self.metadata.execute(
+            "UPDATE engines SET auth_json = ? WHERE engine_id = ?",
+            ['{"mode":"username_only","extra":"oops"}', engine["engine_id"]],
+        )
+
+        fetched = self.service.get_engine(engine["engine_id"])
+
+        self.assertEqual(fetched["auth"], {"mode": "none"})
 
     def test_get_engine_degrades_on_legacy_row_without_auth_column(self) -> None:
         legacy_path = Path(self.temp_dir.name) / "legacy_engines.meta.sqlite"
@@ -415,6 +477,59 @@ class EngineAPITests(unittest.TestCase):
             },
         )
 
+    def test_post_engine_trims_fallback_username(self) -> None:
+        resp = self.client.post(
+            "/engines",
+            json={
+                "engine_type": "trino",
+                "display_name": "API Fixed Auth Trino",
+                "connection": {"host": "localhost"},
+                "auth": {
+                    "mode": "username_only",
+                    "username_source": "fixed",
+                    "fallback_username": " marivo ",
+                },
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["auth"]["fallback_username"], "marivo")
+
+    def test_post_engine_rejects_mode_none_with_extra_auth_fields(self) -> None:
+        resp = self.client.post(
+            "/engines",
+            json={
+                "engine_type": "trino",
+                "display_name": "API Invalid None Auth",
+                "connection": {"host": "localhost"},
+                "auth": {"mode": "none", "fallback_username": "marivo"},
+            },
+        )
+        self.assertEqual(resp.status_code, 422)
+
+    def test_post_engine_rejects_fixed_username_without_fallback(self) -> None:
+        resp = self.client.post(
+            "/engines",
+            json={
+                "engine_type": "trino",
+                "display_name": "API Invalid Fixed Auth",
+                "connection": {"host": "localhost"},
+                "auth": {"mode": "username_only", "username_source": "fixed"},
+            },
+        )
+        self.assertEqual(resp.status_code, 422)
+
+    def test_post_engine_rejects_duckdb_username_only_auth(self) -> None:
+        resp = self.client.post(
+            "/engines",
+            json={
+                "engine_type": "duckdb",
+                "display_name": "API Invalid DuckDB Auth",
+                "connection": {"path": "/tmp/api.duckdb"},
+                "auth": {"mode": "username_only", "username_source": "session_user"},
+            },
+        )
+        self.assertEqual(resp.status_code, 422)
+
     def test_get_engine_includes_mapping_summaries(self) -> None:
         source_resp = self.client.post(
             "/sources",
@@ -547,6 +662,32 @@ class EngineAPITests(unittest.TestCase):
         self.assertEqual(listed_engine["connection"], {})
         self.assertEqual(listed_engine["readiness_status"], "not_ready")
         self.assertEqual(listed_engine["failure_code"], "engine_invalid_connection")
+
+    def test_engine_api_degrades_malformed_stored_auth_json(self) -> None:
+        resp = self.client.post(
+            "/engines",
+            json={
+                "engine_type": "trino",
+                "display_name": "Malformed Stored Auth Engine",
+                "connection": {"host": "localhost"},
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        engine_id = resp.json()["engine_id"]
+        metadata = self.client.app.state.metadata_store
+        metadata.execute(
+            "UPDATE engines SET auth_json = ? WHERE engine_id = ?",
+            ['{"mode":"username_only","extra":"oops"}', engine_id],
+        )
+
+        detail = self.client.get(f"/engines/{engine_id}")
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(detail.json()["auth"], {"mode": "none"})
+
+        listed = self.client.get("/engines")
+        self.assertEqual(listed.status_code, 200)
+        listed_engine = next(item for item in listed.json() if item["engine_id"] == engine_id)
+        self.assertEqual(listed_engine["auth"], {"mode": "none"})
 
     def test_engine_openapi_uses_explicit_response_model(self) -> None:
         response = self.client.get("/openapi.json")
