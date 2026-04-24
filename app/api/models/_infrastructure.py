@@ -222,6 +222,35 @@ class EngineAuthPayload(BaseModel):
     username_source: Literal["session_user", "fixed"] | None = None
     fallback_username: str | None = None
 
+    @field_validator("fallback_username")
+    @classmethod
+    def trim_optional_fallback_username(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("engine_auth_invalid: fallback_username must not be blank")
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_auth_contract(self) -> EngineAuthPayload:
+        if self.mode == "none":
+            if self.username_source is not None or self.fallback_username is not None:
+                raise ValueError(
+                    "engine_auth_invalid: mode='none' does not allow username_source "
+                    "or fallback_username"
+                )
+            return self
+        if self.username_source is None:
+            raise ValueError(
+                "engine_auth_invalid: username_source is required when mode='username_only'"
+            )
+        if self.username_source == "fixed" and self.fallback_username is None:
+            raise ValueError(
+                "engine_auth_invalid: fixed username_source requires fallback_username"
+            )
+        return self
+
     @model_serializer(mode="plain")
     def serialize_non_default_fields(self) -> dict[str, Any]:
         payload: dict[str, Any] = {"mode": self.mode}
@@ -254,6 +283,8 @@ class EngineRegisterRequest(BaseModel):
                 namespace.catalog is not None or namespace.schema_name is not None
             ):
                 raise ValueError("duckdb default_namespace must be null for catalog and schema")
+            if self.auth.mode != "none":
+                raise ValueError("engine_auth_unsupported: duckdb only supports auth.mode='none'")
         return self
 
 

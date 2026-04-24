@@ -198,6 +198,12 @@ Request body fields:
 - `granularity`: allowed only for `standard` time-series observations
 - `dimensions`: allowed only for `standard` segmented observations
 
+Execution identity boundary:
+
+- typed intent payloads do not accept `session_user`, `actor_ref`, `execution_user`, or `execution_identity`
+- execution user context is frozen only on `POST /sessions` via `execution_identity`
+- per-intent execution-user override is not supported
+
 #### Time Scope Contract
 
 `time_scope` must be a structured JSON object. Shorthand strings like `"2024-03-01~2024-03-31"` are rejected.

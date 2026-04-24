@@ -33,12 +33,15 @@ router = APIRouter()
 
 @router.post("/sessions")
 def create_session(payload: SessionCreateRequest, request: Request) -> dict[str, object]:
-    return get_services(request).service.create_session(
-        goal=payload.goal,
-        budget=payload.budget,
-        policy=payload.policy,
-        execution_identity=payload.execution_identity.model_dump(exclude_none=True),
-    )
+    try:
+        return get_services(request).service.create_session(
+            goal=payload.goal,
+            budget=payload.budget,
+            policy=payload.policy,
+            execution_identity=payload.execution_identity.model_dump(exclude_none=True),
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @router.get("/sessions")

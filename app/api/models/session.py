@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class SessionTerminateRequest(BaseModel):
@@ -16,6 +16,16 @@ class SessionExecutionIdentityPayload(BaseModel):
 
     session_user: str | None = None
     actor_ref: str | None = None
+
+    @field_validator("session_user", "actor_ref")
+    @classmethod
+    def trim_non_blank_optional_strings(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("session_execution_identity_invalid: value must not be blank")
+        return normalized
 
 
 class SessionCreateRequest(BaseModel):

@@ -33,7 +33,10 @@ class SessionManager:
         legacy_constraints = constraints or {}
         budget_payload = budget or {}
         policy_payload: dict[str, Any] | list[dict[str, Any]] = policy or {}
-        execution_identity_payload = self._normalize_execution_identity(execution_identity)
+        execution_identity_payload = self._normalize_execution_identity_payload(
+            execution_identity,
+            validate=True,
+        )
         self.metadata.execute(
             """
             INSERT INTO sessions (
@@ -500,15 +503,51 @@ class SessionManager:
         return payload if isinstance(payload, dict) else {}
 
     def _normalize_execution_identity(self, payload: dict[str, Any] | None) -> dict[str, str]:
-        if not isinstance(payload, dict):
+        return self._normalize_execution_identity_payload(payload, validate=False)
+
+    def _normalize_execution_identity_payload(
+        self,
+        payload: dict[str, Any] | None,
+        *,
+        validate: bool,
+    ) -> dict[str, str]:
+        if payload is None:
             return {}
+        if not isinstance(payload, dict):
+            if validate:
+                raise ValueError(
+                    "session_execution_identity_invalid: execution_identity must be an object"
+                )
+            return {}
+        if validate:
+            extra_keys = set(payload) - {"session_user", "actor_ref"}
+            if extra_keys:
+                extra_key = sorted(extra_keys)[0]
+                raise ValueError(
+                    "session_execution_identity_invalid: "
+                    f"unexpected execution_identity field {extra_key!r}"
+                )
         normalized: dict[str, str] = {}
         session_user = payload.get("session_user")
         if isinstance(session_user, str):
-            normalized["session_user"] = session_user
+            session_user = session_user.strip()
+            if validate and not session_user:
+                raise ValueError(
+                    "session_execution_identity_invalid: session_user must not be blank"
+                )
+            if session_user:
+                normalized["session_user"] = session_user
+        elif session_user is not None and validate:
+            raise ValueError("session_execution_identity_invalid: session_user must be a string")
         actor_ref = payload.get("actor_ref")
         if isinstance(actor_ref, str):
-            normalized["actor_ref"] = actor_ref
+            actor_ref = actor_ref.strip()
+            if validate and not actor_ref:
+                raise ValueError("session_execution_identity_invalid: actor_ref must not be blank")
+            if actor_ref:
+                normalized["actor_ref"] = actor_ref
+        elif actor_ref is not None and validate:
+            raise ValueError("session_execution_identity_invalid: actor_ref must be a string")
         return normalized
 
     def _decode_page_token(self, page_token: str | None) -> int:

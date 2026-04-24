@@ -133,6 +133,36 @@ class SessionAPITests(unittest.TestCase):
             {"session_user": "alice", "actor_ref": "agent.alice"},
         )
 
+    def test_create_session_trims_execution_identity_fields(self) -> None:
+        create_resp = self.client.post(
+            "/sessions",
+            json={
+                "goal": "Trim execution identity session",
+                "execution_identity": {
+                    "session_user": " alice ",
+                    "actor_ref": " agent.alice ",
+                },
+            },
+        )
+        self.assertEqual(create_resp.status_code, 200)
+        self.assertEqual(
+            create_resp.json()["execution_identity"],
+            {"session_user": "alice", "actor_ref": "agent.alice"},
+        )
+
+    def test_create_session_rejects_blank_execution_identity_fields(self) -> None:
+        response = self.client.post(
+            "/sessions",
+            json={
+                "goal": "Blank execution identity session",
+                "execution_identity": {
+                    "session_user": "   ",
+                    "actor_ref": "agent.alice",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 422)
+
     def test_get_session_not_found(self) -> None:
         """GET /sessions/{id} with unknown ID should 404."""
         resp = self.client.get("/sessions/sess_nonexistent")
