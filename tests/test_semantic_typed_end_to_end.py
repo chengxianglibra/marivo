@@ -84,8 +84,8 @@ class TypedSemanticEndToEndTests(unittest.TestCase):
         cls.metadata.execute(
             """
             INSERT OR IGNORE INTO source_objects (
-                object_id, source_id, object_type, native_name, fqn, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                object_id, source_id, object_type, native_name, fqn, authority_locator_json, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 cls.val_events_object_id,
@@ -93,6 +93,7 @@ class TypedSemanticEndToEndTests(unittest.TestCase):
                 "table",
                 "val_events",
                 cls.val_events_fqn,
+                json.dumps({"catalog": "main", "schema": "analytics", "table": "val_events"}),
                 now,
                 now,
             ],

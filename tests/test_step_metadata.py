@@ -70,14 +70,15 @@ class StepMetadataPersistenceTests(unittest.TestCase):
         )
         cls.metadata.execute(
             "INSERT OR IGNORE INTO source_objects "
-            "(object_id, source_id, object_type, native_name, fqn, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "(object_id, source_id, object_type, native_name, fqn, authority_locator_json, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             [
                 "obj_step_metadata",
                 "src_step_metadata",
                 "table",
                 "watch_events",
                 "analytics.watch_events",
+                json.dumps({"catalog": "main", "schema": "analytics", "table": "watch_events"}),
                 now,
                 now,
             ],

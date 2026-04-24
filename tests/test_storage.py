@@ -337,7 +337,7 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
             '{"allowed_step_types": [], "required_policy_support": []}',
         )
 
-    def test_initialize_backfills_source_object_authority_locator(self) -> None:
+    def test_initialize_does_not_backfill_source_object_authority_locator(self) -> None:
         legacy_path = Path(self.temp_dir.name) / "legacy_source_objects.sqlite"
         legacy_store = SQLiteMetadataStore(legacy_path)
         with legacy_store.connect() as con:
@@ -415,10 +415,7 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
             "SELECT authority_locator_json FROM source_objects WHERE object_id = ?",
             ["obj_legacy"],
         )
-        self.assertEqual(
-            row["authority_locator_json"],
-            '{"catalog": "main", "schema": "analytics", "table": "watch_events"}',
-        )
+        self.assertEqual(row["authority_locator_json"], "{}")
 
     def test_new_tables_exist(self) -> None:
         for table in [

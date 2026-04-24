@@ -43,6 +43,7 @@ from app.service import SemanticLayerService
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 from app.storage.sqlite_metadata import SQLiteMetadataStore
 from tests.semantic_test_helpers import (
+    ensure_active_duckdb_mapping,
     ensure_published_typed_metric,
     ensure_published_typed_metric_binding,
 )
@@ -169,9 +170,18 @@ def _seed_metadata(meta: SQLiteMetadataStore) -> None:
     )
     meta.execute(
         "INSERT OR IGNORE INTO source_objects "
-        "(object_id, source_id, object_type, native_name, fqn, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        [obj_id, src_id, "table", "val_events", "analytics.val_events", now, now],
+        "(object_id, source_id, object_type, native_name, fqn, authority_locator_json, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        [
+            obj_id,
+            src_id,
+            "table",
+            "val_events",
+            "analytics.val_events",
+            json.dumps({"catalog": "main", "schema": "analytics", "table": "val_events"}),
+            now,
+            now,
+        ],
     )
 
     ensure_published_typed_metric(
@@ -205,6 +215,7 @@ def _seed_metadata(meta: SQLiteMetadataStore) -> None:
         source_object_ref=obj_id,
         surface_name="binary_value",
     )
+    ensure_active_duckdb_mapping(meta, source_id=src_id, now=now)
 
 
 # ── Direct service tests ───────────────────────────────────────────────────────

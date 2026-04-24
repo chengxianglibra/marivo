@@ -159,8 +159,7 @@ POST /routing/resolve
 Resolves a set of table names to a single engine capable of querying all of them. This endpoint is useful for debugging routing decisions or for agents that want to understand which engine will be used before submitting a step.
 
 The router selects the highest-priority engine that has active mappings to sources containing all the specified tables.
-Routing first resolves synced tables by `source_object.authority_locator`, then falls back to legacy
-`fqn` and short `native_name` matching for older fixtures. Callers may pass:
+Routing resolves synced tables by explicit `source_object.authority_locator`. Callers may pass:
 
 - full authority locator FQN: `catalog.schema.table`
 - authority schema + table: `schema.table`
@@ -187,7 +186,7 @@ the full authority locator FQN.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `table_names` | array[string] | yes | Table names to resolve. Use synced full FQNs when available; short native names remain supported only when unambiguous. |
+| `table_names` | array[string] | yes | Table names to resolve. Use synced full authority-locator FQNs when available; short native names remain supported only when unambiguous. |
 | `routing_intent` | object | no | Hints to guide engine selection |
 
 **Routing intent fields:**

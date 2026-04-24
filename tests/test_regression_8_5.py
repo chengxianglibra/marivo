@@ -90,9 +90,18 @@ def _seed_metadata(meta: SQLiteMetadataStore, db_path: Path | None = None) -> No
     )
     meta.execute(
         "INSERT OR IGNORE INTO source_objects "
-        "(object_id, source_id, object_type, native_name, fqn, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        [obj_id, src_id, "table", _TABLE, f"analytics.{_TABLE}", now, now],
+        "(object_id, source_id, object_type, native_name, fqn, authority_locator_json, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        [
+            obj_id,
+            src_id,
+            "table",
+            _TABLE,
+            f"analytics.{_TABLE}",
+            json.dumps({"catalog": "main", "schema": "analytics", "table": _TABLE}),
+            now,
+            now,
+        ],
     )
     ensure_published_typed_metric(
         meta,
@@ -531,9 +540,18 @@ class TypedMetricSqlCompilationTests(_RegressionServiceTestCase):
         )
         cls.metadata.execute(
             "INSERT OR IGNORE INTO source_objects "
-            "(object_id, source_id, object_type, native_name, fqn, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            ["obj_typed_sql", "src_typed_sql", "table", _TABLE, f"analytics.{_TABLE}", now, now],
+            "(object_id, source_id, object_type, native_name, fqn, authority_locator_json, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                "obj_typed_sql",
+                "src_typed_sql",
+                "table",
+                _TABLE,
+                f"analytics.{_TABLE}",
+                json.dumps({"catalog": "main", "schema": "analytics", "table": _TABLE}),
+                now,
+                now,
+            ],
         )
 
         typed_metrics = [

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -71,12 +72,26 @@ class SemanticTypedApiTests(unittest.TestCase):
             return str(existing["object_id"])
         object_id = f"obj_{uuid4().hex[:12]}"
         now = "2026-04-09T00:00:00+00:00"
+        fqn_parts = fqn.split(".")
+        source_row = self._metadata().query_one(
+            "SELECT authority_json FROM sources WHERE source_id = ?",
+            [self._ensure_source_id()],
+        )
+        catalog: str | None = None
+        if len(fqn_parts) >= 3:
+            catalog = fqn_parts[-3]
+        elif source_row is not None:
+            authority = json.loads(str(source_row["authority_json"]))
+            if isinstance(authority, dict):
+                synthetic_catalog = authority.get("synthetic_catalog")
+                if isinstance(synthetic_catalog, str) and synthetic_catalog:
+                    catalog = synthetic_catalog
         self._metadata().execute(
             """
             INSERT INTO source_objects (
                 object_id, source_id, object_type, parent_id, native_name, native_id,
-                fqn, properties_json, sync_version, synced_at, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                fqn, authority_locator_json, properties_json, sync_version, synced_at, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 object_id,
@@ -86,6 +101,13 @@ class SemanticTypedApiTests(unittest.TestCase):
                 native_name or fqn.rsplit(".", 1)[-1],
                 None,
                 fqn,
+                json.dumps(
+                    {
+                        "catalog": catalog,
+                        "schema": fqn_parts[-2] if len(fqn_parts) >= 2 else None,
+                        "table": fqn_parts[-1],
+                    }
+                ),
                 "{}",
                 "test_sync_v1",
                 now,
