@@ -368,13 +368,13 @@ class TestValuesOverlap(unittest.TestCase):
         self.assertFalse(_values_overlap("eq", 65, "lt", 65))
 
     def test_gte_vs_eq_narrowing(self):
-        self.assertTrue(_values_overlap("gte", 18, "eq", 25))
+        self.assertIsNone(_values_overlap("gte", 18, "eq", 25))
 
     def test_gte_vs_eq_contradiction(self):
         self.assertFalse(_values_overlap("gte", 18, "eq", 10))
 
     def test_lte_vs_eq_narrowing(self):
-        self.assertTrue(_values_overlap("lte", 65, "eq", 50))
+        self.assertIsNone(_values_overlap("lte", 65, "eq", 50))
 
     def test_lte_vs_eq_contradiction(self):
         self.assertFalse(_values_overlap("lte", 65, "eq", 70))
@@ -387,7 +387,7 @@ class TestValuesOverlap(unittest.TestCase):
         self.assertFalse(_values_overlap("eq", 70, "between", [18, 65]))
 
     def test_between_vs_eq_in_range(self):
-        self.assertTrue(_values_overlap("between", [18, 65], "eq", 25))
+        self.assertIsNone(_values_overlap("between", [18, 65], "eq", 25))
 
     def test_between_vs_eq_out_of_range(self):
         self.assertFalse(_values_overlap("between", [18, 65], "eq", 70))
@@ -1174,3 +1174,261 @@ class TestCollectGovernancePredicateRefs(unittest.TestCase):
         refs = _collect_governance_predicate_refs(_ScopedGovRepo())
         self.assertEqual(len(refs), 1)
         self.assertEqual(refs[0].ref, "predicate.unscoped")
+
+
+# ---------------------------------------------------------------------------
+# Task 7.3 — Cross-operator narrowing at _check_scope_narrowing level
+# ---------------------------------------------------------------------------
+
+
+class TestScopeNarrowingCrossOperator(unittest.TestCase):
+    """Cross-operator narrowing pairs validated through _check_scope_narrowing."""
+
+    # --- narrowing success ---
+
+    def test_eq_scope_narrows_gte_upstream(self):
+        scope_atoms = [{"op": "eq", "target_ref": "dimension.age", "value": 25}]
+        upstream = {"dimension.age": [{"op": "gte", "target_ref": "dimension.age", "value": 18}]}
+        issues = _check_scope_narrowing(scope_atoms, upstream, "predicate.scope1")
+        self.assertEqual(issues, [])
+
+    def test_eq_scope_narrows_between_upstream(self):
+        scope_atoms = [{"op": "eq", "target_ref": "dimension.age", "value": 25}]
+        upstream = {
+            "dimension.age": [{"op": "between", "target_ref": "dimension.age", "value": [18, 65]}]
+        }
+        issues = _check_scope_narrowing(scope_atoms, upstream, "predicate.scope1")
+        self.assertEqual(issues, [])
+
+    def test_eq_scope_narrows_in_upstream(self):
+        scope_atoms = [{"op": "eq", "target_ref": "dimension.country", "value": "US"}]
+        upstream = {
+            "dimension.country": [
+                {"op": "in", "target_ref": "dimension.country", "value": ["US", "CN"]}
+            ]
+        }
+        issues = _check_scope_narrowing(scope_atoms, upstream, "predicate.scope1")
+        self.assertEqual(issues, [])
+
+    def test_between_scope_widens_eq_upstream_unprovable(self):
+        scope_atoms = [{"op": "between", "target_ref": "dimension.age", "value": [18, 65]}]
+        upstream = {"dimension.age": [{"op": "eq", "target_ref": "dimension.age", "value": 25}]}
+        issues = _check_scope_narrowing(scope_atoms, upstream, "predicate.scope1")
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].code, "COMPILER_SCOPE_NARROWING_UNPROVABLE")
+
+    def test_gte_scope_widens_eq_upstream_unprovable(self):
+        scope_atoms = [{"op": "gte", "target_ref": "dimension.age", "value": 18}]
+        upstream = {"dimension.age": [{"op": "eq", "target_ref": "dimension.age", "value": 25}]}
+        issues = _check_scope_narrowing(scope_atoms, upstream, "predicate.scope1")
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].code, "COMPILER_SCOPE_NARROWING_UNPROVABLE")
+
+    def test_lte_scope_widens_eq_upstream_unprovable(self):
+        scope_atoms = [{"op": "lte", "target_ref": "dimension.age", "value": 65}]
+        upstream = {"dimension.age": [{"op": "eq", "target_ref": "dimension.age", "value": 50}]}
+        issues = _check_scope_narrowing(scope_atoms, upstream, "predicate.scope1")
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].code, "COMPILER_SCOPE_NARROWING_UNPROVABLE")
+
+    def test_in_scope_narrows_between_upstream(self):
+        scope_atoms = [{"op": "in", "target_ref": "dimension.age", "value": [20, 25]}]
+        upstream = {
+            "dimension.age": [{"op": "between", "target_ref": "dimension.age", "value": [18, 30]}]
+        }
+        issues = _check_scope_narrowing(scope_atoms, upstream, "predicate.scope1")
+        self.assertEqual(issues, [])
+
+    def test_between_scope_narrows_in_upstream(self):
+        scope_atoms = [{"op": "between", "target_ref": "dimension.age", "value": [18, 30]}]
+        upstream = {
+            "dimension.age": [{"op": "in", "target_ref": "dimension.age", "value": [20, 25]}]
+        }
+        issues = _check_scope_narrowing(scope_atoms, upstream, "predicate.scope1")
+        self.assertEqual(issues, [])
+
+    # --- contradiction (widening / refusal) ---
+
+    def test_eq_scope_contradicts_gte_upstream(self):
+        scope_atoms = [{"op": "eq", "target_ref": "dimension.age", "value": 10}]
+        upstream = {"dimension.age": [{"op": "gte", "target_ref": "dimension.age", "value": 18}]}
+        issues = _check_scope_narrowing(scope_atoms, upstream, "predicate.scope1")
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].code, "COMPILER_SCOPE_CONTRADICTS_UPSTREAM")
+
+    def test_eq_scope_contradicts_between_upstream(self):
+        scope_atoms = [{"op": "eq", "target_ref": "dimension.age", "value": 70}]
+        upstream = {
+            "dimension.age": [{"op": "between", "target_ref": "dimension.age", "value": [18, 65]}]
+        }
+        issues = _check_scope_narrowing(scope_atoms, upstream, "predicate.scope1")
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].code, "COMPILER_SCOPE_CONTRADICTS_UPSTREAM")
+
+    def test_eq_scope_contradicts_in_upstream(self):
+        scope_atoms = [{"op": "eq", "target_ref": "dimension.country", "value": "JP"}]
+        upstream = {
+            "dimension.country": [
+                {"op": "in", "target_ref": "dimension.country", "value": ["US", "CN"]}
+            ]
+        }
+        issues = _check_scope_narrowing(scope_atoms, upstream, "predicate.scope1")
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].code, "COMPILER_SCOPE_CONTRADICTS_UPSTREAM")
+
+    def test_between_scope_contradicts_eq_upstream(self):
+        scope_atoms = [{"op": "between", "target_ref": "dimension.age", "value": [70, 90]}]
+        upstream = {"dimension.age": [{"op": "eq", "target_ref": "dimension.age", "value": 25}]}
+        issues = _check_scope_narrowing(scope_atoms, upstream, "predicate.scope1")
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].code, "COMPILER_SCOPE_CONTRADICTS_UPSTREAM")
+
+    def test_gte_scope_contradicts_eq_upstream(self):
+        scope_atoms = [{"op": "gte", "target_ref": "dimension.age", "value": 30}]
+        upstream = {"dimension.age": [{"op": "eq", "target_ref": "dimension.age", "value": 25}]}
+        issues = _check_scope_narrowing(scope_atoms, upstream, "predicate.scope1")
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].code, "COMPILER_SCOPE_CONTRADICTS_UPSTREAM")
+
+    def test_lte_scope_contradicts_eq_upstream(self):
+        scope_atoms = [{"op": "lte", "target_ref": "dimension.age", "value": 40}]
+        upstream = {"dimension.age": [{"op": "eq", "target_ref": "dimension.age", "value": 50}]}
+        issues = _check_scope_narrowing(scope_atoms, upstream, "predicate.scope1")
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].code, "COMPILER_SCOPE_CONTRADICTS_UPSTREAM")
+
+    def test_in_scope_contradicts_between_upstream(self):
+        scope_atoms = [{"op": "in", "target_ref": "dimension.age", "value": [5, 10]}]
+        upstream = {
+            "dimension.age": [{"op": "between", "target_ref": "dimension.age", "value": [18, 30]}]
+        }
+        issues = _check_scope_narrowing(scope_atoms, upstream, "predicate.scope1")
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].code, "COMPILER_SCOPE_CONTRADICTS_UPSTREAM")
+
+    def test_between_scope_contradicts_in_upstream(self):
+        scope_atoms = [{"op": "between", "target_ref": "dimension.age", "value": [70, 90]}]
+        upstream = {
+            "dimension.age": [{"op": "in", "target_ref": "dimension.age", "value": [20, 25]}]
+        }
+        issues = _check_scope_narrowing(scope_atoms, upstream, "predicate.scope1")
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].code, "COMPILER_SCOPE_CONTRADICTS_UPSTREAM")
+
+
+# ---------------------------------------------------------------------------
+# Task 7.3 — Scope relaxation (widening) tests
+# ---------------------------------------------------------------------------
+
+
+class TestScopeNarrowingRelaxation(unittest.TestCase):
+    """Explicit 'widening fails' tests — scope tries to relax upstream constraints."""
+
+    def test_gte_scope_lower_than_upstream_relaxes(self):
+        scope_atoms = [{"op": "gte", "target_ref": "dimension.age", "value": 10}]
+        upstream = {"dimension.age": [{"op": "gte", "target_ref": "dimension.age", "value": 18}]}
+        issues = _check_scope_narrowing(scope_atoms, upstream, "predicate.scope1")
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].code, "COMPILER_SCOPE_CONTRADICTS_UPSTREAM")
+
+    def test_lte_scope_higher_than_upstream_relaxes(self):
+        scope_atoms = [{"op": "lte", "target_ref": "dimension.age", "value": 80}]
+        upstream = {"dimension.age": [{"op": "lte", "target_ref": "dimension.age", "value": 65}]}
+        issues = _check_scope_narrowing(scope_atoms, upstream, "predicate.scope1")
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].code, "COMPILER_SCOPE_CONTRADICTS_UPSTREAM")
+
+    def test_in_scope_superset_of_upstream_relaxes(self):
+        scope_atoms = [{"op": "in", "target_ref": "dimension.country", "value": ["US", "CN", "JP"]}]
+        upstream = {
+            "dimension.country": [
+                {"op": "in", "target_ref": "dimension.country", "value": ["US", "CN"]}
+            ]
+        }
+        issues = _check_scope_narrowing(scope_atoms, upstream, "predicate.scope1")
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].code, "COMPILER_SCOPE_NARROWING_UNPROVABLE")
+        self.assertEqual(issues[0].details["reason"], "not_subset")
+
+    def test_between_scope_wider_than_upstream_relaxes(self):
+        scope_atoms = [{"op": "between", "target_ref": "dimension.age", "value": [10, 80]}]
+        upstream = {
+            "dimension.age": [{"op": "between", "target_ref": "dimension.age", "value": [18, 65]}]
+        }
+        issues = _check_scope_narrowing(scope_atoms, upstream, "predicate.scope1")
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].code, "COMPILER_SCOPE_NARROWING_UNPROVABLE")
+        self.assertEqual(issues[0].details["reason"], "not_subset")
+
+
+# ---------------------------------------------------------------------------
+# Task 7.3 — Multi-target narrowing with mixed results
+# ---------------------------------------------------------------------------
+
+
+class TestScopeNarrowingMultiTarget(unittest.TestCase):
+    """Mixed narrowing results across different targets."""
+
+    def test_partial_narrowing_one_passes_one_contradicts(self):
+        scope_atoms = [
+            {"op": "eq", "target_ref": "dimension.country", "value": "US"},
+            {"op": "eq", "target_ref": "dimension.status", "value": "CN"},
+        ]
+        upstream = {
+            "dimension.country": [
+                {"op": "in", "target_ref": "dimension.country", "value": ["US", "CN"]}
+            ],
+            "dimension.status": [{"op": "eq", "target_ref": "dimension.status", "value": "active"}],
+        }
+        issues = _check_scope_narrowing(scope_atoms, upstream, "predicate.scope1")
+        contradicts = [i for i in issues if i.code == "COMPILER_SCOPE_CONTRADICTS_UPSTREAM"]
+        self.assertEqual(len(contradicts), 1)
+        self.assertEqual(contradicts[0].details["target_ref"], "dimension.status")
+
+    def test_partial_narrowing_one_passes_one_unprovable(self):
+        scope_atoms = [
+            {"op": "eq", "target_ref": "dimension.country", "value": "US"},
+            {"op": "in", "target_ref": "dimension.region", "value": ["east", "west"]},
+        ]
+        upstream = {
+            "dimension.country": [
+                {"op": "in", "target_ref": "dimension.country", "value": ["US", "CN"]}
+            ],
+            "dimension.region": [{"op": "eq", "target_ref": "dimension.region", "value": "east"}],
+        }
+        issues = _check_scope_narrowing(scope_atoms, upstream, "predicate.scope1")
+        unprovable = [i for i in issues if i.code == "COMPILER_SCOPE_NARROWING_UNPROVABLE"]
+        self.assertEqual(len(unprovable), 1)
+        self.assertEqual(unprovable[0].details["target_ref"], "dimension.region")
+
+
+# ---------------------------------------------------------------------------
+# Task 7.3 — Multiple upstream predicates on same target
+# ---------------------------------------------------------------------------
+
+
+class TestScopeNarrowingMultipleUpstream(unittest.TestCase):
+    """Scope must narrow against every upstream predicate on the same target."""
+
+    def test_scope_narrows_both_upstreams(self):
+        scope_atoms = [{"op": "eq", "target_ref": "dimension.country", "value": "US"}]
+        upstream = {
+            "dimension.country": [
+                {"op": "in", "target_ref": "dimension.country", "value": ["US", "CN"]},
+                {"op": "eq", "target_ref": "dimension.country", "value": "US"},
+            ]
+        }
+        issues = _check_scope_narrowing(scope_atoms, upstream, "predicate.scope1")
+        self.assertEqual(issues, [])
+
+    def test_scope_contradicts_one_upstream_narrows_other(self):
+        scope_atoms = [{"op": "eq", "target_ref": "dimension.country", "value": "JP"}]
+        upstream = {
+            "dimension.country": [
+                {"op": "in", "target_ref": "dimension.country", "value": ["US", "CN"]},
+                {"op": "eq", "target_ref": "dimension.country", "value": "US"},
+            ]
+        }
+        issues = _check_scope_narrowing(scope_atoms, upstream, "predicate.scope1")
+        contradicts = [i for i in issues if i.code == "COMPILER_SCOPE_CONTRADICTS_UPSTREAM"]
+        self.assertGreaterEqual(len(contradicts), 1)

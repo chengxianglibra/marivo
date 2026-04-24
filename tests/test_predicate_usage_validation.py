@@ -8,6 +8,8 @@ Covers usage-aware validation at every predicate consumption point:
 - Governance policy predicate_ref → governance_policy usage
 - Draft binding row_filter_refs existence validation
 - Predicate ref resolution to SQL filter expression
+- Request scope usage enforcement for all wrong-usage predicates (task 7.2)
+- Governance usage enforcement for all wrong-usage predicates (task 7.2)
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ from fastapi.testclient import TestClient
 
 from app.api.models.intents import ObserveScope
 from app.main import create_app
+from app.semantic_service.errors import SemanticValidationError
 from tests.semantic_test_helpers import ensure_published_typed_entity, ensure_published_typed_time
 from tests.shared_fixtures import get_seeded_duckdb_path
 
@@ -519,3 +522,151 @@ class PredicateRefResolutionTests(unittest.TestCase):
         scope = _normalize_scope({"predicate": "status = 'active'", "constraints": {}})
         self.assertEqual(scope.predicate, "status = 'active'")
         self.assertIsNone(scope.predicate_ref)
+
+
+# =============================================================================
+# Task 7.2: Request scope usage enforcement
+# =============================================================================
+
+
+class RequestScopeUsageEnforcementTests(unittest.TestCase):
+    """Test that only request_scope usage predicates are accepted as scope.predicate_ref."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        db_path = Path(cls.temp_dir.name) / "test_scope_usage_enforce.duckdb"
+        get_seeded_duckdb_path(db_path)
+        cls.app = create_app(db_path)
+        cls.client = TestClient(cls.app)
+        metadata = _metadata_from_client(cls.client)
+        cls.entity_ref = ensure_published_typed_entity(
+            metadata, entity_name="scope_test", key_refs=["key.scope_test_id"]
+        )
+        cls.semantic_svc = cls.client.app.state.semantic_service
+        cls._publish_predicate("predicate.scope_req", ["request_scope"])
+        cls._publish_predicate("predicate.scope_gov", ["governance_policy"])
+        cls._publish_predicate("predicate.scope_carrier", ["carrier_row_filter"])
+        cls._publish_predicate("predicate.scope_metric", ["metric_qualifier"])
+
+    @classmethod
+    def _publish_predicate(cls, ref: str, usage: list[str]) -> None:
+        resp = cls.client.post(
+            "/semantic/predicates",
+            json={
+                "header": {
+                    "predicate_ref": ref,
+                    "display_name": ref.split(".")[-1].replace("_", " ").title(),
+                    "subject_ref": cls.entity_ref,
+                    "predicate_contract_version": "predicate.v1",
+                },
+                "interface_contract": {
+                    "expression": {"target_ref": cls.entity_ref, "op": "is_not_null"},
+                    "allowed_usage": usage,
+                },
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        pid = resp.json()["predicate_contract_id"]
+        pub = cls.client.post(f"/semantic/predicates/{pid}/publish")
+        assert pub.status_code == 200, pub.text
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.client.close()
+        cls.temp_dir.cleanup()
+
+    def test_governance_predicate_rejected_as_request_scope(self) -> None:
+        with self.assertRaises(SemanticValidationError):
+            self.semantic_svc.typed_objects._validate_request_scope_predicate_ref(
+                "predicate.scope_gov"
+            )
+
+    def test_carrier_row_filter_rejected_as_request_scope(self) -> None:
+        with self.assertRaises(SemanticValidationError):
+            self.semantic_svc.typed_objects._validate_request_scope_predicate_ref(
+                "predicate.scope_carrier"
+            )
+
+    def test_metric_qualifier_rejected_as_request_scope(self) -> None:
+        with self.assertRaises(SemanticValidationError):
+            self.semantic_svc.typed_objects._validate_request_scope_predicate_ref(
+                "predicate.scope_metric"
+            )
+
+    def test_request_scope_predicate_accepted_in_scope_context(self) -> None:
+        self.semantic_svc.typed_objects._validate_request_scope_predicate_ref("predicate.scope_req")
+
+
+# =============================================================================
+# Task 7.2: Governance usage enforcement
+# =============================================================================
+
+
+class GovernanceUsageEnforcementTests(unittest.TestCase):
+    """Test that only governance_policy usage predicates are accepted in governance context."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        db_path = Path(cls.temp_dir.name) / "test_gov_usage_enforce.duckdb"
+        get_seeded_duckdb_path(db_path)
+        cls.app = create_app(db_path)
+        cls.client = TestClient(cls.app)
+        metadata = _metadata_from_client(cls.client)
+        cls.entity_ref = ensure_published_typed_entity(
+            metadata, entity_name="gov_ue_test", key_refs=["key.gov_ue_test_id"]
+        )
+        cls.semantic_svc = cls.client.app.state.semantic_service
+        cls._publish_predicate("predicate.gov_req", ["governance_policy"])
+        cls._publish_predicate("predicate.gov_scope", ["request_scope"])
+        cls._publish_predicate("predicate.gov_carrier", ["carrier_row_filter"])
+        cls._publish_predicate("predicate.gov_metric", ["metric_qualifier"])
+
+    @classmethod
+    def _publish_predicate(cls, ref: str, usage: list[str]) -> None:
+        resp = cls.client.post(
+            "/semantic/predicates",
+            json={
+                "header": {
+                    "predicate_ref": ref,
+                    "display_name": ref.split(".")[-1].replace("_", " ").title(),
+                    "subject_ref": cls.entity_ref,
+                    "predicate_contract_version": "predicate.v1",
+                },
+                "interface_contract": {
+                    "expression": {"target_ref": cls.entity_ref, "op": "is_not_null"},
+                    "allowed_usage": usage,
+                },
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        pid = resp.json()["predicate_contract_id"]
+        pub = cls.client.post(f"/semantic/predicates/{pid}/publish")
+        assert pub.status_code == 200, pub.text
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.client.close()
+        cls.temp_dir.cleanup()
+
+    def test_request_scope_predicate_rejected_as_governance(self) -> None:
+        with self.assertRaises(SemanticValidationError):
+            self.semantic_svc.typed_objects._validate_governance_predicate_refs(
+                ["predicate.gov_scope"]
+            )
+
+    def test_carrier_row_filter_predicate_rejected_as_governance(self) -> None:
+        with self.assertRaises(SemanticValidationError):
+            self.semantic_svc.typed_objects._validate_governance_predicate_refs(
+                ["predicate.gov_carrier"]
+            )
+
+    def test_metric_qualifier_predicate_rejected_as_governance(self) -> None:
+        with self.assertRaises(SemanticValidationError):
+            self.semantic_svc.typed_objects._validate_governance_predicate_refs(
+                ["predicate.gov_metric"]
+            )
+
+    def test_governance_policy_predicate_accepted(self) -> None:
+        self.semantic_svc.typed_objects._validate_governance_predicate_refs(["predicate.gov_req"])

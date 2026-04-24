@@ -6,6 +6,7 @@ Covers:
 - Within-metric: metric_default vs component_qualifier conflicts
 - Cross-component: component_qualifier vs component_qualifier conflicts
 - Gate integration: empty refs, single layer, unresolvable refs
+- Conflict detection + scope narrowing joint flow (task 7.3)
 """
 
 from __future__ import annotations
@@ -15,12 +16,14 @@ from typing import Any
 
 from app.analysis_core.predicate_validator import (
     PredicateLayerRef,
+    PredicateRefWithUsage,
     ResolvedAtom,
     _check_carrier_vs_qualifier_conflict,
     _check_cross_component_conflict,
     _check_governance_vs_metric_conflict,
     _check_within_metric_conflict,
     validate_predicate_conflicts,
+    validate_request_scope,
 )
 from app.semantic_runtime.errors import SemanticRuntimeNotFoundError
 from app.semantic_runtime.resolution import ResolvedSemanticObject, RuntimeSemanticAvailability
@@ -597,6 +600,110 @@ class TestScopeFilteredConflictGate(unittest.TestCase):
         refs = collect_layered_predicate_refs(_StubInputs(), _ScopedGovRepo())
         # The policy is scoped to aggregate_query, but our step is metric_query
         self.assertEqual(refs, [])
+
+
+# ---------------------------------------------------------------------------
+# Task 7.3 — Conflict detection + scope narrowing joint flow
+# ---------------------------------------------------------------------------
+
+
+class TestConflictWithScopeNarrowing(unittest.TestCase):
+    """Combined conflict detection and scope narrowing in a single compile flow."""
+
+    def test_scope_narrowing_passes_but_conflict_detected(self):
+        """Scope narrows correctly but governance vs qualifier conflict exists."""
+        scope_pred = _resolved_predicate(
+            "predicate.scope_us",
+            expression={"op": "eq", "target_ref": "dimension.country", "value": "US"},
+        )
+        gov_pred = _resolved_predicate(
+            "predicate.gov_us",
+            expression={"op": "eq", "target_ref": "dimension.country", "value": "US"},
+        )
+        qualifier_pred = _resolved_predicate(
+            "predicate.qual_cn",
+            expression={"op": "eq", "target_ref": "dimension.country", "value": "CN"},
+        )
+        resolver = _StubResolver(
+            resolved={
+                "predicate.scope_us": scope_pred,
+                "predicate.gov_us": gov_pred,
+                "predicate.qual_cn": qualifier_pred,
+            }
+        )
+        # Scope narrows against governance (eq US vs eq US → passes)
+        upstream_refs = [
+            PredicateRefWithUsage(ref="predicate.gov_us", required_usage="governance_policy"),
+        ]
+        scope_issues = validate_request_scope(
+            request_scope_ref="predicate.scope_us",
+            upstream_predicates=upstream_refs,
+            resolver=resolver,
+        )
+        scope_codes = [i.code for i in scope_issues]
+        self.assertNotIn("COMPILER_SCOPE_CONTRADICTS_UPSTREAM", scope_codes)
+
+        # Conflict between governance and qualifier is detected independently
+        refs = [
+            PredicateLayerRef(ref="predicate.gov_us", layer="governance_policy"),
+            PredicateLayerRef(
+                ref="predicate.qual_cn", layer="component_qualifier", component_field="numerator"
+            ),
+        ]
+        conflict_issues = validate_predicate_conflicts(layered_refs=refs, resolver=resolver)
+        self.assertTrue(
+            any(i.code == "COMPILER_PREDICATE_GOVERNANCE_METRIC_CONFLICT" for i in conflict_issues)
+        )
+
+    def test_scope_contradiction_and_conflict_both_reported(self):
+        """Scope contradicts upstream AND governance-qualifier conflict: both reported."""
+        scope_pred = _resolved_predicate(
+            "predicate.scope_cn",
+            expression={"op": "eq", "target_ref": "dimension.country", "value": "CN"},
+        )
+        upstream_pred = _resolved_predicate(
+            "predicate.def_us",
+            expression={"op": "eq", "target_ref": "dimension.country", "value": "US"},
+        )
+        gov_pred = _resolved_predicate(
+            "predicate.gov_us",
+            expression={"op": "eq", "target_ref": "dimension.country", "value": "US"},
+        )
+        qualifier_pred = _resolved_predicate(
+            "predicate.qual_cn",
+            expression={"op": "eq", "target_ref": "dimension.country", "value": "CN"},
+        )
+        resolver = _StubResolver(
+            resolved={
+                "predicate.scope_cn": scope_pred,
+                "predicate.def_us": upstream_pred,
+                "predicate.gov_us": gov_pred,
+                "predicate.qual_cn": qualifier_pred,
+            }
+        )
+        # Scope contradicts metric default
+        upstream_refs = [
+            PredicateRefWithUsage(ref="predicate.def_us", required_usage="metric_qualifier"),
+        ]
+        scope_issues = validate_request_scope(
+            request_scope_ref="predicate.scope_cn",
+            upstream_predicates=upstream_refs,
+            resolver=resolver,
+        )
+        scope_codes = [i.code for i in scope_issues]
+        self.assertIn("COMPILER_SCOPE_CONTRADICTS_UPSTREAM", scope_codes)
+
+        # Governance vs qualifier conflict also present
+        refs = [
+            PredicateLayerRef(ref="predicate.gov_us", layer="governance_policy"),
+            PredicateLayerRef(
+                ref="predicate.qual_cn", layer="component_qualifier", component_field="numerator"
+            ),
+        ]
+        conflict_issues = validate_predicate_conflicts(layered_refs=refs, resolver=resolver)
+        self.assertTrue(
+            any(i.code == "COMPILER_PREDICATE_GOVERNANCE_METRIC_CONFLICT" for i in conflict_issues)
+        )
 
 
 if __name__ == "__main__":
