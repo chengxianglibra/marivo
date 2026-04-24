@@ -40,6 +40,9 @@ Registers an analytics engine. The engine type determines which adapter implemen
   "connection": {
     "path": "/data/analytics.duckdb"
   },
+  "auth": {
+    "mode": "none"
+  },
   "default_namespace": {
     "catalog": null,
     "schema": null
@@ -57,9 +60,18 @@ Registers an analytics engine. The engine type determines which adapter implemen
 | `engine_type` | string | yes | `"duckdb"` or `"trino"` |
 | `display_name` | string | yes | Human-readable name |
 | `connection` | object | no | Engine-specific connection parameters (default: `{}`) |
+| `auth` | object | no | Minimal execution auth contract. Defaults to `{ "mode": "none" }`. |
 | `default_namespace` | object \| null | no | Engine-local default catalog/schema fallback |
 | `deployment_capabilities` | object | no | Deployment-scoped capability overrides. Omit fields you are not overriding so built-in engine defaults remain intact. |
 | `policy` | object | no | Operator control-plane restrictions |
+
+**Auth fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `mode` | string | `"none"` or `"username_only"` |
+| `username_source` | string | Optional username source when `mode = "username_only"`; currently `"session_user"` or `"fixed"` |
+| `fallback_username` | string | Optional fallback username when runtime session user is absent |
 
 **DuckDB connection parameters:**
 
@@ -89,6 +101,9 @@ Registers an analytics engine. The engine type determines which adapter implemen
   "engine_type": "duckdb",
   "display_name": "Local DuckDB Engine",
   "connection": {"path": "/data/analytics.duckdb"},
+  "auth": {
+    "mode": "none"
+  },
   "default_namespace": {
     "catalog": null,
     "schema": null
@@ -112,10 +127,13 @@ Registers an analytics engine. The engine type determines which adapter implemen
 }
 ```
 
-The canonical response model is `EngineResponse`. `default_namespace`,
+The canonical response model is `EngineResponse`. `auth`, `default_namespace`,
 `intrinsic_capabilities`, `deployment_capabilities`, `policy`, and `mappings` are structured
 sub-objects; `intrinsic_capabilities`, `readiness_status`, and `failure_code` are read-only
 derived fields.
+
+When `auth.mode = "none"`, the response only returns `{ "mode": "none" }`. Username resolution
+fields are surfaced only when username injection is configured for the engine.
 
 `mappings` is a summary of mapping objects that target this engine. It is not embedded engine
 configuration and does not let an engine carry source authority identity or catalog projection.

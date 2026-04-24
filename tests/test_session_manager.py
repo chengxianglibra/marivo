@@ -37,10 +37,27 @@ class SessionManagerTests(unittest.TestCase):
         self.assertEqual(loaded["scope"]["constraints"], {"region": "all"})
         # governance carries budget
         self.assertEqual(loaded["governance"]["budget"], {"max_latency_sec": 120})
+        self.assertEqual(loaded["execution_identity"], {})
         # lifecycle carries status
         self.assertEqual(loaded["lifecycle"]["status"], "open")
         # schema_version
         self.assertEqual(loaded["schema_version"], "analysis_session.v1")
+
+    def test_create_session_persists_execution_identity(self) -> None:
+        created = self.manager.create_session(
+            "Investigate auth user",
+            {},
+            {"max_latency_sec": 120},
+            {"aggregate_only": True},
+            {"session_user": "alice", "actor_ref": "agent.alice"},
+        )
+
+        loaded = self.manager.get_session(created["session_id"])
+
+        self.assertEqual(
+            loaded["execution_identity"],
+            {"session_user": "alice", "actor_ref": "agent.alice"},
+        )
 
     def test_list_sessions_with_status_filter(self) -> None:
         open_session = self.manager.create_session("Open session", {}, {}, {})
@@ -182,6 +199,7 @@ class SessionManagerTests(unittest.TestCase):
         self.assertIn("question", match["goal"])
         self.assertIn("scope", match)
         self.assertIn("governance", match)
+        self.assertIn("execution_identity", match)
         self.assertIn("lifecycle", match)
         self.assertIn("state_summary", match)
         self.assertEqual(match["schema_version"], "analysis_session.v1")
@@ -266,6 +284,7 @@ class SessionManagerTests(unittest.TestCase):
         self.assertEqual(session["session_id"], "sess_legacy")
         self.assertEqual(session["goal"]["question"], "Legacy read")
         self.assertEqual(session["scope"]["constraints"], {"region": "all"})
+        self.assertEqual(session["execution_identity"], {})
         self.assertEqual(session["lifecycle"]["status"], "open")
 
 

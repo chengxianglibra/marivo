@@ -11,6 +11,13 @@ class SessionTerminateRequest(BaseModel):
     terminal_reason: str = "user_closed"
 
 
+class SessionExecutionIdentityPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    session_user: str | None = None
+    actor_ref: str | None = None
+
+
 class SessionCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -36,6 +43,9 @@ class SessionCreateRequest(BaseModel):
             "min_group_size enforces k-anonymity). System-enforced decision constraints — "
             "violations block step execution regardless of agent intent."
         ),
+    )
+    execution_identity: SessionExecutionIdentityPayload = Field(
+        default_factory=SessionExecutionIdentityPayload
     )
 
 

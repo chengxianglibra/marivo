@@ -86,6 +86,7 @@ class SessionAPITests(unittest.TestCase):
         self.assertIn("governance", data)
         self.assertIn("budget", data["governance"])
         self.assertIn("warnings", data["governance"])
+        self.assertEqual(data["execution_identity"], {})
         # state_summary entry handle
         self.assertIn("state_summary", data)
         self.assertIn("state_view_ref", data["state_summary"])
@@ -110,6 +111,27 @@ class SessionAPITests(unittest.TestCase):
             },
         )
         self.assertEqual(resp.status_code, 422)
+
+    def test_create_session_with_execution_identity_round_trips(self) -> None:
+        create_resp = self.client.post(
+            "/sessions",
+            json={
+                "goal": "Execution identity session",
+                "execution_identity": {
+                    "session_user": "alice",
+                    "actor_ref": "agent.alice",
+                },
+            },
+        )
+        self.assertEqual(create_resp.status_code, 200)
+        session_id = create_resp.json()["session_id"]
+
+        detail = self.client.get(f"/sessions/{session_id}")
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(
+            detail.json()["execution_identity"],
+            {"session_user": "alice", "actor_ref": "agent.alice"},
+        )
 
     def test_get_session_not_found(self) -> None:
         """GET /sessions/{id} with unknown ID should 404."""
@@ -136,6 +158,7 @@ class SessionAPITests(unittest.TestCase):
             self.assertIn("question", s["goal"])
             self.assertIn("scope", s)
             self.assertIn("governance", s)
+            self.assertIn("execution_identity", s)
             self.assertIn("state_summary", s)
             self.assertEqual(s["schema_version"], "analysis_session.v1")
             # legacy flat fields must not appear

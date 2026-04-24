@@ -37,6 +37,7 @@ def create_session(payload: SessionCreateRequest, request: Request) -> dict[str,
         goal=payload.goal,
         budget=payload.budget,
         policy=payload.policy,
+        execution_identity=payload.execution_identity.model_dump(exclude_none=True),
     )
 
 

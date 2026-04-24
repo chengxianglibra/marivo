@@ -215,12 +215,31 @@ class EnginePolicyPayload(BaseModel):
     required_policy_support: list[str] = Field(default_factory=list)
 
 
+class EngineAuthPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["none", "username_only"] = "none"
+    username_source: Literal["session_user", "fixed"] | None = None
+    fallback_username: str | None = None
+
+    @model_serializer(mode="plain")
+    def serialize_non_default_fields(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {"mode": self.mode}
+        if self.mode != "none":
+            if self.username_source is not None:
+                payload["username_source"] = self.username_source
+            if self.fallback_username is not None:
+                payload["fallback_username"] = self.fallback_username
+        return payload
+
+
 class EngineRegisterRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     engine_type: Literal["duckdb", "trino"]
     display_name: str
     connection: dict[str, Any] = Field(default_factory=dict)
+    auth: EngineAuthPayload = Field(default_factory=EngineAuthPayload)
     default_namespace: EngineDefaultNamespacePayload | None = None
     deployment_capabilities: EngineDeploymentCapabilitiesPayload = Field(
         default_factory=EngineDeploymentCapabilitiesPayload
@@ -299,6 +318,32 @@ class EnginePolicyResponse(BaseModel):
     )
 
 
+class EngineAuthResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["none", "username_only"] = Field(
+        description="Execution auth mode for this engine."
+    )
+    username_source: Literal["session_user", "fixed"] | None = Field(
+        default=None,
+        description="Username resolution source when username injection is enabled.",
+    )
+    fallback_username: str | None = Field(
+        default=None,
+        description="Fallback username used when runtime session user is absent.",
+    )
+
+    @model_serializer(mode="plain")
+    def serialize_non_default_fields(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {"mode": self.mode}
+        if self.mode != "none":
+            if self.username_source is not None:
+                payload["username_source"] = self.username_source
+            if self.fallback_username is not None:
+                payload["fallback_username"] = self.fallback_username
+        return payload
+
+
 class EngineMappingSummaryResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -330,6 +375,7 @@ class EngineResponse(BaseModel):
         default_factory=dict,
         description="Execution engine connection parameters.",
     )
+    auth: EngineAuthResponse = Field(description="Execution auth contract for this engine.")
     default_namespace: EngineDefaultNamespaceResponse = Field(
         description="Engine-local default namespace fallback."
     )

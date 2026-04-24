@@ -26,16 +26,27 @@ class SessionManager:
         constraints: dict[str, Any] | None = None,
         budget: dict[str, Any] | None = None,
         policy: dict[str, Any] | list[dict[str, Any]] | None = None,
+        execution_identity: dict[str, Any] | None = None,
         raw_filter: str | None = None,
     ) -> dict[str, Any]:
         session_id = f"sess_{uuid4().hex[:12]}"
         legacy_constraints = constraints or {}
         budget_payload = budget or {}
         policy_payload: dict[str, Any] | list[dict[str, Any]] = policy or {}
+        execution_identity_payload = self._normalize_execution_identity(execution_identity)
         self.metadata.execute(
             """
-            INSERT INTO sessions (session_id, goal, constraints_json, budget_json, policy_json, status, raw_filter)
-            VALUES (?, ?, ?, ?, ?, 'open', ?)
+            INSERT INTO sessions (
+                session_id,
+                goal,
+                constraints_json,
+                budget_json,
+                policy_json,
+                execution_identity_json,
+                status,
+                raw_filter
+            )
+            VALUES (?, ?, ?, ?, ?, ?, 'open', ?)
             """,
             [
                 session_id,
@@ -43,6 +54,7 @@ class SessionManager:
                 self._dump(legacy_constraints),
                 self._dump(budget_payload),
                 self._dump(policy_payload),
+                self._dump(execution_identity_payload),
                 raw_filter,
             ],
         )
@@ -440,6 +452,9 @@ class SessionManager:
         # [{"policy_id": ..., "policy_version": ...}] contract.
         raw_policy = json.loads(row["policy_json"]) if row.get("policy_json") else None
         policy_refs = raw_policy if isinstance(raw_policy, list) else None
+        execution_identity = self._normalize_execution_identity(
+            self._load_json_dict(row.get("execution_identity_json"))
+        )
 
         return {
             "session_id": session_id,
@@ -454,6 +469,7 @@ class SessionManager:
                 "budget": budget,
                 "warnings": None,
             },
+            "execution_identity": execution_identity,
             "lifecycle": {
                 "status": row["status"],
                 "terminal_reason": row.get("terminal_reason"),
@@ -473,6 +489,27 @@ class SessionManager:
 
     def _dump(self, value: Any) -> str:
         return json.dumps(value, default=str, sort_keys=True)
+
+    def _load_json_dict(self, raw_value: Any) -> dict[str, Any]:
+        if not raw_value:
+            return {}
+        try:
+            payload = json.loads(str(raw_value))
+        except (TypeError, ValueError):
+            return {}
+        return payload if isinstance(payload, dict) else {}
+
+    def _normalize_execution_identity(self, payload: dict[str, Any] | None) -> dict[str, str]:
+        if not isinstance(payload, dict):
+            return {}
+        normalized: dict[str, str] = {}
+        session_user = payload.get("session_user")
+        if isinstance(session_user, str):
+            normalized["session_user"] = session_user
+        actor_ref = payload.get("actor_ref")
+        if isinstance(actor_ref, str):
+            normalized["actor_ref"] = actor_ref
+        return normalized
 
     def _decode_page_token(self, page_token: str | None) -> int:
         if page_token is None:

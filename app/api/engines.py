@@ -17,12 +17,15 @@ def register_engine(payload: EngineRegisterRequest, request: Request) -> EngineR
                 engine_type=payload.engine_type,
                 display_name=payload.display_name,
                 connection=payload.connection,
+                auth=payload.auth.model_dump(exclude_none=True),
                 default_namespace=(
                     payload.default_namespace.model_dump(by_alias=True)
                     if payload.default_namespace is not None
                     else None
                 ),
-                deployment_capabilities=payload.deployment_capabilities.model_dump(exclude_unset=True),
+                deployment_capabilities=payload.deployment_capabilities.model_dump(
+                    exclude_unset=True
+                ),
                 policy=payload.policy.model_dump(),
             )
         )
@@ -41,6 +44,8 @@ def list_engines(request: Request) -> list[EngineResponse]:
 @router.get("/engines/{engine_id}", response_model=EngineResponse)
 def get_engine(engine_id: str, request: Request) -> EngineResponse:
     try:
-        return EngineResponse.model_validate(get_services(request).engine_service.get_engine(engine_id))
+        return EngineResponse.model_validate(
+            get_services(request).engine_service.get_engine(engine_id)
+        )
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
