@@ -52,7 +52,13 @@ marivo.yaml
 # Claude Code
 .claude/
 .codex/
-.agents/
+.agents/*
+!.agents/skills/
+.agents/skills/*
+!.agents/skills/commit-attribution/
+!.agents/skills/commit-attribution/SKILL.md
+!.agents/skills/marivo-test-fixtures/
+!.agents/skills/marivo-test-fixtures/SKILL.md
 
 # Plan
 plan/

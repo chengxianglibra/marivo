@@ -1,113 +1,26 @@
 # Agent Guide
 
 Shared guidance for agents. `AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructions.md` point here.
+Keep this file focused on stable, repository-wide rules that agents should load every time.
 
 ## Core Rules
 
-### 1. Think Before Coding
-
-**Don't assume. Don't hide confusion. Surface tradeoffs.**
-
-Before implementing:
-- State your assumptions explicitly. If uncertain, ask.
-- If multiple interpretations exist, present them - don't pick silently.
-- If a simpler approach exists, say so. Push back when warranted.
-- If something is unclear, stop. Name what's confusing. Ask.
-
-### 2. Simplicity First
-
-**Minimum code that solves the problem. Nothing speculative.**
-
-- No features beyond what was asked.
-- No abstractions for single-use code.
-- No "flexibility" or "configurability" that wasn't requested.
-- No error handling for impossible scenarios.
-- If you write 200 lines and it could be 50, rewrite it.
-
-Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
-
-### 3. Surgical Changes
-
-**Touch only what you must. Clean up only your own mess.**
-
-When editing existing code:
-- Don't "improve" adjacent code, comments, or formatting.
-- Don't refactor things that aren't broken.
-- Match existing style, even if you'd do it differently.
-- If you notice unrelated dead code, mention it - don't delete it.
-
-When your changes create orphans:
-- Remove imports/variables/functions that YOUR changes made unused.
-- Don't remove pre-existing dead code unless asked.
-
-The test: Every changed line should trace directly to the user's request.
-
-### 4. Goal-Driven Execution
-
-**Define success criteria. Loop until verified.**
-
-Transform tasks into verifiable goals:
-- "Add validation" → "Write tests for invalid inputs, then make them pass"
-- "Fix the bug" → "Write a test that reproduces it, then make it pass"
-- "Refactor X" → "Ensure tests pass before and after"
-
-For multi-step tasks, state a brief plan:
-```
-1. [Step] → verify: [check]
-2. [Step] → verify: [check]
-3. [Step] → verify: [check]
-```
-
-Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
+- Think before coding: state assumptions, surface tradeoffs, ask when the request is ambiguous, and push back when a simpler approach is better.
+- Prefer the minimum code that solves the requested problem; do not add speculative flexibility or abstractions.
+- Make surgical changes: touch only what the request requires, match existing style, and do not clean up unrelated code.
+- Define verifiable success criteria for non-trivial tasks and loop until the relevant checks pass or explain why they could not run.
 
 ## Python / Typing
 
-- Never use bare `python`, `pytest`, `mypy`, or `ruff` in this repository. Use `make` targets or
-  explicit `.venv/bin/...` paths only.
-- Repository guard scripts accept both `.venv` and shells that expose the repository root via
-  `VIRTUAL_ENV`, but the invoked tool must still come from `.venv/bin/...`.
-- All new or modified Python code must satisfy `mypy` for the touched modules.
-- Add explicit type annotations for public functions, dataclass/model fields, and non-trivial locals when needed for `mypy` clarity.
+- Never use bare `python`, `pytest`, `mypy`, or `ruff` in this repository. Use `make` targets or explicit `.venv/bin/...` paths only.
+- New or modified Python code must satisfy `mypy` for touched modules.
 - Do not introduce new implicit `Any`, broad `cast(...)`, or `# type: ignore` unless strictly necessary.
-- If `# type: ignore` is unavoidable, keep it narrow and add a short reason.
 - When changing schemas, API models, or service contracts, update type annotations end-to-end in the same change.
-- Before finishing a Python change, run the repository `mypy` check for the touched paths via
-  `make typecheck` or `.venv/bin/mypy`, or explain why it could not be run.
+- Use the repository `make` targets for Python type checks, linting, and formatting.
 
-## Code Style (Ruff)
+## Repository Entrypoints
 
-Use `make lint` and `make format` or the explicit `.venv/bin/ruff` wrapper paths; never call bare
-`ruff`. `ruff --fix` and `ruff format` run as pre-commit hooks. All generated code must pass them
-without requiring a fix cycle. Enabled rule families: `E/W` (pycodestyle), `F` (pyflakes), `I`
-(isort), `N` (pep8-naming), `UP` (pyupgrade), `B` (bugbear), `C4` (comprehensions), `SIM`
-(simplify), `TCH` (type-checking imports), `RUF` (ruff-specific).
-
-**Non-obvious gotchas to avoid:**
-
-- **RUF046** — `round()` with no `ndigits` already returns `int`; never wrap it:
-  - Wrong: `int(round(x))` / `int(round(float(x)))`
-  - Right: `round(x)` / `round(float(x))`
-- **N806** — Local variables inside functions must be lowercase (including pseudo-constants):
-  - Wrong: `_MAXIT = 200` / `_EPS = 3e-7` inside a `def`
-  - Right: `_maxit = 200` / `_eps = 3e-7` (module-level constants may stay UPPER)
-- **N802** — Function names must be lowercase (`def myFunc` → `def my_func`); exempt in tests.
-- **UP** — Use modern Python 3.10+ syntax: `X | Y` unions instead of `Optional[X]`, `list[x]`
-  instead of `List[x]`, etc.
-- **B** — Avoid mutable default arguments, use `assert` only in tests, no bare `except`.
-- **SIM** — Prefer ternary / `any()` / `all()` over equivalent `if` chains where natural.
-- **I** — Imports must be isort-sorted: stdlib → third-party → first-party (`app`).
-
-Line length is 100 (formatter handles wrapping; no need to manually break lines).
-`app/api/**/*.py` ignores `B008` (FastAPI `Depends` calls in defaults are fine).
-
-## Run
-
-```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e . && uvicorn app.main:app --reload
-```
-
-Preferred repository entrypoints:
+Prefer these repository entrypoints:
 
 ```bash
 make test
@@ -116,100 +29,34 @@ make lint
 make format
 ```
 
-When using `claude` CLI for code review in this repository, use the local
-[`claude-review` skill](../.agents/skills/claude-review/SKILL.md)
-instead of duplicating the review recipe inline here. The skill owns the standard command,
-prompt shape, stall-debug flags, and the rule that Claude findings must be validated against the
-current code and repository constraints before any change is made.
+- Tests and shared fixture details live in [`.agents/skills/marivo-test-fixtures/SKILL.md`](../.agents/skills/marivo-test-fixtures/SKILL.md); use that skill when changing tests, fixtures, DuckDB templates, or metadata templates.
+- Claude review instructions live in [`.agents/skills/claude-review/SKILL.md`](../.agents/skills/claude-review/SKILL.md); use that skill instead of duplicating review recipes here.
+- Commit attribution rules live in [`.agents/skills/commit-attribution/SKILL.md`](../.agents/skills/commit-attribution/SKILL.md); use that skill when drafting or editing commit messages.
 
-Tests: `make test` or `.venv/bin/pytest`. Use `make test TESTS='tests/test_file.py'`
-for targeted runs through the repository entrypoint. Requires Python 3.12+. SQLite metadata,
-DuckDB/Trino engines. Tests pass explicit db_path and metadata store/file paths directly.
-App startup requires `marivo.yaml` metadata config with `metadata.engine=sqlite` and
-`metadata.path=<sqlite-file>`.
-- `marivo.yaml` is runtime-only. Do not add `sources`, `engines`, `bindings`, or `mappings`
-  inventory blocks; source/engine/mapping objects are configured through the HTTP API only.
-- Source-to-engine projection is mapping-only. Do not reintroduce legacy `/bindings` or
-  `binding.namespace` style config, tables, API routes, test fixtures, or operator-facing
-  contracts. Use `/mappings` and `source_execution_mappings` for authority-to-execution
-  projection.
-- Prefer `tests/shared_fixtures.py` named DuckDB templates for repeated test data. When multiple
-  test classes need the same seeded analytics tables, build them once as a deterministic named
-  template and copy that template into each temporary db path instead of re-seeding in every
-  `setUpClass`.
-- Bump a named template's version string when its seeded schema or rows change so cached `/tmp`
-  copies rebuild automatically.
-- Fresh SQLite metadata stores are initialized from the cached empty schema template in
-  `tests/shared_fixtures.py`. Marivo only supports fresh-init for metadata SQLite; if the schema
-  changes, delete the old metadata file and rebuild it from the current schema/template. Bump the
-  metadata template version when metadata DDL changes.
-- When metadata contract changes only alter columns inside an existing table, also update the
-  template validator in `tests/shared_fixtures.py`; table-name checks alone are not sufficient.
-- Synced `source_objects.authority_locator` is the primary source-side identity for routing and
-  table lookup. Treat `fqn` as a derived display/reference field; for newly synced objects it should
-  mirror the authority locator shape (`catalog.schema.table`) instead of execution-side naming.
-- Typed semantic bindings must continue to anchor on source objects and source-side authority
-  locators. Do not store execution-side locators in typed bindings; runtime compile resolves them
-  through ready mappings.
-- Do not rely on SQLite initialization or test helpers to backfill missing `authority_locator`
-  from legacy `fqn` values. Marivo does not provide online metadata backfill, migration, or reset
-  tooling for old local metadata files; delete and rebuild them into the mapping-only model instead.
-- Treat `tests/shared_fixtures.py` metadata template build as a hot path. Keep it on the minimal
-  DDL/shape-validation path; do not route it through heavier initializer or migration logic unless
-  the contract truly requires that extra work.
-- Marivo no longer ships an internal `/admin`, `/ui`, or `/static/*` surface. Keep repository
-  changes scoped to the HTTP API unless the user explicitly asks to build a new UI.
+## Repository Boundaries
+
+- Marivo is HTTP-only; do not assume any MCP layer exists.
+- Prefer typed analysis steps over exposing raw SQL as the external contract.
+- Keep factual extraction deterministic; use models for explanation, not evidence structure.
+- `marivo.yaml` is runtime-only. Do not add `sources`, `engines`, `bindings`, or `mappings` inventory blocks; source, engine, and mapping objects are configured through the HTTP API only.
+- Source-to-engine projection is mapping-only. Do not reintroduce legacy `/bindings`, `binding.namespace` style config, tables, API routes, test fixtures, or operator-facing contracts.
+- Synced `source_objects.authority_locator` is the primary source-side identity for routing and table lookup; treat `fqn` as a derived display/reference field.
+- Typed semantic bindings must anchor on source objects and source-side authority locators; runtime compile resolves them through ready mappings.
 - Prefer API/service/registry validation over SQLite triggers for request-level business invariants.
-  Only add triggers when storage must fail closed across uncontrolled write paths; otherwise they
-  add maintenance cost and can slow shared test fixture paths.
-- For heavy intent API tests, prefer class-level reuse of published semantic objects and seeded
-  upstream artifacts over creating and publishing new metrics/bindings inside individual test
-  methods. When compare/correlate-style tests only need committed upstream artifacts, seed the
-  minimal artifact payloads directly instead of executing repeated observe setup queries.
-- When an intent API test file covers multiple semantic scenarios, split them into scenario-specific
-  test classes so each `setUpClass` only creates the metrics, dimensions, bindings, and seeded
-  upstream tables required by that group.
-- For repeated intent bridge/import tables, add them to a named DuckDB template instead of creating
-  and repopulating the table inside each test class setup.
-- Do not add unit tests whose individual execution time exceeds 10 seconds. If a test requires
-  heavier setup, refactor it to use shared fixtures, named DuckDB templates, or class-level
-  `setUpClass` seeding so the per-test runtime stays under the limit.
+- After behavior changes, update the shared guide only when the rule is repository-wide; update affected API, semantic, service, analysis, or UI docs as appropriate.
 
-## Commit Attribution
+## Docs Layout
 
-- When AI assistance contributes to a commit, add an AI attribution line at the end of the commit
-  message.
-- Use this exact format:
+- `docs/api/`: external HTTP API docs only.
+- `docs/analysis/`: intents and evidence engine schemas.
+- `docs/semantic/`: entity, dimension, metric, process, and semantic compiler schemas.
+- `docs/service/`: service runtime and operator design notes.
+- Keep MCP implementation details in `marivo-mcp/README.md` and `marivo_mcp.inventory`, not here.
 
-```text
-Co-Authored-By: AGENT_NAME:MODEL_VERSION [TOOL1] [TOOL2] ...
-```
+## What Not To Add Here
 
-- Example:
-
-```text
-feat: add user login endpoint
-
-Implement JWT-based authentication with refresh token support.
-
-Co-Authored-By: Claude Code:claude-sonnet-4-6 [Edit] [Bash] [Grep]
-```
-
-## Docs layout:
-- `docs/api/`: external HTTP API docs only; target-state step submission is in `intent-steps.md`, and canonical read surfaces are split into `session-state.md` and `context-surface.md`
-- `docs/analysis/`: intents/evidence engine related schema.
-- `docs/semantic`: entity/dimension/metric/process related schema.
-- `docs/service/`: service runtime and operator design notes; agent local/remote target resolution lives in `agent-runtime-target-resolution.md`, source/execution/mapping target-state modeling lives in `source-execution-mapping-contract.md`, and execution-side auth/authz target-state modeling lives in `execution-auth-contract.md`
-- `marivo-mcp/README.md` and `marivo_mcp.inventory`: marivo-mcp runtime scope, validation, and executable MCP surface inventory. Keep MCP implementation details there instead of expanding this guide.
-- When canonical intent request models change, treat `marivo-mcp` typed intent tool schemas as affected because the adapter reuses those request models directly. All typed intent MCP tools expose an explicit top-level `session_id` for the HTTP path, and the remaining parameters should map directly to canonical HTTP body fields instead of MCP-only wrapper objects or JSON-encoded strings.
-- Typed intent `metric` parameters use canonical semantic refs such as `metric.watch_time`; do not pass bare metric names like `watch_time`.
-- Agent flows that create analysis sessions should explicitly terminate them via `POST /sessions/{session_id}/terminate` when investigation writes are complete; leaving sessions open is not the intended steady state.
-- Calendar alignment policies are discoverable builtin refs. For holiday, weekday, or natural
-  alignment requests, use `GET /catalog/search?type=calendar_policy` or `GET /semantic/resolve/{ref}`
-  to select fixed refs such as `calendar_policy.holiday_yoy`, `calendar_policy.weekday_yoy`, and
-  `calendar_policy.natural_yoy`; do not guess policy refs from prose.
-- When an observation freezes `resolved_policy_summary`, preserve any bucket-pairing strictness
-  metadata such as fallback use, reused baseline buckets, and `rollup_safe`; do not present
-  holiday/weekday alignment as strict 1:1 pairing when the frozen metadata says otherwise.
-- For `observe(time_series)`, if the returned series backfills requested buckets with `value=null`, surface that as a first-class quality signal (`analytical_metadata.data_complete=false`, `quality_status=needs_attention`) instead of only burying it in coverage summary metadata.
-- Do not update this document with implementation details; keep it focused on shared agent guidance and repository-wide boundaries.
+- Do not add long command recipes for specific tools; put them in a skill or task-specific doc.
+- Do not add detailed workflows that only apply to one class of task.
+- Do not add long lint, test, commit, or review format examples.
+- Do not add implementation details, historical migration details, or one-off workaround notes.
+- Put those details in a skill, README/quickstart, or the relevant API, semantic, service, or analysis docs.
