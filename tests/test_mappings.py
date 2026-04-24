@@ -1158,6 +1158,9 @@ class MappingApiTests(unittest.TestCase):
 
     def test_bindings_route_removed(self) -> None:
         self.assertEqual(self.client.get("/bindings").status_code, 404)
+        openapi_response = self.client.get("/openapi.json")
+        self.assertEqual(openapi_response.status_code, 200)
+        self.assertNotIn("/bindings", openapi_response.json()["paths"])
 
     def test_create_mapping_rejects_duplicate_authority_catalog_in_request(self) -> None:
         source_resp = self.client.post(

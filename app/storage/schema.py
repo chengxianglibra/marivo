@@ -786,20 +786,6 @@ METADATA_DDL: list[str] = [
         updated_at                   TEXT NOT NULL
     )
     """,
-    # -- Source-engine bindings --
-    """
-    CREATE TABLE IF NOT EXISTS source_engine_bindings (
-        binding_id    TEXT PRIMARY KEY,
-        source_id     TEXT NOT NULL REFERENCES sources(source_id),
-        engine_id     TEXT NOT NULL REFERENCES engines(engine_id),
-        priority      INTEGER NOT NULL DEFAULT 0,
-        namespace_json TEXT NOT NULL DEFAULT '{}',
-        status        TEXT NOT NULL DEFAULT 'active',
-        created_at    TEXT NOT NULL,
-        updated_at    TEXT NOT NULL,
-        UNIQUE(source_id, engine_id)
-    )
-    """,
     """
     CREATE TABLE IF NOT EXISTS source_execution_mappings (
         mapping_id             TEXT PRIMARY KEY,
