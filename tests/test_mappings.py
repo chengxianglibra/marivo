@@ -209,6 +209,82 @@ class MappingServiceTests(unittest.TestCase):
             },
         )
 
+    def test_metric_execution_context_follows_mapping_remap_without_regrounding(self) -> None:
+        mapping = self.mapping_service.create_mapping(
+            self.source["source_id"],
+            self.engine["engine_id"],
+            priority=10,
+            catalog_mappings=[
+                {
+                    "authority_catalog": "main",
+                    "execution_catalog": "duckdb_runtime_v1",
+                    "default_schema": None,
+                }
+            ],
+        )
+        ensure_published_typed_metric(
+            self.metadata,
+            metric_name="mapping_remap_metric",
+            display_name="Mapping Remap Metric",
+            measure_type="sum",
+            dimensions=["event_date"],
+        )
+        binding_ref = ensure_published_typed_metric_binding(
+            self.metadata,
+            metric_name="mapping_remap_metric",
+            carrier_locator="main.analytics.watch_events",
+            source_object_ref="obj_watch_events",
+            metric_input_target_keys=["measure"],
+        )
+
+        initial_context = self.service._resolve_metric_execution_context(
+            "metric.mapping_remap_metric"
+        )
+        self.assertEqual(initial_context.table_name, "duckdb_runtime_v1.analytics.watch_events")
+
+        self.mapping_service.update_mapping(
+            mapping["mapping_id"],
+            catalog_mappings=[
+                {
+                    "authority_catalog": "main",
+                    "execution_catalog": "duckdb_runtime_v2",
+                    "default_schema": None,
+                }
+            ],
+        )
+        remapped_context = self.service._resolve_metric_execution_context(
+            "metric.mapping_remap_metric"
+        )
+
+        self.assertEqual(remapped_context.table_name, "duckdb_runtime_v2.analytics.watch_events")
+        self.assertEqual(remapped_context.mapping_id, mapping["mapping_id"])
+        self.assertEqual(remapped_context.source_object_ref, "obj_watch_events")
+        self.assertEqual(
+            remapped_context.authority_locator,
+            {"catalog": "main", "schema": "analytics", "table": "watch_events"},
+        )
+        self.assertEqual(
+            remapped_context.execution_locator["execution_catalog"], "duckdb_runtime_v2"
+        )
+
+        carrier_row = self.metadata.query_one(
+            """
+            SELECT cb.source_object_ref, cb.carrier_locator
+            FROM carrier_bindings cb
+            JOIN typed_bindings b ON b.binding_id = cb.binding_id
+            WHERE b.binding_ref = ?
+            """,
+            [binding_ref],
+        )
+        self.assertIsNotNone(carrier_row)
+        assert carrier_row is not None
+        self.assertEqual(carrier_row["source_object_ref"], "obj_watch_events")
+        self.assertEqual(
+            json.loads(str(carrier_row["carrier_locator"])),
+            {"catalog": "main", "schema_name": "analytics", "table": "watch_events"},
+        )
+        self.assertNotIn("duckdb_runtime_v2", str(carrier_row["carrier_locator"]))
+
     def test_metric_execution_preflight_reports_mapping_route_blocker(self) -> None:
         ensure_published_typed_metric(
             self.metadata,
@@ -246,6 +322,99 @@ class MappingServiceTests(unittest.TestCase):
         blockers = candidate.get("readiness_blockers") or []
         if blockers:
             self.assertEqual(blockers[0]["failure_code"], "mapping_missing")
+
+    def test_routing_default_schema_fallback_only_when_authority_schema_missing(self) -> None:
+        now = "2026-04-23T00:00:00+00:00"
+        self.metadata.execute(
+            """
+            INSERT INTO source_objects (
+                object_id, source_id, object_type, parent_id, native_name, native_id, fqn,
+                authority_locator_json, properties_json, sync_version, synced_at, created_at, updated_at
+            )
+            VALUES (?, ?, 'table', NULL, ?, NULL, ?, ?, '{}', 'v_seed', ?, ?, ?)
+            """,
+            [
+                "obj_schema_less_events",
+                self.source["source_id"],
+                "schema_less_events",
+                "main.schema_less_events",
+                json.dumps({"catalog": "main", "schema": None, "table": "schema_less_events"}),
+                now,
+                now,
+                now,
+            ],
+        )
+        mapping = self.mapping_service.create_mapping(
+            self.source["source_id"],
+            self.engine["engine_id"],
+            priority=10,
+            catalog_mappings=[
+                {
+                    "authority_catalog": "main",
+                    "execution_catalog": "duckdb_runtime",
+                    "default_schema": "fallback_schema",
+                }
+            ],
+        )
+
+        schema_less_route = self.router.resolve_tables(["schema_less_events"])
+        self.assertEqual(
+            schema_less_route.qualified_names["schema_less_events"],
+            "duckdb_runtime.fallback_schema.schema_less_events",
+        )
+        schema_less_locator = schema_less_route.routing_detail["execution_locators"][
+            "schema_less_events"
+        ]
+        self.assertEqual(schema_less_locator["mapping_id"], mapping["mapping_id"])
+        self.assertTrue(schema_less_locator["default_schema_applied"])
+        self.assertEqual(schema_less_locator["schema"], "fallback_schema")
+
+        with self.assertRaisesRegex(RoutingResolutionError, "mapping_invalid_namespace"):
+            self.router.resolve_tables(["watch_events"])
+
+    def test_routing_uses_highest_priority_ready_mapping(self) -> None:
+        low_priority_engine = self.engine_service.register_engine(
+            "duckdb",
+            "DuckDB Low Priority Engine",
+            connection={"path": str(self.db_path)},
+        )
+        low_priority_mapping = self.mapping_service.create_mapping(
+            self.source["source_id"],
+            low_priority_engine["engine_id"],
+            priority=1,
+            catalog_mappings=[
+                {
+                    "authority_catalog": "main",
+                    "execution_catalog": "duckdb_low_priority",
+                    "default_schema": None,
+                }
+            ],
+        )
+        high_priority_mapping = self.mapping_service.create_mapping(
+            self.source["source_id"],
+            self.engine["engine_id"],
+            priority=50,
+            catalog_mappings=[
+                {
+                    "authority_catalog": "main",
+                    "execution_catalog": "duckdb_high_priority",
+                    "default_schema": None,
+                }
+            ],
+        )
+
+        route = self.router.resolve_tables(["watch_events"])
+
+        self.assertEqual(route.engine_id, self.engine["engine_id"])
+        self.assertEqual(
+            route.qualified_names["watch_events"], "duckdb_high_priority.analytics.watch_events"
+        )
+        self.assertEqual(
+            route.routing_detail["selected_mapping_ids"], [high_priority_mapping["mapping_id"]]
+        )
+        self.assertNotIn(
+            low_priority_mapping["mapping_id"], route.routing_detail["selected_mapping_ids"]
+        )
 
     def test_routing_accepts_authority_locator_name_variants(self) -> None:
         self.mapping_service.create_mapping(

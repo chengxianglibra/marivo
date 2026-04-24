@@ -270,6 +270,16 @@ class SourceRegistryTests(unittest.TestCase):
             {"catalog": "main", "schema": "analytics", "table": "watch_events"},
         )
         self.assertEqual(watch_events["fqn"], "main.analytics.watch_events")
+        self.assertNotIn("mapping_id", watch_events)
+        self.assertNotIn("execution_catalog", watch_events)
+        self.assertNotIn("engine_id", watch_events)
+        self.assertNotIn("execution_catalog", watch_events["authority_locator"])
+
+        detail_resp = self.client.get(f"/sources/{source_id}/objects/{watch_events['object_id']}")
+        self.assertEqual(detail_resp.status_code, 200)
+        self.assertEqual(detail_resp.json()["authority_locator"], watch_events["authority_locator"])
+        self.assertNotIn("mapping_id", detail_resp.json())
+        self.assertNotIn("execution_catalog", detail_resp.json())
 
         resp = self.client.get(f"/sources/{source_id}/objects?type=table&schema=analytics")
         self.assertEqual(resp.status_code, 200)
@@ -718,6 +728,63 @@ class SyncModeTests(unittest.TestCase):
 
         self.assertEqual(resp.status_code, 200)
         mock_adapter.list_schemas.assert_called_once_with("iceberg")
+
+    def test_trino_sync_persists_source_authority_catalog_locator(self) -> None:
+        from unittest.mock import MagicMock, patch
+
+        from app.adapters.base import CatalogCapabilities, PhysicalObject
+
+        resp = self.client.post(
+            "/sources",
+            json={
+                "source_type": "trino",
+                "display_name": "Trino Sync Authority Locator",
+                "authority": {
+                    "catalog_system": "trino",
+                    "connection": {
+                        "host": "trino.example.com",
+                        "catalog": "iceberg_authority",
+                        "schema": "analytics",
+                        "user": "marivo",
+                    },
+                },
+                "sync": {"mode": "selected"},
+            },
+        )
+        self.assertEqual(resp.status_code, 200)
+        source_id = resp.json()["source_id"]
+        self.client.post(
+            f"/sources/{source_id}/sync/selections",
+            json={"selections": [{"schema_name": "analytics", "table_name": "watch_events"}]},
+        )
+
+        mock_adapter = MagicMock()
+        mock_adapter.get_table_detail.return_value = PhysicalObject(
+            native_name="watch_events",
+            native_id=None,
+            object_type="table",
+            parent_path="analytics",
+            properties={"source": "mock_trino"},
+        )
+        mock_adapter.list_columns.return_value = []
+        mock_adapter.capabilities.return_value = CatalogCapabilities(supports_partitions=False)
+        with patch("app.registry.source_registry.build_catalog_adapter", return_value=mock_adapter):
+            sync_resp = self.client.post(f"/sources/{source_id}/sync")
+
+        self.assertEqual(sync_resp.status_code, 200)
+        self.assertEqual(sync_resp.json()["status"], "succeeded")
+        resp = self.client.get(f"/sources/{source_id}/objects?type=table")
+        self.assertEqual(resp.status_code, 200)
+        tables = resp.json()
+        self.assertEqual(len(tables), 1)
+        self.assertEqual(tables[0]["fqn"], "iceberg_authority.analytics.watch_events")
+        self.assertEqual(
+            tables[0]["authority_locator"],
+            {"catalog": "iceberg_authority", "schema": "analytics", "table": "watch_events"},
+        )
+        self.assertNotIn("execution_catalog", tables[0])
+        self.assertNotIn("mapping_id", tables[0])
+        self.assertNotIn("execution_catalog", tables[0]["authority_locator"])
 
 
 class TrinoCatalogAdapterTests(unittest.TestCase):
