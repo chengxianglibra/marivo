@@ -602,7 +602,7 @@ def run_observe_intent(
                 },
             ),
             engine_type=engine_type,
-            semantic_context={},
+            semantic_context={"metric_execution_context": execution_context},
         )
         rows = list(execute_compiled(engine, compiled_query).rows)
         provenance = svc._make_provenance(
@@ -736,7 +736,7 @@ def run_observe_intent(
                 },
             ),
             engine_type=engine_type,
-            semantic_context={},
+            semantic_context={"metric_execution_context": execution_context},
         )
         rows = list(execute_compiled(engine, compiled_query).rows)
         provenance = svc._make_provenance(
@@ -853,7 +853,7 @@ def run_observe_intent(
                 },
             ),
             engine_type=engine_type,
-            semantic_context={},
+            semantic_context={"metric_execution_context": execution_context},
         )
         rows = list(execute_compiled(engine, compiled_query).rows)
         provenance = svc._make_provenance(
@@ -919,7 +919,7 @@ def run_observe_intent(
                     },
                 ),
                 engine_type=engine_type,
-                semantic_context={},
+                semantic_context={"metric_execution_context": execution_context},
             )
             baseline_rows = list(execute_compiled(engine, baseline_compiled_query).rows)
             baseline_sparse_series = _series_from_rows(baseline_rows, granularity=granularity_typed)
@@ -1003,7 +1003,11 @@ def run_observe_intent(
                 },
             ),
             engine_type=engine_type,
-            semantic_context={"metric_sql": metric_sql, "dimensions": dimensions},
+            semantic_context={
+                "metric_sql": metric_sql,
+                "dimensions": dimensions,
+                "metric_execution_context": execution_context,
+            },
         )
         rows = list(execute_compiled(engine, compiled_query).rows)
         provenance = svc._make_provenance(
@@ -1086,7 +1090,11 @@ def run_observe_intent(
                 },
             ),
             engine_type=engine_type,
-            semantic_context={"metric_sql": metric_sql, "dimensions": []},
+            semantic_context={
+                "metric_sql": metric_sql,
+                "dimensions": [],
+                "metric_execution_context": execution_context,
+            },
         )
         rows = list(execute_compiled(engine, compiled_query).rows)
         provenance = svc._make_provenance(

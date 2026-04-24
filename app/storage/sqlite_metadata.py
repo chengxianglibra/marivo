@@ -377,8 +377,10 @@ class SQLiteMetadataStore(MetadataStore):
         parts = fqn.split(".")
         if len(parts) < 2:
             return None, None
-        schema_name = parts[1]
-        table_name = parts[2] if len(parts) >= 3 else None
+        if len(parts) == 2:
+            return parts[0], parts[1]
+        schema_name = parts[-2]
+        table_name = parts[-1]
         return schema_name, table_name
 
     @contextmanager

@@ -194,7 +194,7 @@ def run_detect_intent(
             },
         ),
         engine_type=engine_type,
-        semantic_context={},
+        semantic_context={"metric_execution_context": execution_context},
     )
 
     now = datetime.now(UTC).isoformat()

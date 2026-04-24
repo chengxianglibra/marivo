@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -12,6 +11,10 @@ from app.execution.capabilities import (
     score_capability_profile,
 )
 from app.mappings import MappingService
+from app.source_object_locator import (
+    normalize_source_object_authority_locator,
+    qualify_execution_locator,
+)
 from app.storage.analytics import AnalyticsEngine
 from app.storage.metadata import MetadataStore
 
@@ -237,7 +240,10 @@ class QueryRouter:
                     extra_readiness_blockers=[blocker],
                     routing_intent=routing_intent,
                 )
-            qualified_names[table_name] = self.qualify_table_name(execution_locator)
+            qualified_names[table_name] = self.qualify_table_name_for_engine(
+                best_engine_id,
+                execution_locator,
+            )
             resolved_execution_locators[table_name] = execution_locator
 
         engine = self.engine_service.build_analytics_engine(best_engine_id)
@@ -719,13 +725,18 @@ class QueryRouter:
 
     def qualify_table_name(self, execution_locator: dict[str, Any]) -> str:
         """Build an engine-qualified table reference from the resolved execution locator."""
-        parts = [
-            str(value)
-            for key in ("catalog", "schema", "table")
-            for value in [execution_locator.get(key)]
-            if isinstance(value, str) and value
-        ]
-        return ".".join(parts)
+        return qualify_execution_locator(execution_locator)
+
+    def qualify_table_name_for_engine(
+        self,
+        engine_id: str,
+        execution_locator: dict[str, Any],
+    ) -> str:
+        engine = self.engine_service.get_engine(engine_id)
+        return qualify_execution_locator(
+            execution_locator,
+            engine_type=str(engine.get("engine_type") or ""),
+        )
 
     def _resolve_table_source_object(self, table_name: str) -> dict[str, Any]:
         locator_rows = self._lookup_table_rows_by_authority_locator(table_name)
@@ -824,7 +835,10 @@ class QueryRouter:
 
     def _row_to_source_object(self, row: dict[str, Any]) -> dict[str, Any]:
         source_object = dict(row)
-        source_object["authority_locator"] = json.loads(str(row["authority_locator_json"]))
+        source_object["authority_locator"] = normalize_source_object_authority_locator(
+            self.metadata,
+            source_object,
+        )
         return source_object
 
     def _source_authority_catalogs(self, source_id: str) -> set[str]:
@@ -838,7 +852,10 @@ class QueryRouter:
         )
         catalogs: set[str] = set()
         for row in rows:
-            locator = json.loads(str(row["authority_locator_json"]))
+            locator = normalize_source_object_authority_locator(
+                self.metadata,
+                dict(row),
+            )
             catalog = locator.get("catalog")
             if isinstance(catalog, str) and catalog:
                 catalogs.add(catalog)

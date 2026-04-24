@@ -57,6 +57,11 @@ from app.semantic_runtime.errors import (
 )
 from app.semantic_runtime.resolution import ResolvedSemanticObject
 from app.session import SessionManager
+from app.source_object_locator import (
+    execution_locator_from_source_fqn,
+    normalize_source_object_authority_locator,
+    qualify_execution_locator,
+)
 from app.storage.analytics import AnalyticsEngine
 from app.storage.evidence_repositories import (
     ActionProposalRepository,
@@ -99,6 +104,10 @@ class MetricExecutionContext:
     carrier_binding_key: str | None = None
     source_object_ref: str | None = None
     carrier_locator: dict[str, Any] | None = None
+    authority_locator: dict[str, Any] | None = None
+    mapping_id: str | None = None
+    execution_locator: dict[str, Any] | None = None
+    routing_detail: dict[str, Any] | None = None
     input_field_map: dict[str, str] | None = None
     additivity_constraints: dict[str, Any] | None = None
 
@@ -110,8 +119,21 @@ class MetricBindingResolution:
     carrier_binding_key: str | None
     source_object_ref: str | None
     carrier_locator: dict[str, Any] | None
+    authority_locator: dict[str, Any] | None
+    mapping_id: str | None
+    execution_locator: dict[str, Any] | None
+    routing_detail: dict[str, Any] | None
     table_name: str | None
     input_field_map: dict[str, str]
+
+
+@dataclass(frozen=True, slots=True)
+class MetricCarrierRoutePreflight:
+    table_name: str | None
+    mapping_id: str | None
+    execution_locator: dict[str, Any] | None
+    routing_detail: dict[str, Any]
+    readiness_blockers: list[dict[str, Any]]
 
 
 def _optional_str(value: Any) -> str | None:
@@ -599,6 +621,10 @@ class SemanticLayerService:
                 carrier_binding_key=resolution.carrier_binding_key,
                 source_object_ref=resolution.source_object_ref,
                 carrier_locator=resolution.carrier_locator,
+                authority_locator=resolution.authority_locator,
+                mapping_id=resolution.mapping_id,
+                execution_locator=resolution.execution_locator,
+                routing_detail=resolution.routing_detail,
                 input_field_map=dict(resolution.input_field_map),
                 additivity_constraints=metric_additivity_constraints,
             )
@@ -621,6 +647,10 @@ class SemanticLayerService:
                 f"Metric execution binding for '{metric_name}' is missing required metric_input "
                 f"coverage ({', '.join(missing_slots)})"
             )
+        has_mapping_failures = any(
+            candidate.get("failure_stage") == "mapping_route_preflight"
+            for candidate in candidate_bindings
+        )
 
         raise SemanticRuntimeNotReadyError(
             f"Metric execution preflight failed: {metric_ref}",
@@ -633,7 +663,10 @@ class SemanticLayerService:
                     "code": "METRIC_EXECUTION_BINDING_UNRESOLVED",
                     "message": (
                         "Metric is ready in the semantic layer, but execution could not resolve "
-                        "any published binding carrier to a synced source object."
+                        "any published binding carrier to an execution route."
+                        if has_mapping_failures
+                        else "Metric is ready in the semantic layer, but execution could not "
+                        "resolve any published binding carrier to a synced source object."
                     ),
                     "subject_ref": metric_ref,
                     "details": {
@@ -666,7 +699,17 @@ class SemanticLayerService:
             )
             for carrier in ordered_carriers:
                 source_row = self._resolve_metric_carrier_source_object(carrier)
-                runtime_table_name = str(source_row["fqn"]) if source_row is not None else None
+                route_resolution = (
+                    self._resolve_metric_binding_route(source_row)
+                    if source_row is not None
+                    else None
+                )
+                runtime_table_name = (
+                    route_resolution.table_name if route_resolution is not None else None
+                )
+                authority_locator = (
+                    dict(source_row["authority_locator"]) if source_row is not None else None
+                )
                 candidates.append(
                     {
                         "binding_ref": binding.ref,
@@ -674,10 +717,30 @@ class SemanticLayerService:
                         "binding_role": carrier.get("binding_role"),
                         "source_object_ref": carrier.get("source_object_ref"),
                         "carrier_locator": carrier.get("carrier_locator"),
+                        "authority_locator": authority_locator,
                         "resolved_source_object_ref": (
                             str(source_row["object_id"]) if source_row is not None else None
                         ),
                         "resolved_table_name": runtime_table_name,
+                        "mapping_id": (
+                            route_resolution.mapping_id if route_resolution is not None else None
+                        ),
+                        "execution_locator": (
+                            dict(route_resolution.execution_locator)
+                            if route_resolution is not None
+                            and route_resolution.execution_locator is not None
+                            else None
+                        ),
+                        "routing_detail": (
+                            dict(route_resolution.routing_detail)
+                            if route_resolution is not None and route_resolution.routing_detail
+                            else None
+                        ),
+                        "readiness_blockers": (
+                            list(route_resolution.readiness_blockers)
+                            if route_resolution is not None
+                            else None
+                        ),
                         "metric_input_slots": dict(input_field_map),
                         "missing_metric_input_slots": missing_slots,
                         "failure_stage": (
@@ -685,6 +748,12 @@ class SemanticLayerService:
                             if missing_slots
                             else "source_object_lookup"
                             if source_row is None
+                            else "mapping_route_preflight"
+                            if (
+                                route_resolution is None
+                                or route_resolution.table_name is None
+                                or route_resolution.execution_locator is None
+                            )
                             else None
                         ),
                     }
@@ -747,8 +816,17 @@ class SemanticLayerService:
             )
             for carrier in carriers:
                 source_row = self._resolve_metric_carrier_source_object(carrier)
-                runtime_table_name = str(source_row["fqn"]) if source_row is not None else None
-                if source_row is None or runtime_table_name is None:
+                route_resolution = (
+                    self._resolve_metric_binding_route(source_row)
+                    if source_row is not None
+                    else None
+                )
+                if (
+                    source_row is None
+                    or route_resolution is None
+                    or route_resolution.table_name is None
+                    or route_resolution.execution_locator is None
+                ):
                     continue
                 resolution = MetricBindingResolution(
                     metric_ref=metric_ref,
@@ -756,7 +834,11 @@ class SemanticLayerService:
                     carrier_binding_key=_optional_str(carrier.get("binding_key")),
                     source_object_ref=_optional_str(carrier.get("source_object_ref")),
                     carrier_locator=_carrier_locator_dict(carrier.get("carrier_locator")),
-                    table_name=runtime_table_name,
+                    authority_locator=dict(source_row["authority_locator"]),
+                    mapping_id=route_resolution.mapping_id,
+                    execution_locator=dict(route_resolution.execution_locator),
+                    routing_detail=dict(route_resolution.routing_detail),
+                    table_name=route_resolution.table_name,
                     input_field_map=input_field_map,
                 )
                 is_primary = _optional_str(carrier.get("binding_role")) == "primary"
@@ -792,7 +874,10 @@ class SemanticLayerService:
             )
             if row is not None:
                 source_object = dict(row)
-                source_object["authority_locator"] = json.loads(str(row["authority_locator_json"]))
+                source_object["authority_locator"] = normalize_source_object_authority_locator(
+                    self.metadata,
+                    source_object,
+                )
                 return source_object
 
         carrier_locator = _carrier_locator_dict(carrier_binding.get("carrier_locator"))
@@ -804,7 +889,10 @@ class SemanticLayerService:
         matches: list[dict[str, Any]] = []
         for row in rows:
             source_object = dict(row)
-            source_object["authority_locator"] = json.loads(str(row["authority_locator_json"]))
+            source_object["authority_locator"] = normalize_source_object_authority_locator(
+                self.metadata,
+                source_object,
+            )
             authority_locator = source_object["authority_locator"]
             if all(
                 carrier_locator.get(key) is None
@@ -815,6 +903,126 @@ class SemanticLayerService:
         if len(matches) == 1:
             return matches[0]
         return None
+
+    def _resolve_metric_binding_route(
+        self, source_object: dict[str, Any]
+    ) -> MetricCarrierRoutePreflight | None:
+        query_router = self.routing_runtime.query_router
+        if query_router is None:
+            return self._legacy_metric_direct_route(source_object)
+        authority_locator = normalize_source_object_authority_locator(
+            self.metadata,
+            source_object,
+        )
+        authority_table_name = ".".join(
+            value
+            for value in [
+                _optional_str(authority_locator.get("catalog")),
+                _optional_str(authority_locator.get("schema")),
+                _optional_str(authority_locator.get("table")),
+            ]
+            if value is not None
+        )
+        if not authority_table_name:
+            return None
+        route_resolution = query_router.resolve_route([authority_table_name])
+        route_detail = (
+            dict(route_resolution.route.routing_detail)
+            if route_resolution.route is not None
+            else dict(route_resolution.failure.routing_detail)
+            if route_resolution.failure is not None
+            else {}
+        )
+        execution_locator = dict(
+            route_detail.get("execution_locators", {}).get(authority_table_name) or {}
+        )
+        readiness_blockers = [
+            blocker
+            for blocker in list(route_detail.get("readiness_blockers") or [])
+            if isinstance(blocker, dict)
+        ]
+        selected_mapping_ids = [
+            str(mapping_id)
+            for mapping_id in list(route_detail.get("selected_mapping_ids") or [])
+            if str(mapping_id).strip()
+        ]
+        if route_resolution.route is None:
+            legacy_route = self._legacy_metric_direct_route(source_object)
+            if legacy_route is not None:
+                return legacy_route
+        return MetricCarrierRoutePreflight(
+            table_name=(
+                self._executable_metric_table_name(
+                    route_resolution.route.engine_id,
+                    execution_locator,
+                )
+                if route_resolution.route is not None
+                else None
+            ),
+            mapping_id=_optional_str(execution_locator.get("mapping_id"))
+            or (selected_mapping_ids[0] if selected_mapping_ids else None),
+            execution_locator=execution_locator or None,
+            routing_detail=route_detail,
+            readiness_blockers=readiness_blockers,
+        )
+
+    def _legacy_metric_direct_route(
+        self, source_object: dict[str, Any]
+    ) -> MetricCarrierRoutePreflight | None:
+        if not self._legacy_metric_direct_execution_allowed(source_object):
+            return None
+        legacy_execution_locator = execution_locator_from_source_fqn(source_object)
+        if legacy_execution_locator is None:
+            return None
+        execution_table_name = qualify_execution_locator(
+            legacy_execution_locator,
+            engine_type=self.routing_runtime.default_engine_type,
+        )
+        return MetricCarrierRoutePreflight(
+            table_name=execution_table_name,
+            mapping_id=None,
+            execution_locator=legacy_execution_locator,
+            routing_detail={
+                "legacy_direct_execution": True,
+                "execution_table_name": execution_table_name,
+            },
+            readiness_blockers=[],
+        )
+
+    def _legacy_metric_direct_execution_allowed(self, source_object: dict[str, Any]) -> bool:
+        source_id = _optional_str(source_object.get("source_id"))
+        if source_id is None:
+            return False
+        source_row = self.metadata.query_one(
+            "SELECT source_type FROM sources WHERE source_id = ?",
+            [source_id],
+        )
+        source_type = _optional_str(source_row["source_type"]) if source_row is not None else None
+        if source_type != self.routing_runtime.default_engine_type:
+            return False
+        query_router = self.routing_runtime.query_router
+        if query_router is None:
+            return True
+        engine_rows = self.metadata.query_rows(
+            "SELECT engine_id FROM engines WHERE status = 'active'"
+        )
+        for row in engine_rows:
+            engine = query_router.engine_service.get_engine(str(row["engine_id"]))
+            if _optional_str(engine.get("readiness_status")) == "ready":
+                return False
+        return True
+
+    def _executable_metric_table_name(
+        self,
+        engine_id: str,
+        execution_locator: dict[str, Any],
+    ) -> str:
+        engine = self.metadata.query_one(
+            "SELECT engine_type FROM engines WHERE engine_id = ?",
+            [engine_id],
+        )
+        engine_type = _optional_str(engine["engine_type"]) if engine is not None else None
+        return qualify_execution_locator(execution_locator, engine_type=engine_type)
 
     # ── Metric resolution ────────────────────────────────────────────
 
@@ -1173,11 +1381,26 @@ class SemanticLayerService:
         # audit trail.  Wire governance enforcement into the intent path first,
         # then inject governance_repository to populate the lineage.
         try:
-            return compile_step(
+            compiled = compile_step(
                 step,
                 engine_type=engine_type,
                 semantic_context=effective_semantic_context,
             )
+            execution_context = effective_semantic_context.get("metric_execution_context")
+            if isinstance(execution_context, MetricExecutionContext):
+                compiled.metadata["metric_execution_context"] = {
+                    "metric_ref": execution_context.metric_ref,
+                    "binding_ref": execution_context.binding_ref,
+                    "carrier_binding_key": execution_context.carrier_binding_key,
+                    "source_object_ref": execution_context.source_object_ref,
+                    "carrier_locator": dict(execution_context.carrier_locator or {}),
+                    "authority_locator": dict(execution_context.authority_locator or {}),
+                    "mapping_id": execution_context.mapping_id,
+                    "execution_locator": dict(execution_context.execution_locator or {}),
+                    "routing_detail": dict(execution_context.routing_detail or {}),
+                    "table_name": execution_context.table_name,
+                }
+            return compiled
         except (
             SemanticRuntimeNotReadyError,
             SemanticRequestCompatibilityError,
@@ -3182,6 +3405,12 @@ class SemanticLayerService:
             for source in source_list
             if isinstance(source, dict)
         ]
+        metric_execution_contexts = [
+            dict(context)
+            for compiled in compiled_list
+            for context in [compiled.metadata.get("metric_execution_context")]
+            if isinstance(context, dict)
+        ]
         metric_entity_anchor_refs = self._merge_unique_str(
             [
                 str(compiled.metadata.get("metric_entity_anchor_ref"))
@@ -3206,6 +3435,7 @@ class SemanticLayerService:
                 imported_dimension_lineage,
                 imported_dimension_conflicts,
                 imported_dimension_sources,
+                metric_execution_contexts,
                 metric_entity_anchor_refs,
                 calendar_policy_binding,
             )
@@ -3233,6 +3463,7 @@ class SemanticLayerService:
                 "imported_dimension_lineage": imported_dimension_lineage,
                 "imported_dimension_conflicts": imported_dimension_conflicts,
                 "imported_dimension_sources": imported_dimension_sources,
+                "metric_execution_contexts": metric_execution_contexts,
                 "calendar_policy_binding": calendar_policy_binding,
             },
         }
