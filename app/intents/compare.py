@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from app.intents.calendar_alignment_metadata import resolve_calendar_alignment_reuse_for_intent
+from app.intents.predicate_lineage_reuse import resolve_predicate_lineage_reuse_for_intent
 
 if TYPE_CHECKING:
     from app.service import SemanticLayerService
@@ -322,8 +323,21 @@ def run_compare_intent(
     if calendar_alignment_summary["fatal_message"] is not None:
         fatal = True
 
+    predicate_lineage_summary = resolve_predicate_lineage_reuse_for_intent(
+        intent_name="compare",
+        left_predicate_filter_lineage=left_artifact.get("predicate_filter_lineage"),
+        right_predicate_filter_lineage=right_artifact.get("predicate_filter_lineage"),
+    )
+    issues.extend(predicate_lineage_summary["issues"])
+    if predicate_lineage_summary["fatal_message"] is not None:
+        fatal = True
+
     if fatal:
-        fatal_message = calendar_alignment_summary["fatal_message"] or issues[0]["message"]
+        fatal_message = (
+            calendar_alignment_summary["fatal_message"]
+            or predicate_lineage_summary["fatal_message"]
+            or issues[0]["message"]
+        )
         raise ValueError(f"compare: NOT_COMPARABLE - {fatal_message}")
 
     # Explicit mode guard
@@ -389,6 +403,8 @@ def run_compare_intent(
     }
     if calendar_alignment_summary["reuse_summary"] is not None:
         resolved_input_summary["calendar_alignment"] = calendar_alignment_summary["reuse_summary"]
+    if predicate_lineage_summary["reuse_summary"] is not None:
+        resolved_input_summary["predicate_lineage"] = predicate_lineage_summary["reuse_summary"]
     analytical_metadata: dict[str, Any] = {
         "aggregation_semantics": left_am.get("aggregation_semantics", "sum"),
         "additivity_constraints": left_am.get("additivity_constraints"),
