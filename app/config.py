@@ -99,6 +99,27 @@ def resolve_config_path(path: Path | None = None) -> Path:
     return Path(env) if env else Path("marivo.yaml")
 
 
+def resolve_metadata_path(config_path: Path, configured_path: str) -> Path:
+    """Resolve a metadata SQLite path from runtime config.
+
+    Local runtime bootstrap stores config at ``<workspace>/.marivo/marivo.yaml`` and
+    freezes ``metadata.path`` as ``.marivo/metadata.sqlite``. In that shape, the
+    configured path is intended to remain workspace-root relative rather than
+    nesting another ``.marivo`` directory under the config directory.
+    """
+    metadata_path = Path(configured_path)
+    if metadata_path.is_absolute():
+        return metadata_path
+    if (
+        config_path.name == "marivo.yaml"
+        and config_path.parent.name == ".marivo"
+        and metadata_path.parts
+        and metadata_path.parts[0] == ".marivo"
+    ):
+        return config_path.parent.parent / metadata_path
+    return config_path.parent / metadata_path
+
+
 def load_config(path: Path | None = None) -> MarivoConfig:
     """Load and validate the Marivo YAML config file.
 

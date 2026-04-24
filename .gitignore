@@ -49,6 +49,9 @@ Thumbs.db
 # Config (contains local paths/credentials)
 marivo.yaml
 
+# Local runtime workspace
+.marivo/
+
 # Claude Code
 .claude/
 !.claude/skills/
