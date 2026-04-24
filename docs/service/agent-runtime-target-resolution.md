@@ -2,6 +2,8 @@
 
 本文档描述 Marivo 在 agent 场景下的目标解析与本地运行时设计。它是一份服务/运行时设计说明，不是对外 HTTP API 契约。
 
+v1 产品边界与用户心智模型已冻结，见 [`agent-runtime-target-resolution-v1-scope-note.zh.md`](./agent-runtime-target-resolution-v1-scope-note.zh.md)。v1 配置语义与解析规则已冻结，见 [`agent-runtime-target-resolution-config-contract.zh.md`](./agent-runtime-target-resolution-config-contract.zh.md)。v1 workspace root 解析优先级已冻结，见 [`agent-runtime-target-resolution-workspace-root.zh.md`](./agent-runtime-target-resolution-workspace-root.zh.md)。v1 失败面 taxonomy 已冻结，见 [`agent-runtime-target-resolution-error-taxonomy.zh.md`](./agent-runtime-target-resolution-error-taxonomy.zh.md)。v1 HTTP MCP 适用边界已冻结，见 [`agent-runtime-target-resolution-http-mcp-boundary.zh.md`](./agent-runtime-target-resolution-http-mcp-boundary.zh.md)。v1 `marivo core` CLI 命令面已冻结，见 [`agent-runtime-target-resolution-cli-contract.zh.md`](./agent-runtime-target-resolution-cli-contract.zh.md)。v1 工作区 `.marivo/` 布局已冻结，见 [`agent-runtime-target-resolution-workspace-layout.zh.md`](./agent-runtime-target-resolution-workspace-layout.zh.md)。v1 最小本地配置 bootstrap 已冻结，见 [`agent-runtime-target-resolution-bootstrap-config.zh.md`](./agent-runtime-target-resolution-bootstrap-config.zh.md)。
+
 本文档同时覆盖两层内容：
 
 - 用户接入视角：用户在 agent 中安装、注册、使用 `marivo-mcp` 时，应该看到什么最小心智模型
@@ -343,7 +345,7 @@ marivo serve-local
 
 ## 默认本地配置
 
-本地模式在常见路径上应做到零配置。首次启动时，Marivo 应落地一份最小的工作区本地配置，例如：
+本地模式在常见路径上应做到零配置。首次启动时，Marivo 应落地一份最小的工作区本地配置。最小配置已冻结，见 [`agent-runtime-target-resolution-bootstrap-config.zh.md`](./agent-runtime-target-resolution-bootstrap-config.zh.md)。
 
 ```yaml
 metadata:
@@ -352,6 +354,10 @@ metadata:
 
 governance:
   enabled: true
+
+observability:
+  log_level: INFO
+  metrics_enabled: true
 ```
 
 数据源与执行引擎注册仍然需要显式完成，但运行时启动路径不应要求用户在 agent 连接之前手工编写本地文件。
