@@ -70,7 +70,11 @@ class MappingServiceTests(unittest.TestCase):
         self.source = self.source_service.register_source(
             "duckdb",
             "DuckDB Source",
-            authority={"catalog_system": "duckdb", "connection": {"path": str(self.db_path)}},
+            authority={
+                "catalog_system": "duckdb",
+                "connection": {"path": str(self.db_path)},
+                "synthetic_catalog": "main",
+            },
             sync={"mode": "none"},
             policy={"allow_live_browse": True, "allow_sync": False},
         )
@@ -326,7 +330,11 @@ class MappingServiceTests(unittest.TestCase):
         second_source = self.source_service.register_source(
             "duckdb",
             "DuckDB Source 2",
-            authority={"catalog_system": "duckdb", "connection": {"path": str(self.db_path)}},
+            authority={
+                "catalog_system": "duckdb",
+                "connection": {"path": str(self.db_path)},
+                "synthetic_catalog": "main",
+            },
             sync={"mode": "none"},
             policy={"allow_live_browse": True, "allow_sync": False},
         )
@@ -552,7 +560,11 @@ class MappingServiceTests(unittest.TestCase):
         source = self.source_service.register_source(
             "duckdb",
             "No Objects Source",
-            authority={"catalog_system": "duckdb", "connection": {"path": str(self.db_path)}},
+            authority={
+                "catalog_system": "duckdb",
+                "connection": {"path": str(self.db_path)},
+                "synthetic_catalog": "main",
+            },
             sync={"mode": "none"},
             policy={"allow_live_browse": True, "allow_sync": False},
         )
@@ -705,7 +717,11 @@ class MappingServiceTests(unittest.TestCase):
         second_source = self.source_service.register_source(
             "duckdb",
             "DuckDB Source 2",
-            authority={"catalog_system": "duckdb", "connection": {"path": str(self.db_path)}},
+            authority={
+                "catalog_system": "duckdb",
+                "connection": {"path": str(self.db_path)},
+                "synthetic_catalog": "main",
+            },
             sync={"mode": "none"},
             policy={"allow_live_browse": True, "allow_sync": False},
         )

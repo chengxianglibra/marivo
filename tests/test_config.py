@@ -120,7 +120,9 @@ class EnsureSourceTests(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def test_ensure_source_creates_new(self) -> None:
-        source = self.source_service.ensure_source("duckdb", "My Source", {})
+        source = self.source_service.ensure_source(
+            "duckdb", "My Source", {"synthetic_catalog": "main"}
+        )
         self.assertEqual(source["display_name"], "My Source")
         self.assertEqual(source["source_type"], "duckdb")
         self.assertTrue(source["source_id"].startswith("src_"))
@@ -132,8 +134,8 @@ class EnsureSourceTests(unittest.TestCase):
             self.source_service.register_source("mysql", "Unsupported Source", {})
 
     def test_ensure_source_idempotent(self) -> None:
-        s1 = self.source_service.ensure_source("duckdb", "Same Name", {})
-        s2 = self.source_service.ensure_source("duckdb", "Same Name", {})
+        s1 = self.source_service.ensure_source("duckdb", "Same Name", {"synthetic_catalog": "main"})
+        s2 = self.source_service.ensure_source("duckdb", "Same Name", {"synthetic_catalog": "main"})
         self.assertEqual(s1["source_id"], s2["source_id"])
         sources = self.source_service.list_sources()
         matching = [s for s in sources if s["display_name"] == "Same Name"]
@@ -141,7 +143,9 @@ class EnsureSourceTests(unittest.TestCase):
 
     def test_ensure_source_updates_existing_source_type(self) -> None:
         existing = self.source_service.register_source(
-            "duckdb", "Local Demo", {"path": "/tmp/old.duckdb"}
+            "duckdb",
+            "Local Demo",
+            {"path": "/tmp/old.duckdb", "synthetic_catalog": "main"},
         )
 
         updated = self.source_service.ensure_source(
@@ -159,7 +163,9 @@ class EnsureSourceTests(unittest.TestCase):
         self.assertEqual(persisted["source_type"], "trino")
 
     def test_update_source_rejects_synthetic_catalog_rewrite(self) -> None:
-        source = self.source_service.register_source("duckdb", "Immutable Catalog", {})
+        source = self.source_service.register_source(
+            "duckdb", "Immutable Catalog", {"synthetic_catalog": "main"}
+        )
 
         with self.assertRaisesRegex(ValueError, "synthetic_catalog is immutable"):
             self.source_service.update_source(
@@ -176,7 +182,9 @@ class EnsureSourceTests(unittest.TestCase):
             self.source_service.ensure_source("mysql", "Unsupported Source", {})
 
     def test_validate_source_reports_invalid_connection(self) -> None:
-        source = self.source_service.register_source("duckdb", "Unconfigured DuckDB", {})
+        source = self.source_service.register_source(
+            "duckdb", "Unconfigured DuckDB", {"synthetic_catalog": "main"}
+        )
 
         validation = self.source_service.validate_source(source["source_id"])
 

@@ -171,10 +171,9 @@ class SourceAuthorityPayload(BaseModel):
     @model_validator(mode="after")
     def normalize_duckdb_catalog(self) -> SourceAuthorityPayload:
         if self.catalog_system == "duckdb":
-            if self.synthetic_catalog is None:
-                self.synthetic_catalog = "main"
-            elif self.synthetic_catalog != "main":
-                raise ValueError("duckdb authority.synthetic_catalog must be 'main'")
+            if self.synthetic_catalog is None or not self.synthetic_catalog.strip():
+                raise ValueError("duckdb authority.synthetic_catalog is required")
+            self.synthetic_catalog = self.synthetic_catalog.strip()
         elif self.synthetic_catalog is not None:
             raise ValueError("synthetic_catalog is only supported for duckdb sources")
         return self

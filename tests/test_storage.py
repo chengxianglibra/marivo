@@ -6,6 +6,7 @@ from pathlib import Path
 
 from app.storage.duckdb_analytics import DuckDBAnalyticsEngine
 from app.storage.sqlite_metadata import SQLiteMetadataStore
+from tests import shared_fixtures
 
 
 class SQLiteMetadataStoreTests(unittest.TestCase):
@@ -32,6 +33,38 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
         )
         self.assertIsNotNone(row)
         self.assertEqual(row["cnt"], 0)
+
+    def test_reset_metadata_file_rebuilds_current_schema(self) -> None:
+        self.store.execute(
+            "INSERT INTO sessions (session_id, goal, constraints_json, budget_json, policy_json, status) VALUES (?, ?, ?, ?, ?, ?)",
+            ["s1", "test goal", "{}", "{}", "{}", "open"],
+        )
+        self.store.db_path.unlink()
+
+        rebuilt_store = SQLiteMetadataStore(self.store.db_path)
+        rebuilt_store.initialize()
+
+        row = rebuilt_store.query_one("SELECT COUNT(*) AS cnt FROM sessions")
+        self.assertIsNotNone(row)
+        self.assertEqual(row["cnt"], 0)
+        self.assert_current_mapping_only_schema(rebuilt_store)
+
+    def test_seeded_metadata_template_uses_current_mapping_only_schema(self) -> None:
+        template_path = shared_fixtures.get_seeded_metadata_path(
+            Path(self.temp_dir.name) / "seeded_meta.sqlite"
+        )
+        template_store = SQLiteMetadataStore(template_path)
+
+        self.assert_current_mapping_only_schema(template_store)
+
+    def test_metadata_template_validation_rejects_legacy_binding_table(self) -> None:
+        template_path = shared_fixtures.get_seeded_metadata_path(
+            Path(self.temp_dir.name) / "legacy_meta.sqlite"
+        )
+        legacy_store = SQLiteMetadataStore(template_path)
+        legacy_store.execute("CREATE TABLE source_engine_bindings (binding_id TEXT PRIMARY KEY)")
+
+        self.assertFalse(shared_fixtures._metadata_template_valid(template_path))
 
     def test_initialize_uses_current_sessions_schema(self) -> None:
         rows = self.store.query_rows("PRAGMA table_info(sessions)")
@@ -123,6 +156,26 @@ class SQLiteMetadataStoreTests(unittest.TestCase):
         ]:
             row = self.store.query_one(f"SELECT COUNT(*) AS cnt FROM {table}")
             self.assertIsNotNone(row, f"Table {table} should exist")
+
+    def assert_current_mapping_only_schema(self, store: SQLiteMetadataStore) -> None:
+        mapping_row = store.query_one(
+            """
+            SELECT COUNT(*) AS cnt
+            FROM sqlite_master
+            WHERE type = 'table' AND name = 'source_execution_mappings'
+            """
+        )
+        legacy_row = store.query_one(
+            """
+            SELECT COUNT(*) AS cnt
+            FROM sqlite_master
+            WHERE type = 'table' AND name = 'source_engine_bindings'
+            """
+        )
+        self.assertIsNotNone(mapping_row)
+        self.assertEqual(mapping_row["cnt"], 1)
+        self.assertIsNotNone(legacy_row)
+        self.assertEqual(legacy_row["cnt"], 0)
 
 
 class DuckDBAnalyticsEngineTests(unittest.TestCase):
