@@ -8,9 +8,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, BeforeValidator, Field
 from pydantic_core import PydanticCustomError
 
-from app.api.models._legacy import (
-    ObserveScope,
-)
+from app.api.models.intents import ObserveScope
 from marivo_mcp.config import MarivoMcpConfig
 from marivo_mcp.http_client import MarivoHttpClient
 from marivo_mcp.openapi_cache import OpenApiResponseCache

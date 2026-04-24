@@ -14,30 +14,21 @@ Modules:
 - binding: Typed binding models
 - compatibility_profile: Compiler compatibility profile models
 - predicate: Predicate filter semantic object models
+- intents: Typed intent request models (observe, compare, detect, etc.)
+- session: Session management request models
+- _infrastructure: Infrastructure configuration models (source, engine, mapping, etc.)
 """
 
-# Base types and validators
-# Legacy models (non-semantic API models kept for backward compatibility)
-from ._legacy import (
+# Infrastructure models (source, engine, mapping, routing, steps, signals, etc.)
+from ._infrastructure import (
     AggregateQueryStep,
     AnalysisTimeOverride,
     # Approval models
     ApprovalCreateRequest,
     ApprovalDecisionRequest,
-    ArtifactRef,
     AttributeChangeStep,
-    AttributeObservationInput,
-    AttributeRequest,
     AutoFlagRequest,
     ColumnPropertiesUpdateRequest,
-    CompareRequest,
-    CorrelateObservationRef,
-    CorrelateRequest,
-    DecomposeRequest,
-    DetectRequest,
-    DetectTimeScope,
-    DetectTimeScopeCurrentWindow,
-    DiagnoseRequest,
     # Engine models
     EngineDefaultNamespaceResponse,
     EngineDeploymentCapabilitiesResponse,
@@ -45,11 +36,7 @@ from ._legacy import (
     EnginePolicyResponse,
     EngineRegisterRequest,
     EngineResponse,
-    EntityPropertiesPatchRequest,
-    ForecastRequest,
     GovernanceCheckRequest,
-    HypothesisContract,
-    IntentTestRequest,
     # Job models
     JobSubmitRequest,
     MappingCatalogEntryResponse,
@@ -61,15 +48,6 @@ from ._legacy import (
     # Step models
     MetricQueryStep,
     ModifyStepOperation,
-    # Intent models
-    ObservationRef,
-    ObserveRequest,
-    ObserveScope,
-    ObserveTimeScope,
-    ObserveTimeScopeAsOf,
-    ObserveTimeScopeLatestAvailable,
-    ObserveTimeScopeRange,
-    ObserveTimeScopeSnapshotNow,
     PartitionPruningOverride,
     PlanPatchRequest,
     # Policy models
@@ -84,10 +62,6 @@ from ._legacy import (
     RouteResolveRequest,
     RouteResolveResponse,
     Scope,
-    # Session models
-    SessionCreateRequest,
-    SessionStateQueryRequest,
-    SessionTerminateRequest,
     # Source models
     SourceAuthorityResponse,
     SourceIntrinsicCapabilitiesResponse,
@@ -98,14 +72,10 @@ from ._legacy import (
     SourceUpdateRequest,
     SyncSelectionItem,
     SyncSelectionRequest,
-    TestObservationRef,
     TimeAxis,
     TimeScope,
     # Time scope models
     TimeWindow,
-    ValidateHypothesis,
-    ValidateObservationInput,
-    ValidateRequest,
 )
 from .base import (
     AdditivityConstraints,
@@ -261,6 +231,36 @@ from .enum_set import (
     EnumValueSpec,
 )
 
+# Intent API models
+from .intents import (
+    ArtifactRef,
+    AttributeObservationInput,
+    AttributeRequest,
+    CompareRequest,
+    CorrelateObservationRef,
+    CorrelateRequest,
+    DecomposeRequest,
+    DetectRequest,
+    DetectTimeScope,
+    DetectTimeScopeCurrentWindow,
+    DiagnoseRequest,
+    ForecastRequest,
+    HypothesisContract,
+    IntentTestRequest,
+    ObservationRef,
+    ObserveRequest,
+    ObserveScope,
+    ObserveTimeScope,
+    ObserveTimeScopeAsOf,
+    ObserveTimeScopeLatestAvailable,
+    ObserveTimeScopeRange,
+    ObserveTimeScopeSnapshotNow,
+    TestObservationRef,
+    ValidateHypothesis,
+    ValidateObservationInput,
+    ValidateRequest,
+)
+
 # Metric models
 from .metric import (
     AverageMetricPayload,
@@ -319,6 +319,13 @@ from .process_object import (
     ProcessPayload,
     SessionContractPayload,
     StepGapSpec,
+)
+
+# Session models
+from .session import (
+    SessionCreateRequest,
+    SessionStateQueryRequest,
+    SessionTerminateRequest,
 )
 
 # Time models
@@ -416,7 +423,6 @@ __all__ = [  # noqa: RUF022
     "EntityIdentitySpec",
     "EntityInterfaceContract",
     "EntityProcessContract",
-    "EntityPropertiesPatchRequest",
     "EnumSetCreateRequest",
     "EnumSetHeader",
     "EnumSetListItem",

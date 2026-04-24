@@ -18,7 +18,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from app.api.models._legacy import ObserveScope
+from app.api.models.intents import ObserveScope
 from app.main import create_app
 from tests.semantic_test_helpers import ensure_published_typed_entity, ensure_published_typed_time
 from tests.shared_fixtures import get_seeded_duckdb_path
