@@ -728,5 +728,264 @@ class TestMultiLayerLineageInArtifact(_LineageTestBase):
         self.assertNotEqual(num_scope["scope_fingerprint"], denom_scope["scope_fingerprint"])
 
 
+# ---------------------------------------------------------------------------
+# Task 7.4: average metric component lineage
+# ---------------------------------------------------------------------------
+
+
+class TestAverageMetricComponentLineage(_LineageTestBase):
+    """Verify per-component qualifier lineage for average_metric."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        super().setUpClass()
+        cls._setup_metric_with_binding(
+            "lin_avg_numq",
+            measure_type="average",
+            component_qualifier_refs={"numerator": ["predicate.metric_def1"]},
+        )
+
+    def test_average_metric_produces_two_component_lineages(self) -> None:
+        data = self._observe(metric="metric.lin_avg_numq")
+        lineage = data.get("predicate_filter_lineage")
+        self.assertIsNotNone(lineage)
+        assert lineage is not None
+        lineages = lineage.get("component_qualifier_lineages", [])
+        fields = [e["component_field"] for e in lineages]
+        self.assertIn("denominator", fields)
+        self.assertIn("numerator", fields)
+
+    def test_average_metric_numerator_has_qualifier_denominator_empty(self) -> None:
+        data = self._observe(metric="metric.lin_avg_numq")
+        lineage = data.get("predicate_filter_lineage")
+        assert lineage is not None
+        lineages = lineage["component_qualifier_lineages"]
+        num_entry = next(e for e in lineages if e["component_field"] == "numerator")
+        denom_entry = next(e for e in lineages if e["component_field"] == "denominator")
+        self.assertEqual(num_entry["qualifier_refs"], ["predicate.metric_def1"])
+        self.assertEqual(denom_entry["qualifier_refs"], [])
+
+    def test_average_metric_effective_scopes_reflect_per_component(self) -> None:
+        data = self._observe(metric="metric.lin_avg_numq")
+        lineage = data.get("predicate_filter_lineage")
+        assert lineage is not None
+        scopes = lineage["component_effective_scopes"]
+        num_scope = next(e for e in scopes if e["component_field"] == "numerator")
+        denom_scope = next(e for e in scopes if e["component_field"] == "denominator")
+        self.assertIn("predicate.metric_def1", num_scope["effective_scope_refs"])
+        self.assertNotIn("predicate.metric_def1", denom_scope["effective_scope_refs"])
+
+    def test_average_metric_fingerprints_differ(self) -> None:
+        data = self._observe(metric="metric.lin_avg_numq")
+        lineage = data.get("predicate_filter_lineage")
+        assert lineage is not None
+        scopes = lineage["component_effective_scopes"]
+        num_fp = next(e for e in scopes if e["component_field"] == "numerator")["scope_fingerprint"]
+        denom_fp = next(e for e in scopes if e["component_field"] == "denominator")[
+            "scope_fingerprint"
+        ]
+        self.assertNotEqual(num_fp, denom_fp)
+
+
+# ---------------------------------------------------------------------------
+# Task 7.4: rate metric with dual qualifiers
+# ---------------------------------------------------------------------------
+
+
+class TestRateMetricDualQualifierLineage(_LineageTestBase):
+    """Verify that qualifiers on BOTH components are preserved independently."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        super().setUpClass()
+        cls._setup_metric_with_binding(
+            "lin_rate_dualq",
+            measure_type="rate",
+            component_qualifier_refs={
+                "numerator": ["predicate.metric_def1"],
+                "denominator": ["predicate.metric_def2"],
+            },
+        )
+
+    def test_both_components_have_qualifier_refs(self) -> None:
+        data = self._observe(metric="metric.lin_rate_dualq")
+        lineage = data.get("predicate_filter_lineage")
+        assert lineage is not None
+        lineages = lineage["component_qualifier_lineages"]
+        num_entry = next(e for e in lineages if e["component_field"] == "numerator")
+        denom_entry = next(e for e in lineages if e["component_field"] == "denominator")
+        self.assertEqual(num_entry["qualifier_refs"], ["predicate.metric_def1"])
+        self.assertEqual(denom_entry["qualifier_refs"], ["predicate.metric_def2"])
+
+    def test_qualifier_refs_do_not_leak_across_components(self) -> None:
+        data = self._observe(metric="metric.lin_rate_dualq")
+        lineage = data.get("predicate_filter_lineage")
+        assert lineage is not None
+        scopes = lineage["component_effective_scopes"]
+        num_scope = next(e for e in scopes if e["component_field"] == "numerator")
+        denom_scope = next(e for e in scopes if e["component_field"] == "denominator")
+        self.assertIn("predicate.metric_def1", num_scope["effective_scope_refs"])
+        self.assertNotIn("predicate.metric_def1", denom_scope["effective_scope_refs"])
+        self.assertIn("predicate.metric_def2", denom_scope["effective_scope_refs"])
+        self.assertNotIn("predicate.metric_def2", num_scope["effective_scope_refs"])
+
+    def test_effective_scope_includes_shared_plus_component_specific(self) -> None:
+        data = self._observe(metric="metric.lin_rate_dualq")
+        lineage = data.get("predicate_filter_lineage")
+        assert lineage is not None
+        scopes = lineage["component_effective_scopes"]
+        num_scope = next(e for e in scopes if e["component_field"] == "numerator")
+        denom_scope = next(e for e in scopes if e["component_field"] == "denominator")
+        # Both have shared scope entries (empty in this setup)
+        for scope in (num_scope, denom_scope):
+            self.assertIsInstance(scope["effective_scope_refs"], list)
+        # Each has its own qualifier in effective_scope
+        self.assertIn("predicate.metric_def1", num_scope["effective_scope_refs"])
+        self.assertIn("predicate.metric_def2", denom_scope["effective_scope_refs"])
+
+    def test_both_fingerprints_differ_and_are_stable(self) -> None:
+        data1 = self._observe(metric="metric.lin_rate_dualq")
+        data2 = self._observe(metric="metric.lin_rate_dualq")
+        lineage1 = data1.get("predicate_filter_lineage")
+        lineage2 = data2.get("predicate_filter_lineage")
+        assert lineage1 is not None and lineage2 is not None
+        fps1 = {
+            s["component_field"]: s["scope_fingerprint"]
+            for s in lineage1["component_effective_scopes"]
+        }
+        fps2 = {
+            s["component_field"]: s["scope_fingerprint"]
+            for s in lineage2["component_effective_scopes"]
+        }
+        # Different between components
+        self.assertNotEqual(fps1["numerator"], fps1["denominator"])
+        # Stable across observes
+        self.assertEqual(fps1, fps2)
+
+
+# ---------------------------------------------------------------------------
+# Task 7.4: default_predicate_refs in component effective scopes
+# ---------------------------------------------------------------------------
+
+
+class TestDefaultRefsInEffectiveScope(_LineageTestBase):
+    """Verify that default_predicate_refs propagate to every component's effective scope."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        super().setUpClass()
+        cls._setup_metric_with_binding(
+            "lin_rate_defaults_only",
+            measure_type="rate",
+            default_predicate_refs=["predicate.metric_def1"],
+        )
+
+    def test_default_predicate_refs_appear_in_each_component_effective_scope(self) -> None:
+        data = self._observe(metric="metric.lin_rate_defaults_only")
+        lineage = data.get("predicate_filter_lineage")
+        assert lineage is not None
+        scopes = lineage["component_effective_scopes"]
+        for scope in scopes:
+            self.assertIn(
+                "predicate.metric_def1",
+                scope["effective_scope_refs"],
+                f"Default ref missing from {scope['component_field']} effective_scope",
+            )
+
+    def test_defaults_are_shared_not_per_component(self) -> None:
+        data = self._observe(metric="metric.lin_rate_defaults_only")
+        lineage = data.get("predicate_filter_lineage")
+        assert lineage is not None
+        # Defaults are in metric_default_lineage, not in qualifier_refs
+        self.assertIn(
+            "predicate.metric_def1", lineage["metric_default_lineage"]["default_predicate_refs"]
+        )
+        for entry in lineage["component_qualifier_lineages"]:
+            self.assertNotIn("predicate.metric_def1", entry["qualifier_refs"])
+
+    def test_fingerprints_identical_when_only_shared_defaults(self) -> None:
+        data = self._observe(metric="metric.lin_rate_defaults_only")
+        lineage = data.get("predicate_filter_lineage")
+        assert lineage is not None
+        scopes = lineage["component_effective_scopes"]
+        fps = [s["scope_fingerprint"] for s in scopes]
+        self.assertEqual(len(fps), 2)
+        self.assertEqual(
+            fps[0], fps[1], "Components with identical effective scope must share fingerprint"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Task 7.4: mixed defaults + qualifiers — no flattening
+# ---------------------------------------------------------------------------
+
+
+class TestMixedDefaultsAndQualifiersLineage(_LineageTestBase):
+    """Verify layer separation when defaults and per-component qualifiers coexist."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        super().setUpClass()
+        cls._setup_metric_with_binding(
+            "lin_rate_mixed",
+            measure_type="rate",
+            default_predicate_refs=["predicate.metric_def1"],
+            row_filter_refs=["predicate.carrier_inv"],
+            component_qualifier_refs={"numerator": ["predicate.metric_def2"]},
+        )
+
+    def test_lineage_shows_three_layers_separately(self) -> None:
+        data = self._observe(metric="metric.lin_rate_mixed")
+        lineage = data.get("predicate_filter_lineage")
+        assert lineage is not None
+        # Shared scope has carrier
+        self.assertIn(
+            "predicate.carrier_inv", lineage["shared_effective_scope"]["carrier_row_filter_refs"]
+        )
+        # Defaults are separate
+        self.assertIn(
+            "predicate.metric_def1", lineage["metric_default_lineage"]["default_predicate_refs"]
+        )
+        # Per-component qualifiers are separate
+        num_entry = next(
+            e
+            for e in lineage["component_qualifier_lineages"]
+            if e["component_field"] == "numerator"
+        )
+        self.assertIn("predicate.metric_def2", num_entry["qualifier_refs"])
+
+    def test_effective_scope_composes_shared_defaults_qualifiers(self) -> None:
+        data = self._observe(metric="metric.lin_rate_mixed")
+        lineage = data.get("predicate_filter_lineage")
+        assert lineage is not None
+        scopes = lineage["component_effective_scopes"]
+        num_scope = next(e for e in scopes if e["component_field"] == "numerator")
+        denom_scope = next(e for e in scopes if e["component_field"] == "denominator")
+        # Both: carrier + default
+        for scope in (num_scope, denom_scope):
+            self.assertIn("predicate.carrier_inv", scope["effective_scope_refs"])
+            self.assertIn("predicate.metric_def1", scope["effective_scope_refs"])
+        # Only numerator: qualifier
+        self.assertIn("predicate.metric_def2", num_scope["effective_scope_refs"])
+        self.assertNotIn("predicate.metric_def2", denom_scope["effective_scope_refs"])
+
+    def test_no_flattening_across_components(self) -> None:
+        """Defaults must not appear in qualifier_refs; numerator qualifiers must not leak into denominator."""
+        data = self._observe(metric="metric.lin_rate_mixed")
+        lineage = data.get("predicate_filter_lineage")
+        assert lineage is not None
+        for entry in lineage["component_qualifier_lineages"]:
+            # Defaults stay in metric_default_lineage, not in qualifier_refs
+            self.assertNotIn("predicate.metric_def1", entry["qualifier_refs"])
+            self.assertNotIn("predicate.carrier_inv", entry["qualifier_refs"])
+        denom_scope = next(
+            e
+            for e in lineage["component_effective_scopes"]
+            if e["component_field"] == "denominator"
+        )
+        # Numerator qualifier does not leak into denominator effective scope
+        self.assertNotIn("predicate.metric_def2", denom_scope["effective_scope_refs"])
+
+
 if __name__ == "__main__":
     unittest.main()

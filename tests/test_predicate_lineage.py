@@ -197,6 +197,106 @@ class TestBuildPredicateFilterLineage(unittest.TestCase):
         self.assertEqual(lineage["component_effective_scopes"][0]["effective_scope_refs"], [])
         self.assertTrue(len(lineage["component_effective_scopes"][0]["scope_fingerprint"]) > 0)
 
+    # --- Task 7.4: average / dual-qualifier / defaults / no-flattening ---
+
+    def test_average_metric_dual_component_with_numerator_qualifier(self):
+        refs = [
+            _ref("predicate.def1", "metric_default"),
+            _ref("predicate.q1", "component_qualifier", component_field="numerator"),
+        ]
+        lineage = build_predicate_filter_lineage(
+            refs, component_fields=["denominator", "numerator"]
+        )
+        lineages = lineage["component_qualifier_lineages"]
+        self.assertEqual(len(lineages), 2)
+        num_entry = next(e for e in lineages if e["component_field"] == "numerator")
+        denom_entry = next(e for e in lineages if e["component_field"] == "denominator")
+        self.assertEqual(num_entry["qualifier_refs"], ["predicate.q1"])
+        self.assertEqual(denom_entry["qualifier_refs"], [])
+        # Denominator effective scope does not include numerator qualifier
+        denom_scope = next(
+            e
+            for e in lineage["component_effective_scopes"]
+            if e["component_field"] == "denominator"
+        )
+        self.assertNotIn("predicate.q1", denom_scope["effective_scope_refs"])
+
+    def test_dual_qualifiers_on_both_components(self):
+        refs = [
+            _ref("predicate.q_num", "component_qualifier", component_field="numerator"),
+            _ref("predicate.q_den", "component_qualifier", component_field="denominator"),
+        ]
+        lineage = build_predicate_filter_lineage(
+            refs, component_fields=["denominator", "numerator"]
+        )
+        lineages = lineage["component_qualifier_lineages"]
+        num_entry = next(e for e in lineages if e["component_field"] == "numerator")
+        denom_entry = next(e for e in lineages if e["component_field"] == "denominator")
+        self.assertEqual(num_entry["qualifier_refs"], ["predicate.q_num"])
+        self.assertEqual(denom_entry["qualifier_refs"], ["predicate.q_den"])
+        # Qualifiers do not leak across components
+        num_scope = next(
+            e for e in lineage["component_effective_scopes"] if e["component_field"] == "numerator"
+        )
+        denom_scope = next(
+            e
+            for e in lineage["component_effective_scopes"]
+            if e["component_field"] == "denominator"
+        )
+        self.assertNotIn("predicate.q_den", num_scope["effective_scope_refs"])
+        self.assertNotIn("predicate.q_num", denom_scope["effective_scope_refs"])
+
+    def test_defaults_propagate_to_all_components(self):
+        refs = [
+            _ref("predicate.def1", "metric_default"),
+        ]
+        lineage = build_predicate_filter_lineage(
+            refs, component_fields=["denominator", "numerator"]
+        )
+        for scope in lineage["component_effective_scopes"]:
+            self.assertIn("predicate.def1", scope["effective_scope_refs"])
+        # Defaults are not in qualifier_refs
+        for entry in lineage["component_qualifier_lineages"]:
+            self.assertNotIn("predicate.def1", entry["qualifier_refs"])
+
+    def test_identical_defaults_identical_fingerprints(self):
+        refs = [
+            _ref("predicate.def1", "metric_default"),
+        ]
+        lineage = build_predicate_filter_lineage(
+            refs, component_fields=["denominator", "numerator"]
+        )
+        fps = {
+            s["component_field"]: s["scope_fingerprint"]
+            for s in lineage["component_effective_scopes"]
+        }
+        self.assertEqual(fps["numerator"], fps["denominator"])
+
+    def test_no_flattening_defaults_vs_qualifiers(self):
+        refs = [
+            _ref("predicate.car1", "carrier_row_filter"),
+            _ref("predicate.def1", "metric_default"),
+            _ref("predicate.q1", "component_qualifier", component_field="numerator"),
+        ]
+        lineage = build_predicate_filter_lineage(
+            refs, component_fields=["denominator", "numerator"]
+        )
+        # Defaults are in metric_default_lineage only, not in qualifier_refs
+        self.assertIn("predicate.def1", lineage["metric_default_lineage"]["default_predicate_refs"])
+        for entry in lineage["component_qualifier_lineages"]:
+            self.assertNotIn("predicate.def1", entry["qualifier_refs"])
+            self.assertNotIn("predicate.car1", entry["qualifier_refs"])
+        # Denominator does not include numerator qualifier
+        denom_scope = next(
+            e
+            for e in lineage["component_effective_scopes"]
+            if e["component_field"] == "denominator"
+        )
+        self.assertNotIn("predicate.q1", denom_scope["effective_scope_refs"])
+        # But denominator does include carrier and default
+        self.assertIn("predicate.car1", denom_scope["effective_scope_refs"])
+        self.assertIn("predicate.def1", denom_scope["effective_scope_refs"])
+
 
 if __name__ == "__main__":
     unittest.main()
