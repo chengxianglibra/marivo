@@ -89,7 +89,10 @@ def _empty_quality() -> FindingQuality:
 def _extract_comparability_payload(payload: dict[str, Any]) -> dict[str, Any]:
     comparability = payload.get("comparability")
     resolved = payload.get("resolved_input_summary") or {}
-    calendar_alignment = resolved.get("calendar_alignment")
+    source_lineage = payload.get("source_lineage") or {}
+    calendar_alignment = resolved.get("calendar_alignment") or source_lineage.get(
+        "calendar_alignment"
+    )
 
     extracted: dict[str, Any] = {}
     if isinstance(comparability, dict):

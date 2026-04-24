@@ -293,6 +293,16 @@ class CalendarAlignmentReuseSummary(TypedDict):
     effective_data_coverage_summary: MetricDataCoverageSummary | None
 
 
+class PredicateLineageReuseSummary(TypedDict):
+    reuse_source: str
+    metric_default_predicate_refs: list[str]
+    component_fields: list[str]
+    left_shared_effective_scope: dict[str, Any]
+    right_shared_effective_scope: dict[str, Any]
+    left_scope_fingerprints: dict[str, str]
+    right_scope_fingerprints: dict[str, str]
+
+
 class ComparabilityIssue(TypedDict, total=False):
     code: str
     severity: str

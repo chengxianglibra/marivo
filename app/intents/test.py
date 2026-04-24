@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from app.intents.calendar_alignment_metadata import resolve_calendar_alignment_reuse_for_intent
+from app.intents.predicate_lineage_reuse import resolve_predicate_lineage_reuse_for_intent
 
 if TYPE_CHECKING:
     from app.service import SemanticLayerService
@@ -306,6 +307,15 @@ def run_test_intent(
     if calendar_alignment_summary["fatal_message"] is not None:
         raise ValueError(f"test: NOT_COMPARABLE - {calendar_alignment_summary['fatal_message']}")
 
+    predicate_lineage_summary = resolve_predicate_lineage_reuse_for_intent(
+        intent_name="test",
+        left_predicate_filter_lineage=left_artifact.get("predicate_filter_lineage"),
+        right_predicate_filter_lineage=right_artifact.get("predicate_filter_lineage"),
+    )
+    issues.extend(predicate_lineage_summary["issues"])
+    if predicate_lineage_summary["fatal_message"] is not None:
+        raise ValueError(f"test: NOT_COMPARABLE - {predicate_lineage_summary['fatal_message']}")
+
     # distribution_check: "unchecked" when applicable but not performed (welch_t);
     # None when the current method makes it not applicable (two_proportion_z).
     distribution_check: str | None = "unchecked" if resolved_method == "welch_t" else None
@@ -482,6 +492,8 @@ def run_test_intent(
     }
     if calendar_alignment_summary["reuse_summary"] is not None:
         source_lineage["calendar_alignment"] = calendar_alignment_summary["reuse_summary"]
+    if predicate_lineage_summary["reuse_summary"] is not None:
+        source_lineage["predicate_lineage"] = predicate_lineage_summary["reuse_summary"]
 
     artifact: dict[str, Any] = {
         "artifact_schema_version": "v1",
