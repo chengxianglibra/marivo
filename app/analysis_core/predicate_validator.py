@@ -7,9 +7,10 @@ predicates with structured diagnostics early in the compile flow.
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, NotRequired, TypedDict
 
 from app.analysis_core.validator import ValidationIssue
 from app.api.models.base import PredicateUsage
@@ -20,6 +21,8 @@ if TYPE_CHECKING:
     from app.analysis_core.ir import PredicateFilterLineage
     from app.analysis_core.typed_resolution import ResolvedCompilerInputs
     from app.governance_engine.repository import GovernanceRepository
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True, frozen=True)
@@ -55,6 +58,37 @@ class ResolvedAtom:
     source_ref: str
     source_layer: str
     component_field: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Task 6.2: Normalized predicate input (compiler-internal, not persisted to artifact)
+# ---------------------------------------------------------------------------
+
+
+class NormalizedPredicateAtom(TypedDict):
+    target_ref: str
+    op: str
+    value: Any
+    source_ref: str
+    source_layer: str
+    component_field: NotRequired[str | None]
+
+
+class NormalizedComponentPredicateInput(TypedDict):
+    component_field: str
+    shared_scope_atoms: list[NormalizedPredicateAtom]
+    default_atoms: list[NormalizedPredicateAtom]
+    qualifier_atoms: list[NormalizedPredicateAtom]
+    effective_scope_refs: list[str]
+    scope_fingerprint: str
+
+
+class NormalizedPredicateInput(TypedDict):
+    shared_scope_atoms: list[NormalizedPredicateAtom]
+    shared_scope_refs: list[str]
+    default_atoms: list[NormalizedPredicateAtom]
+    default_refs: list[str]
+    component_inputs: list[NormalizedComponentPredicateInput]
 
 
 _GATE = "predicate_contract"
@@ -1366,3 +1400,131 @@ def _scope_fingerprint(refs: list[str]) -> str:
     """Deterministic SHA-256 fingerprint for a list of predicate refs."""
     canonical = ":".join(sorted(refs))
     return hashlib.sha256(canonical.encode()).hexdigest()[:16]
+
+
+# ---------------------------------------------------------------------------
+# Task 6.2: Build normalized predicate input for lowering consumption
+# ---------------------------------------------------------------------------
+
+
+def build_normalized_predicate_input(
+    *,
+    layered_refs: list[PredicateLayerRef],
+    resolver: SemanticRuntimeRepository,
+    component_fields: list[str] | None = None,
+) -> NormalizedPredicateInput:
+    """Build the normalized predicate input from validated layer refs.
+
+    Resolves each predicate ref into expression atoms, groups by layer
+    and component, and composes effective scopes per component.
+
+    Precondition: validation gates (predicate_contract, scope_validation,
+    predicate_conflict) must have already passed before calling this.
+
+    The result uses semantic ``target_ref`` values only — physical column
+    resolution is the binding surface's responsibility during lowering.
+    """
+    from app.analysis_core.predicate_lowering_boundary import (
+        assert_predicate_uses_no_physical_names,
+    )
+
+    shared_atoms: list[NormalizedPredicateAtom] = []
+    default_atoms: list[NormalizedPredicateAtom] = []
+    qualifier_by_field: dict[str, list[NormalizedPredicateAtom]] = {}
+    shared_refs: list[str] = []
+    default_refs: list[str] = []
+
+    for entry in layered_refs:
+        resolved_obj = _resolve_predicate(entry.ref, resolver)
+        if resolved_obj is None:
+            logger.warning(
+                "Predicate ref %s passed validation but failed resolution in "
+                "build_normalized_predicate_input; skipping",
+                entry.ref,
+            )
+            continue
+        interface_contract = dict(resolved_obj.semantic_object.get("interface_contract") or {})
+        expression = dict(interface_contract.get("expression") or {})
+        if not expression:
+            continue
+
+        raw_atoms = _extract_atoms(expression)
+        for raw in raw_atoms:
+            atom: NormalizedPredicateAtom = {
+                "target_ref": raw["target_ref"],
+                "op": raw["op"],
+                "value": raw["value"],
+                "source_ref": entry.ref,
+                "source_layer": entry.layer,
+            }
+            if entry.component_field is not None:
+                atom["component_field"] = entry.component_field
+
+            if entry.layer in {"governance_policy", "carrier_row_filter", "request_scope"}:
+                shared_atoms.append(atom)
+            elif entry.layer == "metric_default":
+                default_atoms.append(atom)
+            elif entry.layer == "component_qualifier" and entry.component_field:
+                qualifier_by_field.setdefault(entry.component_field, []).append(atom)
+
+        if entry.layer in {"governance_policy", "carrier_row_filter", "request_scope"}:
+            shared_refs.append(entry.ref)
+        elif entry.layer == "metric_default":
+            default_refs.append(entry.ref)
+
+    # Deduplicate ref lists while preserving order
+    shared_refs = _dedupe_preserve_order(shared_refs)
+    default_refs = _dedupe_preserve_order(default_refs)
+
+    fields_to_emit = (
+        component_fields if component_fields is not None else sorted(qualifier_by_field)
+    )
+
+    component_inputs: list[NormalizedComponentPredicateInput] = []
+    for field in fields_to_emit:
+        q_atoms = qualifier_by_field.get(field, [])
+        effective_refs = (
+            shared_refs
+            + default_refs
+            + [
+                entry.ref
+                for entry in layered_refs
+                if entry.layer == "component_qualifier" and entry.component_field == field
+            ]
+        )
+        effective_refs = _dedupe_preserve_order(effective_refs)
+
+        # Each component input carries copies of shared/default atoms so the
+        # lowering consumer gets self-contained per-component payloads without
+        # needing to cross-reference the top-level lists.
+        component_inputs.append(
+            {
+                "component_field": field,
+                "shared_scope_atoms": list(shared_atoms),
+                "default_atoms": list(default_atoms),
+                "qualifier_atoms": q_atoms,
+                "effective_scope_refs": effective_refs,
+                "scope_fingerprint": _scope_fingerprint(effective_refs),
+            }
+        )
+
+    result: NormalizedPredicateInput = {
+        "shared_scope_atoms": shared_atoms,
+        "shared_scope_refs": shared_refs,
+        "default_atoms": default_atoms,
+        "default_refs": default_refs,
+        "component_inputs": component_inputs,
+    }
+
+    assert_predicate_uses_no_physical_names(result, surface="normalized_predicate_input")
+    return result
+
+
+def _dedupe_preserve_order(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in items:
+        if item not in seen:
+            seen.add(item)
+            result.append(item)
+    return result

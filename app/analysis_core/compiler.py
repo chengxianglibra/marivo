@@ -5,7 +5,10 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
+
+if TYPE_CHECKING:
+    from app.analysis_core.predicate_validator import NormalizedPredicateInput
 
 from app.analysis_core.calendar_alignment_baseline import resolve_calendar_baseline_window
 from app.analysis_core.calendar_alignment_pairing import (
@@ -1372,7 +1375,7 @@ def _measurement_node(
     resolved_inputs: ResolvedCompilerInputs | None = None,
     semantic_repository: Any | None = None,
     governance_repository: Any | None = None,
-) -> MeasurementNode:
+) -> tuple[MeasurementNode, NormalizedPredicateInput | None]:
     header = dict(resolved_metric.semantic_object.get("header") or {})
     carrier_bindings: list[CarrierBinding] = []
     for binding in resolved_bindings:
@@ -1425,8 +1428,10 @@ def _measurement_node(
     if carrier_bindings:
         node["carrier_bindings"] = carrier_bindings
     # Attach predicate filter lineage if repository is available
+    normalized_predicate_input: NormalizedPredicateInput | None = None
     if semantic_repository is not None and resolved_inputs is not None:
         from app.analysis_core.predicate_validator import (
+            build_normalized_predicate_input,
             build_predicate_filter_lineage,
             collect_component_fields,
             collect_layered_predicate_refs,
@@ -1438,7 +1443,12 @@ def _measurement_node(
             node["predicate_filter_lineage"] = build_predicate_filter_lineage(
                 layered_refs, component_fields=component_fields
             )
-    return node
+        normalized_predicate_input = build_normalized_predicate_input(
+            layered_refs=layered_refs,
+            resolver=semantic_repository,
+            component_fields=component_fields or None,
+        )
+    return node, normalized_predicate_input
 
 
 def _process_node(step: AnalysisStepIR, process: ResolvedSemanticObject) -> ProcessNode:
@@ -1505,7 +1515,7 @@ def _build_ir_bundle(
     validation_result: Any,
     derived_state: Any,
     semantic_context: Mapping[str, Any] | None = None,
-) -> IrBundle:
+) -> tuple[IrBundle, NormalizedPredicateInput | None]:
     plan_id = _stable_plan_id(step, normalized_request)
     artifact_id = f"artifact:{plan_id}:output"
     output_binding: OutputBinding = {
@@ -1515,8 +1525,9 @@ def _build_ir_bundle(
 
     nodes: list[MeasurementNode | ProcessNode | IntentNode] = []
     depends_on: list[str] = []
+    normalized_predicate_input: NormalizedPredicateInput | None = None
     if resolved_inputs.resolved_metric is not None:
-        measurement_node = _measurement_node(
+        measurement_node, normalized_predicate_input = _measurement_node(
             step=step,
             resolved_metric=resolved_inputs.resolved_metric,
             resolved_bindings=resolved_inputs.resolved_bindings,
@@ -1610,7 +1621,7 @@ def _build_ir_bundle(
     return {
         "plan": plan,
         "compile_report": compile_report,
-    }
+    }, normalized_predicate_input
 
 
 def _optional_str(value: Any) -> str | None:
@@ -1714,7 +1725,7 @@ def compile_step(
         raise SemanticCompilerError(
             _build_compile_error(validation_error_message(validation_result), validation_result)
         )
-    ir_bundle = _build_ir_bundle(
+    ir_bundle, normalized_predicate_input = _build_ir_bundle(
         step=step,
         normalized_request=normalized_request,
         resolved_inputs=resolved_inputs,
@@ -1724,7 +1735,7 @@ def compile_step(
     )
     assert_no_canonical_refs_in_semantic_payload(ir_bundle, surface="compiler_ir_bundle")
     params = dict(step.params)
-    metadata = {
+    metadata: dict[str, Any] = {
         "engine_type": engine_type,
         "step_type": step.step_type,
         "ir_plan_id": ir_bundle["plan"]["header"]["plan_id"],
@@ -1768,6 +1779,8 @@ def compile_step(
             "resolved_calendar_alignment"
         ),
     }
+    if normalized_predicate_input is not None:
+        metadata["normalized_predicate_input"] = normalized_predicate_input
     assert_no_canonical_refs_in_semantic_payload(metadata, surface="compiler_metadata")
     table_name: str | None = None
     compiled_params: list[Any] = []
