@@ -91,7 +91,29 @@ class NormalizedPredicateInput(TypedDict):
     component_inputs: list[NormalizedComponentPredicateInput]
 
 
+class ComponentLoweringInput(TypedDict):
+    component_field: str
+    available_surface_refs: list[str]
+    ungroundable_target_refs: list[str]
+
+
+class LoweringPrecheckDiagnostic(TypedDict):
+    component_field: NotRequired[str | None]
+    target_ref: NotRequired[str]
+    source_ref: NotRequired[str]
+    source_layer: NotRequired[str]
+    failure_kind: Literal[
+        "target_domain_unresolvable",
+        "binding_cannot_ground",
+        "narrowing_unprovable",
+        "component_lineage_lost",
+    ]
+    binding_ref: NotRequired[str | None]
+    surface_ref: NotRequired[str | None]
+
+
 _GATE = "predicate_contract"
+_LOWERING_GATE = "lowering_precheck"
 
 _ALLOWED_ATOM_TARGET_PREFIXES = frozenset(
     {
@@ -1528,3 +1550,283 @@ def _dedupe_preserve_order(items: list[str]) -> list[str]:
             seen.add(item)
             result.append(item)
     return result
+
+
+# ---------------------------------------------------------------------------
+# Task 6.3: Component-by-component lowering input
+# ---------------------------------------------------------------------------
+
+
+def _collect_binding_surface_refs(
+    resolved_bindings: list[Any],
+) -> dict[str, list[str]]:
+    """Extract semantic_ref -> [surface_ref] mappings from binding field_bindings."""
+    semantic_to_surfaces: dict[str, list[str]] = {}
+    for binding in resolved_bindings:
+        interface_contract = dict(binding.semantic_object.get("interface_contract") or {})
+        for fb in interface_contract.get("field_bindings") or []:
+            semantic_ref = str(fb.get("semantic_ref") or "").strip()
+            surface_ref = str(fb.get("surface_ref") or "").strip()
+            if semantic_ref and surface_ref:
+                semantic_to_surfaces.setdefault(semantic_ref, []).append(surface_ref)
+    return semantic_to_surfaces
+
+
+def build_component_lowering_inputs(
+    *,
+    normalized_predicate_input: NormalizedPredicateInput,
+    resolved_bindings: list[Any],
+) -> list[dict[str, Any]]:
+    """Build per-component lowering inputs linking predicate atoms to binding surfaces.
+
+    For each component in ``normalized_predicate_input``, collects all target_refs
+    across shared/default/qualifier atoms, then checks each against binding
+    field_bindings to determine available surface refs and ungroundable targets.
+    """
+    from app.analysis_core.predicate_lowering_boundary import (
+        assert_predicate_uses_no_physical_names,
+    )
+
+    if not normalized_predicate_input.get("component_inputs"):
+        return []
+
+    semantic_to_surfaces = _collect_binding_surface_refs(resolved_bindings)
+
+    results: list[dict[str, Any]] = []
+    for comp in normalized_predicate_input["component_inputs"]:
+        all_atoms = (
+            comp.get("shared_scope_atoms", [])
+            + comp.get("default_atoms", [])
+            + comp.get("qualifier_atoms", [])
+        )
+        target_refs_seen: dict[str, list[str]] = {}
+        for atom in all_atoms:
+            tref = atom["target_ref"]
+            target_refs_seen.setdefault(tref, []).append(atom.get("source_ref", ""))
+
+        available: list[str] = []
+        ungroundable: list[str] = []
+        for tref in target_refs_seen:
+            if tref in semantic_to_surfaces:
+                available.extend(semantic_to_surfaces[tref])
+            else:
+                ungroundable.append(tref)
+
+        results.append(
+            {
+                "component_field": comp["component_field"],
+                "available_surface_refs": _dedupe_preserve_order(available),
+                "ungroundable_target_refs": sorted(set(ungroundable)),
+            }
+        )
+
+    assert_predicate_uses_no_physical_names(results, surface="component_lowering_inputs")
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Task 6.4: Lowering precheck — unsupported scenario failure strategies
+# ---------------------------------------------------------------------------
+
+# Filter-capable prefixes that should be groundable through binding surfaces.
+# Target refs whose prefix matches neither _FORBIDDEN_ATOM_TARGET_PREFIXES nor
+# this set are allowed through silently (allow-unknown policy: only reject what
+# we know is wrong, don't block future/unrecognised domains).
+_GROUNDABLE_TARGET_PREFIXES = frozenset(
+    {
+        "dimension.",
+        "field.",
+        "enum.",
+        "key.",
+        "entity.",
+    }
+)
+
+
+def run_lowering_precheck(
+    *,
+    normalized_predicate_input: NormalizedPredicateInput,
+    resolved_bindings: list[Any],
+    component_fields: list[str],
+) -> list[ValidationIssue]:
+    """Validate lowering readiness with fail-closed semantics.
+
+    Checks four unsupported scenarios:
+    1. target_domain_unresolvable — target_ref has forbidden prefix
+    2. binding_cannot_ground — target_ref has valid prefix but no binding surface
+    3. narrowing_unprovable — component qualifier contradicts shared scope
+    4. component_lineage_lost — component missing from normalized input
+    """
+    issues: list[ValidationIssue] = []
+    semantic_to_surfaces = _collect_binding_surface_refs(resolved_bindings)
+    comp_by_field: dict[str, NormalizedComponentPredicateInput] = {
+        c["component_field"]: c for c in normalized_predicate_input.get("component_inputs", [])
+    }
+
+    # Check 4: component_lineage_lost
+    for field in component_fields:
+        if field not in comp_by_field:
+            issues.append(
+                ValidationIssue(
+                    code="COMPILER_LOWERING_COMPONENT_LINEAGE_LOST",
+                    gate=_LOWERING_GATE,
+                    category="compiler",
+                    severity="error",
+                    message=(
+                        f"Component field '{field}' has no corresponding entry in "
+                        f"normalized predicate input; lineage is lost"
+                    ),
+                    details={
+                        "component_field": field,
+                        "failure_kind": "component_lineage_lost",
+                    },
+                )
+            )
+
+    # Per-component checks
+    for comp in normalized_predicate_input.get("component_inputs", []):
+        field = comp["component_field"]
+        all_atoms = (
+            comp.get("shared_scope_atoms", [])
+            + comp.get("default_atoms", [])
+            + comp.get("qualifier_atoms", [])
+        )
+        for atom in all_atoms:
+            tref = atom["target_ref"]
+            source_ref = atom.get("source_ref", "")
+            source_layer = atom.get("source_layer", "")
+
+            # Check 1: forbidden prefix → target_domain_unresolvable
+            if any(tref.startswith(p) for p in _FORBIDDEN_ATOM_TARGET_PREFIXES):
+                issues.append(
+                    ValidationIssue(
+                        code="COMPILER_LOWERING_TARGET_DOMAIN_UNRESOLVABLE",
+                        gate=_LOWERING_GATE,
+                        category="compiler",
+                        severity="error",
+                        message=(
+                            f"Predicate atom targets '{tref}' which belongs to a "
+                            f"forbidden prefix; target value domain is unresolvable"
+                        ),
+                        subject_ref=source_ref,
+                        details=dict(
+                            LoweringPrecheckDiagnostic(
+                                component_field=field,
+                                target_ref=tref,
+                                source_ref=source_ref,
+                                source_layer=source_layer,
+                                failure_kind="target_domain_unresolvable",
+                            )
+                        ),
+                    )
+                )
+                continue
+
+            # Check 2: valid prefix but no binding surface → binding_cannot_ground
+            if (
+                any(tref.startswith(p) for p in _GROUNDABLE_TARGET_PREFIXES)
+                and tref not in semantic_to_surfaces
+            ):
+                issues.append(
+                    ValidationIssue(
+                        code="COMPILER_LOWERING_BINDING_CANNOT_GROUND",
+                        gate=_LOWERING_GATE,
+                        category="compiler",
+                        severity="error",
+                        message=(
+                            f"Predicate atom targets '{tref}' but no binding "
+                            f"field_binding maps this semantic ref; "
+                            f"binding cannot ground"
+                        ),
+                        subject_ref=source_ref,
+                        details=dict(
+                            LoweringPrecheckDiagnostic(
+                                component_field=field,
+                                target_ref=tref,
+                                source_ref=source_ref,
+                                source_layer=source_layer,
+                                failure_kind="binding_cannot_ground",
+                            )
+                        ),
+                    )
+                )
+
+        # Check 3: component qualifier vs shared scope narrowing
+        _check_component_narrowing(comp, issues)
+
+    return issues
+
+
+def _check_component_narrowing(
+    comp: NormalizedComponentPredicateInput,
+    issues: list[ValidationIssue],
+) -> None:
+    """Check that component qualifier atoms don't contradict shared scope atoms."""
+    shared_atoms = comp.get("shared_scope_atoms", [])
+    qualifier_atoms = comp.get("qualifier_atoms", [])
+    if not shared_atoms or not qualifier_atoms:
+        return
+
+    shared_by_target: dict[str, list[NormalizedPredicateAtom]] = {}
+    for atom in shared_atoms:
+        shared_by_target.setdefault(atom["target_ref"], []).append(atom)
+
+    for q_atom in qualifier_atoms:
+        target = q_atom["target_ref"]
+        if target not in shared_by_target:
+            continue
+        for s_atom in shared_by_target[target]:
+            result = _values_overlap(
+                q_atom.get("op", ""),
+                q_atom.get("value"),
+                s_atom.get("op", ""),
+                s_atom.get("value"),
+            )
+            if result is False:
+                issues.append(
+                    ValidationIssue(
+                        code="COMPILER_LOWERING_NARROWING_UNPROVABLE",
+                        gate=_LOWERING_GATE,
+                        category="compiler",
+                        severity="error",
+                        message=(
+                            f"Component '{comp['component_field']}' qualifier "
+                            f"contradicts shared scope on '{target}': "
+                            f"qualifier {q_atom.get('op')} vs shared {s_atom.get('op')}"
+                        ),
+                        subject_ref=q_atom.get("source_ref"),
+                        details={
+                            "component_field": comp["component_field"],
+                            "target_ref": target,
+                            "source_ref": q_atom.get("source_ref", ""),
+                            "source_layer": q_atom.get("source_layer", ""),
+                            "failure_kind": "narrowing_unprovable",
+                            "qualifier_op": q_atom.get("op", ""),
+                            "shared_op": s_atom.get("op", ""),
+                        },
+                    )
+                )
+            elif result is None:
+                issues.append(
+                    ValidationIssue(
+                        code="COMPILER_LOWERING_NARROWING_UNPROVABLE",
+                        gate=_LOWERING_GATE,
+                        category="compiler",
+                        severity="error",
+                        message=(
+                            f"Component '{comp['component_field']}' qualifier on "
+                            f"'{target}' cannot prove narrowing against shared scope: "
+                            f"qualifier {q_atom.get('op')} vs shared {s_atom.get('op')}"
+                        ),
+                        subject_ref=q_atom.get("source_ref"),
+                        details={
+                            "component_field": comp["component_field"],
+                            "target_ref": target,
+                            "source_ref": q_atom.get("source_ref", ""),
+                            "source_layer": q_atom.get("source_layer", ""),
+                            "failure_kind": "narrowing_unprovable",
+                            "qualifier_op": q_atom.get("op", ""),
+                            "shared_op": s_atom.get("op", ""),
+                        },
+                    )
+                )

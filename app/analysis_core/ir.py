@@ -172,6 +172,7 @@ class MeasurementNode(TypedDict):
     carrier_bindings: NotRequired[list[CarrierBinding] | None]
     inferential_summary_mode: NotRequired[str | None]
     predicate_filter_lineage: NotRequired[PredicateFilterLineage | None]
+    component_lowering_inputs: NotRequired[list[dict[str, Any]] | None]
 
 
 class ProcessNode(TypedDict):
@@ -217,6 +218,8 @@ class ValidationRecord(TypedDict):
         "predicate_conflict",
         "dimension_compatibility",
         "intent_specific",
+        "dimension_additivity",
+        "lowering_precheck",
     ]
     status: Literal["passed"]
     reason_code: NotRequired[str | None]
